@@ -4,12 +4,15 @@
 
 | File | Deploy path |
 |---|---|
-| path_dedup.sh | /etc/profile.d/path_dedup.sh (root) |
-| nvm-update.sh | ~/.local/bin/nvm-update.sh |
-| nvm-update-ai-tools.sh | /opt/ai-tools/bin/nvm-update.sh |
-| nvm-update.service | ~/.config/systemd/user/nvm-update.service |
-| nvm-update.timer | ~/.config/systemd/user/nvm-update.timer |
-| claude-wrapper.sh | ~/.local/bin/claude |
+| scripts/path_dedup.sh | /etc/profile.d/path_dedup.sh (root) |
+| scripts/nvm-update.sh | ~/.local/bin/nvm-update.sh |
+| scripts/nvm-update-ai-tools.sh | /opt/ai-tools/bin/nvm-update.sh |
+| scripts/ai-tools-chown.sh | /usr/local/sbin/ai-tools-chown (root) |
+| scripts/claude-wrapper.sh | ~/.local/bin/claude |
+| scripts/post-write-hook.sh | /opt/ai-tools/.claude/post-write-hook.sh |
+| scripts/claude-settings.json | /opt/ai-tools/.claude/settings.json |
+| services/nvm-update.service | ~/.config/systemd/user/nvm-update.service |
+| services/nvm-update.timer | ~/.config/systemd/user/nvm-update.timer |
 | sudoers-ai-tools-claude | /etc/sudoers.d/ai-tools-claude (root) |
 
 ---
@@ -30,7 +33,7 @@ owned by `ai-tools` so the kernel is satisfied.
 ## 1. Install PATH deduplication script (root, once)
 
     sudo install -o root -g root -m 644 \
-        path_dedup.sh /etc/profile.d/path_dedup.sh
+        scripts/path_dedup.sh /etc/profile.d/path_dedup.sh
 
 nvm must be sourced **before** path_dedup in both init files. nvm prepends
 its versioned bin dir to `$PATH`; path_dedup then restructures it into Tier 4,
@@ -97,7 +100,7 @@ produces the same PATH, so the double call for login shells is safe.
       npm install -g @anthropic-ai/claude-code
     '
 
-    # Create bin dir and initial claude symlink (nvm-update.sh maintains this going forward)
+    # Create bin dir and initial claude symlink (scripts/nvm-update.sh maintains this going forward)
     sudo -u ai-tools bash -c '
       source /opt/ai-tools/.nvm/nvm.sh
       mkdir -p /opt/ai-tools/bin
@@ -105,10 +108,13 @@ produces the same PATH, so the double call for login shells is safe.
              /opt/ai-tools/bin/claude
     '
 
-## 4. Install the ai-tools sandbox update script (root, once)
+## 4. Install ai-tools scripts (root, once)
 
     sudo install -o ai-tools -g ai-tools -m 750 \
-        nvm-update-ai-tools.sh /opt/ai-tools/bin/nvm-update.sh
+        scripts/nvm-update-ai-tools.sh /opt/ai-tools/bin/nvm-update.sh
+
+    sudo install -o root -g root -m 755 \
+        scripts/ai-tools-chown.sh /usr/local/sbin/ai-tools-chown
 
 ## 5. Install sudoers drop-in (root, once)
 
@@ -119,22 +125,90 @@ produces the same PATH, so the double call for login shells is safe.
     # Verify syntax
     sudo visudo -c -f /etc/sudoers.d/ai-tools-claude
 
+The drop-in configures three things beyond the basic NOPASSWD rules:
+
+- **`env_keep`** — passes `NVM_*` and `AI_TOOLS_GLOBAL_TOOLS` through sudo so
+  the ai-tools invocation of `nvm-update.sh` sees the same values the systemd
+  service resolved.
+- **`umask=0027`** — applied to all commands xd runs via sudo. Claude Code
+  creates files with `640`/`750` instead of `600`/`700`, keeping them
+  group-readable (ai-tools) without exposing them to others.
+- **`ai-tools-chown` rule** — allows ai-tools to call
+  `/usr/local/sbin/ai-tools-chown` as root. That script validates the target
+  path against the approved-projects allowlist before running `chown
+  xd:ai-tools`, so ai-tools can only restore ownership inside explicitly
+  approved project directories.
+
 ## 6. Install wrapper and update script (normal user)
 
     install -d -m 700 ~/.local/bin
 
-    install -m 750 claude-wrapper.sh ~/.local/bin/claude
-    install -m 750 nvm-update.sh     ~/.local/bin/nvm-update.sh
+    install -m 750 scripts/claude-wrapper.sh ~/.local/bin/claude
+    install -m 750 scripts/nvm-update.sh     ~/.local/bin/nvm-update.sh
 
     # PATH ordering is handled by path_dedup.sh (step 1).
     # No manual export PATH line needed here.
 
-## 7. Install systemd user units (normal user)
+## 7. Install global Claude Code settings (once)
+
+After every `Write` or `Edit` tool call, `post-write-hook.sh` checks whether
+ownership needs restoring and, only if it does, calls `ai-tools-chown` via
+sudo. When ownership is already `xd:ai-tools` the hook exits immediately
+without invoking sudo or generating a PAM session entry.
+
+Requires `jq` for JSON parsing in the hook:
+
+    sudo dnf install -y jq
+
+Install into ai-tools' Claude config directory:
+
+    sudo -u ai-tools mkdir -p /opt/ai-tools/.claude
+    sudo install -o ai-tools -g ai-tools -m 750 \
+        scripts/post-write-hook.sh /opt/ai-tools/.claude/post-write-hook.sh
+    sudo install -o ai-tools -g ai-tools -m 640 \
+        scripts/claude-settings.json /opt/ai-tools/.claude/settings.json
+
+## 8. Create the approved-projects allowlist (once)
+
+The allowlist controls where Claude Code is permitted to run and where the
+ownership-restoration hook is allowed to act. Files in `allowed-projects` own
+`xd:xd 600` so ai-tools cannot read or modify it directly — root reads it
+inside `ai-tools-chown` on ai-tools' behalf.
+
+    mkdir -p ~/.config/ai-tools
+    touch ~/.config/ai-tools/allowed-projects
+    chmod 600 ~/.config/ai-tools/allowed-projects
+
+Add one absolute project path per line:
+
+    echo "/home/xd/Development/NDF26/RHEL-AI-LimitedToolsUser-ClaudeCode" \
+        >> ~/.config/ai-tools/allowed-projects
+
+Format rules:
+- One absolute directory path per line.
+- Lines starting with `#` are treated as comments and ignored.
+- Subdirectories are covered automatically: listing `/home/xd/projects/foo`
+  also covers `/home/xd/projects/foo/src`, etc.
+
+**Effect of the allowlist:**
+
+| Scenario | Wrapper | Hook |
+|---|---|---|
+| Allowlist does not exist | blocked, helpful message | exits without acting |
+| CWD in allowlist | allowed | ownership restored only if needed |
+| CWD not in allowlist | blocked, helpful message | exits without acting |
+
+The wrapper check fails fast at startup with a clear message directing the user
+to the allowlist. The chown script is the actual security boundary — it
+validates the target path independently so that even if the wrapper is bypassed,
+the hook cannot act outside approved directories.
+
+## 9. Install systemd user units (normal user)
 
     install -d -m 700 ~/.config/systemd/user
 
-    install -m 644 nvm-update.service ~/.config/systemd/user/nvm-update.service
-    install -m 644 nvm-update.timer   ~/.config/systemd/user/nvm-update.timer
+    install -m 644 services/nvm-update.service ~/.config/systemd/user/nvm-update.service
+    install -m 644 services/nvm-update.timer   ~/.config/systemd/user/nvm-update.timer
 
     systemctl --user daemon-reload
     systemctl --user enable --now nvm-update.timer
@@ -142,14 +216,14 @@ produces the same PATH, so the double call for login shells is safe.
     # Confirm timer is scheduled
     systemctl --user list-timers nvm-update.timer
 
-## 8. Enable linger so timer fires without an active login session
+## 10. Enable linger so timer fires without an active login session
 
     loginctl enable-linger "${USER}"
 
-## 9. Customise tool lists
+## 11. Customise tool lists
 
 Two separate environment variables control what goes where. Both installs
-are pinned to the same Node version resolved by `nvm-update.sh`.
+are pinned to the same Node version resolved by `scripts/nvm-update.sh`.
 
     systemctl --user edit nvm-update.service
 
@@ -169,7 +243,7 @@ run sandboxed as ai-tools rather than as xd.
 
     systemctl --user daemon-reload
 
-## 10. Verify
+## 12. Verify
 
     # Run update manually (updates both xd's tools and /opt/ai-tools)
     systemctl --user start nvm-update.service
@@ -191,14 +265,14 @@ run sandboxed as ai-tools rather than as xd.
 When nvm installs a new Node version under `/opt/ai-tools`:
 - The sudoers glob `/opt/ai-tools/.nvm/versions/node/*/bin/claude` matches
   the new versioned path automatically.
-- `nvm-update-ai-tools.sh` updates the `/opt/ai-tools/bin/claude` symlink to
+- `scripts/nvm-update-ai-tools.sh` updates the `/opt/ai-tools/bin/claude` symlink to
   point at the new versioned binary.
 - The wrapper resolves that symlink via `realpath` before calling `sudo`, so
   sudoers matching is not affected by the symlink indirection.
 - Old Node versions are pruned in both nvm installs (any version not
   referenced by a named alias is removed).
-- `nvm-update.sh` resolves the latest version once, updates xd's `~/.nvm`,
-  then invokes `nvm-update-ai-tools.sh` as ai-tools via sudo with the pinned
+- `scripts/nvm-update.sh` resolves the latest version once, updates xd's `~/.nvm`,
+  then invokes `scripts/nvm-update-ai-tools.sh` as ai-tools via sudo with the pinned
   version so both installs land on the same Node build.
 
 ## SELinux
