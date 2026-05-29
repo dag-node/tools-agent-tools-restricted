@@ -1,16 +1,21 @@
 # /etc/sudoers.d/ai-tools-claude
-# Allow the normal user to execute claude as ai-tools without a password.
-# The wrapper resolves the real versioned path via realpath before calling
-# sudo, so the glob below will match exactly one binary at runtime.
+# Allow the normal user to:
+#   1. execute claude as ai-tools (wrapper resolves the versioned path via realpath)
+#   2. run nvm-update.sh as ai-tools (called from nvm-update.sh running as xd)
+#
+# env_keep passes the service-configured package/version variables through sudo
+# so the ai-tools invocation of nvm-update.sh sees the same NVM_GLOBAL_TOOLS
+# that the xd invocation resolved from the systemd environment.
 #
 # SECURITY NOTES:
-#   - NOPASSWD is intentional: the wrapper is called from an IDE terminal
-#     where interactive password prompts are not viable.
-#   - The allowed command is scoped to a single binary under a known path.
+#   - NOPASSWD is intentional: both commands are called non-interactively.
+#   - Allowed targets are scoped to specific paths under /opt/ai-tools.
 #   - The ai-tools user has no login shell and no sudo rights of its own.
-#   - Replace 'dag' with the actual normal username.
+#   - Replace 'xd' with the actual normal username if different.
 #
 # Syntax check before deploy:  visudo -c -f /etc/sudoers.d/ai-tools-claude
 
-Defaults:xd !lecture, !authenticate
-dag ALL=(ai-tools:ai-tools) NOPASSWD: /home/dag/.nvm/versions/node/*/bin/claude
+Defaults:xd env_keep += "NVM_GLOBAL_TOOLS NVM_NODE_MAJOR NVM_NODE_ALIAS"
+
+xd ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/.nvm/versions/node/*/bin/claude
+xd ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*

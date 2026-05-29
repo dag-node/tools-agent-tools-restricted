@@ -1,44 +1,29 @@
 #!/usr/bin/env bash
 # ~/.local/bin/claude
-# Sandboxed claude wrapper. Resolves the real nvm-versioned claude binary,
+# Sandboxed claude wrapper. Resolves the current versioned claude binary
+# under /opt/ai-tools via a stable symlink maintained by nvm-update.sh,
 # then re-executes it as the ai-tools user via sudo.
-# Placed before nvm shims in PATH so it shadows the direct binary.
+# Placed before nvm shims in PATH so it shadows any nvm-managed claude.
 
 set -euo pipefail
 IFS=$'\n\t'
 
-readonly WRAPPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly AI_TOOLS_NVM_DIR="/opt/ai-tools/.nvm"
+readonly CLAUDE_LINK="/opt/ai-tools/bin/claude"
 
-# ---------------------------------------------------------------------------
-# Find the real claude binary, excluding this wrapper's own directory
-# ---------------------------------------------------------------------------
-CLAUDE_BIN="$(
-    PATH="$(
-        printf '%s' "${PATH}" \
-            | tr ':' '\n' \
-            | grep -v "^${WRAPPER_DIR}$" \
-            | tr '\n' ':' \
-            | sed 's/:$//'
-    )"
-    command -v claude 2>/dev/null || true
-)"
-
-if [[ -z "${CLAUDE_BIN}" ]]; then
-    echo "ERROR: claude not found in PATH (excluding ${WRAPPER_DIR})" >&2
+if [[ ! -e "${CLAUDE_LINK}" ]]; then
+    echo "ERROR: claude symlink not found at ${CLAUDE_LINK}" >&2
+    echo "       Run: systemctl --user start nvm-update.service" >&2
     exit 1
 fi
 
-# Resolve symlinks -- sudoers matches the real versioned path, not nvm symlinks
-CLAUDE_REAL="$(realpath "${CLAUDE_BIN}")"
+# Resolve symlink -- sudoers matches the real versioned path, not the symlink
+CLAUDE_REAL="$(realpath "${CLAUDE_LINK}")"
 
-# Sanity: confirm resolved path is under ~/.nvm
-readonly NVM_DIR="${NVM_DIR:-${HOME}/.nvm}"
-if [[ "${CLAUDE_REAL}" != "${NVM_DIR}/"* ]]; then
-    echo "ERROR: resolved claude path '${CLAUDE_REAL}' is outside NVM_DIR" >&2
+# Safety: confirm resolved path is under the ai-tools nvm directory
+if [[ "${CLAUDE_REAL}" != "${AI_TOOLS_NVM_DIR}/"* ]]; then
+    echo "ERROR: resolved claude path '${CLAUDE_REAL}' is outside ${AI_TOOLS_NVM_DIR}" >&2
     exit 1
 fi
 
-# ---------------------------------------------------------------------------
-# Re-execute as ai-tools
-# ---------------------------------------------------------------------------
 exec sudo -u ai-tools -g ai-tools -- "${CLAUDE_REAL}" "$@"

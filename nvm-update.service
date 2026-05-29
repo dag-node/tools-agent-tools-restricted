@@ -16,8 +16,8 @@ Environment=NVM_NODE_ALIAS=default
 Environment=NVM_NODE_MAJOR=22
 Environment="NVM_GLOBAL_TOOLS=npm typescript yarn grunt @anthropic-ai/claude-code"
 
-# Only directives safe for unprivileged user units running bash/node
-NoNewPrivileges=yes
+# NoNewPrivileges is intentionally absent: nvm-update.sh calls
+# "sudo -u ai-tools" to update /opt/ai-tools, which requires the setuid bit.
 PrivateTmp=yes
 StandardOutput=journal
 StandardError=journal
