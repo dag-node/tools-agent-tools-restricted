@@ -28,7 +28,8 @@ require_cmd() {
 # ---------------------------------------------------------------------------
 prune_versions() {
     local node_alias="$1"
-    local active_version ver aliased installed
+    local nvm_dir="$2"
+    local active_version ver aliased
     active_version="$(nvm version "${node_alias}")"
 
     log "Pruning old Node.js versions (keeping ${active_version})"
@@ -37,20 +38,22 @@ prune_versions() {
     local -A keep
     while IFS= read -r aliased; do
         ver="$(printf '%s\n' "${aliased}" | grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-        [[ -n "${ver}" ]] && keep["${ver}"]=1
+        [[ -n "${ver}" && -d "${nvm_dir}/versions/node/${ver}" ]] && keep["${ver}"]=1
     done < <(nvm alias 2>/dev/null)
     keep["${active_version}"]=1
 
-    while IFS= read -r installed; do
-        ver="$(printf '%s\n' "${installed}" | grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-        [[ -z "${ver}" ]] && continue
+    local ver
+    for ver in "${nvm_dir}/versions/node"/v*/; do
+        ver="${ver%/}"
+        ver="${ver##*/}"
+        [[ "${ver}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
         if [[ -z "${keep[${ver}]+x}" ]]; then
             log "  removing ${ver}"
             nvm uninstall "${ver}" || warn "  failed to uninstall ${ver}"
         else
             log "  keeping ${ver} (aliased or active)"
         fi
-    done < <(nvm ls --no-colors 2>/dev/null | grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+')
+    done
 }
 
 # ---------------------------------------------------------------------------
@@ -127,7 +130,7 @@ main() {
         fi
     done
 
-    prune_versions "${node_alias}"
+    prune_versions "${node_alias}" "${nvm_dir}"
 
     log "Done. Active: $(nvm version "${node_alias}")"
 }
