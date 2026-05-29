@@ -1,0 +1,24 @@
+[Unit]
+Description=Update Node.js (nvm) and global npm tools
+Documentation=https://github.com/nvm-sh/nvm
+Wants=network-online.target
+After=network-online.target
+ConditionACPower=true
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/nvm-update.sh
+
+Environment=PATH=/home/${USER}/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=/home/${USER}
+Environment=NVM_DIR=%h/.nvm
+Environment=NVM_NODE_ALIAS=default
+Environment=NVM_NODE_MAJOR=22
+Environment="NVM_GLOBAL_TOOLS=npm typescript yarn grunt @anthropic-ai/claude-code"
+
+# Only directives safe for unprivileged user units running bash/node
+NoNewPrivileges=yes
+PrivateTmp=yes
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nvm-update
