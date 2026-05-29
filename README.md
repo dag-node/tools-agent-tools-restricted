@@ -5,7 +5,8 @@
 | File | Deploy path |
 |---|---|
 | path_dedup.sh | /etc/profile.d/path_dedup.sh (root) |
-| nvm-update.sh | ~/.local/bin/nvm-update.sh  and  /opt/ai-tools/bin/nvm-update.sh |
+| nvm-update.sh | ~/.local/bin/nvm-update.sh |
+| nvm-update-ai-tools.sh | /opt/ai-tools/bin/nvm-update.sh |
 | nvm-update.service | ~/.config/systemd/user/nvm-update.service |
 | nvm-update.timer | ~/.config/systemd/user/nvm-update.timer |
 | claude-wrapper.sh | ~/.local/bin/claude |
@@ -104,13 +105,10 @@ produces the same PATH, so the double call for login shells is safe.
              /opt/ai-tools/bin/claude
     '
 
-## 4. Install the ai-tools copy of nvm-update.sh (root, once)
-
-The same script handles both contexts: it detects whether it is running as
-xd or as ai-tools and behaves accordingly.
+## 4. Install the ai-tools sandbox update script (root, once)
 
     sudo install -o ai-tools -g ai-tools -m 750 \
-        nvm-update.sh /opt/ai-tools/bin/nvm-update.sh
+        nvm-update-ai-tools.sh /opt/ai-tools/bin/nvm-update.sh
 
 ## 5. Install sudoers drop-in (root, once)
 
@@ -150,23 +148,26 @@ xd or as ai-tools and behaves accordingly.
 
 ## 9. Customise tool lists
 
-All packages live in a single `NVM_GLOBAL_TOOLS` list in `nvm-update.service`.
-The script routes them automatically: packages matching `@anthropic-ai/*` go
-to the ai-tools sandbox in `/opt/ai-tools/.nvm`; everything else goes to
-xd's `~/.nvm`. Both installs are pinned to the same resolved Node version.
+Two separate environment variables control what goes where. Both installs
+are pinned to the same Node version resolved by `nvm-update.sh`.
 
     systemctl --user edit nvm-update.service
 
-Add an override:
+### xd's dev tools
 
     [Service]
-    Environment="NVM_GLOBAL_TOOLS=npm typescript yarn grunt @anthropic-ai/claude-code your-extra-tool"
+    Environment="NVM_GLOBAL_TOOLS=npm typescript yarn grunt your-extra-tool"
+
+### ai-tools sandbox tools
+
+    [Service]
+    Environment="AI_TOOLS_GLOBAL_TOOLS=npm @anthropic-ai/claude-code other-ai-tool"
+
+Any package can go in `AI_TOOLS_GLOBAL_TOOLS` — not just `@anthropic-ai/*`.
+Add claude dependencies, additional AI SDKs, or any other tool that should
+run sandboxed as ai-tools rather than as xd.
 
     systemctl --user daemon-reload
-
-To add a sandboxed tool, use an `@anthropic-ai/` package name or extend the
-`is_sandbox_package()` function in `nvm-update.sh` with additional routing
-rules.
 
 ## 10. Verify
 
@@ -197,8 +198,8 @@ When nvm installs a new Node version under `/opt/ai-tools`:
 - Old Node versions are pruned in both nvm installs (any version not
   referenced by a named alias is removed).
 - `nvm-update.sh` resolves the latest version once, updates xd's `~/.nvm`,
-  then re-invokes itself as ai-tools via `sudo -u ai-tools /opt/ai-tools/bin/nvm-update.sh "${version}"`
-  so both installs land on the same Node build.
+  then invokes `nvm-update-ai-tools.sh` as ai-tools via sudo with the pinned
+  version so both installs land on the same Node build.
 
 ## SELinux
 

@@ -14,7 +14,8 @@ Environment=HOME=%h
 Environment=NVM_DIR=%h/.nvm
 Environment=NVM_NODE_ALIAS=default
 Environment=NVM_NODE_MAJOR=22
-Environment="NVM_GLOBAL_TOOLS=npm typescript yarn grunt @anthropic-ai/claude-code"
+Environment="NVM_GLOBAL_TOOLS=npm typescript yarn grunt"
+Environment="AI_TOOLS_GLOBAL_TOOLS=npm @anthropic-ai/claude-code"
 
 # NoNewPrivileges is intentionally absent: nvm-update.sh calls
 # "sudo -u ai-tools" to update /opt/ai-tools, which requires the setuid bit.

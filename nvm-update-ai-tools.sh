@@ -1,29 +1,30 @@
 #!/usr/bin/env bash
-# ~/.local/bin/nvm-update.sh
-# Updates xd's Node.js and global npm tools, then delegates to the ai-tools
-# sandbox at the same resolved version so both installs stay in sync.
+# /opt/ai-tools/bin/nvm-update.sh
+# Updates Node.js and sandbox npm tools under /opt/ai-tools.
+# Runs as ai-tools user, invoked from nvm-update.sh via sudo.
+# Receives the target Node version as $1 so both installs track the same
+# version resolved by nvm-update.sh rather than re-querying nvm ls-remote.
 #
-# Runs as xd via systemd user timer. Configuration via Environment= directives:
-#   NVM_NODE_ALIAS        nvm alias to track        (default: default)
-#   NVM_NODE_MAJOR        major version series       (default: 22)
-#   NVM_GLOBAL_TOOLS      space-separated xd packages (default: npm typescript yarn grunt)
+# Configuration via Environment= directives (preserved through sudo via
+# env_keep in /etc/sudoers.d/ai-tools-claude):
+#   NVM_NODE_ALIAS           nvm alias to track   (default: default)
+#   AI_TOOLS_GLOBAL_TOOLS    space-separated sandbox packages
+#                            (default: npm @anthropic-ai/claude-code)
 
 set -euo pipefail
 IFS=$'\n\t'
 
-readonly AI_TOOLS_SCRIPT="/opt/ai-tools/bin/nvm-update.sh"
+readonly AI_TOOLS_BIN="/opt/ai-tools/bin"
 
-log()  { printf '%s\n' "$*" | systemd-cat -t "nvm-update" -p info;    echo "INFO : $*"; }
-warn() { printf '%s\n' "$*" | systemd-cat -t "nvm-update" -p warning; echo "WARN : $*" >&2; }
-die()  { printf '%s\n' "$*" | systemd-cat -t "nvm-update" -p err;     echo "ERROR: $*" >&2; exit 1; }
-
-require_cmd() { command -v "$1" &>/dev/null || die "Required command not found: $1"; }
+log()  { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p info;    echo "INFO : $*"; }
+warn() { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p warning; echo "WARN : $*" >&2; }
+die()  { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p err;     echo "ERROR: $*" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
 # Prune Node versions not referenced by any named alias
 # ---------------------------------------------------------------------------
 prune_versions() {
-    local node_alias="$1" nvm_dir="${NVM_DIR:-${HOME}/.nvm}"
+    local node_alias="$1" nvm_dir="${HOME}/.nvm"
     local active_version ver aliased
 
     active_version="$(nvm version "${node_alias}")"
@@ -68,11 +69,13 @@ install_packages() {
 # Main
 # ---------------------------------------------------------------------------
 main() {
-    local node_alias="${NVM_NODE_ALIAS:-default}"
-    local major="${NVM_NODE_MAJOR:-22}"
-    local nvm_dir="${NVM_DIR:-${HOME}/.nvm}"
+    local target_version="${1:-}"
+    [[ -n "${target_version}" ]] \
+        || die "Usage: nvm-update.sh <version>  e.g. v22.15.0"
 
-    require_cmd curl
+    local node_alias="${NVM_NODE_ALIAS:-default}"
+    local nvm_dir="${HOME}/.nvm"   # HOME=/opt/ai-tools when running as ai-tools
+
     [[ -s "${nvm_dir}/nvm.sh" ]] || die "nvm not found at ${nvm_dir}/nvm.sh"
     # shellcheck source=/dev/null
     source "${nvm_dir}/nvm.sh" --no-use
@@ -80,45 +83,33 @@ main() {
     local current_version
     current_version="$(nvm version "${node_alias}" 2>/dev/null || true)"
     [[ -n "${current_version}" && "${current_version}" != "N/A" ]] \
-        || die "nvm alias '${node_alias}' not set. Run: nvm alias ${node_alias} ${major}"
+        || die "nvm alias '${node_alias}' not set"
 
-    # Resolve latest version once -- the same value is passed to the ai-tools
-    # sandbox so both installs land on the identical Node build
-    local latest_version
-    latest_version="$(
-        nvm ls-remote --lts "v${major}" 2>/dev/null \
-            | grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+' \
-            | sort -V | tail -1
-    )"
-    [[ -n "${latest_version}" ]] || die "Could not resolve latest v${major} from nvm ls-remote"
+    log "Current: ${current_version}  ->  target: ${target_version}"
 
-    log "Current: ${current_version}  ->  latest: ${latest_version}"
-
-    if [[ "${current_version}" != "${latest_version}" ]]; then
-        log "Installing ${latest_version}"
-        nvm install "${latest_version}" --no-progress
+    if [[ "${current_version}" != "${target_version}" ]]; then
+        log "Installing ${target_version}"
+        nvm install "${target_version}" --no-progress
         nvm reinstall-packages "${current_version}"
-        nvm alias "${node_alias}" "${latest_version}"
+        nvm alias "${node_alias}" "${target_version}"
         nvm use "${node_alias}"
     fi
 
     nvm use "${node_alias}"
 
     local -a tools
-    IFS=' ' read -ra tools <<< "${NVM_GLOBAL_TOOLS:-npm typescript yarn grunt}"
+    IFS=' ' read -ra tools <<< "${AI_TOOLS_GLOBAL_TOOLS:-npm @anthropic-ai/claude-code}"
     log "Packages: ${tools[*]}"
     install_packages "${tools[@]}"
 
     prune_versions "${node_alias}"
 
-    # Delegate sandbox update to ai-tools at the same resolved version
-    if [[ -x "${AI_TOOLS_SCRIPT}" ]]; then
-        log "Delegating to ai-tools sandbox at ${latest_version}"
-        sudo -u ai-tools "${AI_TOOLS_SCRIPT}" "${latest_version}" \
-            || warn "ai-tools update failed -- claude may be on an old version"
-    else
-        warn "${AI_TOOLS_SCRIPT} not found -- skipping ai-tools sandbox update"
-    fi
+    # Refresh the stable symlink that claude-wrapper resolves via realpath
+    local versioned_claude="${nvm_dir}/versions/node/${target_version}/bin/claude"
+    [[ -x "${versioned_claude}" ]] || die "claude binary not found at ${versioned_claude}"
+    mkdir -p "${AI_TOOLS_BIN}"
+    ln -sf "${versioned_claude}" "${AI_TOOLS_BIN}/claude"
+    log "Symlink: ${AI_TOOLS_BIN}/claude -> ${versioned_claude}"
 
     log "Done. Active: $(nvm version "${node_alias}")"
 }

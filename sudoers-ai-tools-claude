@@ -15,7 +15,7 @@
 #
 # Syntax check before deploy:  visudo -c -f /etc/sudoers.d/ai-tools-claude
 
-Defaults:xd env_keep += "NVM_GLOBAL_TOOLS NVM_NODE_MAJOR NVM_NODE_ALIAS"
+Defaults:xd env_keep += "AI_TOOLS_GLOBAL_TOOLS NVM_NODE_MAJOR NVM_NODE_ALIAS"
 
 xd ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/.nvm/versions/node/*/bin/claude
 xd ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*
