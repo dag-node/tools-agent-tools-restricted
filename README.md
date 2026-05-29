@@ -31,26 +31,42 @@ owned by `ai-tools` so the kernel is satisfied.
     sudo install -o root -g root -m 644 \
         path_dedup.sh /etc/profile.d/path_dedup.sh
 
-Then add the following to `~/.bashrc` **before** the nvm init block so
-interactive non-login shells also get the ordered PATH:
+nvm must be sourced **before** path_dedup in both init files. nvm prepends
+its versioned bin dir to `$PATH`; path_dedup then restructures it into Tier 4,
+keeping it behind T1 system bins and T2 `~/.local/bin` (the claude wrapper).
+If path_dedup runs first, nvm prepends itself ahead of T1 and breaks the
+ordering.
+
+### ~/.bashrc (interactive non-login shells)
+
+`/etc/profile.d/` is not sourced for non-login shells, so path_dedup must be
+called explicitly here, after nvm:
 
     # #######
     # $PATH #
     # #######
-
-    # Re-apply PATH ordering for interactive non-login shells.
-    # /etc/profile.d/ is not sourced in this context by default.
-    # shellcheck source=/etc/profile.d/path_dedup.sh
-    [[ -f /etc/profile.d/path_dedup.sh ]] && source /etc/profile.d/path_dedup.sh
-
-    # --- nvm init (after PATH dedup) ---
     export NVM_DIR="${HOME}/.nvm"
     [ -s "${NVM_DIR}/nvm.sh" ] && source "${NVM_DIR}/nvm.sh"
 
-The script pins `~/.local/bin` (Tier 2, manually curated) above nvm and
-other package-manager-populated directories (Tier 4). This ensures
-`~/.local/bin/claude` — the sandboxing wrapper — always wins over any
-nvm-managed `claude` shim that would bypass the UID switch.
+    # shellcheck source=/etc/profile.d/path_dedup.sh
+    [[ -f /etc/profile.d/path_dedup.sh ]] && source /etc/profile.d/path_dedup.sh
+
+### ~/.bash_profile (login shells)
+
+`/etc/profile.d/path_dedup.sh` is sourced automatically by `/etc/profile`
+early in login shell startup — before nvm runs. A second call at the end of
+`~/.bash_profile`, after nvm, corrects the order:
+
+    export NVM_DIR="${HOME}/.nvm"
+    [ -s "${NVM_DIR}/nvm.sh" ] && source "${NVM_DIR}/nvm.sh"
+
+    # Re-order after nvm; /etc/profile sourced path_dedup earlier but nvm
+    # had not run yet at that point.
+    # shellcheck source=/etc/profile.d/path_dedup.sh
+    [[ -f /etc/profile.d/path_dedup.sh ]] && source /etc/profile.d/path_dedup.sh
+
+path_dedup.sh is idempotent — sourcing it a second time in the same shell
+produces the same PATH, so the double call for login shells is safe.
 
 ## 2. Create ai-tools OS user at /opt (root, once)
 
