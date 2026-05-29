@@ -11,18 +11,42 @@ IFS=$'\n\t'
 readonly AI_TOOLS_NVM_DIR="/opt/ai-tools/.nvm"
 readonly CLAUDE_LINK="/opt/ai-tools/bin/claude"
 
-if [[ ! -e "${CLAUDE_LINK}" ]]; then
+# Test the symlink itself with -L, NOT -e: -e dereferences the full chain
+# (bin/claude -> versioned bin/claude -> .../claude-code/bin/claude.exe), and the
+# package dir claude-code/ is mode 700 owned ai-tools. The invoking user cannot
+# stat the final target (EACCES), so -e would report "not found" on a perfectly
+# valid link. -L checks link existence without traversing past the first hop;
+# the readlink + string validation below handle correctness, and the binary is
+# only ever reached via sudo as ai-tools.
+if [[ ! -L "${CLAUDE_LINK}" ]]; then
     echo "ERROR: claude symlink not found at ${CLAUDE_LINK}" >&2
     echo "       Run: systemctl --user start nvm-update.service" >&2
     exit 1
 fi
 
-# Resolve symlink -- sudoers matches the real versioned path, not the symlink
-CLAUDE_REAL="$(realpath "${CLAUDE_LINK}")"
+# Resolve the stable symlink ONE hop -- it points directly at the versioned
+# .../node/<ver>/bin/claude, which is exactly the path the sudoers rule matches.
+#
+# Do NOT use realpath (or readlink -f): the versioned bin/claude is itself an
+# npm symlink into the package (-> .../claude-code/bin/claude.exe). Following
+# it fully would (a) yield a path the sudoers NOPASSWD rule cannot match, so
+# sudo would deny/prompt, and (b) require traversing the package directory
+# (mode 700, owned ai-tools), which the invoking user cannot enter -- realpath
+# would fail with EACCES and, under set -e, abort the wrapper with no message.
+CLAUDE_REAL="$(readlink -- "${CLAUDE_LINK}")" \
+    || { echo "ERROR: ${CLAUDE_LINK} is not a symlink -- reinstall or run nvm-update.sh" >&2; exit 1; }
 
-# Safety: confirm resolved path is under the ai-tools nvm directory
-if [[ "${CLAUDE_REAL}" != "${AI_TOOLS_NVM_DIR}/"* ]]; then
-    echo "ERROR: resolved claude path '${CLAUDE_REAL}' is outside ${AI_TOOLS_NVM_DIR}" >&2
+# Safety: the target must be an absolute, ..-free path under the ai-tools nvm
+# tree matching the versioned binary the sudoers rule allows. This blocks
+# path-injection if the symlink is tampered with, using only string checks so
+# no filesystem traversal beyond the symlink itself is required.
+case "${CLAUDE_REAL}" in
+    "${AI_TOOLS_NVM_DIR}/versions/node/"*/bin/claude) ;;
+    *) echo "ERROR: resolved claude path '${CLAUDE_REAL}' is not an approved ai-tools binary" >&2
+       exit 1 ;;
+esac
+if [[ "${CLAUDE_REAL}" == *"/../"* ]]; then
+    echo "ERROR: resolved claude path '${CLAUDE_REAL}' contains parent-directory references" >&2
     exit 1
 fi
 

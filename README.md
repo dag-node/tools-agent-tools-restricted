@@ -14,6 +14,7 @@
 | services/nvm-update.service | ~/.config/systemd/user/nvm-update.service |
 | services/nvm-update.timer | ~/.config/systemd/user/nvm-update.timer |
 | sudoers-ai-tools-claude | /etc/sudoers.d/ai-tools-claude (root) |
+| install.sh | run in place via sudo |
 
 ---
 
@@ -108,7 +109,32 @@ produces the same PATH, so the double call for login shells is safe.
              /opt/ai-tools/bin/claude
     '
 
-## 4. Install ai-tools scripts (root, once)
+## 4. Run the install script (root, once)
+
+Steps 4–12 are fully automated by `install.sh`. After completing steps 1–3
+above, run:
+
+    sudo ./install.sh install
+
+The script substitutes your username into sudoers and the chown validator,
+creates the approved-projects allowlist with format documentation, registers
+this project directory in the allowlist and git `safe.directory`, and enables
+the systemd timer. It is idempotent — safe to re-run after updates.
+
+To add further projects to the approved list:
+
+    sudo ./install.sh add-project /path/to/project
+
+To remove everything installed by this script:
+
+    sudo ./install.sh uninstall
+
+---
+
+The steps below document what the install script does and serve as a reference
+for manual installation or RPM spec authoring.
+
+## 4a. Install ai-tools scripts (root, once)
 
     sudo install -o ai-tools -g ai-tools -m 750 \
         scripts/nvm-update-ai-tools.sh /opt/ai-tools/bin/nvm-update.sh
@@ -116,7 +142,7 @@ produces the same PATH, so the double call for login shells is safe.
     sudo install -o root -g root -m 755 \
         scripts/ai-tools-chown.sh /usr/local/sbin/ai-tools-chown
 
-## 5. Install sudoers drop-in (root, once)
+## 5a. Install sudoers drop-in (root, once)
 
     # Replace 'xd' with your username in the file first if different
     sudo install -o root -g root -m 0440 \
@@ -139,7 +165,7 @@ The drop-in configures three things beyond the basic NOPASSWD rules:
   xd:ai-tools`, so ai-tools can only restore ownership inside explicitly
   approved project directories.
 
-## 6. Install wrapper and update script (normal user)
+## 6a. Install wrapper and update script (normal user)
 
     install -d -m 700 ~/.local/bin
 
@@ -149,12 +175,24 @@ The drop-in configures three things beyond the basic NOPASSWD rules:
     # PATH ordering is handled by path_dedup.sh (step 1).
     # No manual export PATH line needed here.
 
-## 7. Install global Claude Code settings (once)
+## 7a. Install global Claude Code settings (once)
 
 After every `Write` or `Edit` tool call, `post-write-hook.sh` checks whether
 ownership needs restoring and, only if it does, calls `ai-tools-chown` via
 sudo. When ownership is already `xd:ai-tools` the hook exits immediately
-without invoking sudo or generating a PAM session entry.
+without invoking sudo or generating a PAM session entry. Files and directories
+excluded via `!` entries in the allowlist are never touched by the hook.
+
+`claude-settings.json` also configures git command permissions:
+
+| Category | Commands | Behaviour |
+|---|---|---|
+| Auto-allowed | `git status`, `git diff` (working tree), `git branch` | no prompt |
+| Confirmation required | `git log`, `git show`, `git mv`, `git add`, `git commit`, `git push` | prompts user |
+| Denied | `git push --force`, `git reset --hard`, `git clean -f` | always blocked |
+
+`git mv` is available once `safe.directory` is configured (step 8) and
+preserves file history. It requires confirmation rather than running silently.
 
 Requires `jq` for JSON parsing in the hook:
 
@@ -168,27 +206,44 @@ Install into ai-tools' Claude config directory:
     sudo install -o ai-tools -g ai-tools -m 640 \
         scripts/claude-settings.json /opt/ai-tools/.claude/settings.json
 
-## 8. Create the approved-projects allowlist (once)
+## 8a. Create the approved-projects allowlist (once)
 
 The allowlist controls where Claude Code is permitted to run and where the
-ownership-restoration hook is allowed to act. Files in `allowed-projects` own
-`xd:xd 600` so ai-tools cannot read or modify it directly — root reads it
-inside `ai-tools-chown` on ai-tools' behalf.
+ownership-restoration hook is allowed to act. Owned `xd:xd 600` — ai-tools
+cannot read or modify it; root reads it inside `ai-tools-chown` on ai-tools'
+behalf.
 
     mkdir -p ~/.config/ai-tools
     touch ~/.config/ai-tools/allowed-projects
     chmod 600 ~/.config/ai-tools/allowed-projects
 
-Add one absolute project path per line:
+**Allowlist format** — document inline as comments in the file itself:
 
-    echo "/home/xd/Development/NDF26/RHEL-AI-LimitedToolsUser-ClaudeCode" \
-        >> ~/.config/ai-tools/allowed-projects
+    # /home/xd/Development/NDF26/RHEL-AI-LimitedToolsUser-ClaudeCode
+    #
+    # Syntax:
+    #   /path/to/project      allow: Claude Code may run here; chown is active
+    #   !/path/to/file        exclude: this file's ownership is never changed
+    #   !/path/to/dir         exclude directory and all contents
+    #   !/path/to/*.ext       exclude by glob (* matches any characters)
+    #
+    # Exclusions (!) override allows and are checked first.
+    # Plain paths cover their contents automatically; no trailing /* needed.
 
-Format rules:
-- One absolute directory path per line.
-- Lines starting with `#` are treated as comments and ignored.
-- Subdirectories are covered automatically: listing `/home/xd/projects/foo`
-  also covers `/home/xd/projects/foo/src`, etc.
+Example entry with exclusions:
+
+    /home/xd/Development/NDF26/RHEL-AI-LimitedToolsUser-ClaudeCode
+    !/home/xd/Development/NDF26/RHEL-AI-LimitedToolsUser-ClaudeCode/.env
+    !/home/xd/Development/NDF26/RHEL-AI-LimitedToolsUser-ClaudeCode/secrets
+
+**Register with git** so ai-tools can run `git mv` and other git commands inside
+the project (git refuses to operate on repos owned by a different user):
+
+    sudo git config --file /opt/ai-tools/.gitconfig \
+        --add safe.directory /home/xd/Development/NDF26/RHEL-AI-LimitedToolsUser-ClaudeCode
+
+Repeat both the `allowed-projects` entry and the `safe.directory` command for
+each additional project.
 
 **Effect of the allowlist:**
 
@@ -197,13 +252,13 @@ Format rules:
 | Allowlist does not exist | blocked, helpful message | exits without acting |
 | CWD in allowlist | allowed | ownership restored only if needed |
 | CWD not in allowlist | blocked, helpful message | exits without acting |
+| Path matches `!` exclusion | n/a | exits without acting |
 
-The wrapper check fails fast at startup with a clear message directing the user
-to the allowlist. The chown script is the actual security boundary — it
-validates the target path independently so that even if the wrapper is bypassed,
-the hook cannot act outside approved directories.
+The wrapper check fails fast at startup. The chown script is the security
+boundary — it validates the target path independently, so even if the wrapper
+is bypassed, the hook cannot act outside approved paths or on excluded files.
 
-## 9. Install systemd user units (normal user)
+## 9a. Install systemd user units (normal user)
 
     install -d -m 700 ~/.config/systemd/user
 
@@ -216,11 +271,11 @@ the hook cannot act outside approved directories.
     # Confirm timer is scheduled
     systemctl --user list-timers nvm-update.timer
 
-## 10. Enable linger so timer fires without an active login session
+## 10a. Enable linger so timer fires without an active login session
 
     loginctl enable-linger "${USER}"
 
-## 11. Customise tool lists
+## 11a. Customise tool lists
 
 Two separate environment variables control what goes where. Both installs
 are pinned to the same Node version resolved by `scripts/nvm-update.sh`.
@@ -243,7 +298,7 @@ run sandboxed as ai-tools rather than as xd.
 
     systemctl --user daemon-reload
 
-## 12. Verify
+## 12a. Verify
 
     # Run update manually (updates both xd's tools and /opt/ai-tools)
     systemctl --user start nvm-update.service
@@ -256,9 +311,9 @@ run sandboxed as ai-tools rather than as xd.
     # Confirm process uid at runtime
     ps -eo pid,user,cmd | grep claude
 
-    # Confirm the claude symlink is in place
+    # Confirm the claude symlink is in place and points at the versioned binary
     ls -la /opt/ai-tools/bin/claude
-    realpath /opt/ai-tools/bin/claude
+    readlink /opt/ai-tools/bin/claude   # -> .../node/<ver>/bin/claude (one hop)
 
 ## Upgrade behaviour
 
@@ -267,8 +322,12 @@ When nvm installs a new Node version under `/opt/ai-tools`:
   the new versioned path automatically.
 - `scripts/nvm-update-ai-tools.sh` updates the `/opt/ai-tools/bin/claude` symlink to
   point at the new versioned binary.
-- The wrapper resolves that symlink via `realpath` before calling `sudo`, so
-  sudoers matching is not affected by the symlink indirection.
+- The wrapper resolves that symlink **one hop** via `readlink` before calling
+  `sudo`, yielding the versioned `.../node/<ver>/bin/claude` path the sudoers
+  rule matches. It deliberately does *not* use `realpath`/`readlink -f`: the
+  versioned `bin/claude` is itself an npm symlink into the package, and
+  following it would produce a path sudoers cannot match (and one the invoking
+  user cannot even traverse, since the package dir is mode 700).
 - Old Node versions are pruned in both nvm installs (any version not
   referenced by a named alias is removed).
 - `scripts/nvm-update.sh` resolves the latest version once, updates xd's `~/.nvm`,

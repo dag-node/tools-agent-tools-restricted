@@ -1,16 +1,16 @@
 # /etc/sudoers.d/ai-tools-claude
 # Allow the normal user to:
 #   1. execute claude as ai-tools (wrapper resolves the versioned path via realpath)
-#   2. run nvm-update.sh as ai-tools (called from nvm-update.sh running as xd)
+#   2. run nvm-update.sh as ai-tools (called from nvm-update.sh running as @INSTALL_USER@)
 #
 # Allow ai-tools to:
-#   3. restore xd:ai-tools ownership on files it writes within approved project
-#      directories (see /usr/local/sbin/ai-tools-chown and the allowlist at
+#   3. restore @INSTALL_USER@:ai-tools ownership on files it writes within approved
+#      project directories (see /usr/local/sbin/ai-tools-chown and the allowlist at
 #      ~/.config/ai-tools/allowed-projects)
 #
 # env_keep passes the service-configured package/version variables through sudo
 # so the ai-tools invocation of nvm-update.sh sees the same NVM_GLOBAL_TOOLS
-# that the xd invocation resolved from the systemd environment.
+# that the @INSTALL_USER@ invocation resolved from the systemd environment.
 #
 # umask=0027 ensures Claude Code creates files with 640/750 permissions rather
 # than 600/700, keeping ai-tools group readable without exposing to others.
@@ -18,16 +18,16 @@
 # SECURITY NOTES:
 #   - NOPASSWD is intentional: both commands are called non-interactively.
 #   - Allowed targets are scoped to specific paths under /opt/ai-tools.
-#   - ai-tools-chown validates against an xd-owned allowlist before acting.
+#   - ai-tools-chown validates against a user-owned allowlist before acting.
 #   - The ai-tools user has no login shell and no other sudo rights.
-#   - Replace 'xd' with the actual normal username if different.
+#   - @INSTALL_USER@ is substituted with the real username by install.sh.
 #
 # Syntax check before deploy:  visudo -c -f /etc/sudoers.d/ai-tools-claude
 
-Defaults:xd env_keep += "AI_TOOLS_GLOBAL_TOOLS NVM_NODE_MAJOR NVM_NODE_ALIAS"
-Defaults:xd umask=0027
+Defaults:@INSTALL_USER@ env_keep += "AI_TOOLS_GLOBAL_TOOLS NVM_NODE_MAJOR NVM_NODE_ALIAS"
+Defaults:@INSTALL_USER@ umask=0027
 
-xd ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/.nvm/versions/node/*/bin/claude
-xd ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*
+@INSTALL_USER@ ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/.nvm/versions/node/*/bin/claude
+@INSTALL_USER@ ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*
 
 ai-tools ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools-chown

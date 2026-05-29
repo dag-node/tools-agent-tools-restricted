@@ -6,10 +6,10 @@ Version resolution in `nvm-update.sh`
 When multiple v22 versions exist, nvm ls-remote | sort -V | tail -1 always selects the highest semver — not "first match" or "currently active". Prune logic collects all versions referenced by any named alias into an associative array before removing anything, so you can't accidentally delete a version another alias points to.
 
 Wrapper safety check
-After realpath resolves the symlink, the wrapper validates the result is under $NVM_DIR before calling sudo. This blocks path-injection if something tampers with PATH or the nvm symlinks.
-sudoers glob + realpath interaction
+The wrapper resolves `/opt/ai-tools/bin/claude` with a single `readlink` hop, then validates the target is an absolute, `..`-free path matching `${AI_TOOLS_NVM_DIR}/versions/node/*/bin/claude` before calling sudo. This blocks path-injection if the symlink is tampered with, using string checks only (no filesystem traversal beyond the symlink).
 
-The glob `*/bin/claude` matches the real versioned path. Without realpath in the wrapper, sudo would receive the nvm symlink path (e.g. ~/.nvm/alias/default) which sudoers would reject. The two are coupled — don't change one without the other.
+sudoers glob + symlink resolution — IMPORTANT
+The glob `*/bin/claude` matches the versioned path `/opt/ai-tools/.nvm/versions/node/<ver>/bin/claude`. The wrapper must resolve the stable symlink **exactly one hop** (`readlink`, not `realpath`/`readlink -f`). The versioned `bin/claude` is itself an npm symlink into the package (`-> .../@anthropic-ai/claude-code/bin/claude.exe`); fully resolving it would (a) produce a path the sudoers rule cannot match — so sudo denies/prompts and claude never launches — and (b) require traversing the package dir (mode 700, ai-tools), which the invoking user cannot enter (EACCES). The one-hop readlink and the sudoers glob are coupled — don't change one without the other.
 
 `loginctl enable-linger`
 Without this, the user systemd instance exits on logout and the 10:05 timer never fires unless you're logged in. Required for headless/unattended operation.
