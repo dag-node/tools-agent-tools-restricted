@@ -9,8 +9,8 @@ ConditionACPower=true
 Type=oneshot
 ExecStart=%h/.local/bin/nvm-update.sh
 
-Environment=PATH=/home/${USER}/.local/bin:/usr/local/bin:/usr/bin:/bin
-Environment=HOME=/home/${USER}
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=%h
 Environment=NVM_DIR=%h/.nvm
 Environment=NVM_NODE_ALIAS=default
 Environment=NVM_NODE_MAJOR=22
