@@ -12,122 +12,124 @@ set -euo pipefail
 IFS=$'\n\t'
 
 # ---------------------------------------------------------------------------
-# Config (overridden by systemd Environment=)
-# ---------------------------------------------------------------------------
-readonly NODE_ALIAS="${NVM_NODE_ALIAS:-default}"
-readonly MAJOR="${NVM_NODE_MAJOR:-22}"
-readonly TOOLS="${NVM_GLOBAL_TOOLS:-npm typescript yarn grunt @anthropic-ai/claude-code}"
-readonly NVM_DIR="${NVM_DIR:-${HOME}/.nvm}"
-readonly LOG_TAG="nvm-update"
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-log()  { printf '%s\n' "$*" | systemd-cat -t "${LOG_TAG:-script}" -p info;  echo "INFO : $*"; }
-warn() { printf '%s\n' "$*" | systemd-cat -t "${LOG_TAG:-script}" -p warning; echo "WARN : $*" >&2; }
-die()  { printf '%s\n' "$*" | systemd-cat -t "${LOG_TAG:-script}" -p err;   echo "ERROR: $*" >&2; exit 1; }
+log()  { printf '%s\n' "$*" | systemd-cat -t "nvm-update" -p info;    echo "INFO : $*"; }
+warn() { printf '%s\n' "$*" | systemd-cat -t "nvm-update" -p warning; echo "WARN : $*" >&2; }
+die()  { printf '%s\n' "$*" | systemd-cat -t "nvm-update" -p err;     echo "ERROR: $*" >&2; exit 1; }
 
 require_cmd() {
-    command -v "$1" &>/dev/null || die "Required command not found: $1"
+    local cmd="$1"
+    command -v "${cmd}" &>/dev/null || die "Required command not found: ${cmd}"
 }
 
 # ---------------------------------------------------------------------------
-# Validation
+# Prune old Node versions (keep only active + any other named aliases)
 # ---------------------------------------------------------------------------
-[[ -s "${NVM_DIR}/nvm.sh" ]] || die "nvm not found at ${NVM_DIR}/nvm.sh"
+prune_versions() {
+    local node_alias="$1"
+    local active_version ver aliased installed
+    active_version="$(nvm version "${node_alias}")"
 
-# shellcheck source=/dev/null
-source "${NVM_DIR}/nvm.sh" --no-use
+    log "Pruning old Node.js versions (keeping ${active_version})"
 
-require_cmd nvm
-require_cmd curl
+    # Collect all versions referenced by any alias -- never remove those
+    local -A keep
+    while IFS= read -r aliased; do
+        ver="$(printf '%s\n' "${aliased}" | grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+        [[ -n "${ver}" ]] && keep["${ver}"]=1
+    done < <(nvm alias 2>/dev/null)
+    keep["${active_version}"]=1
 
-# ---------------------------------------------------------------------------
-# Resolve current and latest versions
-# ---------------------------------------------------------------------------
-current_version="$(nvm version "${NODE_ALIAS}" 2>/dev/null || true)"
-
-[[ -n "${current_version}" && "${current_version}" != "N/A" ]] \
-    || die "nvm alias '${NODE_ALIAS}' not set. Run: nvm alias ${NODE_ALIAS} ${MAJOR}"
-
-log "Current: ${current_version} (alias: ${NODE_ALIAS})"
-
-# Fetch latest v{MAJOR} release from nvm's remote list
-latest_version="$(
-    nvm ls-remote --lts "v${MAJOR}" 2>/dev/null \
-        | grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+' \
-        | sort -V \
-        | tail -1
-)"
-[[ -n "${latest_version}" ]] \
-    || die "Could not determine latest v${MAJOR} from nvm ls-remote"
-
-log "Latest v${MAJOR}: ${latest_version}"
+    while IFS= read -r installed; do
+        ver="$(printf '%s\n' "${installed}" | grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+        [[ -z "${ver}" ]] && continue
+        if [[ -z "${keep[${ver}]+x}" ]]; then
+            log "  removing ${ver}"
+            nvm uninstall "${ver}" || warn "  failed to uninstall ${ver}"
+        else
+            log "  keeping ${ver} (aliased or active)"
+        fi
+    done < <(nvm ls --no-colors 2>/dev/null | grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+')
+}
 
 # ---------------------------------------------------------------------------
-# Install latest if not already current
+# Main
 # ---------------------------------------------------------------------------
-if [[ "${current_version}" == "${latest_version}" ]]; then
-    log "Already on latest ${latest_version} -- checking tools only"
-else
-    log "Installing ${latest_version}"
-    nvm install "${latest_version}" --no-progress
+main() {
+    local node_alias="${NVM_NODE_ALIAS:-default}"
+    local major="${NVM_NODE_MAJOR:-22}"
+    local tools="${NVM_GLOBAL_TOOLS:-npm typescript yarn grunt @anthropic-ai/claude-code}"
+    local nvm_dir="${NVM_DIR:-${HOME}/.nvm}"
 
-    log "Reinstalling global packages into ${latest_version}"
-    nvm reinstall-packages "${current_version}"
+    # Validation
+    [[ -s "${nvm_dir}/nvm.sh" ]] || die "nvm not found at ${nvm_dir}/nvm.sh"
 
-    log "Updating alias '${NODE_ALIAS}' -> ${latest_version}"
-    nvm alias "${NODE_ALIAS}" "${latest_version}"
+    # shellcheck source=/dev/null
+    source "${nvm_dir}/nvm.sh" --no-use
 
-    nvm use "${NODE_ALIAS}"
-fi
+    require_cmd nvm
+    require_cmd curl
 
-# Ensure alias version is active for subsequent npm calls
-nvm use "${NODE_ALIAS}"
+    # Resolve current and latest versions
+    local current_version
+    current_version="$(nvm version "${node_alias}" 2>/dev/null || true)"
+    [[ -n "${current_version}" && "${current_version}" != "N/A" ]] \
+        || die "nvm alias '${node_alias}' not set. Run: nvm alias ${node_alias} ${major}"
 
-# ---------------------------------------------------------------------------
-# Install / upgrade specified tools to latest
-# ---------------------------------------------------------------------------
-log "Upgrading global tools: ${TOOLS}"
-IFS=' ' read -ra tools_arr <<< "${TOOLS}"
-for tool in "${tools_arr[@]}"; do
-    if npm list -g --depth=0 "${tool}" &>/dev/null; then
-        log "  updating ${tool}"
-        npm update -g "${tool}" \
-            || warn "  npm update failed for ${tool} -- skipping"
+    log "Current: ${current_version} (alias: ${node_alias})"
+
+    local latest_version
+    latest_version="$(
+        nvm ls-remote --lts "v${major}" 2>/dev/null \
+            | grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+' \
+            | sort -V \
+            | tail -1
+    )"
+    [[ -n "${latest_version}" ]] \
+        || die "Could not determine latest v${major} from nvm ls-remote"
+
+    log "Latest v${major}: ${latest_version}"
+
+    # Install latest if not already current
+    if [[ "${current_version}" == "${latest_version}" ]]; then
+        log "Already on latest ${latest_version} -- checking tools only"
     else
-        log "  installing ${tool}"
-        npm install -g "${tool}" \
-            || warn "  npm install failed for ${tool} -- skipping"
+        log "Installing ${latest_version}"
+        nvm install "${latest_version}" --no-progress
+
+        log "Reinstalling global packages into ${latest_version}"
+        nvm reinstall-packages "${current_version}"
+
+        log "Updating alias '${node_alias}' -> ${latest_version}"
+        nvm alias "${node_alias}" "${latest_version}"
+
+        nvm use "${node_alias}"
     fi
-done
-# ---------------------------------------------------------------------------
-# Prune old Node versions (keep only current alias + any other named aliases)
-# ---------------------------------------------------------------------------
-active_version="$(nvm version "${NODE_ALIAS}")"
 
-log "Pruning old Node.js versions (keeping ${active_version})"
+    # Ensure alias version is active for subsequent npm calls
+    nvm use "${node_alias}"
 
-# Collect all versions referenced by any alias -- never remove those
-declare -A keep
-while IFS= read -r aliased; do
-    ver="$(echo "${aliased}" | grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-    [[ -n "${ver}" ]] && keep["${ver}"]=1
-done < <(nvm alias 2>/dev/null)
+    # Install / upgrade specified tools to latest
+    log "Upgrading global tools: ${tools}"
+    local tool
+    local -a tools_arr
+    IFS=' ' read -ra tools_arr <<< "${tools}"
+    for tool in "${tools_arr[@]}"; do
+        if npm list -g --depth=0 "${tool}" &>/dev/null; then
+            log "  updating ${tool}"
+            npm update -g "${tool}" \
+                || warn "  npm update failed for ${tool} -- skipping"
+        else
+            log "  installing ${tool}"
+            npm install -g "${tool}" \
+                || warn "  npm install failed for ${tool} -- skipping"
+        fi
+    done
 
-# Always keep active
-keep["${active_version}"]=1
+    prune_versions "${node_alias}"
 
-while IFS= read -r installed; do
-    ver="$(echo "${installed}" | grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-    [[ -z "${ver}" ]] && continue
-    if [[ -z "${keep[${ver}]+x}" ]]; then
-        log "  removing ${ver}"
-        nvm uninstall "${ver}" \
-            || warn "  failed to uninstall ${ver}"
-    else
-        log "  keeping ${ver} (aliased or active)"
-    fi
-done < <(nvm ls --no-colors 2>/dev/null | grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+')
+    log "Done. Active: $(nvm version "${node_alias}")"
+}
 
-log "Done. Active: $(nvm version "${NODE_ALIAS}")"
+main "$@"
