@@ -1,6 +1,6 @@
 # /etc/sudoers.d/ai-tools-claude
 # Allow the normal user to:
-#   1. execute claude as ai-tools (wrapper resolves the versioned path via realpath)
+#   1. execute claude as ai-tools (wrapper resolves the versioned path with a single readlink hop)
 #   2. run nvm-update.sh as ai-tools (called from nvm-update.sh running as @INSTALL_USER@)
 #
 # Allow ai-tools to:

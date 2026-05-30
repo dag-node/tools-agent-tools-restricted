@@ -27,9 +27,10 @@ readonly OWNER="@INSTALL_USER@:ai-tools"
 readonly SECRET_OWNER="@INSTALL_USER@:@INSTALL_GROUP@"
 readonly AUDIT_LOG="/var/log/ai-tools-chown.log"
 
-# Emit a one-line NOTICE that a secret-named file was written and ai-tools access
-# revoked. Written to stderr (the PostToolUse hook relays it into the session)
-# and appended to a root-owned audit log; logging is best-effort and never blocks.
+# _notify_secret: emit a one-line NOTICE that a secret-named file was written and
+# ai-tools' read access revoked, to stderr (the PostToolUse hook relays it into
+# the session) and the root-owned audit log. Logging is best-effort, never blocks.
+# args:  path  old_owner  new_owner  old_mode  new_mode
 _notify_secret() {
     local path="$1" old_owner="$2" new_owner="$3" old_mode="$4" new_mode="$5" msg
     printf -v msg 'NOTICE: secret-named file written by agent considered breached, rotate the secret: %s (ai-tools read access revoked; owner %s -> %s, mode %s -> %s)' \
@@ -51,12 +52,18 @@ canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
 # exclusions, which leave ownership intact.
 is_secret=false
 _base="$(basename "${canonical}")"
+# Match secret basenames case-insensitively (.ENV, Server.KEY, ID_RSA, …). The
+# prior nocasematch setting is restored after the loop so the case-sensitive
+# [[ ]] and case statements below (paths, file types) are unaffected.
+_prev_nocasematch="$(shopt -p nocasematch)"
+shopt -s nocasematch
 for _pat in \
-    '.env' '.env.*' '.environment' '.environment.*' \
-    'secret' 'secret.*' '*.secret' 'secrets' 'secrets.*' \
-    'credentials' 'credentials.*' \
-    'id_rsa' 'id_dsa' 'id_ecdsa' 'id_ed25519' 'authorized_keys' '*.ppk' \
-    '*.pem' '*.key' '*.priv' '*.p12' '*.pfx' '*.crt' '*.pkcs12' \
+    '.env' '.env.*' 'env' '.environment' '.environment.*' 'environment' \
+    'secret.*' 'secrets.*' '*.secret' 'secret' 'secrets' 'private' \
+    '*.credential' 'credential' 'credentials' 'credentials.*' \
+    '*.production.*' '*.PROD.*' \
+    'id_rsa' 'id_dsa' 'id_ecdsa' 'id_ed25519' 'authorized_keys' \
+    '*.ppk' '*.pem' '*.key' '*.priv' '*.p12' '*.pfx' '*.crt' '*.pkcs12' \
     '*.jks' '*.keystore' '*.p8' '*.asc' '*.gpg' \
     'kubeconfig' '.pgpass' '.git-credentials' '.dockercfg' '.htpasswd' \
     '.npmrc' '.pypirc' '.netrc'
@@ -66,7 +73,8 @@ do
         break
     fi
 done
-unset _base _pat
+eval "${_prev_nocasematch}"
+unset _base _pat _prev_nocasematch
 
 declare -a allowed=()
 declare -a excluded=()

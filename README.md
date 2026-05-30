@@ -188,7 +188,7 @@ for manual installation or RPM spec authoring.
     sudo install -o ai-tools -g ai-tools -m 750 \
         scripts/nvm-update-ai-tools.sh /opt/ai-tools/bin/nvm-update.sh
 
-    sudo install -o root -g root -m 755 \
+    sudo install -o root -g root -m 750 \
         scripts/ai-tools-chown.sh /usr/local/sbin/ai-tools-chown
 
 ## 5a. Install sudoers drop-in (root, once)
@@ -236,7 +236,7 @@ excluded via `!` entries in the allowlist are never touched by the hook.
 
 | Category | Commands | Behaviour |
 |---|---|---|
-| Auto-allowed | `git status`, `git diff` (working tree), `git branch` | no prompt |
+| Auto-allowed | `git status`, `git diff` (working tree, `--staged`, `--cached`), `git branch` | no prompt |
 | Confirmation required | `git log`, `git show`, `git mv`, `git add`, `git commit`, `git push` | prompts user |
 | Denied | `git push --force`, `git reset --hard`, `git clean -f` | always blocked |
 

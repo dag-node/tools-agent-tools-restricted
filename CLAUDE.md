@@ -48,9 +48,10 @@ ai-tools ALL=(root)             NOPASSWD: /usr/local/sbin/ai-tools-chown
 - `ai-tools` has no login shell, no password, and no other sudo rights.
 - The allowlist gates where claude **launches** and which written files get
   ownership restored. It is **not** a kernel-enforced read boundary — once
-  running, ordinary Unix permissions govern reads/writes. Real isolation comes
-  from filesystem permissions today; a per-session `bubblewrap` mount namespace
-  to make the allowlist a true access boundary is proposed (see project memory).
+  running, ordinary Unix permissions govern reads/writes. Those filesystem
+  permissions are the enforced isolation boundary; a per-session `bubblewrap`
+  mount namespace to make the allowlist a true access boundary is proposed (see
+  project memory).
 
 ## Key design decisions
 

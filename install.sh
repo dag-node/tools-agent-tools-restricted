@@ -44,8 +44,10 @@ ensure_dir() {
     [[ -d "${dir}" ]] || install -d -o "${owner}" -g "${group}" -m "${mode}" "${dir}"
 }
 
-# Install a file after substituting @INSTALL_HOME@ -> REAL_HOME and @INSTALL_USER@ -> REAL_USER.
-# Handles files that embed the deploying username (sudoers, chown script, hook).
+# Install a file after substituting @INSTALL_HOME@, @INSTALL_USER@, and
+# @INSTALL_GROUP@ with REAL_HOME, REAL_USER, and REAL_GROUP. Handles files that
+# embed the deploying user's home, name, or primary group (sudoers, chown script,
+# hook).
 install_subst() {
     local mode="$1" owner="$2" group="$3" src="$4" dst="$5"
     local tmp

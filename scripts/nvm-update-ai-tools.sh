@@ -21,7 +21,10 @@ warn() { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p warning; echo "W
 die()  { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p err;     echo "ERROR: $*" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
-# Prune Node versions not referenced by any named alias
+# prune_versions: uninstall every installed Node version not referenced by a
+# named nvm alias; the alias-tracked version is always kept. Logs each removal
+# and retention to the journal.
+# args:  nvm alias to track
 # ---------------------------------------------------------------------------
 prune_versions() {
     local node_alias="$1" nvm_dir="${HOME}/.nvm"
@@ -50,7 +53,10 @@ prune_versions() {
 }
 
 # ---------------------------------------------------------------------------
-# Install or upgrade packages in the active nvm context
+# install_packages: install each package missing from the active nvm context, or
+# update it if already present globally. A failed package warns and is skipped,
+# never aborting the run.
+# args:  package names
 # ---------------------------------------------------------------------------
 install_packages() {
     local pkg
@@ -66,7 +72,10 @@ install_packages() {
 }
 
 # ---------------------------------------------------------------------------
-# Main
+# main: install the target Node version under /opt/ai-tools if not already
+# active, refresh the sandbox global tools, prune superseded versions, and
+# repoint the stable /opt/ai-tools/bin/claude symlink at the versioned binary.
+# args:  target Node version (e.g. v22.15.0)
 # ---------------------------------------------------------------------------
 main() {
     local target_version="${1:-}"
@@ -104,7 +113,7 @@ main() {
 
     prune_versions "${node_alias}"
 
-    # Refresh the stable symlink that claude-wrapper resolves via realpath
+    # Refresh the stable symlink that claude-wrapper resolves with one readlink hop
     local versioned_claude="${nvm_dir}/versions/node/${target_version}/bin/claude"
     [[ -x "${versioned_claude}" ]] || die "claude binary not found at ${versioned_claude}"
     mkdir -p "${AI_TOOLS_BIN}"
