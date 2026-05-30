@@ -52,6 +52,7 @@ install_subst() {
     tmp="$(mktemp)"
     sed -e "s|@INSTALL_HOME@|${REAL_HOME}|g" \
         -e "s/@INSTALL_USER@/${REAL_USER}/g" \
+        -e "s/@INSTALL_GROUP@/${REAL_GROUP}/g" \
         "${src}" > "${tmp}"
     install -o "${owner}" -g "${group}" -m "${mode}" "${tmp}" "${dst}"
     rm -f "${tmp}"
@@ -148,7 +149,8 @@ do_selinux_restore() {
     restorecon \
         /usr/local/sbin/ai-tools-chown \
         /etc/sudoers.d/ai-tools-claude \
-        /etc/profile.d/path_dedup.sh
+        /etc/profile.d/path_dedup.sh \
+        /var/log/ai-tools-chown.log
     restorecon -R \
         /opt/ai-tools/bin/ \
         /opt/ai-tools/.claude/
@@ -266,6 +268,14 @@ do_install() {
     install_subst 750 root root \
         "${SCRIPT_DIR}/scripts/ai-tools-chown.sh" \
         /usr/local/sbin/ai-tools-chown
+
+    # Audit log for secret-named files the agent wrote (ai-tools-chown appends).
+    # Create root:root 600 so the record of secret *filenames* is not world-read.
+    # Never truncate an existing log.
+    log "system: /var/log/ai-tools-chown.log"
+    if [[ ! -e /var/log/ai-tools-chown.log ]]; then
+        install -o root -g root -m 600 /dev/null /var/log/ai-tools-chown.log
+    fi
 
     log "system: /etc/profile.d/path_dedup.sh"
     install -o root -g root -m 644 \

@@ -1,4 +1,53 @@
-# nvm-updater + ai-tools sandbox -- RHEL 9 setup
+# Claude Code on RHEL 9 — sandboxed `ai-tools` user + nvm auto-updater
+
+Run Anthropic's **Claude Code as a dedicated, unprivileged system user
+(`ai-tools`)** on RHEL 9 instead of as your own login account, and keep Node.js
+and the `claude` CLI current automatically.
+
+## Why
+
+Claude Code is an autonomous agent that reads, writes, and runs commands. Run as
+your own user it inherits everything you can touch — SSH keys, browser profiles,
+every project, your full sudo rights. This project gives the agent its own UID
+with a tightly scoped set of privileges instead:
+
+- **Separate identity** — `ai-tools` is a system account with no login shell and
+  no password. Claude executes under that UID via `sudo`, not as you.
+- **Launches only in approved projects** — a wrapper refuses to start Claude
+  unless the working directory is listed in `~/.config/ai-tools/allowed-projects`
+  (with `!` exclusions to carve out subdirectories or secrets).
+- **Minimal sudo surface** — `ai-tools` may run exactly one root command
+  (`ai-tools-chown`, which validates against the allowlist). You may run only
+  `claude` (and the pinned updater) as `ai-tools`. Nothing else.
+- **Ownership hand-back** — files Claude writes are chowned back to
+  `you:ai-tools` (group-readable, world-closed) inside approved paths only.
+  Secret-named files (`.env`, `*.key`, `*.pem`, SSH keys, `kubeconfig`, …) are
+  chowned to `you:you 600` instead, removing ai-tools' read access; a `NOTICE`
+  is written to the session and an audit log.
+- **Auto-updating** — a systemd user timer keeps Node v22 and
+  `@anthropic-ai/claude-code` current for both you and the sandbox user, pinned
+  to the same build.
+
+> **On the boundary.** The allowlist gates where Claude *launches* and which
+> files get ownership restored — it is not a kernel-enforced read boundary. Once
+> running as `ai-tools`, ordinary Unix permissions govern access; that is what
+> actually isolates the agent from other users' files. A per-session
+> `bubblewrap` mount namespace to make the allowlist a true access boundary is
+> proposed but not yet implemented.
+
+## Architecture at a glance
+
+```
+you type `claude`
+  └─ ~/.local/bin/claude                      (wrapper, runs as you)
+       ├─ CWD ∈ allowed-projects?             refuse if not, or if !-excluded
+       ├─ resolve /opt/ai-tools/bin/claude    (one readlink hop)
+       └─ exec sudo -u ai-tools -- <versioned claude>
+            └─ claude runs as ai-tools
+                 └─ on Write/Edit → PostToolUse hook
+                      └─ sudo ai-tools-chown <file>   (root; allowlist-checked)
+                           └─ chown you:ai-tools, strip world bits
+```
 
 ## Files
 
@@ -230,17 +279,10 @@ behalf.
     # Exclusions (!) override allows and are checked first.
     # Plain paths cover their contents automatically; no trailing /* needed.
 
-Example entry with exclusions:
-
-    /home/xd/Development/NDF26/RHEL-AI-LimitedToolsUser-ClaudeCode
-    !/home/xd/Development/NDF26/RHEL-AI-LimitedToolsUser-ClaudeCode/.env
-    !/home/xd/Development/NDF26/RHEL-AI-LimitedToolsUser-ClaudeCode/secrets
-
 **Register with git** so ai-tools can run `git mv` and other git commands inside
 the project (git refuses to operate on repos owned by a different user):
 
-    sudo git config --file /opt/ai-tools/.gitconfig \
-        --add safe.directory /home/xd/Development/NDF26/RHEL-AI-LimitedToolsUser-ClaudeCode
+    sudo git config --file /opt/ai-tools/.gitconfig --add safe.directory /path/to/project
 
 Repeat both the `allowed-projects` entry and the `safe.directory` command for
 each additional project.
@@ -252,11 +294,36 @@ each additional project.
 | Allowlist does not exist | blocked, helpful message | exits without acting |
 | CWD in allowlist | allowed | ownership restored only if needed |
 | CWD not in allowlist | blocked, helpful message | exits without acting |
-| Path matches `!` exclusion | n/a | exits without acting |
+| `!` exclusion matches | blocked when it is the CWD | skipped when it is the written file |
 
-The wrapper check fails fast at startup. The chown script is the security
-boundary — it validates the target path independently, so even if the wrapper
-is bypassed, the hook cannot act outside approved paths or on excluded files.
+Both the wrapper and the chown hook honor `!` exclusions, and check them before
+allows. The wrapper check fails fast at startup. The chown script is the
+security boundary — it validates the target path independently, so even if the
+wrapper is bypassed, the hook cannot act outside approved paths or on excluded
+files.
+
+### Protecting secrets from unlink/replace
+
+`ai-tools-chown` chowns a secret-named file to `you:you 600`, removing ai-tools'
+**read** access. ai-tools is a group-writer on the project dir, not its owner,
+so it can still **unlink or replace** the path: directory write permission, not
+the file's mode, governs that. A replacement is itself agent-written and
+re-triggers the same handling; the audit log is root-owned.
+
+A project-wide sticky bit (`chmod +t`) does not apply: ai-tools is a
+group-writer and handed-back files are `you`-owned, so a sticky root would block
+the agent's atomic-rename re-edits. To prevent unlink/replace of a secret, place
+it in a directory the agent cannot write and `!`-exclude that directory:
+
+    mkdir -p /path/to/project/secrets
+    chmod 700 /path/to/project/secrets        # you:you, no ai-tools access
+
+    # in ~/.config/ai-tools/allowed-projects:
+    !/path/to/project/secrets
+
+`700 you:you` removes ai-tools' search and write on the directory, so it cannot
+read, create, unlink, or replace anything inside; the `!` entry keeps
+`ai-tools-chown` off it if the mode later changes.
 
 ## 9a. Install systemd user units (normal user)
 

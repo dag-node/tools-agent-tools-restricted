@@ -52,6 +52,10 @@ fi
 
 # Allowlist guard: Claude Code only runs in explicitly approved directories.
 # Create ~/.config/ai-tools/allowed-projects (one path per line) before use.
+# Lines beginning with ! are exclusions. They override allows -- exactly as in
+# ai-tools-chown -- so ! means the same thing in the launch gate as it does in
+# the ownership hand-back: a subdirectory under an approved parent can be carved
+# back out, and Claude Code will refuse to start there.
 ALLOWLIST="${HOME}/.config/ai-tools/allowed-projects"
 if [[ ! -f "${ALLOWLIST}" ]]; then
     echo "claude: approved-projects allowlist not found" >&2
@@ -60,15 +64,44 @@ if [[ ! -f "${ALLOWLIST}" ]]; then
 fi
 cwd="$(realpath -e "${PWD}" 2>/dev/null)" \
     || { echo "claude: cannot resolve working directory" >&2; exit 1; }
-approved=false
+
+declare -a allowed=()
+declare -a excluded=()
 while IFS= read -r entry || [[ -n "${entry}" ]]; do
     [[ -z "${entry}" || "${entry}" == '#'* ]] && continue
-    dir="$(realpath -e "${entry}" 2>/dev/null)" || continue
-    if [[ "${cwd}" == "${dir}" || "${cwd}" == "${dir}/"* ]]; then
-        approved=true
-        break
+    if [[ "${entry}" == '!'* ]]; then
+        excluded+=("${entry:1}")              # strip leading !, keep raw (may contain glob)
+    else
+        dir="$(realpath -e "${entry}" 2>/dev/null)" || continue
+        allowed+=("${dir}")
     fi
 done < "${ALLOWLIST}"
+
+# Exclusions are checked first and override allows (mirrors ai-tools-chown).
+if [[ "${#excluded[@]}" -gt 0 ]]; then
+    for pat in "${excluded[@]}"; do
+        pat="${pat%/}"                         # normalise: strip trailing slash
+        if [[ "${cwd}" == ${pat} ]]; then
+            echo "claude: $(pwd): excluded by '!' rule in approved projects list" >&2
+            exit 1
+        fi
+        # For plain paths (no glob), also exclude directory contents
+        if [[ "${pat}" != *'*'* && "${cwd}" == "${pat}/"* ]]; then
+            echo "claude: $(pwd): excluded by '!' rule in approved projects list" >&2
+            exit 1
+        fi
+    done
+fi
+
+approved=false
+if [[ "${#allowed[@]}" -gt 0 ]]; then
+    for dir in "${allowed[@]}"; do
+        if [[ "${cwd}" == "${dir}" || "${cwd}" == "${dir}/"* ]]; then
+            approved=true
+            break
+        fi
+    done
+fi
 if [[ "${approved}" != true ]]; then
     echo "claude: $(pwd): not in approved projects list" >&2
     printf 'claude: add it to %s to enable Claude Code here\n' "${ALLOWLIST}" >&2

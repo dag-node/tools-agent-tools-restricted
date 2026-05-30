@@ -186,46 +186,70 @@ else
     fail "acted on file outside allowlist -- should have refused"
 fi
 
-# ── ai-tools-chown: hardcoded protections ────────────────────────────────────
+# ── ai-tools-chown: secret-named files (revoke access + notify) ──────────────
+#
+# Secret-named files the agent writes are NOT skipped. They are handed to the
+# user's PRIVATE group with group+world bits stripped (-> REAL_USER:REAL_GROUP
+# 600), which removes ai-tools' read access to the contents, AND a NOTICE is
+# emitted on stderr (the hook relays it to the session) + the audit log. The
+# list is a global net; per-project secrets use ! in the allowlist (tested
+# separately below).
+#
+# Invoked via setsid </dev/null to reach the non-interactive apply branch as the
+# hook does -- otherwise ai-tools-chown would prompt on /dev/tty mid-suite.
 
-section "ai-tools-chown: hardcoded credential/secret file protections"
+section "ai-tools-chown: secret-named files (revoke ai-tools access + notify)"
 
-# These files are inside the approved project directory but must never be chowned.
-# The test verifies the script exits 0 silently without changing ownership.
 for name in \
-    ".env"            \
     ".env.local"      \
     ".env.production" \
+    "id_ed25519"      \
     "server.key"      \
     "cert.pem"        \
+    "app.jks"         \
+    ".pgpass"         \
+    "kubeconfig"      \
     ".npmrc"          \
-    ".aiignore"       \
     "credentials"
 do
-    protected="${SCRIPT_DIR}/${name}"
-    # Never touch a pre-existing path: a real .env (etc.) in the project root
-    # would otherwise be modified here and rm -rf'd by cleanup, destroying data.
-    if [[ -e "${protected}" ]]; then
+    secret="${SCRIPT_DIR}/${name}"
+    # Never touch a pre-existing path: a real secret in the project root would
+    # otherwise be modified here and rm -rf'd by cleanup, destroying data.
+    if [[ -e "${secret}" ]]; then
         skip "${name}" "already exists in project -- not overwriting real file"
         continue
     fi
-    touch "${protected}"
-    chown "${REAL_USER}:${REAL_USER}" "${protected}"
-    _cleanup+=("${protected}")
+    printf 'x' > "${secret}"
+    chown ai-tools:ai-tools "${secret}"       # as if the agent just wrote it
+    chmod 0644 "${secret}"                     # world-readable on purpose
+    _cleanup+=("${secret}")
 
-    before="$(stat -c '%U:%G' "${protected}")"
-    exit_code=0
-    /usr/local/sbin/ai-tools-chown "${protected}" 2>/dev/null || exit_code=$?
-    after="$(stat -c '%U:%G' "${protected}")"
+    err="$(mktemp)"; _cleanup+=("${err}")
+    setsid /usr/local/sbin/ai-tools-chown "${secret}" < /dev/null > /dev/null 2>"${err}" || true
 
-    if [[ "${before}" == "${after}" && "${exit_code}" -eq 0 ]]; then
-        pass "${name}: skipped silently, ownership preserved"
-    elif [[ "${before}" != "${after}" ]]; then
-        fail "${name}: ownership changed from ${before} to ${after} -- protection missing"
+    owner="$(stat -c '%U:%G' "${secret}")"
+    mode="$( stat -c '%a'    "${secret}")"
+    if [[ "${owner}" == "${REAL_USER}:${REAL_GROUP}" && "${mode}" == "600" ]] \
+       && grep -q 'NOTICE' "${err}"; then
+        pass "${name}: -> ${REAL_USER}:${REAL_GROUP} 600 (ai-tools access removed) + NOTICE"
     else
-        fail "${name}: unexpected exit code ${exit_code}"
+        fail "${name}: got ${owner} ${mode}, notice='$(tr -d '\n' < "${err}")' (want ${REAL_USER}:${REAL_GROUP} 600 + NOTICE)"
     fi
 done
+
+# Ordinary (non-secret) file: normalized to REAL_USER:ai-tools 640 (group
+# ai-tools retained, world bits stripped) and NO notice emitted.
+ord="${SCRIPT_DIR}/.test_plain_$$"
+printf 'x' > "${ord}"; chown ai-tools:ai-tools "${ord}"; chmod 0644 "${ord}"
+_cleanup+=("${ord}")
+oerr="$(mktemp)"; _cleanup+=("${oerr}")
+setsid /usr/local/sbin/ai-tools-chown "${ord}" < /dev/null > /dev/null 2>"${oerr}" || true
+if [[ "$(stat -c '%U:%G' "${ord}")" == "${REAL_USER}:ai-tools" && "$(stat -c '%a' "${ord}")" == "640" ]] \
+   && ! grep -q 'NOTICE' "${oerr}"; then
+    pass "ordinary file: -> ${REAL_USER}:ai-tools 640, no NOTICE"
+else
+    fail "ordinary file: got $(stat -c '%U:%G' "${ord}") $(stat -c '%a' "${ord}"), notice='$(tr -d '\n' < "${oerr}")'"
+fi
 
 # ── ai-tools-chown: allowlist ! exclusion ────────────────────────────────────
 
@@ -308,6 +332,68 @@ if [[ "${after_owner}" == "${REAL_USER}:${REAL_USER}" ]]; then
     pass "hardlinked file (nlink>1) left untouched"
 else
     fail "hardlinked file was modified to ${after_owner} -- nlink>1 guard missing (TOCTOU hardlink vector)"
+fi
+
+# ── PostToolUse hook: ownership hand-back end-to-end ──────────────────────────
+#
+# Regression guard for the allowlist-pretest bug. The hook runs as ai-tools and
+# once began with `[[ -f "${ALLOWLIST}" ]] || exit 0`. The allowlist lives under
+# the install user's ~/.config (mode 700), which ai-tools cannot traverse -- so
+# that test was ALWAYS false and silently disabled the hook: files Claude wrote
+# stayed ai-tools:ai-tools and were never handed back. The fix removed the
+# pre-check; the allowlist is enforced by ai-tools-chown, which runs as root and
+# can read it.
+#
+# These exercise the hook the way Claude Code does: JSON on stdin, run as
+# ai-tools, detached from the controlling tty via setsid so ai-tools-chown takes
+# its non-interactive branch (otherwise it would prompt on /dev/tty mid-suite).
+
+section "PostToolUse hook: ownership hand-back end-to-end"
+
+hook="/opt/ai-tools/.claude/post-write-hook.sh"
+
+run_hook() {
+    printf '{"tool_input":{"file_path":"%s"}}' "$1" \
+        | timeout 15 setsid sudo -u ai-tools -g ai-tools "${hook}" \
+            > /dev/null 2>&1 || true
+}
+
+if [[ ! -x "${hook}" ]]; then
+    skip "hook end-to-end" "hook not installed at ${hook}"
+else
+    # (A) An ai-tools-owned file in this approved project must be handed back.
+    hk="${SCRIPT_DIR}/.test_hook_$$"
+    : > "${hk}"; chown ai-tools:ai-tools "${hk}"; chmod 0600 "${hk}"
+    _cleanup+=("${hk}")
+    run_hook "${hk}"
+    if [[ "$(stat -c '%U:%G' "${hk}")" == "${REAL_USER}:ai-tools" ]]; then
+        pass "hook hands ai-tools-owned file back to ${REAL_USER}:ai-tools"
+    else
+        fail "hook left ${hk} as $(stat -c '%U:%G' "${hk}") -- allowlist-pretest regression?"
+    fi
+
+    # (B) A secret file (matched by ai-tools-chown's basename guard) must be
+    #     delegated but left untouched -- proves the hook isn't blanket-chowning.
+    hs="${SCRIPT_DIR}/.env.test_hook_$$"
+    : > "${hs}"; chown ai-tools:ai-tools "${hs}"; chmod 0600 "${hs}"
+    _cleanup+=("${hs}")
+    run_hook "${hs}"
+    if [[ "$(stat -c '%U:%G' "${hs}")" == "ai-tools:ai-tools" ]]; then
+        pass "hook leaves secret file (.env.*) untouched via ai-tools-chown guard"
+    else
+        fail "secret file ownership changed to $(stat -c '%U:%G' "${hs}") -- guard bypassed"
+    fi
+
+    # (C) Static pin: a reintroduced allowlist pre-check (which ai-tools cannot
+    #     satisfy) would silently disable hand-back. The fixed hook has no
+    #     ALLOWLIST in code -- enforcement belongs to root-side ai-tools-chown.
+    #     Comment lines are stripped first so the rationale comment (which names
+    #     ALLOWLIST) does not trip the guard.
+    if grep -vE '^[[:space:]]*#' "${hook}" | grep -q 'ALLOWLIST'; then
+        fail "hook has a non-comment ALLOWLIST reference -- the silently-disabling pre-check may be back"
+    else
+        pass "hook code has no ALLOWLIST pre-check (delegates enforcement to ai-tools-chown)"
+    fi
 fi
 
 # ── Systemd timer ─────────────────────────────────────────────────────────────
