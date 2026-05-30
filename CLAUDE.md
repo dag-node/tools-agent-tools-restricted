@@ -63,8 +63,8 @@ to `ai-tools` actually takes effect and the binary is owned by `ai-tools`.
 When multiple v22 versions exist, `nvm ls-remote | sort -V | tail -1` always
 selects the highest semver — not "first match" or "currently active". Prune
 logic collects all versions referenced by any named alias into an associative
-array before removing anything, so you can't accidentally delete a version
-another alias points to.
+array before removing anything, so a version another alias points to is
+retained.
 
 ### Wrapper safety check
 The wrapper resolves `/opt/ai-tools/bin/claude` with a single `readlink` hop,

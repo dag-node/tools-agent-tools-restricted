@@ -109,13 +109,12 @@ fi
 
 # ── Wrapper symlink check (unreadable final target) ───────────────────────────
 #
-# Regression guard. The wrapper once tested the stable link with `[[ -e ]]`,
-# which dereferences the FULL chain (bin/claude -> versioned bin/claude ->
-# .../claude-code/bin/claude.exe). claude.exe lives in the package dir, mode 700
-# owned ai-tools, so the invoking user cannot stat the final target (EACCES) and
-# -e falsely reported the link as missing -- the wrapper bailed with "claude
-# symlink not found" on a perfectly valid link. The fix tests the link itself
-# with `[[ -L ]]`, which does not traverse past the first hop.
+# Pins the wrapper's link-existence check to `[[ -L ]]`, not `[[ -e ]]`. `[[ -e ]]`
+# dereferences the FULL chain (bin/claude -> versioned bin/claude ->
+# .../claude-code/bin/claude.exe); claude.exe lives in the package dir (mode 700,
+# ai-tools), so the invoking user cannot stat the final target (EACCES) and -e
+# reports a valid link as missing. `[[ -L ]]` tests the link itself and does not
+# traverse past the first hop.
 
 section "Wrapper symlink check (unreadable final target)"
 
@@ -188,12 +187,11 @@ fi
 
 # ── ai-tools-chown: secret-named files (revoke access + notify) ──────────────
 #
-# Secret-named files the agent writes are NOT skipped. They are handed to the
-# user's PRIVATE group with group+world bits stripped (-> REAL_USER:REAL_GROUP
-# 600), which removes ai-tools' read access to the contents, AND a NOTICE is
-# emitted on stderr (the hook relays it to the session) + the audit log. The
-# list is a global net; per-project secrets use ! in the allowlist (tested
-# separately below).
+# Secret-named files the agent writes are chowned to the user's PRIVATE group
+# with group+world bits stripped (-> REAL_USER:REAL_GROUP 600), which removes
+# ai-tools' read access to the contents, and a NOTICE is emitted on stderr (the
+# hook relays it to the session) and the audit log. The list is a global net;
+# per-project secrets use ! in the allowlist (tested separately below).
 #
 # Invoked via setsid </dev/null to reach the non-interactive apply branch as the
 # hook does -- otherwise ai-tools-chown would prompt on /dev/tty mid-suite.
@@ -336,13 +334,12 @@ fi
 
 # ── PostToolUse hook: ownership hand-back end-to-end ──────────────────────────
 #
-# Regression guard for the allowlist-pretest bug. The hook runs as ai-tools and
-# once began with `[[ -f "${ALLOWLIST}" ]] || exit 0`. The allowlist lives under
-# the install user's ~/.config (mode 700), which ai-tools cannot traverse -- so
-# that test was ALWAYS false and silently disabled the hook: files Claude wrote
-# stayed ai-tools:ai-tools and were never handed back. The fix removed the
-# pre-check; the allowlist is enforced by ai-tools-chown, which runs as root and
-# can read it.
+# Pins the hook's invariant: it MUST NOT pre-check the allowlist with
+# `[[ -f "${ALLOWLIST}" ]]`. The allowlist lives under the install user's
+# ~/.config (mode 700), which ai-tools cannot traverse, so that test is always
+# false and disables the hook (files stay ai-tools:ai-tools, not handed back).
+# Allowlist enforcement belongs to ai-tools-chown, which runs as root and reads
+# it.
 #
 # These exercise the hook the way Claude Code does: JSON on stdin, run as
 # ai-tools, detached from the controlling tty via setsid so ai-tools-chown takes
@@ -369,26 +366,27 @@ else
     if [[ "$(stat -c '%U:%G' "${hk}")" == "${REAL_USER}:ai-tools" ]]; then
         pass "hook hands ai-tools-owned file back to ${REAL_USER}:ai-tools"
     else
-        fail "hook left ${hk} as $(stat -c '%U:%G' "${hk}") -- allowlist-pretest regression?"
+        fail "hook did not hand back ${hk}: $(stat -c '%U:%G' "${hk}") (want ${REAL_USER}:ai-tools)"
     fi
 
-    # (B) A secret file (matched by ai-tools-chown's basename guard) must be
-    #     delegated but left untouched -- proves the hook isn't blanket-chowning.
+    # (B) A secret-named file routed through the hook reaches ai-tools-chown's
+    #     secret path: chowned to the user's private group (REAL_USER:REAL_GROUP
+    #     600), revoking ai-tools access.
     hs="${SCRIPT_DIR}/.env.test_hook_$$"
     : > "${hs}"; chown ai-tools:ai-tools "${hs}"; chmod 0600 "${hs}"
     _cleanup+=("${hs}")
     run_hook "${hs}"
-    if [[ "$(stat -c '%U:%G' "${hs}")" == "ai-tools:ai-tools" ]]; then
-        pass "hook leaves secret file (.env.*) untouched via ai-tools-chown guard"
+    if [[ "$(stat -c '%U:%G' "${hs}")" == "${REAL_USER}:${REAL_GROUP}" ]]; then
+        pass "hook routes secret-named file to ${REAL_USER}:${REAL_GROUP} (ai-tools access revoked)"
     else
-        fail "secret file ownership changed to $(stat -c '%U:%G' "${hs}") -- guard bypassed"
+        fail "secret-named file ended $(stat -c '%U:%G' "${hs}") (want ${REAL_USER}:${REAL_GROUP})"
     fi
 
-    # (C) Static pin: a reintroduced allowlist pre-check (which ai-tools cannot
-    #     satisfy) would silently disable hand-back. The fixed hook has no
-    #     ALLOWLIST in code -- enforcement belongs to root-side ai-tools-chown.
-    #     Comment lines are stripped first so the rationale comment (which names
-    #     ALLOWLIST) does not trip the guard.
+    # (C) Static pin: an allowlist pre-check in code (which ai-tools cannot
+    #     satisfy) disables hand-back, so the hook keeps no ALLOWLIST in code --
+    #     enforcement belongs to root-side ai-tools-chown. Comment lines are
+    #     stripped first so the rationale comment (which names ALLOWLIST) does not
+    #     trip the guard.
     if grep -vE '^[[:space:]]*#' "${hook}" | grep -q 'ALLOWLIST'; then
         fail "hook has a non-comment ALLOWLIST reference -- the silently-disabling pre-check may be back"
     else

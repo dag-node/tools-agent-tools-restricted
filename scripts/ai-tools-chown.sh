@@ -44,12 +44,11 @@ _notify_secret() {
 # Resolve to canonical path to block symlink traversal
 canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
 
-# Credential/secret basename patterns. A match no longer skips the file -- it is
-# handed back like any other (chown + world-bit strip) but ALSO flagged via
-# _notify_secret on the apply path, so the user is told whenever the agent wrote
-# something secret-looking. Basename-safe globs only (deliberately no bare
-# 'config' etc. that would flag innocuous files). Per-project secrets should be
-# carved out with ! in the allowlist; that path still leaves ownership intact.
+# Credential/secret basename patterns (basename-safe globs only; no bare 'config'
+# etc. that would match innocuous files). A match sets is_secret, so the apply
+# path chowns the file to SECRET_OWNER, strips group+world bits, and emits a
+# NOTICE via _notify_secret. Per-project secrets belong in ! allowlist
+# exclusions, which leave ownership intact.
 is_secret=false
 _base="$(basename "${canonical}")"
 for _pat in \
