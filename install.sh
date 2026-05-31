@@ -211,7 +211,8 @@ do_summary() {
     _chk /etc/profile.d/path_dedup.sh
     _chk /opt/ai-tools/bin/nvm-update.sh
     _chk /opt/ai-tools/bin/claude
-    _chk /opt/ai-tools/.claude/post-write-hook.sh
+    _chk /opt/ai-tools/.claude/post-tool-hook.sh
+    _chk /opt/ai-tools/.claude/post-write-sweep.sh
     _chk /opt/ai-tools/.claude/settings.json
     _chk "${REAL_HOME}/.local/bin/claude"
     _chk "${REAL_HOME}/.local/bin/nvm-update.sh"
@@ -319,7 +320,7 @@ do_install() {
 
     # /opt/ai-tools/.claude holds both mutable agent state (sessions/, history,
     # credentials -- ai-tools-owned) AND the root-of-trust control files
-    # (settings.json, post-write-hook.sh). Owning the control files as the install
+    # (settings.json, post-tool-hook.sh). Owning the control files as the install
     # user is not enough on its own: a group-writer can unlink+recreate any file
     # in a dir it can write. So the dir is owned by the install user (NOT ai-tools)
     # with setgid+sticky (3770): ai-tools stays a group-writer -- it can create and
@@ -332,8 +333,11 @@ do_install() {
     chown "${REAL_USER}:ai-tools" /opt/ai-tools/.claude
     chmod 3770 /opt/ai-tools/.claude
     install_subst 750 "${REAL_USER}" ai-tools \
-        "${SCRIPT_DIR}/scripts/post-write-hook.sh" \
-        /opt/ai-tools/.claude/post-write-hook.sh
+        "${SCRIPT_DIR}/scripts/post-tool-hook.sh" \
+        /opt/ai-tools/.claude/post-tool-hook.sh
+    install_subst 750 "${REAL_USER}" ai-tools \
+        "${SCRIPT_DIR}/scripts/post-write-sweep.sh" \
+        /opt/ai-tools/.claude/post-write-sweep.sh
     install -o "${REAL_USER}" -g ai-tools -m 640 \
         "${SCRIPT_DIR}/scripts/claude-settings.json" \
         /opt/ai-tools/.claude/settings.json
@@ -422,7 +426,8 @@ do_uninstall() {
 
     log "removing ai-tools files"
     rm -f /opt/ai-tools/bin/nvm-update.sh
-    rm -f /opt/ai-tools/.claude/post-write-hook.sh
+    rm -f /opt/ai-tools/.claude/post-tool-hook.sh
+    rm -f /opt/ai-tools/.claude/post-write-sweep.sh
     rm -f /opt/ai-tools/.claude/settings.json
 
     log "removing user files"

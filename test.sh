@@ -73,7 +73,8 @@ check_file /opt/ai-tools/bin                          "${REAL_USER}"    ai-tools
 # (running as ai-tools) gets group read/exec but no write, so it cannot rewrite
 # its own updater, hook, or hook config.
 check_file /opt/ai-tools/bin/nvm-update.sh            "${REAL_USER}"    ai-tools          550
-check_file /opt/ai-tools/.claude/post-write-hook.sh   "${REAL_USER}"    ai-tools          750
+check_file /opt/ai-tools/.claude/post-tool-hook.sh   "${REAL_USER}"    ai-tools          750
+check_file /opt/ai-tools/.claude/post-write-sweep.sh  "${REAL_USER}"    ai-tools          750
 check_file /opt/ai-tools/.claude/settings.json        "${REAL_USER}"    ai-tools          640
 # .claude must be install-user-owned (not ai-tools) with setgid+sticky (3770):
 # ai-tools is a group-writer for its own state but cannot unlink/replace the
@@ -496,7 +497,7 @@ fi
 
 section "PostToolUse hook: ownership hand-back end-to-end"
 
-hook="/opt/ai-tools/.claude/post-write-hook.sh"
+hook="/opt/ai-tools/.claude/post-tool-hook.sh"
 
 run_hook() {
     printf '{"tool_input":{"file_path":"%s"}}' "$1" \
@@ -557,6 +558,41 @@ else
         fail "hook has a non-comment ALLOWLIST reference -- the silently-disabling pre-check may be back"
     else
         pass "hook code has no ALLOWLIST pre-check (delegates enforcement to ai-tools-chown)"
+    fi
+fi
+
+# ── Stop hook: turn-end sweep of Bash-created files ──────────────────────────
+#
+# The Stop sweep catches files the precise Write|Edit hook cannot: those created
+# via the Bash tool (no file_path). It reads .cwd from the hook JSON, finds
+# ai-tools-owned paths under it, and hands each to ai-tools-chown. Run as ai-tools
+# (as Claude runs it), detached via setsid so the inner sudo ai-tools-chown takes
+# its non-interactive branch.
+
+section "Stop hook: turn-end sweep of Bash-created files"
+
+sweep="/opt/ai-tools/.claude/post-write-sweep.sh"
+
+run_sweep() {
+    printf '{"cwd":"%s"}' "$1" \
+        | timeout 30 setsid sudo -u ai-tools -g ai-tools "${sweep}" \
+            > /dev/null 2>&1 || true
+}
+
+if [[ ! -x "${sweep}" ]]; then
+    skip "stop sweep" "not installed at ${sweep}"
+else
+    # Force a full scan (no marker) so the freshly-created file is found
+    # deterministically regardless of prior sweep state.
+    rm -f /opt/ai-tools/.claude/.sweep-marker 2>/dev/null || true
+    sw="${SCRIPT_DIR}/.test_sweep_$$"
+    : > "${sw}"; chown ai-tools:ai-tools "${sw}"; chmod 0644 "${sw}"
+    _cleanup+=("${sw}")
+    run_sweep "${SCRIPT_DIR}"
+    if [[ "$(stat -c '%U:%G' "${sw}")" == "${REAL_USER}:ai-tools" ]]; then
+        pass "Stop sweep hands back a Bash-created (ai-tools-owned) file"
+    else
+        fail "Stop sweep did not hand back ${sw}: $(stat -c '%U:%G' "${sw}") (want ${REAL_USER}:ai-tools)"
     fi
 fi
 

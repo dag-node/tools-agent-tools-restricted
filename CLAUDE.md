@@ -35,6 +35,15 @@ current for both your login user and the sandbox user, pinned to the same build.
    files (`.env`, `*.key`, SSH keys, `kubeconfig`, …) are instead moved to your
    private group with group+world bits stripped (`<you>:<you> 600`), revoking
    ai-tools' read access, with a `NOTICE` surfaced in the session + audit log.
+5. The `PostToolUse` hook only fires for `Write`/`Edit`, so files the agent
+   creates via the `Bash` tool (build output, codegen, `mv`, redirects) carry no
+   `file_path` and are missed. A `Stop` hook (`post-write-sweep.sh`) closes that
+   gap: at each turn's end it reads `.cwd`, finds the `ai-tools`-owned paths under
+   it (bounded by a timestamp marker, heavy trees like `.git`/`node_modules`
+   pruned) and hands each to the same `ai-tools-chown`. It runs at turn end, not
+   per-Bash-call, so handing a file to `640` (group loses write) can't break an
+   in-progress in-place Bash edit. PostToolUse stays the immediate path — only it
+   quarantines a secret the instant it is written; Stop is the catch-all net.
 
 ## Security model — what `ai-tools` can and cannot do
 
@@ -107,7 +116,7 @@ also covers its contents; globs match as-is).
 
 ### Control-plane file integrity (`/opt/ai-tools/.claude`, `bin/nvm-update.sh`)
 The files that drive the sandbox's own enforcement — `settings.json` (declares
-the `PostToolUse` hook), `post-write-hook.sh` (the hook body), and
+the `PostToolUse` hook), `post-tool-hook.sh` (the hook body), and
 `bin/nvm-update.sh` (the updater the sudoers rule lets you run as `ai-tools`) —
 must not be writable by the agent, or it could disable its own hand-back and
 secret-quarantine guardrails. They are owned `<you>:ai-tools` (group read/exec,

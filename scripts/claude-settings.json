@@ -23,7 +23,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/opt/ai-tools/.claude/post-write-hook.sh"
+            "command": "/opt/ai-tools/.claude/post-tool-hook.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/ai-tools/.claude/post-write-sweep.sh"
           }
         ]
       }

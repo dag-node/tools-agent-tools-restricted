@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# /opt/ai-tools/.claude/post-write-hook.sh
+# /opt/ai-tools/.claude/post-tool-hook.sh
 # PostToolUse hook for Write|Edit tools. Restores @INSTALL_USER@:ai-tools ownership
 # on files Claude Code rewrote via atomic rename (which stamps the writer's UID).
 #
@@ -21,7 +21,7 @@
 # tool sets on shebang files regardless of umask.
 #
 # Deploy: sudo install -o ai-tools -g ai-tools -m 750 \
-#             scripts/post-write-hook.sh /opt/ai-tools/.claude/post-write-hook.sh
+#             scripts/post-tool-hook.sh /opt/ai-tools/.claude/post-tool-hook.sh
 
 set -euo pipefail
 

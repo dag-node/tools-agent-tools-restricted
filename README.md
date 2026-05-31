@@ -61,7 +61,7 @@ you type `claude`
 | scripts/ai-tools-chown.sh | /usr/local/sbin/ai-tools-chown (root) |
 | scripts/ai-tools-claude-symlink.sh | /usr/local/sbin/ai-tools-claude-symlink (root) |
 | scripts/claude-wrapper.sh | ~/.local/bin/claude |
-| scripts/post-write-hook.sh | /opt/ai-tools/.claude/post-write-hook.sh |
+| scripts/post-tool-hook.sh | /opt/ai-tools/.claude/post-tool-hook.sh |
 | scripts/claude-settings.json | /opt/ai-tools/.claude/settings.json |
 | services/nvm-update.service | ~/.config/systemd/user/nvm-update.service |
 | services/nvm-update.timer | ~/.config/systemd/user/nvm-update.timer |
@@ -249,7 +249,7 @@ anything new.
 
 ## 7a. Install global Claude Code settings (once)
 
-After every `Write` or `Edit` tool call, `post-write-hook.sh` checks whether
+After every `Write` or `Edit` tool call, `post-tool-hook.sh` checks whether
 ownership needs restoring and, only if it does, calls `ai-tools-chown` via
 sudo. When ownership is already `xd:ai-tools` the hook exits immediately
 without invoking sudo or generating a PAM session entry. The hook also walks the
@@ -287,7 +287,7 @@ own.
     sudo chown "${USER}:ai-tools" /opt/ai-tools/.claude
     sudo chmod 3770 /opt/ai-tools/.claude         # setgid + sticky, group-writable
     sudo install -o "${USER}" -g ai-tools -m 750 \
-        scripts/post-write-hook.sh /opt/ai-tools/.claude/post-write-hook.sh
+        scripts/post-tool-hook.sh /opt/ai-tools/.claude/post-tool-hook.sh
     sudo install -o "${USER}" -g ai-tools -m 640 \
         scripts/claude-settings.json /opt/ai-tools/.claude/settings.json
 
