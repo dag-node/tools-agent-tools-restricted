@@ -56,11 +56,25 @@ check_file() {
 
 section "File permissions"
 check_file /usr/local/sbin/ai-tools-chown            root              root              750
+check_file /usr/local/sbin/ai-tools-claude-symlink   root              root              750
 check_file /etc/sudoers.d/ai-tools-claude             root              root              440
 check_file /etc/profile.d/path_dedup.sh               root              root              644
-check_file /opt/ai-tools/bin/nvm-update.sh            ai-tools          ai-tools          750
-check_file /opt/ai-tools/.claude/post-write-hook.sh   ai-tools          ai-tools          750
-check_file /opt/ai-tools/.claude/settings.json        ai-tools          ai-tools          640
+# /opt/ai-tools/bin is locked: owned by the install user (NOT ai-tools), 550, so
+# ai-tools has group r-x but no write. The agent can execute nvm-update.sh and
+# resolve the claude symlink, but cannot edit the updater or swap the symlink --
+# only root (via ai-tools-claude-symlink) writes here.
+check_file /opt/ai-tools/bin                          "${REAL_USER}"    ai-tools          550
+# Control-plane files: owned by the install user, group ai-tools. The agent
+# (running as ai-tools) gets group read/exec but no write, so it cannot rewrite
+# its own updater, hook, or hook config.
+check_file /opt/ai-tools/bin/nvm-update.sh            "${REAL_USER}"    ai-tools          550
+check_file /opt/ai-tools/.claude/post-write-hook.sh   "${REAL_USER}"    ai-tools          750
+check_file /opt/ai-tools/.claude/settings.json        "${REAL_USER}"    ai-tools          640
+# .claude must be install-user-owned (not ai-tools) with setgid+sticky (3770):
+# ai-tools is a group-writer for its own state but cannot unlink/replace the
+# install-user-owned control files above. Owned by ai-tools, or without the
+# sticky bit, the agent could delete and recreate them.
+check_file /opt/ai-tools/.claude                      "${REAL_USER}"    ai-tools          3770
 check_file "${REAL_HOME}/.local/bin/claude"            "${REAL_USER}"    "${REAL_GROUP}"   750
 check_file "${REAL_HOME}/.local/bin/nvm-update.sh"     "${REAL_USER}"    "${REAL_GROUP}"   750
 check_file "${REAL_HOME}/.config/systemd/user/nvm-update.service" \
@@ -249,6 +263,26 @@ else
     fail "ordinary file: got $(stat -c '%U:%G' "${ord}") $(stat -c '%a' "${ord}"), notice='$(tr -d '\n' < "${oerr}")'"
 fi
 
+# A secret-named file the agent did NOT write (owned by REAL_USER, not ai-tools)
+# is NOT a breach: ai-tools never had write access to it. It must be left
+# completely untouched, with NO 'breached' NOTICE -- otherwise the user gets a
+# false alarm to rotate a secret the agent could not have read or modified.
+usecret="${SCRIPT_DIR}/.env.user_owned_$$"
+if [[ -e "${usecret}" ]]; then
+    skip ".env.user_owned" "already exists in project -- not overwriting real file"
+else
+    printf 'x' > "${usecret}"; chown "${REAL_USER}:${REAL_USER}" "${usecret}"; chmod 0600 "${usecret}"
+    _cleanup+=("${usecret}")
+    uerr="$(mktemp)"; _cleanup+=("${uerr}")
+    setsid /usr/local/sbin/ai-tools-chown "${usecret}" < /dev/null > /dev/null 2>"${uerr}" || true
+    if [[ "$(stat -c '%U:%G' "${usecret}")" == "${REAL_USER}:${REAL_USER}" && "$(stat -c '%a' "${usecret}")" == "600" ]] \
+       && ! grep -q 'NOTICE' "${uerr}"; then
+        pass "user-owned secret left untouched, no false breach NOTICE"
+    else
+        fail "user-owned secret: got $(stat -c '%U:%G' "${usecret}") $(stat -c '%a' "${usecret}"), notice='$(tr -d '\n' < "${uerr}")' (must be unchanged + no NOTICE)"
+    fi
+fi
+
 # ── ai-tools-chown: allowlist ! exclusion ────────────────────────────────────
 
 section "ai-tools-chown: allowlist ! exclusion"
@@ -295,9 +329,10 @@ section "ai-tools-chown: TOCTOU-safe apply"
 
 run_chown() { setsid /usr/local/sbin/ai-tools-chown "$1" < /dev/null > /dev/null 2>&1 || true; }
 
-# (1) Regular world-readable file under an approved dir: chowned + world bits gone.
+# (1) Regular world-readable file the agent just wrote (ai-tools:ai-tools):
+#     chowned to REAL_USER:ai-tools + world bits gone.
 ap="${SCRIPT_DIR}/.test_apply_$$"
-printf 'x' > "${ap}"; chown "${REAL_USER}:${REAL_USER}" "${ap}"; chmod 0644 "${ap}"
+printf 'x' > "${ap}"; chown ai-tools:ai-tools "${ap}"; chmod 0644 "${ap}"
 _cleanup+=("${ap}")
 run_chown "${ap}"
 if [[ "$(stat -c '%U:%G' "${ap}")" == "${REAL_USER}:ai-tools" && "$(stat -c '%a' "${ap}")" == "640" ]]; then
@@ -308,13 +343,25 @@ fi
 
 # (2) Empty file ("regular empty file" in stat %F) must still be handled.
 ep="${SCRIPT_DIR}/.test_empty_$$"
-: > "${ep}"; chown "${REAL_USER}:${REAL_USER}" "${ep}"; chmod 0666 "${ep}"
+: > "${ep}"; chown ai-tools:ai-tools "${ep}"; chmod 0666 "${ep}"
 _cleanup+=("${ep}")
 run_chown "${ep}"
 if [[ "$(stat -c '%U:%G' "${ep}")" == "${REAL_USER}:ai-tools" && "$(stat -c '%a' "${ep}")" == "660" ]]; then
     pass "empty file: chowned and world bits stripped (666 -> 660)"
 else
     fail "empty file: expected ${REAL_USER}:ai-tools 660, got $(stat -c '%U:%G' "${ep}") $(stat -c '%a' "${ep}")"
+fi
+
+# (2b) A file the agent did NOT write (owned by REAL_USER, not ai-tools) must be
+#      left untouched -- ai-tools-chown only acts on agent-written paths.
+np="${SCRIPT_DIR}/.test_noown_$$"
+printf 'x' > "${np}"; chown "${REAL_USER}:${REAL_USER}" "${np}"; chmod 0644 "${np}"
+_cleanup+=("${np}")
+run_chown "${np}"
+if [[ "$(stat -c '%U:%G' "${np}")" == "${REAL_USER}:${REAL_USER}" && "$(stat -c '%a' "${np}")" == "644" ]]; then
+    pass "non-agent-written file left untouched (owner/mode unchanged)"
+else
+    fail "non-agent-written file was modified to $(stat -c '%U:%G' "${np}") $(stat -c '%a' "${np}") -- agent-owned guard missing"
 fi
 
 # (3) Hardlinked file (nlink > 1) under an approved dir must be left untouched:
@@ -330,6 +377,33 @@ if [[ "${after_owner}" == "${REAL_USER}:${REAL_USER}" ]]; then
     pass "hardlinked file (nlink>1) left untouched"
 else
     fail "hardlinked file was modified to ${after_owner} -- nlink>1 guard missing (TOCTOU hardlink vector)"
+fi
+
+# (4) Directory the agent created: chowned to REAL_USER:ai-tools with world bits
+#     stripped but group rwx preserved (the agent must keep writing into a dir it
+#     made). 755 (world-traversable, ai-tools-owned) -> 770. nlink >= 2 must NOT
+#     trip the hardlink guard, which applies to regular files only.
+dp="${SCRIPT_DIR}/.test_dir_$$"
+mkdir "${dp}"; chown ai-tools:ai-tools "${dp}"; chmod 0755 "${dp}"
+_cleanup+=("${dp}")
+run_chown "${dp}"
+if [[ "$(stat -c '%U:%G' "${dp}")" == "${REAL_USER}:ai-tools" && "$(stat -c '%a' "${dp}")" == "770" ]]; then
+    pass "directory: chowned to ${REAL_USER}:ai-tools, world bits stripped, group rwx kept (755 -> 770)"
+else
+    fail "directory: expected ${REAL_USER}:ai-tools 770, got $(stat -c '%U:%G' "${dp}") $(stat -c '%a' "${dp}")"
+fi
+
+# (5) A directory the agent did NOT create (owned by REAL_USER, not ai-tools)
+#     must be left completely untouched: normalizing it would grant ai-tools the
+#     group rwx it never had. Pins the dir-owner guard against regression.
+up="${SCRIPT_DIR}/.test_userdir_$$"
+mkdir "${up}"; chown "${REAL_USER}:${REAL_USER}" "${up}"; chmod 0700 "${up}"
+_cleanup+=("${up}")
+run_chown "${up}"
+if [[ "$(stat -c '%U:%G' "${up}")" == "${REAL_USER}:${REAL_USER}" && "$(stat -c '%a' "${up}")" == "700" ]]; then
+    pass "user-owned directory left untouched (no group access granted to ai-tools)"
+else
+    fail "user-owned directory was modified to $(stat -c '%U:%G' "${up}") $(stat -c '%a' "${up}") -- dir-owner guard missing (ai-tools gained access)"
 fi
 
 # ── PostToolUse hook: ownership hand-back end-to-end ──────────────────────────
@@ -382,7 +456,24 @@ else
         fail "secret-named file ended $(stat -c '%U:%G' "${hs}") (want ${REAL_USER}:${REAL_GROUP})"
     fi
 
-    # (C) Static pin: an allowlist pre-check in code (which ai-tools cannot
+    # (C) A directory the write newly created is handed back too. The hook walks
+    #     up from the written file's dir, handing back each ai-tools-owned
+    #     ancestor and stopping at the pre-existing (REAL_USER-owned) tree. Here
+    #     the new dir's parent is the project root (REAL_USER-owned), so exactly
+    #     the new dir is normalized -- to REAL_USER:ai-tools, world bits stripped.
+    hd="${SCRIPT_DIR}/.test_hookdir_$$"
+    mkdir "${hd}"; chown ai-tools:ai-tools "${hd}"; chmod 0755 "${hd}"
+    hdf="${hd}/file"
+    : > "${hdf}"; chown ai-tools:ai-tools "${hdf}"; chmod 0600 "${hdf}"
+    _cleanup+=("${hd}")
+    run_hook "${hdf}"
+    if [[ "$(stat -c '%U:%G' "${hd}")" == "${REAL_USER}:ai-tools" && "$(stat -c '%a' "${hd}")" == "770" ]]; then
+        pass "hook normalizes a newly-created parent dir to ${REAL_USER}:ai-tools 770"
+    else
+        fail "hook did not normalize new dir ${hd}: $(stat -c '%U:%G' "${hd}") $(stat -c '%a' "${hd}") (want ${REAL_USER}:ai-tools 770)"
+    fi
+
+    # (D) Static pin: an allowlist pre-check in code (which ai-tools cannot
     #     satisfy) disables hand-back, so the hook keeps no ALLOWLIST in code --
     #     enforcement belongs to root-side ai-tools-chown. Comment lines are
     #     stripped first so the rationale comment (which names ALLOWLIST) does not
@@ -391,6 +482,54 @@ else
         fail "hook has a non-comment ALLOWLIST reference -- the silently-disabling pre-check may be back"
     else
         pass "hook code has no ALLOWLIST pre-check (delegates enforcement to ai-tools-chown)"
+    fi
+fi
+
+# ── ai-tools-claude-symlink: validation + idempotent repoint ─────────────────
+#
+# The root helper is the only writer of the locked /opt/ai-tools/bin. It must
+# repoint the stable symlink ONLY at a path matching the versioned claude shape
+# (it cannot trust the sudoers glob, whose argument wildcard can match '/'), and
+# must refuse anything else. Refusal cases below touch nothing; the happy-path
+# case repoints to the symlink's CURRENT target, so it is idempotent.
+
+section "ai-tools-claude-symlink: validation + idempotent repoint"
+
+helper="/usr/local/sbin/ai-tools-claude-symlink"
+if [[ ! -x "${helper}" ]]; then
+    skip "symlink helper" "not installed at ${helper}"
+else
+    # (A) Refuse paths outside the versioned-claude shape (no write, exit != 0).
+    for bogus in \
+        "/etc/passwd" \
+        "/opt/ai-tools/.nvm/versions/node/v22.0.0/../../../../bin/sh" \
+        "/opt/ai-tools/.nvm/versions/node/v22.0.0/bin/node"
+    do
+        if "${helper}" "${bogus}" >/dev/null 2>&1; then
+            fail "helper accepted a non-versioned-claude target: ${bogus}"
+        else
+            pass "helper refuses non-versioned-claude target: ${bogus}"
+        fi
+    done
+
+    # (B) Refuse a correctly-shaped but non-existent version.
+    if "${helper}" "/opt/ai-tools/.nvm/versions/node/v0.0.0/bin/claude" >/dev/null 2>&1; then
+        fail "helper accepted a versioned path that does not exist (v0.0.0)"
+    else
+        pass "helper refuses a versioned path that does not exist"
+    fi
+
+    # (C) Idempotent happy path: repoint to the link's current versioned target.
+    cur="$(readlink /opt/ai-tools/bin/claude 2>/dev/null || true)"
+    if [[ "${cur}" =~ ^/opt/ai-tools/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+/bin/claude$ && -e "${cur}" ]]; then
+        if "${helper}" "${cur}" >/dev/null 2>&1 \
+           && [[ "$(readlink /opt/ai-tools/bin/claude)" == "${cur}" ]]; then
+            pass "helper repoints the symlink at a valid versioned target (idempotent)"
+        else
+            fail "helper failed to repoint the symlink at its current valid target ${cur}"
+        fi
+    else
+        skip "helper happy path" "current symlink target is not a resolvable versioned claude path"
     fi
 fi
 

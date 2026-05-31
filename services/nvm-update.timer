@@ -4,7 +4,7 @@ Requires=nvm-update.service
 
 [Timer]
 # Fire at 10:05 local time daily
-OnCalendar=*-*-* 10:05:00
+OnCalendar=*-*-* 07:50:00
 # If the system was off at 10:05, run within 15 min of next boot
 Persistent=true
 # Randomize by up to 3 min to avoid thundering-herd if multiple users

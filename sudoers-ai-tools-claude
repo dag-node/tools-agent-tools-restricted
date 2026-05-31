@@ -7,27 +7,40 @@
 #   3. restore @INSTALL_USER@:ai-tools ownership on files it writes within approved
 #      project directories (see /usr/local/sbin/ai-tools-chown and the allowlist at
 #      ~/.config/ai-tools/allowed-projects)
+#   4. repoint the stable /opt/ai-tools/bin/claude symlink at a validated versioned
+#      binary after a Node upgrade (see /usr/local/sbin/ai-tools-claude-symlink).
+#      bin is locked 550 @INSTALL_USER@:ai-tools, so this root helper is the only
+#      path by which the sandbox updater can move the symlink.
 #
-# env_keep passes the service-configured package/version variables through sudo
-# so the ai-tools invocation of nvm-update.sh sees the same NVM_GLOBAL_TOOLS
-# that the @INSTALL_USER@ invocation resolved from the systemd environment.
-#
-# umask=0027 ensures Claude Code creates files with 640/750 permissions rather
-# than 600/700, keeping ai-tools group readable without exposing to others.
+# The umask and env_keep Defaults are scoped per-command (Defaults!<command>),
+# not to all of @INSTALL_USER@'s sudo, so they apply ONLY to these two commands
+# and never alter the user's other sudo invocations:
+#   - umask=0027 (claude) ensures Claude Code creates files 640/750 rather than
+#     600/700, keeping them ai-tools group-readable without exposing to others.
+#   - env_keep (nvm-update.sh) passes the service-configured package/version
+#     variables through sudo so the ai-tools invocation sees the same values the
+#     @INSTALL_USER@ invocation resolved from the systemd environment.
 #
 # SECURITY NOTES:
 #   - NOPASSWD is intentional: both commands are called non-interactively.
 #   - Allowed targets are scoped to specific paths under /opt/ai-tools.
+#   - The nvm-update.sh argument must match a vMAJOR.MINOR.PATCH version; a single
+#     glob arg cannot span into extra arguments (sudo matches argv count), so no
+#     trailing flags can be injected.
+#   - Both @INSTALL_USER@ rules DROP privilege (run as the lower-privileged
+#     ai-tools); the agent runs AS ai-tools and cannot invoke an @INSTALL_USER@
+#     rule, so neither grants the agent anything it does not already have.
 #   - ai-tools-chown validates against a user-owned allowlist before acting.
 #   - The ai-tools user has no login shell and no other sudo rights.
 #   - @INSTALL_USER@ is substituted with the real username by install.sh.
 #
 # Syntax check before deploy:  visudo -c -f /etc/sudoers.d/ai-tools-claude
 
-Defaults:@INSTALL_USER@ env_keep += "AI_TOOLS_GLOBAL_TOOLS NVM_NODE_MAJOR NVM_NODE_ALIAS"
-Defaults:@INSTALL_USER@ umask=0027
+Defaults!/opt/ai-tools/.nvm/versions/node/*/bin/claude umask=0027
+Defaults!/opt/ai-tools/bin/nvm-update.sh env_keep += "AI_TOOLS_GLOBAL_TOOLS NVM_NODE_MAJOR NVM_NODE_ALIAS"
 
 @INSTALL_USER@ ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/.nvm/versions/node/*/bin/claude
-@INSTALL_USER@ ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*
+@INSTALL_USER@ ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*.[0-9]*.[0-9]*
 
 ai-tools ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools-chown
+ai-tools ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools-claude-symlink /opt/ai-tools/.nvm/versions/node/v[0-9]*

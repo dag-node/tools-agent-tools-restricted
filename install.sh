@@ -102,13 +102,18 @@ bootstrap_claude_symlink() {
         return
     fi
 
-    ensure_dir 755 ai-tools ai-tools "${ai_tools_bin}"
-    # Enforce ownership/mode even when the dir pre-existed (README step 3 creates
-    # it). /opt/ai-tools/bin must not be group- or world-writable, or any member
-    # of its group could swap the claude symlink the wrapper resolves and trust.
-    chown ai-tools:ai-tools "${ai_tools_bin}"
-    chmod 755 "${ai_tools_bin}"
-    sudo -u ai-tools ln -sf "${versioned_claude}" "${ai_tools_bin}/claude"
+    # Lock /opt/ai-tools/bin to 550, owned by the install user (NOT ai-tools):
+    # ai-tools gets group r-x (it must execute nvm-update.sh and resolve the
+    # claude symlink) but no write, so the agent can neither tamper with the
+    # updater nor swap the symlink the wrapper resolves and trusts. Enforce even
+    # when the dir pre-existed (README step 3 creates it ai-tools-owned).
+    ensure_dir 550 "${REAL_USER}" ai-tools "${ai_tools_bin}"
+    chown "${REAL_USER}:ai-tools" "${ai_tools_bin}"
+    chmod 550 "${ai_tools_bin}"
+    # Create the symlink via the root helper -- the only writer of the locked dir,
+    # and the same validating path the sandbox updater uses on every Node upgrade.
+    /usr/local/sbin/ai-tools-claude-symlink "${versioned_claude}" \
+        || warn "ai-tools: failed to create ${ai_tools_bin}/claude symlink"
     log "ai-tools: symlink ${ai_tools_bin}/claude -> ${versioned_claude}"
 }
 
@@ -150,6 +155,7 @@ do_selinux_restore() {
     log "SELinux: restoring file contexts"
     restorecon \
         /usr/local/sbin/ai-tools-chown \
+        /usr/local/sbin/ai-tools-claude-symlink \
         /etc/sudoers.d/ai-tools-claude \
         /etc/profile.d/path_dedup.sh \
         /var/log/ai-tools-chown.log
@@ -200,6 +206,7 @@ do_summary() {
     printf '  %s\n' "${sep}"
 
     _chk /usr/local/sbin/ai-tools-chown
+    _chk /usr/local/sbin/ai-tools-claude-symlink
     _chk /etc/sudoers.d/ai-tools-claude
     _chk /etc/profile.d/path_dedup.sh
     _chk /opt/ai-tools/bin/nvm-update.sh
@@ -271,6 +278,11 @@ do_install() {
         "${SCRIPT_DIR}/scripts/ai-tools-chown.sh" \
         /usr/local/sbin/ai-tools-chown
 
+    log "system: /usr/local/sbin/ai-tools-claude-symlink"
+    install_subst 750 root root \
+        "${SCRIPT_DIR}/scripts/ai-tools-claude-symlink.sh" \
+        /usr/local/sbin/ai-tools-claude-symlink
+
     # Audit log for secret-named files the agent wrote (ai-tools-chown appends).
     # Create root:root 600 so the record of secret *filenames* is not world-read.
     # Never truncate an existing log.
@@ -297,17 +309,32 @@ do_install() {
 
     # --- ai-tools files ---
 
+    # Control-plane files are owned by the install user, group ai-tools: the
+    # agent (which runs AS ai-tools) gets group read/exec but can never write
+    # them, so it cannot rewrite its own updater, hook, or hook config.
     log "ai-tools: /opt/ai-tools/bin/nvm-update.sh"
-    install -o ai-tools -g ai-tools -m 750 \
+    install -o "${REAL_USER}" -g ai-tools -m 550 \
         "${SCRIPT_DIR}/scripts/nvm-update-ai-tools.sh" \
         /opt/ai-tools/bin/nvm-update.sh
 
+    # /opt/ai-tools/.claude holds both mutable agent state (sessions/, history,
+    # credentials -- ai-tools-owned) AND the root-of-trust control files
+    # (settings.json, post-write-hook.sh). Owning the control files as the install
+    # user is not enough on its own: a group-writer can unlink+recreate any file
+    # in a dir it can write. So the dir is owned by the install user (NOT ai-tools)
+    # with setgid+sticky (3770): ai-tools stays a group-writer -- it can create and
+    # manage its own state files -- but the sticky bit forbids it from deleting or
+    # replacing files it does not own, and it is not the dir owner, so it cannot
+    # bypass that. setgid keeps new entries in group ai-tools. Enforce on
+    # re-install even when the dir pre-exists.
     log "ai-tools: /opt/ai-tools/.claude/"
-    ensure_dir 750 ai-tools ai-tools /opt/ai-tools/.claude
-    install_subst 750 ai-tools ai-tools \
+    ensure_dir 3770 "${REAL_USER}" ai-tools /opt/ai-tools/.claude
+    chown "${REAL_USER}:ai-tools" /opt/ai-tools/.claude
+    chmod 3770 /opt/ai-tools/.claude
+    install_subst 750 "${REAL_USER}" ai-tools \
         "${SCRIPT_DIR}/scripts/post-write-hook.sh" \
         /opt/ai-tools/.claude/post-write-hook.sh
-    install -o ai-tools -g ai-tools -m 640 \
+    install -o "${REAL_USER}" -g ai-tools -m 640 \
         "${SCRIPT_DIR}/scripts/claude-settings.json" \
         /opt/ai-tools/.claude/settings.json
 
@@ -389,6 +416,7 @@ do_uninstall() {
 
     log "removing system files"
     rm -f /usr/local/sbin/ai-tools-chown
+    rm -f /usr/local/sbin/ai-tools-claude-symlink
     rm -f /etc/sudoers.d/ai-tools-claude
     rm -f /etc/profile.d/path_dedup.sh
 

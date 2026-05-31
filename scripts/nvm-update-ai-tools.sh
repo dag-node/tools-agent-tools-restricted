@@ -113,12 +113,14 @@ main() {
 
     prune_versions "${node_alias}"
 
-    # Refresh the stable symlink that claude-wrapper resolves with one readlink hop
+    # Refresh the stable symlink that claude-wrapper resolves with one readlink hop.
+    # /opt/ai-tools/bin is locked 550 (xd:ai-tools) so this process -- running as
+    # ai-tools -- cannot write it directly; delegate the repoint to the root helper,
+    # which re-validates the versioned path before touching the symlink.
     local versioned_claude="${nvm_dir}/versions/node/${target_version}/bin/claude"
     [[ -x "${versioned_claude}" ]] || die "claude binary not found at ${versioned_claude}"
-    mkdir -p "${AI_TOOLS_BIN}"
-    ln -sf "${versioned_claude}" "${AI_TOOLS_BIN}/claude"
-    log "Symlink: ${AI_TOOLS_BIN}/claude -> ${versioned_claude}"
+    sudo /usr/local/sbin/ai-tools-claude-symlink "${versioned_claude}" \
+        || die "failed to repoint ${AI_TOOLS_BIN}/claude via ai-tools-claude-symlink"
 
     log "Done. Active: $(nvm version "${node_alias}")"
 }

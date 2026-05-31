@@ -20,10 +20,12 @@ with a tightly scoped set of privileges instead:
   (`ai-tools-chown`, which validates against the allowlist). You may run only
   `claude` (and the pinned updater) as `ai-tools`. Nothing else.
 - **Ownership hand-back** — files Claude writes are chowned back to
-  `you:ai-tools` (group-readable, world-closed) inside approved paths only.
-  Secret-named files (`.env`, `*.key`, `*.pem`, SSH keys, `kubeconfig`, …) are
-  chowned to `you:you 600` instead, removing ai-tools' read access; a `NOTICE`
-  is written to the session and an audit log.
+  `you:ai-tools` (group-readable, world-closed) inside approved paths only, along
+  with any directories Claude created on the way (world bits stripped, group
+  `rwx` kept; only dirs the agent itself made are touched). Secret-named files
+  (`.env`, `*.key`, `*.pem`, SSH keys, `kubeconfig`, …) are chowned to
+  `you:you 600` instead, removing ai-tools' read access; a `NOTICE` is written to
+  the session and an audit log.
 - **Auto-updating** — a systemd user timer keeps Node v22 and
   `@anthropic-ai/claude-code` current for both you and the sandbox user, pinned
   to the same build.
@@ -57,6 +59,7 @@ you type `claude`
 | scripts/nvm-update.sh | ~/.local/bin/nvm-update.sh |
 | scripts/nvm-update-ai-tools.sh | /opt/ai-tools/bin/nvm-update.sh |
 | scripts/ai-tools-chown.sh | /usr/local/sbin/ai-tools-chown (root) |
+| scripts/ai-tools-claude-symlink.sh | /usr/local/sbin/ai-tools-claude-symlink (root) |
 | scripts/claude-wrapper.sh | ~/.local/bin/claude |
 | scripts/post-write-hook.sh | /opt/ai-tools/.claude/post-write-hook.sh |
 | scripts/claude-settings.json | /opt/ai-tools/.claude/settings.json |
@@ -185,11 +188,22 @@ for manual installation or RPM spec authoring.
 
 ## 4a. Install ai-tools scripts (root, once)
 
-    sudo install -o ai-tools -g ai-tools -m 750 \
+    # /opt/ai-tools/bin is locked: owned by you (NOT ai-tools), mode 550, so
+    # ai-tools can execute but never write it -- the agent cannot tamper with the
+    # updater or swap the claude symlink. The symlink is created/repointed only by
+    # the root helper below.
+    sudo install -o "${USER}" -g ai-tools -m 550 \
         scripts/nvm-update-ai-tools.sh /opt/ai-tools/bin/nvm-update.sh
+    sudo chown "${USER}:ai-tools" /opt/ai-tools/bin
+    sudo chmod 550 /opt/ai-tools/bin
 
     sudo install -o root -g root -m 750 \
         scripts/ai-tools-chown.sh /usr/local/sbin/ai-tools-chown
+
+    # Root helper: the only writer of the locked bin. Repoints the stable claude
+    # symlink at a validated versioned binary (used by the updater on upgrades).
+    sudo install -o root -g root -m 750 \
+        scripts/ai-tools-claude-symlink.sh /usr/local/sbin/ai-tools-claude-symlink
 
 ## 5a. Install sudoers drop-in (root, once)
 
@@ -200,19 +214,28 @@ for manual installation or RPM spec authoring.
     # Verify syntax
     sudo visudo -c -f /etc/sudoers.d/ai-tools-claude
 
-The drop-in configures three things beyond the basic NOPASSWD rules:
+The drop-in configures, beyond the basic NOPASSWD rules:
 
-- **`env_keep`** — passes `NVM_*` and `AI_TOOLS_GLOBAL_TOOLS` through sudo so
-  the ai-tools invocation of `nvm-update.sh` sees the same values the systemd
-  service resolved.
-- **`umask=0027`** — applied to all commands xd runs via sudo. Claude Code
-  creates files with `640`/`750` instead of `600`/`700`, keeping them
-  group-readable (ai-tools) without exposing them to others.
+- **`env_keep`** (scoped to `nvm-update.sh`) — passes `NVM_*` and
+  `AI_TOOLS_GLOBAL_TOOLS` through sudo so the ai-tools invocation of
+  `nvm-update.sh` sees the same values the systemd service resolved.
+- **`umask=0027`** (scoped to `claude`) — Claude Code creates files with
+  `640`/`750` instead of `600`/`700`, keeping them group-readable (ai-tools)
+  without exposing them to others. Both Defaults use `Defaults!<command>` so they
+  apply only to those commands, not to every command xd runs via sudo.
 - **`ai-tools-chown` rule** — allows ai-tools to call
   `/usr/local/sbin/ai-tools-chown` as root. That script validates the target
-  path against the approved-projects allowlist before running `chown
-  xd:ai-tools`, so ai-tools can only restore ownership inside explicitly
-  approved project directories.
+  path against the approved-projects allowlist, and acts only on agent-written
+  (ai-tools-owned) paths, before running `chown xd:ai-tools`.
+- **`ai-tools-claude-symlink` rule** — allows ai-tools to call
+  `/usr/local/sbin/ai-tools-claude-symlink` as root to repoint the stable
+  `/opt/ai-tools/bin/claude` symlink. The helper validates its argument is a real
+  versioned-claude path (its own check, not the sudoers glob) before acting. This
+  is the only way the updater can touch the locked `bin` dir.
+
+Both `xd` NOPASSWD rules *drop* privilege (run as the lower-privileged ai-tools);
+the agent runs as ai-tools and cannot invoke an xd rule, so neither grants it
+anything new.
 
 ## 6a. Install wrapper and update script (normal user)
 
@@ -229,8 +252,13 @@ The drop-in configures three things beyond the basic NOPASSWD rules:
 After every `Write` or `Edit` tool call, `post-write-hook.sh` checks whether
 ownership needs restoring and, only if it does, calls `ai-tools-chown` via
 sudo. When ownership is already `xd:ai-tools` the hook exits immediately
-without invoking sudo or generating a PAM session entry. Files and directories
-excluded via `!` entries in the allowlist are never touched by the hook.
+without invoking sudo or generating a PAM session entry. The hook also walks the
+written file's parent directories and hands back each one the agent created
+(world bits stripped, group `rwx` kept), stopping at the first pre-existing
+user-owned dir. Files and directories excluded via `!` entries in the allowlist
+are never touched. `ai-tools-chown` acts only on agent-written (ai-tools-owned)
+paths, so a pre-existing user file or directory — including a user's own
+secret — is never modified or flagged.
 
 `claude-settings.json` also configures git command permissions:
 
@@ -247,12 +275,20 @@ Requires `jq` for JSON parsing in the hook:
 
     sudo dnf install -y jq
 
-Install into ai-tools' Claude config directory:
+Install into ai-tools' Claude config directory. The directory holds both mutable
+agent state (sessions, history — ai-tools-owned) and the root-of-trust control
+files (the hook and its config). To stop the agent from rewriting its own
+guardrails, the control files are owned by **you** (not ai-tools), and the
+directory itself is owned by you with **setgid + sticky** (`3770`): ai-tools stays
+a group-writer for its own state but cannot unlink or replace files it does not
+own.
 
-    sudo -u ai-tools mkdir -p /opt/ai-tools/.claude
-    sudo install -o ai-tools -g ai-tools -m 750 \
+    sudo mkdir -p /opt/ai-tools/.claude
+    sudo chown "${USER}:ai-tools" /opt/ai-tools/.claude
+    sudo chmod 3770 /opt/ai-tools/.claude         # setgid + sticky, group-writable
+    sudo install -o "${USER}" -g ai-tools -m 750 \
         scripts/post-write-hook.sh /opt/ai-tools/.claude/post-write-hook.sh
-    sudo install -o ai-tools -g ai-tools -m 640 \
+    sudo install -o "${USER}" -g ai-tools -m 640 \
         scripts/claude-settings.json /opt/ai-tools/.claude/settings.json
 
 ## 8a. Create the approved-projects allowlist (once)
@@ -387,8 +423,10 @@ run sandboxed as ai-tools rather than as xd.
 When nvm installs a new Node version under `/opt/ai-tools`:
 - The sudoers glob `/opt/ai-tools/.nvm/versions/node/*/bin/claude` matches
   the new versioned path automatically.
-- `scripts/nvm-update-ai-tools.sh` updates the `/opt/ai-tools/bin/claude` symlink to
-  point at the new versioned binary.
+- `scripts/nvm-update-ai-tools.sh` repoints the `/opt/ai-tools/bin/claude` symlink
+  at the new versioned binary via the root helper `ai-tools-claude-symlink`
+  (`bin` is locked `550`, so the ai-tools updater cannot write it directly; the
+  helper validates the versioned path and is the only writer of that dir).
 - The wrapper resolves that symlink **one hop** via `readlink` before calling
   `sudo`, yielding the versioned `.../node/<ver>/bin/claude` path the sudoers
   rule matches. It deliberately does *not* use `realpath`/`readlink -f`: the

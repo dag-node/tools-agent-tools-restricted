@@ -25,8 +25,14 @@ current for both your login user and the sandbox user, pinned to the same build.
 4. Claude runs as uid `ai-tools`. Files it writes are owned `ai-tools`; a
    `PostToolUse` hook calls `sudo ai-tools-chown` (the only command `ai-tools`
    may sudo) to restore `<you>:ai-tools` ownership and strip world bits, inside
-   allowlisted paths only (never on `!`-excluded paths). Secret-named files
-   (`.env`, `*.key`, SSH keys, `kubeconfig`, …) are instead moved to your
+   allowlisted paths only (never on `!`-excluded paths). The hook also walks the
+   written file's parent directories and hands each back to `<you>:ai-tools`
+   (world bits stripped, group `rwx` kept so the agent can keep writing into a dir
+   it made), but **only** for directories the agent itself created (currently
+   `ai-tools`-owned): the walk stops at the first pre-existing user-owned dir, and
+   `ai-tools-chown` independently refuses any non-`ai-tools` directory, so it never
+   grants the agent group access to a dir it did not already own. Secret-named
+   files (`.env`, `*.key`, SSH keys, `kubeconfig`, …) are instead moved to your
    private group with group+world bits stripped (`<you>:<you> 600`), revoking
    ai-tools' read access, with a `NOTICE` surfaced in the session + audit log.
 
@@ -37,13 +43,22 @@ substituted at install) grants exactly:
 
 ```
 <you>    ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/.nvm/versions/node/*/bin/claude
-<you>    ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*
+<you>    ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*.[0-9]*.[0-9]*
 ai-tools ALL=(root)             NOPASSWD: /usr/local/sbin/ai-tools-chown
+ai-tools ALL=(root)             NOPASSWD: /usr/local/sbin/ai-tools-claude-symlink /opt/ai-tools/.nvm/versions/node/v[0-9]*
 ```
 
+`umask=0027` (for claude) and `env_keep` (for nvm-update.sh) are scoped
+per-command with `Defaults!<command>`, so they apply only to those two commands
+and never alter your other sudo invocations.
+
 - You may run **only** claude (and the pinned updater) as `ai-tools` — never an
-  arbitrary shell or other binary.
-- `ai-tools` may run **only** `ai-tools-chown` as root — not `rm -rf /`, not
+  arbitrary shell or other binary. Both `<you>` rules **drop** privilege to the
+  lower-privileged `ai-tools`; the agent runs *as* `ai-tools` and cannot invoke a
+  `<you>` rule, so neither grants the agent anything.
+- `ai-tools` may run **only** two root commands: `ai-tools-chown` (restores
+  ownership inside the allowlist) and `ai-tools-claude-symlink` (repoints the
+  stable claude symlink at a validated versioned path) — not `rm -rf /`, not
   `cat /etc/shadow`, not anything else in `/usr/bin`.
 - `ai-tools` has no login shell, no password, and no other sudo rights.
 - The allowlist gates where claude **launches** and which written files get
@@ -90,13 +105,58 @@ and the sudoers glob are coupled — don't change one without the other.
 refuses to launch with an excluded CWD. Keep the two in sync (a plain `!`-path
 also covers its contents; globs match as-is).
 
+### Control-plane file integrity (`/opt/ai-tools/.claude`, `bin/nvm-update.sh`)
+The files that drive the sandbox's own enforcement — `settings.json` (declares
+the `PostToolUse` hook), `post-write-hook.sh` (the hook body), and
+`bin/nvm-update.sh` (the updater the sudoers rule lets you run as `ai-tools`) —
+must not be writable by the agent, or it could disable its own hand-back and
+secret-quarantine guardrails. They are owned `<you>:ai-tools` (group read/exec,
+no group write), **not** `ai-tools:ai-tools`.
+
+Ownership alone is insufficient: `/opt/ai-tools/.claude` is group-writable by
+`ai-tools` (Claude must write `sessions/`, `history.jsonl`, etc. there), and a
+group-writer can `unlink`+recreate any file in a dir it can write — regardless of
+the file's owner. So `.claude` is owned `<you>:ai-tools` (**not** `ai-tools`) with
+**setgid + sticky** (`3770`): the agent stays a group-writer for its own state,
+but the sticky bit forbids deleting/replacing files it does not own, and since it
+is not the dir owner it cannot bypass that. setgid keeps new entries in group
+`ai-tools`. This is the inverse of the project-dir reasoning below — sticky is
+wanted here precisely because the agent never legitimately re-edits these files.
+
+`/opt/ai-tools/bin` is locked harder still: owned `<you>:ai-tools` at `550`, so
+it is not even group-writable. `ai-tools` gets group `r-x` — enough to execute
+`nvm-update.sh` and resolve the `claude` symlink — but no write, and it is not the
+dir owner, so it cannot edit `nvm-update.sh` in place, `unlink`/replace it, or swap
+the symlink. No sticky bit is needed because nothing here is group-writable; only
+root (and `<you>` after a deliberate `chmod`) can change it. This is a stronger
+guarantee than the `.claude` files.
+
+Locking `bin` means `ai-tools` can no longer refresh the versioned `claude`
+symlink itself after a Node upgrade. That repoint is delegated to a narrow root
+helper, `ai-tools-claude-symlink`: it accepts one argument, validates it is
+exactly a `…/node/v<MAJOR>.<MINOR>.<PATCH>/bin/claude` path that exists (its own
+anchored-regex check, **not** the coarse sudoers glob, is authoritative — argument
+wildcards can match `/`), then atomically repoints the symlink. The sandbox
+updater and `install.sh` are the only callers. See
+[[symlink-repoint-root-helper]].
+
+### Acts only on agent-written paths
+`ai-tools-chown` acts on a path **only when it is currently `ai-tools`-owned**.
+Claude Code's Write/Edit tools create files and parent dirs via atomic rename,
+which stamps them `ai-tools`-owned, so this is the signal that *the agent itself
+just wrote the path*. Any path not owned by `ai-tools` is a pre-existing user
+file or directory the agent could not have written — it is left completely
+untouched (no re-chown, no bit-stripping, and for a secret-named path no false
+`breached` NOTICE about a secret the agent never had access to). This is the
+file/secret counterpart of the directory rule above.
+
 ### Secret-named files
-A secret-named file written by the agent is breached. `ai-tools-chown` matches a
+A secret-named file the agent wrote is breached. `ai-tools-chown` matches a
 basename list (`.env`, `*.key`, `*.pem`, `id_*`, `kubeconfig`, `*.jks`,
-`.pgpass`, …; basename-safe globs only, no bare `config`) and chowns matches to
-`<you>:<you> 600`, so ai-tools — neither owner nor group member — cannot read
-the contents. It writes a `NOTICE` to stderr (the hook relays it into the
-session) and `/var/log/ai-tools-chown.log`.
+`.pgpass`, …; basename-safe globs only, no bare `config`) and chowns matches it
+(when `ai-tools`-owned, per above) to `<you>:<you> 600`, so ai-tools — neither
+owner nor group member — cannot read the contents. It writes a `NOTICE` to stderr
+(the hook relays it into the session) and `/var/log/ai-tools-chown.log`.
 
 This revokes read only. ai-tools is a group-writer on the project dir (not its
 owner), so it can still unlink/replace the path; a replacement is agent-written

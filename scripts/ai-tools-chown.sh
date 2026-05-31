@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # /usr/local/sbin/ai-tools-chown
-# Restores @INSTALL_USER@:ai-tools ownership on files created or overwritten by Claude
-# Code. Called by the PostToolUse hook via sudo (ai-tools -> root).
+# Restores @INSTALL_USER@:ai-tools ownership on files and directories created or
+# overwritten by Claude Code. Called by the PostToolUse hook via sudo (ai-tools
+# -> root). Accepts a single regular-file or directory target; for directories it
+# strips world bits while preserving group rwx so the agent can keep working in a
+# dir it created.
 #
 # Reads @INSTALL_HOME@/.config/ai-tools/allowed-projects for allow and exclude rules.
 # That file is owned @INSTALL_USER@:@INSTALL_USER@ 600 -- root reads it here on ai-tools' behalf.
@@ -109,32 +112,65 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
         if [[ "${canonical}" == "${dir}" || "${canonical}" == "${dir}/"* ]]; then
 
             # Inspect the path WITHOUT following symlinks (GNU stat defaults to
-            # lstat). Act only on a plain regular file with link count 1: this
-            # rejects symlinks, directories and devices, and nlink > 1 means the
-            # path is hardlinked -- a freshly written file never is, and a
-            # hardlink could point at a sensitive file outside the tree.
+            # lstat). Act on a regular file or a directory; reject symlinks and
+            # devices. For a regular file, nlink must be 1: a freshly written
+            # file is never hardlinked, and a hardlink could point at a sensitive
+            # file outside the tree. Directories legitimately have nlink >= 2
+            # (their own '.' plus each child's '..'), so the nlink guard applies
+            # to regular files only.
             read -r expect_ident nlink ftype \
                 < <(stat -c '%d:%i %h %F' "${canonical}" 2>/dev/null) || exit 0
-            case "${ftype}" in "regular file"|"regular empty file") ;; *) exit 0 ;; esac
-            [[ "${nlink}" -eq 1 ]] || exit 0
+            is_dir=false
+            case "${ftype}" in
+                "regular file"|"regular empty file") [[ "${nlink}" -eq 1 ]] || exit 0 ;;
+                "directory")                         is_dir=true ;;
+                *)                                   exit 0 ;;
+            esac
+            # A directory is the agent's own workspace, never a secret to revoke
+            # (and revoking the agent's access to a dir it must keep writing into
+            # would break it). Never apply secret handling to a directory.
+            ${is_dir} && is_secret=false
 
             current_owner="$(stat -c '%U:%G' "${canonical}" 2>/dev/null)" || exit 0
             current_mode="$( stat -c '%a'    "${canonical}" 2>/dev/null)" || exit 0
 
-            # Secret-named files: hand to the user's private group and strip BOTH
-            # group and world bits (go=), removing ai-tools' read access to the
-            # contents. Ordinary files: keep group ai-tools readable, strip only
-            # the world bits (o=).
-            if ${is_secret}; then
+            # Act ONLY on paths the agent itself wrote. Claude Code's Write/Edit
+            # tools create files (and any missing parent dirs) via atomic rename,
+            # which stamps them ai-tools-owned; a handed-back path is <you>-owned.
+            # So "currently ai-tools-owned" means "the agent just created or
+            # overwrote this". Anything NOT ai-tools-owned is a pre-existing user
+            # file or directory the agent could not have written -- leave it
+            # completely untouched: never re-chown it, never strip its bits, and
+            # for a secret-named path never raise a false 'breached' NOTICE about a
+            # secret the agent never had access to. Acting on a non-ai-tools
+            # directory would additionally GRANT ai-tools the group rwx below on a
+            # dir it never owned. The pinned-inode re-check below makes this owner
+            # read race-safe: an ai-tools-owned inode's user field cannot change
+            # except via root.
+            [[ "${current_owner%%:*}" == "ai-tools" ]] || exit 0
+
+            # Directories: hand to OWNER, strip world bits but GUARANTEE group
+            #   rwx (g+rwx,o=) so the agent -- now only a group member of a dir it
+            #   created and may still be writing into -- can still traverse and
+            #   add files. This mirrors the project root (xd:ai-tools, group-writable).
+            # Secret-named files: hand to SECRET_OWNER (the user's private group)
+            #   and strip BOTH group and world bits (go=), removing ai-tools' read
+            #   access to the contents.
+            # Ordinary files: hand to OWNER, keep group ai-tools readable, strip
+            #   only the world bits (o=).
+            if ${is_dir}; then
+                target_owner="${OWNER}"
+                chmod_arg="g+rwx,o="
+                new_mode="$(printf '%o' "$(( (8#${current_mode} | 070) & ~7 ))")"
+            elif ${is_secret}; then
                 target_owner="${SECRET_OWNER}"
                 chmod_arg="go="
-                clear_mask=077
+                new_mode="$(printf '%o' "$(( 8#${current_mode} & ~077 ))")"
             else
                 target_owner="${OWNER}"
                 chmod_arg="o="
-                clear_mask=007
+                new_mode="$(printf '%o' "$(( 8#${current_mode} & ~7 ))")"
             fi
-            new_mode="$(printf '%o' "$(( 8#${current_mode} & ~(8#${clear_mask}) ))")"
             if [[ "${new_mode}" != "${current_mode}" ]]; then
                 perm_info="  perms:  ${current_mode} -> ${new_mode}"
             else
@@ -173,8 +209,15 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             read -r got_ident got_nlink got_ftype \
                 < <(stat -L -c '%d:%i %h %F' "/proc/self/fd/${fd}" 2>/dev/null) \
                 || { exec {fd}<&-; exit 0; }
-            case "${got_ftype}" in "regular file"|"regular empty file") ;; *) exec {fd}<&-; exit 0 ;; esac
-            if [[ "${got_ident}" != "${expect_ident}" || "${got_nlink}" -ne 1 ]]; then
+            case "${got_ftype}" in
+                "regular file"|"regular empty file") ${is_dir} && { exec {fd}<&-; exit 0; } ;;
+                "directory")                         ${is_dir} || { exec {fd}<&-; exit 0; } ;;
+                *)                                   exec {fd}<&-; exit 0 ;;
+            esac
+            # Inode must match the one validated pre-open (catches a path swap);
+            # for a regular file, link count must still be 1 (dirs are exempt).
+            if [[ "${got_ident}" != "${expect_ident}" ]] \
+               || { ! ${is_dir} && [[ "${got_nlink}" -ne 1 ]]; }; then
                 exec {fd}<&-
                 exit 0
             fi
