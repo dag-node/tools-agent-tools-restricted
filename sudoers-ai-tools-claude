@@ -15,8 +15,12 @@
 # The umask and env_keep Defaults are scoped per-command (Defaults!<command>),
 # not to all of @INSTALL_USER@'s sudo, so they apply ONLY to these two commands
 # and never alter the user's other sudo invocations:
-#   - umask=0027 (claude) ensures Claude Code creates files 640/750 rather than
-#     600/700, keeping them ai-tools group-readable without exposing to others.
+#   - umask=0007 (claude) ensures Claude Code creates files 660/770 rather than
+#     600/700, making both @INSTALL_USER@ and ai-tools natural co-writers on
+#     project files across sessions. World bits are still stripped (o=0). A
+#     stricter umask (e.g. 0027) would give group read-only after handback,
+#     blocking Claude's Edit tool (in-place patch) on previously handed-back files
+#     and forcing unnecessary full-file rewrites.
 #   - env_keep (nvm-update.sh) passes the service-configured package/version
 #     variables through sudo so the ai-tools invocation sees the same values the
 #     @INSTALL_USER@ invocation resolved from the systemd environment.
@@ -36,7 +40,7 @@
 #
 # Syntax check before deploy:  visudo -c -f /etc/sudoers.d/ai-tools-claude
 
-Defaults!/opt/ai-tools/.nvm/versions/node/*/bin/claude umask=0027
+Defaults!/opt/ai-tools/.nvm/versions/node/*/bin/claude umask=0007
 Defaults!/opt/ai-tools/bin/nvm-update.sh env_keep += "AI_TOOLS_GLOBAL_TOOLS NVM_NODE_MAJOR NVM_NODE_ALIAS"
 
 @INSTALL_USER@ ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/.nvm/versions/node/*/bin/claude

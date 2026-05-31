@@ -57,7 +57,7 @@ ai-tools ALL=(root)             NOPASSWD: /usr/local/sbin/ai-tools-chown
 ai-tools ALL=(root)             NOPASSWD: /usr/local/sbin/ai-tools-claude-symlink /opt/ai-tools/.nvm/versions/node/v[0-9]*
 ```
 
-`umask=0027` (for claude) and `env_keep` (for nvm-update.sh) are scoped
+`umask=0007` (for claude) and `env_keep` (for nvm-update.sh) are scoped
 per-command with `Defaults!<command>`, so they apply only to those two commands
 and never alter your other sudo invocations.
 

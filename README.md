@@ -219,10 +219,13 @@ The drop-in configures, beyond the basic NOPASSWD rules:
 - **`env_keep`** (scoped to `nvm-update.sh`) — passes `NVM_*` and
   `AI_TOOLS_GLOBAL_TOOLS` through sudo so the ai-tools invocation of
   `nvm-update.sh` sees the same values the systemd service resolved.
-- **`umask=0027`** (scoped to `claude`) — Claude Code creates files with
-  `640`/`750` instead of `600`/`700`, keeping them group-readable (ai-tools)
-  without exposing them to others. Both Defaults use `Defaults!<command>` so they
-  apply only to those commands, not to every command xd runs via sudo.
+- **`umask=0007`** (scoped to `claude`) — Claude Code creates files with
+  `660`/`770` instead of `600`/`700`, making both the install user and `ai-tools`
+  natural co-writers on project files across sessions. World bits are still
+  stripped (`o=0`). A stricter `0027` would give group read-only after handback,
+  blocking the Edit tool's in-place patching on previously handed-back files.
+  Both Defaults use `Defaults!<command>` so they apply only to those commands,
+  not to every command the install user runs via sudo.
 - **`ai-tools-chown` rule** — allows ai-tools to call
   `/usr/local/sbin/ai-tools-chown` as root. That script validates the target
   path against the approved-projects allowlist, and acts only on agent-written
