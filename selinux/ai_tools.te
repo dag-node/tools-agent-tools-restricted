@@ -1,0 +1,129 @@
+policy_module(ai_tools, 0.1.0)
+
+########################################
+#
+# ai_tools -- confine the Claude Code sandbox agent (the ai-tools UID) to its own
+# domain (ai_tools_t) with a path boundary: it may modify approved project dirs
+# (ai_tools_project_t) and its own config/state (ai_tools_home_t), but NOT other
+# user files (e.g. other projects under /home, still user_home_t).
+#
+# SHIPS PERMISSIVE. Loading this module changes NOTHING about what is allowed --
+# it only starts LOGGING what ai_tools_t does, so you can complete the policy with
+# audit2allow before flipping to enforcing. See selinux/README.md. The single
+# `permissive ai_tools_t;` line below is the on/off switch for enforcement.
+#
+########################################
+
+require {
+    type unconfined_t;
+    role unconfined_r;
+}
+
+########################################
+# Types
+########################################
+
+# The confined agent (claude.exe running as the ai-tools UID).
+# application_domain() declares the domain, marks ai_tools_exec_t its entrypoint,
+# and grants the baseline every userspace app needs (ld.so, shared libraries).
+type ai_tools_t;
+type ai_tools_exec_t;
+application_domain(ai_tools_t, ai_tools_exec_t)
+
+# Approved project directories the agent may read/write. Applied per-project with
+# `semanage fcontext` (see install.sh add-project / selinux/install-selinux.sh),
+# not in ai_tools.fc, because project paths are dynamic.
+type ai_tools_project_t;
+files_type(ai_tools_project_t)
+
+# The agent's own config/state dir (/opt/ai-tools/.claude) -- a private writable
+# area distinct from the read-only nvm tree, so we need not grant write to usr_t.
+type ai_tools_home_t;
+files_type(ai_tools_home_t)
+
+# Enforcement switch: PERMISSIVE = log only. Remove this line (and reload) ONLY
+# after an audit2allow bring-up pass; that is what turns the confinement on.
+permissive ai_tools_t;
+
+########################################
+# Domain entry
+########################################
+
+# xd is unconfined; when its `sudo -u ai-tools` execs the labelled claude.exe,
+# the agent process transitions into ai_tools_t. The role stays unconfined_r, so
+# no SELinux-user (semanage user/login) remapping is required -- we only authorise
+# unconfined_r to hold the new type. If claude.exe ever loses its label (e.g. a
+# Node upgrade before restorecon), no transition fires and claude runs unconfined:
+# it keeps working, it is simply not yet confined.
+domtrans_pattern(unconfined_t, ai_tools_exec_t, ai_tools_t)
+role unconfined_r types ai_tools_t;
+
+########################################
+# Project + agent-home files  (covers ALL git file operations: index.lock
+# create/rename/unlink, object writes, ref updates, config reads, etc.)
+########################################
+
+manage_dirs_pattern(ai_tools_t, ai_tools_project_t, ai_tools_project_t)
+manage_files_pattern(ai_tools_t, ai_tools_project_t, ai_tools_project_t)
+manage_lnk_files_pattern(ai_tools_t, ai_tools_project_t, ai_tools_project_t)
+
+manage_dirs_pattern(ai_tools_t, ai_tools_home_t, ai_tools_home_t)
+manage_files_pattern(ai_tools_t, ai_tools_home_t, ai_tools_home_t)
+manage_lnk_files_pattern(ai_tools_t, ai_tools_home_t, ai_tools_home_t)
+
+# Reach the project: its parent dirs under /home stay user_home(_dir)_t, so the
+# agent must be able to search through them (search only -- not read their files).
+userdom_search_user_home_dirs(ai_tools_t)
+
+# xd (unconfined) keeps full access to, and can relabel (restorecon), the new
+# file types -- relabelling a project to ai_tools_project_t must never lock you out.
+manage_dirs_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
+manage_files_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
+manage_lnk_files_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
+relabel_dirs_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
+relabel_files_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
+manage_dirs_pattern(unconfined_t, ai_tools_home_t, ai_tools_home_t)
+manage_files_pattern(unconfined_t, ai_tools_home_t, ai_tools_home_t)
+relabel_dirs_pattern(unconfined_t, ai_tools_home_t, ai_tools_home_t)
+relabel_files_pattern(unconfined_t, ai_tools_home_t, ai_tools_home_t)
+
+########################################
+# Run the agent, the Bash tool, and git/coreutils
+########################################
+
+corecmd_exec_bin(ai_tools_t)        # /usr/bin/git, rg, coreutils, ...
+corecmd_exec_shell(ai_tools_t)      # the Bash tool
+files_read_usr_files(ai_tools_t)    # read the nvm/node tree under /opt/ai-tools (usr_t)
+files_read_etc_files(ai_tools_t)    # /etc/gitconfig, nsswitch.conf, ...
+auth_use_nsswitch(ai_tools_t)       # resolve uid/gid (getpwnam)
+miscfiles_read_localization(ai_tools_t)
+
+########################################
+# Outbound HTTPS to the Anthropic API
+########################################
+
+sysnet_dns_name_resolve(ai_tools_t)
+corenet_tcp_connect_http_port(ai_tools_t)   # http_port_t includes 443
+
+########################################
+# Process baseline
+########################################
+
+allow ai_tools_t self:process { fork sigchld signal signull getsched setsched };
+allow ai_tools_t self:fifo_file rw_fifo_file_perms;
+allow ai_tools_t self:unix_stream_socket create_stream_socket_perms;
+allow ai_tools_t self:unix_dgram_socket create_socket_perms;
+allow ai_tools_t self:tcp_socket create_stream_socket_perms;
+kernel_read_system_state(ai_tools_t)
+dev_read_urand(ai_tools_t)
+
+########################################
+# BRING-UP (left to audit2allow on purpose, so each rule is exactly what is
+# observed, not guessed):
+#   - exec of /usr/bin/sudo and the transition to run the two root helpers
+#     (ai-tools-chown, ai-tools-claude-symlink); the sudoers rules remain the
+#     authoritative limit on WHICH root commands run.
+#   - any temp-file, /proc/self, or additional socket/port access node needs.
+# Run in permissive, exercise claude (incl. git status/diff/add/commit/push and a
+# file write so the hook fires), then: audit2allow -a, fold rules in here, rebuild.
+########################################

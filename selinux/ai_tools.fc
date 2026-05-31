@@ -1,0 +1,18 @@
+# File contexts shipped with the ai_tools module (fixed paths only).
+#
+# The claude entrypoint -- a standalone ELF reached via two symlinks
+# (/opt/ai-tools/bin/claude -> versioned bin/claude -> claude.exe). Labelling the
+# final ELF as ai_tools_exec_t is what drives the unconfined_t -> ai_tools_t
+# transition on exec. The [^/]+ matches any Node version dir; after a Node upgrade
+# re-apply with `install-selinux.sh relabel` (the new claude.exe is created
+# unlabelled, which fails OPEN -- claude runs unconfined until relabelled).
+/opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@anthropic-ai/claude-code/bin/claude\.exe  --  gen_context(system_u:object_r:ai_tools_exec_t,s0)
+
+# The agent's own config/state dir -- a private writable area, so the policy need
+# not grant write to the whole nvm tree (usr_t). The xd-owned control files inside
+# (settings.json, post-write-hook.sh) remain protected by DAC regardless of label.
+/opt/ai-tools/\.claude(/.*)?  gen_context(system_u:object_r:ai_tools_home_t,s0)
+
+# Approved PROJECT dirs are NOT listed here -- their paths are dynamic. They are
+# labelled ai_tools_project_t per-project with `semanage fcontext` by
+# install-selinux.sh (reading ~/.config/ai-tools/allowed-projects).
