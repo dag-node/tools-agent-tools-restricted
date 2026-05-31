@@ -58,7 +58,11 @@ _base="$(basename "${canonical}")"
 # Match secret basenames case-insensitively (.ENV, Server.KEY, ID_RSA, …). The
 # prior nocasematch setting is restored after the loop so the case-sensitive
 # [[ ]] and case statements below (paths, file types) are unaffected.
-_prev_nocasematch="$(shopt -p nocasematch)"
+# NB: `shopt -p nocasematch` exits non-zero when the option is OFF (the default);
+# under `set -e` a bare `$(...)` assignment would inherit that and abort the whole
+# script before it ever reaches the allowlist match. `|| true` keeps the snapshot
+# without tripping set -e.
+_prev_nocasematch="$(shopt -p nocasematch || true)"
 shopt -s nocasematch
 for _pat in \
     '.env' '.env.*' 'env' '.environment' '.environment.*' 'environment' \
@@ -205,7 +209,11 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             # symlink swapped in just before it, so after opening we re-verify the
             # fd resolves to the SAME inode validated above, still a regular file,
             # still link count 1. Any mismatch means a race -- bail.
-            exec {fd}< "${canonical}" 2>/dev/null || exit 0
+            # NB: brace-group the redirection. A bare `exec {fd}< file 2>/dev/null`
+            # applies 2>/dev/null to the SHELL permanently (exec with no command),
+            # which would swallow the secret-file NOTICE emitted on stderr below.
+            # The group scopes 2>/dev/null to just the open; fd2 is restored after.
+            { exec {fd}< "${canonical}"; } 2>/dev/null || exit 0
             read -r got_ident got_nlink got_ftype \
                 < <(stat -L -c '%d:%i %h %F' "/proc/self/fd/${fd}" 2>/dev/null) \
                 || { exec {fd}<&-; exit 0; }

@@ -32,6 +32,11 @@ declare -a _cleanup=()
 cleanup() { for f in "${_cleanup[@]+"${_cleanup[@]}"}"; do rm -rf "${f}"; done; }
 trap cleanup EXIT
 
+# Invoke the deployed validator the way the hook does: detached from any
+# controlling tty (setsid) with stdin from /dev/null, so it takes its
+# non-interactive apply branch instead of prompting on /dev/tty.
+run_chown() { setsid /usr/local/sbin/ai-tools-chown "$1" < /dev/null > /dev/null 2>&1 || true; }
+
 # ── File permission checks ────────────────────────────────────────────────────
 
 check_file() {
@@ -283,6 +288,62 @@ else
     fi
 fi
 
+# Security OUTCOME, not just mode bits: after quarantine, ai-tools (neither owner
+# nor group of an xd:xd 600 file) must actually be UNABLE to read the contents.
+# Asserts the threat-model goal directly. runuser drops to ai-tools as root with
+# no sudoers/PAM dance.
+csecret="${SCRIPT_DIR}/.env.unreadable_$$"
+if [[ -e "${csecret}" ]] || ! command -v runuser >/dev/null; then
+    skip "quarantined secret unreadable" "pre-existing file, or runuser unavailable"
+else
+    printf 'top-secret-value' > "${csecret}"; chown ai-tools:ai-tools "${csecret}"; chmod 0600 "${csecret}"
+    _cleanup+=("${csecret}")
+    run_chown "${csecret}"
+    if [[ "$(stat -c '%U:%G' "${csecret}")" == "${REAL_USER}:${REAL_USER}" ]] \
+       && ! runuser -u ai-tools -- cat "${csecret}" >/dev/null 2>&1; then
+        pass "ai-tools genuinely cannot read the quarantined secret (EACCES)"
+    else
+        fail "ai-tools could still read the quarantined secret -- read access NOT revoked"
+    fi
+fi
+
+# The quarantine must leave a durable, root-owned audit record naming the path.
+asecret="${SCRIPT_DIR}/.env.audited_$$"
+readonly AUDIT_LOG=/var/log/ai-tools-chown.log
+if [[ -e "${asecret}" ]]; then
+    skip "audit log entry" "pre-existing file -- not overwriting"
+else
+    printf 'x' > "${asecret}"; chown ai-tools:ai-tools "${asecret}"; chmod 0600 "${asecret}"
+    _cleanup+=("${asecret}")
+    run_chown "${asecret}"
+    if [[ -f "${AUDIT_LOG}" ]] && grep -Fq "${asecret}" "${AUDIT_LOG}" \
+       && [[ "$(stat -c '%U:%G %a' "${AUDIT_LOG}")" == "root:root 600" ]]; then
+        pass "secret quarantine appends a NOTICE to the root:root 600 audit log"
+    else
+        fail "audit log missing entry for ${asecret}, or log not root:root 600 ($(stat -c '%U:%G %a' "${AUDIT_LOG}" 2>/dev/null))"
+    fi
+fi
+
+# Case-insensitive secret matching (regression guard for the nocasematch path --
+# the same block whose `shopt -p` once aborted the whole script under set -e).
+# basename must match a secret pattern exactly (modulo case), so use a clean
+# upper-cased name matching id_ed25519; an upper-cased secret must still quarantine.
+ucsecret="${SCRIPT_DIR}/ID_ED25519"
+if [[ -e "${ucsecret}" ]]; then
+    skip "case-insensitive secret" "ID_ED25519 exists in project -- not overwriting"
+else
+    printf 'x' > "${ucsecret}"; chown ai-tools:ai-tools "${ucsecret}"; chmod 0644 "${ucsecret}"
+    _cleanup+=("${ucsecret}")
+    ucerr="$(mktemp)"; _cleanup+=("${ucerr}")
+    setsid /usr/local/sbin/ai-tools-chown "${ucsecret}" < /dev/null > /dev/null 2>"${ucerr}" || true
+    if [[ "$(stat -c '%U:%G' "${ucsecret}")" == "${REAL_USER}:${REAL_USER}" && "$(stat -c '%a' "${ucsecret}")" == "600" ]] \
+       && grep -q 'NOTICE' "${ucerr}"; then
+        pass "upper-case secret name (ID_ED25519) matched case-insensitively + quarantined"
+    else
+        fail "ID_ED25519 not treated as secret: got $(stat -c '%U:%G' "${ucsecret}") $(stat -c '%a' "${ucsecret}"), notice='$(tr -d '\n' < "${ucerr}")'"
+    fi
+fi
+
 # ── ai-tools-chown: allowlist ! exclusion ────────────────────────────────────
 
 section "ai-tools-chown: allowlist ! exclusion"
@@ -326,8 +387,6 @@ fi
 # branch (no controlling tty -> the /dev/tty probe fails), as the hook does.
 
 section "ai-tools-chown: TOCTOU-safe apply"
-
-run_chown() { setsid /usr/local/sbin/ai-tools-chown "$1" < /dev/null > /dev/null 2>&1 || true; }
 
 # (1) Regular world-readable file the agent just wrote (ai-tools:ai-tools):
 #     chowned to REAL_USER:ai-tools + world bits gone.
@@ -404,6 +463,22 @@ if [[ "$(stat -c '%U:%G' "${up}")" == "${REAL_USER}:${REAL_USER}" && "$(stat -c 
     pass "user-owned directory left untouched (no group access granted to ai-tools)"
 else
     fail "user-owned directory was modified to $(stat -c '%U:%G' "${up}") $(stat -c '%a' "${up}") -- dir-owner guard missing (ai-tools gained access)"
+fi
+
+# (6) Symlink redirection: the scariest vector. An agent-planted symlink inside
+#     the project pointing AT a sensitive file OUTSIDE it must never let the
+#     root-run chown/chmod follow it onto the victim. ai-tools-chown canonicalises
+#     with realpath, so the target resolves outside the allowlist and is refused;
+#     the victim must be byte-for-byte untouched (owner, mode, and link count).
+victim="$(mktemp /tmp/ait_victim.XXXXXX)"; _cleanup+=("${victim}")
+chown root:root "${victim}"; chmod 0600 "${victim}"
+vbefore="$(stat -c '%U:%G %a' "${victim}")"
+sl="${SCRIPT_DIR}/.test_symlink_$$"; ln -s "${victim}" "${sl}"; _cleanup+=("${sl}")
+run_chown "${sl}"
+if [[ "$(stat -c '%U:%G %a' "${victim}")" == "${vbefore}" && -L "${sl}" ]]; then
+    pass "symlink to an outside victim is refused; victim untouched (${vbefore})"
+else
+    fail "symlink redirection modified the outside victim: now $(stat -c '%U:%G %a' "${victim}") (was ${vbefore}) -- root chown followed a symlink out of the tree"
 fi
 
 # ── PostToolUse hook: ownership hand-back end-to-end ──────────────────────────
