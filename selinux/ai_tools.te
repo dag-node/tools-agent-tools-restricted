@@ -76,6 +76,7 @@ require {
     type fs_t;
     type tmpfs_t;
     type tty_device_t;
+    type usb_device_t;
     type kernel_t;
     type init_t;
 }
@@ -198,6 +199,7 @@ dev_read_sysfs(ai_tools_t)          # /sys (cpu topology, etc.) read by Node/gli
 kernel_read_fs_sysctls(ai_tools_t)  # /proc/sys/fs/* (inotify/file-max limits)
 allow ai_tools_t sysctl_vm_t:dir search;
 allow ai_tools_t sysctl_vm_t:file { getattr open read };   # /proc/sys/vm/overcommit_memory, ...
+allow ai_tools_t fs_t:filesystem getattr;                  # find -xdev: statfs() to identify the device boundary
 
 ########################################
 # Interactive terminal (claude is a TUI)
@@ -294,10 +296,121 @@ dontaudit ai_tools_t config_home_t:file { getattr ioctl open read };
 dontaudit ai_tools_t container_file_t:file { open read };
 dontaudit ai_tools_t sendmail_exec_t:file execute;
 
-# (4) Benign statfs / tty-attr noise -- denying these changes no behaviour (callers
+# (4) Benign device/fs probe noise -- denying these changes no behaviour (callers
 # fall back), so silence rather than grant.
-dontaudit ai_tools_t { cgroup_t fs_t tmpfs_t }:filesystem getattr;
+# fs_t:filesystem getattr is ALLOWED above (find -xdev needs statfs()).
+dontaudit ai_tools_t { cgroup_t tmpfs_t }:filesystem getattr;
 dontaudit ai_tools_t tty_device_t:chr_file getattr;
+dontaudit ai_tools_t usb_device_t:chr_file getattr;   # Node HID probe at startup
+
+# (5) GUI clipboard reach into the user's X session. Claude's clipboard support shells
+# out to `xsel --clipboard --input`, which connect()s an AF_UNIX stream socket to the X
+# server at /tmp/.X11-unix/X0. SELinux checks `connectto` against the PEER -- the X
+# server process, which on this workstation runs unconfined_t -- and denies it, stopping
+# the agent at the very first hop, before DISPLAY/~/.Xauthority even matter. This can
+# never work in the sandbox and must not: X11 has no intra-session isolation (any display
+# client can keylog/screenshot/inject into every window), so opening this path would hand
+# the agent the whole desktop, and reaching the cookie would breach the §2 home boundary.
+# The supported in-sandbox clipboard path is OSC 52 -- a terminal escape on the already-
+# allowed pty -- which needs no socket and no policy grant. So this is silenced, NOT
+# allowed, and is deliberately NOT an optional group: enabling it would buy nothing.
+# (connectto is peer-label-based, so it can only target the peer process type, not the
+# socket path; on a host with a confined X server the peer would be xserver_t.)
+dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
+
+# (6) Extended boundary -- accesses confirmed denied under enforcing by avc-denials.sh
+# sections G-X.
+#
+# INTENTIONALLY LEFT COMMENTED. Unlike sections (1)-(5) which silence operational noise
+# that is safe to suppress (proc table walks, USB probes, startup statfs), the accesses
+# below are SECURITY-RELEVANT BREACH ATTEMPTS. Leaving them active in the audit log
+# means any attempt by the agent to read credentials, escalate privilege, install
+# persistence, or move laterally produces a visible AVC and is caught by avc-analyze.sh
+# as NEW. That is the desired default behaviour.
+#
+# To suppress a specific line (e.g. because you have verified why the agent reaches
+# that path and have accepted the access as benign in your environment), uncomment it.
+# Never uncomment wholesale -- each suppressed line is a breach attempt you are
+# choosing not to be alerted about.
+#
+# PORTABILITY / BEFORE UNCOMMENTING: none of the types below are in the require {}
+# block, because require is a hard load-time dependency -- a missing type causes semodule
+# to fail for every user on every distro variant. Type names vary between selinux-policy
+# versions and optional sub-packages:
+#
+#   etc_sudoers_t   -- RHEL 9 full selinux-policy-targeted; some builds label /etc/sudoers
+#                      plain etc_t instead (verify: ls -Z /etc/sudoers).
+#                      If etc_t: reading sudoers is already allowed via files_read_etc_files;
+#                      no dontaudit needed.
+#
+#   user_runtime_t  -- RHEL 9 systemd XDG runtime dir (/run/user/<uid>/); some builds use
+#                      user_tmp_t instead (verify: ls -dZ /run/user/).
+#                      RHEL 10 name TBD.
+#
+#   container_var_run_t -- only present when container-selinux is installed.
+#
+# When uncommenting a rule: (1) confirm the type exists with `seinfo -t <type_t>`;
+# (2) add `type <type_t>;` to the require {} block above; (3) rebuild + reload.
+#
+# TWO OPEN FAILURES from the first probe run -- documented here, not suppressed:
+#
+#   ESC-001  unshare --user (process2:create_user_ns) SUCCEEDED.
+#            Root cause: compiled base policy process2 class only has
+#            {nnp_transition nosuid_transition}; create_user_ns is absent, so the
+#            kernel's security_create_user_ns() check falls through as handleunknown=allow.
+#            Fix A (kernel, immediate): restrict unprivileged user namespaces system-wide:
+#              echo 'user.max_user_namespaces = 0' > /etc/sysctl.d/99-ai-tools-security.conf
+#              sysctl --system
+#            Fix B (SELinux, when base policy adds the permission):
+#              seinfo -c process2 -x  # wait until create_user_ns appears, then uncomment:
+#              # dontaudit ai_tools_t self:process2 create_user_ns;
+#
+#   LAT-005  ls /dev/shm/ SUCCEEDED (tmpfs_t:dir read).
+#            Root cause: base policy 'allow domain tmpfs_t:dir { ... }' grants ALL domains
+#            tmpfs dir read -- cannot override with a loadable module dontaudit.
+#            Fix A (mount, targeted): remount /dev/shm with a non-tmpfs_t fscontext:
+#              fscontext=system_u:object_r:ai_tools_shm_t:s0  (requires new type + policy)
+#            Fix B (base policy): patch the domain attribute grant -- not feasible here.
+#            Current mitigation: /dev/shm fstab already has noexec,nosuid; listing reveals
+#            only object names, not contents (those require shm_open()+mmap()).
+
+# --- Credentials (G-J): password files, sudoers, root home, session runtime ---
+# Uncomment to suppress; leave commented to keep breach attempts visible in audit log.
+# dontaudit ai_tools_t shadow_t:file { getattr open read };
+
+# Type varies by selinux-policy version: etc_sudoers_t (RHEL 9 full policy) or
+# etc_t (some builds -- already allowed; no dontaudit needed in that case).
+# Verify: ls -Z /etc/sudoers
+# dontaudit ai_tools_t etc_sudoers_t:dir  { getattr open read };
+# dontaudit ai_tools_t etc_sudoers_t:file { getattr open read };
+
+# dontaudit ai_tools_t admin_home_t:dir  { getattr open read };
+# dontaudit ai_tools_t admin_home_t:file { getattr open read };
+
+# Type varies: user_runtime_t (RHEL 9 standard) or user_tmp_t (some builds, UEK).
+# Verify: ls -dZ /run/user/
+# dontaudit ai_tools_t user_runtime_t:dir      { getattr open read };
+# dontaudit ai_tools_t user_runtime_t:sock_file connectto;
+
+# --- Lateral / IPC (T-W): D-Bus, journal, container daemon, raw socket ---
+# dontaudit ai_tools_t system_dbusd_var_run_t:sock_file { getattr open connectto };
+# dontaudit ai_tools_t syslogd_var_run_t:sock_file      { getattr open connectto };
+# container_var_run_t only exists when container-selinux is installed (verify: seinfo -t container_var_run_t).
+# dontaudit ai_tools_t container_var_run_t:sock_file    { getattr open connectto };
+# dontaudit ai_tools_t self:rawip_socket { create getattr };
+
+# --- Escalation (K-P): kernel write interfaces, devices, modules ---
+# dontaudit ai_tools_t sysctl_t:file        { getattr open read write };
+# dontaudit ai_tools_t sysctl_kernel_t:file { getattr open read write };
+# dontaudit ai_tools_t memory_device_t:chr_file    { getattr open read write };
+# dontaudit ai_tools_t fixed_disk_device_t:blk_file { getattr open read write };
+# dontaudit ai_tools_t self:capability { sys_module net_bind_service };
+
+# --- Persistence (Q-S): cron, shell startup, library preload, systemd units ---
+# dontaudit ai_tools_t user_cron_spool_t:{ dir file }   { getattr open read write create add_name };
+# dontaudit ai_tools_t system_cron_spool_t:{ dir file } { getattr open read write create add_name };
+# dontaudit ai_tools_t etc_t:{ dir file } write;  # read is allowed; only write is the breach
+# dontaudit ai_tools_t systemd_unit_file_t:{ dir file } { getattr open read write create add_name };
 
 # NB: the bring-up also logged usr_t writes. Those were the agent writing its own
 # HOME state (.claude.json, .npm, .cache, .local) which was mislabelled usr_t.

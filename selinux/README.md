@@ -210,3 +210,25 @@ DAC hardening (ownership/permissions/sticky `.claude`/locked `bin`) is untouched
 - **Belt and suspenders:** SELinux here does not replace the DAC model — the
   locked `bin`, sticky `.claude`, and `xd:ai-tools` control files still stand; a
   given access must pass both layers.
+- **Cross-distro type names:** the `require {}` block in `ai_tools.te` is a *hard*
+  load-time dependency — a type that does not exist in the running base policy
+  makes `semodule` fail for every user (`Failed to resolve typeattributeset`).
+  Type names vary across `selinux-policy` versions (RHEL 9 vs UEK vs RHEL 10) and
+  optional sub-packages, so the **extended-boundary** types in section (6) are
+  deliberately kept *out* of `require {}` while their `dontaudit` rules stay
+  commented. Known variations: `/etc/sudoers` is `etc_sudoers_t` on full RHEL 9
+  policy but plain `etc_t` on this UEK build; `/run/user/<uid>` is `user_runtime_t`
+  on RHEL 9 but `user_tmp_t` here; `container_var_run_t` exists only with
+  `container-selinux`. Before uncommenting a section-(6) rule: confirm the type
+  with `seinfo -t <type_t>`, add it to `require {}`, then rebuild. The
+  `avc-analyze.sh` classifier carries both spellings — it only tags log lines, so
+  unknown names there are harmless.
+- **Sudoers stays inaccessible even where it is `etc_t`:** where `/etc/sudoers` is
+  labelled plain `etc_t` (this UEK build), the MAC layer *allows* the read via
+  `files_read_etc_files` — but **DAC still denies it**: `/etc/sudoers` is
+  `0440 root:root` and `/etc/sudoers.d` is `0750 root:root`, while `ai-tools` is a
+  non-root UID in no supplementary groups, so both return `EACCES` (verified with
+  SELinux disabled for the test). What the UEK label costs is only the *MAC
+  redundancy* for sudoers, not the protection itself; `/etc/shadow` (`shadow_t` +
+  `0000`) keeps full dual-layer coverage everywhere. `avc-denials.sh` section H
+  verifies the *outcome* (inaccessible), independent of which layer enforces it.
