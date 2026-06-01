@@ -154,6 +154,43 @@ sudo ausearch -m AVC -ts recent | grep ai_tools_t   # confirm still clean under 
 The rest of the system stays at its normal enforcing/targeted setting throughout;
 only `ai_tools_t`'s own permissive flag changed.
 
+## 4. Verify enforcement (the negative test)
+
+Bring-up proves the agent *can* do what it needs. The inverse — proving it *cannot*
+do what it must not — is `avc-denials.sh`. It attempts every denied access on
+purpose (the optional-group surfaces that are off: `systemctl`, `rpm`,
+`firewall-cmd`, `podman`; and the in-core boundary: other domains' `/proc`, the
+user's home, container storage, a non-`http` port, the MTA) and confirms each is
+refused.
+
+The catch: the boundary accesses are `dontaudit`'d, so under enforcing they are
+blocked **silently** — `ausearch` shows nothing and an empty log looks like the
+probe never ran. So the run-mode half brackets the probe with `semodule -DB` …
+`semodule -B`, which disables/re-enables dontaudit **system-wide** for the window,
+making those denials visible. A trap restores dontaudit on any exit, including
+Ctrl-C.
+
+Split by privilege, same as bring-up — root toggles dontaudit and reads the log,
+the agent triggers the denials:
+
+```bash
+# 1. AS xd (root), in a terminal:
+sudo selinux/avc-denials.sh           # -DB, prints the probe cmd, then WAITS
+
+# 2. AS THE AGENT, in a confined claude (approved project):
+bash selinux/avc-denials.sh probe     # every attempt is expected to FAIL
+
+# 3. back in terminal 1: press Enter   # ausearch + classify, then -B restores
+```
+
+It hands off to `avc-analyze.sh`, which now sorts denials into **three** buckets:
+**EXPECTED BOUNDARY** (`dontaudit`'d in the core module), **EXPECTED
+GROUP-DISABLED** (only an optional group would allow them — `enable-group <name>`,
+*not* a core change), and **NEW** (a real gap to review). Group-surface denials
+(`rpm_exec_t`, `systemd_systemctl_exec_t`, `firewalld_t`, …) land in the second
+bucket instead of being misreported as NEW. A clean verification shows entries in
+the two EXPECTED buckets and **nothing** under NEW or "ran (group enabled?)".
+
 ## After a Node upgrade
 
 A freshly installed `claude.exe` is unlabelled (fails open → unconfined). The root
