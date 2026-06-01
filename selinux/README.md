@@ -89,6 +89,45 @@ helpers (`ai-tools-chown`, `ai-tools-claude-symlink`), plus some temp-file /
 `/proc/self` / socket access — these are deliberately left out of the shipped
 skeleton so each lands as an *observed* rule, not a guess.
 
+### What the first bring-up pass folded in (v0.2.0)
+
+A raw `audit2allow` of a full session (git add/commit/push, file edits firing the
+hook, Bash-tool commands) proposed ~130 allow rules. Most were **not** granted —
+the tightening was deciding what the agent *needs* versus what some tool merely
+*probed*. The split:
+
+**Allowed** (genuine needs, via refpolicy interfaces where one fits):
+- `sudo` + PAM, present only to run `sudo ai-tools-chown` from the hooks:
+  `can_exec(sudo_exec_t)`, `auth_domtrans_chk_passwd` (so `/etc/shadow` is read in
+  `chkpwd_t`, **not** in `ai_tools_t`), `logging_send_{audit,syslog}_msg`, faillock
+  + pam runtime dirs, and the `setuid setgid chown fsetid dac_read_search`
+  capabilities the drop-to-uid and the chown helper use.
+- Private temp: a new type `ai_tools_tmp_t` with a `/tmp` `type_transition`, so the
+  agent's scratch files are relabelled away from shared `tmp_t`/`user_tmp_t`.
+- `execmem` (V8 JIT), `map` on the project/home types (Node/git mmap),
+  `dev_read_sysfs`, fs/vm sysctls, the controlling pty, and execute on the hook
+  scripts in `.claude`.
+
+**Refused — `dontaudit`, never `allow`** (this is the boundary):
+- **Reading other domains' process state.** The pass logged ~45 daemon domains
+  (`sshd_t`, `sssd_t`, `postgresql_t`, `NetworkManager_t`, `container_t`,
+  `unconfined_t`, …) with the identical `/proc/<pid>` read signature — a full
+  process-table walk. `domain_dontaudit_read_all_domains_state` refuses the lot;
+  the agent has no business reading every daemon's `cmdline`/`environ`/fds.
+- **Listing the invoking user's home.** `user_home_t:dir search` *is* granted (the
+  project nests under `/home/xd/…`, so the agent must traverse to reach it), but
+  `read` on `home_root_t` / `user_home_dir_t` / `user_home_t`, and reads of
+  `config_home_t` (`~/.config`), are refused — that listing is how the agent would
+  discover unrelated files.
+- Reading container storage (`container_file_t`) and executing the MTA
+  (`sendmail_exec_t`); benign `statfs`/tty-attr noise.
+
+**Fixed by labelling, not by allowing:** the pass also logged `usr_t` *writes* —
+the agent writing its own HOME state (`/opt/ai-tools/.claude.json`, `.npm`,
+`.cache`, `.local`). Those paths are now labelled `ai_tools_home_t` in
+`ai_tools.fc`, so the writes land on a type the domain already manages. Granting
+`usr_t` write was rejected: it would also hand the agent the read-only node tree.
+
 ## 3. Flip to enforcing
 
 When the log is clean, remove the switch line from `ai_tools.te`:
@@ -138,9 +177,12 @@ DAC hardening (ownership/permissions/sticky `.claude`/locked `bin`) is untouched
 
 ## Notes
 
-- **Minimal surface:** four types, one entrypoint transition, manage rights on
-  exactly the project + home types, read/exec for the nvm tree, outbound HTTPS,
-  and a process baseline. Everything else is denied (logged, while permissive).
+- **Minimal surface:** five types (`ai_tools_t`, its entrypoint, project, home,
+  private-tmp), one entrypoint transition, manage rights on exactly the project +
+  home + tmp types, read/exec for the nvm tree, the `sudo`→helper path, outbound
+  HTTPS, and a process baseline. Everything else is denied — and the accesses the
+  agent *probed but does not need* (other domains' `/proc`, the user's home
+  listing, container storage) are `dontaudit`'d so they stay denied AND quiet.
 - **git is covered:** `ai_tools_project_t` manage rights include the dir
   create/rename/unlink that git needs (`index.lock`, refs, objects); `git` itself
   runs from `corecmd_exec_bin`. No git permission from the main install changes.

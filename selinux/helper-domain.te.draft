@@ -1,0 +1,232 @@
+################################################################################
+# DRAFT -- separate sudo + root-helper domains for ai_tools  (NOT built/loaded)
+#
+# Status: UNTESTED design. The `.draft` extension keeps the refpolicy Makefile from
+# building it (it only consumes ai_tools.te/.fc/.if). To trial it, MERGE the marked
+# sections into ai_tools.te + ai_tools.fc, keep `permissive ai_tools_t;`, AND add
+# `permissive` for each new domain (see bottom), then run the README bring-up loop.
+#
+# GOAL -- the v0.2.0 "FUTURE HARDENING" note. Today `sudo ai-tools-chown` runs IN
+# ai_tools_t (no transition), so ai_tools_t itself must hold setuid/setgid/chown/
+# fsetid/dac_read_search and the whole PAM/auth surface. This draft moves all of
+# that OUT of the agent domain by transitioning twice:
+#
+#     ai_tools_t --exec sudo--> ai_tools_sudo_t --exec helper--> ai_tools_chown_t
+#                                              \--exec helper--> ai_tools_symlink_t
+#
+# After this, ai_tools_t keeps ONLY "may domain-transition to ai_tools_sudo_t". The
+# uid-switch caps live in the sudo domain; the file-ownership caps live in the chown
+# domain; the symlink-repoint rights live in the symlink domain. A compromise of the
+# agent can still *invoke* the helpers (the sudoers rules already bound WHICH ones),
+# but can no longer wield chown/setuid/shadow-read itself.
+#
+# Least privilege drove TWO helper domains, not one: ai-tools-chown touches project/
+# home files + the allowlist + its log; ai-tools-claude-symlink touches only the
+# locked bin/ symlink + the nvm tree. Neither should hold the other's rights.
+#
+# Every block tagged "OBSERVE" is a best-guess seed to be replaced by what the
+# bring-up actually logs -- same discipline as the shipped module. Related:
+# [[selinux-confinement-layer]], [[symlink-repoint-root-helper]],
+# [[hardened-ownership-model]].
+################################################################################
+
+
+################################################################################
+# PART A -- ai_tools.fc additions (label the helper binaries + the chown log)
+#
+#   /usr/local/sbin/ai-tools-chown           --  gen_context(system_u:object_r:ai_tools_chown_exec_t,s0)
+#   /usr/local/sbin/ai-tools-claude-symlink  --  gen_context(system_u:object_r:ai_tools_symlink_exec_t,s0)
+#   /var/log/ai-tools-chown\.log             --  gen_context(system_u:object_r:ai_tools_chown_log_t,s0)
+#
+# (Both helpers are currently bin_t; the log is var_log_t. After merging, extend
+# install-selinux.sh to restorecon /usr/local/sbin/ai-tools-* and the log path.)
+################################################################################
+
+
+require {
+    type sudo_exec_t;
+    type sudo_db_t;
+    type sudo_log_t;
+    type faillog_t;
+    type pam_var_run_t;
+    type config_home_t;     # the allowlist ~/.config/ai-tools/allowed-projects
+    type user_home_t;
+    type bin_t;             # /opt/ai-tools/bin (the locked control-plane dir)
+    type usr_t;             # the nvm/node tree the symlink helper validates against
+}
+
+################################################################################
+# PART B -- new types
+################################################################################
+
+# sudo, when launched by the agent. PAM (chkpwd/faillock/audit/syslog) runs HERE.
+type ai_tools_sudo_t;
+domain_type(ai_tools_sudo_t)
+domain_entry_file(ai_tools_sudo_t, sudo_exec_t)
+role unconfined_r types ai_tools_sudo_t;
+
+# ai-tools-chown, running as root but confined to exactly the ownership job.
+type ai_tools_chown_t;
+domain_type(ai_tools_chown_t)
+type ai_tools_chown_exec_t;
+domain_entry_file(ai_tools_chown_t, ai_tools_chown_exec_t)
+corecmd_executable_file(ai_tools_chown_exec_t)
+role unconfined_r types ai_tools_chown_t;
+
+# the chown helper's audit log -- its own type so the domain appends only here.
+type ai_tools_chown_log_t;
+logging_log_file(ai_tools_chown_log_t)
+
+# ai-tools-claude-symlink, running as root but confined to the bin/ symlink repoint.
+type ai_tools_symlink_t;
+domain_type(ai_tools_symlink_t)
+type ai_tools_symlink_exec_t;
+domain_entry_file(ai_tools_symlink_t, ai_tools_symlink_exec_t)
+corecmd_executable_file(ai_tools_symlink_exec_t)
+role unconfined_r types ai_tools_symlink_t;
+
+################################################################################
+# PART C -- ai_tools.te DELTA (what changes in the agent domain)
+#
+# REMOVE from ai_tools.te v0.2.0 the entire "sudo -> the two root helpers" block
+# and the PAM lines, i.e. delete:
+#   can_exec(ai_tools_t, sudo_exec_t)
+#   allow ai_tools_t sudo_db_t:dir ... ; allow ai_tools_t sudo_log_t:file ...
+#   allow ai_tools_t self:capability { setuid setgid sys_resource chown fsetid dac_read_search };
+#   allow ai_tools_t self:process setrlimit;          # was sudo's; re-observe if Node needs it
+#   auth_domtrans_chk_passwd(ai_tools_t)
+#   logging_send_audit_msgs(ai_tools_t)
+#   logging_send_syslog_msg(ai_tools_t)
+#   allow ai_tools_t faillog_t:... ; allow ai_tools_t pam_var_run_t:...
+#
+# ADD instead -- the ONLY new right the agent keeps is "transition into sudo":
+################################################################################
+
+domtrans_pattern(ai_tools_t, sudo_exec_t, ai_tools_sudo_t)
+# sudo writes diagnostics back down the agent's fds/pipe and signals it on exit.
+allow ai_tools_sudo_t ai_tools_t:fd use;
+allow ai_tools_sudo_t ai_tools_t:fifo_file rw_fifo_file_perms;
+allow ai_tools_sudo_t ai_tools_t:process sigchld;
+allow ai_tools_t ai_tools_sudo_t:process signal;
+
+################################################################################
+# PART D -- ai_tools_sudo_t  (sudo + PAM live here, not in the agent)
+################################################################################
+
+# sudo is setuid-root: it drops to the target uid (root) and raises limits.
+allow ai_tools_sudo_t self:capability { setuid setgid sys_resource audit_write dac_read_search dac_override };  # OBSERVE: real sudo also touches fowner/fsetid/sys_nice/setpcap
+allow ai_tools_sudo_t self:process { setrlimit setexec getsched signal };
+allow ai_tools_sudo_t self:fifo_file rw_fifo_file_perms;
+allow ai_tools_sudo_t self:unix_stream_socket create_stream_socket_perms;
+allow ai_tools_sudo_t self:netlink_audit_socket { create nlmsg_relay read write };
+
+# read /etc/sudoers(.d), nsswitch, localtime, ...
+files_read_etc_files(ai_tools_sudo_t)
+auth_use_nsswitch(ai_tools_sudo_t)
+miscfiles_read_localization(ai_tools_sudo_t)
+kernel_read_system_state(ai_tools_sudo_t)
+
+# PAM -- exactly the surface that was in ai_tools_t before, now isolated here.
+# chkpwd transitions to chkpwd_t, so the /etc/shadow read happens THERE.
+auth_domtrans_chk_passwd(ai_tools_sudo_t)
+logging_send_audit_msgs(ai_tools_sudo_t)
+logging_send_syslog_msg(ai_tools_sudo_t)
+allow ai_tools_sudo_t faillog_t:dir { getattr search open read add_name remove_name write };
+allow ai_tools_sudo_t faillog_t:file { create getattr open read setattr write };
+allow ai_tools_sudo_t pam_var_run_t:dir { getattr search open read add_name write };
+allow ai_tools_sudo_t pam_var_run_t:file { create getattr lock open read write };
+
+# sudo timestamp db + optional log
+allow ai_tools_sudo_t sudo_db_t:dir { getattr search open read write add_name remove_name };
+allow ai_tools_sudo_t sudo_db_t:file manage_file_perms;
+allow ai_tools_sudo_t sudo_log_t:file { getattr open append };
+
+# the controlling pty (sudo prints to it)
+userdom_use_user_terminals(ai_tools_sudo_t)
+
+# THE point of the chain: sudo execs each helper INTO its own domain.
+domtrans_pattern(ai_tools_sudo_t, ai_tools_chown_exec_t, ai_tools_chown_t)
+domtrans_pattern(ai_tools_sudo_t, ai_tools_symlink_exec_t, ai_tools_symlink_t)
+
+################################################################################
+# PART E -- ai_tools_chown_t  (the ownership-restore helper, root, confined)
+#
+# What the script does (scripts/ai-tools-chown.sh): reads the allowlist, opens the
+# target, then chown/chmod via /proc/self/fd/N (inode pinned against symlink races),
+# walks parent dirs, logs to /var/log/ai-tools-chown.log. It only ever chowns/chmods
+# -- it never creates, renames, or unlinks the user's files -- so it gets
+# getattr+setattr, NOT full manage, on the project/home types.
+################################################################################
+
+# it is a bash script calling realpath/chown/chmod/date
+corecmd_exec_shell(ai_tools_chown_t)
+corecmd_exec_bin(ai_tools_chown_t)
+files_read_etc_files(ai_tools_chown_t)
+
+# the actual privilege: change owner/mode of agent-written files (running as root).
+allow ai_tools_chown_t self:capability { chown fsetid fowner dac_read_search dac_override };
+allow ai_tools_chown_t self:fd use;
+allow ai_tools_chown_t { ai_tools_project_t ai_tools_home_t }:dir { getattr search open read };
+allow ai_tools_chown_t { ai_tools_project_t ai_tools_home_t }:file { getattr setattr open read };
+allow ai_tools_chown_t { ai_tools_project_t ai_tools_home_t }:lnk_file { getattr read };
+
+# chown via /proc/self/fd/N
+kernel_read_proc_symlinks(ai_tools_chown_t)      # OBSERVE: may instead need fs_* /proc/self access
+
+# read the allowlist (config_home_t) to honour allow/! rules -- a right the AGENT
+# is deliberately denied; the helper legitimately needs it.
+userdom_search_user_home_dirs(ai_tools_chown_t)
+allow ai_tools_chown_t user_home_t:dir search;
+allow ai_tools_chown_t config_home_t:dir search;
+allow ai_tools_chown_t config_home_t:file { getattr open read };
+
+# append the audit log, into its own type
+allow ai_tools_chown_t ai_tools_chown_log_t:file { create getattr open append setattr };
+logging_log_filetrans(ai_tools_chown_t, ai_tools_chown_log_t, file)
+
+allow ai_tools_chown_t self:process { fork sigchld signal };
+allow ai_tools_chown_t self:fifo_file rw_fifo_file_perms;
+# inherit the agent's pipe so the hook can relay the helper's NOTICE into the session
+allow ai_tools_chown_t ai_tools_sudo_t:fd use;
+allow ai_tools_chown_t ai_tools_t:fifo_file rw_fifo_file_perms;   # OBSERVE
+miscfiles_read_localization(ai_tools_chown_t)
+
+################################################################################
+# PART F -- ai_tools_symlink_t  (the claude-symlink repoint helper, root, confined)
+#
+# What the script does (scripts/ai-tools-claude-symlink.sh): validates its arg is a
+# real .../node/v<M>.<m>.<p>/bin/claude (its own anchored regex), then atomically
+# repoints /opt/ai-tools/bin/claude. So it manages a lnk_file in bin_t and stats the
+# nvm tree (usr_t). It does NOT touch project/home files -- a strictly different,
+# narrower job than the chown helper.
+################################################################################
+
+corecmd_exec_shell(ai_tools_symlink_t)
+corecmd_exec_bin(ai_tools_symlink_t)
+files_read_etc_files(ai_tools_symlink_t)
+
+# write the symlink inside the locked bin/ dir (bin_t). Root, so dac_override to
+# enter/modify the 550 dir; SELinux still scopes it to bin_t lnk_files here only.
+allow ai_tools_symlink_t self:capability { dac_override dac_read_search fowner };
+allow ai_tools_symlink_t bin_t:dir { getattr search open read add_name remove_name write };
+allow ai_tools_symlink_t bin_t:lnk_file { create read getattr unlink rename };
+
+# validate the new target exists in the nvm tree (usr_t)
+files_read_usr_files(ai_tools_symlink_t)
+allow ai_tools_symlink_t usr_t:lnk_file read;
+
+allow ai_tools_symlink_t self:process { fork sigchld signal };
+allow ai_tools_symlink_t self:fifo_file rw_fifo_file_perms;
+allow ai_tools_symlink_t ai_tools_sudo_t:fd use;            # OBSERVE
+miscfiles_read_localization(ai_tools_symlink_t)
+
+################################################################################
+# PART G -- bring-up switches. Ship each new domain PERMISSIVE first, exactly like
+# ai_tools_t, so the chain can be observed without breaking the hook/updater. Remove
+# these (and ai_tools_t's) only after a clean ausearch across a write (hook fires)
+# AND a Node upgrade (symlink helper fires).
+################################################################################
+
+permissive ai_tools_sudo_t;
+permissive ai_tools_chown_t;
+permissive ai_tools_symlink_t;

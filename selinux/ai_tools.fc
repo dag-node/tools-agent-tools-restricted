@@ -10,8 +10,21 @@
 
 # The agent's own config/state dir -- a private writable area, so the policy need
 # not grant write to the whole nvm tree (usr_t). The xd-owned control files inside
-# (settings.json, post-write-hook.sh) remain protected by DAC regardless of label.
+# (settings.json, post-tool-hook.sh) remain protected by DAC regardless of label.
 /opt/ai-tools/\.claude(/.*)?  gen_context(system_u:object_r:ai_tools_home_t,s0)
+
+# The rest of the agent's HOME state. HOME is /opt/ai-tools, whose base is usr_t,
+# so without these the agent's own writes to .claude.json / .npm / .cache / .local
+# / .config land on usr_t -- and granting the domain usr_t write would also hand it
+# the read-only node/program tree. Labelling just these paths ai_tools_home_t keeps
+# the writes on a type the domain already manages, and leaves .nvm (usr_t,
+# read-only) and bin (bin_t, the locked control-plane) untouched.
+/opt/ai-tools/\.claude\.json  --  gen_context(system_u:object_r:ai_tools_home_t,s0)
+/opt/ai-tools/\.npm(/.*)?         gen_context(system_u:object_r:ai_tools_home_t,s0)
+/opt/ai-tools/\.cache(/.*)?       gen_context(system_u:object_r:ai_tools_home_t,s0)
+/opt/ai-tools/\.local(/.*)?       gen_context(system_u:object_r:ai_tools_home_t,s0)
+/opt/ai-tools/\.config(/.*)?      gen_context(system_u:object_r:ai_tools_home_t,s0)
+/opt/ai-tools/\.gitconfig     --  gen_context(system_u:object_r:ai_tools_home_t,s0)
 
 # Approved PROJECT dirs are NOT listed here -- their paths are dynamic. They are
 # labelled ai_tools_project_t per-project with `semanage fcontext` by

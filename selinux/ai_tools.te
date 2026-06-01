@@ -1,22 +1,60 @@
-policy_module(ai_tools, 0.1.0)
+policy_module(ai_tools, 0.2.0)
 
 ########################################
 #
 # ai_tools -- confine the Claude Code sandbox agent (the ai-tools UID) to its own
 # domain (ai_tools_t) with a path boundary: it may modify approved project dirs
-# (ai_tools_project_t) and its own config/state (ai_tools_home_t), but NOT other
-# user files (e.g. other projects under /home, still user_home_t).
+# (ai_tools_project_t), its own config/state (ai_tools_home_t), and private temp
+# (ai_tools_tmp_t), but NOT other user files (e.g. other projects under /home,
+# still user_home_t), and it may NOT read other domains' process state or the
+# invoking user's home/config.
 #
 # SHIPS PERMISSIVE. Loading this module changes NOTHING about what is allowed --
-# it only starts LOGGING what ai_tools_t does, so you can complete the policy with
-# audit2allow before flipping to enforcing. See selinux/README.md. The single
-# `permissive ai_tools_t;` line below is the on/off switch for enforcement.
+# it only LOGS what ai_tools_t does. The single `permissive ai_tools_t;` line at
+# the bottom is the on/off switch; remove it (and reload) to enforce. See
+# selinux/README.md.
+#
+# v0.2.0 folds in the first audit2allow bring-up pass. The guiding rule was the
+# opposite of `audit2allow | tee policy`: a raw audit2allow dump asks to allow
+# everything observed, including ~45 daemon /proc reads, listing the user's home,
+# and writing usr_t. Those are NOT granted here -- they are the boundary. Each is
+# dontaudit'd (with the reason) so it stays silently denied under enforcing. Only
+# the accesses the agent genuinely needs to function are allowed, via refpolicy
+# interfaces wherever one exists.
 #
 ########################################
 
 require {
     type unconfined_t;
     role unconfined_r;
+
+    # sudo + PAM auth path -- present ONLY to service `sudo ai-tools-chown`
+    # (and `sudo ai-tools-claude-symlink`) invoked from the PostToolUse/Stop hooks
+    # and the updater. The sudoers rules remain the authoritative limit on WHICH
+    # root commands run; SELinux here only lets sudo+PAM execute at all.
+    type sudo_exec_t;
+    type sudo_db_t;
+    type sudo_log_t;
+    type faillog_t;
+    type pam_var_run_t;
+
+    # read-only kernel tunables Node/V8 probes at startup
+    type sysctl_vm_t;
+
+    # types we deliberately REFUSE (dontaudit below -- logged-then-silenced, never
+    # allowed). Declared here so the explicit dontaudit rules compile.
+    type config_home_t;
+    type container_file_t;
+    type sendmail_exec_t;
+    type home_root_t;
+    type user_home_dir_t;
+    type user_home_t;
+    type cgroup_t;
+    type fs_t;
+    type tmpfs_t;
+    type tty_device_t;
+    type kernel_t;
+    type init_t;
 }
 
 ########################################
@@ -36,14 +74,19 @@ application_domain(ai_tools_t, ai_tools_exec_t)
 type ai_tools_project_t;
 files_type(ai_tools_project_t)
 
-# The agent's own config/state dir (/opt/ai-tools/.claude) -- a private writable
-# area distinct from the read-only nvm tree, so we need not grant write to usr_t.
+# The agent's own config/state -- /opt/ai-tools/.claude plus its HOME state files
+# (.claude.json, .npm, .cache, .local, .config; see ai_tools.fc). A private
+# writable area distinct from the read-only nvm/program tree (usr_t), so the
+# policy need not grant write to usr_t. The xd-owned control files inside
+# (settings.json, post-tool-hook.sh) stay protected by DAC regardless of label.
 type ai_tools_home_t;
 files_type(ai_tools_home_t)
 
-# Enforcement switch: PERMISSIVE = log only. Remove this line (and reload) ONLY
-# after an audit2allow bring-up pass; that is what turns the confinement on.
-permissive ai_tools_t;
+# The agent's private temp files. A type_transition (below) relabels everything
+# the agent creates under /tmp to this type, so it gets its own scratch space and
+# cannot read or clobber other domains' tmp_t/user_tmp_t files once enforcing.
+type ai_tools_tmp_t;
+files_tmp_file(ai_tools_tmp_t)
 
 ########################################
 # Domain entry
@@ -58,6 +101,9 @@ permissive ai_tools_t;
 domtrans_pattern(unconfined_t, ai_tools_exec_t, ai_tools_t)
 role unconfined_r types ai_tools_t;
 
+# Node re-execs its own launcher (cluster/worker spawn) without leaving the domain.
+allow ai_tools_t ai_tools_exec_t:file execute_no_trans;
+
 ########################################
 # Project + agent-home files  (covers ALL git file operations: index.lock
 # create/rename/unlink, object writes, ref updates, config reads, etc.)
@@ -71,9 +117,23 @@ manage_dirs_pattern(ai_tools_t, ai_tools_home_t, ai_tools_home_t)
 manage_files_pattern(ai_tools_t, ai_tools_home_t, ai_tools_home_t)
 manage_lnk_files_pattern(ai_tools_t, ai_tools_home_t, ai_tools_home_t)
 
-# Reach the project: its parent dirs under /home stay user_home(_dir)_t, so the
-# agent must be able to search through them (search only -- not read their files).
+# mmap of project/home files: Node mmaps source files and its own state; git
+# mmaps pack/index files. (Raw audit2allow flagged this as boolean
+# domain_can_mmap_files -- we grant it narrowly on our own two writable types
+# instead of flipping a system-wide boolean.)
+allow ai_tools_t ai_tools_project_t:file map;
+allow ai_tools_t ai_tools_home_t:file map;
+
+# Execute the PostToolUse/Stop hook scripts that live in .claude (ai_tools_home_t).
+# They are interpreted shell, but the kernel still needs file execute on the
+# script the shebang line names. No transition: the hook stays in ai_tools_t.
+allow ai_tools_t ai_tools_home_t:file { execute execute_no_trans };
+
+# Reach the project: its parent path is /home/xd (user_home_dir_t) -> intermediate
+# dirs (user_home_t) -> the labelled project. The agent must SEARCH through those
+# parents (path resolution) -- but NOT list/read them (see the dontaudit block).
 userdom_search_user_home_dirs(ai_tools_t)
+allow ai_tools_t user_home_t:dir { getattr search open };
 
 # xd (unconfined) keeps full access to, and can relabel (restorecon), the new
 # file types -- relabelling a project to ai_tools_project_t must never lock you out.
@@ -88,6 +148,20 @@ relabel_dirs_pattern(unconfined_t, ai_tools_home_t, ai_tools_home_t)
 relabel_files_pattern(unconfined_t, ai_tools_home_t, ai_tools_home_t)
 
 ########################################
+# Private temp  (/tmp scratch for git, Node, and the Bash tool)
+########################################
+
+manage_dirs_pattern(ai_tools_t, ai_tools_tmp_t, ai_tools_tmp_t)
+manage_files_pattern(ai_tools_t, ai_tools_tmp_t, ai_tools_tmp_t)
+manage_lnk_files_pattern(ai_tools_t, ai_tools_tmp_t, ai_tools_tmp_t)
+# New entries the agent creates in /tmp become ai_tools_tmp_t, not generic tmp_t.
+files_tmp_filetrans(ai_tools_t, ai_tools_tmp_t, { file dir lnk_file })
+files_search_tmp(ai_tools_t)
+# add_name/remove_name on the shared /tmp dir so the agent can create and clean up
+# its own entries there; the DAC sticky bit on /tmp still stops it touching others'.
+allow ai_tools_t tmp_t:dir { getattr search add_name remove_name write };
+
+########################################
 # Run the agent, the Bash tool, and git/coreutils
 ########################################
 
@@ -97,6 +171,16 @@ files_read_usr_files(ai_tools_t)    # read the nvm/node tree under /opt/ai-tools
 files_read_etc_files(ai_tools_t)    # /etc/gitconfig, nsswitch.conf, ...
 auth_use_nsswitch(ai_tools_t)       # resolve uid/gid (getpwnam)
 miscfiles_read_localization(ai_tools_t)
+dev_read_sysfs(ai_tools_t)          # /sys (cpu topology, etc.) read by Node/glibc
+kernel_read_fs_sysctls(ai_tools_t)  # /proc/sys/fs/* (inotify/file-max limits)
+allow ai_tools_t sysctl_vm_t:dir search;
+allow ai_tools_t sysctl_vm_t:file { getattr open read };   # /proc/sys/vm/overcommit_memory, ...
+
+########################################
+# Interactive terminal (claude is a TUI)
+########################################
+
+userdom_use_user_terminals(ai_tools_t)   # the controlling pty (user_devpts_t)
 
 ########################################
 # Outbound HTTPS to the Anthropic API
@@ -106,10 +190,45 @@ sysnet_dns_name_resolve(ai_tools_t)
 corenet_tcp_connect_http_port(ai_tools_t)   # http_port_t includes 443
 
 ########################################
+# sudo -> the two root helpers  (ai-tools-chown, ai-tools-claude-symlink)
+#
+# The hooks run `sudo ai-tools-chown`; the updater runs `sudo ai-tools-claude-symlink`.
+# No type_transition is defined for the helpers, so sudo and the helper both run
+# IN ai_tools_t (execute_no_trans) -- the helper is root-uid but SELinux-confined
+# to this domain. That is why this domain needs setuid/setgid (sudo drops to the
+# target uid) and chown/fsetid/dac_read_search (the chown helper restoring
+# ownership and stripping bits). The capabilities are scoped to this domain only.
+#
+# FUTURE HARDENING: give the helpers their own domain (ai_tools_chown_t) via a
+# sudo type_transition, so ai_tools_t itself loses setuid/setgid/chown/fsetid and
+# never needs the PAM/auth surface below. Deferred -- it needs a load test under
+# enforcing on the live box, which has not happened. See selinux/README.md.
+########################################
+
+can_exec(ai_tools_t, sudo_exec_t)
+allow ai_tools_t sudo_db_t:dir { getattr search open read };
+allow ai_tools_t sudo_log_t:file { getattr open append };
+
+allow ai_tools_t self:capability { setuid setgid sys_resource chown fsetid dac_read_search };
+allow ai_tools_t self:process setrlimit;
+
+# PAM, as pulled in by sudo. chkpwd is TRANSITIONED to its own domain (chkpwd_t),
+# so the /etc/shadow read happens there and ai_tools_t never gains shadow_t access.
+auth_domtrans_chk_passwd(ai_tools_t)
+logging_send_audit_msgs(ai_tools_t)   # self:netlink_audit_socket + audit_write cap
+logging_send_syslog_msg(ai_tools_t)   # /dev/log (devlog_t) writes from sudo/pam
+# pam_faillock state + pam runtime dir (NOPASSWD still runs the account/session stack)
+allow ai_tools_t faillog_t:dir { getattr search open read add_name remove_name write };
+allow ai_tools_t faillog_t:file { create getattr open read setattr write };
+allow ai_tools_t pam_var_run_t:dir { getattr search open read add_name write };
+allow ai_tools_t pam_var_run_t:file { create getattr lock open read write };
+
+########################################
 # Process baseline
 ########################################
 
 allow ai_tools_t self:process { fork sigchld signal signull getsched setsched };
+allow ai_tools_t self:process execmem;   # V8 JIT (writable+executable code pages)
 allow ai_tools_t self:fifo_file rw_fifo_file_perms;
 allow ai_tools_t self:unix_stream_socket create_stream_socket_perms;
 allow ai_tools_t self:unix_dgram_socket create_socket_perms;
@@ -118,12 +237,56 @@ kernel_read_system_state(ai_tools_t)
 dev_read_urand(ai_tools_t)
 
 ########################################
-# BRING-UP (left to audit2allow on purpose, so each rule is exactly what is
-# observed, not guessed):
-#   - exec of /usr/bin/sudo and the transition to run the two root helpers
-#     (ai-tools-chown, ai-tools-claude-symlink); the sudoers rules remain the
-#     authoritative limit on WHICH root commands run.
-#   - any temp-file, /proc/self, or additional socket/port access node needs.
-# Run in permissive, exercise claude (incl. git status/diff/add/commit/push and a
-# file write so the hook fires), then: audit2allow -a, fold rules in here, rebuild.
+# THE BOUNDARY -- deliberately DENIED.
+#
+# Everything below is dontaudit, NOT allow. A raw `audit2allow` of the bring-up
+# logs proposed allowing all of it; granting any of it would widen the agent past
+# its purpose. dontaudit keeps each one silently denied under enforcing AND stops
+# it spamming the audit log so real new denials stay visible. If any turns out to
+# be functionally required, it will resurface as a hard failure (not a log line)
+# and can be reconsidered then -- on its own merits, not because a tool probed it.
 ########################################
+
+# (1) Reading OTHER domains' process state. The bring-up logged ~45 distinct
+# daemon domains (NetworkManager_t, sshd_t, sssd_t, postgresql_t, container_t,
+# unconfined_t, kernel_t, init_t, ...) all with the identical /proc/<pid> read
+# signature -- something walked the whole process table. A confined coding agent
+# has no business reading every daemon's cmdline/environ/fds (environ can leak
+# secrets), so this is refused wholesale.
+domain_dontaudit_read_all_domains_state(ai_tools_t)
+dontaudit ai_tools_t init_t:file ioctl;
+dontaudit ai_tools_t kernel_t:unix_stream_socket connectto;
+
+# (2) The path boundary into the invoking user's home. SEARCH to reach the project
+# is allowed above; LISTING /home, /home/xd, or its subtrees is not -- that is how
+# the agent would discover unrelated files. Reading the user's ~/.config is
+# likewise refused (git/Node probe it; failing closed is harmless).
+dontaudit ai_tools_t home_root_t:dir read;
+dontaudit ai_tools_t user_home_dir_t:dir read;
+dontaudit ai_tools_t user_home_t:dir read;
+dontaudit ai_tools_t config_home_t:file { getattr ioctl open read };
+
+# (3) Unrelated subsystems the agent reached into but does not need. Reading
+# container storage and executing the MTA are outside a coding agent's job.
+dontaudit ai_tools_t container_file_t:file { open read };
+dontaudit ai_tools_t sendmail_exec_t:file execute;
+
+# (4) Benign statfs / tty-attr noise -- denying these changes no behaviour (callers
+# fall back), so silence rather than grant.
+dontaudit ai_tools_t { cgroup_t fs_t tmpfs_t }:filesystem getattr;
+dontaudit ai_tools_t tty_device_t:chr_file getattr;
+
+# NB: the bring-up also logged usr_t writes. Those were the agent writing its own
+# HOME state (.claude.json, .npm, .cache, .local) which was mislabelled usr_t.
+# That is NOT dontaudit'd here -- it is FIXED by labelling those paths
+# ai_tools_home_t in ai_tools.fc, so the writes land on a type the agent already
+# manages. (Granting usr_t write would also hand it the node/program tree.)
+
+########################################
+# Enforcement switch: PERMISSIVE = log only. Re-run the README bring-up loop to
+# confirm the log is clean against THIS rule set (a fresh `audit2allow` should now
+# show nothing but the boundary items above, which are expected and dontaudit'd),
+# then remove this line and reload to enforce.
+########################################
+
+permissive ai_tools_t;

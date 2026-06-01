@@ -22,6 +22,10 @@ readonly DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly MODULE="ai_tools"
 readonly HOME_DIR="/opt/ai-tools/.claude"
 readonly NVM_DIR="/opt/ai-tools/.nvm"
+# Agent HOME-state paths that ai_tools.fc labels ai_tools_home_t (besides .claude,
+# covered by HOME_DIR). restorecon'd individually -- never a blanket restorecon of
+# /opt/ai-tools, which would knock .nvm and the locked bin/ off their contexts.
+HOME_STATE=(.claude.json .npm .cache .local .config .gitconfig)
 
 [[ "${EUID}" -eq 0 ]] || { echo "selinux: run with sudo" >&2; exit 1; }
 REAL_USER="${SUDO_USER:?selinux: invoke via sudo, not as root directly}"
@@ -45,6 +49,9 @@ for_each_project() {
     done < "${ALLOWLIST}"
 }
 
+_home_state()  { local p; for p in "${HOME_STATE[@]}"; do
+                   restorecon -RF "/opt/ai-tools/${p}" 2>/dev/null || true
+                 done; }
 _label_one()   { semanage fcontext -a -t ai_tools_project_t "$1(/.*)?" 2>/dev/null \
                  || semanage fcontext -m -t ai_tools_project_t "$1(/.*)?" 2>/dev/null || true
                  restorecon -RF "$1" 2>/dev/null || true
@@ -64,6 +71,7 @@ case "${ACTION}" in
     # them to the live tree. Project dirs are dynamic -> semanage fcontext below.
     restorecon -RF "${HOME_DIR}" 2>/dev/null || true
     restorecon -RF "${NVM_DIR}"  2>/dev/null || true
+    _home_state
     for_each_project _label_one
     log "done. The module is loaded PERMISSIVE -- nothing is blocked yet."
     log "verify:  semodule -l | grep ${MODULE};  matchpathcon ${HOME_DIR}"
@@ -74,6 +82,7 @@ case "${ACTION}" in
     log "re-applying labels"
     restorecon -RF "${HOME_DIR}" 2>/dev/null || true
     restorecon -RF "${NVM_DIR}"  2>/dev/null || true   # picks up a new claude.exe after upgrade
+    _home_state
     for_each_project _label_one
     log "relabel done"
     ;;
@@ -85,6 +94,7 @@ case "${ACTION}" in
     log "reverting contexts to defaults"
     _restore_one "${HOME_DIR}"
     _restore_one "${NVM_DIR}"
+    _home_state   # fc rules gone with the module -> these revert to usr_t defaults
     for_each_project _restore_one
     log "removed."
     ;;
