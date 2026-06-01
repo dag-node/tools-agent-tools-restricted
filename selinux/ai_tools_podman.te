@@ -1,0 +1,42 @@
+policy_module(ai_tools_podman, 0.1.0)
+
+## ai_tools OPTIONAL GROUP: podman  [DEFAULT: DISABLED]
+##
+## Grants ai_tools_t permission to execute the podman/buildah container runtime
+## (container_runtime_exec_t) and read container image/layer storage. Enable when
+## the agent needs to build, run, pull, inspect, or tag containers.
+##
+## Enable:  sudo selinux/install-selinux.sh enable-group podman
+## Disable: sudo selinux/install-selinux.sh disable-group podman
+##
+## When a task needs this group and it is not loaded, surface to the user:
+##   "podman / buildah requires the SELinux 'podman' policy group.
+##    ! sudo selinux/install-selinux.sh enable-group podman
+##    Why: /usr/bin/podman is labelled container_runtime_exec_t; ai_tools_t
+##         cannot execute it without this group. Container image and layer
+##         storage (container_file_t) also needs explicit read permission --
+##         it is dontaudit'd in the core module to keep the log quiet."
+##
+## IMPORTANT: re-run the bring-up suite (avc-testsuite.sh + avc-analyze.sh)
+## after enabling this group BEFORE going enforcing. Rootless podman has a wide
+## surface: overlayfs mounts, user-namespace setup, netns creation, and newuidmap/
+## newgidmap calls. Each of those may generate additional denials that must be
+## evaluated on their own merits -- do not blindly fold in everything audit2allow
+## proposes from a podman run. The bring-up loop is the gating step.
+
+require {
+    type ai_tools_t;
+}
+
+# Execute podman / buildah without a domain transition -- the runtime stays
+# confined to ai_tools_t rather than transitioning into container_runtime_t.
+# This keeps the container surface under this policy's rules. If a future need
+# arises for full container_runtime_t (e.g. nested container execution), switch
+# to container_runtime_domtrans and evaluate the wider capability set it grants.
+container_runtime_exec(ai_tools_t)
+
+# Read container image and layer storage (container_file_t). This overrides the
+# dontaudit in the core module: when this group is loaded the allow takes effect;
+# when it is not, the dontaudit keeps the denial silent rather than log-spamming.
+container_search_lib(ai_tools_t)
+container_read_lib_files(ai_tools_t)

@@ -56,22 +56,32 @@ ps -eo label,cmd | grep -m1 '[c]laude'      # process label -> ...:ai_tools_t
 ## 2. Bring-up to enforcing (audit2allow loop)
 
 While permissive, **exercise every path the agent uses**, so the kernel logs the
-full rule set:
+full rule set. Two scripts automate this — split by privilege, because the agent
+can exercise the surface but cannot read the audit log, and root can read the log
+but should not be the one acting as the agent:
 
 ```bash
-# in an approved project, run claude and have it:
-#   - write/edit a file       (fires the PostToolUse hook -> sudo ai-tools-chown)
-#   - git status / diff / branch        (auto-allowed)
-#   - git add / commit / mv / push      (the confirmed git ops)
-#   - run a Bash tool command
-# then, if a Node upgrade happens, let nvm-update run once too.
+# 1. AS THE AGENT, inside a confined claude in an approved project:
+bash selinux/avc-testsuite.sh     # create, modify, git (+ git mv), private temp,
+                                  # secret-quarantine, allowed + denied network
+
+# 2. AS xd (root), once the turn ends (so the Stop sweep's NOTICE is logged too):
+sudo bash selinux/avc-analyze.sh  # splits denials into NEW vs EXPECTED BOUNDARY
 ```
 
-Collect what it *would* have denied and turn it into rules:
+`avc-testsuite.sh` **aborts unless it is running in `ai_tools_t`** — running it
+unconfined would log nothing and the empty result would look like success. It
+writes a start marker (`selinux/.avc-last-run`); `avc-analyze.sh` reads it so
+`ausearch -ts` starts at exactly the right instant. The analyzer classifies each
+denial: **EXPECTED BOUNDARY** ones (the `user_home_t` / `config_home_t` /
+non-`http_port_t` accesses `ai_tools.te` already `dontaudit`s) must stay denied,
+and only the **NEW** ones are candidates to fold in.
+
+The same thing by hand, if you prefer:
 
 ```bash
-sudo ausearch -m AVC -ts recent | grep ai_tools_t          # inspect raw denials
-sudo ausearch -m AVC -ts recent | audit2allow -R           # suggested refpolicy rules
+sudo ausearch -m AVC -su ai_tools_t -ts recent              # inspect raw denials
+sudo ausearch -m AVC -su ai_tools_t -ts recent | audit2allow -R   # suggested rules
 ```
 
 Fold the suggested allows into the **BRING-UP** section of `ai_tools.te` (prefer
@@ -146,15 +156,26 @@ only `ai_tools_t`'s own permissive flag changed.
 
 ## After a Node upgrade
 
-A freshly installed `claude.exe` is unlabelled (fails open → unconfined). Re-apply:
+A freshly installed `claude.exe` is unlabelled (fails open → unconfined). The root
+helper `ai-tools-claude-symlink` — which runs at upgrade time to repoint the stable
+symlink — now **`restorecon`s the new `claude.exe` automatically**, best-effort and
+fail-open: it relabels only when SELinux is enabled and the `ai_tools` module is
+loaded, and warns (never aborts the upgrade) if the label does not take. So a normal
+`nvm-update` keeps the agent confined across version bumps without manual steps.
+
+You only need to relabel by hand if you upgraded Node some other way, or to
+re-assert after changing the policy:
 
 ```bash
 cd selinux && sudo ./install-selinux.sh relabel
 ```
 
-(If you later want this automatic, the root helper `ai-tools-claude-symlink` —
-which already runs at upgrade time with the versioned path — is the natural place
-to add a `restorecon` of the new `claude.exe`.)
+Both paths now **verify** the entrypoint label and remind you that a *running*
+claude keeps its old context until you exit and relaunch.
+
+> Note: the live deployed helper is `/usr/local/sbin/ai-tools-claude-symlink`
+> (root-owned, 750). After pulling this change, redeploy it:
+> `sudo install -o root -g root -m 750 scripts/ai-tools-claude-symlink.sh /usr/local/sbin/ai-tools-claude-symlink`.
 
 ## Adding a project later
 

@@ -51,3 +51,34 @@ tmp="$(mktemp -u "${BIN_DIR}/.claude.XXXXXX")"
 ln -s "${TARGET}" "${tmp}"
 mv -Tf "${tmp}" "${LINK}"
 printf 'ai-tools-claude-symlink: %s -> %s\n' "${LINK}" "${TARGET}"
+
+# Re-label the new claude.exe entrypoint (optional SELinux layer, selinux/).
+# A freshly installed Node tree creates claude.exe UNLABELLED (default lib_t), so
+# the unconfined_t -> ai_tools_t transition stops firing and the agent silently
+# runs unconfined until someone reruns install-selinux.sh. This runs as root at
+# the exact moment the new version lands -- the natural place to restore the
+# label. STRICTLY best-effort and FAIL-OPEN: skipped entirely unless SELinux is
+# enabled AND the ai_tools module is loaded (otherwise restorecon would have no
+# ai_tools_exec_t rule to apply, or there is no SELinux layer at all), and a
+# failure never aborts the upgrade -- an unlabelled entrypoint just means the
+# agent runs unconfined, which is the layer's designed fail-open state.
+relabel_entrypoint() {
+    command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled || return 0
+    command -v restorecon     >/dev/null 2>&1 || return 0
+    semodule -l 2>/dev/null | grep -Eq '^ai_tools( |$)' || return 0
+
+    # TARGET passed the anchored regex above, so stripping the fixed '/bin/claude'
+    # tail yields the version root with no '..'/extra segments; the package path
+    # under it is npm's fixed layout for @anthropic-ai/claude-code.
+    local verroot exe
+    verroot="${TARGET%/bin/claude}"
+    exe="${verroot}/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
+    [[ -e "${exe}" ]] || { printf 'ai-tools-claude-symlink: no claude.exe under %s; skipping relabel\n' "${verroot}" >&2; return 0; }
+
+    restorecon -F "${exe}" 2>/dev/null || true
+    case "$(ls -Zd "${exe}" 2>/dev/null | awk '{print $1}')" in
+        *:ai_tools_exec_t:*) printf 'ai-tools-claude-symlink: relabelled entrypoint ai_tools_exec_t\n' >&2 ;;
+        *) printf 'ai-tools-claude-symlink: WARNING: %s did not take ai_tools_exec_t (agent will run unconfined)\n' "${exe}" >&2 ;;
+    esac
+}
+relabel_entrypoint

@@ -1,0 +1,35 @@
+policy_module(ai_tools_netadmin, 0.1.0)
+
+## ai_tools OPTIONAL GROUP: netadmin  [DEFAULT: DISABLED]
+##
+## Grants ai_tools_t D-Bus send_msg permission to firewalld and NetworkManager.
+## Both binaries (/usr/bin/firewall-cmd, /usr/bin/nmcli) are bin_t and already
+## executable from the core module; this group adds the D-Bus communication their
+## privileged backends require to actually act on queries or changes.
+##
+## Enable:  sudo selinux/install-selinux.sh enable-group netadmin
+## Disable: sudo selinux/install-selinux.sh disable-group netadmin
+##
+## When a task needs this group and it is not loaded, surface to the user:
+##   "firewall-cmd / nmcli requires the SELinux 'netadmin' policy group.
+##    ! sudo selinux/install-selinux.sh enable-group netadmin
+##    Why: firewall-cmd and nmcli are bin_t (already executable) but their
+##         privileged backends (firewalld_t, NetworkManager_t) communicate via
+##         D-Bus. ai_tools_t lacks dbus send_msg permission to those daemon types,
+##         so the command runs but gets no response."
+##
+## After enabling, re-run the bring-up suite (avc-testsuite.sh + avc-analyze.sh):
+## firewalld and NM interactions may surface additional D-Bus receive_msg or
+## unix socket denials that need to be evaluated before going enforcing.
+
+require {
+    type ai_tools_t;
+}
+
+# firewall-cmd -> firewalld D-Bus: allows the agent to send D-Bus messages to
+# the firewalld daemon so firewall-cmd queries and changes take effect.
+firewalld_dbus_chat(ai_tools_t)
+
+# nmcli -> NetworkManager D-Bus: same pattern -- allows D-Bus communication
+# to NetworkManager_t for interface status queries and configuration changes.
+networkmanager_dbus_chat(ai_tools_t)

@@ -40,7 +40,7 @@
 #
 # Syntax check before deploy:  visudo -c -f /etc/sudoers.d/ai-tools-claude
 
-Defaults!/opt/ai-tools/.nvm/versions/node/*/bin/claude umask=0007
+Defaults!/opt/ai-tools/.nvm/versions/node/*/bin/claude umask=0007,umask_override
 Defaults!/opt/ai-tools/bin/nvm-update.sh env_keep += "AI_TOOLS_GLOBAL_TOOLS NVM_NODE_MAJOR NVM_NODE_ALIAS"
 
 @INSTALL_USER@ ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/.nvm/versions/node/*/bin/claude

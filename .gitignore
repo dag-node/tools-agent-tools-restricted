@@ -2,3 +2,6 @@
 .env/
 selinux/*.pp
 selinux/tmp/
+selinux/.avc-last-run
+.avc-scratch/
+ai_tools_exec_t

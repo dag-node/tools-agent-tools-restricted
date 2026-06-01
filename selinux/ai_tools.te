@@ -1,4 +1,27 @@
-policy_module(ai_tools, 0.2.0)
+policy_module(ai_tools, 0.3.0)
+
+## ============================================================
+## POLICY GROUP DEFAULTS -- this core module covers repo-only work.
+## All optional groups are DISABLED by default. Enable them only when
+## tasks require reaching into system context beyond project files.
+##
+## Group     Default    Surface added
+## --------  ---------  ----------------------------------------------------
+## systemd   disabled   systemctl, journalctl, systemd unit file reads
+## pkgmgmt   disabled   rpm (rpm_exec_t), dnf RPM database (rpm_var_lib_t)
+## netadmin  disabled   firewall-cmd D-Bus (firewalld_t), nmcli D-Bus (NM_t)
+## podman    disabled   podman/buildah exec (container_runtime_exec_t),
+##                      container image/layer storage (container_file_t)
+##
+## Manage groups via install-selinux.sh:
+##   sudo selinux/install-selinux.sh list-groups
+##   sudo selinux/install-selinux.sh enable-group  <name>
+##   sudo selinux/install-selinux.sh disable-group <name>
+##
+## When a task fails because a group is not loaded the agent will surface:
+##   "Enable the '<name>' policy group (why: <reason>):
+##    ! sudo selinux/install-selinux.sh enable-group <name>"
+## ============================================================
 
 ########################################
 #

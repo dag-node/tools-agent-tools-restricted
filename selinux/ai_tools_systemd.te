@@ -1,0 +1,40 @@
+policy_module(ai_tools_systemd, 0.1.0)
+
+## ai_tools OPTIONAL GROUP: systemd  [DEFAULT: DISABLED]
+##
+## Grants ai_tools_t permission to execute systemctl and journalctl, and to
+## read systemd unit files. Enable when the agent needs to check service
+## status, inspect journal logs, list units, or query timer state.
+##
+## Enable:  sudo selinux/install-selinux.sh enable-group systemd
+## Disable: sudo selinux/install-selinux.sh disable-group systemd
+##
+## When a task needs this group and it is not loaded, surface to the user:
+##   "systemctl / journalctl requires the SELinux 'systemd' policy group.
+##    ! sudo selinux/install-selinux.sh enable-group systemd
+##    Why: systemctl is labelled systemd_systemctl_exec_t; ai_tools_t needs
+##         execute permission on that type. systemctl then talks to PID 1 via
+##         D-Bus -- additional socket allows may surface in the bring-up loop."
+##
+## After enabling, re-run the bring-up suite (avc-testsuite.sh +
+## avc-analyze.sh): systemctl's D-Bus path to PID 1 often needs further
+## socket/unix_stream_socket allows that only appear once the exec is permitted.
+
+require {
+    type ai_tools_t;
+    type systemd_systemctl_exec_t;   # referenced directly in the map allow below
+}
+
+# Execute systemctl staying in ai_tools_t (no transition to systemctl_t).
+# can_exec (inside the interface) grants read+execute+execute_no_trans.
+# RHEL9 also requires map for mmap'd execution -- add it explicitly.
+systemd_exec_systemctl(ai_tools_t)
+allow ai_tools_t systemd_systemctl_exec_t:file map;
+
+# Read unit files so `systemctl status` / `systemctl list-units` / `systemctl
+# show` can resolve unit descriptions and states without a full D-Bus round-trip.
+systemd_read_unit_files(ai_tools_t)
+
+# Execute journalctl staying in ai_tools_t.
+# journalctl_exec already includes the map permission.
+journalctl_exec(ai_tools_t)

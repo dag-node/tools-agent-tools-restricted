@@ -1,0 +1,38 @@
+policy_module(ai_tools_pkgmgmt, 0.1.0)
+
+## ai_tools OPTIONAL GROUP: pkgmgmt  [DEFAULT: DISABLED]
+##
+## Grants ai_tools_t permission to execute the rpm binary (rpm_exec_t) and
+## read the RPM database (rpm_var_lib_t). dnf is bin_t and already executable
+## from the core module; this group adds the rpm binary type and the shared RPM
+## database that both rpm and dnf query. Enable when the agent needs to install,
+## remove, or query packages.
+##
+## Enable:  sudo selinux/install-selinux.sh enable-group pkgmgmt
+## Disable: sudo selinux/install-selinux.sh disable-group pkgmgmt
+##
+## When a task needs this group and it is not loaded, surface to the user:
+##   "rpm / dnf requires the SELinux 'pkgmgmt' policy group.
+##    ! sudo selinux/install-selinux.sh enable-group pkgmgmt
+##    Why: /usr/bin/rpm is labelled rpm_exec_t, which ai_tools_t cannot execute
+##         without this group. dnf (bin_t, already executable) also queries the
+##         RPM database (rpm_var_lib_t) which requires explicit read permission."
+##
+## Note: dnf and rpm typically require root. The agent runs them via sudo, which
+## already works through the existing PAM/sudo path in the core module. If you
+## want the agent to run dnf as root, add a sudoers rule for it separately --
+## the two existing rules (ai-tools-chown, ai-tools-claude-symlink) are the only
+## ones the sandbox currently grants.
+
+require {
+    type ai_tools_t;
+}
+
+# Execute /usr/bin/rpm (rpm_exec_t) without a domain transition -- rpm runs
+# confined to ai_tools_t rather than transitioning into rpm_t.
+rpm_exec(ai_tools_t)
+
+# Read the RPM database (/var/lib/rpm, rpm_var_lib_t) for `rpm -qa`, `rpm -qi`,
+# and dnf query operations. Write access is intentionally NOT granted here --
+# installing or removing packages requires root and a separate sudoers rule.
+rpm_read_db(ai_tools_t)
