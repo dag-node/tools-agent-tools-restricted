@@ -204,7 +204,12 @@ case "${ACTION}" in
 
   install)
     build_pp "${MODULE}.pp"
-    log "loading core module (PERMISSIVE)"
+    if grep -qE '^[[:space:]]*permissive[[:space:]]+ai_tools_t[[:space:]]*;' "${DIR}/${MODULE}.te"; then
+        _mode="PERMISSIVE"
+    else
+        _mode="ENFORCING"
+    fi
+    log "loading core module (${_mode})"
     semodule -i "${DIR}/${MODULE}.pp"
 
     restorecon -RF "${HOME_DIR}" 2>/dev/null || true
@@ -221,15 +226,21 @@ case "${ACTION}" in
         log "group '${name}' enabled."
     done
 
-    log "done. Core module PERMISSIVE -- nothing is blocked yet."
+    if [[ "${_mode}" == PERMISSIVE ]]; then
+        log "done. Core module PERMISSIVE -- nothing is blocked yet."
+        log "NEXT: follow README.md (audit2allow) before removing 'permissive ai_tools_t;'."
+    else
+        log "done. Core module ENFORCING -- denials are now active."
+    fi
     if [[ ${#SELECTED_GROUPS[@]} -gt 0 ]]; then
         log "Groups enabled: ${SELECTED_GROUPS[*]}"
-        log "Re-run the bring-up loop (avc-testsuite.sh + avc-analyze.sh) to cover"
-        log "the expanded surface before removing 'permissive ai_tools_t;'."
+        if [[ "${_mode}" == PERMISSIVE ]]; then
+            log "Re-run the bring-up loop (avc-testsuite.sh + avc-analyze.sh) to cover"
+            log "the expanded surface before removing 'permissive ai_tools_t;'."
+        fi
     fi
     log "verify:  semodule -l | grep ai_tools;  matchpathcon ${HOME_DIR}"
     log "after launching claude:  ps -eo label,cmd | grep -m1 claude   (expect ai_tools_t)"
-    log "NEXT: follow README.md (audit2allow) before removing 'permissive ai_tools_t;'."
     ;;
 
   relabel)
@@ -287,7 +298,15 @@ case "${ACTION}" in
     ;;
 
   list-groups)
-    core_state="$(semodule -l 2>/dev/null | grep -q "^${MODULE}[[:space:]]" && echo 'loaded (PERMISSIVE)' || echo 'NOT loaded')"
+    if semodule -l 2>/dev/null | grep -q "^${MODULE}[[:space:]]"; then
+        if grep -qE '^[[:space:]]*permissive[[:space:]]+ai_tools_t[[:space:]]*;' "${DIR}/${MODULE}.te"; then
+            core_state="loaded (PERMISSIVE)"
+        else
+            core_state="loaded (ENFORCING)"
+        fi
+    else
+        core_state="NOT loaded"
+    fi
     log "Core module (${MODULE}): ${core_state}"
     log "Optional policy groups:"
     for entry in "${POLICY_GROUPS[@]}"; do
