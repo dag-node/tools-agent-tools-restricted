@@ -44,6 +44,19 @@ current for both your login user and the sandbox user, pinned to the same build.
    per-Bash-call, so handing a file to `640` (group loses write) can't break an
    in-progress in-place Bash edit. PostToolUse stays the immediate path — only it
    quarantines a secret the instant it is written; Stop is the catch-all net.
+6. The `Stop` sweep is bounded by the (global, not per-project) timestamp marker,
+   so it can miss `ai-tools`-owned paths left by a session that exited before its
+   Stop hook ran (`kill -9`, crash, closed terminal) — and miss older paths when
+   the working project changes. A `SessionStart` hook runs the same
+   `post-write-sweep.sh` with the `session-start` argument to close that gap: on
+   `source` `startup`/`resume` (a freshly started process, the only case that can
+   follow an interrupted session) it does one **unbounded** pass — every
+   `ai-tools`-owned path under `.cwd`, ignoring the marker — then resets the marker
+   so this session's Stop sweeps bound from session start. `clear`/`compact` stay
+   within a live process whose Stop sweeps already cover the tree, so they are a
+   no-op. Like every sweep, it only ever acts on `ai-tools`-owned paths (the agent
+   wrote them) and `ai-tools-chown` re-validates each against the allowlist, so it
+   reclaims agent files to `<you>:ai-tools` but never claims a user-owned file.
 
 ## Security model — what `ai-tools` can and cannot do
 

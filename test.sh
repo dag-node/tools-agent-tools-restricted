@@ -603,6 +603,55 @@ else
     fi
 fi
 
+# ── SessionStart hook: unbounded reclaim of interrupted-session leftovers ────
+#
+# Same script as the Stop sweep, invoked with the "session-start" argument. It is
+# UNBOUNDED (ignores .sweep-marker) so it reclaims an ai-tools-owned file left by a
+# session that was killed before its Stop sweep ran -- even one OLDER than the
+# marker, which the bounded Stop pass would skip. The unbounded pass is gated on
+# the hook's .source: startup/resume trigger it; clear/compact are a no-op (the
+# live process's Stop sweeps already cover the tree).
+
+section "SessionStart hook: unbounded reclaim of interrupted-session leftovers"
+
+if [[ ! -x "${sweep}" ]]; then
+    skip "session-start sweep" "not installed at ${sweep}"
+else
+    run_sweep_ss() {  # $1=cwd  $2=source
+        printf '{"cwd":"%s","source":"%s"}' "$1" "$2" \
+            | timeout 30 setsid sudo -u ai-tools -g ai-tools "${sweep}" session-start \
+                > /dev/null 2>&1 || true
+    }
+
+    # (A) Unbounded: a marker NEWER than the leftover must NOT stop the reclaim.
+    #     Stamp the marker to "now" first, then create the file older than it so a
+    #     bounded (-newer) pass would skip it -- only an unbounded pass reclaims it.
+    : > /opt/ai-tools/.claude/.sweep-marker 2>/dev/null || true
+    sleep 1
+    ssf="${SCRIPT_DIR}/.test_ss_$$"
+    : > "${ssf}"; chown ai-tools:ai-tools "${ssf}"; chmod 0644 "${ssf}"
+    touch -d '1 hour ago' "${ssf}"            # older than the marker
+    _cleanup+=("${ssf}")
+    run_sweep_ss "${SCRIPT_DIR}" startup
+    if [[ "$(stat -c '%U:%G' "${ssf}")" == "${REAL_USER}:ai-tools" ]]; then
+        pass "SessionStart (startup) reclaims a leftover older than the marker (unbounded)"
+    else
+        fail "SessionStart did not reclaim ${ssf}: $(stat -c '%U:%G' "${ssf}") (want ${REAL_USER}:ai-tools)"
+    fi
+
+    # (B) Source gating: compact/clear stay within a live process, so the pass is a
+    #     no-op -- a fresh ai-tools-owned file is left for the Stop sweep to handle.
+    ssf2="${SCRIPT_DIR}/.test_ss2_$$"
+    : > "${ssf2}"; chown ai-tools:ai-tools "${ssf2}"; chmod 0644 "${ssf2}"
+    _cleanup+=("${ssf2}")
+    run_sweep_ss "${SCRIPT_DIR}" compact
+    if [[ "$(stat -c '%U:%G' "${ssf2}")" == "ai-tools:ai-tools" ]]; then
+        pass "SessionStart (compact) is a no-op (leaves live-session writes to Stop)"
+    else
+        fail "SessionStart (compact) unexpectedly changed ${ssf2}: $(stat -c '%U:%G' "${ssf2}")"
+    fi
+fi
+
 # ── ai-tools-claude-symlink: validation + idempotent repoint ─────────────────
 #
 # The root helper is the only writer of the locked /opt/ai-tools/bin. It must

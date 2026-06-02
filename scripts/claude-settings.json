@@ -37,6 +37,16 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/ai-tools/.claude/post-write-sweep.sh session-start"
+          }
+        ]
+      }
     ]
   }
 }
