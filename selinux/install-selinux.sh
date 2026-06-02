@@ -39,6 +39,13 @@ HOME_STATE=(.claude.json .npm .cache .local .config .gitconfig)
 REAL_USER="${SUDO_USER:?selinux: invoke via sudo, not as root directly}"
 REAL_HOME="$(getent passwd "${REAL_USER}" | cut -d: -f6)"
 readonly ALLOWLIST="${REAL_HOME}/.config/ai-tools/allowed-projects"
+# The user-owned ai-tools config dir (allowed-projects, secret-patterns). Labelled
+# ai_tools_conf_t so the root ai-tools-chown helper -- which runs IN ai_tools_t with
+# no transition -- can read the allowlist; without it the helper's getattr is denied
+# (config_home_t:file is dontaudit'd) and ownership handback silently no-ops. The
+# label is scoped to this one dir so the rest of ~/.config stays unreadable to the
+# domain. Applied via semanage (dynamic home path), not ai_tools.fc (fixed paths).
+readonly CONF_DIR="${REAL_HOME}/.config/ai-tools"
 
 log()  { printf 'selinux: %s\n' "$*"; }
 logx() { printf 'selinux: %s\n' "$*" >&2; }   # stderr -- safe inside subshells
@@ -195,6 +202,23 @@ _label_one()   { semanage fcontext -a -t ai_tools_project_t "$1(/.*)?" 2>/dev/nu
                  log "labelled project ai_tools_project_t: $1"; }
 _unlabel_one() { semanage fcontext -d "$1(/.*)?" 2>/dev/null || true; }
 _restore_one() { restorecon -RF "$1" 2>/dev/null || true; }
+# Label / unlabel ~/.config/ai-tools as ai_tools_conf_t (see CONF_DIR comment).
+_label_conf()   { [[ -d "${CONF_DIR}" ]] || { log "config dir absent, skip label: ${CONF_DIR}"; return 0; }
+                  # ai_tools_conf_t must already exist in the LOADED policy for
+                  # semanage to accept it. 'relabel' never loads the module, so on a
+                  # first run (or after a version bump) the type may be undefined --
+                  # report honestly instead of logging a false success.
+                  if semanage fcontext -a -t ai_tools_conf_t "${CONF_DIR}(/.*)?" 2>/dev/null \
+                     || semanage fcontext -m -t ai_tools_conf_t "${CONF_DIR}(/.*)?" 2>/dev/null; then
+                      restorecon -RF "${CONF_DIR}" 2>/dev/null || true
+                      log "labelled config ai_tools_conf_t: ${CONF_DIR}"
+                  else
+                      logx "WARN: could not set ai_tools_conf_t fcontext on ${CONF_DIR}"
+                      logx "      type undefined? the module must be LOADED first --"
+                      logx "      run 'install' (build_pp + semodule -i), not just 'relabel'."
+                  fi; }
+_unlabel_conf() { semanage fcontext -d "${CONF_DIR}(/.*)?" 2>/dev/null || true
+                  restorecon -RF "${CONF_DIR}" 2>/dev/null || true; }
 
 ########################################
 # Actions
@@ -216,6 +240,7 @@ case "${ACTION}" in
     restorecon -RF "${NVM_DIR}"  2>/dev/null || true
     _home_state
     verify_entrypoint
+    _label_conf
     for_each_project _label_one
 
     prompt_groups
@@ -249,6 +274,7 @@ case "${ACTION}" in
     restorecon -RF "${NVM_DIR}"  2>/dev/null || true
     _home_state
     verify_entrypoint
+    _label_conf
     for_each_project _label_one
     log "relabel done"
     ;;
@@ -256,6 +282,7 @@ case "${ACTION}" in
   remove)
     log "dropping project fcontext rules"
     for_each_project _unlabel_one
+    _unlabel_conf
     log "unloading all ai_tools* modules"
     # Collect all loaded ai_tools modules then remove in one semodule call.
     mapfile -t loaded < <(semodule -l 2>/dev/null | awk '/^ai_tools/{print $1}')

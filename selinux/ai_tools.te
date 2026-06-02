@@ -1,4 +1,4 @@
-policy_module(ai_tools, 0.3.0)
+policy_module(ai_tools, 0.4.0)
 
 ## ============================================================
 ## POLICY GROUP DEFAULTS -- this core module covers repo-only work.
@@ -112,6 +112,21 @@ files_type(ai_tools_home_t)
 type ai_tools_tmp_t;
 files_tmp_file(ai_tools_tmp_t)
 
+# The user-owned ai-tools config the ROOT helpers must read on the agent's behalf:
+# ~/.config/ai-tools/{allowed-projects,secret-patterns}. Those paths are normally
+# config_home_t, which the dontaudit block below REFUSES to ai_tools_t. But
+# ai-tools-chown runs IN ai_tools_t (sudo, no transition) and its first real step
+# is reading allowed-projects (ai-tools-chown.sh line 59); with no read grant the
+# getattr is denied and the helper fail-closes to a silent exit 0 -- so NO file is
+# ever handed back. A dedicated type labels just this subtree so the helper can
+# read it WITHOUT opening all of ~/.config to the agent. The DAC 700 on the dir
+# still blocks the non-root agent; only the root helper (DAC-exempt, SELinux-gated)
+# benefits. xd (unconfined) reads it regardless of label. Mirrors the
+# libs_read_lib_files grant for the secret-pattern library -- same "the root helper
+# in ai_tools_t must read a user/lib file or handback breaks" reasoning.
+type ai_tools_conf_t;
+files_type(ai_tools_conf_t)
+
 ########################################
 # Domain entry
 ########################################
@@ -158,6 +173,16 @@ allow ai_tools_t ai_tools_home_t:file { execute execute_no_trans };
 # parents (path resolution) -- but NOT list/read them (see the dontaudit block).
 userdom_search_user_home_dirs(ai_tools_t)
 allow ai_tools_t user_home_t:dir { getattr search open };
+
+# Reach + read the ai-tools config subtree (~/.config/ai-tools, ai_tools_conf_t):
+# SEARCH config_home_t (~/.config) only to traverse INTO it -- never list or read
+# its siblings (the config_home_t:file dontaudit below still refuses those). Then
+# search the ai_tools_conf_t dir and read its files (allowed-projects,
+# secret-patterns). Without this, ai-tools-chown cannot read the allowlist and
+# silently no-ops, breaking ownership handback under enforcing.
+allow ai_tools_t config_home_t:dir search;
+allow ai_tools_t ai_tools_conf_t:dir { getattr search open };
+allow ai_tools_t ai_tools_conf_t:file { getattr open read };
 
 # xd (unconfined) keeps full access to, and can relabel (restorecon), the new
 # file types -- relabelling a project to ai_tools_project_t must never lock you out.
@@ -290,8 +315,12 @@ dontaudit ai_tools_t kernel_t:unix_stream_socket connectto;
 
 # (2) The path boundary into the invoking user's home. SEARCH to reach the project
 # is allowed above; LISTING /home, /home/xd, or its subtrees is not -- that is how
-# the agent would discover unrelated files. Reading the user's ~/.config is
-# likewise refused (git/Node probe it; failing closed is harmless).
+# the agent would discover unrelated files. Reading the user's ~/.config FILES is
+# likewise refused (git/Node probe it; failing closed is harmless) -- the lone
+# exception is the ai_tools_conf_t subtree (~/.config/ai-tools), carved out and
+# granted read above so the chown helper can read the allowlist. config_home_t:dir
+# search is allowed above only to TRAVERSE ~/.config into that subtree, never to
+# list or read it; this dontaudit keeps every other config_home_t FILE refused.
 dontaudit ai_tools_t home_root_t:dir read;
 dontaudit ai_tools_t user_home_dir_t:dir read;
 dontaudit ai_tools_t user_home_t:dir read;
