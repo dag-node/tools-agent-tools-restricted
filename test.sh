@@ -64,11 +64,15 @@ check_file /usr/local/sbin/ai-tools/chown            root              root     
 check_file /usr/local/sbin/ai-tools/setgid           root              root              750
 check_file /usr/local/sbin/ai-tools/claude-symlink   root              root              750
 check_file /usr/local/sbin/ai-tools/lockdown         root              root              750
-# Shared secret-pattern matcher, sourced by ai-tools-chown and ai-tools-lockdown.
-# Root-owned 644 in a non-ai-tools-writable dir so the agent cannot alter the rules.
-check_file /usr/local/lib/ai-tools/secret-patterns.lib.sh  root          root              644
-# Shared prune-dir list, sourced by sandbox-sweep / ai-tools-setgid / ai-tools-lockdown.
-check_file /usr/local/lib/ai-tools/prune-dirs.lib.sh       root          root              644
+# Lib dir: root-owned, group ai-tools, 750 (no world). The agent enters via group
+# to read the prune list, but has no write, so it cannot alter the rules.
+check_file /usr/local/lib/ai-tools                         root          ai-tools          750
+# Secret-pattern matcher: read only by the root helpers, so 640 root:root -- no
+# group/world surface. The agent (group ai-tools) cannot read it.
+check_file /usr/local/lib/ai-tools/secret-patterns.lib.sh  root          root              640
+# Prune-dir list: also sourced by sandbox-sweep (runs as the agent), so 640
+# root:ai-tools -- agent reads via group, no world.
+check_file /usr/local/lib/ai-tools/prune-dirs.lib.sh       root          ai-tools          640
 # Secret-pattern config: user-owned 600. ai-tools (not owner/group, cannot enter
 # the 700 .config/ai-tools dir) can neither read nor write it; root helpers read it.
 check_file "${PROJECTS_HOME}/.config/ai-tools/secret-patterns" "${PROJECTS_USER}"  "${PROJECTS_GROUP}"  600

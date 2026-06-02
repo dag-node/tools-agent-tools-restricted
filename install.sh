@@ -327,18 +327,27 @@ do_install() {
         "${SCRIPT_DIR}/scripts/ai-tools-claude-symlink.sh" \
         /usr/local/sbin/ai-tools/claude-symlink
 
-    # Shared secret-name matcher, sourced by ai-tools-chown and ai-tools-lockdown.
-    # Root-owned in a non-ai-tools-writable dir so the agent cannot alter the rules.
+    # Shared libraries, sourced by the helpers. The dir is root-owned, group
+    # SANDBOX_GROUP, 750 -- no world bit: the agent enters via group to read the
+    # prune list, but has no write, so it cannot alter the rules. Enforce on
+    # re-install even when the dir pre-exists.
+    log "system: /usr/local/lib/ai-tools/"
+    ensure_dir 750 root "${SANDBOX_GROUP}" /usr/local/lib/ai-tools
+    chown root:"${SANDBOX_GROUP}" /usr/local/lib/ai-tools
+    chmod 750 /usr/local/lib/ai-tools
+
+    # Secret-name matcher: read ONLY by the root helpers (ai-tools-chown,
+    # ai-tools-lockdown), so 640 root:root -- no group or world surface; the agent
+    # (not root, group SANDBOX_GROUP) cannot read it at all.
     log "system: /usr/local/lib/ai-tools/secret-patterns.lib.sh"
-    ensure_dir 755 root root /usr/local/lib/ai-tools
-    install_subst 644 root root \
+    install_subst 640 root root \
         "${SCRIPT_DIR}/scripts/ai-tools-secret-patterns.lib.sh" \
         /usr/local/lib/ai-tools/secret-patterns.lib.sh
 
-    # Shared prune-dir list, sourced by sandbox-sweep.sh, ai-tools-setgid, and
-    # ai-tools-lockdown. No tokens to substitute; 644 so ai_tools_t can read it.
+    # Prune-dir list: ALSO sourced by sandbox-sweep.sh, which runs AS the agent, so
+    # it needs group read -- 640 root:SANDBOX_GROUP (no world). No tokens to substitute.
     log "system: /usr/local/lib/ai-tools/prune-dirs.lib.sh"
-    install -o root -g root -m 644 \
+    install -o root -g "${SANDBOX_GROUP}" -m 640 \
         "${SCRIPT_DIR}/scripts/ai-tools-prune-dirs.lib.sh" \
         /usr/local/lib/ai-tools/prune-dirs.lib.sh
 
