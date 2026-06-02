@@ -17,7 +17,7 @@
 #                 timestamp marker: only paths modified since the previous sweep
 #                 are processed, so the turn-end pass stays cheap. It is a turn-end
 #                 net, NOT a per-tool action -- handing a file back makes it
-#                 xd:ai-tools 640 (group ai-tools loses write), which would break
+#                 <you>:ai-tools 640 (group ai-tools loses write), which would break
 #                 an in-progress Bash sequence editing a file in place. Running at
 #                 Stop avoids that: the agent keeps ownership mid-turn, handback
 #                 happens once control returns.
@@ -35,9 +35,9 @@
 #                 walk on every compaction).
 #
 # Heavy/transient trees are pruned in both modes (their contents are world-readable
-# anyway, so xd can already read them) and the scan stays on one filesystem (-xdev).
+# anyway, so <you> can already read them) and the scan stays on one filesystem (-xdev).
 #
-# Deploy: sudo install -o @INSTALL_USER@ -g ai-tools -m 750 \
+# Deploy: sudo install -o @PROJECTS_USER@ -g ai-tools -m 750 \
 #             scripts/post-write-sweep.sh /opt/ai-tools/.claude/post-write-sweep.sh
 # Wired to both the Stop and SessionStart hooks in settings.json (the SessionStart
 # entry passes the "session-start" argument).
@@ -78,7 +78,7 @@ newref="$(mktemp "/opt/ai-tools/.claude/.sweep.XXXXXX" 2>/dev/null)" || exit 0
 declare -a expr=(
     "${dir}" -xdev
     '(' -name .git -o -name node_modules -o -name .venv -o -name __pycache__ ')' -prune
-    -o '(' -user ai-tools
+    -o '(' -user @SANDBOX_USER@
 )
 # Bound to paths changed since the marker, EXCEPT an unbounded (session-start)
 # pass, which sweeps every ai-tools-owned path. A first-ever stop run (no marker)

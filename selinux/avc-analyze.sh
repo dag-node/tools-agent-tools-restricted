@@ -10,7 +10,7 @@
 #   sudo ./avc-analyze.sh -ts today
 #
 # The privilege split is deliberate: the agent (ai_tools_t) exercises the surface
-# but cannot read /var/log/audit; xd (root) does the analysis. So the two halves
+# but cannot read /var/log/audit; <you> (root) does the analysis. So the two halves
 # are two scripts, not one.
 
 set -uo pipefail

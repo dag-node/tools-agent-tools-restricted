@@ -9,7 +9,7 @@
 /opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@anthropic-ai/claude-code/bin/claude\.exe  --  gen_context(system_u:object_r:ai_tools_exec_t,s0)
 
 # The agent's own config/state dir -- a private writable area, so the policy need
-# not grant write to the whole nvm tree (usr_t). The xd-owned control files inside
+# not grant write to the whole nvm tree (usr_t). The <you>-owned control files inside
 # (settings.json, post-tool-hook.sh) remain protected by DAC regardless of label.
 /opt/ai-tools/\.claude(/.*)?  gen_context(system_u:object_r:ai_tools_home_t,s0)
 

@@ -41,7 +41,7 @@
 #           EXPECTED GROUP-DISABLED, or NEW.
 #
 # Flow:
-#   1. (as xd, root, in a terminal)            sudo selinux/avc-denials.sh
+#   1. (as <you>, root, in a terminal)            sudo selinux/avc-denials.sh
 #        -> disables dontaudit, prints the probe command, WAITS.
 #   2. (in a confined claude, approved project) bash selinux/avc-denials.sh probe
 #        -> run it, let the turn finish.

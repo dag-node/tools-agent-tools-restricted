@@ -114,7 +114,7 @@ main() {
     prune_versions "${node_alias}"
 
     # Refresh the stable symlink that claude-wrapper resolves with one readlink hop.
-    # /opt/ai-tools/bin is locked 550 (xd:ai-tools) so this process -- running as
+    # /opt/ai-tools/bin is locked 550 (<you>:ai-tools) so this process -- running as
     # ai-tools -- cannot write it directly; delegate the repoint to the root helper,
     # which re-validates the versioned path before touching the symlink.
     local versioned_claude="${nvm_dir}/versions/node/${target_version}/bin/claude"

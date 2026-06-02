@@ -4,12 +4,12 @@
 # ai-tools UID) from inside an approved project dir -- the kernel only attributes
 # AVCs to ai_tools_t when the calling process is in that domain.
 #
-# Pairs with selinux/avc-analyze.sh, which xd runs as root afterwards to turn the
+# Pairs with selinux/avc-analyze.sh, which you run as root afterwards to turn the
 # logged denials into policy (it reads the start marker this script writes).
 #
 # Flow:
 #   1. (in an approved project, inside a confined claude)  bash selinux/avc-testsuite.sh
-#   2. (as xd, root)                                       sudo selinux/avc-analyze.sh
+#   2. (as <you>, root)                                       sudo selinux/avc-analyze.sh
 #
 # PREFLIGHT GUARD: if this process is NOT in ai_tools_t the script ABORTS. Running
 # it unconfined produces ZERO ai_tools_t AVCs, so `ausearch -su ai_tools_t` would
@@ -81,7 +81,7 @@ note "start marker: ${START}  ->  ${MARKER}"
 echo
 
 # Fresh scratch (rerunnable; ai-tools is group-writer on the project dir so it can
-# unlink any xd:xd secret a previous Stop sweep quarantined here).
+# unlink any <you>:<you> secret a previous Stop sweep quarantined here).
 rm -rf "${SCRATCH}" 2>/dev/null || true
 mkdir -p "${SECRETS}"
 
@@ -147,13 +147,13 @@ note "git exercise done (history stayed inside ${gitrepo})"
 ########################################
 # 5. SECRET QUARANTINE -- drop secret-named files and LEAVE them. The Stop sweep
 #    (post-write-sweep.sh) runs `sudo ai-tools-chown`, which quarantines them to
-#    xd:xd 600 and logs a NOTICE -- exercising the sudo->root-helper + secret path.
+#    <you>:<you> 600 and logs a NOTICE -- exercising the sudo->root-helper + secret path.
 #    Left on purpose; the next run's rm -rf above cleans them.
 ########################################
 step "secret quarantine (.env, *.key left for the Stop sweep)"
 printf 'API_TOKEN=avc-fake-not-a-real-secret\n' > "${SECRETS}/.env"
 printf -- '-----BEGIN FAKE KEY-----\navc\n-----END FAKE KEY-----\n' > "${SECRETS}/test.key"
-note "left ${SECRETS}/{.env,test.key} -- Stop sweep should quarantine them to xd:xd 600"
+note "left ${SECRETS}/{.env,test.key} -- Stop sweep should quarantine them to <you>:<you> 600"
 
 ########################################
 # 6. NETWORK ALLOWED -- DNS + outbound 443 (http_port_t). Policy grants this.
@@ -230,7 +230,7 @@ rm -rf "${SCRATCH}/throwaway-repo" "${SCRATCH}"/*.txt "${SCRATCH}/subdir" "${SCR
 note "DONE. Exercised: create, modify, temp, git(+mv), secret-quarantine, net allow/deny."
 cat <<EOF
 
-Next -- as xd (root), turn the logged denials into policy:
+Next -- as <you> (root), turn the logged denials into policy:
 
     sudo ${DIR}/avc-analyze.sh
 

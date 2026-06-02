@@ -6,8 +6,8 @@
 # SAME source -- the matcher cannot drift between them.
 #
 # The authoritative pattern list lives in a user-owned config file:
-#     @INSTALL_HOME@/.config/ai-tools/secret-patterns
-# owned @INSTALL_USER@:@INSTALL_USER@ 600. The user edits it; ai-tools -- neither
+#     @PROJECTS_HOME@/.config/ai-tools/secret-patterns
+# owned @PROJECTS_USER@:@PROJECTS_USER@ 600. The user edits it; ai-tools -- neither
 # its owner nor in its group, and unable to enter the 700 .config/ai-tools dir --
 # can neither read nor write it; the root helpers read it on the user's behalf.
 # This mirrors how allowed-projects is owned and consumed. When the file is
@@ -27,7 +27,7 @@ if [[ -n "${_AI_TOOLS_SECRET_PATTERNS_LIB:-}" ]]; then
 fi
 readonly _AI_TOOLS_SECRET_PATTERNS_LIB=1
 
-readonly AI_TOOLS_SECRET_PATTERNS_FILE="@INSTALL_HOME@/.config/ai-tools/secret-patterns"
+readonly AI_TOOLS_SECRET_PATTERNS_FILE="@PROJECTS_HOME@/.config/ai-tools/secret-patterns"
 
 # Built-in fallback, used only when the config file is missing or empty. Kept in
 # sync with scripts/secret-patterns.conf (install.sh seeds the config file from

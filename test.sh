@@ -13,10 +13,10 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 [[ "${EUID}" -eq 0 ]] || { echo "error: run with sudo" >&2; exit 1; }
 
-REAL_USER="${SUDO_USER:?error: invoke via sudo, not as root directly}"
-REAL_HOME="$(getent passwd "${REAL_USER}" | cut -d: -f6)"
-REAL_GROUP="$(id -gn "${REAL_USER}")"
-REAL_UID="$(id -u "${REAL_USER}")"
+PROJECTS_USER="${SUDO_USER:?error: invoke via sudo, not as root directly}"
+PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"
+PROJECTS_GROUP="$(id -gn "${PROJECTS_USER}")"
+PROJECTS_UID="$(id -u "${PROJECTS_USER}")"
 
 # ── Harness ───────────────────────────────────────────────────────────────────
 
@@ -40,22 +40,22 @@ run_chown() { setsid /usr/local/sbin/ai-tools-chown "$1" < /dev/null > /dev/null
 # ── File permission checks ────────────────────────────────────────────────────
 
 check_file() {
-    local file="$1" exp_user="$2" exp_group="$3" exp_mode="$4"
+    local file="$1" exp_owner="$2" exp_group="$3" exp_mode="$4"
     if [[ ! -e "${file}" ]]; then
         fail "${file}: MISSING"
         return
     fi
-    local act_user act_group act_mode ok=true
-    act_user="$( stat -c '%U' "${file}")"
+    local act_owner act_group act_mode ok=true
+    act_owner="$( stat -c '%U' "${file}")"
     act_group="$(stat -c '%G' "${file}")"
     act_mode="$( stat -c '%a' "${file}")"
-    [[ "${act_user}"  == "${exp_user}"  ]] || ok=false
+    [[ "${act_owner}"  == "${exp_owner}"  ]] || ok=false
     [[ "${act_group}" == "${exp_group}" ]] || ok=false
     [[ "${act_mode}"  == "${exp_mode}"  ]] || ok=false
     if ${ok}; then
-        pass "${file}  (${exp_user}:${exp_group} ${exp_mode})"
+        pass "${file}  (${exp_owner}:${exp_group} ${exp_mode})"
     else
-        fail "${file}: expected ${exp_user}:${exp_group} ${exp_mode}, got ${act_user}:${act_group} ${act_mode}"
+        fail "${file}: expected ${exp_owner}:${exp_group} ${exp_mode}, got ${act_owner}:${act_group} ${act_mode}"
     fi
 }
 
@@ -68,32 +68,32 @@ check_file /usr/local/sbin/ai-tools-lockdown         root              root     
 check_file /usr/local/lib/ai-tools/secret-patterns.lib.sh  root          root              644
 # Secret-pattern config: user-owned 600. ai-tools (not owner/group, cannot enter
 # the 700 .config/ai-tools dir) can neither read nor write it; root helpers read it.
-check_file "${REAL_HOME}/.config/ai-tools/secret-patterns" "${REAL_USER}"  "${REAL_USER}"  600
+check_file "${PROJECTS_HOME}/.config/ai-tools/secret-patterns" "${PROJECTS_USER}"  "${PROJECTS_GROUP}"  600
 check_file /etc/sudoers.d/ai-tools-claude             root              root              440
 check_file /etc/profile.d/path_dedup.sh               root              root              644
-# /opt/ai-tools/bin is locked: owned by the install user (NOT ai-tools), 550, so
+# /opt/ai-tools/bin is locked: owned by the projects user (NOT ai-tools), 550, so
 # ai-tools has group r-x but no write. The agent can execute nvm-update.sh and
 # resolve the claude symlink, but cannot edit the updater or swap the symlink --
 # only root (via ai-tools-claude-symlink) writes here.
-check_file /opt/ai-tools/bin                          "${REAL_USER}"    ai-tools          550
-# Control-plane files: owned by the install user, group ai-tools. The agent
+check_file /opt/ai-tools/bin                          "${PROJECTS_USER}"    ai-tools          550
+# Control-plane files: owned by the projects user, group ai-tools. The agent
 # (running as ai-tools) gets group read/exec but no write, so it cannot rewrite
 # its own updater, hook, or hook config.
-check_file /opt/ai-tools/bin/nvm-update.sh            "${REAL_USER}"    ai-tools          550
-check_file /opt/ai-tools/.claude/post-tool-hook.sh   "${REAL_USER}"    ai-tools          750
-check_file /opt/ai-tools/.claude/post-write-sweep.sh  "${REAL_USER}"    ai-tools          750
-check_file /opt/ai-tools/.claude/settings.json        "${REAL_USER}"    ai-tools          640
+check_file /opt/ai-tools/bin/nvm-update.sh            "${PROJECTS_USER}"    ai-tools          550
+check_file /opt/ai-tools/.claude/post-tool-hook.sh   "${PROJECTS_USER}"    ai-tools          750
+check_file /opt/ai-tools/.claude/post-write-sweep.sh  "${PROJECTS_USER}"    ai-tools          750
+check_file /opt/ai-tools/.claude/settings.json        "${PROJECTS_USER}"    ai-tools          640
 # .claude must be install-user-owned (not ai-tools) with setgid+sticky (3770):
 # ai-tools is a group-writer for its own state but cannot unlink/replace the
 # install-user-owned control files above. Owned by ai-tools, or without the
 # sticky bit, the agent could delete and recreate them.
-check_file /opt/ai-tools/.claude                      "${REAL_USER}"    ai-tools          3770
-check_file "${REAL_HOME}/.local/bin/claude"            "${REAL_USER}"    "${REAL_GROUP}"   750
-check_file "${REAL_HOME}/.local/bin/nvm-update.sh"     "${REAL_USER}"    "${REAL_GROUP}"   750
-check_file "${REAL_HOME}/.config/systemd/user/nvm-update.service" \
-                                                       "${REAL_USER}"    "${REAL_GROUP}"   644
-check_file "${REAL_HOME}/.config/systemd/user/nvm-update.timer" \
-                                                       "${REAL_USER}"    "${REAL_GROUP}"   644
+check_file /opt/ai-tools/.claude                      "${PROJECTS_USER}"    ai-tools          3770
+check_file "${PROJECTS_HOME}/.local/bin/claude"            "${PROJECTS_USER}"    "${PROJECTS_GROUP}"   750
+check_file "${PROJECTS_HOME}/.local/bin/nvm-update.sh"     "${PROJECTS_USER}"    "${PROJECTS_GROUP}"   750
+check_file "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service" \
+                                                       "${PROJECTS_USER}"    "${PROJECTS_GROUP}"   644
+check_file "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer" \
+                                                       "${PROJECTS_USER}"    "${PROJECTS_GROUP}"   644
 
 # ── Sudoers syntax ────────────────────────────────────────────────────────────
 
@@ -108,15 +108,15 @@ fi
 
 section "Wrapper allowlist guard"
 
-if [[ ! -x "${REAL_HOME}/.local/bin/claude" ]]; then
-    skip "wrapper guard" "claude wrapper not found at ${REAL_HOME}/.local/bin/claude"
+if [[ ! -x "${PROJECTS_HOME}/.local/bin/claude" ]]; then
+    skip "wrapper guard" "claude wrapper not found at ${PROJECTS_HOME}/.local/bin/claude"
 else
     tmpdir="$(mktemp -d)"
     _cleanup+=("${tmpdir}")
 
     # Run wrapper from a directory that is not in the approved list
-    output="$(cd "${tmpdir}" && sudo -u "${REAL_USER}" HOME="${REAL_HOME}" \
-        "${REAL_HOME}/.local/bin/claude" --version 2>&1 || true)"
+    output="$(cd "${tmpdir}" && sudo -u "${PROJECTS_USER}" HOME="${PROJECTS_HOME}" \
+        "${PROJECTS_HOME}/.local/bin/claude" --version 2>&1 || true)"
 
     if printf '%s' "${output}" | grep -qE "not in approved|allowlist not found"; then
         pass "wrapper blocks execution from unapproved directory"
@@ -125,8 +125,8 @@ else
     fi
 
     # Verify wrapper allows execution from approved project directory
-    output2="$(cd "${SCRIPT_DIR}" && sudo -u "${REAL_USER}" HOME="${REAL_HOME}" \
-        "${REAL_HOME}/.local/bin/claude" --version 2>&1 || true)"
+    output2="$(cd "${SCRIPT_DIR}" && sudo -u "${PROJECTS_USER}" HOME="${PROJECTS_HOME}" \
+        "${PROJECTS_HOME}/.local/bin/claude" --version 2>&1 || true)"
     if ! printf '%s' "${output2}" | grep -qE "not in approved|allowlist not found"; then
         pass "wrapper allows execution from approved project directory"
     else
@@ -145,14 +145,14 @@ fi
 
 section "Wrapper symlink check (unreadable final target)"
 
-wrapper="${REAL_HOME}/.local/bin/claude"
+wrapper="${PROJECTS_HOME}/.local/bin/claude"
 
 # (A) Reproduce the hazard hermetically: a symlink chain whose final target sits
 #     behind a dir the invoking user cannot enter. -L must still see the link
 #     even though -e cannot stat through to the target.
 fx="$(mktemp -d)"
 _cleanup+=("${fx}")
-chmod 755 "${fx}"                                 # let REAL_USER traverse to the link
+chmod 755 "${fx}"                                 # let PROJECTS_USER traverse to the link
 mkdir "${fx}/pkg"
 chmod 700 "${fx}/pkg"                             # root-owned 700: blocks the final stat
 : > "${fx}/pkg/claude.exe"
@@ -160,15 +160,15 @@ ln -s "${fx}/pkg/claude.exe" "${fx}/versioned"    # npm symlink analogue
 ln -s "${fx}/versioned"      "${fx}/link"         # stable link -> versioned -> pkg/claude.exe
 
 l_ok=false; e_ok=false
-sudo -u "${REAL_USER}" test -L "${fx}/link" && l_ok=true
-sudo -u "${REAL_USER}" test -e "${fx}/link" && e_ok=true
+sudo -u "${PROJECTS_USER}" test -L "${fx}/link" && l_ok=true
+sudo -u "${PROJECTS_USER}" test -e "${fx}/link" && e_ok=true
 
 if ${l_ok} && ! ${e_ok}; then
     pass "symlink with unreadable target: -L detects it, -e does not"
 elif ! ${l_ok}; then
-    fail "fixture broken: -L failed to detect the symlink as ${REAL_USER}"
+    fail "fixture broken: -L failed to detect the symlink as ${PROJECTS_USER}"
 else
-    skip "hazard demo" "final target is readable to ${REAL_USER}; EACCES path not exercised"
+    skip "hazard demo" "final target is readable to ${PROJECTS_USER}; EACCES path not exercised"
 fi
 
 # (B) Pin the deployed wrapper to -L: a revert to -e reintroduces the bug.
@@ -188,7 +188,7 @@ fi
 #     /opt/ai-tools/bin/claude (whose final target IS unreadable to the user),
 #     must not falsely report the link missing.
 if [[ -x "${wrapper}" && -L /opt/ai-tools/bin/claude ]]; then
-    out="$(cd "${SCRIPT_DIR}" && sudo -u "${REAL_USER}" HOME="${REAL_HOME}" \
+    out="$(cd "${SCRIPT_DIR}" && sudo -u "${PROJECTS_USER}" HOME="${PROJECTS_HOME}" \
         "${wrapper}" --version 2>&1 || true)"
     if printf '%s' "${out}" | grep -q "symlink not found"; then
         fail "wrapper falsely reports symlink missing (output: ${out})"
@@ -215,7 +215,7 @@ fi
 # ── ai-tools-chown: secret-named files (revoke access + notify) ──────────────
 #
 # Secret-named files the agent writes are chowned to the user's PRIVATE group
-# with group+world bits stripped (-> REAL_USER:REAL_GROUP 600), which removes
+# with group+world bits stripped (-> PROJECTS_USER:PROJECTS_GROUP 600), which removes
 # ai-tools' read access to the contents, and a NOTICE is emitted on stderr (the
 # hook relays it to the session) and the audit log. The list is a global net;
 # per-project secrets use ! in the allowlist (tested separately below).
@@ -254,29 +254,29 @@ do
 
     owner="$(stat -c '%U:%G' "${secret}")"
     mode="$( stat -c '%a'    "${secret}")"
-    if [[ "${owner}" == "${REAL_USER}:${REAL_GROUP}" && "${mode}" == "600" ]] \
+    if [[ "${owner}" == "${PROJECTS_USER}:${PROJECTS_GROUP}" && "${mode}" == "600" ]] \
        && grep -q 'NOTICE' "${err}"; then
-        pass "${name}: -> ${REAL_USER}:${REAL_GROUP} 600 (ai-tools access removed) + NOTICE"
+        pass "${name}: -> ${PROJECTS_USER}:${PROJECTS_GROUP} 600 (ai-tools access removed) + NOTICE"
     else
-        fail "${name}: got ${owner} ${mode}, notice='$(tr -d '\n' < "${err}")' (want ${REAL_USER}:${REAL_GROUP} 600 + NOTICE)"
+        fail "${name}: got ${owner} ${mode}, notice='$(tr -d '\n' < "${err}")' (want ${PROJECTS_USER}:${PROJECTS_GROUP} 600 + NOTICE)"
     fi
 done
 
-# Ordinary (non-secret) file: normalized to REAL_USER:ai-tools 640 (group
+# Ordinary (non-secret) file: normalized to PROJECTS_USER:ai-tools 640 (group
 # ai-tools retained, world bits stripped) and NO notice emitted.
 ord="${SCRIPT_DIR}/.test_plain_$$"
 printf 'x' > "${ord}"; chown ai-tools:ai-tools "${ord}"; chmod 0644 "${ord}"
 _cleanup+=("${ord}")
 oerr="$(mktemp)"; _cleanup+=("${oerr}")
 setsid /usr/local/sbin/ai-tools-chown "${ord}" < /dev/null > /dev/null 2>"${oerr}" || true
-if [[ "$(stat -c '%U:%G' "${ord}")" == "${REAL_USER}:ai-tools" && "$(stat -c '%a' "${ord}")" == "640" ]] \
+if [[ "$(stat -c '%U:%G' "${ord}")" == "${PROJECTS_USER}:ai-tools" && "$(stat -c '%a' "${ord}")" == "640" ]] \
    && ! grep -q 'NOTICE' "${oerr}"; then
-    pass "ordinary file: -> ${REAL_USER}:ai-tools 640, no NOTICE"
+    pass "ordinary file: -> ${PROJECTS_USER}:ai-tools 640, no NOTICE"
 else
     fail "ordinary file: got $(stat -c '%U:%G' "${ord}") $(stat -c '%a' "${ord}"), notice='$(tr -d '\n' < "${oerr}")'"
 fi
 
-# A secret-named file the agent did NOT write (owned by REAL_USER, not ai-tools)
+# A secret-named file the agent did NOT write (owned by PROJECTS_USER, not ai-tools)
 # is NOT a breach: ai-tools never had write access to it. It must be left
 # completely untouched, with NO 'breached' NOTICE -- otherwise the user gets a
 # false alarm to rotate a secret the agent could not have read or modified.
@@ -284,11 +284,11 @@ usecret="${SCRIPT_DIR}/.env.user_owned_$$"
 if [[ -e "${usecret}" ]]; then
     skip ".env.user_owned" "already exists in project -- not overwriting real file"
 else
-    printf 'x' > "${usecret}"; chown "${REAL_USER}:${REAL_USER}" "${usecret}"; chmod 0600 "${usecret}"
+    printf 'x' > "${usecret}"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${usecret}"; chmod 0600 "${usecret}"
     _cleanup+=("${usecret}")
     uerr="$(mktemp)"; _cleanup+=("${uerr}")
     setsid /usr/local/sbin/ai-tools-chown "${usecret}" < /dev/null > /dev/null 2>"${uerr}" || true
-    if [[ "$(stat -c '%U:%G' "${usecret}")" == "${REAL_USER}:${REAL_USER}" && "$(stat -c '%a' "${usecret}")" == "600" ]] \
+    if [[ "$(stat -c '%U:%G' "${usecret}")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" && "$(stat -c '%a' "${usecret}")" == "600" ]] \
        && ! grep -q 'NOTICE' "${uerr}"; then
         pass "user-owned secret left untouched, no false breach NOTICE"
     else
@@ -297,7 +297,7 @@ else
 fi
 
 # Security OUTCOME, not just mode bits: after quarantine, ai-tools (neither owner
-# nor group of an xd:xd 600 file) must actually be UNABLE to read the contents.
+# nor group of an <you>:<you> 600 file) must actually be UNABLE to read the contents.
 # Asserts the threat-model goal directly. runuser drops to ai-tools as root with
 # no sudoers/PAM dance.
 csecret="${SCRIPT_DIR}/.env.unreadable_$$"
@@ -307,7 +307,7 @@ else
     printf 'top-secret-value' > "${csecret}"; chown ai-tools:ai-tools "${csecret}"; chmod 0600 "${csecret}"
     _cleanup+=("${csecret}")
     run_chown "${csecret}"
-    if [[ "$(stat -c '%U:%G' "${csecret}")" == "${REAL_USER}:${REAL_USER}" ]] \
+    if [[ "$(stat -c '%U:%G' "${csecret}")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" ]] \
        && ! runuser -u ai-tools -- cat "${csecret}" >/dev/null 2>&1; then
         pass "ai-tools genuinely cannot read the quarantined secret (EACCES)"
     else
@@ -344,7 +344,7 @@ else
     _cleanup+=("${ucsecret}")
     ucerr="$(mktemp)"; _cleanup+=("${ucerr}")
     setsid /usr/local/sbin/ai-tools-chown "${ucsecret}" < /dev/null > /dev/null 2>"${ucerr}" || true
-    if [[ "$(stat -c '%U:%G' "${ucsecret}")" == "${REAL_USER}:${REAL_USER}" && "$(stat -c '%a' "${ucsecret}")" == "600" ]] \
+    if [[ "$(stat -c '%U:%G' "${ucsecret}")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" && "$(stat -c '%a' "${ucsecret}")" == "600" ]] \
        && grep -q 'NOTICE' "${ucerr}"; then
         pass "upper-case secret name (ID_ED25519) matched case-insensitively + quarantined"
     else
@@ -356,7 +356,7 @@ fi
 
 section "ai-tools-chown: allowlist ! exclusion"
 
-allowlist="${REAL_HOME}/.config/ai-tools/allowed-projects"
+allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
 if [[ ! -f "${allowlist}" ]]; then
     skip "! exclusion" "allowlist not found at ${allowlist}"
 else
@@ -364,7 +364,7 @@ else
     excl_file="${excl_dir}/sensitive.txt"
     mkdir -p "${excl_dir}"
     touch "${excl_file}"
-    chown "${REAL_USER}:${REAL_USER}" "${excl_file}"
+    chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${excl_file}"
     _cleanup+=("${excl_dir}")
 
     # Add exclusion, run test, remove exclusion
@@ -397,15 +397,15 @@ fi
 section "ai-tools-chown: TOCTOU-safe apply"
 
 # (1) Regular world-readable file the agent just wrote (ai-tools:ai-tools):
-#     chowned to REAL_USER:ai-tools + world bits gone.
+#     chowned to PROJECTS_USER:ai-tools + world bits gone.
 ap="${SCRIPT_DIR}/.test_apply_$$"
 printf 'x' > "${ap}"; chown ai-tools:ai-tools "${ap}"; chmod 0644 "${ap}"
 _cleanup+=("${ap}")
 run_chown "${ap}"
-if [[ "$(stat -c '%U:%G' "${ap}")" == "${REAL_USER}:ai-tools" && "$(stat -c '%a' "${ap}")" == "640" ]]; then
-    pass "regular file: chowned to ${REAL_USER}:ai-tools, world bits stripped (644 -> 640)"
+if [[ "$(stat -c '%U:%G' "${ap}")" == "${PROJECTS_USER}:ai-tools" && "$(stat -c '%a' "${ap}")" == "640" ]]; then
+    pass "regular file: chowned to ${PROJECTS_USER}:ai-tools, world bits stripped (644 -> 640)"
 else
-    fail "regular file: expected ${REAL_USER}:ai-tools 640, got $(stat -c '%U:%G' "${ap}") $(stat -c '%a' "${ap}")"
+    fail "regular file: expected ${PROJECTS_USER}:ai-tools 640, got $(stat -c '%U:%G' "${ap}") $(stat -c '%a' "${ap}")"
 fi
 
 # (2) Empty file ("regular empty file" in stat %F) must still be handled.
@@ -413,19 +413,19 @@ ep="${SCRIPT_DIR}/.test_empty_$$"
 : > "${ep}"; chown ai-tools:ai-tools "${ep}"; chmod 0666 "${ep}"
 _cleanup+=("${ep}")
 run_chown "${ep}"
-if [[ "$(stat -c '%U:%G' "${ep}")" == "${REAL_USER}:ai-tools" && "$(stat -c '%a' "${ep}")" == "660" ]]; then
+if [[ "$(stat -c '%U:%G' "${ep}")" == "${PROJECTS_USER}:ai-tools" && "$(stat -c '%a' "${ep}")" == "660" ]]; then
     pass "empty file: chowned and world bits stripped (666 -> 660)"
 else
-    fail "empty file: expected ${REAL_USER}:ai-tools 660, got $(stat -c '%U:%G' "${ep}") $(stat -c '%a' "${ep}")"
+    fail "empty file: expected ${PROJECTS_USER}:ai-tools 660, got $(stat -c '%U:%G' "${ep}") $(stat -c '%a' "${ep}")"
 fi
 
-# (2b) A file the agent did NOT write (owned by REAL_USER, not ai-tools) must be
+# (2b) A file the agent did NOT write (owned by PROJECTS_USER, not ai-tools) must be
 #      left untouched -- ai-tools-chown only acts on agent-written paths.
 np="${SCRIPT_DIR}/.test_noown_$$"
-printf 'x' > "${np}"; chown "${REAL_USER}:${REAL_USER}" "${np}"; chmod 0644 "${np}"
+printf 'x' > "${np}"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${np}"; chmod 0644 "${np}"
 _cleanup+=("${np}")
 run_chown "${np}"
-if [[ "$(stat -c '%U:%G' "${np}")" == "${REAL_USER}:${REAL_USER}" && "$(stat -c '%a' "${np}")" == "644" ]]; then
+if [[ "$(stat -c '%U:%G' "${np}")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" && "$(stat -c '%a' "${np}")" == "644" ]]; then
     pass "non-agent-written file left untouched (owner/mode unchanged)"
 else
     fail "non-agent-written file was modified to $(stat -c '%U:%G' "${np}") $(stat -c '%a' "${np}") -- agent-owned guard missing"
@@ -435,18 +435,18 @@ fi
 #     a freshly written file is never hardlinked, and a hardlink could point at
 #     a sensitive file outside the tree.
 hp="${SCRIPT_DIR}/.test_hard_$$"; hl="${SCRIPT_DIR}/.test_hard_link_$$"
-printf 'x' > "${hp}"; chown "${REAL_USER}:${REAL_USER}" "${hp}"; chmod 0644 "${hp}"
+printf 'x' > "${hp}"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${hp}"; chmod 0644 "${hp}"
 ln "${hp}" "${hl}"                        # link count now 2
 _cleanup+=("${hp}" "${hl}")
 run_chown "${hp}"
 after_owner="$(stat -c '%U:%G' "${hp}")"
-if [[ "${after_owner}" == "${REAL_USER}:${REAL_USER}" ]]; then
+if [[ "${after_owner}" == "${PROJECTS_USER}:${PROJECTS_GROUP}" ]]; then
     pass "hardlinked file (nlink>1) left untouched"
 else
     fail "hardlinked file was modified to ${after_owner} -- nlink>1 guard missing (TOCTOU hardlink vector)"
 fi
 
-# (4) Directory the agent created: chowned to REAL_USER:ai-tools with world bits
+# (4) Directory the agent created: chowned to PROJECTS_USER:ai-tools with world bits
 #     stripped but group rwx preserved (the agent must keep writing into a dir it
 #     made). 755 (world-traversable, ai-tools-owned) -> 770. nlink >= 2 must NOT
 #     trip the hardlink guard, which applies to regular files only.
@@ -454,20 +454,20 @@ dp="${SCRIPT_DIR}/.test_dir_$$"
 mkdir "${dp}"; chown ai-tools:ai-tools "${dp}"; chmod 0755 "${dp}"
 _cleanup+=("${dp}")
 run_chown "${dp}"
-if [[ "$(stat -c '%U:%G' "${dp}")" == "${REAL_USER}:ai-tools" && "$(stat -c '%a' "${dp}")" == "770" ]]; then
-    pass "directory: chowned to ${REAL_USER}:ai-tools, world bits stripped, group rwx kept (755 -> 770)"
+if [[ "$(stat -c '%U:%G' "${dp}")" == "${PROJECTS_USER}:ai-tools" && "$(stat -c '%a' "${dp}")" == "770" ]]; then
+    pass "directory: chowned to ${PROJECTS_USER}:ai-tools, world bits stripped, group rwx kept (755 -> 770)"
 else
-    fail "directory: expected ${REAL_USER}:ai-tools 770, got $(stat -c '%U:%G' "${dp}") $(stat -c '%a' "${dp}")"
+    fail "directory: expected ${PROJECTS_USER}:ai-tools 770, got $(stat -c '%U:%G' "${dp}") $(stat -c '%a' "${dp}")"
 fi
 
-# (5) A directory the agent did NOT create (owned by REAL_USER, not ai-tools)
+# (5) A directory the agent did NOT create (owned by PROJECTS_USER, not ai-tools)
 #     must be left completely untouched: normalizing it would grant ai-tools the
 #     group rwx it never had. Pins the dir-owner guard against regression.
 up="${SCRIPT_DIR}/.test_userdir_$$"
-mkdir "${up}"; chown "${REAL_USER}:${REAL_USER}" "${up}"; chmod 0700 "${up}"
+mkdir "${up}"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${up}"; chmod 0700 "${up}"
 _cleanup+=("${up}")
 run_chown "${up}"
-if [[ "$(stat -c '%U:%G' "${up}")" == "${REAL_USER}:${REAL_USER}" && "$(stat -c '%a' "${up}")" == "700" ]]; then
+if [[ "$(stat -c '%U:%G' "${up}")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" && "$(stat -c '%a' "${up}")" == "700" ]]; then
     pass "user-owned directory left untouched (no group access granted to ai-tools)"
 else
     fail "user-owned directory was modified to $(stat -c '%U:%G' "${up}") $(stat -c '%a' "${up}") -- dir-owner guard missing (ai-tools gained access)"
@@ -492,7 +492,7 @@ fi
 # ── PostToolUse hook: ownership hand-back end-to-end ──────────────────────────
 #
 # Pins the hook's invariant: it MUST NOT pre-check the allowlist with
-# `[[ -f "${ALLOWLIST}" ]]`. The allowlist lives under the install user's
+# `[[ -f "${ALLOWLIST}" ]]`. The allowlist lives under the projects user's
 # ~/.config (mode 700), which ai-tools cannot traverse, so that test is always
 # false and disables the hook (files stay ai-tools:ai-tools, not handed back).
 # Allowlist enforcement belongs to ai-tools-chown, which runs as root and reads
@@ -520,40 +520,40 @@ else
     : > "${hk}"; chown ai-tools:ai-tools "${hk}"; chmod 0600 "${hk}"
     _cleanup+=("${hk}")
     run_hook "${hk}"
-    if [[ "$(stat -c '%U:%G' "${hk}")" == "${REAL_USER}:ai-tools" ]]; then
-        pass "hook hands ai-tools-owned file back to ${REAL_USER}:ai-tools"
+    if [[ "$(stat -c '%U:%G' "${hk}")" == "${PROJECTS_USER}:ai-tools" ]]; then
+        pass "hook hands ai-tools-owned file back to ${PROJECTS_USER}:ai-tools"
     else
-        fail "hook did not hand back ${hk}: $(stat -c '%U:%G' "${hk}") (want ${REAL_USER}:ai-tools)"
+        fail "hook did not hand back ${hk}: $(stat -c '%U:%G' "${hk}") (want ${PROJECTS_USER}:ai-tools)"
     fi
 
     # (B) A secret-named file routed through the hook reaches ai-tools-chown's
-    #     secret path: chowned to the user's private group (REAL_USER:REAL_GROUP
+    #     secret path: chowned to the user's private group (PROJECTS_USER:PROJECTS_GROUP
     #     600), revoking ai-tools access.
     hs="${SCRIPT_DIR}/.env.test_hook_$$"
     : > "${hs}"; chown ai-tools:ai-tools "${hs}"; chmod 0600 "${hs}"
     _cleanup+=("${hs}")
     run_hook "${hs}"
-    if [[ "$(stat -c '%U:%G' "${hs}")" == "${REAL_USER}:${REAL_GROUP}" ]]; then
-        pass "hook routes secret-named file to ${REAL_USER}:${REAL_GROUP} (ai-tools access revoked)"
+    if [[ "$(stat -c '%U:%G' "${hs}")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" ]]; then
+        pass "hook routes secret-named file to ${PROJECTS_USER}:${PROJECTS_GROUP} (ai-tools access revoked)"
     else
-        fail "secret-named file ended $(stat -c '%U:%G' "${hs}") (want ${REAL_USER}:${REAL_GROUP})"
+        fail "secret-named file ended $(stat -c '%U:%G' "${hs}") (want ${PROJECTS_USER}:${PROJECTS_GROUP})"
     fi
 
     # (C) A directory the write newly created is handed back too. The hook walks
     #     up from the written file's dir, handing back each ai-tools-owned
-    #     ancestor and stopping at the pre-existing (REAL_USER-owned) tree. Here
-    #     the new dir's parent is the project root (REAL_USER-owned), so exactly
-    #     the new dir is normalized -- to REAL_USER:ai-tools, world bits stripped.
+    #     ancestor and stopping at the pre-existing (PROJECTS_USER-owned) tree. Here
+    #     the new dir's parent is the project root (PROJECTS_USER-owned), so exactly
+    #     the new dir is normalized -- to PROJECTS_USER:ai-tools, world bits stripped.
     hd="${SCRIPT_DIR}/.test_hookdir_$$"
     mkdir "${hd}"; chown ai-tools:ai-tools "${hd}"; chmod 0755 "${hd}"
     hdf="${hd}/file"
     : > "${hdf}"; chown ai-tools:ai-tools "${hdf}"; chmod 0600 "${hdf}"
     _cleanup+=("${hd}")
     run_hook "${hdf}"
-    if [[ "$(stat -c '%U:%G' "${hd}")" == "${REAL_USER}:ai-tools" && "$(stat -c '%a' "${hd}")" == "770" ]]; then
-        pass "hook normalizes a newly-created parent dir to ${REAL_USER}:ai-tools 770"
+    if [[ "$(stat -c '%U:%G' "${hd}")" == "${PROJECTS_USER}:ai-tools" && "$(stat -c '%a' "${hd}")" == "770" ]]; then
+        pass "hook normalizes a newly-created parent dir to ${PROJECTS_USER}:ai-tools 770"
     else
-        fail "hook did not normalize new dir ${hd}: $(stat -c '%U:%G' "${hd}") $(stat -c '%a' "${hd}") (want ${REAL_USER}:ai-tools 770)"
+        fail "hook did not normalize new dir ${hd}: $(stat -c '%U:%G' "${hd}") $(stat -c '%a' "${hd}") (want ${PROJECTS_USER}:ai-tools 770)"
     fi
 
     # (D) Static pin: an allowlist pre-check in code (which ai-tools cannot
@@ -596,10 +596,10 @@ else
     : > "${sw}"; chown ai-tools:ai-tools "${sw}"; chmod 0644 "${sw}"
     _cleanup+=("${sw}")
     run_sweep "${SCRIPT_DIR}"
-    if [[ "$(stat -c '%U:%G' "${sw}")" == "${REAL_USER}:ai-tools" ]]; then
+    if [[ "$(stat -c '%U:%G' "${sw}")" == "${PROJECTS_USER}:ai-tools" ]]; then
         pass "Stop sweep hands back a Bash-created (ai-tools-owned) file"
     else
-        fail "Stop sweep did not hand back ${sw}: $(stat -c '%U:%G' "${sw}") (want ${REAL_USER}:ai-tools)"
+        fail "Stop sweep did not hand back ${sw}: $(stat -c '%U:%G' "${sw}") (want ${PROJECTS_USER}:ai-tools)"
     fi
 fi
 
@@ -633,10 +633,10 @@ else
     touch -d '1 hour ago' "${ssf}"            # older than the marker
     _cleanup+=("${ssf}")
     run_sweep_ss "${SCRIPT_DIR}" startup
-    if [[ "$(stat -c '%U:%G' "${ssf}")" == "${REAL_USER}:ai-tools" ]]; then
+    if [[ "$(stat -c '%U:%G' "${ssf}")" == "${PROJECTS_USER}:ai-tools" ]]; then
         pass "SessionStart (startup) reclaims a leftover older than the marker (unbounded)"
     else
-        fail "SessionStart did not reclaim ${ssf}: $(stat -c '%U:%G' "${ssf}") (want ${REAL_USER}:ai-tools)"
+        fail "SessionStart did not reclaim ${ssf}: $(stat -c '%U:%G' "${ssf}") (want ${PROJECTS_USER}:ai-tools)"
     fi
 
     # (B) Source gating: compact/clear stay within a live process, so the pass is a
@@ -704,9 +704,9 @@ fi
 
 section "Systemd"
 
-if sudo -u "${REAL_USER}" \
-    XDG_RUNTIME_DIR="/run/user/${REAL_UID}" \
-    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${REAL_UID}/bus" \
+if sudo -u "${PROJECTS_USER}" \
+    XDG_RUNTIME_DIR="/run/user/${PROJECTS_UID}" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PROJECTS_UID}/bus" \
     systemctl --user is-active nvm-update.timer > /dev/null 2>&1; then
     pass "nvm-update.timer is active"
 else

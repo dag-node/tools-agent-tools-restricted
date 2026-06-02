@@ -65,7 +65,7 @@ but should not be the one acting as the agent:
 bash selinux/avc-testsuite.sh     # create, modify, git (+ git mv), private temp,
                                   # secret-quarantine, allowed + denied network
 
-# 2. AS xd (root), once the turn ends (so the Stop sweep's NOTICE is logged too):
+# 2. AS <you> (root), once the turn ends (so the Stop sweep's NOTICE is logged too):
 sudo bash selinux/avc-analyze.sh  # splits denials into NEW vs EXPECTED BOUNDARY
 ```
 
@@ -125,7 +125,7 @@ the tightening was deciding what the agent *needs* versus what some tool merely
   process-table walk. `domain_dontaudit_read_all_domains_state` refuses the lot;
   the agent has no business reading every daemon's `cmdline`/`environ`/fds.
 - **Listing the invoking user's home.** `user_home_t:dir search` *is* granted (the
-  project nests under `/home/xd/…`, so the agent must traverse to reach it), but
+  project nests under `/home/<you>/…`, so the agent must traverse to reach it), but
   `read` on `home_root_t` / `user_home_dir_t` / `user_home_t`, and reads of
   `config_home_t` (`~/.config`), are refused — that listing is how the agent would
   discover unrelated files.
@@ -174,7 +174,7 @@ Split by privilege, same as bring-up — root toggles dontaudit and reads the lo
 the agent triggers the denials:
 
 ```bash
-# 1. AS xd (root), in a terminal:
+# 1. AS <you> (root), in a terminal:
 sudo selinux/avc-denials.sh           # -DB, prints the probe cmd, then WAITS
 
 # 2. AS THE AGENT, in a confined claude (approved project):
@@ -245,7 +245,7 @@ DAC hardening (ownership/permissions/sticky `.claude`/locked `bin`) is untouched
   create/rename/unlink that git needs (`index.lock`, refs, objects); `git` itself
   runs from `corecmd_exec_bin`. No git permission from the main install changes.
 - **Belt and suspenders:** SELinux here does not replace the DAC model — the
-  locked `bin`, sticky `.claude`, and `xd:ai-tools` control files still stand; a
+  locked `bin`, sticky `.claude`, and `<you>:ai-tools` control files still stand; a
   given access must pass both layers.
 - **Cross-distro type names:** the `require {}` block in `ai_tools.te` is a *hard*
   load-time dependency — a type that does not exist in the running base policy

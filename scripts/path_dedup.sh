@@ -6,6 +6,10 @@
 #   Also sourced explicitly from ~/.bashrc for interactive non-login shells
 #   (where /etc/profile.d/ is not processed by default on RHEL 9).
 #
+#   SCOPE NOTE: "user" / "normal user" / "user-tier" below mean ANY host login
+#   account that sources this file, relative to its own $HOME and $USER -- the
+#   generic POSIX sense. This script is host-wide and account-agnostic.
+#
 # SECURITY ORDERING RATIONALE
 #   PATH resolution is first-match-wins.  A directory that appears early can
 #   shadow every binary in directories that appear later.  The order below is

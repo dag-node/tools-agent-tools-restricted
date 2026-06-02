@@ -3,7 +3,7 @@
 # Updates the user's Node.js and global npm tools, then delegates to the
 # ai-tools sandbox at the same resolved version so both installs stay in sync.
 #
-# Runs as the installing user via systemd user timer. Configuration via Environment= directives:
+# Runs as the projects user via systemd user timer. Configuration via Environment= directives:
 #   NVM_NODE_ALIAS        nvm alias to track        (default: default)
 #   NVM_NODE_MAJOR        major version series       (default: 22)
 #   NVM_GLOBAL_TOOLS      space-separated user packages (default: npm typescript yarn grunt)

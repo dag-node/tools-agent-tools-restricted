@@ -3,7 +3,7 @@
 # Atomically repoints the stable /opt/ai-tools/bin/claude symlink at a versioned
 # claude binary under ai-tools' nvm.
 #
-# /opt/ai-tools/bin is locked (550 @INSTALL_USER@:ai-tools): ai-tools cannot write
+# /opt/ai-tools/bin is locked (550 @PROJECTS_USER@:ai-tools): ai-tools cannot write
 # it, so the agent can neither tamper with nvm-update.sh nor swap the symlink the
 # wrapper resolves and trusts. This helper is therefore the ONLY way the sandbox
 # updater can move the symlink after a Node upgrade -- it runs as root (the only
@@ -46,7 +46,7 @@ readonly RE='^/opt/ai-tools/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+/bin/clau
 # Atomic repoint: build the new symlink under a temp name in the same dir, then
 # rename(2) it over the old one -- no window in which the stable link is missing.
 # (ai-tools cannot race us here: it has no write access to this 550 dir; only
-# root and the install user do.)
+# root and the projects user do.)
 tmp="$(mktemp -u "${BIN_DIR}/.claude.XXXXXX")"
 ln -s "${TARGET}" "${tmp}"
 mv -Tf "${tmp}" "${LINK}"

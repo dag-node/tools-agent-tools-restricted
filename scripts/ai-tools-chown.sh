@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # /usr/local/sbin/ai-tools-chown
-# Restores @INSTALL_USER@:ai-tools ownership on files and directories created or
+# Restores @PROJECTS_USER@:ai-tools ownership on files and directories created or
 # overwritten by Claude Code. Called by the PostToolUse hook via sudo (ai-tools
 # -> root). Accepts a single regular-file or directory target; for directories it
 # strips world bits while preserving group rwx so the agent can keep working in a
 # dir it created.
 #
-# Reads @INSTALL_HOME@/.config/ai-tools/allowed-projects for allow and exclude rules.
-# That file is owned @INSTALL_USER@:@INSTALL_USER@ 600 -- root reads it here on ai-tools' behalf.
+# Reads @PROJECTS_HOME@/.config/ai-tools/allowed-projects for allow and exclude rules.
+# That file is owned @PROJECTS_USER@:@PROJECTS_USER@ 600 -- root reads it here on ai-tools' behalf.
 #
 # Sudoers rule (in /etc/sudoers.d/ai-tools-claude):
 #   ai-tools ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools-chown
@@ -19,20 +19,20 @@
 set -euo pipefail
 
 readonly TARGET="${1:?usage: ai-tools-chown <absolute-path>}"
-readonly ALLOWLIST="@INSTALL_HOME@/.config/ai-tools/allowed-projects"
+readonly ALLOWLIST="@PROJECTS_HOME@/.config/ai-tools/allowed-projects"
 # Ordinary files are chowned to OWNER (group ai-tools, readable by the agent).
 # Secret-named files are chowned to SECRET_OWNER (the user's private group) with
 # group+world bits stripped, so ai-tools -- neither owner nor group member --
 # cannot read the contents. ai-tools is a group-writer on the project dir, not
 # its owner, so it can still unlink/replace the path: this revokes read, not
 # directory control.
-readonly OWNER="@INSTALL_USER@:ai-tools"
-readonly SECRET_OWNER="@INSTALL_USER@:@INSTALL_GROUP@"
+readonly OWNER="@PROJECTS_USER@:@SANDBOX_GROUP@"
+readonly SECRET_OWNER="@PROJECTS_USER@:@PROJECTS_GROUP@"
 readonly AUDIT_LOG="/var/log/ai-tools-chown.log"
 
 # Shared secret-name matcher, sourced (not executed) so this helper and
 # ai-tools-lockdown classify basenames by the SAME patterns from the SAME config
-# file (@INSTALL_HOME@/.config/ai-tools/secret-patterns). Failing to source it
+# file (@PROJECTS_HOME@/.config/ai-tools/secret-patterns). Failing to source it
 # would leave secret classification undefined, so abort rather than fall through
 # and hand a secret back as an ordinary file -- exiting non-zero simply skips this
 # path's handback (it stays ai-tools-owned), which is fail-closed, not a leak.
@@ -140,12 +140,12 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             # dir it never owned. The pinned-inode re-check below makes this owner
             # read race-safe: an ai-tools-owned inode's user field cannot change
             # except via root.
-            [[ "${current_owner%%:*}" == "ai-tools" ]] || exit 0
+            [[ "${current_owner%%:*}" == "@SANDBOX_USER@" ]] || exit 0
 
             # Directories: hand to OWNER, strip world bits but GUARANTEE group
             #   rwx (g+rwx,o=) so the agent -- now only a group member of a dir it
             #   created and may still be writing into -- can still traverse and
-            #   add files. This mirrors the project root (xd:ai-tools, group-writable).
+            #   add files. This mirrors the project root (<you>:ai-tools, group-writable).
             # Secret-named files: hand to SECRET_OWNER (the user's private group)
             #   and strip BOTH group and world bits (go=), removing ai-tools' read
             #   access to the contents.

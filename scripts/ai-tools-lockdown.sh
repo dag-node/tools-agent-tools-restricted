@@ -25,7 +25,7 @@
 set -euo pipefail
 
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
-readonly ALLOWLIST="@INSTALL_HOME@/.config/ai-tools/allowed-projects"
+readonly ALLOWLIST="@PROJECTS_HOME@/.config/ai-tools/allowed-projects"
 
 # Heavy/transient trees pruned from the walk, matching post-write-sweep.sh.
 readonly -a PRUNE_NAMES=(.git node_modules .venv __pycache__)
@@ -63,9 +63,9 @@ done
 
 # ── Guards ───────────────────────────────────────────────────────────────────
 [[ "${EUID}" -eq 0 ]] || die "run with sudo"
-readonly REAL_USER="${SUDO_USER:?run via sudo (SUDO_USER unset)}"
-[[ "${REAL_USER}" != "ai-tools" ]] || die "must be run by you, not ai-tools"
-readonly OWNER="${REAL_USER}:ai-tools"
+readonly PROJECTS_USER="${SUDO_USER:?run via sudo (SUDO_USER unset)}"
+[[ "${PROJECTS_USER}" != "@SANDBOX_USER@" ]] || die "must be run by you, not ai-tools"
+readonly OWNER="${PROJECTS_USER}:@SANDBOX_GROUP@"
 
 # Resolve the invoking shell's working directory (sudo preserves it).
 target="$(pwd -P)" || die "cannot determine current directory"

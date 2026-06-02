@@ -60,7 +60,7 @@ current for both your login user and the sandbox user, pinned to the same build.
 
 ## Security model — what `ai-tools` can and cannot do
 
-The sudoers drop-in (`/etc/sudoers.d/ai-tools-claude`, `@INSTALL_USER@`
+The sudoers drop-in (`/etc/sudoers.d/ai-tools-claude`, `@PROJECTS_USER@`
 substituted at install) grants exactly:
 
 ```

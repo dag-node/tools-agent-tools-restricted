@@ -101,7 +101,7 @@ files_type(ai_tools_project_t)
 # The agent's own config/state -- /opt/ai-tools/.claude plus its HOME state files
 # (.claude.json, .npm, .cache, .local, .config; see ai_tools.fc). A private
 # writable area distinct from the read-only nvm/program tree (usr_t), so the
-# policy need not grant write to usr_t. The xd-owned control files inside
+# policy need not grant write to usr_t. The <you>-owned control files inside
 # (settings.json, post-tool-hook.sh) stay protected by DAC regardless of label.
 type ai_tools_home_t;
 files_type(ai_tools_home_t)
@@ -121,7 +121,7 @@ files_tmp_file(ai_tools_tmp_t)
 # ever handed back. A dedicated type labels just this subtree so the helper can
 # read it WITHOUT opening all of ~/.config to the agent. The DAC 700 on the dir
 # still blocks the non-root agent; only the root helper (DAC-exempt, SELinux-gated)
-# benefits. xd (unconfined) reads it regardless of label. Mirrors the
+# benefits. <you> (unconfined) reads it regardless of label. Mirrors the
 # libs_read_lib_files grant for the secret-pattern library -- same "the root helper
 # in ai_tools_t must read a user/lib file or handback breaks" reasoning.
 type ai_tools_conf_t;
@@ -131,7 +131,7 @@ files_type(ai_tools_conf_t)
 # Domain entry
 ########################################
 
-# xd is unconfined; when its `sudo -u ai-tools` execs the labelled claude.exe,
+# The projects user is unconfined; when its `sudo -u ai-tools` execs the labelled claude.exe,
 # the agent process transitions into ai_tools_t. The role stays unconfined_r, so
 # no SELinux-user (semanage user/login) remapping is required -- we only authorise
 # unconfined_r to hold the new type. If claude.exe ever loses its label (e.g. a
@@ -168,7 +168,7 @@ allow ai_tools_t ai_tools_home_t:file map;
 # script the shebang line names. No transition: the hook stays in ai_tools_t.
 allow ai_tools_t ai_tools_home_t:file { execute execute_no_trans };
 
-# Reach the project: its parent path is /home/xd (user_home_dir_t) -> intermediate
+# Reach the project: its parent path is /home/<you> (user_home_dir_t) -> intermediate
 # dirs (user_home_t) -> the labelled project. The agent must SEARCH through those
 # parents (path resolution) -- but NOT list/read them (see the dontaudit block).
 userdom_search_user_home_dirs(ai_tools_t)
@@ -184,7 +184,7 @@ allow ai_tools_t config_home_t:dir search;
 allow ai_tools_t ai_tools_conf_t:dir { getattr search open };
 allow ai_tools_t ai_tools_conf_t:file { getattr open read };
 
-# xd (unconfined) keeps full access to, and can relabel (restorecon), the new
+# <you> (unconfined) keeps full access to, and can relabel (restorecon), the new
 # file types -- relabelling a project to ai_tools_project_t must never lock you out.
 manage_dirs_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
 manage_files_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
@@ -322,7 +322,7 @@ dontaudit ai_tools_t init_t:file ioctl;
 dontaudit ai_tools_t kernel_t:unix_stream_socket connectto;
 
 # (2) The path boundary into the invoking user's home. SEARCH to reach the project
-# is allowed above; LISTING /home, /home/xd, or its subtrees is not -- that is how
+# is allowed above; LISTING /home, /home/<you>, or its subtrees is not -- that is how
 # the agent would discover unrelated files. Reading the user's ~/.config FILES is
 # likewise refused (git/Node probe it; failing closed is harmless) -- the lone
 # exception is the ai_tools_conf_t subtree (~/.config/ai-tools), carved out and

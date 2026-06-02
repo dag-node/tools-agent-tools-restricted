@@ -36,16 +36,16 @@ readonly NVM_DIR="/opt/ai-tools/.nvm"
 HOME_STATE=(.claude.json .npm .cache .local .config .gitconfig)
 
 [[ "${EUID}" -eq 0 ]] || { echo "selinux: run with sudo" >&2; exit 1; }
-REAL_USER="${SUDO_USER:?selinux: invoke via sudo, not as root directly}"
-REAL_HOME="$(getent passwd "${REAL_USER}" | cut -d: -f6)"
-readonly ALLOWLIST="${REAL_HOME}/.config/ai-tools/allowed-projects"
+PROJECTS_USER="${SUDO_USER:?selinux: invoke via sudo, not as root directly}"
+PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"
+readonly ALLOWLIST="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
 # The user-owned ai-tools config dir (allowed-projects, secret-patterns). Labelled
 # ai_tools_conf_t so the root ai-tools-chown helper -- which runs IN ai_tools_t with
 # no transition -- can read the allowlist; without it the helper's getattr is denied
 # (config_home_t:file is dontaudit'd) and ownership handback silently no-ops. The
 # label is scoped to this one dir so the rest of ~/.config stays unreadable to the
 # domain. Applied via semanage (dynamic home path), not ai_tools.fc (fixed paths).
-readonly CONF_DIR="${REAL_HOME}/.config/ai-tools"
+readonly CONF_DIR="${PROJECTS_HOME}/.config/ai-tools"
 
 log()  { printf 'selinux: %s\n' "$*"; }
 logx() { printf 'selinux: %s\n' "$*" >&2; }   # stderr -- safe inside subshells
@@ -108,7 +108,7 @@ build_pp() {
     # source file remains readable/commitable by the repo owner.
     local base="${DIR}/${pp%.pp}"
     [[ -f "${base}.fc" ]] \
-        && chown "${REAL_USER}:ai-tools" "${base}.fc" 2>/dev/null \
+        && chown "${PROJECTS_USER}:ai-tools" "${base}.fc" 2>/dev/null \
         && chmod 664 "${base}.fc" 2>/dev/null \
         || true
 }
