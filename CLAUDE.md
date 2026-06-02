@@ -160,12 +160,13 @@ untouched (no re-chown, no bit-stripping, and for a secret-named path no false
 file/secret counterpart of the directory rule above.
 
 ### Secret-named files
-A secret-named file the agent wrote is breached. `ai-tools-chown` matches a
-basename list (`.env`, `*.key`, `*.pem`, `id_*`, `kubeconfig`, `*.jks`,
-`.pgpass`, …; basename-safe globs only, no bare `config`) and chowns matches it
-(when `ai-tools`-owned, per above) to `<you>:<you> 600`, so ai-tools — neither
-owner nor group member — cannot read the contents. It writes a `NOTICE` to stderr
-(the hook relays it into the session) and `/var/log/ai-tools-chown.log`.
+A secret-named file the agent wrote is breached. `ai-tools-chown` classifies the
+basename against a shared pattern set (`.env`, `*.key`, `*.pem`, `id_*`,
+`kubeconfig`, `*.jks`, `.pgpass`, the name-anchored .NET config patterns, …;
+basename-safe globs only, no bare `config`) and chowns a match (when
+`ai-tools`-owned, per above) to `<you>:<you> 600`, so ai-tools — neither owner nor
+group member — cannot read the contents. It writes a `NOTICE` to stderr (the hook
+relays it into the session) and `/var/log/ai-tools-chown.log`.
 
 This revokes read only. ai-tools is a group-writer on the project dir (not its
 owner), so it can still unlink/replace the path; a replacement is agent-written
@@ -175,6 +176,47 @@ handed-back files are `<you>`-owned, so it would block the agent's atomic-rename
 re-edits. To prevent unlink/replace of the user's own secrets, place them in a
 dir the agent cannot write (`700 <you>:<you>`) and `!`-exclude it. See
 [[allowlist-not-an-access-boundary]].
+
+### Shared secret-pattern set (one source, two consumers)
+The secret basename patterns live in a single user-owned config file,
+`~/.config/ai-tools/secret-patterns` (`<you>:<you> 600`), co-located with
+`allowed-projects` and owned the same way: the user edits it; ai-tools — neither
+its owner nor in its group, and unable to enter the `700 .config/ai-tools` dir —
+can neither read nor write it; the root helpers read it on the user's behalf.
+The agent therefore cannot weaken its own secret classification.
+
+Both root helpers source `/usr/local/lib/ai-tools/secret-patterns.lib.sh`
+(root-owned `644`, not in an ai-tools-writable dir) for one matcher over that
+file, so `ai-tools-chown` and `ai-tools-lockdown` can never drift apart. The
+library carries a built-in default list identical to the shipped
+`secret-patterns.conf`; if the config file is missing or empty the defaults
+apply, so classification never silently degrades to "match nothing". A failure
+to source the library is fail-closed: `ai-tools-chown` exits non-zero and simply
+skips that path's handback (it stays `ai-tools`-owned) rather than handing a
+possible secret back as an ordinary file. `ai-tools-chown` runs in `ai_tools_t`
+with no transition, so the policy grants that domain `libs_read_lib_files` to
+read the `lib_t`-labelled library; without it the source fails under enforcing.
+
+The patterns are name- or environment-anchored (`appsettings.*.json`,
+`web.*.config`, `*.Production.*`, …), deliberately **not** broad
+`*.*.json`/`*.*.config` catch-alls — those would also match build artifacts the
+toolchain must read (`*.deps.json`, `*.runtimeconfig.json`,
+`project.assets.json`, `*.dll.config`), and quarantining them breaks builds.
+
+### `ai-tools-lockdown` — proactive secret lockdown
+`ai-tools-chown` is reactive: it fires per agent-written path and acts only on
+`ai-tools`-owned paths, so it never touches a pre-existing user-owned secret the
+agent could already read (the allowlist is not a read boundary). `ai-tools-lockdown`
+(`/usr/local/sbin/ai-tools-lockdown`, run `cd <project> && sudo ai-tools-lockdown`)
+is the proactive counterpart: it walks the current directory and, for every path
+matching the shared secret patterns, sets regular files `600`, directories `700`,
+and owner `<you>:ai-tools` — revoking ai-tools' read regardless of who created
+the path. It runs only when the CWD is an allowed project and skips `!`-excluded
+paths, reusing the same allowlist parse, and applies each change through a pinned
+fd (re-verifying inode and type) so an ai-tools path swap cannot redirect root's
+chmod/chown. `--dry-run` previews; `--yes` skips the TTY confirmation. It is a
+user tool: there is **no** sudoers grant letting ai-tools run it, and it refuses
+to run as `ai-tools`.
 
 ### `loginctl enable-linger`
 Without this, the user systemd instance exits on logout and the daily timer

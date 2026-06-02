@@ -62,6 +62,13 @@ check_file() {
 section "File permissions"
 check_file /usr/local/sbin/ai-tools-chown            root              root              750
 check_file /usr/local/sbin/ai-tools-claude-symlink   root              root              750
+check_file /usr/local/sbin/ai-tools-lockdown         root              root              750
+# Shared secret-pattern matcher, sourced by ai-tools-chown and ai-tools-lockdown.
+# Root-owned 644 in a non-ai-tools-writable dir so the agent cannot alter the rules.
+check_file /usr/local/lib/ai-tools/secret-patterns.lib.sh  root          root              644
+# Secret-pattern config: user-owned 600. ai-tools (not owner/group, cannot enter
+# the 700 .config/ai-tools dir) can neither read nor write it; root helpers read it.
+check_file "${REAL_HOME}/.config/ai-tools/secret-patterns" "${REAL_USER}"  "${REAL_USER}"  600
 check_file /etc/sudoers.d/ai-tools-claude             root              root              440
 check_file /etc/profile.d/path_dedup.sh               root              root              644
 # /opt/ai-tools/bin is locked: owned by the install user (NOT ai-tools), 550, so

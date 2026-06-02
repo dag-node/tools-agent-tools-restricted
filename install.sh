@@ -156,10 +156,12 @@ do_selinux_restore() {
     restorecon \
         /usr/local/sbin/ai-tools-chown \
         /usr/local/sbin/ai-tools-claude-symlink \
+        /usr/local/sbin/ai-tools-lockdown \
         /etc/sudoers.d/ai-tools-claude \
         /etc/profile.d/path_dedup.sh \
         /var/log/ai-tools-chown.log
     restorecon -R \
+        /usr/local/lib/ai-tools/ \
         /opt/ai-tools/bin/ \
         /opt/ai-tools/.claude/
     restorecon \
@@ -207,6 +209,8 @@ do_summary() {
 
     _chk /usr/local/sbin/ai-tools-chown
     _chk /usr/local/sbin/ai-tools-claude-symlink
+    _chk /usr/local/sbin/ai-tools-lockdown
+    _chk /usr/local/lib/ai-tools/secret-patterns.lib.sh
     _chk /etc/sudoers.d/ai-tools-claude
     _chk /etc/profile.d/path_dedup.sh
     _chk /opt/ai-tools/bin/nvm-update.sh
@@ -283,6 +287,20 @@ do_install() {
     install_subst 750 root root \
         "${SCRIPT_DIR}/scripts/ai-tools-claude-symlink.sh" \
         /usr/local/sbin/ai-tools-claude-symlink
+
+    # Shared secret-name matcher, sourced by ai-tools-chown and ai-tools-lockdown.
+    # Root-owned in a non-ai-tools-writable dir so the agent cannot alter the rules.
+    log "system: /usr/local/lib/ai-tools/secret-patterns.lib.sh"
+    ensure_dir 755 root root /usr/local/lib/ai-tools
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/scripts/ai-tools-secret-patterns.lib.sh" \
+        /usr/local/lib/ai-tools/secret-patterns.lib.sh
+
+    # Manual pre-flight lockdown sweep. Run by the user (sudo), never by ai-tools.
+    log "system: /usr/local/sbin/ai-tools-lockdown"
+    install_subst 750 root root \
+        "${SCRIPT_DIR}/scripts/ai-tools-lockdown.sh" \
+        /usr/local/sbin/ai-tools-lockdown
 
     # Audit log for secret-named files the agent wrote (ai-tools-chown appends).
     # Create root:root 600 so the record of secret *filenames* is not world-read.
@@ -387,6 +405,18 @@ do_install() {
         chmod 600 "${allowlist}"
     fi
 
+    # Secret-name patterns: user-owned 600 (ai-tools can neither read nor write it;
+    # the root helpers read it). Seed from the shipped default only when absent so a
+    # re-install never clobbers the user's edits. Both ai-tools-chown and
+    # ai-tools-lockdown read this file; if it is removed they fall back to the
+    # built-in defaults baked into the shared library.
+    local patternfile="${REAL_HOME}/.config/ai-tools/secret-patterns"
+    if [[ ! -f "${patternfile}" ]]; then
+        log "config: creating ${patternfile}"
+        install -o "${REAL_USER}" -g "${REAL_USER}" -m 600 \
+            "${SCRIPT_DIR}/scripts/secret-patterns.conf" "${patternfile}"
+    fi
+
     # Register this project in allowlist + git safe.directory
     add_project "${SCRIPT_DIR}"
 
@@ -421,6 +451,9 @@ do_uninstall() {
     log "removing system files"
     rm -f /usr/local/sbin/ai-tools-chown
     rm -f /usr/local/sbin/ai-tools-claude-symlink
+    rm -f /usr/local/sbin/ai-tools-lockdown
+    rm -f /usr/local/lib/ai-tools/secret-patterns.lib.sh
+    rmdir /usr/local/lib/ai-tools 2>/dev/null || true
     rm -f /etc/sudoers.d/ai-tools-claude
     rm -f /etc/profile.d/path_dedup.sh
 
