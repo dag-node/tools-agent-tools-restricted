@@ -1,4 +1,4 @@
-policy_module(ai_tools, 0.4.0)
+policy_module(ai_tools, 0.5.0)
 
 ## ============================================================
 ## POLICY GROUP DEFAULTS -- this core module covers repo-only work.
@@ -252,12 +252,20 @@ corenet_tcp_connect_http_port(ai_tools_t)   # http_port_t includes 443
 # No type_transition is defined for the helpers, so sudo and the helper both run
 # IN ai_tools_t (execute_no_trans) -- the helper is root-uid but SELinux-confined
 # to this domain. That is why this domain needs setuid/setgid (sudo drops to the
-# target uid) and chown/fsetid/dac_read_search (the chown helper restoring
-# ownership and stripping bits). The capabilities are scoped to this domain only.
+# target uid) and chown/fowner/fsetid/dac_read_search (the chown helper restoring
+# ownership and stripping bits). chown is for the chown(2) (CAP_CHOWN); fowner is
+# for the chmod(2) that strips world bits (and group bits on a quarantined secret)
+# right after: the helper has just chowned the file away from root, so root is no
+# longer the owner and chmod needs CAP_FOWNER. Without fowner the chmod fails EPERM
+# under enforcing while the chown still succeeds, so handback works but world bits
+# are never stripped -- silently weakening the secret quarantine (a world-readable
+# agent-written secret would stay readable by ai-tools). The capabilities are
+# scoped to this domain only; the non-root agent has an empty capability set, so
+# these allows unblock only the root-uid helper.
 #
 # FUTURE HARDENING: give the helpers their own domain (ai_tools_chown_t) via a
-# sudo type_transition, so ai_tools_t itself loses setuid/setgid/chown/fsetid and
-# never needs the PAM/auth surface below. Deferred -- it needs a load test under
+# sudo type_transition, so ai_tools_t itself loses setuid/setgid/chown/fowner/fsetid
+# and never needs the PAM/auth surface below. Deferred -- it needs a load test under
 # enforcing on the live box, which has not happened. See selinux/README.md.
 ########################################
 
@@ -265,7 +273,7 @@ can_exec(ai_tools_t, sudo_exec_t)
 allow ai_tools_t sudo_db_t:dir { getattr search open read };
 allow ai_tools_t sudo_log_t:file { getattr open append };
 
-allow ai_tools_t self:capability { setuid setgid sys_resource chown fsetid dac_read_search };
+allow ai_tools_t self:capability { setuid setgid sys_resource chown fowner fsetid dac_read_search };
 allow ai_tools_t self:process setrlimit;
 
 # PAM, as pulled in by sudo. chkpwd is TRANSITIONED to its own domain (chkpwd_t),
