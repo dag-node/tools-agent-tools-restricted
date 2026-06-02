@@ -38,7 +38,7 @@ file="$(jq -r '.tool_input.file_path // empty' 2>/dev/null)" || exit 0
 # NOT redirect to /dev/null) so Claude Code surfaces the NOTICE in the session.
 current="$(stat -c '%U:%G' "${file}" 2>/dev/null || true)"
 if [[ -n "${current}" && "${current}" != "${EXPECTED_OWNER}" ]]; then
-    sudo /usr/local/sbin/ai-tools-chown "${file}" || true
+    sudo /usr/local/sbin/ai-tools/chown "${file}" || true
 fi
 
 # Normalize any directories the write just created. Claude Code's Write tool
@@ -52,6 +52,6 @@ fi
 dir="$(dirname -- "${file}")"
 while [[ "${dir}" != "/" && "${dir}" != "." ]]; do
     [[ "$(stat -c '%U' "${dir}" 2>/dev/null || true)" == "@SANDBOX_USER@" ]] || break
-    sudo /usr/local/sbin/ai-tools-chown "${dir}" || true
+    sudo /usr/local/sbin/ai-tools/chown "${dir}" || true
     dir="$(dirname -- "${dir}")"
 done

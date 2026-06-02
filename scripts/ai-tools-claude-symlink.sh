@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# /usr/local/sbin/ai-tools-claude-symlink
+# /usr/local/sbin/ai-tools/claude-symlink
 # Atomically repoints the stable /opt/ai-tools/bin/claude symlink at a versioned
 # claude binary under ai-tools' nvm.
 #
@@ -11,12 +11,12 @@
 # before acting.
 #
 # Sudoers rule (in /etc/sudoers.d/ai-tools-claude):
-#   ai-tools ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools-claude-symlink /opt/ai-tools/.nvm/versions/node/v[0-9]*
+#   ai-tools ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/claude-symlink /opt/ai-tools/.nvm/versions/node/v[0-9]*
 #
 # Called as root by nvm-update-ai-tools.sh (via sudo) and by install.sh.
 #
 # Deploy: sudo install -o root -g root -m 750 \
-#             scripts/ai-tools-claude-symlink.sh /usr/local/sbin/ai-tools-claude-symlink
+#             scripts/ai-tools-claude-symlink.sh /usr/local/sbin/ai-tools/claude-symlink
 
 set -euo pipefail
 

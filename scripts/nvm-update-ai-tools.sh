@@ -119,7 +119,7 @@ main() {
     # which re-validates the versioned path before touching the symlink.
     local versioned_claude="${nvm_dir}/versions/node/${target_version}/bin/claude"
     [[ -x "${versioned_claude}" ]] || die "claude binary not found at ${versioned_claude}"
-    sudo /usr/local/sbin/ai-tools-claude-symlink "${versioned_claude}" \
+    sudo /usr/local/sbin/ai-tools/claude-symlink "${versioned_claude}" \
         || die "failed to repoint ${AI_TOOLS_BIN}/claude via ai-tools-claude-symlink"
 
     log "Done. Active: $(nvm version "${node_alias}")"

@@ -210,9 +210,9 @@ cd selinux && sudo ./install-selinux.sh relabel
 Both paths now **verify** the entrypoint label and remind you that a *running*
 claude keeps its old context until you exit and relaunch.
 
-> Note: the live deployed helper is `/usr/local/sbin/ai-tools-claude-symlink`
+> Note: the live deployed helper is `/usr/local/sbin/ai-tools/claude-symlink`
 > (root-owned, 750). After pulling this change, redeploy it:
-> `sudo install -o root -g root -m 750 scripts/ai-tools-claude-symlink.sh /usr/local/sbin/ai-tools-claude-symlink`.
+> `sudo install -o root -g root -m 750 scripts/ai-tools-claude-symlink.sh /usr/local/sbin/ai-tools/claude-symlink`.
 
 ## Adding a project later
 

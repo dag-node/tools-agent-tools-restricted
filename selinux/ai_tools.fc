@@ -8,6 +8,13 @@
 # unlabelled, which fails OPEN -- claude runs unconfined until relabelled).
 /opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@anthropic-ai/claude-code/bin/claude\.exe  --  gen_context(system_u:object_r:ai_tools_exec_t,s0)
 
+# The root sudo-helpers, grouped under one dir (chown, setgid, claude-symlink,
+# lockdown). They run IN ai_tools_t (sudo, no domain transition), so they need NO
+# entrypoint label -- bin_t is the default for /usr/local/sbin and is what
+# ai_tools_t is already allowed to execute. Stated explicitly so a restorecon of
+# the dir labels it (and its files) consistently regardless of how they were created.
+/usr/local/sbin/ai-tools(/.*)?  gen_context(system_u:object_r:bin_t,s0)
+
 # The agent's own config/state dir -- a private writable area, so the policy need
 # not grant write to the whole nvm tree (usr_t). The <you>-owned control files inside
 # (settings.json, post-tool-hook.sh) remain protected by DAC regardless of label.

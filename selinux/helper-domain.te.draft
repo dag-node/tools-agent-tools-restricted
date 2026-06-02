@@ -34,8 +34,8 @@
 ################################################################################
 # PART A -- ai_tools.fc additions (label the helper binaries + the chown log)
 #
-#   /usr/local/sbin/ai-tools-chown           --  gen_context(system_u:object_r:ai_tools_chown_exec_t,s0)
-#   /usr/local/sbin/ai-tools-claude-symlink  --  gen_context(system_u:object_r:ai_tools_symlink_exec_t,s0)
+#   /usr/local/sbin/ai-tools/chown           --  gen_context(system_u:object_r:ai_tools_chown_exec_t,s0)
+#   /usr/local/sbin/ai-tools/claude-symlink  --  gen_context(system_u:object_r:ai_tools_symlink_exec_t,s0)
 #   /var/log/ai-tools-chown\.log             --  gen_context(system_u:object_r:ai_tools_chown_log_t,s0)
 #
 # (Both helpers are currently bin_t; the log is var_log_t. After merging, extend
