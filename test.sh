@@ -676,7 +676,7 @@ else
     # (A) A dir under an allowed project (SCRIPT_DIR) gets group ai-tools + setgid.
     #     Start from a non-setgid, projects-group state to prove the helper changes it.
     sgroot="${SCRIPT_DIR}/.test_setgid_$$"
-    mkdir -p "${sgroot}/sub"
+    mkdir -p "${sgroot}/sub" "${sgroot}/.env/inside"
     _cleanup+=("${sgroot}")
     chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${sgroot}"
     chmod -R 0770 "${sgroot}"                       # 770, no setgid, group = projects group
@@ -687,6 +687,16 @@ else
         pass "setgid: dir under an allowed project gets group ai-tools + setgid"
     else
         fail "setgid: ${sgroot}/sub is ${sg_group} ${sg_mode} (want group ai-tools, setgid set)"
+    fi
+
+    # (A2) A secret-named dir (.env) and its whole subtree are skipped -- never
+    #      flipped to the agent group, even without an explicit '!' exclusion.
+    env_group="$(stat -c '%G' "${sgroot}/.env")"
+    envsub_group="$(stat -c '%G' "${sgroot}/.env/inside")"
+    if [[ "${env_group}" != "ai-tools" && "${envsub_group}" != "ai-tools" ]]; then
+        pass "setgid: a secret-named dir (.env) and its subtree are left untouched"
+    else
+        fail "setgid: .env exposed (.env=${env_group} .env/inside=${envsub_group}, want not ai-tools)"
     fi
 
     # (B) A path NOT under any allowed project is rejected and left untouched.

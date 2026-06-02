@@ -36,6 +36,22 @@ AI_TOOLS_PRUNE_NAMES=()
 # shellcheck source=/dev/null
 [[ -r "${PRUNE_LIB}" ]] && source "${PRUNE_LIB}" || true
 
+# Secret-name matcher (defense in depth): never apply the sandbox group to a dir
+# whose basename looks like a secret (e.g. .env), so a private dir is not exposed
+# to the agent group even if the operator forgot to '!'-exclude it. We run as root,
+# so we can read the 640 root:root lib. Best-effort -- the '!' allowlist exclusions
+# remain the authoritative control; if the matcher cannot load, fall back to them.
+readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
+_secret_loaded=false
+# shellcheck source=/dev/null
+if source "${SECRET_PATTERNS_LIB}" 2>/dev/null && ai_tools_load_secret_patterns 2>/dev/null; then
+    _secret_loaded=true
+fi
+_is_secret_name() {
+    ${_secret_loaded} || return 1
+    ai_tools_is_secret_basename "$(basename -- "$1")"
+}
+
 # No allowlist -- do nothing silently (fail-closed; mirrors ai-tools-chown).
 [[ -f "${ALLOWLIST}" ]] || exit 0
 
@@ -110,7 +126,9 @@ _safe_setgid() {
 }
 
 # Walk the project's directories (pruning heavy trees, one filesystem) and
-# normalize each. Re-check exclusion per dir so a '!'-excluded subpath is skipped.
+# normalize each. find emits a dir before its contents (pre-order), so when a dir
+# is '!'-excluded or secret-named we record it as a skip-prefix and skip its whole
+# subtree -- never flipping the group anywhere under a private/secret dir.
 declare -a expr=( "${canonical}" -xdev )
 if (( ${#AI_TOOLS_PRUNE_NAMES[@]} > 0 )); then
     expr+=( '(' )
@@ -123,9 +141,16 @@ fi
 expr+=( -type d -print0 )
 
 find "${expr[@]}" 2>/dev/null \
-    | while IFS= read -r -d '' d; do
-        _is_excluded "${d}" && continue
-        _safe_setgid "${d}" || true
-      done || true
+    | { declare -a skip=()
+        _under_skip() { local p; for p in "${skip[@]:-}"; do
+            [[ -n "${p}" && ( "$1" == "${p}" || "$1" == "${p}/"* ) ]] && return 0; done; return 1; }
+        while IFS= read -r -d '' d; do
+            _under_skip "${d}" && continue
+            if _is_excluded "${d}" || _is_secret_name "${d}"; then
+                skip+=("${d}"); continue
+            fi
+            _safe_setgid "${d}" || true
+        done
+      } || true
 
 exit 0
