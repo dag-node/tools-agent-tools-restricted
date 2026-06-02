@@ -30,6 +30,19 @@ readonly OWNER="@INSTALL_USER@:ai-tools"
 readonly SECRET_OWNER="@INSTALL_USER@:@INSTALL_GROUP@"
 readonly AUDIT_LOG="/var/log/ai-tools-chown.log"
 
+# Shared secret-name matcher, sourced (not executed) so this helper and
+# ai-tools-lockdown classify basenames by the SAME patterns from the SAME config
+# file (@INSTALL_HOME@/.config/ai-tools/secret-patterns). Failing to source it
+# would leave secret classification undefined, so abort rather than fall through
+# and hand a secret back as an ordinary file -- exiting non-zero simply skips this
+# path's handback (it stays ai-tools-owned), which is fail-closed, not a leak.
+readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
+# shellcheck source=/dev/null
+if ! source "${SECRET_PATTERNS_LIB}"; then
+    printf 'ai-tools-chown: FATAL: cannot source %s\n' "${SECRET_PATTERNS_LIB}" >&2
+    exit 1
+fi
+
 # _notify_secret: emit a one-line NOTICE that a secret-named file was written and
 # ai-tools' read access revoked, to stderr (the PostToolUse hook relays it into
 # the session) and the root-owned audit log. Logging is best-effort, never blocks.
@@ -48,40 +61,16 @@ _notify_secret() {
 # Resolve to canonical path to block symlink traversal
 canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
 
-# Credential/secret basename patterns (basename-safe globs only; no bare 'config'
-# etc. that would match innocuous files). A match sets is_secret, so the apply
-# path chowns the file to SECRET_OWNER, strips group+world bits, and emits a
-# NOTICE via _notify_secret. Per-project secrets belong in ! allowlist
+# Classify the basename against the shared secret-name patterns. A match sets
+# is_secret, so the apply path chowns the file to SECRET_OWNER, strips group+world
+# bits, and emits a NOTICE via _notify_secret. The patterns live in the user-owned
+# config file read by the library (basename-safe globs only; no bare 'config' that
+# would match innocuous files). Per-project secrets belong in ! allowlist
 # exclusions, which leave ownership intact.
 is_secret=false
-_base="$(basename "${canonical}")"
-# Match secret basenames case-insensitively (.ENV, Server.KEY, ID_RSA, …). The
-# prior nocasematch setting is restored after the loop so the case-sensitive
-# [[ ]] and case statements below (paths, file types) are unaffected.
-# NB: `shopt -p nocasematch` exits non-zero when the option is OFF (the default);
-# under `set -e` a bare `$(...)` assignment would inherit that and abort the whole
-# script before it ever reaches the allowlist match. `|| true` keeps the snapshot
-# without tripping set -e.
-_prev_nocasematch="$(shopt -p nocasematch || true)"
-shopt -s nocasematch
-for _pat in \
-    '.env' '.env.*' 'env' '.environment' '.environment.*' 'environment' \
-    'secret.*' 'secrets.*' '*.secret' 'secret' 'secrets' 'private' \
-    '*.credential' 'credential' 'credentials' 'credentials.*' \
-    '*.production.*' '*.PROD.*' \
-    'id_rsa' 'id_dsa' 'id_ecdsa' 'id_ed25519' 'authorized_keys' \
-    '*.ppk' '*.pem' '*.key' '*.priv' '*.p12' '*.pfx' '*.crt' '*.pkcs12' \
-    '*.jks' '*.keystore' '*.p8' '*.asc' '*.gpg' \
-    'kubeconfig' '.pgpass' '.git-credentials' '.dockercfg' '.htpasswd' \
-    '.npmrc' '.pypirc' '.netrc'
-do
-    if [[ "${_base}" == ${_pat} ]]; then
-        is_secret=true
-        break
-    fi
-done
-eval "${_prev_nocasematch}"
-unset _base _pat _prev_nocasematch
+if ai_tools_is_secret_basename "$(basename "${canonical}")"; then
+    is_secret=true
+fi
 
 declare -a allowed=()
 declare -a excluded=()

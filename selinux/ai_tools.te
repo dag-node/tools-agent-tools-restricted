@@ -193,6 +193,12 @@ corecmd_exec_bin(ai_tools_t)        # /usr/bin/git, rg, coreutils, ...
 corecmd_exec_shell(ai_tools_t)      # the Bash tool
 files_read_usr_files(ai_tools_t)    # read the nvm/node tree under /opt/ai-tools (usr_t)
 files_read_etc_files(ai_tools_t)    # /etc/gitconfig, nsswitch.conf, ...
+# ai-tools-chown runs IN this domain (no transition) and sources the shared
+# secret-pattern matcher at /usr/local/lib/ai-tools/secret-patterns.lib.sh, which
+# restorecon labels lib_t. Grant lib_t dir-search + file-read so the source
+# succeeds; the helper fails closed if it cannot read the lib, so without this
+# rule handback would break under enforcing. Read-only: ai-tools cannot write it.
+libs_read_lib_files(ai_tools_t)
 auth_use_nsswitch(ai_tools_t)       # resolve uid/gid (getpwnam)
 miscfiles_read_localization(ai_tools_t)
 dev_read_sysfs(ai_tools_t)          # /sys (cpu topology, etc.) read by Node/glibc
