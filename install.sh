@@ -439,10 +439,11 @@ do_install() {
     ensure_dir 755 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config"
     ensure_dir 755 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/systemd"
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/systemd/user"
-    install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 644 \
+    # 640: systemd --user reads them as the owner; no world bit needed.
+    install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 640 \
         "${SCRIPT_DIR}/services/nvm-update.service" \
         "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service"
-    install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 644 \
+    install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 640 \
         "${SCRIPT_DIR}/services/nvm-update.timer" \
         "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer"
 

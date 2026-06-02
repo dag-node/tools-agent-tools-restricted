@@ -98,9 +98,9 @@ check_file /opt/ai-tools/.claude                      "${PROJECTS_USER}"    ai-t
 check_file "${PROJECTS_HOME}/.local/bin/claude"            "${PROJECTS_USER}"    "${PROJECTS_GROUP}"   750
 check_file "${PROJECTS_HOME}/.local/bin/nvm-update.sh"     "${PROJECTS_USER}"    "${PROJECTS_GROUP}"   750
 check_file "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service" \
-                                                       "${PROJECTS_USER}"    "${PROJECTS_GROUP}"   644
+                                                       "${PROJECTS_USER}"    "${PROJECTS_GROUP}"   640
 check_file "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer" \
-                                                       "${PROJECTS_USER}"    "${PROJECTS_GROUP}"   644
+                                                       "${PROJECTS_USER}"    "${PROJECTS_GROUP}"   640
 
 # ── Sudoers syntax ────────────────────────────────────────────────────────────
 
