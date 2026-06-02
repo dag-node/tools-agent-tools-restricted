@@ -146,7 +146,7 @@ note "git exercise done (history stayed inside ${gitrepo})"
 
 ########################################
 # 5. SECRET QUARANTINE -- drop secret-named files and LEAVE them. The Stop sweep
-#    (post-write-sweep.sh) runs `sudo ai-tools-chown`, which quarantines them to
+#    (sandbox-sweep.sh) runs `sudo ai-tools-chown`, which quarantines them to
 #    <you>:<you> 600 and logs a NOTICE -- exercising the sudo->root-helper + secret path.
 #    Left on purpose; the next run's rm -rf above cleans them.
 ########################################
@@ -186,7 +186,7 @@ timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22' 2>/dev/null \
 step "sudo -> ai-tools-chown (explicit PAM path)"
 sudo_test="${SCRATCH}/sudo-chown-test.txt"
 printf 'sudo chown test\n' > "${sudo_test}"
-if sudo /usr/local/sbin/ai-tools-chown "${sudo_test}" 2>/dev/null; then
+if sudo /usr/local/sbin/ai-tools/chown "${sudo_test}" 2>/dev/null; then
     note "ai-tools-chown OK -- sudo+PAM surface exercised (setuid/chown/dac_read_search logged)"
 else
     note "ai-tools-chown non-zero (path outside allowlist, or helper not at /usr/local/sbin)"

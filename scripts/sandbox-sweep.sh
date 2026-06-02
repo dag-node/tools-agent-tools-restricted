@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# /opt/ai-tools/.claude/post-write-sweep.sh
-# Write-sweep hook: hand back every ai-tools-owned file and directory under the
-# session's project that the precise Write|Edit PostToolUse hook did not catch --
-# chiefly files created/modified via the Bash tool (npm/build output, codegen,
-# sed/mv, redirects), which carry no file_path and so never trigger
-# post-tool-hook.sh.
+# /opt/ai-tools/.claude/sandbox-sweep.sh
+# Sandbox housekeeping hook, run at lifecycle boundaries (Stop + SessionStart). It
+# hands back every ai-tools-owned file and directory under the session's project
+# that the precise Write|Edit PostToolUse hook did not catch -- chiefly files
+# created/modified via the Bash tool (npm/build output, codegen, sed/mv, redirects),
+# which carry no file_path and so never trigger post-tool-hook.sh -- and, at session
+# start, normalizes the project's setgid bit (via ai-tools-setgid) so files the
+# projects user creates inherit @SANDBOX_GROUP@.
 #
 # Runs as ai-tools. Reads the hook JSON on stdin for .cwd (the allowlisted project
 # root claude launched in) and sweeps there. Each path is handed to the root
@@ -38,7 +40,7 @@
 # anyway, so <you> can already read them) and the scan stays on one filesystem (-xdev).
 #
 # Deploy: sudo install -o @PROJECTS_USER@ -g ai-tools -m 750 \
-#             scripts/post-write-sweep.sh /opt/ai-tools/.claude/post-write-sweep.sh
+#             scripts/sandbox-sweep.sh /opt/ai-tools/.claude/sandbox-sweep.sh
 # Wired to both the Stop and SessionStart hooks in settings.json (the SessionStart
 # entry passes the "session-start" argument).
 
@@ -48,6 +50,13 @@ readonly MARKER="/opt/ai-tools/.claude/.sweep-marker"
 
 # Mode: "stop" (default, bounded by marker) or "session-start" (unbounded reclaim).
 readonly MODE="${1:-stop}"
+
+# Pruned directory names from the shared library (single source of truth, shared
+# with ai-tools-setgid / ai-tools-lockdown). Unreadable -> empty -> no pruning.
+readonly PRUNE_LIB="/usr/local/lib/ai-tools/prune-dirs.lib.sh"
+AI_TOOLS_PRUNE_NAMES=()
+# shellcheck source=/dev/null
+[[ -r "${PRUNE_LIB}" ]] && source "${PRUNE_LIB}" || true
 
 # Capture the hook JSON once (stdin is a pipe, readable only once), then parse
 # both .cwd and -- in session-start mode -- .source from the captured payload.
@@ -68,6 +77,14 @@ if [[ "${MODE}" == "session-start" ]]; then
     esac
 fi
 
+# Session start on a genuinely new process (the unbounded pass): normalize the
+# project's setgid bit so files the projects user creates inherit @SANDBOX_GROUP@,
+# letting the projects user be a non-member of that group. The root helper
+# re-validates dir against the allowlist and is idempotent. Stop mode never does this.
+if [[ "${unbounded}" -eq 1 ]]; then
+    sudo /usr/local/sbin/ai-tools/setgid "${dir}" </dev/null || true
+fi
+
 # New marker stamped to "now" (scan start). Applied to MARKER only after the sweep
 # completes, so anything written during the sweep is still caught next time. In
 # session-start mode this resets the marker, so this session's Stop sweeps bound
@@ -75,11 +92,16 @@ fi
 newref="$(mktemp "/opt/ai-tools/.claude/.sweep.XXXXXX" 2>/dev/null)" || exit 0
 
 # find DIR -xdev \( prune heavy trees \) -prune -o \( ai-tools-owned [newer] file|dir \) -print0
-declare -a expr=(
-    "${dir}" -xdev
-    '(' -name .git -o -name node_modules -o -name .venv -o -name __pycache__ ')' -prune
-    -o '(' -user @SANDBOX_USER@
-)
+declare -a expr=( "${dir}" -xdev )
+if (( ${#AI_TOOLS_PRUNE_NAMES[@]} > 0 )); then
+    expr+=( '(' )
+    for i in "${!AI_TOOLS_PRUNE_NAMES[@]}"; do
+        (( i > 0 )) && expr+=( -o )
+        expr+=( -name "${AI_TOOLS_PRUNE_NAMES[$i]}" )
+    done
+    expr+=( ')' -prune -o )
+fi
+expr+=( '(' -user @SANDBOX_USER@ )
 # Bound to paths changed since the marker, EXCEPT an unbounded (session-start)
 # pass, which sweeps every ai-tools-owned path. A first-ever stop run (no marker)
 # is likewise a full sweep.
@@ -93,7 +115,7 @@ expr+=( '(' -type f -o -type d ')' -print0 ')' )
 # unreadable subdir) cannot trip set -e / pipefail and skip the marker update.
 find "${expr[@]}" 2>/dev/null \
     | while IFS= read -r -d '' path; do
-        sudo /usr/local/sbin/ai-tools-chown "${path}" </dev/null || true
+        sudo /usr/local/sbin/ai-tools/chown "${path}" </dev/null || true
       done || true
 
 # Advance the marker to this scan's start time (rename within the same dir keeps

@@ -87,10 +87,15 @@ you type `claude`
 | scripts/path_dedup.sh | /etc/profile.d/path_dedup.sh (root) |
 | scripts/nvm-update.sh | ~/.local/bin/nvm-update.sh |
 | scripts/nvm-update-ai-tools.sh | /opt/ai-tools/bin/nvm-update.sh |
-| scripts/ai-tools-chown.sh | /usr/local/sbin/ai-tools-chown (root) |
-| scripts/ai-tools-claude-symlink.sh | /usr/local/sbin/ai-tools-claude-symlink (root) |
+| scripts/ai-tools-chown.sh | /usr/local/sbin/ai-tools/chown (root) |
+| scripts/ai-tools-setgid.sh | /usr/local/sbin/ai-tools/setgid (root) |
+| scripts/ai-tools-claude-symlink.sh | /usr/local/sbin/ai-tools/claude-symlink (root) |
+| scripts/ai-tools-lockdown.sh | /usr/local/sbin/ai-tools/lockdown (root) |
+| scripts/ai-tools-secret-patterns.lib.sh | /usr/local/lib/ai-tools/secret-patterns.lib.sh (root) |
+| scripts/ai-tools-prune-dirs.lib.sh | /usr/local/lib/ai-tools/prune-dirs.lib.sh (root) |
 | scripts/claude-wrapper.sh | ~/.local/bin/claude |
 | scripts/post-tool-hook.sh | /opt/ai-tools/.claude/post-tool-hook.sh |
+| scripts/sandbox-sweep.sh | /opt/ai-tools/.claude/sandbox-sweep.sh |
 | scripts/claude-settings.json | /opt/ai-tools/.claude/settings.json |
 | services/nvm-update.service | ~/.config/systemd/user/nvm-update.service |
 | services/nvm-update.timer | ~/.config/systemd/user/nvm-update.timer |
@@ -226,13 +231,20 @@ for manual installation or RPM spec authoring.
     sudo chown "${PROJECTS_USER}:${SANDBOX_GROUP}" /opt/ai-tools/bin
     sudo chmod 550 /opt/ai-tools/bin
 
+    # All root sudo-helpers live under one dir (install does not create parents).
+    sudo mkdir -p /usr/local/sbin/ai-tools
     sudo install -o root -g root -m 750 \
-        scripts/ai-tools-chown.sh /usr/local/sbin/ai-tools-chown
+        scripts/ai-tools-chown.sh /usr/local/sbin/ai-tools/chown
+
+    # Root helper: at session start, sets group ai-tools + setgid on the project's
+    # dirs (allowlist-validated) so files you create inherit the shared group.
+    sudo install -o root -g root -m 750 \
+        scripts/ai-tools-setgid.sh /usr/local/sbin/ai-tools/setgid
 
     # Root helper: the only writer of the locked bin. Repoints the stable claude
     # symlink at a validated versioned binary (used by the updater on upgrades).
     sudo install -o root -g root -m 750 \
-        scripts/ai-tools-claude-symlink.sh /usr/local/sbin/ai-tools-claude-symlink
+        scripts/ai-tools-claude-symlink.sh /usr/local/sbin/ai-tools/claude-symlink
 
 ## 5a. Install sudoers drop-in (root, once)
 
@@ -258,11 +270,17 @@ The drop-in configures, beyond the basic NOPASSWD rules:
   Both Defaults use `Defaults!<command>` so they apply only to those commands,
   not to every command the projects user runs via sudo.
 - **`ai-tools-chown` rule** — allows ai-tools to call
-  `/usr/local/sbin/ai-tools-chown` as root. That script validates the target
+  `/usr/local/sbin/ai-tools/chown` as root. That script validates the target
   path against the approved-projects allowlist, and acts only on agent-written
   (ai-tools-owned) paths, before running `chown ${PROJECTS_USER}:${SANDBOX_GROUP}`.
+- **`ai-tools-setgid` rule** — allows ai-tools to call
+  `/usr/local/sbin/ai-tools/setgid` as root (from the `SessionStart` hook). It
+  re-validates the path against the allowlist, then sets group `${SANDBOX_GROUP}`
+  and the setgid bit on the project's directories so files you create inherit the
+  shared group — letting you stay a non-member of `${SANDBOX_GROUP}` (defense in
+  depth) while the agent can still read/write project files.
 - **`ai-tools-claude-symlink` rule** — allows ai-tools to call
-  `/usr/local/sbin/ai-tools-claude-symlink` as root to repoint the stable
+  `/usr/local/sbin/ai-tools/claude-symlink` as root to repoint the stable
   `/opt/ai-tools/bin/claude` symlink. The helper validates its argument is a real
   versioned-claude path (its own check, not the sudoers glob) before acting. This
   is the only way the updater can touch the locked `bin` dir.

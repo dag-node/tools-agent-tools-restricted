@@ -5,10 +5,13 @@
 #
 # Allow ai-tools to:
 #   3. restore @PROJECTS_USER@:ai-tools ownership on files it writes within approved
-#      project directories (see /usr/local/sbin/ai-tools-chown and the allowlist at
+#      project directories (see /usr/local/sbin/ai-tools/chown and the allowlist at
 #      ~/.config/ai-tools/allowed-projects)
-#   4. repoint the stable /opt/ai-tools/bin/claude symlink at a validated versioned
-#      binary after a Node upgrade (see /usr/local/sbin/ai-tools-claude-symlink).
+#   4. normalize group + setgid on approved project directories at session start, so
+#      files @PROJECTS_USER@ creates there inherit the @SANDBOX_GROUP@ group (see
+#      /usr/local/sbin/ai-tools/setgid; re-validates the path against the allowlist).
+#   5. repoint the stable /opt/ai-tools/bin/claude symlink at a validated versioned
+#      binary after a Node upgrade (see /usr/local/sbin/ai-tools/claude-symlink).
 #      bin is locked 550 @PROJECTS_USER@:ai-tools, so this root helper is the only
 #      path by which the sandbox updater can move the symlink.
 #
@@ -46,5 +49,6 @@ Defaults!/opt/ai-tools/bin/nvm-update.sh env_keep += "AI_TOOLS_GLOBAL_TOOLS NVM_
 @PROJECTS_USER@ ALL=(@SANDBOX_USER@:@SANDBOX_GROUP@) NOPASSWD: /opt/ai-tools/.nvm/versions/node/*/bin/claude
 @PROJECTS_USER@ ALL=(@SANDBOX_USER@:@SANDBOX_GROUP@) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*.[0-9]*.[0-9]*
 
-@SANDBOX_USER@ ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools-chown
-@SANDBOX_USER@ ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools-claude-symlink /opt/ai-tools/.nvm/versions/node/v[0-9]*
+@SANDBOX_USER@ ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/chown
+@SANDBOX_USER@ ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/setgid
+@SANDBOX_USER@ ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/claude-symlink /opt/ai-tools/.nvm/versions/node/v[0-9]*

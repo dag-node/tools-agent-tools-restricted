@@ -140,7 +140,7 @@ bootstrap_claude_symlink() {
     chmod 550 "${ai_tools_bin}"
     # Create the symlink via the root helper -- the only writer of the locked dir,
     # and the same validating path the sandbox updater uses on every Node upgrade.
-    /usr/local/sbin/ai-tools-claude-symlink "${versioned_claude}" \
+    /usr/local/sbin/ai-tools/claude-symlink "${versioned_claude}" \
         || warn "ai-tools: failed to create ${ai_tools_bin}/claude symlink"
     log "ai-tools: symlink ${ai_tools_bin}/claude -> ${versioned_claude}"
 }
@@ -182,13 +182,11 @@ do_selinux_restore() {
     fi
     log "SELinux: restoring file contexts"
     restorecon \
-        /usr/local/sbin/ai-tools-chown \
-        /usr/local/sbin/ai-tools-claude-symlink \
-        /usr/local/sbin/ai-tools-lockdown \
         /etc/sudoers.d/ai-tools-claude \
         /etc/profile.d/path_dedup.sh \
         /var/log/ai-tools-chown.log
     restorecon -R \
+        /usr/local/sbin/ai-tools/ \
         /usr/local/lib/ai-tools/ \
         /opt/ai-tools/bin/ \
         /opt/ai-tools/.claude/
@@ -235,16 +233,18 @@ do_summary() {
     printf '\n  %-54s  %-22s  %4s  %s\n' "FILE" "OWNER" "MODE" "SELINUX TYPE"
     printf '  %s\n' "${sep}"
 
-    _chk /usr/local/sbin/ai-tools-chown
-    _chk /usr/local/sbin/ai-tools-claude-symlink
-    _chk /usr/local/sbin/ai-tools-lockdown
+    _chk /usr/local/sbin/ai-tools/chown
+    _chk /usr/local/sbin/ai-tools/setgid
+    _chk /usr/local/sbin/ai-tools/claude-symlink
+    _chk /usr/local/sbin/ai-tools/lockdown
     _chk /usr/local/lib/ai-tools/secret-patterns.lib.sh
+    _chk /usr/local/lib/ai-tools/prune-dirs.lib.sh
     _chk /etc/sudoers.d/ai-tools-claude
     _chk /etc/profile.d/path_dedup.sh
     _chk /opt/ai-tools/bin/nvm-update.sh
     _chk /opt/ai-tools/bin/claude
     _chk /opt/ai-tools/.claude/post-tool-hook.sh
-    _chk /opt/ai-tools/.claude/post-write-sweep.sh
+    _chk /opt/ai-tools/.claude/sandbox-sweep.sh
     _chk /opt/ai-tools/.claude/settings.json
     _chk "${PROJECTS_HOME}/.local/bin/claude"
     _chk "${PROJECTS_HOME}/.local/bin/nvm-update.sh"
@@ -306,15 +306,26 @@ do_install() {
 
     # --- System files (root-owned) ---
 
-    log "system: /usr/local/sbin/ai-tools-chown"
+    # All ai-tools sudo-helpers live under one dir (parallels /usr/local/lib/ai-tools).
+    # `install` does not create parents, so make it first. bin_t by default (the
+    # /usr/local/sbin context); the helpers run IN ai_tools_t via sudo with no
+    # transition, so no entrypoint label is needed.
+    ensure_dir 755 root root /usr/local/sbin/ai-tools
+
+    log "system: /usr/local/sbin/ai-tools/chown"
     install_subst 750 root root \
         "${SCRIPT_DIR}/scripts/ai-tools-chown.sh" \
-        /usr/local/sbin/ai-tools-chown
+        /usr/local/sbin/ai-tools/chown
 
-    log "system: /usr/local/sbin/ai-tools-claude-symlink"
+    log "system: /usr/local/sbin/ai-tools/setgid"
+    install_subst 750 root root \
+        "${SCRIPT_DIR}/scripts/ai-tools-setgid.sh" \
+        /usr/local/sbin/ai-tools/setgid
+
+    log "system: /usr/local/sbin/ai-tools/claude-symlink"
     install_subst 750 root root \
         "${SCRIPT_DIR}/scripts/ai-tools-claude-symlink.sh" \
-        /usr/local/sbin/ai-tools-claude-symlink
+        /usr/local/sbin/ai-tools/claude-symlink
 
     # Shared secret-name matcher, sourced by ai-tools-chown and ai-tools-lockdown.
     # Root-owned in a non-ai-tools-writable dir so the agent cannot alter the rules.
@@ -324,11 +335,18 @@ do_install() {
         "${SCRIPT_DIR}/scripts/ai-tools-secret-patterns.lib.sh" \
         /usr/local/lib/ai-tools/secret-patterns.lib.sh
 
+    # Shared prune-dir list, sourced by sandbox-sweep.sh, ai-tools-setgid, and
+    # ai-tools-lockdown. No tokens to substitute; 644 so ai_tools_t can read it.
+    log "system: /usr/local/lib/ai-tools/prune-dirs.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/scripts/ai-tools-prune-dirs.lib.sh" \
+        /usr/local/lib/ai-tools/prune-dirs.lib.sh
+
     # Manual pre-flight lockdown sweep. Run by the user (sudo), never by ai-tools.
-    log "system: /usr/local/sbin/ai-tools-lockdown"
+    log "system: /usr/local/sbin/ai-tools/lockdown"
     install_subst 750 root root \
         "${SCRIPT_DIR}/scripts/ai-tools-lockdown.sh" \
-        /usr/local/sbin/ai-tools-lockdown
+        /usr/local/sbin/ai-tools/lockdown
 
     # Audit log for secret-named files the agent wrote (ai-tools-chown appends).
     # Create root:root 600 so the record of secret *filenames* is not world-read.
@@ -384,11 +402,17 @@ do_install() {
         "${SCRIPT_DIR}/scripts/post-tool-hook.sh" \
         /opt/ai-tools/.claude/post-tool-hook.sh
     install_subst 750 "${PROJECTS_USER}" "${SANDBOX_GROUP}" \
-        "${SCRIPT_DIR}/scripts/post-write-sweep.sh" \
-        /opt/ai-tools/.claude/post-write-sweep.sh
+        "${SCRIPT_DIR}/scripts/sandbox-sweep.sh" \
+        /opt/ai-tools/.claude/sandbox-sweep.sh
     install -o "${PROJECTS_USER}" -g "${SANDBOX_GROUP}" -m 640 \
         "${SCRIPT_DIR}/scripts/claude-settings.json" \
         /opt/ai-tools/.claude/settings.json
+    # Remove pre-rename hook leftovers so a re-install over an older deployment does
+    # not leave an unwired, possibly ai-tools-owned script in the control dir:
+    #   post-write-sweep.sh -> renamed to sandbox-sweep.sh
+    #   post-write-hook.sh  -> an even older Write hook, no longer shipped
+    rm -f /opt/ai-tools/.claude/post-write-sweep.sh \
+          /opt/ai-tools/.claude/post-write-hook.sh
 
     # --- User files ---
 
@@ -489,10 +513,13 @@ do_uninstall() {
     user_systemctl daemon-reload 2>/dev/null || true
 
     log "removing system files"
-    rm -f /usr/local/sbin/ai-tools-chown
-    rm -f /usr/local/sbin/ai-tools-claude-symlink
-    rm -f /usr/local/sbin/ai-tools-lockdown
+    rm -f /usr/local/sbin/ai-tools/chown
+    rm -f /usr/local/sbin/ai-tools/setgid
+    rm -f /usr/local/sbin/ai-tools/claude-symlink
+    rm -f /usr/local/sbin/ai-tools/lockdown
+    rmdir /usr/local/sbin/ai-tools 2>/dev/null || true
     rm -f /usr/local/lib/ai-tools/secret-patterns.lib.sh
+    rm -f /usr/local/lib/ai-tools/prune-dirs.lib.sh
     rmdir /usr/local/lib/ai-tools 2>/dev/null || true
     rm -f /etc/sudoers.d/ai-tools-claude
     rm -f /etc/profile.d/path_dedup.sh

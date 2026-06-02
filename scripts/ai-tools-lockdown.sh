@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# /usr/local/sbin/ai-tools-lockdown
+# /usr/local/sbin/ai-tools/lockdown
 # Proactively revoke ai-tools' access to credential files under the CURRENT
 # project. Walks the current working directory and, for every path whose basename
 # matches a secret pattern -- the SAME set ai-tools-chown uses, from the shared
@@ -20,15 +20,19 @@
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
-#       scripts/ai-tools-lockdown.sh /usr/local/sbin/ai-tools-lockdown
+#       scripts/ai-tools-lockdown.sh /usr/local/sbin/ai-tools/lockdown
 
 set -euo pipefail
 
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 readonly ALLOWLIST="@PROJECTS_HOME@/.config/ai-tools/allowed-projects"
 
-# Heavy/transient trees pruned from the walk, matching post-write-sweep.sh.
-readonly -a PRUNE_NAMES=(.git node_modules .venv __pycache__)
+# Pruned directory names from the shared library (single source of truth, shared
+# with sandbox-sweep.sh and ai-tools-setgid). Unreadable -> empty -> no pruning.
+readonly PRUNE_LIB="/usr/local/lib/ai-tools/prune-dirs.lib.sh"
+AI_TOOLS_PRUNE_NAMES=()
+# shellcheck source=/dev/null
+[[ -r "${PRUNE_LIB}" ]] && source "${PRUNE_LIB}" || true
 
 log()  { printf 'ai-tools-lockdown: %s\n' "$*"; }
 warn() { printf 'ai-tools-lockdown: warn: %s\n' "$*" >&2; }
@@ -120,12 +124,16 @@ ai_tools_load_secret_patterns
 
 # ── Enumerate secret-matching paths under the target ─────────────────────────
 # find -P (default): never follow symlinks; -type f/-type d already exclude them.
-declare -a expr=( "${target}" -xdev '(' )
-for i in "${!PRUNE_NAMES[@]}"; do
-    (( i > 0 )) && expr+=( -o )
-    expr+=( -name "${PRUNE_NAMES[$i]}" )
-done
-expr+=( ')' -prune -o '(' -type f -o -type d ')' -print0 )
+declare -a expr=( "${target}" -xdev )
+if (( ${#AI_TOOLS_PRUNE_NAMES[@]} > 0 )); then
+    expr+=( '(' )
+    for i in "${!AI_TOOLS_PRUNE_NAMES[@]}"; do
+        (( i > 0 )) && expr+=( -o )
+        expr+=( -name "${AI_TOOLS_PRUNE_NAMES[$i]}" )
+    done
+    expr+=( ')' -prune -o )
+fi
+expr+=( '(' -type f -o -type d ')' -print0 )
 
 declare -a hits=()
 while IFS= read -r -d '' path; do
