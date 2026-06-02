@@ -25,17 +25,42 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ "${EUID}" -eq 0 ]] \
     || { echo "error: run with sudo" >&2; exit 1; }
 
-REAL_USER="${SUDO_USER:?error: SUDO_USER not set -- invoke via sudo, not as root directly}"
-REAL_HOME="$(getent passwd "${REAL_USER}" | cut -d: -f6)"
-REAL_GROUP="$(id -gn "${REAL_USER}")"
-[[ -d "${REAL_HOME}" ]] \
-    || { echo "error: home directory ${REAL_HOME} not found" >&2; exit 1; }
+PROJECTS_USER="${SUDO_USER:?error: SUDO_USER not set -- invoke via sudo, not as root directly}"
+PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"
+PROJECTS_GROUP="$(id -gn "${PROJECTS_USER}")"
+[[ -d "${PROJECTS_HOME}" ]] \
+    || { echo "error: home directory ${PROJECTS_HOME} not found" >&2; exit 1; }
+
+# Sandbox service account the agent runs as. This is only a PARTIAL knob: owner
+# strings and the sudoers principal/runas spec (the @SANDBOX_USER@/@SANDBOX_GROUP@
+# tokens and the -g/-o/-u arguments below) follow these vars, but the account name
+# is also baked into paths (/opt/ai-tools), SELinux types (ai_tools_t), and helper
+# binary names (ai-tools-chown), which stay literal. Renaming the account in full
+# requires changing those too. See docs/naming-conventions.md.
+readonly SANDBOX_USER="ai-tools"
+readonly SANDBOX_GROUP="ai-tools"
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 log()  { printf 'install: %s\n' "$*"; }
 warn() { printf 'install: warn: %s\n' "$*" >&2; }
 die()  { printf 'install: error: %s\n' "$*" >&2; exit 1; }
+
+# Decide what to do with an existing user config file. Interactive: ask whether
+# to keep it (default) or overwrite with the shipped default. Non-interactive:
+# always keep, so an unattended re-install never clobbers user edits. Returns 0
+# to KEEP the existing file, 1 to (re)write it.
+keep_existing() {
+    local path="$1" resp
+    [[ -f "${path}" ]] || return 1            # absent: caller writes a fresh copy
+    if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
+        printf '%s already exists. Keep it? (Enter = keep, n = overwrite with default) [Y/n] ' \
+            "${path}" > /dev/tty
+        read -r resp < /dev/tty
+        [[ "${resp}" =~ ^[nN] ]] && return 1
+    fi
+    return 0                                   # non-interactive or Enter: keep
+}
 
 # Create a directory only if it does not already exist, preserving perms on
 # existing dirs. Applies owner/mode only to newly created directories.
@@ -44,32 +69,35 @@ ensure_dir() {
     [[ -d "${dir}" ]] || install -d -o "${owner}" -g "${group}" -m "${mode}" "${dir}"
 }
 
-# Install a file after substituting @INSTALL_HOME@, @INSTALL_USER@, and
-# @INSTALL_GROUP@ with REAL_HOME, REAL_USER, and REAL_GROUP. Handles files that
-# embed the deploying user's home, name, or primary group (sudoers, chown script,
-# hook).
+# Install a file after substituting the projects-user tokens (@PROJECTS_HOME@,
+# @PROJECTS_USER@, @PROJECTS_GROUP@) and the sandbox-account tokens
+# (@SANDBOX_USER@, @SANDBOX_GROUP@) with their resolved values. Handles files that
+# embed the projects user's home, name, or primary group, or the sandbox account
+# name (sudoers, chown script, hook).
 install_subst() {
     local mode="$1" owner="$2" group="$3" src="$4" dst="$5"
     local tmp
     tmp="$(mktemp)"
-    sed -e "s|@INSTALL_HOME@|${REAL_HOME}|g" \
-        -e "s/@INSTALL_USER@/${REAL_USER}/g" \
-        -e "s/@INSTALL_GROUP@/${REAL_GROUP}/g" \
+    sed -e "s|@PROJECTS_HOME@|${PROJECTS_HOME}|g" \
+        -e "s/@PROJECTS_USER@/${PROJECTS_USER}/g" \
+        -e "s/@PROJECTS_GROUP@/${PROJECTS_GROUP}/g" \
+        -e "s/@SANDBOX_USER@/${SANDBOX_USER}/g" \
+        -e "s/@SANDBOX_GROUP@/${SANDBOX_GROUP}/g" \
         "${src}" > "${tmp}"
     install -o "${owner}" -g "${group}" -m "${mode}" "${tmp}" "${dst}"
     rm -f "${tmp}"
 }
 
-# Run systemctl --user as REAL_USER with the correct runtime environment.
+# Run systemctl --user as PROJECTS_USER with the correct runtime environment.
 # Emits a warning rather than aborting if the user session is not active.
 user_systemctl() {
     local uid
-    uid="$(id -u "${REAL_USER}")"
-    sudo -u "${REAL_USER}" \
+    uid="$(id -u "${PROJECTS_USER}")"
+    sudo -u "${PROJECTS_USER}" \
         XDG_RUNTIME_DIR="/run/user/${uid}" \
         DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" \
         systemctl --user "$@" \
-        || warn "systemctl --user $* failed -- run it manually as ${REAL_USER}"
+        || warn "systemctl --user $* failed -- run it manually as ${PROJECTS_USER}"
 }
 
 # Create /opt/ai-tools/bin/claude -> versioned claude binary directly, without
@@ -85,7 +113,7 @@ bootstrap_claude_symlink() {
     fi
 
     local node_version
-    node_version="$(sudo -u ai-tools bash -c \
+    node_version="$(sudo -u "${SANDBOX_USER}" bash -c \
         "source '${ai_nvm_dir}/nvm.sh' --no-use && nvm version default 2>/dev/null" \
         2>/dev/null || true)"
 
@@ -102,13 +130,13 @@ bootstrap_claude_symlink() {
         return
     fi
 
-    # Lock /opt/ai-tools/bin to 550, owned by the install user (NOT ai-tools):
+    # Lock /opt/ai-tools/bin to 550, owned by the projects user (NOT ai-tools):
     # ai-tools gets group r-x (it must execute nvm-update.sh and resolve the
     # claude symlink) but no write, so the agent can neither tamper with the
     # updater nor swap the symlink the wrapper resolves and trusts. Enforce even
     # when the dir pre-existed (README step 3 creates it ai-tools-owned).
-    ensure_dir 550 "${REAL_USER}" ai-tools "${ai_tools_bin}"
-    chown "${REAL_USER}:ai-tools" "${ai_tools_bin}"
+    ensure_dir 550 "${PROJECTS_USER}" "${SANDBOX_GROUP}" "${ai_tools_bin}"
+    chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${ai_tools_bin}"
     chmod 550 "${ai_tools_bin}"
     # Create the symlink via the root helper -- the only writer of the locked dir,
     # and the same validating path the sandbox updater uses on every Node upgrade.
@@ -120,7 +148,7 @@ bootstrap_claude_symlink() {
 # Check that ~/.local/bin precedes nvm shims in the user's PATH and print a
 # notice when it does not. Never modifies .bashrc automatically.
 check_path_order() {
-    local bashrc="${REAL_HOME}/.bashrc"
+    local bashrc="${PROJECTS_HOME}/.bashrc"
     local path_export='export PATH="${HOME}/.local/bin:${PATH}"'
 
     if grep -qF '.local/bin' "${bashrc}" 2>/dev/null; then
@@ -165,10 +193,10 @@ do_selinux_restore() {
         /opt/ai-tools/bin/ \
         /opt/ai-tools/.claude/
     restorecon \
-        "${REAL_HOME}/.local/bin/claude" \
-        "${REAL_HOME}/.local/bin/nvm-update.sh" \
-        "${REAL_HOME}/.config/systemd/user/nvm-update.service" \
-        "${REAL_HOME}/.config/systemd/user/nvm-update.timer"
+        "${PROJECTS_HOME}/.local/bin/claude" \
+        "${PROJECTS_HOME}/.local/bin/nvm-update.sh" \
+        "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service" \
+        "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer"
 }
 
 # Print a one-line summary row for a single file.
@@ -218,10 +246,10 @@ do_summary() {
     _chk /opt/ai-tools/.claude/post-tool-hook.sh
     _chk /opt/ai-tools/.claude/post-write-sweep.sh
     _chk /opt/ai-tools/.claude/settings.json
-    _chk "${REAL_HOME}/.local/bin/claude"
-    _chk "${REAL_HOME}/.local/bin/nvm-update.sh"
-    _chk "${REAL_HOME}/.config/systemd/user/nvm-update.service"
-    _chk "${REAL_HOME}/.config/systemd/user/nvm-update.timer"
+    _chk "${PROJECTS_HOME}/.local/bin/claude"
+    _chk "${PROJECTS_HOME}/.local/bin/nvm-update.sh"
+    _chk "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service"
+    _chk "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer"
 
     printf '  %s\n' "${sep}"
     if (( missing == 0 )); then
@@ -249,7 +277,7 @@ add_project() {
     [[ -d "${dir}" ]] || die "${dir} is not a directory"
     dir="$(realpath -e "${dir}")"
 
-    local allowlist="${REAL_HOME}/.config/ai-tools/allowed-projects"
+    local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
     [[ -f "${allowlist}" ]] \
         || die "allowlist not found at ${allowlist} -- run 'install' first"
 
@@ -273,8 +301,8 @@ add_project() {
 # ── install ────────────────────────────────────────────────────────────────────
 
 do_install() {
-    id ai-tools &>/dev/null \
-        || die "ai-tools user not found -- create it first (README step 2)"
+    id "${SANDBOX_USER}" &>/dev/null \
+        || die "${SANDBOX_USER} user not found -- create it first (README step 2)"
 
     # --- System files (root-owned) ---
 
@@ -318,7 +346,9 @@ do_install() {
     log "system: /etc/sudoers.d/ai-tools-claude"
     local tmp_sudoers
     tmp_sudoers="$(mktemp)"
-    sed "s/@INSTALL_USER@/${REAL_USER}/g" \
+    sed -e "s/@PROJECTS_USER@/${PROJECTS_USER}/g" \
+        -e "s/@SANDBOX_USER@/${SANDBOX_USER}/g" \
+        -e "s/@SANDBOX_GROUP@/${SANDBOX_GROUP}/g" \
         "${SCRIPT_DIR}/sudoers-ai-tools-claude" > "${tmp_sudoers}"
     visudo -c -f "${tmp_sudoers}" > /dev/null \
         || { rm -f "${tmp_sudoers}"; die "sudoers syntax check failed"; }
@@ -328,11 +358,11 @@ do_install() {
 
     # --- ai-tools files ---
 
-    # Control-plane files are owned by the install user, group ai-tools: the
+    # Control-plane files are owned by the projects user, group ai-tools: the
     # agent (which runs AS ai-tools) gets group read/exec but can never write
     # them, so it cannot rewrite its own updater, hook, or hook config.
     log "ai-tools: /opt/ai-tools/bin/nvm-update.sh"
-    install -o "${REAL_USER}" -g ai-tools -m 550 \
+    install -o "${PROJECTS_USER}" -g "${SANDBOX_GROUP}" -m 550 \
         "${SCRIPT_DIR}/scripts/nvm-update-ai-tools.sh" \
         /opt/ai-tools/bin/nvm-update.sh
 
@@ -340,55 +370,62 @@ do_install() {
     # credentials -- ai-tools-owned) AND the root-of-trust control files
     # (settings.json, post-tool-hook.sh). Owning the control files as the install
     # user is not enough on its own: a group-writer can unlink+recreate any file
-    # in a dir it can write. So the dir is owned by the install user (NOT ai-tools)
+    # in a dir it can write. So the dir is owned by the projects user (NOT ai-tools)
     # with setgid+sticky (3770): ai-tools stays a group-writer -- it can create and
     # manage its own state files -- but the sticky bit forbids it from deleting or
     # replacing files it does not own, and it is not the dir owner, so it cannot
     # bypass that. setgid keeps new entries in group ai-tools. Enforce on
     # re-install even when the dir pre-exists.
     log "ai-tools: /opt/ai-tools/.claude/"
-    ensure_dir 3770 "${REAL_USER}" ai-tools /opt/ai-tools/.claude
-    chown "${REAL_USER}:ai-tools" /opt/ai-tools/.claude
+    ensure_dir 3770 "${PROJECTS_USER}" "${SANDBOX_GROUP}" /opt/ai-tools/.claude
+    chown "${PROJECTS_USER}:${SANDBOX_GROUP}" /opt/ai-tools/.claude
     chmod 3770 /opt/ai-tools/.claude
-    install_subst 750 "${REAL_USER}" ai-tools \
+    install_subst 750 "${PROJECTS_USER}" "${SANDBOX_GROUP}" \
         "${SCRIPT_DIR}/scripts/post-tool-hook.sh" \
         /opt/ai-tools/.claude/post-tool-hook.sh
-    install_subst 750 "${REAL_USER}" ai-tools \
+    install_subst 750 "${PROJECTS_USER}" "${SANDBOX_GROUP}" \
         "${SCRIPT_DIR}/scripts/post-write-sweep.sh" \
         /opt/ai-tools/.claude/post-write-sweep.sh
-    install -o "${REAL_USER}" -g ai-tools -m 640 \
+    install -o "${PROJECTS_USER}" -g "${SANDBOX_GROUP}" -m 640 \
         "${SCRIPT_DIR}/scripts/claude-settings.json" \
         /opt/ai-tools/.claude/settings.json
 
     # --- User files ---
 
-    log "user: ${REAL_HOME}/.local/bin/"
-    ensure_dir 700 "${REAL_USER}" "${REAL_GROUP}" "${REAL_HOME}/.local"
-    ensure_dir 700 "${REAL_USER}" "${REAL_GROUP}" "${REAL_HOME}/.local/bin"
-    install -o "${REAL_USER}" -g "${REAL_GROUP}" -m 750 \
+    log "user: ${PROJECTS_HOME}/.local/bin/"
+    ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.local"
+    ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.local/bin"
+    install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 750 \
         "${SCRIPT_DIR}/scripts/claude-wrapper.sh" \
-        "${REAL_HOME}/.local/bin/claude"
-    install -o "${REAL_USER}" -g "${REAL_GROUP}" -m 750 \
+        "${PROJECTS_HOME}/.local/bin/claude"
+    install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 750 \
         "${SCRIPT_DIR}/scripts/nvm-update.sh" \
-        "${REAL_HOME}/.local/bin/nvm-update.sh"
+        "${PROJECTS_HOME}/.local/bin/nvm-update.sh"
 
-    log "user: ${REAL_HOME}/.config/systemd/user/"
-    ensure_dir 755 "${REAL_USER}" "${REAL_GROUP}" "${REAL_HOME}/.config"
-    ensure_dir 755 "${REAL_USER}" "${REAL_GROUP}" "${REAL_HOME}/.config/systemd"
-    ensure_dir 700 "${REAL_USER}" "${REAL_GROUP}" "${REAL_HOME}/.config/systemd/user"
-    install -o "${REAL_USER}" -g "${REAL_GROUP}" -m 644 \
+    log "user: ${PROJECTS_HOME}/.config/systemd/user/"
+    ensure_dir 755 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config"
+    ensure_dir 755 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/systemd"
+    ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/systemd/user"
+    install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 644 \
         "${SCRIPT_DIR}/services/nvm-update.service" \
-        "${REAL_HOME}/.config/systemd/user/nvm-update.service"
-    install -o "${REAL_USER}" -g "${REAL_GROUP}" -m 644 \
+        "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service"
+    install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 644 \
         "${SCRIPT_DIR}/services/nvm-update.timer" \
-        "${REAL_HOME}/.config/systemd/user/nvm-update.timer"
+        "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer"
 
-    # --- Allowlist (create with format header if absent) ---
+    # --- Allowlist (create with format header if absent; keep on re-install) ---
+    #
+    # An existing allowlist holds the user's approved projects, so a re-install
+    # keeps it by default and only rewrites the format header on explicit consent
+    # (see keep_existing). The current project is registered separately, by the
+    # idempotent add_project below, whether the file is kept or rewritten.
 
-    ensure_dir 700 "${REAL_USER}" "${REAL_USER}" "${REAL_HOME}/.config/ai-tools"
-    local allowlist="${REAL_HOME}/.config/ai-tools/allowed-projects"
-    if [[ ! -f "${allowlist}" ]]; then
-        log "config: creating ${allowlist}"
+    ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/ai-tools"
+    local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
+    if keep_existing "${allowlist}"; then
+        log "config: keeping existing ${allowlist}"
+    else
+        log "config: writing ${allowlist}"
         printf '%s\n' \
             "# Approved project directories for Claude Code (ai-tools)." \
             "#" \
@@ -401,19 +438,22 @@ do_install() {
             "# Exclusions (!) override allows and are checked first." \
             "# Plain paths cover their contents automatically; no trailing /* needed." \
             "" > "${allowlist}"
-        chown "${REAL_USER}:${REAL_USER}" "${allowlist}"
+        chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${allowlist}"
         chmod 600 "${allowlist}"
     fi
 
     # Secret-name patterns: user-owned 600 (ai-tools can neither read nor write it;
-    # the root helpers read it). Seed from the shipped default only when absent so a
-    # re-install never clobbers the user's edits. Both ai-tools-chown and
-    # ai-tools-lockdown read this file; if it is removed they fall back to the
-    # built-in defaults baked into the shared library.
-    local patternfile="${REAL_HOME}/.config/ai-tools/secret-patterns"
-    if [[ ! -f "${patternfile}" ]]; then
-        log "config: creating ${patternfile}"
-        install -o "${REAL_USER}" -g "${REAL_USER}" -m 600 \
+    # the root helpers read it). An existing file holds the user's edits, so a
+    # re-install keeps it by default and only re-seeds the shipped default on
+    # explicit consent. Both ai-tools-chown and ai-tools-lockdown read this file;
+    # if it is removed they fall back to the built-in defaults baked into the
+    # shared library.
+    local patternfile="${PROJECTS_HOME}/.config/ai-tools/secret-patterns"
+    if keep_existing "${patternfile}"; then
+        log "config: keeping existing ${patternfile}"
+    else
+        log "config: writing ${patternfile}"
+        install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 600 \
             "${SCRIPT_DIR}/scripts/secret-patterns.conf" "${patternfile}"
     fi
 
@@ -422,8 +462,8 @@ do_install() {
 
     # --- Systemd ---
 
-    log "systemd: enabling linger for ${REAL_USER}"
-    loginctl enable-linger "${REAL_USER}"
+    log "systemd: enabling linger for ${PROJECTS_USER}"
+    loginctl enable-linger "${PROJECTS_USER}"
 
     log "systemd: reload and enable nvm-update.timer"
     user_systemctl daemon-reload
@@ -464,13 +504,13 @@ do_uninstall() {
     rm -f /opt/ai-tools/.claude/settings.json
 
     log "removing user files"
-    rm -f "${REAL_HOME}/.local/bin/claude"
-    rm -f "${REAL_HOME}/.local/bin/nvm-update.sh"
-    rm -f "${REAL_HOME}/.config/systemd/user/nvm-update.service"
-    rm -f "${REAL_HOME}/.config/systemd/user/nvm-update.timer"
+    rm -f "${PROJECTS_HOME}/.local/bin/claude"
+    rm -f "${PROJECTS_HOME}/.local/bin/nvm-update.sh"
+    rm -f "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service"
+    rm -f "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer"
 
     # Optionally prune this project from the allowlist (default: keep)
-    local allowlist="${REAL_HOME}/.config/ai-tools/allowed-projects"
+    local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
     if [[ -f "${allowlist}" ]] && grep -qxF "${SCRIPT_DIR}" "${allowlist}"; then
         {
             printf '\nKeep in allowed-projects? (Enter = yes)\n'
