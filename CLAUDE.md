@@ -37,7 +37,7 @@ current for both your login user and the sandbox user, pinned to the same build.
    ai-tools' read access, with a `NOTICE` surfaced in the session + audit log.
 5. The `PostToolUse` hook only fires for `Write`/`Edit`, so files the agent
    creates via the `Bash` tool (build output, codegen, `mv`, redirects) carry no
-   `file_path` and are missed. A `Stop` hook (`sandbox-sweep.sh`) closes that
+   `file_path` and are missed. A `Stop` hook (`sandbox-sweep-hook.sh`) closes that
    gap: at each turn's end it reads `.cwd`, finds the `ai-tools`-owned paths under
    it (bounded by a timestamp marker, heavy trees like `.git`/`node_modules`
    pruned) and hands each to the same `ai-tools-chown`. It runs at turn end, not
@@ -48,7 +48,7 @@ current for both your login user and the sandbox user, pinned to the same build.
    so it can miss `ai-tools`-owned paths left by a session that exited before its
    Stop hook ran (`kill -9`, crash, closed terminal) — and miss older paths when
    the working project changes. A `SessionStart` hook runs the same
-   `sandbox-sweep.sh` with the `session-start` argument to close that gap: on
+   `sandbox-sweep-hook.sh` with the `session-start` argument to close that gap: on
    `source` `startup`/`resume` (a freshly started process, the only case that can
    follow an interrupted session) it does one **unbounded** pass — every
    `ai-tools`-owned path under `.cwd`, ignoring the marker — then resets the marker

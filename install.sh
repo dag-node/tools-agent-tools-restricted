@@ -244,7 +244,7 @@ do_summary() {
     _chk /opt/ai-tools/bin/nvm-update.sh
     _chk /opt/ai-tools/bin/claude
     _chk /opt/ai-tools/.claude/post-tool-hook.sh
-    _chk /opt/ai-tools/.claude/sandbox-sweep.sh
+    _chk /opt/ai-tools/.claude/sandbox-sweep-hook.sh
     _chk /opt/ai-tools/.claude/settings.json
     _chk "${PROJECTS_HOME}/.local/bin/claude"
     _chk "${PROJECTS_HOME}/.local/bin/nvm-update.sh"
@@ -344,7 +344,7 @@ do_install() {
         "${SCRIPT_DIR}/scripts/ai-tools-secret-patterns.lib.sh" \
         /usr/local/lib/ai-tools/secret-patterns.lib.sh
 
-    # Prune-dir list: ALSO sourced by sandbox-sweep.sh, which runs AS the agent, so
+    # Prune-dir list: ALSO sourced by sandbox-sweep-hook.sh, which runs AS the agent, so
     # it needs group read -- 640 root:SANDBOX_GROUP (no world). No tokens to substitute.
     log "system: /usr/local/lib/ai-tools/prune-dirs.lib.sh"
     install -o root -g "${SANDBOX_GROUP}" -m 640 \
@@ -411,17 +411,11 @@ do_install() {
         "${SCRIPT_DIR}/scripts/post-tool-hook.sh" \
         /opt/ai-tools/.claude/post-tool-hook.sh
     install_subst 750 "${PROJECTS_USER}" "${SANDBOX_GROUP}" \
-        "${SCRIPT_DIR}/scripts/sandbox-sweep.sh" \
-        /opt/ai-tools/.claude/sandbox-sweep.sh
+        "${SCRIPT_DIR}/scripts/sandbox-sweep-hook.sh" \
+        /opt/ai-tools/.claude/sandbox-sweep-hook.sh
     install -o "${PROJECTS_USER}" -g "${SANDBOX_GROUP}" -m 640 \
         "${SCRIPT_DIR}/scripts/claude-settings.json" \
         /opt/ai-tools/.claude/settings.json
-    # Remove pre-rename hook leftovers so a re-install over an older deployment does
-    # not leave an unwired, possibly ai-tools-owned script in the control dir:
-    #   post-write-sweep.sh -> renamed to sandbox-sweep.sh
-    #   post-write-hook.sh  -> an even older Write hook, no longer shipped
-    rm -f /opt/ai-tools/.claude/post-write-sweep.sh \
-          /opt/ai-tools/.claude/post-write-hook.sh
 
     # --- User files ---
 
@@ -537,7 +531,7 @@ do_uninstall() {
     log "removing ai-tools files"
     rm -f /opt/ai-tools/bin/nvm-update.sh
     rm -f /opt/ai-tools/.claude/post-tool-hook.sh
-    rm -f /opt/ai-tools/.claude/post-write-sweep.sh
+    rm -f /opt/ai-tools/.claude/sandbox-sweep-hook.sh
     rm -f /opt/ai-tools/.claude/settings.json
 
     log "removing user files"

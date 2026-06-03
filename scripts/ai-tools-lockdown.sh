@@ -28,7 +28,7 @@ readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 readonly ALLOWLIST="@PROJECTS_HOME@/.config/ai-tools/allowed-projects"
 
 # Pruned directory names from the shared library (single source of truth, shared
-# with sandbox-sweep.sh and ai-tools-setgid). Unreadable -> empty -> no pruning.
+# with sandbox-sweep-hook.sh and ai-tools-setgid). Unreadable -> empty -> no pruning.
 readonly PRUNE_LIB="/usr/local/lib/ai-tools/prune-dirs.lib.sh"
 AI_TOOLS_PRUNE_NAMES=()
 # shellcheck source=/dev/null

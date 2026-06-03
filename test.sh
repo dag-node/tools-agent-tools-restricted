@@ -88,7 +88,7 @@ check_file /opt/ai-tools/bin                          "${PROJECTS_USER}"    ai-t
 # its own updater, hook, or hook config.
 check_file /opt/ai-tools/bin/nvm-update.sh            "${PROJECTS_USER}"    ai-tools          550
 check_file /opt/ai-tools/.claude/post-tool-hook.sh   "${PROJECTS_USER}"    ai-tools          750
-check_file /opt/ai-tools/.claude/sandbox-sweep.sh  "${PROJECTS_USER}"    ai-tools          750
+check_file /opt/ai-tools/.claude/sandbox-sweep-hook.sh  "${PROJECTS_USER}"    ai-tools          750
 check_file /opt/ai-tools/.claude/settings.json        "${PROJECTS_USER}"    ai-tools          640
 # .claude must be install-user-owned (not ai-tools) with setgid+sticky (3770):
 # ai-tools is a group-writer for its own state but cannot unlink/replace the
@@ -585,7 +585,7 @@ fi
 
 section "Stop hook: turn-end sweep of Bash-created files"
 
-sweep="/opt/ai-tools/.claude/sandbox-sweep.sh"
+sweep="/opt/ai-tools/.claude/sandbox-sweep-hook.sh"
 
 run_sweep() {
     printf '{"cwd":"%s"}' "$1" \

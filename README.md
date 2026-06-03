@@ -95,7 +95,7 @@ you type `claude`
 | scripts/ai-tools-prune-dirs.lib.sh | /usr/local/lib/ai-tools/prune-dirs.lib.sh (root) |
 | scripts/claude-wrapper.sh | ~/.local/bin/claude |
 | scripts/post-tool-hook.sh | /opt/ai-tools/.claude/post-tool-hook.sh |
-| scripts/sandbox-sweep.sh | /opt/ai-tools/.claude/sandbox-sweep.sh |
+| scripts/sandbox-sweep-hook.sh | /opt/ai-tools/.claude/sandbox-sweep-hook.sh |
 | scripts/claude-settings.json | /opt/ai-tools/.claude/settings.json |
 | services/nvm-update.service | ~/.config/systemd/user/nvm-update.service |
 | services/nvm-update.timer | ~/.config/systemd/user/nvm-update.timer |

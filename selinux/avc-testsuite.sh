@@ -146,7 +146,7 @@ note "git exercise done (history stayed inside ${gitrepo})"
 
 ########################################
 # 5. SECRET QUARANTINE -- drop secret-named files and LEAVE them. The Stop sweep
-#    (sandbox-sweep.sh) runs `sudo ai-tools-chown`, which quarantines them to
+#    (sandbox-sweep-hook.sh) runs `sudo ai-tools-chown`, which quarantines them to
 #    <you>:<you> 600 and logs a NOTICE -- exercising the sudo->root-helper + secret path.
 #    Left on purpose; the next run's rm -rf above cleans them.
 ########################################

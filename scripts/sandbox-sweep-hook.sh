@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# /opt/ai-tools/.claude/sandbox-sweep.sh
+# /opt/ai-tools/.claude/sandbox-sweep-hook.sh
 # Sandbox housekeeping hook, run at lifecycle boundaries (Stop + SessionStart). It
 # hands back every ai-tools-owned file and directory under the session's project
 # that the precise Write|Edit PostToolUse hook did not catch -- chiefly files
@@ -40,7 +40,7 @@
 # anyway, so <you> can already read them) and the scan stays on one filesystem (-xdev).
 #
 # Deploy: sudo install -o @PROJECTS_USER@ -g ai-tools -m 750 \
-#             scripts/sandbox-sweep.sh /opt/ai-tools/.claude/sandbox-sweep.sh
+#             scripts/sandbox-sweep-hook.sh /opt/ai-tools/.claude/sandbox-sweep-hook.sh
 # Wired to both the Stop and SessionStart hooks in settings.json (the SessionStart
 # entry passes the "session-start" argument).
 
