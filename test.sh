@@ -17,6 +17,8 @@ PROJECTS_USER="${SUDO_USER:?error: invoke via sudo, not as root directly}"
 PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"
 PROJECTS_GROUP="$(id -gn "${PROJECTS_USER}")"
 PROJECTS_UID="$(id -u "${PROJECTS_USER}")"
+readonly SANDBOX_USER="ai-tools"
+readonly SANDBOX_GROUP="ai-tools"
 
 # ── Harness ───────────────────────────────────────────────────────────────────
 
@@ -759,6 +761,182 @@ else
     else
         skip "helper happy path" "current symlink target is not a resolvable versioned claude path"
     fi
+fi
+
+# ── Sandbox access boundaries ─────────────────────────────────────────────────
+#
+# Probes what the ai-tools process can and cannot actually reach at runtime.
+# Each check names the threat that the boundary prevents. "can" checks confirm
+# intended access that the sandbox requires to function; "cannot" checks confirm
+# that control-plane integrity and secret isolation hold.
+#
+# Uses runuser to drop to ai-tools without sudoers (root → ai-tools, clean).
+# Uses test -r/-w/-x for non-destructive permission probes; uses a DECOY file
+# (owned by PROJECTS_USER in the sticky .claude dir) for unlink-attempt tests
+# so the real control-plane files are never at risk.
+
+section "Sandbox access boundaries"
+
+if ! command -v runuser >/dev/null; then
+    skip "sandbox access boundaries" "runuser not available"
+else
+
+    # ── Config dir traversal ─────────────────────────────────────────────────
+    #
+    # The allowlist (allowed-projects) and secret-pattern config live under
+    # ~/.config/ai-tools (700 PROJECTS_USER:PROJECTS_GROUP). If the agent could
+    # traverse this dir, it could read the allowlist to understand scope limits,
+    # read secret-patterns to learn what triggers quarantine, and potentially
+    # write forged entries -- all via ordinary file I/O, without any sudo call.
+
+    confdir="${PROJECTS_HOME}/.config/ai-tools"
+    if ! runuser -u ai-tools -- test -x "${confdir}" 2>/dev/null; then
+        pass "cannot traverse ${confdir} (700 ${PROJECTS_USER}:${PROJECTS_GROUP}): allowlist + secret config unreachable to agent"
+    else
+        fail "can traverse ${confdir} -- agent could read/tamper with the allowlist or secret-pattern config"
+    fi
+
+    # ── Secret-pattern library ───────────────────────────────────────────────
+    #
+    # secret-patterns.lib.sh (640 root:root) defines what filenames trigger
+    # quarantine. The lib dir (750 root:ai-tools) is traversable by the agent,
+    # but the file's group is root, not ai-tools -- so traversal access does not
+    # imply read access. If readable, the agent could inspect and selectively
+    # route secrets through a name not in the list.
+
+    splib=/usr/local/lib/ai-tools/secret-patterns.lib.sh
+    if ! runuser -u ai-tools -- test -r "${splib}" 2>/dev/null; then
+        pass "cannot read ${splib} (640 root:root): secret classifier is opaque to the agent"
+    else
+        fail "can read ${splib} -- agent can inspect the secret-pattern matcher and avoid triggering it"
+    fi
+
+    # ── Prune-dir library (intended read) ────────────────────────────────────
+    #
+    # prune-dirs.lib.sh (640 root:ai-tools) is sourced by session-hook.sh while
+    # it runs AS the agent. Group read on this file is intentional and required;
+    # the content (a list of directory names to prune) is not sensitive.
+
+    pdlib=/usr/local/lib/ai-tools/prune-dirs.lib.sh
+    if runuser -u ai-tools -- test -r "${pdlib}" 2>/dev/null; then
+        pass "can read ${pdlib} (640 root:ai-tools): required by session-hook.sh at runtime"
+    else
+        fail "cannot read ${pdlib} -- session-hook.sh will fail to source the prune list"
+    fi
+
+    # ── sbin helper directory listing ────────────────────────────────────────
+    #
+    # /usr/local/sbin/ai-tools (750 root:root) holds the root helpers.
+    # Listing the directory lets the agent enumerate helper names and probe for
+    # discrepancies between what is on disk and what sudoers authorises.
+
+    sbindir=/usr/local/sbin/ai-tools
+    if ! runuser -u ai-tools -- test -r "${sbindir}" 2>/dev/null; then
+        pass "cannot list ${sbindir} (750 root:root): helper names not enumerable by agent"
+    else
+        fail "can list ${sbindir} -- agent can enumerate root helper names"
+    fi
+
+    # ── settings.json: no write ──────────────────────────────────────────────
+    #
+    # settings.json (640 PROJECTS_USER:ai-tools) declares the PostToolUse,
+    # Stop, and SessionStart hooks, and the permissions.allow / .deny lists.
+    # If the agent could write it, it could add entries to permissions.allow
+    # (silently expanding the tool set it can use), remove entries from
+    # permissions.deny (re-enabling blocked operations), or remove hooks
+    # entirely (disabling hand-back and secret quarantine) -- all without
+    # any external observable signal.
+
+    sf=/opt/ai-tools/.claude/settings.json
+    if ! runuser -u ai-tools -- test -w "${sf}" 2>/dev/null; then
+        pass "cannot write ${sf} (640 no group-write): agent cannot extend its own allowed tool scope"
+    else
+        fail "can write ${sf} -- agent could add permissions.allow rules, remove deny rules, or drop hooks"
+    fi
+
+    # ── settings.json / hooks: no unlink (sticky) ────────────────────────────
+    #
+    # Even if write access to a file is blocked, a process with group write
+    # access to the DIRECTORY could unlink the file and create a replacement.
+    # The sticky bit on .claude (3770 PROJECTS_USER:ai-tools) prevents that:
+    # you can only unlink a file if you own it OR own the directory. The agent
+    # owns neither settings.json nor the .claude dir (both owned by PROJECTS_USER).
+    # Test with a decoy file (same ownership, same dir) so the real files are safe.
+
+    _decoy=""
+    _decoy="$(mktemp /opt/ai-tools/.claude/.test_sticky_XXXXXX)"
+    chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${_decoy}"
+    chmod 640 "${_decoy}"
+    _cleanup+=("${_decoy}")
+    runuser -u ai-tools -- rm -f "${_decoy}" 2>/dev/null || true
+    if [[ -e "${_decoy}" ]]; then
+        pass "sticky .claude: agent cannot unlink ${PROJECTS_USER}-owned files (replacement attack blocked)"
+    else
+        fail "sticky .claude FAILED: agent deleted a ${PROJECTS_USER}-owned file -- settings.json and hooks can be replaced"
+    fi
+
+    # ── post-tool-hook.sh: no write ──────────────────────────────────────────
+    #
+    # post-tool-hook.sh (750 PROJECTS_USER:ai-tools) is invoked by Claude Code
+    # after every Write/Edit. If the agent could overwrite it with an empty
+    # script, all subsequent file writes in the session would skip hand-back and
+    # secret quarantine until the session ends or the hook is reinstalled.
+
+    hook=/opt/ai-tools/.claude/post-tool-hook.sh
+    if ! runuser -u ai-tools -- test -w "${hook}" 2>/dev/null; then
+        pass "cannot write ${hook} (750 no group-write): hand-back and quarantine hooks protected"
+    else
+        fail "can write ${hook} -- agent could empty the hook and disable hand-back / secret quarantine"
+    fi
+
+    # ── session-hook.sh: no write ────────────────────────────────────────────
+    #
+    # session-hook.sh (750 PROJECTS_USER:ai-tools) runs the Stop sweep (catches
+    # Bash-tool files) and the SessionStart reclaim. If the agent could overwrite
+    # it, it could disable the sweep -- leaving ai-tools-owned files permanently
+    # in the project tree and skipping the setgid normalisation that keeps shared-
+    # group collaboration working.
+
+    shook=/opt/ai-tools/.claude/session-hook.sh
+    if ! runuser -u ai-tools -- test -w "${shook}" 2>/dev/null; then
+        pass "cannot write ${shook} (750 no group-write): stop-sweep and session-start protected"
+    else
+        fail "can write ${shook} -- agent could disable the stop-sweep or session-start reclaim"
+    fi
+
+    # ── nvm-update.sh: no write ──────────────────────────────────────────────
+    #
+    # /opt/ai-tools/bin/nvm-update.sh (550 PROJECTS_USER:ai-tools) is run by
+    # the daily systemd timer AS the projects user (with the user's environment).
+    # If the agent could inject into it, arbitrary commands would execute in the
+    # projects user's context the next time the timer fires -- persistent privilege
+    # that outlasts the current session.
+
+    updater=/opt/ai-tools/bin/nvm-update.sh
+    if ! runuser -u ai-tools -- test -w "${updater}" 2>/dev/null; then
+        pass "cannot write ${updater} (550 no group-write): scheduled updater protected from code injection"
+    else
+        fail "can write ${updater} -- agent could inject commands run as ${PROJECTS_USER} by the daily timer"
+    fi
+
+    # ── Hooks: intended exec (must be reachable) ─────────────────────────────
+    #
+    # Claude Code launches hooks by path. If the agent cannot execute them, the
+    # hook silently fails to fire and the entire hand-back / quarantine system
+    # stops working -- no error, no warning, just no enforcement.
+
+    if runuser -u ai-tools -- test -x "${hook}" 2>/dev/null; then
+        pass "can execute ${hook} (750 group-exec): PostToolUse hook will fire"
+    else
+        fail "cannot execute ${hook} -- hook will be silently skipped by Claude Code"
+    fi
+
+    if runuser -u ai-tools -- test -x "${shook}" 2>/dev/null; then
+        pass "can execute ${shook} (750 group-exec): Stop and SessionStart hooks will fire"
+    else
+        fail "cannot execute ${shook} -- stop-sweep / session-start silently skipped"
+    fi
+
 fi
 
 # ── Systemd timer ─────────────────────────────────────────────────────────────

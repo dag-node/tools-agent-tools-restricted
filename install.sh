@@ -5,6 +5,7 @@
 #   sudo ./install.sh install              deploy all files, enable timer
 #   sudo ./install.sh uninstall            remove deployed files, disable timer
 #   sudo ./install.sh add-project <dir>    add a project to the approved list
+#   sudo ./install.sh check-perms          verify installed file permissions (also runs after install)
 #
 # RPM integration (future):
 #   %post scriptlet   ->  ./install.sh install
@@ -273,6 +274,146 @@ do_summary() {
     fi
 }
 
+# ── Installed-permissions check ────────────────────────────────────────────────
+#
+# Verifies every deployed file has the intended ownership and mode.
+# Each check documents WHY that specific permission is critical to the security
+# model. Called automatically at the end of `do_install`; also available
+# standalone as `sudo ./install.sh check-perms`.
+#
+# Returns 1 (and exits the caller under set -e) if any check fails.
+
+do_perms_check() {
+    local -i _ok=0 _bad=0
+    local _sep
+    _sep="$(printf '─%.0s' {1..80})"
+
+    _pchk() {
+        local path="$1" exp_owner="$2" exp_group="$3" exp_mode="$4"
+        if [[ ! -e "${path}" ]]; then
+            printf '  FAIL  MISSING  %s\n' "${path}" >&2
+            _bad=$(( _bad + 1 ))
+            return
+        fi
+        local act_owner act_group act_mode
+        act_owner="$(stat -c '%U' "${path}")"
+        act_group="$(stat -c '%G' "${path}")"
+        act_mode="$( stat -c '%a' "${path}")"
+        if [[ "${act_owner}" == "${exp_owner}" && \
+              "${act_group}" == "${exp_group}" && \
+              "${act_mode}"  == "${exp_mode}"  ]]; then
+            printf '  PASS  %s  (%s:%s %s)\n' "${path}" "${exp_owner}" "${exp_group}" "${exp_mode}"
+            _ok=$(( _ok + 1 ))
+        else
+            printf '  FAIL  %s  -- expected %s:%s %s  got %s:%s %s\n' \
+                "${path}" "${exp_owner}" "${exp_group}" "${exp_mode}" \
+                "${act_owner}" "${act_group}" "${act_mode}" >&2
+            _bad=$(( _bad + 1 ))
+        fi
+    }
+
+    printf '\n%s\nPermissions check\n%s\n' "${_sep}" "${_sep}"
+
+    # sbin dir: 750 root:root -- world bit removed; non-root users cannot list
+    # helper names. sudo runs helpers as root so traversal succeeds regardless.
+    _pchk /usr/local/sbin/ai-tools root root 750
+
+    # Root helpers: 750 root:root -- only root can execute; ai-tools cannot
+    # invoke them directly, only via the two specific NOPASSWD sudoers rules.
+    _pchk /usr/local/sbin/ai-tools/ai-tools-chown          root root 750
+    _pchk /usr/local/sbin/ai-tools/ai-tools-setgid         root root 750
+    _pchk /usr/local/sbin/ai-tools/ai-tools-claude-symlink root root 750
+    _pchk /usr/local/sbin/ai-tools/ai-tools-lockdown       root root 750
+
+    # lib dir: 750 root:SANDBOX_GROUP -- agent enters via group to read the prune
+    # list (session-hook.sh runs as ai-tools); no world bit, no agent write.
+    _pchk /usr/local/lib/ai-tools root "${SANDBOX_GROUP}" 750
+
+    # Secret-pattern matcher: 640 root:root -- read ONLY by root helpers via sudo.
+    # Agent (group SANDBOX_GROUP) cannot read it, so it cannot inspect or weaken
+    # its own secret classification.
+    _pchk /usr/local/lib/ai-tools/secret-patterns.lib.sh root root 640
+
+    # Prune-dir list: 640 root:SANDBOX_GROUP -- session-hook.sh sources this at
+    # runtime while running as ai-tools; group read is required. No write, no world.
+    _pchk /usr/local/lib/ai-tools/prune-dirs.lib.sh root "${SANDBOX_GROUP}" 640
+
+    # sudoers drop-in: 440 root:root -- required mode for sudo to parse the file;
+    # a looser mode causes sudo to refuse the drop-in entirely.
+    _pchk /etc/sudoers.d/ai-tools-claude root root 440
+
+    # PATH-dedup: 644 root:root -- must be world-readable; every user's login
+    # shell sources /etc/profile.d/. Write locked to root only.
+    _pchk /etc/profile.d/path_dedup.sh root root 644
+
+    # /opt/ai-tools/bin: 550 PROJECTS_USER:SANDBOX_GROUP -- agent gets group r-x
+    # (executes nvm-update.sh, resolves the claude symlink) but no write. Only root
+    # (via ai-tools-claude-symlink) can repoint the stable claude symlink.
+    _pchk /opt/ai-tools/bin               "${PROJECTS_USER}" "${SANDBOX_GROUP}" 550
+    _pchk /opt/ai-tools/bin/nvm-update.sh "${PROJECTS_USER}" "${SANDBOX_GROUP}" 550
+
+    # .claude dir: 3770 PROJECTS_USER:SANDBOX_GROUP (setgid+sticky) -- agent is a
+    # group-writer for its own state, but the sticky bit forbids deleting or
+    # replacing files it does not own (hooks, settings.json), preventing the agent
+    # from swapping in a permissive replacement.
+    _pchk /opt/ai-tools/.claude "${PROJECTS_USER}" "${SANDBOX_GROUP}" 3770
+
+    # Control-plane hooks: 750 PROJECTS_USER:SANDBOX_GROUP -- agent can read+exec
+    # (Claude Code launches them) but cannot write or delete them (no group write
+    # bit; sticky blocks unlink of PROJECTS_USER-owned files). If the agent could
+    # write these, it could disable hand-back and secret quarantine.
+    _pchk /opt/ai-tools/.claude/post-tool-hook.sh "${PROJECTS_USER}" "${SANDBOX_GROUP}" 750
+    _pchk /opt/ai-tools/.claude/session-hook.sh   "${PROJECTS_USER}" "${SANDBOX_GROUP}" 750
+
+    # settings.json: 640 PROJECTS_USER:SANDBOX_GROUP -- agent can read its hook
+    # config (Claude Code reads it on startup) but cannot write or delete it (no
+    # group write bit; sticky blocks unlink of PROJECTS_USER-owned file). This
+    # prevents the agent from extending its own allowed tool scope or removing
+    # deny rules.
+    _pchk /opt/ai-tools/.claude/settings.json "${PROJECTS_USER}" "${SANDBOX_GROUP}" 640
+
+    # Audit log: 600 root:root -- secret filenames written here are not
+    # world-readable; only root can read or append.
+    _pchk /var/log/ai-tools-chown.log root root 600
+
+    # User wrapper: 750 PROJECTS_USER:PROJECTS_GROUP -- only the projects user
+    # (and their private primary group) can execute it.
+    _pchk "${PROJECTS_HOME}/.local/bin/claude"        "${PROJECTS_USER}" "${PROJECTS_GROUP}" 750
+    _pchk "${PROJECTS_HOME}/.local/bin/nvm-update.sh" "${PROJECTS_USER}" "${PROJECTS_GROUP}" 750
+
+    # Systemd units: 640 PROJECTS_USER:PROJECTS_GROUP -- read by systemd --user
+    # as the owner; no world bit needed.
+    _pchk "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service" \
+        "${PROJECTS_USER}" "${PROJECTS_GROUP}" 640
+    _pchk "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer" \
+        "${PROJECTS_USER}" "${PROJECTS_GROUP}" 640
+
+    # User config dir: 700 PROJECTS_USER:PROJECTS_GROUP -- ai-tools (not owner,
+    # not in PROJECTS_GROUP) cannot traverse into it, making allowed-projects and
+    # secret-patterns unreachable to the agent even if those files had looser modes.
+    _pchk "${PROJECTS_HOME}/.config/ai-tools" \
+        "${PROJECTS_USER}" "${PROJECTS_GROUP}" 700
+
+    # Allowlist: 600 PROJECTS_USER:PROJECTS_GROUP -- agent cannot read or modify
+    # the approved project list; root helpers read it on the user's behalf.
+    _pchk "${PROJECTS_HOME}/.config/ai-tools/allowed-projects" \
+        "${PROJECTS_USER}" "${PROJECTS_GROUP}" 600
+
+    # Secret-pattern config: 600 PROJECTS_USER:PROJECTS_GROUP -- same protection
+    # as above; user edits it, root helpers read it, agent cannot reach it.
+    _pchk "${PROJECTS_HOME}/.config/ai-tools/secret-patterns" \
+        "${PROJECTS_USER}" "${PROJECTS_GROUP}" 600
+
+    printf '%s\n' "${_sep}"
+    if (( _bad == 0 )); then
+        printf 'Permissions: %d/%d OK\n\n' "${_ok}" "$(( _ok + _bad ))"
+    else
+        printf 'Permissions: %d/%d OK -- %d FAILED\n\n' \
+            "${_ok}" "$(( _ok + _bad ))" "${_bad}" >&2
+        return 1
+    fi
+}
+
 # ── add-project ─────────────────────────────────────────────────────────────────
 #
 # Registers a project directory so Claude Code is permitted to run there and
@@ -521,6 +662,7 @@ do_install() {
 
     do_selinux_restore
     do_summary
+    do_perms_check
 
     printf 'Verify timer is scheduled:\n'
     printf '  systemctl --user list-timers nvm-update.timer\n\n'
@@ -617,8 +759,11 @@ case "${ACTION}" in
     add-project)
         add_project "${2:?usage: sudo $0 add-project <directory>}"
         ;;
+    check-perms)
+        do_perms_check
+        ;;
     *)
-        printf 'usage: sudo %s [install|uninstall|add-project <dir>]\n' "$0" >&2
+        printf 'usage: sudo %s [install|uninstall|add-project <dir>|check-perms]\n' "$0" >&2
         exit 1
         ;;
 esac
