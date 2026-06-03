@@ -47,9 +47,21 @@ readonly SANDBOX_GROUP="ai-tools"
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-log()  { printf 'install: %s\n' "$*"; }
-warn() { printf 'install: warn: %s\n' "$*" >&2; }
-die()  { printf 'install: error: %s\n' "$*" >&2; exit 1; }
+# Styled output, mirroring the ai-tools CLI so install and day-to-day management
+# read the same. Colours only on a TTY; piped/redirected output stays plain.
+if [[ -t 1 ]]; then
+    readonly C_BOLD=$'\033[1m' C_DIM=$'\033[2m' C_GRN=$'\033[32m' C_YEL=$'\033[33m' C_RED=$'\033[31m' C_RST=$'\033[0m'
+else
+    readonly C_BOLD='' C_DIM='' C_GRN='' C_YEL='' C_RED='' C_RST=''
+fi
+
+say()     { printf '%s\n' "$*"; }
+section() { printf '\n%s── %s ──%s\n' "${C_BOLD}" "$*" "${C_RST}"; }
+ok()      { printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$*"; }
+# log: a dim checklist bullet for each deployed file / action.
+log()     { printf '  %s+%s %s\n' "${C_DIM}" "${C_RST}" "$*"; }
+warn()    { printf '  %s!%s %s\n' "${C_YEL}" "${C_RST}" "$*" >&2; }
+die()     { printf '%sinstall: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; exit 1; }
 
 # Decide what to do with an existing user config file. Interactive: ask whether
 # to keep it (default) or overwrite. When warn is non-empty a second confirmation
@@ -160,7 +172,7 @@ bootstrap_claude_symlink() {
     # and the same validating path the sandbox updater uses on every Node upgrade.
     /usr/local/sbin/ai-tools/ai-tools-claude-symlink "${versioned_claude}" \
         || warn "ai-tools: failed to create ${ai_tools_bin}/claude symlink"
-    log "ai-tools: symlink ${ai_tools_bin}/claude -> ${versioned_claude}"
+    log "symlink ${ai_tools_bin}/claude -> ${versioned_claude}"
 }
 
 # Check that ~/.local/bin precedes nvm shims in the user's PATH and print a
@@ -440,29 +452,33 @@ do_install() {
     id "${SANDBOX_USER}" &>/dev/null \
         || die "${SANDBOX_USER} user not found -- create it first (README step 2)"
 
-    # --- System files (root-owned) ---
+    printf '\n%sInstalling the ai-tools Claude Code sandbox%s\n' "${C_BOLD}" "${C_RST}"
+    say "  projects user : ${PROJECTS_USER} (${PROJECTS_HOME})"
+    say "  sandbox user  : ${SANDBOX_USER}:${SANDBOX_GROUP}"
+
+    section "System files (root-owned)"
 
     # All ai-tools sudo-helpers live under one dir (parallels /usr/local/lib/ai-tools).
     # `install` does not create parents, so make it first. 750 root:root -- no world
     # bit, preventing non-root users from listing the helper names. The helpers run in
     # ai_tools_t via sudo with no domain transition; bin_t is the correct context for
     # /usr/local/sbin. Enforce on re-install even when the dir pre-exists.
-    log "system: /usr/local/sbin/ai-tools/"
+    log "/usr/local/sbin/ai-tools/"
     ensure_dir 750 root root /usr/local/sbin/ai-tools
     chown root:root /usr/local/sbin/ai-tools
     chmod 750 /usr/local/sbin/ai-tools
 
-    log "system: /usr/local/sbin/ai-tools/ai-tools-chown"
+    log "/usr/local/sbin/ai-tools/ai-tools-chown"
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-chown.sh" \
         /usr/local/sbin/ai-tools/ai-tools-chown
 
-    log "system: /usr/local/sbin/ai-tools/ai-tools-setgid"
+    log "/usr/local/sbin/ai-tools/ai-tools-setgid"
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-setgid.sh" \
         /usr/local/sbin/ai-tools/ai-tools-setgid
 
-    log "system: /usr/local/sbin/ai-tools/ai-tools-claude-symlink"
+    log "/usr/local/sbin/ai-tools/ai-tools-claude-symlink"
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-claude-symlink.sh" \
         /usr/local/sbin/ai-tools/ai-tools-claude-symlink
@@ -471,7 +487,7 @@ do_install() {
     # SANDBOX_GROUP, 750 -- no world bit: the agent enters via group to read the
     # prune list, but has no write, so it cannot alter the rules. Enforce on
     # re-install even when the dir pre-exists.
-    log "system: /usr/local/lib/ai-tools/"
+    log "/usr/local/lib/ai-tools/"
     ensure_dir 750 root "${SANDBOX_GROUP}" /usr/local/lib/ai-tools
     chown root:"${SANDBOX_GROUP}" /usr/local/lib/ai-tools
     chmod 750 /usr/local/lib/ai-tools
@@ -479,20 +495,20 @@ do_install() {
     # Secret-name matcher: read ONLY by the root helpers (ai-tools-chown,
     # ai-tools-lockdown), so 640 root:root -- no group or world surface; the agent
     # (not root, group SANDBOX_GROUP) cannot read it at all.
-    log "system: /usr/local/lib/ai-tools/secret-patterns.lib.sh"
+    log "/usr/local/lib/ai-tools/secret-patterns.lib.sh"
     install_subst 640 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/secret-patterns.lib.sh" \
         /usr/local/lib/ai-tools/secret-patterns.lib.sh
 
     # Prune-dir list: ALSO sourced by session-hook.sh, which runs AS the agent, so
     # it needs group read -- 640 root:SANDBOX_GROUP (no world). No tokens to substitute.
-    log "system: /usr/local/lib/ai-tools/prune-dirs.lib.sh"
+    log "/usr/local/lib/ai-tools/prune-dirs.lib.sh"
     install -o root -g "${SANDBOX_GROUP}" -m 640 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/prune-dirs.lib.sh" \
         /usr/local/lib/ai-tools/prune-dirs.lib.sh
 
     # Manual pre-flight lockdown sweep. Run by the user (sudo), never by ai-tools.
-    log "system: /usr/local/sbin/ai-tools/ai-tools-lockdown"
+    log "/usr/local/sbin/ai-tools/ai-tools-lockdown"
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-lockdown.sh" \
         /usr/local/sbin/ai-tools/ai-tools-lockdown
@@ -502,7 +518,7 @@ do_install() {
     # safe.directory list, both writable by the projects user. 755 root:root --
     # world-executable (the in-script guard refuses to run as root or ai-tools),
     # root-owned so the agent cannot tamper with it.
-    log "system: /usr/local/bin/ai-tools"
+    log "/usr/local/bin/ai-tools"
     install_subst 755 root root \
         "${SCRIPT_DIR}/src/usr/local/bin/ai-tools.sh" \
         /usr/local/bin/ai-tools
@@ -513,18 +529,18 @@ do_install() {
     # group-writable (the agent works in the clones). The projects user is NOT in
     # SANDBOX_GROUP -- setgid is what lets both share the clone files. Enforce
     # ownership/mode on re-install even when the dirs pre-exist.
-    log "system: /var/opt/ai-tools/"
+    log "/var/opt/ai-tools/"
     ensure_dir 2750 "${PROJECTS_USER}" "${SANDBOX_GROUP}" /var/opt/ai-tools
     chown "${PROJECTS_USER}:${SANDBOX_GROUP}" /var/opt/ai-tools
     chmod 2750 /var/opt/ai-tools
-    log "system: /var/opt/ai-tools/sandbox-projects/"
+    log "/var/opt/ai-tools/sandbox-projects/"
     ensure_dir 2770 "${PROJECTS_USER}" "${SANDBOX_GROUP}" /var/opt/ai-tools/sandbox-projects
     chown "${PROJECTS_USER}:${SANDBOX_GROUP}" /var/opt/ai-tools/sandbox-projects
     chmod 2770 /var/opt/ai-tools/sandbox-projects
 
     # Sandbox workflow doc. Shipped documentation (not user-edited config), so it is
     # refreshed on every re-install. 640 PROJECTS_USER:SANDBOX_GROUP.
-    log "system: /var/opt/ai-tools/README.md"
+    log "/var/opt/ai-tools/README.md"
     install_subst 640 "${PROJECTS_USER}" "${SANDBOX_GROUP}" \
         "${SCRIPT_DIR}/src/var/opt/ai-tools/README.md" \
         /var/opt/ai-tools/README.md
@@ -532,17 +548,17 @@ do_install() {
     # Audit log for secret-named files the agent wrote (ai-tools-chown appends).
     # Create root:root 600 so the record of secret *filenames* is not world-read.
     # Never truncate an existing log.
-    log "system: /var/log/ai-tools-chown.log"
+    log "/var/log/ai-tools-chown.log"
     if [[ ! -e /var/log/ai-tools-chown.log ]]; then
         install -o root -g root -m 600 /dev/null /var/log/ai-tools-chown.log
     fi
 
-    log "system: /etc/profile.d/path_dedup.sh"
+    log "/etc/profile.d/path_dedup.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/etc/profile.d/path_dedup.sh" \
         /etc/profile.d/path_dedup.sh
 
-    log "system: /etc/sudoers.d/ai-tools-claude"
+    log "/etc/sudoers.d/ai-tools-claude"
     local tmp_sudoers
     tmp_sudoers="$(mktemp)"
     sed -e "s/@PROJECTS_USER@/${PROJECTS_USER}/g" \
@@ -555,12 +571,12 @@ do_install() {
         "${tmp_sudoers}" /etc/sudoers.d/ai-tools-claude
     rm -f "${tmp_sudoers}"
 
-    # --- ai-tools files ---
+    section "ai-tools control plane (/opt/ai-tools)"
 
     # Control-plane files are owned by the projects user, group ai-tools: the
     # agent (which runs AS ai-tools) gets group read/exec but can never write
     # them, so it cannot rewrite its own updater, hook, or hook config.
-    log "ai-tools: /opt/ai-tools/bin/nvm-update.sh"
+    log "/opt/ai-tools/bin/nvm-update.sh"
     install -o "${PROJECTS_USER}" -g "${SANDBOX_GROUP}" -m 550 \
         "${SCRIPT_DIR}/src/opt/ai-tools/bin/nvm-update.sh" \
         /opt/ai-tools/bin/nvm-update.sh
@@ -575,7 +591,7 @@ do_install() {
     # replacing files it does not own, and it is not the dir owner, so it cannot
     # bypass that. setgid keeps new entries in group ai-tools. Enforce on
     # re-install even when the dir pre-exists.
-    log "ai-tools: /opt/ai-tools/.claude/"
+    log "/opt/ai-tools/.claude/"
     ensure_dir 3770 "${PROJECTS_USER}" "${SANDBOX_GROUP}" /opt/ai-tools/.claude
     chown "${PROJECTS_USER}:${SANDBOX_GROUP}" /opt/ai-tools/.claude
     chmod 3770 /opt/ai-tools/.claude
@@ -589,9 +605,9 @@ do_install() {
         "${SCRIPT_DIR}/src/opt/ai-tools/.claude/settings.json" \
         /opt/ai-tools/.claude/settings.json
 
-    # --- User files ---
+    section "User files (${PROJECTS_HOME})"
 
-    log "user: ${PROJECTS_HOME}/.local/bin/"
+    log "${PROJECTS_HOME}/.local/bin/"
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.local"
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.local/bin"
     install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 750 \
@@ -601,7 +617,7 @@ do_install() {
         "${SCRIPT_DIR}/src/home/user/.local/bin/nvm-update.sh" \
         "${PROJECTS_HOME}/.local/bin/nvm-update.sh"
 
-    log "user: ${PROJECTS_HOME}/.config/systemd/user/"
+    log "${PROJECTS_HOME}/.config/systemd/user/"
     ensure_dir 755 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config"
     ensure_dir 755 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/systemd"
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/systemd/user"
@@ -612,6 +628,8 @@ do_install() {
     install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 640 \
         "${SCRIPT_DIR}/src/home/user/.config/systemd/user/nvm-update.timer" \
         "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer"
+
+    section "Configuration (allowlist & secret patterns)"
 
     # --- Allowlist (create with format header if absent; keep on re-install) ---
     #
@@ -628,10 +646,10 @@ do_install() {
     if keep_existing "${allowlist}" \
             "clear all approved projects" \
             "all entries will be removed from the allowlist (project directories themselves are untouched)"; then
-        log "config: keeping existing ${allowlist}"
+        log "keeping existing ${allowlist}"
         allowlist_action="kept existing"
     else
-        log "config: writing ${allowlist}"
+        log "writing ${allowlist}"
         printf '%s\n' \
             "# Approved project directories for Claude Code (ai-tools)." \
             "#" \
@@ -663,7 +681,7 @@ do_install() {
     if grep -qxF "${SCRIPT_DIR}" "${allowlist}" 2>/dev/null; then
         local _esc; _esc="$(printf '%s' "${SCRIPT_DIR}" | sed 's/[\\|]/\\&/g')"
         sed -i "\|^${_esc}$|d" "${allowlist}"
-        log "config: removed install dir from allowlist: ${SCRIPT_DIR}"
+        log "removed install dir from allowlist: ${SCRIPT_DIR}"
     fi
 
     # Secret-name patterns: user-owned 600 (ai-tools can neither read nor write it;
@@ -676,10 +694,10 @@ do_install() {
     local secret_existed=0; [[ -f "${patternfile}" ]] && secret_existed=1
     local secret_action
     if keep_existing "${patternfile}"; then
-        log "config: keeping existing ${patternfile}"
+        log "keeping existing ${patternfile}"
         secret_action="kept existing"
     else
-        log "config: writing ${patternfile}"
+        log "writing ${patternfile}"
         install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 600 \
             "${SCRIPT_DIR}/src/home/user/.config/ai-tools/secret-patterns" "${patternfile}"
         (( secret_existed )) \
@@ -687,42 +705,52 @@ do_install() {
             || secret_action="created fresh"
     fi
 
-    printf '\nConfig decisions:\n'
-    printf '  allowed-projects : %s\n' "${allowlist_action}"
-    printf '  secret-patterns  : %s\n\n' "${secret_action}"
+    say ""
+    say "  ${C_DIM}allowed-projects :${C_RST} ${allowlist_action}"
+    say "  ${C_DIM}secret-patterns  :${C_RST} ${secret_action}"
 
-    # --- Systemd ---
+    section "Systemd (auto-update timer)"
 
-    log "systemd: enabling linger for ${PROJECTS_USER}"
+    log "enabling linger for ${PROJECTS_USER}"
     loginctl enable-linger "${PROJECTS_USER}"
 
-    log "systemd: reload and enable nvm-update.timer"
+    log "reload and enable nvm-update.timer"
     user_systemctl daemon-reload
     user_systemctl enable --now nvm-update.timer
 
+    section "Finalising (claude symlink, PATH, SELinux)"
     bootstrap_claude_symlink
     check_path_order
-
     do_selinux_restore
+
+    section "Installed files"
     do_summary
     do_perms_check
 
-    printf 'Verify timer is scheduled:\n'
-    printf '  systemctl --user list-timers nvm-update.timer\n\n'
-    printf 'Register projects with the ai-tools CLI (run as %s, no sudo):\n' "${PROJECTS_USER}"
-    printf '  ai-tools --project-create /path/to/project    # a real project\n'
-    printf '  ai-tools --sandbox-create /path/to/repo       # an isolated shallow clone\n'
-    printf '  see /var/opt/ai-tools/README.md\n\n'
+    section "Install complete -- next steps"
+    say "  verify the timer:"
+    say "    ${C_BOLD}systemctl --user list-timers nvm-update.timer${C_RST}"
+    say ""
+    say "  register projects with the ai-tools CLI (run as ${PROJECTS_USER}, no sudo):"
+    say "    ${C_BOLD}ai-tools --project-create /path/to/project${C_RST}    ${C_DIM}# a real project${C_RST}"
+    say "    ${C_BOLD}ai-tools --sandbox-create /path/to/repo${C_RST}       ${C_DIM}# an isolated shallow clone${C_RST}"
+    say "    ${C_BOLD}ai-tools --lockdown /path/to/project${C_RST}          ${C_DIM}# revoke agent access to secrets${C_RST}"
+    say "  see ${C_DIM}/var/opt/ai-tools/README.md${C_RST}"
+    say ""
 }
 
 # ── uninstall ──────────────────────────────────────────────────────────────────
 
 do_uninstall() {
-    log "systemd: disable nvm-update.timer"
+    printf '\n%sUninstalling the ai-tools Claude Code sandbox%s\n' "${C_BOLD}" "${C_RST}"
+
+    section "Systemd"
+    log "disable nvm-update.timer"
     user_systemctl disable --now nvm-update.timer 2>/dev/null || true
     user_systemctl daemon-reload 2>/dev/null || true
 
-    log "removing system files"
+    section "Removing files"
+    log "system files"
     rm -f /usr/local/sbin/ai-tools/ai-tools-chown
     rm -f /usr/local/sbin/ai-tools/ai-tools-setgid
     rm -f /usr/local/sbin/ai-tools/ai-tools-claude-symlink
@@ -735,18 +763,19 @@ do_uninstall() {
     rm -f /etc/sudoers.d/ai-tools-claude
     rm -f /etc/profile.d/path_dedup.sh
 
-    log "removing ai-tools files"
+    log "ai-tools control-plane files"
     rm -f /opt/ai-tools/bin/nvm-update.sh
     rm -f /opt/ai-tools/.claude/post-tool-hook.sh
     rm -f /opt/ai-tools/.claude/session-hook.sh
     rm -f /opt/ai-tools/.claude/settings.json
 
-    log "removing user files"
+    log "user files"
     rm -f "${PROJECTS_HOME}/.local/bin/claude"
     rm -f "${PROJECTS_HOME}/.local/bin/nvm-update.sh"
     rm -f "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service"
     rm -f "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer"
 
+    section "Registration"
     # Optionally prune this project from the allowlist (default: keep)
     local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
     if [[ -f "${allowlist}" ]] && grep -qxF "${SCRIPT_DIR}" "${allowlist}"; then
@@ -786,12 +815,12 @@ do_uninstall() {
         fi
     fi
 
-    log "done"
-    printf '\nAlways preserved:\n'
-    printf '  /opt/ai-tools/.nvm/    nvm and Node installation\n'
-    printf '  /var/opt/ai-tools/     sandbox project clones and README\n'
-    printf '  ~/.config/ai-tools/    allowlist and user configuration (unless n above)\n'
-    printf '  git safe.directory     project registration (unless n above)\n\n'
+    section "Uninstall complete -- always preserved"
+    say "  ${C_DIM}/opt/ai-tools/.nvm/${C_RST}    nvm and Node installation"
+    say "  ${C_DIM}/var/opt/ai-tools/${C_RST}     sandbox project clones and README"
+    say "  ${C_DIM}~/.config/ai-tools/${C_RST}    allowlist and user configuration (unless n above)"
+    say "  ${C_DIM}git safe.directory${C_RST}     project registration (unless n above)"
+    say ""
 }
 
 # ── dispatch ───────────────────────────────────────────────────────────────────
