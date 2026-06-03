@@ -77,7 +77,7 @@ state).
 
 ## Generic / fixed terms that are NOT these identities
 
-### Generic host user (`scripts/path_dedup.sh`)
+### Generic host user (`src/etc/profile.d/path_dedup.sh`)
 "normal users", "user-tier", "user-trust", "explicit user wrappers",
 "all users", "userspace app", `_T2_USER_BIN` refer to **any** account that
 sources `/etc/profile.d` — not the IDE user and not the sandbox user. Left as

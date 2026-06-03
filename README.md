@@ -84,22 +84,22 @@ you type `claude`
 
 | File | Deploy path |
 |---|---|
-| scripts/path_dedup.sh | /etc/profile.d/path_dedup.sh (root) |
-| scripts/nvm-update.sh | ~/.local/bin/nvm-update.sh |
-| scripts/nvm-update-ai-tools.sh | /opt/ai-tools/bin/nvm-update.sh |
-| scripts/ai-tools-chown.sh | /usr/local/sbin/ai-tools/chown (root) |
-| scripts/ai-tools-setgid.sh | /usr/local/sbin/ai-tools/setgid (root) |
-| scripts/ai-tools-claude-symlink.sh | /usr/local/sbin/ai-tools/claude-symlink (root) |
-| scripts/ai-tools-lockdown.sh | /usr/local/sbin/ai-tools/lockdown (root) |
-| scripts/ai-tools-secret-patterns.lib.sh | /usr/local/lib/ai-tools/secret-patterns.lib.sh (root) |
-| scripts/ai-tools-prune-dirs.lib.sh | /usr/local/lib/ai-tools/prune-dirs.lib.sh (root) |
-| scripts/claude-wrapper.sh | ~/.local/bin/claude |
-| scripts/post-tool-hook.sh | /opt/ai-tools/.claude/post-tool-hook.sh |
-| scripts/sandbox-sweep-hook.sh | /opt/ai-tools/.claude/sandbox-sweep-hook.sh |
-| scripts/claude-settings.json | /opt/ai-tools/.claude/settings.json |
-| services/nvm-update.service | ~/.config/systemd/user/nvm-update.service |
-| services/nvm-update.timer | ~/.config/systemd/user/nvm-update.timer |
-| sudoers-ai-tools-claude | /etc/sudoers.d/ai-tools-claude (root) |
+| src/etc/profile.d/path_dedup.sh | /etc/profile.d/path_dedup.sh (root) |
+| src/home/user/.local/bin/nvm-update.sh | ~/.local/bin/nvm-update.sh |
+| src/opt/ai-tools/bin/nvm-update.sh | /opt/ai-tools/bin/nvm-update.sh |
+| src/usr/local/sbin/ai-tools/ai-tools-chown.sh | /usr/local/sbin/ai-tools/ai-tools-chown (root) |
+| src/usr/local/sbin/ai-tools/ai-tools-setgid.sh | /usr/local/sbin/ai-tools/ai-tools-setgid (root) |
+| src/usr/local/sbin/ai-tools/ai-tools-claude-symlink.sh | /usr/local/sbin/ai-tools/ai-tools-claude-symlink (root) |
+| src/usr/local/sbin/ai-tools/ai-tools-lockdown.sh | /usr/local/sbin/ai-tools/ai-tools-lockdown (root) |
+| src/usr/local/lib/ai-tools/secret-patterns.lib.sh | /usr/local/lib/ai-tools/secret-patterns.lib.sh (root) |
+| src/usr/local/lib/ai-tools/prune-dirs.lib.sh | /usr/local/lib/ai-tools/prune-dirs.lib.sh (root) |
+| src/home/user/.local/bin/claude.sh | ~/.local/bin/claude |
+| src/opt/ai-tools/.claude/post-tool-hook.sh | /opt/ai-tools/.claude/post-tool-hook.sh |
+| src/opt/ai-tools/.claude/session-hook.sh | /opt/ai-tools/.claude/session-hook.sh |
+| src/opt/ai-tools/.claude/settings.json | /opt/ai-tools/.claude/settings.json |
+| src/home/user/.config/systemd/user/nvm-update.service | ~/.config/systemd/user/nvm-update.service |
+| src/home/user/.config/systemd/user/nvm-update.timer | ~/.config/systemd/user/nvm-update.timer |
+| src/etc/sudoers.d/ai-tools-claude | /etc/sudoers.d/ai-tools-claude (root) |
 | install.sh | run in place via sudo |
 
 ---
@@ -120,7 +120,7 @@ owned by `ai-tools` so the kernel is satisfied.
 ## 1. Install PATH deduplication script (root, once)
 
     sudo install -o root -g root -m 644 \
-        scripts/path_dedup.sh /etc/profile.d/path_dedup.sh
+        src/etc/profile.d/path_dedup.sh /etc/profile.d/path_dedup.sh
 
 nvm must be sourced **before** path_dedup in both init files. nvm prepends
 its versioned bin dir to `$PATH`; path_dedup then restructures it into Tier 4,
@@ -187,7 +187,7 @@ produces the same PATH, so the double call for login shells is safe.
       npm install -g @anthropic-ai/claude-code
     '
 
-    # Create bin dir and initial claude symlink (scripts/nvm-update.sh maintains this going forward)
+    # Create bin dir and initial claude symlink (src/home/user/.local/bin/nvm-update.sh maintains this going forward)
     sudo -u "${SANDBOX_USER}" bash -c '
       source /opt/ai-tools/.nvm/nvm.sh
       mkdir -p /opt/ai-tools/bin
@@ -227,24 +227,24 @@ for manual installation or RPM spec authoring.
     # updater or swap the claude symlink. The symlink is created/repointed only by
     # the root helper below.
     sudo install -o "${PROJECTS_USER}" -g "${SANDBOX_GROUP}" -m 550 \
-        scripts/nvm-update-ai-tools.sh /opt/ai-tools/bin/nvm-update.sh
+        src/opt/ai-tools/bin/nvm-update.sh /opt/ai-tools/bin/nvm-update.sh
     sudo chown "${PROJECTS_USER}:${SANDBOX_GROUP}" /opt/ai-tools/bin
     sudo chmod 550 /opt/ai-tools/bin
 
     # All root sudo-helpers live under one dir (install does not create parents).
     sudo mkdir -p /usr/local/sbin/ai-tools
     sudo install -o root -g root -m 750 \
-        scripts/ai-tools-chown.sh /usr/local/sbin/ai-tools/chown
+        src/usr/local/sbin/ai-tools/ai-tools-chown.sh /usr/local/sbin/ai-tools/ai-tools-chown
 
     # Root helper: at session start, sets group ai-tools + setgid on the project's
     # dirs (allowlist-validated) so files you create inherit the shared group.
     sudo install -o root -g root -m 750 \
-        scripts/ai-tools-setgid.sh /usr/local/sbin/ai-tools/setgid
+        src/usr/local/sbin/ai-tools/ai-tools-setgid.sh /usr/local/sbin/ai-tools/ai-tools-setgid
 
     # Root helper: the only writer of the locked bin. Repoints the stable claude
     # symlink at a validated versioned binary (used by the updater on upgrades).
     sudo install -o root -g root -m 750 \
-        scripts/ai-tools-claude-symlink.sh /usr/local/sbin/ai-tools/claude-symlink
+        src/usr/local/sbin/ai-tools/ai-tools-claude-symlink.sh /usr/local/sbin/ai-tools/ai-tools-claude-symlink
 
 ## 5a. Install sudoers drop-in (root, once)
 
@@ -252,7 +252,7 @@ for manual installation or RPM spec authoring.
     #   @PROJECTS_USER@  -> your login username
     #   @SANDBOX_USER@/@SANDBOX_GROUP@ -> the sandbox account (default: ai-tools)
     sudo install -o root -g root -m 0440 \
-        sudoers-ai-tools-claude /etc/sudoers.d/ai-tools-claude
+        src/etc/sudoers.d/ai-tools-claude /etc/sudoers.d/ai-tools-claude
 
     # Verify syntax
     sudo visudo -c -f /etc/sudoers.d/ai-tools-claude
@@ -270,17 +270,17 @@ The drop-in configures, beyond the basic NOPASSWD rules:
   Both Defaults use `Defaults!<command>` so they apply only to those commands,
   not to every command the projects user runs via sudo.
 - **`ai-tools-chown` rule** — allows ai-tools to call
-  `/usr/local/sbin/ai-tools/chown` as root. That script validates the target
+  `/usr/local/sbin/ai-tools/ai-tools-chown` as root. That script validates the target
   path against the approved-projects allowlist, and acts only on agent-written
   (ai-tools-owned) paths, before running `chown ${PROJECTS_USER}:${SANDBOX_GROUP}`.
 - **`ai-tools-setgid` rule** — allows ai-tools to call
-  `/usr/local/sbin/ai-tools/setgid` as root (from the `SessionStart` hook). It
+  `/usr/local/sbin/ai-tools/ai-tools-setgid` as root (from the `SessionStart` hook). It
   re-validates the path against the allowlist, then sets group `${SANDBOX_GROUP}`
   and the setgid bit on the project's directories so files you create inherit the
   shared group — letting you stay a non-member of `${SANDBOX_GROUP}` (defense in
   depth) while the agent can still read/write project files.
 - **`ai-tools-claude-symlink` rule** — allows ai-tools to call
-  `/usr/local/sbin/ai-tools/claude-symlink` as root to repoint the stable
+  `/usr/local/sbin/ai-tools/ai-tools-claude-symlink` as root to repoint the stable
   `/opt/ai-tools/bin/claude` symlink. The helper validates its argument is a real
   versioned-claude path (its own check, not the sudoers glob) before acting. This
   is the only way the updater can touch the locked `bin` dir.
@@ -293,8 +293,8 @@ anything new.
 
     install -d -m 700 ~/.local/bin
 
-    install -m 750 scripts/claude-wrapper.sh ~/.local/bin/claude
-    install -m 750 scripts/nvm-update.sh     ~/.local/bin/nvm-update.sh
+    install -m 750 src/home/user/.local/bin/claude.sh ~/.local/bin/claude
+    install -m 750 src/home/user/.local/bin/nvm-update.sh ~/.local/bin/nvm-update.sh
 
     # PATH ordering is handled by path_dedup.sh (step 1).
     # No manual export PATH line needed here.
@@ -339,9 +339,9 @@ own.
     sudo chown "${PROJECTS_USER}:${SANDBOX_GROUP}" /opt/ai-tools/.claude
     sudo chmod 3770 /opt/ai-tools/.claude         # setgid + sticky, group-writable
     sudo install -o "${PROJECTS_USER}" -g "${SANDBOX_GROUP}" -m 750 \
-        scripts/post-tool-hook.sh /opt/ai-tools/.claude/post-tool-hook.sh
+        src/opt/ai-tools/.claude/post-tool-hook.sh /opt/ai-tools/.claude/post-tool-hook.sh
     sudo install -o "${PROJECTS_USER}" -g "${SANDBOX_GROUP}" -m 640 \
-        scripts/claude-settings.json /opt/ai-tools/.claude/settings.json
+        src/opt/ai-tools/.claude/settings.json /opt/ai-tools/.claude/settings.json
 
 ## 8a. Create the approved-projects allowlist (once)
 
@@ -420,8 +420,8 @@ read, create, unlink, or replace anything inside; the `!` entry keeps
 
     install -d -m 700 ~/.config/systemd/user
 
-    install -m 644 services/nvm-update.service ~/.config/systemd/user/nvm-update.service
-    install -m 644 services/nvm-update.timer   ~/.config/systemd/user/nvm-update.timer
+    install -m 644 src/home/user/.config/systemd/user/nvm-update.service ~/.config/systemd/user/nvm-update.service
+    install -m 644 src/home/user/.config/systemd/user/nvm-update.timer   ~/.config/systemd/user/nvm-update.timer
 
     systemctl --user daemon-reload
     systemctl --user enable --now nvm-update.timer
@@ -436,7 +436,7 @@ read, create, unlink, or replace anything inside; the `!` entry keeps
 ## 11a. Customise tool lists
 
 Two separate environment variables control what goes where. Both installs
-are pinned to the same Node version resolved by `scripts/nvm-update.sh`.
+are pinned to the same Node version resolved by `src/home/user/.local/bin/nvm-update.sh`.
 
     systemctl --user edit nvm-update.service
 
@@ -478,7 +478,7 @@ run sandboxed as ai-tools rather than as the projects user.
 When nvm installs a new Node version under `/opt/ai-tools`:
 - The sudoers glob `/opt/ai-tools/.nvm/versions/node/*/bin/claude` matches
   the new versioned path automatically.
-- `scripts/nvm-update-ai-tools.sh` repoints the `/opt/ai-tools/bin/claude` symlink
+- `src/opt/ai-tools/bin/nvm-update.sh` repoints the `/opt/ai-tools/bin/claude` symlink
   at the new versioned binary via the root helper `ai-tools-claude-symlink`
   (`bin` is locked `550`, so the ai-tools updater cannot write it directly; the
   helper validates the versioned path and is the only writer of that dir).
@@ -490,8 +490,8 @@ When nvm installs a new Node version under `/opt/ai-tools`:
   user cannot even traverse, since the package dir is mode 700).
 - Old Node versions are pruned in both nvm installs (any version not
   referenced by a named alias is removed).
-- `scripts/nvm-update.sh` resolves the latest version once, updates your `~/.nvm`,
-  then invokes `scripts/nvm-update-ai-tools.sh` as ai-tools via sudo with the pinned
+- `src/home/user/.local/bin/nvm-update.sh` resolves the latest version once, updates your `~/.nvm`,
+  then invokes `src/opt/ai-tools/bin/nvm-update.sh` as ai-tools via sudo with the pinned
   version so both installs land on the same Node build.
 
 ## SELinux

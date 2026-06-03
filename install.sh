@@ -140,7 +140,7 @@ bootstrap_claude_symlink() {
     chmod 550 "${ai_tools_bin}"
     # Create the symlink via the root helper -- the only writer of the locked dir,
     # and the same validating path the sandbox updater uses on every Node upgrade.
-    /usr/local/sbin/ai-tools/claude-symlink "${versioned_claude}" \
+    /usr/local/sbin/ai-tools/ai-tools-claude-symlink "${versioned_claude}" \
         || warn "ai-tools: failed to create ${ai_tools_bin}/claude symlink"
     log "ai-tools: symlink ${ai_tools_bin}/claude -> ${versioned_claude}"
 }
@@ -233,10 +233,10 @@ do_summary() {
     printf '\n  %-54s  %-22s  %4s  %s\n' "FILE" "OWNER" "MODE" "SELINUX TYPE"
     printf '  %s\n' "${sep}"
 
-    _chk /usr/local/sbin/ai-tools/chown
-    _chk /usr/local/sbin/ai-tools/setgid
-    _chk /usr/local/sbin/ai-tools/claude-symlink
-    _chk /usr/local/sbin/ai-tools/lockdown
+    _chk /usr/local/sbin/ai-tools/ai-tools-chown
+    _chk /usr/local/sbin/ai-tools/ai-tools-setgid
+    _chk /usr/local/sbin/ai-tools/ai-tools-claude-symlink
+    _chk /usr/local/sbin/ai-tools/ai-tools-lockdown
     _chk /usr/local/lib/ai-tools/secret-patterns.lib.sh
     _chk /usr/local/lib/ai-tools/prune-dirs.lib.sh
     _chk /etc/sudoers.d/ai-tools-claude
@@ -244,7 +244,7 @@ do_summary() {
     _chk /opt/ai-tools/bin/nvm-update.sh
     _chk /opt/ai-tools/bin/claude
     _chk /opt/ai-tools/.claude/post-tool-hook.sh
-    _chk /opt/ai-tools/.claude/sandbox-sweep-hook.sh
+    _chk /opt/ai-tools/.claude/session-hook.sh
     _chk /opt/ai-tools/.claude/settings.json
     _chk "${PROJECTS_HOME}/.local/bin/claude"
     _chk "${PROJECTS_HOME}/.local/bin/nvm-update.sh"
@@ -312,20 +312,20 @@ do_install() {
     # transition, so no entrypoint label is needed.
     ensure_dir 755 root root /usr/local/sbin/ai-tools
 
-    log "system: /usr/local/sbin/ai-tools/chown"
+    log "system: /usr/local/sbin/ai-tools/ai-tools-chown"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/scripts/ai-tools-chown.sh" \
-        /usr/local/sbin/ai-tools/chown
+        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-chown.sh" \
+        /usr/local/sbin/ai-tools/ai-tools-chown
 
-    log "system: /usr/local/sbin/ai-tools/setgid"
+    log "system: /usr/local/sbin/ai-tools/ai-tools-setgid"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/scripts/ai-tools-setgid.sh" \
-        /usr/local/sbin/ai-tools/setgid
+        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-setgid.sh" \
+        /usr/local/sbin/ai-tools/ai-tools-setgid
 
-    log "system: /usr/local/sbin/ai-tools/claude-symlink"
+    log "system: /usr/local/sbin/ai-tools/ai-tools-claude-symlink"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/scripts/ai-tools-claude-symlink.sh" \
-        /usr/local/sbin/ai-tools/claude-symlink
+        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-claude-symlink.sh" \
+        /usr/local/sbin/ai-tools/ai-tools-claude-symlink
 
     # Shared libraries, sourced by the helpers. The dir is root-owned, group
     # SANDBOX_GROUP, 750 -- no world bit: the agent enters via group to read the
@@ -341,21 +341,21 @@ do_install() {
     # (not root, group SANDBOX_GROUP) cannot read it at all.
     log "system: /usr/local/lib/ai-tools/secret-patterns.lib.sh"
     install_subst 640 root root \
-        "${SCRIPT_DIR}/scripts/ai-tools-secret-patterns.lib.sh" \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/secret-patterns.lib.sh" \
         /usr/local/lib/ai-tools/secret-patterns.lib.sh
 
-    # Prune-dir list: ALSO sourced by sandbox-sweep-hook.sh, which runs AS the agent, so
+    # Prune-dir list: ALSO sourced by session-hook.sh, which runs AS the agent, so
     # it needs group read -- 640 root:SANDBOX_GROUP (no world). No tokens to substitute.
     log "system: /usr/local/lib/ai-tools/prune-dirs.lib.sh"
     install -o root -g "${SANDBOX_GROUP}" -m 640 \
-        "${SCRIPT_DIR}/scripts/ai-tools-prune-dirs.lib.sh" \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/prune-dirs.lib.sh" \
         /usr/local/lib/ai-tools/prune-dirs.lib.sh
 
     # Manual pre-flight lockdown sweep. Run by the user (sudo), never by ai-tools.
-    log "system: /usr/local/sbin/ai-tools/lockdown"
+    log "system: /usr/local/sbin/ai-tools/ai-tools-lockdown"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/scripts/ai-tools-lockdown.sh" \
-        /usr/local/sbin/ai-tools/lockdown
+        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-lockdown.sh" \
+        /usr/local/sbin/ai-tools/ai-tools-lockdown
 
     # Audit log for secret-named files the agent wrote (ai-tools-chown appends).
     # Create root:root 600 so the record of secret *filenames* is not world-read.
@@ -367,7 +367,7 @@ do_install() {
 
     log "system: /etc/profile.d/path_dedup.sh"
     install -o root -g root -m 644 \
-        "${SCRIPT_DIR}/scripts/path_dedup.sh" \
+        "${SCRIPT_DIR}/src/etc/profile.d/path_dedup.sh" \
         /etc/profile.d/path_dedup.sh
 
     log "system: /etc/sudoers.d/ai-tools-claude"
@@ -376,7 +376,7 @@ do_install() {
     sed -e "s/@PROJECTS_USER@/${PROJECTS_USER}/g" \
         -e "s/@SANDBOX_USER@/${SANDBOX_USER}/g" \
         -e "s/@SANDBOX_GROUP@/${SANDBOX_GROUP}/g" \
-        "${SCRIPT_DIR}/sudoers-ai-tools-claude" > "${tmp_sudoers}"
+        "${SCRIPT_DIR}/src/etc/sudoers.d/ai-tools-claude" > "${tmp_sudoers}"
     visudo -c -f "${tmp_sudoers}" > /dev/null \
         || { rm -f "${tmp_sudoers}"; die "sudoers syntax check failed"; }
     install -o root -g root -m 0440 \
@@ -390,7 +390,7 @@ do_install() {
     # them, so it cannot rewrite its own updater, hook, or hook config.
     log "ai-tools: /opt/ai-tools/bin/nvm-update.sh"
     install -o "${PROJECTS_USER}" -g "${SANDBOX_GROUP}" -m 550 \
-        "${SCRIPT_DIR}/scripts/nvm-update-ai-tools.sh" \
+        "${SCRIPT_DIR}/src/opt/ai-tools/bin/nvm-update.sh" \
         /opt/ai-tools/bin/nvm-update.sh
 
     # /opt/ai-tools/.claude holds both mutable agent state (sessions/, history,
@@ -408,13 +408,13 @@ do_install() {
     chown "${PROJECTS_USER}:${SANDBOX_GROUP}" /opt/ai-tools/.claude
     chmod 3770 /opt/ai-tools/.claude
     install_subst 750 "${PROJECTS_USER}" "${SANDBOX_GROUP}" \
-        "${SCRIPT_DIR}/scripts/post-tool-hook.sh" \
+        "${SCRIPT_DIR}/src/opt/ai-tools/.claude/post-tool-hook.sh" \
         /opt/ai-tools/.claude/post-tool-hook.sh
     install_subst 750 "${PROJECTS_USER}" "${SANDBOX_GROUP}" \
-        "${SCRIPT_DIR}/scripts/sandbox-sweep-hook.sh" \
-        /opt/ai-tools/.claude/sandbox-sweep-hook.sh
+        "${SCRIPT_DIR}/src/opt/ai-tools/.claude/session-hook.sh" \
+        /opt/ai-tools/.claude/session-hook.sh
     install -o "${PROJECTS_USER}" -g "${SANDBOX_GROUP}" -m 640 \
-        "${SCRIPT_DIR}/scripts/claude-settings.json" \
+        "${SCRIPT_DIR}/src/opt/ai-tools/.claude/settings.json" \
         /opt/ai-tools/.claude/settings.json
 
     # --- User files ---
@@ -423,10 +423,10 @@ do_install() {
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.local"
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.local/bin"
     install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 750 \
-        "${SCRIPT_DIR}/scripts/claude-wrapper.sh" \
+        "${SCRIPT_DIR}/src/home/user/.local/bin/claude.sh" \
         "${PROJECTS_HOME}/.local/bin/claude"
     install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 750 \
-        "${SCRIPT_DIR}/scripts/nvm-update.sh" \
+        "${SCRIPT_DIR}/src/home/user/.local/bin/nvm-update.sh" \
         "${PROJECTS_HOME}/.local/bin/nvm-update.sh"
 
     log "user: ${PROJECTS_HOME}/.config/systemd/user/"
@@ -435,10 +435,10 @@ do_install() {
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/systemd/user"
     # 640: systemd --user reads them as the owner; no world bit needed.
     install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 640 \
-        "${SCRIPT_DIR}/services/nvm-update.service" \
+        "${SCRIPT_DIR}/src/home/user/.config/systemd/user/nvm-update.service" \
         "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service"
     install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 640 \
-        "${SCRIPT_DIR}/services/nvm-update.timer" \
+        "${SCRIPT_DIR}/src/home/user/.config/systemd/user/nvm-update.timer" \
         "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer"
 
     # --- Allowlist (create with format header if absent; keep on re-install) ---
@@ -482,7 +482,7 @@ do_install() {
     else
         log "config: writing ${patternfile}"
         install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 600 \
-            "${SCRIPT_DIR}/scripts/secret-patterns.conf" "${patternfile}"
+            "${SCRIPT_DIR}/src/home/user/.config/ai-tools/secret-patterns" "${patternfile}"
     fi
 
     # Register this project in allowlist + git safe.directory
@@ -517,10 +517,10 @@ do_uninstall() {
     user_systemctl daemon-reload 2>/dev/null || true
 
     log "removing system files"
-    rm -f /usr/local/sbin/ai-tools/chown
-    rm -f /usr/local/sbin/ai-tools/setgid
-    rm -f /usr/local/sbin/ai-tools/claude-symlink
-    rm -f /usr/local/sbin/ai-tools/lockdown
+    rm -f /usr/local/sbin/ai-tools/ai-tools-chown
+    rm -f /usr/local/sbin/ai-tools/ai-tools-setgid
+    rm -f /usr/local/sbin/ai-tools/ai-tools-claude-symlink
+    rm -f /usr/local/sbin/ai-tools/ai-tools-lockdown
     rmdir /usr/local/sbin/ai-tools 2>/dev/null || true
     rm -f /usr/local/lib/ai-tools/secret-patterns.lib.sh
     rm -f /usr/local/lib/ai-tools/prune-dirs.lib.sh
@@ -531,7 +531,7 @@ do_uninstall() {
     log "removing ai-tools files"
     rm -f /opt/ai-tools/bin/nvm-update.sh
     rm -f /opt/ai-tools/.claude/post-tool-hook.sh
-    rm -f /opt/ai-tools/.claude/sandbox-sweep-hook.sh
+    rm -f /opt/ai-tools/.claude/session-hook.sh
     rm -f /opt/ai-tools/.claude/settings.json
 
     log "removing user files"

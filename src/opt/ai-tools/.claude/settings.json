@@ -33,7 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/opt/ai-tools/.claude/sandbox-sweep-hook.sh"
+            "command": "/opt/ai-tools/.claude/session-hook.sh"
           }
         ]
       }
@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/opt/ai-tools/.claude/sandbox-sweep-hook.sh session-start"
+            "command": "/opt/ai-tools/.claude/session-hook.sh session-start"
           }
         ]
       }

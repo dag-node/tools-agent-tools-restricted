@@ -2,7 +2,7 @@
 # /usr/local/lib/ai-tools/prune-dirs.lib.sh
 # Single source of truth for the directory NAMES pruned from the recursive walks
 # in the ai-tools sandbox helpers:
-#   - sandbox-sweep-hook.sh    (ownership handback, Stop + SessionStart)
+#   - session-hook.sh          (ownership handback, Stop + SessionStart)
 #   - ai-tools-setgid      (setgid normalization, SessionStart)
 #   - ai-tools-lockdown    (pre-flight secret lockdown, user-run)
 # Centralised so the three agree and a new build/dependency tree is added in ONE

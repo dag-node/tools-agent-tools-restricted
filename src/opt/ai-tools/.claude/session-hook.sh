@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# /opt/ai-tools/.claude/sandbox-sweep-hook.sh
+# /opt/ai-tools/.claude/session-hook.sh
 # Sandbox housekeeping hook, run at lifecycle boundaries (Stop + SessionStart). It
 # hands back every ai-tools-owned file and directory under the session's project
 # that the precise Write|Edit PostToolUse hook did not catch -- chiefly files
@@ -40,7 +40,7 @@
 # anyway, so <you> can already read them) and the scan stays on one filesystem (-xdev).
 #
 # Deploy: sudo install -o @PROJECTS_USER@ -g ai-tools -m 750 \
-#             scripts/sandbox-sweep-hook.sh /opt/ai-tools/.claude/sandbox-sweep-hook.sh
+#             src/opt/ai-tools/.claude/session-hook.sh /opt/ai-tools/.claude/session-hook.sh
 # Wired to both the Stop and SessionStart hooks in settings.json (the SessionStart
 # entry passes the "session-start" argument).
 
@@ -82,7 +82,7 @@ fi
 # letting the projects user be a non-member of that group. The root helper
 # re-validates dir against the allowlist and is idempotent. Stop mode never does this.
 if [[ "${unbounded}" -eq 1 ]]; then
-    sudo /usr/local/sbin/ai-tools/setgid "${dir}" </dev/null || true
+    sudo /usr/local/sbin/ai-tools/ai-tools-setgid "${dir}" </dev/null || true
 fi
 
 # New marker stamped to "now" (scan start). Applied to MARKER only after the sweep
@@ -115,7 +115,7 @@ expr+=( '(' -type f -o -type d ')' -print0 ')' )
 # unreadable subdir) cannot trip set -e / pipefail and skip the marker update.
 find "${expr[@]}" 2>/dev/null \
     | while IFS= read -r -d '' path; do
-        sudo /usr/local/sbin/ai-tools/chown "${path}" </dev/null || true
+        sudo /usr/local/sbin/ai-tools/ai-tools-chown "${path}" </dev/null || true
       done || true
 
 # Advance the marker to this scan's start time (rename within the same dir keeps
