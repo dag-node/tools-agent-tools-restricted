@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# /usr/local/sbin/ai-tools/lockdown
+# /usr/local/sbin/ai-tools/ai-tools-lockdown
 # Proactively revoke ai-tools' access to credential files under the CURRENT
 # project. Walks the current working directory and, for every path whose basename
 # matches a secret pattern -- the SAME set ai-tools-chown uses, from the shared
@@ -20,7 +20,7 @@
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
-#       scripts/ai-tools-lockdown.sh /usr/local/sbin/ai-tools/lockdown
+#       src/usr/local/sbin/ai-tools/ai-tools-lockdown.sh /usr/local/sbin/ai-tools/ai-tools-lockdown
 
 set -euo pipefail
 
@@ -28,7 +28,7 @@ readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 readonly ALLOWLIST="@PROJECTS_HOME@/.config/ai-tools/allowed-projects"
 
 # Pruned directory names from the shared library (single source of truth, shared
-# with sandbox-sweep-hook.sh and ai-tools-setgid). Unreadable -> empty -> no pruning.
+# with session-hook.sh and ai-tools-setgid). Unreadable -> empty -> no pruning.
 readonly PRUNE_LIB="/usr/local/lib/ai-tools/prune-dirs.lib.sh"
 AI_TOOLS_PRUNE_NAMES=()
 # shellcheck source=/dev/null

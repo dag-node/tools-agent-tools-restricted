@@ -37,7 +37,7 @@ current for both your login user and the sandbox user, pinned to the same build.
    ai-tools' read access, with a `NOTICE` surfaced in the session + audit log.
 5. The `PostToolUse` hook only fires for `Write`/`Edit`, so files the agent
    creates via the `Bash` tool (build output, codegen, `mv`, redirects) carry no
-   `file_path` and are missed. A `Stop` hook (`sandbox-sweep-hook.sh`) closes that
+   `file_path` and are missed. A `Stop` hook (`session-hook.sh`) closes that
    gap: at each turn's end it reads `.cwd`, finds the `ai-tools`-owned paths under
    it (bounded by a timestamp marker, heavy trees like `.git`/`node_modules`
    pruned) and hands each to the same `ai-tools-chown`. It runs at turn end, not
@@ -48,7 +48,7 @@ current for both your login user and the sandbox user, pinned to the same build.
    so it can miss `ai-tools`-owned paths left by a session that exited before its
    Stop hook ran (`kill -9`, crash, closed terminal) — and miss older paths when
    the working project changes. A `SessionStart` hook runs the same
-   `sandbox-sweep-hook.sh` with the `session-start` argument to close that gap: on
+   `session-hook.sh` with the `session-start` argument to close that gap: on
    `source` `startup`/`resume` (a freshly started process, the only case that can
    follow an interrupted session) it does one **unbounded** pass — every
    `ai-tools`-owned path under `.cwd`, ignoring the marker — then resets the marker
@@ -78,9 +78,9 @@ substituted at install) grants exactly:
 ```
 <you>    ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/.nvm/versions/node/*/bin/claude
 <you>    ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*.[0-9]*.[0-9]*
-ai-tools ALL=(root)             NOPASSWD: /usr/local/sbin/ai-tools/chown
-ai-tools ALL=(root)             NOPASSWD: /usr/local/sbin/ai-tools/setgid
-ai-tools ALL=(root)             NOPASSWD: /usr/local/sbin/ai-tools/claude-symlink /opt/ai-tools/.nvm/versions/node/v[0-9]*
+ai-tools ALL=(root)             NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-chown
+ai-tools ALL=(root)             NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-setgid
+ai-tools ALL=(root)             NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-claude-symlink /opt/ai-tools/.nvm/versions/node/v[0-9]*
 ```
 
 `umask=0007` (for claude) and `env_keep` (for nvm-update.sh) are scoped
@@ -233,7 +233,7 @@ toolchain must read (`*.deps.json`, `*.runtimeconfig.json`,
 `ai-tools-chown` is reactive: it fires per agent-written path and acts only on
 `ai-tools`-owned paths, so it never touches a pre-existing user-owned secret the
 agent could already read (the allowlist is not a read boundary). `ai-tools-lockdown`
-(`/usr/local/sbin/ai-tools/lockdown`, run `cd <project> && sudo ai-tools-lockdown`)
+(`/usr/local/sbin/ai-tools/ai-tools-lockdown`, run `cd <project> && sudo ai-tools-lockdown`)
 is the proactive counterpart: it walks the current directory and, for every path
 matching the shared secret patterns, sets regular files `600`, directories `700`,
 and owner `<you>:ai-tools` — revoking ai-tools' read regardless of who created

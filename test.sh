@@ -35,7 +35,7 @@ trap cleanup EXIT
 # Invoke the deployed validator the way the hook does: detached from any
 # controlling tty (setsid) with stdin from /dev/null, so it takes its
 # non-interactive apply branch instead of prompting on /dev/tty.
-run_chown() { setsid /usr/local/sbin/ai-tools/chown "$1" < /dev/null > /dev/null 2>&1 || true; }
+run_chown() { setsid /usr/local/sbin/ai-tools/ai-tools-chown "$1" < /dev/null > /dev/null 2>&1 || true; }
 
 # ── File permission checks ────────────────────────────────────────────────────
 
@@ -60,10 +60,10 @@ check_file() {
 }
 
 section "File permissions"
-check_file /usr/local/sbin/ai-tools/chown            root              root              750
-check_file /usr/local/sbin/ai-tools/setgid           root              root              750
-check_file /usr/local/sbin/ai-tools/claude-symlink   root              root              750
-check_file /usr/local/sbin/ai-tools/lockdown         root              root              750
+check_file /usr/local/sbin/ai-tools/ai-tools-chown            root              root              750
+check_file /usr/local/sbin/ai-tools/ai-tools-setgid           root              root              750
+check_file /usr/local/sbin/ai-tools/ai-tools-claude-symlink   root              root              750
+check_file /usr/local/sbin/ai-tools/ai-tools-lockdown         root              root              750
 # Lib dir: root-owned, group ai-tools, 750 (no world). The agent enters via group
 # to read the prune list, but has no write, so it cannot alter the rules.
 check_file /usr/local/lib/ai-tools                         root          ai-tools          750
@@ -88,7 +88,7 @@ check_file /opt/ai-tools/bin                          "${PROJECTS_USER}"    ai-t
 # its own updater, hook, or hook config.
 check_file /opt/ai-tools/bin/nvm-update.sh            "${PROJECTS_USER}"    ai-tools          550
 check_file /opt/ai-tools/.claude/post-tool-hook.sh   "${PROJECTS_USER}"    ai-tools          750
-check_file /opt/ai-tools/.claude/sandbox-sweep-hook.sh  "${PROJECTS_USER}"    ai-tools          750
+check_file /opt/ai-tools/.claude/session-hook.sh  "${PROJECTS_USER}"    ai-tools          750
 check_file /opt/ai-tools/.claude/settings.json        "${PROJECTS_USER}"    ai-tools          640
 # .claude must be install-user-owned (not ai-tools) with setgid+sticky (3770):
 # ai-tools is a group-writer for its own state but cannot unlink/replace the
@@ -213,7 +213,7 @@ section "ai-tools-chown: outside allowlist"
 tmpfile="$(mktemp)"
 _cleanup+=("${tmpfile}")
 
-if ! /usr/local/sbin/ai-tools/chown "${tmpfile}" 2>/dev/null; then
+if ! /usr/local/sbin/ai-tools/ai-tools-chown "${tmpfile}" 2>/dev/null; then
     pass "refuses to act on file outside allowlist (exit 1)"
 else
     fail "acted on file outside allowlist -- should have refused"
@@ -257,7 +257,7 @@ do
     _cleanup+=("${secret}")
 
     err="$(mktemp)"; _cleanup+=("${err}")
-    setsid /usr/local/sbin/ai-tools/chown "${secret}" < /dev/null > /dev/null 2>"${err}" || true
+    setsid /usr/local/sbin/ai-tools/ai-tools-chown "${secret}" < /dev/null > /dev/null 2>"${err}" || true
 
     owner="$(stat -c '%U:%G' "${secret}")"
     mode="$( stat -c '%a'    "${secret}")"
@@ -275,7 +275,7 @@ ord="${SCRIPT_DIR}/.test_plain_$$"
 printf 'x' > "${ord}"; chown ai-tools:ai-tools "${ord}"; chmod 0644 "${ord}"
 _cleanup+=("${ord}")
 oerr="$(mktemp)"; _cleanup+=("${oerr}")
-setsid /usr/local/sbin/ai-tools/chown "${ord}" < /dev/null > /dev/null 2>"${oerr}" || true
+setsid /usr/local/sbin/ai-tools/ai-tools-chown "${ord}" < /dev/null > /dev/null 2>"${oerr}" || true
 if [[ "$(stat -c '%U:%G' "${ord}")" == "${PROJECTS_USER}:ai-tools" && "$(stat -c '%a' "${ord}")" == "640" ]] \
    && ! grep -q 'NOTICE' "${oerr}"; then
     pass "ordinary file: -> ${PROJECTS_USER}:ai-tools 640, no NOTICE"
@@ -294,7 +294,7 @@ else
     printf 'x' > "${usecret}"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${usecret}"; chmod 0600 "${usecret}"
     _cleanup+=("${usecret}")
     uerr="$(mktemp)"; _cleanup+=("${uerr}")
-    setsid /usr/local/sbin/ai-tools/chown "${usecret}" < /dev/null > /dev/null 2>"${uerr}" || true
+    setsid /usr/local/sbin/ai-tools/ai-tools-chown "${usecret}" < /dev/null > /dev/null 2>"${uerr}" || true
     if [[ "$(stat -c '%U:%G' "${usecret}")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" && "$(stat -c '%a' "${usecret}")" == "600" ]] \
        && ! grep -q 'NOTICE' "${uerr}"; then
         pass "user-owned secret left untouched, no false breach NOTICE"
@@ -350,7 +350,7 @@ else
     printf 'x' > "${ucsecret}"; chown ai-tools:ai-tools "${ucsecret}"; chmod 0644 "${ucsecret}"
     _cleanup+=("${ucsecret}")
     ucerr="$(mktemp)"; _cleanup+=("${ucerr}")
-    setsid /usr/local/sbin/ai-tools/chown "${ucsecret}" < /dev/null > /dev/null 2>"${ucerr}" || true
+    setsid /usr/local/sbin/ai-tools/ai-tools-chown "${ucsecret}" < /dev/null > /dev/null 2>"${ucerr}" || true
     if [[ "$(stat -c '%U:%G' "${ucsecret}")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" && "$(stat -c '%a' "${ucsecret}")" == "600" ]] \
        && grep -q 'NOTICE' "${ucerr}"; then
         pass "upper-case secret name (ID_ED25519) matched case-insensitively + quarantined"
@@ -377,7 +377,7 @@ else
     # Add exclusion, run test, remove exclusion
     printf '!%s\n' "${excl_dir}" >> "${allowlist}"
     before="$(stat -c '%U:%G' "${excl_file}")"
-    /usr/local/sbin/ai-tools/chown "${excl_file}" 2>/dev/null || true
+    /usr/local/sbin/ai-tools/ai-tools-chown "${excl_file}" 2>/dev/null || true
     after="$(stat -c '%U:%G' "${excl_file}")"
     # Remove the test exclusion entry from the allowlist
     escaped="$(printf '%s' "!${excl_dir}" | sed 's/[\\|]/\\&/g')"
@@ -585,7 +585,7 @@ fi
 
 section "Stop hook: turn-end sweep of Bash-created files"
 
-sweep="/opt/ai-tools/.claude/sandbox-sweep-hook.sh"
+sweep="/opt/ai-tools/.claude/session-hook.sh"
 
 run_sweep() {
     printf '{"cwd":"%s"}' "$1" \
@@ -669,7 +669,7 @@ fi
 
 section "ai-tools-setgid: project setgid normalization"
 
-setgid_helper="/usr/local/sbin/ai-tools/setgid"
+setgid_helper="/usr/local/sbin/ai-tools/ai-tools-setgid"
 if [[ ! -x "${setgid_helper}" ]]; then
     skip "setgid normalization" "not installed at ${setgid_helper}"
 else
@@ -723,7 +723,7 @@ fi
 
 section "ai-tools-claude-symlink: validation + idempotent repoint"
 
-helper="/usr/local/sbin/ai-tools/claude-symlink"
+helper="/usr/local/sbin/ai-tools/ai-tools-claude-symlink"
 if [[ ! -x "${helper}" ]]; then
     skip "symlink helper" "not installed at ${helper}"
 else

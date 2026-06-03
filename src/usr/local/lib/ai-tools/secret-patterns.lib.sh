@@ -30,7 +30,7 @@ readonly _AI_TOOLS_SECRET_PATTERNS_LIB=1
 readonly AI_TOOLS_SECRET_PATTERNS_FILE="@PROJECTS_HOME@/.config/ai-tools/secret-patterns"
 
 # Built-in fallback, used only when the config file is missing or empty. Kept in
-# sync with scripts/secret-patterns.conf (install.sh seeds the config file from
+# sync with src/home/user/.config/ai-tools/secret-patterns (install.sh seeds the config file from
 # it) and with the inline list this replaced in ai-tools-chown.sh. Basename-safe
 # globs only (no bare 'config' etc. that would match innocuous files); matching
 # is case-insensitive, so a single stem covers its case variants. The .NET config

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# /usr/local/sbin/ai-tools/setgid
+# /usr/local/sbin/ai-tools/ai-tools-setgid
 # Normalizes group ownership and the setgid bit on the directories of an approved
 # project, so that files EITHER @PROJECTS_USER@ OR the agent creates there are born
 # in group @SANDBOX_GROUP@ -- the shared group both can read/write. setgid carries
@@ -8,7 +8,7 @@
 # the projects user's home configs are then unreachable from the sandbox group)
 # while the agent can still read/write everything it hands back.
 #
-# Called by the SessionStart hook (sandbox-sweep-hook.sh session-start) via sudo
+# Called by the SessionStart hook (session-hook.sh session-start) via sudo
 # (ai-tools -> root). Runs IN ai_tools_t (no domain transition, like ai-tools-chown).
 # The agent that triggers it cannot read the allowlist, so the project path it
 # passes is UNTRUSTED and re-validated here against the same allow/exclude rules.
@@ -16,11 +16,11 @@
 # Idempotent: applies only the dirs that need it, safe to run every session start.
 #
 # Sudoers rule (in /etc/sudoers.d/ai-tools-claude):
-#   ai-tools ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/setgid
+#   ai-tools ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-setgid
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
-#       scripts/ai-tools-setgid.sh /usr/local/sbin/ai-tools/setgid
+#       src/usr/local/sbin/ai-tools/ai-tools-setgid.sh /usr/local/sbin/ai-tools/ai-tools-setgid
 
 set -euo pipefail
 
@@ -29,7 +29,7 @@ readonly ALLOWLIST="@PROJECTS_HOME@/.config/ai-tools/allowed-projects"
 readonly GROUP="@SANDBOX_GROUP@"
 
 # Heavy/transient trees pruned from the walk come from the shared library (the
-# single source of truth, also used by sandbox-sweep-hook.sh and ai-tools-lockdown).
+# single source of truth, also used by session-hook.sh and ai-tools-lockdown).
 # Unreadable (broken install) -> empty -> no pruning: slower walk, still correct.
 readonly PRUNE_LIB="/usr/local/lib/ai-tools/prune-dirs.lib.sh"
 AI_TOOLS_PRUNE_NAMES=()

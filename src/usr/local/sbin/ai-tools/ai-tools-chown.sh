@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# /usr/local/sbin/ai-tools/chown
+# /usr/local/sbin/ai-tools/ai-tools-chown
 # Restores @PROJECTS_USER@:ai-tools ownership on files and directories created or
 # overwritten by Claude Code. Called by the PostToolUse hook via sudo (ai-tools
 # -> root). Accepts a single regular-file or directory target; for directories it
@@ -10,11 +10,11 @@
 # That file is owned @PROJECTS_USER@:@PROJECTS_USER@ 600 -- root reads it here on ai-tools' behalf.
 #
 # Sudoers rule (in /etc/sudoers.d/ai-tools-claude):
-#   ai-tools ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/chown
+#   ai-tools ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-chown
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
-#       scripts/ai-tools-chown.sh /usr/local/sbin/ai-tools/chown
+#       src/usr/local/sbin/ai-tools/ai-tools-chown.sh /usr/local/sbin/ai-tools/ai-tools-chown
 
 set -euo pipefail
 
