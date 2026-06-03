@@ -203,13 +203,19 @@ above, run:
     sudo ./install.sh install
 
 The script substitutes your username into sudoers and the chown validator,
-creates the approved-projects allowlist with format documentation, registers
-this project directory in the allowlist and git `safe.directory`, and enables
-the systemd timer. It is idempotent — safe to re-run after updates.
+creates the approved-projects allowlist with format documentation, installs the
+`ai-tools` project CLI and the `/var/opt/ai-tools` sandbox area, and enables the
+systemd timer. It is idempotent — safe to re-run after updates. The install
+directory is never auto-registered as a project.
 
-To add further projects to the approved list:
+Register projects with the `ai-tools` CLI, run as your own user (no sudo):
 
-    sudo ./install.sh add-project /path/to/project
+    ai-tools --project-create /path/to/project    # a real project
+    ai-tools --sandbox-create /path/to/repo       # an isolated shallow clone
+
+A sandboxed project is a shallow clone under `/var/opt/ai-tools/sandbox-projects/`
+that the agent works in without ever reading the original repo's full git
+history. See `/var/opt/ai-tools/README.md` for that workflow.
 
 To remove everything installed by this script:
 

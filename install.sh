@@ -4,8 +4,12 @@
 # Usage:
 #   sudo ./install.sh install              deploy all files, enable timer
 #   sudo ./install.sh uninstall            remove deployed files, disable timer
-#   sudo ./install.sh add-project <dir>    add a project to the approved list
 #   sudo ./install.sh check-perms          verify installed file permissions (also runs after install)
+#
+# Project registration moved out of install.sh into the `ai-tools` CLI
+# (/usr/local/bin/ai-tools), run as the projects user:
+#   ai-tools --project-create <dir>        register a real project
+#   ai-tools --sandbox-create <dir>        shallow-clone a repo into the sandbox area
 #
 # RPM integration (future):
 #   %post scriptlet   ->  ./install.sh install
@@ -251,6 +255,10 @@ do_summary() {
     _chk /usr/local/sbin/ai-tools/ai-tools-setgid
     _chk /usr/local/sbin/ai-tools/ai-tools-claude-symlink
     _chk /usr/local/sbin/ai-tools/ai-tools-lockdown
+    _chk /usr/local/bin/ai-tools
+    _chk /var/opt/ai-tools
+    _chk /var/opt/ai-tools/sandbox-projects
+    _chk /var/opt/ai-tools/README.md
     _chk /usr/local/lib/ai-tools/secret-patterns.lib.sh
     _chk /usr/local/lib/ai-tools/prune-dirs.lib.sh
     _chk /etc/sudoers.d/ai-tools-claude
@@ -324,6 +332,18 @@ do_perms_check() {
     _pchk /usr/local/sbin/ai-tools/ai-tools-setgid         root root 750
     _pchk /usr/local/sbin/ai-tools/ai-tools-claude-symlink root root 750
     _pchk /usr/local/sbin/ai-tools/ai-tools-lockdown       root root 750
+
+    # Project CLI: 755 root:root -- runs AS the projects user (no privilege; the
+    # in-script guard refuses root and ai-tools). Root-owned so the agent cannot
+    # rewrite it; world-exec is harmless since it edits only user-writable registries.
+    _pchk /usr/local/bin/ai-tools root root 755
+
+    # Sandbox area: PROJECTS_USER:SANDBOX_GROUP. Outer dir 2750 (setgid, no world);
+    # inner sandbox-projects 2770 (setgid so clones are born group SANDBOX_GROUP,
+    # group-writable so the agent works in the clones). README 640.
+    _pchk /var/opt/ai-tools                  "${PROJECTS_USER}" "${SANDBOX_GROUP}" 2750
+    _pchk /var/opt/ai-tools/sandbox-projects "${PROJECTS_USER}" "${SANDBOX_GROUP}" 2770
+    _pchk /var/opt/ai-tools/README.md        "${PROJECTS_USER}" "${SANDBOX_GROUP}" 640
 
     # lib dir: 750 root:SANDBOX_GROUP -- agent enters via group to read the prune
     # list (session-hook.sh runs as ai-tools); no world bit, no agent write.
@@ -414,44 +434,6 @@ do_perms_check() {
     fi
 }
 
-# ── add-project ─────────────────────────────────────────────────────────────────
-#
-# Registers a project directory so Claude Code is permitted to run there and
-# the ownership-restoration hook is allowed to act on files within it.
-#
-# Two registrations are made, both idempotent:
-#   ~/.config/ai-tools/allowed-projects  -- wrapper + chown hook allowlist
-#   /opt/ai-tools/.gitconfig             -- git safe.directory for ai-tools
-#
-# git safe.directory does not support prefix matching, so each project needs
-# its own entry. This subcommand makes that a single call per project.
-
-add_project() {
-    local dir="${1:?usage: add-project <absolute-path>}"
-    [[ -d "${dir}" ]] || die "${dir} is not a directory"
-    dir="$(realpath -e "${dir}")"
-
-    local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
-    [[ -f "${allowlist}" ]] \
-        || die "allowlist not found at ${allowlist} -- run 'install' first"
-
-    if ! grep -qxF "${dir}" "${allowlist}"; then
-        echo "${dir}" >> "${allowlist}"
-        log "allowlist: added ${dir}"
-    else
-        log "allowlist: ${dir} already listed"
-    fi
-
-    if ! git config --file /opt/ai-tools/.gitconfig \
-            --get-all safe.directory 2>/dev/null | grep -qxF "${dir}"; then
-        git config --file /opt/ai-tools/.gitconfig \
-            --add safe.directory "${dir}"
-        log "git safe.directory: added ${dir}"
-    else
-        log "git safe.directory: ${dir} already listed"
-    fi
-}
-
 # ── install ────────────────────────────────────────────────────────────────────
 
 do_install() {
@@ -514,6 +496,38 @@ do_install() {
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-lockdown.sh" \
         /usr/local/sbin/ai-tools/ai-tools-lockdown
+
+    # Project-lifecycle CLI. Runs AS the projects user (never root, never ai-tools)
+    # and needs no privilege: it only edits allowed-projects and the git
+    # safe.directory list, both writable by the projects user. 755 root:root --
+    # world-executable (the in-script guard refuses to run as root or ai-tools),
+    # root-owned so the agent cannot tamper with it.
+    log "system: /usr/local/bin/ai-tools"
+    install_subst 755 root root \
+        "${SCRIPT_DIR}/src/usr/local/bin/ai-tools.sh" \
+        /usr/local/bin/ai-tools
+
+    # Sandbox project area. /var/opt is FHS-correct for variable data paired with an
+    # /opt install. Owned by the projects user, group SANDBOX_GROUP; the inner
+    # sandbox-projects dir is setgid (clones born group SANDBOX_GROUP) and
+    # group-writable (the agent works in the clones). The projects user is NOT in
+    # SANDBOX_GROUP -- setgid is what lets both share the clone files. Enforce
+    # ownership/mode on re-install even when the dirs pre-exist.
+    log "system: /var/opt/ai-tools/"
+    ensure_dir 2750 "${PROJECTS_USER}" "${SANDBOX_GROUP}" /var/opt/ai-tools
+    chown "${PROJECTS_USER}:${SANDBOX_GROUP}" /var/opt/ai-tools
+    chmod 2750 /var/opt/ai-tools
+    log "system: /var/opt/ai-tools/sandbox-projects/"
+    ensure_dir 2770 "${PROJECTS_USER}" "${SANDBOX_GROUP}" /var/opt/ai-tools/sandbox-projects
+    chown "${PROJECTS_USER}:${SANDBOX_GROUP}" /var/opt/ai-tools/sandbox-projects
+    chmod 2770 /var/opt/ai-tools/sandbox-projects
+
+    # Sandbox workflow doc. Shipped documentation (not user-edited config), so it is
+    # refreshed on every re-install. 640 PROJECTS_USER:SANDBOX_GROUP.
+    log "system: /var/opt/ai-tools/README.md"
+    install_subst 640 "${PROJECTS_USER}" "${SANDBOX_GROUP}" \
+        "${SCRIPT_DIR}/src/var/opt/ai-tools/README.md" \
+        /var/opt/ai-tools/README.md
 
     # Audit log for secret-named files the agent wrote (ai-tools-chown appends).
     # Create root:root 600 so the record of secret *filenames* is not world-read.
@@ -629,6 +643,15 @@ do_install() {
             "#" \
             "# Exclusions (!) override allows and are checked first." \
             "# Plain paths cover their contents automatically; no trailing /* needed." \
+            "#" \
+            "# Manage entries with the ai-tools CLI (run as the projects user) rather" \
+            "# than editing by hand:" \
+            "#   ai-tools --project-create <dir>   register a real project" \
+            "#   ai-tools --sandbox-create <dir>   shallow-clone a repo into the sandbox area" \
+            "#" \
+            "# For repos whose git history may hold secrets, prefer a sandboxed clone" \
+            "# under /var/opt/ai-tools/sandbox-projects/ so the agent never reads the" \
+            "# original history. See /var/opt/ai-tools/README.md." \
             "" > "${allowlist}"
         chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${allowlist}"
         chmod 600 "${allowlist}"
@@ -686,8 +709,10 @@ do_install() {
 
     printf 'Verify timer is scheduled:\n'
     printf '  systemctl --user list-timers nvm-update.timer\n\n'
-    printf 'For each additional project:\n'
-    printf '  sudo %s/install.sh add-project /path/to/project\n\n' "${SCRIPT_DIR}"
+    printf 'Register projects with the ai-tools CLI (run as %s, no sudo):\n' "${PROJECTS_USER}"
+    printf '  ai-tools --project-create /path/to/project    # a real project\n'
+    printf '  ai-tools --sandbox-create /path/to/repo       # an isolated shallow clone\n'
+    printf '  see /var/opt/ai-tools/README.md\n\n'
 }
 
 # ── uninstall ──────────────────────────────────────────────────────────────────
@@ -703,6 +728,7 @@ do_uninstall() {
     rm -f /usr/local/sbin/ai-tools/ai-tools-claude-symlink
     rm -f /usr/local/sbin/ai-tools/ai-tools-lockdown
     rmdir /usr/local/sbin/ai-tools 2>/dev/null || true
+    rm -f /usr/local/bin/ai-tools
     rm -f /usr/local/lib/ai-tools/secret-patterns.lib.sh
     rm -f /usr/local/lib/ai-tools/prune-dirs.lib.sh
     rmdir /usr/local/lib/ai-tools 2>/dev/null || true
@@ -763,6 +789,7 @@ do_uninstall() {
     log "done"
     printf '\nAlways preserved:\n'
     printf '  /opt/ai-tools/.nvm/    nvm and Node installation\n'
+    printf '  /var/opt/ai-tools/     sandbox project clones and README\n'
     printf '  ~/.config/ai-tools/    allowlist and user configuration (unless n above)\n'
     printf '  git safe.directory     project registration (unless n above)\n\n'
 }
@@ -776,14 +803,12 @@ case "${ACTION}" in
     uninstall)
         do_uninstall
         ;;
-    add-project)
-        add_project "${2:?usage: sudo $0 add-project <directory>}"
-        ;;
     check-perms)
         do_perms_check
         ;;
     *)
-        printf 'usage: sudo %s [install|uninstall|add-project <dir>|check-perms]\n' "$0" >&2
+        printf 'usage: sudo %s [install|uninstall|check-perms]\n' "$0" >&2
+        printf '       (register projects with the ai-tools CLI, not install.sh)\n' >&2
         exit 1
         ;;
 esac
