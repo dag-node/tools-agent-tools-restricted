@@ -320,10 +320,14 @@ do_install() {
     # --- System files (root-owned) ---
 
     # All ai-tools sudo-helpers live under one dir (parallels /usr/local/lib/ai-tools).
-    # `install` does not create parents, so make it first. bin_t by default (the
-    # /usr/local/sbin context); the helpers run IN ai_tools_t via sudo with no
-    # transition, so no entrypoint label is needed.
-    ensure_dir 755 root root /usr/local/sbin/ai-tools
+    # `install` does not create parents, so make it first. 750 root:root -- no world
+    # bit, preventing non-root users from listing the helper names. The helpers run in
+    # ai_tools_t via sudo with no domain transition; bin_t is the correct context for
+    # /usr/local/sbin. Enforce on re-install even when the dir pre-exists.
+    log "system: /usr/local/sbin/ai-tools/"
+    ensure_dir 750 root root /usr/local/sbin/ai-tools
+    chown root:root /usr/local/sbin/ai-tools
+    chmod 750 /usr/local/sbin/ai-tools
 
     log "system: /usr/local/sbin/ai-tools/ai-tools-chown"
     install_subst 750 root root \
