@@ -1,8 +1,8 @@
-# Claude Code on RHEL 9 — sandboxed `ai-tools` user + nvm auto-updater
+# Claude Code on RHEL 9 — sandboxed `SANDBOX_USER` account + nvm auto-updater
 
 Run Anthropic's **Claude Code as a dedicated, unprivileged system user
-(`ai-tools`)** on RHEL 9 instead of as your own login account, and keep Node.js
-and the `claude` CLI current automatically.
+(`SANDBOX_USER`, the account created as `ai-tools`)** on RHEL 9 instead of as your
+own login account, and keep Node.js and the `claude` CLI current automatically.
 
 ## Why
 
@@ -11,20 +11,21 @@ your own user it inherits everything you can touch — SSH keys, browser profile
 every project, your full sudo rights. This project gives the agent its own UID
 with a tightly scoped set of privileges instead:
 
-- **Separate identity** — `ai-tools` is a system account with no login shell and
-  no password. Claude executes under that UID via `sudo`, not as you.
+- **Separate identity** — `${SANDBOX_USER}` is a system account with no login shell
+  and no password. Claude executes under that UID via `sudo`, not as you.
 - **Launches only in approved projects** — a wrapper refuses to start Claude
   unless the working directory is listed in `~/.config/ai-tools/allowed-projects`
   (with `!` exclusions to carve out subdirectories or secrets).
-- **Minimal sudo surface** — `ai-tools` may run exactly one root command
-  (`ai-tools-chown`, which validates against the allowlist). You may run only
-  `claude` (and the pinned updater) as `ai-tools`. Nothing else.
+- **Minimal sudo surface** — `${SANDBOX_USER}` may run only three narrow root
+  helpers (`ai-tools-chown`, `ai-tools-setgid`, and `ai-tools-claude-symlink`, each
+  allowlist- or argument-validated). You may run only `claude` (and the pinned
+  updater) as `${SANDBOX_USER}`. Nothing else.
 - **Ownership hand-back** — files Claude writes are chowned back to
   `${PROJECTS_USER}:${SANDBOX_GROUP}` (group-readable, world-closed) inside approved paths only, along
   with any directories Claude created on the way (world bits stripped, group
   `rwx` kept; only dirs the agent itself made are touched). Secret-named files
   (`.env`, `*.key`, `*.pem`, SSH keys, `kubeconfig`, …) are chowned to
-  `${PROJECTS_USER}:${PROJECTS_GROUP} 600` instead, removing ai-tools' read access; a `NOTICE` is written to
+  `${PROJECTS_USER}:${PROJECTS_GROUP} 600` instead, removing `${SANDBOX_USER}`'s read access; a `NOTICE` is written to
   the session and an audit log.
 - **Auto-updating** — a systemd user timer keeps Node v22 and
   `@anthropic-ai/claude-code` current for both you and the sandbox user, pinned
@@ -32,7 +33,7 @@ with a tightly scoped set of privileges instead:
 
 > **On the boundary.** The allowlist gates where Claude *launches* and which
 > files get ownership restored — it is not a kernel-enforced read boundary. Once
-> running as `ai-tools`, ordinary Unix permissions govern access; that is what
+> running as `${SANDBOX_USER}`, ordinary Unix permissions govern access; that is what
 > actually isolates the agent from other users' files. A per-session
 > `bubblewrap` mount namespace to make the allowlist a true access boundary is
 > proposed but not yet implemented.
@@ -74,7 +75,7 @@ you type `claude`
        ├─ CWD ∈ allowed-projects?             refuse if not, or if !-excluded
        ├─ resolve /opt/ai-tools/bin/claude    (one readlink hop)
        └─ exec sudo -u "${SANDBOX_USER}" -- <versioned claude>
-            └─ claude runs as ai-tools
+            └─ claude runs as ${SANDBOX_USER}
                  └─ on Write/Edit → PostToolUse hook
                       └─ sudo ai-tools-chown <file>   (root; allowlist-checked)
                            └─ chown ${PROJECTS_USER}:${SANDBOX_GROUP}, strip world bits
@@ -113,7 +114,7 @@ _invoking_ user because the exec happens on `nosuid` storage.
 
 Installing nvm and claude under `/opt/ai-tools` (which has no `nosuid`
 restriction) fixes this: the UID switch via `sudo` works, and the binary is
-owned by `ai-tools` so the kernel is satisfied.
+owned by `${SANDBOX_USER}` so the kernel is satisfied.
 
 ---
 
@@ -159,7 +160,7 @@ early in login shell startup — before nvm runs. A second call at the end of
 path_dedup.sh is idempotent — sourcing it a second time in the same shell
 produces the same PATH, so the double call for login shells is safe.
 
-## 2. Create ai-tools OS user at /opt (root, once)
+## 2. Create the SANDBOX_USER OS account at /opt (root, once)
 
     sudo mkdir -p /opt/ai-tools
     sudo useradd \
@@ -175,7 +176,7 @@ produces the same PATH, so the double call for login shells is safe.
     # Lock password (system users have no password by default, but be explicit)
     sudo passwd -l "${SANDBOX_USER}"
 
-## 3. Install nvm + Node v22 + claude as ai-tools (root, once)
+## 3. Install nvm + Node v22 + claude as SANDBOX_USER (root, once)
 
     sudo -u "${SANDBOX_USER}" bash -c '
       export NVM_DIR=/opt/ai-tools/.nvm
@@ -232,7 +233,7 @@ for manual installation or RPM spec authoring.
 ## 4a. Install ai-tools scripts (root, once)
 
     # /opt/ai-tools/bin is locked: owned by ${PROJECTS_USER} (NOT ${SANDBOX_USER}), mode 550, so
-    # ai-tools can execute but never write it -- the agent cannot tamper with the
+    # ${SANDBOX_USER} can execute but never write it -- the agent cannot tamper with the
     # updater or swap the claude symlink. The symlink is created/repointed only by
     # the root helper below.
     sudo install -o "${PROJECTS_USER}" -g "${SANDBOX_GROUP}" -m 550 \
@@ -245,7 +246,7 @@ for manual installation or RPM spec authoring.
     sudo install -o root -g root -m 750 \
         src/usr/local/sbin/ai-tools/ai-tools-chown.sh /usr/local/sbin/ai-tools/ai-tools-chown
 
-    # Root helper: at session start, sets group ai-tools + setgid on the project's
+    # Root helper: at session start, sets group ${SANDBOX_GROUP} + setgid on the project's
     # dirs (allowlist-validated) so files you create inherit the shared group.
     sudo install -o root -g root -m 750 \
         src/usr/local/sbin/ai-tools/ai-tools-setgid.sh /usr/local/sbin/ai-tools/ai-tools-setgid
@@ -269,33 +270,33 @@ for manual installation or RPM spec authoring.
 The drop-in configures, beyond the basic NOPASSWD rules:
 
 - **`env_keep`** (scoped to `nvm-update.sh`) — passes `NVM_*` and
-  `AI_TOOLS_GLOBAL_TOOLS` through sudo so the ai-tools invocation of
+  `AI_TOOLS_GLOBAL_TOOLS` through sudo so the `${SANDBOX_USER}` invocation of
   `nvm-update.sh` sees the same values the systemd service resolved.
 - **`umask=0007`** (scoped to `claude`) — Claude Code creates files with
-  `660`/`770` instead of `600`/`700`, making both the projects user and `ai-tools`
-  natural co-writers on project files across sessions. World bits are still
-  stripped (`o=0`). A stricter `0027` would give group read-only after handback,
-  blocking the Edit tool's in-place patching on previously handed-back files.
-  Both Defaults use `Defaults!<command>` so they apply only to those commands,
-  not to every command the projects user runs via sudo.
-- **`ai-tools-chown` rule** — allows ai-tools to call
+  `660`/`770` instead of `600`/`700`, making both the projects user and
+  `${SANDBOX_USER}` natural co-writers on project files across sessions. World bits
+  are still stripped (`o=0`). A stricter `0027` would give group read-only after
+  handback, blocking the Edit tool's in-place patching on previously handed-back
+  files. Both Defaults use `Defaults!<command>` so they apply only to those
+  commands, not to every command the projects user runs via sudo.
+- **`ai-tools-chown` rule** — allows `${SANDBOX_USER}` to call
   `/usr/local/sbin/ai-tools/ai-tools-chown` as root. That script validates the target
   path against the approved-projects allowlist, and acts only on agent-written
-  (ai-tools-owned) paths, before running `chown ${PROJECTS_USER}:${SANDBOX_GROUP}`.
-- **`ai-tools-setgid` rule** — allows ai-tools to call
+  (`${SANDBOX_USER}`-owned) paths, before running `chown ${PROJECTS_USER}:${SANDBOX_GROUP}`.
+- **`ai-tools-setgid` rule** — allows `${SANDBOX_USER}` to call
   `/usr/local/sbin/ai-tools/ai-tools-setgid` as root (from the `SessionStart` hook). It
   re-validates the path against the allowlist, then sets group `${SANDBOX_GROUP}`
   and the setgid bit on the project's directories so files you create inherit the
   shared group — letting you stay a non-member of `${SANDBOX_GROUP}` (defense in
   depth) while the agent can still read/write project files.
-- **`ai-tools-claude-symlink` rule** — allows ai-tools to call
+- **`ai-tools-claude-symlink` rule** — allows `${SANDBOX_USER}` to call
   `/usr/local/sbin/ai-tools/ai-tools-claude-symlink` as root to repoint the stable
   `/opt/ai-tools/bin/claude` symlink. The helper validates its argument is a real
   versioned-claude path (its own check, not the sudoers glob) before acting. This
   is the only way the updater can touch the locked `bin` dir.
 
-Both `${PROJECTS_USER}` NOPASSWD rules *drop* privilege (run as the lower-privileged ai-tools);
-the agent runs as ai-tools and cannot invoke a `${PROJECTS_USER}` rule, so neither grants it
+Both `${PROJECTS_USER}` NOPASSWD rules *drop* privilege (run as the lower-privileged `${SANDBOX_USER}`);
+the agent runs as `${SANDBOX_USER}` and cannot invoke a `${PROJECTS_USER}` rule, so neither grants it
 anything new.
 
 ## 6a. Install wrapper and update script (normal user)
@@ -336,13 +337,13 @@ Requires `jq` for JSON parsing in the hook:
 
     sudo dnf install -y jq
 
-Install into ai-tools' Claude config directory. The directory holds both mutable
-agent state (sessions, history — ai-tools-owned) and the root-of-trust control
-files (the hook and its config). To stop the agent from rewriting its own
-guardrails, the control files are owned by the **projects user** (not ai-tools), and the
-directory itself is owned by the projects user with **setgid + sticky** (`3770`): ai-tools stays
-a group-writer for its own state but cannot unlink or replace files it does not
-own.
+Install into `${SANDBOX_USER}`'s Claude config directory. The directory holds both
+mutable agent state (sessions, history — `${SANDBOX_USER}`-owned) and the
+root-of-trust control files (the hook and its config). To stop the agent from
+rewriting its own guardrails, the control files are owned by the **projects user**
+(not `${SANDBOX_USER}`), and the directory itself is owned by the projects user with
+**setgid + sticky** (`3770`): `${SANDBOX_USER}` stays a group-writer for its own
+state but cannot unlink or replace files it does not own.
 
     sudo mkdir -p /opt/ai-tools/.claude
     sudo chown "${PROJECTS_USER}:${SANDBOX_GROUP}" /opt/ai-tools/.claude
@@ -355,8 +356,8 @@ own.
 ## 8a. Create the approved-projects allowlist (once)
 
 The allowlist controls where Claude Code is permitted to run and where the
-ownership-restoration hook is allowed to act. Owned `${PROJECTS_USER}:${PROJECTS_GROUP} 600` — ai-tools
-cannot read or modify it; root reads it inside `ai-tools-chown` on ai-tools'
+ownership-restoration hook is allowed to act. Owned `${PROJECTS_USER}:${PROJECTS_GROUP} 600` — `${SANDBOX_USER}`
+cannot read or modify it; root reads it inside `ai-tools-chown` on `${SANDBOX_USER}`'s
 behalf.
 
     mkdir -p ~/.config/ai-tools
@@ -379,7 +380,7 @@ behalf.
     !/path/to/AllowedProject/secrets
     !/path/to/Disallowed
 
-**Register with git** so ai-tools can run `git mv` and other git commands inside
+**Register with git** so `${SANDBOX_USER}` can run `git mv` and other git commands inside
 the project (git refuses to operate on repos owned by a different user):
 
     sudo git config --file /opt/ai-tools/.gitconfig --add safe.directory /path/to/project
@@ -404,24 +405,24 @@ files.
 
 ### Protecting secrets from unlink/replace
 
-`ai-tools-chown` chowns a secret-named file to `${PROJECTS_USER}:${PROJECTS_GROUP} 600`, removing ai-tools'
-**read** access. ai-tools is a group-writer on the project dir, not its owner,
+`ai-tools-chown` chowns a secret-named file to `${PROJECTS_USER}:${PROJECTS_GROUP} 600`, removing `${SANDBOX_USER}`'s
+**read** access. `${SANDBOX_USER}` is a group-writer on the project dir, not its owner,
 so it can still **unlink or replace** the path: directory write permission, not
 the file's mode, governs that. A replacement is itself agent-written and
 re-triggers the same handling; the audit log is root-owned.
 
-A project-wide sticky bit (`chmod +t`) does not apply: ai-tools is a
+A project-wide sticky bit (`chmod +t`) does not apply: `${SANDBOX_USER}` is a
 group-writer and handed-back files are owned by the projects user, so a sticky root would block
 the agent's atomic-rename re-edits. To prevent unlink/replace of a secret, place
 it in a directory the agent cannot write and `!`-exclude that directory:
 
     mkdir -p /path/to/project/secrets
-    chmod 700 /path/to/project/secrets        # ${PROJECTS_USER}:${PROJECTS_GROUP}, no ai-tools access
+    chmod 700 /path/to/project/secrets        # ${PROJECTS_USER}:${PROJECTS_GROUP}, no ${SANDBOX_USER} access
 
     # in ~/.config/ai-tools/allowed-projects:
     !/path/to/project/secrets
 
-`700 ${PROJECTS_USER}:${PROJECTS_GROUP}` removes ai-tools' search and write on the directory, so it cannot
+`700 ${PROJECTS_USER}:${PROJECTS_GROUP}` removes `${SANDBOX_USER}`'s search and write on the directory, so it cannot
 read, create, unlink, or replace anything inside; the `!` entry keeps
 `ai-tools-chown` off it if the mode later changes.
 
@@ -454,14 +455,14 @@ are pinned to the same Node version resolved by `src/home/user/.local/bin/nvm-up
     [Service]
     Environment="NVM_GLOBAL_TOOLS=npm typescript yarn grunt your-extra-tool"
 
-### ai-tools sandbox tools
+### SANDBOX_USER sandbox tools
 
     [Service]
     Environment="AI_TOOLS_GLOBAL_TOOLS=npm @anthropic-ai/claude-code other-ai-tool"
 
 Any package can go in `AI_TOOLS_GLOBAL_TOOLS` — not just `@anthropic-ai/*`.
 Add claude dependencies, additional AI SDKs, or any other tool that should
-run sandboxed as ai-tools rather than as the projects user.
+run sandboxed as `${SANDBOX_USER}` rather than as the projects user.
 
     systemctl --user daemon-reload
 
@@ -471,9 +472,9 @@ run sandboxed as ai-tools rather than as the projects user.
     systemctl --user start nvm-update.service
     journalctl --user -u nvm-update.service -f
 
-    # Confirm wrapper resolves and executes as ai-tools
+    # Confirm wrapper resolves and executes as ${SANDBOX_USER}
     which claude                     # -> ~/.local/bin/claude
-    claude --version                 # executes as ai-tools uid
+    claude --version                 # executes as ${SANDBOX_USER} uid
 
     # Confirm process uid at runtime
     ps -eo pid,user,cmd | grep claude
@@ -489,7 +490,7 @@ When nvm installs a new Node version under `/opt/ai-tools`:
   the new versioned path automatically.
 - `src/opt/ai-tools/bin/nvm-update.sh` repoints the `/opt/ai-tools/bin/claude` symlink
   at the new versioned binary via the root helper `ai-tools-claude-symlink`
-  (`bin` is locked `550`, so the ai-tools updater cannot write it directly; the
+  (`bin` is locked `550`, so the ${SANDBOX_USER} updater cannot write it directly; the
   helper validates the versioned path and is the only writer of that dir).
 - The wrapper resolves that symlink **one hop** via `readlink` before calling
   `sudo`, yielding the versioned `.../node/<ver>/bin/claude` path the sudoers
@@ -500,7 +501,7 @@ When nvm installs a new Node version under `/opt/ai-tools`:
 - Old Node versions are pruned in both nvm installs (any version not
   referenced by a named alias is removed).
 - `src/home/user/.local/bin/nvm-update.sh` resolves the latest version once, updates your `~/.nvm`,
-  then invokes `src/opt/ai-tools/bin/nvm-update.sh` as ai-tools via sudo with the pinned
+  then invokes `src/opt/ai-tools/bin/nvm-update.sh` as ${SANDBOX_USER} via sudo with the pinned
   version so both installs land on the same Node build.
 
 ## SELinux
@@ -514,7 +515,7 @@ label after creation. Fix:
 
     sudo restorecon -Rv /opt/ai-tools
 
-If the ai-tools home needs a custom label:
+If `${SANDBOX_USER}`'s home needs a custom label:
 
     sudo semanage fcontext -a -t usr_t '/opt/ai-tools(/.*)?'
     sudo restorecon -Rv /opt/ai-tools

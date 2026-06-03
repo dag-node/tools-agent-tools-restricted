@@ -1,1 +1,1 @@
-## <summary></summary>
+## <summary>Optional ai_tools policy group: systemd inspection (systemctl/journalctl exec, unit file reads, PID 1 D-Bus). Exports no interfaces.</summary>

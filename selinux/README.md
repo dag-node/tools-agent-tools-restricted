@@ -6,7 +6,7 @@ confines the agent to its own SELinux domain with a **path boundary**:
 
 | Type | Applied to | `ai_tools_t` may |
 |---|---|---|
-| `ai_tools_t` | the agent process (`claude.exe` as the ai-tools UID) | — |
+| `ai_tools_t` | the agent process (`claude.exe` as the `SANDBOX_USER` UID) | — |
 | `ai_tools_exec_t` | the versioned `claude.exe` launcher | entrypoint (drives the transition) |
 | `ai_tools_project_t` | approved project dirs (per allowlist) | read/write (incl. all git ops) |
 | `ai_tools_home_t` | `/opt/ai-tools/.claude` | read/write its own state |

@@ -41,6 +41,8 @@ run_chown() { setsid /usr/local/sbin/ai-tools/ai-tools-chown "$1" < /dev/null > 
 
 # ── File permission checks ────────────────────────────────────────────────────
 
+# check_file <path> <owner> <group> <mode>: PASS when the file's actual owner,
+# group, and octal mode all match; FAIL (with the mismatch) otherwise, or when absent.
 check_file() {
     local file="$1" exp_owner="$2" exp_group="$3" exp_mode="$4"
     if [[ ! -e "${file}" ]]; then

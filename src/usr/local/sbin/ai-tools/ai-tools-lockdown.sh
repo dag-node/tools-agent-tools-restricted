@@ -5,7 +5,7 @@
 # matches a secret pattern -- the SAME set ai-tools-chown uses, from the shared
 # library and config file -- applies:
 #       regular file -> 600        directory -> 700        owner -> <you>:ai-tools
-# so ai-tools, neither owner nor a permitted group member, can no longer read it.
+# so ai-tools, neither owner nor a permitted group member, cannot read it.
 #
 # Unlike ai-tools-chown (reactive: fires per agent-written path and acts only on
 # ai-tools-owned paths), this is a USER-run pre-flight sweep -- it also locks down

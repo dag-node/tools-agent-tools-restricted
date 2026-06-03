@@ -98,11 +98,16 @@ _greason() { printf '%s' "${1##*|}"; }
 # Build helpers
 ########################################
 
+# require_devel: exit with install guidance unless the refpolicy devel toolchain
+# (make + /usr/share/selinux/devel/Makefile from selinux-policy-devel) is present.
 require_devel() {
     command -v make >/dev/null && [[ -f /usr/share/selinux/devel/Makefile ]] \
         || { log "missing selinux-policy-devel (sudo dnf install selinux-policy-devel)" >&2; exit 1; }
 }
 
+# build_pp <module.pp>: compile the named policy module from its .te/.fc source via
+# the refpolicy Makefile, then restore the .fc stub's ownership to the repo owner
+# (the Makefile creates it as root).
 build_pp() {
     local pp="$1"
     require_devel
@@ -117,10 +122,13 @@ build_pp() {
         || true
 }
 
+# is_group_loaded <name>: return 0 if the optional policy group ai_tools_<name> is
+# currently loaded in the kernel (semodule -l).
 is_group_loaded() {
     semodule -l 2>/dev/null | grep -q "^ai_tools_${1}[[:space:]]"
 }
 
+# valid_group <name>: return 0 if <name> is a known group in POLICY_GROUPS.
 valid_group() {
     local name="$1" entry
     for entry in "${POLICY_GROUPS[@]}"; do
@@ -176,6 +184,10 @@ prompt_groups() {
 # Label helpers
 ########################################
 
+# verify_entrypoint: relabel the claude.exe entrypoint under the nvm tree and
+# confirm it carries ai_tools_exec_t. Logs a WARNING for any entrypoint that does
+# not -- without that label the unconfined_t -> ai_tools_t transition never fires
+# and claude runs unconfined.
 verify_entrypoint() {
     local exe ctx found=0
     for exe in /opt/ai-tools/.nvm/versions/node/*/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe; do
@@ -198,6 +210,9 @@ verify_entrypoint() {
     log "          confirm with:  ps -eo label,cmd | grep '[c]laude'  (expect ai_tools_t)"
 }
 
+# for_each_project <fn>: call <fn> once with each allowlisted project directory,
+# skipping blank/comment/'!'-exclusion lines and sandbox clones (labelled
+# statically by ai_tools.fc). No-op when the allowlist is absent.
 for_each_project() {
     local fn="$1" entry dir
     [[ -f "${ALLOWLIST}" ]] || return 0

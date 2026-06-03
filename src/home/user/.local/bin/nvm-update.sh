@@ -19,12 +19,9 @@ die()  { echo "error: $*" >&2; exit 1; }
 
 require_cmd() { command -v "$1" &>/dev/null || die "Required command not found: $1"; }
 
-# ---------------------------------------------------------------------------
-# prune_versions: uninstall every installed Node version not referenced by a
-# named nvm alias; the alias-tracked version is always kept. Logs what it
-# removed and kept.
+# prune_versions: uninstall every installed Node version not referenced by a named
+# nvm alias; the alias-tracked version is always kept. Logs what it removed and kept.
 # args:  nvm alias to track
-# ---------------------------------------------------------------------------
 prune_versions() {
     local node_alias="$1" nvm_dir="${NVM_DIR:-${HOME}/.nvm}"
     local active_version ver aliased
@@ -55,12 +52,10 @@ prune_versions() {
     fi
 }
 
-# ---------------------------------------------------------------------------
 # install_packages: install each package missing from the active nvm context, or
 # update it if already present globally. A failed package warns and is skipped,
 # never aborting the run.
 # args:  package names
-# ---------------------------------------------------------------------------
 install_packages() {
     local pkg
     for pkg in "$@"; do
@@ -74,11 +69,9 @@ install_packages() {
     done
 }
 
-# ---------------------------------------------------------------------------
 # main: resolve the latest LTS Node in the vMAJOR series once, upgrade the user's
 # nvm install and global tools to it, prune superseded versions, then delegate the
 # sandbox update to ai-tools at that same resolved version so both stay in sync.
-# ---------------------------------------------------------------------------
 main() {
     local node_alias="${NVM_NODE_ALIAS:-default}"
     local major="${NVM_NODE_MAJOR:-22}"

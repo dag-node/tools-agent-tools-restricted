@@ -6,8 +6,8 @@
 #   sudo ./install.sh uninstall            remove deployed files, disable timer
 #   sudo ./install.sh check-perms          verify installed file permissions (also runs after install)
 #
-# Project registration moved out of install.sh into the `ai-tools` CLI
-# (/usr/local/bin/ai-tools), run as the projects user:
+# Project registration lives in the `ai-tools` CLI (/usr/local/bin/ai-tools), run
+# as the projects user, not in install.sh:
 #   ai-tools --project-create <dir>        register a real project
 #   ai-tools --sandbox-create <dir>        shallow-clone a repo into the sandbox area
 #
@@ -448,6 +448,10 @@ do_perms_check() {
 
 # ── install ────────────────────────────────────────────────────────────────────
 
+# Deploy every sandbox file with its intended owner and mode (root helpers, libs,
+# hooks, the wrapper, the CLI, systemd units), seed user config without clobbering
+# edits, bootstrap the claude symlink, enable the nvm-update timer, restore SELinux
+# contexts, and finish by running do_perms_check. Aborts if the sandbox user is absent.
 do_install() {
     id "${SANDBOX_USER}" &>/dev/null \
         || die "${SANDBOX_USER} user not found -- create it first (README step 2)"
@@ -741,6 +745,9 @@ do_install() {
 
 # ── uninstall ──────────────────────────────────────────────────────────────────
 
+# Disable the nvm-update timer and remove every deployed system, control-plane, and
+# user file. Leaves user-owned config (allowed-projects, secret-patterns) and the
+# ai-tools account itself in place; allowlist pruning is offered interactively.
 do_uninstall() {
     printf '\n%sUninstalling the ai-tools Claude Code sandbox%s\n' "${C_BOLD}" "${C_RST}"
 

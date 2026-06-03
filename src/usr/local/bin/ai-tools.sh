@@ -96,12 +96,15 @@ ask() {
 }
 
 # ── Path helpers ─────────────────────────────────────────────────────────────────
+
+# resolve_dir <path>  -- canonicalize <path> (realpath -e) to stdout; die if absent.
 resolve_dir() {
     local p
     p="$(realpath -e "$1" 2>/dev/null)" || die "path not found: $1"
     printf '%s' "${p}"
 }
 
+# require_sandbox <path>  -- die unless <path> lies under SANDBOX_ROOT.
 require_sandbox() {
     case "$1/" in
         "${SANDBOX_ROOT}"/*) ;;
@@ -273,6 +276,8 @@ clear_lockdown_guard() {
 
 # ── Commands ─────────────────────────────────────────────────────────────────────
 
+# cmd_project_create [path]  -- register a real project (default: cwd) in
+# allowed-projects and git safe.directory, after confirmation.
 cmd_project_create() {
     local d; d="$(resolve_dir "${1:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
@@ -285,6 +290,8 @@ cmd_project_create() {
     ok "registered ${d}"
 }
 
+# cmd_project_remove [path]  -- unregister a real project (default: cwd) from both
+# registries; the directory itself is left on disk.
 cmd_project_remove() {
     local d; d="$(resolve_dir "${1:-$PWD}")"
     section "Unregister project"
@@ -296,6 +303,10 @@ cmd_project_remove() {
     ok "unregistered ${d}"
 }
 
+# cmd_sandbox_create [path]  -- create or reuse the per-repo branch
+# ai-tools/sandbox-<user>/<leaf>, shallow-clone it into SANDBOX_ROOT, normalize and
+# relabel the clone for agent access, register it, then lock down tip-commit secrets
+# (or drop a guard CLAUDE.md when lockdown is skipped).
 cmd_sandbox_create() {
     local src; src="$(resolve_dir "${1:-$PWD}")"
     git -C "${src}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
@@ -410,6 +421,8 @@ cmd_sandbox_create() {
     ${locked} || say "  ${C_YEL}secrets${C_RST}        : NOT locked down -- run ${C_BOLD}ai-tools --lockdown ${dst}${C_RST}"
 }
 
+# cmd_sandbox_push [path]  -- push the sandbox clone's commits ahead of its upstream
+# branch, after listing them and confirming. No-op when already up to date.
 cmd_sandbox_push() {
     local d; d="$(resolve_dir "${1:-$PWD}")"
     require_sandbox "${d}"
@@ -434,6 +447,8 @@ cmd_sandbox_push() {
     ok "pushed ${n} commit(s) to ${up}"
 }
 
+# cmd_sandbox_remove [path]  -- delete a sandbox clone and unregister it, warning
+# first about any unpushed commits. The remote branch is left intact.
 cmd_sandbox_remove() {
     local d; d="$(resolve_dir "${1:-$PWD}")"
     require_sandbox "${d}"
@@ -458,6 +473,9 @@ cmd_sandbox_remove() {
     say "  ${C_DIM}remote branch left intact -- others may still merge it${C_RST}"
 }
 
+# cmd_lockdown [path] [-n|-y]  -- run ai-tools-lockdown (via sudo) on the project to
+# revoke ai-tools' read access to secret files; clears any guard CLAUDE.md on a real
+# (non-dry-run) success. -n/--dry-run and -y/--yes pass through to the helper.
 cmd_lockdown() {
     local d="" a dry=false; local -a passthru=()
     for a in "$@"; do
@@ -485,6 +503,8 @@ cmd_lockdown() {
     fi
 }
 
+# cmd_list  -- print each allowlist entry as project, sandbox, or exclude, with its
+# git safe.directory status.
 cmd_list() {
     [[ -f "${ALLOWLIST}" ]] || { say "no allowlist at ${ALLOWLIST}"; return 0; }
     section "Registered projects"

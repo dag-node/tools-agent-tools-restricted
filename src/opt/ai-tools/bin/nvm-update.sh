@@ -20,12 +20,10 @@ log()  { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p info;    echo "I
 warn() { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p warning; echo "WARN : $*" >&2; }
 die()  { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p err;     echo "ERROR: $*" >&2; exit 1; }
 
-# ---------------------------------------------------------------------------
-# prune_versions: uninstall every installed Node version not referenced by a
-# named nvm alias; the alias-tracked version is always kept. Logs each removal
-# and retention to the journal.
+# prune_versions: uninstall every installed Node version not referenced by a named
+# nvm alias; the alias-tracked version is always kept. Logs each removal and
+# retention to the journal.
 # args:  nvm alias to track
-# ---------------------------------------------------------------------------
 prune_versions() {
     local node_alias="$1" nvm_dir="${HOME}/.nvm"
     local active_version ver aliased
@@ -52,12 +50,10 @@ prune_versions() {
     done
 }
 
-# ---------------------------------------------------------------------------
 # install_packages: install each package missing from the active nvm context, or
 # update it if already present globally. A failed package warns and is skipped,
 # never aborting the run.
 # args:  package names
-# ---------------------------------------------------------------------------
 install_packages() {
     local pkg
     for pkg in "$@"; do
@@ -71,12 +67,10 @@ install_packages() {
     done
 }
 
-# ---------------------------------------------------------------------------
-# main: install the target Node version under /opt/ai-tools if not already
-# active, refresh the sandbox global tools, prune superseded versions, and
-# repoint the stable /opt/ai-tools/bin/claude symlink at the versioned binary.
+# main: install the target Node version under /opt/ai-tools if not already active,
+# refresh the sandbox global tools, prune superseded versions, and repoint the
+# stable /opt/ai-tools/bin/claude symlink at the versioned binary.
 # args:  target Node version (e.g. v22.15.0)
-# ---------------------------------------------------------------------------
 main() {
     local target_version="${1:-}"
     [[ -n "${target_version}" ]] \
