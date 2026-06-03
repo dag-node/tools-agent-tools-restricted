@@ -233,7 +233,8 @@ toolchain must read (`*.deps.json`, `*.runtimeconfig.json`,
 `ai-tools-chown` is reactive: it fires per agent-written path and acts only on
 `ai-tools`-owned paths, so it never touches a pre-existing user-owned secret the
 agent could already read (the allowlist is not a read boundary). `ai-tools-lockdown`
-(`/usr/local/sbin/ai-tools/ai-tools-lockdown`, run `cd <project> && sudo ai-tools-lockdown`)
+(`/usr/local/sbin/ai-tools/ai-tools-lockdown`, run `ai-tools --lockdown <project>`
+or `cd <project> && sudo ai-tools-lockdown`)
 is the proactive counterpart: it walks the current directory and, for every path
 matching the shared secret patterns, sets regular files `600`, directories `700`,
 and owner `<you>:ai-tools` — revoking ai-tools' read regardless of who created
@@ -242,7 +243,21 @@ paths, reusing the same allowlist parse, and applies each change through a pinne
 fd (re-verifying inode and type) so an ai-tools path swap cannot redirect root's
 chmod/chown. `--dry-run` previews; `--yes` skips the TTY confirmation. It is a
 user tool: there is **no** sudoers grant letting ai-tools run it, and it refuses
-to run as `ai-tools`.
+to run as `ai-tools`. The `ai-tools` CLI wraps it as `ai-tools --lockdown [path]`
+(it `cd`s into the project and `sudo`s the helper, so sudo prompts for the
+projects user's password; `-n`/`--dry-run` and `-y`/`--yes` pass through). The
+CLI never pre-checks the helper's path: `/usr/local/sbin/ai-tools` is `750
+root:root`, so the projects user cannot stat the helper — only `sudo`, as root,
+can reach it.
+
+`ai-tools --sandbox-create` invokes this lockdown directly after a shallow clone,
+since the clone's tip commit may still hold credential files. If the user declines
+or `sudo` is unavailable, the CLI instead drops a guard `CLAUDE.md` into the clone
+instructing the agent to do nothing until lockdown runs (any existing `CLAUDE.md`
+is preserved via `git mv` to `CLAUDE.md.bak`); a later successful `ai-tools
+--lockdown` removes the guard and restores the original. The guard carries a
+sentinel comment (`ai-tools-lockdown-guard`) so the CLI recognizes its own
+placeholder and never clobbers a real `CLAUDE.md`.
 
 ### `loginctl enable-linger`
 Without this, the user systemd instance exits on logout and the daily timer

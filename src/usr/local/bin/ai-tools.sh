@@ -33,6 +33,12 @@ readonly SANDBOX_USER="@SANDBOX_USER@"
 readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
 readonly GITCONFIG="/opt/ai-tools/.gitconfig"
 readonly SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
+# Root-only secret lockdown helper. Invoked via sudo (NO NOPASSWD grant exists for
+# it -- by design), so sudo prompts for the projects user's password.
+readonly LOCKDOWN_BIN="/usr/local/sbin/ai-tools/ai-tools-lockdown"
+# Sentinel in a guard CLAUDE.md (see drop_lockdown_guard) so the lockdown step can
+# recognise and remove its own placeholder once secrets are secured.
+readonly GUARD_MARKER="ai-tools-lockdown-guard"
 
 # ── Invoker guards ───────────────────────────────────────────────────────────────
 # This is a user tool. It must run as the projects user: never as root (it would
@@ -184,6 +190,87 @@ relabel_clone() {
     fi
 }
 
+# ── Lockdown helpers ───────────────────────────────────────────────────────────
+# ai-tools-lockdown revokes ai-tools' read access to secret-named files under a
+# project. It is root-only and reads its target from the working directory, so we
+# cd there and sudo it; there is no NOPASSWD grant, so sudo prompts for a password.
+
+# run_lockdown <dir> [extra-args...]  -- run the helper on <dir>; returns its status.
+run_lockdown() {
+    local d="$1"; shift
+    ( cd "${d}" && sudo "${LOCKDOWN_BIN}" "$@" )
+}
+
+# print_manual_lockdown <dir>  -- tell the user how to lock down <dir> by hand when
+# it was not done automatically (sudo missing, declined, or failed).
+print_manual_lockdown() {
+    local d="$1"
+    warn "secrets under this clone are NOT locked down yet"
+    say  "    secure it before running the agent (you will be asked for your password):"
+    say  "      ${C_BOLD}ai-tools --lockdown ${d}${C_RST}"
+    say  "    or directly:"
+    say  "      ${C_BOLD}cd ${d} && sudo ai-tools-lockdown${C_RST}"
+}
+
+# drop_lockdown_guard <dir>  -- write a placeholder CLAUDE.md telling the agent to
+# do nothing until lockdown runs, used when a fresh sandbox clone's tip-commit
+# secrets are still readable. An existing CLAUDE.md is preserved as CLAUDE.md.bak
+# (via git mv, falling back to a plain mv) and restored by clear_lockdown_guard.
+drop_lockdown_guard() {
+    local d="$1"; local md="${d}/CLAUDE.md"
+    if [[ -f "${md}" ]] && grep -q "${GUARD_MARKER}" "${md}" 2>/dev/null; then
+        return 0                                   # already guarded (re-run)
+    fi
+    if [[ -e "${md}" ]]; then
+        if [[ -e "${d}/CLAUDE.md.bak" ]]; then
+            warn "CLAUDE.md.bak already exists in ${d}; not overwriting -- guard skipped"
+            return 0
+        fi
+        git -C "${d}" mv CLAUDE.md CLAUDE.md.bak 2>/dev/null \
+            || mv "${md}" "${d}/CLAUDE.md.bak"
+        say "    preserved existing CLAUDE.md as CLAUDE.md.bak"
+    fi
+    cat > "${md}" <<EOF
+<!-- ${GUARD_MARKER} -->
+# STOP — this sandbox is not secured yet
+
+\`ai-tools-lockdown\` has **not** been run on this shallow clone, so credential
+files in its tip commit (\`.env\`, \`appsettings.*.json\`, \`*.key\`, …) may still be
+readable by the agent.
+
+Until lockdown is performed:
+
+- **Do not read, open, copy, or transmit any file in this project.**
+- **Do not run any command.**
+- Ask the operator to secure it first by running, as the projects user:
+
+      ai-tools --lockdown ${d}
+
+Only paths approved in the operator's \`allowed-projects\` allowlist are ever in
+scope, and only after lockdown has revoked the agent's read access to secrets.
+
+This file is a temporary guard. It is removed automatically once lockdown runs,
+and any original CLAUDE.md is restored from CLAUDE.md.bak.
+EOF
+    ok "wrote a guard CLAUDE.md (agent told to wait for lockdown)"
+}
+
+# clear_lockdown_guard <dir>  -- remove a guard CLAUDE.md and restore any
+# CLAUDE.md.bak it set aside. No-op unless the guard sentinel is present. Called
+# after a successful (non-dry-run) lockdown.
+clear_lockdown_guard() {
+    local d="$1"; local md="${d}/CLAUDE.md"
+    [[ -f "${md}" ]] || return 0
+    grep -q "${GUARD_MARKER}" "${md}" 2>/dev/null || return 0
+    rm -f "${md}"
+    if [[ -e "${d}/CLAUDE.md.bak" ]]; then
+        git -C "${d}" mv CLAUDE.md.bak CLAUDE.md 2>/dev/null \
+            || mv "${d}/CLAUDE.md.bak" "${md}"
+        say "    restored original CLAUDE.md from CLAUDE.md.bak"
+    fi
+    ok "removed the lockdown guard from ${d}"
+}
+
 # ── Commands ─────────────────────────────────────────────────────────────────────
 
 cmd_project_create() {
@@ -289,12 +376,38 @@ cmd_sandbox_create() {
     reg_safedir "${dst}"
     ok "registered ${dst}"
 
+    # A shallow clone drops the history but keeps the tip commit, which may carry
+    # checked-in credential files the agent could read. Lock them down now; if we
+    # cannot (no sudo, declined, or it failed), drop a guard CLAUDE.md so the agent
+    # does nothing until the user runs lockdown by hand.
+    section "Secure tip-commit secrets"
+    say "  The tip commit may contain credential files (${C_DIM}appsettings.json, .env, *.key${C_RST})"
+    say "  the agent could read. Lock them down before running the agent."
+
+    local locked=false
+    if ! command -v sudo >/dev/null 2>&1; then
+        warn "sudo not found -- cannot lock down automatically"
+        drop_lockdown_guard "${dst}"
+        print_manual_lockdown "${dst}"
+    elif confirm "Run lockdown now (sudo will prompt for your password)?" y; then
+        if run_lockdown "${dst}"; then
+            locked=true
+            ok "secrets locked down in ${dst}"
+        else
+            warn "lockdown did not complete"
+            drop_lockdown_guard "${dst}"
+            print_manual_lockdown "${dst}"
+        fi
+    else
+        drop_lockdown_guard "${dst}"
+        print_manual_lockdown "${dst}"
+    fi
+
     section "Next"
-    say "  run the agent  : cd ${dst} && claude"
-    say "  push its work  : ai-tools --sandbox-push ${dst}"
+    say "  run the agent  : ${C_BOLD}cd ${dst} && claude${C_RST}"
+    say "  push its work  : ${C_BOLD}ai-tools --sandbox-push ${dst}${C_RST}"
     say "  ${C_YEL}shallow${C_RST}        : push-only -- never git pull/fetch here, or you pull the full history"
-    say "  ${C_YEL}live secrets${C_RST}   : still protect tip-commit secrets -- !-exclude them or run"
-    say "                   'cd ${dst} && sudo ai-tools-lockdown'"
+    ${locked} || say "  ${C_YEL}secrets${C_RST}        : NOT locked down -- run ${C_BOLD}ai-tools --lockdown ${dst}${C_RST}"
 }
 
 cmd_sandbox_push() {
@@ -345,6 +458,33 @@ cmd_sandbox_remove() {
     say "  ${C_DIM}remote branch left intact -- others may still merge it${C_RST}"
 }
 
+cmd_lockdown() {
+    local d="" a dry=false; local -a passthru=()
+    for a in "$@"; do
+        case "${a}" in
+            -n|--dry-run) passthru+=("${a}"); dry=true ;;
+            -y|--yes)     passthru+=("${a}") ;;
+            -*)           die "unknown --lockdown option: ${a} (allowed: --dry-run, --yes)" ;;
+            *)            [[ -z "${d}" ]] && d="${a}" || die "--lockdown takes a single path" ;;
+        esac
+    done
+    d="$(resolve_dir "${d:-$PWD}")"
+    [[ -d "${d}" ]] || die "not a directory: ${d}"
+    # No readable-path pre-check: /usr/local/sbin/ai-tools is 750 root:root, so the
+    # projects user cannot even stat the helper -- only sudo (as root) can reach it.
+    # If it is genuinely missing, sudo reports it and run_lockdown returns non-zero.
+    section "Lock down project secrets"
+    say "  ${d}"
+    say "  ${C_DIM}secret-matching files -> 600, dirs -> 700, owner ${ME}:${SANDBOX_GROUP}${C_RST}"
+    warn "this needs root; sudo will prompt for your password"
+    if run_lockdown "${d}" "${passthru[@]}"; then
+        ${dry} || clear_lockdown_guard "${d}"
+        ok "lockdown done: ${d}"
+    else
+        die "lockdown failed for ${d}"
+    fi
+}
+
 cmd_list() {
     [[ -f "${ALLOWLIST}" ]] || { say "no allowlist at ${ALLOWLIST}"; return 0; }
     section "Registered projects"
@@ -380,8 +520,11 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
   ai-tools --sandbox-create [path]   shallow-clone a repo into the sandbox area
   ai-tools --sandbox-push   [path]   push the sandbox clone's commits to its branch
   ai-tools --sandbox-remove [path]   remove a sandbox clone and unregister it
+  ai-tools --lockdown [path] [-n|-y] lock down secret files (sudo; default: cwd)
   ai-tools --list                    list registered projects
   ai-tools --help
+
+  --lockdown options: -n/--dry-run (preview only), -y/--yes (skip confirmation)
 
 Sandbox workflow: /var/opt/ai-tools/README.md
 EOF
@@ -394,6 +537,7 @@ case "${1:-}" in
     --sandbox-create) shift; cmd_sandbox_create "${1:-}" ;;
     --sandbox-push)   shift; cmd_sandbox_push   "${1:-}" ;;
     --sandbox-remove) shift; cmd_sandbox_remove "${1:-}" ;;
+    --lockdown)       shift; cmd_lockdown "$@" ;;
     --list)           cmd_list ;;
     --help|-h|"")     usage ;;
     *) printf 'ai-tools: unknown command: %s\n\n' "$1" >&2; usage >&2; exit 1 ;;

@@ -57,8 +57,15 @@ protections apply and you should still use them as defense in depth:
 - `!`-exclude live secret paths for this clone in
   `~/.config/ai-tools/allowed-projects`, so their ownership is never handed back to
   the agent group; and
-- run `cd <clone> && sudo ai-tools-lockdown` to lock existing secret-named files
-  (`.env`, `*.key`, …) to `<you>:<you> 600` before the agent runs.
+- run `ai-tools --lockdown <clone>` (or `cd <clone> && sudo ai-tools-lockdown`) to
+  lock existing secret-named files (`.env`, `*.key`, …) to `<you>:<you> 600` before
+  the agent runs. Either form prompts for your sudo password.
+
+`ai-tools --sandbox-create` offers to run this lockdown immediately after the
+clone. If you decline, or `sudo` is unavailable, it instead writes a guard
+`CLAUDE.md` into the clone telling the agent to do nothing until lockdown runs
+(any existing `CLAUDE.md` is preserved as `CLAUDE.md.bak`); the guard is removed
+and the original restored automatically once `ai-tools --lockdown` completes.
 
 A shallow clone is not a substitute for keeping the agent away from live secrets —
 it only keeps *past* ones out.
