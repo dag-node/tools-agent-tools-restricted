@@ -47,6 +47,16 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/ai-tools/.claude/session-hook.sh session-end"
+          }
+        ]
+      }
     ]
   }
 }
