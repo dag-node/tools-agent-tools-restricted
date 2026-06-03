@@ -47,17 +47,30 @@ warn() { printf 'install: warn: %s\n' "$*" >&2; }
 die()  { printf 'install: error: %s\n' "$*" >&2; exit 1; }
 
 # Decide what to do with an existing user config file. Interactive: ask whether
-# to keep it (default) or overwrite with the shipped default. Non-interactive:
+# to keep it (default) or overwrite. When warn is non-empty a second confirmation
+# is required before overwriting (use for destructive cases). Non-interactive:
 # always keep, so an unattended re-install never clobbers user edits. Returns 0
 # to KEEP the existing file, 1 to (re)write it.
+# $1 path      file to check
+# $2 overwrite short label for the "n =" branch (default: "overwrite with shipped default")
+# $3 warn      if non-empty, printed before a second prompt; overwrite is cancelled
+#              unless the user explicitly types y/Y
 keep_existing() {
-    local path="$1" resp
+    local path="$1" overwrite="${2:-overwrite with shipped default}" warn="${3:-}" resp confirm
     [[ -f "${path}" ]] || return 1            # absent: caller writes a fresh copy
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
-        printf '%s already exists. Keep it? (Enter = keep, n = overwrite with default) [Y/n] ' \
-            "${path}" > /dev/tty
+        printf '%s already exists. Keep it? (Enter = keep, n = %s) [Y/n] ' \
+            "${path}" "${overwrite}" > /dev/tty
         read -r resp < /dev/tty
-        [[ "${resp}" =~ ^[nN] ]] && return 1
+        if [[ "${resp}" =~ ^[nN] ]]; then
+            if [[ -n "${warn}" ]]; then
+                printf 'WARNING: %s\nConfirm overwrite? (y = overwrite, Enter/n = cancel) [y/N] ' \
+                    "${warn}" > /dev/tty
+                read -r confirm < /dev/tty
+                [[ "${confirm}" =~ ^[yY] ]] || return 0   # cancelled: keep
+            fi
+            return 1
+        fi
     fi
     return 0                                   # non-interactive or Enter: keep
 }
@@ -443,14 +456,16 @@ do_install() {
 
     # --- Allowlist (create with format header if absent; keep on re-install) ---
     #
-    # An existing allowlist holds the user's approved projects, so a re-install
-    # keeps it by default and only rewrites the format header on explicit consent
-    # (see keep_existing). The current project is registered separately, by the
-    # idempotent add_project below, whether the file is kept or rewritten.
+    # An existing allowlist holds the user's approved projects. A re-install keeps
+    # it by default; overwriting removes all approved projects (destructive), so
+    # keep_existing requires an explicit second confirmation before doing so.
+    # The current project is then re-registered by add_project below regardless.
 
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/ai-tools"
     local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
-    if keep_existing "${allowlist}"; then
+    if keep_existing "${allowlist}" \
+            "clear all approved projects" \
+            "all entries will be removed from the allowlist (project directories themselves are untouched)"; then
         log "config: keeping existing ${allowlist}"
     else
         log "config: writing ${allowlist}"
