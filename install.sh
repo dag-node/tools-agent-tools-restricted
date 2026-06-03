@@ -604,14 +604,18 @@ do_install() {
     # An existing allowlist holds the user's approved projects. A re-install keeps
     # it by default; overwriting removes all approved projects (destructive), so
     # keep_existing requires an explicit second confirmation before doing so.
-    # The current project is then re-registered by add_project below regardless.
+    # The install dir is never added: it is a control-plane repo and registering it
+    # would let the sandbox modify future installs undetected.
 
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/ai-tools"
     local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
+    local allowlist_existed=0; [[ -f "${allowlist}" ]] && allowlist_existed=1
+    local allowlist_action
     if keep_existing "${allowlist}" \
             "clear all approved projects" \
             "all entries will be removed from the allowlist (project directories themselves are untouched)"; then
         log "config: keeping existing ${allowlist}"
+        allowlist_action="kept existing"
     else
         log "config: writing ${allowlist}"
         printf '%s\n' \
@@ -628,6 +632,15 @@ do_install() {
             "" > "${allowlist}"
         chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${allowlist}"
         chmod 600 "${allowlist}"
+        (( allowlist_existed )) \
+            && allowlist_action="cleared (all entries removed)" \
+            || allowlist_action="created fresh"
+    fi
+    # Remove the install dir if a previous install added it.
+    if grep -qxF "${SCRIPT_DIR}" "${allowlist}" 2>/dev/null; then
+        local _esc; _esc="$(printf '%s' "${SCRIPT_DIR}" | sed 's/[\\|]/\\&/g')"
+        sed -i "\|^${_esc}$|d" "${allowlist}"
+        log "config: removed install dir from allowlist: ${SCRIPT_DIR}"
     fi
 
     # Secret-name patterns: user-owned 600 (ai-tools can neither read nor write it;
@@ -637,16 +650,23 @@ do_install() {
     # if it is removed they fall back to the built-in defaults baked into the
     # shared library.
     local patternfile="${PROJECTS_HOME}/.config/ai-tools/secret-patterns"
+    local secret_existed=0; [[ -f "${patternfile}" ]] && secret_existed=1
+    local secret_action
     if keep_existing "${patternfile}"; then
         log "config: keeping existing ${patternfile}"
+        secret_action="kept existing"
     else
         log "config: writing ${patternfile}"
         install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 600 \
             "${SCRIPT_DIR}/src/home/user/.config/ai-tools/secret-patterns" "${patternfile}"
+        (( secret_existed )) \
+            && secret_action="reseeded from shipped default" \
+            || secret_action="created fresh"
     fi
 
-    # Register this project in allowlist + git safe.directory
-    add_project "${SCRIPT_DIR}"
+    printf '\nConfig decisions:\n'
+    printf '  allowed-projects : %s\n' "${allowlist_action}"
+    printf '  secret-patterns  : %s\n\n' "${secret_action}"
 
     # --- Systemd ---
 
