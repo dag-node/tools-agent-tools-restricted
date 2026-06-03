@@ -67,6 +67,37 @@ only in filesystem paths (`/opt/ai-tools`, `~/.config/ai-tools`), SELinux types
    agent wrote them) and `ai-tools-chown` re-validates each against the allowlist,
    so it reclaims agent files to `<you>:SANDBOX_GROUP` but never claims a user-owned
    file.
+
+   Every unbounded pass also performs a **`.git` reclaim**, which the bounded Stop
+   sweeps cannot. Every sweep prunes `.git` (a heavy tree), so `SANDBOX_USER`-owned
+   objects the agent writes there via `git commit` (a `Bash`-tool action — no
+   `file_path`, so no `Write`/`Edit` `PostToolUse` handback) escape the sweep on
+   graceful and killed exits alike. Such objects leave `.git` in mixed ownership
+   (work tree `<you>`-owned, `.git` internals `SANDBOX_USER`-owned) that makes git
+   report *dubious ownership* and, once `<you>` is not a `SANDBOX_GROUP` member,
+   blocks reads and repacks. The pass therefore descends the otherwise-pruned `.git`
+   of `.cwd` and hands each `SANDBOX_USER`-owned path to `ai-tools-chown` (same
+   allowlist + exclusion + secret re-validation as any sweep), restoring a uniformly
+   `<you>:SANDBOX_GROUP` repo. The other pruned trees (`node_modules`, `.venv`, …)
+   stay skipped: their contents are world-readable, so leftover `SANDBOX_USER`
+   ownership there is harmless and not worth the per-path cost. The reclaim is scoped
+   to the once-per-session `session-start` pass, not the per-turn Stop sweep, so it
+   never flips ownership mid-turn under a live `git` command.
+
+   Whether a session was interrupted is read from a **clean-exit marker**
+   (`/opt/ai-tools/.claude/.session-active`): the `session-start` pass writes it
+   (recording `.cwd`), and a `SessionEnd` hook — the same `session-hook.sh` with the
+   `session-end` argument — removes it on graceful exit. A marker that *survives*
+   into the next `session-start` means the previous session was killed before its
+   `SessionEnd` ran. That signal **widens** the `.git` reclaim to also cover the
+   killed session's recorded `.cwd` — which may be a **different** project than the
+   new session's — and selects the interrupted-session `NOTICE` wording. (A
+   gracefully-exited session clears its marker, so its `.git` is reclaimed by its
+   next `session-start` in that project; the cross-project pointer is only needed for
+   a kill.) The reclaim is reported through a `NOTICE` on the `SessionStart`
+   `additionalContext` channel, so the agent can relay it and offer the manual `sudo
+   chown -R --from=SANDBOX_USER <you>:SANDBOX_GROUP <project>` reconcile for anything
+   the helper could not reach.
 7. The same `SessionStart` pass also normalizes the project's **setgid** bit, via
    the root helper `ai-tools-setgid` (allowlist-validated, idempotent): every
    project directory is set group `SANDBOX_GROUP` with `g+s`, so a file *you* create

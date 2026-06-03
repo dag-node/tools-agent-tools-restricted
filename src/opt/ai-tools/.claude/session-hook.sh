@@ -13,7 +13,7 @@
 # validator ai-tools-chown, which independently re-checks the allowlist and the
 # agent-owned guard -- so this sweep can reach nothing the precise hook could not.
 #
-# Two modes, selected by $1:
+# Three modes, selected by $1:
 #
 #   stop          (default) -- Stop hook, fires at each turn's end. Bounded by a
 #                 timestamp marker: only paths modified since the previous sweep
@@ -29,27 +29,64 @@
 #                 resets the marker to "now". This reclaims leftovers from a prior
 #                 session that was killed (crash, kill -9, closed terminal) before
 #                 its Stop sweep could run -- the one gap the Stop net cannot close
-#                 itself. Gated on the hook's .source: only "startup" and "resume"
-#                 (a freshly started process, which is what can follow an
-#                 interrupted session) trigger the pass. "clear"/"compact" stay
+#                 itself. It ALSO reclaims the project's .git, which every sweep
+#                 prunes (see below). Gated on the hook's .source: only "startup"
+#                 and "resume" (a freshly started process, which is what can follow
+#                 an interrupted session) trigger the pass. "clear"/"compact" stay
 #                 within a live process whose Stop sweeps already cover the tree,
 #                 so they are a no-op (and skip an otherwise pointless full-tree
 #                 walk on every compaction).
 #
-# Heavy/transient trees are pruned in both modes (their contents are world-readable
+#   session-end   -- SessionEnd hook, fires once when the process exits
+#                 gracefully. Removes the clean-exit marker (.session-active) and
+#                 does nothing else. That marker is written at session-start and
+#                 cleared here; if it instead SURVIVES into the next session-start,
+#                 the previous session was killed before this ran (tokens
+#                 exhausted, crash, closed terminal). A surviving marker widens the
+#                 .git reclaim (which runs every session-start, below) to the killed
+#                 session's recorded cwd -- which may be a different project -- and
+#                 selects the interrupted-session NOTICE wording.
+#
+# .git reclaim: every sweep PRUNES .git for cost, so ai-tools-owned objects the agent
+# writes there via `git commit` (Bash tool -> no Write|Edit PostToolUse) are never
+# handed back by the sweep, on a graceful exit as much as a killed one -- rotting .git
+# into mixed ownership that makes git report "dubious ownership". The unbounded
+# session-start pass therefore reclaims .git unconditionally; a per-turn Stop reclaim
+# is deliberately avoided (it would change ownership mid-turn under a live git command).
+#
+# Heavy/transient trees are pruned in both sweeping modes (their contents are world-readable
 # anyway, so <you> can already read them) and the scan stays on one filesystem (-xdev).
 #
 # Deploy: sudo install -o @PROJECTS_USER@ -g ai-tools -m 750 \
 #             src/opt/ai-tools/.claude/session-hook.sh /opt/ai-tools/.claude/session-hook.sh
-# Wired to both the Stop and SessionStart hooks in settings.json (the SessionStart
-# entry passes the "session-start" argument).
+# Wired to the Stop, SessionStart, and SessionEnd hooks in settings.json (the
+# SessionStart entry passes "session-start", the SessionEnd entry "session-end").
 
 set -euo pipefail
 
 readonly MARKER="/opt/ai-tools/.claude/.sweep-marker"
 
-# Mode: "stop" (default, bounded by marker) or "session-start" (unbounded reclaim).
+# Clean-exit marker: written at session-start (process birth), removed at
+# session-end (graceful exit). Surviving into the next session-start means the
+# previous session was killed before its SessionEnd ran -- the signal for the
+# deep .git reclaim below. Global, not per-project (mirrors MARKER); it records
+# the prior session's cwd so the deep reclaim can target that project. Under
+# concurrent sessions the single marker races (a second start sees the first's
+# marker as "interrupted"); the sandbox is single-session by design, same caveat
+# as MARKER.
+readonly ACTIVE_MARKER="/opt/ai-tools/.claude/.session-active"
+
+# Mode: "stop" (default, bounded sweep), "session-start" (unbounded reclaim) or
+# "session-end" (clear the clean-exit marker).
 readonly MODE="${1:-stop}"
+
+# session-end: graceful process exit. Clear the clean-exit marker so the next
+# session-start does not read this session as interrupted, then stop. Nothing
+# else to do -- the live process's Stop sweeps already handed back the work tree.
+if [[ "${MODE}" == "session-end" ]]; then
+    rm -f "${ACTIVE_MARKER}" 2>/dev/null || true
+    exit 0
+fi
 
 # Pruned directory names from the shared library (single source of truth, shared
 # with ai-tools-setgid / ai-tools-lockdown). Unreadable -> empty -> no pruning.
@@ -75,6 +112,20 @@ if [[ "${MODE}" == "session-start" ]]; then
         startup|resume) unbounded=1 ;;
         *) exit 0 ;;            # clear/compact/unknown: live process, Stop covers it
     esac
+fi
+
+# Interrupted-session detection (real process start only). A surviving
+# ACTIVE_MARKER means the previous session never ran its SessionEnd handler.
+# Capture the cwd it recorded so the deep .git reclaim below can target that
+# project, then (re)stamp the marker with THIS session's cwd.
+interrupted=0
+prev_cwd=""
+if [[ "${unbounded}" -eq 1 ]]; then
+    if [[ -f "${ACTIVE_MARKER}" ]]; then
+        interrupted=1
+        prev_cwd="$(head -n1 "${ACTIVE_MARKER}" 2>/dev/null || true)"
+    fi
+    printf '%s\n' "${dir}" > "${ACTIVE_MARKER}" 2>/dev/null || true
 fi
 
 # Session start on a genuinely new process (the unbounded pass): normalize the
@@ -121,4 +172,61 @@ find "${expr[@]}" 2>/dev/null \
 # Advance the marker to this scan's start time (rename within the same dir keeps
 # the mtime). Best-effort; never block the turn/session from proceeding.
 mv -f "${newref}" "${MARKER}" 2>/dev/null || rm -f "${newref}" 2>/dev/null || true
+
+# reclaim_git_tree PROJECT -- hand every ai-tools-owned path under PROJECT/.git to
+# ai-tools-chown, which re-validates the allowlist, exclusions and secret rules
+# exactly as the sweep does. Echoes the count of paths processed on stdout; the
+# helper's own stdout is redirected to stderr (1>&2) so it can never corrupt the
+# additionalContext JSON this script emits on stdout. No PROJECT/.git -> echo 0.
+reclaim_git_tree() {
+    local proj="$1" n=0 path
+    if [[ -n "${proj}" && -d "${proj}/.git" ]]; then
+        while IFS= read -r -d '' path; do
+            sudo /usr/local/sbin/ai-tools/ai-tools-chown "${path}" </dev/null 1>&2 || true
+            n=$((n + 1))
+        done < <(find "${proj}/.git" -xdev -user @SANDBOX_USER@ \
+                     \( -type f -o -type d \) -print0 2>/dev/null)
+    fi
+    printf '%s' "${n}"
+}
+
+# .git ownership reclaim, run on every unbounded (session-start) pass. Every sweep
+# PRUNES .git, so ai-tools-owned objects the agent writes there via `git commit`
+# (Bash tool, no file_path, so no Write|Edit PostToolUse handback) escape the sweep
+# on graceful and killed exits alike. Such objects leave .git in mixed ownership
+# (work tree <you>-owned, .git internals ai-tools-owned), which makes git report
+# "dubious ownership" and, once <you> is not an ai-tools group member, blocks reads
+# and repacks. The marker does not gate this reclaim; it only selects the cross-project
+# target and the NOTICE wording below.
+if [[ "${unbounded}" -eq 1 ]]; then
+    git_found="$(reclaim_git_tree "${dir}")"
+
+    # A killed prior session may have been working in a DIFFERENT project; its
+    # recorded cwd is the only pointer to that repo, so reclaim its .git too when it
+    # differs from this session's project. A graceful prior session clears the
+    # marker, so its own next start reclaims its .git -- no cross-project pointer needed.
+    prev_found=0
+    if [[ "${interrupted}" -eq 1 && -n "${prev_cwd}" && "${prev_cwd}" != "${dir}" ]]; then
+        prev_found="$(reclaim_git_tree "${prev_cwd}")"
+    fi
+
+    # Surface a NOTICE via SessionStart additionalContext when anything was reclaimed,
+    # so the agent can relay it and offer the manual reconcile for stragglers the
+    # helper could not reach (excluded or quarantined paths). The marker picks the
+    # wording: an interrupted prior session is the alarming case (possible
+    # cross-project mixed ownership); a clean prior session is routine housekeeping.
+    total_found=$((git_found + prev_found))
+    if [[ "${total_found}" -gt 0 ]]; then
+        if [[ "${interrupted}" -eq 1 ]]; then
+            scope="${dir}/.git"
+            [[ "${prev_found}" -gt 0 ]] && scope="${scope} and ${prev_cwd}/.git"
+            notice="NOTICE: the previous session ended without cleanup (interrupted). Reclaimed ${total_found} agent-owned path(s) under ${scope} to repair the mixed ownership that makes git report \"dubious ownership\". If git still complains, ask the user to run: sudo chown -R --from=@SANDBOX_USER@ @PROJECTS_USER@:@SANDBOX_GROUP@ \"${prev_cwd:-${dir}}\""
+        else
+            notice="NOTICE: handed ${total_found} agent-owned path(s) under ${dir}/.git back to @PROJECTS_USER@:@SANDBOX_GROUP@ (routine .git cleanup the per-turn sweeps skip). If git reports \"dubious ownership\" here, ask the user to run: sudo chown -R --from=@SANDBOX_USER@ @PROJECTS_USER@:@SANDBOX_GROUP@ \"${dir}\""
+        fi
+        jq -cn --arg ctx "${notice}" \
+            '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx}}' \
+            2>/dev/null || true
+    fi
+fi
 exit 0
