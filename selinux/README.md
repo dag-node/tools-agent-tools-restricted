@@ -17,31 +17,40 @@ This is what stops the agent inadvertently touching **unrelated** files: once
 but not `user_home_t`, `etc_t`, other users' files, etc. DAC still applies
 underneath — both layers must allow an access.
 
-## Why it ships permissive
+## Enforcing by default, prebuilt
 
-You cannot confine a complex app (Node + git + the Bash tool) correctly by
-guessing rules — the rule set must be *observed*. So `ai_tools.te` contains
-`permissive ai_tools_t;`: loading the module **blocks nothing**, it only logs what
-`ai_tools_t` does. You complete the policy from those logs, then flip to enforcing
-by removing that one line. The transition also **fails open** — if `claude.exe`
+The core module ships **prebuilt** (`ai_tools.pp`) and **enforcing**, so a normal
+install loads it with no toolchain. The transition **fails open** — if `claude.exe`
 ever loses its label (e.g. a Node upgrade before `relabel`), no transition fires
 and claude simply runs unconfined; it never breaks.
 
-## Prerequisite
+You cannot confine a complex app (Node + git + the Bash tool) correctly by
+guessing rules — the rule set must be *observed*. The policy here was completed
+that way: load **permissive** (`permissive ai_tools_t;` in `ai_tools.te`), log what
+`ai_tools_t` does, fold those denials in, then remove that line to enforce. To
+re-open that loop, uncomment `permissive ai_tools_t;`, recompile, and reload; the
+installer detects the mode from the source and reports it.
+
+## Building from source (optional)
+
+The shipped core needs no toolchain. `selinux-policy-devel` is required only to
+**recompile** the core after editing `ai_tools.te`/`.fc`, or to build an optional
+group (groups are not shipped prebuilt):
 
 ```bash
 sudo dnf install selinux-policy-devel
 ```
 
-## 1. Build, load, label
+## 1. Load and label
 
 ```bash
 cd selinux
 sudo ./install-selinux.sh install
 ```
 
-This builds `ai_tools.pp`, loads it **permissive**, labels `/opt/ai-tools/.claude`
-(`ai_tools_home_t`) and the `claude.exe` entrypoint, and labels every project in
+This loads the prebuilt `ai_tools.pp` (enforcing) — or recompiles it first if you
+answer yes to the prompt — labels `/opt/ai-tools/.claude` (`ai_tools_home_t`) and
+the `claude.exe` entrypoint, and labels every project in
 `~/.config/ai-tools/allowed-projects` as `ai_tools_project_t`.
 
 Verify:

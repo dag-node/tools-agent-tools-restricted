@@ -1,23 +1,26 @@
 #!/usr/bin/env bash
-# selinux/install-selinux.sh -- build, load, and label the ai_tools SELinux
-# confinement. Separate from the main install.sh on purpose: this is an extra
-# MAC layer, brought up independently via the audit2allow loop in README.md.
+# selinux/install-selinux.sh -- load and label the ai_tools SELinux confinement.
+# Separate from the main install.sh on purpose: this is an extra MAC layer, brought
+# up independently and refined via the audit2allow loop in README.md.
 #
-# The core module ships PERMISSIVE -- installing it BLOCKS NOTHING, it only
-# starts logging what ai_tools_t does. Optional groups extend the surface but
-# are still gated by the same `permissive ai_tools_t;` line in the core module
-# until that line is removed. Graduate to enforcing only after the audit2allow
-# loop reports only expected boundary denials.
+# The core module ships PREBUILT (ai_tools.pp) and ENFORCING, so a normal install
+# needs no toolchain -- it loads the shipped package and labels the tree. To go
+# permissive instead (to observe before blocking), uncomment `permissive
+# ai_tools_t;` in ai_tools.te and recompile; the installer detects the mode from
+# the source and reports it.
 #
 # Usage:
-#   sudo ./install-selinux.sh install              build core + prompt for groups
+#   sudo ./install-selinux.sh install              load prebuilt core (opt. recompile) + prompt for groups
 #   sudo ./install-selinux.sh relabel              re-apply labels (after Node upgrade)
 #   sudo ./install-selinux.sh remove               unload all ai_tools* modules + labels
-#   sudo ./install-selinux.sh enable-group <name>  build and load one policy group
+#   sudo ./install-selinux.sh enable-group <name>  load one optional policy group
 #   sudo ./install-selinux.sh disable-group <name> unload one policy group
 #   sudo ./install-selinux.sh list-groups          show group availability and state
 #
-# Prerequisite:  sudo dnf install selinux-policy-devel
+# selinux-policy-devel is required ONLY to COMPILE a module from source -- i.e. to
+# recompile the core or build an optional group (the groups are not shipped
+# prebuilt). The shipped core needs no toolchain. Install when needed:
+#   sudo dnf install selinux-policy-devel
 #
 # Policy groups (all DISABLED by default; core alone covers repo-only work):
 #   systemd   systemctl, journalctl, unit file reads
@@ -51,8 +54,25 @@ readonly SANDBOX_PROJECTS="/var/opt/ai-tools/sandbox-projects"
 # domain. Applied via semanage (dynamic home path), not ai_tools.fc (fixed paths).
 readonly CONF_DIR="${PROJECTS_HOME}/.config/ai-tools"
 
-log()  { printf 'selinux: %s\n' "$*"; }
-logx() { printf 'selinux: %s\n' "$*" >&2; }   # stderr -- safe inside subshells
+# Styled output mirroring install.sh so the two installers read the same. Colours
+# only on a TTY. stdout carries status; warnings and the group prompt go to stderr
+# (warn/logx/sayx) so they never contaminate stdout.
+if [[ -t 1 ]]; then
+    readonly C_BOLD=$'\033[1m' C_DIM=$'\033[2m' C_GRN=$'\033[32m' C_YEL=$'\033[33m' C_RED=$'\033[31m' C_RST=$'\033[0m'
+else
+    readonly C_BOLD='' C_DIM='' C_GRN='' C_YEL='' C_RED='' C_RST=''
+fi
+
+say()     { printf '%s\n' "$*"; }
+section() { printf '\n%s── %s ──%s\n' "${C_BOLD}" "$*" "${C_RST}"; }
+ok()      { printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$*"; }
+log()     { printf '  %s+%s %s\n' "${C_DIM}" "${C_RST}" "$*"; }
+warn()    { printf '  %s!%s %s\n' "${C_YEL}" "${C_RST}" "$*" >&2; }
+die()     { printf '%sselinux: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; exit 1; }
+# logx/sayx: stderr variants -- safe inside subshells, and used for the group
+# prompt, which must not contaminate stdout.
+logx()    { printf '  %s+%s %s\n' "${C_DIM}" "${C_RST}" "$*" >&2; }
+sayx()    { printf '%s\n' "$*" >&2; }
 
 [[ "$(getenforce 2>/dev/null)" != "Disabled" ]] \
     || { log "SELinux is disabled -- nothing to do"; exit 0; }
@@ -98,11 +118,32 @@ _greason() { printf '%s' "${1##*|}"; }
 # Build helpers
 ########################################
 
-# require_devel: exit with install guidance unless the refpolicy devel toolchain
-# (make + /usr/share/selinux/devel/Makefile from selinux-policy-devel) is present.
+# require_devel <pp>: exit with install guidance unless the refpolicy devel
+# toolchain (make + /usr/share/selinux/devel/Makefile from selinux-policy-devel) is
+# present. Only reached when a module must be COMPILED from source -- the core
+# module ships prebuilt, so a normal install never lands here; it is the optional
+# (non-core) groups, which are not shipped prebuilt, that require the toolchain.
 require_devel() {
-    command -v make >/dev/null && [[ -f /usr/share/selinux/devel/Makefile ]] \
-        || { log "missing selinux-policy-devel (sudo dnf install selinux-policy-devel)" >&2; exit 1; }
+    command -v make >/dev/null && [[ -f /usr/share/selinux/devel/Makefile ]] && return 0
+    warn "building ${1:-this policy module} needs the selinux-policy-devel toolchain,"
+    warn "  which is not installed. The core module ships prebuilt and needs no"
+    warn "  toolchain; only the optional groups must be compiled. Install it with:"
+    warn "      sudo dnf install selinux-policy-devel"
+    warn "  then re-run. See ${DIR}/README.md for the policy build/bring-up workflow."
+    exit 1
+}
+
+# ensure_pp <module.pp>: guarantee the compiled package ${DIR}/<module.pp> exists.
+# Prefers the prebuilt package shipped in the repo so a normal install needs no
+# toolchain; compiles from source (requiring selinux-policy-devel) only when the
+# package is absent -- i.e. an optional group, or after editing the .te/.fc source.
+ensure_pp() {
+    local pp="$1"
+    if [[ -f "${DIR}/${pp}" ]]; then
+        log "using prebuilt ${pp}"
+    else
+        build_pp "${pp}"
+    fi
 }
 
 # build_pp <module.pp>: compile the named policy module from its .te/.fc source via
@@ -110,7 +151,7 @@ require_devel() {
 # (the Makefile creates it as root).
 build_pp() {
     local pp="$1"
-    require_devel
+    require_devel "${pp}"
     log "building ${pp}"
     make -C "${DIR}" -f /usr/share/selinux/devel/Makefile "${pp}"
     # The refpolicy Makefile creates *.fc stubs as root. Fix ownership so the
@@ -146,38 +187,28 @@ valid_group() {
 SELECTED_GROUPS=()
 
 prompt_groups() {
-    logx ""
-    logx "!!! ====================================================================== !!!"
-    logx "!!!  WARNING: optional (non-core) policy groups are EXPERIMENTAL & UNTESTED  !!!"
-    logx "!!! ====================================================================== !!!"
-    logx "The SELinux boundaries for the groups below (systemd, pkgmgmt, netadmin,"
-    logx "podman) are draft starting points, NOT validated policy. They have not been"
-    logx "exercised against real workloads and may be too narrow (tasks fail) or too"
-    logx "broad (the sandbox is weakened). Treat each as a template to be REFINED for"
-    logx "your specific use case: review the .te source, run under permissive, and"
-    logx "tighten with the avc-denials harness before relying on it. Leave them"
-    logx "disabled unless you are prepared to audit them."
-    logx ""
-    logx "=== Optional policy groups (all default: disabled) ==="
-    logx "Core module alone covers: project/home/tmp files, git, coreutils,"
-    logx "outbound HTTPS to the Anthropic API, sudo->chown/symlink helpers."
-    logx "Enable groups only when tasks require reaching into system context."
-    logx ""
+    section "Optional policy groups (all default: disabled)" >&2
+    sayx "  Core alone covers project/home/tmp files, git, coreutils, HTTPS to the"
+    sayx "  Anthropic API, and the sudo->helper calls. Enable a group only when a task"
+    sayx "  must reach into system context."
+    warn "These groups are EXPERIMENTAL drafts -- audit each under permissive before"
+    warn "  relying on it (see the avc-denials harness)."
+    sayx ""
 
     local entry name desc ans
     for entry in "${POLICY_GROUPS[@]}"; do
         name="$(_gname "${entry}")"
         desc="$(_gdesc "${entry}")"
         if [[ -t 0 ]]; then
-            printf 'selinux:   [%s] %s\n' "${name}" "${desc}" >&2
-            printf 'selinux:   Enable? [y/N] ' >&2
+            printf '    %s[%s]%s %s\n' "${C_DIM}" "${name}" "${C_RST}" "${desc}" >&2
+            printf '    Enable? [y/N] ' >&2
             read -r ans </dev/tty
             [[ "${ans,,}" == y* ]] && SELECTED_GROUPS+=("${name}")
         else
-            logx "  [${name}] ${desc}  -> default: no (non-interactive)"
+            sayx "    [${name}] ${desc}  -> default: no (non-interactive)"
         fi
     done
-    logx ""
+    sayx ""
 }
 
 ########################################
@@ -196,17 +227,17 @@ verify_entrypoint() {
         restorecon -Fv "${exe}" 2>/dev/null || true
         ctx="$(ls -Zd "${exe}" 2>/dev/null | awk '{print $1}')"
         if [[ "${ctx}" == *:ai_tools_exec_t:* ]]; then
-            log "entrypoint OK: ${exe} -> ai_tools_exec_t"
+            ok "entrypoint labelled ai_tools_exec_t: ${exe}"
         else
-            log "WARNING: ${exe}"
-            log "         is '${ctx}', NOT ai_tools_exec_t -- the transition will NOT fire and"
-            log "         claude will run UNCONFINED. matchpathcon expects:"
-            log "           $(matchpathcon "${exe}" 2>/dev/null | awk '{print $2}')"
-            log "         Chase with: restorecon -nv '${exe}'  and  semanage fcontext -C -l"
+            warn "${exe}"
+            warn "    is '${ctx}', NOT ai_tools_exec_t -- the transition will NOT fire and"
+            warn "    claude will run UNCONFINED. matchpathcon expects:"
+            warn "      $(matchpathcon "${exe}" 2>/dev/null | awk '{print $2}')"
+            warn "    chase with: restorecon -nv '${exe}'  and  semanage fcontext -C -l"
         fi
     done
-    [[ "${found}" -eq 1 ]] || log "WARNING: no claude.exe found under the nvm tree to label"
-    log "REMINDER: a running claude keeps its OLD context -- exit and relaunch, then"
+    [[ "${found}" -eq 1 ]] || warn "no claude.exe found under the nvm tree to label"
+    log "reminder: a running claude keeps its OLD context -- exit and relaunch, then"
     log "          confirm with:  ps -eo label,cmd | grep '[c]laude'  (expect ai_tools_t)"
 }
 
@@ -245,9 +276,9 @@ _label_conf()   { [[ -d "${CONF_DIR}" ]] || { log "config dir absent, skip label
                       restorecon -RF "${CONF_DIR}" 2>/dev/null || true
                       log "labelled config ai_tools_conf_t: ${CONF_DIR}"
                   else
-                      logx "WARN: could not set ai_tools_conf_t fcontext on ${CONF_DIR}"
-                      logx "      type undefined? the module must be LOADED first --"
-                      logx "      run 'install' (build_pp + semodule -i), not just 'relabel'."
+                      warn "could not set ai_tools_conf_t fcontext on ${CONF_DIR}"
+                      warn "    type undefined? the module must be LOADED first --"
+                      warn "    run 'install' (loads the module), not just 'relabel'."
                   fi; }
 _unlabel_conf() { semanage fcontext -d "${CONF_DIR}(/.*)?" 2>/dev/null || true
                   restorecon -RF "${CONF_DIR}" 2>/dev/null || true; }
@@ -259,7 +290,22 @@ _unlabel_conf() { semanage fcontext -d "${CONF_DIR}(/.*)?" 2>/dev/null || true
 case "${ACTION}" in
 
   install)
-    build_pp "${MODULE}.pp"
+    section "Core module"
+    # The core module ships prebuilt, so a normal install needs no toolchain. Offer
+    # a from-source rebuild (needs selinux-policy-devel) for anyone who edited the
+    # .te/.fc -- default no. With no prebuilt package present we must build anyway.
+    _recompile=0
+    if [[ -f "${DIR}/${MODULE}.pp" && -t 0 ]]; then
+        printf '  Recompile core module from source? (needs selinux-policy-devel) [y/N] ' >&2
+        read -r _ans </dev/tty
+        [[ "${_ans,,}" == y* ]] && _recompile=1
+    fi
+    if (( _recompile )); then
+        build_pp "${MODULE}.pp"
+    else
+        ensure_pp "${MODULE}.pp"
+    fi
+
     if grep -qE '^[[:space:]]*permissive[[:space:]]+ai_tools_t[[:space:]]*;' "${DIR}/${MODULE}.te"; then
         _mode="PERMISSIVE"
     else
@@ -267,7 +313,9 @@ case "${ACTION}" in
     fi
     log "loading core module (${_mode})"
     semodule -i "${DIR}/${MODULE}.pp"
+    ok "core module loaded (${_mode})"
 
+    section "Labelling"
     restorecon -RF "${HOME_DIR}" 2>/dev/null || true
     restorecon -RF "${NVM_DIR}"  2>/dev/null || true
     # Apply the static sandbox-clone label (ai_tools.fc) to any existing clones.
@@ -278,32 +326,36 @@ case "${ACTION}" in
     for_each_project _label_one
 
     prompt_groups
-    for name in "${SELECTED_GROUPS[@]+"${SELECTED_GROUPS[@]}"}"; do
-        build_pp "ai_tools_${name}.pp"
-        log "loading group: ai_tools_${name}"
-        semodule -i "${DIR}/ai_tools_${name}.pp"
-        log "group '${name}' enabled."
-    done
+    if [[ ${#SELECTED_GROUPS[@]} -gt 0 ]]; then
+        section "Optional groups"
+        for name in "${SELECTED_GROUPS[@]}"; do
+            ensure_pp "ai_tools_${name}.pp"
+            log "loading group: ai_tools_${name}"
+            semodule -i "${DIR}/ai_tools_${name}.pp"
+            ok "group '${name}' enabled"
+        done
+    fi
 
+    section "SELinux confinement ready"
     if [[ "${_mode}" == PERMISSIVE ]]; then
-        log "done. Core module PERMISSIVE -- nothing is blocked yet."
-        log "NEXT: follow README.md (audit2allow) before removing 'permissive ai_tools_t;'."
+        ok "core module loaded PERMISSIVE -- nothing is blocked yet"
+        log "next: follow README.md (audit2allow) before removing 'permissive ai_tools_t;'"
     else
-        log "done. Core module ENFORCING -- denials are now active."
+        ok "core module loaded ENFORCING -- denials are now active"
     fi
     if [[ ${#SELECTED_GROUPS[@]} -gt 0 ]]; then
-        log "Groups enabled: ${SELECTED_GROUPS[*]}"
+        log "groups enabled: ${SELECTED_GROUPS[*]}"
         if [[ "${_mode}" == PERMISSIVE ]]; then
-            log "Re-run the bring-up loop (avc-testsuite.sh + avc-analyze.sh) to cover"
-            log "the expanded surface before removing 'permissive ai_tools_t;'."
+            log "re-run the bring-up loop (avc-testsuite.sh + avc-analyze.sh) to cover"
+            log "the expanded surface before removing 'permissive ai_tools_t;'"
         fi
     fi
     log "verify:  semodule -l | grep ai_tools;  matchpathcon ${HOME_DIR}"
-    log "after launching claude:  ps -eo label,cmd | grep -m1 claude   (expect ai_tools_t)"
+    log "after launching claude:  ps -eo label,cmd | grep -m1 claude  (expect ai_tools_t)"
     ;;
 
   relabel)
-    log "re-applying labels"
+    section "Re-applying labels"
     restorecon -RF "${HOME_DIR}" 2>/dev/null || true
     restorecon -RF "${NVM_DIR}"  2>/dev/null || true
     # Apply the static sandbox-clone label (ai_tools.fc) to any existing clones.
@@ -312,10 +364,11 @@ case "${ACTION}" in
     verify_entrypoint
     _label_conf
     for_each_project _label_one
-    log "relabel done"
+    ok "relabel done"
     ;;
 
   remove)
+    section "Removing SELinux confinement"
     log "dropping project fcontext rules"
     for_each_project _unlabel_one
     _unlabel_conf
@@ -330,33 +383,34 @@ case "${ACTION}" in
     _restore_one "${NVM_DIR}"
     _home_state
     for_each_project _restore_one
-    log "removed."
+    ok "removed"
     ;;
 
   enable-group)
     name="${2:?usage: sudo $0 enable-group <name>}"
     if ! valid_group "${name}"; then
-        log "unknown group '${name}'. Available groups:" >&2
+        warn "unknown group '${name}'. Available groups:"
         for entry in "${POLICY_GROUPS[@]}"; do
-            printf 'selinux:   %-10s %s\n' "$(_gname "${entry}")" "$(_gdesc "${entry}")" >&2
+            printf '    %-10s %s\n' "$(_gname "${entry}")" "$(_gdesc "${entry}")" >&2
         done
         exit 1
     fi
-    build_pp "ai_tools_${name}.pp"
+    section "Enabling group: ${name}"
+    ensure_pp "ai_tools_${name}.pp"
     log "loading group: ai_tools_${name}"
     semodule -i "${DIR}/ai_tools_${name}.pp"
-    log "group '${name}' enabled."
-    log "Re-run the bring-up loop (avc-testsuite.sh + avc-analyze.sh) to catch any"
-    log "new denials from the expanded surface before going enforcing."
+    ok "group '${name}' enabled"
+    log "re-run the bring-up loop (avc-testsuite.sh + avc-analyze.sh) to catch any"
+    log "new denials from the expanded surface before going enforcing"
     ;;
 
   disable-group)
     name="${2:?usage: sudo $0 disable-group <name>}"
     if is_group_loaded "${name}"; then
         semodule -r "ai_tools_${name}"
-        log "group '${name}' disabled."
+        ok "group '${name}' disabled"
     else
-        log "group 'ai_tools_${name}' is not currently loaded -- nothing to do."
+        log "group 'ai_tools_${name}' is not currently loaded -- nothing to do"
     fi
     ;;
 
@@ -370,29 +424,31 @@ case "${ACTION}" in
     else
         core_state="NOT loaded"
     fi
-    log "Core module (${MODULE}): ${core_state}"
-    log "Optional policy groups:"
+    section "SELinux policy state"
+    log "core module (${MODULE}): ${core_state}"
+    say ""
+    say "  Optional policy groups:"
     for entry in "${POLICY_GROUPS[@]}"; do
         gname="$(_gname "${entry}")"
         gdesc="$(_gdesc "${entry}")"
         if is_group_loaded "${gname}"; then
-            printf 'selinux:   [LOADED]   %-10s -- %s\n' "${gname}" "${gdesc}"
+            printf '    %s[LOADED]%s   %-10s -- %s\n' "${C_GRN}" "${C_RST}" "${gname}" "${gdesc}"
         else
-            printf 'selinux:   [disabled] %-10s -- %s\n' "${gname}" "${gdesc}"
+            printf '    %s[disabled]%s %-10s -- %s\n' "${C_DIM}" "${C_RST}" "${gname}" "${gdesc}"
         fi
     done
-    log ""
-    log "Toggle:  sudo $0 enable-group <name>  |  sudo $0 disable-group <name>"
+    say ""
+    log "toggle:  sudo $0 enable-group <name>  |  sudo $0 disable-group <name>"
     ;;
 
   *)
     cat >&2 <<EOF
 selinux: usage: sudo $0 <action> [args]
 
-  install              build core + prompt for optional groups
+  install              load prebuilt core (opt. recompile) + prompt for optional groups
   relabel              re-apply labels (run after a Node upgrade)
   remove               unload all ai_tools* modules and revert labels
-  enable-group <name>  build and load one optional policy group
+  enable-group <name>  load one optional policy group (compiles it; needs selinux-policy-devel)
   disable-group <name> unload one optional policy group
   list-groups          show which groups are available and their current state
 
