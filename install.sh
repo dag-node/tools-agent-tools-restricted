@@ -227,6 +227,47 @@ do_selinux_restore() {
         "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer"
 }
 
+# Offer to bring up the optional SELinux confinement layer. install-selinux.sh is
+# a deliberately decoupled installer (an extra MAC layer needing selinux-policy-devel),
+# so this only SUGGESTS it and runs it on explicit consent. We are already root with
+# SUDO_USER set -- exactly what that script requires -- so it runs in-place when
+# accepted. Skips cleanly when the script is absent or SELinux is disabled; defaults
+# to skip non-interactively. A child failure (e.g. missing devel toolchain) is
+# tolerated so it never aborts an otherwise-complete install.
+offer_selinux() {
+    local selinux_script="${SCRIPT_DIR}/selinux/install-selinux.sh"
+    [[ -f "${selinux_script}" ]] || return 0
+
+    if [[ "$(getenforce 2>/dev/null)" == "Disabled" ]]; then
+        log "SELinux disabled -- skipping the optional confinement layer"
+        return 0
+    fi
+
+    say "  An optional SELinux layer confines the agent's domain (${C_DIM}ai_tools_t${C_RST})."
+    say "  The core module loads ${C_BOLD}ENFORCING${C_RST}; it needs the"
+    say "  ${C_BOLD}selinux-policy-devel${C_RST} package to build."
+    say ""
+
+    local resp run_it=0
+    if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
+        printf '  Build and load it now? (Enter = skip, y = install) [y/N] ' > /dev/tty
+        read -r resp < /dev/tty
+        [[ "${resp}" =~ ^[yY] ]] && run_it=1
+    fi
+
+    if (( run_it )); then
+        if "${selinux_script}" install; then
+            ok "SELinux confinement installed"
+        else
+            warn "SELinux install did not complete -- bring it up later with:"
+            warn "    sudo ${selinux_script} install"
+        fi
+    else
+        log "skipped -- bring it up later with:"
+        say "    ${C_BOLD}sudo ${selinux_script} install${C_RST}"
+    fi
+}
+
 # Print a one-line summary row for a single file.
 # Returns 1 (and prints MISSING) when the file does not exist.
 _summary_row() {
@@ -730,6 +771,9 @@ do_install() {
     section "Installed files"
     do_summary
     do_perms_check
+
+    section "SELinux confinement (optional)"
+    offer_selinux
 
     section "Install complete -- next steps"
     say "  verify the timer:"
