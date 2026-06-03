@@ -216,11 +216,28 @@ claude keeps its old context until you exit and relaunch.
 
 ## Adding a project later
 
-`install.sh add-project <dir>` registers a project for the DAC layer but does not
-label it for SELinux. After adding one, re-run:
+`ai-tools --project-create <dir>` registers a **real** project for the DAC layer
+but does not label it for SELinux. After adding one, re-run:
 
 ```bash
 cd selinux && sudo ./install-selinux.sh relabel
+```
+
+**Sandbox** clones are different — they label themselves. Because every clone lives
+under the fixed parent `/var/opt/ai-tools/sandbox-projects/`, a static fcontext rule
+in `ai_tools.fc` maps the whole tree to `ai_tools_project_t`, and `ai-tools
+--sandbox-create` runs `restorecon` on the new clone itself (the projects user is
+`unconfined_t`, which the policy grants relabel to `ai_tools_project_t`). No manual
+`relabel` is needed. The agent reaches clones through the `files_search_var`
+traversal grant in `ai_tools.te` (search-only on `var_t`, the type of `/var`,
+`/var/opt`, and the sandbox parent dirs).
+
+This only works once the module is **loaded** — the static rule and the
+`ai_tools_project_t` type ship in the `.pp`. After pulling these changes rebuild and
+reload:
+
+```bash
+cd selinux && sudo ./install-selinux.sh install
 ```
 
 ## Remove

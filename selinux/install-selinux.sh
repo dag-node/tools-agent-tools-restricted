@@ -39,6 +39,10 @@ HOME_STATE=(.claude.json .npm .cache .local .config .gitconfig)
 PROJECTS_USER="${SUDO_USER:?selinux: invoke via sudo, not as root directly}"
 PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"
 readonly ALLOWLIST="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
+# Sandbox clones live here and are labelled ai_tools_project_t by the STATIC rule in
+# ai_tools.fc, so the per-project semanage loop skips them (a duplicate local rule
+# would be redundant). A plain restorecon of this tree applies the static label.
+readonly SANDBOX_PROJECTS="/var/opt/ai-tools/sandbox-projects"
 # The user-owned ai-tools config dir (allowed-projects, secret-patterns). Labelled
 # ai_tools_conf_t so the root ai-tools-chown helper -- which runs IN ai_tools_t with
 # no transition -- can read the allowlist; without it the helper's getattr is denied
@@ -189,6 +193,8 @@ for_each_project() {
     while IFS= read -r entry || [[ -n "${entry}" ]]; do
         [[ -z "${entry}" || "${entry}" == '#'* || "${entry}" == '!'* ]] && continue
         dir="$(realpath -e "${entry}" 2>/dev/null)" || continue
+        # Sandbox clones are labelled statically (ai_tools.fc); skip the dynamic loop.
+        [[ "${dir}/" == "${SANDBOX_PROJECTS}/"* ]] && continue
         "${fn}" "${dir}"
     done < "${ALLOWLIST}"
 }
@@ -238,6 +244,8 @@ case "${ACTION}" in
 
     restorecon -RF "${HOME_DIR}" 2>/dev/null || true
     restorecon -RF "${NVM_DIR}"  2>/dev/null || true
+    # Apply the static sandbox-clone label (ai_tools.fc) to any existing clones.
+    [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -RF "${SANDBOX_PROJECTS}" 2>/dev/null || true
     _home_state
     verify_entrypoint
     _label_conf
@@ -272,6 +280,8 @@ case "${ACTION}" in
     log "re-applying labels"
     restorecon -RF "${HOME_DIR}" 2>/dev/null || true
     restorecon -RF "${NVM_DIR}"  2>/dev/null || true
+    # Apply the static sandbox-clone label (ai_tools.fc) to any existing clones.
+    [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -RF "${SANDBOX_PROJECTS}" 2>/dev/null || true
     _home_state
     verify_entrypoint
     _label_conf

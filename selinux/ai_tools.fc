@@ -33,6 +33,15 @@
 /opt/ai-tools/\.config(/.*)?      gen_context(system_u:object_r:ai_tools_home_t,s0)
 /opt/ai-tools/\.gitconfig     --  gen_context(system_u:object_r:ai_tools_home_t,s0)
 
-# Approved PROJECT dirs are NOT listed here -- their paths are dynamic. They are
-# labelled ai_tools_project_t per-project with `semanage fcontext` by
+# Approved PROJECT dirs under /home are NOT listed here -- their paths are dynamic.
+# They are labelled ai_tools_project_t per-project with `semanage fcontext` by
 # install-selinux.sh (reading ~/.config/ai-tools/allowed-projects).
+#
+# SANDBOX project clones are the exception: they all live under one fixed parent,
+# so every directory directly under sandbox-projects/ is a project and is labelled
+# statically here. This is what lets `ai-tools --sandbox-create` self-label a fresh
+# clone with a plain restorecon -- no per-project semanage and no root, since
+# unconfined_t is granted relabel to ai_tools_project_t in ai_tools.te. The parent
+# dirs (/var/opt/ai-tools and sandbox-projects itself) stay var_t and are reached
+# via the files_search_var traversal grant in ai_tools.te.
+/var/opt/ai-tools/sandbox-projects/[^/]+(/.*)?  gen_context(system_u:object_r:ai_tools_project_t,s0)

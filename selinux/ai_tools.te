@@ -93,7 +93,7 @@ type ai_tools_exec_t;
 application_domain(ai_tools_t, ai_tools_exec_t)
 
 # Approved project directories the agent may read/write. Applied per-project with
-# `semanage fcontext` (see install.sh add-project / selinux/install-selinux.sh),
+# `semanage fcontext` (see the ai-tools CLI / selinux/install-selinux.sh),
 # not in ai_tools.fc, because project paths are dynamic.
 type ai_tools_project_t;
 files_type(ai_tools_project_t)
@@ -173,6 +173,14 @@ allow ai_tools_t ai_tools_home_t:file { execute execute_no_trans };
 # parents (path resolution) -- but NOT list/read them (see the dontaudit block).
 userdom_search_user_home_dirs(ai_tools_t)
 allow ai_tools_t user_home_t:dir { getattr search open };
+
+# Reach SANDBOX project clones: their path is /var -> /var/opt -> /var/opt/ai-tools
+# -> sandbox-projects -> the labelled clone (ai_tools_project_t, set statically in
+# ai_tools.fc). Every parent is var_t, so the agent needs SEARCH (traverse) on var_t
+# for path resolution -- search_dir_perms only, never read/list, so it cannot
+# enumerate other var_t content. The clone itself is reached via the project rules
+# above. Projects under /home use the user_home_t traversal; this is its var_t peer.
+files_search_var(ai_tools_t)
 
 # Reach + read the ai-tools config subtree (~/.config/ai-tools, ai_tools_conf_t):
 # SEARCH config_home_t (~/.config) only to traverse INTO it -- never list or read
