@@ -139,6 +139,17 @@ SELECTED_GROUPS=()
 
 prompt_groups() {
     logx ""
+    logx "!!! ====================================================================== !!!"
+    logx "!!!  WARNING: optional (non-core) policy groups are EXPERIMENTAL & UNTESTED  !!!"
+    logx "!!! ====================================================================== !!!"
+    logx "The SELinux boundaries for the groups below (systemd, pkgmgmt, netadmin,"
+    logx "podman) are draft starting points, NOT validated policy. They have not been"
+    logx "exercised against real workloads and may be too narrow (tasks fail) or too"
+    logx "broad (the sandbox is weakened). Treat each as a template to be REFINED for"
+    logx "your specific use case: review the .te source, run under permissive, and"
+    logx "tighten with the avc-denials harness before relying on it. Leave them"
+    logx "disabled unless you are prepared to audit them."
+    logx ""
     logx "=== Optional policy groups (all default: disabled) ==="
     logx "Core module alone covers: project/home/tmp files, git, coreutils,"
     logx "outbound HTTPS to the Anthropic API, sudo->chown/symlink helpers."
