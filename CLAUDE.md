@@ -1,10 +1,12 @@
-# Claude Code on RHEL — sandboxed `SANDBOX_USER` service account
+# Claude CR
+
+Claude Code Restricted, run sessions as sandboxed user.
 
 ## Purpose
 
-This repo installs and maintains a way to run Anthropic's **Claude Code on
-RHEL 9 as a dedicated, locked-down system user (`SANDBOX_USER`, the account
-created as `ai-tools`)** instead of as your own login account. The goal: let an
+This repo installs and maintains a way to run Anthropic's **Claude Code as a
+dedicated, locked-down system user (`SANDBOX_USER`, the account created as
+`ai-tools`)** instead of as your own login account. The goal: let an
 autonomous coding agent work on your projects without inheriting your user's
 privileges. It runs under a separate UID with no login shell, can only launch
 inside explicitly approved project directories, can escalate only through two

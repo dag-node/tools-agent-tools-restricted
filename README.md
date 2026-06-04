@@ -1,7 +1,9 @@
-# Claude Code on RHEL 9 — sandboxed `SANDBOX_USER` account + nvm auto-updater
+# Claude CR
+
+Claude Code Restricted, run sessions as sandboxed user.
 
 Run Anthropic's **Claude Code as a dedicated, unprivileged system user
-(`SANDBOX_USER`, the account created as `ai-tools`)** on RHEL 9 instead of as your
+(`SANDBOX_USER`, the account created as `ai-tools`)** instead of as your
 own login account, and keep Node.js and the `claude` CLI current automatically.
 
 ## Why

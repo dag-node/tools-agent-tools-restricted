@@ -113,4 +113,17 @@ if [[ "${approved}" != true ]]; then
         "claude: add it to ${ALLOWLIST} to enable Claude Code here"
 fi
 
+if [[ -t 1 ]]; then
+    readonly _C_BOLD=$'\033[1m' _C_DIM=$'\033[2m' _C_RST=$'\033[0m'
+    printf '\n'
+    printf '%s%s%s\n' "${_C_BOLD}" '  ____ _      _    _   _ ____   _____    ____ ____ '     "${_C_RST}"
+    printf '%s%s%s\n' "${_C_BOLD}" ' / ___| |    / \  | | | |  _ \ | ____|  /  __|    \ '    "${_C_RST}"
+    printf '%s%s%s\n' "${_C_BOLD}" '| |     |   / _ \ | | | | | |  |  _|   |  |  | __) | '   "${_C_RST}"
+    printf '%s%s%s\n' "${_C_BOLD}" '| |___| |_ / ___ \| |_|   |_|   |___   |  |__|   _ < '   "${_C_RST}"
+    printf '%s%s%s\n' "${_C_BOLD}" ' \____|______/  __\_____/|____/|_____|  \____|_| \__\ '   "${_C_RST}"
+    printf '\n'
+    printf '  %sClaude Code Restricted, run sessions as sandboxed user.%s\n' "${_C_DIM}" "${_C_RST}"
+    printf '\n'
+fi
+
 exec sudo -u ai-tools -g ai-tools -- "${CLAUDE_REAL}" "$@"
