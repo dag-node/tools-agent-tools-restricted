@@ -153,24 +153,35 @@ while IFS= read -r -d '' path; do
     hits+=("${path}")
 done < <(find "${expr[@]}" 2>/dev/null)
 
+# Label for log lines: DRY_RUN holds the string "true"/"false" (both non-empty), so
+# select on its value, not with ${DRY_RUN:+...} which would always expand.
+if ${DRY_RUN}; then scan_mode=" (dry-run)"; else scan_mode=""; fi
+
 if [[ "${#hits[@]}" -eq 0 ]]; then
     log "no secret-matching paths under ${target}"
+    ai_tools_log_info "scan${scan_mode}: no secret-matching paths under ${target}"
     exit 0
 fi
 
 # ── Report, confirm, apply ───────────────────────────────────────────────────
+# Log the detection (count + each path) regardless of dry-run vs apply: this is the
+# audit record of what the scan SAW. The later per-path "locked" entries from
+# _safe_apply record what was DONE -- distinct events, intentionally both logged.
 printf 'ai-tools-lockdown: %d secret-matching path(s) under %s:\n' \
     "${#hits[@]}" "${target}" >&2
+ai_tools_log_info "scan${scan_mode}: ${#hits[@]} secret-matching path(s) under ${target}"
 for path in "${hits[@]}"; do
     if [[ -d "${path}" ]]; then
         printf '  [dir]  %s\n' "${path}" >&2
     else
         printf '  [file] %s\n' "${path}" >&2
     fi
+    ai_tools_log_info "scan: secret-matching ${path}"
 done
 
 if ${DRY_RUN}; then
     log "dry-run: no changes made"
+    ai_tools_log_info "dry-run: detection only, no changes under ${target}"
     exit 0
 fi
 
