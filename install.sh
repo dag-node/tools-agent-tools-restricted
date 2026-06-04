@@ -426,6 +426,11 @@ do_perms_check() {
     # shell sources /etc/profile.d/. Write locked to root only.
     _pchk /etc/profile.d/path_dedup.sh root root 644
 
+    # /opt/ai-tools root: 2750 PROJECTS_USER:SANDBOX_GROUP. setgid propagates group
+    # SANDBOX_GROUP to new files (including the gitconfig lock→rename); group r-x only
+    # so the agent cannot create or delete files here.
+    _pchk /opt/ai-tools "${PROJECTS_USER}" "${SANDBOX_GROUP}" 2750
+
     # /opt/ai-tools/bin: 550 PROJECTS_USER:SANDBOX_GROUP -- agent gets group r-x
     # (executes nvm-update.sh, resolves the claude symlink) but no write. Only root
     # (via ai-tools-claude-symlink) can repoint the stable claude symlink.
@@ -451,6 +456,11 @@ do_perms_check() {
     # prevents the agent from extending its own allowed tool scope or removing
     # deny rules.
     _pchk /opt/ai-tools/.claude/settings.json "${PROJECTS_USER}" "${SANDBOX_GROUP}" 640
+
+    # .gitconfig: 640 PROJECTS_USER:SANDBOX_GROUP. Agent reads safe.directory on
+    # startup; projects user (as owner) edits via ai-tools --project-create; setgid +
+    # 640 mode survive git-config rewrites.
+    _pchk /opt/ai-tools/.gitconfig "${PROJECTS_USER}" "${SANDBOX_GROUP}" 640
 
     # Operation logs: dir 700 root:root, each file 600 root:root -- the root helpers
     # (running as root) append here; ai-tools, neither owner nor able to traverse a
@@ -660,6 +670,14 @@ do_install() {
 
     section "ai-tools control plane (/opt/ai-tools)"
 
+    # Root of the control plane: PROJECTS_USER:SANDBOX_GROUP 2750. setgid propagates
+    # group SANDBOX_GROUP to every file born here -- including the .lock file git-config
+    # writes then renames to .gitconfig -- so the projects user never needs a post-write
+    # chown after `ai-tools --project-create`. Group gets r-x only; the agent cannot
+    # create or delete files here. Enforce even when the dir pre-exists.
+    chown "${PROJECTS_USER}:${SANDBOX_GROUP}" /opt/ai-tools
+    chmod 2750 /opt/ai-tools
+
     # Control-plane files are owned by the projects user, group ai-tools: the
     # agent (which runs AS ai-tools) gets group read/exec but can never write
     # them, so it cannot rewrite its own updater, hook, or hook config.
@@ -691,6 +709,38 @@ do_install() {
     install -o "${PROJECTS_USER}" -g "${SANDBOX_GROUP}" -m 640 \
         "${SCRIPT_DIR}/src/opt/ai-tools/.claude/settings.json" \
         /opt/ai-tools/.claude/settings.json
+
+    # .gitconfig: PROJECTS_USER:SANDBOX_GROUP 640. SANDBOX_USER reads safe.directory
+    # on startup; PROJECTS_USER edits it via `ai-tools --project-create`. setgid on
+    # /opt/ai-tools (above) keeps the group correct across git-config lock→rename
+    # rewrites. Ownership is enforced even when keeping existing content so a wrong-
+    # group file does not silently block the agent. keep_existing preserves safe.directory
+    # entries (and any user customisations) on re-install.
+    log "/opt/ai-tools/.gitconfig"
+    local _gitconfig="/opt/ai-tools/.gitconfig"
+    if keep_existing "${_gitconfig}" "reseed with shipped defaults"; then
+        log "keeping existing ${_gitconfig}"
+        chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${_gitconfig}"
+        chmod 640 "${_gitconfig}"
+    else
+        # Derive the sandbox email domain from the projects user's git user.email;
+        # fall back to the machine's fully-qualified hostname.
+        local _projects_email _domain
+        _projects_email="$(git config --file "${PROJECTS_HOME}/.gitconfig" \
+                               user.email 2>/dev/null || \
+                           git config --file "${PROJECTS_HOME}/.config/git/config" \
+                               user.email 2>/dev/null || true)"
+        if [[ -n "${_projects_email}" && "${_projects_email}" == *@* ]]; then
+            _domain="${_projects_email#*@}"
+        else
+            _domain="$(hostname -f 2>/dev/null || hostname)"
+        fi
+        install -o "${PROJECTS_USER}" -g "${SANDBOX_GROUP}" -m 640 \
+            /dev/null "${_gitconfig}"
+        printf '[user]\n\tname = %s\n\temail = %s\n\n[core]\n\tfileMode = true\n\tautocrlf = input\n\n[init]\n\tdefaultBranch = main\n\n[pull]\n\trebase = false\n' \
+            "${SANDBOX_USER}" "ai-tools@${_domain}" > "${_gitconfig}"
+        log "created ${_gitconfig} (ai-tools@${_domain})"
+    fi
 
     section "User files (${PROJECTS_HOME})"
 

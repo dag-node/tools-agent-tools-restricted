@@ -160,6 +160,9 @@ reg_safedir() {
         say "    git safe.directory: already listed"
     else
         git config --file "${GITCONFIG}" --add safe.directory "${dir}"
+        # setgid on /opt/ai-tools ensures git's lock→rename preserves group SANDBOX_GROUP;
+        # chmod re-applies 640 in case the lock was created with a looser umask-derived mode.
+        chmod 640 "${GITCONFIG}" 2>/dev/null || true
         say "    git safe.directory: added"
     fi
 }
@@ -170,6 +173,7 @@ unreg_safedir() {
             | grep -qxF "${dir}"; then
         esc="$(printf '%s' "${dir}" | sed 's/[.^$*+?{|\\[()]/\\&/g')"
         git config --file "${GITCONFIG}" --unset-all safe.directory "^${esc}$" 2>/dev/null || true
+        chmod 640 "${GITCONFIG}" 2>/dev/null || true
         say "    git safe.directory: removed"
     else
         say "    git safe.directory: not listed"
