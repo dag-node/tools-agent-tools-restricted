@@ -544,6 +544,12 @@ do_install() {
     # applies ai_tools_log_t. A logger marker brackets the run in journald.
     install -d -o root -g root -m 700 /var/log/ai-tools 2>/dev/null || true
     exec > >(tee >(sed -u 's/\x1b\[[0-9;]*m//g' >> /var/log/ai-tools/install.log)) 2>&1
+    # The >> open above *creates* install.log honouring the install umask (027 -> 640), and
+    # the pre-create loop further down skips it (its [[ ! -e ]] guard sees it already exists),
+    # so enforce 600 here -- install.log is the one log that must be born before that loop.
+    # The other four are created 600 by that loop and are never written before it, so this
+    # block leaves them alone (no umask-dependent touch, single creation path).
+    chmod 600 /var/log/ai-tools/install.log 2>/dev/null || true
     logger -t ai-tools-install -p daemon.notice -- \
         "install started (projects user ${PROJECTS_USER}, sandbox ${SANDBOX_USER}:${SANDBOX_GROUP})" \
         2>/dev/null || true
