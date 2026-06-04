@@ -24,7 +24,18 @@ readonly LINK="/opt/ai-tools/bin/claude"
 readonly BIN_DIR="/opt/ai-tools/bin"
 readonly TARGET="${1:?usage: ai-tools-claude-symlink <versioned-claude-path>}"
 
-err() { printf 'ai-tools-claude-symlink: %s\n' "$*" >&2; exit 1; }
+# Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/symlink.log.
+# Best-effort -- a no-op fallback keeps the helper working if the lib is missing.
+AI_TOOLS_LOG_TAG="ai-tools-claude-symlink"
+AI_TOOLS_LOG_FILE="symlink.log"
+readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
+# shellcheck source=/dev/null
+if ! source "${LOG_LIB}" 2>/dev/null; then
+    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
+    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+fi
+
+err() { ai_tools_log_error "$*"; printf 'ai-tools-claude-symlink: %s\n' "$*" >&2; exit 1; }
 
 # Authoritative validation -- do NOT trust the sudoers glob: wildcards in command
 # arguments can match '/', so the rule is only a coarse filter. The target must be
@@ -50,6 +61,7 @@ readonly RE='^/opt/ai-tools/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+/bin/clau
 tmp="$(mktemp -u "${BIN_DIR}/.claude.XXXXXX")"
 ln -s "${TARGET}" "${tmp}"
 mv -Tf "${tmp}" "${LINK}"
+ai_tools_log_info "repointed ${LINK} -> ${TARGET}"
 printf 'ai-tools-claude-symlink: %s -> %s\n' "${LINK}" "${TARGET}"
 
 # Re-label the new claude.exe entrypoint (optional SELinux layer, selinux/).
@@ -73,12 +85,16 @@ relabel_entrypoint() {
     local verroot exe
     verroot="${TARGET%/bin/claude}"
     exe="${verroot}/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
-    [[ -e "${exe}" ]] || { printf 'ai-tools-claude-symlink: no claude.exe under %s; skipping relabel\n' "${verroot}" >&2; return 0; }
+    [[ -e "${exe}" ]] || { ai_tools_log_warn "no claude.exe under ${verroot}; skipping relabel"; printf 'ai-tools-claude-symlink: no claude.exe under %s; skipping relabel\n' "${verroot}" >&2; return 0; }
 
     restorecon -F "${exe}" 2>/dev/null || true
     case "$(ls -Zd "${exe}" 2>/dev/null | awk '{print $1}')" in
-        *:ai_tools_exec_t:*) printf 'ai-tools-claude-symlink: relabelled entrypoint ai_tools_exec_t\n' >&2 ;;
-        *) printf 'ai-tools-claude-symlink: WARNING: %s did not take ai_tools_exec_t (agent will run unconfined)\n' "${exe}" >&2 ;;
+        *:ai_tools_exec_t:*)
+            ai_tools_log_info "relabelled entrypoint ai_tools_exec_t: ${exe}"
+            printf 'ai-tools-claude-symlink: relabelled entrypoint ai_tools_exec_t\n' >&2 ;;
+        *)
+            ai_tools_log_warn "${exe} did not take ai_tools_exec_t (agent will run unconfined)"
+            printf 'ai-tools-claude-symlink: WARNING: %s did not take ai_tools_exec_t (agent will run unconfined)\n' "${exe}" >&2 ;;
     esac
 }
 relabel_entrypoint

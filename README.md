@@ -26,7 +26,12 @@ with a tightly scoped set of privileges instead:
   `rwx` kept; only dirs the agent itself made are touched). Secret-named files
   (`.env`, `*.key`, `*.pem`, SSH keys, `kubeconfig`, …) are chowned to
   `${PROJECTS_USER}:${PROJECTS_GROUP} 600` instead, removing `${SANDBOX_USER}`'s read access; a `NOTICE` is written to
-  the session and an audit log.
+  the session and the operation log (root-only `/var/log/ai-tools/chown.log` plus
+  journald — see *Operation logging* below).
+- **Operation logging** — the `sudo` helpers, the lifecycle hooks, the `ai-tools`
+  CLI, and `install.sh` log through one library to **journald** (always, leveled and
+  tagged: `journalctl -t ai-tools-chown`) and, for the root writers only, to
+  root-only files under **`/var/log/ai-tools/`**.
 - **Auto-updating** — a systemd user timer keeps Node v22 and
   `@anthropic-ai/claude-code` current for both you and the sandbox user, pinned
   to the same build.
@@ -503,6 +508,31 @@ When nvm installs a new Node version under `/opt/ai-tools`:
 - `src/home/user/.local/bin/nvm-update.sh` resolves the latest version once, updates your `~/.nvm`,
   then invokes `src/opt/ai-tools/bin/nvm-update.sh` as ${SANDBOX_USER} via sudo with the pinned
   version so both installs land on the same Node build.
+
+## Operation logging
+
+The sandbox components log through one library, `/usr/local/lib/ai-tools/log.lib.sh`,
+to two sinks:
+
+- **journald** — always, leveled (`DEBUG`/`INFO`/`WARNING`/`ERROR`) and tagged per
+  component. This is the universal sink: the hooks (run as `${SANDBOX_USER}`) and the
+  `ai-tools` CLI (run as you) log here because they cannot write the root-only files.
+
+      sudo journalctl -t ai-tools-chown            # the ownership-restore helper
+      sudo journalctl -t ai-tools-lockdown -p warning
+      sudo journalctl -t ai-tools-hook             # the lifecycle hooks
+      sudo journalctl -t ai-tools                  # the CLI (project/sandbox created, …)
+
+- **`/var/log/ai-tools/`** — root-only files (`700 root:root`, files `600`), written
+  only by the root writers: `chown.log`, `setgid.log`, `symlink.log`, `lockdown.log`,
+  and the full installer transcript `install.log`. `${SANDBOX_USER}` cannot read or
+  tamper with them, so the secret filenames `ai-tools-chown` records stay out of the
+  agent's reach.
+
+Logged are the operations the hooks and `sudo` helpers perform, the CLI's workflow
+milestones, and the install transcript — not routine per-path sweep churn (`DEBUG`
+only). The log directory is labelled `ai_tools_log_t`; after editing the SELinux
+source, rebuild and reload with `sudo selinux/install-selinux.sh rebuild`.
 
 ## SELinux
 

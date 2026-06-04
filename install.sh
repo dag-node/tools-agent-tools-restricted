@@ -213,13 +213,13 @@ do_selinux_restore() {
     log "SELinux: restoring file contexts"
     restorecon \
         /etc/sudoers.d/ai-tools-claude \
-        /etc/profile.d/path_dedup.sh \
-        /var/log/ai-tools-chown.log
+        /etc/profile.d/path_dedup.sh
     restorecon -R \
         /usr/local/sbin/ai-tools/ \
         /usr/local/lib/ai-tools/ \
         /opt/ai-tools/bin/ \
-        /opt/ai-tools/.claude/
+        /opt/ai-tools/.claude/ \
+        /var/log/ai-tools/
     restorecon \
         "${PROJECTS_HOME}/.local/bin/claude" \
         "${PROJECTS_HOME}/.local/bin/nvm-update.sh" \
@@ -314,6 +314,7 @@ do_summary() {
     _chk /var/opt/ai-tools/README.md
     _chk /usr/local/lib/ai-tools/secret-patterns.lib.sh
     _chk /usr/local/lib/ai-tools/prune-dirs.lib.sh
+    _chk /usr/local/lib/ai-tools/log.lib.sh
     _chk /etc/sudoers.d/ai-tools-claude
     _chk /etc/profile.d/path_dedup.sh
     _chk /opt/ai-tools/bin/nvm-update.sh
@@ -411,6 +412,12 @@ do_perms_check() {
     # runtime while running as ai-tools; group read is required. No write, no world.
     _pchk /usr/local/lib/ai-tools/prune-dirs.lib.sh root "${SANDBOX_GROUP}" 640
 
+    # Logger library: 644 root:root -- world-readable, unlike the other libs. It is
+    # sourced by the root helpers AND by the hooks (run as ai-tools) AND by the CLI
+    # (run as the projects user, who is NOT in SANDBOX_GROUP), so every principal must
+    # be able to read it. It holds no secrets. Root-owned, no group/world write.
+    _pchk /usr/local/lib/ai-tools/log.lib.sh root root 644
+
     # sudoers drop-in: 440 root:root -- required mode for sudo to parse the file;
     # a looser mode causes sudo to refuse the drop-in entirely.
     _pchk /etc/sudoers.d/ai-tools-claude root root 440
@@ -445,9 +452,17 @@ do_perms_check() {
     # deny rules.
     _pchk /opt/ai-tools/.claude/settings.json "${PROJECTS_USER}" "${SANDBOX_GROUP}" 640
 
-    # Audit log: 600 root:root -- secret filenames written here are not
-    # world-readable; only root can read or append.
-    _pchk /var/log/ai-tools-chown.log root root 600
+    # Operation logs: dir 700 root:root, each file 600 root:root -- the root helpers
+    # (running as root) append here; ai-tools, neither owner nor able to traverse a
+    # 700 dir, can neither read nor tamper with the trail (secret filenames recorded
+    # by ai-tools-chown stay out of agent reach). journald carries the same lines for
+    # the non-root components.
+    _pchk /var/log/ai-tools              root root 700
+    _pchk /var/log/ai-tools/chown.log    root root 600
+    _pchk /var/log/ai-tools/setgid.log   root root 600
+    _pchk /var/log/ai-tools/symlink.log  root root 600
+    _pchk /var/log/ai-tools/lockdown.log root root 600
+    _pchk /var/log/ai-tools/install.log  root root 600
 
     # User wrapper: 750 PROJECTS_USER:PROJECTS_GROUP -- only the projects user
     # (and their private primary group) can execute it.
@@ -496,6 +511,17 @@ do_perms_check() {
 do_install() {
     id "${SANDBOX_USER}" &>/dev/null \
         || die "${SANDBOX_USER} user not found -- create it first (README step 2)"
+
+    # Capture the full install transcript to /var/log/ai-tools/install.log. tee keeps
+    # colour on the terminal and writes a colour-stripped copy to the file; stderr is
+    # folded in so warnings land in the log too. The dir is created 700 root:root now so
+    # the target exists; the block below re-enforces perms and the SELinux relabel
+    # applies ai_tools_log_t. A logger marker brackets the run in journald.
+    install -d -o root -g root -m 700 /var/log/ai-tools 2>/dev/null || true
+    exec > >(tee >(sed -u 's/\x1b\[[0-9;]*m//g' >> /var/log/ai-tools/install.log)) 2>&1
+    logger -t ai-tools-install -p daemon.notice -- \
+        "install started (projects user ${PROJECTS_USER}, sandbox ${SANDBOX_USER}:${SANDBOX_GROUP})" \
+        2>/dev/null || true
 
     printf '\n%sInstalling the ai-tools Claude Code sandbox%s\n' "${C_BOLD}" "${C_RST}"
     say "  projects user : ${PROJECTS_USER} (${PROJECTS_HOME})"
@@ -552,6 +578,14 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/prune-dirs.lib.sh" \
         /usr/local/lib/ai-tools/prune-dirs.lib.sh
 
+    # Logger library: 644 root:root -- world-readable. Sourced by the root helpers, by
+    # the hooks (run as ai-tools), and by the CLI (run as the projects user, NOT in
+    # SANDBOX_GROUP), so every principal must read it; it holds no secrets. No tokens.
+    log "/usr/local/lib/ai-tools/log.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/log.lib.sh" \
+        /usr/local/lib/ai-tools/log.lib.sh
+
     # Manual pre-flight lockdown sweep. Run by the user (sudo), never by ai-tools.
     log "/usr/local/sbin/ai-tools/ai-tools-lockdown"
     install_subst 750 root root \
@@ -590,13 +624,21 @@ do_install() {
         "${SCRIPT_DIR}/src/var/opt/ai-tools/README.md" \
         /var/opt/ai-tools/README.md
 
-    # Audit log for secret-named files the agent wrote (ai-tools-chown appends).
-    # Create root:root 600 so the record of secret *filenames* is not world-read.
-    # Never truncate an existing log.
-    log "/var/log/ai-tools-chown.log"
-    if [[ ! -e /var/log/ai-tools-chown.log ]]; then
-        install -o root -g root -m 600 /dev/null /var/log/ai-tools-chown.log
-    fi
+    # Operation-log directory for the root helpers. Dir 700 root:root, each file 600
+    # root:root -- the helpers append as root; ai-tools cannot read or tamper with the
+    # trail (secret filenames recorded by ai-tools-chown are not exposed). journald is
+    # the parallel sink for every component (see log.lib.sh). Pre-create each file so
+    # the SELinux relabel can apply ai_tools_log_t and appends are pure appends; never
+    # truncate an existing log.
+    log "/var/log/ai-tools/"
+    ensure_dir 700 root root /var/log/ai-tools
+    chown root:root /var/log/ai-tools
+    chmod 700 /var/log/ai-tools
+    for _logfile in chown setgid symlink lockdown install; do
+        if [[ ! -e "/var/log/ai-tools/${_logfile}.log" ]]; then
+            install -o root -g root -m 600 /dev/null "/var/log/ai-tools/${_logfile}.log"
+        fi
+    done
 
     log "/etc/profile.d/path_dedup.sh"
     install -o root -g root -m 644 \
@@ -785,6 +827,8 @@ do_install() {
     say "    ${C_BOLD}ai-tools --lockdown /path/to/project${C_RST}          ${C_DIM}# revoke agent access to secrets${C_RST}"
     say "  see ${C_DIM}/var/opt/ai-tools/README.md${C_RST}"
     say ""
+
+    logger -t ai-tools-install -p daemon.notice -- "install complete" 2>/dev/null || true
 }
 
 # ── uninstall ──────────────────────────────────────────────────────────────────
@@ -810,6 +854,7 @@ do_uninstall() {
     rm -f /usr/local/bin/ai-tools
     rm -f /usr/local/lib/ai-tools/secret-patterns.lib.sh
     rm -f /usr/local/lib/ai-tools/prune-dirs.lib.sh
+    rm -f /usr/local/lib/ai-tools/log.lib.sh
     rmdir /usr/local/lib/ai-tools 2>/dev/null || true
     rm -f /etc/sudoers.d/ai-tools-claude
     rm -f /etc/profile.d/path_dedup.sh

@@ -66,7 +66,19 @@ say()     { printf '%s\n' "$*"; }
 section() { printf '\n%s%s%s\n' "${C_BOLD}" "$*" "${C_RST}"; }
 ok()      { printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$*"; }
 warn()    { printf '  %s!%s %s\n' "${C_YEL}" "${C_RST}" "$*" >&2; }
-die()     { printf 'ai-tools: error: %s\n' "$*" >&2; exit 1; }
+die()     { ai_tools_log_error "$*"; printf 'ai-tools: error: %s\n' "$*" >&2; exit 1; }
+
+# Shared leveled logger -- journald only (this CLI runs as the projects user, not root,
+# so it cannot write the root-only /var/log/ai-tools files). Records workflow
+# milestones (project/sandbox created, pushed, removed, locked down) at INFO under the
+# tag "ai-tools". Best-effort no-op fallback if the lib is missing.
+AI_TOOLS_LOG_TAG="ai-tools"
+readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
+# shellcheck source=/dev/null
+if ! source "${LOG_LIB}" 2>/dev/null; then
+    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
+    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+fi
 
 # confirm <prompt> [y|n]  -- default decides the Enter answer and the no-tty answer.
 # A destructive caller passes 'n' so an unattended/piped run aborts safely.
@@ -288,6 +300,7 @@ cmd_project_create() {
     reg_allow "${d}"
     reg_safedir "${d}"
     ok "registered ${d}"
+    ai_tools_log_info "registered project ${d}"
 }
 
 # cmd_project_remove [path]  -- unregister a real project (default: cwd) from both
@@ -301,6 +314,7 @@ cmd_project_remove() {
     unreg_allow "${d}"
     unreg_safedir "${d}"
     ok "unregistered ${d}"
+    ai_tools_log_info "unregistered project ${d}"
 }
 
 # cmd_sandbox_create [path]  -- create or reuse the per-repo branch
@@ -386,6 +400,7 @@ cmd_sandbox_create() {
     reg_allow "${dst}"
     reg_safedir "${dst}"
     ok "registered ${dst}"
+    ai_tools_log_info "created sandbox ${dst} (branch ${br}, remote ${remote})"
 
     # A shallow clone drops the history but keeps the tip commit, which may carry
     # checked-in credential files the agent could read. Lock them down now; if we
@@ -445,6 +460,7 @@ cmd_sandbox_push() {
     confirm "Push ${n} commit(s) to ${up}?" y || die "aborted"
     git -C "${d}" push
     ok "pushed ${n} commit(s) to ${up}"
+    ai_tools_log_info "pushed ${n} commit(s) from sandbox ${d} to ${up}"
 }
 
 # cmd_sandbox_remove [path]  -- delete a sandbox clone and unregister it, warning
@@ -470,6 +486,7 @@ cmd_sandbox_remove() {
     unreg_allow "${d}"
     unreg_safedir "${d}"
     ok "removed ${d} and unregistered it"
+    ai_tools_log_info "removed sandbox ${d} and unregistered it"
     say "  ${C_DIM}remote branch left intact -- others may still merge it${C_RST}"
 }
 
@@ -498,6 +515,7 @@ cmd_lockdown() {
     if run_lockdown "${d}" "${passthru[@]}"; then
         ${dry} || clear_lockdown_guard "${d}"
         ok "lockdown done: ${d}"
+        ${dry} || ai_tools_log_info "locked down secrets in ${d}"
     else
         die "lockdown failed for ${d}"
     fi

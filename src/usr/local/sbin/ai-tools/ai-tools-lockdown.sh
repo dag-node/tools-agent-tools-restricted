@@ -34,6 +34,17 @@ AI_TOOLS_PRUNE_NAMES=()
 # shellcheck source=/dev/null
 [[ -r "${PRUNE_LIB}" ]] && source "${PRUNE_LIB}" || true
 
+# Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/lockdown.log.
+# Best-effort -- a no-op fallback keeps the helper working if the lib is missing.
+AI_TOOLS_LOG_TAG="ai-tools-lockdown"
+AI_TOOLS_LOG_FILE="lockdown.log"
+readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
+# shellcheck source=/dev/null
+if ! source "${LOG_LIB}" 2>/dev/null; then
+    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
+    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+fi
+
 log()  { printf 'ai-tools-lockdown: %s\n' "$*"; }
 warn() { printf 'ai-tools-lockdown: warn: %s\n' "$*" >&2; }
 die()  { printf 'ai-tools-lockdown: error: %s\n' "$*" >&2; exit 1; }
@@ -212,6 +223,7 @@ _safe_apply() {
     /usr/bin/chown -- "${OWNER}" "/proc/self/fd/${fd}"
     /usr/bin/chmod -- "${mode}"  "/proc/self/fd/${fd}"
     exec {fd}<&-
+    ai_tools_log_info "locked ${path} -> ${OWNER} ${mode}"
     printf '  locked %s  ->  %s %s\n' "${path}" "${OWNER}" "${mode}" >&2
     return 0
 }
@@ -226,7 +238,9 @@ for path in "${hits[@]}"; do
 done
 
 if (( skip_count > 0 )); then
+    ai_tools_log_warn "lockdown of ${target}: locked ${done_count} path(s), skipped ${skip_count}"
     log "locked ${done_count} path(s); skipped ${skip_count} (see warnings above)"
 else
+    ai_tools_log_info "lockdown of ${target}: locked ${done_count} path(s)"
     log "locked ${done_count} path(s)"
 fi

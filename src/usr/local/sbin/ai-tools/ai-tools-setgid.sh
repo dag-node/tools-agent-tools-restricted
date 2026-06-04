@@ -28,6 +28,17 @@ readonly TARGET="${1:?usage: ai-tools-setgid <absolute-project-path>}"
 readonly ALLOWLIST="@PROJECTS_HOME@/.config/ai-tools/allowed-projects"
 readonly GROUP="@SANDBOX_GROUP@"
 
+# Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/setgid.log.
+# Best-effort -- a no-op fallback keeps the helper working if the lib is missing.
+AI_TOOLS_LOG_TAG="ai-tools-setgid"
+AI_TOOLS_LOG_FILE="setgid.log"
+readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
+# shellcheck source=/dev/null
+if ! source "${LOG_LIB}" 2>/dev/null; then
+    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
+    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+fi
+
 # Heavy/transient trees pruned from the walk come from the shared library (the
 # single source of truth, also used by session-hook.sh and ai-tools-lockdown).
 # Unreadable (broken install) -> empty -> no pruning: slower walk, still correct.
@@ -119,9 +130,16 @@ _safe_setgid() {
         exec {fd}<&-
         return 1
     fi
-    [[ "${grp}" != "${GROUP}" ]] && chgrp -- "${GROUP}" "/proc/self/fd/${fd}"
+    local regrouped=0
+    [[ "${grp}" != "${GROUP}" ]] && { chgrp -- "${GROUP}" "/proc/self/fd/${fd}"; regrouped=1; }
     chmod -- g+s "/proc/self/fd/${fd}"
     exec {fd}<&-
+    # Record the actual change (the early return above logs nothing for a no-op dir).
+    if (( regrouped )); then
+        ai_tools_log_info "normalized ${dir} (group ${grp} -> ${GROUP}, +setgid)"
+    else
+        ai_tools_log_info "normalized ${dir} (+setgid)"
+    fi
     return 0
 }
 

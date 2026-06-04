@@ -80,10 +80,22 @@ readonly ACTIVE_MARKER="/opt/ai-tools/.claude/.session-active"
 # "session-end" (clear the clean-exit marker).
 readonly MODE="${1:-stop}"
 
+# Shared leveled logger -- journald only (this hook runs as the agent and cannot write
+# the root-only /var/log/ai-tools files; the sudo helpers it calls record the actual
+# file mutations there). Best-effort no-op fallback if the lib is missing.
+AI_TOOLS_LOG_TAG="ai-tools-hook"
+readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
+# shellcheck source=/dev/null
+if ! source "${LOG_LIB}" 2>/dev/null; then
+    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
+    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+fi
+
 # session-end: graceful process exit. Clear the clean-exit marker so the next
 # session-start does not read this session as interrupted, then stop. Nothing
 # else to do -- the live process's Stop sweeps already handed back the work tree.
 if [[ "${MODE}" == "session-end" ]]; then
+    ai_tools_log_debug "session-end: clearing clean-exit marker"
     rm -f "${ACTIVE_MARKER}" 2>/dev/null || true
     exit 0
 fi
@@ -133,6 +145,7 @@ fi
 # letting the projects user be a non-member of that group. The root helper
 # re-validates dir against the allowlist and is idempotent. Stop mode never does this.
 if [[ "${unbounded}" -eq 1 ]]; then
+    ai_tools_log_debug "session-start: normalizing setgid on ${dir}"
     sudo /usr/local/sbin/ai-tools/ai-tools-setgid "${dir}" </dev/null || true
 fi
 
@@ -164,6 +177,7 @@ expr+=( '(' -type f -o -type d ')' -print0 ')' )
 # Delegate each path to the root validator. </dev/null keeps ai-tools-chown on its
 # non-interactive branch. Trailing `|| true` so a find/pipe non-zero (e.g. an
 # unreadable subdir) cannot trip set -e / pipefail and skip the marker update.
+ai_tools_log_debug "${MODE} sweep: handing back agent-owned paths under ${dir}$([[ "${unbounded}" -eq 1 ]] && echo ' (unbounded)' || echo ' (since marker)')"
 find "${expr[@]}" 2>/dev/null \
     | while IFS= read -r -d '' path; do
         sudo /usr/local/sbin/ai-tools/ai-tools-chown "${path}" </dev/null || true
@@ -217,6 +231,7 @@ if [[ "${unbounded}" -eq 1 ]]; then
     # cross-project mixed ownership); a clean prior session is routine housekeeping.
     total_found=$((git_found + prev_found))
     if [[ "${total_found}" -gt 0 ]]; then
+        ai_tools_log_info "reclaimed ${total_found} agent-owned .git path(s) under ${dir}$([[ "${prev_found}" -gt 0 ]] && echo " and ${prev_cwd}")$([[ "${interrupted}" -eq 1 ]] && echo ' (prior session interrupted)')"
         if [[ "${interrupted}" -eq 1 ]]; then
             scope="${dir}/.git"
             [[ "${prev_found}" -gt 0 ]] && scope="${scope} and ${prev_cwd}/.git"

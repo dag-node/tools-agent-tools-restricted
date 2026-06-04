@@ -27,6 +27,17 @@ set -euo pipefail
 
 readonly EXPECTED_OWNER="@PROJECTS_USER@:@SANDBOX_GROUP@"
 
+# Shared leveled logger -- journald only (this hook runs as the agent and cannot
+# write the root-only /var/log/ai-tools files; the sudo helper it calls records the
+# actual file mutation there). Best-effort no-op fallback if the lib is missing.
+AI_TOOLS_LOG_TAG="ai-tools-hook"
+readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
+# shellcheck source=/dev/null
+if ! source "${LOG_LIB}" 2>/dev/null; then
+    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
+    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+fi
+
 # Extract file path from hook stdin JSON
 file="$(jq -r '.tool_input.file_path // empty' 2>/dev/null)" || exit 0
 [[ -n "${file}" ]] || exit 0
@@ -38,6 +49,7 @@ file="$(jq -r '.tool_input.file_path // empty' 2>/dev/null)" || exit 0
 # NOT redirect to /dev/null) so Claude Code surfaces the NOTICE in the session.
 current="$(stat -c '%U:%G' "${file}" 2>/dev/null || true)"
 if [[ -n "${current}" && "${current}" != "${EXPECTED_OWNER}" ]]; then
+    ai_tools_log_debug "PostToolUse handing back ${file} (owner ${current})"
     sudo /usr/local/sbin/ai-tools/ai-tools-chown "${file}" || true
 fi
 

@@ -28,7 +28,17 @@ readonly ALLOWLIST="@PROJECTS_HOME@/.config/ai-tools/allowed-projects"
 # directory control.
 readonly OWNER="@PROJECTS_USER@:@SANDBOX_GROUP@"
 readonly SECRET_OWNER="@PROJECTS_USER@:@PROJECTS_GROUP@"
-readonly AUDIT_LOG="/var/log/ai-tools-chown.log"
+
+# Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/chown.log.
+# Best-effort -- a no-op fallback keeps the helper working if the lib is missing.
+AI_TOOLS_LOG_TAG="ai-tools-chown"
+AI_TOOLS_LOG_FILE="chown.log"
+readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
+# shellcheck source=/dev/null
+if ! source "${LOG_LIB}" 2>/dev/null; then
+    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
+    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+fi
 
 # Shared secret-name matcher, sourced (not executed) so this helper and
 # ai-tools-lockdown classify basenames by the SAME patterns from the SAME config
@@ -44,15 +54,16 @@ if ! source "${SECRET_PATTERNS_LIB}"; then
 fi
 
 # _notify_secret: emit a one-line NOTICE that a secret-named file was written and
-# ai-tools' read access revoked, to stderr (the PostToolUse hook relays it into
-# the session) and the root-owned audit log. Logging is best-effort, never blocks.
+# ai-tools' read access revoked, to stderr (the PostToolUse hook relays it into the
+# session) and -- at WARNING level -- to journald + the root-owned chown.log. Logging
+# is best-effort, never blocks.
 # args:  path  old_owner  new_owner  old_mode  new_mode
 _notify_secret() {
     local path="$1" old_owner="$2" new_owner="$3" old_mode="$4" new_mode="$5" msg
     printf -v msg 'NOTICE: secret-named file written by agent considered breached, rotate the secret: %s (ai-tools read access revoked; owner %s -> %s, mode %s -> %s)' \
         "${path}" "${old_owner}" "${new_owner}" "${old_mode}" "${new_mode}"
     printf 'ai-tools-chown: %s\n' "${msg}" >&2
-    ( umask 077; printf '%s %s\n' "$(date -Is)" "${msg}" >> "${AUDIT_LOG}" ) 2>/dev/null || true
+    ai_tools_log_warn "${msg}"
 }
 
 # No allowlist -- do nothing silently (hook skips this call when no allowlist exists)
@@ -223,9 +234,15 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             # shebang files (755 not 750); o= for ordinary files, go= for secrets.
             /usr/bin/chown -- "${target_owner}" "/proc/self/fd/${fd}"
             /usr/bin/chmod -- "${chmod_arg}"    "/proc/self/fd/${fd}"
+            # Record the privileged mutation. A secret is the alarming case (WARNING,
+            # via _notify_secret); an ordinary file or directory handback is routine
+            # bookkeeping (INFO). Both name the path, owner change and mode change.
             if ${is_secret}; then
                 _notify_secret "${canonical}" "${current_owner}" "${target_owner}" \
                     "${current_mode}" "${new_mode}"
+            else
+                ${is_dir} && _kind=directory || _kind=file
+                ai_tools_log_info "handed back ${_kind} ${canonical} (owner ${current_owner} -> ${target_owner}, mode ${current_mode} -> ${new_mode})"
             fi
             exec {fd}<&-
             exit 0

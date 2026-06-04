@@ -77,6 +77,9 @@ check_file /usr/local/lib/ai-tools/secret-patterns.lib.sh  root          root   
 # Prune-dir list: also sourced by sandbox-sweep (runs as the agent), so 640
 # root:ai-tools -- agent reads via group, no world.
 check_file /usr/local/lib/ai-tools/prune-dirs.lib.sh       root          ai-tools          640
+# Logger library: 644 root:root -- world-readable, sourced by the root helpers, the
+# hooks (run as ai-tools), and the CLI (run as the projects user, not in ai-tools).
+check_file /usr/local/lib/ai-tools/log.lib.sh             root          root              644
 # Secret-pattern config: user-owned 600. ai-tools (not owner/group, cannot enter
 # the 700 .config/ai-tools dir) can neither read nor write it; root helpers read it.
 check_file "${PROJECTS_HOME}/.config/ai-tools/secret-patterns" "${PROJECTS_USER}"  "${PROJECTS_GROUP}"  600
@@ -328,7 +331,7 @@ fi
 
 # The quarantine must leave a durable, root-owned audit record naming the path.
 asecret="${SCRIPT_DIR}/.env.audited_$$"
-readonly AUDIT_LOG=/var/log/ai-tools-chown.log
+readonly AUDIT_LOG=/var/log/ai-tools/chown.log
 if [[ -e "${asecret}" ]]; then
     skip "audit log entry" "pre-existing file -- not overwriting"
 else
