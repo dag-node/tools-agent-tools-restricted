@@ -173,13 +173,34 @@ if ${own_gap}; then
             "       run one of the commands above, then start claude again"
     fi
 elif ${safe_gap}; then
-    # Ownership is fine; only git's safe.directory is missing. Non-fatal: NOTICE and
-    # proceed. Registering it (project-create) silences git's dubious-ownership refusal.
+    # Ownership is fine; only git's safe.directory is missing -- non-fatal, git alone is
+    # affected. This wrapper runs as the operator, who owns ${GITCONFIG} (640), so offer to
+    # add the single entry directly rather than only pointing at project-create. It is a
+    # restrict-nothing change (git merely trusts a dir you already approved to launch in),
+    # so unlike the recursive in-place claim it defaults YES. Adding only safe.directory is
+    # consistent here because the other invariants (allowlist, group) already hold -- this
+    # is the narrow safe.directory gap, not the full project-create claim. With no TTY to
+    # confirm on, fall back to a NOTICE so a non-interactive launch never silently writes
+    # the control-plane gitconfig.
     {
-        printf '\nclaude: NOTICE: %s is not in git safe.directory.\n' "${cwd}"
-        printf '  git may report "dubious ownership" here. Register it with:\n'
-        printf '  %s --project-create %q\n\n' "${AI_TOOLS_CLI}" "${cwd}"
+        printf '\nclaude: NOTICE: %s is not in git safe.directory;\n' "${cwd}"
+        printf '  git will report "dubious ownership" here until it is registered.\n'
     } >&2
+    if [[ -r /dev/tty && -w /dev/tty ]]; then
+        printf 'Add it to %s now? [Y/n] ' "${GITCONFIG}" > /dev/tty
+        reply=""
+        read -r reply < /dev/tty || reply=""
+        if [[ ! "${reply}" =~ ^[nN] ]]; then
+            if git config --file "${GITCONFIG}" --add safe.directory "${cwd}"; then
+                printf 'claude: registered %s in git safe.directory.\n' "${cwd}" >&2
+            else
+                printf 'claude: NOTICE: could not write %s -- register manually:\n' "${GITCONFIG}" >&2
+                printf '  git config --file %q --add safe.directory %q\n' "${GITCONFIG}" "${cwd}" >&2
+            fi
+        fi
+    else
+        printf '  register it with: git config --file %q --add safe.directory %q\n' "${GITCONFIG}" "${cwd}" >&2
+    fi
 fi
 
 if [[ -t 1 ]]; then
