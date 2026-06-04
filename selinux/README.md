@@ -98,8 +98,12 @@ the refpolicy interfaces `audit2allow -R` suggests over raw `allow` lines), then
 rebuild and reload:
 
 ```bash
-sudo ./install-selinux.sh install     # rebuild + reload (still permissive)
+sudo ./install-selinux.sh rebuild     # recompile from source + reload (still permissive)
 ```
+
+`rebuild` recompiles `ai_tools.pp` from the edited `.te`/`.fc`, reloads it, and
+re-applies labels — the loop step after every source edit. (`install` does the same
+but only recompiles if you answer its prompt, and it re-offers the optional groups.)
 
 Repeat exercise → `audit2allow` → fold-in → reload until `ausearch` shows **no new
 `ai_tools_t` denials** across a full session including git push and an update run.
@@ -156,7 +160,7 @@ When the log is clean, remove the switch line from `ai_tools.te`:
 ```
 
 ```bash
-sudo ./install-selinux.sh install     # rebuild + reload -> ai_tools_t now enforcing
+sudo ./install-selinux.sh rebuild     # recompile from source + reload -> ai_tools_t now enforcing
 sudo ausearch -m AVC -ts recent | grep ai_tools_t   # confirm still clean under load
 ```
 
@@ -246,7 +250,7 @@ This only works once the module is **loaded** — the static rule and the
 reload:
 
 ```bash
-cd selinux && sudo ./install-selinux.sh install
+cd selinux && sudo ./install-selinux.sh rebuild
 ```
 
 ## Remove

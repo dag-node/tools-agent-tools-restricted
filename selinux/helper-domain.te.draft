@@ -36,10 +36,11 @@
 #
 #   /usr/local/sbin/ai-tools/chown           --  gen_context(system_u:object_r:ai_tools_chown_exec_t,s0)
 #   /usr/local/sbin/ai-tools/claude-symlink  --  gen_context(system_u:object_r:ai_tools_symlink_exec_t,s0)
-#   /var/log/ai-tools-chown\.log             --  gen_context(system_u:object_r:ai_tools_chown_log_t,s0)
+#   /var/log/ai-tools(/.*)?                  --  gen_context(system_u:object_r:ai_tools_chown_log_t,s0)
 #
-# (Both helpers are currently bin_t; the log is var_log_t. After merging, extend
-# install-selinux.sh to restorecon /usr/local/sbin/ai-tools-* and the log path.)
+# (Both helpers are currently bin_t. The log dir is already its own type today --
+# ai_tools_log_t, labelled by ai_tools.fc and restorecon'd by install-selinux.sh; a
+# helper-domain split could narrow it further to a per-helper ai_tools_chown_log_t.)
 ################################################################################
 
 
@@ -153,7 +154,7 @@ domtrans_pattern(ai_tools_sudo_t, ai_tools_symlink_exec_t, ai_tools_symlink_t)
 #
 # What the script does (scripts/ai-tools-chown.sh): reads the allowlist, opens the
 # target, then chown/chmod via /proc/self/fd/N (inode pinned against symlink races),
-# walks parent dirs, logs to /var/log/ai-tools-chown.log. It only ever chowns/chmods
+# walks parent dirs, logs to /var/log/ai-tools/chown.log. It only ever chowns/chmods
 # -- it never creates, renames, or unlinks the user's files -- so it gets
 # getattr+setattr, NOT full manage, on the project/home types.
 ################################################################################

@@ -15,6 +15,12 @@
 # the dir labels it (and its files) consistently regardless of how they were created.
 /usr/local/sbin/ai-tools(/.*)?  gen_context(system_u:object_r:bin_t,s0)
 
+# The root-helper operation logs. ai-tools-chown / -setgid / -claude-symlink run IN
+# ai_tools_t and append here, so the dir and its files must carry ai_tools_log_t (the
+# domain is granted append/create on that type in ai_tools.te). DAC keeps it root-only
+# (dir 700, files 600); this label is what makes the writes succeed under enforcing.
+/var/log/ai-tools(/.*)?  gen_context(system_u:object_r:ai_tools_log_t,s0)
+
 # The agent's own config/state dir -- a private writable area, so the policy need
 # not grant write to the whole nvm tree (usr_t). The <you>-owned control files inside
 # (settings.json, post-tool-hook.sh) remain protected by DAC regardless of label.

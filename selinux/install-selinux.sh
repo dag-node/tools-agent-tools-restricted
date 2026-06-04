@@ -11,6 +11,7 @@
 #
 # Usage:
 #   sudo ./install-selinux.sh install              load prebuilt core (opt. recompile) + prompt for groups
+#   sudo ./install-selinux.sh rebuild              recompile core from source (.te/.fc) + reload + relabel
 #   sudo ./install-selinux.sh relabel              re-apply labels (after Node upgrade)
 #   sudo ./install-selinux.sh remove               unload all ai_tools* modules + labels
 #   sudo ./install-selinux.sh enable-group <name>  load one optional policy group
@@ -53,6 +54,10 @@ readonly SANDBOX_PROJECTS="/var/opt/ai-tools/sandbox-projects"
 # label is scoped to this one dir so the rest of ~/.config stays unreadable to the
 # domain. Applied via semanage (dynamic home path), not ai_tools.fc (fixed paths).
 readonly CONF_DIR="${PROJECTS_HOME}/.config/ai-tools"
+# Root-helper operation logs. Labelled ai_tools_log_t (static rule in ai_tools.fc) so
+# the helpers that run IN ai_tools_t (chown, setgid, claude-symlink) may append under
+# enforcing. A plain restorecon applies the label; created by install.sh.
+readonly LOG_DIR="/var/log/ai-tools"
 
 # Styled output mirroring install.sh so the two installers read the same. Colours
 # only on a TTY. stdout carries status; warnings and the group prompt go to stderr
@@ -320,6 +325,8 @@ case "${ACTION}" in
     restorecon -RF "${NVM_DIR}"  2>/dev/null || true
     # Apply the static sandbox-clone label (ai_tools.fc) to any existing clones.
     [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -RF "${SANDBOX_PROJECTS}" 2>/dev/null || true
+    # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
+    [[ -d "${LOG_DIR}" ]] && restorecon -RF "${LOG_DIR}" 2>/dev/null || true
     _home_state
     verify_entrypoint
     _label_conf
@@ -360,11 +367,41 @@ case "${ACTION}" in
     restorecon -RF "${NVM_DIR}"  2>/dev/null || true
     # Apply the static sandbox-clone label (ai_tools.fc) to any existing clones.
     [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -RF "${SANDBOX_PROJECTS}" 2>/dev/null || true
+    # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
+    [[ -d "${LOG_DIR}" ]] && restorecon -RF "${LOG_DIR}" 2>/dev/null || true
     _home_state
     verify_entrypoint
     _label_conf
     for_each_project _label_one
     ok "relabel done"
+    ;;
+
+  rebuild)
+    # Recompile the core module from source (.te/.fc) and reload it, then re-apply
+    # labels. This is the "rebuild core module" path: use it after editing ai_tools.te
+    # or ai_tools.fc so the loaded policy and the shipped ai_tools.pp match the source.
+    # Needs the selinux-policy-devel toolchain (build_pp checks and guides if absent).
+    section "Rebuilding core module"
+    build_pp "${MODULE}.pp"
+    if grep -qE '^[[:space:]]*permissive[[:space:]]+ai_tools_t[[:space:]]*;' "${DIR}/${MODULE}.te"; then
+        _mode="PERMISSIVE"
+    else
+        _mode="ENFORCING"
+    fi
+    log "reloading core module (${_mode})"
+    semodule -i "${DIR}/${MODULE}.pp"
+    ok "core module rebuilt and reloaded (${_mode})"
+
+    section "Re-applying labels"
+    restorecon -RF "${HOME_DIR}" 2>/dev/null || true
+    restorecon -RF "${NVM_DIR}"  2>/dev/null || true
+    [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -RF "${SANDBOX_PROJECTS}" 2>/dev/null || true
+    [[ -d "${LOG_DIR}" ]] && restorecon -RF "${LOG_DIR}" 2>/dev/null || true
+    _home_state
+    verify_entrypoint
+    _label_conf
+    for_each_project _label_one
+    ok "rebuild done"
     ;;
 
   remove)
@@ -446,6 +483,7 @@ case "${ACTION}" in
 selinux: usage: sudo $0 <action> [args]
 
   install              load prebuilt core (opt. recompile) + prompt for optional groups
+  rebuild              recompile the core module from source (.te/.fc), reload, relabel
   relabel              re-apply labels (run after a Node upgrade)
   remove               unload all ai_tools* modules and revert labels
   enable-group <name>  load one optional policy group (compiles it; needs selinux-policy-devel)

@@ -127,6 +127,17 @@ files_tmp_file(ai_tools_tmp_t)
 type ai_tools_conf_t;
 files_type(ai_tools_conf_t)
 
+# The root-helper operation logs under /var/log/ai-tools (labelled by ai_tools.fc).
+# The sudo helpers ai-tools-chown and ai-tools-setgid run IN ai_tools_t (sudo, no
+# transition) and append their privileged-operation records here; ai-tools-claude-symlink
+# does the same when the sandbox updater invokes it. logging_log_file marks the type a
+# system log file so it lands under the right relabel/restorecon rules. The DAC mode
+# (dir root:root 700, files 600) keeps the agent out -- this only lets the root-uid
+# helper write under enforcing. (ai-tools-lockdown and the CLI run unconfined; the hooks
+# log to journald via the already-granted /dev/log path, not to these files.)
+type ai_tools_log_t;
+logging_log_file(ai_tools_log_t)
+
 ########################################
 # Domain entry
 ########################################
@@ -191,6 +202,15 @@ files_search_var(ai_tools_t)
 allow ai_tools_t config_home_t:dir search;
 allow ai_tools_t ai_tools_conf_t:dir { getattr search open };
 allow ai_tools_t ai_tools_conf_t:file { getattr open read };
+
+# Append the root-helper operation logs under /var/log/ai-tools (ai_tools_log_t).
+# install.sh pre-creates each log file, so the steady state is append-only; create +
+# the dir-create filetrans cover a fresh/rotated log so a missing file is recreated as
+# ai_tools_log_t (not the domain default) rather than dropping the record. Reached as
+# the root-uid helper only -- the DAC 700 dir keeps the non-root agent out regardless.
+allow ai_tools_t ai_tools_log_t:dir { getattr search open add_name write };
+allow ai_tools_t ai_tools_log_t:file { create getattr setattr open append };
+logging_log_filetrans(ai_tools_t, ai_tools_log_t, file)
 
 # <you> (unconfined) keeps full access to, and can relabel (restorecon), the new
 # file types -- relabelling a project to ai_tools_project_t must never lock you out.
