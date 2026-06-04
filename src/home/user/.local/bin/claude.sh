@@ -113,6 +113,75 @@ if [[ "${approved}" != true ]]; then
         "claude: add it to ${ALLOWLIST} to enable Claude Code here"
 fi
 
+# ── Claim guard ─────────────────────────────────────────────────────────────────
+# The cwd passed the allowlist, but a registered path can still be incompletely
+# "claimed". Two independent gaps:
+#   ownership  -- group not ai-tools, or no group-execute. The sandbox user runs with
+#                 this dir as its cwd, and Node's posix_spawn then fails EACCES on
+#                 every child (hooks, the Bash tool): the session starts but can do
+#                 nothing. FATAL. Closing it means granting the agent group access to
+#                 this real tree -- a recursive chgrp, the heavy LAST-RESORT path. The
+#                 clean alternative is an isolated sandbox clone, recommended first.
+#   safe.dir   -- cwd absent from ai-tools' git safe.directory. git refuses to operate
+#                 ("dubious ownership"). Non-fatal; only git, no ownership change.
+# This wrapper runs as the operator (you), before the sudo drop, so an offer here is
+# an operator action. It never performs the recursive grant itself: it recommends the
+# clean path, then (last resort) delegates to `ai-tools --project-create` -- the one
+# place that locks down secrets and normalizes ownership -- which the user confirms.
+readonly AI_TOOLS_CLI="/usr/local/bin/ai-tools"
+readonly GITCONFIG="/opt/ai-tools/.gitconfig"
+
+own_gap=false
+cwd_gid="$(stat -c '%G' "${cwd}" 2>/dev/null || true)"
+cwd_mode="$(stat -c '%a' "${cwd}" 2>/dev/null || true)"
+if [[ "${cwd_gid}" != "ai-tools" ]] || (( (0${cwd_mode:-0} & 010) == 0 )); then
+    own_gap=true
+fi
+safe_gap=false
+if ! git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
+        | grep -qxF "${cwd}"; then
+    safe_gap=true
+fi
+
+if ${own_gap}; then
+    {
+        printf '\nclaude: %s is approved but not claimed for the sandbox.\n' "${cwd}"
+        printf "  - group is '%s', not 'ai-tools' -- sessions cannot spawn children here\n" "${cwd_gid:-?}"
+        if ${safe_gap}; then printf '  - also not in git safe.directory\n'; fi
+        printf '\nRecommended -- an isolated clone that never touches this tree:\n'
+        printf '  %s --sandbox-create %q\n' "${AI_TOOLS_CLI}" "${cwd}"
+        printf '\nLast resort -- claim THIS tree in place (grants the agent recursive\n'
+        printf 'group access to %s; secrets are locked down first):\n' "${cwd}"
+    } >&2
+    reply=""
+    if [[ -r /dev/tty && -w /dev/tty ]]; then
+        printf 'Claim this tree in place now? [y/N] ' > /dev/tty
+        read -r reply < /dev/tty || reply=""
+    fi
+    if [[ "${reply}" =~ ^[yY] ]]; then
+        # Delegate the actual claim. ASSUME_YES skips only the CLI's top-level confirm
+        # (you just answered it here); its secret-lockdown prompt stays explicit.
+        AI_TOOLS_ASSUME_YES=1 "${AI_TOOLS_CLI}" --project-create "${cwd}" || true
+        # Only launch if the claim truly made the tree accessible.
+        cwd_gid="$(stat -c '%G' "${cwd}" 2>/dev/null || true)"
+        cwd_mode="$(stat -c '%a' "${cwd}" 2>/dev/null || true)"
+        if [[ "${cwd_gid}" != "ai-tools" ]] || (( (0${cwd_mode:-0} & 010) == 0 )); then
+            die "claude: ${cwd}: still not accessible -- the claim did not complete"
+        fi
+    else
+        die "claude: refusing to launch: ${cwd} is not accessible to the sandbox account" \
+            "       run one of the commands above, then start claude again"
+    fi
+elif ${safe_gap}; then
+    # Ownership is fine; only git's safe.directory is missing. Non-fatal: NOTICE and
+    # proceed. Registering it (project-create) silences git's dubious-ownership refusal.
+    {
+        printf '\nclaude: NOTICE: %s is not in git safe.directory.\n' "${cwd}"
+        printf '  git may report "dubious ownership" here. Register it with:\n'
+        printf '  %s --project-create %q\n\n' "${AI_TOOLS_CLI}" "${cwd}"
+    } >&2
+fi
+
 if [[ -t 1 ]]; then
     readonly _C_BOLD=$'\033[1m' _C_DIM=$'\033[2m' _C_RST=$'\033[0m'
     printf '\n'
