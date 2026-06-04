@@ -82,8 +82,12 @@ fi
 
 # confirm <prompt> [y|n]  -- default decides the Enter answer and the no-tty answer.
 # A destructive caller passes 'n' so an unattended/piped run aborts safely.
+# AI_TOOLS_ASSUME_YES=1 short-circuits to yes without prompting: the launch wrapper
+# sets it for ONE delegated --project-create after taking its own confirmation, so
+# the registration does not prompt a second time. It is never exported in normal use.
 confirm() {
     local prompt="$1" def="${2:-y}" resp hint
+    [[ "${AI_TOOLS_ASSUME_YES:-}" == 1 ]] && return 0
     if [[ "${def}" == "y" ]]; then hint="[Y/n]"; else hint="[y/N]"; fi
     if [[ -r /dev/tty && -w /dev/tty ]]; then
         printf '%s %s ' "${prompt}" "${hint}" > /dev/tty
@@ -180,6 +184,53 @@ unreg_safedir() {
     fi
 }
 
+# dir_owngap <dir>  -- true (0) when <dir> is NOT group-accessible to the sandbox
+# account: group is not SANDBOX_GROUP, or the group-execute bit is clear. The
+# sandbox user runs with the project as its cwd, and Node's posix_spawn needs
+# group-execute there to launch ANY child (hooks, the Bash tool). This is the exact
+# gap the launch wrapper refuses to start on, factored here so both agree.
+dir_owngap() {
+    local dir="$1" grp mode
+    grp="$(stat -c '%G' "${dir}" 2>/dev/null)" || return 0
+    mode="$(stat -c '%a' "${dir}" 2>/dev/null)" || return 0
+    [[ "${grp}" == "${SANDBOX_GROUP}" ]] && (( (0${mode} & 010) != 0 )) && return 1
+    return 0
+}
+
+# reg_ownership <dir>  -- make <dir> usable by the sandbox account: group
+# SANDBOX_GROUP (recursive, so the agent can read pre-existing project files) and
+# setgid + group-rwx on the root (so the agent can enter it and files born under it
+# inherit the group). The two registries (allowed-projects, safe.directory) do NOT
+# touch the filesystem, so without this a path can be allowlisted yet fail every
+# posix_spawn -- the session starts but cannot run a single child. The operator owns
+# project dirs and is a SANDBOX_GROUP member, so this needs no privilege; a dir owned
+# by someone else needs sudo and is only flagged, not changed.
+#
+# CALLER MUST run secret_gate "${dir}" first: the recursive chgrp re-groups every file
+# to SANDBOX_GROUP, so a group-readable secret left un-locked (e.g. appsettings.json
+# 640) would become readable by the agent. secret_gate locks secrets to 600/700 first,
+# after which this chgrp leaves their (now closed) modes untouched.
+reg_ownership() {
+    local dir="$1" owner
+    if ! dir_owngap "${dir}"; then
+        say "    ownership: already group ${SANDBOX_GROUP}, setgid"
+        return 0
+    fi
+    owner="$(stat -c '%U' "${dir}" 2>/dev/null || true)"
+    if [[ "${owner}" != "${ME}" ]]; then
+        warn "ownership: ${dir} is owned by ${owner:-?}, not you -- fix with:"
+        warn "  sudo chgrp -R ${SANDBOX_GROUP} '${dir}' && sudo chmod g+rwxs '${dir}'"
+        return 0
+    fi
+    if chgrp -R "${SANDBOX_GROUP}" "${dir}" 2>/dev/null \
+            && chmod g+rwxs "${dir}" 2>/dev/null; then
+        say "    ownership: set group ${SANDBOX_GROUP} (recursive), setgid on root"
+    else
+        warn "ownership: could not set group/setgid on ${dir} -- fix with:"
+        warn "  sudo chgrp -R ${SANDBOX_GROUP} '${dir}' && sudo chmod g+rwxs '${dir}'"
+    fi
+}
+
 # normalize_clone <dir>  -- make a freshly created clone agent-accessible. The clone
 # is born in group SANDBOX_GROUP via the setgid SANDBOX_ROOT, but git creates it
 # with the projects user's umask, which may withhold group-write and lock the agent
@@ -229,6 +280,61 @@ print_manual_lockdown() {
     say  "      ${C_BOLD}ai-tools --lockdown ${d}${C_RST}"
     say  "    or directly:"
     say  "      ${C_BOLD}cd ${d} && sudo ai-tools-lockdown${C_RST}"
+}
+
+# secret_gate <dir>  -- before granting the agent recursive group access to <dir>
+# (reg_ownership's chgrp -R), make sure no group-readable secret would be exposed.
+# The CLI cannot read the root-only secret-pattern library, so detection is delegated
+# to ai-tools-lockdown --dry-run (sudo, password). Found secrets are listed and the
+# user is asked to lock them down (--yes apply); the helper's own interactive mode is
+# NOT used for this because it exits 0 whether the user applies or aborts, which would
+# let an un-locked tree through. This prompt deliberately IGNORES AI_TOOLS_ASSUME_YES:
+# the security-sensitive decision stays explicit even when the launch wrapper
+# auto-confirmed project-create. Returns 0 only when the tree is safe to chgrp (no
+# secrets found, or all locked down); non-zero means the caller must abort.
+secret_gate() {
+    local dir="$1" out resp
+    if ! out="$(run_lockdown "${dir}" --dry-run 2>&1)"; then
+        warn "secret scan failed for ${dir} -- not granting access:"
+        printf '%s\n' "${out}" >&2
+        ai_tools_log_error "secret pre-check: scan failed for ${dir}, access not granted"
+        return 1
+    fi
+    # "N secret-matching path(s)" when any are found vs "no secret-matching paths"
+    # when clean -- match the count form to tell them apart.
+    if ! grep -qE 'ai-tools-lockdown: [0-9]+ secret-matching' <<<"${out}"; then
+        ai_tools_log_info "secret pre-check: clean, no secret-matching paths under ${dir}"
+        return 0                                   # clean tree: safe to chgrp
+    fi
+
+    # The helper has already logged the count and each path (journald + lockdown.log);
+    # record the operator-side decision here too.
+    section "Secrets detected under ${dir}"
+    printf '%s\n' "${out}" | grep -E '\[(file|dir)\]' >&2 || true
+    warn "granting the agent group access would expose any group-readable secret above"
+    ai_tools_log_warn "secret pre-check: secrets present under ${dir} (see lockdown.log for paths)"
+    # Default YES: locking down is the safe direction and the list above may be long,
+    # so Enter proceeds. This prompt ignores AI_TOOLS_ASSUME_YES by design.
+    if [[ -r /dev/tty && -w /dev/tty ]]; then
+        printf 'Lock down these secrets now (sudo will prompt for your password)? [Y/n] ' > /dev/tty
+        read -r resp < /dev/tty || resp=""
+    else
+        resp=""
+    fi
+    resp="${resp:-y}"
+    if [[ "${resp}" =~ ^[nN] ]]; then
+        warn "declined -- registration will not grant access while secrets are exposed"
+        ai_tools_log_warn "secret pre-check: lockdown declined for ${dir}, access not granted"
+        return 1
+    fi
+    if run_lockdown "${dir}" --yes; then
+        ok "secrets locked down"
+        ai_tools_log_info "secret pre-check: secrets locked down under ${dir}"
+        return 0
+    fi
+    warn "lockdown did not complete -- not granting access"
+    ai_tools_log_error "secret pre-check: lockdown failed under ${dir}, access not granted"
+    return 1
 }
 
 # drop_lockdown_guard <dir>  -- write a placeholder CLAUDE.md telling the agent to
@@ -292,17 +398,46 @@ clear_lockdown_guard() {
 
 # ── Commands ─────────────────────────────────────────────────────────────────────
 
-# cmd_project_create [path]  -- register a real project (default: cwd) in
-# allowed-projects and git safe.directory, after confirmation.
+# cmd_project_create [path]  -- register a real, IN-PLACE project (default: cwd):
+# allowlist + git safe.directory + secret lockdown + recursive ownership, so the agent
+# can work the REAL tree. This is the heavy path -- reg_ownership grants the agent
+# recursive group access to your working directory. The clean, isolated alternative is
+# a sandbox clone (cmd_sandbox_create), which never chowns your tree; it is recommended
+# below whenever this claim would change ownership. Confirms (default NO) first.
 cmd_project_create() {
     local d; d="$(resolve_dir "${1:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
-    section "Register project"
+    section "Register project (in place)"
     say "  ${d}"
-    confirm "Register this project (allowed-projects + git safe.directory)?" y \
-        || die "aborted"
+
+    # Recommend the clean path first whenever an in-place claim would grant the agent
+    # recursive group access. The sandbox clone is the default choice; in-place is the
+    # last resort, for when you specifically want the agent working in this tree.
+    if dir_owngap "${d}"; then
+        say ""
+        warn "in-place registration grants the agent recursive group access to this tree"
+        say  "    ${C_DIM}recommended instead -- an isolated clone that never touches it:${C_RST}"
+        say  "      ${C_BOLD}ai-tools --sandbox-create ${d}${C_RST}"
+    fi
+
+    confirm "Register IN PLACE (allowlist + safe.directory + lockdown + recursive ownership)?" n \
+        || die "aborted -- for an isolated clone use: ai-tools --sandbox-create ${d}"
+
+    # Allowlist first: ai-tools-lockdown only scans an allowlisted path. Remember
+    # whether we added the entry so an aborted claim rolls back only our own addition.
+    local was_listed=false
+    if grep -qxF "${d}" "${ALLOWLIST}" 2>/dev/null; then was_listed=true; fi
     reg_allow "${d}"
+
+    # Secret gate BEFORE the recursive chgrp: never grant the agent group access to a
+    # tree that still holds un-locked, group-readable secrets.
+    if ! secret_gate "${d}"; then
+        ${was_listed} || unreg_allow "${d}"
+        die "registration stopped -- lock down secrets first: ai-tools --lockdown ${d}"
+    fi
+
     reg_safedir "${d}"
+    reg_ownership "${d}"
     ok "registered ${d}"
     ai_tools_log_info "registered project ${d}"
 }
