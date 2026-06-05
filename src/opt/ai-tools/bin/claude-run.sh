@@ -49,24 +49,37 @@
 #   filter is applied to the payload, so =yes blocking the mnt namespace does not
 #   break it.
 #
-# ── Why NoNewPrivileges is intentionally absent ──────────────────────────────
+# ── NoNewPrivileges is FORCED ON by RestrictNamespaces (not optional) ─────────
 #
-# The obvious addition would be NoNewPrivileges=yes (PR_SET_NO_NEW_PRIVS), which
-# prevents SUID/SGID bits from granting elevated privileges to anything the agent
-# exec's -- closing the SUID-escalation path without needing per-binary policy.
+# RestrictNamespaces=yes is a seccomp filter, and systemd sets PR_SET_NO_NEW_PRIVS
+# whenever any seccomp sandbox directive is present -- on BOTH --user and --system
+# units, and an explicit NoNewPrivileges=no does NOT override it (verified live:
+# /proc/<pid>/status shows NoNewPrivs:1 inside the unit).  So the session ALWAYS runs
+# under NNP.  This is unavoidable while the namespace block comes from systemd seccomp:
+# SELinux cannot block clone(CLONE_NEWUSER) on this policy -- the process2 class has no
+# create_user_ns permission (confirmed: `seinfo -c process2 -x` lists only
+# nnp_transition + nosuid_transition; see ESC-001 in ai_tools.te) -- so the seccomp
+# filter, and therefore NNP, is mandatory.
 #
-# It cannot be used here because the PostToolUse and Stop/SessionStart hooks call
-#   sudo /usr/local/sbin/ai-tools/ai-tools-chown
-#   sudo /usr/local/sbin/ai-tools/ai-tools-setgid
-# from within the claude process tree.  sudo is a SUID-root binary; PR_SET_NO_NEW_PRIVS
-# silently drops the SUID bit, so sudo runs as @SANDBOX_USER@ rather than root,
-# cannot read /etc/sudoers (440 root:root), and every hook call fails.  The entire
-# ownership hand-back and secret-quarantine mechanism stops working.
+# Two consequences follow, both load-bearing:
 #
-# NoNewPrivileges becomes safe to add once the hooks no longer use SUID sudo --
-# for example if they communicate with a root-owned socket-based helper that
-# receives per-path requests and performs the chown/setgid without SUID.
-# The service layer is already in place; enabling the property is then one line.
+#   (1) The domain transition into ai_tools_t is a BOUNDED transition under NNP, which
+#       the kernel denies unless the policy grants process2:nnp_transition on the
+#       target.  ai_tools.te grants it for the authorised source domains; without it
+#       the session silently runs UNCONFINED (SELINUX_ERR security_bounded_transition,
+#       AVC denied { nnp_transition }).  The grant does NOT relax NNP -- it only lets
+#       the type change happen; the agent still runs with NO_NEW_PRIVS set.
+#
+#   (2) PR_SET_NO_NEW_PRIVS drops the SUID bit on execve, so `sudo` cannot become root
+#       (verified: "sudo: the 'no new privileges' flag is set").  The
+#       PostToolUse/Stop/SessionStart hooks call
+#         sudo /usr/local/sbin/ai-tools/ai-tools-chown
+#         sudo /usr/local/sbin/ai-tools/ai-tools-setgid
+#       which therefore FAIL -- the ownership hand-back and secret-quarantine
+#       mechanism does not work under NNP, and CANNOT while the hooks use SUID sudo.
+#       The fix is to move those operations behind a root-owned, socket-activated
+#       helper the agent calls without setuid (deferred; see the socket-helper design
+#       in selinux/README / project memory).  Until that lands the hooks are inert.
 #
 # ── SELinux interaction ───────────────────────────────────────────────────────
 #
@@ -263,14 +276,26 @@ for _name in "${_ENV_ALLOW[@]}"; do
     [[ -n "${!_name:-}" ]] && _setenv+=( "--setenv=${_name}" )
 done
 # HOME and PATH are pinned to sandbox values, never inherited from the operator.
+# PATH mirrors /etc/profile.d/path_dedup.sh's security ordering: root-owned, least-
+# writable dirs first (Tier 1) so they win first-match, with the versioned node bin
+# placed LAST (path_dedup's Tier 4).  Safe because no node/npm/npx exists in any system
+# dir, so the version-pinned node still resolves without being shadowed.  Redundant
+# /sbin and /bin are dropped (usrmerge symlinks them onto /usr/sbin and /usr/bin).
 _setenv+=( "--setenv=HOME=/opt/ai-tools" )
-_setenv+=( "--setenv=PATH=$(dirname -- "${CLAUDE_EXEC}"):/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" )
+_setenv+=( "--setenv=PATH=/usr/local/sbin:/usr/sbin:/usr/local/bin:/usr/bin:$(dirname -- "${CLAUDE_EXEC}")" )
 
 # ExecStart is claude.exe directly: the systemd --user manager exec's the labelled
 # ai_tools_exec_t binary, so domtrans_pattern(<manager domain>, ai_tools_exec_t,
 # ai_tools_t) fires cleanly with no intermediary.  The confinement preflight above has
 # already verified that transition will land in ai_tools_t.
+# Descriptive transient unit name instead of systemd-run's auto-generated "run-uNN":
+# makes the session identifiable in `systemctl --user list-units` (and the journal)
+# as @SANDBOX_USER@'s Claude Code rather than an opaque counter.  The PID suffix keeps
+# concurrent sessions from colliding on the unit name.
+_unit="@SANDBOX_USER@-claude-$$.service"
+
 exec systemd-run --user --pty \
+    --unit="${_unit}" \
     --description="Claude Code @SANDBOX_USER@ session" \
     "${_setenv[@]}" \
     --property=RestrictNamespaces=yes \
