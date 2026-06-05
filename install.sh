@@ -884,6 +884,14 @@ do_install() {
     log "enabling linger for ${PROJECTS_USER}"
     loginctl enable-linger "${PROJECTS_USER}"
 
+    # The sandbox launch (claude-run) runs `systemd-run --user` as ${SANDBOX_USER} to wrap
+    # each session in a transient service unit, which needs ${SANDBOX_USER}'s own systemd
+    # user instance (its /run/user/<uid>/bus). ${SANDBOX_USER} has no login shell, so only
+    # linger keeps that instance alive; without it claude-run aborts at its bus-socket
+    # preflight ("user instance not reachable").
+    log "enabling linger for ${SANDBOX_USER}"
+    loginctl enable-linger "${SANDBOX_USER}"
+
     log "reload and enable nvm-update.timer"
     user_systemctl daemon-reload
     user_systemctl enable --now nvm-update.timer
