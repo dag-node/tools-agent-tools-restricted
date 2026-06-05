@@ -544,6 +544,13 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 # confirm the log is clean against THIS rule set (a fresh `audit2allow` should now
 # show nothing but the boundary items above, which are expected and dontaudit'd),
 # then remove this line and reload to enforce.
+#
+# RE-INSTATED to permissive: until the process2:nnp_transition grant above, the
+# init_t/unconfined_t -> ai_tools_t transition never actually fired (the --user
+# manager is unconfined_t and the bounded transition was denied under NNP), so
+# ai_tools_t has NEVER run for real -- the rule set above is untested against a
+# genuinely-transitioned session. Ship permissive so the first such sessions LOG
+# denials instead of breaking; run the bring-up loop, then remove this line to enforce.
 ########################################
 
-# permissive ai_tools_t;
+permissive ai_tools_t;
