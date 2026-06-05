@@ -230,12 +230,13 @@ do_selinux_restore() {
 }
 
 # Offer to bring up the optional SELinux confinement layer. install-selinux.sh is
-# a deliberately decoupled installer (an extra MAC layer needing selinux-policy-devel),
-# so this only SUGGESTS it and runs it on explicit consent. We are already root with
-# SUDO_USER set -- exactly what that script requires -- so it runs in-place when
-# accepted. Skips cleanly when the script is absent or SELinux is disabled; defaults
-# to skip non-interactively. A child failure (e.g. missing devel toolchain) is
-# tolerated so it never aborts an otherwise-complete install.
+# a deliberately decoupled installer, so this only SUGGESTS it and runs it on
+# explicit consent. We are already root with SUDO_USER set -- exactly what that
+# script requires -- so it runs in-place when accepted. Skips cleanly when the
+# script is absent or SELinux is disabled. Defaults to install when SELinux is
+# active (Enter = install). A child failure is tolerated so it never aborts an
+# otherwise-complete install. selinux-policy-devel is only needed when the user
+# later chooses to recompile the policy from source.
 offer_selinux() {
     local selinux_script="${SCRIPT_DIR}/selinux/install-selinux.sh"
     [[ -f "${selinux_script}" ]] || return 0
@@ -245,16 +246,16 @@ offer_selinux() {
         return 0
     fi
 
-    say "  An optional SELinux layer confines the agent's domain (${C_DIM}ai_tools_t${C_RST})."
-    say "  The core module loads ${C_BOLD}ENFORCING${C_RST}; it needs the"
-    say "  ${C_BOLD}selinux-policy-devel${C_RST} package to build."
+    say "  SELinux is active. An optional confinement layer locks the agent"
+    say "  to domain ${C_BOLD}ai_tools_t${C_RST} (ships prebuilt; loads ${C_BOLD}ENFORCING${C_RST})."
     say ""
 
-    local resp run_it=0
+    local resp run_it=1
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
-        printf '  Build and load it now? (Enter = skip, y = install) [y/N] ' > /dev/tty
+        printf '  Build and load it now?\n' > /dev/tty
+        printf '  (Enter = install, n = skip) [Y/n] ' > /dev/tty
         read -r resp < /dev/tty
-        [[ "${resp}" =~ ^[yY] ]] && run_it=1
+        [[ "${resp}" =~ ^[nN] ]] && run_it=0
     fi
 
     if (( run_it )); then
@@ -262,7 +263,7 @@ offer_selinux() {
             ok "SELinux confinement installed"
         else
             warn "SELinux install did not complete -- bring it up later with:"
-            warn "    sudo ${selinux_script} install"
+            warn "  sudo ${selinux_script} install"
         fi
     else
         log "skipped -- bring it up later with:"

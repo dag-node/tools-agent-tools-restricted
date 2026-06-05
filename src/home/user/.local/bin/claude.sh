@@ -112,8 +112,10 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
     done
 fi
 if [[ "${approved}" != true ]]; then
-    die "claude: $(pwd): not in approved projects list" \
-        "claude: add it to ${ALLOWLIST} to enable Claude Code here"
+    die "claude: ${cwd}: not in approved projects list" \
+        "claude: register it first (run as you, no sudo):" \
+        "  ai-tools --sandbox-create ${cwd}  # isolated clone (recommended)" \
+        "  ai-tools --project-create ${cwd}  # in place"
 fi
 
 # ── Claim guard ─────────────────────────────────────────────────────────────────
