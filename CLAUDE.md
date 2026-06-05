@@ -30,8 +30,45 @@ only in filesystem paths (`/opt/ai-tools`, `~/.config/ai-tools`), SELinux types
    allowlist** (`~/.config/ai-tools/allowed-projects`); refuses to start anywhere
    else, and refuses a CWD carved out by a `!` exclusion.
 3. It resolves the versioned binary via the stable symlink
-   `/opt/ai-tools/bin/claude` (one `readlink` hop), then
-   `exec sudo -u SANDBOX_USER -g SANDBOX_GROUP -- <versioned claude>`.
+   `/opt/ai-tools/bin/claude` using `readlink` (one hop only — `realpath`/`readlink
+   -f` would traverse the npm package dir, which is mode 700 `SANDBOX_USER`-owned
+   and EACCES for the invoking user). The resolved path is checked to be absolute,
+   `..`-free, and within the nvm versioned-binary subtree — an integrity check
+   against a misconfigured or compromised `ai-tools-claude-symlink` root helper,
+   not a guard against external injection (only root and `<you>` can write
+   `/opt/ai-tools/bin`). The validated path is then exported as `CLAUDE_EXEC` and
+   `exec sudo -u SANDBOX_USER -g SANDBOX_GROUP -- /opt/ai-tools/bin/claude-run`
+   is called.
+3a. `claude-run` (550 `<you>:SANDBOX_GROUP`, not writable by the agent) re-validates
+   `CLAUDE_EXEC` against the same nvm-path pattern and wraps the session in a
+   **systemd transient service unit** (`systemd-run --user --pty`) before exec'ing
+   the versioned binary. The unit applies three security properties:
+   `RestrictNamespaces=yes` installs a seccomp filter blocking creation (and joining)
+   of every namespace type for the entire session process tree — the agent holds no
+   capabilities, so the only namespace it could create unaided is a user namespace,
+   and blocking that closes user-namespace creation as a kernel-CVE escalation vector
+   (every other type needs `CAP_SYS_ADMIN`, reachable only through a user namespace);
+   `PrivateTmp=yes` gives the session a private `/tmp`; and `UMask=0007` keeps
+   agent-created files group-writable (a service unit does not inherit the caller's
+   umask, unlike a scope). `NoNewPrivileges` is intentionally absent: it would silence
+   the SUID bit on `sudo`, breaking the `sudo ai-tools-chown` / `sudo ai-tools-setgid`
+   calls the hooks make from inside the session. The unit receives only an explicit
+   allowlist of environment variables (terminal, locale, proxy; `HOME` and `PATH` are
+   pinned to sandbox values), so the operator's secrets never cross into the session.
+   The service runs in `SANDBOX_USER`'s systemd user instance, kept alive by
+   `loginctl enable-linger`. `--pty` service mode (not `--scope`) is required:
+   `RestrictNamespaces`, `UMask`, and `PrivateTmp` are exec-context directives that
+   systemd 252 rejects on a scope unit (`Unknown assignment`), because a scope has no
+   exec context — the caller, not the manager, performs the final `exec`. In service
+   mode the user manager performs the `exec`, so the domain transition fires from its
+   domain (`init_t` on RHEL/Rocky 9 targeted) via `domtrans_pattern(init_t,
+   ai_tools_exec_t, ai_tools_t)` in `ai_tools.te`. Before launching, `claude-run` runs a
+   fail-closed confinement preflight: it reads the entrypoint's label and the manager's
+   domain (the two inputs to that transition), logs them every launch, and — when SELinux
+   is enforcing and confinement was expected — refuses to start if either is wrong (a
+   mislabelled binary, or a manager domain no `domtrans_pattern` covers) rather than run
+   unconfined. The check is pre-launch because a wrapper cannot observe its successor's
+   post-`exec` domain, so it verifies the transition's inputs instead.
 4. Claude runs as uid `SANDBOX_USER`. Files it writes are owned `SANDBOX_USER`; a
    `PostToolUse` hook calls `sudo ai-tools-chown` (a narrow root helper
    `SANDBOX_USER` may sudo) to restore `<you>:SANDBOX_GROUP` ownership and strip
@@ -119,21 +156,30 @@ The sudoers drop-in (`/etc/sudoers.d/ai-tools-claude`, `@PROJECTS_USER@`/
 `@SANDBOX_USER@` substituted at install) grants exactly:
 
 ```
-<you>        ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/.nvm/versions/node/*/bin/claude
+<you>        ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/claude-run
 <you>        ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*.[0-9]*.[0-9]*
 SANDBOX_USER ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-chown
 SANDBOX_USER ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-setgid
 SANDBOX_USER ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-claude-symlink /opt/ai-tools/.nvm/versions/node/v[0-9]*
 ```
 
-`umask=0007` (for claude) and `env_keep` (for nvm-update.sh) are scoped
-per-command with `Defaults!<command>`, so they apply only to those two commands
-and never alter your other sudo invocations.
+`umask=0007,umask_override` and `env_keep += "CLAUDE_EXEC"` (for `claude-run`)
+and `env_keep` (for `nvm-update.sh`) are scoped per-command with
+`Defaults!<command>`, so they apply only to those commands and never alter your
+other sudo invocations. The sudoers `umask` sets `claude-run`'s own process umask;
+a transient *service* unit does not inherit it (a scope would), so the agent's umask
+is applied authoritatively by the `UMask=0007` property `claude-run` sets on the
+unit. `CLAUDE_EXEC` carries the wrapper-validated versioned path through to
+`claude-run` for re-validation there.
 
-- You may run **only** claude (and the pinned updater) as `SANDBOX_USER` — never an
-  arbitrary shell or other binary. Both `<you>` rules **drop** privilege to the
-  lower-privileged `SANDBOX_USER`; the agent runs *as* `SANDBOX_USER` and cannot
-  invoke a `<you>` rule, so neither grants the agent anything.
+- You may run **only** `claude-run` (and the pinned updater) as `SANDBOX_USER` —
+  never an arbitrary shell or other binary. `claude-run` is a fixed-path sudo
+  target (no glob), 550 `<you>:SANDBOX_GROUP`, not writable by the agent; the
+  versioned claude binary is no longer a direct sudo target and is exec'd by
+  `claude-run` itself after re-validating `CLAUDE_EXEC`. Both `<you>` rules
+  **drop** privilege to the lower-privileged `SANDBOX_USER`; the agent runs *as*
+  `SANDBOX_USER` and cannot invoke a `<you>` rule, so neither grants the agent
+  anything.
 - `SANDBOX_USER` may run **only** three root commands: `ai-tools-chown` (restores
   ownership inside the allowlist), `ai-tools-setgid` (normalizes group + setgid on
   an allowlisted project at session start), and `ai-tools-claude-symlink` (repoints
@@ -168,16 +214,112 @@ then validates the target is an absolute, `..`-free path matching
 `${AI_TOOLS_NVM_DIR}/versions/node/*/bin/claude` before calling sudo. String
 checks only — no filesystem traversal beyond the symlink.
 
-### sudoers glob + symlink resolution — IMPORTANT
-The glob `*/bin/claude` matches the versioned path
-`/opt/ai-tools/.nvm/versions/node/<ver>/bin/claude`. The wrapper must resolve
-the stable symlink **exactly one hop** (`readlink`, not `realpath`/`readlink
--f`). The versioned `bin/claude` is itself an npm symlink into the package
-(`-> .../@anthropic-ai/claude-code/bin/claude.exe`); fully resolving it would
-(a) produce a path the sudoers rule cannot match — so sudo denies/prompts and
-claude never launches — and (b) require traversing the package dir (mode 700,
-`SANDBOX_USER`), which the invoking user cannot enter (EACCES). The one-hop
-readlink and the sudoers glob are coupled — don't change one without the other.
+### Symlink resolution — one hop, not full resolution
+The wrapper resolves `/opt/ai-tools/bin/claude` with a single `readlink` hop.
+The versioned `bin/claude` is itself an npm symlink into the package
+(`-> .../@anthropic-ai/claude-code/bin/claude.exe`); fully resolving it with
+`realpath`/`readlink -f` would require traversing the package directory (mode 700,
+`SANDBOX_USER`-owned), which the invoking user cannot enter — EACCES, silent abort
+under `set -e`. One hop yields the versioned `.../node/<ver>/bin/claude` path,
+which the wrapper validates (absolute, `..`-free, within the nvm subtree) and
+exports as `CLAUDE_EXEC`.
+
+The `<you>` sudoers rule targets the fixed path `/opt/ai-tools/bin/claude-run`;
+the versioned binary is exec'd by `claude-run` after it re-validates `CLAUDE_EXEC`.
+The one-hop readlink constraint exists solely to avoid EACCES — it carries no
+coupling to sudoers matching.
+
+### `claude-run` service shim — security properties and constraints
+`claude-run` (550 `<you>:SANDBOX_GROUP`) wraps each session in a `systemd-run
+--user --pty` transient *service* unit to apply kernel-level security properties
+before `claude.exe` is exec'd. Three properties are set:
+
+**`RestrictNamespaces=yes`** installs a seccomp filter blocking creation and joining
+of every namespace type for the entire session process tree. This is the minimal
+allow-list, and the set the agent needs is empty: an unprivileged process (the agent
+holds no capabilities) can only ever create a *user* namespace by itself, since every
+other type (`cgroup`/`ipc`/`mnt`/`net`/`pid`/`uts`) requires `CAP_SYS_ADMIN`, which is
+reachable only *through* a user namespace. Blocking `user` therefore blocks all the
+rest transitively; `=yes` makes that explicit and, unlike a `~user` denylist, also
+fail-closes against any namespace type a future kernel adds. The load-bearing effect
+is closing `clone(CLONE_NEWUSER)`: an agent-accessible user namespace lets a process
+appear as uid 0 inside it, the precondition for exploiting kernel bugs that require
+root-in-userns and for overlay mounts that confuse application-layer access checks.
+seccomp runs at syscall entry, before the SELinux LSM hook, so this is also the only
+*enforcing* layer for user-ns creation — SELinux cannot block it on this policy
+(the `process2` class carries no `create_user_ns` permission; see ESC-001 in
+`ai_tools.te`). SELinux type enforcement still survives into any namespace, so the
+residual risk is kernel-CVE surface, not file-access bypass. System-wide user
+namespaces remain enabled — Firefox and rootless Podman need them; the filter is
+per-session and touches no sysctl, so other workloads are unaffected. The one
+trade-off: `=yes` is incompatible with running unprivileged `bubblewrap` *inside* the
+session (bwrap must create user+mnt namespaces), which the deferred bwrap phase must
+resolve.
+
+**`PrivateTmp=yes`** gives the session a private `/tmp` mount namespace. systemd sets
+this up itself during unit setup, before the `RestrictNamespaces` seccomp filter is
+applied to the payload, so `=yes` blocking the `mnt` namespace does not break it. It
+is honoured natively now that the session is a service unit (scope units silently
+ignored it).
+
+**`UMask=0007`** keeps agent-created files group-writable so the collaborative
+ownership model holds. A service unit does not inherit the caller's umask (a scope
+did), so this is set as a unit property rather than relying on the sudoers `umask`.
+
+**Environment is an explicit allowlist.** A service is spawned by the user manager
+with its own environment, not `claude-run`'s, so `claude-run` forwards only a named
+allowlist (`TERM`/`COLORTERM`, the locale `LC_*`/`LANG` set, proxy vars) via
+`--setenv=NAME`, and pins `HOME=/opt/ai-tools` and a controlled `PATH`. The operator's
+secrets (`ANTHROPIC_API_KEY`, `AWS_*`, `SSH_AUTH_SOCK`, …) never cross into the session
+by construction, independent of how sudo's `env_reset`/`env_keep` is configured. To
+share a variable deliberately, add its name to `_ENV_ALLOW` in `claude-run`.
+
+**`NoNewPrivileges` is intentionally absent.** `PR_SET_NO_NEW_PRIVS` silently
+drops SUID bits on any binary exec'd within the unit, including `sudo`. The
+`PostToolUse` and `Stop`/`SessionStart` hooks call `sudo ai-tools-chown` and
+`sudo ai-tools-setgid` from inside the session process tree; with
+`NoNewPrivileges` set, sudo runs as `SANDBOX_USER` rather than root, cannot read
+`/etc/sudoers` (440 root:root), and every hook call fails — breaking ownership
+hand-back and secret quarantine entirely. `NoNewPrivileges` is safe to add once
+the hooks communicate with root through a mechanism that does not rely on SUID
+(for example, a socket-based helper that receives per-path requests).
+
+**`--pty` service vs `--scope`.** `RestrictNamespaces`, `UMask`, and `PrivateTmp`
+are exec-context sandbox directives, which systemd 252 rejects on a scope unit
+(`Unknown assignment`): a scope has no exec context because the caller, not the
+manager, performs the final `exec`. Only a service unit (the manager exec's
+`ExecStart`) accepts them, and `--pty` keeps the session attached to the terminal so
+claude's TUI works. The cost is that the `exec` now originates from the user manager,
+not from `systemd-run` in `unconfined_t`, so the SELinux transition is keyed on the
+manager's domain — `init_t` on RHEL/Rocky 9 targeted — via
+`domtrans_pattern(init_t, ai_tools_exec_t, ai_tools_t)` in `ai_tools.te` (the
+`unconfined_t` rule is retained for a direct exec). The live manager domain *and* its
+role must be verified on the box (`ps -eZ | grep 'systemd --user'`); the policy
+authorises both `unconfined_r` and `system_r` for `ai_tools_t` so the transition fires
+regardless of which role the manager holds.
+
+**Fail-closed confinement preflight.** If the session fails to transition into
+`ai_tools_t` it runs *unconfined*, and because `ai-tools` is mapped to `unconfined_u`
+this cannot be forbidden in the module (the ESC-001 base-policy floor; `user_u` was
+rejected — it breaks the `ai-tools`→root sudo). A wrapper cannot observe its successor's
+post-`exec` domain (the transition fires when the manager exec's `claude.exe`), so
+`claude-run` instead verifies the transition's two inputs *before* launch: the
+entrypoint's label (`matchpathcon` vs `stat -c %C`) and the `systemd --user` manager's
+domain (read from `/proc/<pid>/attr/current`). It logs both on every launch (journald,
+`claude-run` tag), and — when SELinux is enforcing and confinement was expected (the
+module's file-contexts are installed) — refuses to launch if the binary is mislabelled
+(→ `relabel`) or the manager domain is not one `ai_tools.te` has a `domtrans_pattern`
+for (→ add the rule, `rebuild`). It is a no-op where the SELinux layer is absent, so
+DAC-only and permissive boxes are unaffected.
+
+**Optional SELinux groups and the namespace filter.** Enabling an optional policy
+group (`install-selinux.sh enable-group <name>`) widens what SELinux permits but does
+not lift this seccomp filter. Of the optional groups only `podman` creates namespaces
+(rootless containers need user+mnt+pid+ipc+net+uts), so `RestrictNamespaces=yes` blocks
+it even with the podman group loaded — the SELinux grant is necessary but not
+sufficient. Supporting rootless podman means re-allowing the user namespace, which *is*
+ESC-001, so it is not a clean partial relaxation. `claude-run` emits an actionable
+NOTICE at launch when the podman group is loaded while the filter is active.
 
 ### Allowlist `!` exclusions are honored by both consumers
 `!`-prefixed lines in `allowed-projects` are exclusions and override allows.
@@ -185,12 +327,13 @@ readlink and the sudoers glob are coupled — don't change one without the other
 refuses to launch with an excluded CWD. Keep the two in sync (a plain `!`-path
 also covers its contents; globs match as-is).
 
-### Control-plane file integrity (`/opt/ai-tools/.claude`, `bin/nvm-update.sh`)
+### Control-plane file integrity (`/opt/ai-tools/.claude`, `bin/`)
 The files that drive the sandbox's own enforcement — `settings.json` (declares
-the `PostToolUse` hook), `post-tool-hook.sh` (the hook body), and
-`bin/nvm-update.sh` (the updater the sudoers rule lets you run as `SANDBOX_USER`) —
-must not be writable by the agent, or it could disable its own hand-back and
-secret-quarantine guardrails. They are owned `<you>:SANDBOX_GROUP` (group
+the `PostToolUse` hook), `post-tool-hook.sh` (the hook body), `bin/nvm-update.sh`
+(the updater the sudoers rule lets you run as `SANDBOX_USER`), and `bin/claude-run`
+(the scope shim the sudoers rule lets you run to launch claude) — must not be
+writable by the agent, or it could disable its own hand-back, secret-quarantine,
+or scope-security guardrails. They are owned `<you>:SANDBOX_GROUP` (group
 read/exec, no group write), **not** `SANDBOX_USER:SANDBOX_GROUP`.
 
 Ownership alone is insufficient: `/opt/ai-tools/.claude` is group-writable by

@@ -20,8 +20,10 @@ with a tightly scoped set of privileges instead:
   (with `!` exclusions to carve out subdirectories or secrets).
 - **Minimal sudo surface** — `${SANDBOX_USER}` may run only three narrow root
   helpers (`ai-tools-chown`, `ai-tools-setgid`, and `ai-tools-claude-symlink`, each
-  allowlist- or argument-validated). You may run only `claude` (and the pinned
-  updater) as `${SANDBOX_USER}`. Nothing else.
+  allowlist- or argument-validated). You may run only `claude-run` (and the pinned
+  updater) as `${SANDBOX_USER}` — `claude-run` is a fixed-path sudo target, not a
+  glob, and it wraps the session in a systemd `--user --pty` service before exec'ing
+  the versioned binary. Nothing else.
 - **Ownership hand-back** — files Claude writes are chowned back to
   `${PROJECTS_USER}:${SANDBOX_GROUP}` (group-readable, world-closed) inside approved paths only, along
   with any directories Claude created on the way (world bits stripped, group
@@ -80,12 +82,13 @@ commands paste verbatim:
 you type `claude`
   └─ ~/.local/bin/claude                      (wrapper, runs as you)
        ├─ CWD ∈ allowed-projects?             refuse if not, or if !-excluded
-       ├─ resolve /opt/ai-tools/bin/claude    (one readlink hop)
-       └─ exec sudo -u "${SANDBOX_USER}" -- <versioned claude>
-            └─ claude runs as ${SANDBOX_USER}
-                 └─ on Write/Edit → PostToolUse hook
-                      └─ sudo ai-tools-chown <file>   (root; allowlist-checked)
-                           └─ chown ${PROJECTS_USER}:${SANDBOX_GROUP}, strip world bits
+       ├─ resolve /opt/ai-tools/bin/claude    (one readlink hop; export as CLAUDE_EXEC)
+       └─ exec sudo -u "${SANDBOX_USER}" -- /opt/ai-tools/bin/claude-run
+            └─ systemd transient service      (--pty; RestrictNamespaces=yes, PrivateTmp, UMask=0007)
+                 └─ claude runs as ${SANDBOX_USER} in ai_tools_t (SELinux)
+                      └─ on Write/Edit → PostToolUse hook
+                           └─ sudo ai-tools-chown <file>   (root; allowlist-checked)
+                                └─ chown ${PROJECTS_USER}:${SANDBOX_GROUP}, strip world bits
 ```
 
 ## Files
@@ -102,6 +105,7 @@ you type `claude`
 | src/usr/local/lib/ai-tools/secret-patterns.lib.sh | /usr/local/lib/ai-tools/secret-patterns.lib.sh (root) |
 | src/usr/local/lib/ai-tools/prune-dirs.lib.sh | /usr/local/lib/ai-tools/prune-dirs.lib.sh (root) |
 | src/home/user/.local/bin/claude.sh | ~/.local/bin/claude |
+| src/opt/ai-tools/bin/claude-run.sh | /opt/ai-tools/bin/claude-run |
 | src/opt/ai-tools/.claude/post-tool-hook.sh | /opt/ai-tools/.claude/post-tool-hook.sh |
 | src/opt/ai-tools/.claude/session-hook.sh | /opt/ai-tools/.claude/session-hook.sh |
 | src/opt/ai-tools/.claude/settings.json | /opt/ai-tools/.claude/settings.json |
@@ -226,23 +230,23 @@ To remove everything installed by this script:
 ## Upgrade behaviour
 
 When nvm installs a new Node version under `/opt/ai-tools`:
-- The sudoers glob `/opt/ai-tools/.nvm/versions/node/*/bin/claude` matches
-  the new versioned path automatically.
-- `src/opt/ai-tools/bin/nvm-update.sh` repoints the `/opt/ai-tools/bin/claude` symlink
-  at the new versioned binary via the root helper `ai-tools-claude-symlink`
-  (`bin` is locked `550`, so the ${SANDBOX_USER} updater cannot write it directly; the
-  helper validates the versioned path and is the only writer of that dir).
-- The wrapper resolves that symlink **one hop** via `readlink` before calling
-  `sudo`, yielding the versioned `.../node/<ver>/bin/claude` path the sudoers
-  rule matches. It deliberately does *not* use `realpath`/`readlink -f`: the
-  versioned `bin/claude` is itself an npm symlink into the package, and
-  following it would produce a path sudoers cannot match (and one the invoking
-  user cannot even traverse, since the package dir is mode 700).
-- Old Node versions are pruned in both nvm installs (any version not
-  referenced by a named alias is removed).
-- `src/home/user/.local/bin/nvm-update.sh` resolves the latest version once, updates your `~/.nvm`,
-  then invokes `src/opt/ai-tools/bin/nvm-update.sh` as ${SANDBOX_USER} via sudo with the pinned
-  version so both installs land on the same Node build.
+- `src/opt/ai-tools/bin/nvm-update.sh` repoints the `/opt/ai-tools/bin/claude`
+  symlink at the new versioned binary via the root helper `ai-tools-claude-symlink`
+  (`bin` is locked `550`, so the `${SANDBOX_USER}` updater cannot write it directly;
+  the helper validates the versioned path and is the only writer of that dir).
+- The wrapper resolves that symlink **one hop** via `readlink` and exports the result
+  as `CLAUDE_EXEC`. It deliberately does *not* use `realpath`/`readlink -f`: the
+  versioned `bin/claude` is itself an npm symlink into the package dir (mode 700,
+  `${SANDBOX_USER}`-owned), which the invoking user cannot traverse — EACCES.
+- `claude-run` re-validates `CLAUDE_EXEC` against the nvm versioned-binary pattern
+  and exec's it directly. No sudoers glob matches the versioned path; the `<you>`
+  sudoers rule targets the fixed path `/opt/ai-tools/bin/claude-run` only.
+- Old Node versions are pruned in both nvm installs (any version not referenced by
+  a named alias is removed).
+- `src/home/user/.local/bin/nvm-update.sh` resolves the latest version once, updates
+  your `~/.nvm`, then invokes `src/opt/ai-tools/bin/nvm-update.sh` as
+  `${SANDBOX_USER}` via sudo with the pinned version so both installs land on the
+  same Node build.
 
 ## Operation logging
 
