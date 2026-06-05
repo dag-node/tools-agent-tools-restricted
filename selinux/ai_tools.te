@@ -79,6 +79,11 @@ require {
     type usb_device_t;
     type kernel_t;
     type init_t;
+
+    # process2 carries the NNP bounded-transition permission (RHEL/Rocky 9+).
+    # Required because the session always runs under NO_NEW_PRIVS (forced by the
+    # RestrictNamespaces seccomp filter claude-run sets); see the domain-entry block.
+    class process2 nnp_transition;
 }
 
 ########################################
@@ -166,6 +171,25 @@ logging_log_file(ai_tools_log_t)
 # keeps working, it is simply not yet confined.
 domtrans_pattern(init_t, ai_tools_exec_t, ai_tools_t)
 domtrans_pattern(unconfined_t, ai_tools_exec_t, ai_tools_t)
+
+# Both transitions above happen under NO_NEW_PRIVS: claude-run launches the session with
+# RestrictNamespaces=yes, and systemd can only install that seccomp filter behind
+# PR_SET_NO_NEW_PRIVS (true on --user AND --system units; NoNewPrivileges=no does not
+# override it -- verified on the live box).  Under NNP the kernel routes every domain
+# transition through security_bounded_transition(), which DENIES unless the policy grants
+# process2:nnp_transition on the target.  Without these two lines the domtrans above is
+# computed and then refused (SELINUX_ERR op=security_bounded_transition; AVC denied
+# { nnp_transition }) and the session silently stays in the caller's domain -- UNCONFINED.
+# Granting nnp_transition (NOT nosuid_transition) lets the transition complete; it does
+# NOT relax NNP -- the agent still runs with NO_NEW_PRIVS set, so SUID stays neutered.
+# Safe because the move is unconfined_t/init_t -> ai_tools_t, a strict privilege REDUCTION
+# onto the single ai_tools_exec_t entrypoint.  (The agent's own onward transitions, e.g.
+# auth_domtrans_chk_passwd -> chkpwd_t, are likewise bounded under NNP and would each need
+# their own nnp_transition grant -- but they sit on the sudo path, which NNP already
+# breaks, so they are intentionally NOT granted here.)
+allow init_t ai_tools_t:process2 nnp_transition;
+allow unconfined_t ai_tools_t:process2 nnp_transition;
+
 role unconfined_r types ai_tools_t;
 role system_r types ai_tools_t;
 
