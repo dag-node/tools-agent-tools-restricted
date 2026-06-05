@@ -189,7 +189,7 @@ do_probe() {
     else
       printf '  Result: PASS -- denied as expected\n'
     fi
-    _why="" _type=""
+    _why="" _type="" _floor=""
   }
 
   # skip_check: record a skipped check (path/tool absent on this system).
@@ -199,7 +199,25 @@ do_probe() {
     [[ -n "${_type:-}" ]] && printf '  Type:   %s\n' "${_type}"
     [[ -n "${_why:-}"  ]] && printf '  Why:    %s\n' "${_why}"
     printf '  Result: SKIP -- %s\n' "${_rsn}"
-    _why="" _type=""
+    _why="" _type="" _floor=""
+  }
+
+  # floor_check: like check() but when access succeeds it records BASE-POLICY FLOOR
+  # instead of FAIL. Use when the grant comes from a base-policy attribute rule that
+  # cannot be removed or overridden from ai_tools.te, and a separate mitigation exists.
+  # Set _floor (and optionally _type/_why) before calling.
+  floor_check() {
+    local _c="$1" _tag="$2" _desc="$3"; shift 3
+    printf '\n[%s] %s  [%s]\n' "${_c}" "$(_R "${_desc}")" "${_tag}"
+    [[ -n "${_type:-}"  ]] && printf '  Type:   %s\n' "${_type}"
+    [[ -n "${_why:-}"   ]] && printf '  Why:    %s\n' "${_why}"
+    if "$@" </dev/null >/dev/null 2>&1; then
+      printf '  Result: BASE-POLICY FLOOR -- access succeeds; not fixable from ai_tools.te.\n'
+      [[ -n "${_floor:-}" ]] && printf '  Mitigation: %s\n' "${_floor}"
+    else
+      printf '  Result: PASS -- denied as expected (base policy tightened)\n'
+    fi
+    _why="" _type="" _floor=""
   }
 
   # check_tcp: attempt TCP connect to 127.0.0.1:<port> and log the result.
@@ -236,9 +254,11 @@ do_probe() {
   printf 'User identity in paths masked: /home/%s -> /home/[USER]  /run/user/%s -> /run/user/[UID]\n' \
     "${_user:-USER}" "${_uid:-UID}"
   printf '\nResult codes:\n'
-  printf '  PASS = denied as expected (policy working correctly)\n'
-  printf '  FAIL = access SUCCEEDED -- investigate immediately\n'
-  printf '  SKIP = path/tool absent; no AVC generated (expected)\n'
+  printf '  PASS  = denied as expected (policy working correctly)\n'
+  printf '  FAIL  = access SUCCEEDED -- investigate immediately\n'
+  printf '  SKIP  = path/tool absent; no AVC generated (expected)\n'
+  printf '  FLOOR = access succeeds via base-policy attribute grant; not fixable from\n'
+  printf '          ai_tools.te (no SELinux subtract/deny for attribute rules); see Mitigation.\n'
   printf '\nTest code format: [CAT-NNN]\n'
   printf '  GRP=group surface  PRO=/proc  HOM=home  CST=container storage\n'
   printf '  PRT=port  MTA=MTA exec  CRD=credentials  ESC=escalation\n'
@@ -449,12 +469,19 @@ user_runtime_t is the SELinux gate."
 
   section "SECTION K: USER NAMESPACE CREATION  [goal 2]" \
 "User namespaces let an unprivileged process appear as uid 0 inside them,
-enabling overlay mounts over /etc, setuid binaries, and exploitation of kernel
-bugs requiring 'root'. process:create_user_ns is the SELinux gate."
+enabling overlay mounts and exploitation of kernel bugs requiring 'root'.
+SELinux type enforcement survives into user namespaces: the process stays in
+ai_tools_t and file labels are unchanged, so file-access denials (shadow_t,
+etc_sudoers_t, ...) hold inside the namespace. The real risk is kernel CVE
+surface. create_user_ns is in the process2 class (not process) on this kernel;
+system-wide user namespaces are kept enabled for Firefox sandbox and rootless
+containers -- so SELinux cannot block this here, and it is closed instead by a
+seccomp filter (RestrictNamespaces=yes) in the claude-run service wrapper, below."
 
-  _type="process:create_user_ns (not granted)"
-  _why="The most commonly exploited local escalation vector in container environments. Inside a user namespace the agent appears as root, can mount overlayfs over /etc to inject content, and can trigger kernel bugs that only fire from 'root' context."
-  check ESC-001 SELinux "unshare --user (process:create_user_ns)" unshare --user true
+  _type="process2:create_user_ns -- blocked by a seccomp filter, not by SELinux"
+  _why="WHAT IT PREVENTS: a user namespace lets an unprivileged process look like root inside it -- the usual first step for kernel-CVE privilege escalation. SELinux here cannot stop the agent from creating one: this kernel's process2 class has no create_user_ns permission, so the check is skipped (handleunknown=allow), and disabling user namespaces system-wide would break Firefox and rootless Podman. (Even if one were created, file labels still hold -- the process stays ai_tools_t -- so the danger is kernel bugs, not file access.)"
+  _floor="WHAT BLOCKS IT: claude-run starts every session as a systemd --user service with RestrictNamespaces=yes, which installs a seccomp filter that makes clone(CLONE_NEWUSER) -- and any namespace creation -- fail with EPERM for the whole session, before SELinux is even consulted. It is per-session, needs no sysctl, and leaves other users' Firefox/Podman untouched. WHEN IT DOES NOT APPLY: only sessions launched through claude-run are covered -- this probe run by hand outside the wrapper still succeeds -- and a future in-session bubblewrap (which itself needs user namespaces) would require relaxing it."
+  floor_check ESC-001 SELinux "unshare --user (process2:create_user_ns; closed by seccomp in the claude-run service)" unshare --user true
 
   section "SECTION L: RAW KERNEL / HARDWARE MEMORY  [goal 2]" \
 "/dev/mem and /dev/kmem provide direct access to physical RAM and kernel virtual
@@ -645,9 +672,12 @@ syslogd_var_run_t connectto is the SELinux gate."
 
   section "SECTION W: RAW IP SOCKET + POSIX SHARED MEMORY  [goal 4]" \
 "Raw IP sockets allow crafting arbitrary packets bypassing the TCP/IP stack:
-stealthy port scans, ICMP tunnels, ARP spoofing. /dev/shm exposes live IPC
-shared memory that may hold in-memory secrets. rawip_socket:create and
-tmpfs_t:dir read are the SELinux gates."
+stealthy port scans, ICMP tunnels, ARP spoofing. rawip_socket:create is the
+SELinux gate and is denied. /dev/shm (tmpfs_t:dir read) is a BASE-POLICY FLOOR:
+'allow domain tmpfs_t:dir read' in the reference policy grants this to every
+process type; ai_tools.te cannot override an attribute-wide allow rule.
+Mitigated by noexec,nosuid,nodev mount options -- risk is information-disclosure
+only, not code execution or privilege escalation."
 
   _type="self:rawip_socket (create; not granted)"
   _why="Raw sockets enable: stealthy port scans (no SYN packets in connection logs), ICMP-encapsulated covert exfiltration channels, and arbitrary packet injection for ARP spoofing. This is a distinct and broader capability than the allowed HTTPS TCP sockets."
@@ -662,10 +692,11 @@ tmpfs_t:dir read are the SELinux gates."
       "python3 absent (needed for SOCK_RAW syscall)"
   fi
 
-  _type="tmpfs_t:dir (read; not granted)"
-  _why="/dev/shm holds POSIX shared memory used for high-performance IPC between cooperating processes. Applications often store cryptographic keys, session tokens, and protocol buffers there -- no filesystem artifact. Listing reveals which applications are using it."
-  check LAT-005 SELinux \
-    "list /dev/shm/ (tmpfs_t:dir; reveals live IPC shared-memory artifacts)" \
+  _type="tmpfs_t:dir (read granted via 'allow domain tmpfs_t:dir ...' -- all process types)"
+  _why="/dev/shm holds POSIX shared memory that may contain secrets from other processes. Cannot be blocked from ai_tools.te: the grant is on the 'domain' attribute which all SELinux process types carry; there is no subtract/deny mechanism for attribute-granted rules."
+  _floor="Mitigated by mount options: noexec (staged files cannot be executed), nosuid (SUID bits stripped), nodev (no device files). Risk is information-disclosure only -- no code execution or privilege escalation path from this access. Sensitive IPC should use memfd_create(MFD_CLOEXEC) for anonymous segments that never appear in /dev/shm."
+  floor_check LAT-005 SELinux \
+    "list /dev/shm/ (tmpfs_t:dir; base-policy floor -- 'allow domain tmpfs_t:dir read')" \
     ls /dev/shm/
 
   section "SECTION X: PRIVILEGED PORT BIND  [goal 5]" \

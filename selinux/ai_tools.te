@@ -142,14 +142,32 @@ logging_log_file(ai_tools_log_t)
 # Domain entry
 ########################################
 
-# The projects user is unconfined; when its `sudo -u ai-tools` execs the labelled claude.exe,
-# the agent process transitions into ai_tools_t. The role stays unconfined_r, so
-# no SELinux-user (semanage user/login) remapping is required -- we only authorise
-# unconfined_r to hold the new type. If claude.exe ever loses its label (e.g. a
-# Node upgrade before restorecon), no transition fires and claude runs unconfined:
-# it keeps working, it is simply not yet confined.
+# claude is launched as a transient systemd --user *service* (claude-run uses
+# `systemd-run --user --pty`), so the final exec of the labelled claude.exe is done
+# by @SANDBOX_USER@'s user-manager, NOT by the sudo/systemd-run caller. Two domtrans
+# sources are authorised:
+#   - init_t        the user-manager domain on RHEL/Rocky 9 targeted policy; the live
+#                   path for a service-unit launch. The service directive
+#                   RestrictNamespaces=yes (set in claude-run) requires service mode --
+#                   systemd 252 rejects it on a scope unit -- which is why the exec
+#                   moved off the unconfined_t caller and onto the manager.
+#   - unconfined_t  retained for a direct exec (claude run outside the service wrapper,
+#                   or a --scope fallback) so confinement still applies there.
+#
+# VERIFY ON THE LIVE BOX before enforcing -- two points this module cannot check
+# from inside the sandbox:
+#   (1) domain: confirm the user-manager is init_t with `ps -eZ | grep 'systemd --user'`;
+#       if it differs (a confined user_systemd_t variant), key the init_t rule to that.
+#   (2) role:   the transitioned process keeps the manager's role. If the manager runs
+#       in system_r (not unconfined_r), the role/type association below must be in
+#       force or the transition is denied. Both roles are authorised here so the
+#       service path works regardless; the unused association is inert.
+# If the label or role is wrong no transition fires and claude runs unconfined -- it
+# keeps working, it is simply not yet confined.
+domtrans_pattern(init_t, ai_tools_exec_t, ai_tools_t)
 domtrans_pattern(unconfined_t, ai_tools_exec_t, ai_tools_t)
 role unconfined_r types ai_tools_t;
+role system_r types ai_tools_t;
 
 # Node re-execs its own launcher (cluster/worker spawn) without leaving the domain.
 allow ai_tools_t ai_tools_exec_t:file execute_no_trans;
@@ -423,18 +441,26 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 # When uncommenting a rule: (1) confirm the type exists with `seinfo -t <type_t>`;
 # (2) add `type <type_t>;` to the require {} block above; (3) rebuild + reload.
 #
-# TWO OPEN FAILURES from the first probe run -- documented here, not suppressed:
+# OPEN-FAILURE STATUS from the first probe run -- documented here, not suppressed.
+# ESC-001 is now CLOSED out-of-band (see below); LAT-005 remains open.
 #
-#   ESC-001  unshare --user (process2:create_user_ns) SUCCEEDED.
-#            Root cause: compiled base policy process2 class only has
-#            {nnp_transition nosuid_transition}; create_user_ns is absent, so the
-#            kernel's security_create_user_ns() check falls through as handleunknown=allow.
-#            Fix A (kernel, immediate): restrict unprivileged user namespaces system-wide:
-#              echo 'user.max_user_namespaces = 0' > /etc/sysctl.d/99-ai-tools-security.conf
-#              sysctl --system
-#            Fix B (SELinux, when base policy adds the permission):
-#              seinfo -c process2 -x  # wait until create_user_ns appears, then uncomment:
-#              # dontaudit ai_tools_t self:process2 create_user_ns;
+#   ESC-001  unshare --user (process2:create_user_ns) -- CLOSED by a seccomp filter,
+#            not by this policy.
+#            Why not by policy: the compiled base-policy process2 class has only
+#            {nnp_transition nosuid_transition} -- create_user_ns is absent, so the
+#            kernel's security_create_user_ns() check falls through handleunknown=allow.
+#            A loadable module cannot add the missing permission, so SELinux cannot
+#            block the creation here.
+#            ACTIVE MITIGATION: claude-run launches every session as a systemd --user
+#            service with RestrictNamespaces=yes, whose seccomp filter blocks
+#            clone(CLONE_NEWUSER) (and all namespace creation) for the session process
+#            tree. seccomp runs before the LSM hook, so this is the enforcing layer;
+#            it is per-session and needs no sysctl. (System-wide alternative, rejected:
+#            user.max_user_namespaces=0 -- breaks Firefox + rootless Podman host-wide.)
+#            SECOND LAYER, if the base policy ever adds the permission: keep it a
+#            VISIBLE denial by simply NOT allowing it to ai_tools_t -- do not add an
+#            allow rule, and do not dontaudit it, so a create_user_ns attempt still
+#            surfaces in the audit log. Confirm with `seinfo -c process2 -x`.
 #
 #   LAT-005  ls /dev/shm/ SUCCEEDED (tmpfs_t:dir read).
 #            Root cause: base policy 'allow domain tmpfs_t:dir { ... }' grants ALL domains
@@ -496,4 +522,4 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 # then remove this line and reload to enforce.
 ########################################
 
-#permissive ai_tools_t; # commented out (enforcing)
+# permissive ai_tools_t;
