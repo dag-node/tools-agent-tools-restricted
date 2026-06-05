@@ -320,6 +320,7 @@ do_summary() {
     _chk /etc/sudoers.d/ai-tools-claude
     _chk /etc/profile.d/path_dedup.sh
     _chk /opt/ai-tools/bin/nvm-update.sh
+    _chk /opt/ai-tools/bin/claude-run
     _chk /opt/ai-tools/bin/claude
     _chk /opt/ai-tools/.claude/post-tool-hook.sh
     _chk /opt/ai-tools/.claude/session-hook.sh
@@ -438,6 +439,12 @@ do_perms_check() {
     # (via ai-tools-claude-symlink) can repoint the stable claude symlink.
     _pchk /opt/ai-tools/bin               "${PROJECTS_USER}" "${SANDBOX_GROUP}" 550
     _pchk /opt/ai-tools/bin/nvm-update.sh "${PROJECTS_USER}" "${SANDBOX_GROUP}" 550
+    # claude-run: 550 PROJECTS_USER:SANDBOX_GROUP -- same model as nvm-update.sh.
+    # Agent gets group r-x (execute) but no write; /opt/ai-tools/bin is 550 so it
+    # cannot unlink/replace the file either.  The service-unit security properties
+    # (RestrictNamespaces=yes, PrivateTmp, UMask=0007) are applied by this shim before
+    # claude.exe is exec'd.
+    _pchk /opt/ai-tools/bin/claude-run "${PROJECTS_USER}" "${SANDBOX_GROUP}" 550
 
     # .claude dir: 3770 PROJECTS_USER:SANDBOX_GROUP (setgid+sticky) -- agent is a
     # group-writer for its own state, but the sticky bit forbids deleting or
@@ -707,6 +714,11 @@ do_install() {
         "${SCRIPT_DIR}/src/opt/ai-tools/bin/nvm-update.sh" \
         /opt/ai-tools/bin/nvm-update.sh
 
+    log "/opt/ai-tools/bin/claude-run"
+    install_subst 550 "${PROJECTS_USER}" "${SANDBOX_GROUP}" \
+        "${SCRIPT_DIR}/src/opt/ai-tools/bin/claude-run.sh" \
+        /opt/ai-tools/bin/claude-run
+
     # /opt/ai-tools/.claude holds both mutable agent state (sessions/, history,
     # credentials -- ai-tools-owned) AND the root-of-trust control files
     # (settings.json, post-tool-hook.sh). Owning the control files as the install
@@ -932,6 +944,7 @@ do_uninstall() {
 
     log "ai-tools control-plane files"
     rm -f /opt/ai-tools/bin/nvm-update.sh
+    rm -f /opt/ai-tools/bin/claude-run
     rm -f /opt/ai-tools/.claude/post-tool-hook.sh
     rm -f /opt/ai-tools/.claude/session-hook.sh
     rm -f /opt/ai-tools/.claude/settings.json

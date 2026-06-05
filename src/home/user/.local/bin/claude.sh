@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # ~/.local/bin/claude
-# Sandboxed claude wrapper. Resolves the current versioned claude binary
-# under /opt/ai-tools via a stable symlink maintained by nvm-update.sh,
-# then re-executes it as the ai-tools user via sudo.
+# Sandboxed claude wrapper. Resolves the current versioned claude binary under
+# /opt/ai-tools via a stable symlink maintained by nvm-update.sh, exports the
+# resolved path as CLAUDE_EXEC, then re-executes /opt/ai-tools/bin/claude-run as
+# the ai-tools user via sudo. claude-run wraps the session in a systemd transient
+# service (systemd-run --user --pty; RestrictNamespaces=yes, PrivateTmp, UMask=0007)
+# before exec'ing the versioned binary.
 # Placed before nvm shims in PATH so it shadows any nvm-managed claude.
 
 set -euo pipefail
@@ -216,4 +219,7 @@ if [[ -t 1 ]]; then
     printf '\n'
 fi
 
-exec sudo -u ai-tools -g ai-tools -- "${CLAUDE_REAL}" "$@"
+# Pass the validated versioned path to claude-run via an env var that sudo's
+# env_keep carries through. claude-run re-validates before using it.
+export CLAUDE_EXEC="${CLAUDE_REAL}"
+exec sudo -u ai-tools -g ai-tools -- /opt/ai-tools/bin/claude-run "$@"

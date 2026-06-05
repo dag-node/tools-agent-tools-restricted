@@ -1,10 +1,14 @@
 # /etc/sudoers.d/ai-tools-claude
 # Allow the normal user to:
-#   1. execute claude as ai-tools (wrapper resolves the versioned path with a single readlink hop)
-#   2. run nvm-update.sh as ai-tools (called from nvm-update.sh running as @PROJECTS_USER@)
+#   1. execute claude-run as @SANDBOX_USER@ (wrapper resolves the versioned claude path,
+#      exports it as CLAUDE_EXEC, then calls claude-run which wraps the session in a systemd
+#      transient service (--user --pty) with RestrictNamespaces=yes + PrivateTmp + UMask=0007;
+#      NoNewPrivileges is intentionally ABSENT -- it would silence sudo's SUID bit and break
+#      the hooks' ai-tools-chown/-setgid calls)
+#   2. run nvm-update.sh as @SANDBOX_USER@ (called from nvm-update.sh running as @PROJECTS_USER@)
 #
-# Allow ai-tools to:
-#   3. restore @PROJECTS_USER@:ai-tools ownership on files it writes within approved
+# Allow @SANDBOX_USER@ to:
+#   3. restore @PROJECTS_USER@:@SANDBOX_GROUP@ ownership on files it writes within approved
 #      project directories (see /usr/local/sbin/ai-tools/ai-tools-chown and the allowlist at
 #      ~/.config/ai-tools/allowed-projects)
 #   4. normalize group + setgid on approved project directories at session start, so
@@ -12,41 +16,49 @@
 #      /usr/local/sbin/ai-tools/ai-tools-setgid; re-validates the path against the allowlist).
 #   5. repoint the stable /opt/ai-tools/bin/claude symlink at a validated versioned
 #      binary after a Node upgrade (see /usr/local/sbin/ai-tools/ai-tools-claude-symlink).
-#      bin is locked 550 @PROJECTS_USER@:ai-tools, so this root helper is the only
+#      bin is locked 550 @PROJECTS_USER@:@SANDBOX_GROUP@, so this root helper is the only
 #      path by which the sandbox updater can move the symlink.
 #
-# The umask and env_keep Defaults are scoped per-command (Defaults!<command>),
-# not to all of @PROJECTS_USER@'s sudo, so they apply ONLY to these two commands
-# and never alter the user's other sudo invocations:
-#   - umask=0007 (claude) ensures Claude Code creates files 660/770 rather than
-#     600/700, making both @PROJECTS_USER@ and ai-tools natural co-writers on
-#     project files across sessions. World bits are still stripped (o=0). A
-#     stricter umask (e.g. 0027) would give group read-only after handback,
-#     blocking Claude's Edit tool (in-place patch) on previously handed-back files
-#     and forcing unnecessary full-file rewrites.
-#   - env_keep (nvm-update.sh) passes the service-configured package/version
-#     variables through sudo so the ai-tools invocation sees the same values the
-#     @PROJECTS_USER@ invocation resolved from the systemd environment.
+# The umask, env_keep, and umask_override Defaults are scoped per-command
+# (Defaults!<command>), not to all of @PROJECTS_USER@'s sudo, so they apply
+# ONLY to these commands and never alter the user's other sudo invocations:
+#   - umask=0007 + umask_override (claude-run): sets claude-run's own process umask.
+#     A service unit does NOT inherit the caller's umask (a scope did), so the agent's
+#     umask is set authoritatively by the UMask=0007 property claude-run puts on the
+#     unit -- giving files 660/770 rather than 600/700. Both @PROJECTS_USER@ and
+#     @SANDBOX_USER@ are co-writers on project files across sessions; world bits are
+#     still stripped (o=0). A stricter umask (e.g. 0027) would give group read-only
+#     after handback, blocking Claude's Edit tool (in-place patch) on handed-back files.
+#   - env_keep CLAUDE_EXEC (claude-run): the versioned claude path resolved and
+#     validated by the wrapper is passed through sudo so claude-run can re-validate
+#     and exec it directly without needing a second sudoers glob for the versioned path.
+#   - env_keep AI_TOOLS_GLOBAL_TOOLS/NVM_NODE_MAJOR/NVM_NODE_ALIAS (nvm-update.sh):
+#     passes service-configured package/version variables through sudo so the
+#     @SANDBOX_USER@ invocation sees the same values @PROJECTS_USER@ resolved.
 #
 # SECURITY NOTES:
 #   - NOPASSWD is intentional: both commands are called non-interactively.
-#   - Allowed targets are scoped to specific paths under /opt/ai-tools.
+#   - claude-run is at a fixed, non-glob path (550 @PROJECTS_USER@:@SANDBOX_GROUP@,
+#     not writable by @SANDBOX_USER@). The versioned claude binary is no longer a
+#     direct sudo target; it is exec'd by claude-run after re-validation of CLAUDE_EXEC.
 #   - The nvm-update.sh argument must match a vMAJOR.MINOR.PATCH version; a single
 #     glob arg cannot span into extra arguments (sudo matches argv count), so no
 #     trailing flags can be injected.
 #   - Both @PROJECTS_USER@ rules DROP privilege (run as the lower-privileged
-#     ai-tools); the agent runs AS ai-tools and cannot invoke an @PROJECTS_USER@
-#     rule, so neither grants the agent anything it does not already have.
+#     @SANDBOX_USER@); the agent runs AS @SANDBOX_USER@ and cannot invoke a
+#     @PROJECTS_USER@ rule, so neither grants the agent anything it does not
+#     already have.
 #   - ai-tools-chown validates against a user-owned allowlist before acting.
-#   - The ai-tools user has no login shell and no other sudo rights.
+#   - @SANDBOX_USER@ has no login shell and no other sudo rights.
 #   - @PROJECTS_USER@ is substituted with the real username by install.sh.
 #
 # Syntax check before deploy:  visudo -c -f /etc/sudoers.d/ai-tools-claude
 
-Defaults!/opt/ai-tools/.nvm/versions/node/*/bin/claude umask=0007,umask_override
+Defaults!/opt/ai-tools/bin/claude-run umask=0007,umask_override
+Defaults!/opt/ai-tools/bin/claude-run env_keep += "CLAUDE_EXEC"
 Defaults!/opt/ai-tools/bin/nvm-update.sh env_keep += "AI_TOOLS_GLOBAL_TOOLS NVM_NODE_MAJOR NVM_NODE_ALIAS"
 
-@PROJECTS_USER@ ALL=(@SANDBOX_USER@:@SANDBOX_GROUP@) NOPASSWD: /opt/ai-tools/.nvm/versions/node/*/bin/claude
+@PROJECTS_USER@ ALL=(@SANDBOX_USER@:@SANDBOX_GROUP@) NOPASSWD: /opt/ai-tools/bin/claude-run
 @PROJECTS_USER@ ALL=(@SANDBOX_USER@:@SANDBOX_GROUP@) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*.[0-9]*.[0-9]*
 
 @SANDBOX_USER@ ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-chown
