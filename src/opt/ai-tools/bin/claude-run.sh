@@ -41,13 +41,14 @@
 #   has to resolve that -- bwrap before this filter, or a privileged bwrap -- if it
 #   lands.
 #
-# PrivateTmp=yes
-#   Gives the session a private /tmp mount namespace so the agent cannot read or race
-#   temporary files created by other processes.  Honoured natively now that the
-#   session is a service unit (scope units silently ignored it).  systemd sets this
-#   mount namespace up itself during unit setup, BEFORE the RestrictNamespaces seccomp
-#   filter is applied to the payload, so =yes blocking the mnt namespace does not
-#   break it.
+# PrivateTmp -- deliberately NOT set
+#   PrivateTmp=yes is a no-op for an unprivileged --user manager, which cannot set up the
+#   private-/tmp mount: the unit sees the shared host /tmp regardless (independent of
+#   RestrictNamespaces).  Sessions therefore share /tmp, where claude keeps its runtime at
+#   a fixed /tmp/claude-<uid> (it does not honour TMPDIR) and reuses it across sessions;
+#   claude-run does not touch that dir (see the note by the launch).  True per-session /tmp
+#   isolation (and concurrent instances) would require a privileged (--system) manager
+#   mounting PrivateTmp for the payload.
 #
 # ── NoNewPrivileges is FORCED ON by RestrictNamespaces (not optional) ─────────
 #
@@ -284,10 +285,34 @@ done
 _setenv+=( "--setenv=HOME=/opt/ai-tools" )
 _setenv+=( "--setenv=PATH=/usr/local/sbin:/usr/sbin:/usr/local/bin:/usr/bin:$(dirname -- "${CLAUDE_EXEC}")" )
 
+# Pin Node's V8 compile cache to the agent's own state area instead of letting it
+# default to os.tmpdir()/node-compile-cache.  Node honours NODE_COMPILE_CACHE (>=v22.1)
+# and claude calls module.enableCompileCache(), so without this the cache lands at
+# /tmp/node-compile-cache/<ver>-<uid>/ on the SHARED host /tmp.  Two problems there,
+# both fatal under enforcing: (a) any entry created during an earlier UNCONFINED run
+# carries user_tmp_t (not ai_tools_tmp_t), a type ai_tools_t has no rule for, so node's
+# open() of its own cached file is denied and the session dies at startup; (b) the
+# top-level /tmp/node-compile-cache dir is shared across uids, so a peer uid that runs
+# node first owns it as their user_tmp_t and the agent cannot add its subdir.  Routing
+# the cache under /opt/ai-tools/.cache (ai_tools_home_t -- already managed by the agent,
+# absolute so it is independent of HOME) sidesteps both: the cache never touches shared
+# /tmp and is always on a type the policy grants.  This is the durable fix; clearing the
+# stale /tmp/{claude-<uid>,node-compile-cache} leftovers is the one-time migration.
+_setenv+=( "--setenv=NODE_COMPILE_CACHE=/opt/ai-tools/.cache/node-compile-cache" )
+
 # ExecStart is claude.exe directly: the systemd --user manager exec's the labelled
 # ai_tools_exec_t binary, so domtrans_pattern(<manager domain>, ai_tools_exec_t,
 # ai_tools_t) fires cleanly with no intermediary.  The confinement preflight above has
 # already verified that transition will land in ai_tools_t.
+# claude owns its runtime dir at a fixed /tmp/claude-<uid> (it does not honour TMPDIR) and
+# reuses it across sessions: when the dir already exists it skips creating it.  claude-run
+# must NOT delete it -- removing it races claude's exists-then-mkdir check against the
+# sandbox uid's other live sessions, which recreate the dir in the window and make startup
+# fail with "EEXIST mkdir /tmp/claude-<uid>".  Leaving it in place keeps claude on the reuse
+# path.  The dir is one fixed path per uid (it does not accumulate) and carries
+# ai_tools_tmp_t (claude creates it post-transition).  Concurrent same-uid sessions share
+# it; true per-session isolation needs a real private /tmp (--system PrivateTmp, see header).
+
 # Descriptive transient unit name instead of systemd-run's auto-generated "run-uNN":
 # makes the session identifiable in `systemctl --user list-units` (and the journal)
 # as @SANDBOX_USER@'s Claude Code rather than an opaque counter.  The PID suffix keeps
@@ -299,6 +324,5 @@ exec systemd-run --user --pty \
     --description="Claude Code @SANDBOX_USER@ session" \
     "${_setenv[@]}" \
     --property=RestrictNamespaces=yes \
-    --property=PrivateTmp=yes \
     --property=UMask=0007 \
     -- "${CLAUDE_EXEC}" "$@"

@@ -256,11 +256,19 @@ trade-off: `=yes` is incompatible with running unprivileged `bubblewrap` *inside
 session (bwrap must create user+mnt namespaces), which the deferred bwrap phase must
 resolve.
 
-**`PrivateTmp=yes`** gives the session a private `/tmp` mount namespace. systemd sets
-this up itself during unit setup, before the `RestrictNamespaces` seccomp filter is
-applied to the payload, so `=yes` blocking the `mnt` namespace does not break it. It
-is honoured natively now that the session is a service unit (scope units silently
-ignored it).
+**`PrivateTmp` is not used.** It is a no-op for an unprivileged `--user` manager,
+which has no privilege to mount a private `/tmp`: the unit sees the shared host `/tmp`
+regardless (independent of `RestrictNamespaces`). The session therefore shares `/tmp`,
+where claude keeps its runtime at a fixed `/tmp/claude-<uid>` (it does not honour
+`TMPDIR`) and reuses it across sessions; `claude-run` does not touch that directory —
+removing it would race claude's exists-then-`mkdir` check against another live session
+of the same uid, which recreates it and makes startup fail with `EEXIST mkdir
+/tmp/claude-<uid>`. Concurrent same-uid sessions share the directory; true per-session
+`/tmp` isolation (and concurrent instances) would require a privileged (`--system`)
+manager mounting `PrivateTmp` for the payload. Node's V8 compile cache is the one piece of
+session scratch kept OUT of the shared `/tmp` — pinned to `ai_tools_home_t` via
+`NODE_COMPILE_CACHE` (see the environment allowlist below) — because its default
+`/tmp/node-compile-cache` collides with `user_tmp_t` leftovers and other uids.
 
 **`UMask=0007`** keeps agent-created files group-writable so the collaborative
 ownership model holds. A service unit does not inherit the caller's umask (a scope
@@ -284,7 +292,7 @@ hand-back and secret quarantine entirely. `NoNewPrivileges` is safe to add once
 the hooks communicate with root through a mechanism that does not rely on SUID
 (for example, a socket-based helper that receives per-path requests).
 
-**`--pty` service vs `--scope`.** `RestrictNamespaces`, `UMask`, and `PrivateTmp`
+**`--pty` service vs `--scope`.** `RestrictNamespaces` and `UMask`
 are exec-context sandbox directives, which systemd 252 rejects on a scope unit
 (`Unknown assignment`): a scope has no exec context because the caller, not the
 manager, performs the final `exec`. Only a service unit (the manager exec's
