@@ -18,12 +18,13 @@ with a tightly scoped set of privileges instead:
 - **Launches only in approved projects** — a wrapper refuses to start Claude
   unless the working directory is listed in `~/.config/ai-tools/allowed-projects`
   (with `!` exclusions to carve out subdirectories or secrets).
-- **Minimal sudo surface** — `${SANDBOX_USER}` may run only three narrow root
-  helpers (`ai-tools-chown`, `ai-tools-setgid`, and `ai-tools-claude-symlink`, each
-  allowlist- or argument-validated). You may run only `claude-run` (and the pinned
-  updater) as `${SANDBOX_USER}` — `claude-run` is a fixed-path sudo target, not a
-  glob, and it wraps the session in a systemd `--user --pty` service before exec'ing
-  the versioned binary. Nothing else.
+- **Minimal sudo surface** — `${SANDBOX_USER}` has **no** sudo rights. Root operations
+  (ownership handback, setgid normalisation, symlink repoint) go through a dedicated
+  socket daemon (`ai-tools-handback`, started at boot) that authenticates callers via
+  `SO_PEERCRED`. You may run only `claude-run` (and the pinned updater) as
+  `${SANDBOX_USER}` — `claude-run` is a fixed-path sudo target, not a glob, and it
+  wraps the session in a systemd `--user --pty` service before exec'ing the versioned
+  binary. Nothing else.
 - **Ownership hand-back** — files Claude writes are chowned back to
   `${PROJECTS_USER}:${SANDBOX_GROUP}` (group-readable, world-closed) inside approved paths only, along
   with any directories Claude created on the way (world bits stripped, group
@@ -88,9 +89,11 @@ you type `claude`
             └─ systemd transient service      (--pty; RestrictNamespaces=yes, UMask=0007,
                                                WorkingDirectory=project, NODE_COMPILE_CACHE pinned)
                  └─ claude runs as ${SANDBOX_USER} in ai_tools_t (SELinux)
-                      └─ on Write/Edit → PostToolUse hook
-                           └─ sudo ai-tools-chown <file>   (root; allowlist-checked)
-                                └─ chown ${PROJECTS_USER}:${SANDBOX_GROUP}, strip world bits
+                      └─ on Write/Edit → PostToolUse hook (or Stop/SessionStart sweep)
+                           └─ ai-tools-handback-client CHOWN <file>   (socket, no sudo)
+                                └─ ai-tools-handback daemon (root, SO_PEERCRED auth)
+                                     └─ ai-tools-chown <file>   (allowlist-checked)
+                                          └─ chown ${PROJECTS_USER}:${SANDBOX_GROUP}, strip world bits
 ```
 
 ## Files
@@ -104,6 +107,10 @@ you type `claude`
 | src/usr/local/sbin/ai-tools/ai-tools-setgid.sh | /usr/local/sbin/ai-tools/ai-tools-setgid (root) |
 | src/usr/local/sbin/ai-tools/ai-tools-claude-symlink.sh | /usr/local/sbin/ai-tools/ai-tools-claude-symlink (root) |
 | src/usr/local/sbin/ai-tools/ai-tools-lockdown.sh | /usr/local/sbin/ai-tools/ai-tools-lockdown (root) |
+| src/usr/local/sbin/ai-tools/ai-tools-handback.py | /usr/local/sbin/ai-tools/ai-tools-handback (root) |
+| src/usr/local/bin/ai-tools-handback-client.py | /usr/local/bin/ai-tools-handback-client (root:ai-tools) |
+| src/usr/lib/systemd/system/ai-tools-handback.socket | /usr/lib/systemd/system/ai-tools-handback.socket (root) |
+| src/usr/lib/systemd/system/ai-tools-handback@.service | /usr/lib/systemd/system/ai-tools-handback@.service (root) |
 | src/usr/local/lib/ai-tools/secret-patterns.lib.sh | /usr/local/lib/ai-tools/secret-patterns.lib.sh (root) |
 | src/usr/local/lib/ai-tools/prune-dirs.lib.sh | /usr/local/lib/ai-tools/prune-dirs.lib.sh (root) |
 | src/home/user/.local/bin/claude.sh | ~/.local/bin/claude |
@@ -233,9 +240,10 @@ To remove everything installed by this script:
 
 When nvm installs a new Node version under `/opt/ai-tools`:
 - `src/opt/ai-tools/bin/nvm-update.sh` repoints the `/opt/ai-tools/bin/claude`
-  symlink at the new versioned binary via the root helper `ai-tools-claude-symlink`
-  (`bin` is locked `550`, so the `${SANDBOX_USER}` updater cannot write it directly;
-  the helper validates the versioned path and is the only writer of that dir).
+  symlink at the new versioned binary via the handback socket bridge (`SYMLINK` verb →
+  `ai-tools-claude-symlink`). `bin` is locked `550`, so the `${SANDBOX_USER}` updater
+  cannot write it directly; the helper validates the versioned path and is the only
+  writer of that dir.
 - The wrapper resolves that symlink **one hop** via `readlink` and exports the result
   as `CLAUDE_EXEC`. It deliberately does *not* use `realpath`/`readlink -f`: the
   versioned `bin/claude` is itself an npm symlink into the package dir (mode 700,

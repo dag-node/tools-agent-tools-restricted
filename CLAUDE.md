@@ -53,9 +53,15 @@ only in filesystem paths (`/opt/ai-tools`, `~/.config/ai-tools`), SELinux types
    umask, unlike a scope). `PrivateTmp` is not set: it is a no-op for an unprivileged
    `--user` manager, which cannot mount a private `/tmp`, so the session uses the shared
    host `/tmp` where claude keeps its runtime at a fixed `/tmp/claude-<uid>` (labelled
-   `ai_tools_tmp_t`) and reuses it across sessions. `NoNewPrivileges` is intentionally absent: it would silence
-   the SUID bit on `sudo`, breaking the `sudo ai-tools-chown` / `sudo ai-tools-setgid`
-   calls the hooks make from inside the session. The unit receives only an explicit
+   `ai_tools_tmp_t`) and reuses it across sessions. `NoNewPrivileges` is intentionally
+   absent from the service unit definition: the session always runs under NNP regardless
+   (forced by `RestrictNamespaces=yes`, which installs the seccomp filter via
+   `PR_SET_NO_NEW_PRIVS`) — so adding it to the unit would be redundant. Under NNP
+   `sudo`'s SUID bit is dropped silently; the hooks therefore do not call `sudo` and
+   instead use the **handback socket bridge** (`ai-tools-handback-client`) — a Python
+   client connecting to the root-owned `ai-tools-handback.socket` (systemd-activated,
+   `Accept=yes`), which authenticates via `SO_PEERCRED` and calls the matching root
+   helper. This eliminates the session's sudo surface entirely. The unit receives only an explicit
    allowlist of environment variables (terminal, locale, proxy; `HOME`, `PATH`, and
    `NODE_COMPILE_CACHE` are pinned to sandbox values), so the operator's secrets never
    cross into the session, and its `WorkingDirectory` is set to the validated project
@@ -76,9 +82,11 @@ only in filesystem paths (`/opt/ai-tools`, `~/.config/ai-tools`), SELinux types
    unconfined. The check is pre-launch because a wrapper cannot observe its successor's
    post-`exec` domain, so it verifies the transition's inputs instead.
 4. Claude runs as uid `SANDBOX_USER`. Files it writes are owned `SANDBOX_USER`; a
-   `PostToolUse` hook calls `sudo ai-tools-chown` (a narrow root helper
-   `SANDBOX_USER` may sudo) to restore `<you>:SANDBOX_GROUP` ownership and strip
-   world bits, inside allowlisted paths only (never on `!`-excluded paths). The
+   `PostToolUse` hook calls `/usr/local/bin/ai-tools-handback-client CHOWN <file>`
+   to restore `<you>:SANDBOX_GROUP` ownership and strip world bits, inside
+   allowlisted paths only (never on `!`-excluded paths). The client connects to the
+   `ai-tools-handback` socket (an `Accept=yes` root daemon), which authenticates the
+   caller via `SO_PEERCRED` and runs `ai-tools-chown` as root. The
    hook also walks the written file's parent directories and hands each back to
    `<you>:SANDBOX_GROUP` (world bits stripped, group `rwx` kept so the agent can
    keep writing into a dir it made), but **only** for directories the agent itself
@@ -162,12 +170,18 @@ The sudoers drop-in (`/etc/sudoers.d/ai-tools-claude`, `@PROJECTS_USER@`/
 `@SANDBOX_USER@` substituted at install) grants exactly:
 
 ```
-<you>        ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/claude-run
-<you>        ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*.[0-9]*.[0-9]*
-SANDBOX_USER ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-chown
-SANDBOX_USER ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-setgid
-SANDBOX_USER ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-claude-symlink /opt/ai-tools/.nvm/versions/node/v[0-9]*
+<you>  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/claude-run
+<you>  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*.[0-9]*.[0-9]*
 ```
+
+`SANDBOX_USER` has **no** `sudo` rights in this file. The former three
+`SANDBOX_USER ALL=(root)` rules (chown, setgid, claude-symlink) have been removed
+because they were inoperative anyway: `RestrictNamespaces=yes` forces
+`PR_SET_NO_NEW_PRIVS`, which drops `sudo`'s SUID bit, leaving it running as
+`SANDBOX_USER` rather than root — incapable of reading `/etc/sudoers` or switching UID.
+Those operations are now handled by the **`ai-tools-handback` socket bridge** (a
+root-owned system daemon, `ai-tools-handback.socket`), which the hooks and updater
+reach via `/usr/local/bin/ai-tools-handback-client` without SUID.
 
 `umask=0007,umask_override` and `env_keep += "CLAUDE_EXEC CLAUDE_PROJECT_DIR"` (for
 `claude-run`) and `env_keep` (for `nvm-update.sh`) are scoped per-command with
@@ -187,13 +201,11 @@ directory the same way, becoming the unit's `WorkingDirectory`.
   **drop** privilege to the lower-privileged `SANDBOX_USER`; the agent runs *as*
   `SANDBOX_USER` and cannot invoke a `<you>` rule, so neither grants the agent
   anything.
-- `SANDBOX_USER` may run **only** three root commands: `ai-tools-chown` (restores
-  ownership inside the allowlist), `ai-tools-setgid` (normalizes group + setgid on
-  an allowlisted project at session start), and `ai-tools-claude-symlink` (repoints
-  the stable claude symlink at a validated versioned path) — not `rm -rf /`, not
-  `cat /etc/shadow`, not anything else in `/usr/bin`. (`ai-tools-lockdown` is
-  user-run and has no `SANDBOX_USER` sudo grant.)
-- `SANDBOX_USER` has no login shell, no password, and no other sudo rights.
+- `SANDBOX_USER` has **no** sudo rights — not `rm -rf /`, not `cat /etc/shadow`,
+  not any of the former root helpers. Root operations (chown, setgid, symlink repoint)
+  go exclusively through the `ai-tools-handback` socket (see below). (`ai-tools-lockdown`
+  is user-run and has no `SANDBOX_USER` sudo grant.)
+- `SANDBOX_USER` has no login shell, no password, and no sudo rights.
 - The allowlist gates where claude **launches** and which written files get
   ownership restored. It is **not** a kernel-enforced read boundary — once
   running, ordinary Unix permissions govern reads/writes. Those filesystem
@@ -307,15 +319,21 @@ manager is `init_t`). `HOME` stays `/opt/ai-tools`: the agent's control plane
 (`settings.json`, the hooks, `~/.claude.json`) is operator-owned and `ai_tools_home_t`, and
 is deliberately not relocated into the agent-writable project tree.
 
-**`NoNewPrivileges` is intentionally absent.** `PR_SET_NO_NEW_PRIVS` silently
-drops SUID bits on any binary exec'd within the unit, including `sudo`. The
-`PostToolUse` and `Stop`/`SessionStart` hooks call `sudo ai-tools-chown` and
-`sudo ai-tools-setgid` from inside the session process tree; with
-`NoNewPrivileges` set, sudo runs as `SANDBOX_USER` rather than root, cannot read
-`/etc/sudoers` (440 root:root), and every hook call fails — breaking ownership
-hand-back and secret quarantine entirely. `NoNewPrivileges` is safe to add once
-the hooks communicate with root through a mechanism that does not rely on SUID
-(for example, a socket-based helper that receives per-path requests).
+**`NoNewPrivileges` — absent from the unit, but always in effect.** The session
+always runs under `PR_SET_NO_NEW_PRIVS` because `RestrictNamespaces=yes` installs
+its seccomp filter via that flag — `NoNewPrivileges` is a precondition for seccomp,
+not a separate setting the unit can opt out of. Adding `NoNewPrivileges=yes`
+explicitly to the unit would be redundant. The hooks do NOT call `sudo`:
+`PR_SET_NO_NEW_PRIVS` would drop `sudo`'s SUID bit, leaving it running as
+`SANDBOX_USER` instead of root — so every hook call would fail silently. The
+hooks instead use the **`ai-tools-handback` socket bridge**: a Python client
+(`/usr/local/bin/ai-tools-handback-client`) that connects to the root-owned
+`ai-tools-handback.socket` (an `Accept=yes` system service, activated at boot)
+and sends one `VERB ARG\n` request. The daemon authenticates the connection via
+`SO_PEERCRED` (peer uid must equal `SANDBOX_USER`) and calls the matching root
+helper. This eliminates all SUID usage from the session entirely: the agent holds
+no capabilities, `sudo` is never exec'd, and the only privilege path is the
+authenticated socket.
 
 **`--pty` service vs `--scope`.** `RestrictNamespaces` and `UMask`
 are exec-context sandbox directives, which systemd 252 rejects on a scope unit
@@ -353,6 +371,32 @@ it even with the podman group loaded — the SELinux grant is necessary but not
 sufficient. Supporting rootless podman means re-allowing the user namespace, which *is*
 ESC-001, so it is not a clean partial relaxation. `claude-run` emits an actionable
 NOTICE at launch when the podman group is loaded while the filter is active.
+
+### Handback socket bridge (`ai-tools-handback`)
+The session always runs under `PR_SET_NO_NEW_PRIVS` (forced by `RestrictNamespaces=yes`),
+which drops `sudo`'s SUID bit. The `PostToolUse`, `Stop`/`SessionStart` hooks, and
+`nvm-update.sh` therefore reach root operations through an `AF_UNIX SOCK_STREAM` socket
+(`/run/ai-tools/handback.sock`, `0660 root:SANDBOX_GROUP`) served by a systemd
+`Accept=yes` socket unit started at boot.
+
+**Protocol:** one `VERB SP ARG LF` request per connection; response is zero or more
+`MSG TEXT LF` relay lines followed by `OK LF` or `ERR REASON LF`. MSG lines carry
+helper stderr (e.g. secret-file NOTICE) back to the client's stderr, which the hooks
+forward into the agent session.
+
+**Authentication:** the daemon reads `SO_PEERCRED` on fd 0 (the accepted socket) and
+rejects any peer whose uid ≠ `SANDBOX_USER`. DAC provides the outer gate: the socket
+file is `0660 root:SANDBOX_GROUP`, so only root and `SANDBOX_GROUP` members can
+connect; world gets `EACCES` before reaching the daemon.
+
+**Verbs:** `CHOWN ARG` → `ai-tools-chown ARG`; `SETGID ARG` → `ai-tools-setgid ARG`;
+`SYMLINK ARG` → `ai-tools-claude-symlink ARG`. Each root helper re-validates the path
+against the allowlist and the `SANDBOX_USER`-owned guard independently.
+
+**Files:** daemon `/usr/local/sbin/ai-tools/ai-tools-handback` (750 root:root, Python 3);
+client `/usr/local/bin/ai-tools-handback-client` (750 root:SANDBOX_GROUP, Python 3);
+socket unit `/usr/lib/systemd/system/ai-tools-handback.socket`;
+service template `/usr/lib/systemd/system/ai-tools-handback@.service`.
 
 ### Allowlist `!` exclusions are honored by both consumers
 `!`-prefixed lines in `allowed-projects` are exclusions and override allows.

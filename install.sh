@@ -311,6 +311,10 @@ do_summary() {
     _chk /usr/local/sbin/ai-tools/ai-tools-setgid
     _chk /usr/local/sbin/ai-tools/ai-tools-claude-symlink
     _chk /usr/local/sbin/ai-tools/ai-tools-lockdown
+    _chk /usr/local/sbin/ai-tools/ai-tools-handback
+    _chk /usr/local/bin/ai-tools-handback-client
+    _chk /usr/lib/systemd/system/ai-tools-handback.socket
+    _chk /usr/lib/systemd/system/ai-tools-handback@.service
     _chk /usr/local/bin/ai-tools
     _chk /var/opt/ai-tools
     _chk /var/opt/ai-tools/sandbox-projects
@@ -384,12 +388,27 @@ do_perms_check() {
     # helper names. sudo runs helpers as root so traversal succeeds regardless.
     _pchk /usr/local/sbin/ai-tools root root 750
 
-    # Root helpers: 750 root:root -- only root can execute; ai-tools cannot
-    # invoke them directly, only via the two specific NOPASSWD sudoers rules.
+    # Root helpers: 750 root:root -- only root can execute; ai-tools reaches
+    # chown/setgid/claude-symlink exclusively via the handback socket, never by
+    # direct exec.  Lockdown is user-run only and has no SANDBOX_USER sudo grant.
     _pchk /usr/local/sbin/ai-tools/ai-tools-chown          root root 750
     _pchk /usr/local/sbin/ai-tools/ai-tools-setgid         root root 750
     _pchk /usr/local/sbin/ai-tools/ai-tools-claude-symlink root root 750
     _pchk /usr/local/sbin/ai-tools/ai-tools-lockdown       root root 750
+
+    # Handback daemon: 750 root:root -- root-owned and root-only-executable.
+    # The sandbox user never exec's this directly; it connects via the socket.
+    _pchk /usr/local/sbin/ai-tools/ai-tools-handback root root 750
+
+    # Handback client: 750 root:SANDBOX_GROUP -- root-owned, group-executable so
+    # SANDBOX_USER (a SANDBOX_GROUP member) can run it from the hooks and updater;
+    # world cannot (no world bit -- prevents arbitrary users from invoking the bridge).
+    _pchk /usr/local/bin/ai-tools-handback-client root "${SANDBOX_GROUP}" 750
+
+    # Systemd units: 644 root:root -- systemd reads them as root; no write needed by
+    # anyone else.
+    _pchk /usr/lib/systemd/system/ai-tools-handback.socket   root root 644
+    _pchk /usr/lib/systemd/system/ai-tools-handback@.service root root 644
 
     # Project CLI: 755 root:root -- runs AS the projects user (no privilege; the
     # in-script guard refuses root and ai-tools). Root-owned so the agent cannot
@@ -631,6 +650,35 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-lockdown.sh" \
         /usr/local/sbin/ai-tools/ai-tools-lockdown
 
+    # Handback privilege bridge daemon.  750 root:root -- root-owned and only
+    # root-executable: this is the privileged endpoint; the SANDBOX_USER reaches it
+    # via the socket, never by exec'ing it directly.  install_subst substitutes
+    # @SANDBOX_USER@ in the Python source before deployment.
+    log "/usr/local/sbin/ai-tools/ai-tools-handback"
+    install_subst 750 root root \
+        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-handback.py" \
+        /usr/local/sbin/ai-tools/ai-tools-handback
+
+    # Handback client.  750 root:SANDBOX_GROUP -- root-owned but group-executable so
+    # SANDBOX_USER (a member of SANDBOX_GROUP) can run it from the hooks and the
+    # updater; world cannot.  install_subst substitutes @SANDBOX_GROUP@.
+    log "/usr/local/bin/ai-tools-handback-client"
+    install_subst 750 root "${SANDBOX_GROUP}" \
+        "${SCRIPT_DIR}/src/usr/local/bin/ai-tools-handback-client.py" \
+        /usr/local/bin/ai-tools-handback-client
+
+    # Systemd socket and service template for the handback bridge.  644 root:root --
+    # systemd reads them as root; no world write.  install_subst substitutes
+    # @SANDBOX_GROUP@ in the socket unit (SocketGroup=).
+    log "/usr/lib/systemd/system/ai-tools-handback.socket"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/lib/systemd/system/ai-tools-handback.socket" \
+        /usr/lib/systemd/system/ai-tools-handback.socket
+    log "/usr/lib/systemd/system/ai-tools-handback@.service"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/lib/systemd/system/ai-tools-handback@.service" \
+        /usr/lib/systemd/system/ai-tools-handback@.service
+
     # Project-lifecycle CLI. Runs AS the projects user (never root, never ai-tools)
     # and needs no privilege: it only edits allowed-projects and the git
     # safe.directory list, both writable by the projects user. 755 root:root --
@@ -673,7 +721,7 @@ do_install() {
     ensure_dir 700 root root /var/log/ai-tools
     chown root:root /var/log/ai-tools
     chmod 700 /var/log/ai-tools
-    for _logfile in chown setgid symlink lockdown install; do
+    for _logfile in chown setgid symlink lockdown handback install; do
         if [[ ! -e "/var/log/ai-tools/${_logfile}.log" ]]; then
             install -o root -g root -m 600 /dev/null "/var/log/ai-tools/${_logfile}.log"
         fi
@@ -897,6 +945,10 @@ do_install() {
     user_systemctl daemon-reload
     user_systemctl enable --now nvm-update.timer
 
+    log "reload systemd and enable ai-tools-handback.socket"
+    systemctl daemon-reload
+    systemctl enable --now ai-tools-handback.socket
+
     section "Finalising (claude symlink, PATH, SELinux)"
     bootstrap_claude_symlink
     check_path_order
@@ -935,6 +987,9 @@ do_uninstall() {
     log "disable nvm-update.timer"
     user_systemctl disable --now nvm-update.timer 2>/dev/null || true
     user_systemctl daemon-reload 2>/dev/null || true
+    log "disable ai-tools-handback.socket"
+    systemctl disable --now ai-tools-handback.socket 2>/dev/null || true
+    systemctl daemon-reload 2>/dev/null || true
 
     section "Removing files"
     log "system files"
@@ -942,7 +997,11 @@ do_uninstall() {
     rm -f /usr/local/sbin/ai-tools/ai-tools-setgid
     rm -f /usr/local/sbin/ai-tools/ai-tools-claude-symlink
     rm -f /usr/local/sbin/ai-tools/ai-tools-lockdown
+    rm -f /usr/local/sbin/ai-tools/ai-tools-handback
     rmdir /usr/local/sbin/ai-tools 2>/dev/null || true
+    rm -f /usr/local/bin/ai-tools-handback-client
+    rm -f /usr/lib/systemd/system/ai-tools-handback.socket
+    rm -f /usr/lib/systemd/system/ai-tools-handback@.service
     rm -f /usr/local/bin/ai-tools
     rm -f /usr/local/lib/ai-tools/secret-patterns.lib.sh
     rm -f /usr/local/lib/ai-tools/prune-dirs.lib.sh
