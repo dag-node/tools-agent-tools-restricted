@@ -55,8 +55,17 @@ CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_FSETID CAP_DAC_OVERRIDE
 #   MemoryMax/TasksMax: cap a single handler so an unbounded-stderr or fan-out
 #     bug is contained by the cgroup rather than the host.
 # RestrictSUIDSGID is intentionally NOT set: ai-tools-setgid must chmod g+s, which
-# that option would block.  SystemCallFilter is deferred (needs validation against
-# the full helper toolchain incl. restorecon's setfscreate).
+# that option would block.
+#   SystemCallFilter=@system-service: systemd's curated allow-list for system
+#     services. It covers the full helper toolchain -- @chown (the chown family),
+#     @file-system (incl. lsetxattr for restorecon relabels), @process (the helpers'
+#     fork+execve via subprocess.run), @basic-io, @signal -- while excluding @mount,
+#     @module, @reboot, @swap, @raw-io, @debug, @cpu-emulation, @obsolete.  A filtered
+#     call SIGSYS-kills the per-connection handler (Accept=yes, so the socket itself
+#     survives); that is fail-closed (the file stays un-handed-back) and logs loudly,
+#     so a SIGSYS in the journal during the bring-up test names the syscall to add.
+#   SystemCallArchitectures=native: drop non-native ABIs (compat/x32) to cut exotic
+#     syscall-confusion surface; the daemon and helpers are all native.
 RestrictAddressFamilies=AF_UNIX
 IPAddressDeny=any
 ProtectKernelTunables=yes
@@ -66,6 +75,8 @@ ProtectClock=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 RestrictRealtime=yes
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
 MemoryMax=128M
 TasksMax=64
 StandardInput=socket
