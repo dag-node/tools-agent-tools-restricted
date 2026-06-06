@@ -51,16 +51,6 @@ require {
     type unconfined_t;
     role unconfined_r;
 
-    # sudo + PAM auth path -- present ONLY to service `sudo ai-tools-chown`
-    # (and `sudo ai-tools-claude-symlink`) invoked from the PostToolUse/Stop hooks
-    # and the updater. The sudoers rules remain the authoritative limit on WHICH
-    # root commands run; SELinux here only lets sudo+PAM execute at all.
-    type sudo_exec_t;
-    type sudo_db_t;
-    type sudo_log_t;
-    type faillog_t;
-    type pam_var_run_t;
-
     # read-only kernel tunables Node/V8 probes at startup
     type sysctl_vm_t;
 
@@ -133,15 +123,27 @@ type ai_tools_conf_t;
 files_type(ai_tools_conf_t)
 
 # The root-helper operation logs under /var/log/ai-tools (labelled by ai_tools.fc).
-# The sudo helpers ai-tools-chown and ai-tools-setgid run IN ai_tools_t (sudo, no
-# transition) and append their privileged-operation records here; ai-tools-claude-symlink
-# does the same when the sandbox updater invokes it. logging_log_file marks the type a
+# The root helpers (chown, setgid, claude-symlink) run IN ai_tools_handback_t and
+# append their privileged-operation records here. logging_log_file marks the type a
 # system log file so it lands under the right relabel/restorecon rules. The DAC mode
 # (dir root:root 700, files 600) keeps the agent out -- this only lets the root-uid
 # helper write under enforcing. (ai-tools-lockdown and the CLI run unconfined; the hooks
 # log to journald via the already-granted /dev/log path, not to these files.)
 type ai_tools_log_t;
 logging_log_file(ai_tools_log_t)
+
+# The AF_UNIX socket and /run/ai-tools runtime directory.  ai_tools_t connects here;
+# the socket file is created by systemd when ai-tools-handback.socket activates.
+type ai_tools_run_t;
+files_type(ai_tools_run_t)
+
+# The handback privilege bridge daemon.  Runs as root (system manager service),
+# accepts one connection per instance, authenticates via SO_PEERCRED, then
+# calls the existing root helpers.  Starts permissive until the AVC log is clean
+# on the live box; see the bring-up loop in selinux/README.md.
+type ai_tools_handback_t;
+type ai_tools_handback_exec_t;
+init_daemon_domain(ai_tools_handback_t, ai_tools_handback_exec_t)
 
 ########################################
 # Domain entry
@@ -316,46 +318,28 @@ sysnet_dns_name_resolve(ai_tools_t)
 corenet_tcp_connect_http_port(ai_tools_t)   # http_port_t includes 443
 
 ########################################
-# sudo -> the two root helpers  (ai-tools-chown, ai-tools-claude-symlink)
+# Handback socket bridge (ai_tools_t -> ai_tools_handback_t)
 #
-# The hooks run `sudo ai-tools-chown`; the updater runs `sudo ai-tools-claude-symlink`.
-# No type_transition is defined for the helpers, so sudo and the helper both run
-# IN ai_tools_t (execute_no_trans) -- the helper is root-uid but SELinux-confined
-# to this domain. That is why this domain needs setuid/setgid (sudo drops to the
-# target uid) and chown/fowner/fsetid/dac_read_search (the chown helper restoring
-# ownership and stripping bits). chown is for the chown(2) (CAP_CHOWN); fowner is
-# for the chmod(2) that strips world bits (and group bits on a quarantined secret)
-# right after: the helper has just chowned the file away from root, so root is no
-# longer the owner and chmod needs CAP_FOWNER. Without fowner the chmod fails EPERM
-# under enforcing while the chown still succeeds, so handback works but world bits
-# are never stripped -- silently weakening the secret quarantine (a world-readable
-# agent-written secret would stay readable by ai-tools). The capabilities are
-# scoped to this domain only; the non-root agent has an empty capability set, so
-# these allows unblock only the root-uid helper.
+# The hooks call /usr/local/bin/ai-tools-handback-client (a bin_t executable) to
+# connect to /run/ai-tools/handback.sock.  No sudo is involved: the client opens
+# the socket file directly and sends a CHOWN/SETGID/SYMLINK request; the daemon
+# (ai_tools_handback_t) authenticates via SO_PEERCRED and calls the root helper.
 #
-# FUTURE HARDENING: give the helpers their own domain (ai_tools_chown_t) via a
-# sudo type_transition, so ai_tools_t itself loses setuid/setgid/chown/fowner/fsetid
-# and never needs the PAM/auth surface below. Deferred -- it needs a load test under
-# enforcing on the live box, which has not happened. See selinux/README.md.
+# This replaces the former sudo+PAM path.  ai_tools_t now loses:
+#   setuid/setgid/sys_resource/chown/fowner/fsetid/dac_read_search capabilities
+#   sudo_exec_t exec, sudo_db_t/sudo_log_t reads, faillog_t/pam_var_run_t access
+#   auth_domtrans_chk_passwd / netlink_audit_socket / pam_var_run_t access
+# The agent domain retains NO capability permissions -- the non-root agent never
+# needed them; they existed only so the root-uid sudo helper ran in-domain.
 ########################################
 
-can_exec(ai_tools_t, sudo_exec_t)
-allow ai_tools_t sudo_db_t:dir { getattr search open read };
-allow ai_tools_t sudo_log_t:file { getattr open append };
-
-allow ai_tools_t self:capability { setuid setgid sys_resource chown fowner fsetid dac_read_search };
-allow ai_tools_t self:process setrlimit;
-
-# PAM, as pulled in by sudo. chkpwd is TRANSITIONED to its own domain (chkpwd_t),
-# so the /etc/shadow read happens there and ai_tools_t never gains shadow_t access.
-auth_domtrans_chk_passwd(ai_tools_t)
-logging_send_audit_msgs(ai_tools_t)   # self:netlink_audit_socket + audit_write cap
-logging_send_syslog_msg(ai_tools_t)   # /dev/log (devlog_t) writes from sudo/pam
-# pam_faillock state + pam runtime dir (NOPASSWD still runs the account/session stack)
-allow ai_tools_t faillog_t:dir { getattr search open read add_name remove_name write };
-allow ai_tools_t faillog_t:file { create getattr open read setattr write };
-allow ai_tools_t pam_var_run_t:dir { getattr search open read add_name write };
-allow ai_tools_t pam_var_run_t:file { create getattr lock open read write };
+# Traverse /run/ai-tools and connect to handback.sock (ai_tools_run_t).
+allow ai_tools_t ai_tools_run_t:dir search;
+allow ai_tools_t ai_tools_run_t:sock_file { read write };
+# The listening socket is held by init_t (systemd socket activation, Accept=yes).
+# connectto is the peer check: the client's connect() must be allowed against the
+# listener's domain.  Update if `ps -eZ | grep handback` shows a different domain.
+allow ai_tools_t init_t:unix_stream_socket connectto;
 
 ########################################
 # Process baseline
@@ -548,6 +532,89 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 # That is NOT dontaudit'd here -- it is FIXED by labelling those paths
 # ai_tools_home_t in ai_tools.fc, so the writes land on a type the agent already
 # manages. (Granting usr_t write would also hand it the node/program tree.)
+
+########################################
+# ai_tools_handback_t -- the per-connection privilege bridge daemon
+#
+# Runs as root, spawned by init_t (Accept=yes socket activation).  Accepts one
+# request from an @SANDBOX_USER@-peer socket, calls the matching root helper script
+# (chown/setgid/claude-symlink, all bin_t → no type_transition, helpers run
+# in-domain), then exits.
+#
+# What the domain needs:
+#   - Read stdin/stdout (the accepted socket fd, passed by systemd as fd 0/1)
+#   - exec bin_t helper scripts (execute_no_trans: they run IN this domain)
+#   - chown/chmod project files (capabilities)
+#   - Read allowlist + secret-patterns (ai_tools_conf_t)
+#   - Append operation logs (ai_tools_log_t)
+#   - Read shared libraries (libs_read_lib_files)
+#   - Resolve uid/gid (auth_use_nsswitch)
+#
+# Ships PERMISSIVE until the bring-up loop on the live box confirms the rule set
+# is complete.  Remove `permissive ai_tools_handback_t;` to enforce once clean.
+########################################
+
+# The socket fd (stdin/stdout) is an AF_UNIX stream socket in init_t domain.
+# The daemon reads and writes it via fd 0/1 -- inherited, not connected.
+allow ai_tools_handback_t init_t:unix_stream_socket { read write };
+# Accept(2) on the listening socket creates the accepted fd; with Accept=yes in the
+# unit, systemd itself performs the accept() and passes the fd -- so the daemon never
+# calls accept() directly.  But it may call getpeername/getsockopt (SO_PEERCRED).
+allow ai_tools_handback_t init_t:unix_stream_socket { getattr ioctl };
+
+# Execute the root helper scripts.  They are labelled bin_t (the directory wildcard in
+# ai_tools.fc labels all of /usr/local/sbin/ai-tools(/.*)?  bin_t).  execute_no_trans:
+# no domain transition -- helpers run in ai_tools_handback_t, not a separate domain.
+corecmd_exec_bin(ai_tools_handback_t)
+
+# Capabilities needed by the root helpers that run inside this domain:
+#   CAP_CHOWN        -- chown(2) to change owner and group
+#   CAP_FOWNER       -- chmod(2) after chown (file is no longer owned by root)
+#   CAP_FSETID       -- set setgid bit on directories (ai-tools-setgid)
+#   CAP_DAC_OVERRIDE -- read allowlist (config_home_t) and access project files as root
+allow ai_tools_handback_t self:capability { chown fowner fsetid dac_override };
+
+# Read the allowlist and secret-pattern files (ai_tools_conf_t,
+# ~/.config/ai-tools/{allowed-projects,secret-patterns}). Same reasoning as the
+# ai_tools_t grant in the "Run the agent" section.
+allow ai_tools_handback_t config_home_t:dir search;
+allow ai_tools_handback_t ai_tools_conf_t:dir { getattr search open };
+allow ai_tools_handback_t ai_tools_conf_t:file { getattr open read };
+
+# Read the shared libraries the helpers source.
+libs_read_lib_files(ai_tools_handback_t)
+files_read_etc_files(ai_tools_handback_t)   # /etc/passwd, nsswitch.conf, ...
+auth_use_nsswitch(ai_tools_handback_t)       # resolve uid/gid (getpwnam)
+
+# Operate on project files and the agent's home-state tree (chown, chmod).
+# The helpers act on ai_tools_project_t and ai_tools_home_t paths.
+manage_files_pattern(ai_tools_handback_t, ai_tools_project_t, ai_tools_project_t)
+manage_dirs_pattern(ai_tools_handback_t, ai_tools_project_t, ai_tools_project_t)
+manage_lnk_files_pattern(ai_tools_handback_t, ai_tools_project_t, ai_tools_project_t)
+manage_files_pattern(ai_tools_handback_t, ai_tools_home_t, ai_tools_home_t)
+manage_dirs_pattern(ai_tools_handback_t, ai_tools_home_t, ai_tools_home_t)
+
+# Reach project paths (same parent traversal as ai_tools_t).
+userdom_search_user_home_dirs(ai_tools_handback_t)
+allow ai_tools_handback_t user_home_t:dir { getattr search open };
+files_search_var(ai_tools_handback_t)
+
+# Operate on the stable claude symlink (ai-tools-claude-symlink: /opt/ai-tools/bin/).
+files_read_usr_files(ai_tools_handback_t)    # read .nvm tree + stat bin/claude
+
+# Append the privileged-operation logs.
+allow ai_tools_handback_t ai_tools_log_t:dir { getattr search open add_name write };
+allow ai_tools_handback_t ai_tools_log_t:file { create getattr setattr open append };
+logging_log_filetrans(ai_tools_handback_t, ai_tools_log_t, file)
+
+# Process baseline for a short-lived forking subprocess (Python subprocess.run).
+allow ai_tools_handback_t self:process { fork sigchld signal signull };
+allow ai_tools_handback_t self:fifo_file rw_fifo_file_perms;
+allow ai_tools_handback_t self:unix_stream_socket create_stream_socket_perms;
+logging_send_syslog_msg(ai_tools_handback_t)   # logger calls from the helpers
+kernel_read_system_state(ai_tools_handback_t)  # /proc/self for SO_PEERCRED
+
+permissive ai_tools_handback_t;
 
 ########################################
 # Enforcement switch: PERMISSIVE = log only. Re-run the README bring-up loop to

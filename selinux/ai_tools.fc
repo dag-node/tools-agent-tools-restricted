@@ -8,17 +8,26 @@
 # unlabelled, which fails OPEN -- claude runs unconfined until relabelled).
 /opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@anthropic-ai/claude-code/bin/claude\.exe  --  gen_context(system_u:object_r:ai_tools_exec_t,s0)
 
-# The root sudo-helpers, grouped under one dir (chown, setgid, claude-symlink,
-# lockdown). They run IN ai_tools_t (sudo, no domain transition), so they need NO
-# entrypoint label -- bin_t is the default for /usr/local/sbin and is what
-# ai_tools_t is already allowed to execute. Stated explicitly so a restorecon of
-# the dir labels it (and its files) consistently regardless of how they were created.
+# The root helpers grouped under one dir (chown, setgid, claude-symlink, lockdown).
+# They run IN ai_tools_handback_t (bin_t, execute_no_trans -- no separate domain).
+# Stated explicitly so restorecon labels the dir and all contents consistently.
 /usr/local/sbin/ai-tools(/.*)?  gen_context(system_u:object_r:bin_t,s0)
+# The handback daemon gets its own entrypoint label so init_t transitions into
+# ai_tools_handback_t on exec (more specific than the wildcard above).
+/usr/local/sbin/ai-tools/ai-tools-handback  --  gen_context(system_u:object_r:ai_tools_handback_exec_t,s0)
+
+# The handback socket client (called by the agent hooks and nvm-update.sh).
+# Lives in /usr/local/bin -- the default bin_t for that path -- no special label.
+
+# The handback socket runtime directory and socket file.  Created by systemd when
+# ai-tools-handback.socket activates (RuntimeDirectory=ai-tools, mode 0750
+# root:ai-tools).  ai_tools_t needs search on the dir and read/write on the
+# sock_file; restorecon here keeps labels consistent after a socket restart.
+/run/ai-tools(/.*)?  gen_context(system_u:object_r:ai_tools_run_t,s0)
 
 # The root-helper operation logs. ai-tools-chown / -setgid / -claude-symlink run IN
-# ai_tools_t and append here, so the dir and its files must carry ai_tools_log_t (the
-# domain is granted append/create on that type in ai_tools.te). DAC keeps it root-only
-# (dir 700, files 600); this label is what makes the writes succeed under enforcing.
+# ai_tools_handback_t and append here; the domain is granted append/create on
+# ai_tools_log_t in ai_tools.te. DAC keeps it root-only (dir 700, files 600).
 /var/log/ai-tools(/.*)?  gen_context(system_u:object_r:ai_tools_log_t,s0)
 
 # The agent's own config/state dir -- a private writable area, so the policy need

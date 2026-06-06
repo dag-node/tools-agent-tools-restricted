@@ -2,22 +2,18 @@
 # Allow the normal user to:
 #   1. execute claude-run as @SANDBOX_USER@ (wrapper resolves the versioned claude path,
 #      exports it as CLAUDE_EXEC, then calls claude-run which wraps the session in a systemd
-#      transient service (--user --pty) with RestrictNamespaces=yes + PrivateTmp + UMask=0007;
-#      NoNewPrivileges is intentionally ABSENT -- it would silence sudo's SUID bit and break
-#      the hooks' ai-tools-chown/-setgid calls)
+#      transient service (--user --pty) with RestrictNamespaces=yes + UMask=0007;
+#      NoNewPrivileges is intentionally ABSENT -- the session itself runs under NNP because
+#      RestrictNamespaces forces PR_SET_NO_NEW_PRIVS, but claude-run must not set NNP at the
+#      scope it occupies before exec, or sudo's own PAM authentication breaks)
 #   2. run nvm-update.sh as @SANDBOX_USER@ (called from nvm-update.sh running as @PROJECTS_USER@)
 #
-# Allow @SANDBOX_USER@ to:
-#   3. restore @PROJECTS_USER@:@SANDBOX_GROUP@ ownership on files it writes within approved
-#      project directories (see /usr/local/sbin/ai-tools/ai-tools-chown and the allowlist at
-#      ~/.config/ai-tools/allowed-projects)
-#   4. normalize group + setgid on approved project directories at session start, so
-#      files @PROJECTS_USER@ creates there inherit the @SANDBOX_GROUP@ group (see
-#      /usr/local/sbin/ai-tools/ai-tools-setgid; re-validates the path against the allowlist).
-#   5. repoint the stable /opt/ai-tools/bin/claude symlink at a validated versioned
-#      binary after a Node upgrade (see /usr/local/sbin/ai-tools/ai-tools-claude-symlink).
-#      bin is locked 550 @PROJECTS_USER@:@SANDBOX_GROUP@, so this root helper is the only
-#      path by which the sandbox updater can move the symlink.
+# NOTE: @SANDBOX_USER@ has NO sudo rights in this file.  Ownership handback
+# (ai-tools-chown, ai-tools-setgid, ai-tools-claude-symlink) is now handled by the
+# ai-tools-handback socket daemon (a root-owned service started at boot) via the
+# /usr/local/bin/ai-tools-handback-client.  This replaces the former three
+# @SANDBOX_USER@ NOPASSWD rules, which were broken under NNP anyway (PR_SET_NO_NEW_PRIVS
+# is forced by RestrictNamespaces=yes, dropping sudo's SUID bit silently).
 #
 # The umask, env_keep, and umask_override Defaults are scoped per-command
 # (Defaults!<command>), not to all of @PROJECTS_USER@'s sudo, so they apply
@@ -29,9 +25,10 @@
 #     @SANDBOX_USER@ are co-writers on project files across sessions; world bits are
 #     still stripped (o=0). A stricter umask (e.g. 0027) would give group read-only
 #     after handback, blocking Claude's Edit tool (in-place patch) on handed-back files.
-#   - env_keep CLAUDE_EXEC (claude-run): the versioned claude path resolved and
-#     validated by the wrapper is passed through sudo so claude-run can re-validate
-#     and exec it directly without needing a second sudoers glob for the versioned path.
+#   - env_keep CLAUDE_EXEC CLAUDE_PROJECT_DIR (claude-run): the versioned claude path
+#     resolved and validated by the wrapper is passed through sudo so claude-run can
+#     re-validate and exec it directly; CLAUDE_PROJECT_DIR carries the validated project
+#     dir and becomes the transient unit's WorkingDirectory (units default to /).
 #   - env_keep AI_TOOLS_GLOBAL_TOOLS/NVM_NODE_MAJOR/NVM_NODE_ALIAS (nvm-update.sh):
 #     passes service-configured package/version variables through sudo so the
 #     @SANDBOX_USER@ invocation sees the same values @PROJECTS_USER@ resolved.
@@ -48,7 +45,6 @@
 #     @SANDBOX_USER@); the agent runs AS @SANDBOX_USER@ and cannot invoke a
 #     @PROJECTS_USER@ rule, so neither grants the agent anything it does not
 #     already have.
-#   - ai-tools-chown validates against a user-owned allowlist before acting.
 #   - @SANDBOX_USER@ has no login shell and no other sudo rights.
 #   - @PROJECTS_USER@ is substituted with the real username by install.sh.
 #
@@ -60,7 +56,3 @@ Defaults!/opt/ai-tools/bin/nvm-update.sh env_keep += "AI_TOOLS_GLOBAL_TOOLS NVM_
 
 @PROJECTS_USER@ ALL=(@SANDBOX_USER@:@SANDBOX_GROUP@) NOPASSWD: /opt/ai-tools/bin/claude-run
 @PROJECTS_USER@ ALL=(@SANDBOX_USER@:@SANDBOX_GROUP@) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*.[0-9]*.[0-9]*
-
-@SANDBOX_USER@ ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-chown
-@SANDBOX_USER@ ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-setgid
-@SANDBOX_USER@ ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-claude-symlink /opt/ai-tools/.nvm/versions/node/v[0-9]*
