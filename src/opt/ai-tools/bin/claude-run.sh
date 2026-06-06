@@ -42,13 +42,18 @@
 #   lands.
 #
 # PrivateTmp -- deliberately NOT set
-#   PrivateTmp=yes is a no-op for an unprivileged --user manager, which cannot set up the
-#   private-/tmp mount: the unit sees the shared host /tmp regardless (independent of
-#   RestrictNamespaces).  Sessions therefore share /tmp, where claude keeps its runtime at
-#   a fixed /tmp/claude-<uid> (it does not honour TMPDIR) and reuses it across sessions;
-#   claude-run does not touch that dir (see the note by the launch).  True per-session /tmp
-#   isolation (and concurrent instances) would require a privileged (--system) manager
-#   mounting PrivateTmp for the payload.
+#   PrivateTmp=yes is a no-op for an unprivileged --user manager, which cannot pivot the
+#   private-/tmp mount for the payload: the unit sees the shared host /tmp regardless
+#   (verified -- a --user unit with PrivateTmp=yes starts, but the payload's mountinfo shows
+#   no private bind over /tmp and claude's runtime dir stays visible).  Sessions therefore
+#   share /tmp, where claude keeps its runtime at a fixed /tmp/claude-<uid> (it does not
+#   honour TMPDIR) and reuses it across sessions; claude-run does not touch that dir (see the
+#   note by the launch).  Enforced /tmp isolation is DAC + the ai_tools_tmp_t type, not a
+#   private mount.  Some hardened hosts ADDITIONALLY run pam_namespace polyinstantiation of
+#   /tmp (optional, non-default); the sandbox does not assume or require it and works either
+#   way -- when present, reach a session's /tmp instance from the host via /proc/<pid>/root/tmp.
+#   True per-session /tmp isolation (and concurrent instances) would require a privileged
+#   (--system) manager mounting PrivateTmp for the payload.
 #
 # ── NoNewPrivileges is FORCED ON by RestrictNamespaces (not optional) ─────────
 #
@@ -60,7 +65,11 @@
 # SELinux cannot block clone(CLONE_NEWUSER) on this policy -- the process2 class has no
 # create_user_ns permission (confirmed: `seinfo -c process2 -x` lists only
 # nnp_transition + nosuid_transition; see ESC-001 in ai_tools.te) -- so the seccomp
-# filter, and therefore NNP, is mandatory.
+# filter, and therefore NNP, is mandatory.  The unit ALSO sets NoNewPrivileges=yes
+# explicitly (see the systemd-run call below): redundant with the line above, but it
+# documents the guarantee at the call site.  It is safe -- it does not re-break the
+# transition -- precisely because of consequence (1): ai_tools.te grants the
+# process2:nnp_transition the bounded transition needs.
 #
 # Two consequences follow, both load-bearing:
 #
@@ -357,5 +366,6 @@ exec systemd-run --user --pty \
     "${_setenv[@]}" \
     "${_workdir_opt[@]}" \
     --property=RestrictNamespaces=yes \
+    --property=NoNewPrivileges=yes \
     --property=UMask=0007 \
     -- "${CLAUDE_EXEC}" "$@"

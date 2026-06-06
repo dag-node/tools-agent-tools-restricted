@@ -51,12 +51,19 @@ only in filesystem paths (`/opt/ai-tools`, `~/.config/ai-tools`), SELinux types
    and `UMask=0007` keeps
    agent-created files group-writable (a service unit does not inherit the caller's
    umask, unlike a scope). `PrivateTmp` is not set: it is a no-op for an unprivileged
-   `--user` manager, which cannot mount a private `/tmp`, so the session uses the shared
-   host `/tmp` where claude keeps its runtime at a fixed `/tmp/claude-<uid>` (labelled
-   `ai_tools_tmp_t`) and reuses it across sessions. `NoNewPrivileges` is intentionally
-   absent from the service unit definition: the session always runs under NNP regardless
-   (forced by `RestrictNamespaces=yes`, which installs the seccomp filter via
-   `PR_SET_NO_NEW_PRIVS`) — so adding it to the unit would be redundant. Under NNP
+   `--user` manager, which cannot pivot a private `/tmp` for the payload (empirically
+   confirmed — the unit starts but the session still sees the shared `/tmp`). The session
+   therefore uses the host `/tmp`, where claude keeps its runtime at a fixed
+   `/tmp/claude-<uid>` (it ignores `TMPDIR`), labelled `ai_tools_tmp_t`, and reuses it
+   across sessions; ordinary Unix permissions plus that type are the enforced `/tmp`
+   isolation. Where the host *additionally* enables `pam_namespace` polyinstantiation of
+   `/tmp` (an optional, non-default hardening — see the `claude-run` header), each SELinux
+   level gets its own `/tmp` instance, adding per-level isolation; the sandbox neither
+   requires nor configures this and behaves correctly with or without it. `NoNewPrivileges=yes`
+   is set explicitly on the unit for clarity, though it is redundant: the session always
+   runs under NNP regardless (forced by `RestrictNamespaces=yes`, which installs its seccomp
+   filter via `PR_SET_NO_NEW_PRIVS`). It is safe to set because the policy grants the
+   `process2:nnp_transition` the bounded `ai_tools_t` transition needs under NNP. Under NNP
    `sudo`'s SUID bit is dropped silently; the hooks therefore do not call `sudo` and
    instead use the **handback socket bridge** (`ai-tools-handback-client`) — a Python
    client connecting to the root-owned `ai-tools-handback.socket` (systemd-activated,
@@ -275,19 +282,42 @@ trade-off: `=yes` is incompatible with running unprivileged `bubblewrap` *inside
 session (bwrap must create user+mnt namespaces), which the deferred bwrap phase must
 resolve.
 
-**`PrivateTmp` is not used.** It is a no-op for an unprivileged `--user` manager,
-which has no privilege to mount a private `/tmp`: the unit sees the shared host `/tmp`
-regardless (independent of `RestrictNamespaces`). The session therefore shares `/tmp`,
-where claude keeps its runtime at a fixed `/tmp/claude-<uid>` (it does not honour
-`TMPDIR`) and reuses it across sessions; `claude-run` does not touch that directory —
-removing it would race claude's exists-then-`mkdir` check against another live session
-of the same uid, which recreates it and makes startup fail with `EEXIST mkdir
-/tmp/claude-<uid>`. Concurrent same-uid sessions share the directory; true per-session
-`/tmp` isolation (and concurrent instances) would require a privileged (`--system`)
-manager mounting `PrivateTmp` for the payload. Node's V8 compile cache is the one piece of
-session scratch kept OUT of the shared `/tmp` — pinned to `ai_tools_home_t` via
-`NODE_COMPILE_CACHE` (see the environment allowlist below) — because its default
-`/tmp/node-compile-cache` collides with `user_tmp_t` leftovers and other uids.
+**`PrivateTmp` is not used; the session shares the host `/tmp`.** systemd `PrivateTmp`
+is a no-op for an unprivileged `--user` manager: it cannot pivot a private `/tmp` for the
+payload. Tested directly — a `--user` unit with `PrivateTmp=yes` starts, but the payload
+still sees the shared `/tmp` (claude's runtime dir stays visible; no private bind mount
+appears in the payload's `mountinfo`; systemd's backing dir is created but never pivoted
+into). So the session uses the host `/tmp`, where claude keeps its runtime at a fixed
+`/tmp/claude-<uid>` (it does not honour `TMPDIR`) and reuses it across sessions;
+`claude-run` does not touch that directory — removing it would race claude's
+exists-then-`mkdir` check against another live same-uid session, which recreates it and
+makes startup fail with `EEXIST mkdir /tmp/claude-<uid>`. The enforced `/tmp` isolation is
+ordinary Unix permissions plus the `ai_tools_tmp_t` type: a dir claude creates is born
+`ai_tools_tmp_t` via the `tmp_t:dir` → `ai_tools_tmp_t` type_transition, which `ai_tools_t`
+fully manages but which keeps it off other domains' `tmp_t`/`user_tmp_t` files.
+
+Some hardened hosts *additionally* run `pam_namespace` polyinstantiation of `/tmp` and
+`/var/tmp` (`/etc/security/namespace.conf`, e.g. `method=level`) — an optional, non-default
+measure (and one that is sometimes discouraged, as it complicates operations and some
+workflows). **The sandbox neither requires nor configures it, does not assume it is
+present, and works correctly with or without it** — it is a host dependency to be aware of,
+not to rely on. When present, each SELinux level gets its own `/tmp` instance bind-mounted
+into the session's mount namespace, adding per-level isolation. Operational notes for that
+case: the instance is slave-propagated, so it is invisible from the host init namespace —
+root reaches it only via `/proc/<pid>/root/tmp` of a live session (the
+`/tmp/tmp-inst/<context>_<user>` path does not resolve outside the namespace); it is keyed
+by level, not session, so same-level sessions still share one `/tmp` and serialise on
+`/tmp/claude-<uid>`; it lives in tmpfs and is cleared on reboot; and a stale `user_tmp_t`
+dir left in the instance by an earlier unconfined run blocks startup under enforcing
+(`ai_tools_t` has no `user_tmp_t:dir` access, so claude can neither reuse nor remove it →
+`EEXIST`) and must be cleared from the instance via `/proc/<pid>/root/tmp` or a reboot.
+
+In neither case is `/tmp` isolated *per session*: that would require a privileged
+(`--system`) manager that mounts and pivots `PrivateTmp` for the payload during unit setup.
+Node's V8 compile cache is the one piece of session scratch kept OUT of `/tmp` — pinned to
+`ai_tools_home_t` via `NODE_COMPILE_CACHE` (see the environment allowlist below) — because
+its default `/tmp/node-compile-cache` otherwise collides with `user_tmp_t` leftovers and
+other uids.
 
 **`UMask=0007`** keeps agent-created files group-writable so the collaborative
 ownership model holds. A service unit does not inherit the caller's umask (a scope
@@ -319,11 +349,15 @@ manager is `init_t`). `HOME` stays `/opt/ai-tools`: the agent's control plane
 (`settings.json`, the hooks, `~/.claude.json`) is operator-owned and `ai_tools_home_t`, and
 is deliberately not relocated into the agent-writable project tree.
 
-**`NoNewPrivileges` — absent from the unit, but always in effect.** The session
-always runs under `PR_SET_NO_NEW_PRIVS` because `RestrictNamespaces=yes` installs
-its seccomp filter via that flag — `NoNewPrivileges` is a precondition for seccomp,
-not a separate setting the unit can opt out of. Adding `NoNewPrivileges=yes`
-explicitly to the unit would be redundant. The hooks do NOT call `sudo`:
+**`NoNewPrivileges=yes` — set explicitly, and also always in effect.** The unit sets
+`NoNewPrivileges=yes` for clarity, though the session always runs under
+`PR_SET_NO_NEW_PRIVS` regardless: `RestrictNamespaces=yes` installs its seccomp filter via
+that flag, and `NoNewPrivileges` is a precondition for seccomp, not a setting the unit can
+opt out of. The explicit property is therefore redundant but safe — the bounded
+`ai_tools_t` transition still completes under NNP because the policy grants
+`process2:nnp_transition` to the authorised source domains (`ai_tools.te`); without that
+grant, setting NNP (explicitly or via the filter) would send the session unconfined. The
+hooks do NOT call `sudo`:
 `PR_SET_NO_NEW_PRIVS` would drop `sudo`'s SUID bit, leaving it running as
 `SANDBOX_USER` instead of root — so every hook call would fail silently. The
 hooks instead use the **`ai-tools-handback` socket bridge**: a Python client
