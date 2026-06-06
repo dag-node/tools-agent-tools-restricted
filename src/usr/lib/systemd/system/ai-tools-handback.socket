@@ -1,0 +1,31 @@
+# /usr/lib/systemd/system/ai-tools-handback.socket
+# Listening socket for the ai-tools handback privilege bridge.
+#
+# DAC gate: SocketMode=0660 + SocketGroup=@SANDBOX_GROUP@ so only root and the
+# sandbox group can connect.  (The sandbox user @SANDBOX_USER@ is a member of
+# @SANDBOX_GROUP@; ordinary users are not.)  The handler performs a second
+# AuthN gate via SO_PEERCRED.
+#
+# RuntimeDirectory creates /run/ai-tools at socket startup with mode 0750
+# root:@SANDBOX_GROUP@, so group members can traverse the directory to reach
+# the socket file name but cannot list other entries.
+#
+# Accept=yes: one ai-tools-handback@.service instance per connection; each
+# serves exactly one request and exits.  The listening socket (and /run/ai-tools)
+# are destroyed when this unit stops.
+
+[Unit]
+Description=ai-tools handback privilege bridge socket
+Documentation=file:/usr/local/sbin/ai-tools/ai-tools-handback
+
+[Socket]
+ListenStream=/run/ai-tools/handback.sock
+SocketMode=0660
+SocketGroup=@SANDBOX_GROUP@
+Accept=yes
+RuntimeDirectory=ai-tools
+RuntimeDirectoryMode=0750
+RuntimeDirectoryGroup=@SANDBOX_GROUP@
+
+[Install]
+WantedBy=sockets.target

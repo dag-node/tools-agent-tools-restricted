@@ -1,0 +1,33 @@
+# /usr/lib/systemd/system/ai-tools-handback@.service
+# Per-connection handler instance for the ai-tools handback privilege bridge.
+# Instantiated by ai-tools-handback.socket (Accept=yes); NOT enabled directly.
+#
+# Runs as root so the root helpers (ai-tools-chown, ai-tools-setgid,
+# ai-tools-claude-symlink) can chown/chmod project files.
+#
+# NoNewPrivileges=yes: safe here because this daemon is never invoked via SUID
+# (unlike the agent session, which needed SUID sudo for the hooks -- the exact
+# problem this socket replaces).  The helpers execute as root directly via
+# subprocess.run(), with no SUID transition needed.
+#
+# StandardInput=socket: Accept=yes wires the accepted client socket to stdin
+# AND stdout.  The daemon reads the request from stdin and writes the response
+# to stdout without needing explicit socket calls.
+#
+# SELinux note: when the ai_tools_handback_t domain is defined and the binary
+# is labelled ai_tools_handback_exec_t, the domain transition fires from init_t
+# via domtrans_pattern(init_t, ai_tools_handback_exec_t, ai_tools_handback_t).
+# Until that domain is added the handler runs in init_t (functional but wide).
+
+[Unit]
+Description=ai-tools handback handler (%i)
+Documentation=file:/usr/local/sbin/ai-tools/ai-tools-handback
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/ai-tools/ai-tools-handback
+NoNewPrivileges=yes
+StandardInput=socket
+StandardError=journal
+SyslogIdentifier=ai-tools-handback
+TimeoutStopSec=10
