@@ -415,6 +415,16 @@ dontaudit ai_tools_t sendmail_exec_t:file execute;
 dontaudit ai_tools_t { cgroup_t tmpfs_t }:filesystem getattr;
 dontaudit ai_tools_t tty_device_t:chr_file getattr;
 dontaudit ai_tools_t usb_device_t:chr_file getattr;   # Node HID probe at startup
+# Node also stat-walks every /dev node (char + block) and a couple of /proc
+# pseudo-files at session start -- getattr only, no read, and the EACCES is ignored
+# by the caller. Silence the flood rather than grant metadata on memory/disk/tpm
+# nodes. Observed: fixed_disk/memory/fuse/uhid/gpio/wireless/xserver_misc/tpm/kvm/
+# sgx/... device nodes (chr+blk), /proc/kcore, /run/initctl. Interfaces pull their
+# own types, so no require{} additions are needed.
+dev_dontaudit_getattr_all_chr_files(ai_tools_t)
+dev_dontaudit_getattr_all_blk_files(ai_tools_t)
+kernel_dontaudit_getattr_core_if(ai_tools_t)
+init_dontaudit_getattr_initctl(ai_tools_t)
 
 # (5) GUI clipboard reach into the user's X session. Claude's clipboard support shells
 # out to `xsel --clipboard --input`, which connect()s an AF_UNIX stream socket to the X
@@ -553,4 +563,4 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 # denials instead of breaking; run the bring-up loop, then remove this line to enforce.
 ########################################
 
-permissive ai_tools_t;
+# permissive ai_tools_t;
