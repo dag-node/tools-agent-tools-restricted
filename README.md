@@ -83,8 +83,10 @@ you type `claude`
   └─ ~/.local/bin/claude                      (wrapper, runs as you)
        ├─ CWD ∈ allowed-projects?             refuse if not, or if !-excluded
        ├─ resolve /opt/ai-tools/bin/claude    (one readlink hop; export as CLAUDE_EXEC)
+       ├─ export CWD as CLAUDE_PROJECT_DIR    (validated project dir → unit WorkingDirectory)
        └─ exec sudo -u "${SANDBOX_USER}" -- /opt/ai-tools/bin/claude-run
-            └─ systemd transient service      (--pty; RestrictNamespaces=yes, PrivateTmp, UMask=0007)
+            └─ systemd transient service      (--pty; RestrictNamespaces=yes, UMask=0007,
+                                               WorkingDirectory=project, NODE_COMPILE_CACHE pinned)
                  └─ claude runs as ${SANDBOX_USER} in ai_tools_t (SELinux)
                       └─ on Write/Edit → PostToolUse hook
                            └─ sudo ai-tools-chown <file>   (root; allowlist-checked)
@@ -241,6 +243,10 @@ When nvm installs a new Node version under `/opt/ai-tools`:
 - `claude-run` re-validates `CLAUDE_EXEC` against the nvm versioned-binary pattern
   and exec's it directly. No sudoers glob matches the versioned path; the `<you>`
   sudoers rule targets the fixed path `/opt/ai-tools/bin/claude-run` only.
+- `claude-run` re-validates `CLAUDE_PROJECT_DIR` (absolute, `..`-free, existing) and sets
+  it as the transient unit's `WorkingDirectory`, so the session starts in the project — a
+  unit otherwise defaults to `/`. Both env vars are carried through sudo via
+  `env_keep` (scoped to `claude-run` in `sudoers.d/ai-tools-claude`).
 - Old Node versions are pruned in both nvm installs (any version not referenced by
   a named alias is removed).
 - `src/home/user/.local/bin/nvm-update.sh` resolves the latest version once, updates

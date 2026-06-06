@@ -153,6 +153,29 @@ if [[ "${CLAUDE_EXEC}" == *"/../"* ]]; then
     printf 'claude-run: CLAUDE_EXEC contains parent-directory references\n' >&2; exit 1
 fi
 
+# Working directory for the session. The wrapper validated the project dir (realpath,
+# allowlist, claim) and exported it as CLAUDE_PROJECT_DIR; re-validate here (defence in
+# depth, same posture as CLAUDE_EXEC -- neither side is a single point of trust) before
+# handing it to systemd-run as --working-directory. A transient unit does NOT inherit the
+# caller's cwd, so without this the agent starts in / instead of the project. When the var
+# is absent (a direct/diagnostic exec outside the wrapper) the option is omitted and the
+# systemd default applies; when present it must be an absolute, ..-free, existing directory,
+# else fail closed rather than silently run in the wrong place.
+_workdir=""
+if [[ -n "${CLAUDE_PROJECT_DIR:-}" ]]; then
+    case "${CLAUDE_PROJECT_DIR}" in
+        /*) ;;
+        *) printf 'claude-run: CLAUDE_PROJECT_DIR must be an absolute path\n' >&2; exit 1 ;;
+    esac
+    if [[ "${CLAUDE_PROJECT_DIR}" == *"/../"* || "${CLAUDE_PROJECT_DIR}" == *"/.." ]]; then
+        printf 'claude-run: CLAUDE_PROJECT_DIR contains parent-directory references\n' >&2; exit 1
+    fi
+    if [[ ! -d "${CLAUDE_PROJECT_DIR}" ]]; then
+        printf 'claude-run: CLAUDE_PROJECT_DIR is not an existing directory: %s\n' "${CLAUDE_PROJECT_DIR}" >&2; exit 1
+    fi
+    _workdir="${CLAUDE_PROJECT_DIR}"
+fi
+
 # $UID is a bash read-only built-in set at startup from the process real UID --
 # no external command, no PATH dependency.  After the sudo drop we are @SANDBOX_USER@,
 # so this correctly resolves to @SANDBOX_USER@'s runtime directory.
@@ -319,10 +342,20 @@ _setenv+=( "--setenv=NODE_COMPILE_CACHE=/opt/ai-tools/.cache/node-compile-cache"
 # concurrent sessions from colliding on the unit name.
 _unit="@SANDBOX_USER@-claude-$$.service"
 
+# Set the unit's WorkingDirectory to the validated project dir so the session starts IN
+# the project (a transient unit otherwise defaults to /).  Omitted when _workdir is empty
+# (direct exec outside the wrapper).  NOTE for the enforcing bring-up: the WorkingDirectory
+# chdir runs in the systemd --user MANAGER's domain (unconfined_t / init_t -- see the
+# domtrans block) BEFORE the execve that transitions into ai_tools_t, so the manager domain
+# needs search on ai_tools_project_t; verify no AVC fires here under enforcing.
+declare -a _workdir_opt=()
+[[ -n "${_workdir}" ]] && _workdir_opt=( "--working-directory=${_workdir}" )
+
 exec systemd-run --user --pty \
     --unit="${_unit}" \
     --description="Claude Code @SANDBOX_USER@ session" \
     "${_setenv[@]}" \
+    "${_workdir_opt[@]}" \
     --property=RestrictNamespaces=yes \
     --property=UMask=0007 \
     -- "${CLAUDE_EXEC}" "$@"

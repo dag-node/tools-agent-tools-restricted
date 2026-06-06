@@ -42,22 +42,28 @@ only in filesystem paths (`/opt/ai-tools`, `~/.config/ai-tools`), SELinux types
 3a. `claude-run` (550 `<you>:SANDBOX_GROUP`, not writable by the agent) re-validates
    `CLAUDE_EXEC` against the same nvm-path pattern and wraps the session in a
    **systemd transient service unit** (`systemd-run --user --pty`) before exec'ing
-   the versioned binary. The unit applies three security properties:
+   the versioned binary. The unit applies two security properties:
    `RestrictNamespaces=yes` installs a seccomp filter blocking creation (and joining)
    of every namespace type for the entire session process tree — the agent holds no
    capabilities, so the only namespace it could create unaided is a user namespace,
    and blocking that closes user-namespace creation as a kernel-CVE escalation vector
    (every other type needs `CAP_SYS_ADMIN`, reachable only through a user namespace);
-   `PrivateTmp=yes` gives the session a private `/tmp`; and `UMask=0007` keeps
+   and `UMask=0007` keeps
    agent-created files group-writable (a service unit does not inherit the caller's
-   umask, unlike a scope). `NoNewPrivileges` is intentionally absent: it would silence
+   umask, unlike a scope). `PrivateTmp` is not set: it is a no-op for an unprivileged
+   `--user` manager, which cannot mount a private `/tmp`, so the session uses the shared
+   host `/tmp` where claude keeps its runtime at a fixed `/tmp/claude-<uid>` (labelled
+   `ai_tools_tmp_t`) and reuses it across sessions. `NoNewPrivileges` is intentionally absent: it would silence
    the SUID bit on `sudo`, breaking the `sudo ai-tools-chown` / `sudo ai-tools-setgid`
    calls the hooks make from inside the session. The unit receives only an explicit
-   allowlist of environment variables (terminal, locale, proxy; `HOME` and `PATH` are
-   pinned to sandbox values), so the operator's secrets never cross into the session.
+   allowlist of environment variables (terminal, locale, proxy; `HOME`, `PATH`, and
+   `NODE_COMPILE_CACHE` are pinned to sandbox values), so the operator's secrets never
+   cross into the session, and its `WorkingDirectory` is set to the validated project
+   directory (exported by the wrapper as `CLAUDE_PROJECT_DIR`, re-validated in `claude-run`)
+   since a transient unit otherwise defaults to `/`.
    The service runs in `SANDBOX_USER`'s systemd user instance, kept alive by
    `loginctl enable-linger`. `--pty` service mode (not `--scope`) is required:
-   `RestrictNamespaces`, `UMask`, and `PrivateTmp` are exec-context directives that
+   `RestrictNamespaces` and `UMask` are exec-context directives that
    systemd 252 rejects on a scope unit (`Unknown assignment`), because a scope has no
    exec context — the caller, not the manager, performs the final `exec`. In service
    mode the user manager performs the `exec`, so the domain transition fires from its
@@ -163,14 +169,15 @@ SANDBOX_USER ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools
 SANDBOX_USER ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-claude-symlink /opt/ai-tools/.nvm/versions/node/v[0-9]*
 ```
 
-`umask=0007,umask_override` and `env_keep += "CLAUDE_EXEC"` (for `claude-run`)
-and `env_keep` (for `nvm-update.sh`) are scoped per-command with
+`umask=0007,umask_override` and `env_keep += "CLAUDE_EXEC CLAUDE_PROJECT_DIR"` (for
+`claude-run`) and `env_keep` (for `nvm-update.sh`) are scoped per-command with
 `Defaults!<command>`, so they apply only to those commands and never alter your
 other sudo invocations. The sudoers `umask` sets `claude-run`'s own process umask;
 a transient *service* unit does not inherit it (a scope would), so the agent's umask
 is applied authoritatively by the `UMask=0007` property `claude-run` sets on the
 unit. `CLAUDE_EXEC` carries the wrapper-validated versioned path through to
-`claude-run` for re-validation there.
+`claude-run` for re-validation there; `CLAUDE_PROJECT_DIR` carries the validated project
+directory the same way, becoming the unit's `WorkingDirectory`.
 
 - You may run **only** `claude-run` (and the pinned updater) as `SANDBOX_USER` —
   never an arbitrary shell or other binary. `claude-run` is a fixed-path sudo
@@ -277,10 +284,28 @@ did), so this is set as a unit property rather than relying on the sudoers `umas
 **Environment is an explicit allowlist.** A service is spawned by the user manager
 with its own environment, not `claude-run`'s, so `claude-run` forwards only a named
 allowlist (`TERM`/`COLORTERM`, the locale `LC_*`/`LANG` set, proxy vars) via
-`--setenv=NAME`, and pins `HOME=/opt/ai-tools` and a controlled `PATH`. The operator's
-secrets (`ANTHROPIC_API_KEY`, `AWS_*`, `SSH_AUTH_SOCK`, …) never cross into the session
-by construction, independent of how sudo's `env_reset`/`env_keep` is configured. To
-share a variable deliberately, add its name to `_ENV_ALLOW` in `claude-run`.
+`--setenv=NAME`, and pins `HOME=/opt/ai-tools`, a controlled `PATH`, and
+`NODE_COMPILE_CACHE=/opt/ai-tools/.cache/node-compile-cache`. The compile-cache pin keeps
+Node's V8 cache (claude calls `module.enableCompileCache()`) out of its default
+`os.tmpdir()/node-compile-cache` on the shared `/tmp`, where an entry left by an earlier
+unconfined run carries `user_tmp_t` — a type `ai_tools_t` has no rule for, so node's own
+`open()` is denied and the session dies at startup under enforcing; `.cache` is
+`ai_tools_home_t`, which the agent already manages. The operator's secrets
+(`ANTHROPIC_API_KEY`, `AWS_*`, `SSH_AUTH_SOCK`, …) never cross into the session by
+construction, independent of how sudo's `env_reset`/`env_keep` is configured. To share a
+variable deliberately, add its name to `_ENV_ALLOW` in `claude-run`.
+
+**`WorkingDirectory` is the validated project directory.** A transient unit does not
+inherit the caller's cwd — it defaults to `/`. The wrapper exports the realpath'd,
+allowlist- and claim-validated project directory as `CLAUDE_PROJECT_DIR`, carried through
+sudo via `env_keep` (`sudoers.d/ai-tools-claude`); `claude-run` re-validates it (absolute,
+`..`-free, existing) and sets it as the unit's `--working-directory`, so the session starts
+in the project. The `WorkingDirectory` `chdir` runs in the user manager's domain before the
+`exec` that transitions into `ai_tools_t`, so that domain needs `search` on
+`ai_tools_project_t` (free for an `unconfined_t` manager; verify under enforcing if the
+manager is `init_t`). `HOME` stays `/opt/ai-tools`: the agent's control plane
+(`settings.json`, the hooks, `~/.claude.json`) is operator-owned and `ai_tools_home_t`, and
+is deliberately not relocated into the agent-writable project tree.
 
 **`NoNewPrivileges` is intentionally absent.** `PR_SET_NO_NEW_PRIVS` silently
 drops SUID bits on any binary exec'd within the unit, including `sudo`. The

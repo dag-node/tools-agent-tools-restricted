@@ -55,7 +55,7 @@
 # Syntax check before deploy:  visudo -c -f /etc/sudoers.d/ai-tools-claude
 
 Defaults!/opt/ai-tools/bin/claude-run umask=0007,umask_override
-Defaults!/opt/ai-tools/bin/claude-run env_keep += "CLAUDE_EXEC"
+Defaults!/opt/ai-tools/bin/claude-run env_keep += "CLAUDE_EXEC CLAUDE_PROJECT_DIR"
 Defaults!/opt/ai-tools/bin/nvm-update.sh env_keep += "AI_TOOLS_GLOBAL_TOOLS NVM_NODE_MAJOR NVM_NODE_ALIAS"
 
 @PROJECTS_USER@ ALL=(@SANDBOX_USER@:@SANDBOX_GROUP@) NOPASSWD: /opt/ai-tools/bin/claude-run

@@ -224,4 +224,10 @@ fi
 # Pass the validated versioned path to claude-run via an env var that sudo's
 # env_keep carries through. claude-run re-validates before using it.
 export CLAUDE_EXEC="${CLAUDE_REAL}"
+# Pass the project directory the session should run IN. ${cwd} is the realpath'd PWD
+# that already cleared the allowlist + claim gates above, so it is the trustworthy
+# value -- a systemd transient unit does NOT inherit the caller's cwd (it defaults to
+# /), so claude-run hands this to systemd-run as the unit's WorkingDirectory. Carried
+# through sudo via env_keep (sudoers.d/ai-tools-claude); claude-run re-validates it.
+export CLAUDE_PROJECT_DIR="${cwd}"
 exec sudo -u ai-tools -g ai-tools -- /opt/ai-tools/bin/claude-run "$@"
