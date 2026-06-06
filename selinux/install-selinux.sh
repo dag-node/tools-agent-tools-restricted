@@ -183,6 +183,70 @@ valid_group() {
     return 1
 }
 
+# _mode_label: read ai_tools.te and return a human-readable enforcement label.
+# If every permissive line is commented out -> "ENFORCING".
+# Otherwise -> "PERMISSIVE (<dom> ...)" listing the still-permissive domains.
+_mode_label() {
+    local doms
+    doms=$(grep -E '^[[:space:]]*permissive[[:space:]]+ai_tools_[^[:space:]]+[[:space:]]*;' \
+               "${DIR}/${MODULE}.te" 2>/dev/null \
+           | awk '{gsub(/;/,""); print $2}' | paste -sd ' ')
+    if [[ -n "${doms}" ]]; then
+        printf 'PERMISSIVE (%s)' "${doms}"
+    else
+        printf 'ENFORCING'
+    fi
+}
+
+# _check_permissive_alignment: after semodule -i, verify that no stale
+# semanage-managed permissive_<domain> module is keeping a domain permissive
+# despite the compiled .te expecting it to be enforcing.  Warns and offers to
+# remove the stale module interactively; prints the fix command otherwise.
+_check_permissive_alignment() {
+    # Domains the compiled .te expects permissive (non-commented permissive lines).
+    local expected_permissive
+    expected_permissive=$(grep -E '^[[:space:]]*permissive[[:space:]]+ai_tools_[^[:space:]]+[[:space:]]*;' \
+                          "${DIR}/${MODULE}.te" 2>/dev/null \
+                          | awk '{gsub(/;/,""); print $2}')
+
+    # All ai_tools_* domains currently permissive in the running kernel.
+    local active_permissive
+    active_permissive=$(seinfo --permissive 2>/dev/null | grep -E '^\s+ai_tools_' | tr -d ' ')
+
+    [[ -z "${active_permissive}" ]] && return 0
+
+    local dom stale_mod ans misaligned=()
+    while IFS= read -r dom; do
+        [[ -z "${dom}" ]] && continue
+        echo "${expected_permissive}" | grep -qx "${dom}" && continue   # expected
+        misaligned+=("${dom}")
+    done <<< "${active_permissive}"
+
+    [[ ${#misaligned[@]} -eq 0 ]] && return 0
+
+    warn "ENFORCING MISMATCH -- domain(s) are permissive but .te expects enforcing:"
+    for dom in "${misaligned[@]}"; do
+        stale_mod="permissive_${dom}"
+        if semodule -l 2>/dev/null | grep -q "^${stale_mod}[[:space:]]"; then
+            warn "  ${dom}: stale semodule '${stale_mod}' overrides compiled policy"
+            if [[ -t 0 ]]; then
+                printf '  %s!%s  Remove stale module %s? [Y/n] ' "${C_YEL}" "${C_RST}" "${stale_mod}" >&2
+                read -r ans </dev/tty
+                case "${ans,,}" in
+                    n*) warn "  leaving '${stale_mod}' -- ${dom} will remain PERMISSIVE" ;;
+                    *)  semodule -r "${stale_mod}"
+                        ok "removed '${stale_mod}' -- ${dom} is now ENFORCING" ;;
+                esac
+            else
+                warn "  fix: sudo semodule -r ${stale_mod}"
+            fi
+        else
+            warn "  ${dom}: no permissive_${dom} module found -- check semanage permissive -l"
+            warn "  fix:  sudo semanage permissive -d ${dom}"
+        fi
+    done
+}
+
 ########################################
 # Interactive group prompt
 #
@@ -311,14 +375,11 @@ case "${ACTION}" in
         ensure_pp "${MODULE}.pp"
     fi
 
-    if grep -qE '^[[:space:]]*permissive[[:space:]]+ai_tools_t[[:space:]]*;' "${DIR}/${MODULE}.te"; then
-        _mode="PERMISSIVE"
-    else
-        _mode="ENFORCING"
-    fi
+    _mode="$(_mode_label)"
     log "loading core module (${_mode})"
     semodule -i "${DIR}/${MODULE}.pp"
     ok "core module loaded (${_mode})"
+    _check_permissive_alignment
 
     section "Labelling"
     restorecon -RF "${HOME_DIR}" 2>/dev/null || true
@@ -383,14 +444,11 @@ case "${ACTION}" in
     # Needs the selinux-policy-devel toolchain (build_pp checks and guides if absent).
     section "Rebuilding core module"
     build_pp "${MODULE}.pp"
-    if grep -qE '^[[:space:]]*permissive[[:space:]]+ai_tools_t[[:space:]]*;' "${DIR}/${MODULE}.te"; then
-        _mode="PERMISSIVE"
-    else
-        _mode="ENFORCING"
-    fi
+    _mode="$(_mode_label)"
     log "reloading core module (${_mode})"
     semodule -i "${DIR}/${MODULE}.pp"
     ok "core module rebuilt and reloaded (${_mode})"
+    _check_permissive_alignment
 
     section "Re-applying labels"
     restorecon -RF "${HOME_DIR}" 2>/dev/null || true

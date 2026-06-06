@@ -352,6 +352,7 @@ allow ai_tools_t self:unix_stream_socket create_stream_socket_perms;
 allow ai_tools_t self:unix_dgram_socket create_socket_perms;
 allow ai_tools_t self:tcp_socket create_stream_socket_perms;
 kernel_read_system_state(ai_tools_t)
+logging_send_syslog_msg(ai_tools_t)   # hooks call logger for journald (devlog_t)
 dev_read_urand(ai_tools_t)
 
 ########################################
@@ -600,7 +601,13 @@ allow ai_tools_handback_t user_home_t:dir { getattr search open };
 files_search_var(ai_tools_handback_t)
 
 # Operate on the stable claude symlink (ai-tools-claude-symlink: /opt/ai-tools/bin/).
-files_read_usr_files(ai_tools_handback_t)    # read .nvm tree + stat bin/claude
+# Read the .nvm tree under usr_t and stat bin/claude.
+files_read_usr_files(ai_tools_handback_t)
+# Create and rename the temp symlink inside /opt/ai-tools/bin/ (bin_t, mode 550).
+# ai-tools-claude-symlink does: ln -sf TARGET bin/.claude.new; mv .claude.new claude.
+# CAP_DAC_OVERRIDE covers the DAC check on the 550 dir; these grants handle the MAC check.
+allow ai_tools_handback_t bin_t:dir { write add_name remove_name };
+allow ai_tools_handback_t bin_t:lnk_file { create rename unlink getattr read };
 
 # Append the privileged-operation logs.
 allow ai_tools_handback_t ai_tools_log_t:dir { getattr search open add_name write };
@@ -613,21 +620,5 @@ allow ai_tools_handback_t self:fifo_file rw_fifo_file_perms;
 allow ai_tools_handback_t self:unix_stream_socket create_stream_socket_perms;
 logging_send_syslog_msg(ai_tools_handback_t)   # logger calls from the helpers
 kernel_read_system_state(ai_tools_handback_t)  # /proc/self for SO_PEERCRED
-
-permissive ai_tools_handback_t;
-
-########################################
-# Enforcement switch: PERMISSIVE = log only. Re-run the README bring-up loop to
-# confirm the log is clean against THIS rule set (a fresh `audit2allow` should now
-# show nothing but the boundary items above, which are expected and dontaudit'd),
-# then remove this line and reload to enforce.
-#
-# RE-INSTATED to permissive: until the process2:nnp_transition grant above, the
-# init_t/unconfined_t -> ai_tools_t transition never actually fired (the --user
-# manager is unconfined_t and the bounded transition was denied under NNP), so
-# ai_tools_t has NEVER run for real -- the rule set above is untested against a
-# genuinely-transitioned session. Ship permissive so the first such sessions LOG
-# denials instead of breaking; run the bring-up loop, then remove this line to enforce.
-########################################
 
 # permissive ai_tools_t;
