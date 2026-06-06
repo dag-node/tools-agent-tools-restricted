@@ -31,6 +31,16 @@ readonly SECRETS="${SCRATCH}/secrets"      # left for the Stop sweep to quaranti
 note() { printf '\033[1;36m[avc]\033[0m %s\n' "$*"; }
 step() { printf '\033[1;33m--- %s\033[0m\n' "$*"; }
 
+# Assertion helpers. The script runs without `set -e` (steps are expected to fail),
+# so assertions never abort -- they tally into ASSERT_PASS/ASSERT_FAIL and the run
+# prints a summary at the end. label_of() returns just the SELinux TYPE of a path,
+# or empty if it cannot be read (getattr denied under enforcing is itself a signal).
+ASSERT_PASS=0
+ASSERT_FAIL=0
+pass() { ASSERT_PASS=$((ASSERT_PASS + 1)); printf '\033[1;32m[PASS]\033[0m %s\n' "$*"; }
+fail() { ASSERT_FAIL=$((ASSERT_FAIL + 1)); printf '\033[1;31m[FAIL]\033[0m %s\n' "$*"; }
+label_of() { stat -c '%C' "$1" 2>/dev/null | awk -F: '{print $3}'; }
+
 ########################################
 # Preflight: must be confined, must be in a labelled project
 ########################################
@@ -106,14 +116,54 @@ printf 'appended line\n' >> "${SCRATCH}/created-by-redirect.txt"
 sed -i 's/hello/HELLO/' "${SCRATCH}/created-by-redirect.txt" 2>/dev/null || true
 
 ########################################
-# 3. PRIVATE TEMP -- files under /tmp should relabel to ai_tools_tmp_t via the
-#    type_transition, not generic tmp_t.
+# 3. PRIVATE TEMP -- files the agent creates under /tmp must relabel to
+#    ai_tools_tmp_t via the type_transition, NOT generic tmp_t or user_tmp_t.
+#    This step ASSERTS that (not just exercises it), DETECTS whether /tmp is
+#    pam_namespace-polyinstantiated, and DETECTS the stale-runtime-dir condition
+#    that breaks enforcing startup. See the /tmp model in CLAUDE.md.
 ########################################
-step "private temp (/tmp -> ai_tools_tmp_t)"
+step "private temp (/tmp -> ai_tools_tmp_t): exercise + assert + detect"
+
+# 3a. EXERCISE + ASSERT: a fresh agent-created /tmp file and dir must be ai_tools_tmp_t.
+#     Under permissive a wrong type still reads back (logged); under enforcing the
+#     getattr on a wrong type is denied and label_of() comes back empty -- both fail.
 t="$(mktemp /tmp/avc-test.XXXXXX 2>/dev/null || echo /tmp/avc-test.fallback)"
 echo "scratch" > "${t}" 2>/dev/null || true
-mkdir -p "/tmp/avc-test.d.$$" 2>/dev/null || true
-rm -f "${t}"; rmdir "/tmp/avc-test.d.$$" 2>/dev/null || true
+tdir="/tmp/avc-test.d.$$"
+mkdir -p "${tdir}" 2>/dev/null || true
+for p in "${t}" "${tdir}"; do
+    lbl="$(label_of "${p}")"
+    case "${lbl}" in
+        ai_tools_tmp_t) pass "${p} is ai_tools_tmp_t (type_transition fired)" ;;
+        "")             fail "${p}: label unreadable -- getattr denied (enforcing + non-ai_tools_tmp_t type?)" ;;
+        *)              fail "${p} is ${lbl}, expected ai_tools_tmp_t -- check files_tmp_filetrans(ai_tools_t,...) in ai_tools.te" ;;
+    esac
+done
+rm -f "${t}" 2>/dev/null || true; rmdir "${tdir}" 2>/dev/null || true
+
+# 3b. DETECT polyinstantiation: it changes where stale dirs are reached from the host
+#     (direct on shared /tmp vs /proc/<pid>/root/tmp inside the per-level instance).
+#     The sandbox does not require it -- this is awareness, not a pass/fail.
+if grep -q 'tmp-inst' /proc/self/mountinfo 2>/dev/null; then
+    note "/tmp is pam_namespace-polyinstantiated -- host reaches it via /proc/<pid>/root/tmp"
+else
+    note "/tmp is the shared host /tmp (no polyinstantiation) -- reachable directly from host"
+fi
+
+# 3c. DETECT the stale-runtime-dir condition: claude's fixed /tmp/claude-<uid> must be
+#     ai_tools_tmp_t. A user_tmp_t (or unreadable) one is a leftover from an earlier
+#     UNCONFINED run -- under enforcing it makes startup die with EEXIST mkdir.
+cdir="/tmp/claude-$(id -u)"
+if [ -e "${cdir}" ]; then
+    clbl="$(label_of "${cdir}")"
+    case "${clbl}" in
+        ai_tools_tmp_t) pass "${cdir} is ai_tools_tmp_t (clean runtime dir)" ;;
+        "")             fail "${cdir} present but unreadable to ai_tools_t -- almost certainly a stale user_tmp_t dir from an unconfined run; clear via /proc/<pid>/root/tmp (polyinstantiated) or directly (shared), or reboot, before going enforcing" ;;
+        *)              fail "${cdir} is ${clbl}, not ai_tools_tmp_t -- stale dir that breaks enforcing startup (EEXIST); clear via /proc/<pid>/root/tmp or reboot" ;;
+    esac
+else
+    note "${cdir} absent (fresh) -- claude creates it as ai_tools_tmp_t on next start"
+fi
 
 ########################################
 # 4. GIT -- a throwaway repo UNDER the project (so it is ai_tools_project_t too).
@@ -227,7 +277,15 @@ echo
 rm -rf "${SCRATCH}/throwaway-repo" "${SCRATCH}"/*.txt "${SCRATCH}/subdir" "${SCRATCH}/a-symlink" 2>/dev/null || true
 # (SECRETS left in place on purpose for the Stop sweep; cleaned on next run.)
 
-note "DONE. Exercised: create, modify, temp, git(+mv), secret-quarantine, net allow/deny."
+if [ "${ASSERT_FAIL}" -gt 0 ]; then
+    printf '\033[1;31m[avc] ASSERTIONS: %d passed, %d FAILED\033[0m\n' "${ASSERT_PASS}" "${ASSERT_FAIL}"
+    note "a FAILED /tmp assertion usually means a stale user_tmp_t dir or a missing"
+    note "files_tmp_filetrans -- resolve before flipping ai_tools_t to enforcing."
+else
+    printf '\033[1;32m[avc] ASSERTIONS: %d passed, 0 failed\033[0m\n' "${ASSERT_PASS}"
+fi
+echo
+note "DONE. Exercised: create, modify, temp(+assert/detect), git(+mv), secret-quarantine, net allow/deny."
 cat <<EOF
 
 Next -- as <you> (root), turn the logged denials into policy:
