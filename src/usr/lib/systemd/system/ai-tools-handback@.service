@@ -27,7 +27,51 @@ Documentation=file:/usr/local/sbin/ai-tools/ai-tools-handback
 Type=simple
 ExecStart=/usr/local/sbin/ai-tools/ai-tools-handback
 NoNewPrivileges=yes
+# Drop all capabilities except the narrow set the root helpers actually need.
+# Without this the handler inherits the full root capability set; if a future
+# Python CVE or a crafted helper stderr were exploitable, the blast radius would
+# be full root rather than the four filesystem capabilities below.  This set is
+# deliberately kept identical to the SELinux grant for ai_tools_handback_t
+# (self:capability { chown fowner fsetid dac_override } in ai_tools.te) so the two
+# layers agree once the domain is enforcing.
+# CAP_CHOWN        -- chown files to PROJECTS_USER:SANDBOX_GROUP
+# CAP_FOWNER       -- chmod files the process does not own (operate via /proc/self/fd)
+# CAP_FSETID       -- set the setgid bit on directories (ai-tools-setgid)
+# CAP_DAC_OVERRIDE -- read the operator-owned allowlist and traverse/write project
+#                     dirs root does not own.  This is a superset of DAC_READ_SEARCH
+#                     for read/search, so the latter is omitted as redundant.
+# NB: CAP_DAC_OVERRIDE alone is still "filesystem-god as root"; what constrains
+# WHICH paths are touched is the helpers' allowlist + ownership-guard validation,
+# not this set.  The set only bounds a hypothetical daemon-code compromise (no
+# setuid, no module load, no ptrace, no CAP_SYS_ADMIN).
+CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_FSETID CAP_DAC_OVERRIDE
+# Systemd sandboxing -- narrow the blast radius further at near-zero cost.  The
+# helpers are bash + coreutils + find + realpath + (best-effort) restorecon.
+#   RestrictAddressFamilies/IPAddressDeny: the daemon only ever touches AF_UNIX.
+#   ProtectKernel*/ProtectControlGroups/ProtectClock: no business with kernel
+#     tunables, modules, cgroups, or the clock.
+#   LockPersonality/MemoryDenyWriteExecute/RestrictRealtime: standard exploit-
+#     mitigation hardening; the helpers JIT nothing and need no W+X pages.
+#   MemoryMax/TasksMax: cap a single handler so an unbounded-stderr or fan-out
+#     bug is contained by the cgroup rather than the host.
+# RestrictSUIDSGID is intentionally NOT set: ai-tools-setgid must chmod g+s, which
+# that option would block.  SystemCallFilter is deferred (needs validation against
+# the full helper toolchain incl. restorecon's setfscreate).
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+MemoryMax=128M
+TasksMax=64
 StandardInput=socket
 StandardError=journal
 SyslogIdentifier=ai-tools-handback
 TimeoutStopSec=10
+# Bound a single handler's total wall-clock as a unit-level backstop to the
+# in-daemon subprocess timeout (covers the read phase + helper + relay).
+RuntimeMaxSec=180
