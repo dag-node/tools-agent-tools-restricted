@@ -345,7 +345,7 @@ allow ai_tools_t init_t:unix_stream_socket connectto;
 # Process baseline
 ########################################
 
-allow ai_tools_t self:process { fork sigchld signal signull getsched setsched };
+allow ai_tools_t self:process { fork sigchld signal signull getsched setsched setpgid };
 allow ai_tools_t self:process execmem;   # V8 JIT (writable+executable code pages)
 allow ai_tools_t self:fifo_file rw_fifo_file_perms;
 allow ai_tools_t self:unix_stream_socket create_stream_socket_perms;
@@ -551,9 +551,26 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 #   - Read shared libraries (libs_read_lib_files)
 #   - Resolve uid/gid (auth_use_nsswitch)
 #
-# Ships PERMISSIVE until the bring-up loop on the live box confirms the rule set
-# is complete.  Remove `permissive ai_tools_handback_t;` to enforce once clean.
+# ENFORCING.  The bring-up loop confirmed the rule set on the live box; there is no
+# `permissive ai_tools_handback_t;` line.  The domain transition runs under NNP (see
+# the nnp_transition grant below), forced by the unit's SystemCallFilter.
 ########################################
+
+# init_daemon_domain (above) sets up the init_t -> ai_tools_handback_t transition on
+# exec of the ai_tools_handback_exec_t entrypoint.  That transition runs under
+# NO_NEW_PRIVS: ai-tools-handback@.service sets NoNewPrivileges=yes AND
+# SystemCallFilter=@system-service, and systemd can only install a seccomp syscall
+# filter behind PR_SET_NO_NEW_PRIVS -- so the handler always runs under NNP regardless
+# of the explicit directive.  Under NNP the kernel routes the domain transition through
+# security_bounded_transition(), which DENIES unless the policy grants
+# process2:nnp_transition on the target.  Without this the domtrans is computed and then
+# refused (SELINUX_ERR op=security_bounded_transition; AVC denied { nnp_transition }) and
+# the handler silently stays in init_t -- running WIDE (full init_t access), the opposite
+# of confinement.  This mirrors the ai_tools_t grant in the domain-entry block; it does
+# NOT relax NNP (the daemon still runs with NO_NEW_PRIVS set, so its SUID is neutered and
+# CapabilityBoundingSet still applies), it only lets the bounded init_t -> ai_tools_handback_t
+# reduction complete.
+allow init_t ai_tools_handback_t:process2 nnp_transition;
 
 # The socket fd (stdin/stdout) is an AF_UNIX stream socket in init_t domain.
 # The daemon reads and writes it via fd 0/1 -- inherited, not connected.

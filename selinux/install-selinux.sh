@@ -58,6 +58,14 @@ readonly CONF_DIR="${PROJECTS_HOME}/.config/ai-tools"
 # the helpers that run IN ai_tools_t (chown, setgid, claude-symlink) may append under
 # enforcing. A plain restorecon applies the label; created by install.sh.
 readonly LOG_DIR="/var/log/ai-tools"
+# The handback socket runtime dir. /run is tmpfs, so systemd recreates this via
+# RuntimeDirectory=ai-tools at every ai-tools-handback.socket activation, labelling it
+# from PID1's CACHED file_contexts DB. A policy update that adds/changes the
+# /run/ai-tools fcontext (ai_tools_run_t) leaves that cache stale, so the dir -- and the
+# handback.sock inside it -- are recreated var_run_t, which ai_tools_t may not write
+# (ai_tools.te grants only ai_tools_run_t:sock_file write), breaking every hook handback.
+# _relabel_runtime() repairs this; a fresh boot reads the current fcontext correctly.
+readonly RUN_DIR="/run/ai-tools"
 
 # Styled output mirroring install.sh so the two installers read the same. Colours
 # only on a TTY. stdout carries status; warnings and the group prompt go to stderr
@@ -351,6 +359,25 @@ _label_conf()   { [[ -d "${CONF_DIR}" ]] || { log "config dir absent, skip label
                   fi; }
 _unlabel_conf() { semanage fcontext -d "${CONF_DIR}(/.*)?" 2>/dev/null || true
                   restorecon -RF "${CONF_DIR}" 2>/dev/null || true; }
+# _relabel_runtime: fix the live ai_tools_run_t label on /run/ai-tools (see RUN_DIR).
+# A plain restorecon of the other trees is enough because they live on persistent
+# filesystems, but the handback runtime dir is tmpfs and recreated by systemd from
+# PID1's cached label DB, so three steps are needed: (1) daemon-reexec re-execs PID1 so
+# it reloads the now-current file_contexts (the root cause of the stale var_run_t label);
+# (2) restart the socket so RuntimeDirectory is recreated with the refreshed context;
+# (3) restorecon the live path as a belt-and-suspenders for the already-running dir.
+# Each step is best-effort: if the socket unit is absent (handback not installed) the
+# whole thing no-ops. A hook firing during the brief socket restart simply no-ops via
+# its `|| true` and is recovered by the next sweep.
+_relabel_runtime() {
+    if systemctl list-unit-files ai-tools-handback.socket &>/dev/null; then
+        systemctl daemon-reexec 2>/dev/null || true
+        if systemctl is-active --quiet ai-tools-handback.socket; then
+            systemctl restart ai-tools-handback.socket 2>/dev/null || true
+        fi
+    fi
+    [[ -d "${RUN_DIR}" ]] && restorecon -RFv "${RUN_DIR}" 2>/dev/null || true
+}
 
 ########################################
 # Actions
@@ -388,6 +415,8 @@ case "${ACTION}" in
     [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -RF "${SANDBOX_PROJECTS}" 2>/dev/null || true
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
     [[ -d "${LOG_DIR}" ]] && restorecon -RF "${LOG_DIR}" 2>/dev/null || true
+    # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
+    _relabel_runtime
     _home_state
     verify_entrypoint
     _label_conf
@@ -430,6 +459,8 @@ case "${ACTION}" in
     [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -RF "${SANDBOX_PROJECTS}" 2>/dev/null || true
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
     [[ -d "${LOG_DIR}" ]] && restorecon -RF "${LOG_DIR}" 2>/dev/null || true
+    # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
+    _relabel_runtime
     _home_state
     verify_entrypoint
     _label_conf
@@ -455,6 +486,8 @@ case "${ACTION}" in
     restorecon -RF "${NVM_DIR}"  2>/dev/null || true
     [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -RF "${SANDBOX_PROJECTS}" 2>/dev/null || true
     [[ -d "${LOG_DIR}" ]] && restorecon -RF "${LOG_DIR}" 2>/dev/null || true
+    # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
+    _relabel_runtime
     _home_state
     verify_entrypoint
     _label_conf
