@@ -10,8 +10,9 @@
 #
 # Runs as ai-tools. Reads the hook JSON on stdin for .cwd (the allowlisted project
 # root claude launched in) and sweeps there. Each path is handed to the root
-# validator ai-tools-chown, which independently re-checks the allowlist and the
-# agent-owned guard -- so this sweep can reach nothing the precise hook could not.
+# validator ai-tools-chown (via the handback socket bridge), which independently
+# re-checks the allowlist and the agent-owned guard -- so this sweep can reach
+# nothing the precise hook could not.
 #
 # Three modes, selected by $1:
 #
@@ -146,7 +147,7 @@ fi
 # re-validates dir against the allowlist and is idempotent. Stop mode never does this.
 if [[ "${unbounded}" -eq 1 ]]; then
     ai_tools_log_debug "session-start: normalizing setgid on ${dir}"
-    sudo /usr/local/sbin/ai-tools/ai-tools-setgid "${dir}" </dev/null || true
+    /usr/local/bin/ai-tools-handback-client SETGID "${dir}" || true
 fi
 
 # New marker stamped to "now" (scan start). Applied to MARKER only after the sweep
@@ -180,7 +181,7 @@ expr+=( '(' -type f -o -type d ')' -print0 ')' )
 ai_tools_log_debug "${MODE} sweep: handing back agent-owned paths under ${dir}$([[ "${unbounded}" -eq 1 ]] && echo ' (unbounded)' || echo ' (since marker)')"
 find "${expr[@]}" 2>/dev/null \
     | while IFS= read -r -d '' path; do
-        sudo /usr/local/sbin/ai-tools/ai-tools-chown "${path}" </dev/null || true
+        /usr/local/bin/ai-tools-handback-client CHOWN "${path}" || true
       done || true
 
 # Advance the marker to this scan's start time (rename within the same dir keeps
@@ -196,7 +197,7 @@ reclaim_git_tree() {
     local proj="$1" n=0 path
     if [[ -n "${proj}" && -d "${proj}/.git" ]]; then
         while IFS= read -r -d '' path; do
-            sudo /usr/local/sbin/ai-tools/ai-tools-chown "${path}" </dev/null 1>&2 || true
+            /usr/local/bin/ai-tools-handback-client CHOWN "${path}" || true
             n=$((n + 1))
         done < <(find "${proj}/.git" -xdev -user @SANDBOX_USER@ \
                      \( -type f -o -type d \) -print0 2>/dev/null)

@@ -10,15 +10,17 @@
 # allowlist is enforced authoritatively by ai-tools-chown, which runs as root
 # and CAN read it (and is the real security boundary regardless).
 #
-# This hook only decides, cheaply and as ai-tools, whether a sudo call is even
-# worth making. It exits early -- without calling sudo -- when:
+# This hook only decides, cheaply and as ai-tools, whether a handback call is
+# even worth making. It exits early -- without calling the client -- when:
 #   - the tool input contains no file path
 #   - the file is already owned @PROJECTS_USER@:ai-tools
 #
-# The sudo call (and the PAM session it generates) is therefore only made when
-# ownership actually needs to change. ai-tools-chown also strips world bits
-# (chmod o=) in the same root call, correcting the execute bit that the Write
-# tool sets on shebang files regardless of umask.
+# Ownership handback is delegated to the socket privilege bridge
+# (/usr/local/bin/ai-tools-handback-client), which connects to
+# ai-tools-handback.socket (a root daemon) and sends a CHOWN request.  This
+# replaces the former `sudo ai-tools-chown` calls, which fail silently under
+# NNP (PR_SET_NO_NEW_PRIVS, forced by RestrictNamespaces=yes in the session
+# service unit) because NNP drops sudo's SUID bit before it can switch uid.
 #
 # Deploy: sudo install -o ai-tools -g ai-tools -m 750 \
 #             src/opt/ai-tools/.claude/post-tool-hook.sh /opt/ai-tools/.claude/post-tool-hook.sh
@@ -50,7 +52,7 @@ file="$(jq -r '.tool_input.file_path // empty' 2>/dev/null)" || exit 0
 current="$(stat -c '%U:%G' "${file}" 2>/dev/null || true)"
 if [[ -n "${current}" && "${current}" != "${EXPECTED_OWNER}" ]]; then
     ai_tools_log_debug "PostToolUse handing back ${file} (owner ${current})"
-    sudo /usr/local/sbin/ai-tools/ai-tools-chown "${file}" || true
+    /usr/local/bin/ai-tools-handback-client CHOWN "${file}" || true
 fi
 
 # Normalize any directories the write just created. Claude Code's Write tool
@@ -59,11 +61,11 @@ fi
 # and hand back each ai-tools-owned dir, stopping at the first dir the agent does
 # NOT own: that is the pre-existing user tree (the project root and above, which
 # is <you>-owned), so the walk never leaves the project. The common case -- writing
-# into an existing dir -- breaks on the first iteration with no sudo call.
+# into an existing dir -- breaks on the first iteration with no socket call.
 # ai-tools-chown re-validates each path against the allowlist as root.
 dir="$(dirname -- "${file}")"
 while [[ "${dir}" != "/" && "${dir}" != "." ]]; do
     [[ "$(stat -c '%U' "${dir}" 2>/dev/null || true)" == "@SANDBOX_USER@" ]] || break
-    sudo /usr/local/sbin/ai-tools/ai-tools-chown "${dir}" || true
+    /usr/local/bin/ai-tools-handback-client CHOWN "${dir}" || true
     dir="$(dirname -- "${dir}")"
 done
