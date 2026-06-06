@@ -10,6 +10,19 @@
 # root:@SANDBOX_GROUP@, so group members can traverse the directory to reach
 # the socket file name but cannot list other entries.
 #
+# ExecStartPost restorecon: /run is tmpfs, so RuntimeDirectory tears the path
+# down and recreates it on every socket (re)start -- boot, manual restart, or
+# automatic recovery from a tripped TriggerLimit -- deriving its label from
+# whatever context PID1 currently resolves for the path. That resolution has
+# proven to drift to var_run_t (a stale cached file_contexts lookup; see
+# install-selinux.sh _relabel_runtime), which then denies ai_tools_t write on
+# the socket. Re-running install-selinux.sh's relabel step fixes the path that
+# exists at that moment, but the fix does not survive the next recreation.
+# restorecon here makes the correct ai_tools_run_t label a property of every
+# start instead of a one-time external repair: it runs only when this unit
+# (re)starts -- not per connection -- and is a cheap, idempotent no-op once the
+# label already matches policy, so it adds no meaningful overhead.
+#
 # Accept=yes: one ai-tools-handback@.service instance per connection; each
 # serves exactly one request and exits.  The listening socket (and /run/ai-tools)
 # are destroyed when this unit stops.
@@ -40,6 +53,7 @@ TriggerLimitBurst=200
 RuntimeDirectory=ai-tools
 RuntimeDirectoryMode=0750
 RuntimeDirectoryGroup=@SANDBOX_GROUP@
+ExecStartPost=-/usr/sbin/restorecon -RF /run/ai-tools
 
 [Install]
 WantedBy=sockets.target
