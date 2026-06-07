@@ -640,12 +640,13 @@ files_read_usr_files(ai_tools_handback_t)
 # dies and nvm-update.sh reports "failed to repoint ... via handback SYMLINK" ->
 # "ai-tools update failed". Steady state (same Node version, claude.exe already
 # labelled) needs ONLY getattr: restorecon -F (symlink.sh:90) is then a no-op.
-# A genuine Node version bump leaves the fresh claude.exe lib_t, and the helper's
+# A genuine Node version bump leaves the fresh claude.exe mislabelled, and the helper's
 # best-effort relabel_entrypoint() restorecon would additionally need
-# relabelfrom/relabelto -- intentionally NOT granted here: that path is fail-open by
-# design (an unlabelled entrypoint runs unconfined until `install-selinux.sh
-# relabel`), so the relabel privilege stays out of this domain until an AVC proves
-# it required.
+# relabelfrom/relabelto -- intentionally NOT granted here. A mislabelled entrypoint does
+# NOT run unconfined under enforcing: claude-run's pre-launch preflight refuses to start
+# when the on-disk label isn't ai_tools_exec_t (fail-closed), and the operator restores
+# it with `install-selinux.sh relabel`. So the relabel privilege stays out of this
+# domain until an AVC proves it required.
 allow ai_tools_handback_t ai_tools_exec_t:file getattr;
 # Create and rename the temp symlink inside /opt/ai-tools/bin/ (bin_t, mode 550).
 # ai-tools-claude-symlink does: ln -sf TARGET bin/.claude.new; mv .claude.new claude.

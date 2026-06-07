@@ -7,6 +7,17 @@
 # re-apply with `install-selinux.sh relabel` (the new claude.exe is created
 # unlabelled, which fails OPEN -- claude runs unconfined until relabelled).
 /opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@anthropic-ai/claude-code/bin/claude\.exe  --  gen_context(system_u:object_r:ai_tools_exec_t,s0)
+# The rest of the nvm node tree is left to its default usr_t/bin_t/lib_t -- READ-ONLY
+# to ai_tools_t (files_read_usr_files / libs_read_lib_files / corecmd_exec_bin), so the
+# agent cannot modify its own toolchain mid-session. Node/npm self-management is done
+# out-of-band by the scheduled nvm-update timer, which runs unconfined and can write
+# this tree; the agent's in-session `npm install -g`/`update -g` is denied by design.
+# (claude.exe is hard-linked to the platform package's ELF under
+# node_modules/@anthropic-ai/claude-code-<arch>/; install-selinux.sh's verify_entrypoint
+# restorecon's claude.exe LAST, so the shared inode lands ai_tools_exec_t regardless of
+# the bulk-relabel order. Relabel via `install-selinux.sh rebuild`/`relabel`, never a
+# bare restorecon of the tree, which could leave the inode lib_t and trip the
+# fail-closed launch preflight.)
 
 # The root helpers grouped under one dir (chown, setgid, claude-symlink, lockdown).
 # They run IN ai_tools_handback_t (bin_t, execute_no_trans -- no separate domain).
