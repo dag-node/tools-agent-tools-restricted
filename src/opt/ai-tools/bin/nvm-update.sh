@@ -56,13 +56,19 @@ prune_versions() {
 # args:  package names
 install_packages() {
     local pkg
+    # --allow-scripts="${pkg}" pre-approves THIS package's install scripts. npm 11.5+
+    # gates preinstall/install/postinstall behind an allowScripts allowlist and, when a
+    # package's scripts are unreviewed, warns "N packages have install scripts not yet
+    # covered by allowScripts" (advisory today, blocking in a future npm). claude-code's
+    # postinstall (node install.cjs) is required, so approve each tool by name -- scoped
+    # to the package being installed, never a blanket --dangerously-allow-all-scripts.
     for pkg in "$@"; do
         if npm list -g --depth=0 "${pkg}" &>/dev/null; then
             log "  updating ${pkg}"
-            npm update -g "${pkg}" || warn "  npm update failed for ${pkg} -- skipping"
+            npm update -g --allow-scripts="${pkg}" "${pkg}" || warn "  npm update failed for ${pkg} -- skipping"
         else
             log "  installing ${pkg}"
-            npm install -g "${pkg}" || warn "  npm install failed for ${pkg} -- skipping"
+            npm install -g --allow-scripts="${pkg}" "${pkg}" || warn "  npm install failed for ${pkg} -- skipping"
         fi
     done
 }
