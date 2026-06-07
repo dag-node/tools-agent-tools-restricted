@@ -332,6 +332,16 @@ _setenv+=( "--setenv=PATH=/usr/local/sbin:/usr/sbin:/usr/local/bin:/usr/bin:$(di
 # stale /tmp/{claude-<uid>,node-compile-cache} leftovers is the one-time migration.
 _setenv+=( "--setenv=NODE_COMPILE_CACHE=/opt/ai-tools/.cache/node-compile-cache" )
 
+# Disable claude's in-session auto-updater.  The agent's Node program tree
+# (.nvm/versions/node/*) is bin_t/lib_t -- READ-ONLY to ai_tools_t by policy (see
+# ai_tools.fc) -- so an in-session `npm install -g` self-update cannot write the npm
+# prefix: it would fail every launch ("Auto-update failed: no write permission to npm
+# prefix") and emit an AVC under enforcing.  Node/claude updates are handled out-of-band
+# by the scheduled nvm-update timer (unconfined, version-pinned), so the in-session
+# updater is pure noise here.  Pinning it off keeps the toolset stable for the whole
+# session, which is the intended behaviour.
+_setenv+=( "--setenv=DISABLE_AUTOUPDATER=1" )
+
 # ExecStart is claude.exe directly: the systemd --user manager exec's the labelled
 # ai_tools_exec_t binary, so domtrans_pattern(<manager domain>, ai_tools_exec_t,
 # ai_tools_t) fires cleanly with no intermediary.  The confinement preflight above has
