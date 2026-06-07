@@ -6,9 +6,17 @@
 # @SANDBOX_GROUP@; ordinary users are not.)  The handler performs a second
 # AuthN gate via SO_PEERCRED.
 #
-# RuntimeDirectory creates /run/ai-tools at socket startup with mode 0750
-# root:@SANDBOX_GROUP@, so group members can traverse the directory to reach
-# the socket file name but cannot list other entries.
+# RuntimeDirectory creates /run/ai-tools root:root on every socket (re)start.  Its
+# GROUP cannot be set declaratively on the systemd 252 baseline (RHEL/Rocky 9):
+# RuntimeDirectoryGroup= first exists in v256, and on 252 it is parsed-and-ignored
+# ("Unknown key name 'RuntimeDirectoryGroup' ... ignoring").  A chgrp in ExecStartPost
+# does not stick either -- RuntimeDirectory= re-asserts root:root on each start (the
+# dir stayed root:root with zero AVCs even under `semodule -DB`).  So directory access
+# is governed by MODE, not group: 0711 makes it world-traversable but not listable, so
+# a @SANDBOX_GROUP@ member can resolve the socket name to connect() while the directory
+# contents stay unlistable.  This is not the access boundary -- the socket file is
+# 0660 root:@SANDBOX_GROUP@ (SocketMode/SocketGroup) and the daemon re-checks the peer
+# uid via SO_PEERCRED, so a non-group uid that traverses in still gets EACCES.
 #
 # ExecStartPost restorecon: /run is tmpfs, so RuntimeDirectory tears the path
 # down and recreates it on every socket (re)start -- boot, manual restart, or
@@ -51,8 +59,19 @@ MaxConnections=20
 TriggerLimitIntervalSec=10s
 TriggerLimitBurst=200
 RuntimeDirectory=ai-tools
-RuntimeDirectoryMode=0750
-RuntimeDirectoryGroup=@SANDBOX_GROUP@
+# Mode 0711, NOT 0750+group.  The runtime dir's GROUP cannot be set declaratively on
+# systemd 252 (RuntimeDirectoryGroup= first exists in v256; see the header) and
+# RuntimeDirectory= recreates the dir root:root on every (re)start, re-asserting that
+# ownership after any ExecStartPost chgrp -- so a chgrp does not stick (confirmed: the
+# dir stayed root:root with zero AVCs even under `semodule -DB`, i.e. not an SELinux
+# denial).  Mode is the only ownership knob systemd applies reliably here, so the dir
+# is made world-TRAVERSABLE (--x) but not listable: any uid can resolve the socket
+# name to connect(), nobody but root can enumerate the directory, and the actual
+# access gate is unchanged -- the socket file itself is 0660 root:@SANDBOX_GROUP@
+# (SocketMode/SocketGroup above) plus the daemon's SO_PEERCRED uid check.  A
+# non-@SANDBOX_GROUP@ uid that traverses in still gets EACCES on connect().  This is
+# the standard pattern for a group-gated runtime socket on pre-256 systemd.
+RuntimeDirectoryMode=0711
 ExecStartPost=-/usr/sbin/restorecon -RF /run/ai-tools
 
 [Install]
