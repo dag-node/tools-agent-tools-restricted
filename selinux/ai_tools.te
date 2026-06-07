@@ -70,8 +70,6 @@ require {
     type kernel_t;
     type init_t;
 
-    type var_run_t;   # parent of /run/ai-tools; see the filetrans_pattern below
-
     # process2 carries the NNP bounded-transition permission (RHEL/Rocky 9+).
     # Required because the session always runs under NO_NEW_PRIVS (forced by the
     # RestrictNamespaces seccomp filter claude-run sets); see the domain-entry block.
@@ -334,13 +332,6 @@ corenet_tcp_connect_http_port(ai_tools_t)   # http_port_t includes 443
 # The agent domain retains NO capability permissions -- the non-root agent never
 # needed them; they existed only so the root-uid sudo helper ran in-domain.
 ########################################
-
-# Name-based transition: systemd's RuntimeDirectory= has init_t create "ai-tools"
-# under /run (var_run_t) on socket activation; this assigns it ai_tools_run_t at
-# creation time, independent of file_contexts/matchpathcon/restorecon -- the only
-# reliable mechanism, since matchpathcon has been observed to resolve this path
-# to var_run_t despite a correct, more-specific entry in the compiled database.
-filetrans_pattern(init_t, var_run_t, ai_tools_run_t, dir, "ai-tools")
 
 # Traverse /run/ai-tools and connect to handback.sock (ai_tools_run_t).
 allow ai_tools_t ai_tools_run_t:dir search;
