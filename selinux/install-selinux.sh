@@ -391,6 +391,15 @@ _relabel_runtime() {
     [[ -d "${RUN_DIR}" ]] && restorecon -RFv "${RUN_DIR}" 2>/dev/null || true
 }
 
+# _relabel_helpers: apply ai_tools_handback_exec_t to the handback daemon entrypoint
+# (/usr/local/sbin/ai-tools/ai-tools-handback, ai_tools.fc). Without this the daemon
+# keeps a generic label, the init_t -> ai_tools_handback_t transition never fires, the
+# per-connection handler runs in unconfined_service_t, and ai_tools_t's connectto
+# (granted only to ai_tools_handback_t) is denied -- every hook handback fails with
+# EACCES. The sibling root helpers and the /usr/local/bin client are bin_t (no special
+# label). restorecon is idempotent and no-ops when handback is not installed.
+_relabel_helpers() { restorecon -RF /usr/local/sbin/ai-tools 2>/dev/null || true; }
+
 ########################################
 # Actions
 ########################################
@@ -429,6 +438,7 @@ case "${ACTION}" in
     [[ -d "${LOG_DIR}" ]] && restorecon -RF "${LOG_DIR}" 2>/dev/null || true
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
+    _relabel_helpers
     _home_state
     verify_entrypoint
     _label_conf
@@ -473,6 +483,7 @@ case "${ACTION}" in
     [[ -d "${LOG_DIR}" ]] && restorecon -RF "${LOG_DIR}" 2>/dev/null || true
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
+    _relabel_helpers
     _home_state
     verify_entrypoint
     _label_conf
@@ -500,6 +511,7 @@ case "${ACTION}" in
     [[ -d "${LOG_DIR}" ]] && restorecon -RF "${LOG_DIR}" 2>/dev/null || true
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
+    _relabel_helpers
     _home_state
     verify_entrypoint
     _label_conf
