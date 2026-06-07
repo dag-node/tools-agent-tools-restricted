@@ -629,6 +629,24 @@ files_search_var(ai_tools_handback_t)
 # Operate on the stable claude symlink (ai-tools-claude-symlink: /opt/ai-tools/bin/).
 # Read the .nvm tree under usr_t and stat bin/claude.
 files_read_usr_files(ai_tools_handback_t)
+# Stat THROUGH the versioned bin/claude symlink to its resolved end, claude.exe
+# (ai_tools_exec_t). ai-tools-claude-symlink.sh:52 does `[[ -e TARGET ]]`, which
+# follows bin/claude to claude.exe and getattr()s it; files_read_usr_files /
+# libs_read_lib_files cover the usr_t/bin_t/lib_t hops along the way but NOT the
+# custom ai_tools_exec_t entrypoint type at the end. Without this the getattr is
+# denied, bash's -e silently reports false (the swallowed-EACCES shape, same as the
+# ai_tools_run_t:sock_file getattr finding), and the helper fails closed with
+# "target does not exist" even though the path plainly exists -- the SYMLINK verb
+# dies and nvm-update.sh reports "failed to repoint ... via handback SYMLINK" ->
+# "ai-tools update failed". Steady state (same Node version, claude.exe already
+# labelled) needs ONLY getattr: restorecon -F (symlink.sh:90) is then a no-op.
+# A genuine Node version bump leaves the fresh claude.exe lib_t, and the helper's
+# best-effort relabel_entrypoint() restorecon would additionally need
+# relabelfrom/relabelto -- intentionally NOT granted here: that path is fail-open by
+# design (an unlabelled entrypoint runs unconfined until `install-selinux.sh
+# relabel`), so the relabel privilege stays out of this domain until an AVC proves
+# it required.
+allow ai_tools_handback_t ai_tools_exec_t:file getattr;
 # Create and rename the temp symlink inside /opt/ai-tools/bin/ (bin_t, mode 550).
 # ai-tools-claude-symlink does: ln -sf TARGET bin/.claude.new; mv .claude.new claude.
 # CAP_DAC_OVERRIDE covers the DAC check on the 550 dir; these grants handle the MAC check.
