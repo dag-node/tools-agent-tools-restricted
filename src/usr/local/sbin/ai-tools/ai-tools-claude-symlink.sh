@@ -10,10 +10,9 @@
 # principal that can write the locked dir) and validates its argument strictly
 # before acting.
 #
-# Sudoers rule (in /etc/sudoers.d/ai-tools-claude):
-#   ai-tools ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-claude-symlink /opt/ai-tools/.nvm/versions/node/v[0-9]*
-#
-# Called as root by nvm-update-ai-tools.sh (via sudo) and by install.sh.
+# Invocation: the handback socket's SYMLINK verb (ai-tools-handback daemon, root)
+#   when nvm-update.sh repoints the symlink after a Node upgrade, and directly by
+#   install.sh (already root). Not a sudo target -- ai-tools has no sudo rights.
 #
 # Deploy: sudo install -o root -g root -m 750 \
 #             src/usr/local/sbin/ai-tools/ai-tools-claude-symlink.sh /usr/local/sbin/ai-tools/ai-tools-claude-symlink

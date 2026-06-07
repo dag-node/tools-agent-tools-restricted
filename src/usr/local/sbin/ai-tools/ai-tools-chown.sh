@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # /usr/local/sbin/ai-tools/ai-tools-chown
 # Restores @PROJECTS_USER@:ai-tools ownership on files and directories created or
-# overwritten by Claude Code. Called by the PostToolUse hook via sudo (ai-tools
-# -> root). Accepts a single regular-file or directory target; for directories it
-# strips world bits while preserving group rwx so the agent can keep working in a
-# dir it created.
+# overwritten by Claude Code. Invoked as root by the ai-tools-handback daemon
+# (ai_tools_handback_t) when the PostToolUse/Stop/SessionStart hooks send a CHOWN
+# request over the handback socket. Accepts a single regular-file or directory
+# target; for directories it strips world bits while preserving group rwx so the
+# agent can keep working in a dir it created.
 #
 # Reads @PROJECTS_HOME@/.config/ai-tools/allowed-projects for allow and exclude rules.
 # That file is owned @PROJECTS_USER@:@PROJECTS_USER@ 600 -- root reads it here on ai-tools' behalf.
 #
-# Sudoers rule (in /etc/sudoers.d/ai-tools-claude):
-#   ai-tools ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-chown
+# Invocation: the handback socket's CHOWN verb (ai-tools-handback daemon, root).
+#   Not a sudo target -- ai-tools has no sudo rights (the session runs under NNP,
+#   which drops sudo's SUID bit).
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \

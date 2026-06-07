@@ -8,15 +8,16 @@
 # the projects user's home configs are then unreachable from the sandbox group)
 # while the agent can still read/write everything it hands back.
 #
-# Called by the SessionStart hook (session-hook.sh session-start) via sudo
-# (ai-tools -> root). Runs IN ai_tools_t (no domain transition, like ai-tools-chown).
+# Invoked as root by the ai-tools-handback daemon when the SessionStart hook
+# (session-hook.sh session-start) sends a SETGID request over the handback socket.
+# Runs IN ai_tools_handback_t (inherited from the daemon, no domain transition).
 # The agent that triggers it cannot read the allowlist, so the project path it
 # passes is UNTRUSTED and re-validated here against the same allow/exclude rules.
 #
 # Idempotent: applies only the dirs that need it, safe to run every session start.
 #
-# Sudoers rule (in /etc/sudoers.d/ai-tools-claude):
-#   ai-tools ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-setgid
+# Invocation: the handback socket's SETGID verb (ai-tools-handback daemon, root).
+#   Not a sudo target -- ai-tools has no sudo rights.
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
