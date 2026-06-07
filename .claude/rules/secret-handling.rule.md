@@ -60,6 +60,15 @@ basename-safe globs only, no bare `config`. A `secrets.*`/`secret.*`/`*.secret`-
 also matches ordinary files named after the topic — which is why rule files use a
 non-matching stem (see [authoring](authoring.rule.md)).
 
+## Quirks
+
+A file the agent writes whose basename matches the secret patterns is quarantined the
+instant it is written — `ai-tools-chown` chowns it to `<you>:<you> 600`, which also catches
+files merely *named* after the topic, not just real secrets: a doc or rule file called
+`secrets.md` matches `secrets.*` and becomes unreadable to the agent. This is why rule
+files use a non-matching stem (`secret-handling.rule.md`, not `secrets.rule.md`; see
+[authoring](authoring.rule.md)).
+
 ## Proactive: `ai-tools-lockdown`
 
 `ai-tools-chown` is reactive — it acts only on `SANDBOX_USER`-owned paths, so it never

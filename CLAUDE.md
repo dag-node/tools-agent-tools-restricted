@@ -32,9 +32,10 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
   cross-cutting conventions an agent needs in every session.
 - **`.claude/rules/*.rule.md`** — per-component reference prose, scoped to the source files
   it describes via `paths:` frontmatter, so it loads when you open a matching file under
-  `src/` (or `selinux/`). See the component map below. Each rule is self-contained;
-  the same mechanism is also documented in the corresponding source file's header, so
-  when a mechanism changes, update both the rule and the header.
+  `src/` (or `selinux/`). See the component map below. A rule and its source file's header
+  overlap by design and are bidirectionally coupled: changing either obligates reconciling
+  the other, resolving any conflict against the code, never defaulting to one side.
+  Conventions for writing rules: `.claude/rules/authoring.rule.md`.
 - **Auto memory** (`/memory`) — decisions, rejected alternatives, and open follow-ups
   that are not derivable from the code.
 
@@ -48,6 +49,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `.claude/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
 | Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secret-handling.rule.md) |
 | Node/claude updater, symlink repoint | `nvm-update.sh`, `ai-tools-claude-symlink.sh` | [updater](.claude/rules/updater.rule.md) |
+| Management CLI, project lifecycle, relabel | `bin/ai-tools.sh`, `ai-tools-relabel.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
 | Shared logging library | `log.lib.sh` | [logging](.claude/rules/logging.rule.md) |
 
 ## Trust chain (summary)

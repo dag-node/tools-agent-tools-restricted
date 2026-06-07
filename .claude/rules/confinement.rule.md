@@ -1,6 +1,8 @@
 ---
 paths:
-  - "selinux/**"
+  - "selinux/*.te"
+  - "selinux/*.fc"
+  - "selinux/README.md"
   - "src/opt/ai-tools/bin/claude-run.sh"
 ---
 

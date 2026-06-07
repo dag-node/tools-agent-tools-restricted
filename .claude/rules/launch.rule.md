@@ -2,7 +2,6 @@
 paths:
   - "src/opt/ai-tools/bin/claude-run.sh"
   - "src/home/user/.local/bin/claude.sh"
-  - "src/home/user/.config/ai-tools/allowed-projects"
   - "src/etc/sudoers.d/ai-tools-claude"
   - "src/etc/profile.d/path_dedup.sh"
 ---
