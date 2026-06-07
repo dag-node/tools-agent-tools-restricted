@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
-# selinux/diag-nvm-update.sh -- diagnose the SELinux gaps that block the sandbox's
-# own Node/npm self-management: claude's internal auto-update, AI_TOOLS_GLOBAL_TOOLS
-# install/update, and the SYMLINK handback verb nvm-update.sh uses to repoint
-# /opt/ai-tools/bin/claude after a Node upgrade.
+# selinux/diag-nvm-update.sh -- assert the SELinux posture around the sandbox's Node
+# tree and the SYMLINK handback verb that nvm-update.sh uses to repoint
+# /opt/ai-tools/bin/claude after a Node upgrade. Two invariants:
+#   1. the agent's Node tree (.nvm/versions/node/*) is READ-ONLY to ai_tools_t -- the
+#      agent must not rewrite its own toolchain mid-session. Node/claude updates are
+#      the unconfined scheduled nvm-update timer's job, never the agent's; in-session
+#      npm self-update is denied by design.
+#   2. the SYMLINK handback verb resolves and repoints cleanly (the timer's last step),
+#      which needs ai_tools_handback_t getattr on the ai_tools_exec_t entrypoint.
 #
-# RUN AS THE AGENT (ai-tools UID, ai_tools_t domain) from inside an approved
-# project. Read-only except for one bridge call at the end (SYMLINK against the
-# CURRENTLY ACTIVE versioned binary -- idempotent, exactly what a successful
-# nvm-update run's last step does).
+# RUN AS THE AGENT (ai-tools UID, ai_tools_t domain) from inside an approved project.
+# Read-only except for one bridge call at the end (SYMLINK against the CURRENTLY ACTIVE
+# versioned binary -- idempotent, exactly what a successful nvm-update run's last step does).
 #
-# Pairs with the [[selinux-enforcing-status]] memory's nvm-update/npm-prefix
-# findings: this script reproduces both gaps on demand so a policy fix can be
-# verified by re-running it (PASS=N FAIL=0 means both are closed).
+# PASS=N FAIL=0 means the posture is healthy. A section-2 FAIL means the node tree
+# became agent-WRITABLE (an integrity regression -- it must stay read-only); a section-4
+# FAIL means the SYMLINK verb is broken (the timer's repoint would fail with
+# "failed to repoint ... via handback SYMLINK").
 
 set -uo pipefail
 IFS=$'\n\t'
@@ -58,46 +63,57 @@ for p in "${ver_root}" "${ver_root}/bin" "${versioned_claude}" "${ver_root}/lib"
 done
 
 ########################################
-# 2. Write-access probes -- the npm-prefix gap
+# 2. Write-access probes -- the node tree must stay READ-ONLY to the agent
 #
-# npm install -g / npm update -g (claude's own auto-update, and any
-# AI_TOOLS_GLOBAL_TOOLS package) must be able to write here -- it is the
-# sandbox's OWN npm-managed tree, owned ai-tools:ai-tools. But ai_tools_t only
-# holds libs_read_lib_files / files_read_usr_files (read-only) for usr_t/lib_t;
-# only the carved-out ai_tools_home_t paths (.npm, .cache, .config, .local) are
-# agent-writable. A FAIL here is the live reproduction of claude's own
-# "Auto-update failed: no write permission to npm prefix".
+# The sandbox's Node tree is deliberately left at its default usr_t/bin_t/lib_t, for
+# which ai_tools_t holds only read access (files_read_usr_files / libs_read_lib_files /
+# corecmd_exec_bin). The agent must NOT be able to write it -- a writable tree would let
+# it rewrite its own program tree mid-session. So here a DENIED write is the healthy
+# result (PASS) and a SUCCESSFUL write is a regression (FAIL): it means a writable label
+# (e.g. ai_tools_home_t) leaked onto the tree. Only the carved-out ai_tools_home_t paths
+# (.npm, .cache, .config, .local) are legitimately agent-writable -- the control probe.
 ########################################
-step "2. Write-access probes in the npm prefix (expect FAIL until a writable label is carved out for this tree)"
-probe_write() {
+step "2. Write-access probes -- the node tree MUST be read-only to the agent (a writable path is a regression)"
+# probe_ro: a path that must be read-only to the agent -- DENIED is PASS, writable is FAIL.
+probe_ro() {
+    local dir="$1" f
+    f="${dir}/.diag-write-test.$$"
+    if ( : > "${f}" ) 2>/dev/null; then
+        rm -f "${f}"
+        fail "WRITABLE  ${dir}  ($(label_of "${dir}"))  -- expected read-only!"
+    else
+        pass "read-only ${dir}  ($(label_of "${dir}"))"
+    fi
+}
+# probe_rw: a path that must stay agent-writable (the ai_tools_home_t control).
+probe_rw() {
     local dir="$1" note_extra="${2:-}" f
     f="${dir}/.diag-write-test.$$"
     if ( : > "${f}" ) 2>/dev/null; then
         rm -f "${f}"
-        pass "write OK     ${dir}  ($(label_of "${dir}"))${note_extra:+  $note_extra}"
+        pass "writable  ${dir}  ($(label_of "${dir}"))${note_extra:+  $note_extra}"
     else
-        fail "write DENIED ${dir}  ($(label_of "${dir}"))${note_extra:+  $note_extra}"
+        fail "DENIED    ${dir}  ($(label_of "${dir}"))${note_extra:+  $note_extra} -- expected writable!"
     fi
 }
-probe_write "${pkg_dir}"
-probe_write "${npm_dir}"
-probe_write "${ver_root}/lib/node_modules"
-probe_write "${ver_root}/bin"
-probe_write "${ver_root}/lib"
-probe_write "${HOME}/.npm" "(control: ai_tools_home_t carve-out, should PASS)"
+probe_ro "${pkg_dir}"
+probe_ro "${npm_dir}"
+probe_ro "${ver_root}/lib/node_modules"
+probe_ro "${ver_root}/bin"
+probe_ro "${ver_root}/lib"
+probe_rw "${HOME}/.npm" "(control: ai_tools_home_t carve-out, must stay writable)"
 
 ########################################
-# 3. Symlink-resolution chain -- where the SYMLINK-verb gap actually lives
+# 3. Symlink-resolution chain -- the stat() the SYMLINK verb depends on
 #
-# ai-tools-claude-symlink (root, ai_tools_handback_t) does `[[ -e TARGET ]]`,
-# which stat()s through the versioned bin/claude symlink to its resolved end,
-# claude.exe (ai_tools_exec_t). ai_tools_handback_t holds NO grant on that type
-# (grep ai_tools_exec_t selinux/ai_tools.te -- only ai_tools_t and the
-# domtrans_pattern sources do), so that stat() is denied and bash's -e silently
-# reports false -- the same swallowed-EACCES shape as the ai_tools_run_t getattr
-# finding. This step runs the identical stat chain from ai_tools_t (which DOES
-# hold libs_read_lib_files + the entrypoint grant) to confirm the chain itself
-# is sound and the break is specific to the handback domain's missing grant.
+# ai-tools-claude-symlink (root, ai_tools_handback_t) does `[[ -e TARGET ]]`, which
+# stat()s through the versioned bin/claude symlink to its resolved end, claude.exe
+# (ai_tools_exec_t). This step runs the identical chain from ai_tools_t (which holds
+# libs_read_lib_files + the entrypoint grant) as a sanity check that the chain itself
+# is sound. ai_tools_handback_t is granted getattr on ai_tools_exec_t in ai_tools.te,
+# so its own [[ -e ]] resolves too -- section 4 exercises that path live through the
+# bridge. (A denied getattr there silently reports false -- the swallowed-EACCES shape
+# -- and the helper fails closed with "target does not exist".)
 ########################################
 step "3. Symlink-resolution chain (same stat() chain ai-tools-claude-symlink follows, run from ai_tools_t)"
 if [[ -e "${versioned_claude}" ]]; then
@@ -106,7 +122,7 @@ else
     fail "[[ -e ${versioned_claude} ]] does not resolve even from ai_tools_t -- a broader break than the handback-domain gap"
 fi
 note "resolves to: $(readlink -f "${versioned_claude}" 2>/dev/null || echo '<unresolvable>')  ($(label_of "${exe}"))"
-note "ai_tools_handback_t has no grant on that type -- its [[ -e ]] on the same chain reports \"target does not exist\""
+note "ai_tools_handback_t holds getattr on this type -- section 4 confirms its [[ -e ]] resolves live"
 
 ########################################
 # 4. Live SYMLINK verb through the handback bridge
@@ -130,9 +146,8 @@ fi
 ########################################
 step "Summary"
 note "PASS=${PASS}  FAIL=${FAIL}"
-note "A FAIL in section 2 reproduces the live-console \"Auto-update failed: no write"
-note "permission to npm prefix\"; a FAIL in section 4 reproduces nvm-update.sh's"
-note "\"failed to repoint ... via handback SYMLINK\" -> \"ai-tools update failed\" chain."
-note "Pull the AVCs for both windows (ausearch -m avc -ts recent) and let them"
-note "dictate the exact grants -- see [[selinux-enforcing-status]] for what's known."
+note "Section 2 FAIL = the node tree became agent-writable (integrity regression -- it"
+note "must stay read-only). Section 4 FAIL = the SYMLINK verb is broken, so the timer's"
+note "repoint dies with \"failed to repoint ... via handback SYMLINK\"."
+note "For any FAIL, pull the AVCs: ausearch -m avc -ts recent"
 [[ ${FAIL} -eq 0 ]]
