@@ -13,6 +13,8 @@ IFS=$'\n\t'
 
 readonly AI_TOOLS_NVM_DIR="/opt/ai-tools/.nvm"
 readonly CLAUDE_LINK="/opt/ai-tools/bin/claude"
+readonly AI_TOOLS_CLI="/usr/local/bin/ai-tools"
+readonly SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
 
 # Print error lines to stderr, then pause for Enter when stdin is a tty.
 # A bare terminal: user reads the error and presses Enter to dismiss.
@@ -112,29 +114,82 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
     done
 fi
 if [[ "${approved}" != true ]]; then
-    die "claude: ${cwd}: not in approved projects list" \
-        "claude: register it first (run as you, no sudo):" \
-        "  ai-tools --sandbox-create ${cwd}  # isolated clone (recommended)" \
-        "  ai-tools --project-create ${cwd}  # in place"
+    # Best-effort guess at an existing sandbox clone for this project: cmd_sandbox-create
+    # defaults the clone name to the repo's basename under SANDBOX_ROOT. If that already
+    # exists, the clone is already registered -- point the user straight at it rather than
+    # re-creating. (Only a heuristic on the default name; a clone made with a custom name
+    # is not detected.)
+    sandbox_existing="${SANDBOX_ROOT}/$(basename -- "${cwd}")"
+    {
+        printf '\nclaude: %s is not in the approved projects list.\n' "${cwd}"
+        if [[ -d "${sandbox_existing}" ]]; then
+            printf '\n  A sandbox copy of this project already exists -- open claude THERE:\n'
+            printf '       cd %q && claude\n' "${sandbox_existing}"
+            printf '     That clone is already approved; no need to re-create it.\n'
+        fi
+        printf '\nTwo ways to make THIS directory available to the sandboxed agent:\n'
+        printf '\n  1. Claim it IN PLACE -- the agent works your real tree:\n'
+        printf '       %s --project-claim %q\n' "${AI_TOOLS_CLI}" "${cwd}"
+        printf '     Registers it (allowlist + git safe.directory), grants the agent recursive\n'
+        printf '     group access to this directory, applies the SELinux ai_tools_project_t label,\n'
+        printf '     and locks down secret-named files first. Needs sudo. The agent then sees the\n'
+        printf '     WHOLE tree -- uncommitted files AND the full local git history. You answer "y"\n'
+        printf '     below to do this now and launch right here.\n'
+        printf '\n  2. Isolated SANDBOX clone (recommended) -- the agent never touches this tree:\n'
+        printf '       %s --sandbox-create %q\n' "${AI_TOOLS_CLI}" "${cwd}"
+        printf '     Makes a SHALLOW (depth-1) clone under\n'
+        printf '       %s/\n' "${SANDBOX_ROOT}"
+        printf '     copying only the tip commit, so the full git history never leaves your tree\n'
+        printf '     and secrets buried in past commits cannot be read. It prints the clone path on\n'
+        printf '     success; then open claude IN the clone (cd into that path), NOT here -- the\n'
+        printf '     agent runs in the clone. Its commits are pushed to a dedicated branch for you\n'
+        printf '     to merge back, and tip-commit secrets are locked down too.\n'
+    } >&2
+    reply=""
+    if [[ -r /dev/tty && -w /dev/tty ]]; then
+        printf 'Claim this project in place now? (n = leave it; use a sandbox clone instead) [y/N] ' > /dev/tty
+        read -r reply < /dev/tty || reply=""
+    fi
+    [[ "${reply}" =~ ^[yY] ]] \
+        || die "claude: refusing to launch -- ${cwd} is not approved" \
+               "       run one of the commands above, then start claude again"
+    # Delegate the full claim. ASSUME_YES answers only the CLI's top-level confirm (you
+    # answered it here); its secret-lockdown prompt and the sudo relabel stay explicit.
+    # --project-claim is idempotent and registers a brand-new path from scratch.
+    AI_TOOLS_ASSUME_YES=1 "${AI_TOOLS_CLI}" --project-claim "${cwd}" || true
+    # Confirm the claim registered the path before falling through to the claim guard,
+    # which re-verifies ownership/label (both just applied) and then launches.
+    grep -qxF "${cwd}" "${ALLOWLIST}" 2>/dev/null \
+        || die "claude: ${cwd}: still not approved -- the claim did not complete"
 fi
 
 # ── Claim guard ─────────────────────────────────────────────────────────────────
 # The cwd passed the allowlist, but a registered path can still be incompletely
-# "claimed". Two independent gaps:
+# "claimed". Three independent gaps, all detected read-only here; the fix is always
+# delegated to `ai-tools --project-claim` (idempotent) -- this wrapper never performs a
+# chgrp or a relabel itself, it only detects, offers, and (on consent) calls the CLI:
 #   ownership  -- group not ai-tools, or no group-execute. The sandbox user runs with
-#                 this dir as its cwd, and Node's posix_spawn then fails EACCES on
-#                 every child (hooks, the Bash tool): the session starts but can do
-#                 nothing. FATAL. Closing it means granting the agent group access to
-#                 this real tree -- a recursive chgrp, the heavy LAST-RESORT path. The
-#                 clean alternative is an isolated sandbox clone, recommended first.
+#                 this dir as its cwd, and Node's posix_spawn then fails EACCES on every
+#                 child (hooks, the Bash tool): the session starts but can do nothing.
+#                 FATAL. Closing it grants the agent recursive group access to this real
+#                 tree (a chgrp) -- the heavy LAST-RESORT path; the clean alternative is
+#                 an isolated sandbox clone, recommended first.
+#   label      -- under SELinux enforcing, the tree must carry ai_tools_project_t or the
+#                 agent (ai_tools_t) cannot read/write it: again the session starts but
+#                 every file op is denied. FATAL. The relabel needs root, so the claim
+#                 runs it via sudo. Cheap -- no clone needed.
 #   safe.dir   -- cwd absent from ai-tools' git safe.directory. git refuses to operate
-#                 ("dubious ownership"). Non-fatal; only git, no ownership change.
-# This wrapper runs as the operator (you), before the sudo drop, so an offer here is
-# an operator action. It never performs the recursive grant itself: it recommends the
-# clean path, then (last resort) delegates to `ai-tools --project-create` -- the one
-# place that locks down secrets and normalizes ownership -- which the user confirms.
-readonly AI_TOOLS_CLI="/usr/local/bin/ai-tools"
+#                 ("dubious ownership"). Non-fatal; only git, no ownership/label change.
 readonly GITCONFIG="/opt/ai-tools/.gitconfig"
+
+# project_labelled <dir>  -- 0 when SELinux is NOT enforcing (no label needed) or <dir>
+# already carries ai_tools_project_t. Read-only, no privilege; the authoritative relabel
+# lives in `ai-tools --project-claim` (-> ai-tools-relabel), never duplicated here.
+project_labelled() {
+    command -v getenforce >/dev/null 2>&1 || return 0
+    [[ "$(getenforce 2>/dev/null)" == "Enforcing" ]] || return 0
+    ls -Zd "$1" 2>/dev/null | grep -q ':ai_tools_project_t:'
+}
 
 own_gap=false
 cwd_gid="$(stat -c '%G' "${cwd}" 2>/dev/null || true)"
@@ -142,49 +197,77 @@ cwd_mode="$(stat -c '%a' "${cwd}" 2>/dev/null || true)"
 if [[ "${cwd_gid}" != "ai-tools" ]] || (( (0${cwd_mode:-0} & 010) == 0 )); then
     own_gap=true
 fi
+label_gap=false
+project_labelled "${cwd}" || label_gap=true
 safe_gap=false
 if ! git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
         | grep -qxF "${cwd}"; then
     safe_gap=true
 fi
 
-if ${own_gap}; then
+if ${own_gap} || ${label_gap}; then
+    # Severity-based default: the in-place ownership grant is heavy (recursive chgrp), so
+    # it defaults NO and recommends the clone; a label-only gap is cheap and required, so
+    # it defaults YES.
+    claim_hint='[y/N]'; claim_default_yes=false
+    ${own_gap} || { claim_hint='[Y/n]'; claim_default_yes=true; }
     {
-        printf '\nclaude: %s is approved but not claimed for the sandbox.\n' "${cwd}"
-        printf "  - group is '%s', not 'ai-tools' -- sessions cannot spawn children here\n" "${cwd_gid:-?}"
-        if ${safe_gap}; then printf '  - also not in git safe.directory\n'; fi
-        printf '\nRecommended -- an isolated clone that never touches this tree:\n'
-        printf '  %s --sandbox-create %q\n' "${AI_TOOLS_CLI}" "${cwd}"
-        printf '\nLast resort -- claim THIS tree in place (grants the agent recursive\n'
-        printf 'group access to %s; secrets are locked down first):\n' "${cwd}"
+        printf '\nclaude: %s is approved but not fully claimed for the sandbox.\n' "${cwd}"
+        ${own_gap}   && printf "  - group is '%s', not 'ai-tools' -- sessions cannot spawn children here\n" "${cwd_gid:-?}"
+        ${label_gap} && printf '  - missing SELinux label ai_tools_project_t -- the agent cannot read/write here\n'
+        ${safe_gap}  && printf '  - also not in git safe.directory\n'
+        if ${own_gap}; then
+            printf '\nRecommended -- an isolated SHALLOW clone under\n'
+            printf '  %s/\n' "${SANDBOX_ROOT}"
+            printf 'that never touches this tree (only the tip commit is copied, so the full git\n'
+            printf 'history stays private and secrets in past commits cannot be read); open claude\n'
+            printf 'in the clone it prints:\n'
+            printf '  %s --sandbox-create %q\n' "${AI_TOOLS_CLI}" "${cwd}"
+            printf '\nLast resort -- claim THIS tree in place (grants the agent recursive group\n'
+            printf 'access to %s; secrets are locked down first; needs sudo):\n' "${cwd}"
+        else
+            printf '\nClaim it (applies the SELinux label; needs sudo for the relabel):\n'
+        fi
+        printf '  %s --project-claim %q\n' "${AI_TOOLS_CLI}" "${cwd}"
     } >&2
     reply=""
     if [[ -r /dev/tty && -w /dev/tty ]]; then
-        printf 'Claim this tree in place now? [y/N] ' > /dev/tty
+        printf 'Claim it in place now? %s ' "${claim_hint}" > /dev/tty
         read -r reply < /dev/tty || reply=""
     fi
-    if [[ "${reply}" =~ ^[yY] ]]; then
-        # Delegate the actual claim. ASSUME_YES skips only the CLI's top-level confirm
-        # (you just answered it here); its secret-lockdown prompt stays explicit.
-        AI_TOOLS_ASSUME_YES=1 "${AI_TOOLS_CLI}" --project-create "${cwd}" || true
-        # Only launch if the claim truly made the tree accessible.
+    claim_ok=false
+    if ${claim_default_yes}; then
+        [[ ! "${reply}" =~ ^[nN] ]] && claim_ok=true
+    else
+        [[ "${reply}" =~ ^[yY] ]] && claim_ok=true
+    fi
+    if ${claim_ok}; then
+        # Delegate the claim. ASSUME_YES answers only the CLI's top-level confirm (you
+        # answered it here); its secret-lockdown prompt and the sudo relabel stay
+        # explicit. --project-claim is idempotent and closes whichever gaps apply.
+        AI_TOOLS_ASSUME_YES=1 "${AI_TOOLS_CLI}" --project-claim "${cwd}" || true
+        # Re-verify the FATAL gaps actually closed before launching.
         cwd_gid="$(stat -c '%G' "${cwd}" 2>/dev/null || true)"
         cwd_mode="$(stat -c '%a' "${cwd}" 2>/dev/null || true)"
         if [[ "${cwd_gid}" != "ai-tools" ]] || (( (0${cwd_mode:-0} & 010) == 0 )); then
             die "claude: ${cwd}: still not accessible -- the claim did not complete"
         fi
+        if ! project_labelled "${cwd}"; then
+            die "claude: ${cwd}: SELinux label still missing -- the claim did not complete" \
+                "       run: sudo ${AI_TOOLS_CLI} --project-claim ${cwd}"
+        fi
     else
-        die "claude: refusing to launch: ${cwd} is not accessible to the sandbox account" \
+        die "claude: refusing to launch -- ${cwd} is not fully claimed for the sandbox" \
             "       run one of the commands above, then start claude again"
     fi
 elif ${safe_gap}; then
     # Ownership is fine; only git's safe.directory is missing -- non-fatal, git alone is
     # affected. This wrapper runs as the operator, who owns ${GITCONFIG} (640), so offer to
-    # add the single entry directly rather than only pointing at project-create. It is a
+    # add the single entry directly rather than only pointing at project-claim. It is a
     # restrict-nothing change (git merely trusts a dir you already approved to launch in),
     # so unlike the recursive in-place claim it defaults YES. Adding only safe.directory is
-    # consistent here because the other invariants (allowlist, group) already hold -- this
-    # is the narrow safe.directory gap, not the full project-create claim. With no TTY to
+    # consistent here because the other invariants (allowlist, group, label) already hold --
+    # this is the narrow safe.directory gap, not the full project-claim. With no TTY to
     # confirm on, fall back to a NOTICE so a non-interactive launch never silently writes
     # the control-plane gitconfig.
     {

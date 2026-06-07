@@ -68,6 +68,9 @@ check_file /usr/local/sbin/ai-tools/ai-tools-chown            root              
 check_file /usr/local/sbin/ai-tools/ai-tools-setgid           root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-claude-symlink   root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-lockdown         root              root              750
+# SELinux project-label helper: 750 root:root -- user-run via sudo, never by the
+# agent (no SANDBOX_USER grant); same surface as lockdown.
+check_file /usr/local/sbin/ai-tools/ai-tools-relabel          root              root              750
 # Lib dir: root-owned, group ai-tools, 750 (no world). The agent enters via group
 # to read the prune list, but has no write, so it cannot alter the rules.
 check_file /usr/local/lib/ai-tools                         root          ai-tools          750
@@ -80,6 +83,10 @@ check_file /usr/local/lib/ai-tools/prune-dirs.lib.sh       root          ai-tool
 # Logger library: 644 root:root -- world-readable, sourced by the root helpers, the
 # hooks (run as ai-tools), and the CLI (run as the projects user, not in ai-tools).
 check_file /usr/local/lib/ai-tools/log.lib.sh             root          root              644
+# Project-label library: 640 root:root -- read only by root principals (the
+# ai-tools-relabel helper and install-selinux.sh). No group/world surface; the
+# unprivileged CLI inlines its read-only label check instead of sourcing it.
+check_file /usr/local/lib/ai-tools/relabel.lib.sh         root          root              640
 # Secret-pattern config: user-owned 600. ai-tools (not owner/group, cannot enter
 # the 700 .config/ai-tools dir) can neither read nor write it; root helpers read it.
 check_file "${PROJECTS_HOME}/.config/ai-tools/secret-patterns" "${PROJECTS_USER}"  "${PROJECTS_GROUP}"  600

@@ -7,7 +7,8 @@
 # projects user.
 #
 # Commands (each confirms before applying and reports the result):
-#   --project-create [path]   register a real project (default: cwd)
+#   --project-claim  [path]   claim a real project in place (idempotent; default: cwd)
+#   --project-create [path]   alias for --project-claim (kept for back-compat)
 #   --project-remove [path]   unregister a real project (directory left on disk)
 #   --sandbox-create [path]   shallow-clone a repo into the sandbox area and
 #                             register it; pushes a dedicated branch first
@@ -36,6 +37,12 @@ readonly SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
 # Root-only secret lockdown helper. Invoked via sudo (NO NOPASSWD grant exists for
 # it -- by design), so sudo prompts for the projects user's password.
 readonly LOCKDOWN_BIN="/usr/local/sbin/ai-tools/ai-tools-lockdown"
+# Root-only SELinux project-label helper, same sudo (no NOPASSWD) model as lockdown.
+# Applies/reverts ai_tools_project_t so the confined agent can access a claimed,
+# in-place tree; the per-project semanage fcontext rule it adds needs root, which
+# this unprivileged CLI lacks. Sandbox clones do NOT use it (static rule + plain
+# restorecon -- see relabel_clone).
+readonly RELABEL_BIN="/usr/local/sbin/ai-tools/ai-tools-relabel"
 # Sentinel in a guard CLAUDE.md (see drop_lockdown_guard) so the lockdown step can
 # recognise and remove its own placeholder once secrets are secured.
 readonly GUARD_MARKER="ai-tools-lockdown-guard"
@@ -271,6 +278,14 @@ run_lockdown() {
     ( cd "${d}" && sudo "${LOCKDOWN_BIN}" "$@" )
 }
 
+# run_relabel <dir> [--remove]  -- apply (or revert) the SELinux project label on
+# <dir> via the root helper (sudo, password); returns its status. The helper parses
+# the path and the optional flag in any order.
+run_relabel() {
+    local d="$1"; shift
+    sudo "${RELABEL_BIN}" "$@" "${d}"
+}
+
 # print_manual_lockdown <dir>  -- tell the user how to lock down <dir> by hand when
 # it was not done automatically (sudo missing, declined, or failed).
 print_manual_lockdown() {
@@ -398,49 +413,116 @@ clear_lockdown_guard() {
 
 # ── Commands ─────────────────────────────────────────────────────────────────────
 
-# cmd_project_create [path]  -- register a real, IN-PLACE project (default: cwd):
-# allowlist + git safe.directory + secret lockdown + recursive ownership, so the agent
-# can work the REAL tree. This is the heavy path -- reg_ownership grants the agent
-# recursive group access to your working directory. The clean, isolated alternative is
-# a sandbox clone (cmd_sandbox_create), which never chowns your tree; it is recommended
-# below whenever this claim would change ownership. Confirms (default NO) first.
-cmd_project_create() {
+# project_state <dir>  -- print the claim state of <dir> as four space-separated
+# booleans: "<listed> <safedir> <owngap> <labelled>". listed/safedir reflect the two
+# registries; owngap is true when the agent still lacks group access (see dir_owngap);
+# labelled is the live SELinux type check -- true/false when SELinux is active, "na"
+# when it is disabled (no label needed). Read-only, no privilege. The
+# ai_tools_project_t string is the single fact mirrored from the root labelling lib;
+# the authoritative semanage/restorecon logic is NOT duplicated here.
+project_state() {
+    local dir="$1" listed=false safedir=false owngap=true labelled=na
+    grep -qxF "${dir}" "${ALLOWLIST}" 2>/dev/null && listed=true
+    git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
+        | grep -qxF "${dir}" && safedir=true
+    dir_owngap "${dir}" || owngap=false
+    if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
+        if ls -Zd "${dir}" 2>/dev/null | grep -q ':ai_tools_project_t:'; then
+            labelled=true
+        else
+            labelled=false
+        fi
+    fi
+    printf '%s %s %s %s\n' "${listed}" "${safedir}" "${owngap}" "${labelled}"
+}
+
+# claim_relabel <dir>  -- apply the SELinux project label via the root helper so the
+# confined agent can access the tree. Best-effort, mirroring lockdown: warns with the
+# manual command (never dies) when sudo is missing or the helper fails.
+claim_relabel() {
+    local d="$1"
+    if ! command -v sudo >/dev/null 2>&1; then
+        warn "sudo not found -- cannot apply the SELinux label automatically"
+        say  "      ${C_BOLD}sudo ${RELABEL_BIN} ${d}${C_RST}"
+        return 0
+    fi
+    if run_relabel "${d}"; then
+        ok "labelled ${d} ai_tools_project_t (SELinux)"
+    else
+        warn "could not apply the SELinux label -- run it by hand:"
+        say  "      ${C_BOLD}sudo ${RELABEL_BIN} ${d}${C_RST}"
+    fi
+}
+
+# cmd_project_claim [path]  -- idempotently bring a real, IN-PLACE project (default:
+# cwd) to a fully claimed state: allowlist + git safe.directory + secret lockdown +
+# recursive ownership + SELinux ai_tools_project_t label, so the agent can work the
+# REAL tree. Inspects current state first and performs ONLY the missing steps, so a
+# re-run is quiet and a fully-claimed project is a clean no-op (no prompt, no sudo).
+# The in-place grant is heavy (reg_ownership gives the agent recursive group access;
+# relabel needs sudo), so the default-NO confirm and the sandbox-clone recommendation
+# appear only when a heavy step (chgrp or relabel) is actually pending.
+cmd_project_claim() {
     local d; d="$(resolve_dir "${1:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
-    section "Register project (in place)"
+
+    local listed safedir owngap labelled
+    read -r listed safedir owngap labelled < <(project_state "${d}")
+    local need_label=false; [[ "${labelled}" == false ]] && need_label=true
+
+    section "Claim project (in place)"
     say "  ${d}"
 
-    # Recommend the clean path first whenever an in-place claim would grant the agent
-    # recursive group access. The sandbox clone is the default choice; in-place is the
-    # last resort, for when you specifically want the agent working in this tree.
-    if dir_owngap "${d}"; then
-        say ""
-        warn "in-place registration grants the agent recursive group access to this tree"
-        say  "    ${C_DIM}recommended instead -- an isolated clone that never touches it:${C_RST}"
-        say  "      ${C_BOLD}ai-tools --sandbox-create ${d}${C_RST}"
+    if [[ "${listed}" == true && "${safedir}" == true && "${owngap}" == false ]] \
+            && ! ${need_label}; then
+        ok "already fully claimed -- nothing to do"
+        return 0
     fi
 
-    confirm "Register IN PLACE (allowlist + safe.directory + lockdown + recursive ownership)?" n \
-        || die "aborted -- for an isolated clone use: ai-tools --sandbox-create ${d}"
+    say ""
+    say "  pending:"
+    [[ "${listed}"  == true  ]] || say "    - add to allowed-projects"
+    [[ "${safedir}" == true  ]] || say "    - add git safe.directory"
+    [[ "${owngap}"  == true  ]] && say "    - grant recursive group ownership (chgrp -R + setgid)"
+    ${need_label} && say "    - apply SELinux ai_tools_project_t label"
 
-    # Allowlist first: ai-tools-lockdown only scans an allowlisted path. Remember
-    # whether we added the entry so an aborted claim rolls back only our own addition.
-    local was_listed=false
-    if grep -qxF "${d}" "${ALLOWLIST}" 2>/dev/null; then was_listed=true; fi
-    reg_allow "${d}"
-
-    # Secret gate BEFORE the recursive chgrp: never grant the agent group access to a
-    # tree that still holds un-locked, group-readable secrets.
-    if ! secret_gate "${d}"; then
-        ${was_listed} || unreg_allow "${d}"
-        die "registration stopped -- lock down secrets first: ai-tools --lockdown ${d}"
+    # Heavy steps (recursive chgrp; sudo relabel) gate behind the confirm; pure
+    # registry additions do not. dir_owngap is re-checked live so the warning matches.
+    if [[ "${owngap}" == true ]] || ${need_label}; then
+        if dir_owngap "${d}"; then
+            say ""
+            warn "in-place claim grants the agent recursive group access to this tree"
+            say  "    ${C_DIM}isolated alternative that never touches it:${C_RST}"
+            say  "      ${C_BOLD}ai-tools --sandbox-create ${d}${C_RST}"
+        fi
+        confirm "Apply the pending steps IN PLACE?" n \
+            || die "aborted -- for an isolated clone use: ai-tools --sandbox-create ${d}"
     fi
 
-    reg_safedir "${d}"
-    reg_ownership "${d}"
-    ok "registered ${d}"
-    ai_tools_log_info "registered project ${d}"
+    # Allowlist first: ai-tools-lockdown only scans an allowlisted path.
+    [[ "${listed}" == true ]] || reg_allow "${d}"
+
+    # Secret gate ONLY when a recursive chgrp is pending -- that is the step that could
+    # expose a group-readable secret. An already-owned tree was gated on a prior claim,
+    # so re-running adds no new exposure and skips the sudo scan. Roll back only our own
+    # allowlist addition on a failed gate.
+    if [[ "${owngap}" == true ]]; then
+        if ! secret_gate "${d}"; then
+            [[ "${listed}" == true ]] || unreg_allow "${d}"
+            die "claim stopped -- lock down secrets first: ai-tools --lockdown ${d}"
+        fi
+    fi
+
+    [[ "${safedir}" == true  ]] || reg_safedir "${d}"
+    [[ "${owngap}"  == true  ]] && reg_ownership "${d}"
+    ${need_label} && claim_relabel "${d}"
+    ok "claimed ${d}"
+    ai_tools_log_info "claimed project ${d}"
 }
+
+# cmd_project_create [path]  -- back-compat alias for cmd_project_claim. Claiming is
+# idempotent now, so "create" and "claim" are the same operation.
+cmd_project_create() { cmd_project_claim "$@"; }
 
 # cmd_project_remove [path]  -- unregister a real project (default: cwd) from both
 # registries; the directory itself is left on disk.
@@ -450,6 +532,16 @@ cmd_project_remove() {
     say "  ${d}"
     say "  ${C_DIM}(the directory itself is left on disk)${C_RST}"
     confirm "Unregister this project?" n || die "aborted"
+    # Revert the SELinux label before dropping the registries. The helper's --remove is
+    # lenient about allowlist membership, but reverting first keeps the invariant
+    # "labelled => allowlisted". Best-effort: warn, never fail the unregister. Skipped
+    # for sandbox paths (handled by cmd_sandbox_remove) and when SELinux is inactive.
+    if command -v sudo >/dev/null 2>&1 \
+            && command -v getenforce >/dev/null 2>&1 \
+            && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
+        run_relabel "${d}" --remove \
+            || warn "could not revert SELinux label -- run: sudo ${RELABEL_BIN} --remove ${d}"
+    fi
     unreg_allow "${d}"
     unreg_safedir "${d}"
     ok "unregistered ${d}"
@@ -692,7 +784,8 @@ usage() {
     cat <<EOF
 ai-tools -- manage Claude Code sandbox projects (run as the projects user)
 
-  ai-tools --project-create [path]   register a real project (default: cwd)
+  ai-tools --project-claim  [path]   claim a real project in place (idempotent; default: cwd)
+  ai-tools --project-create [path]   alias for --project-claim (back-compat)
   ai-tools --project-remove [path]   unregister a real project
   ai-tools --sandbox-create [path]   shallow-clone a repo into the sandbox area
   ai-tools --sandbox-push   [path]   push the sandbox clone's commits to its branch
@@ -709,6 +802,7 @@ EOF
 
 # ── Dispatch ─────────────────────────────────────────────────────────────────────
 case "${1:-}" in
+    --project-claim)  shift; cmd_project_claim  "${1:-}" ;;
     --project-create) shift; cmd_project_create "${1:-}" ;;
     --project-remove) shift; cmd_project_remove "${1:-}" ;;
     --sandbox-create) shift; cmd_sandbox_create "${1:-}" ;;

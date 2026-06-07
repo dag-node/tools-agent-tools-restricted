@@ -311,6 +311,7 @@ do_summary() {
     _chk /usr/local/sbin/ai-tools/ai-tools-setgid
     _chk /usr/local/sbin/ai-tools/ai-tools-claude-symlink
     _chk /usr/local/sbin/ai-tools/ai-tools-lockdown
+    _chk /usr/local/sbin/ai-tools/ai-tools-relabel
     _chk /usr/local/sbin/ai-tools/ai-tools-handback
     _chk /usr/local/bin/ai-tools-handback-client
     _chk /usr/lib/systemd/system/ai-tools-handback.socket
@@ -322,6 +323,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/secret-patterns.lib.sh
     _chk /usr/local/lib/ai-tools/prune-dirs.lib.sh
     _chk /usr/local/lib/ai-tools/log.lib.sh
+    _chk /usr/local/lib/ai-tools/relabel.lib.sh
     _chk /etc/sudoers.d/ai-tools-claude
     _chk /etc/profile.d/path_dedup.sh
     _chk /opt/ai-tools/bin/nvm-update.sh
@@ -390,11 +392,13 @@ do_perms_check() {
 
     # Root helpers: 750 root:root -- only root can execute; ai-tools reaches
     # chown/setgid/claude-symlink exclusively via the handback socket, never by
-    # direct exec.  Lockdown is user-run only and has no SANDBOX_USER sudo grant.
+    # direct exec.  Lockdown and relabel are user-run only (sudo) and have no
+    # SANDBOX_USER sudo grant.
     _pchk /usr/local/sbin/ai-tools/ai-tools-chown          root root 750
     _pchk /usr/local/sbin/ai-tools/ai-tools-setgid         root root 750
     _pchk /usr/local/sbin/ai-tools/ai-tools-claude-symlink root root 750
     _pchk /usr/local/sbin/ai-tools/ai-tools-lockdown       root root 750
+    _pchk /usr/local/sbin/ai-tools/ai-tools-relabel        root root 750
 
     # Handback daemon: 750 root:root -- root-owned and root-only-executable.
     # The sandbox user never exec's this directly; it connects via the socket.
@@ -440,6 +444,7 @@ do_perms_check() {
     # (run as the projects user, who is NOT in SANDBOX_GROUP), so every principal must
     # be able to read it. It holds no secrets. Root-owned, no group/world write.
     _pchk /usr/local/lib/ai-tools/log.lib.sh root root 644
+    _pchk /usr/local/lib/ai-tools/relabel.lib.sh root root 640
 
     # sudoers drop-in: 440 root:root -- required mode for sudo to parse the file;
     # a looser mode causes sudo to refuse the drop-in entirely.
@@ -501,6 +506,7 @@ do_perms_check() {
     _pchk /var/log/ai-tools/setgid.log   root root 600
     _pchk /var/log/ai-tools/symlink.log  root root 600
     _pchk /var/log/ai-tools/lockdown.log root root 600
+    _pchk /var/log/ai-tools/relabel.log  root root 600
     _pchk /var/log/ai-tools/install.log  root root 600
 
     # User wrapper: 750 PROJECTS_USER:PROJECTS_GROUP -- only the projects user
@@ -644,11 +650,28 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/log.lib.sh" \
         /usr/local/lib/ai-tools/log.lib.sh
 
+    # Project-label library: 640 root:root -- read ONLY by root principals (the
+    # ai-tools-relabel helper and selinux/install-selinux.sh's sweep). No group or
+    # world surface: the unprivileged CLI does not source it (it inlines its read-only
+    # label check), and the agent never needs it. No tokens to substitute.
+    log "/usr/local/lib/ai-tools/relabel.lib.sh"
+    install -o root -g root -m 640 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/relabel.lib.sh" \
+        /usr/local/lib/ai-tools/relabel.lib.sh
+
     # Manual pre-flight lockdown sweep. Run by the user (sudo), never by ai-tools.
     log "/usr/local/sbin/ai-tools/ai-tools-lockdown"
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-lockdown.sh" \
         /usr/local/sbin/ai-tools/ai-tools-lockdown
+
+    # SELinux project-label helper. 750 root:root -- root-owned, root-only-executable:
+    # run by the user via sudo (no SANDBOX_USER grant), never by ai-tools. install_subst
+    # substitutes @PROJECTS_HOME@ (the allowlist path it validates a target against).
+    log "/usr/local/sbin/ai-tools/ai-tools-relabel"
+    install_subst 750 root root \
+        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-relabel.sh" \
+        /usr/local/sbin/ai-tools/ai-tools-relabel
 
     # Handback privilege bridge daemon.  750 root:root -- root-owned and only
     # root-executable: this is the privileged endpoint; the SANDBOX_USER reaches it
@@ -721,7 +744,7 @@ do_install() {
     ensure_dir 700 root root /var/log/ai-tools
     chown root:root /var/log/ai-tools
     chmod 700 /var/log/ai-tools
-    for _logfile in chown setgid symlink lockdown handback install; do
+    for _logfile in chown setgid symlink lockdown relabel handback install; do
         if [[ ! -e "/var/log/ai-tools/${_logfile}.log" ]]; then
             install -o root -g root -m 600 /dev/null "/var/log/ai-tools/${_logfile}.log"
         fi

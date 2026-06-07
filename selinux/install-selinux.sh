@@ -292,6 +292,15 @@ prompt_groups() {
 # Label helpers
 ########################################
 
+# The per-project label primitive (semanage fcontext + restorecon) lives in the
+# shared relabel.lib.sh -- the SAME body the ai-tools-relabel root helper runs, so
+# --project-create/--project-claim and this sweep cannot drift. Prefer the repo
+# copy alongside this script; fall back to the deployed lib.
+RELABEL_LIB="${DIR}/../src/usr/local/lib/ai-tools/relabel.lib.sh"
+[[ -r "${RELABEL_LIB}" ]] || RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
+# shellcheck source=/dev/null
+source "${RELABEL_LIB}" || die "missing label library: ${RELABEL_LIB}"
+
 # verify_entrypoint: relabel the claude.exe entrypoint under the nvm tree and
 # confirm it carries ai_tools_exec_t. Logs a WARNING for any entrypoint that does
 # not -- without that label the unconfined_t -> ai_tools_t transition never fires
@@ -336,11 +345,14 @@ for_each_project() {
 _home_state()  { local p; for p in "${HOME_STATE[@]}"; do
                    restorecon -RF "/opt/ai-tools/${p}" 2>/dev/null || true
                  done; }
-_label_one()   { semanage fcontext -a -t ai_tools_project_t "$1(/.*)?" 2>/dev/null \
-                 || semanage fcontext -m -t ai_tools_project_t "$1(/.*)?" 2>/dev/null || true
-                 restorecon -RF "$1" 2>/dev/null || true
-                 log "labelled project ai_tools_project_t: $1"; }
-_unlabel_one() { semanage fcontext -d "$1(/.*)?" 2>/dev/null || true; }
+# _label_one/_unlabel_one: thin wrappers over the shared lib so this sweep and the
+# ai-tools-relabel helper share one implementation. Non-zero is swallowed (warn,
+# don't die) so one bad project never aborts a whole relabel. _unlabel_one already
+# restorecons via the lib; the remove action's later _restore_one pass is a
+# harmless belt-and-suspenders.
+_label_one()   { if ai_tools_label_project "$1"; then log "labelled project ai_tools_project_t: $1"
+                 else warn "could not label $1 -- is the ai_tools module loaded?"; fi; }
+_unlabel_one() { ai_tools_unlabel_project "$1" || warn "could not unlabel $1"; }
 _restore_one() { restorecon -RF "$1" 2>/dev/null || true; }
 # Label / unlabel ~/.config/ai-tools as ai_tools_conf_t (see CONF_DIR comment).
 _label_conf()   { [[ -d "${CONF_DIR}" ]] || { log "config dir absent, skip label: ${CONF_DIR}"; return 0; }
