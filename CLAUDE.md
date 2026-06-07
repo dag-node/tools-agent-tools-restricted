@@ -3,7 +3,7 @@
 Claude Code Restricted — run sessions as a sandboxed user.
 
 <!-- This file is the router + invariants. Component deep-dives live in
-     .claude/rules/*.md (path-scoped, loaded when you open matching src files).
+     .claude/rules/*.rule.md (path-scoped, loaded when you open matching src files).
      Decisions and open follow-ups live in auto memory. Keep load-bearing
      security invariants HERE: path-scoped rules do not load unless a matching
      file is open, and nested files do not survive /compact. -->
@@ -30,9 +30,11 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 
 - **This file** — the trust-chain summary, the security-model invariants, and
   cross-cutting conventions an agent needs in every session.
-- **`.claude/rules/*.md`** — per-component reference prose, scoped to the source files
+- **`.claude/rules/*.rule.md`** — per-component reference prose, scoped to the source files
   it describes via `paths:` frontmatter, so it loads when you open a matching file under
-  `src/` (or `selinux/`). See the component map below.
+  `src/` (or `selinux/`). See the component map below. Each rule is self-contained;
+  the same mechanism is also documented in the corresponding source file's header, so
+  when a mechanism changes, update both the rule and the header.
 - **Auto memory** (`/memory`) — decisions, rejected alternatives, and open follow-ups
   that are not derivable from the code.
 
@@ -40,13 +42,13 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 
 | Area | Source | Rule |
 |---|---|---|
-| Launch, allowlist gating, sudoers, PATH | `bin/claude-run.sh`, `.local/bin/claude.sh`, `allowed-projects`, `sudoers.d/ai-tools-claude` | [launch](.claude/rules/launch.md) |
-| Namespaces, SELinux transition, preflight, `/tmp` | `selinux/**`, `bin/claude-run.sh` | [confinement](.claude/rules/confinement.md) |
-| Root-op socket (daemon/client/units) | `ai-tools-handback*`, `ai-tools-handback-client*` | [handback-bridge](.claude/rules/handback-bridge.md) |
-| Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `.claude/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.md) |
-| Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secrets.md) |
-| Node/claude updater, symlink repoint | `nvm-update.sh`, `ai-tools-claude-symlink.sh` | [updater](.claude/rules/updater.md) |
-| Shared logging library | `log.lib.sh` | [logging](.claude/rules/logging.md) |
+| Launch, allowlist gating, sudoers, PATH | `bin/claude-run.sh`, `.local/bin/claude.sh`, `allowed-projects`, `sudoers.d/ai-tools-claude` | [launch](.claude/rules/launch.rule.md) |
+| Namespaces, SELinux transition, preflight, `/tmp` | `selinux/**`, `bin/claude-run.sh` | [confinement](.claude/rules/confinement.rule.md) |
+| Root-op socket (daemon/client/units) | `ai-tools-handback*`, `ai-tools-handback-client*` | [handback-bridge](.claude/rules/handback-bridge.rule.md) |
+| Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `.claude/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
+| Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secret-handling.rule.md) |
+| Node/claude updater, symlink repoint | `nvm-update.sh`, `ai-tools-claude-symlink.sh` | [updater](.claude/rules/updater.rule.md) |
+| Shared logging library | `log.lib.sh` | [logging](.claude/rules/logging.rule.md) |
 
 ## Trust chain (summary)
 
@@ -82,7 +84,7 @@ it anything. The invariants the agent operates under:
 - **`SANDBOX_USER` has no sudo rights** — not `rm -rf /`, not `cat /etc/shadow`, not any
   root helper. Root operations (chown, setgid, symlink repoint) go **exclusively**
   through the authenticated `ai-tools-handback` socket
-  ([handback-bridge](.claude/rules/handback-bridge.md)). The session runs under
+  ([handback-bridge](.claude/rules/handback-bridge.rule.md)). The session runs under
   `PR_SET_NO_NEW_PRIVS`, which drops `sudo`'s SUID bit, so `sudo` is inoperative from
   inside the session by construction.
 - **`SANDBOX_USER` has no login shell and no password.**
@@ -93,7 +95,7 @@ it anything. The invariants the agent operates under:
   `nvm-update.sh`, and `claude-run` are `<you>:SANDBOX_GROUP` with no group write;
   `/opt/ai-tools/.claude` is `3770` setgid+sticky and `/opt/ai-tools/bin` is `550`, so the
   agent cannot unlink/replace them to disable its own guardrails. See
-  [ownership-and-hooks](.claude/rules/ownership-and-hooks.md).
+  [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md).
 - **The allowlist gates where the agent launches and which written files get ownership
   restored. It is NOT a kernel-enforced read boundary** — once running, ordinary Unix
   permissions plus the `ai_tools_t` SELinux type govern reads/writes. Those filesystem
@@ -105,15 +107,15 @@ it anything. The invariants the agent operates under:
 
 - **`/opt/ai-tools`, not `/home`** — `/home` is `nosuid`, which would defeat the
   `sudo` UID-switch; `/opt/ai-tools` is not. Detail in
-  [launch](.claude/rules/launch.md).
+  [launch](.claude/rules/launch.rule.md).
 - **Collaborative ownership** — the operator and agent are co-writers via setgid (group
   ownership) + a POSIX default ACL `g:SANDBOX_GROUP:rwX` on the project tree (group
   permission, umask-independent so `git checkout`/`merge` keeps the tree
   group-accessible). The operator stays **out** of `SANDBOX_GROUP`. Detail in
-  [ownership-and-hooks](.claude/rules/ownership-and-hooks.md).
+  [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md).
 - **Logging** — components log through `log.lib.sh` to journald (always) and root-only
   `/var/log/ai-tools/*.log` (root writers only). Detail in
-  [logging](.claude/rules/logging.md).
+  [logging](.claude/rules/logging.rule.md).
 - **Root sudo-helpers** live under `/usr/local/sbin/ai-tools/` (`chown`, `setgid`,
   `claude-symlink`, `lockdown`, `relabel`); shared libraries under
   `/usr/local/lib/ai-tools/` (`secret-patterns`, `prune-dirs`, `relabel`, `log`).
@@ -122,7 +124,7 @@ it anything. The invariants the agent operates under:
 
 Match the surface to its skill — they use different voices:
 
-- `CLAUDE.md`, `.claude/rules/*.md`, file/module headers, design notes → **reference-docs**
+- `CLAUDE.md`, `.claude/rules/*.rule.md`, file/module headers, design notes → **reference-docs**
   (present-tense spec; state current behavior, not history).
 - `README.md`, getting-started, usage guides → **usage-docs**.
 - Method/function/class doc comments and docstrings → **doc-comments**.

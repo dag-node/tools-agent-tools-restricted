@@ -10,8 +10,8 @@ paths:
 
 Files the agent writes are born `SANDBOX_USER`-owned. The hooks restore
 `<you>:SANDBOX_GROUP` ownership through `ai-tools-chown` (via the
-[handback bridge](handback-bridge.md)) so the operator and agent stay co-writers.
-Secret-named files take a different path (see [secrets](secrets.md)).
+[handback bridge](handback-bridge.rule.md)) so the operator and agent stay co-writers.
+Secret-named files take a different path (see [secrets](secret-handling.rule.md)).
 
 ## `ai-tools-chown` acts only on agent-written paths
 
@@ -128,7 +128,7 @@ file's owner. So `.claude` is owned `<you>:SANDBOX_GROUP` with **setgid + sticky
 deleting/replacing files it does not own, and since it is not the dir owner it cannot
 bypass that. setgid keeps new entries in group `SANDBOX_GROUP`. Sticky is wanted here
 precisely because the agent never legitimately re-edits these files — the inverse of the
-project-dir reasoning in [secrets](secrets.md).
+project-dir reasoning in [secrets](secret-handling.rule.md).
 
 `/opt/ai-tools/bin` is locked harder: owned `<you>:SANDBOX_GROUP` at `550`, not even
 group-writable. `SANDBOX_USER` gets group `r-x` — enough to execute `nvm-update.sh` and
@@ -136,4 +136,4 @@ resolve the `claude` symlink — but no write, and it is not the dir owner, so i
 edit `nvm-update.sh` in place, `unlink`/replace it, or swap the symlink. No sticky bit is
 needed because nothing here is group-writable; only root (and `<you>` after a deliberate
 `chmod`) can change it. The versioned-symlink repoint is delegated to the
-`ai-tools-claude-symlink` root helper (see [updater](updater.md)).
+`ai-tools-claude-symlink` root helper (see [updater](updater.rule.md)).

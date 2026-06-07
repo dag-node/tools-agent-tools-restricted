@@ -8,7 +8,7 @@ paths:
 
 The kernel-level isolation `claude-run` applies to each session unit, the SELinux
 domain transition that confines it, and the `/tmp` model. Launch mechanics
-(env, WorkingDirectory, sudoers) are in [launch](launch.md).
+(env, WorkingDirectory, sudoers) are in [launch](launch.rule.md).
 
 ## `RestrictNamespaces=yes` — the namespace filter
 
@@ -47,7 +47,7 @@ without that grant, setting NNP (explicitly or via the filter) sends the session
 unconfined.
 
 NNP drops `sudo`'s SUID bit, so the hooks reach root operations through the handback
-socket bridge rather than `sudo` (see [handback-bridge](handback-bridge.md)).
+socket bridge rather than `sudo` (see [handback-bridge](handback-bridge.rule.md)).
 
 ## SELinux domain transition
 
@@ -94,7 +94,7 @@ require a privileged (`--system`) manager that mounts and pivots `PrivateTmp` fo
 payload during unit setup.
 
 Node's V8 compile cache is the one piece of session scratch kept OUT of `/tmp` —
-pinned to `ai_tools_home_t` via `NODE_COMPILE_CACHE` (see [launch](launch.md)) — because
+pinned to `ai_tools_home_t` via `NODE_COMPILE_CACHE` (see [launch](launch.rule.md)) — because
 its default `/tmp/node-compile-cache` otherwise collides with `user_tmp_t` leftovers and
 other uids, and an entry carrying `user_tmp_t` denies node's own `open()` under
 enforcing, killing the session at startup.

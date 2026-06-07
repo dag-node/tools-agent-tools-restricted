@@ -12,8 +12,8 @@ paths:
 The wrapper → `claude-run` → session handoff: binary resolution, allowlist
 gating, and placing the session in a transient systemd unit. Kernel confinement
 of that unit (namespaces, SELinux transition, `/tmp`) lives in
-[confinement](confinement.md); ownership handback in
-[ownership-and-hooks](ownership-and-hooks.md).
+[confinement](confinement.rule.md); ownership handback in
+[ownership-and-hooks](ownership-and-hooks.rule.md).
 
 ## Resolution and gating (the wrapper)
 
@@ -49,8 +49,8 @@ to sudoers matching, which targets the fixed path `/opt/ai-tools/bin/claude-run`
 `CLAUDE_EXEC` against the same nvm-path pattern and wraps the session in a transient
 systemd *service* unit (`systemd-run --user --pty`) before exec'ing the versioned
 binary. The service runs in `SANDBOX_USER`'s systemd user instance, kept alive by
-`loginctl enable-linger` (see [updater](updater.md)). The kernel security properties
-that unit carries are in [confinement](confinement.md); the launch-shaping properties:
+`loginctl enable-linger` (see [updater](updater.rule.md)). The kernel security properties
+that unit carries are in [confinement](confinement.rule.md); the launch-shaping properties:
 
 **`UMask=0007`** keeps agent-created files group-writable so the collaborative
 ownership model holds. A service unit does not inherit the caller's umask (a scope
@@ -75,7 +75,7 @@ project directory as `CLAUDE_PROJECT_DIR`, carried through sudo via `env_keep`;
 `claude-run` re-validates it (absolute, `..`-free, existing) and sets it as the unit's
 `--working-directory`, so the session starts in the project. The `chdir` runs in the
 user manager's domain before the transitioning `exec`, so that domain needs `search`
-on `ai_tools_project_t` (see [confinement](confinement.md)).
+on `ai_tools_project_t` (see [confinement](confinement.rule.md)).
 
 **`--pty` service, not `--scope`.** `RestrictNamespaces` and `UMask` are exec-context
 directives; systemd 252 rejects them on a scope unit (`Unknown assignment`) because a

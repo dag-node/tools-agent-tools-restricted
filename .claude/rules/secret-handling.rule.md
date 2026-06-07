@@ -10,7 +10,7 @@ paths:
 
 Two consumers classify basenames against one shared pattern set and revoke
 `SANDBOX_USER`'s read: `ai-tools-chown` reactively (per agent-written path, see
-[ownership-and-hooks](ownership-and-hooks.md)) and `ai-tools-lockdown` proactively
+[ownership-and-hooks](ownership-and-hooks.rule.md)) and `ai-tools-lockdown` proactively
 (over a whole project).
 
 ## Reactive: `ai-tools-chown`
@@ -21,7 +21,7 @@ basename against the shared pattern set (`.env`, `*.key`, `*.pem`, `id_*`, `kube
 `SANDBOX_USER`-owned, per the agent-written-paths rule) to `<you>:<you> 600`, so
 `SANDBOX_USER` — neither owner nor group member — cannot read the contents. It writes a
 NOTICE to stderr (the hook relays it into the session) and, at `WARNING` level, to the
-operation log (`/var/log/ai-tools/chown.log` and journald; see [logging](logging.md)).
+operation log (`/var/log/ai-tools/chown.log` and journald; see [logging](logging.rule.md)).
 
 This revokes read only. `SANDBOX_USER` is a group-writer on the project dir (not its
 owner), so it can still unlink/replace the path; a replacement is agent-written and
@@ -48,14 +48,17 @@ default list identical to the shipped `secret-patterns` seed
 empty the defaults apply, so classification never degrades to "match nothing". A failure
 to source the library is fail-closed: `ai-tools-chown` exits non-zero and skips that
 path's handback (it stays `SANDBOX_USER`-owned) rather than handing a possible secret back
-as an ordinary file. `ai-tools-chown` runs in `ai_tools_t` with no transition, so the
-policy grants that domain `libs_read_lib_files` to read the `lib_t`-labelled library.
+as an ordinary file. `ai-tools-chown` runs in `ai_tools_handback_t` (inherited from the
+handback daemon, no transition), so the policy grants that domain `libs_read_lib_files` to
+read the `lib_t`-labelled library.
 
 The patterns are name- or environment-anchored (`appsettings.*.json`, `web.*.config`,
 `*.Production.*`, …), **not** broad `*.*.json`/`*.*.config` catch-alls: those would also
 match build artifacts the toolchain must read (`*.deps.json`, `*.runtimeconfig.json`,
 `project.assets.json`, `*.dll.config`), and quarantining them breaks builds. The set uses
-basename-safe globs only, no bare `config`.
+basename-safe globs only, no bare `config`. A `secrets.*`/`secret.*`/`*.secret`-style stem
+also matches ordinary files named after the topic — which is why rule files use a
+non-matching stem (see [authoring](authoring.rule.md)).
 
 ## Proactive: `ai-tools-lockdown`
 

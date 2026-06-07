@@ -23,14 +23,14 @@ version another alias points to is retained.
 ## Symlink repoint root helper (`ai-tools-claude-symlink`)
 
 `/opt/ai-tools/bin` is `550` and not group-writable (see
-[ownership-and-hooks](ownership-and-hooks.md)), so `SANDBOX_USER` cannot refresh the
+[ownership-and-hooks](ownership-and-hooks.rule.md)), so `SANDBOX_USER` cannot refresh the
 versioned `claude` symlink itself after a Node upgrade. That repoint is delegated to the
 narrow root helper `ai-tools-claude-symlink`: it accepts one argument, validates it is
 exactly a `…/node/v<MAJOR>.<MINOR>.<PATCH>/bin/claude` path that exists (its own
 anchored-regex check, **not** the coarse sudoers glob, is authoritative — argument
 wildcards can match `/`), then atomically repoints the symlink. The sandbox updater and
 `install.sh` are the only callers; the updater reaches it through the
-[handback bridge](handback-bridge.md) `SYMLINK` verb.
+[handback bridge](handback-bridge.rule.md) `SYMLINK` verb.
 
 ## `loginctl enable-linger`
 

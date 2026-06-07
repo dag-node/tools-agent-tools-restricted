@@ -9,9 +9,9 @@ paths:
 # Handback socket bridge (`ai-tools-handback`)
 
 The session runs under `PR_SET_NO_NEW_PRIVS` (forced by `RestrictNamespaces=yes`, see
-[confinement](confinement.md)), which drops `sudo`'s SUID bit. The `PostToolUse`,
-`Stop`/`SessionStart` hooks (see [ownership-and-hooks](ownership-and-hooks.md)) and
-`nvm-update.sh` (see [updater](updater.md)) therefore reach root operations through an
+[confinement](confinement.rule.md)), which drops `sudo`'s SUID bit. The `PostToolUse`,
+`Stop`/`SessionStart` hooks (see [ownership-and-hooks](ownership-and-hooks.rule.md)) and
+`nvm-update.sh` (see [updater](updater.rule.md)) therefore reach root operations through an
 `AF_UNIX SOCK_STREAM` socket (`/run/ai-tools/handback.sock`, `0660 root:SANDBOX_GROUP`)
 served by a systemd `Accept=yes` socket unit started at boot. This is the session's only
 privilege path; `sudo` is never exec'd from inside the session.
