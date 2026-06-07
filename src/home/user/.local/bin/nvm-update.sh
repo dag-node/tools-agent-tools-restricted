@@ -55,22 +55,26 @@ prune_versions() {
 # install_packages: install each package missing from the active nvm context, or
 # update it if already present globally. A failed package warns and is skipped,
 # never aborting the run.
-# args:  package names
+# args:  comma-joined allow-scripts allowlist, then package names
 install_packages() {
+    local allow_csv="$1"; shift
     local pkg
-    # --allow-scripts="${pkg}" pre-approves THIS package's install scripts. npm 11.5+
-    # gates preinstall/install/postinstall behind an allowScripts allowlist and, when a
-    # package's scripts are unreviewed, warns "N packages have install scripts not yet
-    # covered by allowScripts" (advisory today, blocking in a future npm). claude-code's
-    # postinstall (node install.cjs) is required, so approve each tool by name -- scoped
-    # to the package being installed, never a blanket --dangerously-allow-all-scripts.
+    # npm 11.5+ gates preinstall/install/postinstall behind an allowScripts allowlist
+    # and, on every install, re-scans the WHOLE global tree -- warning "N packages have
+    # install scripts not yet covered by allowScripts" for any top-level package still
+    # unreviewed (advisory today, blocking in a future npm). approve-scripts cannot
+    # persist this for us (it errors EGLOBAL on global installs), so we approve per
+    # invocation with --allow-scripts, passing the FULL managed set on EVERY call:
+    # covering only the package being installed leaves its siblings (e.g. yarn's
+    # preinstall, claude-code's postinstall) flagged. Scoped to our named tools by the
+    # caller's list, never a blanket --dangerously-allow-all-scripts.
     for pkg in "$@"; do
         if npm list -g --depth=0 "${pkg}" &>/dev/null; then
             log "  ${pkg}: updating"
-            npm update -g --allow-scripts="${pkg}" "${pkg}" || warn "  ${pkg}: update failed, skipping"
+            npm update -g --allow-scripts="${allow_csv}" "${pkg}" || warn "  ${pkg}: update failed, skipping"
         else
             log "  ${pkg}: installing"
-            npm install -g --allow-scripts="${pkg}" "${pkg}" || warn "  ${pkg}: install failed, skipping"
+            npm install -g --allow-scripts="${allow_csv}" "${pkg}" || warn "  ${pkg}: install failed, skipping"
         fi
     done
 }
@@ -118,8 +122,11 @@ main() {
 
     local -a tools
     IFS=' ' read -ra tools <<< "${NVM_GLOBAL_TOOLS:-npm typescript yarn grunt}"
+    # The full managed set is the allow-scripts allowlist -- npm re-scans the whole
+    # global tree on every install, so each call must cover all of them (see install_packages).
+    local allow_csv; allow_csv="$(IFS=,; printf '%s' "${tools[*]}")"
     log "packages: ${tools[*]}"
-    install_packages "${tools[@]}"
+    install_packages "${allow_csv}" "${tools[@]}"
 
     prune_versions "${node_alias}"
 
