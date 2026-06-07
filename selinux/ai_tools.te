@@ -325,21 +325,30 @@ corenet_tcp_connect_http_port(ai_tools_t)   # http_port_t includes 443
 # the socket file directly and sends a CHOWN/SETGID/SYMLINK request; the daemon
 # (ai_tools_handback_t) authenticates via SO_PEERCRED and calls the root helper.
 #
-# This replaces the former sudo+PAM path.  ai_tools_t now loses:
-#   setuid/setgid/sys_resource/chown/fowner/fsetid/dac_read_search capabilities
-#   sudo_exec_t exec, sudo_db_t/sudo_log_t reads, faillog_t/pam_var_run_t access
-#   auth_domtrans_chk_passwd / netlink_audit_socket / pam_var_run_t access
-# The agent domain retains NO capability permissions -- the non-root agent never
-# needed them; they existed only so the root-uid sudo helper ran in-domain.
+# ai_tools_t holds NO capability permissions and none of: setuid/setgid/sys_resource/
+# chown/fowner/fsetid/dac_read_search, sudo_exec_t exec, sudo_db_t/sudo_log_t/
+# faillog_t/pam_var_run_t access, auth_domtrans_chk_passwd, netlink_audit_socket.
+# The non-root agent has no use for any of it; an in-domain root helper would, and
+# the bridge below puts that helper in its own root domain (ai_tools_handback_t)
+# instead.
 ########################################
 
-# Traverse /run/ai-tools and connect to handback.sock (ai_tools_run_t).
-allow ai_tools_t ai_tools_run_t:dir search;
-allow ai_tools_t ai_tools_run_t:sock_file { read write };
-# The listening socket is held by init_t (systemd socket activation, Accept=yes).
-# connectto is the peer check: the client's connect() must be allowed against the
-# listener's domain.  Update if `ps -eZ | grep handback` shows a different domain.
-allow ai_tools_t init_t:unix_stream_socket connectto;
+# Traverse, list, stat and connect to handback.sock (ai_tools_run_t).
+allow ai_tools_t ai_tools_run_t:dir { search read };
+allow ai_tools_t ai_tools_run_t:sock_file { read write getattr };
+# init_t (PID1) owns the listening socket: RuntimeDirectory= creates and removes
+# /run/ai-tools on every socket (re)start and binds handback.sock inside it --
+# both name-bearing operations on the directory.
+allow init_t ai_tools_run_t:dir { add_name remove_name rmdir };
+# create+write: bind() the listener; setattr: sd-chown applying SocketMode=/
+# SocketGroup= from the unit.
+allow init_t ai_tools_run_t:sock_file { create write setattr unlink };
+# connectto is the peer check on the client's connect(): for an Accept=yes templated
+# socket paired with init_daemon_domain, systemd labels the listening socket with the
+# spawned handler's domain, so the check gates access to ai_tools_handback_t -- not init_t,
+# which never appears as the peer.  Re-derive from `ausearch -m avc -c connectto` if this
+# unit's domain pairing changes.
+allow ai_tools_t ai_tools_handback_t:unix_stream_socket connectto;
 
 ########################################
 # Process baseline

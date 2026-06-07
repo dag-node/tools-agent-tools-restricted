@@ -24,6 +24,11 @@
 # root:ai-tools).  ai_tools_t needs search on the dir and read/write on the
 # sock_file; restorecon here keeps labels consistent after a socket restart.
 /run/ai-tools(/.*)?  gen_context(system_u:object_r:ai_tools_run_t,s0)
+# Twin of the above for the legacy path: file_contexts.subs_dist rewrites every
+# /run/* lookup to /var/run/* before matching (the /run<-/var/run compat shim),
+# so matchpathcon/restorecon/RuntimeDirectory= labelling never reaches the entry
+# above -- only this one. cockpit and mount declare both forms for the same reason.
+/var/run/ai-tools(/.*)?  gen_context(system_u:object_r:ai_tools_run_t,s0)
 
 # The root-helper operation logs. ai-tools-chown / -setgid / -claude-symlink run IN
 # ai_tools_handback_t and append here; the domain is granted append/create on
