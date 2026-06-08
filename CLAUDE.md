@@ -51,6 +51,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Node/claude updater, symlink repoint | `nvm-update.sh`, `ai-tools-claude-symlink.sh` | [updater](.claude/rules/updater.rule.md) |
 | Management CLI, project lifecycle, relabel | `bin/ai-tools.sh`, `ai-tools-relabel.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
 | Shared logging library | `log.lib.sh` | [logging](.claude/rules/logging.rule.md) |
+| Test organization, hermeticity, categories | `tests/**`, `test.sh` | [tests](.claude/rules/tests.rule.md) |
 
 ## Trust chain (summary)
 
