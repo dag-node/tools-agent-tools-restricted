@@ -1,0 +1,281 @@
+============================================================
+LINUX PERMISSIONS + SGID + SUID + STICKY + UMASK CHEATSHEET
+============================================================
+
+LEGEND
+------------------------------------------------------------
+r = read
+w = write
+x = execute
+s = setuid/setgid (lowercase = +x present)
+S = setuid/setgid (no execute)
+t = sticky bit
+
+SPECIAL BITS (OCTAL PREFIX)
+------------------------------------------------------------
+4000 = setuid
+2000 = setgid
+1000 = sticky
+
+Example:
+2755 = SGID + rwxr-xr-x
+4755 = SUID + rwxr-xr-x
+1777 = sticky + rwxrwxrwx
+
+
+============================================================
+1. chgrp (GROUP OWNERSHIP ONLY)
+============================================================
+Example:
+  chgrp devs file.txt
+
+Effect:
+  changes ONLY group owner
+
+NOT affected:
+  permissions
+  special bits
+  umask
+
+
+============================================================
+2. SGID ON FILE (EXECUTION CONTEXT)
+============================================================
+Example:
+  chmod 2755 program
+
+Result:
+  -rwxr-sr-x
+
+Behavior:
+- effective GID = file group
+- used for privileged group tools
+
+NOT inherited
+
+
+============================================================
+3. SGID ON DIRECTORY (GROUP INHERITANCE)
+============================================================
+Enable:
+  chmod 2775 shared
+
+Result:
+  drwxrwsr-x
+
+Behavior:
+- new files inherit directory GROUP
+- new subdirs inherit SGID bit
+
+ASCII:
+shared (SGID group=devs)
+├── file1 → group=devs
+└── subdir → group=devs (SGID inherited)
+
+
+============================================================
+4. STICKY BIT (SAFE SHARED DIRS)
+============================================================
+Example:
+  chmod 1777 /tmp
+
+Result:
+  drwxrwxrwt
+
+Behavior:
+- everyone can create files
+- only owner can delete own files
+
+
+============================================================
+5. SUID (EXECUTION IDENTITY)
+============================================================
+Example:
+  chmod 4755 program
+
+Result:
+  -rwsr-xr-x
+
+Behavior:
+- effective UID = file owner (often root)
+- used for controlled privilege escalation tools
+
+
+============================================================
+6. UMASK (PERMISSION FILTER ONLY)
+============================================================
+Formula:
+  final_mode = requested_mode & ~umask
+
+We consider:
+  0027 = secure
+  0007 = collaborative
+
+
+------------------------------------------------------------
+FILE CREATION (base 666)
+------------------------------------------------------------
+UMASK   RESULT   MEANING
+------------------------------------------------------------
+0027    0640     rw-r-----
+0007    0660     rw-rw----
+
+
+------------------------------------------------------------
+DIR CREATION (base 777)
+------------------------------------------------------------
+UMASK   RESULT   MEANING
+------------------------------------------------------------
+0027    0750     rwxr-x---
+0007    0770     rwxrwx---
+
+
+IMPORTANT:
+- umask NEVER affects SUID/SGID/sticky bits
+- only rwx permissions
+
+
+============================================================
+7. SGID + UMASK INTERACTION
+============================================================
+Shared directory:
+  chmod 2770 /srv/project
+  group=devs
+
+------------------------------------------------------------
+FILE CREATION INSIDE SGID DIR
+------------------------------------------------------------
+UMASK   RESULT   GROUP
+------------------------------------------------------------
+0027    0640     devs
+0007    0660     devs
+
+
+------------------------------------------------------------
+DIR CREATION INSIDE SGID DIR
+------------------------------------------------------------
+UMASK   RESULT     NOTES
+------------------------------------------------------------
+0027    2750       SGID preserved
+0007    2770       SGID preserved
+
+
+ASCII STRUCTURE:
+srv/project (2770 SGID, group=devs)
+├── a.txt (0027) → rw-r----- devs
+├── b.txt (0007) → rw-rw---- devs
+└── subdir (0007) → drwxrws--- devs
+
+
+============================================================
+8. KEY MENTAL MODELS (ASCII CORE)
+============================================================
+
+------------------------------------------------------------
+A) FILE CREATION PIPELINE
+------------------------------------------------------------
+
+        +----------------------+
+        | requested mode       |
+        | (666 file / 777 dir) |
+        +----------+-----------+
+                   |
+                   v
+        +----------------------+
+        | apply umask          |
+        | (mask rwx bits only) |
+        +----------+-----------+
+                   |
+                   v
+        +----------------------+
+        | apply inheritance    |
+        | SGID dir → group     |
+        +----------+-----------+
+                   |
+                   v
+        +----------------------+
+        | apply special bits   |
+        | (SUID/SGID/sticky)   |
+        +----------+-----------+
+                   |
+                   v
+        +----------------------+
+        | FINAL PERMISSIONS    |
+        +----------------------+
+
+------------------------------------------------------------
+B) SGID DIRECTORY INHERITANCE MODEL
+------------------------------------------------------------
+
+          mkdir inside SGID dir
+                     |
+                     v
+        +------------------------+
+        | inherit group owner    |
+        | from parent directory  |
+        +-----------+------------+
+                    |
+                    v
+        +------------------------+
+        | apply umask to perms   |
+        +-----------+------------+
+                    |
+                    v
+        +------------------------+
+        | optional: inherit SGID |
+        | for subdirectories      |
+        +------------------------+
+
+------------------------------------------------------------
+C) SPECIAL BIT EFFECT MODEL
+------------------------------------------------------------
+
+SUID (4000):
+  file execution → changes EFFECTIVE UID
+
+SGID (2000):
+  file execution → changes EFFECTIVE GID
+
+SGID on dir:
+  file creation → changes GROUP OWNER
+
+Sticky (1000):
+  deletion control only (NOT creation)
+
+------------------------------------------------------------
+
+
+============================================================
+9. REAL-WORLD CONFIG PATTERNS
+============================================================
+
+SECURE TEAM APP:
+  chmod 2770 /srv/app
+  umask 0027
+  → restricted internal system
+
+COLLAB WORKSPACE:
+  chmod 2770 /srv/team
+  umask 0007
+  → shared writable group
+
+PUBLIC DROP (/tmp):
+  chmod 1777 /tmp
+  → safe shared write space
+
+
+============================================================
+10. KEY RULES
+============================================================
+1. chgrp = only group change
+2. SGID dir = group inheritance
+3. SGID file = execution group identity
+4. sticky = delete protection only
+5. umask = rwx filter only
+6. SGID inheritance NOT controlled by umask
+7. XFS/ext4 behave identically (VFS layer)
+
+
+============================================================
+END
+============================================================

@@ -1,0 +1,322 @@
+============================================================
+GIT + LINUX FILE PERMISSIONS (CHECKOUT / SWITCH MODEL)
+============================================================
+
+LEGEND
+------------------------------------------------------------
+r = read
+w = write
+x = execute
+644 = rw-r--r--
+755 = rwxr-xr-x
+
+Git file modes:
+  100644 = normal file
+  100755 = executable file
+  120000 = symlink
+
+NOT STORED BY GIT:
+  - SUID (4000)
+  - SGID (2000)
+  - sticky (1000)
+  - ACLs
+  - xattrs
+  - full POSIX permission model
+
+
+============================================================
+1. WHAT GIT STORES (OBJECT MODEL)
+============================================================
+
+Git tracks:
+
+  FILE CONTENT
+  FILE MODE (limited)
+
+ASCII:
+
+        +-------------------+
+        |   Git Object      |
+        +-------------------+
+        | content (blob)    |
+        | mode (100644/755) |
+        +-------------------+
+
+NOT INCLUDED:
+  - owner
+  - group
+  - umask
+  - special bits
+  - inheritance rules
+
+
+============================================================
+2. WHAT HAPPENS ON CHECKOUT / SWITCH
+============================================================
+
+Command:
+  git switch feature
+  or
+  git checkout feature
+
+PROCESS:
+
+        +----------------------+
+        | read commit tree     |
+        +----------+-----------+
+                   |
+                   v
+        +----------------------+
+        | write files to disk  |
+        | (create/overwrite)   |
+        +----------+-----------+
+                   |
+                   v
+        +----------------------+
+        | apply git mode       |
+        | 100644 / 100755      |
+        +----------+-----------+
+                   |
+                   v
+        +----------------------+
+        | kernel applies umask |
+        +----------------------+
+                   |
+                   v
+        +----------------------+
+        | final filesystem     |
+        | permissions          |
+        +----------------------+
+
+
+============================================================
+3. CORE RULE: GIT DOES NOT PRESERVE FULL PERMISSIONS
+============================================================
+
+Git ONLY controls:
+
+  executable bit (x)
+
+Everything else comes from OS rules:
+
+  - umask
+  - default permissions
+  - directory inheritance (SGID)
+  - ACLs (if present)
+
+
+============================================================
+4. UMASK INTERACTION DURING CHECKOUT
+============================================================
+
+Git writes files using syscalls like:
+
+  open(path, O_CREAT | O_TRUNC, mode)
+
+Then kernel applies:
+
+  final_mode = git_mode & ~umask
+
+
+------------------------------------------------------------
+EXAMPLE A: normal file
+------------------------------------------------------------
+
+Git mode:   100644 (rw-r--r--)
+umask:      0027
+
+Result:
+
+  100644
+& ~0027
+= 100640
+
+FINAL:
+  rw-r-----
+
+
+------------------------------------------------------------
+EXAMPLE B: executable file
+------------------------------------------------------------
+
+Git mode: 100755 (rwxr-xr-x)
+umask:    0007
+
+Result:
+
+  rwxr-x---
+(others removed by umask)
+
+
+IMPORTANT:
+- Git requested execute bit is preserved
+- umask does NOT remove execute bit from owner/group unless masked
+
+
+============================================================
+5. DIRECTORY CASE
+============================================================
+
+Git does NOT store directory permissions.
+
+During checkout:
+
+  mkdir(path)
+
+Then mode applied is effectively:
+
+  777 & ~umask
+
+------------------------------------------------------------
+EXAMPLE
+------------------------------------------------------------
+
+umask 0027 → 0750  (rwxr-x---)
+umask 0007 → 0770  (rwxrwx---)
+
+
+============================================================
+6. SPECIAL BITS (IMPORTANT TRUTH)
+============================================================
+
+Git NEVER restores:
+
+  SUID  (4000)
+  SGID  (2000)
+  sticky (1000)
+
+Even if originally present.
+
+------------------------------------------------------------
+EXAMPLE (lost on checkout)
+------------------------------------------------------------
+
+Repo contains:
+  -rwsr-xr-x  (hypothetical)
+
+After checkout:
+  -rwxr-xr-x  (SUID gone)
+
+
+REASON:
+  Git model does not encode special bits
+
+
+============================================================
+7. SGID DIRECTORY VS GIT CHECKOUT
+============================================================
+
+Scenario:
+  shared repo directory = 2770 (SGID)
+
+Git checkout:
+
+  does NOT enforce SGID inheritance
+  does NOT preserve SGID bit on files
+
+BUT filesystem still applies:
+
+  - SGID rules for NEW files
+  - umask rules for permissions
+
+
+ASCII:
+
+Repo root (SGID dir)
+        |
+        v
+  git checkout writes files
+        |
+        v
+  filesystem applies:
+    - SGID (if dir has it)
+    - umask
+    - ACL
+
+
+RESULT:
+  Git unaffected by SGID logic
+  OS handles final metadata
+
+
+============================================================
+8. CORE MENTAL MODEL
+============================================================
+
+                GIT LAYER
+        +----------------------+
+        | content + 100644/755 |
+        +----------+-----------+
+                   |
+                   v
+        FILESYSTEM LAYER (XFS/ext4)
+        +----------------------+
+        | umask                |
+        | SGID inheritance     |
+        | ACL                  |
+        | ownership rules     |
+        +----------+-----------+
+                   |
+                   v
+             FINAL FILE STATE
+
+
+============================================================
+9. core rule summary
+============================================================
+
+1. Git = content + executable bit only
+2. Git ignores SUID/SGID/sticky completely
+3. umask ALWAYS applies on checkout
+4. filesystem rules always override Git assumptions
+5. SGID inheritance only applies to NEW files created AFTER checkout
+6. Git is not a permissions system
+
+
+============================================================
+10. REAL-WORLD CONSEQUENCES
+============================================================
+
+PROBLEM:
+  different users = different umasks
+
+RESULT:
+
+  same git checkout → different permissions
+
+Example:
+
+Alice (umask 0027):
+  rw-r-----
+
+Bob (umask 0007):
+  rw-rw----
+
+
+SOLUTION (outside Git):
+
+  - CI chmod step
+  - deployment scripts
+  - ACL defaults
+  - container image layering
+
+
+============================================================
+11. FINAL ONE-LINE MODEL
+============================================================
+
+Git controls:
+  "WHAT the file is"
+
+Filesystem controls:
+  "WHO can do what with it"
+
+umask controls:
+  "how restrictive new files are"
+
+SGID controls:
+  "how group ownership propagates"
+
+============================================================
+END
+============================================================
