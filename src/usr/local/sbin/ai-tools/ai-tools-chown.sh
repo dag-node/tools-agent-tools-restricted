@@ -21,7 +21,10 @@
 set -euo pipefail
 
 readonly TARGET="${1:?usage: ai-tools-chown <absolute-path>}"
-readonly ALLOWLIST="@PROJECTS_HOME@/.config/ai-tools/allowed-projects"
+# Allowlist. AI_TOOLS_ALLOWLIST overrides the installed path when set -- a root-only test
+# hook: sudo strips it (env_reset, not in env_keep) and the handback daemon execs this with
+# its own environment, so neither the operator nor the agent can inject it in production.
+readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-@PROJECTS_HOME@/.config/ai-tools/allowed-projects}"
 # Ordinary files are chowned to OWNER (group ai-tools, readable by the agent).
 # Secret-named files are chowned to SECRET_OWNER (the user's private group) with
 # group+world bits stripped, so ai-tools -- neither owner nor group member --

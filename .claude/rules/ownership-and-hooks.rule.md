@@ -102,14 +102,25 @@ The same `SessionStart` pass normalizes the project's setgid bit via the root he
 `SANDBOX_GROUP` and the agent can read/write it — **without the operator being a member of
 `SANDBOX_GROUP`**. That keeps the projects user out of `SANDBOX_GROUP` entirely (defense
 in depth: home-dir configs stay unreachable from `SANDBOX_GROUP`) while project-file
-collaboration works. Heavy/transient trees (`.git`, `node_modules`, `.venv`,
+collaboration works. Like the claim-side ACL and unclaim helpers, it acts **only** on dirs
+owned by the projects user or the sandbox account — a dir owned by any third party (root,
+another developer) is left untouched, so normalization never pulls a foreign-owned dir into
+the agent's group. This is the claim-side partner to `ai-tools-chown`'s "act only on
+`SANDBOX_USER`-owned paths" rule. Heavy/transient trees (`.git`, `node_modules`, `.venv`,
 `__pycache__`, `bin`, `obj`, `packages`) are skipped; that prune list is shared with the
 sweep and `ai-tools-lockdown` via `/usr/local/lib/ai-tools/prune-dirs.lib.sh`.
 
-Setgid handles group *ownership* inheritance; a POSIX default ACL
-(`g:SANDBOX_GROUP:rwX`, applied at project claim) handles group *permission* inheritance,
-so files the operator's `git checkout`/`merge` writes under a restrictive umask stay
-group-accessible.
+Setgid handles group *ownership* inheritance; a POSIX ACL handles group *permission*
+inheritance. The root helper `ai-tools-setfacl` (run at project claim, see
+[cli](cli.rule.md)) applies a **default** ACL `g:SANDBOX_GROUP:rwX,o::-` to every project
+directory, so files the operator's `git checkout`/`merge` writes under a restrictive umask
+are born group-accessible and others-denied independent of that umask, plus the matching
+**access** ACL on existing entries — which both opens pre-existing operator files (e.g. a
+`600` file) to the agent group and strips any stray `other` access the tree arrived with.
+It shares the allowlist/exclusion/secret-skip/prune rules with the setgid pass, so secret-
+named and `!`-excluded paths never receive the group ACL. `other::---` is pinned explicitly
+rather than cloned from each directory's mode, which on a permissive-umask directory would
+otherwise seed `default:other::r-x` and leak read access to every future file.
 
 ## Control-plane file integrity (`/opt/ai-tools/.claude`, `bin/`)
 

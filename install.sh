@@ -309,6 +309,8 @@ do_summary() {
 
     _chk /usr/local/sbin/ai-tools/ai-tools-chown
     _chk /usr/local/sbin/ai-tools/ai-tools-setgid
+    _chk /usr/local/sbin/ai-tools/ai-tools-setfacl
+    _chk /usr/local/sbin/ai-tools/ai-tools-unclaim
     _chk /usr/local/sbin/ai-tools/ai-tools-claude-symlink
     _chk /usr/local/sbin/ai-tools/ai-tools-lockdown
     _chk /usr/local/sbin/ai-tools/ai-tools-relabel
@@ -396,6 +398,8 @@ do_perms_check() {
     # SANDBOX_USER sudo grant.
     _pchk /usr/local/sbin/ai-tools/ai-tools-chown          root root 750
     _pchk /usr/local/sbin/ai-tools/ai-tools-setgid         root root 750
+    _pchk /usr/local/sbin/ai-tools/ai-tools-setfacl        root root 750
+    _pchk /usr/local/sbin/ai-tools/ai-tools-unclaim        root root 750
     _pchk /usr/local/sbin/ai-tools/ai-tools-claude-symlink root root 750
     _pchk /usr/local/sbin/ai-tools/ai-tools-lockdown       root root 750
     _pchk /usr/local/sbin/ai-tools/ai-tools-relabel        root root 750
@@ -612,6 +616,16 @@ do_install() {
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-setgid.sh" \
         /usr/local/sbin/ai-tools/ai-tools-setgid
+
+    log "/usr/local/sbin/ai-tools/ai-tools-setfacl"
+    install_subst 750 root root \
+        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-setfacl.sh" \
+        /usr/local/sbin/ai-tools/ai-tools-setfacl
+
+    log "/usr/local/sbin/ai-tools/ai-tools-unclaim"
+    install_subst 750 root root \
+        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-unclaim.sh" \
+        /usr/local/sbin/ai-tools/ai-tools-unclaim
 
     log "/usr/local/sbin/ai-tools/ai-tools-claude-symlink"
     install_subst 750 root root \
@@ -1018,6 +1032,8 @@ do_uninstall() {
     log "system files"
     rm -f /usr/local/sbin/ai-tools/ai-tools-chown
     rm -f /usr/local/sbin/ai-tools/ai-tools-setgid
+    rm -f /usr/local/sbin/ai-tools/ai-tools-setfacl
+    rm -f /usr/local/sbin/ai-tools/ai-tools-unclaim
     rm -f /usr/local/sbin/ai-tools/ai-tools-claude-symlink
     rm -f /usr/local/sbin/ai-tools/ai-tools-lockdown
     rm -f /usr/local/sbin/ai-tools/ai-tools-handback

@@ -25,7 +25,10 @@
 set -euo pipefail
 
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
-readonly ALLOWLIST="@PROJECTS_HOME@/.config/ai-tools/allowed-projects"
+# Allowlist. AI_TOOLS_ALLOWLIST overrides the installed path when set -- a root-only test
+# hook: sudo strips it (env_reset, not in env_keep), so neither the operator nor the agent
+# can inject it in production (lockdown is only ever reached as root via sudo).
+readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-@PROJECTS_HOME@/.config/ai-tools/allowed-projects}"
 
 # Pruned directory names from the shared library (single source of truth, shared
 # with session-hook.sh and ai-tools-setgid). Unreadable -> empty -> no pruning.

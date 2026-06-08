@@ -7,9 +7,12 @@
 # projects user.
 #
 # Commands (each confirms before applying and reports the result):
-#   --project-claim  [path]   claim a real project in place (idempotent; default: cwd)
-#   --project-create [path]   alias for --project-claim (kept for back-compat)
-#   --project-remove [path]   unregister a real project (directory left on disk)
+#   --project-claim   [path]  claim a real project in place (idempotent; default: cwd)
+#   --project-create  [path]  alias for --project-claim (kept for back-compat)
+#   --project-unclaim [path]  unclaim a real project: drop the registries, revert the
+#                             label, and hand the files back to a group with the agent's
+#                             write access revoked (directory left on disk)
+#   --project-remove  [path]  alias for --project-unclaim (kept for back-compat)
 #   --sandbox-create [path]   shallow-clone a repo into the sandbox area and
 #                             register it; pushes a dedicated branch first
 #   --sandbox-push   [path]   push the sandbox clone's commits to its branch
@@ -43,6 +46,17 @@ readonly LOCKDOWN_BIN="/usr/local/sbin/ai-tools/ai-tools-lockdown"
 # this unprivileged CLI lacks. Sandbox clones do NOT use it (static rule + plain
 # restorecon -- see relabel_clone).
 readonly RELABEL_BIN="/usr/local/sbin/ai-tools/ai-tools-relabel"
+# Root-only ACL helper, same sudo (no NOPASSWD) model as lockdown/relabel. Applies the
+# project's group-permission ACL (default + access group:SANDBOX_GROUP:rwX, other denied)
+# so files the projects user's git checkout/merge writes under a restrictive umask stay
+# group-accessible to the agent. Needs root (CAP_FOWNER) to ACL files the projects user
+# does not own; this unprivileged CLI lacks that.
+readonly SETFACL_BIN="/usr/local/sbin/ai-tools/ai-tools-setfacl"
+# Root-only unclaim helper, same sudo (no NOPASSWD) model. Reverses the filesystem side
+# of a claim: clears the agent ACL + default ACL, regroups the tree to a target group, and
+# removes group write. Needs root to chgrp to an arbitrary group and to act on files the
+# projects user does not own.
+readonly UNCLAIM_BIN="/usr/local/sbin/ai-tools/ai-tools-unclaim"
 # Sentinel in a guard CLAUDE.md (see drop_lockdown_guard) so the lockdown step can
 # recognise and remove its own placeholder once secrets are secured.
 readonly GUARD_MARKER="ai-tools-lockdown-guard"
@@ -191,6 +205,43 @@ unreg_safedir() {
     fi
 }
 
+# reg_filemode <dir>  -- pin core.filemode=true in the project's own .git/config so
+# git tracks the executable bit deterministically for BOTH co-writers, regardless of
+# either user's global git config. Repo-LOCAL (not the shared /opt/ai-tools/.gitconfig,
+# which is the agent's global): the setting must be shared by the projects user and the
+# agent, and .git is reclaimed to the projects user, who can write it. Idempotent and
+# quiet when already set; a no-op (with a note) when <dir> is not a git work tree.
+# Orthogonal to the ACL hardening -- filemode governs only the exec bit, never group/
+# other permission bits -- but claimed in the same git-config step as safe.directory.
+reg_filemode() {
+    local dir="$1"
+    if ! git -C "${dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        say "    git core.filemode: not a git work tree -- skipped"
+        return 0
+    fi
+    if [[ "$(git -C "${dir}" config --local --get core.filemode 2>/dev/null)" == "true" ]]; then
+        say "    git core.filemode: already true"
+    else
+        git -C "${dir}" config --local core.filemode true \
+            && say "    git core.filemode: set true" \
+            || warn "git core.filemode: could not set (continuing)"
+    fi
+}
+
+# acl_gap <dir>  -- true (0) when the project's group-permission ACL is NOT yet in
+# place: <dir>'s root carries no `default:group:SANDBOX_GROUP:` entry. Read-only and
+# unprivileged. Returns false (1) when the ACL is present, and ALSO when ACLs cannot be
+# inspected at all (getfacl missing) -- there is then no gap we can act on, so claim
+# does not perpetually re-prompt for a step that cannot run. Mirrors the dir_owngap /
+# project_state "na when unavailable" convention.
+acl_gap() {
+    local dir="$1"
+    command -v getfacl >/dev/null 2>&1 || return 1
+    getfacl -p "${dir}" 2>/dev/null \
+        | grep -qE "^default:group:${SANDBOX_GROUP}:" && return 1
+    return 0
+}
+
 # dir_owngap <dir>  -- true (0) when <dir> is NOT group-accessible to the sandbox
 # account: group is not SANDBOX_GROUP, or the group-execute bit is clear. The
 # sandbox user runs with the project as its cwd, and Node's posix_spawn needs
@@ -284,6 +335,21 @@ run_lockdown() {
 run_relabel() {
     local d="$1"; shift
     sudo "${RELABEL_BIN}" "$@" "${d}"
+}
+
+# run_setfacl <dir>  -- apply the project's group-permission ACL on <dir> via the root
+# helper (sudo, password); returns its status.
+run_setfacl() {
+    local d="$1"
+    sudo "${SETFACL_BIN}" "${d}"
+}
+
+# run_unclaim <dir> <target-group>  -- clear the agent ACL, regroup <dir> to
+# <target-group>, and remove group write, via the root helper (sudo, password); returns
+# its status.
+run_unclaim() {
+    local d="$1" g="$2"
+    sudo "${UNCLAIM_BIN}" "${d}" "${g}"
 }
 
 # print_manual_lockdown <dir>  -- tell the user how to lock down <dir> by hand when
@@ -413,19 +479,26 @@ clear_lockdown_guard() {
 
 # ── Commands ─────────────────────────────────────────────────────────────────────
 
-# project_state <dir>  -- print the claim state of <dir> as four space-separated
-# booleans: "<listed> <safedir> <owngap> <labelled>". listed/safedir reflect the two
-# registries; owngap is true when the agent still lacks group access (see dir_owngap);
-# labelled is the live SELinux type check -- true/false when SELinux is active, "na"
-# when it is disabled (no label needed). Read-only, no privilege. The
-# ai_tools_project_t string is the single fact mirrored from the root labelling lib;
-# the authoritative semanage/restorecon logic is NOT duplicated here.
+# project_state <dir>  -- print the claim state of <dir> as six space-separated
+# tokens: "<listed> <safedir> <filemode> <owngap> <acl> <labelled>". listed/safedir
+# reflect the two registries; filemode is true when repo-local core.filemode is already
+# true ("na" when <dir> is not a git work tree); owngap is true when the agent still
+# lacks group access (see dir_owngap); acl is true when the group-permission ACL still
+# needs applying (see acl_gap); labelled is the live SELinux type check -- true/false
+# when SELinux is active, "na" when it is disabled (no label needed). Read-only, no
+# privilege. The ai_tools_project_t string is the single fact mirrored from the root
+# labelling lib; the authoritative semanage/restorecon logic is NOT duplicated here.
 project_state() {
-    local dir="$1" listed=false safedir=false owngap=true labelled=na
+    local dir="$1" listed=false safedir=false filemode=na owngap=true acl=false labelled=na
     grep -qxF "${dir}" "${ALLOWLIST}" 2>/dev/null && listed=true
     git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
         | grep -qxF "${dir}" && safedir=true
+    if git -C "${dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        [[ "$(git -C "${dir}" config --local --get core.filemode 2>/dev/null)" == "true" ]] \
+            && filemode=true || filemode=false
+    fi
     dir_owngap "${dir}" || owngap=false
+    acl_gap "${dir}" && acl=true
     if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
         if ls -Zd "${dir}" 2>/dev/null | grep -q ':ai_tools_project_t:'; then
             labelled=true
@@ -433,7 +506,8 @@ project_state() {
             labelled=false
         fi
     fi
-    printf '%s %s %s %s\n' "${listed}" "${safedir}" "${owngap}" "${labelled}"
+    printf '%s %s %s %s %s %s\n' \
+        "${listed}" "${safedir}" "${filemode}" "${owngap}" "${acl}" "${labelled}"
 }
 
 # claim_relabel <dir>  -- apply the SELinux project label via the root helper so the
@@ -454,27 +528,49 @@ claim_relabel() {
     fi
 }
 
+# claim_setfacl <dir>  -- apply the group-permission ACL via the root helper so files
+# the projects user's git checkout/merge writes under a restrictive umask stay group-
+# accessible. Best-effort, mirroring claim_relabel: warns with the manual command
+# (never dies) when sudo is missing or the helper fails.
+claim_setfacl() {
+    local d="$1"
+    if ! command -v sudo >/dev/null 2>&1; then
+        warn "sudo not found -- cannot apply the project ACL automatically"
+        say  "      ${C_BOLD}sudo ${SETFACL_BIN} ${d}${C_RST}"
+        return 0
+    fi
+    if run_setfacl "${d}"; then
+        ok "applied group-permission ACL to ${d}"
+    else
+        warn "could not apply the project ACL -- run it by hand:"
+        say  "      ${C_BOLD}sudo ${SETFACL_BIN} ${d}${C_RST}"
+    fi
+}
+
 # cmd_project_claim [path]  -- idempotently bring a real, IN-PLACE project (default:
-# cwd) to a fully claimed state: allowlist + git safe.directory + secret lockdown +
-# recursive ownership + SELinux ai_tools_project_t label, so the agent can work the
-# REAL tree. Inspects current state first and performs ONLY the missing steps, so a
-# re-run is quiet and a fully-claimed project is a clean no-op (no prompt, no sudo).
-# The in-place grant is heavy (reg_ownership gives the agent recursive group access;
-# relabel needs sudo), so the default-NO confirm and the sandbox-clone recommendation
-# appear only when a heavy step (chgrp or relabel) is actually pending.
+# cwd) to a fully claimed state: allowlist + git safe.directory + git core.filemode +
+# secret lockdown + recursive ownership + group-permission ACL + SELinux
+# ai_tools_project_t label, so the agent can work the REAL tree. Inspects current state
+# first and performs ONLY the missing steps, so a re-run is quiet and a fully-claimed
+# project is a clean no-op (no prompt, no sudo). The in-place grant is heavy
+# (reg_ownership gives the agent recursive group access; relabel and the ACL need sudo),
+# so the default-NO confirm and the sandbox-clone recommendation appear only when a
+# heavy step (chgrp, relabel, or ACL) is actually pending.
 cmd_project_claim() {
     local d; d="$(resolve_dir "${1:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
 
-    local listed safedir owngap labelled
-    read -r listed safedir owngap labelled < <(project_state "${d}")
+    local listed safedir filemode owngap acl labelled
+    read -r listed safedir filemode owngap acl labelled < <(project_state "${d}")
     local need_label=false; [[ "${labelled}" == false ]] && need_label=true
+    local need_filemode=false; [[ "${filemode}" == false ]] && need_filemode=true
+    local need_acl=false; [[ "${acl}" == true ]] && need_acl=true
 
     section "Claim project (in place)"
     say "  ${d}"
 
     if [[ "${listed}" == true && "${safedir}" == true && "${owngap}" == false ]] \
-            && ! ${need_label}; then
+            && ! ${need_filemode} && ! ${need_acl} && ! ${need_label}; then
         ok "already fully claimed -- nothing to do"
         return 0
     fi
@@ -483,12 +579,14 @@ cmd_project_claim() {
     say "  pending:"
     [[ "${listed}"  == true  ]] || say "    - add to allowed-projects"
     [[ "${safedir}" == true  ]] || say "    - add git safe.directory"
+    ${need_filemode} && say "    - set git core.filemode true"
     [[ "${owngap}"  == true  ]] && say "    - grant recursive group ownership (chgrp -R + setgid)"
+    ${need_acl} && say "    - apply group-permission ACL (default + access g:${SANDBOX_GROUP}:rwX)"
     ${need_label} && say "    - apply SELinux ai_tools_project_t label"
 
-    # Heavy steps (recursive chgrp; sudo relabel) gate behind the confirm; pure
+    # Heavy steps (recursive chgrp; sudo relabel/ACL) gate behind the confirm; pure
     # registry additions do not. dir_owngap is re-checked live so the warning matches.
-    if [[ "${owngap}" == true ]] || ${need_label}; then
+    if [[ "${owngap}" == true ]] || ${need_acl} || ${need_label}; then
         if dir_owngap "${d}"; then
             say ""
             warn "in-place claim grants the agent recursive group access to this tree"
@@ -514,7 +612,9 @@ cmd_project_claim() {
     fi
 
     [[ "${safedir}" == true  ]] || reg_safedir "${d}"
+    ${need_filemode} && reg_filemode "${d}"
     [[ "${owngap}"  == true  ]] && reg_ownership "${d}"
+    ${need_acl} && claim_setfacl "${d}"
     ${need_label} && claim_relabel "${d}"
     ok "claimed ${d}"
     ai_tools_log_info "claimed project ${d}"
@@ -524,17 +624,23 @@ cmd_project_claim() {
 # idempotent now, so "create" and "claim" are the same operation.
 cmd_project_create() { cmd_project_claim "$@"; }
 
-# cmd_project_remove [path]  -- unregister a real project (default: cwd) from both
-# registries; the directory itself is left on disk.
-cmd_project_remove() {
+# cmd_project_unclaim [path]  -- undo an in-place claim (default: cwd): revert the
+# SELinux label, drop both registries, and (default-yes confirm) hand the tree's
+# filesystem back to a target group with the agent's write access revoked. The directory
+# itself is left on disk. The filesystem hand-back (ai-tools-unclaim) clears the agent
+# ACL + default ACL, regroups every eligible file to the target group, and removes group
+# write (660->640, 770->750, 400 stays 400) -- so the agent loses access via both the
+# group owner and the named ACL entry. The target group defaults to the invoking user's
+# own group; any other system user can be named (the tree is handed to that user's group).
+cmd_project_unclaim() {
     local d; d="$(resolve_dir "${1:-$PWD}")"
-    section "Unregister project"
+    section "Unclaim project"
     say "  ${d}"
     say "  ${C_DIM}(the directory itself is left on disk)${C_RST}"
-    confirm "Unregister this project?" n || die "aborted"
+    confirm "Unclaim this project?" n || die "aborted"
     # Revert the SELinux label before dropping the registries. The helper's --remove is
     # lenient about allowlist membership, but reverting first keeps the invariant
-    # "labelled => allowlisted". Best-effort: warn, never fail the unregister. Skipped
+    # "labelled => allowlisted". Best-effort: warn, never fail the unclaim. Skipped
     # for sandbox paths (handled by cmd_sandbox_remove) and when SELinux is inactive.
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
@@ -544,8 +650,29 @@ cmd_project_remove() {
     fi
     unreg_allow "${d}"
     unreg_safedir "${d}"
-    ok "unregistered ${d}"
-    ai_tools_log_info "unregistered project ${d}"
+
+    # Filesystem hand-back: revoke the agent and return the tree to a real group. Default
+    # YES (it is the natural completion of an unclaim) but confirmed, since it rewrites
+    # ownership/permissions across the tree.
+    if confirm "Hand the files back to a group and remove the agent's write access?" y; then
+        local target_user target_group
+        target_user="$(ask "  Hand the files to which user's group?" "${ME}")"
+        if ! target_group="$(id -gn "${target_user}" 2>/dev/null)"; then
+            warn "no such user '${target_user}' -- skipping the filesystem hand-back"
+            say  "      run it later with: ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} <group>${C_RST}"
+        elif ! command -v sudo >/dev/null 2>&1; then
+            warn "sudo not found -- cannot hand the files back automatically"
+            say  "      ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} ${target_group}${C_RST}"
+        elif run_unclaim "${d}" "${target_group}"; then
+            ok "handed ${d} back to group ${target_group}, agent write access removed"
+        else
+            warn "could not hand the files back -- run it by hand:"
+            say  "      ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} ${target_group}${C_RST}"
+        fi
+    fi
+
+    ok "unclaimed ${d}"
+    ai_tools_log_info "unclaimed project ${d}"
 }
 
 # cmd_sandbox_create [path]  -- create or reuse the per-repo branch
@@ -784,9 +911,10 @@ usage() {
     cat <<EOF
 ai-tools -- manage Claude Code sandbox projects (run as the projects user)
 
-  ai-tools --project-claim  [path]   claim a real project in place (idempotent; default: cwd)
-  ai-tools --project-create [path]   alias for --project-claim (back-compat)
-  ai-tools --project-remove [path]   unregister a real project
+  ai-tools --project-claim   [path]  claim a real project in place (idempotent; default: cwd)
+  ai-tools --project-create  [path]  alias for --project-claim (back-compat)
+  ai-tools --project-unclaim [path]  unclaim a real project (hand files back, revoke agent)
+  ai-tools --project-remove  [path]  alias for --project-unclaim (back-compat)
   ai-tools --sandbox-create [path]   shallow-clone a repo into the sandbox area
   ai-tools --sandbox-push   [path]   push the sandbox clone's commits to its branch
   ai-tools --sandbox-remove [path]   remove a sandbox clone and unregister it
@@ -802,9 +930,10 @@ EOF
 
 # ── Dispatch ─────────────────────────────────────────────────────────────────────
 case "${1:-}" in
-    --project-claim)  shift; cmd_project_claim  "${1:-}" ;;
-    --project-create) shift; cmd_project_create "${1:-}" ;;
-    --project-remove) shift; cmd_project_remove "${1:-}" ;;
+    --project-claim)   shift; cmd_project_claim   "${1:-}" ;;
+    --project-create)  shift; cmd_project_create  "${1:-}" ;;
+    --project-unclaim) shift; cmd_project_unclaim "${1:-}" ;;
+    --project-remove)  shift; cmd_project_unclaim "${1:-}" ;;
     --sandbox-create) shift; cmd_sandbox_create "${1:-}" ;;
     --sandbox-push)   shift; cmd_sandbox_push   "${1:-}" ;;
     --sandbox-remove) shift; cmd_sandbox_remove "${1:-}" ;;

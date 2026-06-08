@@ -17,10 +17,13 @@ account (the agent must not manage its own allowlist).
 ## Commands
 
 - `--project-claim [path]` (alias `--project-create`) — claim a real project in place
-  (idempotent; default cwd): register it, apply the SELinux project label, and run the
+  (idempotent; default cwd): register it, pin repo-local `core.filemode=true`, apply the
+  group-permission ACL via `ai-tools-setfacl`, apply the SELinux project label, and run the
   secret pre-check.
-- `--project-remove [path]` — unregister a real project (directory left on disk; label
-  reverted).
+- `--project-unclaim [path]` (alias `--project-remove`) — unclaim a real project
+  (directory left on disk): revert the label, drop both registries, and (default-yes
+  confirm) hand the tree's files back to a target group with the agent's write access
+  revoked, via `ai-tools-unclaim`.
 - `--sandbox-create [path]` — shallow-clone a repo into the sandbox area and register it.
 - `--sandbox-push [path]` / `--sandbox-remove [path]` — push the clone's commits to its
   branch / remove the clone and unregister it.
@@ -33,10 +36,31 @@ account (the agent must not manage its own allowlist).
 **Claim in place** (`--project-claim`) registers an existing working tree where it lives.
 The confined agent (`ai_tools_t`) reaches it only if the tree carries the
 `ai_tools_project_t` SELinux label, so claim applies that label via the root helper
-`ai-tools-relabel`, and `--project-remove` reverts it. The label primitive (semanage
+`ai-tools-relabel`, and `--project-unclaim` reverts it. The label primitive (semanage
 fcontext + restorecon) lives in the shared `relabel.lib.sh`, sourced by both
 `ai-tools-relabel` and `install-selinux.sh`, so the CLI and the policy installer apply one
-implementation.
+implementation. Claim also applies the group-permission ACL (via `ai-tools-setfacl`) and
+pins repo-local `core.filemode=true`; these complement the recursive group-ownership grant.
+Claim inspects current state and runs only the missing steps, so a re-run is a quiet no-op
+and existing projects retrofit the ACL/`filemode` on the next claim.
+
+**Unclaim** (`--project-unclaim`) reverts that: it removes the SELinux label and both
+registries, then (default-yes confirm) runs `ai-tools-unclaim` to hand the filesystem back.
+For every eligible path that helper clears the agent ACL **and** the default ACL
+(`setfacl -b`), changes the group owner to a target group (the invoking user's own group by
+default; any other user can be named, handing the tree to that user's group), and removes
+group write (`660→640`, `770→750`, `400` stays `400`) — additionally clearing the setgid bit
+claim added on **directories** (numeric `chmod` cannot, so symbolic `g-s` is used), returning
+them to plain perms. The agent loses access via both the group owner and the named ACL entry,
+while the new group owner keeps read/traverse.
+
+**Owner guard (claim and unclaim).** The root helpers `ai-tools-setgid`, `ai-tools-setfacl`,
+and `ai-tools-unclaim` act **only** on paths owned by the projects user or the sandbox
+account; a path owned by any third party (root, another developer) is left untouched, on top
+of the secret-name and `!`-exclusion skips. This is the claim-side partner to
+`ai-tools-chown`'s "act only on `SANDBOX_USER`-owned paths" rule
+([ownership-and-hooks](ownership-and-hooks.rule.md)): claim never pulls a foreign-owned file
+into the agent's group, and unclaim never regroups one out.
 
 **Sandbox clone** (`--sandbox-create`) shallow-clones the repo under `SANDBOX_ROOT`
 (`/var/opt/ai-tools/sandbox-projects`) so the agent never reads the origin's full history.
@@ -48,9 +72,15 @@ restorecon, not by `ai-tools-relabel`.
 
 ## Privilege model
 
-The CLI itself is unprivileged. Its two root operations — `ai-tools-lockdown` and
-`ai-tools-relabel` — run via `sudo` with **no** NOPASSWD grant by design, so sudo prompts
-for the projects user's password; the sandbox account has no grant for either.
+The CLI itself is unprivileged. Its four root operations — `ai-tools-lockdown`,
+`ai-tools-relabel`, `ai-tools-setfacl`, and `ai-tools-unclaim` — run via `sudo` with **no**
+NOPASSWD grant by design, so sudo prompts for the projects user's password; the sandbox
+account has no grant for any. `ai-tools-setfacl` and `ai-tools-unclaim` need root
+(`CAP_FOWNER`) to act on files the projects user does not own (e.g. agent-written files from
+a prior session); each re-validates its target path
+against the allowlist and shares the exclusion/secret-skip/prune rules with `ai-tools-setgid`
+(see [ownership-and-hooks](ownership-and-hooks.rule.md)). Repo-local `core.filemode=true`
+and the two registries are plain writes the projects user performs unprivileged.
 `/usr/local/sbin/ai-tools` is `750 root:root`, so the projects user cannot even stat the
 helpers — only sudo, as root, reaches them.
 

@@ -26,8 +26,17 @@
 set -euo pipefail
 
 readonly TARGET="${1:?usage: ai-tools-setgid <absolute-project-path>}"
-readonly ALLOWLIST="@PROJECTS_HOME@/.config/ai-tools/allowed-projects"
+# Allowlist. AI_TOOLS_ALLOWLIST overrides the installed path when set -- a root-only test
+# hook: sudo strips it (env_reset, not in env_keep) and the handback daemon execs this with
+# its own environment, so neither the operator nor the agent can inject it in production.
+readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-@PROJECTS_HOME@/.config/ai-tools/allowed-projects}"
 readonly GROUP="@SANDBOX_GROUP@"
+# The two legitimate co-owners of a project tree: the projects user and the sandbox
+# account. A directory owned by anyone else (root, another developer) is NEVER touched --
+# normalization must not pull a foreign-owned dir into the agent's group. Resolved to
+# UIDs for a robust numeric compare; -1 (no such user) matches nothing.
+readonly PROJECTS_UID="$(id -u "@PROJECTS_USER@" 2>/dev/null || echo -1)"
+readonly SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/setgid.log.
 # Best-effort -- a no-op fallback keeps the helper working if the lib is missing.
@@ -117,17 +126,27 @@ _is_allowed  "${canonical}" || exit 0
 # root. Pin the inode with an open fd and operate through /proc/self/fd, re-checking
 # it is still the same directory. Mirrors ai-tools-chown's pinned-fd apply.
 _safe_setgid() {
-    local dir="$1" expect_ident grp mode fd got_ident got_ftype
-    read -r expect_ident grp mode \
-        < <(stat -c '%d:%i %G %a' "${dir}" 2>/dev/null) || return 1
+    local dir="$1" expect_ident grp mode owner_uid fd got_ident got_ftype got_uid
+    read -r expect_ident owner_uid grp mode \
+        < <(stat -c '%d:%i %u %G %a' "${dir}" 2>/dev/null) || return 1
+    # Owner guard: only the projects user's or the sandbox account's own dirs are
+    # eligible (re-verified TOCTOU-safe on the pinned inode below); skip anything else.
+    [[ "${owner_uid}" == "${PROJECTS_UID}" || "${owner_uid}" == "${SANDBOX_UID}" ]] || return 1
     # Nothing to do when already group GROUP and already setgid.
     [[ "${grp}" == "${GROUP}" ]] && (( (0${mode} & 02000) != 0 )) && return 0
 
     { exec {fd}< "${dir}"; } 2>/dev/null || return 1
-    read -r got_ident got_ftype \
-        < <(stat -L -c '%d:%i %F' "/proc/self/fd/${fd}" 2>/dev/null) \
+    # %u BEFORE %F so the multi-word %F ("directory") stays the last field.
+    read -r got_ident got_uid got_ftype \
+        < <(stat -L -c '%d:%i %u %F' "/proc/self/fd/${fd}" 2>/dev/null) \
         || { exec {fd}<&-; return 1; }
     if [[ "${got_ftype}" != "directory" || "${got_ident}" != "${expect_ident}" ]]; then
+        exec {fd}<&-
+        return 1
+    fi
+    # Owner guard (checked on the pinned inode, TOCTOU-safe): only the projects user's
+    # or the sandbox account's own dirs are eligible; anything else is left untouched.
+    if [[ "${got_uid}" != "${PROJECTS_UID}" && "${got_uid}" != "${SANDBOX_UID}" ]]; then
         exec {fd}<&-
         return 1
     fi
