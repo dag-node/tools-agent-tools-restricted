@@ -21,6 +21,29 @@ section() { printf '\n── %s\n' "$*"; }
 # octal digits via this helper, not the raw `stat %a`. `8#` keeps it base-8 in any shell.
 perm() { local m; m="$(stat -c '%a' "$1" 2>/dev/null)"; printf '%o' "$(( 8#${m:-0} & 8#777 ))"; }
 
+# check_file <path> <owner> <group> <mode>: PASS when the file's actual owner, group, and
+# octal mode all match; FAIL (naming the mismatch) otherwise, or when the path is absent.
+# Used by the integration suite to assert deployed-artifact ownership/permissions.
+check_file() {
+    local file="$1" exp_owner="$2" exp_group="$3" exp_mode="$4"
+    if [[ ! -e "${file}" ]]; then
+        fail "${file}: MISSING"
+        return
+    fi
+    local act_owner act_group act_mode ok=true
+    act_owner="$(stat -c '%U' "${file}")"
+    act_group="$(stat -c '%G' "${file}")"
+    act_mode="$( stat -c '%a' "${file}")"
+    [[ "${act_owner}" == "${exp_owner}" ]] || ok=false
+    [[ "${act_group}" == "${exp_group}" ]] || ok=false
+    [[ "${act_mode}"  == "${exp_mode}"  ]] || ok=false
+    if ${ok}; then
+        pass "${file}  (${exp_owner}:${exp_group} ${exp_mode})"
+    else
+        fail "${file}: expected ${exp_owner}:${exp_group} ${exp_mode}, got ${act_owner}:${act_group} ${act_mode}"
+    fi
+}
+
 # require_root: abort unless run as root. Helper tests set arbitrary ownership/ACLs and
 # create third-party-owned fixtures, which needs root; the suites are invoked via sudo.
 require_root() {
@@ -31,14 +54,19 @@ require_root() {
 # derived from the sudo invocation -- never hard-coded.
 PROJECTS_USER="${SUDO_USER:?error: invoke via sudo, not as root directly}"
 PROJECTS_GROUP="$(id -gn "${PROJECTS_USER}")"
-readonly PROJECTS_USER PROJECTS_GROUP
+PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"
+PROJECTS_UID="$(id -u "${PROJECTS_USER}")"
+readonly PROJECTS_USER PROJECTS_GROUP PROJECTS_HOME PROJECTS_UID
 readonly SANDBOX_USER="ai-tools"
 readonly SANDBOX_GROUP="ai-tools"
 
 # Teardown removes every artifact a test registered, on any exit. Nothing outside these
-# paths is ever touched.
+# paths is ever touched. It returns success unconditionally: it runs in the EXIT trap, and
+# under `set -e` a non-zero teardown status -- e.g. the empty-_cleanup loop where the final
+# `[[ -n "" ]]` is false, or an `rm` of an already-gone path -- would otherwise become the
+# script's exit status and mask an all-PASS run as a failure. The result comes from finish.
 declare -a _cleanup=()
-_teardown() { local p; for p in "${_cleanup[@]:-}"; do [[ -n "${p}" ]] && rm -rf "${p}"; done; }
+_teardown() { local p; for p in "${_cleanup[@]:-}"; do [[ -n "${p}" ]] && rm -rf "${p}"; done; return 0; }
 trap _teardown EXIT
 
 # mktestdir: create THE dedicated /tmp boundary for this test and register it for teardown.

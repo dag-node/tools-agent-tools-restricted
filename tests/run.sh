@@ -9,14 +9,10 @@
 #   integration  full-install checks (deployed perms, sudoers, wrapper, handback daemon, systemd)
 #   boundary     confinement checks run as the agent (SANDBOX_USER)
 #   all          every category
-#
-# Migration in progress: unit/ holds the relocated helper tests; integration and boundary
-# checks not yet relocated still live in the top-level test.sh, which `all` also runs.
 
 set -uo pipefail
 
 readonly HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly REPO="$(cd "${HERE}/.." && pwd)"
 mode="${1:-all}"
 
 [[ "${EUID}" -eq 0 ]] || { echo "error: run with sudo (tests need root)" >&2; exit 1; }
@@ -34,17 +30,11 @@ run_dir() {
     done
 }
 
-run_legacy() {
-    [[ -x "${REPO}/test.sh" ]] || return 0
-    printf '\n══════ legacy test.sh (integration + boundary, pending relocation) ══════\n'
-    "${REPO}/test.sh" || rc=1
-}
-
 case "${mode}" in
     unit)        run_dir unit ;;
-    integration) run_dir integration; run_legacy ;;
+    integration) run_dir integration ;;
     boundary)    run_dir boundary ;;
-    all)         run_dir unit; run_dir integration; run_dir boundary; run_legacy ;;
+    all)         run_dir unit; run_dir integration; run_dir boundary ;;
     *) echo "usage: run.sh [unit|integration|boundary|all]" >&2; exit 2 ;;
 esac
 

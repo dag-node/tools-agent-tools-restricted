@@ -9,3 +9,5 @@ selinux/.avc-last-run
 selinux/audits/
 .avc-scratch/
 ai_tools_exec_t
+# Self-cleaning fixture dir from tests/integration/hooks.sh (left only if a run is killed).
+.handback-test.*

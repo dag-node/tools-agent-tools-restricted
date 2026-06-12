@@ -1,7 +1,6 @@
 ---
 paths:
   - tests/**
-  - test.sh
 ---
 
 # Test organization and invariants
@@ -12,7 +11,7 @@ via `sudo` (the harness derives the unprivileged project user from `SUDO_USER`).
 
 ```
 tests/
-  lib/harness.sh   result counters, perm(), the /tmp testdir + dummy-allowlist fixtures, teardown
+  lib/harness.sh   result counters, perm(), check_file(), the /tmp testdir + dummy-allowlist fixtures, teardown
   run.sh           dispatcher; aggregates by exit status
   unit/            hermetic helper-logic tests
   integration/     full-install checks (needs a deployed, running system)
@@ -48,12 +47,19 @@ prune skips. No live daemon, no SELinux dependency, no wrapper. Run as root (nee
 arbitrary ownership and create third-party-owned fixtures). A fixture tree is `chown`ed to
 the projects user before the run, or the owner guard skips it.
 
-**`integration`** — checks that need a completed install and the running system: installed-
+**`integration`** — checks that need a completed install and the running system
+(`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`): installed-
 artifact ownership/modes, sudoers syntax, the wrapper launched end-to-end, the
 handback `socket → daemon → helper` chain, systemd units, and SELinux labels. The
 handback chain cannot use the `AI_TOOLS_ALLOWLIST` override — the live daemon execs helpers
-with its own environment — so a handback end-to-end test uses a project registered in the
-real allowlist, created and unclaimed by the test itself, never a `/tmp` mock. Run as root.
+with its own environment, so the helper reads the **real** allowlist. The hooks test puts its
+fixtures in a self-cleaning subdir **inside the project the suite is run from**, reusing that
+project's existing allowlist entry (the session runs in it); it confirms the run-dir is
+allowlisted and **skips** otherwise, and under enforcing labels the fixture
+`ai_tools_project_t` so the confined chown can act on it. The wrapper test stays hermetic by
+pointing `HOME` at a `/tmp` testdir (the wrapper keys its allowlist off `${HOME}`) and runs
+the wrapper under `setsid`, so it never touches the real allowlist or fires a claim prompt.
+Run as root.
 
 **`boundary`** — confinement assertions executed **as the agent** (`sudo -u SANDBOX_USER`):
 the agent cannot read the secret-pattern library or write the control plane, an
@@ -73,10 +79,13 @@ denials; `avc-analyze.sh` categorizes them as root). It supports the policy unde
   `setsid` (no controlling tty) does, so the wrapper takes its non-interactive default.
 - **The wrapper keys off `${HOME}`** for the allowlist, so its test mocks the allowlist by
   pointing `HOME` at a `/tmp` testdir — no helper override needed there.
-
-## Migration
-
-`unit/` holds the relocated helper tests. The integration and boundary checks not yet
-relocated still live in the top-level `test.sh`, which `run.sh` also runs under
-`integration`/`all`. As sections move into `tests/integration/` and `tests/boundary/`,
-they are removed from `test.sh`.
+- **The wrapper detects a controlling terminal by opening `/dev/tty`,** not by the node's
+  permission bits (which read `rw` even with no controlling tty). Under `setsid` the open
+  fails, so every wrapper invocation in a test cleanly skips the claim prompt instead of
+  acting on it — the integration wrapper test relies on this to never claim a project.
+- **The handback path cannot cross `/tmp`.** `/tmp` and `/var/tmp` are polyinstantiated per
+  session by `pam_namespace` (`/etc/security/namespace.conf`), so a fixture the test creates
+  under `/tmp` is invisible both to the hook's own `sudo -u SANDBOX_USER` session (a fresh,
+  empty `/tmp` instance) and to the host-namespace handback daemon — the hand-back silently
+  no-ops. Any test that drives the live `hook → daemon → helper` chain puts its fixtures
+  under the projects user's `${HOME}` (shared across namespaces), not in a `/tmp` testdir.
