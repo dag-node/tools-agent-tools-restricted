@@ -99,4 +99,52 @@ else
     fail "claude-run does not pin DISABLE_AUTOUPDATER=1 -- agent will attempt the denied npm self-update"
 fi
 
+# ── Bridge input validation + allowlist boundary (negative, as the agent) ────────
+#
+# The whole privilege bridge rests on the daemon rejecting bad input and the helper
+# re-validating the allowlist. Drive the real client AS the sandbox account and prove a
+# request it must NOT honour changes nothing. The client exits non-zero and relays the
+# daemon's ERR reason on any rejection.
+section "Handback bridge: input validation + allowlist boundary (negative)"
+
+if ! command -v runuser >/dev/null 2>&1 || [[ ! -x "${_client}" || ! -S "${_sock}" ]]; then
+    skip "handback negative" "runuser, client, or socket unavailable"
+else
+    # Drive the client as the agent; capture combined output and the exit code without
+    # tripping set -e (the assignment failure sits in a && / || list, which is exempt).
+    drive() { runuser -u "${SANDBOX_USER}" -- "${_client}" "$@" 2>&1; }
+
+    # (6) Unknown verb is rejected before any helper runs.
+    out="$(drive BOGUS /etc/hostname)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'unknown verb' <<<"${out}"; then
+        pass "daemon rejects an unknown verb (no helper dispatched)"
+    else
+        fail "unknown verb not cleanly rejected (rc=${rc}): ${out}"
+    fi
+
+    # (7) A non-absolute argument is rejected by the daemon's fail-fast pre-filter.
+    out="$(drive CHOWN relative/path)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'malformed' <<<"${out}"; then
+        pass "daemon rejects a non-absolute (malformed) argument"
+    else
+        fail "non-absolute arg not cleanly rejected (rc=${rc}): ${out}"
+    fi
+
+    # (8) The allowlist boundary holds THROUGH the bridge: a CHOWN on a root-owned file that
+    # is NOT in any allowlist is refused by ai-tools-chown, leaving the victim untouched. The
+    # victim lives under /var/opt/ai-tools (root-owned, NOT /tmp -- which is polyinstantiated
+    # and would not cross to the daemon, and NOT allowlisted), so a buggy bridge that chowned
+    # it would be a real privilege leak this test would catch.
+    victim="$(mktemp /var/opt/ai-tools/.handback-negtest.XXXXXX)"
+    _cleanup+=("${victim}")
+    chown root:root "${victim}"; chmod 0600 "${victim}"
+    before="$(stat -c '%U:%G' "${victim}")"
+    drive CHOWN "${victim}" >/dev/null 2>&1 || true
+    if [[ "$(stat -c '%U:%G' "${victim}")" == "${before}" && "${before}" == "root:root" ]]; then
+        pass "out-of-allowlist CHOWN is refused through the bridge (victim stays root:root)"
+    else
+        fail "out-of-allowlist CHOWN changed the victim: ${before} -> $(stat -c '%U:%G' "${victim}")"
+    fi
+fi
+
 finish

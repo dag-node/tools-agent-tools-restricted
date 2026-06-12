@@ -48,9 +48,11 @@ arbitrary ownership and create third-party-owned fixtures). A fixture tree is `c
 the projects user before the run, or the owner guard skips it.
 
 **`integration`** — checks that need a completed install and the running system
-(`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`): installed-
-artifact ownership/modes, sudoers syntax, the wrapper launched end-to-end, the
-handback `socket → daemon → helper` chain, systemd units, and SELinux labels. The
+(`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`, `cli.sh`):
+installed-artifact ownership/modes, sudoers syntax, the wrapper launched end-to-end, the
+handback `socket → daemon → helper` chain (including its negative paths — unknown verb,
+non-absolute arg, and an out-of-allowlist CHOWN all refused), the CLI principal guard
+(refuses root and the sandbox account), systemd units, and SELinux labels. The
 handback chain cannot use the `AI_TOOLS_ALLOWLIST` override — the live daemon execs helpers
 with its own environment, so the helper reads the **real** allowlist. The hooks test puts its
 fixtures in a self-cleaning subdir **inside the project the suite is run from**, reusing that
@@ -61,10 +63,12 @@ pointing `HOME` at a `/tmp` testdir (the wrapper keys its allowlist off `${HOME}
 the wrapper under `setsid`, so it never touches the real allowlist or fires a claim prompt.
 Run as root.
 
-**`boundary`** — confinement assertions executed **as the agent** (`sudo -u SANDBOX_USER`):
-the agent cannot read the secret-pattern library or write the control plane, an
-`ai_tools_t` process is denied what the policy forbids, etc. These deliberately probe the
-current environment from the sandbox account's vantage point.
+**`boundary`** — confinement assertions executed **as the agent** (`sudo -u SANDBOX_USER`)
+(`access.sh`, `sudo.sh`): the agent cannot read the secret-pattern library or write the
+control plane, the sandbox account holds no sudo rights (both NOPASSWD rules belong to the
+projects user and drop privilege), an `ai_tools_t` process is denied what the policy
+forbids, etc. These deliberately probe the current environment from the sandbox account's
+vantage point.
 
 **`selinux`** — the AVC bring-up tooling (`avc-testsuite.sh` runs as the agent and emits
 denials; `avc-analyze.sh` categorizes them as root). It supports the policy under
