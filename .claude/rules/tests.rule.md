@@ -39,20 +39,28 @@ redirect it.
 ## Categories
 
 **`unit`** — hermetic logic tests of the deployed helpers (`ai-tools-chown`, `-setgid`,
-`-setfacl`, `-unclaim`). Each runs the **installed** helper (so it exercises the real,
-token-substituted artifact) against a `/tmp` testdir and a dummy allowlist, asserting the
-algorithm: allowlist gating, the owner guard (acts only on projects-user- or
-sandbox-account-owned paths), ACL/setgid/permission transforms, and the secret/exclusion/
-prune skips. No live daemon, no SELinux dependency, no wrapper. Run as root (needed to set
-arbitrary ownership and create third-party-owned fixtures). A fixture tree is `chown`ed to
-the projects user before the run, or the owner guard skips it.
+`-setfacl`, `-unclaim`, `-lockdown`). Each runs the **installed** helper (so it exercises
+the real, token-substituted artifact) against a `/tmp` testdir and a dummy allowlist,
+asserting the algorithm: allowlist gating, the owner guard (acts only on projects-user- or
+sandbox-account-owned paths) where it applies, ACL/setgid/permission transforms, the
+secret/exclusion/prune skips, and -- for `-lockdown` -- the proactive sweep that locks
+**pre-existing user-owned** secrets (files `600`, dirs `700`, `<you>:SANDBOX_GROUP`) which
+the reactive `-chown` never reaches, plus its refusal to run as the sandbox account. No live
+daemon, no SELinux dependency, no wrapper. Run as root (needed to set arbitrary ownership
+and create third-party-owned fixtures). A fixture tree is `chown`ed to the projects user
+before the run, or the owner guard skips it. `secret-patterns.sh` is the odd one out: it
+sources the shared classifier library (`secret-patterns.lib.sh`) and forces the built-in
+default pattern set, pinning the matcher itself — credential names match case-insensitively,
+while plain configs and build artifacts the toolchain must read do not.
 
 **`integration`** — checks that need a completed install and the running system
-(`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`, `cli.sh`):
-installed-artifact ownership/modes, sudoers syntax, the wrapper launched end-to-end, the
-handback `socket → daemon → helper` chain (including its negative paths — unknown verb,
-non-absolute arg, and an out-of-allowlist CHOWN all refused), the CLI principal guard
-(refuses root and the sandbox account), systemd units, and SELinux labels. The
+(`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`, `cli.sh`,
+`claude-run.sh`): installed-artifact ownership/modes, sudoers syntax, the wrapper launched
+end-to-end, the handback `socket → daemon → helper` chain (including its negative paths —
+unknown verb, non-absolute arg, and an out-of-allowlist CHOWN all refused), the CLI
+principal guard (refuses root and the sandbox account), `claude-run`'s `CLAUDE_EXEC` /
+`CLAUDE_PROJECT_DIR` re-validation (a bad value is refused before any session launches),
+systemd units, and SELinux labels. The
 handback chain cannot use the `AI_TOOLS_ALLOWLIST` override — the live daemon execs helpers
 with its own environment, so the helper reads the **real** allowlist. The hooks test puts its
 fixtures in a self-cleaning subdir **inside the project the suite is run from**, reusing that
