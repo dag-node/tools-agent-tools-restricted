@@ -28,6 +28,13 @@ die() {
     exit 1
 }
 
+# have_tty: true only when a controlling terminal can actually be opened. `[[ -r /dev/tty ]]`
+# is NOT a controlling-tty test -- the /dev/tty node is mode crw-rw-rw-, so the permission
+# bits read true even with no controlling terminal (e.g. under setsid). Opening it is the
+# only honest probe: with no controlling tty the open fails ENXIO and this returns non-zero,
+# so the prompt guards below skip cleanly instead of writing to /dev/tty and aborting.
+have_tty() { { : > /dev/tty; } 2>/dev/null; }
+
 # Test the symlink itself with -L, NOT -e: -e dereferences the full chain
 # (bin/claude -> versioned bin/claude -> .../claude-code/bin/claude.exe), and the
 # package dir claude-code/ is mode 700 owned ai-tools. The invoking user cannot
@@ -146,7 +153,7 @@ if [[ "${approved}" != true ]]; then
         printf '     to merge back, and tip-commit secrets are locked down too.\n'
     } >&2
     reply=""
-    if [[ -r /dev/tty && -w /dev/tty ]]; then
+    if have_tty; then
         printf 'Claim this project in place now? (n = leave it; use a sandbox clone instead) [y/N] ' > /dev/tty
         read -r reply < /dev/tty || reply=""
     fi
@@ -231,7 +238,7 @@ if ${own_gap} || ${label_gap}; then
         printf '  %s --project-claim %q\n' "${AI_TOOLS_CLI}" "${cwd}"
     } >&2
     reply=""
-    if [[ -r /dev/tty && -w /dev/tty ]]; then
+    if have_tty; then
         printf 'Claim it in place now? %s ' "${claim_hint}" > /dev/tty
         read -r reply < /dev/tty || reply=""
     fi
@@ -274,7 +281,7 @@ elif ${safe_gap}; then
         printf '\nclaude: NOTICE: %s is not in git safe.directory;\n' "${cwd}"
         printf '  git will report "dubious ownership" here until it is registered.\n'
     } >&2
-    if [[ -r /dev/tty && -w /dev/tty ]]; then
+    if have_tty; then
         printf 'Add it to %s now? [Y/n] ' "${GITCONFIG}" > /dev/tty
         reply=""
         read -r reply < /dev/tty || reply=""
