@@ -4,7 +4,7 @@
 # Usage:
 #   sudo ./install.sh install              deploy all files, enable timer
 #   sudo ./install.sh uninstall            remove deployed files, disable timer
-#   sudo ./install.sh check-perms          verify installed file permissions (also runs after install)
+#   sudo ./install.sh check-perms          run the permissions test (tests/integration/perms.sh; also part of the suite offered at the end of an interactive install)
 #
 # Project registration lives in the `ai-tools` CLI (/usr/local/bin/ai-tools), run
 # as the projects user, not in install.sh:
@@ -65,6 +65,34 @@ log()     { printf '  %s+%s %s\n' "${C_DIM}" "${C_RST}" "$*"; }
 warn()    { printf '  %s!%s %s\n' "${C_YEL}" "${C_RST}" "$*" >&2; }
 die()     { printf '%sinstall: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; exit 1; }
 
+# Shared message formatter, sourced from the SOURCE TREE (the installed copy may not exist
+# yet -- this script installs it). Frames interactive prompts in the '#' box. Best-effort:
+# a plain fallback keeps the installer working if the file is missing.
+readonly MSG_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/msg.lib.sh"
+# shellcheck source=/dev/null
+if ! source "${MSG_LIB}" 2>/dev/null; then
+    ai_tools_msg_block() { shift; printf '%s\n' "$@" >&2; }
+fi
+
+# ask <title> <question> <context-line...> -- the one interactive prompt shape, so every
+# prompt in the install flow looks the same:
+#   * a FIXED 80-column box (AI_TOOLS_MSG_FULLWIDTH) titled <title>, framing the context,
+#   * the inline <question> (carry its own [Y/n]/[y/N] hint),
+# all on the controlling terminal, BYPASSING the do_install log tee that captures
+# stdout+stderr. msg.lib.sh prints a blank line BEFORE every box, so prompts self-separate.
+# Echoes the raw reply on stdout (empty when non-interactive, so the caller picks the
+# default). Read it with resp="$(ask ...)".
+ask() {
+    local title="$1" question="$2"; shift 2
+    local reply=''
+    if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
+        AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg_block "${title}" "$@" 2>/dev/tty
+        printf '%s ' "${question}" > /dev/tty
+        read -r reply < /dev/tty
+    fi
+    printf '%s' "${reply}"
+}
+
 # Decide what to do with an existing user config file. Interactive: ask whether
 # to keep it (default) or overwrite. When warn is non-empty a second confirmation
 # is required before overwriting (use for destructive cases). Non-interactive:
@@ -77,19 +105,15 @@ die()     { printf '%sinstall: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; ex
 keep_existing() {
     local path="$1" overwrite="${2:-overwrite with shipped default}" warn="${3:-}" resp confirm
     [[ -f "${path}" ]] || return 1            # absent: caller writes a fresh copy
-    if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
-        printf '%s already exists. Keep it? (Enter = keep, n = %s) [Y/n] ' \
-            "${path}" "${overwrite}" > /dev/tty
-        read -r resp < /dev/tty
-        if [[ "${resp}" =~ ^[nN] ]]; then
-            if [[ -n "${warn}" ]]; then
-                printf 'WARNING: %s\nConfirm overwrite? (y = overwrite, Enter/n = cancel) [y/N] ' \
-                    "${warn}" > /dev/tty
-                read -r confirm < /dev/tty
-                [[ "${confirm}" =~ ^[yY] ]] || return 0   # cancelled: keep
-            fi
-            return 1
+    resp="$(ask "Awaiting input" "Keep it? (Enter = keep, n = ${overwrite}) [Y/n]" \
+                "${path} already exists.")"
+    if [[ "${resp}" =~ ^[nN] ]]; then
+        if [[ -n "${warn}" ]]; then
+            confirm="$(ask "Warning" "Confirm overwrite? (y = overwrite, Enter/N = cancel) [y/N]" \
+                           "${warn}")"
+            [[ "${confirm}" =~ ^[yY] ]] || return 0   # cancelled: keep
         fi
+        return 1
     fi
     return 0                                   # non-interactive or Enter: keep
 }
@@ -251,12 +275,9 @@ offer_selinux() {
     say ""
 
     local resp run_it=1
-    if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
-        printf '  Build and load it now?\n' > /dev/tty
-        printf '  (Enter = install, n = skip) [Y/n] ' > /dev/tty
-        read -r resp < /dev/tty
-        [[ "${resp}" =~ ^[nN] ]] && run_it=0
-    fi
+    resp="$(ask "Awaiting input" "(Enter = install, n = skip) [Y/n]" \
+                "Build and load the SELinux policy module now?")"
+    [[ "${resp}" =~ ^[nN] ]] && run_it=0
 
     if (( run_it )); then
         if "${selinux_script}" install; then
@@ -325,6 +346,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/secret-patterns.lib.sh
     _chk /usr/local/lib/ai-tools/prune-dirs.lib.sh
     _chk /usr/local/lib/ai-tools/log.lib.sh
+    _chk /usr/local/lib/ai-tools/msg.lib.sh
     _chk /usr/local/lib/ai-tools/relabel.lib.sh
     _chk /etc/sudoers.d/ai-tools-claude
     _chk /etc/profile.d/path_dedup.sh
@@ -348,209 +370,6 @@ do_summary() {
     fi
 }
 
-# ── Installed-permissions check ────────────────────────────────────────────────
-#
-# Verifies every deployed file has the intended ownership and mode.
-# Each check documents WHY that specific permission is critical to the security
-# model. Called automatically at the end of `do_install`; also available
-# standalone as `sudo ./install.sh check-perms`.
-#
-# Returns 1 (and exits the caller under set -e) if any check fails.
-
-do_perms_check() {
-    local -i _ok=0 _bad=0
-    local _sep
-    _sep="$(printf '─%.0s' {1..80})"
-
-    _pchk() {
-        local path="$1" exp_owner="$2" exp_group="$3" exp_mode="$4"
-        if [[ ! -e "${path}" ]]; then
-            printf '  FAIL  MISSING  %s\n' "${path}" >&2
-            _bad=$(( _bad + 1 ))
-            return
-        fi
-        local act_owner act_group act_mode
-        act_owner="$(stat -c '%U' "${path}")"
-        act_group="$(stat -c '%G' "${path}")"
-        act_mode="$( stat -c '%a' "${path}")"
-        if [[ "${act_owner}" == "${exp_owner}" && \
-              "${act_group}" == "${exp_group}" && \
-              "${act_mode}"  == "${exp_mode}"  ]]; then
-            printf '  PASS  %s  (%s:%s %s)\n' "${path}" "${exp_owner}" "${exp_group}" "${exp_mode}"
-            _ok=$(( _ok + 1 ))
-        else
-            printf '  FAIL  %s  -- expected %s:%s %s  got %s:%s %s\n' \
-                "${path}" "${exp_owner}" "${exp_group}" "${exp_mode}" \
-                "${act_owner}" "${act_group}" "${act_mode}" >&2
-            _bad=$(( _bad + 1 ))
-        fi
-    }
-
-    printf '\n%s\nPermissions check\n%s\n' "${_sep}" "${_sep}"
-
-    # sbin dir: 750 root:root -- world bit removed; non-root users cannot list
-    # helper names. sudo runs helpers as root so traversal succeeds regardless.
-    _pchk /usr/local/sbin/ai-tools root root 750
-
-    # Root helpers: 750 root:root -- only root can execute; ai-tools reaches
-    # chown/setgid/claude-symlink exclusively via the handback socket, never by
-    # direct exec.  Lockdown and relabel are user-run only (sudo) and have no
-    # SANDBOX_USER sudo grant.
-    _pchk /usr/local/sbin/ai-tools/ai-tools-chown          root root 750
-    _pchk /usr/local/sbin/ai-tools/ai-tools-setgid         root root 750
-    _pchk /usr/local/sbin/ai-tools/ai-tools-setfacl        root root 750
-    _pchk /usr/local/sbin/ai-tools/ai-tools-unclaim        root root 750
-    _pchk /usr/local/sbin/ai-tools/ai-tools-claude-symlink root root 750
-    _pchk /usr/local/sbin/ai-tools/ai-tools-lockdown       root root 750
-    _pchk /usr/local/sbin/ai-tools/ai-tools-relabel        root root 750
-
-    # Handback daemon: 750 root:root -- root-owned and root-only-executable.
-    # The sandbox user never exec's this directly; it connects via the socket.
-    _pchk /usr/local/sbin/ai-tools/ai-tools-handback root root 750
-
-    # Handback client: 750 root:SANDBOX_GROUP -- root-owned, group-executable so
-    # SANDBOX_USER (a SANDBOX_GROUP member) can run it from the hooks and updater;
-    # world cannot (no world bit -- prevents arbitrary users from invoking the bridge).
-    _pchk /usr/local/bin/ai-tools-handback-client root "${SANDBOX_GROUP}" 750
-
-    # Systemd units: 644 root:root -- systemd reads them as root; no write needed by
-    # anyone else.
-    _pchk /usr/lib/systemd/system/ai-tools-handback.socket   root root 644
-    _pchk /usr/lib/systemd/system/ai-tools-handback@.service root root 644
-
-    # Project CLI: 755 root:root -- runs AS the projects user (no privilege; the
-    # in-script guard refuses root and ai-tools). Root-owned so the agent cannot
-    # rewrite it; world-exec is harmless since it edits only user-writable registries.
-    _pchk /usr/local/bin/ai-tools root root 755
-
-    # Sandbox area: PROJECTS_USER:SANDBOX_GROUP. Outer dir 2750 (setgid, no world);
-    # inner sandbox-projects 2770 (setgid so clones are born group SANDBOX_GROUP,
-    # group-writable so the agent works in the clones). README 640.
-    _pchk /var/opt/ai-tools                  "${PROJECTS_USER}" "${SANDBOX_GROUP}" 2750
-    _pchk /var/opt/ai-tools/sandbox-projects "${PROJECTS_USER}" "${SANDBOX_GROUP}" 2770
-    _pchk /var/opt/ai-tools/README.md        "${PROJECTS_USER}" "${SANDBOX_GROUP}" 640
-
-    # lib dir: 750 root:SANDBOX_GROUP -- agent enters via group to read the prune
-    # list (session-hook.sh runs as ai-tools); no world bit, no agent write.
-    _pchk /usr/local/lib/ai-tools root "${SANDBOX_GROUP}" 750
-
-    # Secret-pattern matcher: 640 root:root -- read ONLY by root helpers via sudo.
-    # Agent (group SANDBOX_GROUP) cannot read it, so it cannot inspect or weaken
-    # its own secret classification.
-    _pchk /usr/local/lib/ai-tools/secret-patterns.lib.sh root root 640
-
-    # Prune-dir list: 640 root:SANDBOX_GROUP -- session-hook.sh sources this at
-    # runtime while running as ai-tools; group read is required. No write, no world.
-    _pchk /usr/local/lib/ai-tools/prune-dirs.lib.sh root "${SANDBOX_GROUP}" 640
-
-    # Logger library: 644 root:root -- world-readable, unlike the other libs. It is
-    # sourced by the root helpers AND by the hooks (run as ai-tools) AND by the CLI
-    # (run as the projects user, who is NOT in SANDBOX_GROUP), so every principal must
-    # be able to read it. It holds no secrets. Root-owned, no group/world write.
-    _pchk /usr/local/lib/ai-tools/log.lib.sh root root 644
-    _pchk /usr/local/lib/ai-tools/relabel.lib.sh root root 640
-
-    # sudoers drop-in: 440 root:root -- required mode for sudo to parse the file;
-    # a looser mode causes sudo to refuse the drop-in entirely.
-    _pchk /etc/sudoers.d/ai-tools-claude root root 440
-
-    # PATH-dedup: 644 root:root -- must be world-readable; every user's login
-    # shell sources /etc/profile.d/. Write locked to root only.
-    _pchk /etc/profile.d/path_dedup.sh root root 644
-
-    # /opt/ai-tools root: 2750 PROJECTS_USER:SANDBOX_GROUP. setgid propagates group
-    # SANDBOX_GROUP to new files (including the gitconfig lock→rename); group r-x only
-    # so the agent cannot create or delete files here.
-    _pchk /opt/ai-tools "${PROJECTS_USER}" "${SANDBOX_GROUP}" 2750
-
-    # /opt/ai-tools/bin: 550 PROJECTS_USER:SANDBOX_GROUP -- agent gets group r-x
-    # (executes nvm-update.sh, resolves the claude symlink) but no write. Only root
-    # (via ai-tools-claude-symlink) can repoint the stable claude symlink.
-    _pchk /opt/ai-tools/bin               "${PROJECTS_USER}" "${SANDBOX_GROUP}" 550
-    _pchk /opt/ai-tools/bin/nvm-update.sh "${PROJECTS_USER}" "${SANDBOX_GROUP}" 550
-    # claude-run: 550 PROJECTS_USER:SANDBOX_GROUP -- same model as nvm-update.sh.
-    # Agent gets group r-x (execute) but no write; /opt/ai-tools/bin is 550 so it
-    # cannot unlink/replace the file either.  The service-unit security properties
-    # (RestrictNamespaces=yes, PrivateTmp, UMask=0007) are applied by this shim before
-    # claude.exe is exec'd.
-    _pchk /opt/ai-tools/bin/claude-run "${PROJECTS_USER}" "${SANDBOX_GROUP}" 550
-
-    # .claude dir: 3770 PROJECTS_USER:SANDBOX_GROUP (setgid+sticky) -- agent is a
-    # group-writer for its own state, but the sticky bit forbids deleting or
-    # replacing files it does not own (hooks, settings.json), preventing the agent
-    # from swapping in a permissive replacement.
-    _pchk /opt/ai-tools/.claude "${PROJECTS_USER}" "${SANDBOX_GROUP}" 3770
-
-    # Control-plane hooks: 750 PROJECTS_USER:SANDBOX_GROUP -- agent can read+exec
-    # (Claude Code launches them) but cannot write or delete them (no group write
-    # bit; sticky blocks unlink of PROJECTS_USER-owned files). If the agent could
-    # write these, it could disable hand-back and secret quarantine.
-    _pchk /opt/ai-tools/.claude/post-tool-hook.sh "${PROJECTS_USER}" "${SANDBOX_GROUP}" 750
-    _pchk /opt/ai-tools/.claude/session-hook.sh   "${PROJECTS_USER}" "${SANDBOX_GROUP}" 750
-
-    # settings.json: 640 PROJECTS_USER:SANDBOX_GROUP -- agent can read its hook
-    # config (Claude Code reads it on startup) but cannot write or delete it (no
-    # group write bit; sticky blocks unlink of PROJECTS_USER-owned file). This
-    # prevents the agent from extending its own allowed tool scope or removing
-    # deny rules.
-    _pchk /opt/ai-tools/.claude/settings.json "${PROJECTS_USER}" "${SANDBOX_GROUP}" 640
-
-    # .gitconfig: 640 PROJECTS_USER:SANDBOX_GROUP. Agent reads safe.directory on
-    # startup; projects user (as owner) edits via ai-tools --project-create; setgid +
-    # 640 mode survive git-config rewrites.
-    _pchk /opt/ai-tools/.gitconfig "${PROJECTS_USER}" "${SANDBOX_GROUP}" 640
-
-    # Operation logs: dir 700 root:root, each file 600 root:root -- the root helpers
-    # (running as root) append here; ai-tools, neither owner nor able to traverse a
-    # 700 dir, can neither read nor tamper with the trail (secret filenames recorded
-    # by ai-tools-chown stay out of agent reach). journald carries the same lines for
-    # the non-root components.
-    _pchk /var/log/ai-tools              root root 700
-    _pchk /var/log/ai-tools/chown.log    root root 600
-    _pchk /var/log/ai-tools/setgid.log   root root 600
-    _pchk /var/log/ai-tools/symlink.log  root root 600
-    _pchk /var/log/ai-tools/lockdown.log root root 600
-    _pchk /var/log/ai-tools/relabel.log  root root 600
-    _pchk /var/log/ai-tools/install.log  root root 600
-
-    # User wrapper: 750 PROJECTS_USER:PROJECTS_GROUP -- only the projects user
-    # (and their private primary group) can execute it.
-    _pchk "${PROJECTS_HOME}/.local/bin/claude"        "${PROJECTS_USER}" "${PROJECTS_GROUP}" 750
-    _pchk "${PROJECTS_HOME}/.local/bin/nvm-update.sh" "${PROJECTS_USER}" "${PROJECTS_GROUP}" 750
-
-    # Systemd units: 640 PROJECTS_USER:PROJECTS_GROUP -- read by systemd --user
-    # as the owner; no world bit needed.
-    _pchk "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service" \
-        "${PROJECTS_USER}" "${PROJECTS_GROUP}" 640
-    _pchk "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer" \
-        "${PROJECTS_USER}" "${PROJECTS_GROUP}" 640
-
-    # User config dir: 700 PROJECTS_USER:PROJECTS_GROUP -- ai-tools (not owner,
-    # not in PROJECTS_GROUP) cannot traverse into it, making allowed-projects and
-    # secret-patterns unreachable to the agent even if those files had looser modes.
-    _pchk "${PROJECTS_HOME}/.config/ai-tools" \
-        "${PROJECTS_USER}" "${PROJECTS_GROUP}" 700
-
-    # Allowlist: 600 PROJECTS_USER:PROJECTS_GROUP -- agent cannot read or modify
-    # the approved project list; root helpers read it on the user's behalf.
-    _pchk "${PROJECTS_HOME}/.config/ai-tools/allowed-projects" \
-        "${PROJECTS_USER}" "${PROJECTS_GROUP}" 600
-
-    # Secret-pattern config: 600 PROJECTS_USER:PROJECTS_GROUP -- same protection
-    # as above; user edits it, root helpers read it, agent cannot reach it.
-    _pchk "${PROJECTS_HOME}/.config/ai-tools/secret-patterns" \
-        "${PROJECTS_USER}" "${PROJECTS_GROUP}" 600
-
-    printf '%s\n' "${_sep}"
-    if (( _bad == 0 )); then
-        printf 'Permissions: %d/%d OK\n\n' "${_ok}" "$(( _ok + _bad ))"
-    else
-        printf 'Permissions: %d/%d OK -- %d FAILED\n\n' \
-            "${_ok}" "$(( _ok + _bad ))" "${_bad}" >&2
-        return 1
-    fi
-}
-
 print_banner() {
     printf '\n'
     printf '%s%s%s\n' "${C_BOLD}" '  ____ _      _    _   _ ____   _____    ____ ____ '     "${C_RST}"
@@ -569,7 +388,9 @@ print_banner() {
 # Deploy every sandbox file with its intended owner and mode (root helpers, libs,
 # hooks, the wrapper, the CLI, systemd units), seed user config without clobbering
 # edits, bootstrap the claude symlink, enable the nvm-update timer, restore SELinux
-# contexts, and finish by running do_perms_check. Aborts if the sandbox user is absent.
+# contexts, offer the optional SELinux bring-up, and -- if confirmed at the end --
+# run the installed-files summary and the test suite (which includes the permissions
+# check). Aborts if the sandbox user is absent.
 do_install() {
     id "${SANDBOX_USER}" &>/dev/null \
         || die "${SANDBOX_USER} user not found -- create it first (README step 2)"
@@ -663,6 +484,14 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/log.lib.sh" \
         /usr/local/lib/ai-tools/log.lib.sh
+
+    # Message formatter: 644 root:root -- world-readable. Sourced by the operator wrapper
+    # and CLI, by the hooks (run as ai-tools), and by claude-run, so every principal must
+    # read it; it holds no secrets. No tokens to substitute.
+    log "/usr/local/lib/ai-tools/msg.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/msg.lib.sh" \
+        /usr/local/lib/ai-tools/msg.lib.sh
 
     # Project-label library: 640 root:root -- read ONLY by root principals (the
     # ai-tools-relabel helper and selinux/install-selinux.sh's sweep). No group or
@@ -991,10 +820,6 @@ do_install() {
     check_path_order
     do_selinux_restore
 
-    section "Installed files"
-    do_summary
-    do_perms_check
-
     section "SELinux confinement (optional)"
     offer_selinux
 
@@ -1008,6 +833,23 @@ do_install() {
     say "    ${C_BOLD}ai-tools --lockdown /path/to/project${C_RST}          ${C_DIM}# revoke agent access to secrets${C_RST}"
     say "  see ${C_DIM}/var/opt/ai-tools/README.md${C_RST}"
     say ""
+
+    # Optional post-install verification, run LAST -- after the optional SELinux setup -- so
+    # the installed-files summary and the full test suite both see the final, labelled state.
+    # The permissions check lives in the suite (tests/integration/perms.sh, the single source).
+    # Interactive only and gated behind one confirm (defaults to run); a non-interactive install
+    # skips all of it (a surprising, heavy default), leaving `install.sh check-perms` and
+    # `tests/run.sh` available on demand.
+    if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
+        section "Verify"
+        if [[ ! "$(ask "Run test suite" "(Enter = run, n = skip) [Y/n]" \
+                "Run the full test suite (incl. the permissions check) now to verify the install?")" =~ ^[nN] ]]; then
+            section "Installed files"
+            do_summary
+            "${SCRIPT_DIR}/tests/run.sh" all \
+                || warn "test suite reported failures -- review the output above"
+        fi
+    fi
 
     logger -t ai-tools-install -p daemon.notice -- "install complete" 2>/dev/null || true
 }
@@ -1045,6 +887,7 @@ do_uninstall() {
     rm -f /usr/local/lib/ai-tools/secret-patterns.lib.sh
     rm -f /usr/local/lib/ai-tools/prune-dirs.lib.sh
     rm -f /usr/local/lib/ai-tools/log.lib.sh
+    rm -f /usr/local/lib/ai-tools/msg.lib.sh
     rmdir /usr/local/lib/ai-tools 2>/dev/null || true
     rm -f /etc/sudoers.d/ai-tools-claude
     rm -f /etc/profile.d/path_dedup.sh
@@ -1066,12 +909,8 @@ do_uninstall() {
     # Optionally prune this project from the allowlist (default: keep)
     local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
     if [[ -f "${allowlist}" ]] && grep -qxF "${SCRIPT_DIR}" "${allowlist}"; then
-        {
-            printf '\nKeep in allowed-projects? (Enter = yes)\n'
-            printf '  %s\n' "${SCRIPT_DIR}"
-            printf '[Y/n]: '
-        } > /dev/tty
-        read -r _resp < /dev/tty
+        _resp="$(ask "Awaiting input" "[Y/n]:" \
+                     "Keep this project in allowed-projects?" "  ${SCRIPT_DIR}")"
         if [[ "${_resp}" =~ ^[nN] ]]; then
             local escaped
             escaped="$(printf '%s' "${SCRIPT_DIR}" | sed 's/[\\|]/\\&/g')"
@@ -1087,12 +926,8 @@ do_uninstall() {
     git_escaped="$(printf '%s' "${SCRIPT_DIR}" | sed 's/[.^$*+?{|\\[()\]]/\\&/g')"
     if git config --file /opt/ai-tools/.gitconfig \
             --get-all safe.directory 2>/dev/null | grep -qxF "${SCRIPT_DIR}"; then
-        {
-            printf '\nKeep in git safe.directory? (Enter = yes)\n'
-            printf '  %s\n' "${SCRIPT_DIR}"
-            printf '[Y/n]: '
-        } > /dev/tty
-        read -r _resp < /dev/tty
+        _resp="$(ask "Awaiting input" "[Y/n]:" \
+                     "Keep this project in git safe.directory?" "  ${SCRIPT_DIR}")"
         if [[ "${_resp}" =~ ^[nN] ]]; then
             git config --file /opt/ai-tools/.gitconfig \
                 --unset-all safe.directory "^${git_escaped}$" 2>/dev/null || true
@@ -1120,7 +955,10 @@ case "${ACTION}" in
         do_uninstall
         ;;
     check-perms)
-        do_perms_check
+        # The permissions check lives in the test suite (the single source). Run the perms
+        # integration test directly; it reads SUDO_USER for the projects user, so no extra
+        # setup is needed here.
+        exec bash "${SCRIPT_DIR}/tests/integration/perms.sh"
         ;;
     *)
         printf 'usage: sudo %s [install|uninstall|check-perms]\n' "$0" >&2

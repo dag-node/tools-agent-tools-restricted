@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # tests/integration/perms.sh
-# Integration: deployed-artifact ownership/permissions and sudoers syntax. Asserts the
-# installed control plane matches the security model -- root-owned helpers, the locked
-# /opt/ai-tools/bin, the setgid+sticky .claude, agent-readable-but-not-writable hooks --
-# and that the sudoers drop-in parses. Needs a completed install; run as root via sudo.
+# Integration: the single source of truth for deployed-artifact ownership/permissions, plus
+# sudoers syntax. Asserts EVERY installed file and directory matches the security model --
+# root-owned helpers and handback bridge, the CLI, the locked /opt/ai-tools/bin and
+# claude-run, the setgid sandbox/control-plane dirs, the setgid+sticky .claude,
+# agent-readable-but-not-writable hooks/config, the root-only operation logs, and the
+# projects-user-only allowlist/config -- and that the sudoers drop-in parses. Needs a
+# completed install; run as root via sudo, or via `sudo ./install.sh check-perms`.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -63,6 +66,51 @@ check_file "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service" \
                                                               "${PROJECTS_USER}" "${PROJECTS_GROUP}" 640
 check_file "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer" \
                                                               "${PROJECTS_USER}" "${PROJECTS_GROUP}" 640
+
+# Handback bridge. The helper dir is 750 root:root (no world bit -- non-root users cannot
+# list the helper names). The daemon is root-only-executable; the agent never exec's it, it
+# connects via the socket. The client is group-executable so SANDBOX_USER (a SANDBOX_GROUP
+# member) runs it from the hooks/updater, but no world bit (no arbitrary user reaches the
+# bridge). The units are read by systemd as root.
+check_file /usr/local/sbin/ai-tools                           root root 750
+check_file /usr/local/sbin/ai-tools/ai-tools-handback         root root 750
+check_file /usr/local/bin/ai-tools-handback-client            root "${SANDBOX_GROUP}" 750
+check_file /usr/lib/systemd/system/ai-tools-handback.socket   root root 644
+check_file /usr/lib/systemd/system/ai-tools-handback@.service root root 644
+# Project CLI: 755 root:root -- runs AS the projects user (its guard refuses root and the
+# sandbox account); root-owned so the agent cannot rewrite it, world-exec is harmless since
+# it edits only user-writable registries.
+check_file /usr/local/bin/ai-tools                            root root 755
+# Message formatter: 644 root:root -- world-readable like log.lib.sh; sourced by the operator
+# wrapper/CLI, the agent's hooks, and claude-run, so every principal must read it. No secrets.
+check_file /usr/local/lib/ai-tools/msg.lib.sh                 root root 644
+# Sandbox area: PROJECTS_USER:SANDBOX_GROUP. Outer dir 2750 (setgid, no world); inner
+# sandbox-projects 2770 (setgid so clones are born group SANDBOX_GROUP, group-writable so the
+# agent works in the clones). README 640.
+check_file /var/opt/ai-tools                                  "${PROJECTS_USER}" "${SANDBOX_GROUP}" 2750
+check_file /var/opt/ai-tools/sandbox-projects                 "${PROJECTS_USER}" "${SANDBOX_GROUP}" 2770
+check_file /var/opt/ai-tools/README.md                        "${PROJECTS_USER}" "${SANDBOX_GROUP}" 640
+# /opt/ai-tools root: 2750 PROJECTS_USER:SANDBOX_GROUP -- setgid propagates group SANDBOX_GROUP
+# to new files; group r-x only, so the agent cannot create or delete here. claude-run mirrors
+# nvm-update.sh (550, group r-x, no write). .gitconfig 640: agent reads safe.directory, owner edits.
+check_file /opt/ai-tools                                      "${PROJECTS_USER}" "${SANDBOX_GROUP}" 2750
+check_file /opt/ai-tools/bin/claude-run                       "${PROJECTS_USER}" "${SANDBOX_GROUP}" 550
+check_file /opt/ai-tools/.gitconfig                           "${PROJECTS_USER}" "${SANDBOX_GROUP}" 640
+# Operation logs: dir 700 root:root, each file 600 root:root -- the root helpers append here;
+# ai-tools (neither owner nor able to traverse the 700 dir) can neither read nor tamper with
+# the trail, so secret filenames recorded by ai-tools-chown stay out of agent reach.
+check_file /var/log/ai-tools              root root 700
+check_file /var/log/ai-tools/chown.log    root root 600
+check_file /var/log/ai-tools/setgid.log   root root 600
+check_file /var/log/ai-tools/symlink.log  root root 600
+check_file /var/log/ai-tools/lockdown.log root root 600
+check_file /var/log/ai-tools/relabel.log  root root 600
+check_file /var/log/ai-tools/install.log  root root 600
+# Projects-user config dir 700 + allowlist 600: ai-tools (not owner, not in PROJECTS_GROUP,
+# cannot traverse the 700 dir) can neither read nor modify the approved-projects list even if
+# it had a looser mode; the root helpers read it on the user's behalf.
+check_file "${PROJECTS_HOME}/.config/ai-tools"                 "${PROJECTS_USER}" "${PROJECTS_GROUP}" 700
+check_file "${PROJECTS_HOME}/.config/ai-tools/allowed-projects" "${PROJECTS_USER}" "${PROJECTS_GROUP}" 600
 
 section "Sudoers syntax"
 if visudo -c -f /etc/sudoers.d/ai-tools-claude > /dev/null 2>&1; then

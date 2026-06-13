@@ -73,6 +73,12 @@ pointing `HOME` at a `/tmp` testdir (the wrapper keys its allowlist off `${HOME}
 the wrapper under `setsid`, so it never touches the real allowlist or fires a claim prompt.
 Run as root.
 
+`perms.sh` is the **single source** for the deployed-artifact permission assertions (every
+installed file and directory's owner/group/mode): `install.sh` carries no parallel checker —
+`sudo ./install.sh check-perms` execs `perms.sh`, and the install's verification phase reaches
+it through `tests/run.sh all`. Adding or repermissioning an installed file means updating the
+`check_file` list here, nowhere else.
+
 **`boundary`** — confinement assertions executed **as the agent** (`sudo -u SANDBOX_USER`)
 (`access.sh`, `sudo.sh`): the agent cannot read the secret-pattern library or write the
 control plane, the sandbox account holds no sudo rights (both NOPASSWD rules belong to the

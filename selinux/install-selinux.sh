@@ -38,6 +38,15 @@ readonly DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # .te/.fc/.pp reference resolve there. install-selinux.sh, README.md, and ../src stay at DIR.
 readonly POLICY_DIR="${DIR}/policy"
 readonly MODULE="ai_tools"
+
+# Shared message formatter (source tree first, installed fallback): frames the interactive
+# confirmations below in the '#' box. Best-effort plain fallback if the file is absent.
+MSG_LIB="${DIR}/../src/usr/local/lib/ai-tools/msg.lib.sh"
+[[ -r "${MSG_LIB}" ]] || MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
+# shellcheck source=/dev/null
+if ! source "${MSG_LIB}" 2>/dev/null; then
+    ai_tools_msg_block() { shift; printf '%s\n' "$@" >&2; }
+fi
 readonly HOME_DIR="/opt/ai-tools/.claude"
 readonly NVM_DIR="/opt/ai-tools/.nvm"
 HOME_STATE=(.claude.json .npm .cache .local .config .gitconfig)
@@ -241,7 +250,8 @@ _check_permissive_alignment() {
         if semodule -l 2>/dev/null | grep -q "^${stale_mod}[[:space:]]"; then
             warn "  ${dom}: stale semodule '${stale_mod}' overrides compiled policy"
             if [[ -t 0 ]]; then
-                printf '  %s!%s  Remove stale module %s? [Y/n] ' "${C_YEL}" "${C_RST}" "${stale_mod}" >&2
+                AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg_block "Awaiting input" "Remove stale semodule '${stale_mod}'?"
+                printf '[Y/n] ' >&2
                 read -r ans </dev/tty
                 case "${ans,,}" in
                     n*) warn "  leaving '${stale_mod}' -- ${dom} will remain PERMISSIVE" ;;
@@ -416,7 +426,8 @@ case "${ACTION}" in
     # .te/.fc -- default no. With no prebuilt package present we must build anyway.
     _recompile=0
     if [[ -f "${POLICY_DIR}/${MODULE}.pp" && -t 0 ]]; then
-        printf '  Recompile core module from source? (needs selinux-policy-devel) [y/N] ' >&2
+        AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg_block "Awaiting input" "Recompile the core policy module from source? (needs selinux-policy-devel)"
+        printf '[y/N] ' >&2
         read -r _ans </dev/tty
         [[ "${_ans,,}" == y* ]] && _recompile=1
     fi
