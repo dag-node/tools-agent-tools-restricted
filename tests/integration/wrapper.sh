@@ -41,19 +41,22 @@ run_wrapper() {  # $1 = cwd
         "${wrapper}" --version < /dev/null 2>&1 || true )
 }
 
-# (1) An unapproved cwd is blocked at the allowlist gate.
+# (1) An unapproved cwd is blocked at the allowlist gate. With no tty the picker takes its
+#     default (Cancel), and the refusal reads "... is not accessible to the sandbox" (or
+#     "allowlist not found" when the list file is missing). That phrase proves the BLOCK and
+#     is deliberately distinct from the approved-but-not-claimed path's "not fully claimed".
 out="$(run_wrapper "${unapproved}")"
-if printf '%s' "${out}" | grep -qE "approved projects list|allowlist not found"; then
+if printf '%s' "${out}" | grep -qE "not accessible|allowlist not found"; then
     pass "wrapper blocks execution from an unapproved directory"
 else
     fail "wrapper did NOT block an unapproved directory (output: ${out})"
 fi
 
 # (2) An approved cwd passes the allowlist gate. It then stops at the downstream claim guard
-#     (the temp dir is approved but not group-claimed) -- that is expected and not the
-#     allowlist block, so we assert only that the allowlist message is ABSENT.
+#     (the temp dir is approved but not group-claimed) -- that path says "not fully claimed",
+#     never "not accessible", so asserting the allowlist refusal is ABSENT still distinguishes it.
 out2="$(run_wrapper "${approved}")"
-if printf '%s' "${out2}" | grep -qE "approved projects list|allowlist not found"; then
+if printf '%s' "${out2}" | grep -qE "not accessible|allowlist not found"; then
     fail "wrapper incorrectly blocked an approved directory (output: ${out2})"
 else
     pass "wrapper passes the allowlist gate for an approved directory"

@@ -152,14 +152,25 @@ set -euo pipefail
 
 readonly AI_TOOLS_NVM_DIR="/opt/ai-tools/.nvm"
 
+# Shared message formatter: frames the pre-launch refusals and the podman NOTICE below
+# in the paste-safe '#' box (wrapped within 80 columns) on a terminal, plain text
+# otherwise. Best-effort -- the fallback keeps the prior plain-stderr behaviour if the
+# lib is missing.
+readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
+# shellcheck source=/dev/null
+if ! source "${MSG_LIB}" 2>/dev/null; then
+    ai_tools_msg_error()  { printf '%s\n' "$@" >&2; }
+    ai_tools_msg_notice() { printf '%s\n' "$@" >&2; }
+fi
+
 # Re-validate CLAUDE_EXEC against the same versioned-path pattern the wrapper
 # checked.  Uses ${CLAUDE_EXEC:-} so an absent variable matches the * branch.
 case "${CLAUDE_EXEC:-}" in
     "${AI_TOOLS_NVM_DIR}/versions/node/"*/bin/claude) ;;
-    *) printf 'claude-run: invalid or absent CLAUDE_EXEC -- cannot launch\n' >&2; exit 1 ;;
+    *) ai_tools_msg_error 'claude-run: invalid or absent CLAUDE_EXEC -- cannot launch'; exit 1 ;;
 esac
 if [[ "${CLAUDE_EXEC}" == *"/../"* ]]; then
-    printf 'claude-run: CLAUDE_EXEC contains parent-directory references\n' >&2; exit 1
+    ai_tools_msg_error 'claude-run: CLAUDE_EXEC contains parent-directory references'; exit 1
 fi
 
 # Working directory for the session. The wrapper validated the project dir (realpath,
@@ -174,13 +185,13 @@ _workdir=""
 if [[ -n "${CLAUDE_PROJECT_DIR:-}" ]]; then
     case "${CLAUDE_PROJECT_DIR}" in
         /*) ;;
-        *) printf 'claude-run: CLAUDE_PROJECT_DIR must be an absolute path\n' >&2; exit 1 ;;
+        *) ai_tools_msg_error 'claude-run: CLAUDE_PROJECT_DIR must be an absolute path'; exit 1 ;;
     esac
     if [[ "${CLAUDE_PROJECT_DIR}" == *"/../"* || "${CLAUDE_PROJECT_DIR}" == *"/.." ]]; then
-        printf 'claude-run: CLAUDE_PROJECT_DIR contains parent-directory references\n' >&2; exit 1
+        ai_tools_msg_error 'claude-run: CLAUDE_PROJECT_DIR contains parent-directory references'; exit 1
     fi
     if [[ ! -d "${CLAUDE_PROJECT_DIR}" ]]; then
-        printf 'claude-run: CLAUDE_PROJECT_DIR is not an existing directory: %s\n' "${CLAUDE_PROJECT_DIR}" >&2; exit 1
+        ai_tools_msg_error "claude-run: CLAUDE_PROJECT_DIR is not an existing directory: ${CLAUDE_PROJECT_DIR}"; exit 1
     fi
     _workdir="${CLAUDE_PROJECT_DIR}"
 fi
@@ -194,9 +205,9 @@ export XDG_RUNTIME_DIR="/run/user/${UID}"
 # handing off to systemd-run.  systemd-run produces a cryptic dbus error when
 # the instance is not running; this gives an actionable message instead.
 if [[ ! -S "${XDG_RUNTIME_DIR}/bus" ]]; then
-    printf 'claude-run: @SANDBOX_USER@ user instance not reachable (bus socket absent: %s/bus)\n' \
-        "${XDG_RUNTIME_DIR}" >&2
-    printf 'claude-run: ensure linger is enabled:  loginctl enable-linger @SANDBOX_USER@\n' >&2
+    ai_tools_msg_error \
+        "claude-run: @SANDBOX_USER@ user instance not reachable (bus socket absent: ${XDG_RUNTIME_DIR}/bus)" \
+        "ensure linger is enabled:  loginctl enable-linger @SANDBOX_USER@"
     exit 1
 fi
 
@@ -235,23 +246,19 @@ if command -v getenforce >/dev/null 2>&1; then
 
     if [[ "${_enf}" == "Enforcing" && "${_want}" == "ai_tools_exec_t" ]]; then
         if [[ "${_have}" != "ai_tools_exec_t" ]]; then
-            {
-                printf 'claude-run: refusing to launch -- %s is mislabelled "%s"\n' "${_real}" "${_have:-none}"
-                printf '  (expected ai_tools_exec_t), so no domain transition fires and the session\n'
-                printf '  would run UNCONFINED.  Fix:  sudo selinux/install-selinux.sh relabel\n'
-            } >&2
+            ai_tools_msg_error \
+                "claude-run: refusing to launch -- ${_real} is mislabelled \"${_have:-none}\"" \
+                "(expected ai_tools_exec_t), so no domain transition fires and the session would run UNCONFINED." \
+                "Fix:  sudo selinux/install-selinux.sh relabel"
             command -v logger >/dev/null 2>&1 && logger -t claude-run -p authpriv.warning \
                 "REFUSED: entrypoint mislabelled (${_have:-none}, want ai_tools_exec_t)"
             exit 1
         fi
         if [[ -n "${_mgrdom}" && "${_mgrdom}" != "init_t" && "${_mgrdom}" != "unconfined_t" ]]; then
-            {
-                printf 'claude-run: refusing to launch -- the systemd --user manager runs in domain\n'
-                printf '  "%s", which no domtrans_pattern in ai_tools.te covers, so the session would\n' "${_mgrdom}"
-                printf '  run UNCONFINED.  Add the source and rebuild:\n'
-                printf '    domtrans_pattern(%s, ai_tools_exec_t, ai_tools_t)   # in selinux/policy/ai_tools.te\n' "${_mgrdom}"
-                printf '    sudo selinux/install-selinux.sh rebuild\n'
-            } >&2
+            ai_tools_msg_error \
+                "claude-run: refusing to launch -- the systemd --user manager runs in domain \"${_mgrdom}\", which no domtrans_pattern in ai_tools.te covers, so the session would run UNCONFINED.  Add the source and rebuild:" \
+                "  domtrans_pattern(${_mgrdom}, ai_tools_exec_t, ai_tools_t)   # in selinux/policy/ai_tools.te" \
+                "  sudo selinux/install-selinux.sh rebuild"
             command -v logger >/dev/null 2>&1 && logger -t claude-run -p authpriv.warning \
                 "REFUSED: manager domain ${_mgrdom} has no domtrans to ai_tools_t"
             exit 1
@@ -267,12 +274,8 @@ fi
 # detect here).  The regex tolerates both the name-only and name+version list formats.
 if command -v semodule >/dev/null 2>&1 \
    && semodule -l 2>/dev/null | grep -qE '^ai_tools_podman([[:space:]]|$)'; then
-    {
-        printf 'claude-run: NOTICE: the "podman" SELinux group is enabled, but RestrictNamespaces=yes\n'
-        printf '  blocks the user namespace rootless podman/buildah require -- they will fail with\n'
-        printf '  EPERM on clone(CLONE_NEWUSER).  To allow containers, relax RestrictNamespaces in\n'
-        printf '  %s -- note that permitting the user namespace reopens ESC-001.\n' "$0"
-    } >&2
+    ai_tools_msg_notice \
+        "claude-run: the \"podman\" SELinux group is enabled, but RestrictNamespaces=yes blocks the user namespace rootless podman/buildah require -- they will fail with EPERM on clone(CLONE_NEWUSER).  To allow containers, relax RestrictNamespaces in ${0} -- note that permitting the user namespace reopens ESC-001."
 fi
 
 # A service unit is spawned by the user manager with ITS OWN environment and umask,

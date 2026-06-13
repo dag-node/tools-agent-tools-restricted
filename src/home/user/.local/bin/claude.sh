@@ -14,14 +14,27 @@ IFS=$'\n\t'
 readonly AI_TOOLS_NVM_DIR="/opt/ai-tools/.nvm"
 readonly CLAUDE_LINK="/opt/ai-tools/bin/claude"
 readonly AI_TOOLS_CLI="/usr/local/bin/ai-tools"
-readonly SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
 
-# Print error lines to stderr, then pause for Enter when stdin is a tty.
+# Shared message formatter: frames refusals in the paste-safe '#' box (wrapped within
+# 80 columns) on a real terminal, plain text otherwise. Best-effort -- if the lib is
+# absent, the fallback reproduces the prior plain-stderr behaviour so the wrapper (and
+# its tests) keep working unchanged.
+readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
+# shellcheck source=/dev/null
+if ! source "${MSG_LIB}" 2>/dev/null; then
+    ai_tools_msg_error()  { printf '%s\n' "$@" >&2; }
+    ai_tools_msg_notice() { printf '%s\n' "$@" >&2; }
+    ai_tools_msg_block()  { shift; printf '%s\n' "$@" >&2; }
+    ai_tools_msg_pick()   { printf '%s' "$1"; }   # no lib: take the default (Cancel)
+fi
+
+# Print error lines to stderr (framed by ai_tools_msg_error), then pause for Enter when
+# stdin is a tty.
 # A bare terminal: user reads the error and presses Enter to dismiss.
 # An IDE console (Rider, etc.) that closes on exit: the pause keeps it open.
 # A script/pipe: stdin is not a tty, so the read is skipped.
 die() {
-    printf '%s\n' "$@" >&2
+    ai_tools_msg_error "$@"
     if [[ -t 0 ]]; then
         read -r -p "Press Enter to close..." < /dev/tty 2>/dev/null || true
     fi
@@ -121,53 +134,51 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
     done
 fi
 if [[ "${approved}" != true ]]; then
-    # Best-effort guess at an existing sandbox clone for this project: cmd_sandbox-create
-    # defaults the clone name to the repo's basename under SANDBOX_ROOT. If that already
-    # exists, the clone is already registered -- point the user straight at it rather than
-    # re-creating. (Only a heuristic on the default name; a clone made with a custom name
-    # is not detected.)
-    sandbox_existing="${SANDBOX_ROOT}/$(basename -- "${cwd}")"
-    {
-        printf '\nclaude: %s is not in the approved projects list.\n' "${cwd}"
-        if [[ -d "${sandbox_existing}" ]]; then
-            printf '\n  A sandbox copy of this project already exists -- open claude THERE:\n'
-            printf '       cd %q && claude\n' "${sandbox_existing}"
-            printf '     That clone is already approved; no need to re-create it.\n'
-        fi
-        printf '\nTwo ways to make THIS directory available to the sandboxed agent:\n'
-        printf '\n  1. Claim it IN PLACE -- the agent works your real tree:\n'
-        printf '       %s --project-claim %q\n' "${AI_TOOLS_CLI}" "${cwd}"
-        printf '     Registers it (allowlist + git safe.directory), grants the agent recursive\n'
-        printf '     group access to this directory, applies the SELinux ai_tools_project_t label,\n'
-        printf '     and locks down secret-named files first. Needs sudo. The agent then sees the\n'
-        printf '     WHOLE tree -- uncommitted files AND the full local git history. You answer "y"\n'
-        printf '     below to do this now and launch right here.\n'
-        printf '\n  2. Isolated SANDBOX clone (recommended) -- the agent never touches this tree:\n'
-        printf '       %s --sandbox-create %q\n' "${AI_TOOLS_CLI}" "${cwd}"
-        printf '     Makes a SHALLOW (depth-1) clone under\n'
-        printf '       %s/\n' "${SANDBOX_ROOT}"
-        printf '     copying only the tip commit, so the full git history never leaves your tree\n'
-        printf '     and secrets buried in past commits cannot be read. It prints the clone path on\n'
-        printf '     success; then open claude IN the clone (cd into that path), NOT here -- the\n'
-        printf '     agent runs in the clone. Its commits are pushed to a dedicated branch for you\n'
-        printf '     to merge back, and tip-commit secrets are locked down too.\n'
-    } >&2
-    reply=""
+    declare -a blk=(
+        "Two ways to make the project available to ai-tools sandboxed agent:"
+        ""
+        "  a) Create sandbox -- isolated shallow branch copy in sandbox-projects:"
+        "       ${AI_TOOLS_CLI} --sandbox-create"
+        ""
+        "  b) Claim in place -- grant permissions to work inside this directory:"
+        "       ${AI_TOOLS_CLI} --project-claim"
+        ""
+        "Note: --project-claim changes group ownership to ai-tools."
+        "See 'ai-tools --help' for more info about these options."
+    )
+    ai_tools_msg_block "This directory is not accessible to sandbox user" "${blk[@]}"
+    # Default Cancel: an unattended/piped run (no tty) takes option 3 and refuses to launch.
+    sel=3
     if have_tty; then
-        printf 'Claim this project in place now? (n = leave it; use a sandbox clone instead) [y/N] ' > /dev/tty
-        read -r reply < /dev/tty || reply=""
+        sel="$(ai_tools_msg_pick 3 "Create sandbox" "Claim in place" "Cancel")"
     fi
-    [[ "${reply}" =~ ^[yY] ]] \
-        || die "claude: refusing to launch -- ${cwd} is not approved" \
-               "       run one of the commands above, then start claude again"
-    # Delegate the full claim. ASSUME_YES answers only the CLI's top-level confirm (you
-    # answered it here); its secret-lockdown prompt and the sudo relabel stay explicit.
-    # --project-claim is idempotent and registers a brand-new path from scratch.
-    AI_TOOLS_ASSUME_YES=1 "${AI_TOOLS_CLI}" --project-claim "${cwd}" || true
-    # Confirm the claim registered the path before falling through to the claim guard,
-    # which re-verifies ownership/label (both just applied) and then launches.
-    grep -qxF "${cwd}" "${ALLOWLIST}" 2>/dev/null \
-        || die "claude: ${cwd}: still not approved -- the claim did not complete"
+    case "${sel}" in
+        1)
+            # Create sandbox -- an isolated shallow clone under the sandbox-projects area. The
+            # agent runs IN the clone, so the wrapper points the user there and stops; it does
+            # not launch in this directory.
+            if "${AI_TOOLS_CLI}" --sandbox-create "${cwd}"; then
+                ai_tools_msg_notice "claude: sandbox ready -- cd into the clone path shown above, then run claude there"
+                [[ -t 0 ]] && read -r -p "Press Enter to close..." < /dev/tty 2>/dev/null || true
+                exit 0
+            fi
+            die "claude: sandbox creation did not complete -- see the output above"
+            ;;
+        2)
+            # Claim in place. ASSUME_YES answers only the CLI's top-level confirm (you chose
+            # it here); the secret-lockdown prompt and the sudo relabel stay explicit.
+            # --project-claim is idempotent and registers a brand-new path from scratch.
+            AI_TOOLS_ASSUME_YES=1 "${AI_TOOLS_CLI}" --project-claim "${cwd}" || true
+            # Confirm the claim registered the path before falling through to the claim guard,
+            # which re-verifies ownership/label (both just applied) and then launches.
+            grep -qxF "${cwd}" "${ALLOWLIST}" 2>/dev/null \
+                || die "claude: ${cwd}: still not accessible -- the claim did not complete"
+            ;;
+        *)
+            die "claude: ${cwd} is not accessible to the sandbox" \
+                "       run one of the listed commands, then start claude again"
+            ;;
+    esac
 fi
 
 # ── Claim guard ─────────────────────────────────────────────────────────────────
@@ -218,25 +229,26 @@ if ${own_gap} || ${label_gap}; then
     # it defaults YES.
     claim_hint='[y/N]'; claim_default_yes=false
     ${own_gap} || { claim_hint='[Y/n]'; claim_default_yes=true; }
-    {
-        printf '\nclaude: %s is approved but not fully claimed for the sandbox.\n' "${cwd}"
-        ${own_gap}   && printf "  - group is '%s', not 'ai-tools' -- sessions cannot spawn children here\n" "${cwd_gid:-?}"
-        ${label_gap} && printf '  - missing SELinux label ai_tools_project_t -- the agent cannot read/write here\n'
-        ${safe_gap}  && printf '  - also not in git safe.directory\n'
-        if ${own_gap}; then
-            printf '\nRecommended -- an isolated SHALLOW clone under\n'
-            printf '  %s/\n' "${SANDBOX_ROOT}"
-            printf 'that never touches this tree (only the tip commit is copied, so the full git\n'
-            printf 'history stays private and secrets in past commits cannot be read); open claude\n'
-            printf 'in the clone it prints:\n'
-            printf '  %s --sandbox-create %q\n' "${AI_TOOLS_CLI}" "${cwd}"
-            printf '\nLast resort -- claim THIS tree in place (grants the agent recursive group\n'
-            printf 'access to %s; secrets are locked down first; needs sudo):\n' "${cwd}"
-        else
-            printf '\nClaim it (applies the SELinux label; needs sudo for the relabel):\n'
-        fi
-        printf '  %s --project-claim %q\n' "${AI_TOOLS_CLI}" "${cwd}"
-    } >&2
+    declare -a blk2=()
+    ${own_gap}   && blk2+=( "- group is '${cwd_gid:-?}', not 'ai-tools' -- sessions cannot spawn children here" )
+    ${label_gap} && blk2+=( "- missing SELinux label ai_tools_project_t -- the agent cannot read/write here" )
+    ${safe_gap}  && blk2+=( "- also not in git safe.directory" )
+    blk2+=( "" )
+    if ${own_gap}; then
+        blk2+=(
+            "Recommended -- an isolated shallow branch copy in sandbox-projects:"
+            "       ${AI_TOOLS_CLI} --sandbox-create"
+            "Allow access -- claim this directory in place (give access to ai-tools; needs sudo):"
+            "       ${AI_TOOLS_CLI} --project-claim"
+        )
+    else
+        blk2+=(
+            "Claim it -- applies the SELinux label; needs sudo for the relabel:"
+            "       ${AI_TOOLS_CLI} --project-claim"
+        )
+    fi
+    blk2+=( "" "Both default to the current directory. See 'ai-tools --help' for what each does." )
+    ai_tools_msg_block "This project is not fully claimed" "${blk2[@]}"
     reply=""
     if have_tty; then
         printf 'Claim it in place now? %s ' "${claim_hint}" > /dev/tty
@@ -277,10 +289,8 @@ elif ${safe_gap}; then
     # this is the narrow safe.directory gap, not the full project-claim. With no TTY to
     # confirm on, fall back to a NOTICE so a non-interactive launch never silently writes
     # the control-plane gitconfig.
-    {
-        printf '\nclaude: NOTICE: %s is not in git safe.directory;\n' "${cwd}"
-        printf '  git will report "dubious ownership" here until it is registered.\n'
-    } >&2
+    ai_tools_msg_notice \
+        "claude: ${cwd} is not in git safe.directory; git will report \"dubious ownership\" here until it is registered."
     if have_tty; then
         printf 'Add it to %s now? [Y/n] ' "${GITCONFIG}" > /dev/tty
         reply=""
@@ -289,7 +299,7 @@ elif ${safe_gap}; then
             if git config --file "${GITCONFIG}" --add safe.directory "${cwd}"; then
                 printf 'claude: registered %s in git safe.directory.\n' "${cwd}" >&2
             else
-                printf 'claude: NOTICE: could not write %s -- register manually:\n' "${GITCONFIG}" >&2
+                ai_tools_msg_notice "claude: could not write ${GITCONFIG} -- register manually:"
                 printf '  git config --file %q --add safe.directory %q\n' "${GITCONFIG}" "${cwd}" >&2
             fi
         fi

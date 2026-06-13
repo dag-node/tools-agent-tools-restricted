@@ -86,8 +86,8 @@ fi
 say()     { printf '%s\n' "$*"; }
 section() { printf '\n%s%s%s\n' "${C_BOLD}" "$*" "${C_RST}"; }
 ok()      { printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$*"; }
-warn()    { printf '  %s!%s %s\n' "${C_YEL}" "${C_RST}" "$*" >&2; }
-die()     { ai_tools_log_error "$*"; printf 'ai-tools: error: %s\n' "$*" >&2; exit 1; }
+warn()    { ai_tools_msg_warn "$*"; }
+die()     { ai_tools_log_error "$*"; ai_tools_msg_error "ai-tools: $*"; exit 1; }
 
 # Shared leveled logger -- journald only (this CLI runs as the projects user, not root,
 # so it cannot write the root-only /var/log/ai-tools files). Records workflow
@@ -99,6 +99,16 @@ readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+fi
+
+# Shared message formatter -- die()/warn() above frame their text in the paste-safe '#'
+# box (wrapped within 80 columns) on a terminal, plain text otherwise. Best-effort: the
+# fallback reproduces the prior plain-stderr behaviour if the lib is missing.
+readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
+# shellcheck source=/dev/null
+if ! source "${MSG_LIB}" 2>/dev/null; then
+    ai_tools_msg_error() { printf '%s\n' "$@" >&2; }
+    ai_tools_msg_warn()  { printf '%s\n' "$@" >&2; }
 fi
 
 # confirm <prompt> [y|n]  -- default decides the Enter answer and the no-tty answer.
