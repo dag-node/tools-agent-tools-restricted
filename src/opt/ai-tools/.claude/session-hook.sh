@@ -45,8 +45,11 @@
 #                 the previous session was killed before this ran (tokens
 #                 exhausted, crash, closed terminal). A surviving marker widens the
 #                 .git reclaim (which runs every session-start, below) to the killed
-#                 session's recorded cwd -- which may be a different project -- and
-#                 selects the interrupted-session NOTICE wording.
+#                 session's recorded cwd -- which may be a different project -- and is
+#                 what raises the SessionStart NOTICE: only the interrupted case emits
+#                 one (framed via msg.lib.sh), while the routine post-git-activity
+#                 reclaim is logged to journald alone so it never clobbers claude's
+#                 startup banner.
 #
 # .git reclaim: every sweep PRUNES .git for cost, so ai-tools-owned objects the agent
 # writes there via `git commit` (Bash tool -> no Write|Edit PostToolUse) are never
@@ -90,6 +93,16 @@ readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+fi
+
+# Shared message formatter -- frames the SessionStart NOTICE below in the paste-safe
+# '#' box, wrapped within 80 columns. Best-effort: if the lib is missing, fall back to
+# plain text so the notice still reaches the user.
+readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
+# shellcheck source=/dev/null
+if ! source "${MSG_LIB}" 2>/dev/null; then
+    ai_tools_msg() { shift 2; printf '%s\n' "$@"; }
+    ai_tools_msg_wrap() { shift; printf '%s\n' "$*"; }
 fi
 
 # session-end: graceful process exit. Clear the clean-exit marker so the next
@@ -225,24 +238,32 @@ if [[ "${unbounded}" -eq 1 ]]; then
         prev_found="$(reclaim_git_tree "${prev_cwd}")"
     fi
 
-    # Surface a NOTICE via SessionStart additionalContext when anything was reclaimed,
-    # so the agent can relay it and offer the manual reconcile for stragglers the
-    # helper could not reach (excluded or quarantined paths). The marker picks the
-    # wording: an interrupted prior session is the alarming case (possible
-    # cross-project mixed ownership); a clean prior session is routine housekeeping.
+    # Report the reclaim. Every reclaim is logged to journald (the audit trail of what was
+    # handed back). Only the INTERRUPTED case is ALSO surfaced as SessionStart
+    # additionalContext, because only it is actionable: a killed prior session can leave
+    # cross-project mixed ownership the agent should relay, with the manual reconcile for
+    # stragglers the helper could not reach (excluded or quarantined paths). The routine
+    # post-git-activity reclaim runs on essentially every session-start (the per-turn sweeps
+    # always prune .git) and has already repaired ownership, so there is nothing for the user
+    # to act on; injecting additionalContext would only force a TUI re-render that clobbers
+    # claude's startup banner. It therefore stays journald-only.
     total_found=$((git_found + prev_found))
     if [[ "${total_found}" -gt 0 ]]; then
         ai_tools_log_info "reclaimed ${total_found} agent-owned .git path(s) under ${dir}$([[ "${prev_found}" -gt 0 ]] && echo " and ${prev_cwd}")$([[ "${interrupted}" -eq 1 ]] && echo ' (prior session interrupted)')"
         if [[ "${interrupted}" -eq 1 ]]; then
             scope="${dir}/.git"
             [[ "${prev_found}" -gt 0 ]] && scope="${scope} and ${prev_cwd}/.git"
-            notice="NOTICE: the previous session ended without cleanup (interrupted). Reclaimed ${total_found} agent-owned path(s) under ${scope} to repair the mixed ownership that makes git report \"dubious ownership\". If git still complains, ask the user to run: sudo chown -R --from=@SANDBOX_USER@ @PROJECTS_USER@:@SANDBOX_GROUP@ \"${prev_cwd:-${dir}}\""
-        else
-            notice="NOTICE: handed ${total_found} agent-owned path(s) under ${dir}/.git back to @PROJECTS_USER@:@SANDBOX_GROUP@ (routine .git cleanup the per-turn sweeps skip). If git reports \"dubious ownership\" here, ask the user to run: sudo chown -R --from=@SANDBOX_USER@ @PROJECTS_USER@:@SANDBOX_GROUP@ \"${dir}\""
+            # Frame the explanation in the '#' box (wrapped within 80 cols); keep the
+            # reconcile command on its own line BELOW the box so it stays copy-pasteable.
+            # The wrap never splits a single token (paths survive intact), but a
+            # multi-word command would break across lines, so it is left outside the box.
+            prose="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg NOTICE 1 \
+                "The previous session ended without cleanup (interrupted). Reclaimed ${total_found} agent-owned path(s) under ${scope} to repair the mixed ownership that makes git report \"dubious ownership\".")"
+            reconcile="If git still complains, ask the user to run:"$'\n'"  sudo chown -R --from=@SANDBOX_USER@ @PROJECTS_USER@:@SANDBOX_GROUP@ \"${prev_cwd:-${dir}}\""
+            jq -cn --arg ctx "${prose}"$'\n'"${reconcile}" \
+                '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx}}' \
+                2>/dev/null || true
         fi
-        jq -cn --arg ctx "${notice}" \
-            '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx}}' \
-            2>/dev/null || true
     fi
 fi
 exit 0

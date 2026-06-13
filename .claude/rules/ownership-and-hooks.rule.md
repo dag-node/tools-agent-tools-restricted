@@ -89,10 +89,16 @@ the previous session was killed before its `SessionEnd` ran. That signal **widen
 different project than the new session's — and selects the interrupted-session NOTICE
 wording. A gracefully-exited session clears its marker, so its `.git` is reclaimed by its
 next `session-start` in that project; the cross-project pointer is needed only for a kill.
-The reclaim is reported through a NOTICE on the `SessionStart` `additionalContext` channel,
-so the agent can relay it and offer the manual
-`sudo chown -R --from=SANDBOX_USER <you>:SANDBOX_GROUP <project>` reconcile for anything
-the helper could not reach.
+Every reclaim is logged to journald (the audit trail), but only the **interrupted** case
+is also surfaced as a `SessionStart` `additionalContext` NOTICE — the only actionable one,
+since a killed prior session can leave cross-project mixed ownership the agent should relay,
+with the manual `sudo chown -R --from=SANDBOX_USER <you>:SANDBOX_GROUP <project>` reconcile
+for anything the helper could not reach (the command is kept on its own line, outside the
+frame, so it stays copy-pasteable). The routine post-git-activity reclaim runs on nearly
+every `session-start` and has already repaired ownership, so it stays journald-only:
+injecting it would force a TUI re-render that clobbers claude's startup banner with nothing
+for the user to act on. The surfaced NOTICE is framed through `msg.lib.sh` (see
+[messaging](messaging.rule.md)).
 
 ## Setgid normalization
 
