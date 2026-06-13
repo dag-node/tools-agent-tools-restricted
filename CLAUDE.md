@@ -51,6 +51,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Node/claude updater, symlink repoint | `nvm-update.sh`, `ai-tools-claude-symlink.sh` | [updater](.claude/rules/updater.rule.md) |
 | Management CLI, project lifecycle, relabel | `bin/ai-tools.sh`, `ai-tools-relabel.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
 | Shared logging library | `log.lib.sh` | [logging](.claude/rules/logging.rule.md) |
+| User-facing message formatting (box, wrap, ties) | `msg.lib.sh` + its consumers | [messaging](.claude/rules/messaging.rule.md) |
 | Test organization, hermeticity, categories | `tests/**` | [tests](.claude/rules/tests.rule.md) |
 
 ## Trust chain (summary)
@@ -119,6 +120,10 @@ it anything. The invariants the agent operates under:
 - **Logging** — components log through `log.lib.sh` to journald (always) and root-only
   `/var/log/ai-tools/*.log` (root writers only). Detail in
   [logging](.claude/rules/logging.rule.md).
+- **User-facing messages** — refusals, notices, and warnings render through `msg.lib.sh`:
+  wrapped within 80 columns with no line ending on a preposition, framed in a paste-safe
+  `#` box on a terminal and emitted plain when piped (so logs and test greps stay
+  line-matchable). Detail in [messaging](.claude/rules/messaging.rule.md).
 - **Root sudo-helpers** live under `/usr/local/sbin/ai-tools/` (`chown`, `setgid`,
   `claude-symlink`, `lockdown`, `relabel`); shared libraries under
   `/usr/local/lib/ai-tools/` (`secret-patterns`, `prune-dirs`, `relabel`, `log`).
