@@ -9,9 +9,9 @@
 # In-place project paths (under a user's home) are DYNAMIC, so they get a
 # per-project `semanage fcontext` rule here. Sandbox clones under
 # /var/opt/ai-tools/sandbox-projects are already mapped by a STATIC rule in
-# selinux/ai_tools.fc, so for those a plain restorecon suffices and adding a local
+# selinux/policy/ai_tools.fc, so for those a plain restorecon suffices and adding a local
 # rule would be redundant -- the helpers below detect and skip the semanage step
-# for sandbox paths. See selinux/ai_tools.fc and selinux/ai_tools.te.
+# for sandbox paths. See selinux/policy/ai_tools.fc and selinux/policy/ai_tools.te.
 #
 # Every mutating function is root-only: semanage writes the policy store and
 # restorecon needs relabel. Callers must already be root. The functions are

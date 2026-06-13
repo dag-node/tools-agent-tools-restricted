@@ -34,6 +34,9 @@ IFS=$'\n\t'
 
 readonly ACTION="${1:-install}"
 readonly DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Policy source + prebuilt packages live under policy/; the build (make -C) and every
+# .te/.fc/.pp reference resolve there. install-selinux.sh, README.md, and ../src stay at DIR.
+readonly POLICY_DIR="${DIR}/policy"
 readonly MODULE="ai_tools"
 readonly HOME_DIR="/opt/ai-tools/.claude"
 readonly NVM_DIR="/opt/ai-tools/.nvm"
@@ -146,13 +149,13 @@ require_devel() {
     exit 1
 }
 
-# ensure_pp <module.pp>: guarantee the compiled package ${DIR}/<module.pp> exists.
+# ensure_pp <module.pp>: guarantee the compiled package ${POLICY_DIR}/<module.pp> exists.
 # Prefers the prebuilt package shipped in the repo so a normal install needs no
 # toolchain; compiles from source (requiring selinux-policy-devel) only when the
 # package is absent -- i.e. an optional group, or after editing the .te/.fc source.
 ensure_pp() {
     local pp="$1"
-    if [[ -f "${DIR}/${pp}" ]]; then
+    if [[ -f "${POLICY_DIR}/${pp}" ]]; then
         log "using prebuilt ${pp}"
     else
         build_pp "${pp}"
@@ -166,10 +169,10 @@ build_pp() {
     local pp="$1"
     require_devel "${pp}"
     log "building ${pp}"
-    make -C "${DIR}" -f /usr/share/selinux/devel/Makefile "${pp}"
+    make -C "${POLICY_DIR}" -f /usr/share/selinux/devel/Makefile "${pp}"
     # The refpolicy Makefile creates *.fc stubs as root. Fix ownership so the
     # source file remains readable/commitable by the repo owner.
-    local base="${DIR}/${pp%.pp}"
+    local base="${POLICY_DIR}/${pp%.pp}"
     [[ -f "${base}.fc" ]] \
         && chown "${PROJECTS_USER}:ai-tools" "${base}.fc" 2>/dev/null \
         && chmod 664 "${base}.fc" 2>/dev/null \
@@ -197,7 +200,7 @@ valid_group() {
 _mode_label() {
     local doms
     doms=$(grep -E '^[[:space:]]*permissive[[:space:]]+ai_tools_[^[:space:]]+[[:space:]]*;' \
-               "${DIR}/${MODULE}.te" 2>/dev/null \
+               "${POLICY_DIR}/${MODULE}.te" 2>/dev/null \
            | awk '{gsub(/;/,""); print $2}' | paste -sd ' ')
     if [[ -n "${doms}" ]]; then
         printf 'PERMISSIVE (%s)' "${doms}"
@@ -214,7 +217,7 @@ _check_permissive_alignment() {
     # Domains the compiled .te expects permissive (non-commented permissive lines).
     local expected_permissive
     expected_permissive=$(grep -E '^[[:space:]]*permissive[[:space:]]+ai_tools_[^[:space:]]+[[:space:]]*;' \
-                          "${DIR}/${MODULE}.te" 2>/dev/null \
+                          "${POLICY_DIR}/${MODULE}.te" 2>/dev/null \
                           | awk '{gsub(/;/,""); print $2}')
 
     # All ai_tools_* domains currently permissive in the running kernel.
@@ -412,7 +415,7 @@ case "${ACTION}" in
     # a from-source rebuild (needs selinux-policy-devel) for anyone who edited the
     # .te/.fc -- default no. With no prebuilt package present we must build anyway.
     _recompile=0
-    if [[ -f "${DIR}/${MODULE}.pp" && -t 0 ]]; then
+    if [[ -f "${POLICY_DIR}/${MODULE}.pp" && -t 0 ]]; then
         printf '  Recompile core module from source? (needs selinux-policy-devel) [y/N] ' >&2
         read -r _ans </dev/tty
         [[ "${_ans,,}" == y* ]] && _recompile=1
@@ -425,7 +428,7 @@ case "${ACTION}" in
 
     _mode="$(_mode_label)"
     log "loading core module (${_mode})"
-    semodule -i "${DIR}/${MODULE}.pp"
+    semodule -i "${POLICY_DIR}/${MODULE}.pp"
     ok "core module loaded (${_mode})"
     _check_permissive_alignment
 
@@ -450,7 +453,7 @@ case "${ACTION}" in
         for name in "${SELECTED_GROUPS[@]}"; do
             ensure_pp "ai_tools_${name}.pp"
             log "loading group: ai_tools_${name}"
-            semodule -i "${DIR}/ai_tools_${name}.pp"
+            semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
             ok "group '${name}' enabled"
         done
     fi
@@ -500,7 +503,7 @@ case "${ACTION}" in
     build_pp "${MODULE}.pp"
     _mode="$(_mode_label)"
     log "reloading core module (${_mode})"
-    semodule -i "${DIR}/${MODULE}.pp"
+    semodule -i "${POLICY_DIR}/${MODULE}.pp"
     ok "core module rebuilt and reloaded (${_mode})"
     _check_permissive_alignment
 
@@ -550,7 +553,7 @@ case "${ACTION}" in
     section "Enabling group: ${name}"
     ensure_pp "ai_tools_${name}.pp"
     log "loading group: ai_tools_${name}"
-    semodule -i "${DIR}/ai_tools_${name}.pp"
+    semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
     ok "group '${name}' enabled"
     log "re-run the bring-up loop (avc-testsuite.sh + avc-analyze.sh) to catch any"
     log "new denials from the expanded surface before going enforcing"
@@ -568,7 +571,7 @@ case "${ACTION}" in
 
   list-groups)
     if semodule -l 2>/dev/null | grep -q "^${MODULE}[[:space:]]"; then
-        if grep -qE '^[[:space:]]*permissive[[:space:]]+ai_tools_t[[:space:]]*;' "${DIR}/${MODULE}.te"; then
+        if grep -qE '^[[:space:]]*permissive[[:space:]]+ai_tools_t[[:space:]]*;' "${POLICY_DIR}/${MODULE}.te"; then
             core_state="loaded (PERMISSIVE)"
         else
             core_state="loaded (ENFORCING)"

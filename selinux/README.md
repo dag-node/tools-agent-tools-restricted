@@ -31,6 +31,25 @@ that way: load **permissive** (`permissive ai_tools_t;` in `ai_tools.te`), log w
 re-open that loop, uncomment `permissive ai_tools_t;`, recompile, and reload; the
 installer detects the mode from the source and reports it.
 
+## Layout
+
+```
+selinux/
+  install-selinux.sh   load / rebuild / relabel / enable-group / remove (run from here)
+  README.md            this guide
+  policy/              policy source + the shipped prebuilt core
+                         ai_tools.{te,fc,if}, the optional ai_tools_{systemd,pkgmgmt,
+                         netadmin,podman}.{te,fc,if}, ai_tools.pp, Makefile,
+                         helper-domain.te.draft; build scratch lands in policy/tmp/
+  avc/                 bring-up + diagnostics (run during policy authoring)
+                         avc-denials.sh, avc-testsuite.sh, avc-analyze.sh,
+                         diag-nvm-update.sh; capture logs in avc/audits/, marker
+                         avc/.avc-last-run
+```
+
+Filenames below (`ai_tools.te`, `ai_tools.pp`, …) live under `policy/`; the bring-up
+scripts under `avc/`. `install-selinux.sh` stays at `selinux/` and resolves both.
+
 ## Building from source (optional)
 
 The shipped core needs no toolchain. `selinux-policy-devel` is required only to
@@ -71,16 +90,16 @@ but should not be the one acting as the agent:
 
 ```bash
 # 1. AS THE AGENT, inside a confined claude in an approved project:
-bash selinux/avc-testsuite.sh     # create, modify, git (+ git mv), private temp,
+bash selinux/avc/avc-testsuite.sh     # create, modify, git (+ git mv), private temp,
                                   # secret-quarantine, allowed + denied network
 
 # 2. AS <you> (root), once the turn ends (so the Stop sweep's NOTICE is logged too):
-sudo bash selinux/avc-analyze.sh  # splits denials into NEW vs EXPECTED BOUNDARY
+sudo bash selinux/avc/avc-analyze.sh  # splits denials into NEW vs EXPECTED BOUNDARY
 ```
 
 `avc-testsuite.sh` **aborts unless it is running in `ai_tools_t`** — running it
 unconfined would log nothing and the empty result would look like success. It
-writes a start marker (`selinux/.avc-last-run`); `avc-analyze.sh` reads it so
+writes a start marker (`selinux/avc/.avc-last-run`); `avc-analyze.sh` reads it so
 `ausearch -ts` starts at exactly the right instant. The analyzer classifies each
 denial: **EXPECTED BOUNDARY** ones (the `user_home_t` / `config_home_t` /
 non-`http_port_t` accesses `ai_tools.te` already `dontaudit`s) must stay denied,
@@ -188,10 +207,10 @@ the agent triggers the denials:
 
 ```bash
 # 1. AS <you> (root), in a terminal:
-sudo selinux/avc-denials.sh           # -DB, prints the probe cmd, then WAITS
+sudo selinux/avc/avc-denials.sh           # -DB, prints the probe cmd, then WAITS
 
 # 2. AS THE AGENT, in a confined claude (approved project):
-bash selinux/avc-denials.sh probe     # every attempt is expected to FAIL
+bash selinux/avc/avc-denials.sh probe     # every attempt is expected to FAIL
 
 # 3. back in terminal 1: press Enter   # ausearch + classify, then -B restores
 ```

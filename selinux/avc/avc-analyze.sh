@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# selinux/avc-analyze.sh -- collect the ai_tools_t AVCs logged since the last
+# selinux/avc/avc-analyze.sh -- collect the ai_tools_t AVCs logged since the last
 # avc-testsuite.sh run and split them into NEW (candidates to fold into the policy)
 # vs EXPECTED BOUNDARY (the accesses ai_tools.te deliberately dontaudit's -- they
 # must stay denied, NOT be added). RUN AS ROOT (it reads the audit log).

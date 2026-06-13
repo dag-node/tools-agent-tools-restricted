@@ -1,4 +1,4 @@
-# Build ai_tools policy modules.
+# Build ai_tools policy modules (policy source lives here, under selinux/policy/).
 #
 # The refpolicy Makefile compiles every *.te file in this directory into its
 # own *.pp. Target individual modules by name or build all at once:
@@ -11,10 +11,10 @@
 #   make ai_tools_podman.pp          # optional: podman/buildah, container storage
 #   make clean
 #
-# Use install-selinux.sh rather than semodule directly:
-#   sudo ./install-selinux.sh install
-#   sudo ./install-selinux.sh enable-group <name>
-#   sudo ./install-selinux.sh list-groups
+# Use install-selinux.sh (one level up, at selinux/) rather than semodule directly:
+#   sudo ../install-selinux.sh install
+#   sudo ../install-selinux.sh enable-group <name>
+#   sudo ../install-selinux.sh list-groups
 #
 # Requires: sudo dnf install selinux-policy-devel
 

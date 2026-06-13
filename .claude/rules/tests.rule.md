@@ -16,8 +16,10 @@ tests/
   unit/            hermetic helper-logic tests
   integration/     full-install checks (needs a deployed, running system)
   boundary/        confinement checks run as the agent (SANDBOX_USER)
-  selinux/         SELinux AVC bring-up tooling
 ```
+
+The SELinux AVC bring-up tooling is **not** part of this suite: it lives with the policy it
+supports, under `selinux/avc/` (`run.sh` does not dispatch it).
 
 ## Hermeticity contract
 
@@ -77,10 +79,6 @@ control plane, the sandbox account holds no sudo rights (both NOPASSWD rules bel
 projects user and drop privilege), an `ai_tools_t` process is denied what the policy
 forbids, etc. These deliberately probe the current environment from the sandbox account's
 vantage point.
-
-**`selinux`** — the AVC bring-up tooling (`avc-testsuite.sh` runs as the agent and emits
-denials; `avc-analyze.sh` categorizes them as root). It supports the policy under
-`selinux/` and is environment-specific.
 
 ## Quirks
 

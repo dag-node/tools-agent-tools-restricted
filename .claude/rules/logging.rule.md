@@ -31,8 +31,8 @@ present-tense `DEBUG`; one after a completed unit of work is past-tense `INFO`. 
 are best-effort — a failed write is swallowed, so logging never aborts or alters the exit
 status of the operation it describes.
 
-The directory is labelled `ai_tools_log_t` (`selinux/ai_tools.fc`); the helpers that run
+The directory is labelled `ai_tools_log_t` (`selinux/policy/ai_tools.fc`); the helpers that run
 in `ai_tools_t` (`ai-tools-chown`, `ai-tools-setgid`, and `ai-tools-claude-symlink` under
-the updater) are granted append/create on that type (`selinux/ai_tools.te`), so file
+the updater) are granted append/create on that type (`selinux/policy/ai_tools.te`), so file
 writes succeed under enforcing. `ai-tools-lockdown` and the CLI run unconfined; the hooks
 reach journald over the already-granted `/dev/log` path.

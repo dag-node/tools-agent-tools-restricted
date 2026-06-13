@@ -2,11 +2,11 @@
 .env/
 # Compiled policy packages are build artifacts -- except the core module, which
 # ships prebuilt so a normal install needs no selinux-policy-devel toolchain.
-selinux/*.pp
-!selinux/ai_tools.pp
-selinux/tmp/
-selinux/.avc-last-run
-selinux/audits/
+selinux/policy/*.pp
+!selinux/policy/ai_tools.pp
+selinux/policy/tmp/
+selinux/avc/.avc-last-run
+selinux/avc/audits/
 .avc-scratch/
 ai_tools_exec_t
 # Self-cleaning fixture dir from tests/integration/hooks.sh (left only if a run is killed).

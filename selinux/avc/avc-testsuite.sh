@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# selinux/avc-testsuite.sh -- exercise the ai_tools_t surface so a PERMISSIVE
+# selinux/avc/avc-testsuite.sh -- exercise the ai_tools_t surface so a PERMISSIVE
 # bring-up logs the full AVC set for audit2allow. RUN AS THE AGENT (claude, the
 # ai-tools UID) from inside an approved project dir -- the kernel only attributes
 # AVCs to ai_tools_t when the calling process is in that domain.
 #
-# Pairs with selinux/avc-analyze.sh, which you run as root afterwards to turn the
+# Pairs with selinux/avc/avc-analyze.sh, which you run as root afterwards to turn the
 # logged denials into policy (it reads the start marker this script writes).
 #
 # Flow:
-#   1. (in an approved project, inside a confined claude)  bash selinux/avc-testsuite.sh
-#   2. (as <you>, root)                                       sudo selinux/avc-analyze.sh
+#   1. (in an approved project, inside a confined claude)  bash selinux/avc/avc-testsuite.sh
+#   2. (as <you>, root)                                       sudo selinux/avc/avc-analyze.sh
 #
 # PREFLIGHT GUARD: if this process is NOT in ai_tools_t the script ABORTS. Running
 # it unconfined produces ZERO ai_tools_t AVCs, so `ausearch -su ai_tools_t` would

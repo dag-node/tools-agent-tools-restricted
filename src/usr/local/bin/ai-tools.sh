@@ -301,7 +301,7 @@ normalize_clone() {
 }
 
 # relabel_clone <dir>  -- apply the SELinux project label so the agent (ai_tools_t)
-# can read/write the clone. A static fcontext rule in selinux/ai_tools.fc maps every
+# can read/write the clone. A static fcontext rule in selinux/policy/ai_tools.fc maps every
 # directory under sandbox-projects/ to ai_tools_project_t, so a plain restorecon
 # labels it -- no per-project semanage and no root: the projects user runs as
 # unconfined_t, which the policy grants relabel to ai_tools_project_t. No-op when

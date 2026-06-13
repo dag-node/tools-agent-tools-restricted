@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# selinux/avc-denials.sh -- ENFORCE-VERIFICATION harness. Confirms the things the
+# selinux/avc/avc-denials.sh -- ENFORCE-VERIFICATION harness. Confirms the things the
 # agent must NOT be able to do are actually DENIED under enforcing.
 #
 # Probe sections and goals:
@@ -41,9 +41,9 @@
 #           EXPECTED GROUP-DISABLED, or NEW.
 #
 # Flow:
-#   1. (as <you>, root, in a terminal)            sudo selinux/avc-denials.sh
+#   1. (as <you>, root, in a terminal)            sudo selinux/avc/avc-denials.sh
 #        -> disables dontaudit, prints the probe command, WAITS.
-#   2. (in a confined claude, approved project) bash selinux/avc-denials.sh probe
+#   2. (in a confined claude, approved project) bash selinux/avc/avc-denials.sh probe
 #        -> run it, let the turn finish.
 #   3. (back in terminal 1)                     press Enter
 #        -> ausearch + classify, then dontaudit is restored.

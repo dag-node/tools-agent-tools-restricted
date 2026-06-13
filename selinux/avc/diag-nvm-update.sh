@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# selinux/diag-nvm-update.sh -- assert the SELinux posture around the sandbox's Node
+# selinux/avc/diag-nvm-update.sh -- assert the SELinux posture around the sandbox's Node
 # tree and the SYMLINK handback verb that nvm-update.sh uses to repoint
 # /opt/ai-tools/bin/claude after a Node upgrade. Two invariants:
 #   1. the agent's Node tree (.nvm/versions/node/*) is READ-ONLY to ai_tools_t -- the

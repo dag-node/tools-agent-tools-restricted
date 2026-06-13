@@ -249,7 +249,7 @@ if command -v getenforce >/dev/null 2>&1; then
                 printf 'claude-run: refusing to launch -- the systemd --user manager runs in domain\n'
                 printf '  "%s", which no domtrans_pattern in ai_tools.te covers, so the session would\n' "${_mgrdom}"
                 printf '  run UNCONFINED.  Add the source and rebuild:\n'
-                printf '    domtrans_pattern(%s, ai_tools_exec_t, ai_tools_t)   # in selinux/ai_tools.te\n' "${_mgrdom}"
+                printf '    domtrans_pattern(%s, ai_tools_exec_t, ai_tools_t)   # in selinux/policy/ai_tools.te\n' "${_mgrdom}"
                 printf '    sudo selinux/install-selinux.sh rebuild\n'
             } >&2
             command -v logger >/dev/null 2>&1 && logger -t claude-run -p authpriv.warning \
