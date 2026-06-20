@@ -256,11 +256,22 @@ When nvm installs a new Node version under `/opt/ai-tools`:
   unit otherwise defaults to `/`. Both env vars are carried through sudo via
   `env_keep` (scoped to `claude-run` in `sudoers.d/ai-tools-claude`).
 - Old Node versions are pruned in both nvm installs (any version not referenced by
-  a named alias is removed).
+  a named alias is removed) — **except** a version a live process is still running
+  from. The prune scans `/proc/<pid>/exe` and defers such a version to the next
+  cycle, so an update never deletes the toolchain out from under a running Claude
+  session or one of your own long-running Node processes (a dev server, watcher, or
+  language server).
 - `src/home/user/.local/bin/nvm-update.sh` resolves the latest version once, updates
   your `~/.nvm`, then invokes `src/opt/ai-tools/bin/nvm-update.sh` as
   `${SANDBOX_USER}` via sudo with the pinned version so both installs land on the
   same Node build.
+
+After an update, **new** shells and **new** Claude sessions use the new Node version
+automatically — a new shell sources nvm and picks up the updated `default` alias, and
+a new session resolves the repointed `bin/claude` symlink. An **already-open** login
+shell keeps the version it started with (standard nvm per-shell behaviour); run
+`nvm use default` in it, or open a new shell, to switch. A **running** Claude session
+stays pinned to the Node version it launched with for its whole lifetime by design.
 
 ## Operation logging
 
