@@ -293,7 +293,7 @@ fi
 #     so no quoting/injection risk).  Only terminal-, locale-, and connectivity-shaping
 #     vars are forwarded.  HOME and PATH are SET to sandbox values, never inherited:
 #     HOME must be the agent's own /opt/ai-tools, and PATH is pinned to a known-good
-#     list that includes the versioned node bin dir.  To pass an additional var (e.g. a
+#     list that includes the nvm "default" node bin dir.  To pass an additional var (e.g. a
 #     token you deliberately want shared), add its name to _ENV_ALLOW.
 #   * UMask.  The collaborative-ownership model needs 0007 (group rwx) on agent-created
 #     files; the sudoers umask set claude-run's umask, which a scope inherited but a
@@ -313,12 +313,16 @@ for _name in "${_ENV_ALLOW[@]}"; do
 done
 # HOME and PATH are pinned to sandbox values, never inherited from the operator.
 # PATH mirrors /etc/profile.d/path_dedup.sh's security ordering: root-owned, least-
-# writable dirs first (Tier 1) so they win first-match, with the versioned node bin
+# writable dirs first (Tier 1) so they win first-match, with the nvm-managed node bin
 # placed LAST (path_dedup's Tier 4).  Safe because no node/npm/npx exists in any system
 # dir, so the version-pinned node still resolves without being shadowed.  Redundant
 # /sbin and /bin are dropped (usrmerge symlinks them onto /usr/sbin and /usr/bin).
+# The "default" alias symlink lets PATH automatically follow Node upgrades: when
+# nvm-update.sh runs, it maintains the alias, and new sessions resolve through it
+# to the current version without PATH modification.  Redundant
+# /sbin and /bin are dropped (usrmerge symlinks them onto /usr/sbin and /usr/bin).
 _setenv+=( "--setenv=HOME=/opt/ai-tools" )
-_setenv+=( "--setenv=PATH=/usr/local/sbin:/usr/sbin:/usr/local/bin:/usr/bin:$(dirname -- "${CLAUDE_EXEC}")" )
+_setenv+=( "--setenv=PATH=/usr/local/sbin:/usr/sbin:/usr/local/bin:/usr/bin:${AI_TOOLS_NVM_DIR}/versions/node/default/bin" )
 
 # Pin Node's V8 compile cache to the agent's own state area instead of letting it
 # default to os.tmpdir()/node-compile-cache.  Node honours NODE_COMPILE_CACHE (>=v22.1)

@@ -120,6 +120,21 @@ main() {
 
     prune_versions "${node_alias}"
 
+    # Maintain a convenience symlink at .../versions/node/default that always points to
+    # the active version. This lets PATH include a stable reference that automatically
+    # follows upgrades without session environment modification: new processes (and new
+    # Claude sessions) resolve through the symlink to the current version at lookup time.
+    # ai-tools can write this directly (the dir is 750 ai-tools:ai-tools).
+    local default_link="${nvm_dir}/versions/node/default"
+    local active_version
+    active_version="$(nvm version "${node_alias}")"
+    local default_target="${nvm_dir}/versions/node/${active_version}"
+    [[ -d "${default_target}" ]] || die "active version dir does not exist: ${default_target}"
+    rm -f "${default_link}" 2>/dev/null || true
+    ln -s "${active_version}" "${default_link}" \
+        || die "failed to create default symlink"
+    log "Maintained default symlink: ${default_link} -> ${active_version}"
+
     # Refresh the stable symlink that claude-wrapper resolves with one readlink hop.
     # /opt/ai-tools/bin is locked 550 (<you>:ai-tools) so this process -- running as
     # ai-tools -- cannot write it directly; delegate the repoint to the root helper
