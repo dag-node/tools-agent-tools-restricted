@@ -22,6 +22,10 @@ check_file /usr/local/sbin/ai-tools/ai-tools-lockdown         root              
 # SELinux project-label helper: 750 root:root -- user-run via sudo, never by the agent (no
 # SANDBOX_USER grant); same surface as lockdown.
 check_file /usr/local/sbin/ai-tools/ai-tools-relabel          root              root              750
+# SELinux entrypoint-relabel helper: 750 root:root -- run AS root via the third
+# @PROJECTS_USER@ NOPASSWD rule (by the nvm-update timer and `ai-tools --relabel`), never by
+# the agent. Fixed-path, no-arg target, so the root grant cannot be parameterized.
+check_file /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint root            root              750
 # Lib dir: root-owned, group ai-tools, 750 (no world). The agent enters via group to read
 # the prune list, but has no write, so it cannot alter the rules.
 check_file /usr/local/lib/ai-tools                            root              "${SANDBOX_GROUP}" 750

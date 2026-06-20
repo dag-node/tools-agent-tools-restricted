@@ -7,6 +7,8 @@
 #      RestrictNamespaces forces PR_SET_NO_NEW_PRIVS, but claude-run must not set NNP at the
 #      scope it occupies before exec, or sudo's own PAM authentication breaks)
 #   2. run nvm-update.sh as @SANDBOX_USER@ (called from nvm-update.sh running as @PROJECTS_USER@)
+#   3. run ai-tools-relabel-entrypoint as ROOT (called from nvm-update.sh after the sandbox
+#      update, to restore ai_tools_exec_t on the new claude.exe; see the security note below)
 #
 # NOTE: @SANDBOX_USER@ has NO sudo rights in this file.  Ownership handback
 # (ai-tools-chown, ai-tools-setgid, ai-tools-claude-symlink) is now handled by the
@@ -34,17 +36,25 @@
 #     @SANDBOX_USER@ invocation sees the same values @PROJECTS_USER@ resolved.
 #
 # SECURITY NOTES:
-#   - NOPASSWD is intentional: both commands are called non-interactively.
+#   - NOPASSWD is intentional: all three commands are called non-interactively (the
+#     daily nvm-update timer has no tty to prompt at).
 #   - claude-run is at a fixed, non-glob path (550 @PROJECTS_USER@:@SANDBOX_GROUP@,
 #     not writable by @SANDBOX_USER@). The versioned claude binary is no longer a
 #     direct sudo target; it is exec'd by claude-run after re-validation of CLAUDE_EXEC.
 #   - The nvm-update.sh argument must match a vMAJOR.MINOR.PATCH version; a single
 #     glob arg cannot span into extra arguments (sudo matches argv count), so no
 #     trailing flags can be injected.
-#   - Both @PROJECTS_USER@ rules DROP privilege (run as the lower-privileged
+#   - ai-tools-relabel-entrypoint runs AS ROOT (the other two drop to @SANDBOX_USER@):
+#     restoring the ai_tools_exec_t label on the new claude entrypoint needs unconfined_t,
+#     which root holds. The grant is scoped to that one action -- a FIXED, non-glob path
+#     with NO arguments resolves to one program doing one thing (restorecon the nvm-tree
+#     claude.exe), and the helper is 750 root:root, owned and writable by root alone. It is
+#     an operator (@PROJECTS_USER@) grant, keeping the root privilege on the operator side
+#     alongside the other two rather than in the agent-reachable handback domain.
+#   - The two @SANDBOX_USER@-target rules DROP privilege (run as the lower-privileged
 #     @SANDBOX_USER@); the agent runs AS @SANDBOX_USER@ and cannot invoke a
-#     @PROJECTS_USER@ rule, so neither grants the agent anything it does not
-#     already have.
+#     @PROJECTS_USER@ rule, so NONE of the three grants the agent anything -- including
+#     the root relabel rule, which @SANDBOX_USER@ cannot reach.
 #   - @SANDBOX_USER@ has no login shell and no other sudo rights.
 #   - @PROJECTS_USER@ is substituted with the real username by install.sh.
 #
@@ -56,3 +66,4 @@ Defaults!/opt/ai-tools/bin/nvm-update.sh env_keep += "AI_TOOLS_GLOBAL_TOOLS NVM_
 
 @PROJECTS_USER@ ALL=(@SANDBOX_USER@:@SANDBOX_GROUP@) NOPASSWD: /opt/ai-tools/bin/claude-run
 @PROJECTS_USER@ ALL=(@SANDBOX_USER@:@SANDBOX_GROUP@) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*.[0-9]*.[0-9]*
+@PROJECTS_USER@ ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint

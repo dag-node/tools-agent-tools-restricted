@@ -335,6 +335,7 @@ do_summary() {
     _chk /usr/local/sbin/ai-tools/ai-tools-claude-symlink
     _chk /usr/local/sbin/ai-tools/ai-tools-lockdown
     _chk /usr/local/sbin/ai-tools/ai-tools-relabel
+    _chk /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
     _chk /usr/local/sbin/ai-tools/ai-tools-handback
     _chk /usr/local/bin/ai-tools-handback-client
     _chk /usr/lib/systemd/system/ai-tools-handback.socket
@@ -515,6 +516,15 @@ do_install() {
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-relabel.sh" \
         /usr/local/sbin/ai-tools/ai-tools-relabel
+
+    # SELinux entrypoint-relabel helper. 750 root:root -- run AS root via sudo (the third
+    # @PROJECTS_USER@ NOPASSWD rule), by the nvm-update timer after a Node upgrade and by
+    # `ai-tools --relabel`; never by ai-tools. No @-substitution needed (no placeholders),
+    # but install_subst keeps the deploy path uniform with the other helpers.
+    log "/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint"
+    install_subst 750 root root \
+        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint.sh" \
+        /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
 
     # Handback privilege bridge daemon.  750 root:root -- root-owned and only
     # root-executable: this is the privileged endpoint; the SANDBOX_USER reaches it

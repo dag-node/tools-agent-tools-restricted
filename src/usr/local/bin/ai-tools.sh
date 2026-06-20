@@ -17,6 +17,7 @@
 #                             register it; pushes a dedicated branch first
 #   --sandbox-push   [path]   push the sandbox clone's commits to its branch
 #   --sandbox-remove [path]   remove a sandbox clone and unregister it
+#   --relabel                 relabel the claude entrypoint after a Node upgrade (sudo)
 #   --list                    list registered projects (real vs sandbox)
 #   --help
 #
@@ -57,6 +58,11 @@ readonly SETFACL_BIN="/usr/local/sbin/ai-tools/ai-tools-setfacl"
 # removes group write. Needs root to chgrp to an arbitrary group and to act on files the
 # projects user does not own.
 readonly UNCLAIM_BIN="/usr/local/sbin/ai-tools/ai-tools-unclaim"
+# Root-only entrypoint-relabel helper, same sudo (no NOPASSWD) model. Restores
+# ai_tools_exec_t on the claude.exe entrypoint(s) after a Node auto-upgrade leaves them
+# mislabelled; needs root (the projects user runs as unconfined_t, which can relabel, but
+# only via sudo as the helper is 750 root:root). Invoked by --relabel and --postupgrade.
+readonly RELABEL_ENTRYPOINT_BIN="/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint"
 # Sentinel in a guard CLAUDE.md (see drop_lockdown_guard) so the lockdown step can
 # recognise and remove its own placeholder once secrets are secured.
 readonly GUARD_MARKER="ai-tools-lockdown-guard"
@@ -889,6 +895,32 @@ cmd_lockdown() {
     fi
 }
 
+# cmd_relabel  -- restore the ai_tools_exec_t SELinux label on the claude entrypoint(s)
+# after a Node auto-upgrade, via the root helper (sudo, password). A nvm-update installs a
+# fresh claude binary that npm leaves mislabelled (bin_t), so the agent's domain transition
+# stops firing and claude-run refuses to launch (fail-closed) until the label is restored.
+# Takes no path -- the helper acts only on the fixed nvm-tree entrypoint(s).
+#
+# Design note: if post-upgrade maintenance ever grows beyond this one step, fold the steps
+# under a `--postupgrade` umbrella verb that runs them in sequence; while relabel is the
+# only step, the explicit `--relabel` is clearer in the UX, so there is no umbrella yet.
+cmd_relabel() {
+    [[ "$#" -eq 0 ]] || die "--relabel takes no arguments"
+    section "Relabel the claude entrypoint (after a Node upgrade)"
+    say "  A Node auto-upgrade installs a new claude binary that must be relabelled so"
+    say "  the sandbox can confine the session; until then claude refuses to launch."
+    command -v sudo >/dev/null 2>&1 \
+        || die "sudo not found -- cannot relabel; run as root: ${RELABEL_ENTRYPOINT_BIN}"
+    # Reaches the helper through the dedicated fixed-path NOPASSWD rule (the same one the
+    # nvm-update timer uses), so this runs as root without a password prompt.
+    if sudo "${RELABEL_ENTRYPOINT_BIN}"; then
+        ok "entrypoint relabelled -- exit any running claude and relaunch"
+        ai_tools_log_info "relabelled claude entrypoint (post-upgrade)"
+    else
+        die "relabel failed -- see the message above"
+    fi
+}
+
 # cmd_list  -- print each allowlist entry as project, sandbox, or exclude, with its
 # git safe.directory status.
 cmd_list() {
@@ -929,6 +961,7 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
   ai-tools --sandbox-push   [path]   push the sandbox clone's commits to its branch
   ai-tools --sandbox-remove [path]   remove a sandbox clone and unregister it
   ai-tools --lockdown [path] [-n|-y] lock down secret files (sudo; default: cwd)
+  ai-tools --relabel                 relabel the claude entrypoint after a Node upgrade (sudo)
   ai-tools --list                    list registered projects
   ai-tools --help
 
@@ -948,6 +981,7 @@ case "${1:-}" in
     --sandbox-push)   shift; cmd_sandbox_push   "${1:-}" ;;
     --sandbox-remove) shift; cmd_sandbox_remove "${1:-}" ;;
     --lockdown)       shift; cmd_lockdown "$@" ;;
+    --relabel)        shift; cmd_relabel "$@" ;;
     --list)           cmd_list ;;
     --help|-h|"")     usage ;;
     *) printf 'ai-tools: unknown command: %s\n\n' "$1" >&2; usage >&2; exit 1 ;;

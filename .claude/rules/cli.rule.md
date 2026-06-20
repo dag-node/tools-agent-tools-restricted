@@ -29,6 +29,10 @@ account (the agent must not manage its own allowlist).
   branch / remove the clone and unregister it.
 - `--lockdown [path]` — wrapper over `ai-tools-lockdown` (see
   [secret-handling](secret-handling.rule.md)).
+- `--relabel` — restore `ai_tools_exec_t` on the claude entrypoint(s) after a Node upgrade,
+  via `ai-tools-relabel-entrypoint`. The manual counterpart to the automatic post-upgrade
+  relabel the `nvm-update` timer runs (see [updater](updater.rule.md)); for an out-of-band
+  upgrade or if the timer's relabel failed and `claude-run` is fail-closing on the launch.
 - `--list`, `--help`.
 
 ## Two project models
@@ -72,10 +76,14 @@ restorecon, not by `ai-tools-relabel`.
 
 ## Privilege model
 
-The CLI itself is unprivileged. Its four root operations — `ai-tools-lockdown`,
+The CLI itself is unprivileged. Four of its root operations — `ai-tools-lockdown`,
 `ai-tools-relabel`, `ai-tools-setfacl`, and `ai-tools-unclaim` — run via `sudo` with **no**
 NOPASSWD grant by design, so sudo prompts for the projects user's password; the sandbox
-account has no grant for any. `ai-tools-setfacl` and `ai-tools-unclaim` need root
+account has no grant for any. The fifth, `--relabel` → `ai-tools-relabel-entrypoint`, is the
+exception: it has a dedicated fixed-path NOPASSWD rule (shared with the `nvm-update` timer,
+see [updater](updater.rule.md) / [launch](launch.rule.md)), so it runs **as root without a
+prompt** — kept safe by being a fixed-path, no-argument target the projects user cannot
+modify. `ai-tools-setfacl` and `ai-tools-unclaim` need root
 (`CAP_FOWNER`) to act on files the projects user does not own (e.g. agent-written files from
 a prior session); each re-validates its target path
 against the allowlist and shares the exclusion/secret-skip/prune rules with `ai-tools-setgid`

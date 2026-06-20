@@ -15,7 +15,7 @@ dedicated, locked-down system user (`SANDBOX_USER`, the account created as
 `ai-tools`)** instead of as your own login account, so an autonomous coding agent
 works on your projects without inheriting your user's privileges. It runs under a
 separate UID with no login shell, launches only inside explicitly approved project
-directories, escalates only through two narrow `sudo` rules, and does not reach your
+directories, escalates only through three narrow `sudo` rules, and does not reach your
 secrets, SSH keys, or unrelated projects.
 
 ## Terminology
@@ -74,16 +74,20 @@ Each step's mechanism is in the rule files above; the invariant each guarantees:
 
 ## Security model — what `SANDBOX_USER` can and cannot do
 
-The sudoers drop-in (`/etc/sudoers.d/ai-tools-claude`) grants the **invoking user** two
-NOPASSWD rules that drop privilege to `SANDBOX_USER`:
+The sudoers drop-in (`/etc/sudoers.d/ai-tools-claude`) grants the **invoking user** three
+NOPASSWD rules:
 
 ```
 <you>  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/claude-run
 <you>  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*.[0-9]*.[0-9]*
+<you>  ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
 ```
 
-The agent runs *as* `SANDBOX_USER` and cannot invoke a `<you>` rule, so neither grants
-it anything. The invariants the agent operates under:
+The first two **drop** privilege to `SANDBOX_USER`; the third runs **as root** for the
+post-upgrade entrypoint relabel (a fixed-path, no-argument target — see
+[launch](.claude/rules/launch.rule.md)). The agent runs *as* `SANDBOX_USER` and cannot
+invoke a `<you>` rule, so **none** of the three grants it anything — including the root
+rule, which `SANDBOX_USER` cannot reach. The invariants the agent operates under:
 
 - **`SANDBOX_USER` has no sudo rights** — not `rm -rf /`, not `cat /etc/shadow`, not any
   root helper. Root operations (chown, setgid, symlink repoint) go **exclusively**

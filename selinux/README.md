@@ -225,26 +225,32 @@ the two EXPECTED buckets and **nothing** under NEW or "ran (group enabled?)".
 
 ## After a Node upgrade
 
-A freshly installed `claude.exe` is unlabelled (fails open → unconfined). The root
-helper `ai-tools-claude-symlink` — which runs at upgrade time to repoint the stable
-symlink — now **`restorecon`s the new `claude.exe` automatically**, best-effort and
-fail-open: it relabels only when SELinux is enabled and the `ai_tools` module is
-loaded, and warns (never aborts the upgrade) if the label does not take. So a normal
-`nvm-update` keeps the agent confined across version bumps without manual steps.
+A freshly installed `claude.exe` is mislabelled (`bin_t`), so the
+`unconfined_t → ai_tools_t` transition stops firing. `claude-run` **fail-closes** on this —
+it refuses to launch rather than run unconfined — so a mislabelled entrypoint keeps the
+agent safe while it waits to be relabelled.
 
-You only need to relabel by hand if you upgraded Node some other way, or to
-re-assert after changing the policy:
+The daily `nvm-update` timer relabels the new entrypoint automatically: after delegating the
+sandbox update it runs `ai-tools-relabel-entrypoint` as root (a dedicated NOPASSWD rule),
+which `restorecon`s every `claude.exe` under the nvm tree and verifies `ai_tools_exec_t`. So
+a normal upgrade keeps the agent confined across version bumps with no manual step.
+
+Relabel by hand only if you upgraded Node some other way, or if the timer's relabel failed
+(`claude-run` will be refusing to launch and pointing you here):
+
+```bash
+ai-tools --relabel
+```
+
+To re-apply **all** labels after changing the policy (entrypoint + home-state + every
+project), use the full sweep:
 
 ```bash
 cd selinux && sudo ./install-selinux.sh relabel
 ```
 
-Both paths now **verify** the entrypoint label and remind you that a *running*
-claude keeps its old context until you exit and relaunch.
-
-> Note: the live deployed helper is `/usr/local/sbin/ai-tools/ai-tools-claude-symlink`
-> (root-owned, 750). After pulling this change, redeploy it:
-> `sudo install -o root -g root -m 750 src/usr/local/sbin/ai-tools/ai-tools-claude-symlink.sh /usr/local/sbin/ai-tools/ai-tools-claude-symlink`.
+Both paths **verify** the entrypoint label and remind you that a *running* claude keeps its
+old context until you exit and relaunch.
 
 ## Adding a project later
 

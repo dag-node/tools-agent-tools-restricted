@@ -12,6 +12,12 @@ set -euo pipefail
 IFS=$'\n\t'
 
 readonly AI_TOOLS_SCRIPT="/opt/ai-tools/bin/nvm-update.sh"
+# Root helper that restores ai_tools_exec_t on the sandbox claude entrypoint. A fresh
+# Node tree's claude.exe is born mislabelled (bin_t), and the confined handback domain
+# that repoints the stable symlink is deliberately not granted relabel rights, so the
+# relabel is done here -- this updater runs as the projects user (unconfined_t, which can
+# relabel) and reaches the helper through a dedicated fixed-path NOPASSWD sudo rule.
+readonly AI_TOOLS_RELABEL="/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint"
 
 log()  { echo "$*"; }
 warn() { echo "warn: $*" >&2; }
@@ -135,6 +141,16 @@ main() {
         log "ai-tools: delegating sandbox update at ${latest_version}"
         sudo -u ai-tools "${AI_TOOLS_SCRIPT}" "${latest_version}" \
             || warn "ai-tools update failed -- claude may be on an old version"
+
+        # Relabel the (possibly new) sandbox claude entrypoint so the SELinux domain
+        # transition keeps firing. Best-effort and idempotent: a no-op when the label is
+        # already correct or SELinux is inactive. No pre-check on the helper -- it is
+        # 750 root:root under a dir the projects user cannot stat, reachable only via this
+        # fixed-path NOPASSWD sudo rule; a missing helper or rule just makes sudo fail and
+        # warn. If it fails, claude-run's pre-launch check still fail-closes (refuses
+        # rather than running unconfined) and points the operator at `ai-tools --relabel`.
+        sudo "${AI_TOOLS_RELABEL}" \
+            || warn "entrypoint relabel failed -- run 'ai-tools --relabel' before launching claude"
     else
         warn "ai-tools: ${AI_TOOLS_SCRIPT} not found, skipping sandbox update"
     fi

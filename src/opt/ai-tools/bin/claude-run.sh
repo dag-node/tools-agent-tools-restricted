@@ -248,8 +248,8 @@ if command -v getenforce >/dev/null 2>&1; then
         if [[ "${_have}" != "ai_tools_exec_t" ]]; then
             ai_tools_msg_error \
                 "claude-run: refusing to launch -- ${_real} is mislabelled \"${_have:-none}\"" \
-                "(expected ai_tools_exec_t), so no domain transition fires and the session would run UNCONFINED." \
-                "Fix:  sudo selinux/install-selinux.sh relabel"
+                "(expected ai_tools_exec_t), so no domain transition fires and the session would run UNCONFINED (relabel is required after upgrade)." \
+                "Fix:  ai-tools --relabel"
             command -v logger >/dev/null 2>&1 && logger -t claude-run -p authpriv.warning \
                 "REFUSED: entrypoint mislabelled (${_have:-none}, want ai_tools_exec_t)"
             exit 1
