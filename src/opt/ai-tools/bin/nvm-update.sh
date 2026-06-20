@@ -20,9 +20,30 @@ log()  { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p info;    echo "I
 warn() { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p warning; echo "WARN : $*" >&2; }
 die()  { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p err;     echo "ERROR: $*" >&2; exit 1; }
 
+# version_in_use: succeed if a live process is executing from this version's tree.
+# A session is pinned to the Node version it launched with (claude-run sets PATH to
+# that version's bin and DISABLE_AUTOUPDATER=1), so pruning a version out from under a
+# running session would break it -- a lazy require() or a node/npm/npx subprocess spawn
+# would hit ENOENT on the deleted tree. Scans /proc/<pid>/exe; this runs as ai-tools,
+# which can readlink only ITS OWN processes -- exactly the set that matters, since
+# sessions and their node subprocesses all run as ai-tools. Best-effort: an exited or
+# unreadable PID is skipped. A version found in use is deferred to the next prune cycle,
+# by which time the session has ended.
+# args:  version string (e.g. v22.23.0)
+version_in_use() {
+    local ver="$1" verdir="${HOME}/.nvm/versions/node/${ver}"
+    local exe tgt
+    for exe in /proc/[0-9]*/exe; do
+        tgt="$(readlink -- "${exe}" 2>/dev/null)" || continue
+        [[ "${tgt}" == "${verdir}/"* ]] && return 0
+    done
+    return 1
+}
+
 # prune_versions: uninstall every installed Node version not referenced by a named
-# nvm alias; the alias-tracked version is always kept. Logs each removal and
-# retention to the journal.
+# nvm alias; the alias-tracked version is always kept, as is any version a live session
+# is still running from (see version_in_use). Logs each removal and retention to the
+# journal.
 # args:  nvm alias to track
 prune_versions() {
     local node_alias="$1" nvm_dir="${HOME}/.nvm"
@@ -41,11 +62,13 @@ prune_versions() {
     for ver in "${nvm_dir}/versions/node"/v*/; do
         ver="${ver%/}"; ver="${ver##*/}"
         [[ "${ver}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
-        if [[ -z "${keep[${ver}]+x}" ]]; then
+        if [[ -n "${keep[${ver}]+x}" ]]; then
+            log "  keeping ${ver}"
+        elif version_in_use "${ver}"; then
+            log "  keeping ${ver} (in use by a live session -- deferring prune)"
+        else
             log "  removing ${ver}"
             nvm uninstall "${ver}" || warn "  failed to uninstall ${ver}"
-        else
-            log "  keeping ${ver}"
         fi
     done
 }
@@ -119,21 +142,6 @@ main() {
     install_packages "${allow_csv}" "${tools[@]}"
 
     prune_versions "${node_alias}"
-
-    # Maintain a convenience symlink at .../versions/node/default that always points to
-    # the active version. This lets PATH include a stable reference that automatically
-    # follows upgrades without session environment modification: new processes (and new
-    # Claude sessions) resolve through the symlink to the current version at lookup time.
-    # ai-tools can write this directly (the dir is 750 ai-tools:ai-tools).
-    local default_link="${nvm_dir}/versions/node/default"
-    local active_version
-    active_version="$(nvm version "${node_alias}")"
-    local default_target="${nvm_dir}/versions/node/${active_version}"
-    [[ -d "${default_target}" ]] || die "active version dir does not exist: ${default_target}"
-    rm -f "${default_link}" 2>/dev/null || true
-    ln -s "${active_version}" "${default_link}" \
-        || die "failed to create default symlink"
-    log "Maintained default symlink: ${default_link} -> ${active_version}"
 
     # Refresh the stable symlink that claude-wrapper resolves with one readlink hop.
     # /opt/ai-tools/bin is locked 550 (<you>:ai-tools) so this process -- running as

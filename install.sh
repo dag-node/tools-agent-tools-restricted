@@ -156,36 +156,27 @@ user_systemctl() {
         || warn "systemctl --user $* failed -- run it manually as ${PROJECTS_USER}"
 }
 
-# Lock down nvm directory permissions to prevent tampering. The nvm directory is
-# created during the initial Node installation (README step 3) and may have overly
-# broad permissions. This ensures it's locked down (750 ai-tools:ai-tools) so only
-# ai-tools can write to it -- the operator (group membership) can read/execute but
-# not write. Idempotent; silently skips if nvm not yet installed.
+# Assert the sandbox nvm tree's intended ownership/mode on every (re)install, even
+# when the dirs pre-exist from README step 3. The tree is the agent's PRIVATE Node
+# install (the agent runs AS ai-tools and legitimately writes here on update); lock the
+# three top dirs to 750 ai-tools:ai-tools -- owner rwx, no world access -- so whatever
+# the initial `nvm install` left behind cannot stay broader than intended. The version
+# subtrees nvm creates at 700 are already tighter and are left untouched; this is the
+# top-level assertion, not a recursive sweep. Skips when nvm is not yet installed, and
+# WARNS rather than swallowing a chown/chmod failure -- a hardening step that fails
+# quietly could leave the tree mis-permissioned with no signal.
 lockdown_nvm_permissions() {
     local ai_nvm_dir="/opt/ai-tools/.nvm"
-    local ai_nvm_versions="/opt/ai-tools/.nvm/versions"
-    local ai_nvm_node="/opt/ai-tools/.nvm/versions/node"
+    [[ -d "${ai_nvm_dir}" ]] || return 0   # nvm not yet installed
 
-    if [[ ! -d "${ai_nvm_dir}" ]]; then
-        return 0  # nvm not yet installed; skip
-    fi
-
-    # Ensure nvm directory and its subdirectories are owned by ai-tools and locked
-    # to 750 (rwx for owner, r-x for group, nothing for world). The operator is in
-    # the ai-tools group via SANDBOX_GROUP co-ownership but does not own the dir,
-    # so they can read/execute but cannot write.
-    if [[ -d "${ai_nvm_dir}" ]]; then
-        chown "${SANDBOX_USER}:${SANDBOX_USER}" "${ai_nvm_dir}" 2>/dev/null || true
-        chmod 750 "${ai_nvm_dir}" 2>/dev/null || true
-    fi
-    if [[ -d "${ai_nvm_versions}" ]]; then
-        chown "${SANDBOX_USER}:${SANDBOX_USER}" "${ai_nvm_versions}" 2>/dev/null || true
-        chmod 750 "${ai_nvm_versions}" 2>/dev/null || true
-    fi
-    if [[ -d "${ai_nvm_node}" ]]; then
-        chown "${SANDBOX_USER}:${SANDBOX_USER}" "${ai_nvm_node}" 2>/dev/null || true
-        chmod 750 "${ai_nvm_node}" 2>/dev/null || true
-    fi
+    local d
+    for d in "${ai_nvm_dir}" "${ai_nvm_dir}/versions" "${ai_nvm_dir}/versions/node"; do
+        [[ -d "${d}" ]] || continue
+        chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${d}" \
+            || warn "lockdown: failed to chown ${d}"
+        chmod 750 "${d}" \
+            || warn "lockdown: failed to chmod 750 ${d}"
+    done
 }
 
 # Create /opt/ai-tools/bin/claude -> versioned claude binary directly, without

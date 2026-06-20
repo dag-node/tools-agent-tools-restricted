@@ -313,16 +313,22 @@ for _name in "${_ENV_ALLOW[@]}"; do
 done
 # HOME and PATH are pinned to sandbox values, never inherited from the operator.
 # PATH mirrors /etc/profile.d/path_dedup.sh's security ordering: root-owned, least-
-# writable dirs first (Tier 1) so they win first-match, with the nvm-managed node bin
+# writable dirs first (Tier 1) so they win first-match, with the versioned node bin
 # placed LAST (path_dedup's Tier 4).  Safe because no node/npm/npx exists in any system
 # dir, so the version-pinned node still resolves without being shadowed.  Redundant
 # /sbin and /bin are dropped (usrmerge symlinks them onto /usr/sbin and /usr/bin).
-# The "default" alias symlink lets PATH automatically follow Node upgrades: when
-# nvm-update.sh runs, it maintains the alias, and new sessions resolve through it
-# to the current version without PATH modification.  Redundant
-# /sbin and /bin are dropped (usrmerge symlinks them onto /usr/sbin and /usr/bin).
+#
+# The node bin dir is dirname(CLAUDE_EXEC) -- the SAME versioned path the wrapper
+# resolved from the locked, agent-unwritable /opt/ai-tools/bin/claude symlink (one
+# readlink hop) and re-validated above.  This is deliberate: it ties the session's
+# node/npm/npx to the same trusted source as the launched entrypoint, and it
+# automatically follows Node upgrades WITHOUT a relogin -- nvm-update repoints
+# bin/claude after an upgrade, so the next session's wrapper readlink yields the new
+# versioned path and PATH tracks it.  It does NOT route through an agent-writable
+# "default" symlink in the .nvm tree (the agent owns that tree and could repoint such
+# a link), keeping node-in-PATH on the same resolution chain as CLAUDE_EXEC.
 _setenv+=( "--setenv=HOME=/opt/ai-tools" )
-_setenv+=( "--setenv=PATH=/usr/local/sbin:/usr/sbin:/usr/local/bin:/usr/bin:${AI_TOOLS_NVM_DIR}/versions/node/default/bin" )
+_setenv+=( "--setenv=PATH=/usr/local/sbin:/usr/sbin:/usr/local/bin:/usr/bin:$(dirname -- "${CLAUDE_EXEC}")" )
 
 # Pin Node's V8 compile cache to the agent's own state area instead of letting it
 # default to os.tmpdir()/node-compile-cache.  Node honours NODE_COMPILE_CACHE (>=v22.1)
