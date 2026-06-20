@@ -25,13 +25,35 @@ die()  { echo "error: $*" >&2; exit 1; }
 
 require_cmd() { command -v "$1" &>/dev/null || die "Required command not found: $1"; }
 
+# version_in_use: succeed if a live process is executing from this version's tree, so an
+# automatic update does not delete the toolchain out from under a still-running process
+# the operator launched (a dev server, watcher, or language server) -- a lazy require()
+# or a node/npm/npx spawn would then hit ENOENT. Scans /proc/<pid>/exe; this runs as the
+# projects user via the user timer, so it readlinks that user's own processes -- the set
+# that matters. Best-effort: an exited or unreadable PID is skipped. A version in use is
+# deferred to the next prune cycle, by which time it is idle.
+# This does NOT chase a stale $PATH in an already-open shell: that is normal nvm (new
+# shells pick up the new default; an open shell needs `nvm use default`). It only keeps a
+# version with a LIVE process from being deleted mid-run.
+# args:  version string (e.g. v22.23.0)
+version_in_use() {
+    local ver="$1" verdir="${NVM_DIR:-${HOME}/.nvm}/versions/node/${ver}"
+    local exe tgt
+    for exe in /proc/[0-9]*/exe; do
+        tgt="$(readlink -- "${exe}" 2>/dev/null)" || continue
+        [[ "${tgt}" == "${verdir}/"* ]] && return 0
+    done
+    return 1
+}
+
 # prune_versions: uninstall every installed Node version not referenced by a named
-# nvm alias; the alias-tracked version is always kept. Logs what it removed and kept.
+# nvm alias; the alias-tracked version is always kept, as is any version a live process
+# is still running from (see version_in_use). Logs what it removed, kept, and deferred.
 # args:  nvm alias to track
 prune_versions() {
     local node_alias="$1" nvm_dir="${NVM_DIR:-${HOME}/.nvm}"
     local active_version ver aliased
-    local -a removed=()
+    local -a removed=() deferred=()
 
     active_version="$(nvm version "${node_alias}")"
 
@@ -45,10 +67,13 @@ prune_versions() {
     for ver in "${nvm_dir}/versions/node"/v*/; do
         ver="${ver%/}"; ver="${ver##*/}"
         [[ "${ver}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
-        if [[ -z "${keep[${ver}]+x}" ]]; then
-            nvm uninstall "${ver}" && removed+=("${ver}") \
-                || warn "failed to uninstall ${ver}"
+        [[ -n "${keep[${ver}]+x}" ]] && continue
+        if version_in_use "${ver}"; then
+            deferred+=("${ver}")
+            continue
         fi
+        nvm uninstall "${ver}" && removed+=("${ver}") \
+            || warn "failed to uninstall ${ver}"
     done
 
     if [[ ${#removed[@]} -gt 0 ]]; then
@@ -56,6 +81,7 @@ prune_versions() {
     else
         log "prune: ${active_version} kept"
     fi
+    [[ ${#deferred[@]} -gt 0 ]] && log "prune: deferred (in use) ${deferred[*]}"
 }
 
 # install_packages: install each package missing from the active nvm context, or
