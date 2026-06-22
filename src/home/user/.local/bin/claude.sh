@@ -137,10 +137,10 @@ if [[ "${approved}" != true ]]; then
     declare -a blk=(
         "Two ways to make the project available to ai-tools sandboxed agent:"
         ""
-        "  a) Create sandbox -- isolated shallow branch copy in sandbox-projects:"
+        "  1) Create sandbox -- isolated shallow branch copy in sandbox-projects:"
         "       ${AI_TOOLS_CLI} --sandbox-create"
         ""
-        "  b) Claim in place -- grant permissions to work inside this directory:"
+        "  2) Claim in place -- grant permissions to work inside this directory:"
         "       ${AI_TOOLS_CLI} --project-claim"
         ""
         "Note: --project-claim changes group ownership to ai-tools."
@@ -272,8 +272,12 @@ if ${own_gap} || ${label_gap}; then
             die "claude: ${cwd}: still not accessible -- the claim did not complete"
         fi
         if ! project_labelled "${cwd}"; then
+            # The relabel is the one claim step that needs root; the CLI runs it as
+            # `sudo ai-tools-relabel` and prompts for your password. Re-running the claim
+            # (NOT `sudo ai-tools` -- the CLI refuses to run as root) re-attempts it.
             die "claude: ${cwd}: SELinux label still missing -- the claim did not complete" \
-                "       run: sudo ${AI_TOOLS_CLI} --project-claim ${cwd}"
+                "       re-run: ${AI_TOOLS_CLI} --project-claim ${cwd}" \
+                "       (enter your password when it prompts for the SELinux relabel)"
         fi
     else
         die "claude: refusing to launch -- ${cwd} is not fully claimed for the sandbox" \

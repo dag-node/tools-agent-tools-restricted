@@ -577,7 +577,11 @@ cmd_project_claim() {
     [[ -d "${d}" ]] || die "not a directory: ${d}"
 
     local listed safedir filemode owngap acl labelled
-    read -r listed safedir filemode owngap acl labelled < <(project_state "${d}")
+    # project_state prints six SPACE-separated tokens; this script's global IFS is
+    # $'\n\t' (no space), so a bare read would collapse the whole line into the first
+    # field and leave the rest empty -- silently skipping the label/ACL/ownership steps.
+    # Pin IFS=' ' for this read so the tokens split as intended.
+    IFS=' ' read -r listed safedir filemode owngap acl labelled < <(project_state "${d}")
     local need_label=false; [[ "${labelled}" == false ]] && need_label=true
     local need_filemode=false; [[ "${filemode}" == false ]] && need_filemode=true
     local need_acl=false; [[ "${acl}" == true ]] && need_acl=true
@@ -616,11 +620,16 @@ cmd_project_claim() {
     # Allowlist first: ai-tools-lockdown only scans an allowlisted path.
     [[ "${listed}" == true ]] || reg_allow "${d}"
 
-    # Secret gate ONLY when a recursive chgrp is pending -- that is the step that could
-    # expose a group-readable secret. An already-owned tree was gated on a prior claim,
-    # so re-running adds no new exposure and skips the sudo scan. Roll back only our own
-    # allowlist addition on a failed gate.
-    if [[ "${owngap}" == true ]]; then
+    # Secret gate before the tree becomes agent-accessible, on either trigger:
+    #   - owngap: a recursive chgrp is pending -- the step that newly exposes
+    #     group-readable files to the agent.
+    #   - first claim (not yet listed): the tree may already be group ${SANDBOX_GROUP}
+    #     by setgid inheritance from a claimed parent (so no chgrp is pending) yet have
+    #     never been scanned. Under the collaborative umask its files are group-readable,
+    #     so a first-ever claim must scan even when ownership is already in place.
+    # A re-claim of an already-listed tree was scanned on its first claim, so it skips.
+    # Roll back only our own allowlist addition on a failed gate.
+    if [[ "${listed}" != true || "${owngap}" == true ]]; then
         if ! secret_gate "${d}"; then
             [[ "${listed}" == true ]] || unreg_allow "${d}"
             die "claim stopped -- lock down secrets first: ai-tools --lockdown ${d}"
