@@ -416,6 +416,11 @@ print_manual_lockdown() {
 # secrets found, or all locked down); non-zero means the caller must abort.
 secret_gate() {
     local dir="$1" out resp
+    # The scan runs as root (ai-tools-lockdown is 750 root:root with no NOPASSWD grant),
+    # so the dry-run below is the first sudo prompt of a claim. Announce it so the
+    # password ask is not unexplained.
+    say "    first-time scan to lock down secrets before granting the agent access"
+    warn "this scan requires sudo; you will be prompted for your password"
     if ! out="$(run_lockdown "${dir}" --dry-run 2>&1)"; then
         warn "secret scan failed for ${dir} -- not granting access:"
         printf '%s\n' "${out}" >&2
