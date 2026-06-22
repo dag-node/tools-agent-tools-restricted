@@ -8,7 +8,7 @@
 # agent can keep working in a dir it created.
 #
 # Reads @PROJECTS_HOME@/.config/ai-tools/allowed-projects for allow and exclude rules.
-# That file is owned @PROJECTS_USER@:@PROJECTS_USER@ 600 -- root reads it here on ai-tools' behalf.
+# That file is owned @PROJECTS_USER@:@PROJECTS_GROUP@ 600 -- root reads it here on ai-tools' behalf.
 #
 # Invocation: the handback socket's CHOWN verb (ai-tools-handback daemon, root).
 #   Not a sudo target -- ai-tools has no sudo rights (the session runs under NNP,
