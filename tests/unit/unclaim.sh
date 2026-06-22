@@ -2,8 +2,9 @@
 # tests/unit/unclaim.sh
 # Hermetic unit tests for the deployed ai-tools-unclaim helper: the filesystem hand-back it
 # performs at project unclaim -- clear the agent ACL + default ACL, regroup to a target
-# group, drop group write, and clear the setgid bit on directories -- plus its owner guard,
-# secret skip, and target-group validation. Installed helper against a /tmp testdir.
+# group, drop group write, and clear the setgid bit on directories -- plus the dedicated
+# .git reversal pass, its owner guard, secret skip, and target-group validation. Installed
+# helper against a /tmp testdir.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -20,7 +21,7 @@ fi
 
 mktestdir
 proj="${TESTDIR}/proj"
-mkdir -p "${proj}/d" "${proj}/.env"
+mkdir -p "${proj}/d" "${proj}/.env" "${proj}/.git/objects"
 mk_allowlist "${proj}"
 
 if ! setfacl -m g:"${SANDBOX_GROUP}":rwX "${proj}" 2>/dev/null; then
@@ -34,6 +35,10 @@ setfacl -b "${proj}" 2>/dev/null || true
 chmod 2770 "${proj}/d"                         # setgid dir, as claim leaves it
 : > "${proj}/ro"; chmod 0400 "${proj}/ro"
 : > "${proj}/.env/secret"
+# .git as a --with-git claim leaves it: setgid dirs + group-rw object (the main walk skips
+# .git, so only the dedicated reversal pass can revert these).
+: > "${proj}/.git/objects/o"; chmod 0660 "${proj}/.git/objects/o"
+chmod 2770 "${proj}/.git" "${proj}/.git/objects"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj}"
 setfacl -R -m "g:${SANDBOX_GROUP}:rwX,o::-" "${proj}"
 find "${proj}" -type d -exec setfacl -d -m "g:${SANDBOX_GROUP}:rwX,o::-" {} +
@@ -88,6 +93,17 @@ if ! "${HELPER}" "${proj}" "no_such_group_$$" < /dev/null > /dev/null 2>&1; then
     pass "an unknown target group is rejected"
 else
     fail "accepted a nonexistent target group"
+fi
+
+# (G) .git is reverted by the dedicated pass (the main walk skips it): the object is
+# regrouped + agent ACL cleared + group write dropped, and the .git dir setgid is cleared.
+if [[ "$(stat -c '%G' "${proj}/.git/objects/o")" == "${PROJECTS_GROUP}" ]] \
+        && ! agentacl "${proj}/.git/objects/o" \
+        && [[ "$(perm "${proj}/.git")" == 750 && "$(stat -c '%G' "${proj}/.git")" == "${PROJECTS_GROUP}" ]] \
+        && ! getfacl -p "${proj}/.git" 2>/dev/null | grep -qE "^default:|^group:${SANDBOX_GROUP}:"; then
+    pass ".git is reverted (regrouped, agent ACL cleared, dir setgid cleared)"
+else
+    fail ".git not fully reverted: objects/o group $(stat -c '%G' "${proj}/.git/objects/o"), .git $(stat -c '%a %G' "${proj}/.git")"
 fi
 
 finish

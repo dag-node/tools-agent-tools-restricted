@@ -18,8 +18,10 @@ account (the agent must not manage its own allowlist).
 
 - `--project-claim [path]` (alias `--project-create`) — claim a real project in place
   (idempotent; default cwd): register it, pin repo-local `core.filemode=true`, apply the
-  group-permission ACL via `ai-tools-setfacl`, apply the SELinux project label, and run the
-  secret pre-check.
+  group-permission ACL via `ai-tools-setfacl`, apply the SELinux project label, run the
+  secret pre-check, and — when a `.git` tree is present but not yet normalized — offer
+  (default-yes prompt) to normalize it for agent git-history access via `ai-tools-setfacl
+  --with-git`, re-stating the sandbox-clone alternative when history should stay hidden.
 - `--project-unclaim [path]` (alias `--project-remove`) — unclaim a real project
   (directory left on disk): revert the label, drop both registries, and (default-yes
   confirm) hand the tree's files back to a target group with the agent's write access
@@ -45,8 +47,13 @@ fcontext + restorecon) lives in the shared `relabel.lib.sh`, sourced by both
 `ai-tools-relabel` and `install-selinux.sh`, so the CLI and the policy installer apply one
 implementation. Claim also applies the group-permission ACL (via `ai-tools-setfacl`) and
 pins repo-local `core.filemode=true`; these complement the recursive group-ownership grant.
+A separate default-yes prompt offers to normalize the `.git` tree (`ai-tools-setfacl
+--with-git`: group `SANDBOX_GROUP` + setgid on its dirs + the same ACL) so the operator's
+own commits stay agent-readable — `.git` being the one heavy tree the per-session passes
+skip yet both parties write (see [ownership-and-hooks](ownership-and-hooks.rule.md));
+declining re-states the sandbox-clone model for keeping git history out of the agent's reach.
 Claim inspects current state and runs only the missing steps, so a re-run is a quiet no-op
-and existing projects retrofit the ACL/`filemode` on the next claim.
+and existing projects retrofit the ACL/`filemode`/`.git` normalization on the next claim.
 
 **Unclaim** (`--project-unclaim`) reverts that: it removes the SELinux label and both
 registries, then (default-yes confirm) runs `ai-tools-unclaim` to hand the filesystem back.
@@ -56,7 +63,9 @@ default; any other user can be named, handing the tree to that user's group), an
 group write (`660→640`, `770→750`, `400` stays `400`) — additionally clearing the setgid bit
 claim added on **directories** (numeric `chmod` cannot, so symbolic `g-s` is used), returning
 them to plain perms. The agent loses access via both the group owner and the named ACL entry,
-while the new group owner keeps read/traverse.
+while the new group owner keeps read/traverse. `.git`, skipped by the main walk like the other
+heavy trees, is reverted by its own pass — for the same reason claim normalizes it (both
+parties write it) — so the unclaim fully revokes git-history access too.
 
 **Owner guard (claim and unclaim).** The root helpers `ai-tools-setgid`, `ai-tools-setfacl`,
 and `ai-tools-unclaim` act **only** on paths owned by the projects user or the sandbox

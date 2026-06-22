@@ -19,7 +19,8 @@
 #     would seed default:other::r-x and leak read access to every future file).
 # Regular files get the ACCESS ACL only (default ACLs apply to directories).
 #
-# Invoked as root via sudo by the management CLI (ai-tools --project-claim), the same
+# Invoked as root via sudo by the management CLI (ai-tools --project-claim, which adds
+# --with-git when the operator opts into agent git-history access), the same
 # no-NOPASSWD model as ai-tools-relabel and ai-tools-lockdown: the projects user is
 # prompted for a password; the sandbox account has no grant for it. Running as root
 # (CAP_FOWNER) is required to ACL files the projects user does not own (e.g. agent-
@@ -32,8 +33,21 @@
 # Secret-named files and directories are SKIPPED (never granted the group ACL), so a
 # secret the operator forgot to '!'-exclude is not re-exposed to the agent group;
 # ai-tools-lockdown remains the authoritative secret control. Heavy/transient trees
-# (.git, node_modules, ...) are pruned, sharing the prune list with the sweep and
+# (node_modules, .venv, bin, ...) are pruned, sharing the prune list with the sweep and
 # ai-tools-setgid.
+#
+# The main walk skips .git for cost (it descends only the work tree), as do the per-session
+# setgid pass and the sweep. --with-git adds a dedicated one-shot pass that normalizes .git
+# too, because both the operator and the agent commit into it and it must stay shared. The
+# pass applies group ownership + setgid on its dirs (the ownership inheritance ai-tools-setgid
+# gives the work tree) AND the same default+access group ACL, so an object the operator
+# commits -- born under a non-@SANDBOX_GROUP@ primary group or a restrictive umask -- lands
+# agent-accessible
+# (@PROJECTS_USER@:@SANDBOX_GROUP@) instead of @PROJECTS_USER@:@PROJECTS_GROUP@ 600, which
+# the agent (a @SANDBOX_GROUP@ member, not the owner) could not read or repack. The CLI
+# asks the operator before passing --with-git (default yes); declining keeps git history
+# out of the agent's reach -- the isolated sandbox-clone model (ai-tools --sandbox-create)
+# is the alternative for that intent.
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
@@ -41,7 +55,21 @@
 
 set -euo pipefail
 
-readonly TARGET="${1:?usage: ai-tools-setfacl <absolute-project-path>}"
+# Args: an optional --with-git flag (anywhere) enables the one-shot .git normalization
+# pass; the remaining argument is the absolute project path.
+WITH_GIT=false
+TARGET=""
+for arg in "$@"; do
+    case "${arg}" in
+        --with-git) WITH_GIT=true ;;
+        -*) printf 'ai-tools-setfacl: unknown option: %s\n' "${arg}" >&2; exit 2 ;;
+        *)  [[ -z "${TARGET}" ]] && TARGET="${arg}" \
+                || { printf 'ai-tools-setfacl: too many arguments\n' >&2; exit 2; } ;;
+    esac
+done
+[[ -n "${TARGET}" ]] \
+    || { printf 'usage: ai-tools-setfacl [--with-git] <absolute-project-path>\n' >&2; exit 2; }
+readonly TARGET WITH_GIT
 # Allowlist. AI_TOOLS_ALLOWLIST overrides the installed path when set -- a root-only test
 # hook: sudo strips it (env_reset, not in env_keep) and the handback daemon execs this with
 # its own environment, so neither the operator nor the agent can inject it in production.
@@ -153,7 +181,7 @@ _is_allowed  "${canonical}" || exit 0
 # access AND default ACL; regular files the access ACL only. Mirrors ai-tools-setgid's
 # pinned-fd apply. Returns 0 on apply, 1 when skipped or on error.
 _safe_setfacl() {
-    local path="$1" expect_ident fd got_ident got_uid got_ftype
+    local path="$1" normalize="${2:-}" expect_ident fd got_ident got_uid got_ftype
     expect_ident="$(stat -c '%d:%i' "${path}" 2>/dev/null)" || return 1
     { exec {fd}< "${path}"; } 2>/dev/null || return 1
     # %u BEFORE %F: %F ("regular empty file") is multi-word and must be the last field.
@@ -171,6 +199,14 @@ _safe_setfacl() {
         return 1
     fi
     local rc=0
+    if [[ "${normalize}" == "normalize" ]]; then
+        # Group ownership (plus setgid on dirs) so future entries inherit group GROUP --
+        # the ownership inheritance ai-tools-setgid gives the work tree, applied here to
+        # .git. Operates on the pinned fd, TOCTOU-safe like the ACL below.
+        chgrp -- "${GROUP}" "/proc/self/fd/${fd}" 2>/dev/null || rc=1
+        [[ "${got_ftype}" == directory ]] \
+            && { chmod -- g+s "/proc/self/fd/${fd}" 2>/dev/null || rc=1; }
+    fi
     case "${got_ftype}" in
         directory)
             setfacl    -m "${ACL_SPEC}" "/proc/self/fd/${fd}" 2>/dev/null || rc=1
@@ -219,5 +255,29 @@ find "${expr[@]}" 2>/dev/null \
         # The count is local to this subshell (pipe); log it here.
         ai_tools_log_info "ACL-normalized ${applied} path(s) under ${canonical}"
       } || true
+
+# .git normalization (opt-in via --with-git): the main walk skips .git, but when the
+# operator intends the agent to share git history, normalize it here in one pass -- group
+# GROUP + setgid on its dirs and the same default+access group ACL, so commits the operator
+# makes stay agent-accessible. Secret-named and '!'-excluded entries are still skipped (a
+# stray credential committed into .git stays private). A `.git` FILE (submodule/worktree
+# pointer) is not a tree to normalize, so the -d guard skips it. Idempotent. The loop runs
+# in this shell (process substitution, not a pipe), so the counter survives.
+gitdir="${canonical}/.git"
+if ${WITH_GIT} && [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
+    declare -i git_applied=0
+    declare -a gskip=()
+    _under_gskip() { local q; for q in "${gskip[@]:-}"; do
+        [[ -n "${q}" && ( "$1" == "${q}" || "$1" == "${q}/"* ) ]] && return 0; done; return 1; }
+    while IFS= read -r -d '' p; do
+        _under_gskip "${p}" && continue
+        if _is_excluded "${p}" || _is_secret_name "${p}"; then
+            [[ -d "${p}" ]] && gskip+=("${p}")        # skip a secret/excluded subtree whole
+            continue
+        fi
+        _safe_setfacl "${p}" normalize && git_applied=$(( git_applied + 1 )) || true
+    done < <(find "${gitdir}" -xdev '(' -type d -o -type f ')' -print0 2>/dev/null)
+    ai_tools_log_info "normalized ${git_applied} path(s) under ${gitdir} (group ${GROUP}, setgid dirs, ACL)"
+fi
 
 exit 0

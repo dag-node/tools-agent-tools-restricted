@@ -25,7 +25,10 @@
 # anything owned by a third party (root, another developer) is left untouched, mirroring
 # the claim helpers. Secret-named and '!'-excluded paths are skipped (a locked secret
 # stays where it is), and heavy/transient trees are pruned -- the same rules as setgid/
-# setfacl, via the shared libraries.
+# setfacl, via the shared libraries. .git is the exception: the main walk skips it like the
+# other heavy trees, but a dedicated one-shot pass reverts it (it is the tree a claim groups,
+# and optionally normalizes, for the agent), so the unclaim fully revokes the agent's access
+# to git history.
 #
 # Idempotent: re-running on an already-unclaimed tree clears nothing new, regroups to the
 # same group, and removes an already-absent write bit -- all no-ops.
@@ -194,5 +197,30 @@ find "${expr[@]}" 2>/dev/null \
         done
         ai_tools_log_info "unclaimed ${changed} path(s) under ${canonical} (group -> ${TARGET_GROUP}, group write removed)"
       } || true
+
+# .git reversal: the main walk skips .git (the shared heavy-tree list), but a claim grouped
+# it to @SANDBOX_GROUP@ (the recursive chgrp) and may have normalized it (ai-tools-setfacl
+# --with-git: setgid + ACL), so a full unclaim must revert .git too -- otherwise the agent
+# keeps git-history access through the group owner and the named ACL entry. Revert it here
+# in one pass with the same per-entry reversal (clear ACL, regroup to <target-group>, drop
+# group write, clear dir setgid) and the same secret/exclusion skips. Unconditional: it
+# reverses the base claim's chgrp whether or not --with-git ran, and no-ops on an already-
+# reverted tree. The loop runs in this shell (process substitution), so the counter survives.
+gitdir="${canonical}/.git"
+if [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
+    declare -i git_changed=0
+    declare -a gskip=()
+    _under_gskip() { local q; for q in "${gskip[@]:-}"; do
+        [[ -n "${q}" && ( "$1" == "${q}" || "$1" == "${q}/"* ) ]] && return 0; done; return 1; }
+    while IFS= read -r -d '' p; do
+        _under_gskip "${p}" && continue
+        if _is_excluded "${p}" || _is_secret_name "${p}"; then
+            [[ -d "${p}" ]] && gskip+=("${p}")
+            continue
+        fi
+        _safe_unclaim "${p}" && git_changed=$(( git_changed + 1 )) || true
+    done < <(find "${gitdir}" -xdev '(' -type d -o -type f ')' -print0 2>/dev/null)
+    ai_tools_log_info "unclaimed ${git_changed} path(s) under ${gitdir} (group -> ${TARGET_GROUP}, group write removed)"
+fi
 
 exit 0

@@ -128,6 +128,20 @@ named and `!`-excluded paths never receive the group ACL. `other::---` is pinned
 rather than cloned from each directory's mode, which on a permissive-umask directory would
 otherwise seed `default:other::r-x` and leak read access to every future file.
 
+`.git` is the one skipped tree both parties commit into. The per-session passes leave it
+alone for cost, so the agent's own `.git` writes are reclaimed by the `.git` reclaim above;
+the operator's `.git` writes — born in the operator's primary group (e.g. `<you>:<you>`) and
+unreadable to the agent once `<you>` is not a `SANDBOX_GROUP` member — are handled at claim
+instead. `ai-tools-setfacl --with-git` normalizes `.git` once: group `SANDBOX_GROUP` + setgid
+on its dirs and the same default+access group ACL, so later operator commits are born agent-
+accessible. The claim CLI asks before applying (default yes; see [cli](cli.rule.md)) and
+points to the sandbox-clone model when git history should stay out of the agent's reach. The
+two mechanisms together keep `.git` uniformly `<you>:SANDBOX_GROUP`, and the same secret-name
+and `!`-exclusion skips apply, so a credential committed into `.git` is never ACL'd. Unclaim
+reverses this symmetrically: `ai-tools-unclaim` reverts `.git` in its own pass (regroup to the
+target group, clear the agent + default ACL, drop group write, clear dir setgid), so the agent
+loses history access along with the rest of the tree (see [cli](cli.rule.md)).
+
 ## Control-plane file integrity (`/opt/ai-tools/.claude`, `bin/`)
 
 The files that drive the sandbox's own enforcement — `settings.json` (declares the

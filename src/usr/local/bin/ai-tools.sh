@@ -258,6 +258,26 @@ acl_gap() {
     return 0
 }
 
+# git_gap <dir>  -- true (0) when <dir> has a .git tree NOT yet normalized for agent
+# git-history access: its .git root lacks group SANDBOX_GROUP, the setgid bit, or the
+# default group ACL. Read-only and unprivileged. Returns false (1) when there is no .git
+# tree (none, or a submodule/worktree .git FILE), when .git is already normalized, and when
+# ACLs cannot be inspected (getfacl missing) -- there is then no gap we can act on, so claim
+# does not perpetually re-offer a step that cannot run. Mirrors the acl_gap / dir_owngap
+# "na when unavailable" convention. Unlike the other gaps, normalizing .git is opt-in (the
+# operator is asked, default yes), so this only DETECTS the gap; cmd_project_claim decides.
+git_gap() {
+    local dir="$1" grp mode
+    [[ -d "${dir}/.git" ]] || return 1
+    command -v getfacl >/dev/null 2>&1 || return 1
+    read -r grp mode < <(stat -c '%G %a' "${dir}/.git" 2>/dev/null) || return 1
+    [[ "${grp}" == "${SANDBOX_GROUP}" ]] \
+        && (( (0${mode} & 02000) != 0 )) \
+        && getfacl -p "${dir}/.git" 2>/dev/null | grep -qE "^default:group:${SANDBOX_GROUP}:" \
+        && return 1
+    return 0
+}
+
 # dir_owngap <dir>  -- true (0) when <dir> is NOT group-accessible to the sandbox
 # account: group is not SANDBOX_GROUP, or the group-execute bit is clear. The
 # sandbox user runs with the project as its cwd, and Node's posix_spawn needs
@@ -353,11 +373,16 @@ run_relabel() {
     sudo "${RELABEL_BIN}" "$@" "${d}"
 }
 
-# run_setfacl <dir>  -- apply the project's group-permission ACL on <dir> via the root
-# helper (sudo, password); returns its status.
+# run_setfacl <dir> <with_git>  -- apply the project's group-permission ACL on <dir> via
+# the root helper (sudo, password); when <with_git> is true, also pass --with-git so the
+# helper normalizes the .git tree too. Returns its status.
 run_setfacl() {
-    local d="$1"
-    sudo "${SETFACL_BIN}" "${d}"
+    local d="$1" with_git="${2:-false}"
+    if ${with_git}; then
+        sudo "${SETFACL_BIN}" --with-git "${d}"
+    else
+        sudo "${SETFACL_BIN}" "${d}"
+    fi
 }
 
 # run_unclaim <dir> <target-group>  -- clear the agent ACL, regroup <dir> to
@@ -495,17 +520,19 @@ clear_lockdown_guard() {
 
 # ── Commands ─────────────────────────────────────────────────────────────────────
 
-# project_state <dir>  -- print the claim state of <dir> as six space-separated
-# tokens: "<listed> <safedir> <filemode> <owngap> <acl> <labelled>". listed/safedir
+# project_state <dir>  -- print the claim state of <dir> as seven space-separated
+# tokens: "<listed> <safedir> <filemode> <owngap> <acl> <labelled> <git>". listed/safedir
 # reflect the two registries; filemode is true when repo-local core.filemode is already
 # true ("na" when <dir> is not a git work tree); owngap is true when the agent still
 # lacks group access (see dir_owngap); acl is true when the group-permission ACL still
 # needs applying (see acl_gap); labelled is the live SELinux type check -- true/false
-# when SELinux is active, "na" when it is disabled (no label needed). Read-only, no
-# privilege. The ai_tools_project_t string is the single fact mirrored from the root
+# when SELinux is active, "na" when it is disabled (no label needed); git is true when a
+# .git tree is present but not yet normalized for agent history sharing (see git_gap),
+# false otherwise -- it gates the opt-in .git prompt, not a mandatory claim step. Read-only,
+# no privilege. The ai_tools_project_t string is the single fact mirrored from the root
 # labelling lib; the authoritative semanage/restorecon logic is NOT duplicated here.
 project_state() {
-    local dir="$1" listed=false safedir=false filemode=na owngap=true acl=false labelled=na
+    local dir="$1" listed=false safedir=false filemode=na owngap=true acl=false labelled=na git=false
     grep -qxF "${dir}" "${ALLOWLIST}" 2>/dev/null && listed=true
     git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
         | grep -qxF "${dir}" && safedir=true
@@ -522,8 +549,9 @@ project_state() {
             labelled=false
         fi
     fi
-    printf '%s %s %s %s %s %s\n' \
-        "${listed}" "${safedir}" "${filemode}" "${owngap}" "${acl}" "${labelled}"
+    git_gap "${dir}" && git=true
+    printf '%s %s %s %s %s %s %s\n' \
+        "${listed}" "${safedir}" "${filemode}" "${owngap}" "${acl}" "${labelled}" "${git}"
 }
 
 # claim_relabel <dir>  -- apply the SELinux project label via the root helper so the
@@ -544,22 +572,24 @@ claim_relabel() {
     fi
 }
 
-# claim_setfacl <dir>  -- apply the group-permission ACL via the root helper so files
-# the projects user's git checkout/merge writes under a restrictive umask stay group-
-# accessible. Best-effort, mirroring claim_relabel: warns with the manual command
-# (never dies) when sudo is missing or the helper fails.
+# claim_setfacl <dir> <with_git>  -- apply the group-permission ACL via the root helper so
+# files the projects user's git checkout/merge writes under a restrictive umask stay group-
+# accessible; when <with_git> is true the helper also normalizes the .git tree (group +
+# setgid + ACL) so the operator's commits stay agent-accessible. Best-effort, mirroring
+# claim_relabel: warns with the manual command (never dies) when sudo is missing or fails.
 claim_setfacl() {
-    local d="$1"
+    local d="$1" with_git="${2:-false}" flag="" note=""
+    ${with_git} && { flag=" --with-git"; note=" (incl. .git)"; }
     if ! command -v sudo >/dev/null 2>&1; then
         warn "sudo not found -- cannot apply the project ACL automatically"
-        say  "      ${C_BOLD}sudo ${SETFACL_BIN} ${d}${C_RST}"
+        say  "      ${C_BOLD}sudo ${SETFACL_BIN}${flag} ${d}${C_RST}"
         return 0
     fi
-    if run_setfacl "${d}"; then
-        ok "applied group-permission ACL to ${d}"
+    if run_setfacl "${d}" "${with_git}"; then
+        ok "applied group-permission ACL to ${d}${note}"
     else
         warn "could not apply the project ACL -- run it by hand:"
-        say  "      ${C_BOLD}sudo ${SETFACL_BIN} ${d}${C_RST}"
+        say  "      ${C_BOLD}sudo ${SETFACL_BIN}${flag} ${d}${C_RST}"
     fi
 }
 
@@ -571,26 +601,30 @@ claim_setfacl() {
 # project is a clean no-op (no prompt, no sudo). The in-place grant is heavy
 # (reg_ownership gives the agent recursive group access; relabel and the ACL need sudo),
 # so the default-NO confirm and the sandbox-clone recommendation appear only when a
-# heavy step (chgrp, relabel, or ACL) is actually pending.
+# heavy step (chgrp, relabel, or ACL) is actually pending. When a .git tree is present but
+# not yet normalized, a SEPARATE default-YES prompt offers to normalize it (group + setgid
+# + ACL, via ai-tools-setfacl --with-git) so the operator's own commits stay agent-
+# readable; declining re-states the sandbox-clone alternative for keeping history hidden.
 cmd_project_claim() {
     local d; d="$(resolve_dir "${1:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
 
-    local listed safedir filemode owngap acl labelled
-    # project_state prints six SPACE-separated tokens; this script's global IFS is
+    local listed safedir filemode owngap acl labelled git
+    # project_state prints seven SPACE-separated tokens; this script's global IFS is
     # $'\n\t' (no space), so a bare read would collapse the whole line into the first
     # field and leave the rest empty -- silently skipping the label/ACL/ownership steps.
     # Pin IFS=' ' for this read so the tokens split as intended.
-    IFS=' ' read -r listed safedir filemode owngap acl labelled < <(project_state "${d}")
+    IFS=' ' read -r listed safedir filemode owngap acl labelled git < <(project_state "${d}")
     local need_label=false; [[ "${labelled}" == false ]] && need_label=true
     local need_filemode=false; [[ "${filemode}" == false ]] && need_filemode=true
     local need_acl=false; [[ "${acl}" == true ]] && need_acl=true
+    local need_git=false; [[ "${git}" == true ]] && need_git=true
 
     section "Claim project (in place)"
     say "  ${d}"
 
     if [[ "${listed}" == true && "${safedir}" == true && "${owngap}" == false ]] \
-            && ! ${need_filemode} && ! ${need_acl} && ! ${need_label}; then
+            && ! ${need_filemode} && ! ${need_acl} && ! ${need_label} && ! ${need_git}; then
         ok "already fully claimed -- nothing to do"
         return 0
     fi
@@ -603,6 +637,7 @@ cmd_project_claim() {
     [[ "${owngap}"  == true  ]] && say "    - grant recursive group ownership (chgrp -R + setgid)"
     ${need_acl} && say "    - apply group-permission ACL (default + access g:${SANDBOX_GROUP}:rwX)"
     ${need_label} && say "    - apply SELinux ai_tools_project_t label"
+    ${need_git} && say "    - normalize .git so the agent can access git history (setgid + group ACL) -- you will be asked"
 
     # Heavy steps (recursive chgrp; sudo relabel/ACL) gate behind the confirm; pure
     # registry additions do not. dir_owngap is re-checked live so the warning matches.
@@ -636,10 +671,23 @@ cmd_project_claim() {
         fi
     fi
 
+    # .git access is opt-in (default yes), asked separately from the heavy in-place
+    # confirm: normalizing .git lets the agent read this repo's full git history, so
+    # re-state the isolated shallow-clone alternative for when that is not intended.
+    local do_git=false
+    if ${need_git}; then
+        say ""
+        warn "normalizing .git lets the agent read this repo's full git history"
+        say  "    ${C_DIM}to keep history out of the agent's reach, use an isolated shallow clone:${C_RST}"
+        say  "      ${C_BOLD}ai-tools --sandbox-create ${d}${C_RST}"
+        confirm "Normalize .git so the agent can access git history here?" y \
+            && do_git=true || say "    .git: left as-is (history not accessible to the agent)"
+    fi
+
     [[ "${safedir}" == true  ]] || reg_safedir "${d}"
     ${need_filemode} && reg_filemode "${d}"
     [[ "${owngap}"  == true  ]] && reg_ownership "${d}"
-    ${need_acl} && claim_setfacl "${d}"
+    { ${need_acl} || ${do_git}; } && claim_setfacl "${d}" "${do_git}"
     ${need_label} && claim_relabel "${d}"
     ok "claimed ${d}"
     ai_tools_log_info "claimed project ${d}"

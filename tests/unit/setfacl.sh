@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # tests/unit/setfacl.sh
 # Hermetic unit tests for the deployed ai-tools-setfacl helper: the group-permission ACL it
-# applies at project claim, its owner guard, and its secret/exclusion/prune skips. Runs the
-# installed helper against a /tmp testdir with a dummy allowlist (AI_TOOLS_ALLOWLIST); reads
-# and writes nothing outside the testdir.
+# applies at project claim, the opt-in --with-git .git normalization (group + setgid + ACL),
+# its owner guard, and its secret/exclusion/prune skips. Runs the installed helper against a
+# /tmp testdir with a dummy allowlist (AI_TOOLS_ALLOWLIST); reads and writes nothing outside
+# the testdir.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -35,7 +36,8 @@ mv "${proj}/sub_restricted" "${proj}/restricted"
 : > "${proj}/world";        chmod 0644 "${proj}/world"        # stray other-read
 : > "${proj}/.env.local";   chmod 0644 "${proj}/.env.local"  # secret-named
 : > "${proj}/.env/inside/k"                                   # secret subtree
-: > "${proj}/.git/objects/o"                                  # pruned tree
+: > "${proj}/.git/objects/o"                                  # .git tree (default: skipped)
+: > "${proj}/.git/.env.local"                                 # secret-named inside .git
 : > "${proj}/excluded"; mv "${proj}/excluded" "${proj}/sub/excluded"  # under '!' sub
 # The whole tree must be owned by the projects user, or the helper's owner guard skips it
 # (fixtures are created here as root). 'foreign' is then re-owned to a third party to
@@ -109,5 +111,20 @@ out="${TESTDIR}/outside"; mkdir -p "${out}"
 setsid "${HELPER}" "${out}" < /dev/null > /dev/null 2>&1 || true
 if ! dg "${out}"; then pass "a non-allowlisted path is left untouched"
 else fail "non-allowlisted ${out} gained the project ACL"; fi
+
+# (D) --with-git: the opt-in pass normalizes .git (group ACL + setgid + group ownership),
+# while a secret-named path inside .git is still skipped (the secret/exclusion skips apply
+# to the .git pass too).
+setsid "${HELPER}" --with-git "${proj}" < /dev/null > /dev/null 2>&1 || true
+if g "${proj}/.git/objects/o"; then pass "--with-git applies the group ACL inside .git"
+else fail "--with-git did not ACL .git contents"; fi
+read -r gmode ggrp < <(stat -c '%a %G' "${proj}/.git" 2>/dev/null)
+if [[ "${ggrp}" == "${SANDBOX_GROUP}" ]] && (( (0${gmode} & 02000) != 0 )); then
+    pass "--with-git sets .git group ${SANDBOX_GROUP} + setgid"
+else
+    fail ".git not group/setgid normalized: ${gmode} ${ggrp}"
+fi
+if ! g "${proj}/.git/.env.local"; then pass "a secret-named path inside .git stays skipped under --with-git"
+else fail "a secret inside .git was ACL'd under --with-git"; fi
 
 finish
