@@ -52,7 +52,10 @@
 # WARNINGS
 #   Any PATH entry that does not exist as a directory on disk is reported
 #   to stderr.  This surfaces stale entries (old node version, removed tool)
-#   without aborting the shell.
+#   without aborting the shell.  Each missing entry is reported at most once per
+#   shell process (tracked in _PATH_DEDUP_WARNED), so the several sourcings of this
+#   file in one login shell -- /etc/profile, then ~/.bash_profile and ~/.bashrc --
+#   re-run the dedup but do not repeat the same warning.
 #
 # DEPLOYMENT
 #   sudo install -o root -g root -m 644 path_dedup.sh /etc/profile.d/path_dedup.sh
@@ -89,11 +92,23 @@ _dedup_path() {
             | sed 's/:$//'
     )"
 
-    # Warn on missing directories so stale entries are visible at login.
+    # Warn on missing directories so stale entries are visible at login. Each missing
+    # entry is reported at most once per shell process: _PATH_DEDUP_WARNED accumulates the
+    # entries already reported, so re-sourcing this file (from /etc/profile, then both
+    # ~/.bash_profile and ~/.bashrc) re-runs the dedup without repeating a warning. It is a
+    # plain shell variable, deliberately NOT exported, so each new shell starts with a
+    # clean slate and warns once on its own.
+    # `|| [[ -n "${entry}" ]]` processes the final element too: `tr` emits no trailing
+    # newline, so a plain `read` would return false on -- and silently skip -- the last
+    # PATH entry, the very position a stale appended path tends to occupy.
     local entry
-    while IFS= read -r entry; do
+    while IFS= read -r entry || [[ -n "${entry}" ]]; do
         [[ -z "${entry}" ]] && continue
         [[ -d "${entry}" ]] && continue
+        case ":${_PATH_DEDUP_WARNED-}:" in
+            *":${entry}:"*) continue ;;
+        esac
+        _PATH_DEDUP_WARNED="${_PATH_DEDUP_WARNED-}:${entry}"
         printf 'WARNING: PATH entry does not exist: %s\n' "${entry}" >&2
     done < <(printf '%s' "${deduped}" | tr ':' '\n')
 
