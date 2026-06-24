@@ -116,9 +116,55 @@ install_packages() {
     done
 }
 
+# refresh_user_manager_env: point the systemd --user manager's environment at the active
+# Node version. This service is a child of that manager, so `systemctl --user
+# set-environment` updates the block that shells and units started AFTER this run inherit
+# -- without it, NVM_BIN/NVM_INC/PATH keep the version captured at login (via
+# pam_systemd's environment import) and every new shell warns about a node bin that the
+# prune already deleted. Already-open shells cannot be reached from here (they keep their
+# own copy until a new shell or `nvm use`); this is best-effort and no-ops when no user
+# manager is reachable (no XDG_RUNTIME_DIR / systemctl), never failing the update.
+# args:  nvm alias to track, nvm dir
+refresh_user_manager_env() {
+    local node_alias="$1" nvm_dir="$2"
+    command -v systemctl >/dev/null 2>&1 || return 0
+    [[ -n "${XDG_RUNTIME_DIR:-}" ]] || return 0
+
+    local active new_bin new_inc
+    active="$(nvm version "${node_alias}" 2>/dev/null || true)"
+    [[ "${active}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 0
+    new_bin="${nvm_dir}/versions/node/${active}/bin"
+    new_inc="${new_bin%/bin}/include/node"
+    [[ -d "${new_bin}" ]] || return 0
+
+    systemctl --user set-environment "NVM_BIN=${new_bin}" "NVM_INC=${new_inc}" 2>/dev/null || true
+
+    # Rewrite the node bin inside the manager's exported PATH, if it exports one: replace
+    # any .../versions/node/vX.Y.Z/bin segment with the active one and drop duplicates,
+    # preserving order. Leaves the rest of PATH untouched (no blast radius beyond node).
+    local mgr_path
+    mgr_path="$(systemctl --user show-environment 2>/dev/null | sed -n 's/^PATH=//p')"
+    [[ -n "${mgr_path}" ]] || return 0
+
+    local seg rebuilt="" seen=":" node_bin_re='/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+/bin$'
+    while IFS= read -r seg || [[ -n "${seg}" ]]; do
+        [[ -z "${seg}" ]] && continue
+        [[ "${seg}" =~ ${node_bin_re} ]] && seg="${new_bin}"
+        case "${seen}" in *":${seg}:"*) continue ;; esac
+        seen="${seen}${seg}:"
+        rebuilt="${rebuilt:+${rebuilt}:}${seg}"
+    done < <(printf '%s' "${mgr_path}" | tr ':' '\n')
+
+    if [[ "${rebuilt}" != "${mgr_path}" ]]; then
+        systemctl --user set-environment "PATH=${rebuilt}" 2>/dev/null \
+            && log "user-manager env: PATH/NVM_BIN repointed to ${active} (open shells need a new shell or 'nvm use')"
+    fi
+}
+
 # main: resolve the latest LTS Node in the vMAJOR series once, upgrade the user's
-# nvm install and global tools to it, prune superseded versions, then delegate the
-# sandbox update to ai-tools at that same resolved version so both stay in sync.
+# nvm install and global tools to it, prune superseded versions, refresh the user
+# manager environment, then delegate the sandbox update to ai-tools at that same
+# resolved version so both stay in sync.
 main() {
     local node_alias="${NVM_NODE_ALIAS:-default}"
     local major="${NVM_NODE_MAJOR:-22}"
@@ -166,6 +212,8 @@ main() {
     install_packages "${allow_csv}" "${tools[@]}"
 
     prune_versions "${node_alias}"
+
+    refresh_user_manager_env "${node_alias}" "${nvm_dir}"
 
     # Delegate sandbox update to ai-tools at the same resolved version. Any failure here
     # leaves the sandbox out of sync with the operator, so it is recorded and propagated
