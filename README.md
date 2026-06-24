@@ -265,13 +265,23 @@ When nvm installs a new Node version under `/opt/ai-tools`:
   your `~/.nvm`, then invokes `src/opt/ai-tools/bin/nvm-update.sh` as
   `${SANDBOX_USER}` via sudo with the pinned version so both installs land on the
   same Node build.
+- After the prune, the login-side updater repoints your **systemd `--user` manager
+  environment** at the active version (`systemctl --user set-environment` for
+  `NVM_BIN`/`NVM_INC` and the node bin within the manager's exported `PATH`). That
+  block is a snapshot taken at login (via `pam_systemd`'s environment import), so
+  without this it would keep the version captured then, and shells started later would
+  inherit a `PATH` entry the prune already deleted — surfacing as a `path_dedup`
+  *"PATH entry does not exist"* warning for an old `…/versions/node/<ver>/bin`. The
+  repoint is best-effort and no-ops when no user manager is reachable.
 
 After an update, **new** shells and **new** Claude sessions use the new Node version
-automatically — a new shell sources nvm and picks up the updated `default` alias, and
-a new session resolves the repointed `bin/claude` symlink. An **already-open** login
-shell keeps the version it started with (standard nvm per-shell behaviour); run
-`nvm use default` in it, or open a new shell, to switch. A **running** Claude session
-stays pinned to the Node version it launched with for its whole lifetime by design.
+automatically — a new shell sources nvm, picks up the updated `default` alias, and
+inherits the repointed manager environment, and a new session resolves the repointed
+`bin/claude` symlink. An **already-open** login shell keeps the version it started with
+(standard nvm per-shell behaviour, and the manager repoint cannot reach a process's
+existing environment); run `nvm use default` in it, or open a new shell, to switch. A
+**running** Claude session stays pinned to the Node version it launched with for its
+whole lifetime by design.
 
 ## Operation logging
 
