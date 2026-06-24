@@ -438,7 +438,8 @@ secret_gate() {
     # record the operator-side decision here too.
     section "Secrets detected under ${dir}"
     printf '%s\n' "${out}" | grep -E '\[(file|dir)\]' >&2 || true
-    warn "granting the agent group access would expose any group-readable secret above"
+    warn "locking these down before granting the agent access is recommended" \
+         "lockdown is best effort, matching only known secret patterns -- handle any secret it misses yourself first"
     ai_tools_log_warn "secret pre-check: secrets present under ${dir} (see lockdown.log for paths)"
     # Default YES: locking down is the safe direction and the list above may be long,
     # so Enter proceeds. This prompt ignores AI_TOOLS_ASSUME_YES by design.
