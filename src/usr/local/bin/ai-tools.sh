@@ -655,7 +655,7 @@ cmd_project_claim() {
             say ""
             warn "in-place claim grants the agent recursive group access to this tree"
             say  "    ${C_DIM}isolated alternative that never touches it:${C_RST}"
-            say  "      ${C_BOLD}ai-tools --sandbox-create ${d}${C_RST}"
+            say  "      ${C_DIM}ai-tools --sandbox-create ${d}${C_RST}"
         fi
         confirm "Apply the pending steps IN PLACE?" n \
             || die "aborted -- for an isolated clone use: ai-tools --sandbox-create ${d}"
@@ -690,7 +690,7 @@ cmd_project_claim() {
         say ""
         warn "normalizing .git lets the agent read this repo's full git history"
         say  "    ${C_DIM}to keep history out of the agent's reach, use an isolated shallow clone:${C_RST}"
-        say  "      ${C_BOLD}ai-tools --sandbox-create ${d}${C_RST}"
+        say  "      ${C_DIM}ai-tools --sandbox-create ${d}${C_RST}"
         confirm "Normalize .git so the agent can access git history here?" y force \
             && do_git=true || say "    .git: left as-is (history not accessible to the agent)"
     fi
