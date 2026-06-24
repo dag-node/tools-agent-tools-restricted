@@ -77,7 +77,7 @@ fi
 # ask <title> <question> <context-line...> -- the one interactive prompt shape, so every
 # prompt in the install flow looks the same:
 #   * a FIXED 80-column box (AI_TOOLS_MSG_FULLWIDTH) titled <title>, framing the context,
-#   * the inline <question> (carry its own [Y/n]/[y/N] hint),
+#   * the inline <question> (carry its own [Y]/n or y/[N] hint),
 # all on the controlling terminal, BYPASSING the do_install log tee that captures
 # stdout+stderr. msg.lib.sh prints a blank line BEFORE every box, so prompts self-separate.
 # Echoes the raw reply on stdout (empty when non-interactive, so the caller picks the
@@ -105,11 +105,11 @@ ask() {
 keep_existing() {
     local path="$1" overwrite="${2:-overwrite with shipped default}" warn="${3:-}" resp confirm
     [[ -f "${path}" ]] || return 1            # absent: caller writes a fresh copy
-    resp="$(ask "Awaiting input" "Keep it? (Enter = keep, n = ${overwrite}) [Y/n]" \
+    resp="$(ask "Awaiting input" "Keep it? (Enter = keep, n = ${overwrite}) [Y]/n" \
                 "${path} already exists.")"
     if [[ "${resp}" =~ ^[nN] ]]; then
         if [[ -n "${warn}" ]]; then
-            confirm="$(ask "Warning" "Confirm overwrite? (y = overwrite, Enter/N = cancel) [y/N]" \
+            confirm="$(ask "Warning" "Confirm overwrite? (y = overwrite, Enter/N = cancel) y/[N]" \
                            "${warn}")"
             [[ "${confirm}" =~ ^[yY] ]] || return 0   # cancelled: keep
         fi
@@ -298,7 +298,7 @@ offer_selinux() {
     say ""
 
     local resp run_it=1
-    resp="$(ask "Awaiting input" "(Enter = install, n = skip) [Y/n]" \
+    resp="$(ask "Awaiting input" "(Enter = install, n = skip) [Y]/n" \
                 "Build and load the SELinux policy module now?")"
     [[ "${resp}" =~ ^[nN] ]] && run_it=0
 
@@ -876,7 +876,7 @@ do_install() {
     # `tests/run.sh` available on demand.
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
         section "Verify"
-        if [[ ! "$(ask "Run test suite" "(Enter = run, n = skip) [Y/n]" \
+        if [[ ! "$(ask "Run test suite" "(Enter = run, n = skip) [Y]/n" \
                 "Run the full test suite (incl. the permissions check) now to verify the install?")" =~ ^[nN] ]]; then
             section "Installed files"
             do_summary
@@ -943,7 +943,7 @@ do_uninstall() {
     # Optionally prune this project from the allowlist (default: keep)
     local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
     if [[ -f "${allowlist}" ]] && grep -qxF "${SCRIPT_DIR}" "${allowlist}"; then
-        _resp="$(ask "Awaiting input" "[Y/n]:" \
+        _resp="$(ask "Awaiting input" "[Y]/n:" \
                      "Keep this project in allowed-projects?" "  ${SCRIPT_DIR}")"
         if [[ "${_resp}" =~ ^[nN] ]]; then
             local escaped
@@ -960,7 +960,7 @@ do_uninstall() {
     git_escaped="$(printf '%s' "${SCRIPT_DIR}" | sed 's/[.^$*+?{|\\[()\]]/\\&/g')"
     if git config --file /opt/ai-tools/.gitconfig \
             --get-all safe.directory 2>/dev/null | grep -qxF "${SCRIPT_DIR}"; then
-        _resp="$(ask "Awaiting input" "[Y/n]:" \
+        _resp="$(ask "Awaiting input" "[Y]/n:" \
                      "Keep this project in git safe.directory?" "  ${SCRIPT_DIR}")"
         if [[ "${_resp}" =~ ^[nN] ]]; then
             git config --file /opt/ai-tools/.gitconfig \

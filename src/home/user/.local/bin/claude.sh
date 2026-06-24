@@ -166,8 +166,9 @@ if [[ "${approved}" != true ]]; then
             ;;
         2)
             # Claim in place. ASSUME_YES answers only the CLI's top-level confirm (you chose
-            # it here); the secret-lockdown prompt and the sudo relabel stay explicit.
-            # --project-claim is idempotent and registers a brand-new path from scratch.
+            # it here); the secret-lockdown prompt, the .git history grant, and the sudo
+            # relabel stay explicit. --project-claim is idempotent and registers a brand-new
+            # path from scratch.
             AI_TOOLS_ASSUME_YES=1 "${AI_TOOLS_CLI}" --project-claim "${cwd}" || true
             # Confirm the claim registered the path before falling through to the claim guard,
             # which re-verifies ownership/label (both just applied) and then launches.
@@ -227,8 +228,8 @@ if ${own_gap} || ${label_gap}; then
     # Severity-based default: the in-place ownership grant is heavy (recursive chgrp), so
     # it defaults NO and recommends the clone; a label-only gap is cheap and required, so
     # it defaults YES.
-    claim_hint='[y/N]'; claim_default_yes=false
-    ${own_gap} || { claim_hint='[Y/n]'; claim_default_yes=true; }
+    claim_hint='y/[N]'; claim_default_yes=false
+    ${own_gap} || { claim_hint='[Y]/n'; claim_default_yes=true; }
     declare -a blk2=()
     ${own_gap}   && blk2+=( "- group is '${cwd_gid:-?}', not 'ai-tools' -- sessions cannot spawn children here" )
     ${label_gap} && blk2+=( "- missing SELinux label ai_tools_project_t -- the agent cannot read/write here" )
@@ -262,8 +263,9 @@ if ${own_gap} || ${label_gap}; then
     fi
     if ${claim_ok}; then
         # Delegate the claim. ASSUME_YES answers only the CLI's top-level confirm (you
-        # answered it here); its secret-lockdown prompt and the sudo relabel stay
-        # explicit. --project-claim is idempotent and closes whichever gaps apply.
+        # answered it here); its secret-lockdown prompt, the .git history grant, and the
+        # sudo relabel stay explicit. --project-claim is idempotent and closes whichever
+        # gaps apply.
         AI_TOOLS_ASSUME_YES=1 "${AI_TOOLS_CLI}" --project-claim "${cwd}" || true
         # Re-verify the FATAL gaps actually closed before launching.
         cwd_gid="$(stat -c '%G' "${cwd}" 2>/dev/null || true)"
@@ -296,7 +298,7 @@ elif ${safe_gap}; then
     ai_tools_msg_notice \
         "claude: ${cwd} is not in git safe.directory; git will report \"dubious ownership\" here until it is registered."
     if have_tty; then
-        printf 'Add it to %s now? [Y/n] ' "${GITCONFIG}" > /dev/tty
+        printf 'Add it to %s now? [Y]/n ' "${GITCONFIG}" > /dev/tty
         reply=""
         read -r reply < /dev/tty || reply=""
         if [[ ! "${reply}" =~ ^[nN] ]]; then

@@ -117,15 +117,18 @@ if ! source "${MSG_LIB}" 2>/dev/null; then
     ai_tools_msg_warn()  { printf '%s\n' "$@" >&2; }
 fi
 
-# confirm <prompt> [y|n]  -- default decides the Enter answer and the no-tty answer.
-# A destructive caller passes 'n' so an unattended/piped run aborts safely.
+# confirm <prompt> [y|n] [force]  -- default decides the Enter answer and the no-tty
+# answer. A destructive caller passes 'n' so an unattended/piped run aborts safely.
 # AI_TOOLS_ASSUME_YES=1 short-circuits to yes without prompting: the launch wrapper
-# sets it for ONE delegated --project-create after taking its own confirmation, so
-# the registration does not prompt a second time. It is never exported in normal use.
+# sets it for ONE delegated --project-create after taking its own confirmation, so the
+# registration does not prompt a second time. It is never exported in normal use.
+# A third arg of 'force' makes the prompt IGNORE AI_TOOLS_ASSUME_YES, so a privacy- or
+# security-sensitive opt-in (the .git history grant) stays an explicit operator decision
+# even under a delegated claim -- the same exemption secret_gate's lockdown prompt takes.
 confirm() {
-    local prompt="$1" def="${2:-y}" resp hint
-    [[ "${AI_TOOLS_ASSUME_YES:-}" == 1 ]] && return 0
-    if [[ "${def}" == "y" ]]; then hint="[Y/n]"; else hint="[y/N]"; fi
+    local prompt="$1" def="${2:-y}" force="${3:-}" resp hint
+    [[ "${force}" != force && "${AI_TOOLS_ASSUME_YES:-}" == 1 ]] && return 0
+    if [[ "${def}" == "y" ]]; then hint="[Y]/n"; else hint="y/[N]"; fi
     if [[ -r /dev/tty && -w /dev/tty ]]; then
         printf '%s %s ' "${prompt}" "${hint}" > /dev/tty
         read -r resp < /dev/tty || resp=""
@@ -444,7 +447,7 @@ secret_gate() {
     # Default YES: locking down is the safe direction and the list above may be long,
     # so Enter proceeds. This prompt ignores AI_TOOLS_ASSUME_YES by design.
     if [[ -r /dev/tty && -w /dev/tty ]]; then
-        printf 'Lock down these secrets now (sudo will prompt for your password)? [Y/n] ' > /dev/tty
+        printf 'Lock down these secrets now? [Y]/n ' > /dev/tty
         read -r resp < /dev/tty || resp=""
     else
         resp=""
@@ -679,14 +682,16 @@ cmd_project_claim() {
 
     # .git access is opt-in (default yes), asked separately from the heavy in-place
     # confirm: normalizing .git lets the agent read this repo's full git history, so
-    # re-state the isolated shallow-clone alternative for when that is not intended.
+    # re-state the isolated shallow-clone alternative for when that is not intended. The
+    # confirm is forced -- it ignores AI_TOOLS_ASSUME_YES so a wrapper-delegated claim
+    # still asks before exposing history, the same exemption secret_gate's prompt takes.
     local do_git=false
     if ${need_git}; then
         say ""
         warn "normalizing .git lets the agent read this repo's full git history"
         say  "    ${C_DIM}to keep history out of the agent's reach, use an isolated shallow clone:${C_RST}"
         say  "      ${C_BOLD}ai-tools --sandbox-create ${d}${C_RST}"
-        confirm "Normalize .git so the agent can access git history here?" y \
+        confirm "Normalize .git so the agent can access git history here?" y force \
             && do_git=true || say "    .git: left as-is (history not accessible to the agent)"
     fi
 
@@ -852,18 +857,21 @@ cmd_sandbox_create() {
         warn "sudo not found -- cannot lock down automatically"
         drop_lockdown_guard "${dst}"
         print_manual_lockdown "${dst}"
-    elif confirm "Run lockdown now (sudo will prompt for your password)?" y; then
-        if run_lockdown "${dst}"; then
-            locked=true
-            ok "secrets locked down in ${dst}"
+    else
+        warn "this needs root; sudo will prompt for your password"
+        if confirm "Run lockdown now?" y; then
+            if run_lockdown "${dst}"; then
+                locked=true
+                ok "secrets locked down in ${dst}"
+            else
+                warn "lockdown did not complete"
+                drop_lockdown_guard "${dst}"
+                print_manual_lockdown "${dst}"
+            fi
         else
-            warn "lockdown did not complete"
             drop_lockdown_guard "${dst}"
             print_manual_lockdown "${dst}"
         fi
-    else
-        drop_lockdown_guard "${dst}"
-        print_manual_lockdown "${dst}"
     fi
 
     section "Next"

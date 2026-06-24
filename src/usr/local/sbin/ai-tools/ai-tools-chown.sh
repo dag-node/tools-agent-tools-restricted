@@ -197,7 +197,7 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
                     printf '\nchown: %s\n' "${canonical}"
                     printf '  owner:  %s -> %s\n' "${current_owner}" "${target_owner}"
                     printf '%s\n' "${perm_info}"
-                    printf 'apply? [Y/n] '
+                    printf 'apply? [Y]/n '
                 } > /dev/tty
                 read -r response < /dev/tty
                 [[ "${response}" =~ ^[nN] ]] && exit 0

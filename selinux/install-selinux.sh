@@ -251,7 +251,7 @@ _check_permissive_alignment() {
             warn "  ${dom}: stale semodule '${stale_mod}' overrides compiled policy"
             if [[ -t 0 ]]; then
                 AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg_block "Awaiting input" "Remove stale semodule '${stale_mod}'?"
-                printf '[Y/n] ' >&2
+                printf '[Y]/n ' >&2
                 read -r ans </dev/tty
                 case "${ans,,}" in
                     n*) warn "  leaving '${stale_mod}' -- ${dom} will remain PERMISSIVE" ;;
@@ -291,7 +291,7 @@ prompt_groups() {
         desc="$(_gdesc "${entry}")"
         if [[ -t 0 ]]; then
             printf '    %s[%s]%s %s\n' "${C_DIM}" "${name}" "${C_RST}" "${desc}" >&2
-            printf '    Enable? [y/N] ' >&2
+            printf '    Enable? y/[N] ' >&2
             read -r ans </dev/tty
             [[ "${ans,,}" == y* ]] && SELECTED_GROUPS+=("${name}")
         else
@@ -427,7 +427,7 @@ case "${ACTION}" in
     _recompile=0
     if [[ -f "${POLICY_DIR}/${MODULE}.pp" && -t 0 ]]; then
         AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg_block "Awaiting input" "Recompile the core policy module from source? (needs selinux-policy-devel)"
-        printf '[y/N] ' >&2
+        printf 'y/[N] ' >&2
         read -r _ans </dev/tty
         [[ "${_ans,,}" == y* ]] && _recompile=1
     fi

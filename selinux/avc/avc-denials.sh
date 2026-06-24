@@ -131,7 +131,7 @@ do_probe() {
         err " To override: bash ${BASH_SOURCE[0]##*/} probe --force"
         err "========================================================"
         if [[ -e /dev/tty ]]; then
-          read -r -p $'\033[1;33m[avc-denials] Continue anyway? [y/N]: \033[0m' _ans </dev/tty \
+          read -r -p $'\033[1;33m[avc-denials] Continue anyway? y/[N]: \033[0m' _ans </dev/tty \
             || _ans=""
           [[ "${_ans}" =~ ^[Yy]$ ]] || { err "aborted."; exit 1; }
         else

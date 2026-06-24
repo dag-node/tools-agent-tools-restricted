@@ -136,9 +136,12 @@ keeps an indented path line verbatim. The per-item selection loop in the SELinux
   separate plain line outside the frame (the session NOTICE's reconcile command). A
   multi-line screen whose commands belong *inside* the frame uses `ai_tools_msg_block`
   instead, which keeps indented command lines verbatim and overflows the long ones.
-- **Short prompts stay inline.** `ai-tools.sh`'s `confirm()`/`ask()` yes/no prompts keep
-  the inline `[Y/n] ` form with the input cursor on the same line; framing a one-line
-  question with the cursor below the box reads worse than it helps.
+- **Short prompts stay inline.** Yes/no prompts keep the inline hint form with the cursor
+  on the same line; framing a one-line question with the cursor below the box reads worse
+  than it helps. The hint brackets the default in uppercase and lowercases the alternative
+  — `[Y]/n` for a yes default, `y/[N]` for a no default — and every yes/no prompt in the
+  project uses this one form. Each question names the affirmative as the action proposed,
+  so the default reads as a plain yes.
 - **Routine progress is not framed.** Per-line status (`ok`/`say`/`section`) stays plain;
   the box is for attention messages — errors, warnings, and notices — not every tick.
 - **The wrap pins `IFS` locally.** The library is sourced into callers that set their own

@@ -190,7 +190,7 @@ fi
 
 if ! ${ASSUME_YES}; then
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
-        printf 'Set files 600 / dirs 700, chown %s, revoking ai-tools access? [y/N] ' \
+        printf 'Set files 600 / dirs 700, chown %s, revoking ai-tools access? y/[N] ' \
             "${OWNER}" > /dev/tty
         read -r response < /dev/tty
         [[ "${response}" =~ ^[yY] ]] || { log "aborted; no changes made"; exit 0; }
