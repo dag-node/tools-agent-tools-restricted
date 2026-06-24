@@ -81,7 +81,12 @@ prune_versions() {
     else
         log "prune: ${active_version} kept"
     fi
-    [[ ${#deferred[@]} -gt 0 ]] && log "prune: deferred (in use) ${deferred[*]}"
+    # Explicit if, not `[[ ... ]] && log`: as the final statement of the function a
+    # false test makes prune_versions return non-zero, which under `set -e` aborts the
+    # whole run here -- before the sandbox delegation below ever executes.
+    if [[ ${#deferred[@]} -gt 0 ]]; then
+        log "prune: deferred (in use) ${deferred[*]}"
+    fi
 }
 
 # install_packages: install each package missing from the active nvm context, or
@@ -162,11 +167,16 @@ main() {
 
     prune_versions "${node_alias}"
 
-    # Delegate sandbox update to ai-tools at the same resolved version
+    # Delegate sandbox update to ai-tools at the same resolved version. Any failure here
+    # leaves the sandbox out of sync with the operator, so it is recorded and propagated
+    # as the script's exit status: the systemd unit then reports failure (visible in
+    # `systemctl --user status nvm-update.service`) rather than reporting success while
+    # the sandbox silently lags a version behind.
+    local sandbox_status=0
     if [[ -f "${AI_TOOLS_SCRIPT}" ]]; then
         log "ai-tools: delegating sandbox update at ${latest_version}"
         sudo -u ai-tools "${AI_TOOLS_SCRIPT}" "${latest_version}" \
-            || warn "ai-tools update failed -- claude may be on an old version"
+            || { warn "ai-tools update failed -- claude may be on an old version"; sandbox_status=1; }
 
         # Relabel the (possibly new) sandbox claude entrypoint so the SELinux domain
         # transition keeps firing. Best-effort and idempotent: a no-op when the label is
@@ -176,12 +186,14 @@ main() {
         # warn. If it fails, claude-run's pre-launch check still fail-closes (refuses
         # rather than running unconfined) and points the operator at `ai-tools --relabel`.
         sudo "${AI_TOOLS_RELABEL}" \
-            || warn "entrypoint relabel failed -- run 'ai-tools --relabel' before launching claude"
+            || { warn "entrypoint relabel failed -- run 'ai-tools --relabel' before launching claude"; sandbox_status=1; }
     else
         warn "ai-tools: ${AI_TOOLS_SCRIPT} not found, skipping sandbox update"
+        sandbox_status=1
     fi
 
     log "done: $(nvm version "${node_alias}")"
+    return "${sandbox_status}"
 }
 
 main "$@"
