@@ -262,7 +262,8 @@ do_selinux_restore() {
     log "SELinux: restoring file contexts"
     restorecon \
         /etc/sudoers.d/ai-tools-claude \
-        /etc/profile.d/path_dedup.sh
+        /etc/profile.d/path_dedup.sh \
+        /etc/ai-tools/operator.conf
     restorecon -R \
         /usr/local/sbin/ai-tools/ \
         /usr/local/lib/ai-tools/ \
@@ -359,6 +360,8 @@ do_summary() {
     _chk /usr/local/sbin/ai-tools/ai-tools-lockdown
     _chk /usr/local/sbin/ai-tools/ai-tools-relabel
     _chk /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
+    _chk /usr/local/sbin/ai-tools/ai-tools-bootstrap
+    _chk /usr/local/sbin/ai-tools/ai-tools-enroll
     _chk /usr/local/sbin/ai-tools/ai-tools-handback
     _chk /usr/local/bin/ai-tools-handback-client
     _chk /usr/lib/systemd/system/ai-tools-handback.socket
@@ -371,8 +374,10 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/prune-dirs.lib.sh
     _chk /usr/local/lib/ai-tools/log.lib.sh
     _chk /usr/local/lib/ai-tools/msg.lib.sh
+    _chk /usr/local/lib/ai-tools/operator.lib.sh
     _chk /usr/local/lib/ai-tools/relabel.lib.sh
     _chk /etc/sudoers.d/ai-tools-claude
+    _chk /etc/ai-tools/operator.conf
     _chk /etc/profile.d/path_dedup.sh
     _chk /opt/ai-tools/bin/nvm-update.sh
     _chk /opt/ai-tools/bin/claude-run
@@ -517,6 +522,14 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/msg.lib.sh" \
         /usr/local/lib/ai-tools/msg.lib.sh
 
+    # Operator-identity resolver: 644 root:root -- world-readable. Sourced by the root helpers
+    # (which run in ai_tools_handback_t) AND the agent hooks (ai_tools_t); both read it to
+    # resolve the operator from /etc/ai-tools/operator.conf, and it holds no secrets. No tokens.
+    log "/usr/local/lib/ai-tools/operator.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/operator.lib.sh" \
+        /usr/local/lib/ai-tools/operator.lib.sh
+
     # Project-label library: 640 root:root -- read ONLY by root principals (the
     # ai-tools-relabel helper and selinux/install-selinux.sh's sweep). No group or
     # world surface: the unprivileged CLI does not source it (it inlines its read-only
@@ -548,6 +561,20 @@ do_install() {
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint.sh" \
         /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
+
+    # Node toolchain bootstrap (creates the sandbox account + installs nvm/Node/claude). Run by
+    # the operator (sudo) before/independently of install; deployed here for re-runs and the RPM.
+    log "/usr/local/sbin/ai-tools/ai-tools-bootstrap"
+    install_subst 750 root root \
+        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-bootstrap.sh" \
+        /usr/local/sbin/ai-tools/ai-tools-bootstrap
+
+    # Per-operator enrollment (operator.conf + sudoers + linger + allowlist seed). The RPM %post
+    # and a re-enroll use it; this install performs the same per-operator setup inline below.
+    log "/usr/local/sbin/ai-tools/ai-tools-enroll"
+    install_subst 750 root root \
+        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-enroll.sh" \
+        /usr/local/sbin/ai-tools/ai-tools-enroll
 
     # Handback privilege bridge daemon.  750 root:root -- root-owned and only
     # root-executable: this is the privileged endpoint; the SANDBOX_USER reaches it
@@ -644,6 +671,27 @@ do_install() {
         "${tmp_sudoers}" /etc/sudoers.d/ai-tools-claude
     rm -f "${tmp_sudoers}"
 
+    # Operator identity. The root helpers and the agent hooks resolve PROJECTS_USER/HOME/GROUP
+    # from this file at runtime (via operator.lib.sh) instead of having them substituted into
+    # each helper at install time, so the helper files are identical on every host. 644
+    # root:root: world-readable -- both the agent (ai_tools_t hooks) and the root helpers
+    # (ai_tools_handback_t) read it, and it carries no secret -- and root-write-only, so the
+    # agent cannot rewrite the identity root hands files back to.
+    log "/etc/ai-tools/operator.conf"
+    ensure_dir 755 root root /etc/ai-tools
+    chown root:root /etc/ai-tools
+    chmod 755 /etc/ai-tools
+    local tmp_operator
+    tmp_operator="$(mktemp)"
+    printf '%s\n' \
+        "# ai-tools operator identity -- the human whose projects the sandbox works on." \
+        "# Written by install.sh / enrollment; read at runtime by the root helpers and hooks." \
+        "PROJECTS_USER=${PROJECTS_USER}" \
+        "PROJECTS_HOME=${PROJECTS_HOME}" \
+        "PROJECTS_GROUP=${PROJECTS_GROUP}" > "${tmp_operator}"
+    install -o root -g root -m 644 "${tmp_operator}" /etc/ai-tools/operator.conf
+    rm -f "${tmp_operator}"
+
     section "ai-tools control plane (/opt/ai-tools)"
 
     # Root of the control plane: PROJECTS_USER:SANDBOX_GROUP 2750. setgid propagates
@@ -721,6 +769,26 @@ do_install() {
         printf '[user]\n\tname = %s\n\temail = %s\n\n[core]\n\tfileMode = true\n\tautocrlf = input\n\n[init]\n\tdefaultBranch = main\n\n[pull]\n\trebase = false\n' \
             "${SANDBOX_USER}" "ai-tools@${_domain}" > "${_gitconfig}"
         log "created ${_gitconfig} (ai-tools@${_domain})"
+    fi
+
+    # .gitignore: a default-deny guard for the case where the operator initialises a git repo
+    # in /opt/ai-tools to version the control plane. It ignores everything, then re-includes only
+    # durable operator-owned assets (.gitconfig, the .claude guardrails, skills, auto-memory) and
+    # re-asserts a hard secret denylist last, so auth tokens (.credentials.json, .claude.json),
+    # conversation logs (history.jsonl, sessions/), and nvm/npm churn are never committable.
+    # PROJECTS_USER:SANDBOX_GROUP 640: the agent reads it but never writes it. keep_existing
+    # preserves operator customisations on re-install.
+    log "/opt/ai-tools/.gitignore"
+    local _gitignore="/opt/ai-tools/.gitignore"
+    if keep_existing "${_gitignore}" "reseed with shipped defaults"; then
+        log "keeping existing ${_gitignore}"
+        chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${_gitignore}"
+        chmod 640 "${_gitignore}"
+    else
+        install -o "${PROJECTS_USER}" -g "${SANDBOX_GROUP}" -m 640 \
+            "${SCRIPT_DIR}/src/opt/ai-tools/gitignore" \
+            /opt/ai-tools/.gitignore
+        log "created ${_gitignore}"
     fi
 
     section "User files (${PROJECTS_HOME})"
@@ -912,6 +980,8 @@ do_uninstall() {
     rm -f /usr/local/sbin/ai-tools/ai-tools-unclaim
     rm -f /usr/local/sbin/ai-tools/ai-tools-claude-symlink
     rm -f /usr/local/sbin/ai-tools/ai-tools-lockdown
+    rm -f /usr/local/sbin/ai-tools/ai-tools-bootstrap
+    rm -f /usr/local/sbin/ai-tools/ai-tools-enroll
     rm -f /usr/local/sbin/ai-tools/ai-tools-handback
     rmdir /usr/local/sbin/ai-tools 2>/dev/null || true
     rm -f /usr/local/bin/ai-tools-handback-client
@@ -922,8 +992,11 @@ do_uninstall() {
     rm -f /usr/local/lib/ai-tools/prune-dirs.lib.sh
     rm -f /usr/local/lib/ai-tools/log.lib.sh
     rm -f /usr/local/lib/ai-tools/msg.lib.sh
+    rm -f /usr/local/lib/ai-tools/operator.lib.sh
     rmdir /usr/local/lib/ai-tools 2>/dev/null || true
     rm -f /etc/sudoers.d/ai-tools-claude
+    rm -f /etc/ai-tools/operator.conf
+    rmdir /etc/ai-tools 2>/dev/null || true
     rm -f /etc/profile.d/path_dedup.sh
 
     log "ai-tools control-plane files"

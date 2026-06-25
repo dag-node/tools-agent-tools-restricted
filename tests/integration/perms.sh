@@ -26,6 +26,10 @@ check_file /usr/local/sbin/ai-tools/ai-tools-relabel          root              
 # @PROJECTS_USER@ NOPASSWD rule (by the nvm-update timer and `ai-tools --relabel`), never by
 # the agent. Fixed-path, no-arg target, so the root grant cannot be parameterized.
 check_file /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint root            root              750
+# Toolchain bootstrap + per-operator enrollment: 750 root:root -- run by the operator via sudo
+# (and the RPM %post), never by the agent (no SANDBOX_USER grant).
+check_file /usr/local/sbin/ai-tools/ai-tools-bootstrap        root              root              750
+check_file /usr/local/sbin/ai-tools/ai-tools-enroll          root              root              750
 # Lib dir: root-owned, group ai-tools, 750 (no world). The agent enters via group to read
 # the prune list, but has no write, so it cannot alter the rules.
 check_file /usr/local/lib/ai-tools                            root              "${SANDBOX_GROUP}" 750
@@ -42,10 +46,16 @@ check_file /usr/local/lib/ai-tools/log.lib.sh                 root              
 # install-selinux.sh). No group/world surface; the unprivileged CLI inlines its read-only
 # label check instead of sourcing it.
 check_file /usr/local/lib/ai-tools/relabel.lib.sh             root              root              640
+# Operator-identity resolver: 644 root:root -- world-readable like log.lib.sh; sourced by the
+# root helpers (ai_tools_handback_t) and the agent hooks (ai_tools_t) to read operator.conf.
+check_file /usr/local/lib/ai-tools/operator.lib.sh           root              root              644
 # Secret-pattern config: user-owned 600. ai-tools (not owner/group, cannot enter the 700
 # .config/ai-tools dir) can neither read nor write it; root helpers read it.
 check_file "${PROJECTS_HOME}/.config/ai-tools/secret-patterns" "${PROJECTS_USER}" "${PROJECTS_GROUP}" 600
 check_file /etc/sudoers.d/ai-tools-claude                     root              root              440
+# Operator identity: 644 root:root -- world-readable (agent hooks + root helpers read it),
+# root-write-only (the agent cannot rewrite the identity root hands files back to).
+check_file /etc/ai-tools/operator.conf                        root              root              644
 check_file /etc/profile.d/path_dedup.sh                       root              root              644
 # /opt/ai-tools/bin is locked: owned by the projects user (NOT ai-tools), 550, so ai-tools
 # has group r-x but no write. The agent can execute nvm-update.sh and resolve the claude
@@ -97,9 +107,11 @@ check_file /var/opt/ai-tools/README.md                        "${PROJECTS_USER}"
 # /opt/ai-tools root: 2750 PROJECTS_USER:SANDBOX_GROUP -- setgid propagates group SANDBOX_GROUP
 # to new files; group r-x only, so the agent cannot create or delete here. claude-run mirrors
 # nvm-update.sh (550, group r-x, no write). .gitconfig 640: agent reads safe.directory, owner edits.
+# .gitignore 640: a default-deny guard if the operator versions the control plane (agent reads, never writes).
 check_file /opt/ai-tools                                      "${PROJECTS_USER}" "${SANDBOX_GROUP}" 2750
 check_file /opt/ai-tools/bin/claude-run                       "${PROJECTS_USER}" "${SANDBOX_GROUP}" 550
 check_file /opt/ai-tools/.gitconfig                           "${PROJECTS_USER}" "${SANDBOX_GROUP}" 640
+check_file /opt/ai-tools/.gitignore                           "${PROJECTS_USER}" "${SANDBOX_GROUP}" 640
 # Operation logs: dir 700 root:root, each file 600 root:root -- the root helpers append here;
 # ai-tools (neither owner nor able to traverse the 700 dir) can neither read nor tamper with
 # the trail, so secret filenames recorded by ai-tools-chown stay out of agent reach.
