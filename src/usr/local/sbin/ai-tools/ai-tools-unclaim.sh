@@ -41,13 +41,24 @@ set -euo pipefail
 
 readonly TARGET="${1:?usage: ai-tools-unclaim <absolute-project-path> <target-group>}"
 readonly TARGET_GROUP="${2:?usage: ai-tools-unclaim <absolute-project-path> <target-group>}"
-# Allowlist. AI_TOOLS_ALLOWLIST overrides the installed path when set -- a root-only test
-# hook: sudo strips it (env_reset, not in env_keep) and the handback daemon execs this with
-# its own environment, so neither the operator nor the agent can inject it in production.
-readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-@PROJECTS_HOME@/.config/ai-tools/allowed-projects}"
+
+# Operator identity (PROJECTS_USER/HOME/GROUP, plus the numeric PROJECTS_UID) from
+# /etc/ai-tools/operator.conf via the shared resolver. AI_TOOLS_OPERATOR_CONF /
+# AI_TOOLS_ALLOWLIST override the paths -- root-only test hooks: sudo strips them
+# (env_reset, not in env_keep) and the handback daemon execs this with its own environment,
+# so neither the operator nor the agent can inject them in production.
+readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
+# shellcheck source=/dev/null
+if source "${OPERATOR_LIB}" 2>/dev/null; then
+    ai_tools_load_operator || true
+else
+    PROJECTS_USER=''; PROJECTS_HOME=''; PROJECTS_GROUP=''; PROJECTS_UID=-1
+fi
+readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-${PROJECTS_HOME}/.config/ai-tools/allowed-projects}"
 # The two legitimate co-owners of a project tree (see ai-tools-setfacl). Files owned by
-# anyone else are left untouched. Resolved to UIDs; -1 (no such user) matches nothing.
-readonly PROJECTS_UID="$(id -u "@PROJECTS_USER@" 2>/dev/null || echo -1)"
+# anyone else are left untouched. Compared by numeric UID; PROJECTS_UID is -1 (matches
+# nothing) when unenrolled.
+readonly PROJECTS_UID
 readonly SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/unclaim.log.

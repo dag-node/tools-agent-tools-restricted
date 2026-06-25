@@ -105,6 +105,19 @@ if ! source "${MSG_LIB}" 2>/dev/null; then
     ai_tools_msg_wrap() { shift; printf '%s\n' "$*"; }
 fi
 
+# Operator identity (PROJECTS_USER) from /etc/ai-tools/operator.conf via the shared resolver,
+# used only to render the reconcile command in the interrupted-session NOTICE below. Sweeping
+# itself needs no operator identity -- it finds @SANDBOX_USER@-owned paths and the root
+# validator re-checks ownership. Best-effort: an unenrolled/missing config leaves PROJECTS_USER
+# empty, degrading only the suggested command's owner field.
+readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
+# shellcheck source=/dev/null
+if source "${OPERATOR_LIB}" 2>/dev/null; then
+    ai_tools_load_operator || true
+else
+    PROJECTS_USER=''
+fi
+
 # session-end: graceful process exit. Clear the clean-exit marker so the next
 # session-start does not read this session as interrupted, then stop. Nothing
 # else to do -- the live process's Stop sweeps already handed back the work tree.
@@ -259,7 +272,7 @@ if [[ "${unbounded}" -eq 1 ]]; then
             # multi-word command would break across lines, so it is left outside the box.
             prose="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg NOTICE 1 \
                 "The previous session ended without cleanup (interrupted). Reclaimed ${total_found} agent-owned path(s) under ${scope} to repair the mixed ownership that makes git report \"dubious ownership\".")"
-            reconcile="If git still complains, ask the user to run:"$'\n'"  sudo chown -R --from=@SANDBOX_USER@ @PROJECTS_USER@:@SANDBOX_GROUP@ \"${prev_cwd:-${dir}}\""
+            reconcile="If git still complains, ask the user to run:"$'\n'"  sudo chown -R --from=@SANDBOX_USER@ ${PROJECTS_USER}:@SANDBOX_GROUP@ \"${prev_cwd:-${dir}}\""
             jq -cn --arg ctx "${prose}"$'\n'"${reconcile}" \
                 '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx}}' \
                 2>/dev/null || true

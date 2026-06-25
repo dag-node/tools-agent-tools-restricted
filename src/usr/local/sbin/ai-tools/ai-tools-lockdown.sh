@@ -25,10 +25,19 @@
 set -euo pipefail
 
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
-# Allowlist. AI_TOOLS_ALLOWLIST overrides the installed path when set -- a root-only test
-# hook: sudo strips it (env_reset, not in env_keep), so neither the operator nor the agent
-# can inject it in production (lockdown is only ever reached as root via sudo).
-readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-@PROJECTS_HOME@/.config/ai-tools/allowed-projects}"
+
+# Operator identity (PROJECTS_USER/HOME/GROUP) from /etc/ai-tools/operator.conf via the shared
+# resolver. AI_TOOLS_OPERATOR_CONF / AI_TOOLS_ALLOWLIST override the paths -- root-only test
+# hooks: sudo strips them (env_reset, not in env_keep), so neither the operator nor the agent
+# can inject them in production (lockdown is only ever reached as root via sudo).
+readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
+# shellcheck source=/dev/null
+if source "${OPERATOR_LIB}" 2>/dev/null; then
+    ai_tools_load_operator || true
+else
+    PROJECTS_USER=''; PROJECTS_HOME=''; PROJECTS_GROUP=''; PROJECTS_UID=-1
+fi
+readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-${PROJECTS_HOME}/.config/ai-tools/allowed-projects}"
 
 # Pruned directory names from the shared library (single source of truth, shared
 # with session-hook.sh and ai-tools-setgid). Unreadable -> empty -> no pruning.
@@ -81,8 +90,12 @@ done
 
 # ── Guards ───────────────────────────────────────────────────────────────────
 [[ "${EUID}" -eq 0 ]] || die "run with sudo"
-readonly PROJECTS_USER="${SUDO_USER:?run via sudo (SUDO_USER unset)}"
-[[ "${PROJECTS_USER}" != "@SANDBOX_USER@" ]] || die "must be run by you, not ai-tools"
+# The invoker (who ran sudo) must not be the agent; the OWNER files are handed back to comes
+# from the enrolled operator identity, not the invoker, so a foreign sudo invocation still
+# restores ownership to the configured operator rather than to itself.
+readonly INVOKER="${SUDO_USER:?run via sudo (SUDO_USER unset)}"
+[[ "${INVOKER}" != "@SANDBOX_USER@" ]] || die "must be run by you, not ai-tools"
+[[ -n "${PROJECTS_USER}" ]] || die "no operator configured in ${AI_TOOLS_OPERATOR_CONF} -- run the installer/enrollment first"
 readonly OWNER="${PROJECTS_USER}:@SANDBOX_GROUP@"
 
 # Resolve the invoking shell's working directory (sudo preserves it).

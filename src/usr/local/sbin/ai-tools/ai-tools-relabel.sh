@@ -27,10 +27,19 @@
 set -euo pipefail
 
 readonly RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
-# Allowlist. AI_TOOLS_ALLOWLIST overrides the installed path when set -- a root-only test
-# hook: sudo strips it (env_reset, not in env_keep), so neither the operator nor the agent
-# can inject it in production (relabel is only ever reached as root via sudo).
-readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-@PROJECTS_HOME@/.config/ai-tools/allowed-projects}"
+
+# Operator identity (PROJECTS_HOME for the allowlist path) from /etc/ai-tools/operator.conf
+# via the shared resolver. AI_TOOLS_OPERATOR_CONF / AI_TOOLS_ALLOWLIST override the paths --
+# root-only test hooks: sudo strips them (env_reset, not in env_keep), so neither the operator
+# nor the agent can inject them in production (relabel is only ever reached as root via sudo).
+readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
+# shellcheck source=/dev/null
+if source "${OPERATOR_LIB}" 2>/dev/null; then
+    ai_tools_load_operator || true
+else
+    PROJECTS_USER=''; PROJECTS_HOME=''; PROJECTS_GROUP=''; PROJECTS_UID=-1
+fi
+readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-${PROJECTS_HOME}/.config/ai-tools/allowed-projects}"
 
 # Shared leveled logger: journald (always) + the root-only file
 # /var/log/ai-tools/relabel.log. Best-effort -- a no-op fallback keeps the helper

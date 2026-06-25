@@ -5,11 +5,12 @@
 # both decide whether a basename is a credential file by the SAME rules from the
 # SAME source -- the matcher cannot drift between them.
 #
-# The authoritative pattern list lives in a user-owned config file:
-#     @PROJECTS_HOME@/.config/ai-tools/secret-patterns
-# owned @PROJECTS_USER@:@PROJECTS_GROUP@ 600. The user edits it; ai-tools -- neither
-# its owner nor in its group, and unable to enter the 700 .config/ai-tools dir --
-# can neither read nor write it; the root helpers read it on the user's behalf.
+# The authoritative pattern list lives in a user-owned config file under the operator's
+# home, `<PROJECTS_HOME>/.config/ai-tools/secret-patterns`, owned by the operator 600
+# (PROJECTS_HOME comes from the operator identity the caller resolves via operator.lib.sh).
+# The user edits it; ai-tools -- neither its owner nor in its group, and unable to enter the
+# 700 .config/ai-tools dir -- can neither read nor write it; the root helpers read it on the
+# user's behalf.
 # This mirrors how allowed-projects is owned and consumed. When the file is
 # absent or yields no usable patterns, the built-in defaults below apply, so
 # classification never silently degrades to "match nothing".
@@ -26,8 +27,6 @@ if [[ -n "${_AI_TOOLS_SECRET_PATTERNS_LIB:-}" ]]; then
     return 0
 fi
 readonly _AI_TOOLS_SECRET_PATTERNS_LIB=1
-
-readonly AI_TOOLS_SECRET_PATTERNS_FILE="@PROJECTS_HOME@/.config/ai-tools/secret-patterns"
 
 # Built-in fallback, used only when the config file is missing or empty. Kept in
 # sync with src/home/user/.config/ai-tools/secret-patterns (install.sh seeds the config file from
@@ -54,20 +53,23 @@ readonly -a _AI_TOOLS_DEFAULT_SECRET_PATTERNS=(
     '*.Development.*' '*.Staging.*' '*.Production.*'
 )
 
-# ai_tools_load_secret_patterns: populate the global AI_TOOLS_SECRET_PATTERNS
-# array from AI_TOOLS_SECRET_PATTERNS_FILE (one pattern per line, '#' comments and
-# blanks skipped, whitespace trimmed). Falls back to the built-in defaults when
-# the file is unreadable or contains no patterns. Idempotent.
+# ai_tools_load_secret_patterns: populate the global AI_TOOLS_SECRET_PATTERNS array from the
+# operator's secret-patterns config (one pattern per line, '#' comments and blanks skipped,
+# whitespace trimmed). The config path is resolved lazily here: AI_TOOLS_SECRET_PATTERNS_FILE
+# overrides it (a test hook), else `<PROJECTS_HOME>/.config/ai-tools/secret-patterns` -- so a
+# caller that has run ai_tools_load_operator first reads the right operator's file. Falls back
+# to the built-in defaults when the file is unreadable or contains no patterns. Idempotent.
 ai_tools_load_secret_patterns() {
     AI_TOOLS_SECRET_PATTERNS=()
     local line
-    if [[ -r "${AI_TOOLS_SECRET_PATTERNS_FILE}" ]]; then
+    local file="${AI_TOOLS_SECRET_PATTERNS_FILE:-${PROJECTS_HOME:-}/.config/ai-tools/secret-patterns}"
+    if [[ -r "${file}" ]]; then
         while IFS= read -r line || [[ -n "${line}" ]]; do
             line="${line#"${line%%[![:space:]]*}"}"   # trim leading whitespace
             line="${line%"${line##*[![:space:]]}"}"   # trim trailing whitespace
             [[ -z "${line}" || "${line}" == '#'* ]] && continue
             AI_TOOLS_SECRET_PATTERNS+=("${line}")
-        done < "${AI_TOOLS_SECRET_PATTERNS_FILE}"
+        done < "${file}"
     fi
     [[ "${#AI_TOOLS_SECRET_PATTERNS[@]}" -gt 0 ]] \
         || AI_TOOLS_SECRET_PATTERNS=("${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}")

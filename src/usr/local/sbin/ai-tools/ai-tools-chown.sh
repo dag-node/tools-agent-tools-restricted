@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # /usr/local/sbin/ai-tools/ai-tools-chown
-# Restores @PROJECTS_USER@:ai-tools ownership on files and directories created or
+# Restores operator:ai-tools ownership on files and directories created or
 # overwritten by Claude Code. Invoked as root by the ai-tools-handback daemon
 # (ai_tools_handback_t) when the PostToolUse/Stop/SessionStart hooks send a CHOWN
 # request over the handback socket. Accepts a single regular-file or directory
 # target; for directories it strips world bits while preserving group rwx so the
 # agent can keep working in a dir it created.
 #
-# Reads @PROJECTS_HOME@/.config/ai-tools/allowed-projects for allow and exclude rules.
-# That file is owned @PROJECTS_USER@:@PROJECTS_GROUP@ 600 -- root reads it here on ai-tools' behalf.
+# Reads the operator's allowed-projects allowlist for allow and exclude rules (its path is
+# derived from the operator identity in /etc/ai-tools/operator.conf). That file is owned by
+# the operator 600 -- root reads it here on ai-tools' behalf.
 #
 # Invocation: the handback socket's CHOWN verb (ai-tools-handback daemon, root).
 #   Not a sudo target -- ai-tools has no sudo rights (the session runs under NNP,
@@ -21,18 +22,29 @@
 set -euo pipefail
 
 readonly TARGET="${1:?usage: ai-tools-chown <absolute-path>}"
-# Allowlist. AI_TOOLS_ALLOWLIST overrides the installed path when set -- a root-only test
-# hook: sudo strips it (env_reset, not in env_keep) and the handback daemon execs this with
-# its own environment, so neither the operator nor the agent can inject it in production.
-readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-@PROJECTS_HOME@/.config/ai-tools/allowed-projects}"
+
+# Operator identity (PROJECTS_USER/HOME/GROUP) from /etc/ai-tools/operator.conf via the shared
+# resolver. AI_TOOLS_OPERATOR_CONF / AI_TOOLS_ALLOWLIST override the paths -- root-only test
+# hooks: sudo strips them (env_reset, not in env_keep) and the handback daemon execs this with
+# its own environment, so neither the operator nor the agent can inject them in production.
+# Unenrolled (no operator configured) leaves the identity empty and the allowlist guard below
+# fail-closes.
+readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
+# shellcheck source=/dev/null
+if source "${OPERATOR_LIB}" 2>/dev/null; then
+    ai_tools_load_operator || true
+else
+    PROJECTS_USER=''; PROJECTS_HOME=''; PROJECTS_GROUP=''; PROJECTS_UID=-1
+fi
+readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-${PROJECTS_HOME}/.config/ai-tools/allowed-projects}"
 # Ordinary files are chowned to OWNER (group ai-tools, readable by the agent).
 # Secret-named files are chowned to SECRET_OWNER (the user's private group) with
 # group+world bits stripped, so ai-tools -- neither owner nor group member --
 # cannot read the contents. ai-tools is a group-writer on the project dir, not
 # its owner, so it can still unlink/replace the path: this revokes read, not
 # directory control.
-readonly OWNER="@PROJECTS_USER@:@SANDBOX_GROUP@"
-readonly SECRET_OWNER="@PROJECTS_USER@:@PROJECTS_GROUP@"
+readonly OWNER="${PROJECTS_USER}:@SANDBOX_GROUP@"
+readonly SECRET_OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/chown.log.
 # Best-effort -- a no-op fallback keeps the helper working if the lib is missing.
@@ -47,7 +59,7 @@ fi
 
 # Shared secret-name matcher, sourced (not executed) so this helper and
 # ai-tools-lockdown classify basenames by the SAME patterns from the SAME config
-# file (@PROJECTS_HOME@/.config/ai-tools/secret-patterns). Failing to source it
+# file (the operator's secret-patterns, resolved via the operator identity). Failing to source it
 # would leave secret classification undefined, so abort rather than fall through
 # and hand a secret back as an ordinary file -- exiting non-zero simply skips this
 # path's handback (it stays ai-tools-owned), which is fail-closed, not a leak.

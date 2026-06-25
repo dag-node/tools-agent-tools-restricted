@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # /opt/ai-tools/.claude/post-tool-hook.sh
-# PostToolUse hook for Write|Edit tools. Restores @PROJECTS_USER@:ai-tools ownership
+# PostToolUse hook for Write|Edit tools. Restores operator:ai-tools ownership
 # on files Claude Code rewrote via atomic rename (which stamps the writer's UID).
 #
 # Runs as ai-tools. It deliberately does NOT pre-check the approved-projects
-# allowlist: that file lives under @PROJECTS_HOME@/.config (mode 700, owned
-# @PROJECTS_USER@), which ai-tools cannot traverse -- so a `[[ -f ALLOWLIST ]]`
+# allowlist: that file lives under the operator's home .config (mode 700, owned by
+# the operator), which ai-tools cannot traverse -- so a `[[ -f ALLOWLIST ]]`
 # test here is always false and would make the hook a permanent no-op. The
 # allowlist is enforced authoritatively by ai-tools-chown, which runs as root
 # and CAN read it (and is the real security boundary regardless).
@@ -13,7 +13,7 @@
 # This hook only decides, cheaply and as ai-tools, whether a handback call is
 # even worth making. It exits early -- without calling the client -- when:
 #   - the tool input contains no file path
-#   - the file is already owned @PROJECTS_USER@:ai-tools
+#   - the file is not owned by ai-tools (already handed back, or never agent-written)
 #
 # Ownership handback is delegated to the socket privilege bridge
 # (/usr/local/bin/ai-tools-handback-client), which connects to
@@ -26,8 +26,6 @@
 #             src/opt/ai-tools/.claude/post-tool-hook.sh /opt/ai-tools/.claude/post-tool-hook.sh
 
 set -euo pipefail
-
-readonly EXPECTED_OWNER="@PROJECTS_USER@:@SANDBOX_GROUP@"
 
 # Shared leveled logger -- journald only (this hook runs as the agent and cannot
 # write the root-only /var/log/ai-tools files; the sudo helper it calls records the
@@ -44,14 +42,16 @@ fi
 file="$(jq -r '.tool_input.file_path // empty' 2>/dev/null)" || exit 0
 [[ -n "${file}" ]] || exit 0
 
-# Hand the written file back. Skip the sudo/PAM session when ownership is already
-# correct. Delegate to the root-owned validator -- it checks the allowlist (as
-# root, which can read it), chowns + strips world bits, and for secret-named
-# files revokes ai-tools access and prints a NOTICE. Let that stderr through (do
-# NOT redirect to /dev/null) so Claude Code surfaces the NOTICE in the session.
-current="$(stat -c '%U:%G' "${file}" 2>/dev/null || true)"
-if [[ -n "${current}" && "${current}" != "${EXPECTED_OWNER}" ]]; then
-    ai_tools_log_debug "PostToolUse handing back ${file} (owner ${current})"
+# Hand the written file back. Call only for a path the agent itself wrote -- one currently
+# owned by @SANDBOX_USER@ -- which is exactly the set ai-tools-chown will act on (its own
+# owner guard) and the same signal the parent-dir walk below uses, so an already-handed-back
+# file (operator-owned, or a quarantined secret) makes no socket call. Delegate to the
+# root-owned validator: it checks the allowlist (as root, which can read it), chowns + strips
+# world bits, and for secret-named files revokes ai-tools access and prints a NOTICE. Let that
+# stderr through (do NOT redirect to /dev/null) so Claude Code surfaces the NOTICE in the session.
+current_user="$(stat -c '%U' "${file}" 2>/dev/null || true)"
+if [[ "${current_user}" == "@SANDBOX_USER@" ]]; then
+    ai_tools_log_debug "PostToolUse handing back ${file} (owner ${current_user})"
     /usr/local/bin/ai-tools-handback-client CHOWN "${file}" || true
 fi
 
