@@ -1,0 +1,40 @@
+# Deployed to /opt/ai-tools/.gitignore (install.sh / the RPM rename it). The source is named
+# without the leading dot so git does not read it as ignore rules for the source tree itself.
+#
+# ── Default-deny home-dir repo for /opt/ai-tools ──────────────────────────
+# Ignore everything, then re-include ONLY durable, operator-owned assets.
+# Rationale: this tree holds auth tokens (.credentials.json, .claude.json),
+# conversation logs (history.jsonl, sessions/), and nvm/npm/cache churn.
+# Committing must be done as the operator, never the sandboxed agent.
+/*
+
+# Repo metadata + git identity
+!/.gitignore
+!/.gitconfig
+
+# ── Control plane (.claude): re-include selectively ───────────────────────
+!/.claude/
+/.claude/*
+# Operator-authored guardrails (operator:ai-tools, not agent-writable)
+!/.claude/settings.json
+!/.claude/post-tool-hook.sh
+!/.claude/session-hook.sh
+# Skills (whole tree)
+!/.claude/skills/
+# Auto-memory: only the memory/ dirs, never the session logs beside them
+!/.claude/projects/
+/.claude/projects/*
+!/.claude/projects/*/
+/.claude/projects/*/*
+!/.claude/projects/*/memory/
+
+# ── Hard secret denylist (belt-and-suspenders) ────────────────────────────
+# Re-asserted last so a future negation edit can never expose these.
+.credentials.json
+.claude.json
+history.jsonl
+*.pem
+*.key
+.env
+session-env/
+sessions/

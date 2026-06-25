@@ -119,4 +119,46 @@ else
     fail "cannot execute ${shook} -- stop-sweep / session-start silently skipped"
 fi
 
+# The control-plane home root is drwxr-s--- (2750 ${PROJECTS_USER}:${SANDBOX_GROUP}): the agent
+# (group r-x) traverses and reads but must NOT create new top-level entries, or it could drop
+# files that shadow control assets or escape its own subtrees (.nvm/.cache). Probed with a real
+# create attempt; the probe is removed whether or not it (wrongly) succeeded.
+_homeprobe="/opt/ai-tools/.test_homelock_$$"
+runuser -u "${SANDBOX_USER}" -- touch "${_homeprobe}" 2>/dev/null || true
+if [[ -e "${_homeprobe}" ]]; then
+    rm -f "${_homeprobe}"
+    fail "agent created ${_homeprobe} -- /opt/ai-tools is not locked (expected drwxr-s--- ${PROJECTS_USER}-owned)"
+else
+    pass "cannot create files in /opt/ai-tools (drwxr-s---): agent confined to its own subtrees"
+fi
+
+# .claude.json is operator-owned but GROUP-writable (r--rw---- 0460): the agent persists its own
+# session state to it, while the operator (owner, read-only) cannot have it silently rewritten.
+# The agent must be able to WRITE it, yet it stays operator-owned. Seeded by ai-tools-bootstrap;
+# may be absent on a control-plane-only dev install, so the check is conditional.
+cjson=/opt/ai-tools/.claude.json
+if [[ -e "${cjson}" ]]; then
+    if runuser -u "${SANDBOX_USER}" -- test -w "${cjson}" 2>/dev/null; then
+        pass "can write ${cjson} (0460 group-write): agent persists session state across the home lock"
+    else
+        fail "cannot write ${cjson} -- agent cannot persist state (expected group-writable 0460)"
+    fi
+    if [[ "$(stat -c %U "${cjson}")" == "${PROJECTS_USER}" ]]; then
+        pass "${cjson} owned by ${PROJECTS_USER}: operator owns the state file the agent group-writes"
+    else
+        fail "${cjson} not owned by ${PROJECTS_USER} -- the agent owns its own state file (lock bypassable)"
+    fi
+else
+    skip "${cjson} state file" "absent (ai-tools-bootstrap not run / control-plane-only install)"
+fi
+
+# .gitignore (640) is the default-deny guard that keeps secrets uncommittable if the operator
+# versions the control plane. Agent group-read but NOT group-write: it cannot weaken the denylist.
+gi=/opt/ai-tools/.gitignore
+if [[ -e "${gi}" ]] && ! runuser -u "${SANDBOX_USER}" -- test -w "${gi}" 2>/dev/null; then
+    pass "cannot write ${gi} (640 no group-write): agent cannot re-include secrets into a commit"
+elif [[ -e "${gi}" ]]; then
+    fail "can write ${gi} -- agent could weaken the default-deny secret guard"
+fi
+
 finish

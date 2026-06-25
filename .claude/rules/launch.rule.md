@@ -134,6 +134,9 @@ contents; globs match as-is.
 
 `~/.local/bin` precedes the nvm shims in `$PATH`, so the wrapper resolves ahead of the
 nvm-managed `claude` (which would otherwise shadow it). `path_dedup.sh` (in
-`/etc/profile.d/`) enforces this when sourced after `nvm.sh` in `~/.bashrc` and
-`~/.bash_profile`; `install.sh` warns when the ordering is wrong rather than editing
-dotfiles.
+`/etc/profile.d/`, host-wide for login shells) enforces this when sourced after `nvm.sh`
+in `~/.bashrc` and `~/.bash_profile` — the dotfiles also cover interactive non-login
+shells, which read `~/.bashrc` only. `ai-tools-enroll` offers to add that guard to the
+operator's two dotfiles (after their nvm init), and `ai-tools-bootstrap` adds it to the
+sandbox account's `~/.bash_profile`; the dev-flow `install.sh` only warns when the
+ordering is wrong rather than editing dotfiles.
