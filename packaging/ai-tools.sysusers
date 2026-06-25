@@ -1,0 +1,4 @@
+# Sandbox service account for the ai-tools Claude Code sandbox. Created in %pre (before any
+# packaged file owned by it is unpacked). Home /opt/ai-tools, never /home: /home is nosuid,
+# which would defeat the sudo UID-switch the launch path relies on. No login shell.
+u ai-tools - "AI tools sandbox user" /opt/ai-tools /sbin/nologin
