@@ -83,26 +83,29 @@ if ! id "${SANDBOX_USER}" &>/dev/null; then
         --no-create-home --comment "AI tools sandbox user" "${SANDBOX_USER}"
     passwd -l "${SANDBOX_USER}" >/dev/null 2>&1 || true
 fi
+# Home root owned root:ai-tools, mode 2751: root owns the control plane and the agent reaches it
+# through group ai-tools; the o+x search bit lets an operator readlink the launcher. The agent
+# cannot create entries in this dir, so the agent-owned subtrees it must write are pre-created
+# here, as root, and chowned to the account: .nvm holds the toolchain, .cache the
+# NODE_COMPILE_CACHE, .npm the npm cache, .local XDG state. nvm/npm below then write only within
+# these, never the home root.
 install -d "${SANDBOX_HOME}"
-# Claim the home for the sandbox account ONLY while it is still unowned by an operator (a fresh
-# dir, the RPM's root:ai-tools placeholder, or already ai-tools), so nvm/npm below can populate
-# .nvm/.cache. Once ai-tools-enroll has re-owned the control plane to the operator (drwxr-s---
-# operator:ai-tools), a re-run leaves that ownership intact: nvm updates then land inside the
-# ai-tools-owned .nvm subtree, which stays writable.
-_home_owner="$(stat -c %U "${SANDBOX_HOME}" 2>/dev/null || echo root)"
-if [[ "${_home_owner}" == "root" || "${_home_owner}" == "${SANDBOX_USER}" ]]; then
-    chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${SANDBOX_HOME}"
-    chmod 2750 "${SANDBOX_HOME}"
-fi
+chown "root:${SANDBOX_GROUP}" "${SANDBOX_HOME}"
+chmod 2751 "${SANDBOX_HOME}"
+for _sub in .nvm .cache .npm .local; do
+    install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 "${SANDBOX_HOME}/${_sub}"
+done
 
 # 2. nvm + Node + the npm package, installed AS the sandbox account (network). The heredoc
 #    is single-quoted, so the variables are expanded by the inner shell from the env passed
-#    via `env`, never by this script. Existing nvm/Node are reused (idempotent).
+#    via `env`, never by this script. PROFILE=/dev/null directs nvm's installer to append its
+#    init lines to a discard sink instead of the root-owned home profile. Existing nvm/Node are
+#    reused (idempotent); all writes land within the pre-created .nvm/.npm subtrees.
 log "installing nvm ${NVM_VERSION} + Node ${NODE_MAJOR} + ${PKG} as ${SANDBOX_USER} (network)"
 sudo -u "${SANDBOX_USER}" env \
-    NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" \
+    NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" PROFILE=/dev/null \
     NVM_VERSION="${NVM_VERSION}" NODE_MAJOR="${NODE_MAJOR}" \
-    PKG="${PKG}" LAUNCHER="${LAUNCHER}" \
+    PKG="${PKG}" \
     bash -s <<'EOSU'
 set -euo pipefail
 if [ ! -s "${NVM_DIR}/nvm.sh" ]; then
@@ -113,38 +116,32 @@ fi
 nvm install "${NODE_MAJOR}"
 nvm alias default "${NODE_MAJOR}"
 npm install -g "${PKG}"
+EOSU
 
-# Pre-create the agent's writable state dirs while the home is still ai-tools-writable, so they
-# survive ai-tools-enroll locking the home root to the operator (drwxr-s---): afterwards the agent
-# can only write within subtrees it owns. .cache holds NODE_COMPILE_CACHE; .nvm is the tree above.
-mkdir -p "${HOME}/.cache" 2>/dev/null || true
-
-# Seed an empty ~/.claude.json so the agent has a writable state file after ai-tools-enroll locks
-# the home root (drwxr-s---): enroll sets it group-writable (r--rw----), but the agent could not
-# CREATE it at the locked top level on first run. {} is valid JSON that claude extends in place;
-# only when absent, so live state is never clobbered on a re-run.
-[ -e "${HOME}/.claude.json" ] || { printf '{}\n' > "${HOME}/.claude.json"; } 2>/dev/null || true
-
-# Source the host-wide PATH dedup from the agent's login init too (parity with the operator),
-# after any nvm block. The account is nologin so this seldom runs, but keeps PATH ordering
-# consistent if a login shell is ever opened for it. Tolerant of a locked home on a re-run.
-_prof="${HOME}/.bash_profile"
-if ! grep -qF '/etc/profile.d/path_dedup.sh' "${_prof}" 2>/dev/null; then
-    { printf '\n# Added by ai-tools-bootstrap: source the host-wide PATH dedup (must follow nvm init).\n[[ -f /etc/profile.d/path_dedup.sh ]] && source /etc/profile.d/path_dedup.sh || true\n' >> "${_prof}"; } 2>/dev/null || true
+# 3. Seed agent state and the launcher symlink, as root: the home root is root-owned, so the
+#    agent cannot create these top-level entries itself.
+# .claude.json: an empty {} so the agent has a writable state file on first run. root:ai-tools
+#    0460 -- owner root r, group rw -- so the agent persists state through the group while root's
+#    copy cannot be silently rewritten. {} is valid JSON that claude extends in place; seeded only
+#    when absent, so live state is never clobbered on a re-run.
+if [[ ! -e "${SANDBOX_HOME}/.claude.json" ]]; then
+    printf '{}\n' > "${SANDBOX_HOME}/.claude.json"
+    chown "root:${SANDBOX_GROUP}" "${SANDBOX_HOME}/.claude.json"
+    chmod 0460 "${SANDBOX_HOME}/.claude.json"
 fi
 
-# Point /opt/ai-tools/bin/<launcher> at the versioned binary (pre-install; install.sh / the
-# RPM later locks bin to 550 and repoints via the root symlink helper). Only for a package
-# whose launcher is known and present.
-ver="$(nvm version default)"
-if [ -n "${LAUNCHER}" ]; then
-    bin="${NVM_DIR}/versions/node/${ver}/bin/${LAUNCHER}"
-    if [ -x "${bin}" ]; then
-        mkdir -p "${HOME}/bin"
-        ln -sf "${bin}" "${HOME}/bin/${LAUNCHER}"
+# Point /opt/ai-tools/bin/<launcher> at the versioned binary, for a package whose launcher is
+# known and present. bin is the locked control-plane dir (0551 root:ai-tools); root writes the
+# symlink here, and install.sh / the RPM repoint it through the root symlink helper afterwards.
+if [[ -n "${LAUNCHER}" ]]; then
+    _ver="$(sudo -u "${SANDBOX_USER}" env NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" \
+            bash -c '. "${NVM_DIR}/nvm.sh"; nvm version default' 2>/dev/null || true)"
+    _bin="${NVM_DIR}/versions/node/${_ver}/bin/${LAUNCHER}"
+    if [[ -n "${_ver}" && -x "${_bin}" ]]; then
+        install -d -o root -g "${SANDBOX_GROUP}" -m 0551 "${SANDBOX_HOME}/bin"
+        ln -sfn "${_bin}" "${SANDBOX_HOME}/bin/${LAUNCHER}"
     fi
 fi
-EOSU
 
 log "toolchain ready under ${SANDBOX_HOME}"
 log "next: deploy the control plane -- sudo ./install.sh install   (or install the RPM)"

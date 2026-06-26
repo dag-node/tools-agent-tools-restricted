@@ -91,39 +91,30 @@ run as root. It:
 - enables linger for the operator and `ai-tools`;
 - seeds the operator's `~/.config/ai-tools/allowed-projects` (empty, with a header)
   when absent, leaving an existing allowlist untouched;
-- re-owns the control plane (`/opt/ai-tools`, `bin`, `.claude`, the control files,
-  `.gitconfig`, `.gitignore`, `.claude.json`) from the package's neutral `root:ai-tools`
-  placeholder to the operator, tightening `/opt/ai-tools` to `drwxr-s---` and leaving the
-  agent-owned subtrees (`.nvm`/`.cache`/`.local`/`.npm`) and `.git` untouched;
-- captures the control plane's initial state in an operator-owned git repo (default-deny
-  via the shipped `.gitignore`), with the repo metadata locked operator-private so the
-  agent cannot read committed blobs;
+- captures the control plane's initial state in a root-private git repo (default-deny
+  via the shipped `.gitignore`), with `.git` owned `root:root 0700` so its committed
+  blobs are unreadable to the agent (group `ai-tools`) and the operators;
 - offers, interactively, to wire the host-wide PATH dedup into the operator's `~/.bashrc`
   and `~/.bash_profile` after their nvm init; a non-interactive run prints the line to add
   rather than editing the home.
 
 `ai-tools-enroll` refuses to run until `ai-tools-bootstrap` has populated the toolchain
-(it checks for `/opt/ai-tools/.nvm`): enrolling first would lock the home to the operator
-before the sandbox account has created its `.nvm`/`.cache` subtrees, which it then could no
-longer write. When the toolchain is absent it prints the ordered steps and exits without
-changing anything.
+(it checks for `/opt/ai-tools/.nvm`): a host is usable only once the agent's Node toolchain
+and launcher symlink exist, and the control-plane state the enroll captures in git should
+reflect a populated tree. When the toolchain is absent it prints the ordered steps and exits
+without changing anything.
 
 `ai-tools-enroll` is idempotent and re-runnable: a second run reconciles
 `operator.conf`, the sudoers principal, and linger to the named user, leaves a
-seeded allowlist in place, reasserts control-plane ownership, skips the git capture
-when `.git` already exists, and skips the PATH-dedup wiring when it is already present.
-The re-own and git capture assume `ai-tools-bootstrap` has already run (the documented
-order, and the order `%post` prints), so the agent-owned `.nvm`/`.cache` subtrees exist;
-the home-claim in bootstrap is guarded to not steal ownership back on a later re-run.
-Enabling the operator's `nvm-update` user timer and installing the `~/.local/bin` wrapper
-are not yet part of it — those depend on the user-unit and wrapper shipping locations
-settled with the spec, and remain in `install.sh` for the dev flow.
+seeded allowlist in place, skips the git capture when `.git` already exists, and skips the
+PATH-dedup wiring when it is already present. The Node-toolchain update timer and the launch
+wrapper are not part of it — they are deployed by `install.sh` in the dev flow, and their
+packaged form is settled with the spec.
 
-The `%post` of `ai-tools-base` does **not** enroll: enrollment is per-operator and the
-control-plane re-own must follow `ai-tools-bootstrap`, neither of which a non-interactive
-scriptlet can do. `%post` installs cleanly and unenrolled and prints the ordered
-`sudo ai-tools-bootstrap` then `sudo ai-tools-enroll <user>` directives for the operator
-to run.
+The `%post` of `ai-tools-base` does **not** enroll: enrollment is per-operator and follows
+`ai-tools-bootstrap`, neither of which a non-interactive scriptlet can do. `%post` installs
+cleanly and unenrolled and prints the ordered `sudo ai-tools-bootstrap` then
+`sudo ai-tools-enroll <user>` directives for the operator to run.
 
 ## Bootstrap
 
@@ -136,14 +127,14 @@ Code package and accepts an explicit package argument, so the same command serve
 other providers; the launcher symlink is created only for a package whose launcher
 is known.
 
-Bootstrap claims `/opt/ai-tools` for the sandbox account only while it is still unowned
-by an operator (a fresh dir, the RPM placeholder, or already `ai-tools`), so nvm/npm can
-populate it; it pre-creates the agent's writable state dirs (`.cache`, beside the nvm
-tree), seeds an empty `~/.claude.json` (`{}`) so the agent has a writable state file once
-the home is locked, and adds the PATH-dedup guard to the account's `~/.bash_profile`. After
-`ai-tools-enroll` re-owns the home to the operator (`drwxr-s---`), a bootstrap re-run
-leaves that ownership intact — Node updates land inside the agent-owned `.nvm` subtree,
-which stays writable.
+The home root stays `root:ai-tools 2751`, which the agent (group `ai-tools`) cannot write,
+so bootstrap pre-creates the agent-owned subtrees it must populate — `.nvm`, `.cache`,
+`.npm`, `.local`, each `ai-tools:ai-tools 0750` — as root, then runs nvm/Node/npm as the
+sandbox account, writing only within them (`PROFILE=/dev/null` keeps nvm's installer off the
+root-owned home profile). It seeds an empty `~/.claude.json` (`{}`, `root:ai-tools 0460`) as
+root so the agent has a group-writable state file on first run, and creates the launcher
+symlink under the locked `bin` as root. A re-run reuses an existing toolchain; Node updates
+land inside the agent-owned `.nvm` subtree.
 
 The nvm release is resolved at run time — its latest GitHub release by default, so
 the command does not carry a version that rots — overridable with
@@ -161,18 +152,16 @@ nvm-update timer maintains the tree from then on.
 
 `ai-tools-base`:
 
-- `%pre` creates the `ai-tools` user and group via `systemd-sysusers` from a
-  shipped `sysusers.d` snippet (system account, home `/opt/ai-tools`, shell
-  `/sbin/nologin`, locked password), so the account exists before any file is
-  owned by it. `Requires(pre): shadow-utils`.
+- `%pre` creates the `ai-tools` sandbox user (system account, home `/opt/ai-tools`,
+  shell `/sbin/nologin`, locked password) and the `ai-ops` operators group via
+  `systemd-sysusers` from a shipped `sysusers.d` snippet, so both exist before any
+  file owned by them is unpacked. `Requires(pre): shadow-utils`. The `ai-ops` group
+  ships empty; operators are added to it per host.
 - `%post` runs `%systemd_post ai-tools-handback.socket`; when SELinux is not
   `Disabled`, installs the prebuilt core policy module and relabels (below); and
   prints the ordered `ai-tools-bootstrap` then `ai-tools-enroll` directives. It
   does not enroll an operator or enable linger — both are per-operator and belong
   to `ai-tools-enroll`.
-- `%posttrans` runs `ai-tools-enroll --reassert` to restore the enrolled
-  operator's control-plane ownership, which unpacking resets to the packaged
-  `root:ai-tools` placeholder on every upgrade. A no-op on an unenrolled host.
 - `%preun` runs `%systemd_preun ai-tools-handback.socket`.
 - `%postun` runs `%systemd_postun_with_restart ai-tools-handback.socket`, and on
   final erase (`$1 == 0`) removes the SELinux core module and re-applies default

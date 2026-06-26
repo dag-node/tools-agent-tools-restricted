@@ -74,10 +74,10 @@ if ! source "${MSG_LIB}" 2>/dev/null; then
     ai_tools_msg_block() { shift; printf '%s\n' "$@" >&2; }
 fi
 
-# Control-plane manifest + reown_control_plane, sourced from the SOURCE TREE (the installed copy
-# may not exist yet). The single source for the operator-owned /opt/ai-tools paths and their
-# boundary modes, shared with ai-tools-enroll; the boundary modes here are load-bearing, so a
-# missing lib is fatal rather than silently falling back.
+# Control-plane boundary-mode constants, sourced from the SOURCE TREE (the installed copy may not
+# exist yet). The single source for the /opt/ai-tools home/dir modes the dev install and the spec
+# %files both assert; these modes are load-bearing, so a missing lib is fatal rather than silently
+# falling back.
 readonly CONTROL_PLANE_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/control-plane.lib.sh"
 # shellcheck source=/dev/null
 source "${CONTROL_PLANE_LIB}" || {
@@ -218,14 +218,14 @@ bootstrap_claude_symlink() {
         return
     fi
 
-    # Lock /opt/ai-tools/bin to 550, owned by the projects user (NOT ai-tools):
-    # ai-tools gets group r-x (it must execute nvm-update.sh and resolve the
-    # claude symlink) but no write, so the agent can neither tamper with the
-    # updater nor swap the symlink the wrapper resolves and trusts. Enforce even
-    # when the dir pre-existed (README step 3 creates it ai-tools-owned).
-    ensure_dir 550 "${PROJECTS_USER}" "${SANDBOX_GROUP}" "${ai_tools_bin}"
-    chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${ai_tools_bin}"
-    chmod 550 "${ai_tools_bin}"
+    # Lock /opt/ai-tools/bin to 0551, owned root:ai-tools: ai-tools gets group r-x
+    # (it must execute nvm-update.sh and resolve the claude symlink) but no write, so
+    # the agent can neither tamper with the updater nor swap the symlink the wrapper
+    # resolves and trusts; the o+x search bit lets an operator readlink bin/claude.
+    # Enforce even when the dir pre-existed (README step 3 creates it ai-tools-owned).
+    ensure_dir 551 root "${SANDBOX_GROUP}" "${ai_tools_bin}"
+    chown "root:${SANDBOX_GROUP}" "${ai_tools_bin}"
+    chmod 551 "${ai_tools_bin}"
     # Create the symlink via the root helper -- the only writer of the locked dir,
     # and the same validating path the sandbox updater uses on every Node upgrade.
     /usr/local/sbin/ai-tools/ai-tools-claude-symlink "${versioned_claude}" \
@@ -540,9 +540,9 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/operator.lib.sh" \
         /usr/local/lib/ai-tools/operator.lib.sh
 
-    # Control-plane manifest + re-own routine: 644 root:root. The single source for which
-    # /opt/ai-tools paths the operator owns and at which modes; sourced by ai-tools-enroll (the
-    # %posttrans re-assert) and below in this installer. No secrets, no tokens.
+    # Control-plane boundary-mode constants: 644 root:root. The single source for the
+    # /opt/ai-tools home/dir modes, sourced below in this installer and matching the spec %files
+    # declarations. No secrets, no tokens.
     log "/usr/local/lib/ai-tools/control-plane.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/control-plane.lib.sh" \
@@ -634,24 +634,24 @@ do_install() {
         /usr/local/bin/ai-tools
 
     # Sandbox project area. /var/opt is FHS-correct for variable data paired with an
-    # /opt install. Owned by the projects user, group SANDBOX_GROUP; the inner
-    # sandbox-projects dir is setgid (clones born group SANDBOX_GROUP) and
-    # group-writable (the agent works in the clones). The projects user is NOT in
-    # SANDBOX_GROUP -- setgid is what lets both share the clone files. Enforce
-    # ownership/mode on re-install even when the dirs pre-exist.
+    # /opt install. Owned root:SANDBOX_GROUP; the inner sandbox-projects dir is setgid
+    # (clones born group SANDBOX_GROUP) and group-writable (the agent works in the
+    # clones). setgid is what lets the agent and an operator share the clone files
+    # through the group. Enforce ownership/mode on re-install even when the dirs
+    # pre-exist.
     log "/var/opt/ai-tools/"
-    ensure_dir 2750 "${PROJECTS_USER}" "${SANDBOX_GROUP}" /var/opt/ai-tools
-    chown "${PROJECTS_USER}:${SANDBOX_GROUP}" /var/opt/ai-tools
+    ensure_dir 2750 root "${SANDBOX_GROUP}" /var/opt/ai-tools
+    chown "root:${SANDBOX_GROUP}" /var/opt/ai-tools
     chmod 2750 /var/opt/ai-tools
     log "/var/opt/ai-tools/sandbox-projects/"
-    ensure_dir 2770 "${PROJECTS_USER}" "${SANDBOX_GROUP}" /var/opt/ai-tools/sandbox-projects
-    chown "${PROJECTS_USER}:${SANDBOX_GROUP}" /var/opt/ai-tools/sandbox-projects
+    ensure_dir 2770 root "${SANDBOX_GROUP}" /var/opt/ai-tools/sandbox-projects
+    chown "root:${SANDBOX_GROUP}" /var/opt/ai-tools/sandbox-projects
     chmod 2770 /var/opt/ai-tools/sandbox-projects
 
     # Sandbox workflow doc. Shipped documentation (not user-edited config), so it is
-    # refreshed on every re-install. 640 PROJECTS_USER:SANDBOX_GROUP.
+    # refreshed on every re-install. 640 root:SANDBOX_GROUP.
     log "/var/opt/ai-tools/README.md"
-    install_subst 640 "${PROJECTS_USER}" "${SANDBOX_GROUP}" \
+    install_subst 640 root "${SANDBOX_GROUP}" \
         "${SCRIPT_DIR}/src/var/opt/ai-tools/README.md" \
         /var/opt/ai-tools/README.md
 
@@ -712,58 +712,59 @@ do_install() {
 
     section "ai-tools control plane (/opt/ai-tools)"
 
-    # Ownership and the boundary modes (home 2750, bin 0550, .claude 3770, .claude.json 0460) are
-    # asserted at the END of this section by reown_control_plane -- the same routine the RPM
-    # %posttrans runs, so the boundary has one source (control-plane.lib.sh). Below, files are
-    # installed with their explicit owner/group and content modes, and .claude is created up
-    # front so the hooks can land in it.
+    # The control plane is owned root:ai-tools: root owns the locked control files while the agent
+    # (which runs AS ai-tools) reaches them through group ai-tools. The home and bin dirs' owner
+    # and boundary modes (home 2751, bin 0551, .claude 3770) are asserted at the END of this
+    # section from the constants in control-plane.lib.sh, so the dev install and the spec %files
+    # declare the same boundary. Below, files land with their explicit owner/group and content
+    # modes, and .claude is created up front so the hooks can land in it.
 
-    # Control-plane files are owned by the projects user, group ai-tools: the
-    # agent (which runs AS ai-tools) gets group read/exec but can never write
-    # them, so it cannot rewrite its own updater, hook, or hook config.
+    # Control-plane files are owned root, group ai-tools: the agent gets group read/exec but can
+    # never write them, so it cannot rewrite its own updater, hook, or hook config.
     log "/opt/ai-tools/bin/nvm-update.sh"
-    install -o "${PROJECTS_USER}" -g "${SANDBOX_GROUP}" -m 550 \
+    install -o root -g "${SANDBOX_GROUP}" -m 550 \
         "${SCRIPT_DIR}/src/opt/ai-tools/bin/nvm-update.sh" \
         /opt/ai-tools/bin/nvm-update.sh
 
     log "/opt/ai-tools/bin/claude-run"
-    install_subst 550 "${PROJECTS_USER}" "${SANDBOX_GROUP}" \
+    install_subst 550 root "${SANDBOX_GROUP}" \
         "${SCRIPT_DIR}/src/opt/ai-tools/bin/claude-run.sh" \
         /opt/ai-tools/bin/claude-run
 
     # /opt/ai-tools/.claude holds both mutable agent state (sessions/, history,
     # credentials -- ai-tools-owned) AND the root-of-trust control files
-    # (settings.json, post-tool-hook.sh). Owning the control files as the install
-    # user is not enough on its own: a group-writer can unlink+recreate any file
-    # in a dir it can write. So the dir is owned by the projects user (NOT ai-tools)
-    # with setgid+sticky (3770): ai-tools stays a group-writer -- it can create and
-    # manage its own state files -- but the sticky bit forbids it from deleting or
-    # replacing files it does not own, and it is not the dir owner, so it cannot
-    # bypass that. setgid keeps new entries in group ai-tools. Created here (mode reasserted by
-    # reown_control_plane at section end) so the hooks below can be installed into it.
+    # (settings.json, post-tool-hook.sh). Root ownership of the control files is not
+    # enough on its own: a group-writer can unlink+recreate any file in a dir it can
+    # write. So the dir is root-owned with setgid+sticky (3770): ai-tools stays a
+    # group-writer -- it can create and manage its own state files -- but the sticky
+    # bit forbids it from deleting or replacing files it does not own, and it is not
+    # the dir owner, so it cannot bypass that. setgid keeps new entries in group
+    # ai-tools. Created here (mode asserted at section end) so the hooks below can be
+    # installed into it.
     log "/opt/ai-tools/.claude/"
-    ensure_dir 3770 "${PROJECTS_USER}" "${SANDBOX_GROUP}" /opt/ai-tools/.claude
-    install_subst 750 "${PROJECTS_USER}" "${SANDBOX_GROUP}" \
+    ensure_dir 3770 root "${SANDBOX_GROUP}" /opt/ai-tools/.claude
+    install_subst 750 root "${SANDBOX_GROUP}" \
         "${SCRIPT_DIR}/src/opt/ai-tools/.claude/post-tool-hook.sh" \
         /opt/ai-tools/.claude/post-tool-hook.sh
-    install_subst 750 "${PROJECTS_USER}" "${SANDBOX_GROUP}" \
+    install_subst 750 root "${SANDBOX_GROUP}" \
         "${SCRIPT_DIR}/src/opt/ai-tools/.claude/session-hook.sh" \
         /opt/ai-tools/.claude/session-hook.sh
-    install -o "${PROJECTS_USER}" -g "${SANDBOX_GROUP}" -m 640 \
+    install -o root -g "${SANDBOX_GROUP}" -m 640 \
         "${SCRIPT_DIR}/src/opt/ai-tools/.claude/settings.json" \
         /opt/ai-tools/.claude/settings.json
 
-    # .gitconfig: PROJECTS_USER:SANDBOX_GROUP 640. SANDBOX_USER reads safe.directory
-    # on startup; PROJECTS_USER edits it via `ai-tools --project-create`. setgid on
-    # /opt/ai-tools (above) keeps the group correct across git-config lock→rename
-    # rewrites. Ownership is enforced even when keeping existing content so a wrong-
-    # group file does not silently block the agent. keep_existing preserves safe.directory
-    # entries (and any user customisations) on re-install.
+    # .gitconfig: root:SANDBOX_GROUP 640. SANDBOX_USER reads safe.directory on startup
+    # through the group; it never writes the file, so a project's safe.directory is
+    # registered through the handback bridge. setgid on /opt/ai-tools (above) keeps the
+    # group correct across git-config lock→rename rewrites. Ownership is enforced even
+    # when keeping existing content so a wrong-group file does not silently block the
+    # agent. keep_existing preserves safe.directory entries (and any customisations) on
+    # re-install.
     log "/opt/ai-tools/.gitconfig"
     local _gitconfig="/opt/ai-tools/.gitconfig"
     if keep_existing "${_gitconfig}" "reseed with shipped defaults"; then
         log "keeping existing ${_gitconfig}"
-        chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${_gitconfig}"
+        chown "root:${SANDBOX_GROUP}" "${_gitconfig}"
         chmod 640 "${_gitconfig}"
     else
         # Derive the sandbox email domain from the projects user's git user.email;
@@ -785,31 +786,34 @@ do_install() {
         log "created ${_gitconfig} (ai-tools@${_domain})"
     fi
 
-    # .gitignore: a default-deny guard for the case where the operator initialises a git repo
-    # in /opt/ai-tools to version the control plane. It ignores everything, then re-includes only
-    # durable operator-owned assets (.gitconfig, the .claude guardrails, skills, auto-memory) and
-    # re-asserts a hard secret denylist last, so auth tokens (.credentials.json, .claude.json),
-    # conversation logs (history.jsonl, sessions/), and nvm/npm churn are never committable.
-    # PROJECTS_USER:SANDBOX_GROUP 640: the agent reads it but never writes it. keep_existing
-    # preserves operator customisations on re-install.
+    # .gitignore: a default-deny guard for a git repo in /opt/ai-tools that versions the control
+    # plane. It ignores everything, then re-includes only durable control-plane assets (.gitconfig,
+    # the .claude guardrails, skills, auto-memory) and re-asserts a hard secret denylist last, so
+    # auth tokens (.credentials.json, .claude.json), conversation logs (history.jsonl, sessions/),
+    # and nvm/npm churn are never committable. root:SANDBOX_GROUP 640: the agent reads it through
+    # the group but never writes it. keep_existing preserves customisations on re-install.
     log "/opt/ai-tools/.gitignore"
     local _gitignore="/opt/ai-tools/.gitignore"
     if keep_existing "${_gitignore}" "reseed with shipped defaults"; then
         log "keeping existing ${_gitignore}"
-        chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${_gitignore}"
+        chown "root:${SANDBOX_GROUP}" "${_gitignore}"
         chmod 640 "${_gitignore}"
     else
-        install -o "${PROJECTS_USER}" -g "${SANDBOX_GROUP}" -m 640 \
+        install -o root -g "${SANDBOX_GROUP}" -m 640 \
             "${SCRIPT_DIR}/src/opt/ai-tools/gitignore" \
             /opt/ai-tools/.gitignore
         log "created ${_gitignore}"
     fi
 
-    # Assert control-plane ownership + boundary modes from the shared manifest: the operator owns
-    # the tree (the agent reaches it via the sandbox group), with bin locked, .claude setgid+sticky,
-    # and .claude.json group-writable. Same routine the RPM %posttrans re-asserts after an upgrade.
-    log "re-owning the control plane to ${PROJECTS_USER}:${SANDBOX_GROUP}"
-    reown_control_plane
+    # Assert the control-plane home and dir boundary modes from the shared constants: the home is
+    # owned root:ai-tools with the o+x search bit and setgid (2751), bin is locked (0551), and
+    # .claude is setgid+sticky (3770). The agent reaches the tree through group ai-tools; root owns
+    # the locked control files so the agent cannot replace them.
+    log "asserting control-plane ownership and boundary modes (root:${SANDBOX_GROUP})"
+    chown "root:${SANDBOX_GROUP}" /opt/ai-tools /opt/ai-tools/bin /opt/ai-tools/.claude
+    chmod "${CP_HOME_MODE}" /opt/ai-tools
+    chmod "${CP_DIR_MODES[bin]}" /opt/ai-tools/bin
+    chmod "${CP_DIR_MODES[.claude]}" /opt/ai-tools/.claude
 
     section "User files (${PROJECTS_HOME})"
 

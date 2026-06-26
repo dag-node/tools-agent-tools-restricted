@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # /usr/local/sbin/ai-tools/ai-tools-enroll
-# Enroll one operator -- the human whose projects the sandbox works on -- as the per-host
-# identity the control plane resolves at runtime. This is the per-operator setup that an RPM
-# %post cannot do (it is specific to one human), so the package ships operator-agnostic and
-# this command (or an opportunistic %post call with $SUDO_USER) binds an operator. It:
+# Enroll one operator -- a login user whose projects the sandbox works on -- as a per-host
+# identity the control plane resolves at runtime. The control plane is owned root:ai-tools and
+# the agent reaches it through group ai-tools, so binding an operator is a matter of host config,
+# not ownership. This is the per-operator setup an RPM %post cannot do (it is specific to one
+# user), so the package ships operator-agnostic and this command binds an operator. It:
 #   1. writes /etc/ai-tools/operator.conf (PROJECTS_USER/HOME/GROUP), the single source the
 #      root helpers and hooks read via operator.lib.sh;
 #   2. writes /etc/sudoers.d/ai-tools-claude with the operator as principal (visudo-checked);
@@ -11,12 +12,10 @@
 #      instance (the launch path runs the session in @SANDBOX_USER@'s instance);
 #   4. seeds the operator's ~/.config/ai-tools/allowed-projects (empty, with a header) when
 #      absent, leaving an existing allowlist untouched;
-#   5. re-owns the control plane (/opt/ai-tools, bin, .claude, the control files, .gitconfig,
-#      .gitignore, .claude.json) from the package's neutral root:ai-tools placeholder to the
-#      operator, leaving the agent-owned subtrees (.nvm/.cache/.local/.npm) and .git untouched;
-#   6. captures the control plane's initial state in an operator-owned git repo (default-deny
-#      via the shipped .gitignore), the metadata locked operator-private;
-#   7. offers (interactively) to wire the host-wide PATH dedup into the operator's ~/.bashrc
+#   5. captures the control plane's initial state in a root-private git repo (default-deny via
+#      the shipped .gitignore), so control-plane drift is reviewable while the committed blobs
+#      stay unreadable to the agent and the operators;
+#   6. offers (interactively) to wire the host-wide PATH dedup into the operator's ~/.bashrc
 #      and ~/.bash_profile, after their nvm init.
 #
 # @SANDBOX_USER@ gets NO sudo rights (see the generated sudoers): ownership handback goes
@@ -34,42 +33,14 @@ set -euo pipefail
 
 readonly SANDBOX_USER="@SANDBOX_USER@"
 readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
+readonly SANDBOX_HOME="/opt/ai-tools"
 readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 readonly SUDOERS="/etc/sudoers.d/ai-tools-claude"
-readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
-readonly CONTROL_PLANE_LIB="/usr/local/lib/ai-tools/control-plane.lib.sh"
 
 die() { printf 'ai-tools-enroll: error: %s\n' "$*" >&2; exit 1; }
 log() { printf 'ai-tools-enroll: %s\n' "$*"; }
 
 [[ "${EUID}" -eq 0 ]] || die "run as root (sudo)"
-
-# The control-plane manifest (the operator-owned paths and their boundary modes) and the
-# reown_control_plane routine live in the shared lib, so the full enroll, the %posttrans
-# `--reassert`, and install.sh all assert the same boundary from one source.
-# shellcheck source=/dev/null
-. "${CONTROL_PLANE_LIB}" || die "cannot source ${CONTROL_PLANE_LIB}"
-readonly SANDBOX_HOME="${CP_HOME}"
-
-# --reassert: a non-interactive re-own of the control plane to the ALREADY-enrolled operator,
-# read from operator.conf rather than an argument. An RPM %posttrans runs this after an
-# upgrade/reinstall re-applies the packaged root:ai-tools owner and modes to /opt/ai-tools and
-# its control files, un-personalizing a host enroll had locked to the operator. It touches ONLY
-# ownership -- sudoers, linger, the allowlist, the git capture, and PATH wiring are unchanged by
-# an upgrade and stay the province of a full enroll. A no-op on an unenrolled host: it never
-# enrolls, only restores an existing enrollment.
-if [[ "${1:-}" == "--reassert" ]]; then
-    # shellcheck source=/dev/null
-    . "${OPERATOR_LIB}"
-    if ! ai_tools_load_operator; then
-        log "not enrolled (no operator in ${OPERATOR_CONF}); nothing to re-assert"
-        exit 0
-    fi
-    OPERATOR="${PROJECTS_USER}"
-    log "re-asserting control-plane ownership to ${PROJECTS_USER}:${SANDBOX_GROUP}"
-    reown_control_plane
-    exit 0
-fi
 
 # Operator: the argument, else the sudo invoker. Never the sandbox account or root -- the
 # operator is a normal login user whose home holds the allowlist and whose group co-owns
@@ -85,16 +56,15 @@ P_HOME="$(getent passwd "${OPERATOR}" | cut -d: -f6)"
 P_GROUP="$(id -gn "${OPERATOR}")"
 [[ -n "${P_HOME}" && -d "${P_HOME}" ]] || die "home directory not found for ${OPERATOR}: ${P_HOME:-<none>}"
 
-# Bootstrap-first gate. Enrollment locks the control plane to the operator (drwxr-s---), after
-# which only the sandbox account's own subtrees stay agent-writable. ai-tools-bootstrap must have
-# populated those subtrees FIRST: run before it, the lock would leave the home operator-owned and
-# bootstrap could no longer create .nvm/.cache as the sandbox account. The nvm toolchain is the
-# bootstrap signal -- refuse with the ordered steps when it is absent, before changing anything.
+# Bootstrap-first gate. ai-tools-bootstrap installs the agent's Node toolchain and launcher
+# symlink; a host is usable only once they exist, and the git capture below reflects a populated
+# tree. The nvm toolchain is the bootstrap signal -- refuse with the ordered steps when it is
+# absent, before changing anything.
 if [[ ! -s "${SANDBOX_HOME}/.nvm/nvm.sh" ]]; then
     log "the sandbox Node toolchain is not installed (${SANDBOX_HOME}/.nvm absent)."
     log "Run ai-tools-bootstrap before enrolling. Setup order:"
     log "  1. sudo ai-tools-bootstrap              # install nvm + Node + the agent package (network)"
-    log "  2. sudo ai-tools-enroll ${OPERATOR}     # bind the operator and lock the control plane"
+    log "  2. sudo ai-tools-enroll ${OPERATOR}     # bind the operator"
     die "bootstrap not detected; nothing changed"
 fi
 
@@ -161,42 +131,34 @@ if [[ ! -f "${allow}" ]]; then
     rm -f "${tmp}"
 fi
 
-# 5. Re-own the control plane from the package's neutral root:ai-tools placeholder to the operator,
-#    per the boundary manifest in control-plane.lib.sh. The full enroll and the %posttrans
-#    `--reassert` share this one implementation; reown_control_plane reads PROJECTS_USER:SANDBOX_GROUP.
-PROJECTS_USER="${OPERATOR}"
-log "re-owning the control plane to ${PROJECTS_USER}:${SANDBOX_GROUP}"
-reown_control_plane
-
-# 6. Capture the control plane's initial state in a git repo so drift is visible and the operator
-#    can roll back. Run AS the operator (their identity authors the commit and owns .git); the
-#    .gitignore shipped above makes it default-deny, so auth tokens, conversation logs, and
-#    nvm/npm churn are never staged. The metadata is then locked operator-private: .git is born
-#    group ${SANDBOX_GROUP} under the setgid home, which would expose every committed blob to the
-#    agent, so it is re-grouped to the operator and walled off (no other access; the agent is not
-#    in the operator's group). Idempotent: skipped when .git already exists. Non-fatal: a missing
-#    git or a commit failure (e.g. no operator git identity) warns and leaves enrollment intact.
+# 5. Capture the control plane's initial state in a git repo so drift is reviewable. The control
+#    plane is root:ai-tools, so the repo is root-owned too: run AS root, and lock .git root:root
+#    0700 so its committed blobs are unreadable to both the agent (group ai-tools) and the
+#    operators. The .gitignore shipped above makes the repo default-deny, so auth tokens,
+#    conversation logs, and nvm/npm churn are never staged. Idempotent: skipped when .git already
+#    exists. Non-fatal: a missing git or a commit failure (e.g. no root git identity) warns and
+#    leaves enrollment intact.
 if [[ -d "${SANDBOX_HOME}" && ! -e "${SANDBOX_HOME}/.git" ]]; then
     if command -v git >/dev/null 2>&1; then
-        log "capturing initial control-plane state in ${SANDBOX_HOME}/.git as ${OPERATOR}"
-        _gitrun=(runuser -u "${OPERATOR}" -- env HOME="${P_HOME}" git -C "${SANDBOX_HOME}")
+        log "capturing initial control-plane state in ${SANDBOX_HOME}/.git"
+        _gitrun=(git -C "${SANDBOX_HOME}" -c user.name=ai-tools -c user.email="ai-tools@localhost")
         if "${_gitrun[@]}" init -q -b main \
            && "${_gitrun[@]}" add -A \
            && "${_gitrun[@]}" commit -q -m "Initial control-plane state (ai-tools-enroll)"; then
             log "captured initial control-plane commit"
         else
-            log "warn: control-plane git capture incomplete (check ${OPERATOR}'s git user.name/user.email)"
+            log "warn: control-plane git capture incomplete"
         fi
         if [[ -d "${SANDBOX_HOME}/.git" ]]; then
-            chown -R "${OPERATOR}:${P_GROUP}" "${SANDBOX_HOME}/.git"
-            chmod 2750 "${SANDBOX_HOME}/.git"
+            chown -R root:root "${SANDBOX_HOME}/.git"
+            chmod 0700 "${SANDBOX_HOME}/.git"
         fi
     else
         log "warn: git not found; skipping control-plane state capture"
     fi
 fi
 
-# 7. Offer to wire the host-wide PATH dedup into the operator's interactive shells. path_dedup.sh
+# 6. Offer to wire the host-wide PATH dedup into the operator's interactive shells. path_dedup.sh
 #    reorders PATH so ~/.local/bin (the claude wrapper) wins over the nvm shim, but /etc/profile.d
 #    is sourced only by LOGIN shells; an interactive non-login shell (a new terminal tab) reads
 #    ~/.bashrc only, so the guard is added to ~/.bashrc and ~/.bash_profile. It must run AFTER

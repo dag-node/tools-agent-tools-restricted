@@ -2,3 +2,9 @@
 # packaged file owned by it is unpacked). Home /opt/ai-tools, never /home: /home is nosuid,
 # which would defeat the sudo UID-switch the launch path relies on. No login shell.
 u ai-tools - "AI tools sandbox user" /opt/ai-tools /sbin/nologin
+
+# Operators group. Names the login users (a human plus rootless service accounts) that drive
+# the sandbox through the shared ai-tools account; the sudoers grant and the launch wrapper gate
+# on membership. The agent account ai-tools is NOT a member. Created here but left empty: members
+# are added per host by `ai-tools-admin operator add`, never by the package.
+g ai-ops -

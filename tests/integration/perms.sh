@@ -49,8 +49,8 @@ check_file /usr/local/lib/ai-tools/relabel.lib.sh             root              
 # Operator-identity resolver: 644 root:root -- world-readable like log.lib.sh; sourced by the
 # root helpers (ai_tools_handback_t) and the agent hooks (ai_tools_t) to read operator.conf.
 check_file /usr/local/lib/ai-tools/operator.lib.sh           root              root              644
-# Control-plane manifest + reown routine: 644 root:root. Sourced by ai-tools-enroll and
-# install.sh as the single source for the operator-owned /opt/ai-tools paths and boundary modes.
+# Control-plane boundary-mode constants: 644 root:root. Sourced by install.sh as the single
+# source for the /opt/ai-tools home/dir modes the spec %files also declares.
 check_file /usr/local/lib/ai-tools/control-plane.lib.sh      root              root              644
 # Secret-pattern config: user-owned 600. ai-tools (not owner/group, cannot enter the 700
 # .config/ai-tools dir) can neither read nor write it; root helpers read it.
@@ -60,23 +60,21 @@ check_file /etc/sudoers.d/ai-tools-claude                     root              
 # root-write-only (the agent cannot rewrite the identity root hands files back to).
 check_file /etc/ai-tools/operator.conf                        root              root              644
 check_file /etc/profile.d/path_dedup.sh                       root              root              644
-# /opt/ai-tools/bin is locked: owned by the projects user (NOT ai-tools), 550, so ai-tools
-# has group r-x but no write. The agent can execute nvm-update.sh and resolve the claude
-# symlink, but cannot edit the updater or swap the symlink -- only root (via
-# ai-tools-claude-symlink) writes here.
-check_file /opt/ai-tools/bin                                  "${PROJECTS_USER}" "${SANDBOX_GROUP}" 550
-# Control-plane files: owned by the projects user, group ai-tools. The agent (running as
-# ai-tools) gets group read/exec but no write, so it cannot rewrite its own updater, hook,
-# or hook config.
-check_file /opt/ai-tools/bin/nvm-update.sh                    "${PROJECTS_USER}" "${SANDBOX_GROUP}" 550
-check_file /opt/ai-tools/.claude/post-tool-hook.sh            "${PROJECTS_USER}" "${SANDBOX_GROUP}" 750
-check_file /opt/ai-tools/.claude/session-hook.sh             "${PROJECTS_USER}" "${SANDBOX_GROUP}" 750
-check_file /opt/ai-tools/.claude/settings.json               "${PROJECTS_USER}" "${SANDBOX_GROUP}" 640
-# .claude must be install-user-owned (not ai-tools) with setgid+sticky (3770): ai-tools is a
-# group-writer for its own state but cannot unlink/replace the install-user-owned control
-# files above. Owned by ai-tools, or without the sticky bit, the agent could delete and
-# recreate them.
-check_file /opt/ai-tools/.claude                              "${PROJECTS_USER}" "${SANDBOX_GROUP}" 3770
+# /opt/ai-tools/bin is locked: root:ai-tools 0551, so ai-tools has group r-x but no write. The
+# agent can execute nvm-update.sh and resolve the claude symlink, but cannot edit the updater or
+# swap the symlink -- only root (via ai-tools-claude-symlink) writes here. The o+x search bit
+# lets an operator readlink bin/claude.
+check_file /opt/ai-tools/bin                                  root              "${SANDBOX_GROUP}" 551
+# Control-plane files: root:ai-tools. The agent (running as ai-tools) gets group read/exec but
+# no write, so it cannot rewrite its own updater, hook, or hook config.
+check_file /opt/ai-tools/bin/nvm-update.sh                    root              "${SANDBOX_GROUP}" 550
+check_file /opt/ai-tools/.claude/post-tool-hook.sh            root              "${SANDBOX_GROUP}" 750
+check_file /opt/ai-tools/.claude/session-hook.sh             root              "${SANDBOX_GROUP}" 750
+check_file /opt/ai-tools/.claude/settings.json               root              "${SANDBOX_GROUP}" 640
+# .claude is root-owned with setgid+sticky (3770): ai-tools is a group-writer for its own state
+# but cannot unlink/replace the root-owned control files above. Owned by ai-tools, or without
+# the sticky bit, the agent could delete and recreate them.
+check_file /opt/ai-tools/.claude                              root              "${SANDBOX_GROUP}" 3770
 check_file "${PROJECTS_HOME}/.local/bin/claude"               "${PROJECTS_USER}" "${PROJECTS_GROUP}" 750
 check_file "${PROJECTS_HOME}/.local/bin/nvm-update.sh"        "${PROJECTS_USER}" "${PROJECTS_GROUP}" 750
 check_file "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service" \
@@ -101,20 +99,21 @@ check_file /usr/local/bin/ai-tools                            root root 755
 # Message formatter: 644 root:root -- world-readable like log.lib.sh; sourced by the operator
 # wrapper/CLI, the agent's hooks, and claude-run, so every principal must read it. No secrets.
 check_file /usr/local/lib/ai-tools/msg.lib.sh                 root root 644
-# Sandbox area: PROJECTS_USER:SANDBOX_GROUP. Outer dir 2750 (setgid, no world); inner
-# sandbox-projects 2770 (setgid so clones are born group SANDBOX_GROUP, group-writable so the
-# agent works in the clones). README 640.
-check_file /var/opt/ai-tools                                  "${PROJECTS_USER}" "${SANDBOX_GROUP}" 2750
-check_file /var/opt/ai-tools/sandbox-projects                 "${PROJECTS_USER}" "${SANDBOX_GROUP}" 2770
-check_file /var/opt/ai-tools/README.md                        "${PROJECTS_USER}" "${SANDBOX_GROUP}" 640
-# /opt/ai-tools root: 2750 PROJECTS_USER:SANDBOX_GROUP -- setgid propagates group SANDBOX_GROUP
-# to new files; group r-x only, so the agent cannot create or delete here. claude-run mirrors
-# nvm-update.sh (550, group r-x, no write). .gitconfig 640: agent reads safe.directory, owner edits.
-# .gitignore 640: a default-deny guard if the operator versions the control plane (agent reads, never writes).
-check_file /opt/ai-tools                                      "${PROJECTS_USER}" "${SANDBOX_GROUP}" 2750
-check_file /opt/ai-tools/bin/claude-run                       "${PROJECTS_USER}" "${SANDBOX_GROUP}" 550
-check_file /opt/ai-tools/.gitconfig                           "${PROJECTS_USER}" "${SANDBOX_GROUP}" 640
-check_file /opt/ai-tools/.gitignore                           "${PROJECTS_USER}" "${SANDBOX_GROUP}" 640
+# Sandbox area: root:SANDBOX_GROUP. Outer dir 2750 (setgid, no world); inner sandbox-projects
+# 2770 (setgid so clones are born group SANDBOX_GROUP, group-writable so the agent works in the
+# clones). README 640.
+check_file /var/opt/ai-tools                                  root              "${SANDBOX_GROUP}" 2750
+check_file /var/opt/ai-tools/sandbox-projects                 root              "${SANDBOX_GROUP}" 2770
+check_file /var/opt/ai-tools/README.md                        root              "${SANDBOX_GROUP}" 640
+# /opt/ai-tools root: 2751 root:SANDBOX_GROUP -- setgid propagates group SANDBOX_GROUP to new
+# files; group r-x and the o+x search bit, so the agent reads through the group and an operator
+# traverses to the launcher, but neither creates or deletes here. claude-run mirrors nvm-update.sh
+# (550, group r-x, no write). .gitconfig 640: agent reads safe.directory through the group, never
+# writes. .gitignore 640: a default-deny guard for a git repo versioning the control plane.
+check_file /opt/ai-tools                                      root              "${SANDBOX_GROUP}" 2751
+check_file /opt/ai-tools/bin/claude-run                       root              "${SANDBOX_GROUP}" 550
+check_file /opt/ai-tools/.gitconfig                           root              "${SANDBOX_GROUP}" 640
+check_file /opt/ai-tools/.gitignore                           root              "${SANDBOX_GROUP}" 640
 # Operation logs: dir 700 root:root, each file 600 root:root -- the root helpers append here;
 # ai-tools (neither owner nor able to traverse the 700 dir) can neither read nor tamper with
 # the trail, so secret filenames recorded by ai-tools-chown stay out of agent reach.

@@ -93,10 +93,10 @@ grep -rlZ -e '@SANDBOX_USER@' -e '@SANDBOX_GROUP@' src \
     | xargs -0 -r sed -i -e 's/@SANDBOX_USER@/ai-tools/g' -e 's/@SANDBOX_GROUP@/ai-tools/g'
 
 %install
-# Operator-owned paths (the /opt control plane, /var trees) ship root:ai-tools as a SAFE
-# neutral default: root (not the agent) owns them and the agent reaches its state via group
-# ai-tools, exactly as under the operator-owned model. ai-tools-enroll personalizes ownership
-# to the operator. The agent is never the owner of a locked dir, so it cannot tamper with it.
+# The /opt control plane and the /var trees ship root:ai-tools and stay that way: root (not the
+# agent) owns the locked control files while the agent reaches its state through group ai-tools.
+# Nothing re-owns them to a person -- the operators drive the shared ai-tools account and reach
+# the launcher through an o+x search bit, so the agent is never the owner of a locked dir.
 
 # ── base: root helpers ───────────────────────────────────────────────────────
 install -d -m 0750 %{buildroot}%{ai_sbindir}
@@ -201,14 +201,6 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
     semodule -n -r ai_tools >/dev/null 2>&1 || :
 fi
 
-%posttrans -n ai-tools-base
-# Unpacking re-applies the packaged root:ai-tools owner/modes to the control plane on every
-# upgrade; restore the enrolled operator's ownership from operator.conf. No-op when unenrolled.
-# In %posttrans so all subpackages' files are on disk before the re-own walks the tree.
-if [ -x %{ai_sbindir}/ai-tools-enroll ]; then
-    %{ai_sbindir}/ai-tools-enroll --reassert || :
-fi
-
 # ─────────────────────────────────────────────────────────────────────────────
 # File lists
 # ─────────────────────────────────────────────────────────────────────────────
@@ -254,11 +246,12 @@ fi
 %ghost %attr(0600, root, root) /var/log/ai-tools/handback.log
 %ghost %attr(0600, root, root) /var/log/ai-tools/install.log
 %ghost %attr(0600, root, root) /var/log/ai-tools/enroll.log
-# Control-plane root and dirs ship root:ai-tools (neutral placeholder -- the package has no
-# operator at build time). ai-tools-bootstrap populates the tree as the sandbox account, then
-# ai-tools-enroll re-owns this set to the operator and tightens /opt/ai-tools to drwxr-s---.
-%dir %attr(2750, root, ai-tools) /opt/ai-tools
-%dir %attr(0550, root, ai-tools) /opt/ai-tools/bin
+# Control-plane root and dirs are owned root:ai-tools: root owns the locked control files, the
+# agent reaches its state through group ai-tools, and the o+x search bits on the home and bin let
+# an operator readlink the launcher without reading anything deeper. ai-tools-bootstrap populates
+# the agent's own subtrees (.nvm/.cache/...) under the home as the sandbox account.
+%dir %attr(2751, root, ai-tools) /opt/ai-tools
+%dir %attr(0551, root, ai-tools) /opt/ai-tools/bin
 %dir %attr(3770, root, ai-tools) /opt/ai-tools/.claude
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.gitignore
 
