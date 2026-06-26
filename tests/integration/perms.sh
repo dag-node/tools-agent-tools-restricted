@@ -49,6 +49,9 @@ check_file /usr/local/lib/ai-tools/relabel.lib.sh             root              
 # Operator-identity resolver: 644 root:root -- world-readable like log.lib.sh; sourced by the
 # root helpers (ai_tools_handback_t) and the agent hooks (ai_tools_t) to read operator.conf.
 check_file /usr/local/lib/ai-tools/operator.lib.sh           root              root              644
+# Control-plane manifest + reown routine: 644 root:root. Sourced by ai-tools-enroll and
+# install.sh as the single source for the operator-owned /opt/ai-tools paths and boundary modes.
+check_file /usr/local/lib/ai-tools/control-plane.lib.sh      root              root              644
 # Secret-pattern config: user-owned 600. ai-tools (not owner/group, cannot enter the 700
 # .config/ai-tools dir) can neither read nor write it; root helpers read it.
 check_file "${PROJECTS_HOME}/.config/ai-tools/secret-patterns" "${PROJECTS_USER}" "${PROJECTS_GROUP}" 600

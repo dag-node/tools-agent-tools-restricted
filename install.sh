@@ -74,6 +74,15 @@ if ! source "${MSG_LIB}" 2>/dev/null; then
     ai_tools_msg_block() { shift; printf '%s\n' "$@" >&2; }
 fi
 
+# Control-plane manifest + reown_control_plane, sourced from the SOURCE TREE (the installed copy
+# may not exist yet). The single source for the operator-owned /opt/ai-tools paths and their
+# boundary modes, shared with ai-tools-enroll; the boundary modes here are load-bearing, so a
+# missing lib is fatal rather than silently falling back.
+readonly CONTROL_PLANE_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/control-plane.lib.sh"
+# shellcheck source=/dev/null
+source "${CONTROL_PLANE_LIB}" || {
+    printf 'install.sh: cannot source %s\n' "${CONTROL_PLANE_LIB}" >&2; exit 1; }
+
 # ask <title> <question> <context-line...> -- the one interactive prompt shape, so every
 # prompt in the install flow looks the same:
 #   * a FIXED 80-column box (AI_TOOLS_MSG_FULLWIDTH) titled <title>, framing the context,
@@ -375,6 +384,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/log.lib.sh
     _chk /usr/local/lib/ai-tools/msg.lib.sh
     _chk /usr/local/lib/ai-tools/operator.lib.sh
+    _chk /usr/local/lib/ai-tools/control-plane.lib.sh
     _chk /usr/local/lib/ai-tools/relabel.lib.sh
     _chk /etc/sudoers.d/ai-tools-claude
     _chk /etc/ai-tools/operator.conf
@@ -529,6 +539,14 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/operator.lib.sh" \
         /usr/local/lib/ai-tools/operator.lib.sh
+
+    # Control-plane manifest + re-own routine: 644 root:root. The single source for which
+    # /opt/ai-tools paths the operator owns and at which modes; sourced by ai-tools-enroll (the
+    # %posttrans re-assert) and below in this installer. No secrets, no tokens.
+    log "/usr/local/lib/ai-tools/control-plane.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/control-plane.lib.sh" \
+        /usr/local/lib/ai-tools/control-plane.lib.sh
 
     # Project-label library: 640 root:root -- read ONLY by root principals (the
     # ai-tools-relabel helper and selinux/install-selinux.sh's sweep). No group or
@@ -694,13 +712,11 @@ do_install() {
 
     section "ai-tools control plane (/opt/ai-tools)"
 
-    # Root of the control plane: PROJECTS_USER:SANDBOX_GROUP 2750. setgid propagates
-    # group SANDBOX_GROUP to every file born here -- including the .lock file git-config
-    # writes then renames to .gitconfig -- so the projects user never needs a post-write
-    # chown after `ai-tools --project-create`. Group gets r-x only; the agent cannot
-    # create or delete files here. Enforce even when the dir pre-exists.
-    chown "${PROJECTS_USER}:${SANDBOX_GROUP}" /opt/ai-tools
-    chmod 2750 /opt/ai-tools
+    # Ownership and the boundary modes (home 2750, bin 0550, .claude 3770, .claude.json 0460) are
+    # asserted at the END of this section by reown_control_plane -- the same routine the RPM
+    # %posttrans runs, so the boundary has one source (control-plane.lib.sh). Below, files are
+    # installed with their explicit owner/group and content modes, and .claude is created up
+    # front so the hooks can land in it.
 
     # Control-plane files are owned by the projects user, group ai-tools: the
     # agent (which runs AS ai-tools) gets group read/exec but can never write
@@ -723,12 +739,10 @@ do_install() {
     # with setgid+sticky (3770): ai-tools stays a group-writer -- it can create and
     # manage its own state files -- but the sticky bit forbids it from deleting or
     # replacing files it does not own, and it is not the dir owner, so it cannot
-    # bypass that. setgid keeps new entries in group ai-tools. Enforce on
-    # re-install even when the dir pre-exists.
+    # bypass that. setgid keeps new entries in group ai-tools. Created here (mode reasserted by
+    # reown_control_plane at section end) so the hooks below can be installed into it.
     log "/opt/ai-tools/.claude/"
     ensure_dir 3770 "${PROJECTS_USER}" "${SANDBOX_GROUP}" /opt/ai-tools/.claude
-    chown "${PROJECTS_USER}:${SANDBOX_GROUP}" /opt/ai-tools/.claude
-    chmod 3770 /opt/ai-tools/.claude
     install_subst 750 "${PROJECTS_USER}" "${SANDBOX_GROUP}" \
         "${SCRIPT_DIR}/src/opt/ai-tools/.claude/post-tool-hook.sh" \
         /opt/ai-tools/.claude/post-tool-hook.sh
@@ -790,6 +804,12 @@ do_install() {
             /opt/ai-tools/.gitignore
         log "created ${_gitignore}"
     fi
+
+    # Assert control-plane ownership + boundary modes from the shared manifest: the operator owns
+    # the tree (the agent reaches it via the sandbox group), with bin locked, .claude setgid+sticky,
+    # and .claude.json group-writable. Same routine the RPM %posttrans re-asserts after an upgrade.
+    log "re-owning the control plane to ${PROJECTS_USER}:${SANDBOX_GROUP}"
+    reown_control_plane
 
     section "User files (${PROJECTS_HOME})"
 
@@ -993,6 +1013,7 @@ do_uninstall() {
     rm -f /usr/local/lib/ai-tools/log.lib.sh
     rm -f /usr/local/lib/ai-tools/msg.lib.sh
     rm -f /usr/local/lib/ai-tools/operator.lib.sh
+    rm -f /usr/local/lib/ai-tools/control-plane.lib.sh
     rmdir /usr/local/lib/ai-tools 2>/dev/null || true
     rm -f /etc/sudoers.d/ai-tools-claude
     rm -f /etc/ai-tools/operator.conf
