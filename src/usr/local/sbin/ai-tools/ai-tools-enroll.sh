@@ -36,11 +36,96 @@ readonly SANDBOX_USER="@SANDBOX_USER@"
 readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
 readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 readonly SUDOERS="/etc/sudoers.d/ai-tools-claude"
+readonly SANDBOX_HOME="/opt/ai-tools"
+readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 
 die() { printf 'ai-tools-enroll: error: %s\n' "$*" >&2; exit 1; }
 log() { printf 'ai-tools-enroll: %s\n' "$*"; }
 
 [[ "${EUID}" -eq 0 ]] || die "run as root (sudo)"
+
+# Control-plane manifest, grouped by security boundary. This is the SINGLE place to list a
+# control-plane path: add a new one to the array for its boundary and reown_control_plane picks
+# it up. Paths are relative to ${SANDBOX_HOME}. The arrays hold the operator-owned control plane;
+# the agent's own subtrees (.nvm/.cache/.local/.npm) stay agent-owned and .git stays operator-private.
+#
+# CP_HOME_MODE      the home root /opt/ai-tools: operator-owned, agent (group) traverses+reads,
+#                   setgid so control-plane files born here stay in ${SANDBOX_GROUP}.
+# CP_DIR_MODES      sub-directories, each with the boundary mode reasserted on every re-own:
+#                     0550 bin     locked -- the agent cannot swap the launcher symlink or updater
+#                     3770 .claude setgid+sticky -- the agent is a group-writer for its own session
+#                                  state but cannot unlink the control files it does not own
+# CP_FILES          control files chowned to the operator only (content modes are set by the
+#                   package/install; re-own only restores ownership the upgrade reset).
+# CP_SYMLINKS       launcher symlinks chowned with -h (the link, not its target in the nvm tree).
+# CP_STATE_FILES    operator-owned but group-writable at CP_STATE_MODE (r--rw----): the agent
+#                   persists its own state while the owner's copy cannot be silently rewritten.
+readonly CP_HOME_MODE=2750
+readonly -A CP_DIR_MODES=( [bin]=0550 [.claude]=3770 )
+readonly CP_FILES=(
+    bin/claude-run
+    bin/nvm-update.sh
+    .claude/settings.json
+    .claude/post-tool-hook.sh
+    .claude/session-hook.sh
+    .gitconfig
+    .gitignore
+)
+readonly CP_SYMLINKS=( bin/claude )
+readonly CP_STATE_FILES=( .claude.json )
+readonly CP_STATE_MODE=0460
+
+# Re-own the control plane from the package's neutral root:ai-tools placeholder to the operator
+# (${OPERATOR}, set by the caller). Shared by a full enroll (step 5) and the non-interactive
+# `--reassert` an RPM %posttrans runs after an upgrade re-applies the packaged root:ai-tools
+# owner/modes to the dirs and control files. The hardened ownership model requires the OPERATOR
+# to own /opt/ai-tools and its control files so the agent (running as @SANDBOX_USER@, a group
+# member) reads and traverses them but never rewrites its own hooks, settings, updater, or
+# launcher symlink -- and so the operator's wrapper can search bin/ to resolve the versioned
+# binary. Each path is -e guarded so it runs cleanly whether or not ai-tools-bootstrap has
+# populated the tree yet, and modes are reasserted so a re-run is authoritative. install.sh does
+# the equivalent for the dev flow. The paths come from the manifest arrays above.
+reown_control_plane() {
+    [[ -d "${SANDBOX_HOME}" ]] || return 0
+    log "re-owning the control plane to ${OPERATOR}:${SANDBOX_GROUP}"
+    local _rel _p
+    chown "${OPERATOR}:${SANDBOX_GROUP}" "${SANDBOX_HOME}"; chmod "${CP_HOME_MODE}" "${SANDBOX_HOME}"
+    for _rel in "${!CP_DIR_MODES[@]}"; do
+        _p="${SANDBOX_HOME}/${_rel}"
+        [[ -d "${_p}" ]] || continue
+        chown "${OPERATOR}:${SANDBOX_GROUP}" "${_p}"; chmod "${CP_DIR_MODES[${_rel}]}" "${_p}"
+    done
+    for _rel in "${CP_FILES[@]}"; do
+        [[ -e "${SANDBOX_HOME}/${_rel}" ]] && chown "${OPERATOR}:${SANDBOX_GROUP}" "${SANDBOX_HOME}/${_rel}"
+    done
+    for _rel in "${CP_SYMLINKS[@]}"; do
+        [[ -L "${SANDBOX_HOME}/${_rel}" ]] && chown -h "${OPERATOR}:${SANDBOX_GROUP}" "${SANDBOX_HOME}/${_rel}"
+    done
+    for _rel in "${CP_STATE_FILES[@]}"; do
+        [[ -e "${SANDBOX_HOME}/${_rel}" ]] || continue
+        chown "${OPERATOR}:${SANDBOX_GROUP}" "${SANDBOX_HOME}/${_rel}"; chmod "${CP_STATE_MODE}" "${SANDBOX_HOME}/${_rel}"
+    done
+}
+
+# --reassert: a non-interactive re-own of the control plane to the ALREADY-enrolled operator,
+# read from operator.conf rather than an argument. An RPM %posttrans runs this after an
+# upgrade/reinstall re-applies the packaged root:ai-tools owner and modes to /opt/ai-tools and
+# its control files, un-personalizing a host enroll had locked to the operator. It touches ONLY
+# ownership -- sudoers, linger, the allowlist, the git capture, and PATH wiring are unchanged by
+# an upgrade and stay the province of a full enroll. A no-op on an unenrolled host: it never
+# enrolls, only restores an existing enrollment.
+if [[ "${1:-}" == "--reassert" ]]; then
+    # shellcheck source=/dev/null
+    . "${OPERATOR_LIB}"
+    if ! ai_tools_load_operator; then
+        log "not enrolled (no operator in ${OPERATOR_CONF}); nothing to re-assert"
+        exit 0
+    fi
+    OPERATOR="${PROJECTS_USER}"
+    reown_control_plane
+    log "re-asserted control-plane ownership to ${OPERATOR}:${SANDBOX_GROUP}"
+    exit 0
+fi
 
 # Operator: the argument, else the sudo invoker. Never the sandbox account or root -- the
 # operator is a normal login user whose home holds the allowlist and whose group co-owns
@@ -55,8 +140,6 @@ id "${OPERATOR}" &>/dev/null || die "no such user: ${OPERATOR}"
 P_HOME="$(getent passwd "${OPERATOR}" | cut -d: -f6)"
 P_GROUP="$(id -gn "${OPERATOR}")"
 [[ -n "${P_HOME}" && -d "${P_HOME}" ]] || die "home directory not found for ${OPERATOR}: ${P_HOME:-<none>}"
-
-readonly SANDBOX_HOME="/opt/ai-tools"
 
 # Bootstrap-first gate. Enrollment locks the control plane to the operator (drwxr-s---), after
 # which only the sandbox account's own subtrees stay agent-writable. ai-tools-bootstrap must have
@@ -135,36 +218,9 @@ if [[ ! -f "${allow}" ]]; then
 fi
 
 # 5. Re-own the control plane from the package's neutral root:ai-tools placeholder to the
-#    operator. The hardened ownership model requires the OPERATOR to own /opt/ai-tools and its
-#    control files so the agent (running as @SANDBOX_USER@, a group member) reads and traverses
-#    them but never rewrites its own hooks, settings, updater, or launcher symlink -- and so the
-#    operator's wrapper can search bin/ to resolve the versioned binary. The agent-owned subtrees
-#    (.nvm/.cache/.local/.npm) and the operator's own .git are deliberately left untouched. Each
-#    path is -e guarded so enroll runs cleanly whether or not ai-tools-bootstrap has populated the
-#    tree yet, and modes are reasserted so a re-run is authoritative. install.sh does the
-#    equivalent for the dev flow.
-if [[ -d "${SANDBOX_HOME}" ]]; then
-    log "re-owning the control plane to ${OPERATOR}:${SANDBOX_GROUP}"
-    # drwxr-s---: operator owns, the agent (group) traverses+reads, no other access; setgid keeps
-    # control-plane files born here in ${SANDBOX_GROUP}.
-    chown "${OPERATOR}:${SANDBOX_GROUP}" "${SANDBOX_HOME}"; chmod 2750 "${SANDBOX_HOME}"
-    # bin (r-x, locked: the agent cannot swap the launcher symlink or the updater); .claude
-    # (setgid+sticky: the agent is a group-writer for its own session state but cannot unlink the
-    # control files it does not own).
-    [[ -d "${SANDBOX_HOME}/bin" ]]     && { chown "${OPERATOR}:${SANDBOX_GROUP}" "${SANDBOX_HOME}/bin";     chmod 0550 "${SANDBOX_HOME}/bin"; }
-    [[ -d "${SANDBOX_HOME}/.claude" ]] && { chown "${OPERATOR}:${SANDBOX_GROUP}" "${SANDBOX_HOME}/.claude"; chmod 3770 "${SANDBOX_HOME}/.claude"; }
-    # Control files + git assets (owner only; the package/install already set their modes). The
-    # launcher symlink is chowned with -h (the link, not its target in the agent's nvm tree).
-    for _p in bin/claude-run bin/nvm-update.sh .claude/settings.json .claude/post-tool-hook.sh \
-              .claude/session-hook.sh .gitconfig .gitignore; do
-        [[ -e "${SANDBOX_HOME}/${_p}" ]] && chown "${OPERATOR}:${SANDBOX_GROUP}" "${SANDBOX_HOME}/${_p}"
-    done
-    [[ -L "${SANDBOX_HOME}/bin/claude" ]] && chown -h "${OPERATOR}:${SANDBOX_GROUP}" "${SANDBOX_HOME}/bin/claude"
-    # .claude.json is operator-owned but GROUP-writable (r--rw----): the agent persists its own
-    # state to it, while the operator (owner) cannot have it silently rewritten. Only re-stamp an
-    # existing file; seeding an empty one is left to the agent's first run (see the enroll note).
-    [[ -e "${SANDBOX_HOME}/.claude.json" ]] && { chown "${OPERATOR}:${SANDBOX_GROUP}" "${SANDBOX_HOME}/.claude.json"; chmod 0460 "${SANDBOX_HOME}/.claude.json"; }
-fi
+#    operator, per the boundary manifest above (see reown_control_plane). The full enroll and the
+#    %posttrans `--reassert` share this one implementation.
+reown_control_plane
 
 # 6. Capture the control plane's initial state in a git repo so drift is visible and the operator
 #    can roll back. Run AS the operator (their identity authors the commit and owns .git); the

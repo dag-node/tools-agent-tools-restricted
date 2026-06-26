@@ -201,6 +201,14 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
     semodule -n -r ai_tools >/dev/null 2>&1 || :
 fi
 
+%posttrans -n ai-tools-base
+# Unpacking re-applies the packaged root:ai-tools owner/modes to the control plane on every
+# upgrade; restore the enrolled operator's ownership from operator.conf. No-op when unenrolled.
+# In %posttrans so all subpackages' files are on disk before the re-own walks the tree.
+if [ -x %{ai_sbindir}/ai-tools-enroll ]; then
+    %{ai_sbindir}/ai-tools-enroll --reassert || :
+fi
+
 # ─────────────────────────────────────────────────────────────────────────────
 # File lists
 # ─────────────────────────────────────────────────────────────────────────────

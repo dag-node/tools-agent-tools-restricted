@@ -51,17 +51,20 @@ and helper names. The **operator** — the human whose projects the sandbox work
 on — is per-install and is resolved at runtime, not substituted into file
 contents at build time.
 
-`ai-tools-base` ships `/etc/ai-tools/operator.conf` as
-`%config(noreplace)`, with the operator fields commented out:
+`/etc/ai-tools/operator.conf` is not a packaged file: `ai-tools-enroll` creates
+`/etc/ai-tools/` and writes it at runtime, holding the operator fields:
 
 ```sh
 # /etc/ai-tools/operator.conf — written by `ai-tools-enroll`.
-# PROJECTS_USER=
-# PROJECTS_HOME=
-# PROJECTS_GROUP=
+PROJECTS_USER=<login name>
+PROJECTS_HOME=<home directory>
+PROJECTS_GROUP=<primary group>
 ```
 
-The root helpers source this file and resolve `PROJECTS_USER`, `PROJECTS_HOME`,
+Because rpm does not own the file, an upgrade or reinstall never rewrites or
+removes it, so operator identity persists untouched across the package lifecycle.
+
+The root helpers parse this file and resolve `PROJECTS_USER`, `PROJECTS_HOME`,
 and `PROJECTS_GROUP` from it (the allowlist path remains overridable through the
 existing `AI_TOOLS_ALLOWLIST` environment variable). When no operator is set, a
 helper that restores ownership has no target and is a no-op, so an unenrolled
@@ -162,10 +165,14 @@ nvm-update timer maintains the tree from then on.
   shipped `sysusers.d` snippet (system account, home `/opt/ai-tools`, shell
   `/sbin/nologin`, locked password), so the account exists before any file is
   owned by it. `Requires(pre): shadow-utils`.
-- `%post` enables linger for `ai-tools`; runs `%systemd_post
-  ai-tools-handback.socket`; opportunistically enrolls `$SUDO_USER` (above); and,
-  when SELinux is not `Disabled`, installs the prebuilt core policy module and
-  relabels (below).
+- `%post` runs `%systemd_post ai-tools-handback.socket`; when SELinux is not
+  `Disabled`, installs the prebuilt core policy module and relabels (below); and
+  prints the ordered `ai-tools-bootstrap` then `ai-tools-enroll` directives. It
+  does not enroll an operator or enable linger — both are per-operator and belong
+  to `ai-tools-enroll`.
+- `%posttrans` runs `ai-tools-enroll --reassert` to restore the enrolled
+  operator's control-plane ownership, which unpacking resets to the packaged
+  `root:ai-tools` placeholder on every upgrade. A no-op on an unenrolled host.
 - `%preun` runs `%systemd_preun ai-tools-handback.socket`.
 - `%postun` runs `%systemd_postun_with_restart ai-tools-handback.socket`, and on
   final erase (`$1 == 0`) removes the SELinux core module and re-applies default
@@ -210,8 +217,9 @@ rather than packaged files:
   the package never owns — `ai-tools-enroll` seeds them and they survive erase
   untouched.
 
-`operator.conf` is `%config(noreplace)`, so operator edits survive an upgrade and
-the file is removed only on final erase.
+`operator.conf` is written at runtime by `ai-tools-enroll`, not packaged, so an
+upgrade never touches it and an erase leaves it in place — the host stays enrolled
+across a reinstall.
 
 ## Tests
 
