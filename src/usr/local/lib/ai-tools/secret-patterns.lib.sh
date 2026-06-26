@@ -57,8 +57,9 @@ readonly -a _AI_TOOLS_DEFAULT_SECRET_PATTERNS=(
 # operator's secret-patterns config (one pattern per line, '#' comments and blanks skipped,
 # whitespace trimmed). The config path is resolved lazily here: AI_TOOLS_SECRET_PATTERNS_FILE
 # overrides it (a test hook), else `<PROJECTS_HOME>/.config/ai-tools/secret-patterns` -- so a
-# caller that has run ai_tools_load_operator first reads the right operator's file. Falls back
-# to the built-in defaults when the file is unreadable or contains no patterns. Idempotent.
+# caller that has resolved an operator first (ai_tools_resolve_owner for the path's owner, or
+# ai_tools_load_operator) reads that operator's file. Falls back to the built-in defaults when
+# the file is unreadable or contains no patterns. Idempotent.
 ai_tools_load_secret_patterns() {
     AI_TOOLS_SECRET_PATTERNS=()
     local line

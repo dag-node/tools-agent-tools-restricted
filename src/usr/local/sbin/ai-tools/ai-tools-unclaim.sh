@@ -42,23 +42,13 @@ set -euo pipefail
 readonly TARGET="${1:?usage: ai-tools-unclaim <absolute-project-path> <target-group>}"
 readonly TARGET_GROUP="${2:?usage: ai-tools-unclaim <absolute-project-path> <target-group>}"
 
-# Operator identity (PROJECTS_USER/HOME/GROUP, plus the numeric PROJECTS_UID) from
-# /etc/ai-tools/operator.conf via the shared resolver. AI_TOOLS_OPERATOR_CONF /
-# AI_TOOLS_ALLOWLIST override the paths -- root-only test hooks: sudo strips them
-# (env_reset, not in env_keep) and the handback daemon execs this with its own environment,
-# so neither the operator nor the agent can inject them in production.
+# Operator-identity resolver (operator.lib.sh): resolves the operator that owns the project. A
+# missing lib leaves ai_tools_resolve_owner a fail-closed stub, so the tree is left untouched.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=/dev/null
-if source "${OPERATOR_LIB}" 2>/dev/null; then
-    ai_tools_load_operator || true
-else
-    PROJECTS_USER=''; PROJECTS_HOME=''; PROJECTS_GROUP=''; PROJECTS_UID=-1
-fi
-readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-${PROJECTS_HOME}/.config/ai-tools/allowed-projects}"
-# The two legitimate co-owners of a project tree (see ai-tools-setfacl). Files owned by
-# anyone else are left untouched. Compared by numeric UID; PROJECTS_UID is -1 (matches
-# nothing) when unenrolled.
-readonly PROJECTS_UID
+source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
+# Two identities may legitimately hold a project tree (see ai-tools-setfacl); a file belonging to a
+# third party is left untouched. Matched by numeric UID; PROJECTS_UID is the resolved operator.
 readonly SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/unclaim.log.
@@ -95,12 +85,14 @@ _is_secret_name() {
 getent group "${TARGET_GROUP}" >/dev/null 2>&1 \
     || { ai_tools_log_error "unknown target group '${TARGET_GROUP}' -- nothing changed"; exit 1; }
 
-# No allowlist -- do nothing silently (fail-closed; mirrors the claim helpers).
-[[ -f "${ALLOWLIST}" ]] || exit 0
-
 # Canonicalise the argument; block symlink traversal of the path itself.
 canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
 [[ -d "${canonical}" ]] || exit 0
+
+# Resolve the operator that owns this project (operator.lib.sh); no owner -> do nothing. The guard
+# below then acts only on paths the resolved operator or the sandbox account hold.
+ai_tools_resolve_owner "${canonical}" || exit 0
+readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
 
 declare -a allowed=()
 declare -a excluded=()

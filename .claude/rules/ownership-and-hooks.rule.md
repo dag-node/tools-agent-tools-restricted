@@ -11,6 +11,9 @@ paths:
 Files the agent writes are born `SANDBOX_USER`-owned. The hooks restore
 `<you>:SANDBOX_GROUP` ownership through `ai-tools-chown` (via the
 [handback bridge](handback-bridge.rule.md)) so the operator and agent stay co-writers.
+`<you>` is the operator that **owns** the path — the one whose allowlist covers it, which
+`ai-tools-chown` resolves per path via `operator.lib.sh` (`ai_tools_resolve_owner`), so on a
+host with several operators each project's files return to that project's operator.
 Secret-named files take a different path (see [secrets](secret-handling.rule.md)).
 
 ## `ai-tools-chown` acts only on agent-written paths
@@ -106,12 +109,12 @@ The same `SessionStart` pass normalizes the project's setgid bit via the root he
 `ai-tools-setgid` (allowlist-validated, idempotent): every project directory is set group
 `SANDBOX_GROUP` with `g+s`, so a file the operator creates there is born in group
 `SANDBOX_GROUP` and the agent can read/write it — **without the operator being a member of
-`SANDBOX_GROUP`**. That keeps the projects user out of `SANDBOX_GROUP` entirely (defense
+`SANDBOX_GROUP`**. That keeps the operator out of `SANDBOX_GROUP` entirely (defense
 in depth: home-dir configs stay unreachable from `SANDBOX_GROUP`) while project-file
-collaboration works. Like the claim-side ACL and unclaim helpers, it acts **only** on dirs
-owned by the projects user or the sandbox account — a dir owned by any third party (root,
-another developer) is left untouched, so normalization never pulls a foreign-owned dir into
-the agent's group. This is the claim-side partner to `ai-tools-chown`'s "act only on
+collaboration works. Like the claim-side ACL and unclaim helpers, it resolves the project's
+owning operator (`ai_tools_resolve_owner`) and acts **only** on dirs that operator or the
+sandbox account holds — a dir held by any third party (root, another developer) is left
+untouched, so normalization never pulls a foreign-held dir into the agent's group. This is the claim-side partner to `ai-tools-chown`'s "act only on
 `SANDBOX_USER`-owned paths" rule. Heavy/transient trees (`.git`, `node_modules`, `.venv`,
 `__pycache__`, `bin`, `obj`, `packages`) are skipped; that prune list is shared with the
 sweep and `ai-tools-lockdown` via `/usr/local/lib/ai-tools/prune-dirs.lib.sh`.

@@ -71,29 +71,19 @@ done
     || { printf 'usage: ai-tools-setfacl [--with-git] <absolute-project-path>\n' >&2; exit 2; }
 readonly TARGET WITH_GIT
 
-# Operator identity (PROJECTS_USER/HOME/GROUP, plus the numeric PROJECTS_UID) from
-# /etc/ai-tools/operator.conf via the shared resolver. AI_TOOLS_OPERATOR_CONF /
-# AI_TOOLS_ALLOWLIST override the paths -- root-only test hooks: sudo strips them
-# (env_reset, not in env_keep) and the handback daemon execs this with its own environment,
-# so neither the operator nor the agent can inject them in production.
+# Operator-identity resolver (operator.lib.sh): resolves the operator that owns the project. A
+# missing lib leaves ai_tools_resolve_owner a fail-closed stub, so the tree is left untouched.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=/dev/null
-if source "${OPERATOR_LIB}" 2>/dev/null; then
-    ai_tools_load_operator || true
-else
-    PROJECTS_USER=''; PROJECTS_HOME=''; PROJECTS_GROUP=''; PROJECTS_UID=-1
-fi
-readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-${PROJECTS_HOME}/.config/ai-tools/allowed-projects}"
+source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
 readonly GROUP="@SANDBOX_GROUP@"
 # rwX: read/write always, execute only where it already makes sense (dirs, exec files),
 # so data files are not made spuriously executable. other::--- strips all world access.
 readonly ACL_SPEC="group:${GROUP}:rwX,other::---"
-# The two legitimate co-owners of a project tree: the projects user and the sandbox
-# account. A path owned by anyone else (root, another developer) is NEVER touched --
-# claim must not pull a foreign-owned file into the agent's group, even one the operator
-# placed in the tree. Compared by numeric UID for robustness; PROJECTS_UID is -1 (matches
-# nothing) when unenrolled.
-readonly PROJECTS_UID
+# Two identities may legitimately hold a project tree's files: the resolved operator and the
+# sandbox account. A file belonging to a third party (root, another developer) is left untouched --
+# claim must not pull a foreign file into the agent's group, even one the operator placed in the
+# tree. Matched by numeric UID; PROJECTS_UID is the resolved operator (set below).
 readonly SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/setfacl.log.
@@ -136,12 +126,14 @@ _is_secret_name() {
 command -v setfacl >/dev/null 2>&1 \
     || { ai_tools_log_warn "setfacl not found -- skipping ACL normalization for ${TARGET}"; exit 0; }
 
-# No allowlist -- do nothing silently (fail-closed; mirrors ai-tools-setgid).
-[[ -f "${ALLOWLIST}" ]] || exit 0
-
 # Canonicalise the argument; block symlink traversal of the path itself.
 canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
 [[ -d "${canonical}" ]] || exit 0
+
+# Resolve the operator that owns this project (operator.lib.sh); no owner -> do nothing. The guard
+# below then acts only on paths the resolved operator or the sandbox account hold.
+ai_tools_resolve_owner "${canonical}" || exit 0
+readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
 
 declare -a allowed=()
 declare -a excluded=()

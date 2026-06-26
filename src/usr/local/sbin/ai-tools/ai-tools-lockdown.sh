@@ -26,18 +26,12 @@ set -euo pipefail
 
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 
-# Operator identity (PROJECTS_USER/HOME/GROUP) from /etc/ai-tools/operator.conf via the shared
-# resolver. AI_TOOLS_OPERATOR_CONF / AI_TOOLS_ALLOWLIST override the paths -- root-only test
-# hooks: sudo strips them (env_reset, not in env_keep), so neither the operator nor the agent
-# can inject them in production (lockdown is only ever reached as root via sudo).
+# Operator-identity resolver (operator.lib.sh): secrets are locked to the operator that owns the
+# current directory. A missing lib leaves ai_tools_resolve_owner a fail-closed stub, so the resolve
+# below dies rather than lock secrets to the wrong identity.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=/dev/null
-if source "${OPERATOR_LIB}" 2>/dev/null; then
-    ai_tools_load_operator || true
-else
-    PROJECTS_USER=''; PROJECTS_HOME=''; PROJECTS_GROUP=''; PROJECTS_UID=-1
-fi
-readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-${PROJECTS_HOME}/.config/ai-tools/allowed-projects}"
+source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
 
 # Pruned directory names from the shared library (single source of truth, shared
 # with session-hook.sh and ai-tools-setgid). Unreadable -> empty -> no pruning.
@@ -95,15 +89,19 @@ done
 # restores ownership to the configured operator rather than to itself.
 readonly INVOKER="${SUDO_USER:?run via sudo (SUDO_USER unset)}"
 [[ "${INVOKER}" != "@SANDBOX_USER@" ]] || die "must be run by you, not ai-tools"
-[[ -n "${PROJECTS_USER}" ]] || die "no operator configured in ${AI_TOOLS_OPERATOR_CONF} -- run the installer/enrollment first"
-readonly OWNER="${PROJECTS_USER}:@SANDBOX_GROUP@"
 
 # Resolve the invoking shell's working directory (sudo preserves it).
 target="$(pwd -P)" || die "cannot determine current directory"
 target="$(realpath -e "${target}" 2>/dev/null)" || die "cannot resolve ${target}"
 
+# Resolve the operator that owns this directory; secrets are locked to it. lockdown runs only
+# inside an allowed project, so the directory must resolve to an operator.
+ai_tools_resolve_owner "${target}" \
+    || die "this directory is not in allowed projects for current operator: ${target}"
+readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}"
+readonly OWNER="${PROJECTS_USER}:@SANDBOX_GROUP@"
+
 # ── Allowlist (allow + ! exclude), same parse as ai-tools-chown ──────────────
-[[ -f "${ALLOWLIST}" ]] || die "allowlist not found: ${ALLOWLIST}"
 declare -a allowed=()
 declare -a excluded=()
 while IFS= read -r entry || [[ -n "${entry}" ]]; do

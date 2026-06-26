@@ -23,28 +23,12 @@ set -euo pipefail
 
 readonly TARGET="${1:?usage: ai-tools-chown <absolute-path>}"
 
-# Operator identity (PROJECTS_USER/HOME/GROUP) from /etc/ai-tools/operator.conf via the shared
-# resolver. AI_TOOLS_OPERATOR_CONF / AI_TOOLS_ALLOWLIST override the paths -- root-only test
-# hooks: sudo strips them (env_reset, not in env_keep) and the handback daemon execs this with
-# its own environment, so neither the operator nor the agent can inject them in production.
-# Unenrolled (no operator configured) leaves the identity empty and the allowlist guard below
-# fail-closes.
+# Operator-identity resolver (operator.lib.sh): resolves the operator that owns a path. A missing
+# lib leaves ai_tools_resolve_owner a fail-closed stub, so the path is left ai-tools-owned rather
+# than handed back unclassified.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=/dev/null
-if source "${OPERATOR_LIB}" 2>/dev/null; then
-    ai_tools_load_operator || true
-else
-    PROJECTS_USER=''; PROJECTS_HOME=''; PROJECTS_GROUP=''; PROJECTS_UID=-1
-fi
-readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-${PROJECTS_HOME}/.config/ai-tools/allowed-projects}"
-# Ordinary files are chowned to OWNER (group ai-tools, readable by the agent).
-# Secret-named files are chowned to SECRET_OWNER (the user's private group) with
-# group+world bits stripped, so ai-tools -- neither owner nor group member --
-# cannot read the contents. ai-tools is a group-writer on the project dir, not
-# its owner, so it can still unlink/replace the path: this revokes read, not
-# directory control.
-readonly OWNER="${PROJECTS_USER}:@SANDBOX_GROUP@"
-readonly SECRET_OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"
+source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/chown.log.
 # Best-effort -- a no-op fallback keeps the helper working if the lib is missing.
@@ -83,11 +67,18 @@ _notify_secret() {
     ai_tools_log_warn "${msg}"
 }
 
-# No allowlist -- do nothing silently (hook skips this call when no allowlist exists)
-[[ -f "${ALLOWLIST}" ]] || exit 0
-
 # Resolve to canonical path to block symlink traversal
 canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
+
+# Resolve the operator that owns this path (operator.lib.sh); no owner -> leave it untouched.
+# Ordinary files go to OWNER (group ai-tools, agent-readable); secret-named files to SECRET_OWNER
+# (the operator and their primary group) at mode 600 -- readable only by the operator, so the agent
+# loses read while the operator keeps it. ai-tools stays a group-writer on the project dir (not its
+# owner), so it can still unlink/replace the path: read is revoked from the agent, not control.
+ai_tools_resolve_owner "${canonical}" || exit 0
+readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}"
+readonly OWNER="${PROJECTS_USER}:@SANDBOX_GROUP@"
+readonly SECRET_OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"
 
 # Classify the basename against the shared secret-name patterns. A match sets
 # is_secret, so the apply path chowns the file to SECRET_OWNER, strips group+world

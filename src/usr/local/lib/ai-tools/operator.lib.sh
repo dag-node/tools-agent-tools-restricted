@@ -19,6 +19,20 @@
 #
 # The value is PARSED, never sourced, so a malformed or tampered file cannot execute code in
 # the privileged helpers.
+#
+# Two resolution modes share the PROJECTS_USER/HOME/GROUP/UID globals:
+#   - ai_tools_load_operator   -> the PRIMARY operator (OPERATORS[0]); for components that need
+#                                 "an operator" (the launch path, the CLI, the symlink/relabel
+#                                 helpers), not a per-path owner.
+#   - ai_tools_resolve_owner   -> the operator who owns a given path (their allowlist covers it,
+#                                 nearest-ancestor-owner tie-break); for the handback helpers that
+#                                 restore ownership of agent-written project files.
+#
+# The handback helpers (ai-tools-chown/-setgid/-setfacl/-lockdown/-unclaim) source this lib
+# best-effort and, when it is absent, define a fail-closed ai_tools_resolve_owner stub that
+# resolves no owner -- so a missing lib skips the handback (the path stays sandbox-owned) rather
+# than acting on the wrong identity. Each calls resolve_owner on the path it acts on, then restores
+# to that owner; a path no operator's allowlist covers is left untouched.
 
 # Sourced more than once in a single shell: the readonly below would abort under set -e on
 # the second pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for
@@ -78,5 +92,89 @@ ai_tools_load_operator() {
     PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" 2>/dev/null | cut -d: -f6)"
     PROJECTS_GROUP="$(id -gn "${PROJECTS_USER}" 2>/dev/null || true)"
     PROJECTS_UID="$(id -u "${PROJECTS_USER}" 2>/dev/null || echo -1)"
+    [[ -n "${PROJECTS_USER}" ]]
+}
+
+# _ai_tools_operator_allowlist <operator> <is-primary>: echo the allowlist path for an operator.
+# AI_TOOLS_ALLOWLIST overrides the PRIMARY operator's path -- the single-allowlist test hook (a
+# multi-operator host has one allowlist per operator home, which a single override cannot model),
+# carrying the same root-only-injection rationale as the other AI_TOOLS_* hooks.
+_ai_tools_operator_allowlist() {
+    if [[ -n "${AI_TOOLS_ALLOWLIST:-}" && "$2" == primary ]]; then
+        printf '%s' "${AI_TOOLS_ALLOWLIST}"
+    else
+        printf '%s/.config/ai-tools/allowed-projects' "$(getent passwd "$1" 2>/dev/null | cut -d: -f6)"
+    fi
+}
+
+# ai_tools_allowlist_covers <allowlist-file> <canonical-path>: succeed when the allowlist allows
+# the path and no '!' exclusion overrides it. Exclusions are checked first and win; a plain (non
+# -glob) allow/exclude path also covers its contents. Allow entries are realpath-resolved so a
+# symlinked project root matches its canonical target. This is the one allow/exclude matcher the
+# resolver and the helpers' per-subpath walks share, so coverage cannot drift between them.
+ai_tools_allowlist_covers() {
+    local file="$1" path="$2" entry dir pat
+    [[ -f "${file}" ]] || return 1
+    local -a allowed=() excluded=()
+    while IFS= read -r entry || [[ -n "${entry}" ]]; do
+        [[ -z "${entry}" || "${entry}" == '#'* ]] && continue
+        if [[ "${entry}" == '!'* ]]; then
+            excluded+=("${entry:1}")                       # strip '!', keep raw (may glob)
+        else
+            dir="$(realpath -e "${entry}" 2>/dev/null)" || continue
+            allowed+=("${dir}")
+        fi
+    done < "${file}"
+    for pat in "${excluded[@]}"; do
+        pat="${pat%/}"
+        [[ "${path}" == ${pat} ]] && return 1
+        [[ "${pat}" != *'*'* && "${path}" == "${pat}/"* ]] && return 1
+    done
+    for dir in "${allowed[@]}"; do
+        [[ "${path}" == "${dir}" || "${path}" == "${dir}/"* ]] && return 0
+    done
+    return 1
+}
+
+# ai_tools_resolve_owner <canonical-path>: resolve which operator owns a path and load that
+# operator into the same globals ai_tools_load_operator sets (PROJECTS_USER/HOME/GROUP/UID), plus
+# AI_TOOLS_RESOLVED_ALLOWLIST (the owner's allowlist, for the caller's per-subpath walk). The owner
+# is the operator whose allowlist covers the path. When several operators list the same path, the
+# tie-break is the nearest ancestor directory whose on-disk owner is one of those operators (the
+# project's owner on disk wins); failing any such ancestor, the first matching operator, so the
+# result is deterministic. Returns 1 when no operator covers the path -- the caller treats that as
+# "not an allowed project for anyone" and leaves the path untouched (fail-closed).
+ai_tools_resolve_owner() {
+    local path="$1" op home tag idx=0 p owner i
+    PROJECTS_USER=''; PROJECTS_HOME=''; PROJECTS_GROUP=''; PROJECTS_UID=-1
+    AI_TOOLS_RESOLVED_ALLOWLIST=''
+    ai_tools_load_operators || return 1
+    local -a cand=() cand_home=() cand_allow=()
+    for op in "${AI_TOOLS_OPERATORS[@]}"; do
+        [[ "${op}" == "${AI_TOOLS_OPERATORS[0]}" ]] && tag=primary || tag=secondary
+        local allowfile; allowfile="$(_ai_tools_operator_allowlist "${op}" "${tag}")"
+        if ai_tools_allowlist_covers "${allowfile}" "${path}"; then
+            home="$(getent passwd "${op}" 2>/dev/null | cut -d: -f6)"
+            cand+=("${op}"); cand_home+=("${home}"); cand_allow+=("${allowfile}")
+        fi
+    done
+    [[ "${#cand[@]}" -gt 0 ]] || return 1
+    if [[ "${#cand[@]}" -gt 1 ]]; then
+        # Nearest ancestor owned by a candidate operator wins; default to the first candidate.
+        p="${path}"
+        while :; do
+            owner="$(stat -c '%U' "${p}" 2>/dev/null || true)"
+            for i in "${!cand[@]}"; do
+                [[ "${owner}" == "${cand[i]}" ]] && { idx="${i}"; break 2; }
+            done
+            [[ "${p}" == "/" ]] && break
+            p="$(dirname "${p}")"
+        done
+    fi
+    PROJECTS_USER="${cand[idx]}"
+    PROJECTS_HOME="${cand_home[idx]}"
+    PROJECTS_GROUP="$(id -gn "${PROJECTS_USER}" 2>/dev/null || true)"
+    PROJECTS_UID="$(id -u "${PROJECTS_USER}" 2>/dev/null || echo -1)"
+    AI_TOOLS_RESOLVED_ALLOWLIST="${cand_allow[idx]}"
     [[ -n "${PROJECTS_USER}" ]]
 }

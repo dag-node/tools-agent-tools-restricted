@@ -19,7 +19,10 @@ A secret-named file the agent wrote is breached. `ai-tools-chown` classifies the
 basename against the shared pattern set (`.env`, `*.key`, `*.pem`, `id_*`, `kubeconfig`,
 `*.jks`, `.pgpass`, the name-anchored .NET config patterns, …) and chowns a match (when
 `SANDBOX_USER`-owned, per the agent-written-paths rule) to `<you>:<you> 600`, so
-`SANDBOX_USER` — neither owner nor group member — cannot read the contents. It writes a
+`SANDBOX_USER` — neither owner nor group member — cannot read the contents. `<you>` is the
+operator that owns the path: `ai-tools-chown` resolves it per path via `operator.lib.sh`
+(`ai_tools_resolve_owner`) and loads that operator's pattern set, so a secret returns to its
+project's operator at `600`, where only that operator can read it. It writes a
 NOTICE to stderr (the hook relays it into the session) and, at `WARNING` level, to the
 operation log (`/var/log/ai-tools/chown.log` and journald; see [logging](logging.rule.md)).
 
