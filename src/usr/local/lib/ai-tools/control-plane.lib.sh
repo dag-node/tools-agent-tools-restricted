@@ -19,8 +19,12 @@ if [[ -n "${_AI_TOOLS_CONTROL_PLANE_LIB:-}" ]]; then
 fi
 readonly _AI_TOOLS_CONTROL_PLANE_LIB=1
 
-# Control-plane home root. Paths in the arrays below are relative to it.
-readonly CP_HOME="/opt/ai-tools"
+# Control-plane home root. Paths in the arrays below are relative to it. AI_TOOLS_CONTROL_PLANE_HOME
+# overrides it when set -- a root-only test hook (same rationale as AI_TOOLS_ALLOWLIST /
+# AI_TOOLS_OPERATOR_CONF): sudo strips it and the callers run with their own environment, so neither
+# the operator nor the agent can redirect the re-own in production; only a root caller that sets the
+# env and sources the lib directly (the test suite) can point it at a /tmp fixture tree.
+readonly CP_HOME="${AI_TOOLS_CONTROL_PLANE_HOME:-/opt/ai-tools}"
 
 # Boundary modes (the paths are operator-owned in every case):
 #   CP_HOME_MODE   2750 home root: the agent (group) traverses+reads, setgid keeps files born
