@@ -31,9 +31,9 @@ move as a unit and a partial upgrade cannot mix layers.
 
 | Subpackage | Owns |
 |---|---|
-| `ai-tools-base` | the `ai-tools` user + group + linger; `/opt/ai-tools` home (and its default-deny `.gitignore` git guard) and `/var/opt/ai-tools` sandbox tree; `/etc/ai-tools/operator.conf`; `ai-tools` CLI (project lifecycle, `enroll`); ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `secret-patterns` template; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `prune-dirs.lib.sh`, `secret-patterns.lib.sh`; the base SELinux domain (`ai_tools_t` and the handback/helper types) |
+| `ai-tools-base` | the `ai-tools` user, the `ai-ops` operators group, and linger; `/opt/ai-tools` home (and its default-deny `.gitignore` git guard) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `secret-patterns` template; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `prune-dirs.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`; the base SELinux domain (`ai_tools_t` and the handback/helper types) |
 | `ai-tools-nodejs` | nvm under `/opt/ai-tools/.nvm`; the per-sandbox-user Node-version auto-update service and timer; `ai-tools-bootstrap`; the symlink-repoint helper (`ai-tools-claude-symlink`) and the post-upgrade entrypoint relabel (`ai-tools-relabel-entrypoint`) |
-| `claude-code-restricted` | the `claude` wrapper and `claude-run`; `/opt/ai-tools/bin/claude`; the `claude-run` sudoers rule; the Claude Code hooks (`post-tool-hook.sh`, `session-hook.sh`) and `settings.json`; the SELinux `ai_tools_exec_t` entrypoint file-context for `claude.exe` |
+| `claude-code-restricted` | the `claude` wrapper and `claude-run`; `/opt/ai-tools/bin/claude`; the Claude Code hooks (`post-tool-hook.sh`, `session-hook.sh`) and `settings.json`; the SELinux `ai_tools_exec_t` entrypoint file-context for `claude.exe` |
 
 The handback daemon is a verb dispatcher over a helper table; the generic verbs
 (`CHOWN`, `SETGID`, `SETFACL`) and the daemon live in the base, while the
@@ -47,74 +47,65 @@ without changing the base policy.
 ## Operator-identity contract
 
 The sandbox account (`ai-tools`) is fixed and baked into paths, SELinux types,
-and helper names. The **operator** — the human whose projects the sandbox works
-on — is per-install and is resolved at runtime, not substituted into file
-contents at build time.
+and helper names. The **operators** — the login users (a human plus rootless
+service accounts) whose projects the sandbox works on — are per-host and resolved
+at runtime, not substituted into file contents at build time.
 
-`/etc/ai-tools/operator.conf` is not a packaged file: `ai-tools-enroll` creates
-`/etc/ai-tools/` and writes it at runtime, holding the operator fields:
+`/etc/ai-tools/operator.conf` is not a packaged file: `ai-tools-admin` creates
+`/etc/ai-tools/` and writes it at runtime, holding the operators list:
 
 ```sh
-# /etc/ai-tools/operator.conf — written by `ai-tools-enroll`.
-PROJECTS_USER=<login name>
-PROJECTS_HOME=<home directory>
-PROJECTS_GROUP=<primary group>
+# /etc/ai-tools/operator.conf — managed by `ai-tools-admin`.
+OPERATORS="alice bob svc-ci"
 ```
 
 Because rpm does not own the file, an upgrade or reinstall never rewrites or
-removes it, so operator identity persists untouched across the package lifecycle.
+removes it, so the operators persist untouched across the package lifecycle.
 
-The root helpers parse this file and resolve `PROJECTS_USER`, `PROJECTS_HOME`,
-and `PROJECTS_GROUP` from it (the allowlist path remains overridable through the
-existing `AI_TOOLS_ALLOWLIST` environment variable). When no operator is set, a
-helper that restores ownership has no target and is a no-op, so an unenrolled
-install is inert rather than misbehaving. This replaces the install-time
+The root helpers and the agent hooks parse this list (each operator's home and
+primary group are derived from the name via `getent`/`id`), so the package files
+carry no per-operator value. When the list is empty, a helper that restores
+ownership has no target and is a no-op, so an unenrolled install is inert rather
+than misbehaving. This replaces the install-time
 `@PROJECTS_USER@`/`@PROJECTS_HOME@`/`@PROJECTS_GROUP@` substitution; the
 `@SANDBOX_USER@`/`@SANDBOX_GROUP@` tokens are constant and are substituted once at
 build time in `%install`.
 
 A single config read is the only operator-dependent input to the helpers, so the
 package files are identical on every host and `rpm -V` reports no helper as
-modified after enrollment.
+modified after an operator is added.
 
-## Enrollment
+## Operator administration
 
-`ai-tools-enroll [user]` (`/usr/local/sbin/ai-tools/ai-tools-enroll`, root, run via
-`sudo`; defaults to `$SUDO_USER`) performs the per-operator setup that an RPM
-scriptlet cannot, because it is specific to one human. It is a standalone root
-helper rather than an `ai-tools` CLI verb, because the `ai-tools` CLI refuses to
-run as root. It:
+`ai-tools-admin operator add|remove|list` (`/usr/local/sbin/ai-tools/ai-tools-admin`,
+root, run via `sudo`) manages the operators -- the login users (a human or a rootless
+service account) that drive the sandbox through the shared `ai-tools` account. It is a
+root helper rather than an `ai-tools` CLI verb, because it edits host config (the
+`OPERATORS` list, the `ai-ops` group, linger) while the CLI is unprivileged and refuses
+to run as root.
 
-- writes `/etc/ai-tools/operator.conf` for the operator (`PROJECTS_USER/HOME/GROUP`);
-- installs the `sudoers.d/ai-tools-claude` drop-in with the operator as principal,
-  generated inline and validated with `visudo -cf` before activation;
-- enables linger for the operator and `ai-tools`;
-- seeds the operator's `~/.config/ai-tools/allowed-projects` (empty, with a header)
-  when absent, leaving an existing allowlist untouched;
-- captures the control plane's initial state in a root-private git repo (default-deny
-  via the shipped `.gitignore`), with `.git` owned `root:root 0700` so its committed
-  blobs are unreadable to the agent (group `ai-tools`) and the operators;
-- offers, interactively, to wire the host-wide PATH dedup into the operator's `~/.bashrc`
-  and `~/.bash_profile` after their nvm init; a non-interactive run prints the line to add
-  rather than editing the home.
+`add [user]` (default `$SUDO_USER`) is accumulating and idempotent:
 
-`ai-tools-enroll` refuses to run until `ai-tools-bootstrap` has populated the toolchain
-(it checks for `/opt/ai-tools/.nvm`): a host is usable only once the agent's Node toolchain
-and launcher symlink exist, and the control-plane state the enroll captures in git should
-reflect a populated tree. When the toolchain is absent it prints the ordered steps and exits
-without changing anything.
+- appends the name to `OPERATORS` in `/etc/ai-tools/operator.conf`;
+- adds the user to the `ai-ops` group, which the static `sudoers.d/ai-tools-claude`
+  drop-in and the launch wrapper gate on;
+- seeds the user's `~/.config/ai-tools/allowed-projects` (empty, with a header) when
+  absent, leaving an existing allowlist untouched;
+- enables linger for the user and `ai-tools`;
+- offers, interactively, to wire the host-wide PATH dedup into the user's `~/.bashrc`
+  and `~/.bash_profile` after their nvm init; a non-interactive run prints the line to add.
 
-`ai-tools-enroll` is idempotent and re-runnable: a second run reconciles
-`operator.conf`, the sudoers principal, and linger to the named user, leaves a
-seeded allowlist in place, skips the git capture when `.git` already exists, and skips the
-PATH-dedup wiring when it is already present. The Node-toolchain update timer and the launch
-wrapper are not part of it — they are deployed by `install.sh` in the dev flow, and their
-packaged form is settled with the spec.
+`remove <user>` drops the name from `OPERATORS` and the `ai-ops` group, leaving the user's
+own allowlist and config in place. `list` prints the current operators. `add` refuses to make
+the sandbox account or root an operator, and `claude-run` refuses to launch if the sandbox
+account is ever in `ai-ops`.
 
-The `%post` of `ai-tools-base` does **not** enroll: enrollment is per-operator and follows
-`ai-tools-bootstrap`, neither of which a non-interactive scriptlet can do. `%post` installs
-cleanly and unenrolled and prints the ordered `sudo ai-tools-bootstrap` then
-`sudo ai-tools-enroll <user>` directives for the operator to run.
+The static `sudoers.d/ai-tools-claude` drop-in (a `%ai-ops` group rule) and the `ai-ops` group
+ship with the package, so adding an operator is a membership change, not a sudoers edit.
+
+The `%post` of `ai-tools-base` does **not** bind an operator: it is per-operator, which a
+non-interactive scriptlet cannot do. `%post` installs cleanly and unenrolled and prints the
+ordered `sudo ai-tools-bootstrap` then `sudo ai-tools-admin operator add <user>` directives.
 
 ## Bootstrap
 
@@ -159,9 +150,9 @@ nvm-update timer maintains the tree from then on.
   ships empty; operators are added to it per host.
 - `%post` runs `%systemd_post ai-tools-handback.socket`; when SELinux is not
   `Disabled`, installs the prebuilt core policy module and relabels (below); and
-  prints the ordered `ai-tools-bootstrap` then `ai-tools-enroll` directives. It
-  does not enroll an operator or enable linger — both are per-operator and belong
-  to `ai-tools-enroll`.
+  prints the ordered `ai-tools-bootstrap` then `ai-tools-admin operator add`
+  directives. It does not bind an operator or enable linger — both are per-operator
+  and belong to `ai-tools-admin`.
 - `%preun` runs `%systemd_preun ai-tools-handback.socket`.
 - `%postun` runs `%systemd_postun_with_restart ai-tools-handback.socket`, and on
   final erase (`$1 == 0`) removes the SELinux core module and re-applies default
@@ -169,7 +160,7 @@ nvm-update timer maintains the tree from then on.
 
 `ai-tools-nodejs`: `%post`/`%preun`/`%postun` manage the `nvm-update` units with
 the systemd macros against `%{_userunitdir}` (`/usr/lib/systemd/user/`), where the
-user units ship system-wide; per-user enablement is done by `ai-tools-enroll`.
+user units ship system-wide; per-user enablement is done by `ai-tools-admin operator add`.
 
 `claude-code-restricted`: `%post` applies the entrypoint file-context and, when
 SELinux is enabled, relabels `/opt/ai-tools/bin`; no service of its own.
@@ -203,17 +194,17 @@ rather than packaged files:
 - `/opt/ai-tools/.nvm` (nvm and Node) and `/var/opt/ai-tools` (sandbox clones),
   which are unpackaged runtime data;
 - each operator's `~/.config/ai-tools/{allowed-projects,secret-patterns}`, which
-  the package never owns — `ai-tools-enroll` seeds them and they survive erase
-  untouched.
+  the package never owns — `ai-tools-admin operator add` seeds the allowlist and they
+  survive erase untouched.
 
-`operator.conf` is written at runtime by `ai-tools-enroll`, not packaged, so an
-upgrade never touches it and an erase leaves it in place — the host stays enrolled
-across a reinstall.
+`operator.conf` is written at runtime by `ai-tools-admin`, not packaged, so an
+upgrade never touches it and an erase leaves it in place — the host's operators
+persist across a reinstall.
 
 ## Tests
 
 The test suite is not run by any scriptlet: integration and boundary tests need a
-deployed, enrolled system with a live user session, and scriptlets must stay fast,
+deployed system with at least one operator and a live user session, and scriptlets must stay fast,
 non-interactive, and free of runtime-state dependencies. The hermetic unit subset
 MAY run in the spec `%check` at build time; the full suite (`tests/run.sh`) and
 `ai-tools check-perms` remain available on demand after install.

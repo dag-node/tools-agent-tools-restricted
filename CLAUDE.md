@@ -74,20 +74,23 @@ Each step's mechanism is in the rule files above; the invariant each guarantees:
 
 ## Security model — what `SANDBOX_USER` can and cannot do
 
-The sudoers drop-in (`/etc/sudoers.d/ai-tools-claude`) grants the **invoking user** three
-NOPASSWD rules:
+The sudoers drop-in (`/etc/sudoers.d/ai-tools-claude`) is a static `%ai-ops` group rule
+granting the **operators** (members of the `ai-ops` group, managed by `ai-tools-admin`)
+three NOPASSWD rules:
 
 ```
-<you>  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/claude-run
-<you>  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*.[0-9]*.[0-9]*
-<you>  ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
+%ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/claude-run
+%ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*.[0-9]*.[0-9]*
+%ai-ops  ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
 ```
 
 The first two **drop** privilege to `SANDBOX_USER`; the third runs **as root** for the
 post-upgrade entrypoint relabel (a fixed-path, no-argument target — see
-[launch](.claude/rules/launch.rule.md)). The agent runs *as* `SANDBOX_USER` and cannot
-invoke a `<you>` rule, so **none** of the three grants it anything — including the root
-rule, which `SANDBOX_USER` cannot reach. The invariants the agent operates under:
+[launch](.claude/rules/launch.rule.md)). The agent runs *as* `SANDBOX_USER`, which is not in
+`ai-ops` and has no rule of its own, so **none** of the three grants it anything — including
+the root rule, which `SANDBOX_USER` cannot reach. `claude-run` additionally refuses to launch
+unless it runs as `SANDBOX_USER` and refuses if `SANDBOX_USER` is ever in `ai-ops`, so the
+sandbox account can never hold the operator grant. The invariants the agent operates under:
 
 - **`SANDBOX_USER` has no sudo rights** — not `rm -rf /`, not `cat /etc/shadow`, not any
   root helper. Root operations (chown, setgid, symlink repoint) go **exclusively**

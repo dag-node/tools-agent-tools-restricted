@@ -51,10 +51,11 @@ Requires:       coreutils
 Requires:       policycoreutils
 
 %description -n ai-tools-base
-The provider-agnostic base layer: the ai-tools system account, the ai-tools
-project-lifecycle CLI, the per-operator enrollment command, the ownership and
-secret-handling root helpers, the handback privilege-bridge socket, and the base
-SELinux confinement domain. Other AI-tool packages build on this layer.
+The provider-agnostic base layer: the ai-tools system account, the ai-ops
+operators group, the ai-tools project-lifecycle CLI, the ai-tools-admin
+operator-administration command, the ownership and secret-handling root helpers,
+the handback privilege-bridge socket, and the base SELinux confinement domain.
+Other AI-tool packages build on this layer.
 
 # ─────────────────────────────────────────────────────────────────────────────
 %package -n ai-tools-nodejs
@@ -88,7 +89,7 @@ provider package would sit beside this one on the same base and nodejs layers.
 %build
 # Substitute the constant sandbox-account tokens. The per-operator @PROJECTS_*@ tokens are
 # intentionally left literal: they are resolved at runtime from /etc/ai-tools/operator.conf
-# (written by ai-tools-enroll), so every host ships identical files.
+# (written by ai-tools-admin), so every host ships identical files.
 grep -rlZ -e '@SANDBOX_USER@' -e '@SANDBOX_GROUP@' src \
     | xargs -0 -r sed -i -e 's/@SANDBOX_USER@/ai-tools/g' -e 's/@SANDBOX_GROUP@/ai-tools/g'
 
@@ -101,7 +102,7 @@ grep -rlZ -e '@SANDBOX_USER@' -e '@SANDBOX_GROUP@' src \
 # ── base: root helpers ───────────────────────────────────────────────────────
 install -d -m 0750 %{buildroot}%{ai_sbindir}
 for h in ai-tools-chown ai-tools-setgid ai-tools-setfacl ai-tools-unclaim \
-         ai-tools-lockdown ai-tools-relabel ai-tools-enroll; do
+         ai-tools-lockdown ai-tools-relabel ai-tools-admin; do
     install -m 0750 src%{ai_sbindir}/${h}.sh %{buildroot}%{ai_sbindir}/${h}
 done
 install -m 0750 src%{ai_sbindir}/ai-tools-handback.py %{buildroot}%{ai_sbindir}/ai-tools-handback
@@ -128,6 +129,11 @@ install -m 0644 src%{_sysconfdir}/profile.d/path_dedup.sh %{buildroot}%{_sysconf
 install -d -m 0755 %{buildroot}%{_sysusersdir}
 install -m 0644 %{SOURCE1} %{buildroot}%{_sysusersdir}/ai-tools.conf
 
+# ── base: static %ai-ops sudoers drop-in (the @SANDBOX_*@ tokens are substituted in %build;
+#    %ai-ops is literal, so the file is host-identical and ships unchanged) ──
+install -d -m 0750 %{buildroot}%{_sysconfdir}/sudoers.d
+install -m 0440 src%{_sysconfdir}/sudoers.d/ai-tools-claude %{buildroot}%{_sysconfdir}/sudoers.d/ai-tools-claude
+
 # ── base: SELinux core policy module (prebuilt) ──────────────────────────────
 install -d -m 0755 %{buildroot}%{_datadir}/selinux/packages/ai-tools
 install -m 0644 selinux/policy/ai_tools.pp %{buildroot}%{_datadir}/selinux/packages/ai-tools/ai_tools.pp
@@ -143,8 +149,8 @@ install -d -m 0700 %{buildroot}/var/log/ai-tools
 install -d -m 0755 %{buildroot}/opt/ai-tools
 install -d -m 0755 %{buildroot}/opt/ai-tools/bin
 install -d -m 0770 %{buildroot}/opt/ai-tools/.claude
-# Default-deny git guard for the control-plane home, in case the operator versions it (see
-# the file header). Ships neutral; ai-tools-enroll re-owns it to the operator with .gitconfig.
+# Default-deny git guard for the control-plane home: ai-tools-bootstrap captures the control
+# plane in a root-private git repo, and this gitignore keeps secrets and churn out of it.
 install -m 0640 src/opt/ai-tools/gitignore %{buildroot}/opt/ai-tools/.gitignore
 
 # ── nodejs: toolchain helpers + updater ──────────────────────────────────────
@@ -160,7 +166,7 @@ install -m 0750 src/opt/ai-tools/.claude/session-hook.sh   %{buildroot}/opt/ai-t
 install -m 0640 src/opt/ai-tools/.claude/settings.json     %{buildroot}/opt/ai-tools/.claude/settings.json
 
 # ── base: ghost the operation logs so the package owns them with the right context ──
-for f in chown setgid setfacl symlink lockdown relabel handback install enroll; do
+for f in chown setgid setfacl symlink lockdown relabel handback install; do
     touch %{buildroot}/var/log/ai-tools/${f}.log
 done
 
@@ -181,13 +187,13 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
         restorecon -R %{ai_sbindir} %{ai_libdir} /opt/ai-tools /var/log/ai-tools >/dev/null 2>&1 || :
     fi
 fi
-# Enrollment + toolchain are per-operator / network steps a scriptlet must not do; direct the
-# operator to them. ai-tools-enroll binds an operator (operator.conf + sudoers + linger);
-# ai-tools-bootstrap installs the Node toolchain.
+# Operator binding + toolchain are per-operator / network steps a scriptlet must not do; direct
+# the operator to them. ai-tools-bootstrap installs the Node toolchain; ai-tools-admin operator
+# add binds an operator (OPERATORS list + ai-ops membership + linger + allowlist seed).
 cat <<'EOF'
 ai-tools-base installed. To finish setup:
-  sudo ai-tools-bootstrap                 # install nvm + Node + Claude Code (network)
-  sudo ai-tools-enroll <your-user>        # bind the operator (sudoers, operator.conf, linger)
+  sudo ai-tools-bootstrap                      # install nvm + Node + Claude Code (network)
+  sudo ai-tools-admin operator add <your-user> # bind an operator (ai-ops, OPERATORS, linger)
 EOF
 
 %preun -n ai-tools-base
@@ -215,7 +221,7 @@ fi
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-unclaim
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-lockdown
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-relabel
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-enroll
+%attr(0750, root, root) %{ai_sbindir}/ai-tools-admin
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-handback
 %attr(0755, root, root) %{ai_bindir}/ai-tools
 %attr(0750, root, ai-tools) %{ai_bindir}/ai-tools-handback-client
@@ -230,6 +236,7 @@ fi
 %{_unitdir}/ai-tools-handback.socket
 %{_unitdir}/ai-tools-handback@.service
 %attr(0644, root, root) %{_sysconfdir}/profile.d/path_dedup.sh
+%config(noreplace) %attr(0440, root, root) %{_sysconfdir}/sudoers.d/ai-tools-claude
 %{_sysusersdir}/ai-tools.conf
 %dir %{_datadir}/selinux/packages/ai-tools
 %{_datadir}/selinux/packages/ai-tools/ai_tools.pp
@@ -245,7 +252,6 @@ fi
 %ghost %attr(0600, root, root) /var/log/ai-tools/relabel.log
 %ghost %attr(0600, root, root) /var/log/ai-tools/handback.log
 %ghost %attr(0600, root, root) /var/log/ai-tools/install.log
-%ghost %attr(0600, root, root) /var/log/ai-tools/enroll.log
 # Control-plane root and dirs are owned root:ai-tools: root owns the locked control files, the
 # agent reaches its state through group ai-tools, and the o+x search bits on the home and bin let
 # an operator readlink the launcher without reading anything deeper. ai-tools-bootstrap populates
@@ -270,5 +276,5 @@ fi
 %changelog
 * Thu Jun 25 2026 Packager <packager@example.com> - 0.1.0-1
 - Initial RPM packaging: ai-tools-base / ai-tools-nodejs / claude-code-restricted
-  subpackages from one source, sysusers account creation, SELinux core module load,
-  handback socket, and the bootstrap/enroll commands.
+  subpackages from one source, sysusers account + ai-ops group creation, SELinux core
+  module load, handback socket, and the bootstrap/admin commands.

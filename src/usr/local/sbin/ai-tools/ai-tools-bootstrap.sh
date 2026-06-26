@@ -143,5 +143,28 @@ if [[ -n "${LAUNCHER}" ]]; then
     fi
 fi
 
+# 4. Capture the control plane's initial state in a root-private git repo so drift is reviewable.
+#    The control plane is root:ai-tools, so the repo is root-owned: run AS root, and lock .git
+#    root:root 0700 so committed blobs are unreadable to the agent (group ai-tools) and the
+#    operators. The shipped .gitignore makes the repo default-deny, so auth tokens, conversation
+#    logs, and nvm/npm churn are never staged -- so the capture runs ONLY when that denylist is
+#    present (a populated control plane, e.g. after package install). Idempotent (skipped when
+#    .git exists); non-fatal: a missing git or a commit failure warns and leaves the tree intact.
+if [[ ! -e "${SANDBOX_HOME}/.git" && -e "${SANDBOX_HOME}/.gitignore" ]] && command -v git >/dev/null 2>&1; then
+    log "capturing initial control-plane state in ${SANDBOX_HOME}/.git"
+    _gitrun=(git -C "${SANDBOX_HOME}" -c user.name=ai-tools -c user.email="ai-tools@localhost")
+    if "${_gitrun[@]}" init -q -b main \
+       && "${_gitrun[@]}" add -A \
+       && "${_gitrun[@]}" commit -q -m "Initial control-plane state (ai-tools-bootstrap)"; then
+        log "captured initial control-plane commit"
+    else
+        log "warn: control-plane git capture incomplete"
+    fi
+    if [[ -d "${SANDBOX_HOME}/.git" ]]; then
+        chown -R root:root "${SANDBOX_HOME}/.git"
+        chmod 0700 "${SANDBOX_HOME}/.git"
+    fi
+fi
+
 log "toolchain ready under ${SANDBOX_HOME}"
 log "next: deploy the control plane -- sudo ./install.sh install   (or install the RPM)"

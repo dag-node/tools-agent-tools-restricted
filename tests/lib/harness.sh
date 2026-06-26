@@ -90,14 +90,13 @@ mk_allowlist() {
 }
 
 # mk_operator: write a dummy operator.conf in TESTDIR naming the test's projects user (the
-# real SUDO_USER the fixtures are owned by), and point the deployed helpers at it via the
-# AI_TOOLS_OPERATOR_CONF test hook -- the operator-identity counterpart to AI_TOOLS_ALLOWLIST,
-# carrying the same root-only-injection rationale. Exported so a child helper inherits it.
+# real SUDO_USER the fixtures are owned by) as the sole operator, and point the deployed
+# helpers at it via the AI_TOOLS_OPERATOR_CONF test hook -- the operator-identity counterpart
+# to AI_TOOLS_ALLOWLIST, carrying the same root-only-injection rationale. Home and group are
+# derived from the name at runtime (getent/id), so only the OPERATORS list is written.
+# Exported so a child helper inherits it.
 mk_operator() {
-    printf '%s\n' \
-        "PROJECTS_USER=${PROJECTS_USER}" \
-        "PROJECTS_HOME=${PROJECTS_HOME}" \
-        "PROJECTS_GROUP=${PROJECTS_GROUP}" > "${TESTDIR}/operator.conf"
+    printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${TESTDIR}/operator.conf"
     export AI_TOOLS_OPERATOR_CONF="${TESTDIR}/operator.conf"
 }
 

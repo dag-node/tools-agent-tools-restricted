@@ -370,7 +370,7 @@ do_summary() {
     _chk /usr/local/sbin/ai-tools/ai-tools-relabel
     _chk /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
     _chk /usr/local/sbin/ai-tools/ai-tools-bootstrap
-    _chk /usr/local/sbin/ai-tools/ai-tools-enroll
+    _chk /usr/local/sbin/ai-tools/ai-tools-admin
     _chk /usr/local/sbin/ai-tools/ai-tools-handback
     _chk /usr/local/bin/ai-tools-handback-client
     _chk /usr/lib/systemd/system/ai-tools-handback.socket
@@ -587,12 +587,12 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-bootstrap.sh" \
         /usr/local/sbin/ai-tools/ai-tools-bootstrap
 
-    # Per-operator enrollment (operator.conf + sudoers + linger + allowlist seed). The RPM %post
-    # and a re-enroll use it; this install performs the same per-operator setup inline below.
-    log "/usr/local/sbin/ai-tools/ai-tools-enroll"
+    # Host administration: ai-tools-admin operator add|remove|list manages the OPERATORS list and
+    # ai-ops membership. This dev install binds the invoking user as the sole operator inline below.
+    log "/usr/local/sbin/ai-tools/ai-tools-admin"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-enroll.sh" \
-        /usr/local/sbin/ai-tools/ai-tools-enroll
+        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-admin.sh" \
+        /usr/local/sbin/ai-tools/ai-tools-admin
 
     # Handback privilege bridge daemon.  750 root:root -- root-owned and only
     # root-executable: this is the privileged endpoint; the SANDBOX_USER reaches it
@@ -676,11 +676,12 @@ do_install() {
         "${SCRIPT_DIR}/src/etc/profile.d/path_dedup.sh" \
         /etc/profile.d/path_dedup.sh
 
+    # Static %ai-ops group drop-in -- no per-operator substitution, only the sandbox-account
+    # tokens. Membership in ai-ops (below) is what grants access.
     log "/etc/sudoers.d/ai-tools-claude"
     local tmp_sudoers
     tmp_sudoers="$(mktemp)"
-    sed -e "s/@PROJECTS_USER@/${PROJECTS_USER}/g" \
-        -e "s/@SANDBOX_USER@/${SANDBOX_USER}/g" \
+    sed -e "s/@SANDBOX_USER@/${SANDBOX_USER}/g" \
         -e "s/@SANDBOX_GROUP@/${SANDBOX_GROUP}/g" \
         "${SCRIPT_DIR}/src/etc/sudoers.d/ai-tools-claude" > "${tmp_sudoers}"
     visudo -c -f "${tmp_sudoers}" > /dev/null \
@@ -689,26 +690,34 @@ do_install() {
         "${tmp_sudoers}" /etc/sudoers.d/ai-tools-claude
     rm -f "${tmp_sudoers}"
 
-    # Operator identity. The root helpers and the agent hooks resolve PROJECTS_USER/HOME/GROUP
-    # from this file at runtime (via operator.lib.sh) instead of having them substituted into
-    # each helper at install time, so the helper files are identical on every host. 644
-    # root:root: world-readable -- both the agent (ai_tools_t hooks) and the root helpers
-    # (ai_tools_handback_t) read it, and it carries no secret -- and root-write-only, so the
-    # agent cannot rewrite the identity root hands files back to.
-    log "/etc/ai-tools/operator.conf"
+    # Operators list. The root helpers and the agent hooks resolve the operators from this file
+    # at runtime (via operator.lib.sh) instead of substituting an identity into each helper, so
+    # the helper files are identical on every host. 644 root:root: world-readable -- both the
+    # agent (ai_tools_t hooks) and the root helpers (ai_tools_handback_t) read it, and it carries
+    # no secret -- and root-write-only, so the agent cannot rewrite the identity root hands files
+    # back to. This dev install binds the invoking user as the sole operator.
+    log "/etc/ai-tools/operator.conf (operator ${PROJECTS_USER})"
     ensure_dir 755 root root /etc/ai-tools
     chown root:root /etc/ai-tools
     chmod 755 /etc/ai-tools
     local tmp_operator
     tmp_operator="$(mktemp)"
     printf '%s\n' \
-        "# ai-tools operator identity -- the human whose projects the sandbox works on." \
-        "# Written by install.sh / enrollment; read at runtime by the root helpers and hooks." \
-        "PROJECTS_USER=${PROJECTS_USER}" \
-        "PROJECTS_HOME=${PROJECTS_HOME}" \
-        "PROJECTS_GROUP=${PROJECTS_GROUP}" > "${tmp_operator}"
+        "# ai-tools operators -- the login users whose projects the sandbox works on." \
+        "# Managed by ai-tools-admin; read at runtime by the root helpers and hooks." \
+        "OPERATORS=\"${PROJECTS_USER}\"" > "${tmp_operator}"
     install -o root -g root -m 644 "${tmp_operator}" /etc/ai-tools/operator.conf
     rm -f "${tmp_operator}"
+
+    # ai-ops operators group + membership grants the operator the sudoers rules above (the RPM
+    # creates the group via sysusers; the dev install creates it here). The sandbox account must
+    # not drive itself as an operator, so binding refuses it -- the same guard ai-tools-admin
+    # applies. usermod -aG adds the group while preserving the user's existing groups.
+    [[ "${PROJECTS_USER}" != "${SANDBOX_USER}" ]] \
+        || die "the operator must not be the sandbox account ${SANDBOX_USER}"
+    getent group ai-ops >/dev/null 2>&1 || groupadd -r ai-ops
+    log "adding ${PROJECTS_USER} to group ai-ops"
+    usermod -aG ai-ops "${PROJECTS_USER}" || warn "could not add ${PROJECTS_USER} to ai-ops"
 
     section "ai-tools control plane (/opt/ai-tools)"
 
@@ -1005,7 +1014,7 @@ do_uninstall() {
     rm -f /usr/local/sbin/ai-tools/ai-tools-claude-symlink
     rm -f /usr/local/sbin/ai-tools/ai-tools-lockdown
     rm -f /usr/local/sbin/ai-tools/ai-tools-bootstrap
-    rm -f /usr/local/sbin/ai-tools/ai-tools-enroll
+    rm -f /usr/local/sbin/ai-tools/ai-tools-admin
     rm -f /usr/local/sbin/ai-tools/ai-tools-handback
     rmdir /usr/local/sbin/ai-tools 2>/dev/null || true
     rm -f /usr/local/bin/ai-tools-handback-client

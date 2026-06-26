@@ -163,6 +163,30 @@ if ! source "${MSG_LIB}" 2>/dev/null; then
     ai_tools_msg_notice() { printf '%s\n' "$@" >&2; }
 fi
 
+# Identity guard: the session must run AS @SANDBOX_USER@ -- the confined account the transient
+# unit, the SELinux transition, and the umask are all built around. A direct or sudo invocation
+# landing as root (or any other user) would run claude unconfined with that user's privileges, so
+# refuse anything but @SANDBOX_USER@, fail-closed, before any launch. The launch path reaches here
+# only through `sudo -u @SANDBOX_USER@ -g @SANDBOX_GROUP@`, which satisfies this.
+_whoami="$(id -un 2>/dev/null || true)"
+if [[ "${EUID}" -eq 0 || "${_whoami}" != "@SANDBOX_USER@" ]]; then
+    ai_tools_msg_error \
+        "claude-run: must run as @SANDBOX_USER@, not ${_whoami:-?} -- launch claude through the wrapper" \
+        'the launch path runs:  sudo -u @SANDBOX_USER@ -g @SANDBOX_GROUP@ -- /opt/ai-tools/bin/claude-run'
+    exit 1
+fi
+
+# Privilege-model invariant: @SANDBOX_USER@ must not be an ai-ops operator. ai-ops membership
+# carries the sudoers grant to drop into @SANDBOX_USER@ and launch a session; were the sandbox
+# account itself a member, it could drive a session as an operator. This runs AS @SANDBOX_USER@,
+# so it reads its own membership authoritatively and refuses, fail-closed, before any launch.
+if [[ " $(id -nG "@SANDBOX_USER@" 2>/dev/null) " == *" ai-ops "* ]]; then
+    ai_tools_msg_error \
+        'claude-run: @SANDBOX_USER@ is a member of the ai-ops operators group -- refusing to launch' \
+        'remove it:  sudo gpasswd -d @SANDBOX_USER@ ai-ops'
+    exit 1
+fi
+
 # Re-validate CLAUDE_EXEC against the same versioned-path pattern the wrapper
 # checked.  Uses ${CLAUDE_EXEC:-} so an absent variable matches the * branch.
 case "${CLAUDE_EXEC:-}" in

@@ -26,10 +26,10 @@ check_file /usr/local/sbin/ai-tools/ai-tools-relabel          root              
 # @PROJECTS_USER@ NOPASSWD rule (by the nvm-update timer and `ai-tools --relabel`), never by
 # the agent. Fixed-path, no-arg target, so the root grant cannot be parameterized.
 check_file /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint root            root              750
-# Toolchain bootstrap + per-operator enrollment: 750 root:root -- run by the operator via sudo
-# (and the RPM %post), never by the agent (no SANDBOX_USER grant).
+# Toolchain bootstrap + operator administration: 750 root:root -- run by the operator via sudo,
+# never by the agent (no SANDBOX_USER grant, and /usr/local/sbin/ai-tools is 750 root:root).
 check_file /usr/local/sbin/ai-tools/ai-tools-bootstrap        root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-enroll          root              root              750
+check_file /usr/local/sbin/ai-tools/ai-tools-admin           root              root              750
 # Lib dir: root-owned, group ai-tools, 750 (no world). The agent enters via group to read
 # the prune list, but has no write, so it cannot alter the rules.
 check_file /usr/local/lib/ai-tools                            root              "${SANDBOX_GROUP}" 750
