@@ -68,10 +68,11 @@ operators list).
   per-operator owner).
 - Sudoers grants are **group** rules: `%ai-ops ALL=(ai-tools:ai-tools) NOPASSWD:
   /opt/ai-tools/bin/claude-run`. The per-operator-line form is gone.
-- **Operator management is a symmetric root helper, `ai-tools-operator
+- **Operator management is a symmetric root helper, `ai-tools-admin operator
   add|remove|list`** (run via `sudo`), replacing the one-shot `ai-tools-enroll`. It is a
   root helper, not an `ai-tools` CLI verb, because the CLI is unprivileged and refuses
-  root while this edits host config (sudoers group, `ai-ops`, `OPERATORS`). `add` with an
+  root while this edits host config (sudoers group, `ai-ops`, `OPERATORS`); the
+  `ai-tools-admin` name leaves room for other root-side admin subcommands. `add` with an
   argument enrols that user or service account; with none it offers to add the non-root
   user running it (`$SUDO_USER`). `add` is accumulating and idempotent: it appends the
   name to `OPERATORS`, adds it to `ai-ops`, seeds that user's allowlist, and ensures
@@ -132,8 +133,8 @@ boundary-mode constants the installer/spec assert.
   for `ai-ops` callers. No setgid fight, no group-write, no new sudoers rule.
 - **(B) operator.conf format** → `OPERATORS="alice bob svc-ci"`, one list for human and
   service accounts alike (they share `ai-tools`); home/group derived via `getent`.
-- **(C) operator lifecycle** → `ai-tools-operator add|remove|list`; `add` with no arg
-  offers `$SUDO_USER`, with an arg enrols that user or service account.
+- **(C) operator lifecycle** → `ai-tools-admin operator add|remove|list`; `add` with no
+  arg offers `$SUDO_USER`, with an arg enrols that user or service account.
 - **(D) per-operator isolation** → private `state/<operator>/` for agent state, private
   `/tmp` per session via `PrivateTmp`.
 
