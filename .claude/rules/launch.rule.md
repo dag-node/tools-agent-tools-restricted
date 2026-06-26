@@ -1,7 +1,7 @@
 ---
 paths:
   - "src/opt/ai-tools/bin/claude-run.sh"
-  - "src/home/user/.local/bin/claude.sh"
+  - "src/usr/local/bin/claude.sh"
   - "src/etc/sudoers.d/ai-tools-claude"
   - "src/etc/profile.d/path_dedup.sh"
 ---
@@ -16,12 +16,18 @@ of that unit (namespaces, SELinux transition, `/tmp`) lives in
 
 ## Resolution and gating (the wrapper)
 
-1. `claude` resolves to the wrapper `~/.local/bin/claude` (`claude.sh`), which runs
-   as the invoking user.
-2. The wrapper checks the current directory against the approved-projects allowlist
-   (`~/.config/ai-tools/allowed-projects`); it starts only inside an allowed project
-   and refuses a CWD carved out by a `!` exclusion.
-3. It resolves the versioned binary via the stable symlink `/opt/ai-tools/bin/claude`
+1. `claude` resolves to the system wrapper `/usr/local/bin/claude` (`claude.sh`,
+   `root:root 0755`, rpm-owned), which runs as the invoking operator. `path_dedup.sh`
+   ranks `/usr/local/bin` (Tier 1) above the nvm shims, so it shadows the nvm-managed
+   `claude` on every login shell's PATH without any per-operator dotfile edit.
+2. It gates on `ai-ops` membership first: a caller not in the operators group is refused
+   with a framed `msg.lib` message that names the `ai-tools-admin operator add` fix,
+   rather than leaking the raw `sudo` denial the `%ai-ops` rule would otherwise produce.
+3. The wrapper checks the current directory against the operator's approved-projects
+   allowlist (`~/.config/ai-tools/allowed-projects`, keyed off the launching operator's
+   `${HOME}`); it starts only inside an allowed project and refuses a CWD carved out by a
+   `!` exclusion.
+4. It resolves the versioned binary via the stable symlink `/opt/ai-tools/bin/claude`
    with a single `readlink` hop, validates the target is an absolute, `..`-free path
    matching `${AI_TOOLS_NVM_DIR}/versions/node/*/bin/claude`, exports it as
    `CLAUDE_EXEC`, and execs
@@ -29,7 +35,7 @@ of that unit (namespaces, SELinux transition, `/tmp`) lives in
 
 The resolved path is validated as an integrity check against a misconfigured or
 compromised `ai-tools-claude-symlink` root helper, not a guard against external
-injection — only root and the invoking user can write `/opt/ai-tools/bin`.
+injection — only root writes `/opt/ai-tools/bin` (`0551 root:SANDBOX_GROUP`).
 
 ### Symlink resolution is one hop, not full resolution
 
@@ -137,11 +143,11 @@ contents; globs match as-is.
 
 ## PATH ordering
 
-`~/.local/bin` precedes the nvm shims in `$PATH`, so the wrapper resolves ahead of the
-nvm-managed `claude` (which would otherwise shadow it). `path_dedup.sh` (in
-`/etc/profile.d/`, host-wide for login shells) enforces this when sourced after `nvm.sh`
-in `~/.bashrc` and `~/.bash_profile` — the dotfiles also cover interactive non-login
-shells, which read `~/.bashrc` only. `ai-tools-admin operator add` offers to add that guard
-to the operator's two dotfiles (after their nvm init), and `ai-tools-bootstrap` adds it to the
-sandbox account's `~/.bash_profile`; the dev-flow `install.sh` only warns when the
-ordering is wrong rather than editing dotfiles.
+The wrapper lives in `/usr/local/bin`, which `path_dedup.sh` ranks Tier 1 — above the nvm
+shims it leaves in Tier 4 — so `/usr/local/bin/claude` resolves ahead of the nvm-managed
+`claude` regardless of where the operator's dotfiles place anything. `path_dedup.sh` (in
+`/etc/profile.d/`) is sourced host-wide for every login shell, so the ordering holds with no
+per-operator action there; interactive non-login shells read `~/.bashrc` only, so the dotfile
+must source `path_dedup.sh` after `nvm.sh` to get the same PATH. `ai-tools-admin operator add`
+offers to add that guard to the operator's two dotfiles (after their nvm init), and
+`ai-tools-bootstrap` adds it to the sandbox account's `~/.bash_profile`.

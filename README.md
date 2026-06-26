@@ -81,7 +81,8 @@ commands paste verbatim:
 
 ```
 you type `claude`
-  └─ ~/.local/bin/claude                      (wrapper, runs as you)
+  └─ /usr/local/bin/claude                    (wrapper, runs as the invoking operator)
+       ├─ caller ∈ ai-ops group?              refuse a non-operator with a framed message
        ├─ CWD ∈ allowed-projects?             refuse if not, or if !-excluded
        ├─ resolve /opt/ai-tools/bin/claude    (one readlink hop; export as CLAUDE_EXEC)
        ├─ export CWD as CLAUDE_PROJECT_DIR    (validated project dir → unit WorkingDirectory)
@@ -113,7 +114,7 @@ you type `claude`
 | src/usr/lib/systemd/system/ai-tools-handback@.service | /usr/lib/systemd/system/ai-tools-handback@.service (root) |
 | src/usr/local/lib/ai-tools/secret-patterns.lib.sh | /usr/local/lib/ai-tools/secret-patterns.lib.sh (root) |
 | src/usr/local/lib/ai-tools/prune-dirs.lib.sh | /usr/local/lib/ai-tools/prune-dirs.lib.sh (root) |
-| src/home/user/.local/bin/claude.sh | ~/.local/bin/claude |
+| src/usr/local/bin/claude.sh | /usr/local/bin/claude |
 | src/opt/ai-tools/bin/claude-run.sh | /opt/ai-tools/bin/claude-run |
 | src/opt/ai-tools/.claude/post-tool-hook.sh | /opt/ai-tools/.claude/post-tool-hook.sh |
 | src/opt/ai-tools/.claude/session-hook.sh | /opt/ai-tools/.claude/session-hook.sh |
@@ -132,7 +133,8 @@ you type `claude`
 
 nvm must be sourced **before** path_dedup in both init files. nvm prepends
 its versioned bin dir to `$PATH`; path_dedup then restructures it into Tier 4,
-keeping it behind T1 system bins and T2 `~/.local/bin` (the claude wrapper).
+keeping it behind the T1 system bins — which include `/usr/local/bin/claude`,
+the wrapper, so it shadows the nvm-managed `claude` — and T2 `~/.local/bin`.
 If path_dedup runs first, nvm prepends itself ahead of T1 and breaks the
 ordering.
 
@@ -313,6 +315,6 @@ If `${SANDBOX_USER}`'s home needs a custom label:
     sudo semanage fcontext -a -t usr_t '/opt/ai-tools(/.*)?'
     sudo restorecon -Rv /opt/ai-tools
 
-For the wrapper in `~/.local/bin`:
+For the wrapper in `/usr/local/bin`:
 
-    restorecon -Rv ~/.local/bin
+    restorecon -v /usr/local/bin/claude

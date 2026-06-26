@@ -43,7 +43,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 
 | Area | Source | Rule |
 |---|---|---|
-| Launch, allowlist gating, sudoers, PATH | `bin/claude-run.sh`, `.local/bin/claude.sh`, `allowed-projects`, `sudoers.d/ai-tools-claude` | [launch](.claude/rules/launch.rule.md) |
+| Launch, allowlist gating, sudoers, PATH | `bin/claude-run.sh`, `usr/local/bin/claude.sh`, `allowed-projects`, `sudoers.d/ai-tools-claude` | [launch](.claude/rules/launch.rule.md) |
 | Namespaces, SELinux transition, preflight, `/tmp` | `selinux/**`, `bin/claude-run.sh` | [confinement](.claude/rules/confinement.rule.md) |
 | Root-op socket (daemon/client/units) | `ai-tools-handback*`, `ai-tools-handback-client*` | [handback-bridge](.claude/rules/handback-bridge.rule.md) |
 | Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `.claude/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
@@ -58,7 +58,9 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 
 Each step's mechanism is in the rule files above; the invariant each guarantees:
 
-1. `claude` resolves to the wrapper `~/.local/bin/claude`, running as you.
+1. `claude` resolves to the system wrapper `/usr/local/bin/claude`, running as the
+   non-root operator who invoked it; it refuses a caller not in the `ai-ops` operators
+   group before doing anything else.
 2. The wrapper launches only inside an allowed project, never a `!`-excluded CWD.
 3. It resolves the versioned binary via a single `readlink` hop, validates it, and
    execs `claude-run` as `SANDBOX_USER` with the path in `CLAUDE_EXEC`.

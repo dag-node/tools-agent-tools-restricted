@@ -1,7 +1,7 @@
 ---
 paths:
   - src/usr/local/lib/ai-tools/msg.lib.sh
-  - src/home/user/.local/bin/claude.sh
+  - src/usr/local/bin/claude.sh
   - src/usr/local/bin/ai-tools.sh
   - src/opt/ai-tools/bin/claude-run.sh
   - src/opt/ai-tools/.claude/session-hook.sh

@@ -233,30 +233,6 @@ bootstrap_claude_symlink() {
     log "symlink ${ai_tools_bin}/claude -> ${versioned_claude}"
 }
 
-# Check that ~/.local/bin precedes nvm shims in the user's PATH and print a
-# notice when it does not. Never modifies .bashrc automatically.
-check_path_order() {
-    local bashrc="${PROJECTS_HOME}/.bashrc"
-    local path_export='export PATH="${HOME}/.local/bin:${PATH}"'
-
-    if grep -qF '.local/bin' "${bashrc}" 2>/dev/null; then
-        local local_bin_line nvm_line
-        local_bin_line="$(grep -n '.local/bin' "${bashrc}" | head -1 | cut -d: -f1)"
-        nvm_line="$(      grep -n 'nvm\.sh'    "${bashrc}" | head -1 | cut -d: -f1)"
-        if [[ -n "${nvm_line}" && -n "${local_bin_line}" && "${local_bin_line}" -gt "${nvm_line}" ]]; then
-            warn "PATH: ~/.local/bin appears AFTER nvm.sh in ${bashrc}"
-            warn "      The nvm shim will shadow ~/.local/bin/claude in new terminals."
-            warn "      Move this line to BEFORE the 'source .../nvm.sh' line:"
-            warn "        ${path_export}"
-        fi
-    else
-        warn "PATH: ~/.local/bin not found in ${bashrc}"
-        warn "      Add this line BEFORE the 'source .../nvm.sh' line so the wrapper"
-        warn "      shadows the nvm-managed claude in new terminals:"
-        warn "        ${path_export}"
-    fi
-}
-
 # Restore SELinux file contexts for every path this script deploys.
 # No-op when SELinux is disabled or restorecon is not installed.
 do_selinux_restore() {
@@ -280,7 +256,7 @@ do_selinux_restore() {
         /opt/ai-tools/.claude/ \
         /var/log/ai-tools/
     restorecon \
-        "${PROJECTS_HOME}/.local/bin/claude" \
+        /usr/local/bin/claude \
         "${PROJECTS_HOME}/.local/bin/nvm-update.sh" \
         "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service" \
         "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer"
@@ -372,6 +348,7 @@ do_summary() {
     _chk /usr/local/sbin/ai-tools/ai-tools-bootstrap
     _chk /usr/local/sbin/ai-tools/ai-tools-admin
     _chk /usr/local/sbin/ai-tools/ai-tools-handback
+    _chk /usr/local/bin/claude
     _chk /usr/local/bin/ai-tools-handback-client
     _chk /usr/lib/systemd/system/ai-tools-handback.socket
     _chk /usr/lib/systemd/system/ai-tools-handback@.service
@@ -395,7 +372,6 @@ do_summary() {
     _chk /opt/ai-tools/.claude/post-tool-hook.sh
     _chk /opt/ai-tools/.claude/session-hook.sh
     _chk /opt/ai-tools/.claude/settings.json
-    _chk "${PROJECTS_HOME}/.local/bin/claude"
     _chk "${PROJECTS_HOME}/.local/bin/nvm-update.sh"
     _chk "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service"
     _chk "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer"
@@ -633,6 +609,14 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/bin/ai-tools.sh" \
         /usr/local/bin/ai-tools
 
+    # Launch wrapper. Ships system-wide root:root 0755 -- rpm-owned, on every operator's PATH
+    # (path_dedup.sh ranks /usr/local/bin above the nvm shims, so it shadows nvm's claude). It
+    # runs as the invoking operator, gates on ai-ops membership, and drops to ai-tools via sudo.
+    log "/usr/local/bin/claude"
+    install_subst 755 root root \
+        "${SCRIPT_DIR}/src/usr/local/bin/claude.sh" \
+        /usr/local/bin/claude
+
     # Sandbox project area. /var/opt is FHS-correct for variable data paired with an
     # /opt install. Owned root:SANDBOX_GROUP; the inner sandbox-projects dir is setgid
     # (clones born group SANDBOX_GROUP) and group-writable (the agent works in the
@@ -830,9 +814,6 @@ do_install() {
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.local"
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.local/bin"
     install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 750 \
-        "${SCRIPT_DIR}/src/home/user/.local/bin/claude.sh" \
-        "${PROJECTS_HOME}/.local/bin/claude"
-    install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 750 \
         "${SCRIPT_DIR}/src/home/user/.local/bin/nvm-update.sh" \
         "${PROJECTS_HOME}/.local/bin/nvm-update.sh"
 
@@ -949,10 +930,9 @@ do_install() {
     systemctl daemon-reload
     systemctl enable --now ai-tools-handback.socket
 
-    section "Finalising (claude symlink, PATH, SELinux)"
+    section "Finalising (claude symlink, SELinux)"
     lockdown_nvm_permissions
     bootstrap_claude_symlink
-    check_path_order
     do_selinux_restore
 
     section "SELinux confinement (optional)"
@@ -1021,6 +1001,7 @@ do_uninstall() {
     rm -f /usr/lib/systemd/system/ai-tools-handback.socket
     rm -f /usr/lib/systemd/system/ai-tools-handback@.service
     rm -f /usr/local/bin/ai-tools
+    rm -f /usr/local/bin/claude
     rm -f /usr/local/lib/ai-tools/secret-patterns.lib.sh
     rm -f /usr/local/lib/ai-tools/prune-dirs.lib.sh
     rm -f /usr/local/lib/ai-tools/log.lib.sh
@@ -1041,7 +1022,6 @@ do_uninstall() {
     rm -f /opt/ai-tools/.claude/settings.json
 
     log "user files"
-    rm -f "${PROJECTS_HOME}/.local/bin/claude"
     rm -f "${PROJECTS_HOME}/.local/bin/nvm-update.sh"
     rm -f "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service"
     rm -f "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer"

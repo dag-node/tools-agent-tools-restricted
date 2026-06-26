@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # tests/integration/wrapper.sh
-# Integration: the deployed launch wrapper (~/.local/bin/claude). Exercises the allowlist
-# gate and the symlink-existence guard against the REAL installed wrapper, hermetically:
-# the wrapper keys its allowlist off ${HOME}, so the test points HOME at a /tmp testdir with
-# a controlled allowed-projects (no dependency on the operator's real allowlist, and the
-# install dir is deliberately NOT approved by install.sh). Every wrapper run is detached via
-# setsid so the wrapper's /dev/tty claim prompt can never fire -- the test never claims a
-# project as a side effect. Run as root via sudo.
+# Integration: the deployed launch wrapper (/usr/local/bin/claude). Exercises the ai-ops
+# operator gate, the allowlist gate, and the symlink-existence guard against the REAL
+# installed wrapper, hermetically: the wrapper keys its allowlist off ${HOME}, so the test
+# points HOME at a /tmp testdir with a controlled allowed-projects (no dependency on the
+# operator's real allowlist, and the install dir is deliberately NOT approved by install.sh).
+# Every wrapper run is detached via setsid so the wrapper's /dev/tty claim prompt can never
+# fire -- the test never claims a project as a side effect. Run as root via sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-readonly wrapper="${PROJECTS_HOME}/.local/bin/claude"
+readonly wrapper="/usr/local/bin/claude"
 section "Wrapper allowlist gate + symlink resolution (integration)"
 
 if [[ ! -x "${wrapper}" ]]; then
@@ -40,6 +40,24 @@ run_wrapper() {  # $1 = cwd
     ( cd "$1" && setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
         "${wrapper}" --version < /dev/null 2>&1 || true )
 }
+
+# (0) Operator gate: the wrapper refuses anyone not in the ai-ops group BEFORE it reaches the
+#     allowlist. The sandbox account is never an ai-ops member (claude-run enforces this), so
+#     running the wrapper as it must be refused with the operator message -- and must NOT reach
+#     the allowlist gate ("not accessible"), proving the gate short-circuits first. The
+#     subsequent operator runs (1)-(3), which DO reach the allowlist, are the positive case.
+gate_out="$( cd "${home}" && setsid sudo -u "${SANDBOX_USER}" -- env HOME="${home}" \
+    "${wrapper}" --version < /dev/null 2>&1 || true )"
+if printf '%s' "${gate_out}" | grep -qE "not an ai-tools operator|member of the ai-ops"; then
+    pass "wrapper refuses a non-operator (sandbox account) at the ai-ops gate"
+else
+    fail "wrapper did NOT refuse a non-operator at the ai-ops gate (output: ${gate_out})"
+fi
+if printf '%s' "${gate_out}" | grep -qE "not accessible|allowlist not found"; then
+    fail "wrapper reached the allowlist gate as a non-operator -- the ai-ops gate must run first"
+else
+    pass "wrapper short-circuits at the ai-ops gate before the allowlist check"
+fi
 
 # (1) An unapproved cwd is blocked at the allowlist gate. With no tty the picker takes its
 #     default (Cancel), and the refusal reads "... is not accessible to the sandbox" (or

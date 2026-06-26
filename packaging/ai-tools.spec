@@ -159,7 +159,11 @@ for h in ai-tools-claude-symlink ai-tools-relabel-entrypoint ai-tools-bootstrap;
 done
 install -m 0550 src/opt/ai-tools/bin/nvm-update.sh %{buildroot}/opt/ai-tools/bin/nvm-update.sh
 
-# ── claude: confinement shim + hooks + settings ──────────────────────────────
+# ── claude: launch wrapper + confinement shim + hooks + settings ──────────────
+# The wrapper ships root:root 0755 in /usr/local/bin (Tier 1 in path_dedup.sh, so it shadows
+# the nvm-managed claude on every operator's PATH); it runs as the invoking operator, gates on
+# ai-ops membership, then drops to the sandbox account via sudo.
+install -m 0755 src%{ai_bindir}/claude.sh                  %{buildroot}%{ai_bindir}/claude
 install -m 0550 src/opt/ai-tools/bin/claude-run.sh         %{buildroot}/opt/ai-tools/bin/claude-run
 install -m 0750 src/opt/ai-tools/.claude/post-tool-hook.sh %{buildroot}/opt/ai-tools/.claude/post-tool-hook.sh
 install -m 0750 src/opt/ai-tools/.claude/session-hook.sh   %{buildroot}/opt/ai-tools/.claude/session-hook.sh
@@ -268,6 +272,7 @@ fi
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/nvm-update.sh
 
 %files -n claude-code-restricted
+%attr(0755, root, root) %{ai_bindir}/claude
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/claude-run
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/post-tool-hook.sh
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/session-hook.sh

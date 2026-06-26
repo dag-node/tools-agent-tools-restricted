@@ -75,7 +75,6 @@ check_file /opt/ai-tools/.claude/settings.json               root              "
 # but cannot unlink/replace the root-owned control files above. Owned by ai-tools, or without
 # the sticky bit, the agent could delete and recreate them.
 check_file /opt/ai-tools/.claude                              root              "${SANDBOX_GROUP}" 3770
-check_file "${PROJECTS_HOME}/.local/bin/claude"               "${PROJECTS_USER}" "${PROJECTS_GROUP}" 750
 check_file "${PROJECTS_HOME}/.local/bin/nvm-update.sh"        "${PROJECTS_USER}" "${PROJECTS_GROUP}" 750
 check_file "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service" \
                                                               "${PROJECTS_USER}" "${PROJECTS_GROUP}" 640
@@ -96,6 +95,11 @@ check_file /usr/lib/systemd/system/ai-tools-handback@.service root root 644
 # sandbox account); root-owned so the agent cannot rewrite it, world-exec is harmless since
 # it edits only user-writable registries.
 check_file /usr/local/bin/ai-tools                            root root 755
+# Launch wrapper: 755 root:root -- system-wide on every operator's PATH (path_dedup.sh ranks
+# /usr/local/bin above the nvm shims, so it shadows nvm's claude). Runs as the invoking
+# operator, gates on ai-ops membership, then drops to the sandbox account via sudo; root-owned
+# so the agent cannot rewrite it.
+check_file /usr/local/bin/claude                              root root 755
 # Message formatter: 644 root:root -- world-readable like log.lib.sh; sourced by the operator
 # wrapper/CLI, the agent's hooks, and claude-run, so every principal must read it. No secrets.
 check_file /usr/local/lib/ai-tools/msg.lib.sh                 root root 644

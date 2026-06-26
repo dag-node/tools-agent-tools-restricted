@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# ~/.local/bin/claude
-# Sandboxed claude wrapper. Resolves the current versioned claude binary under
-# /opt/ai-tools via a stable symlink maintained by nvm-update.sh, exports the
-# resolved path as CLAUDE_EXEC, then re-executes /opt/ai-tools/bin/claude-run as
-# the ai-tools user via sudo. claude-run wraps the session in a systemd transient
-# service (systemd-run --user --pty; RestrictNamespaces=yes, PrivateTmp, UMask=0007)
-# before exec'ing the versioned binary.
-# Placed before nvm shims in PATH so it shadows any nvm-managed claude.
+# /usr/local/bin/claude
+# Sandboxed claude wrapper. Ships system-wide (root:root 0755, rpm-owned) and runs as the
+# invoking operator. Refuses a non-operator (not in the ai-ops group) up front with a framed
+# refusal, then resolves the current versioned claude binary under /opt/ai-tools via a stable
+# symlink maintained by nvm-update.sh, exports the resolved path as CLAUDE_EXEC, and
+# re-executes /opt/ai-tools/bin/claude-run as the ai-tools user via sudo. claude-run wraps
+# the session in a systemd transient service (systemd-run --user --pty;
+# RestrictNamespaces=yes, PrivateTmp, UMask=0007) before exec'ing the versioned binary.
+# path_dedup.sh ranks /usr/local/bin (Tier 1) above the nvm shims, so this shadows any
+# nvm-managed claude on every login shell's PATH.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -47,6 +49,18 @@ die() {
 # only honest probe: with no controlling tty the open fails ENXIO and this returns non-zero,
 # so the prompt guards below skip cleanly instead of writing to /dev/tty and aborting.
 have_tty() { { : > /dev/tty; } 2>/dev/null; }
+
+# Operator gate: only a member of the ai-ops operators group may launch a session. The
+# sudoers grant below is a %ai-ops group rule, so a non-operator fails at sudo regardless --
+# this gate turns that raw denial into a framed refusal that names the enrolment command.
+# `id -nG` lists the invoking operator's own groups; the space-padding makes the match exact
+# so a group whose name merely contains "ai-ops" cannot satisfy it.
+readonly OPERATORS_GROUP="ai-ops"
+if [[ " $(id -nG 2>/dev/null) " != *" ${OPERATORS_GROUP} "* ]]; then
+    die "claude: $(id -un) is not an ai-tools operator -- not a member of the ${OPERATORS_GROUP} group" \
+        "       an administrator can grant access with:" \
+        "         sudo ai-tools-admin operator add $(id -un)"
+fi
 
 # Test the symlink itself with -L, NOT -e: -e dereferences the full chain
 # (bin/claude -> versioned bin/claude -> .../claude-code/bin/claude.exe), and the
