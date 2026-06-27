@@ -88,6 +88,12 @@ with repo access merges that branch back, preserving the agent's commits granula
 `/var/opt/ai-tools/README.md`). Clones are labelled statically by `ai_tools.fc` + a plain
 restorecon, not by `ai-tools-relabel`.
 
+The shared sandbox area carries a `g:ai-ops:rwX` ACL (traverse on `/var/opt/ai-tools`, rwX +
+default on `sandbox-projects`, applied by `install.sh`), so an operator creates and works in
+clones without `SANDBOX_GROUP` membership — the shared-area counterpart to `ai-tools-setfacl`'s
+per-project `user:<operator>` grant. The agent is not in `ai-ops` (`claude-run` refuses to launch
+otherwise), so the grant adds it no access.
+
 ## Privilege model
 
 The CLI itself is unprivileged. Five of its root operations — `ai-tools-lockdown`,

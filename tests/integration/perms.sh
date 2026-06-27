@@ -118,6 +118,17 @@ check_file /usr/local/lib/ai-tools/msg.lib.sh                 root root 644
 check_file /var/opt/ai-tools                                  root              "${SANDBOX_GROUP}" 2750
 check_file /var/opt/ai-tools/sandbox-projects                 root              "${SANDBOX_GROUP}" 2770
 check_file /var/opt/ai-tools/README.md                        root              "${SANDBOX_GROUP}" 640
+# Sandbox-area operator ACL: ai-ops reaches the area without SANDBOX_GROUP membership -- traverse
+# on the outer dir, rwX + default on sandbox-projects. The agent (not in ai-ops) gains nothing.
+if ! command -v getfacl >/dev/null 2>&1; then
+    skip "sandbox-area ai-ops ACL" "getfacl not available"
+elif getfacl -p /var/opt/ai-tools 2>/dev/null | grep -qE '^group:ai-ops:r-x' \
+     && getfacl -p /var/opt/ai-tools/sandbox-projects 2>/dev/null | grep -qE '^group:ai-ops:rwx' \
+     && getfacl -p /var/opt/ai-tools/sandbox-projects 2>/dev/null | grep -qE '^default:group:ai-ops:rwx'; then
+    pass "sandbox area carries the ai-ops operator ACL (traverse + rwX + default)"
+else
+    fail "sandbox-area ai-ops ACL missing: $(getfacl -p /var/opt/ai-tools/sandbox-projects 2>/dev/null | grep ai-ops | tr '\n' ' ')"
+fi
 # /opt/ai-tools root: 2751 root:SANDBOX_GROUP -- setgid propagates group SANDBOX_GROUP to new
 # files; group r-x and the o+x search bit, so the agent reads through the group and an operator
 # traverses to the launcher, but neither creates or deletes here. claude-run mirrors nvm-update.sh

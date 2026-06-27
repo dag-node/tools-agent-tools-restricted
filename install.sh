@@ -687,6 +687,23 @@ do_install() {
         "${SCRIPT_DIR}/src/var/opt/ai-tools/README.md" \
         /var/opt/ai-tools/README.md
 
+    # Operator access to the shared sandbox area via an ai-ops group ACL, so operators create and
+    # work in clones (ai-tools --sandbox-create) WITHOUT joining SANDBOX_GROUP: ai-ops gets traverse
+    # on the outer dir, rwX on sandbox-projects (default ACL so clones inherit operator access), and
+    # read on the doc. One grant covers every operator, and an operator stays in ai-ops after leaving
+    # SANDBOX_GROUP. This is the shared-area counterpart to ai-tools-setfacl's per-project
+    # user:<operator> grant. ai-ops is created later in this script; ensure it first (idempotent).
+    log "ai-ops ACL on the sandbox area"
+    getent group ai-ops >/dev/null 2>&1 || groupadd -r ai-ops
+    if command -v setfacl >/dev/null 2>&1; then
+        setfacl -m g:ai-ops:r-x /var/opt/ai-tools
+        setfacl -m g:ai-ops:rwx /var/opt/ai-tools/sandbox-projects
+        setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects
+        setfacl -m g:ai-ops:r-- /var/opt/ai-tools/README.md
+    else
+        warn "setfacl unavailable -- operators need ${SANDBOX_GROUP} membership for sandbox-create"
+    fi
+
     # Operation-log directory for the root helpers. Dir 700 root:root, each file 600
     # root:root -- the helpers append as root; ai-tools cannot read or tamper with the
     # trail (secret filenames recorded by ai-tools-chown are not exposed). journald is
