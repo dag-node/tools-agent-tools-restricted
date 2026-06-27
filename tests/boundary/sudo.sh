@@ -14,12 +14,12 @@ require_root
 readonly SUDOERS="/etc/sudoers.d/ai-tools-claude"
 section "Agent sudo rights (the sandbox account has none)"
 
-# (1) Runtime: what sudo would let the sandbox account run. The agent must be able to run
-# NEITHER privileged target -- the launch shim nor the updater. (-n: never prompt.)
+# (1) Runtime: what sudo would let the sandbox account run. The agent must be able to run no
+# privileged target -- not the launch shim, not the entrypoint relabel. (-n: never prompt.)
 avail="$(sudo -n -l -U "${SANDBOX_USER}" 2>&1 || true)"
 if ! grep -q '/opt/ai-tools/bin/claude-run' <<<"${avail}" \
-        && ! grep -q '/opt/ai-tools/bin/nvm-update.sh' <<<"${avail}"; then
-    pass "sudo grants ${SANDBOX_USER} neither claude-run nor nvm-update.sh"
+        && ! grep -q 'ai-tools-relabel-entrypoint' <<<"${avail}"; then
+    pass "sudo grants ${SANDBOX_USER} neither claude-run nor the entrypoint relabel"
 else
     fail "sudo -l shows a privileged target for ${SANDBOX_USER}: ${avail}"
 fi
@@ -34,15 +34,16 @@ else
     pass "${SUDOERS} names no ${SANDBOX_USER} grant (no sudo rule for the agent)"
 fi
 
-# (3) Static: both grants are the expected drop-privilege form -- the PROJECTS user as
-# principal, dropping to the sandbox account. Confirms the rules lower privilege (never raise
-# the agent's), so even invoked they hand the caller nothing it does not already have.
+# (3) Static: the privilege-lowering grant uses the operators group (%ai-ops) as principal and
+# drops to the sandbox account. Exactly one such drop rule exists (claude-run); the other rule
+# targets root (the relabel helper), not the sandbox account. Confirms the rule lowers privilege
+# (never raises the agent's), so even invoked it hands the caller nothing it does not already have.
 if [[ -r "${SUDOERS}" ]]; then
-    n="$(grep -cE "^[[:space:]]*${PROJECTS_USER}[[:space:]]+ALL=\(${SANDBOX_USER}:" "${SUDOERS}" || true)"
-    if [[ "${n}" -ge 2 ]]; then
-        pass "both grants drop ${PROJECTS_USER} -> ${SANDBOX_USER} (privilege-lowering, not raising)"
+    n="$(grep -cE "^[[:space:]]*%ai-ops[[:space:]]+ALL=\(${SANDBOX_USER}:" "${SUDOERS}" || true)"
+    if [[ "${n}" -eq 1 ]]; then
+        pass "the %ai-ops grant drops to ${SANDBOX_USER} (claude-run; privilege-lowering, not raising)"
     else
-        fail "expected >=2 ${PROJECTS_USER}->${SANDBOX_USER} drop rules, found ${n}"
+        fail "expected exactly 1 %ai-ops->${SANDBOX_USER} drop rule, found ${n}"
     fi
 fi
 

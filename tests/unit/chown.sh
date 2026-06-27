@@ -30,12 +30,15 @@ mk_allowlist "${proj}" "!${excl}"
 # it takes its non-interactive apply branch. Captures stderr for the NOTICE assertions.
 run() { setsid "${HELPER}" "$1" < /dev/null > /dev/null 2>"${2:-/dev/null}" || true; }
 
-# (1) A path outside the allowlist is refused (non-zero, nothing changed).
-out="${TESTDIR}/outside"; : > "${out}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${out}"
-if ! "${HELPER}" "${out}" < /dev/null > /dev/null 2>&1; then
-    pass "refuses to act on a file outside the allowlist (exit non-zero)"
+# (1) A path outside the allowlist is left untouched. The reactive hook handler runs per
+# written file, so an out-of-allowlist path is a graceful skip (exit 0, no hand-back) rather
+# than a hard error: the file stays SANDBOX_USER-owned, never chowned to the operator.
+out="${TESTDIR}/outside"; : > "${out}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${out}"; chmod 644 "${out}"
+"${HELPER}" "${out}" < /dev/null > /dev/null 2>&1 || true
+if [[ "$(stat -c '%U:%G' "${out}")" == "${SANDBOX_USER}:${SANDBOX_GROUP}" ]]; then
+    pass "leaves an out-of-allowlist path untouched (no hand-back)"
 else
-    fail "acted on an out-of-allowlist path"
+    fail "acted on an out-of-allowlist path: now $(stat -c '%U:%G' "${out}")"
 fi
 
 # (2) Ordinary agent-written file -> projects-user:SANDBOX_GROUP, world bits stripped.

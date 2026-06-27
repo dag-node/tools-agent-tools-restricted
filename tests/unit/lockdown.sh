@@ -97,7 +97,7 @@ fi
 # (3) A non-allowlisted CWD is refused (non-zero), and its secret is untouched.
 mk_secret "${TESTDIR}/.env"                       # TESTDIR itself is NOT in the allowlist
 run_ld "${TESTDIR}" "${TESTDIR}/refuse" --yes
-if [[ "${LD_RC}" -ne 0 ]] && grep -qi 'not an allowed project' "${TESTDIR}/refuse" \
+if [[ "${LD_RC}" -ne 0 ]] && grep -qi 'not in allowed projects' "${TESTDIR}/refuse" \
         && [[ "$(perm "${TESTDIR}/.env")" == 644 ]]; then
     pass "refuses a non-allowlisted CWD (non-zero, nothing changed)"
 else
