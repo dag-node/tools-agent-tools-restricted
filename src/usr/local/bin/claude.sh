@@ -52,14 +52,38 @@ have_tty() { { : > /dev/tty; } 2>/dev/null; }
 
 # Operator gate: only a member of the ai-ops operators group may launch a session. The
 # sudoers grant below is a %ai-ops group rule, so a non-operator fails at sudo regardless --
-# this gate turns that raw denial into a framed refusal that names the enrolment command.
-# `id -nG` lists the invoking operator's own groups; the space-padding makes the match exact
-# so a group whose name merely contains "ai-ops" cannot satisfy it.
+# this gate turns that raw denial into a framed refusal that names the right next step.
+# `id -nG` (no user argument) lists THIS shell's live credential set, the same set sudo
+# enforces against; the space-padding makes the match exact so a group whose name merely
+# contains "ai-ops" cannot satisfy it. When the live check fails the refusal distinguishes
+# three cases, because the fix differs in each: the sandbox account (which must never be an
+# operator), an operator whose shell predates the grant (a stale session -- re-login), and a
+# genuine non-operator.
 readonly OPERATORS_GROUP="ai-ops"
+readonly SANDBOX_USER="@SANDBOX_USER@"
+_user="$(id -un)"
 if [[ " $(id -nG 2>/dev/null) " != *" ${OPERATORS_GROUP} "* ]]; then
-    die "claude: $(id -un) is not an ai-tools operator -- not a member of the ${OPERATORS_GROUP} group" \
-        "       an administrator can grant access with:" \
-        "         sudo ai-tools-admin operator add $(id -un)"
+    if [[ "${_user}" == "${SANDBOX_USER}" ]]; then
+        # The sandbox account itself (e.g. `sudo -u ai-tools claude`). It is deliberately kept
+        # out of ai-ops -- a member could drive a session as an operator -- so "add it to the
+        # group" is the wrong advice. An operator launches the wrapper from their own login and
+        # the wrapper drops to the sandbox account on its own.
+        die "claude: this is the sandbox account ${SANDBOX_USER}, which is not an ai-tools operator" \
+            "       the sandbox account must never be one -- launch claude from your operator login;" \
+            "       the wrapper drops to ${SANDBOX_USER} for you"
+    elif id -nG "${_user}" 2>/dev/null | tr ' ' '\n' | grep -qx "${OPERATORS_GROUP}"; then
+        # In ai-ops per the group database (id -nG <user> reads it) but absent from this shell's
+        # live credentials -- a session started before the grant took effect. A fresh login
+        # rebuilds the credential set; newgrp adopts the group in the current shell.
+        die "claude: ${_user} is an ai-tools operator, but this shell started before the grant" \
+            "       start a fresh login session to pick up the ${OPERATORS_GROUP} group --" \
+            "       log out and back in, or adopt it in this shell with:" \
+            "         newgrp ${OPERATORS_GROUP}"
+    else
+        die "claude: ${_user} is not an ai-tools operator -- not a member of the ${OPERATORS_GROUP} group" \
+            "       an administrator can grant access with:" \
+            "         sudo ai-tools-admin operator add ${_user}"
+    fi
 fi
 
 # Test the symlink itself with -L, NOT -e: -e dereferences the full chain

@@ -139,9 +139,15 @@ op_add() {
     fi
 
     # ai-ops membership: the sudoers grant and the launch wrapper gate on it. The sandbox
-    # account is never a member (it must not be able to drive itself as an operator).
-    usermod -aG "${OPERATORS_GROUP}" "${user}" || die "failed to add ${user} to ${OPERATORS_GROUP}"
-    log "added ${user} to group ${OPERATORS_GROUP}"
+    # account is never a member (it must not be able to drive itself as an operator). Add --
+    # and log -- only when the user is not already a member, so a reconciling re-run does not
+    # report a change it did not make.
+    if id -nG "${user}" 2>/dev/null | tr ' ' '\n' | grep -qx "${OPERATORS_GROUP}"; then
+        log "${user} is already in group ${OPERATORS_GROUP}"
+    else
+        usermod -aG "${OPERATORS_GROUP}" "${user}" || die "failed to add ${user} to ${OPERATORS_GROUP}"
+        log "added ${user} to group ${OPERATORS_GROUP}"
+    fi
 
     seed_allowlist "${user}"
 
@@ -153,7 +159,11 @@ op_add() {
     loginctl enable-linger "${SANDBOX_USER}"  2>/dev/null || log "warn: could not enable linger for ${SANDBOX_USER}"
 
     wire_dedup "${user}"
-    log "operator ${user} added. Register projects with:  ai-tools --project-create <dir>"
+    log "operator ${user} added"
+    # ai-ops membership applies to NEW login sessions; an already-open shell keeps the credential
+    # set it had at login, and the launch wrapper gates on that live set. Name the activation step
+    # so the operator's first claude launch does not hit the stale-session refusal.
+    log "${user}: start a new login session (or run 'newgrp ${OPERATORS_GROUP}') before launching claude -- ${OPERATORS_GROUP} membership does not apply to already-open shells"
 }
 
 op_remove() {
