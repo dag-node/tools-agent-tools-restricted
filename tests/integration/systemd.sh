@@ -35,14 +35,23 @@ else
             fail "verify ${u}: ${out}"
         fi
     done
-    # User units verify against the --user manager generators.
-    for u in nvm-update.service nvm-update.timer; do
-        if out="$(systemd-analyze --user verify "${USERUNITDIR}/${u}" 2>&1)"; then
-            pass "verify ${u} (--user)"
-        else
-            fail "verify ${u} (--user): ${out}"
-        fi
-    done
+    # User units verify against the --user manager context, so run as the sandbox account with
+    # its runtime dir. `systemd-analyze --user` as root has no XDG_RUNTIME_DIR and fails the
+    # RuntimeDirectory lookup -- that is the caller's missing context, not a unit defect.
+    if [[ -z "${SANDBOX_UID}" || ! -d "/run/user/${SANDBOX_UID}" ]]; then
+        skip "verify nvm-update user units" "${SANDBOX_USER}'s --user instance not reachable"
+    else
+        for u in nvm-update.service nvm-update.timer; do
+            if out="$(sudo -u "${SANDBOX_USER}" \
+                          XDG_RUNTIME_DIR="/run/user/${SANDBOX_UID}" \
+                          DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${SANDBOX_UID}/bus" \
+                          systemd-analyze --user verify "${USERUNITDIR}/${u}" 2>&1)"; then
+                pass "verify ${u} (--user)"
+            else
+                fail "verify ${u} (--user): ${out}"
+            fi
+        done
+    fi
 fi
 
 section "Enablement in the correct instance"
