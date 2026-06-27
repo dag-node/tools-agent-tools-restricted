@@ -1,35 +1,19 @@
 #!/usr/bin/env bash
 # /usr/local/sbin/ai-tools/ai-tools-safedir
-# Registers (or removes) one project path in git's safe.directory list inside the agent's
-# global git config /opt/ai-tools/.gitconfig, the file the sandbox account reads on startup
-# to decide which repositories git may operate in. The tree is operator-owned (the dual-
-# ownership model), so an entry is what lets the agent's git trust it.
+# Registers or removes one project path in git's safe.directory list in the agent's global git
+# config /opt/ai-tools/.gitconfig, so the agent's git trusts an operator-owned project tree.
 #
-# Why a root helper: .gitconfig is root-owned and 644 (world-READABLE so the operator and the
-# launch wrapper can see the list without belonging to @SANDBOX_GROUP@, root-write-only so the
-# safe.directory list stays out of the confined agent's reach). The management CLI (ai-tools
-# --project-claim/--project-unclaim) and the launch wrapper run as the operator, who lacks
-# write access to a root-owned file, so they reach this write through sudo -- the same
-# no-NOPASSWD model as ai-tools-setfacl/-relabel/-unclaim: the operator is prompted for a
-# password and the sandbox account has no grant for it. The agent has no path to .gitconfig
-# writes at all, so unlike the handback helpers this one is operator-only and stays off the
-# handback socket.
+# .gitconfig is root-owned 644: world-readable (the operator and launch wrapper read the list
+# without joining @SANDBOX_GROUP@) and root-write-only (the safe.directory list stays out of the
+# confined agent's reach). The operator reaches this write through sudo, under ai-tools
+# --project-claim/--project-unclaim and the launch wrapper -- no-NOPASSWD, like ai-tools-setfacl/
+# -relabel/-unclaim. The agent has no path here, so unlike the handback helpers this one is
+# operator-only and off the handback socket.
 #
-# Usage:
-#   ai-tools-safedir [<absolute-project-path>]            add the entry (idempotent)
-#   ai-tools-safedir --remove [<absolute-project-path>]   drop the entry (idempotent)
-# The path defaults to the current directory (the tooling passes it explicitly; the default
-# eases a manual run from inside a project).
+# ADD requires the path to be an allowlisted project (resolve_owner); --remove is lenient, since
+# the CLI de-lists the project before removing. Both are idempotent; the path defaults to cwd.
 #
-# Validation. On ADD the path must be a real directory that some operator's allowlist covers
-# (operator.lib.sh resolve_owner) -- the same allow/exclude gate the other helpers share, so a
-# safe.directory entry is only ever granted for an approved project; a path no operator covers
-# is left untouched (exit 0, fail-closed). On --REMOVE the gate is SKIPPED: the CLI drops the
-# allowlist entry BEFORE calling this on unclaim, so by the time the entry is removed the path
-# is no longer allowlisted -- mirroring ai-tools-relabel --remove's lenient membership check.
-#
-# Idempotent: an ADD of an already-listed path and a --REMOVE of an absent one are quiet
-# no-ops, so a re-run (or a re-claim) is safe.
+# Usage:  ai-tools-safedir [--remove] [<absolute-project-path>]
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
