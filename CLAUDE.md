@@ -49,7 +49,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `.claude/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
 | Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secret-handling.rule.md) |
 | Toolchain provisioning + Node/claude updater, symlink repoint, post-upgrade relabel | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `ai-tools-claude-symlink.sh`, `ai-tools-relabel-entrypoint.sh`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
-| Management CLI, project lifecycle, relabel | `bin/ai-tools.sh`, `ai-tools-relabel.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
+| Management CLI, project lifecycle, relabel | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel}.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
 | Shared logging library | `log.lib.sh` | [logging](.claude/rules/logging.rule.md) |
 | User-facing message formatting (box, wrap, ties) | `msg.lib.sh` + its consumers | [messaging](.claude/rules/messaging.rule.md) |
 | Test organization, hermeticity, categories | `tests/**` | [tests](.claude/rules/tests.rule.md) |
@@ -136,9 +136,10 @@ sandbox account can never hold the operator grant. The invariants the agent oper
   wrapped within 80 columns with no line ending on a preposition, framed in a paste-safe
   `#` box on a terminal and emitted plain when piped (so logs and test greps stay
   line-matchable). Detail in [messaging](.claude/rules/messaging.rule.md).
-- **Root sudo-helpers** live under `/usr/local/sbin/ai-tools/` (`chown`, `setgid`,
-  `claude-symlink`, `lockdown`, `relabel`); shared libraries under
-  `/usr/local/lib/ai-tools/` (`secret-patterns`, `prune-dirs`, `relabel`, `log`).
+- **Root sudo-helpers** live under `/usr/local/sbin/ai-tools/` (`chown`, `setgid`, `setfacl`,
+  `unclaim`, `safedir`, `claude-symlink`, `lockdown`, `relabel`); shared libraries under
+  `/usr/local/lib/ai-tools/` (`secret-patterns`, `prune-dirs`, `relabel`, `operator`, `msg`,
+  `log`).
 
 ### Documentation register
 

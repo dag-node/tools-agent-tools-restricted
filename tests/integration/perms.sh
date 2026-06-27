@@ -17,6 +17,7 @@ check_file /usr/local/sbin/ai-tools/ai-tools-chown            root              
 check_file /usr/local/sbin/ai-tools/ai-tools-setgid           root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-setfacl          root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-unclaim          root              root              750
+check_file /usr/local/sbin/ai-tools/ai-tools-safedir          root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-claude-symlink   root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-lockdown         root              root              750
 # SELinux project-label helper: 750 root:root -- user-run via sudo, never by the agent (no
@@ -120,11 +121,12 @@ check_file /var/opt/ai-tools/README.md                        root              
 # /opt/ai-tools root: 2751 root:SANDBOX_GROUP -- setgid propagates group SANDBOX_GROUP to new
 # files; group r-x and the o+x search bit, so the agent reads through the group and an operator
 # traverses to the launcher, but neither creates or deletes here. claude-run mirrors nvm-update.sh
-# (550, group r-x, no write). .gitconfig 640: agent reads safe.directory through the group, never
-# writes. .gitignore 640: a default-deny guard for a git repo versioning the control plane.
+# (550, group r-x, no write). .gitconfig 644: world-readable so the agent reads safe.directory and
+# the operator/wrapper read it without SANDBOX_GROUP membership; only root writes (via
+# ai-tools-safedir). .gitignore 640: a default-deny guard for a git repo versioning the control plane.
 check_file /opt/ai-tools                                      root              "${SANDBOX_GROUP}" 2751
 check_file /opt/ai-tools/bin/claude-run                       root              "${SANDBOX_GROUP}" 550
-check_file /opt/ai-tools/.gitconfig                           root              "${SANDBOX_GROUP}" 640
+check_file /opt/ai-tools/.gitconfig                           root              "${SANDBOX_GROUP}" 644
 check_file /opt/ai-tools/.gitignore                           root              "${SANDBOX_GROUP}" 640
 # Operation logs: dir 700 root:root, each file 600 root:root -- the root helpers append here;
 # ai-tools (neither owner nor able to traverse the 700 dir) can neither read nor tamper with

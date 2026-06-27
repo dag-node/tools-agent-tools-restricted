@@ -345,6 +345,7 @@ do_summary() {
     _chk /usr/local/sbin/ai-tools/ai-tools-setgid
     _chk /usr/local/sbin/ai-tools/ai-tools-setfacl
     _chk /usr/local/sbin/ai-tools/ai-tools-unclaim
+    _chk /usr/local/sbin/ai-tools/ai-tools-safedir
     _chk /usr/local/sbin/ai-tools/ai-tools-claude-symlink
     _chk /usr/local/sbin/ai-tools/ai-tools-lockdown
     _chk /usr/local/sbin/ai-tools/ai-tools-relabel
@@ -469,6 +470,11 @@ do_install() {
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-unclaim.sh" \
         /usr/local/sbin/ai-tools/ai-tools-unclaim
+
+    log "/usr/local/sbin/ai-tools/ai-tools-safedir"
+    install_subst 750 root root \
+        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-safedir.sh" \
+        /usr/local/sbin/ai-tools/ai-tools-safedir
 
     log "/usr/local/sbin/ai-tools/ai-tools-claude-symlink"
     install_subst 750 root root \
@@ -788,19 +794,16 @@ do_install() {
         "${SCRIPT_DIR}/src/opt/ai-tools/.claude/settings.json" \
         /opt/ai-tools/.claude/settings.json
 
-    # .gitconfig: root:SANDBOX_GROUP 640. SANDBOX_USER reads safe.directory on startup
-    # through the group; it never writes the file, so a project's safe.directory is
-    # registered through the handback bridge. setgid on /opt/ai-tools (above) keeps the
-    # group correct across git-config lock→rename rewrites. Ownership is enforced even
-    # when keeping existing content so a wrong-group file does not silently block the
-    # agent. keep_existing preserves safe.directory entries (and any customisations) on
-    # re-install.
+    # .gitconfig: root:SANDBOX_GROUP 644 (world-readable, root-write-only). safe.directory is
+    # registered through the ai-tools-safedir root helper -- see its header for the 644/sudo model.
+    # Ownership and mode are re-asserted even when keeping existing content; keep_existing preserves
+    # safe.directory entries (and any customisations) on re-install.
     log "/opt/ai-tools/.gitconfig"
     local _gitconfig="/opt/ai-tools/.gitconfig"
     if keep_existing "${_gitconfig}" "reseed with shipped defaults"; then
         log "keeping existing ${_gitconfig}"
         chown "root:${SANDBOX_GROUP}" "${_gitconfig}"
-        chmod 640 "${_gitconfig}"
+        chmod 644 "${_gitconfig}"
     else
         # Derive the sandbox email domain from the projects user's git user.email;
         # fall back to the machine's fully-qualified hostname.
@@ -814,7 +817,7 @@ do_install() {
         else
             _domain="$(hostname -f 2>/dev/null || hostname)"
         fi
-        install -o root -g "${SANDBOX_GROUP}" -m 640 \
+        install -o root -g "${SANDBOX_GROUP}" -m 644 \
             /dev/null "${_gitconfig}"
         printf '[user]\n\tname = %s\n\temail = %s\n\n[core]\n\tfileMode = true\n\tautocrlf = input\n\n[init]\n\tdefaultBranch = main\n\n[pull]\n\trebase = false\n' \
             "${SANDBOX_USER}" "ai-tools@${_domain}" > "${_gitconfig}"

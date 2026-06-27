@@ -47,13 +47,13 @@ operators list).
   the **nearest parent directory's owner**, provided that owner is an operator whose
   allowlist covers the path — the on-disk project owner wins. The control plane needs no
   restore.
-- **`safe.directory` edits go through the handback bridge.** `.gitconfig` stays
-  `root:ai-tools 640` (agent reads via group, never writes). `ai-tools --project-create`
-  registers the project's `safe.directory` via a new handback verb (`SAFEDIR`) rather
-  than writing the control-plane file directly, so no setgid fight, no `ai-ops`
-  group-write, and no new sudoers rule. The handback daemon authorizes `SAFEDIR` for
-  `ai-ops` callers (operators) by `SO_PEERCRED`, while the existing ownership verbs stay
-  `ai-tools`-only; the socket is reachable by both and the daemon is the gate.
+- **`safe.directory` edits go through a root helper.** `.gitconfig` stays `root:ai-tools 644`
+  (world-readable so the agent reads `safe.directory` and the operator and launch wrapper read it
+  for the gap check without depending on `ai-tools` group membership; root-write-only). `ai-tools
+  --project-claim` registers the project's `safe.directory` through the `ai-tools-safedir` root
+  helper (operator `sudo`, no NOPASSWD — the same model as `ai-tools-setfacl`/`-relabel`/
+  `-unclaim`), and `--project-unclaim` removes it; the agent has no path to `.gitconfig` writes.
+  No setgid fight, no `ai-ops` group-write, and no new sudoers rule.
 - **Each operator gets a private agent-state subdir.** `claude-run` points the session's
   Claude state dir at `/opt/ai-tools/state/<operator>/` (history, sessions,
   `.claude.json`), keyed off the launching operator the wrapper passes in, so operators'
@@ -98,7 +98,7 @@ Ownership cells use the shell-variable identities from
 | `.claude` | `PROJECTS_USER:SANDBOX_GROUP 3770` | `root:SANDBOX_GROUP 3770` | unchanged (`o=0`): operators get nothing; agent group-writes its state, sticky blocks unlink of root-owned control files. |
 | `.claude/{settings.json,hooks}` | `PROJECTS_USER:SANDBOX_GROUP 640/750` | `root:SANDBOX_GROUP 640/750` | unchanged; only the agent reads these. |
 | `.claude.json` | `PROJECTS_USER:SANDBOX_GROUP 0460` | `root:SANDBOX_GROUP 0460` | unchanged; agent group-writes state; root owner can't be silently rewritten. |
-| `.gitconfig` | `PROJECTS_USER:SANDBOX_GROUP 640` | `root:SANDBOX_GROUP 640` | agent reads `safe.directory`, never writes; operators add entries through the handback `SAFEDIR` verb, not by writing the file. |
+| `.gitconfig` | `PROJECTS_USER:SANDBOX_GROUP 640` | `root:SANDBOX_GROUP 644` | agent reads `safe.directory`; world-readable so the operator and wrapper read it without `ai-tools` group membership; root-write-only. Operators register entries through the `ai-tools-safedir` root helper (`sudo`), not by writing the file. |
 | `.gitignore` | `PROJECTS_USER:SANDBOX_GROUP 640` | `root:SANDBOX_GROUP 640` | unchanged; agent reads, never writes. |
 | `.git` | `PROJECTS_USER:PROJECTS_GROUP 2750` | `root:root 0700` | root-private; per-operator drift capture is meaningless with N operators. |
 | `state/<operator>/` | n/a (shared `.claude`) | `SANDBOX_USER:SANDBOX_GROUP 0700` per operator | private agent state (history, sessions, `.claude.json`); `claude-run` selects it by the launching operator. |
@@ -132,9 +132,12 @@ boundary-mode constants the installer/spec assert.
 
 ## Resolved (was open)
 
-- **(A) `safe.directory` write path** → the handback `SAFEDIR` verb. `.gitconfig` stays
-  `root:ai-tools 640`; operators register via the bridge, the daemon authorizes `SAFEDIR`
-  for `ai-ops` callers. No setgid fight, no group-write, no new sudoers rule.
+- **(A) `safe.directory` write path** → the `ai-tools-safedir` root helper (operator `sudo`,
+  no NOPASSWD — the model `ai-tools-setfacl`/`-relabel`/`-unclaim` use). `.gitconfig` is
+  `root:ai-tools 644` (world-readable, root-write-only); `--project-claim` registers and
+  `--project-unclaim` removes the entry through the helper. No setgid fight, no group-write,
+  no new sudoers rule. (The handback `SAFEDIR` verb was considered and dropped: a session-side
+  verb leaves stale entries on unclaim and re-introduces agent-triggered control-plane writes.)
 - **(B) operator.conf format** → `OPERATORS="alice bob svc-ci"`, one list for human and
   service accounts alike (they share `ai-tools`); home/group derived via `getent`.
 - **(C) operator lifecycle** → `ai-tools-admin operator add|remove|list`; `add` with no

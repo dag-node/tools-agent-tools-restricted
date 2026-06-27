@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # tests/integration/cli.sh
-# Integration: the ai-tools management CLI principal guard. The CLI edits the allowlist and
-# git safe.directory as the PROJECTS user; it must refuse to run as root (it would write the
-# registries with the wrong owner) and as the sandbox account (the agent must not manage its
-# own allowlist). Asserts both refusals fire, and that the projects user is not caught by the
-# guard. Run as root via sudo.
+# Integration: the ai-tools management CLI principal guard. The CLI edits the allowlist as the
+# PROJECTS user (and registers git safe.directory through the ai-tools-safedir root helper); it
+# must refuse to run as root (it would write the registries with the wrong owner) and as the
+# sandbox account (the agent must not manage its own allowlist). Asserts both refusals fire, and
+# that the projects user passes the guard. Run as root via sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"

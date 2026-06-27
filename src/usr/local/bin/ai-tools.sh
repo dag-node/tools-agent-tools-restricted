@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # /usr/local/bin/ai-tools
-# Project-lifecycle CLI for the ai-tools Claude Code sandbox. Runs AS the projects
-# user (never root, never the sandbox account) and needs no privilege: the two
-# registries it edits -- @PROJECTS_HOME@/.config/ai-tools/allowed-projects and the
-# git safe.directory list in /opt/ai-tools/.gitconfig -- are both writable by the
-# projects user.
+# Project-lifecycle CLI for the ai-tools Claude Code sandbox. Runs AS the projects user (not as
+# root, not as the sandbox account). It writes the operator-owned allowlist
+# (@PROJECTS_HOME@/.config/ai-tools/allowed-projects) directly, and reaches the root-owned bits
+# -- the git safe.directory list in /opt/ai-tools/.gitconfig, the SELinux label, the ACL, and
+# secret lockdown -- through the sudo root helpers (no NOPASSWD: the operator is prompted for a
+# password; the sandbox account holds no grant).
 #
 # Commands (each confirms before applying and reports the result):
 #   --project-claim   [path]  claim a real project in place (idempotent; default: cwd)
@@ -63,6 +64,11 @@ readonly UNCLAIM_BIN="/usr/local/sbin/ai-tools/ai-tools-unclaim"
 # mislabelled; needs root (the projects user runs as unconfined_t, which can relabel, but
 # only via sudo as the helper is 750 root:root). Invoked by --relabel and --postupgrade.
 readonly RELABEL_ENTRYPOINT_BIN="/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint"
+# Root-only git safe.directory helper, same sudo (no NOPASSWD) model as lockdown/relabel/
+# setfacl/unclaim. /opt/ai-tools/.gitconfig is root-owned 644: world-readable (the agent reads
+# safe.directory on startup) but root-write-only, so neither the operator nor the agent writes it
+# directly -- the operator reaches the validated add/--remove through this helper.
+readonly SAFEDIR_BIN="/usr/local/sbin/ai-tools/ai-tools-safedir"
 # Sentinel in a guard CLAUDE.md (see drop_lockdown_guard) so the lockdown step can
 # recognise and remove its own placeholder once secrets are secured.
 readonly GUARD_MARKER="ai-tools-lockdown-guard"
@@ -197,30 +203,52 @@ unreg_allow() {
     fi
 }
 
+# reg_safedir <dir>  -- register <dir> in the agent's git safe.directory list: read unprivileged
+# for idempotency, then write via the SAFEDIR_BIN root helper (see its declaration for the
+# sudo/644 rationale). The entry lets the agent's git trust this tree, so the step is
+# best-effort: when sudo is absent or the helper does not complete, it prints the manual command
+# as a hint and lets the claim carry on.
 reg_safedir() {
     local dir="$1"
     if git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
             | grep -qxF "${dir}"; then
         say "    git safe.directory: already listed"
-    else
-        git config --file "${GITCONFIG}" --add safe.directory "${dir}"
-        # setgid on /opt/ai-tools ensures git's lock→rename preserves group SANDBOX_GROUP;
-        # chmod re-applies 640 in case the lock was created with a looser umask-derived mode.
-        chmod 640 "${GITCONFIG}" 2>/dev/null || true
+        return 0
+    fi
+    if ! command -v sudo >/dev/null 2>&1; then
+        warn "sudo not found -- cannot register git safe.directory automatically"
+        say  "      ${C_BOLD}sudo ${SAFEDIR_BIN} ${dir}${C_RST}"
+        return 0
+    fi
+    if sudo "${SAFEDIR_BIN}" "${dir}"; then
         say "    git safe.directory: added"
+    else
+        warn "could not register git safe.directory -- run it by hand:"
+        say  "      ${C_BOLD}sudo ${SAFEDIR_BIN} ${dir}${C_RST}"
     fi
 }
 
+# unreg_safedir <dir>  -- the unclaim counterpart to reg_safedir: drop <dir> via SAFEDIR_BIN
+# --remove. Called after unreg_allow, so the helper's --remove is lenient about allowlist
+# membership. Best-effort like reg_safedir: warns with the manual command and lets the unclaim
+# carry on.
 unreg_safedir() {
-    local dir="$1" esc
-    if git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
+    local dir="$1"
+    if ! git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
             | grep -qxF "${dir}"; then
-        esc="$(printf '%s' "${dir}" | sed 's/[.^$*+?{|\\[()]/\\&/g')"
-        git config --file "${GITCONFIG}" --unset-all safe.directory "^${esc}$" 2>/dev/null || true
-        chmod 640 "${GITCONFIG}" 2>/dev/null || true
+        say "    git safe.directory: not listed"
+        return 0
+    fi
+    if ! command -v sudo >/dev/null 2>&1; then
+        warn "sudo not found -- cannot remove git safe.directory automatically"
+        say  "      ${C_BOLD}sudo ${SAFEDIR_BIN} --remove ${dir}${C_RST}"
+        return 0
+    fi
+    if sudo "${SAFEDIR_BIN}" --remove "${dir}"; then
         say "    git safe.directory: removed"
     else
-        say "    git safe.directory: not listed"
+        warn "could not remove git safe.directory -- run it by hand:"
+        say  "      ${C_BOLD}sudo ${SAFEDIR_BIN} --remove ${dir}${C_RST}"
     fi
 }
 

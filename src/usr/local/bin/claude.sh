@@ -238,6 +238,10 @@ fi
 #   safe.dir   -- cwd absent from ai-tools' git safe.directory. git refuses to operate
 #                 ("dubious ownership"). Non-fatal; only git, no ownership/label change.
 readonly GITCONFIG="/opt/ai-tools/.gitconfig"
+# Root helper that writes the safe.directory entry. .gitconfig is root-owned 644 (readable here
+# for the gap check, writable only by root), so the operator registers through sudo -- the same
+# helper the CLI's reg_safedir uses. See ai-tools-safedir's header for the model.
+readonly SAFEDIR_BIN="/usr/local/sbin/ai-tools/ai-tools-safedir"
 
 # project_labelled <dir>  -- 0 when SELinux is NOT enforcing (no label needed) or <dir>
 # already carries ai_tools_project_t. Read-only, no privilege; the authoritative relabel
@@ -324,31 +328,26 @@ if ${own_gap} || ${label_gap}; then
             "       run one of the commands above, then start claude again"
     fi
 elif ${safe_gap}; then
-    # Ownership is fine; only git's safe.directory is missing -- non-fatal, git alone is
-    # affected. This wrapper runs as the operator, who owns ${GITCONFIG} (640), so offer to
-    # add the single entry directly rather than only pointing at project-claim. It is a
-    # restrict-nothing change (git merely trusts a dir you already approved to launch in),
-    # so unlike the recursive in-place claim it defaults YES. Adding only safe.directory is
-    # consistent here because the other invariants (allowlist, group, label) already hold --
-    # this is the narrow safe.directory gap, not the full project-claim. With no TTY to
-    # confirm on, fall back to a NOTICE so a non-interactive launch never silently writes
-    # the control-plane gitconfig.
+    # Ownership and label hold; the git safe.directory entry is the one piece missing. Offer to
+    # register it via the SAFEDIR_BIN sudo helper -- the path reg_safedir uses (see
+    # ai-tools-safedir for the 644/sudo model). Defaults YES (a restrict-nothing change for a
+    # tree already approved to launch in); a non-interactive launch prints the command instead.
     ai_tools_msg_notice \
         "claude: ${cwd} is not in git safe.directory; git will report \"dubious ownership\" here until it is registered."
     if have_tty; then
-        printf 'Add it to %s now? [Y]/n ' "${GITCONFIG}" > /dev/tty
+        printf 'Register it now (needs sudo)? [Y]/n ' > /dev/tty
         reply=""
         read -r reply < /dev/tty || reply=""
         if [[ ! "${reply}" =~ ^[nN] ]]; then
-            if git config --file "${GITCONFIG}" --add safe.directory "${cwd}"; then
+            if sudo "${SAFEDIR_BIN}" "${cwd}"; then
                 printf 'claude: registered %s in git safe.directory.\n' "${cwd}" >&2
             else
-                ai_tools_msg_notice "claude: could not write ${GITCONFIG} -- register manually:"
-                printf '  git config --file %q --add safe.directory %q\n' "${GITCONFIG}" "${cwd}" >&2
+                ai_tools_msg_notice "claude: could not register ${cwd} -- add it with:"
+                printf '  sudo %q %q\n' "${SAFEDIR_BIN}" "${cwd}" >&2
             fi
         fi
     else
-        printf '  register it with: git config --file %q --add safe.directory %q\n' "${GITCONFIG}" "${cwd}" >&2
+        printf '  register it with: sudo %q %q\n' "${SAFEDIR_BIN}" "${cwd}" >&2
     fi
 fi
 

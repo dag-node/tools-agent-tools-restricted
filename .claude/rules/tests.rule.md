@@ -41,7 +41,7 @@ redirect it.
 ## Categories
 
 **`unit`** — hermetic logic tests of the deployed helpers (`ai-tools-chown`, `-setgid`,
-`-setfacl`, `-unclaim`, `-lockdown`). Each runs the **installed** helper (so it exercises
+`-setfacl`, `-unclaim`, `-safedir`, `-lockdown`). Each runs the **installed** helper (so it exercises
 the real, token-substituted artifact) against a `/tmp` testdir and a dummy allowlist,
 asserting the algorithm: allowlist gating, the owner guard (acts only on projects-user- or
 sandbox-account-owned paths) where it applies, ACL/setgid/permission transforms, the

@@ -1,6 +1,9 @@
 ---
 paths:
   - "src/usr/local/bin/ai-tools.sh"
+  - "src/usr/local/sbin/ai-tools/ai-tools-setfacl.sh"
+  - "src/usr/local/sbin/ai-tools/ai-tools-unclaim.sh"
+  - "src/usr/local/sbin/ai-tools/ai-tools-safedir.sh"
   - "src/usr/local/sbin/ai-tools/ai-tools-relabel.sh"
   - "src/usr/local/lib/ai-tools/relabel.lib.sh"
 ---
@@ -8,16 +11,18 @@ paths:
 # Management CLI and project lifecycle (`ai-tools`)
 
 `ai-tools` (`/usr/local/bin/ai-tools`) is the project-lifecycle CLI. It runs **as the
-projects user** — never root, never the sandbox account — and needs no privilege for the
-registries it edits: the allowlist (`~/.config/ai-tools/allowed-projects`) and the git
-`safe.directory` list in `/opt/ai-tools/.gitconfig`, both writable by the projects user. It
-refuses to run as root (would write the registries with the wrong owner) and as the sandbox
-account (the agent must not manage its own allowlist).
+projects user** — not root, not the sandbox account. It writes the operator-owned allowlist
+(`~/.config/ai-tools/allowed-projects`) directly, and reaches the root-owned git
+`safe.directory` list in `/opt/ai-tools/.gitconfig` (`root:ai-tools 644`: world-readable,
+root-write-only) through the `ai-tools-safedir` root helper (`sudo`), alongside its other
+root operations. It refuses to run as root (would write the registries with the wrong owner)
+and as the sandbox account (the agent must not manage its own allowlist).
 
 ## Commands
 
 - `--project-claim [path]` (alias `--project-create`) — claim a real project in place
-  (idempotent; default cwd): register it, pin repo-local `core.filemode=true`, apply the
+  (idempotent; default cwd): register it (allowlist + git `safe.directory` via
+  `ai-tools-safedir`), pin repo-local `core.filemode=true`, apply the
   group-permission ACL via `ai-tools-setfacl`, apply the SELinux project label, run the
   secret pre-check, and — when a `.git` tree is present but not yet normalized — offer
   (default-yes prompt) to normalize it for agent git-history access via `ai-tools-setfacl
@@ -85,19 +90,22 @@ restorecon, not by `ai-tools-relabel`.
 
 ## Privilege model
 
-The CLI itself is unprivileged. Four of its root operations — `ai-tools-lockdown`,
-`ai-tools-relabel`, `ai-tools-setfacl`, and `ai-tools-unclaim` — run via `sudo` with **no**
-NOPASSWD grant by design, so sudo prompts for the projects user's password; the sandbox
-account has no grant for any. The fifth, `--relabel` → `ai-tools-relabel-entrypoint`, is the
-exception: it has a dedicated fixed-path NOPASSWD rule (shared with the `nvm-update` timer,
-see [updater](updater.rule.md) / [launch](launch.rule.md)), so it runs **as root without a
-prompt** — kept safe by being a fixed-path, no-argument target the projects user cannot
-modify. `ai-tools-setfacl` and `ai-tools-unclaim` need root
+The CLI itself is unprivileged. Five of its root operations — `ai-tools-lockdown`,
+`ai-tools-relabel`, `ai-tools-setfacl`, `ai-tools-unclaim`, and `ai-tools-safedir` — run via
+`sudo` with **no** NOPASSWD grant by design, so sudo prompts for the projects user's password;
+the sandbox account has no grant for any. The sixth, `--relabel` →
+`ai-tools-relabel-entrypoint`, is the exception: it has a dedicated fixed-path NOPASSWD rule
+(shared with the `nvm-update` timer, see [updater](updater.rule.md) / [launch](launch.rule.md)),
+so it runs **as root without a prompt** — kept safe by being a fixed-path, no-argument target
+the projects user cannot modify. `ai-tools-setfacl` and `ai-tools-unclaim` need root
 (`CAP_FOWNER`) to act on files the projects user does not own (e.g. agent-written files from
-a prior session); each re-validates its target path
-against the allowlist and shares the exclusion/secret-skip/prune rules with `ai-tools-setgid`
-(see [ownership-and-hooks](ownership-and-hooks.rule.md)). Repo-local `core.filemode=true`
-and the two registries are plain writes the projects user performs unprivileged.
+a prior session); each re-validates its target path against the allowlist and shares the
+exclusion/secret-skip/prune rules with `ai-tools-setgid`
+(see [ownership-and-hooks](ownership-and-hooks.rule.md)). `ai-tools-safedir` needs root to
+write the root-owned `.gitconfig`; on add it re-validates the path against the allowlist through
+the shared `operator.lib.sh` resolver, but edits a single entry rather than walking a tree.
+Repo-local `core.filemode=true` and the allowlist are plain writes the projects user performs
+unprivileged.
 `/usr/local/sbin/ai-tools` is `750 root:root`, so the projects user cannot even stat the
 helpers — only sudo, as root, reaches them.
 
