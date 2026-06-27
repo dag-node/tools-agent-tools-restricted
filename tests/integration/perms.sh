@@ -75,6 +75,13 @@ check_file /opt/ai-tools/.claude/settings.json               root              "
 # but cannot unlink/replace the root-owned control files above. Owned by ai-tools, or without
 # the sticky bit, the agent could delete and recreate them.
 check_file /opt/ai-tools/.claude                              root              "${SANDBOX_GROUP}" 3770
+# The agent's XDG config for its --user manager: root-owned root:ai-tools 2750 (setgid inherited
+# from the control-plane home), so the manager reads its units through the group but the agent
+# cannot add a --user unit. An agent-writable wants dir would let a confined session register a
+# unit the account's unconfined manager runs.
+check_file /opt/ai-tools/.config/systemd/user                 root              "${SANDBOX_GROUP}" 2750
+check_file /opt/ai-tools/.config/systemd/user/timers.target.wants \
+                                                              root              "${SANDBOX_GROUP}" 2750
 
 # Handback bridge. The helper dir is 750 root:root (no world bit -- non-root users cannot
 # list the helper names). The daemon is root-only-executable; the agent never exec's it, it

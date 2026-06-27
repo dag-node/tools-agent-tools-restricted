@@ -256,6 +256,7 @@ do_selinux_restore() {
         /usr/local/lib/ai-tools/ \
         /opt/ai-tools/bin/ \
         /opt/ai-tools/.claude/ \
+        /opt/ai-tools/.config/ \
         /var/log/ai-tools/
     restorecon \
         /usr/local/bin/claude \
@@ -925,10 +926,32 @@ do_install() {
     # preflight ("user instance not reachable").
     log "enabling linger for ${SANDBOX_USER}"
     loginctl enable-linger "${SANDBOX_USER}"
+    # enable-linger starts the --user manager asynchronously; wait for its bus before driving
+    # it, or the enable below races a not-yet-ready instance and silently no-ops.
+    local _sbx_uid _i
+    _sbx_uid="$(id -u "${SANDBOX_USER}")"
+    for _i in $(seq 1 20); do
+        [[ -S "/run/user/${_sbx_uid}/bus" ]] && break
+        sleep 0.5
+    done
 
-    log "reload and enable nvm-update.timer in ${SANDBOX_USER}'s --user instance"
+    # Enable nvm-update.timer in ${SANDBOX_USER}'s --user instance. The home (/opt/ai-tools) is
+    # root-owned (2751), so the account cannot create ~/.config and `systemctl --user enable` run
+    # as the account cannot write the timers.target.wants symlink. Root provisions the XDG config
+    # tree and the enablement symlink instead -- root:${SANDBOX_GROUP} 2750 (setgid inherited from
+    # the control-plane home), so the account's manager reads its units through the group but
+    # cannot add a --user unit (a confined session must not register a unit the account's
+    # unconfined manager would run). daemon-reload + start then activate it in the running instance.
+    install -d -o root -g "${SANDBOX_GROUP}" -m 2750 \
+        /opt/ai-tools/.config \
+        /opt/ai-tools/.config/systemd \
+        /opt/ai-tools/.config/systemd/user \
+        /opt/ai-tools/.config/systemd/user/timers.target.wants
+    ln -sfn /usr/lib/systemd/user/nvm-update.timer \
+        /opt/ai-tools/.config/systemd/user/timers.target.wants/nvm-update.timer
+    log "enable nvm-update.timer in ${SANDBOX_USER}'s --user instance"
     user_systemctl "${SANDBOX_USER}" daemon-reload
-    user_systemctl "${SANDBOX_USER}" enable --now nvm-update.timer
+    user_systemctl "${SANDBOX_USER}" start nvm-update.timer
 
     log "reload systemd and enable ai-tools-handback.socket + ai-tools-relabel.path"
     systemctl daemon-reload
@@ -983,8 +1006,12 @@ do_uninstall() {
     printf '\n%sUninstalling the ai-tools Claude Code sandbox%s\n' "${C_BOLD}" "${C_RST}"
 
     section "Systemd"
-    log "disable nvm-update.timer (${SANDBOX_USER}'s --user instance)"
-    user_systemctl "${SANDBOX_USER}" disable --now nvm-update.timer 2>/dev/null || true
+    # The timer's enablement symlink is root-created in a non-agent-writable dir, so `systemctl
+    # --user disable` (run as the account) cannot remove it; stop it in the instance, then root
+    # removes the symlink.
+    log "stop nvm-update.timer (${SANDBOX_USER}'s --user instance)"
+    user_systemctl "${SANDBOX_USER}" stop nvm-update.timer 2>/dev/null || true
+    rm -f /opt/ai-tools/.config/systemd/user/timers.target.wants/nvm-update.timer
     user_systemctl "${SANDBOX_USER}" daemon-reload 2>/dev/null || true
     log "disable ai-tools-handback.socket + ai-tools-relabel.path"
     systemctl disable --now ai-tools-handback.socket 2>/dev/null || true

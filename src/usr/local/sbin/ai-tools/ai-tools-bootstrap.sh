@@ -167,22 +167,37 @@ if [[ ! -e "${SANDBOX_HOME}/.git" && -e "${SANDBOX_HOME}/.gitignore" ]] && comma
 fi
 
 # 5. Enable the maintenance timer in the sandbox account's own systemd --user instance, which
-#    keeps Node and the agent package current. The --user manager needs linger to run without an
-#    interactive login, so enable that first. Best-effort: a tree that ships the unit later (the
-#    dev install.sh flow) or a host with no reachable user bus warns rather than failing the
-#    toolchain bring-up; the timer enable is idempotent, so install.sh re-running it is harmless.
+#    keeps Node and the agent package current. The home is root-owned (2751), so the account
+#    cannot create ~/.config and `systemctl --user enable` cannot write the wants symlink; root
+#    provisions the XDG config tree (root:group 2750 -- the account reads its units via the group
+#    but cannot add one) and the enablement symlink, then activates the timer in the running
+#    instance. The --user manager needs linger to run without an interactive login. Best-effort: a
+#    tree that ships the unit later (the dev install.sh flow) or a host with no reachable user bus
+#    warns rather than failing the toolchain bring-up; the steps are idempotent.
 if command -v loginctl >/dev/null 2>&1; then
     loginctl enable-linger "${SANDBOX_USER}" >/dev/null 2>&1 \
         || log "warn: could not enable linger for ${SANDBOX_USER}"
 fi
+install -d -o root -g "${SANDBOX_GROUP}" -m 2750 \
+    "${SANDBOX_HOME}/.config" \
+    "${SANDBOX_HOME}/.config/systemd" \
+    "${SANDBOX_HOME}/.config/systemd/user" \
+    "${SANDBOX_HOME}/.config/systemd/user/timers.target.wants"
+ln -sfn /usr/lib/systemd/user/nvm-update.timer \
+    "${SANDBOX_HOME}/.config/systemd/user/timers.target.wants/nvm-update.timer"
 _uid="$(id -u "${SANDBOX_USER}")"
+# enable-linger starts the --user manager asynchronously; wait for its bus before driving it.
+for _i in $(seq 1 20); do
+    [[ -S "/run/user/${_uid}/bus" ]] && break
+    sleep 0.5
+done
 if sudo -u "${SANDBOX_USER}" \
         XDG_RUNTIME_DIR="/run/user/${_uid}" \
         DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${_uid}/bus" \
-        systemctl --user enable --now nvm-update.timer >/dev/null 2>&1; then
-    log "enabled nvm-update.timer in ${SANDBOX_USER}'s --user instance"
+        bash -c 'systemctl --user daemon-reload && systemctl --user start nvm-update.timer' >/dev/null 2>&1; then
+    log "started nvm-update.timer in ${SANDBOX_USER}'s --user instance"
 else
-    log "warn: could not enable nvm-update.timer -- enable it after the control plane is installed"
+    log "warn: could not start nvm-update.timer -- start it after the control plane is installed"
 fi
 
 log "toolchain ready under ${SANDBOX_HOME}"

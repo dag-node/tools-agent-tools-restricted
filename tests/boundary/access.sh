@@ -132,6 +132,24 @@ else
     pass "cannot create files in /opt/ai-tools (drwxr-s---): agent confined to its own subtrees"
 fi
 
+# The sandbox account's systemd --user manager runs unconfined (ai-tools maps to unconfined_u),
+# so a --user unit the agent could drop and get enabled would run OUTSIDE the ai_tools_t session
+# confinement at the next manager start -- a full confinement escape (no RestrictNamespaces, no
+# ai_tools_t). The whole unit search tree (~/.config/systemd/user and its .wants dirs) is
+# root-owned (root:${SANDBOX_GROUP} 2750), so the agent has group r-x but no write and can place
+# neither a unit file nor an enablement symlink. Probed with real create attempts in both the
+# unit dir and a .wants dir.
+for _d in /opt/ai-tools/.config/systemd/user /opt/ai-tools/.config/systemd/user/timers.target.wants; do
+    _unitprobe="${_d}/.test_escape_$$.unit"
+    runuser -u "${SANDBOX_USER}" -- touch "${_unitprobe}" 2>/dev/null || true
+    if [[ -e "${_unitprobe}" ]]; then
+        rm -f "${_unitprobe}"
+        fail "agent wrote ${_unitprobe} -- it could register a --user unit the unconfined manager runs (confinement escape)"
+    else
+        pass "cannot write ${_d} (root-owned 2750): confined session cannot register a --user unit"
+    fi
+done
+
 # .claude.json is operator-owned but GROUP-writable (r--rw---- 0460): the agent persists its own
 # session state to it, while the operator (owner, read-only) cannot have it silently rewritten.
 # The agent must be able to WRITE it, yet it stays operator-owned. Seeded by ai-tools-bootstrap;
