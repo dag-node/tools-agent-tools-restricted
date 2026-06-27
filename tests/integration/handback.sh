@@ -1,25 +1,17 @@
 #!/usr/bin/env bash
 # tests/integration/handback.sh
-# Integration: the auto-update timer plus the handback-bridge + entrypoint regression
-# guards. Pins the labels and DAC that the socket privilege bridge and the SELinux
-# domain-transition depend on: the claude.exe entrypoint type, the socket's owner/mode and
-# /run/ai-tools traversability, the socket-unit directives (systemd-252 traps), a live
-# SYMLINK verb end-to-end as the agent, and the in-session auto-updater pin. Run as root.
+# Integration: the handback-bridge + entrypoint regression guards. Pins the labels and DAC
+# that the socket privilege bridge and the SELinux domain-transition depend on: the claude.exe
+# entrypoint type, the socket's owner/mode and /run/ai-tools traversability, the socket-unit
+# directives (systemd-252 traps), a live SYMLINK verb end-to-end as the agent, and the
+# in-session auto-updater pin. Unit validity and enablement live in systemd.sh. Run as root.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-# ── Auto-update timer ────────────────────────────────────────────────────────────
-section "Systemd auto-update timer"
-if sudo -u "${PROJECTS_USER}" \
-    XDG_RUNTIME_DIR="/run/user/${PROJECTS_UID}" \
-    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PROJECTS_UID}/bus" \
-    systemctl --user is-active nvm-update.timer > /dev/null 2>&1; then
-    pass "nvm-update.timer is active"
-else
-    fail "nvm-update.timer is not active -- run: systemctl --user start nvm-update.timer"
-fi
+# The systemd units (the nvm-update timer in the sandbox account's --user instance, the
+# relabel watcher, this socket) are validated and their enablement checked in systemd.sh.
 
 section "Handback bridge + entrypoint (regression guards)"
 

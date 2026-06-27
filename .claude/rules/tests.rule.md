@@ -57,12 +57,15 @@ while plain configs and build artifacts the toolchain must read do not.
 
 **`integration`** — checks that need a completed install and the running system
 (`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`, `cli.sh`,
-`claude-run.sh`): installed-artifact ownership/modes, sudoers syntax, the wrapper launched
-end-to-end, the handback `socket → daemon → helper` chain (including its negative paths —
-unknown verb, non-absolute arg, and an out-of-allowlist CHOWN all refused), the CLI
-principal guard (refuses root and the sandbox account), `claude-run`'s `CLAUDE_EXEC` /
-`CLAUDE_PROJECT_DIR` re-validation (a bad value is refused before any session launches),
-systemd units, and SELinux labels. The
+`claude-run.sh`, `systemd.sh`): installed-artifact ownership/modes, sudoers syntax, the
+wrapper launched end-to-end, the handback `socket → daemon → helper` chain (including its
+negative paths — unknown verb, non-absolute arg, and an out-of-allowlist CHOWN all
+refused), the CLI principal guard (refuses root and the sandbox account), `claude-run`'s
+`CLAUDE_EXEC` / `CLAUDE_PROJECT_DIR` re-validation (a bad value is refused before any
+session launches), and SELinux labels. `systemd.sh` is the single home for unit checks:
+`systemd-analyze verify` on each shipped unit, plus enablement in the correct instance —
+the `nvm-update` timer in the sandbox account's own `--user` instance, the relabel watcher
+and handback socket in the system instance. The
 handback chain cannot use the `AI_TOOLS_ALLOWLIST` override — the live daemon execs helpers
 with its own environment, so the helper reads the **real** allowlist. The hooks test puts its
 fixtures in a self-cleaning subdir **inside the project the suite is run from**, reusing that
