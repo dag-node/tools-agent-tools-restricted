@@ -2,9 +2,10 @@
 # /usr/local/sbin/ai-tools/ai-tools-unclaim
 # Reverses the filesystem side of a project claim: hands an approved project tree back
 # to a target group and revokes the agent's access. For every eligible path it:
-#   1. clears all extended ACL entries and the default ACL (`setfacl -b`), removing the
-#      group:@SANDBOX_GROUP@ access entry AND the default ACL claim seeded -- so no agent
-#      grant lingers and new files no longer inherit auto group-write;
+#   1. clears all extended ACL entries and the default ACL (`setfacl -b`), removing the access
+#      entries claim seeded -- group:@SANDBOX_GROUP@ for the agent and user:<operator> for the
+#      operator -- AND the default ACL, so no claim grant lingers and new files no longer inherit
+#      auto group-write;
 #   2. changes the group owner to <target-group> (the operator's own group by default, or
 #      any group the operator chose), moving the tree out of @SANDBOX_GROUP@;
 #   3. removes group WRITE: 660 -> 640, 770 -> 750, 400 stays 400. Group read/execute is

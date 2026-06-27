@@ -119,15 +119,19 @@ untouched, so normalization never pulls a foreign-held dir into the agent's grou
 `__pycache__`, `bin`, `obj`, `packages`) are skipped; that prune list is shared with the
 sweep and `ai-tools-lockdown` via `/usr/local/lib/ai-tools/prune-dirs.lib.sh`.
 
-Setgid handles group *ownership* inheritance; a POSIX ACL handles group *permission*
-inheritance. The root helper `ai-tools-setfacl` (run at project claim, see
-[cli](cli.rule.md)) applies a **default** ACL `g:SANDBOX_GROUP:rwX,o::-` to every project
-directory, so files the operator's `git checkout`/`merge` writes under a restrictive umask
-are born group-accessible and others-denied independent of that umask, plus the matching
-**access** ACL on existing entries — which both opens pre-existing operator files (e.g. a
-`600` file) to the agent group and strips any stray `other` access the tree arrived with.
-It shares the allowlist/exclusion/secret-skip/prune rules with the setgid pass, so secret-
-named and `!`-excluded paths never receive the group ACL. `other::---` is pinned explicitly
+Setgid handles group *ownership* inheritance; a POSIX ACL handles *permission* inheritance in
+both directions. The root helper `ai-tools-setfacl` (run at project claim, see
+[cli](cli.rule.md)) applies a **default** ACL `user:<operator>:rwX,g:SANDBOX_GROUP:rwX,o::-` to
+every project directory, plus the matching **access** ACL on existing entries. The group grant is
+the AGENT's access: a file the operator's `git checkout`/`merge` writes under a restrictive umask
+is born group-accessible (and a pre-existing `600` operator file is opened to the agent group),
+others-denied independent of that umask. The `user:<operator>` grant is the mirror — the
+OPERATOR's umask-independent access to AGENT-written files — so the operator co-writes the tree,
+and reads agent-written `.git` objects, **without joining `SANDBOX_GROUP` and without waiting on
+the ownership handback**; it is the access counterpart to setgid's `operator→agent` group grant.
+The named entry governs agent-owned files and yields to the owner entry on operator-owned ones.
+The helper shares the allowlist/exclusion/secret-skip/prune rules with the setgid pass, so
+secret-named and `!`-excluded paths receive neither grant. `other::---` is pinned explicitly
 rather than cloned from each directory's mode, which on a permissive-umask directory would
 otherwise seed `default:other::r-x` and leak read access to every future file.
 

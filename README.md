@@ -57,6 +57,11 @@ with a tightly scoped set of privileges instead:
   `${PROJECTS_USER}:${PROJECTS_GROUP} 600` instead, removing `${SANDBOX_USER}`'s read access; a `NOTICE` is written to
   the session and the operation log (root-only `/var/log/ai-tools/chown.log` plus
   journald — see *Operation logging* below).
+- **Collaborative access** — a POSIX default ACL on each approved tree makes you and
+  Claude co-writers without `${PROJECTS_USER}` joining `${SANDBOX_GROUP}`:
+  `g:${SANDBOX_GROUP}:rwX` grants Claude access to your files and
+  `user:${PROJECTS_USER}:rwX` grants you access to Claude's, both umask-independent;
+  world access stays closed. Applied at `ai-tools --project-claim`.
 - **Operation logging** — the `sudo` helpers, the lifecycle hooks, the `ai-tools`
   CLI, and `install.sh` log through one library to **journald** (always, leveled and
   tagged: `journalctl -t ai-tools-chown`) and, for the root writers only, to

@@ -53,6 +53,8 @@ setsid "${HELPER}" "${proj}" < /dev/null > /dev/null 2>&1 || true
 
 g()  { getfacl -p "$1" 2>/dev/null | grep -qE "^group:${SANDBOX_GROUP}:"; }
 dg() { getfacl -p "$1" 2>/dev/null | grep -qE "^default:group:${SANDBOX_GROUP}:"; }
+u()  { getfacl -p "$1" 2>/dev/null | grep -qE "^user:${PROJECTS_USER}:"; }
+du() { getfacl -p "$1" 2>/dev/null | grep -qE "^default:user:${PROJECTS_USER}:"; }
 
 # (A) project root carries the default ACL (group rwX + other denied).
 droot="$(getfacl -p "${proj}" 2>/dev/null)"
@@ -85,11 +87,21 @@ else
     fail "other access not stripped: $(stat -c '%A' "${proj}/world")"
 fi
 
-# (B) secret-named file and secret-dir subtree are never granted the group ACL.
-if ! g "${proj}/.env.local" && ! g "${proj}/.env/inside/k" && ! dg "${proj}/.env"; then
-    pass "secret-named file and secret-dir subtree are left untouched"
+# (A5) the operator-named grant mirrors the group grant -- the operator's umask-independent
+# access to agent-written files, so it co-writes without SANDBOX_GROUP membership.
+if grep -qE "^default:user:${PROJECTS_USER}:rwx" <<<"${droot}" && u "${proj}/restricted"; then
+    pass "operator gains user:${PROJECTS_USER}:rwX (access + default), no group membership needed"
 else
-    fail "a secret path was granted the group ACL (exposed)"
+    fail "operator user ACL missing: root_default=$(grep -E '^default:user:' <<<"${droot}" | tr '\n' ' ') file=$(getfacl -p "${proj}/restricted" 2>/dev/null | grep -E '^user:' | tr '\n' ' ')"
+fi
+
+# (B) secret-named file and secret-dir subtree get NEITHER grant (group or operator), so a
+# secret is exposed to neither the agent group nor a named operator entry.
+if ! g "${proj}/.env.local" && ! g "${proj}/.env/inside/k" && ! dg "${proj}/.env" \
+   && ! u "${proj}/.env.local" && ! du "${proj}/.env"; then
+    pass "secret-named file and secret-dir subtree are left untouched (no group or operator ACL)"
+else
+    fail "a secret path was granted an ACL (exposed)"
 fi
 
 # (B2) pruned trees (.git) skipped; (B3) '!'-excluded subtree skipped.
@@ -98,10 +110,10 @@ else fail "a pruned-tree file was ACL'd"; fi
 if ! g "${proj}/sub" && ! g "${proj}/sub/excluded"; then pass "'!'-excluded subtree is skipped"
 else fail "an excluded path was ACL'd"; fi
 
-# (B4) owner guard: a third-party-owned file is left untouched.
+# (B4) owner guard: a third-party-owned file gets neither grant.
 if ${foreign}; then
-    if ! g "${proj}/foreign"; then pass "a third-party-owned file is left untouched (owner guard)"
-    else fail "foreign-owned file was granted the group ACL"; fi
+    if ! g "${proj}/foreign" && ! u "${proj}/foreign"; then pass "a third-party-owned file is left untouched (owner guard)"
+    else fail "foreign-owned file was granted an ACL"; fi
 else
     skip "owner guard" "user 'nobody' not present"
 fi
@@ -116,7 +128,7 @@ else fail "non-allowlisted ${out} gained the project ACL"; fi
 # while a secret-named path inside .git is still skipped (the secret/exclusion skips apply
 # to the .git pass too).
 setsid "${HELPER}" --with-git "${proj}" < /dev/null > /dev/null 2>&1 || true
-if g "${proj}/.git/objects/o"; then pass "--with-git applies the group ACL inside .git"
+if g "${proj}/.git/objects/o" && u "${proj}/.git/objects/o"; then pass "--with-git applies the group + operator ACL inside .git"
 else fail "--with-git did not ACL .git contents"; fi
 read -r gmode ggrp < <(stat -c '%a %G' "${proj}/.git" 2>/dev/null)
 if [[ "${ggrp}" == "${SANDBOX_GROUP}" ]] && (( (0${gmode} & 02000) != 0 )); then

@@ -124,10 +124,12 @@ sandbox account can never hold the operator grant. The invariants the agent oper
 - **`/opt/ai-tools`, not `/home`** — `/home` is `nosuid`, which would defeat the
   `sudo` UID-switch; `/opt/ai-tools` is not. Detail in
   [launch](.claude/rules/launch.rule.md).
-- **Collaborative ownership** — the operator and agent are co-writers via setgid (group
-  ownership) + a POSIX default ACL `g:SANDBOX_GROUP:rwX` on the project tree (group
-  permission, umask-independent so `git checkout`/`merge` keeps the tree
-  group-accessible). The operator stays **out** of `SANDBOX_GROUP`. Detail in
+- **Collaborative ownership** — the operator and agent co-write the project tree via two
+  umask-independent POSIX ACL grants on it (the permission companions to setgid's
+  shared-group inheritance): `g:SANDBOX_GROUP:rwX` is the agent's access to operator-written
+  files, and `user:<operator>:rwX` is the operator's access to agent-written files. Both
+  directions are ACL-based, so the operator stays **out** of `SANDBOX_GROUP` and its access
+  does not hinge on the ownership handback's timing. Detail in
   [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md).
 - **Logging** — components log through `log.lib.sh` to journald (always) and root-only
   `/var/log/ai-tools/*.log` (root writers only). Detail in

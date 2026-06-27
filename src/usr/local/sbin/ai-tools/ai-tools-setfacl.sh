@@ -1,53 +1,16 @@
 #!/usr/bin/env bash
 # /usr/local/sbin/ai-tools/ai-tools-setfacl
-# Applies the per-project POSIX ACL that gives group @SANDBOX_GROUP@ permission
-# inheritance across an approved project tree, the companion to ai-tools-setgid's
-# group-OWNERSHIP inheritance. setgid carries the shared group onto new files; a
-# POSIX default ACL carries the shared group's rwX PERMISSION onto them, umask-
-# independent -- so a file the projects user's `git checkout`/`merge` writes under a
-# restrictive umask (e.g. 077) stays group-accessible instead of being born 600 and
-# locking the agent out. Two layers are applied to every directory:
-#   - an ACCESS ACL  group:@SANDBOX_GROUP@:rwX,other::---  -- grants the shared group
-#     read/write (X = execute only on dirs/already-exec files) on the existing entry
-#     and strips ALL "other" access NOW (the claim-time cleanup: whatever stray
-#     other-readable state the tree arrived in -- clone, tarball, prior umask -- is
-#     normalized to others-denied);
-#   - a DEFAULT ACL with the same spec -- inherited by every entry created later, so
-#     new files/dirs are born group-accessible and others-denied regardless of the
-#     creator's umask. `other::---` is pinned explicitly (not left for setfacl to
-#     clone from the directory's current mode, which on a permissive-umask 0755 dir
-#     would seed default:other::r-x and leak read access to every future file).
-# Regular files get the ACCESS ACL only (default ACLs apply to directories).
+# Applies the per-project POSIX ACL that lets the owning operator and the sandbox agent co-write
+# an approved tree regardless of either party's umask -- the permission companion to
+# ai-tools-setgid's group-ownership inheritance. An access + inherited-default ACL grants rwX to
+# the @SANDBOX_GROUP@ group (the agent's access to operator-written files) and to the resolved
+# operator (the operator's access to agent-written files), others denied. The operator grant is
+# what lets the operator co-write the tree -- work tree, and .git under --with-git -- without
+# joining @SANDBOX_GROUP@ and without waiting on the ownership handback.
 #
-# Invoked as root via sudo by the management CLI (ai-tools --project-claim, which adds
-# --with-git when the operator opts into agent git-history access), the same
-# no-NOPASSWD model as ai-tools-relabel and ai-tools-lockdown: the projects user is
-# prompted for a password; the sandbox account has no grant for it. Running as root
-# (CAP_FOWNER) is required to ACL files the projects user does not own (e.g. agent-
-# written files from a prior session). The project path the CLI passes is re-validated
-# here against the same allow/exclude rules the other helpers use.
-#
-# Idempotent: setfacl is declarative, so a re-run on an already-normalized tree is a
-# no-op. Safe to run at every claim.
-#
-# Secret-named files and directories are SKIPPED (never granted the group ACL), so a
-# secret the operator forgot to '!'-exclude is not re-exposed to the agent group;
-# ai-tools-lockdown remains the authoritative secret control. Heavy/transient trees
-# (node_modules, .venv, bin, ...) are pruned, sharing the prune list with the sweep and
-# ai-tools-setgid.
-#
-# The main walk skips .git for cost (it descends only the work tree), as do the per-session
-# setgid pass and the sweep. --with-git adds a dedicated one-shot pass that normalizes .git
-# too, because both the operator and the agent commit into it and it must stay shared. The
-# pass applies group ownership + setgid on its dirs (the ownership inheritance ai-tools-setgid
-# gives the work tree) AND the same default+access group ACL, so an object the operator
-# commits -- born under a non-@SANDBOX_GROUP@ primary group or a restrictive umask -- lands
-# agent-accessible
-# (@PROJECTS_USER@:@SANDBOX_GROUP@) instead of @PROJECTS_USER@:@PROJECTS_GROUP@ 600, which
-# the agent (a @SANDBOX_GROUP@ member, not the owner) could not read or repack. The CLI
-# asks the operator before passing --with-git (default yes); declining keeps git history
-# out of the agent's reach -- the isolated sandbox-clone model (ai-tools --sandbox-create)
-# is the alternative for that intent.
+# Runs as root via sudo under ai-tools --project-claim (no-NOPASSWD, like ai-tools-lockdown);
+# CAP_FOWNER lets it ACL files the operator does not own. The walk skips secret-named,
+# '!'-excluded, pruned, and foreign-owned paths.
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
@@ -77,9 +40,9 @@ readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=/dev/null
 source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
 readonly GROUP="@SANDBOX_GROUP@"
-# rwX: read/write always, execute only where it already makes sense (dirs, exec files),
-# so data files are not made spuriously executable. other::--- strips all world access.
-readonly ACL_SPEC="group:${GROUP}:rwX,other::---"
+# Operator-independent half of the ACL (see the header for the two-grant model); ACL_SPEC prepends
+# user:<operator> after resolve_owner. rwX executes only on dirs/already-exec files; other::--- denies world.
+readonly ACL_BASE="group:${GROUP}:rwX,other::---"
 # Two identities may legitimately hold a project tree's files: the resolved operator and the
 # sandbox account. A file belonging to a third party (root, another developer) is left untouched --
 # claim must not pull a foreign file into the agent's group, even one the operator placed in the
@@ -134,6 +97,8 @@ canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
 # below then acts only on paths the resolved operator or the sandbox account hold.
 ai_tools_resolve_owner "${canonical}" || exit 0
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
+# Prepend the resolved operator's named grant (its access to agent-written files).
+readonly ACL_SPEC="user:${PROJECTS_USER}:rwX,${ACL_BASE}"
 
 declare -a allowed=()
 declare -a excluded=()
