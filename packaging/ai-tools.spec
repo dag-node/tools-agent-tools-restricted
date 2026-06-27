@@ -107,6 +107,12 @@ for h in ai-tools-chown ai-tools-setgid ai-tools-setfacl ai-tools-unclaim \
 done
 install -m 0750 src%{ai_sbindir}/ai-tools-handback.py %{buildroot}%{ai_sbindir}/ai-tools-handback
 
+# ai-tools-admin is typed by an administrator (documented as a bare command) and is the one
+# base helper that is not daemon- or sudoers-invoked by fixed path, so it goes on root's PATH
+# via a symlink in /usr/local/sbin (in root's secure_path). The target keeps its canonical
+# %{ai_sbindir} path. ai-tools-bootstrap gets the same treatment in the nodejs subpackage.
+ln -s ai-tools/ai-tools-admin %{buildroot}/usr/local/sbin/ai-tools-admin
+
 # ── base: CLI + handback client ──────────────────────────────────────────────
 install -d -m 0755 %{buildroot}%{ai_bindir}
 install -m 0755 src%{ai_bindir}/ai-tools.sh                 %{buildroot}%{ai_bindir}/ai-tools
@@ -157,6 +163,9 @@ install -m 0640 src/opt/ai-tools/gitignore %{buildroot}/opt/ai-tools/.gitignore
 for h in ai-tools-claude-symlink ai-tools-relabel-entrypoint ai-tools-bootstrap; do
     install -m 0750 src%{ai_sbindir}/${h}.sh %{buildroot}%{ai_sbindir}/${h}
 done
+# ai-tools-bootstrap is administrator-typed (documented as a bare command); put it on root's
+# PATH via /usr/local/sbin, mirroring ai-tools-admin in the base subpackage.
+ln -s ai-tools/ai-tools-bootstrap %{buildroot}/usr/local/sbin/ai-tools-bootstrap
 install -m 0550 src/opt/ai-tools/bin/nvm-update.sh %{buildroot}/opt/ai-tools/bin/nvm-update.sh
 
 # ── nodejs: toolchain update units + post-upgrade relabel watcher ─────────────
@@ -248,6 +257,7 @@ fi
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-lockdown
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-relabel
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-admin
+/usr/local/sbin/ai-tools-admin
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-handback
 %attr(0755, root, root) %{ai_bindir}/ai-tools
 %attr(0750, root, ai-tools) %{ai_bindir}/ai-tools-handback-client
@@ -291,6 +301,7 @@ fi
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-claude-symlink
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-relabel-entrypoint
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-bootstrap
+/usr/local/sbin/ai-tools-bootstrap
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/nvm-update.sh
 %{_userunitdir}/nvm-update.service
 %{_userunitdir}/nvm-update.timer

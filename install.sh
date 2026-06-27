@@ -351,6 +351,8 @@ do_summary() {
     _chk /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
     _chk /usr/local/sbin/ai-tools/ai-tools-bootstrap
     _chk /usr/local/sbin/ai-tools/ai-tools-admin
+    _chk /usr/local/sbin/ai-tools-bootstrap
+    _chk /usr/local/sbin/ai-tools-admin
     _chk /usr/local/sbin/ai-tools/ai-tools-handback
     _chk /usr/local/bin/claude
     _chk /usr/local/bin/ai-tools-handback-client
@@ -574,6 +576,17 @@ do_install() {
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-admin.sh" \
         /usr/local/sbin/ai-tools/ai-tools-admin
+
+    # Put the two human-facing admin commands on root's PATH. The sudo-helpers under
+    # /usr/local/sbin/ai-tools/ are invoked by the daemon and sudoers by fixed path and stay
+    # hidden there, but ai-tools-bootstrap and ai-tools-admin are typed by an administrator and
+    # documented as bare commands. /usr/local/sbin is in root's secure_path, so a symlink there
+    # makes `sudo ai-tools-bootstrap` and `sudo ai-tools-admin ...` resolve. The targets keep
+    # their canonical /usr/local/sbin/ai-tools/ path (sudoers, perms checks, docs reference it).
+    log "/usr/local/sbin/ai-tools-bootstrap -> ai-tools/ai-tools-bootstrap"
+    ln -sfn ai-tools/ai-tools-bootstrap /usr/local/sbin/ai-tools-bootstrap
+    log "/usr/local/sbin/ai-tools-admin -> ai-tools/ai-tools-admin"
+    ln -sfn ai-tools/ai-tools-admin /usr/local/sbin/ai-tools-admin
 
     # Handback privilege bridge daemon.  750 root:root -- root-owned and only
     # root-executable: this is the privileged endpoint; the SANDBOX_USER reaches it
@@ -1028,6 +1041,8 @@ do_uninstall() {
     rm -f /usr/local/sbin/ai-tools/ai-tools-lockdown
     rm -f /usr/local/sbin/ai-tools/ai-tools-bootstrap
     rm -f /usr/local/sbin/ai-tools/ai-tools-admin
+    rm -f /usr/local/sbin/ai-tools-bootstrap   # PATH symlinks -> ai-tools/...
+    rm -f /usr/local/sbin/ai-tools-admin
     rm -f /usr/local/sbin/ai-tools/ai-tools-handback
     rmdir /usr/local/sbin/ai-tools 2>/dev/null || true
     rm -f /usr/local/bin/ai-tools-handback-client

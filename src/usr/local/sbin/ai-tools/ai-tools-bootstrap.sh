@@ -201,4 +201,11 @@ else
 fi
 
 log "toolchain ready under ${SANDBOX_HOME}"
-log "next: deploy the control plane -- sudo ./install.sh install   (or install the RPM)"
+# Bootstrap runs in either order relative to the control plane: after a package/install.sh
+# deploy (the common flow -- the wrapper is already present), or before it on a from-source
+# host. Name the step that is actually still outstanding rather than assuming one order.
+if [[ -x /usr/local/bin/claude ]]; then
+    log "next: enrol an operator -- sudo ai-tools-admin operator add <user>"
+else
+    log "next: deploy the control plane -- sudo ./install.sh install   (or install the RPM)"
+fi
