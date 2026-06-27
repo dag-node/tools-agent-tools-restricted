@@ -166,5 +166,24 @@ if [[ ! -e "${SANDBOX_HOME}/.git" && -e "${SANDBOX_HOME}/.gitignore" ]] && comma
     fi
 fi
 
+# 5. Enable the maintenance timer in the sandbox account's own systemd --user instance, which
+#    keeps Node and the agent package current. The --user manager needs linger to run without an
+#    interactive login, so enable that first. Best-effort: a tree that ships the unit later (the
+#    dev install.sh flow) or a host with no reachable user bus warns rather than failing the
+#    toolchain bring-up; the timer enable is idempotent, so install.sh re-running it is harmless.
+if command -v loginctl >/dev/null 2>&1; then
+    loginctl enable-linger "${SANDBOX_USER}" >/dev/null 2>&1 \
+        || log "warn: could not enable linger for ${SANDBOX_USER}"
+fi
+_uid="$(id -u "${SANDBOX_USER}")"
+if sudo -u "${SANDBOX_USER}" \
+        XDG_RUNTIME_DIR="/run/user/${_uid}" \
+        DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${_uid}/bus" \
+        systemctl --user enable --now nvm-update.timer >/dev/null 2>&1; then
+    log "enabled nvm-update.timer in ${SANDBOX_USER}'s --user instance"
+else
+    log "warn: could not enable nvm-update.timer -- enable it after the control plane is installed"
+fi
+
 log "toolchain ready under ${SANDBOX_HOME}"
 log "next: deploy the control plane -- sudo ./install.sh install   (or install the RPM)"

@@ -4,15 +4,17 @@
 # (/opt/ai-tools/bin/claude -> versioned bin/claude -> claude.exe). Labelling the
 # final ELF as ai_tools_exec_t is what drives the unconfined_t -> ai_tools_t
 # transition on exec. The [^/]+ matches any Node version dir; a Node upgrade installs the
-# new claude.exe mislabelled (bin_t), and the nvm-update timer re-applies this label
-# automatically (ai-tools-relabel-entrypoint, run as root), or run `ai-tools --relabel`.
-# Until relabelled, claude-run fail-closes (refuses to launch) rather than run unconfined.
+# new claude.exe mislabelled (bin_t), and the ai-tools-relabel.path watcher re-applies this
+# label automatically once the updater repoints the symlink (ai-tools-relabel-entrypoint,
+# run as root), or run `ai-tools --relabel`. Until relabelled, claude-run fail-closes
+# (refuses to launch) rather than run unconfined.
 /opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@anthropic-ai/claude-code/bin/claude\.exe  --  gen_context(system_u:object_r:ai_tools_exec_t,s0)
 # The rest of the nvm node tree is left to its default usr_t/bin_t/lib_t -- READ-ONLY
-# to ai_tools_t (files_read_usr_files / libs_read_lib_files / corecmd_exec_bin), so the
-# agent cannot modify its own toolchain mid-session. Node/npm self-management is done
-# out-of-band by the scheduled nvm-update timer, which runs unconfined and can write
-# this tree; the agent's in-session `npm install -g`/`update -g` is denied by design.
+# to an interactive ai_tools_t session (files_read_usr_files / libs_read_lib_files /
+# corecmd_exec_bin), so the agent cannot modify its own toolchain mid-session: the agent's
+# in-session `npm install -g`/`update -g` is denied by design. Node/npm self-management is
+# done out-of-band by the scheduled nvm-update.service in the sandbox account's own --user
+# instance, which writes this tree.
 # (claude.exe is hard-linked to the platform package's ELF under
 # node_modules/@anthropic-ai/claude-code-<arch>/; install-selinux.sh's verify_entrypoint
 # restorecon's claude.exe LAST, so the shared inode lands ai_tools_exec_t regardless of

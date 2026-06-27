@@ -641,11 +641,14 @@ files_read_usr_files(ai_tools_handback_t)
 # "ai-tools update failed". This domain needs ONLY getattr: ai-tools-claude-symlink
 # stat()s the entrypoint for its -e existence check but never relabels it. Restoring
 # ai_tools_exec_t on a freshly bumped (bin_t) entrypoint needs relabelfrom/relabelto,
-# intentionally NOT granted here -- it is owned by ai-tools-relabel-entrypoint, run as
-# root by the updater (and by `ai-tools --relabel`). A mislabelled entrypoint does NOT run
-# unconfined under enforcing: claude-run's pre-launch preflight refuses to start when the
-# on-disk label isn't ai_tools_exec_t (fail-closed). So the relabel privilege stays out of
-# this domain.
+# intentionally NOT granted here -- it is owned by ai-tools-relabel-entrypoint. That helper
+# runs as root from the ai-tools-relabel.path watcher (system instance) after the updater
+# repoints the symlink, and on demand from `ai-tools --relabel` (the operator, unconfined_t,
+# which holds relabel). A mislabelled entrypoint does NOT run unconfined under enforcing:
+# claude-run's pre-launch preflight refuses to start when the on-disk label isn't
+# ai_tools_exec_t (fail-closed), so a watcher relabel the system instance's domain cannot
+# perform degrades to a refused launch the operator clears with `ai-tools --relabel`, never
+# an unconfined session. The relabel privilege stays out of this agent-reachable domain.
 allow ai_tools_handback_t ai_tools_exec_t:file getattr;
 # Create and rename the temp symlink inside /opt/ai-tools/bin/ (bin_t, mode 550).
 # ai-tools-claude-symlink does: ln -sf TARGET bin/.claude.new; mv .claude.new claude.

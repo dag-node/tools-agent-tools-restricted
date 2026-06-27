@@ -15,7 +15,7 @@ dedicated, locked-down system user (`SANDBOX_USER`, the account created as
 `ai-tools`)** instead of as your own login account, so an autonomous coding agent
 works on your projects without inheriting your user's privileges. It runs under a
 separate UID with no login shell, launches only inside explicitly approved project
-directories, escalates only through three narrow `sudo` rules, and does not reach your
+directories, escalates only through two narrow `sudo` rules, and does not reach your
 secrets, SSH keys, or unrelated projects.
 
 ## Terminology
@@ -48,7 +48,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Root-op socket (daemon/client/units) | `ai-tools-handback*`, `ai-tools-handback-client*` | [handback-bridge](.claude/rules/handback-bridge.rule.md) |
 | Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `.claude/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
 | Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secret-handling.rule.md) |
-| Node/claude updater, symlink repoint | `nvm-update.sh`, `ai-tools-claude-symlink.sh` | [updater](.claude/rules/updater.rule.md) |
+| Toolchain provisioning + Node/claude updater, symlink repoint, post-upgrade relabel | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `ai-tools-claude-symlink.sh`, `ai-tools-relabel-entrypoint.sh`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
 | Management CLI, project lifecycle, relabel | `bin/ai-tools.sh`, `ai-tools-relabel.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
 | Shared logging library | `log.lib.sh` | [logging](.claude/rules/logging.rule.md) |
 | User-facing message formatting (box, wrap, ties) | `msg.lib.sh` + its consumers | [messaging](.claude/rules/messaging.rule.md) |
@@ -78,19 +78,21 @@ Each step's mechanism is in the rule files above; the invariant each guarantees:
 
 The sudoers drop-in (`/etc/sudoers.d/ai-tools-claude`) is a static `%ai-ops` group rule
 granting the **operators** (members of the `ai-ops` group, managed by `ai-tools-admin`)
-three NOPASSWD rules:
+two NOPASSWD rules:
 
 ```
 %ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/claude-run
-%ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*.[0-9]*.[0-9]*
 %ai-ops  ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
 ```
 
-The first two **drop** privilege to `SANDBOX_USER`; the third runs **as root** for the
-post-upgrade entrypoint relabel (a fixed-path, no-argument target — see
-[launch](.claude/rules/launch.rule.md)). The agent runs *as* `SANDBOX_USER`, which is not in
-`ai-ops` and has no rule of its own, so **none** of the three grants it anything — including
-the root rule, which `SANDBOX_USER` cannot reach. `claude-run` additionally refuses to launch
+The first **drops** privilege to `SANDBOX_USER` (launch); the second runs **as root** for
+the on-demand `ai-tools --relabel` entrypoint relabel (a fixed-path, no-argument target —
+see [launch](.claude/rules/launch.rule.md)). The toolchain update runs as `SANDBOX_USER` in
+its own `systemd --user` instance and the automatic post-upgrade relabel runs through the
+root-side `ai-tools-relabel.path` watcher, so neither needs a sudo rule. The agent runs
+*as* `SANDBOX_USER`, which is not in `ai-ops` and has no rule of its own, so **neither**
+rule grants it anything — including the root rule, which `SANDBOX_USER` cannot reach.
+`claude-run` additionally refuses to launch
 unless it runs as `SANDBOX_USER` and refuses if `SANDBOX_USER` is ever in `ai-ops`, so the
 sandbox account can never hold the operator grant. The invariants the agent operates under:
 
@@ -101,9 +103,10 @@ sandbox account can never hold the operator grant. The invariants the agent oper
   `PR_SET_NO_NEW_PRIVS`, which drops `sudo`'s SUID bit, so `sudo` is inoperative from
   inside the session by construction.
 - **`SANDBOX_USER` has no login shell and no password.**
-- **The agent may run only `claude-run` and the pinned updater as `SANDBOX_USER`** —
-  never an arbitrary shell or binary. `claude-run` is a fixed-path target (no glob), `550
-  <you>:SANDBOX_GROUP`, not writable by the agent.
+- **The `%ai-ops` rules run only `claude-run` as `SANDBOX_USER`** — never an arbitrary
+  shell or binary. `claude-run` is a fixed-path target (no glob), `550
+  <you>:SANDBOX_GROUP`, not writable by the agent. The agent itself, *as* `SANDBOX_USER`,
+  holds no sudo rule at all.
 - **The control-plane files are not agent-writable** — `settings.json`, the hooks,
   `nvm-update.sh`, and `claude-run` are `<you>:SANDBOX_GROUP` with no group write;
   `/opt/ai-tools/.claude` is `3770` setgid+sticky and `/opt/ai-tools/bin` is `550`, so the

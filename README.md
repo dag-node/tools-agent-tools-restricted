@@ -6,6 +6,31 @@ Run Anthropic's **Claude Code as a dedicated, unprivileged system user
 (`SANDBOX_USER`, the account created as `ai-tools`)** instead of as your
 own login account, and keep Node.js and the `claude` CLI current automatically.
 
+## Quick start
+
+```bash
+# 1. Install the package (or run `sudo ./install.sh install` from a source checkout)
+sudo dnf install ./claude-code-restricted-*.rpm
+
+# 2. Provision the sandbox account's Node toolchain + claude (network, once)
+sudo ai-tools-bootstrap
+
+# 3. Enrol yourself as an operator (ai-ops membership, allowlist seed)
+sudo ai-tools-admin operator add "$(id -un)"
+
+# 4. Register a project, then launch
+ai-tools --project-create ~/myproject
+cd ~/myproject && claude
+```
+
+`claude` resolves to the system wrapper `/usr/local/bin/claude`, which runs as you,
+checks your `ai-ops` membership and the project allowlist, then drops to `${SANDBOX_USER}`
+via `sudo` and wraps the session in a confined `systemd --user` service. `ai-tools-bootstrap`
+installs nvm, Node, and `@anthropic-ai/claude-code` under `/opt/ai-tools` and enables the
+daily `nvm-update.timer` in `${SANDBOX_USER}`'s own `--user` instance, which keeps them
+current; `ai-tools-admin operator add` grants a login user access. The manual steps below
+are the from-source equivalents of steps 1–2.
+
 ## Why
 
 Claude Code is an autonomous agent that reads, writes, and runs commands. Run as
@@ -21,10 +46,9 @@ with a tightly scoped set of privileges instead:
 - **Minimal sudo surface** — `${SANDBOX_USER}` has **no** sudo rights. Root operations
   (ownership handback, setgid normalisation, symlink repoint) go through a dedicated
   socket daemon (`ai-tools-handback`, started at boot) that authenticates callers via
-  `SO_PEERCRED`. You may run only `claude-run` (and the pinned updater) as
-  `${SANDBOX_USER}` — `claude-run` is a fixed-path sudo target, not a glob, and it
-  wraps the session in a systemd `--user --pty` service before exec'ing the versioned
-  binary. Nothing else.
+  `SO_PEERCRED`. The one `%ai-ops` rule that drops to `${SANDBOX_USER}` runs only
+  `claude-run` — a fixed-path sudo target, not a glob, which wraps the session in a
+  systemd `--user --pty` service before exec'ing the versioned binary. Nothing else.
 - **Ownership hand-back** — files Claude writes are chowned back to
   `${PROJECTS_USER}:${SANDBOX_GROUP}` (group-readable, world-closed) inside approved paths only, along
   with any directories Claude created on the way (world bits stripped, group
@@ -37,9 +61,9 @@ with a tightly scoped set of privileges instead:
   CLI, and `install.sh` log through one library to **journald** (always, leveled and
   tagged: `journalctl -t ai-tools-chown`) and, for the root writers only, to
   root-only files under **`/var/log/ai-tools/`**.
-- **Auto-updating** — a systemd user timer keeps Node v22 and
-  `@anthropic-ai/claude-code` current for both you and the sandbox user, pinned
-  to the same build.
+- **Auto-updating** — a `systemd --user` timer in `${SANDBOX_USER}`'s own instance keeps
+  Node and `@anthropic-ai/claude-code` current under `/opt/ai-tools`, and a root-side
+  watcher relabels the new entrypoint for SELinux after each upgrade.
 
 > **On the boundary.** The allowlist gates where Claude *launches* and which
 > files get ownership restored — it is not a kernel-enforced read boundary. Once
@@ -102,11 +126,13 @@ you type `claude`
 | File | Deploy path |
 |---|---|
 | src/etc/profile.d/path_dedup.sh | /etc/profile.d/path_dedup.sh (root) |
-| src/home/user/.local/bin/nvm-update.sh | ~/.local/bin/nvm-update.sh |
 | src/opt/ai-tools/bin/nvm-update.sh | /opt/ai-tools/bin/nvm-update.sh |
 | src/usr/local/sbin/ai-tools/ai-tools-chown.sh | /usr/local/sbin/ai-tools/ai-tools-chown (root) |
 | src/usr/local/sbin/ai-tools/ai-tools-setgid.sh | /usr/local/sbin/ai-tools/ai-tools-setgid (root) |
 | src/usr/local/sbin/ai-tools/ai-tools-claude-symlink.sh | /usr/local/sbin/ai-tools/ai-tools-claude-symlink (root) |
+| src/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint.sh | /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint (root) |
+| src/usr/local/sbin/ai-tools/ai-tools-bootstrap.sh | /usr/local/sbin/ai-tools/ai-tools-bootstrap (root) |
+| src/usr/local/sbin/ai-tools/ai-tools-admin.sh | /usr/local/sbin/ai-tools/ai-tools-admin (root) |
 | src/usr/local/sbin/ai-tools/ai-tools-lockdown.sh | /usr/local/sbin/ai-tools/ai-tools-lockdown (root) |
 | src/usr/local/sbin/ai-tools/ai-tools-handback.py | /usr/local/sbin/ai-tools/ai-tools-handback (root) |
 | src/usr/local/bin/ai-tools-handback-client.py | /usr/local/bin/ai-tools-handback-client (root:ai-tools) |
@@ -114,13 +140,15 @@ you type `claude`
 | src/usr/lib/systemd/system/ai-tools-handback@.service | /usr/lib/systemd/system/ai-tools-handback@.service (root) |
 | src/usr/local/lib/ai-tools/secret-patterns.lib.sh | /usr/local/lib/ai-tools/secret-patterns.lib.sh (root) |
 | src/usr/local/lib/ai-tools/prune-dirs.lib.sh | /usr/local/lib/ai-tools/prune-dirs.lib.sh (root) |
-| src/usr/local/bin/claude.sh | /usr/local/bin/claude |
+| src/usr/local/bin/claude.sh | /usr/local/bin/claude (root) |
 | src/opt/ai-tools/bin/claude-run.sh | /opt/ai-tools/bin/claude-run |
 | src/opt/ai-tools/.claude/post-tool-hook.sh | /opt/ai-tools/.claude/post-tool-hook.sh |
 | src/opt/ai-tools/.claude/session-hook.sh | /opt/ai-tools/.claude/session-hook.sh |
 | src/opt/ai-tools/.claude/settings.json | /opt/ai-tools/.claude/settings.json |
-| src/home/user/.config/systemd/user/nvm-update.service | ~/.config/systemd/user/nvm-update.service |
-| src/home/user/.config/systemd/user/nvm-update.timer | ~/.config/systemd/user/nvm-update.timer |
+| src/usr/lib/systemd/user/nvm-update.service | /usr/lib/systemd/user/nvm-update.service (root) |
+| src/usr/lib/systemd/user/nvm-update.timer | /usr/lib/systemd/user/nvm-update.timer (root) |
+| src/usr/lib/systemd/system/ai-tools-relabel.path | /usr/lib/systemd/system/ai-tools-relabel.path (root) |
+| src/usr/lib/systemd/system/ai-tools-relabel.service | /usr/lib/systemd/system/ai-tools-relabel.service (root) |
 | src/etc/sudoers.d/ai-tools-claude | /etc/sudoers.d/ai-tools-claude (root) |
 | install.sh | run in place via sudo |
 
@@ -189,7 +217,11 @@ produces the same PATH, so the double call for login shells is safe.
 effect. `/opt/ai-tools` has no `nosuid` restriction, so the switch to `${SANDBOX_USER}`
 actually takes effect.
 
-## 3. Install nvm + Node v22 + claude as SANDBOX_USER (root, once)
+## 3. Install nvm + Node + claude as SANDBOX_USER (root, once)
+
+`ai-tools-bootstrap` does steps 2 and 3 in one idempotent command once the package is
+installed — it creates the account, installs the toolchain, seeds the symlink, and enables
+the `nvm-update.timer`. The manual equivalent:
 
     sudo -u "${SANDBOX_USER}" bash -c '
       export NVM_DIR=/opt/ai-tools/.nvm
@@ -201,7 +233,7 @@ actually takes effect.
       npm install -g @anthropic-ai/claude-code
     '
 
-    # Create bin dir and initial claude symlink (src/home/user/.local/bin/nvm-update.sh maintains this going forward)
+    # Create bin dir and initial claude symlink (nvm-update.sh maintains it going forward)
     sudo -u "${SANDBOX_USER}" bash -c '
       source /opt/ai-tools/.nvm/nvm.sh
       mkdir -p /opt/ai-tools/bin
@@ -216,11 +248,16 @@ above, run:
 
     sudo ./install.sh install
 
-The script substitutes your username into sudoers and the chown validator,
-creates the approved-projects allowlist with format documentation, installs the
-`ai-tools` project CLI and the `/var/opt/ai-tools` sandbox area, and enables the
-systemd timer. It is idempotent — safe to re-run after updates. The install
-directory is never auto-registered as a project.
+The script deploys the static `%ai-ops` sudoers drop-in, the helpers and the system
+units, creates the approved-projects allowlist with format documentation, installs the
+`ai-tools` project CLI and the `/var/opt/ai-tools` sandbox area, enables the
+`nvm-update.timer` in `${SANDBOX_USER}`'s `--user` instance, and enables the
+`ai-tools-relabel.path` watcher. It is idempotent — safe to re-run after updates. The
+install directory is never auto-registered as a project.
+
+Enrol each login user as an operator (ai-ops membership, allowlist seed):
+
+    sudo ai-tools-admin operator add <user>     # defaults to $SUDO_USER
 
 Register projects with the `ai-tools` CLI, run as your own user (no sudo):
 
@@ -240,50 +277,50 @@ To remove everything installed by this script:
 
 ## Upgrade behaviour
 
-When nvm installs a new Node version under `/opt/ai-tools`:
-- `src/opt/ai-tools/bin/nvm-update.sh` repoints the `/opt/ai-tools/bin/claude`
-  symlink at the new versioned binary via the handback socket bridge (`SYMLINK` verb →
-  `ai-tools-claude-symlink`). `bin` is locked `550`, so the `${SANDBOX_USER}` updater
-  cannot write it directly; the helper validates the versioned path and is the only
-  writer of that dir.
-- The wrapper resolves that symlink **one hop** via `readlink` and exports the result
-  as `CLAUDE_EXEC`. It deliberately does *not* use `realpath`/`readlink -f`: the
-  versioned `bin/claude` is itself an npm symlink into the package dir (mode 700,
-  `${SANDBOX_USER}`-owned), which the invoking user cannot traverse — EACCES.
-- `claude-run` re-validates `CLAUDE_EXEC` against the nvm versioned-binary pattern
-  and exec's it directly. No sudoers glob matches the versioned path; the `<you>`
-  sudoers rule targets the fixed path `/opt/ai-tools/bin/claude-run` only.
-- `claude-run` re-validates `CLAUDE_PROJECT_DIR` (absolute, `..`-free, existing) and sets
-  it as the transient unit's `WorkingDirectory`, so the session starts in the project — a
-  unit otherwise defaults to `/`. Both env vars are carried through sudo via
-  `env_keep` (scoped to `claude-run` in `sudoers.d/ai-tools-claude`).
-- Old Node versions are pruned in both nvm installs (any version not referenced by
-  a named alias is removed) — **except** a version a live process is still running
-  from. The prune scans `/proc/<pid>/exe` and defers such a version to the next
-  cycle, so an update never deletes the toolchain out from under a running Claude
-  session or one of your own long-running Node processes (a dev server, watcher, or
-  language server).
-- `src/home/user/.local/bin/nvm-update.sh` resolves the latest version once, updates
-  your `~/.nvm`, then invokes `src/opt/ai-tools/bin/nvm-update.sh` as
-  `${SANDBOX_USER}` via sudo with the pinned version so both installs land on the
-  same Node build.
-- After the prune, the login-side updater repoints your **systemd `--user` manager
-  environment** at the active version (`systemctl --user set-environment` for
-  `NVM_BIN`/`NVM_INC` and the node bin within the manager's exported `PATH`). That
-  block is a snapshot taken at login (via `pam_systemd`'s environment import), so
-  without this it would keep the version captured then, and shells started later would
-  inherit a `PATH` entry the prune already deleted — surfacing as a `path_dedup`
-  *"PATH entry does not exist"* warning for an old `…/versions/node/<ver>/bin`. The
-  repoint is best-effort and no-ops when no user manager is reachable.
+`nvm-update.timer` fires daily in `${SANDBOX_USER}`'s `--user` instance and runs
+`/opt/ai-tools/bin/nvm-update.sh`, which resolves the latest LTS in the `NVM_NODE_MAJOR`
+series, installs it under `/opt/ai-tools/.nvm`, refreshes the global tools, prunes, and:
 
-After an update, **new** shells and **new** Claude sessions use the new Node version
-automatically — a new shell sources nvm, picks up the updated `default` alias, and
-inherits the repointed manager environment, and a new session resolves the repointed
-`bin/claude` symlink. An **already-open** login shell keeps the version it started with
-(standard nvm per-shell behaviour, and the manager repoint cannot reach a process's
-existing environment); run `nvm use default` in it, or open a new shell, to switch. A
-**running** Claude session stays pinned to the Node version it launched with for its
-whole lifetime by design.
+- repoints the `/opt/ai-tools/bin/claude` symlink at the new versioned binary via the
+  handback socket bridge (`SYMLINK` verb → `ai-tools-claude-symlink`). `bin` is locked
+  `0551`, so the `${SANDBOX_USER}` updater cannot write it directly; the helper validates
+  the versioned path and is the only writer of that dir.
+- prunes old Node versions (any not referenced by a named alias) — **except** a version a
+  live process still runs from. The prune scans `/proc/<pid>/exe` and defers such a
+  version to the next cycle, so an update never deletes the toolchain out from under a
+  running Claude session.
+
+The `ai-tools-relabel.path` watcher sees the symlink repoint and runs
+`ai-tools-relabel-entrypoint` (root) to restore `ai_tools_exec_t` on the new `claude.exe`,
+so the SELinux domain transition keeps firing. Until the entrypoint is relabelled,
+`claude-run` fail-closes (refuses to launch rather than run unconfined); `ai-tools
+--relabel` is the manual fallback.
+
+On launch the wrapper resolves the symlink **one hop** via `readlink` (not
+`realpath`/`readlink -f`: the versioned `bin/claude` is itself an npm symlink into the
+package dir, mode 700 `${SANDBOX_USER}`-owned, which the invoking user cannot traverse —
+EACCES) and exports it as `CLAUDE_EXEC`. `claude-run` re-validates `CLAUDE_EXEC` against
+the nvm versioned-binary pattern and exec's it directly; the only sudoers rule dropping to
+`${SANDBOX_USER}` targets the fixed path `/opt/ai-tools/bin/claude-run`, never the
+versioned binary.
+
+> **Rationale — what the mode-700 package dir does and doesn't do.** The npm package dir
+> (`…/node_modules/@anthropic-ai/claude-code/`) is `700` and `${SANDBOX_USER}`-owned. That
+> keeps the agent's toolchain **private** to the sandbox account and root — no other login
+> user can read the package internals. It is **not** a tamper barrier against the agent:
+> `${SANDBOX_USER}` owns that tree and may write within it. The integrity of *what
+> executes* rests elsewhere — on `/opt/ai-tools/bin` being `0551 root:ai-tools` (only root,
+> through the `ai-tools-claude-symlink` helper, writes the stable `bin/claude` symlink the
+> wrapper trusts) and on `claude-run` re-validating `CLAUDE_EXEC` against the nvm path
+> pattern before exec. The **one-hop `readlink`** is a consequence of that mode: a
+> full `realpath`/`readlink -f` would traverse the `700` dir *as the invoking operator* and
+> hit EACCES — a silent abort under `set -e` — so the wrapper reads only the root-owned
+> symlink and validates its target by string. Trust comes from the root-owned `bin/` and
+> `claude-run`'s re-validation, not from resolving into a directory the agent controls.
+
+After an update, **new** Claude sessions resolve the repointed `bin/claude` symlink and use
+the new Node version. A **running** session stays pinned to the version it launched with for
+its whole lifetime by design.
 
 ## Operation logging
 

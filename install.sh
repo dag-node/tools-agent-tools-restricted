@@ -153,16 +153,18 @@ install_subst() {
     rm -f "${tmp}"
 }
 
-# Run systemctl --user as PROJECTS_USER with the correct runtime environment.
+# Run systemctl --user as a given user with that user's runtime bus environment.
 # Emits a warning rather than aborting if the user session is not active.
+# args:  <user> <systemctl args...>
 user_systemctl() {
+    local user="$1"; shift
     local uid
-    uid="$(id -u "${PROJECTS_USER}")"
-    sudo -u "${PROJECTS_USER}" \
+    uid="$(id -u "${user}")"
+    sudo -u "${user}" \
         XDG_RUNTIME_DIR="/run/user/${uid}" \
         DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" \
         systemctl --user "$@" \
-        || warn "systemctl --user $* failed -- run it manually as ${PROJECTS_USER}"
+        || warn "systemctl --user $* failed -- run it manually as ${user}"
 }
 
 # Assert the sandbox nvm tree's intended ownership/mode on every (re)install, even
@@ -257,9 +259,10 @@ do_selinux_restore() {
         /var/log/ai-tools/
     restorecon \
         /usr/local/bin/claude \
-        "${PROJECTS_HOME}/.local/bin/nvm-update.sh" \
-        "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service" \
-        "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer"
+        /usr/lib/systemd/user/nvm-update.service \
+        /usr/lib/systemd/user/nvm-update.timer \
+        /usr/lib/systemd/system/ai-tools-relabel.path \
+        /usr/lib/systemd/system/ai-tools-relabel.service
 }
 
 # Offer to bring up the optional SELinux confinement layer. install-selinux.sh is
@@ -352,6 +355,10 @@ do_summary() {
     _chk /usr/local/bin/ai-tools-handback-client
     _chk /usr/lib/systemd/system/ai-tools-handback.socket
     _chk /usr/lib/systemd/system/ai-tools-handback@.service
+    _chk /usr/lib/systemd/user/nvm-update.service
+    _chk /usr/lib/systemd/user/nvm-update.timer
+    _chk /usr/lib/systemd/system/ai-tools-relabel.path
+    _chk /usr/lib/systemd/system/ai-tools-relabel.service
     _chk /usr/local/bin/ai-tools
     _chk /var/opt/ai-tools
     _chk /var/opt/ai-tools/sandbox-projects
@@ -372,9 +379,6 @@ do_summary() {
     _chk /opt/ai-tools/.claude/post-tool-hook.sh
     _chk /opt/ai-tools/.claude/session-hook.sh
     _chk /opt/ai-tools/.claude/settings.json
-    _chk "${PROJECTS_HOME}/.local/bin/nvm-update.sh"
-    _chk "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service"
-    _chk "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer"
 
     printf '  %s\n' "${sep}"
     if (( missing == 0 )); then
@@ -547,10 +551,10 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-relabel.sh" \
         /usr/local/sbin/ai-tools/ai-tools-relabel
 
-    # SELinux entrypoint-relabel helper. 750 root:root -- run AS root via sudo (the third
-    # @PROJECTS_USER@ NOPASSWD rule), by the nvm-update timer after a Node upgrade and by
-    # `ai-tools --relabel`; never by ai-tools. No @-substitution needed (no placeholders),
-    # but install_subst keeps the deploy path uniform with the other helpers.
+    # SELinux entrypoint-relabel helper. 750 root:root -- run AS root: automatically by the
+    # ai-tools-relabel.path watcher after a Node upgrade, and on demand by `ai-tools --relabel`
+    # (the second %ai-ops NOPASSWD rule); never by ai-tools. No @-substitution needed (no
+    # placeholders), but install_subst keeps the deploy path uniform with the other helpers.
     log "/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint"
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint.sh" \
@@ -598,6 +602,30 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/lib/systemd/system/ai-tools-handback@.service" \
         /usr/lib/systemd/system/ai-tools-handback@.service
+
+    # Toolchain update units. The service+timer live in %{_userunitdir} and are enabled in
+    # the sandbox account's own systemd --user instance (it owns and writes the shared .nvm
+    # tree). 644 root:root -- systemd reads them as root; no world write.
+    log "/usr/lib/systemd/user/nvm-update.service"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/lib/systemd/user/nvm-update.service" \
+        /usr/lib/systemd/user/nvm-update.service
+    log "/usr/lib/systemd/user/nvm-update.timer"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/lib/systemd/user/nvm-update.timer" \
+        /usr/lib/systemd/user/nvm-update.timer
+
+    # Post-upgrade relabel watcher. The .path watches the bin/claude symlink the updater
+    # repoints and triggers the root-side .service (restorecon to ai_tools_exec_t), so the
+    # SELinux domain transition keeps firing after a Node bump. 644 root:root.
+    log "/usr/lib/systemd/system/ai-tools-relabel.path"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/lib/systemd/system/ai-tools-relabel.path" \
+        /usr/lib/systemd/system/ai-tools-relabel.path
+    log "/usr/lib/systemd/system/ai-tools-relabel.service"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/lib/systemd/system/ai-tools-relabel.service" \
+        /usr/lib/systemd/system/ai-tools-relabel.service
 
     # Project-lifecycle CLI. Runs AS the projects user (never root, never ai-tools)
     # and needs no privilege: it only edits allowed-projects and the git
@@ -808,27 +836,6 @@ do_install() {
     chmod "${CP_DIR_MODES[bin]}" /opt/ai-tools/bin
     chmod "${CP_DIR_MODES[.claude]}" /opt/ai-tools/.claude
 
-    section "User files (${PROJECTS_HOME})"
-
-    log "${PROJECTS_HOME}/.local/bin/"
-    ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.local"
-    ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.local/bin"
-    install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 750 \
-        "${SCRIPT_DIR}/src/home/user/.local/bin/nvm-update.sh" \
-        "${PROJECTS_HOME}/.local/bin/nvm-update.sh"
-
-    log "${PROJECTS_HOME}/.config/systemd/user/"
-    ensure_dir 755 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config"
-    ensure_dir 755 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/systemd"
-    ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/systemd/user"
-    # 640: systemd --user reads them as the owner; no world bit needed.
-    install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 640 \
-        "${SCRIPT_DIR}/src/home/user/.config/systemd/user/nvm-update.service" \
-        "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service"
-    install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 640 \
-        "${SCRIPT_DIR}/src/home/user/.config/systemd/user/nvm-update.timer" \
-        "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer"
-
     section "Configuration (allowlist & secret patterns)"
 
     # --- Allowlist (create with format header if absent; keep on re-install) ---
@@ -911,9 +918,6 @@ do_install() {
 
     section "Systemd (auto-update timer)"
 
-    log "enabling linger for ${PROJECTS_USER}"
-    loginctl enable-linger "${PROJECTS_USER}"
-
     # The sandbox launch (claude-run) runs `systemd-run --user` as ${SANDBOX_USER} to wrap
     # each session in a transient service unit, which needs ${SANDBOX_USER}'s own systemd
     # user instance (its /run/user/<uid>/bus). ${SANDBOX_USER} has no login shell, so only
@@ -922,13 +926,14 @@ do_install() {
     log "enabling linger for ${SANDBOX_USER}"
     loginctl enable-linger "${SANDBOX_USER}"
 
-    log "reload and enable nvm-update.timer"
-    user_systemctl daemon-reload
-    user_systemctl enable --now nvm-update.timer
+    log "reload and enable nvm-update.timer in ${SANDBOX_USER}'s --user instance"
+    user_systemctl "${SANDBOX_USER}" daemon-reload
+    user_systemctl "${SANDBOX_USER}" enable --now nvm-update.timer
 
-    log "reload systemd and enable ai-tools-handback.socket"
+    log "reload systemd and enable ai-tools-handback.socket + ai-tools-relabel.path"
     systemctl daemon-reload
     systemctl enable --now ai-tools-handback.socket
+    systemctl enable --now ai-tools-relabel.path
 
     section "Finalising (claude symlink, SELinux)"
     lockdown_nvm_permissions
@@ -939,8 +944,8 @@ do_install() {
     offer_selinux
 
     section "Install complete -- next steps"
-    say "  verify the timer:"
-    say "    ${C_BOLD}systemctl --user list-timers nvm-update.timer${C_RST}"
+    say "  verify the timer (in ${SANDBOX_USER}'s --user instance):"
+    say "    ${C_BOLD}systemctl --user -M ${SANDBOX_USER}@ list-timers nvm-update.timer${C_RST}"
     say ""
     say "  register projects with the ai-tools CLI (run as ${PROJECTS_USER}, no sudo):"
     say "    ${C_BOLD}ai-tools --project-create /path/to/project${C_RST}    ${C_DIM}# a real project${C_RST}"
@@ -978,11 +983,12 @@ do_uninstall() {
     printf '\n%sUninstalling the ai-tools Claude Code sandbox%s\n' "${C_BOLD}" "${C_RST}"
 
     section "Systemd"
-    log "disable nvm-update.timer"
-    user_systemctl disable --now nvm-update.timer 2>/dev/null || true
-    user_systemctl daemon-reload 2>/dev/null || true
-    log "disable ai-tools-handback.socket"
+    log "disable nvm-update.timer (${SANDBOX_USER}'s --user instance)"
+    user_systemctl "${SANDBOX_USER}" disable --now nvm-update.timer 2>/dev/null || true
+    user_systemctl "${SANDBOX_USER}" daemon-reload 2>/dev/null || true
+    log "disable ai-tools-handback.socket + ai-tools-relabel.path"
     systemctl disable --now ai-tools-handback.socket 2>/dev/null || true
+    systemctl disable --now ai-tools-relabel.path 2>/dev/null || true
     systemctl daemon-reload 2>/dev/null || true
 
     section "Removing files"
@@ -1000,6 +1006,10 @@ do_uninstall() {
     rm -f /usr/local/bin/ai-tools-handback-client
     rm -f /usr/lib/systemd/system/ai-tools-handback.socket
     rm -f /usr/lib/systemd/system/ai-tools-handback@.service
+    rm -f /usr/lib/systemd/user/nvm-update.service
+    rm -f /usr/lib/systemd/user/nvm-update.timer
+    rm -f /usr/lib/systemd/system/ai-tools-relabel.path
+    rm -f /usr/lib/systemd/system/ai-tools-relabel.service
     rm -f /usr/local/bin/ai-tools
     rm -f /usr/local/bin/claude
     rm -f /usr/local/lib/ai-tools/secret-patterns.lib.sh
@@ -1020,11 +1030,6 @@ do_uninstall() {
     rm -f /opt/ai-tools/.claude/post-tool-hook.sh
     rm -f /opt/ai-tools/.claude/session-hook.sh
     rm -f /opt/ai-tools/.claude/settings.json
-
-    log "user files"
-    rm -f "${PROJECTS_HOME}/.local/bin/nvm-update.sh"
-    rm -f "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service"
-    rm -f "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer"
 
     section "Registration"
     # Optionally prune this project from the allowlist (default: keep)

@@ -22,9 +22,9 @@ check_file /usr/local/sbin/ai-tools/ai-tools-lockdown         root              
 # SELinux project-label helper: 750 root:root -- user-run via sudo, never by the agent (no
 # SANDBOX_USER grant); same surface as lockdown.
 check_file /usr/local/sbin/ai-tools/ai-tools-relabel          root              root              750
-# SELinux entrypoint-relabel helper: 750 root:root -- run AS root via the third
-# @PROJECTS_USER@ NOPASSWD rule (by the nvm-update timer and `ai-tools --relabel`), never by
-# the agent. Fixed-path, no-arg target, so the root grant cannot be parameterized.
+# SELinux entrypoint-relabel helper: 750 root:root -- run AS root automatically by the
+# ai-tools-relabel.path watcher and on demand by `ai-tools --relabel` (the %ai-ops NOPASSWD
+# rule), never by the agent. Fixed-path, no-arg target, so the root grant cannot be parameterized.
 check_file /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint root            root              750
 # Toolchain bootstrap + operator administration: 750 root:root -- run by the operator via sudo,
 # never by the agent (no SANDBOX_USER grant, and /usr/local/sbin/ai-tools is 750 root:root).
@@ -75,11 +75,6 @@ check_file /opt/ai-tools/.claude/settings.json               root              "
 # but cannot unlink/replace the root-owned control files above. Owned by ai-tools, or without
 # the sticky bit, the agent could delete and recreate them.
 check_file /opt/ai-tools/.claude                              root              "${SANDBOX_GROUP}" 3770
-check_file "${PROJECTS_HOME}/.local/bin/nvm-update.sh"        "${PROJECTS_USER}" "${PROJECTS_GROUP}" 750
-check_file "${PROJECTS_HOME}/.config/systemd/user/nvm-update.service" \
-                                                              "${PROJECTS_USER}" "${PROJECTS_GROUP}" 640
-check_file "${PROJECTS_HOME}/.config/systemd/user/nvm-update.timer" \
-                                                              "${PROJECTS_USER}" "${PROJECTS_GROUP}" 640
 
 # Handback bridge. The helper dir is 750 root:root (no world bit -- non-root users cannot
 # list the helper names). The daemon is root-only-executable; the agent never exec's it, it
@@ -91,6 +86,12 @@ check_file /usr/local/sbin/ai-tools/ai-tools-handback         root root 750
 check_file /usr/local/bin/ai-tools-handback-client            root "${SANDBOX_GROUP}" 750
 check_file /usr/lib/systemd/system/ai-tools-handback.socket   root root 644
 check_file /usr/lib/systemd/system/ai-tools-handback@.service root root 644
+# Toolchain update units (sandbox account's --user instance) + post-upgrade relabel watcher.
+# 644 root:root -- systemd reads them as root; no world write.
+check_file /usr/lib/systemd/user/nvm-update.service           root root 644
+check_file /usr/lib/systemd/user/nvm-update.timer             root root 644
+check_file /usr/lib/systemd/system/ai-tools-relabel.path      root root 644
+check_file /usr/lib/systemd/system/ai-tools-relabel.service   root root 644
 # Project CLI: 755 root:root -- runs AS the projects user (its guard refuses root and the
 # sandbox account); root-owned so the agent cannot rewrite it, world-exec is harmless since
 # it edits only user-writable registries.

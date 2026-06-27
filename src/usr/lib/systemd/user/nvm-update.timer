@@ -1,0 +1,14 @@
+[Unit]
+Description=Daily sandbox Node.js and npm tools update (nvm)
+Requires=nvm-update.service
+
+[Timer]
+# Fires daily in the sandbox account's --user instance.
+OnCalendar=*-*-* 07:50:00
+# If the machine was off at the scheduled time, run within 15 min of the next boot.
+Persistent=true
+# Randomize a little to avoid a thundering herd against the registry.
+RandomizedDelaySec=3min
+
+[Install]
+WantedBy=timers.target

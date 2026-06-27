@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # /opt/ai-tools/bin/nvm-update.sh
 # Updates Node.js and sandbox npm tools under /opt/ai-tools.
-# Runs as ai-tools user, invoked from nvm-update.sh via sudo.
-# Receives the target Node version as $1 so both installs track the same
-# version resolved by nvm-update.sh rather than re-querying nvm ls-remote.
+# Runs as the ai-tools user in its own systemd --user instance (nvm-update.service).
+# Resolves the latest LTS in the NVM_NODE_MAJOR series itself; an explicit version as
+# $1 overrides that lookup (manual or out-of-band use).
 #
-# Configuration via Environment= directives (preserved through sudo via
-# env_keep in /etc/sudoers.d/ai-tools-claude):
-#   NVM_NODE_ALIAS           nvm alias to track   (default: default)
+# Configuration via the unit's Environment= directives:
+#   NVM_NODE_ALIAS           nvm alias to track            (default: default)
+#   NVM_NODE_MAJOR           major series to track for LTS (default: 22)
 #   AI_TOOLS_GLOBAL_TOOLS    space-separated sandbox packages
 #                            (default: npm @anthropic-ai/claude-code)
 
@@ -100,16 +100,16 @@ install_packages() {
     done
 }
 
-# main: install the target Node version under /opt/ai-tools if not already active,
-# refresh the sandbox global tools, prune superseded versions, and repoint the
-# stable /opt/ai-tools/bin/claude symlink at the versioned binary.
-# args:  target Node version (e.g. v22.15.0)
+# main: resolve the latest LTS in the vMAJOR series (or take it from $1), install it
+# under /opt/ai-tools if not already active, refresh the sandbox global tools, prune
+# superseded versions, and repoint the stable /opt/ai-tools/bin/claude symlink at the
+# versioned binary.
+# args:  optional target Node version override (e.g. v22.15.0)
 main() {
     local target_version="${1:-}"
-    [[ -n "${target_version}" ]] \
-        || die "Usage: nvm-update.sh <version>  e.g. v22.15.0"
 
     local node_alias="${NVM_NODE_ALIAS:-default}"
+    local major="${NVM_NODE_MAJOR:-22}"
     local nvm_dir="${HOME}/.nvm"   # HOME=/opt/ai-tools when running as ai-tools
 
     [[ -s "${nvm_dir}/nvm.sh" ]] || die "nvm not found at ${nvm_dir}/nvm.sh"
@@ -120,6 +120,20 @@ main() {
     current_version="$(nvm version "${node_alias}" 2>/dev/null || true)"
     [[ -n "${current_version}" && "${current_version}" != "N/A" ]] \
         || die "nvm alias '${node_alias}' not set"
+
+    # The timer invokes this with no argument, so resolve the latest LTS in the vMAJOR
+    # series here -- the same `sort -V | tail -1` highest-semver selection the prune logic
+    # keys on. An explicit argument overrides the lookup.
+    if [[ -z "${target_version}" ]]; then
+        command -v curl >/dev/null 2>&1 || die "curl required to resolve the latest version"
+        target_version="$(
+            nvm ls-remote --lts "v${major}" 2>/dev/null \
+                | grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+' \
+                | sort -V | tail -1
+        )"
+        [[ -n "${target_version}" ]] \
+            || die "could not resolve latest v${major} from nvm ls-remote"
+    fi
 
     log "Current: ${current_version}  ->  target: ${target_version}"
 

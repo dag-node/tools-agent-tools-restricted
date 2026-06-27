@@ -159,6 +159,16 @@ for h in ai-tools-claude-symlink ai-tools-relabel-entrypoint ai-tools-bootstrap;
 done
 install -m 0550 src/opt/ai-tools/bin/nvm-update.sh %{buildroot}/opt/ai-tools/bin/nvm-update.sh
 
+# ── nodejs: toolchain update units + post-upgrade relabel watcher ─────────────
+# The update service+timer run in the sandbox account's own systemd --user instance
+# (%{_userunitdir}); the relabel .path watches the bin/claude symlink and triggers the
+# root-side .service (restorecon to ai_tools_exec_t) after a Node bump.
+install -d -m 0755 %{buildroot}%{_userunitdir}
+install -m 0644 src%{_userunitdir}/nvm-update.service   %{buildroot}%{_userunitdir}/nvm-update.service
+install -m 0644 src%{_userunitdir}/nvm-update.timer     %{buildroot}%{_userunitdir}/nvm-update.timer
+install -m 0644 src%{_unitdir}/ai-tools-relabel.path    %{buildroot}%{_unitdir}/ai-tools-relabel.path
+install -m 0644 src%{_unitdir}/ai-tools-relabel.service %{buildroot}%{_unitdir}/ai-tools-relabel.service
+
 # ── claude: launch wrapper + confinement shim + hooks + settings ──────────────
 # The wrapper ships root:root 0755 in /usr/local/bin (Tier 1 in path_dedup.sh, so it shadows
 # the nvm-managed claude on every operator's PATH); it runs as the invoking operator, gates on
@@ -210,6 +220,18 @@ EOF
 if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
     semodule -n -r ai_tools >/dev/null 2>&1 || :
 fi
+
+%post -n ai-tools-nodejs
+# Enable the root-side relabel watcher (system unit). The nvm-update.timer is a --user unit
+# enabled in the sandbox account's own instance by ai-tools-bootstrap, which is where that
+# instance is brought up with linger -- a scriptlet cannot reliably reach it.
+%systemd_post ai-tools-relabel.path
+
+%preun -n ai-tools-nodejs
+%systemd_preun ai-tools-relabel.path
+
+%postun -n ai-tools-nodejs
+%systemd_postun_with_restart ai-tools-relabel.path
 
 # ─────────────────────────────────────────────────────────────────────────────
 # File lists
@@ -270,6 +292,10 @@ fi
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-relabel-entrypoint
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-bootstrap
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/nvm-update.sh
+%{_userunitdir}/nvm-update.service
+%{_userunitdir}/nvm-update.timer
+%{_unitdir}/ai-tools-relabel.path
+%{_unitdir}/ai-tools-relabel.service
 
 %files -n claude-code-restricted
 %attr(0755, root, root) %{ai_bindir}/claude

@@ -1,17 +1,21 @@
 # /etc/sudoers.d/ai-tools-claude
-# Grants the ai-ops operators group (the login users that drive the sandbox) three NOPASSWD
-# rules. The two @SANDBOX_USER@-target rules DROP privilege to @SANDBOX_USER@; the third runs
-# the fixed-path entrypoint relabel as root. @SANDBOX_USER@ itself has NO rule here, and the
-# agent runs AS @SANDBOX_USER@, so none of the three grants the agent anything.
+# Grants the ai-ops operators group (the login users that drive the sandbox) two NOPASSWD
+# rules. The first DROPS privilege to @SANDBOX_USER@; the second runs the fixed-path entrypoint
+# relabel as root. @SANDBOX_USER@ itself has NO rule here, and the agent runs AS @SANDBOX_USER@,
+# so neither rule grants the agent anything.
 #   1. execute claude-run as @SANDBOX_USER@ (the wrapper resolves the versioned claude path,
 #      exports it as CLAUDE_EXEC, then calls claude-run which wraps the session in a systemd
 #      transient service (--user --pty) with RestrictNamespaces=yes + UMask=0007;
 #      NoNewPrivileges is intentionally ABSENT -- the session itself runs under NNP because
 #      RestrictNamespaces forces PR_SET_NO_NEW_PRIVS, but claude-run must not set NNP at the
 #      scope it occupies before exec, or sudo's own PAM authentication breaks)
-#   2. run nvm-update.sh as @SANDBOX_USER@ (the toolchain update path)
-#   3. run ai-tools-relabel-entrypoint as ROOT (called after a sandbox Node update to restore
-#      ai_tools_exec_t on the new claude.exe; see the security note below)
+#   2. run ai-tools-relabel-entrypoint as ROOT (the manual `ai-tools --relabel` fallback that
+#      restores ai_tools_exec_t on the claude.exe entrypoint; see the security note below)
+#
+# The sandbox toolchain update runs as @SANDBOX_USER@ in its own systemd --user instance
+# (nvm-update.service), writing the shared .nvm tree directly, so it needs no sudo rule here.
+# The post-upgrade entrypoint relabel fires automatically through the root-side
+# ai-tools-relabel.path watcher; this relabel rule is the operator's on-demand fallback.
 #
 # A group rule (`%ai-ops`) covers every operator from one static drop-in: the package ships it,
 # and membership in ai-ops (managed by ai-tools-admin) is what grants access, so there is no
@@ -31,34 +35,27 @@
 #     and validated by the wrapper is passed through sudo so claude-run can re-validate and exec
 #     it directly; CLAUDE_PROJECT_DIR carries the validated project dir and becomes the transient
 #     unit's WorkingDirectory (units default to /).
-#   - env_keep AI_TOOLS_GLOBAL_TOOLS/NVM_NODE_MAJOR/NVM_NODE_ALIAS (nvm-update.sh): passes
-#     service-configured package/version variables through sudo so the @SANDBOX_USER@ invocation
-#     sees the same values the caller resolved.
 #
 # SECURITY NOTES:
-#   - NOPASSWD is intentional: all three commands are called non-interactively (the daily
-#     nvm-update timer has no tty to prompt at).
+#   - NOPASSWD is intentional: both commands are called non-interactively (claude-run from the
+#     launch wrapper, the relabel from a timer-driven or scripted update flow).
 #   - claude-run is at a fixed, non-glob path (550 root:@SANDBOX_GROUP@, not writable by
 #     @SANDBOX_USER@). The versioned claude binary is not a direct sudo target; claude-run
 #     exec's it after re-validating CLAUDE_EXEC.
-#   - The nvm-update.sh argument must match a vMAJOR.MINOR.PATCH version; sudo matches argv
-#     count, so no trailing flags can be injected past the single glob arg.
 #   - ai-tools-relabel-entrypoint runs AS ROOT: restoring ai_tools_exec_t on the new claude
 #     entrypoint needs unconfined_t, which root holds. The grant is scoped to that one action --
 #     a FIXED, non-glob path with NO arguments -- and the helper is 750 root:root, writable by
 #     root alone. It is an operator grant, keeping the root privilege on the operator side rather
 #     than in the agent-reachable handback domain.
-#   - The two @SANDBOX_USER@-target rules DROP privilege; the agent runs AS @SANDBOX_USER@ and
-#     cannot invoke an ai-ops rule, so NONE of the three grants the agent anything -- including
-#     the root relabel rule, which @SANDBOX_USER@ cannot reach.
+#   - The first rule DROPS privilege; the agent runs AS @SANDBOX_USER@ and cannot invoke an
+#     ai-ops rule, so neither rule grants the agent anything -- including the root relabel rule,
+#     which @SANDBOX_USER@ cannot reach.
 #   - @SANDBOX_USER@ has no login shell and no other sudo rights, and is not a member of ai-ops.
 #
 # Syntax check before deploy:  visudo -c -f /etc/sudoers.d/ai-tools-claude
 
 Defaults!/opt/ai-tools/bin/claude-run umask=0007,umask_override
 Defaults!/opt/ai-tools/bin/claude-run env_keep += "CLAUDE_EXEC CLAUDE_PROJECT_DIR"
-Defaults!/opt/ai-tools/bin/nvm-update.sh env_keep += "AI_TOOLS_GLOBAL_TOOLS NVM_NODE_MAJOR NVM_NODE_ALIAS"
 
 %ai-ops ALL=(@SANDBOX_USER@:@SANDBOX_GROUP@) NOPASSWD: /opt/ai-tools/bin/claude-run
-%ai-ops ALL=(@SANDBOX_USER@:@SANDBOX_GROUP@) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*.[0-9]*.[0-9]*
 %ai-ops ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint

@@ -1,0 +1,30 @@
+[Unit]
+Description=Update sandbox Node.js (nvm) and global npm tools
+Documentation=https://github.com/nvm-sh/nvm
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Runs in the sandbox account's own systemd --user instance (%h=/opt/ai-tools): the
+# updater writes the shared .nvm tree directly as ai-tools, resolves the latest LTS in
+# the NVM_NODE_MAJOR series itself, and repoints the bin/claude symlink through the
+# handback SYMLINK verb. See .claude/rules/updater.rule.md.
+ExecStart=/opt/ai-tools/bin/nvm-update.sh
+
+# /usr/local/bin carries ai-tools-handback-client (the SYMLINK repoint path); the script
+# sources nvm.sh to put the active node/npm on PATH.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=HOME=%h
+Environment=NVM_DIR=%h/.nvm
+Environment=NVM_NODE_ALIAS=default
+Environment=NVM_NODE_MAJOR=22
+Environment="AI_TOOLS_GLOBAL_TOOLS=npm @anthropic-ai/claude-code"
+
+# The updater writes its own .nvm tree as ai-tools and reaches the locked bin/ through
+# the handback socket, so the session runs with no privilege escalation.
+NoNewPrivileges=yes
+PrivateTmp=yes
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nvm-update

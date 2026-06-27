@@ -1,20 +1,16 @@
 #!/usr/bin/env bash
 # /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
 # Restore the ai_tools_exec_t SELinux label on the claude.exe entrypoint(s) under the
-# sandbox nvm tree, so the unconfined_t -> ai_tools_t domain transition fires and a
-# launched session is confined.
+# sandbox nvm tree, so the -> ai_tools_t domain transition fires and a launched session is
+# confined. A fresh Node tree's claude.exe is born bin_t; this helper restorecons every
+# entrypoint under the nvm tree and verifies each took ai_tools_exec_t.
 #
-# A Node auto-upgrade (nvm-update) installs a fresh claude-code tree; npm creates the
-# new claude.exe UNLABELLED (it defaults to bin_t), and the handback domain that
-# repoints the stable symlink is deliberately NOT granted relabel rights (ai_tools.te),
-# so the new entrypoint stays mislabelled. claude-run then fail-closes -- it refuses to
-# launch rather than run UNCONFINED -- until the label is restored. This helper is the
-# operator's one-shot fix: run as root via sudo (unconfined_t, which CAN relabel), it
-# restorecons every entrypoint under the nvm tree and confirms each took ai_tools_exec_t.
-#
-# Invoked by `ai-tools --relabel`, run by the projects user via sudo -- there is NO
-# NOPASSWD grant, so sudo prompts for the password; never by the sandbox account. Takes
-# no arguments: it acts only on the fixed nvm-tree glob, nothing caller-supplied.
+# Runs as root (a domain that holds relabel), never the sandbox account. Two callers drive
+# it: the ai-tools-relabel.path watcher (automatic, after an upgrade) and `ai-tools
+# --relabel` (on demand). The domain story -- the watcher, the claude-run fail-closed
+# backstop, and why the relabel privilege stays off the agent-reachable handback domain --
+# is in .claude/rules/updater.rule.md. Takes no arguments: it acts only on the fixed
+# nvm-tree glob, nothing caller-supplied.
 #
 # This is the focused, always-installed counterpart to selinux/install-selinux.sh's full
 # relabel sweep (entrypoint + home-state + every project); both run the same

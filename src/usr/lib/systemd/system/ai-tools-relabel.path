@@ -1,0 +1,13 @@
+[Unit]
+Description=Watch the sandbox claude entrypoint and relabel it after a Node upgrade
+Documentation=man:restorecon(8)
+
+[Path]
+# Watches the bin/claude symlink the updater repoints as its last step and triggers the
+# root-side relabel service, so a freshly installed (bin_t) claude.exe takes
+# ai_tools_exec_t for the domain transition. See .claude/rules/updater.rule.md.
+PathChanged=/opt/ai-tools/bin/claude
+Unit=ai-tools-relabel.service
+
+[Install]
+WantedBy=paths.target

@@ -94,7 +94,7 @@ session attached to the terminal so claude's TUI works.
 runs as the invoking user. `/opt/ai-tools` has no `nosuid`, so the switch to
 `SANDBOX_USER` takes effect and the binary is owned by `SANDBOX_USER`.
 
-## Sudoers grants (the three `%ai-ops` rules)
+## Sudoers grants (the two `%ai-ops` rules)
 
 The drop-in (`/etc/sudoers.d/ai-tools-claude`) is a **static** `%ai-ops` group rule the
 package ships unchanged — membership in the `ai-ops` operators group (managed by
@@ -102,22 +102,24 @@ package ships unchanged — membership in the `ai-ops` operators group (managed 
 
 ```
 %ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/claude-run
-%ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/nvm-update.sh v[0-9]*.[0-9]*.[0-9]*
 %ai-ops  ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
 ```
 
-The first two **drop** privilege to the lower-privileged `SANDBOX_USER`; the agent runs
+The first rule **drops** privilege to the lower-privileged `SANDBOX_USER`; the agent runs
 *as* `SANDBOX_USER`, which is not in `ai-ops` and has no rule of its own, so it can invoke
-none of the three. `claude-run` is a fixed-path target (no glob); the versioned binary is
-exec'd by `claude-run` after it re-validates `CLAUDE_EXEC`.
+neither. `claude-run` is a fixed-path target (no glob); the versioned binary is exec'd by
+`claude-run` after it re-validates `CLAUDE_EXEC`.
 
-The third rule runs **as root**: the daily `nvm-update` timer and `ai-tools --relabel` use
-it to restore `ai_tools_exec_t` on the new claude entrypoint after a Node upgrade, which
-needs the `unconfined_t` that root holds (see [updater](updater.rule.md)). The grant is
-scoped to exactly that action — a **fixed, non-glob path with no arguments**, so it resolves
-to one program doing one thing (`restorecon` the nvm-tree entrypoint) — and the helper is
-`750 root:root`, owned and writable by root alone. It is an operators-group grant, keeping the
-root privilege on the operator side, the same place the other two rules live.
+The second rule runs **as root**: `ai-tools --relabel` uses it to restore `ai_tools_exec_t`
+on the new claude entrypoint after a Node upgrade, which needs the `unconfined_t` that root
+holds (see [updater](updater.rule.md)). The grant is scoped to exactly that action — a
+**fixed, non-glob path with no arguments**, so it resolves to one program doing one thing
+(`restorecon` the nvm-tree entrypoint) — and the helper is `750 root:root`, owned and
+writable by root alone. It is an operators-group grant, keeping the root privilege on the
+operator side beside the launch rule. The automatic post-upgrade relabel runs through the
+root-side `ai-tools-relabel.path` watcher, which needs no sudo rule. The toolchain update
+runs as `SANDBOX_USER` in its own `systemd --user` instance, so it needs no sudo rule
+either.
 
 `SANDBOX_USER` holds no sudo rights in this file. Two `claude-run` preflights enforce the
 account boundary the sudoers model assumes: it refuses to launch unless it runs **as**
@@ -126,7 +128,7 @@ it refuses if `SANDBOX_USER` is ever a member of `ai-ops` (so the sandbox accoun
 hold the operator grant). See the security-model invariants in `CLAUDE.md`.
 
 `umask=0007,umask_override` and `env_keep += "CLAUDE_EXEC CLAUDE_PROJECT_DIR"` (for
-`claude-run`) and `env_keep` (for `nvm-update.sh`) are scoped per-command with
+`claude-run`) are scoped per-command with
 `Defaults!<command>`, applying only to those commands. The sudoers `umask` sets
 `claude-run`'s own process umask; the transient service unit does not inherit it, so
 the agent's umask comes authoritatively from the `UMask=0007` unit property.

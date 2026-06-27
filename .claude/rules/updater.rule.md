@@ -1,63 +1,95 @@
 ---
 paths:
   - "src/opt/ai-tools/bin/nvm-update.sh"
-  - "src/home/user/.local/bin/nvm-update.sh"
+  - "src/usr/local/sbin/ai-tools/ai-tools-bootstrap.sh"
   - "src/usr/local/sbin/ai-tools/ai-tools-claude-symlink.sh"
   - "src/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint.sh"
-  - "src/home/user/.config/systemd/user/nvm-update.service"
-  - "src/home/user/.config/systemd/user/nvm-update.timer"
+  - "src/usr/lib/systemd/user/nvm-update.service"
+  - "src/usr/lib/systemd/user/nvm-update.timer"
+  - "src/usr/lib/systemd/system/ai-tools-relabel.path"
+  - "src/usr/lib/systemd/system/ai-tools-relabel.service"
 ---
 
 # Node/claude updater and symlink repoint
 
-A scheduled `nvm-update` job keeps Node.js v22 and `@anthropic-ai/claude-code` current
-for both the login user and `SANDBOX_USER`, pinned to the same build. After an upgrade
-the versioned `claude` symlink is repointed through a root helper.
+A scheduled `nvm-update` job keeps Node.js and `@anthropic-ai/claude-code` current under
+`/opt/ai-tools`. After an upgrade the versioned `claude` symlink is repointed through a
+root helper and the new entrypoint is relabelled for the SELinux transition.
+
+## Toolchain provisioning (`ai-tools-bootstrap`)
+
+`ai-tools-bootstrap` provisions the toolchain the updater then maintains: run once as root,
+it creates the `SANDBOX_USER` account and its `/opt/ai-tools` home if absent, installs nvm,
+Node (`AI_TOOLS_NODE_MAJOR`, default 22), and the agent's npm package as `SANDBOX_USER`,
+points `/opt/ai-tools/bin/<launcher>` at the versioned binary, and captures the initial
+control plane in a root-private git repo. It is the one network step, so it is an operator
+command rather than an RPM scriptlet (which must succeed offline). It is idempotent: an
+existing account, nvm install, or Node version is reused. It enables `SANDBOX_USER` linger
+and the `nvm-update.timer` in that instance as its last step (best-effort), so the
+maintenance schedule is live once the toolchain exists.
+
+## Where the update runs
+
+`nvm-update.service` and `nvm-update.timer` ship in `%{_userunitdir}` and are enabled in
+`SANDBOX_USER`'s own `systemd --user` instance, so the updater runs as `SANDBOX_USER` and
+writes the shared `.nvm` tree (`%h=/opt/ai-tools`) directly. The timer fires daily; one
+instance maintains the toolchain the whole team shares. `ai-tools-bootstrap` enables the
+timer once it has provisioned the toolchain and `SANDBOX_USER`'s linger; `install.sh`
+enables it for the dev flow.
 
 ## Version resolution
 
-When multiple v22 versions exist, `nvm ls-remote | sort -V | tail -1` selects the highest
-semver — not "first match" or "currently active". Prune logic collects all versions
-referenced by any named alias into an associative array before removing anything, so a
-version another alias points to is retained.
+`nvm-update.sh` resolves the latest LTS in the `NVM_NODE_MAJOR` series itself
+(`nvm ls-remote --lts | sort -V | tail -1` selects the highest semver, not "first match"
+or "currently active"); an explicit version argument overrides the lookup. Prune logic
+collects all versions referenced by any named alias into an associative array before
+removing anything, so a version another alias points to is retained, as is any version a
+live session still runs from.
 
 ## Symlink repoint root helper (`ai-tools-claude-symlink`)
 
-`/opt/ai-tools/bin` is `550` and not group-writable (see
-[ownership-and-hooks](ownership-and-hooks.rule.md)), so `SANDBOX_USER` cannot refresh the
-versioned `claude` symlink itself after a Node upgrade. That repoint is delegated to the
-narrow root helper `ai-tools-claude-symlink`: it accepts one argument, validates it is
-exactly a `…/node/v<MAJOR>.<MINOR>.<PATCH>/bin/claude` path that exists (its own
-anchored-regex check, **not** the coarse sudoers glob, is authoritative — argument
-wildcards can match `/`), then atomically repoints the symlink. The sandbox updater and
-`install.sh` are the only callers; the updater reaches it through the
-[handback bridge](handback-bridge.rule.md) `SYMLINK` verb. The repoint helper does **not**
-relabel the new entrypoint (see below) — it runs in the handback domain, which has no
-relabel rights.
+`/opt/ai-tools/bin` is `0551` and not group-writable (see
+[ownership-and-hooks](ownership-and-hooks.rule.md)), so `SANDBOX_USER` reaches the
+versioned `claude` symlink only through a root helper. `ai-tools-claude-symlink` accepts
+one argument, validates it is exactly a `…/node/v<MAJOR>.<MINOR>.<PATCH>/bin/claude` path
+that exists (its own anchored-regex check, **not** the coarse sudoers glob, is
+authoritative — argument wildcards can match `/`), then atomically repoints the symlink.
+The sandbox updater and `install.sh` are the only callers; the updater reaches it through
+the [handback bridge](handback-bridge.rule.md) `SYMLINK` verb. The helper repoints the
+symlink but does not relabel the new entrypoint — it runs in the handback domain, which
+holds no relabel rights.
 
-## Post-upgrade entrypoint relabel (`ai-tools-relabel-entrypoint`)
+## Post-upgrade entrypoint relabel
 
-A fresh Node tree's `claude.exe` is born mislabelled (`bin_t`), so the
-`unconfined_t → ai_tools_t` transition stops firing; under enforcing `claude-run`
-fail-closes (refuses to launch rather than run unconfined) until the label is restored.
-The relabel runs from the **login-side `nvm-update.sh`** (the projects user, `unconfined_t`,
-which *can* relabel), right after it delegates the sandbox update: it calls the root helper
-`ai-tools-relabel-entrypoint` through a dedicated fixed-path NOPASSWD sudo rule (the third
-rule in `sudoers.d/ai-tools-claude`; see [launch](launch.rule.md)). The helper restorecons
-every `claude.exe` under the nvm tree and verifies `ai_tools_exec_t`. It is best-effort
-(a failure warns, never aborts the upgrade) and idempotent, and no-ops cleanly when SELinux
-is off **or** the optional `ai_tools` module is not installed — it acts only on entrypoints
-the file-context DB maps to `ai_tools_exec_t`, the same condition `claude-run` keys on.
+A fresh Node tree's `claude.exe` is born `bin_t`, so the `→ ai_tools_t` domain transition
+fires only once the entrypoint carries `ai_tools_exec_t`. `ai-tools-relabel-entrypoint`
+restores that label: it restorecons every `claude.exe` under the nvm tree and verifies
+each took `ai_tools_exec_t`. It runs as root (a domain that holds relabel), is idempotent,
+and no-ops when SELinux is off or the `ai_tools` module is not installed — it acts only on
+entrypoints the file-context DB maps to `ai_tools_exec_t`, the same condition `claude-run`
+keys on.
 
-The relabel is deliberately **not** done in the handback domain that repoints the symlink:
-`ai_tools_handback_t` is agent-reachable and is intentionally not granted relabel rights
-(`ai_tools.te`), so keeping the privilege on the login-updater side leaves it off the
-agent's reach. `ai-tools --relabel` (see [cli](cli.rule.md)) runs the same helper on demand
-as the manual fallback — for an out-of-band upgrade or if the timer's relabel failed — while
-`install-selinux.sh relabel` remains the comprehensive source-tree sweep.
+Two paths run the helper, both as root, never `SANDBOX_USER`:
+
+- **Automatically**, through the `ai-tools-relabel.path` watcher. The `.path` watches
+  `/opt/ai-tools/bin/claude` — the symlink the updater repoints as its last step — and
+  triggers `ai-tools-relabel.service` (a root oneshot in the system instance) when it
+  changes, so a Node bump relabels without operator action.
+- **On demand**, through `ai-tools --relabel` (see [cli](cli.rule.md)), which runs the
+  same helper via the `%ai-ops` NOPASSWD sudo rule (the relabel rule in
+  `sudoers.d/ai-tools-claude`; see [launch](launch.rule.md)). `install-selinux.sh relabel`
+  is the comprehensive source-tree sweep.
+
+The relabel runs outside the handback domain by design: `ai_tools_handback_t` is
+agent-reachable and holds no relabel rights (`ai_tools.te`), so the privilege stays off
+the agent's reach. The watcher is best-effort; `claude-run`'s fail-closed preflight (see
+[confinement](confinement.rule.md)) is the backstop — when SELinux is enforcing and the
+module is installed, it refuses to launch a session whose entrypoint is not
+`ai_tools_exec_t`, so a watcher relabel that does not land degrades to a refused launch the
+operator clears with `ai-tools --relabel`, never an unconfined session.
 
 ## `loginctl enable-linger`
 
-`loginctl enable-linger` keeps the projects user's systemd instance running after logout,
-so the daily `nvm-update` timer fires without an active login. Required for
-headless/unattended operation.
+Linger on `SANDBOX_USER` keeps its `systemd --user` instance running without an
+interactive login, so both the daily `nvm-update` timer and each `claude-run` session unit
+have a live user manager. Required for headless/unattended operation.

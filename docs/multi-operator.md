@@ -75,10 +75,11 @@ operators list).
   `ai-tools-admin` name leaves room for other root-side admin subcommands. `add` with an
   argument enrols that user or service account; with none it offers to add the non-root
   user running it (`$SUDO_USER`). `add` is accumulating and idempotent: it appends the
-  name to `OPERATORS`, adds it to `ai-ops`, seeds that user's allowlist, and ensures
-  linger. `remove` reverses it (drops from `OPERATORS` and `ai-ops`, leaves the user's own
-  allowlist/config). `list` prints the current operators. The toolchain timer is enabled
-  once (for `ai-tools`), not per operator.
+  name to `OPERATORS`, adds it to `ai-ops`, seeds that user's allowlist, and ensures the
+  sandbox account's linger. `remove` reverses it (drops from `OPERATORS` and `ai-ops`, leaves
+  the user's own allowlist/config). `list` prints the current operators. An operator runs
+  `claude` from its own active login, so it needs no linger of its own; the toolchain timer
+  is enabled once in `ai-tools`'s instance, not per operator.
 
 ## Permission mapping (single-operator → multi-operator)
 

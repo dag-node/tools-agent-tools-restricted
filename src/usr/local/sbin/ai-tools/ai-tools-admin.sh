@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # /usr/local/sbin/ai-tools/ai-tools-admin
 # Host administration for the ai-tools sandbox. A root helper (run via sudo), not an ai-tools
-# CLI verb: it edits host config (the OPERATORS list, the ai-ops group, sudoers-gated linger)
-# while the ai-tools CLI is unprivileged and refuses to run as root. The ai-tools-admin name
+# CLI verb: it edits host config (the OPERATORS list, the ai-ops group, the sandbox account's
+# linger) while the ai-tools CLI is unprivileged and refuses to run as root. The ai-tools-admin name
 # leaves room for further root-side admin subcommands beside operator management.
 #
 #   sudo ai-tools-admin operator add [user]     # default: $SUDO_USER
@@ -13,8 +13,8 @@
 # through the shared ai-tools account. `add` is accumulating and idempotent: it appends the
 # name to OPERATORS in /etc/ai-tools/operator.conf, adds the user to the ai-ops group (the
 # sudoers grant and the launch wrapper gate on membership), seeds the user's allowlist, ensures
-# linger, and offers to wire the PATH dedup. `remove` reverses the host-side membership (drops
-# the name from OPERATORS and ai-ops), leaving the user's own allowlist and config in place.
+# the sandbox account's linger, and offers to wire the PATH dedup. `remove` reverses the host-side
+# membership (drops the name from OPERATORS and ai-ops), leaving the user's own allowlist and config.
 # `list` prints the current operators.
 #
 # Deploy:
@@ -129,7 +129,7 @@ op_add() {
 
     ai_tools_load_operators || true   # tolerate an unenrolled host (empty list)
     if in_list "${user}"; then
-        log "${user} is already an operator; reconciling group, allowlist, and linger"
+        log "${user} is already an operator; reconciling group, allowlist, and sandbox linger"
     else
         local newlist=()
         [[ "${#AI_TOOLS_OPERATORS[@]}" -gt 0 ]] && newlist=( "${AI_TOOLS_OPERATORS[@]}" )
@@ -145,10 +145,11 @@ op_add() {
 
     seed_allowlist "${user}"
 
-    # Linger, so the operator and the sandbox account keep a systemd --user instance without an
-    # interactive login -- the session runs in the sandbox account's instance. Non-fatal.
-    log "enabling linger for ${user} and ${SANDBOX_USER}"
-    loginctl enable-linger "${user}"          2>/dev/null || log "warn: could not enable linger for ${user}"
+    # The sandbox account needs a systemd --user instance without an interactive login: its
+    # nvm-update timer and each claude-run session unit run there, and it has no login shell, so
+    # only linger keeps that instance alive. An operator runs claude from its own active login,
+    # so it needs no linger here; enabling operator linger for other reasons is host policy.
+    log "enabling linger for ${SANDBOX_USER}"
     loginctl enable-linger "${SANDBOX_USER}"  2>/dev/null || log "warn: could not enable linger for ${SANDBOX_USER}"
 
     wire_dedup "${user}"
@@ -167,7 +168,7 @@ op_remove() {
     for n in "${AI_TOOLS_OPERATORS[@]}"; do [[ "${n}" == "${user}" ]] || kept+=("${n}"); done
     write_operators "${kept[@]}"
     log "removed ${user} from OPERATORS"
-    # Drop ai-ops membership; leave the user's own allowlist, config, and linger (their data).
+    # Drop ai-ops membership; leave the user's own allowlist and config (their data).
     gpasswd -d "${user}" "${OPERATORS_GROUP}" >/dev/null 2>&1 \
         || log "warn: could not remove ${user} from ${OPERATORS_GROUP}"
     log "removed ${user} from group ${OPERATORS_GROUP}"

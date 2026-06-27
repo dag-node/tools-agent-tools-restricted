@@ -31,7 +31,7 @@ move as a unit and a partial upgrade cannot mix layers.
 
 | Subpackage | Owns |
 |---|---|
-| `ai-tools-base` | the `ai-tools` user, the `ai-ops` operators group, and linger; `/opt/ai-tools` home (and its default-deny `.gitignore` git guard) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `secret-patterns` template; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `prune-dirs.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`; the base SELinux domain (`ai_tools_t` and the handback/helper types) |
+| `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home (and its default-deny `.gitignore` git guard) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `secret-patterns` template; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `prune-dirs.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`; the base SELinux domain (`ai_tools_t` and the handback/helper types) |
 | `ai-tools-nodejs` | nvm under `/opt/ai-tools/.nvm`; the per-sandbox-user Node-version auto-update service and timer; `ai-tools-bootstrap`; the symlink-repoint helper (`ai-tools-claude-symlink`) and the post-upgrade entrypoint relabel (`ai-tools-relabel-entrypoint`) |
 | `claude-code-restricted` | the `claude` wrapper and `claude-run`; `/opt/ai-tools/bin/claude`; the Claude Code hooks (`post-tool-hook.sh`, `session-hook.sh`) and `settings.json`; the SELinux `ai_tools_exec_t` entrypoint file-context for `claude.exe` |
 
@@ -81,7 +81,7 @@ modified after an operator is added.
 root, run via `sudo`) manages the operators -- the login users (a human or a rootless
 service account) that drive the sandbox through the shared `ai-tools` account. It is a
 root helper rather than an `ai-tools` CLI verb, because it edits host config (the
-`OPERATORS` list, the `ai-ops` group, linger) while the CLI is unprivileged and refuses
+`OPERATORS` list, the `ai-ops` group, the sandbox account's linger) while the CLI is unprivileged and refuses
 to run as root.
 
 `add [user]` (default `$SUDO_USER`) is accumulating and idempotent:
@@ -91,7 +91,8 @@ to run as root.
   drop-in and the launch wrapper gate on;
 - seeds the user's `~/.config/ai-tools/allowed-projects` (empty, with a header) when
   absent, leaving an existing allowlist untouched;
-- enables linger for the user and `ai-tools`;
+- ensures the `ai-tools` account's linger (its `--user` instance runs the toolchain timer
+  and each `claude-run` session); an operator runs `claude` from its own login and needs none;
 - offers, interactively, to wire the host-wide PATH dedup into the user's `~/.bashrc`
   and `~/.bash_profile` after their nvm init; a non-interactive run prints the line to add.
 
@@ -151,23 +152,23 @@ nvm-update timer maintains the tree from then on.
 - `%post` runs `%systemd_post ai-tools-handback.socket`; when SELinux is not
   `Disabled`, installs the prebuilt core policy module and relabels (below); and
   prints the ordered `ai-tools-bootstrap` then `ai-tools-admin operator add`
-  directives. It does not bind an operator or enable linger — both are per-operator
-  and belong to `ai-tools-admin`.
+  directives. It does not bind an operator or provision the toolchain and its update
+  timer — those belong to `ai-tools-admin operator add` and `ai-tools-bootstrap`.
 - `%preun` runs `%systemd_preun ai-tools-handback.socket`.
 - `%postun` runs `%systemd_postun_with_restart ai-tools-handback.socket`, and on
   final erase (`$1 == 0`) removes the SELinux core module and re-applies default
   contexts.
 
-`ai-tools-nodejs`: `%post`/`%preun`/`%postun` manage the `nvm-update` units with
-the systemd macros against `%{_userunitdir}` (`/usr/lib/systemd/user/`), where the
-user units ship system-wide; per-user enablement is done by `ai-tools-admin operator add`.
+`ai-tools-nodejs`: `%post`/`%preun`/`%postun` manage the system `ai-tools-relabel.path`
+watcher with the systemd macros. The `nvm-update` service and timer ship in
+`%{_userunitdir}` (`/usr/lib/systemd/user/`); `ai-tools-bootstrap` enables the timer in
+`ai-tools`'s own `--user` instance once it has provisioned the toolchain.
 
 `claude-code-restricted`: `%post` applies the entrypoint file-context and, when
 SELinux is enabled, relabels `/opt/ai-tools/bin`; no service of its own.
 
-The user systemd units move from the operator's `~/.config/systemd/user/` to
-`%{_userunitdir}`, so RPM owns them and a single shipped copy serves every
-operator.
+The `nvm-update` user units ship in `%{_userunitdir}`, so RPM owns them and one shipped
+copy serves the `ai-tools` instance that runs the timer.
 
 ## SELinux
 
