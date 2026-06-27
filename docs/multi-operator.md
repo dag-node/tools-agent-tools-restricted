@@ -82,27 +82,30 @@ operators list).
 
 ## Permission mapping (single-operator → multi-operator)
 
-`PU`=`PROJECTS_USER`, `SG`=`ai-tools`, `OG`=`ai-ops`.
+Ownership cells use the shell-variable identities from
+[naming-conventions.md](naming-conventions.md): `PROJECTS_USER` (the owner),
+`PROJECTS_GROUP` (the owner's private group), `SANDBOX_USER`/`SANDBOX_GROUP`
+(`ai-tools`), and `ai-ops` (the operators group).
 
 | Path | Single-operator | Multi-operator | Effect |
 |---|---|---|---|
-| `/opt/ai-tools` | `PU:SG 2750` | `root:SG 2751` | `+o+x` search so any operator traverses to the launcher; no `o+r`. Root owner drops the single-operator binding. |
-| `/opt/ai-tools/bin` | `PU:SG 0550` | `root:SG 0551` | `+o+x` so operators `readlink bin/claude` (readlink needs dir search, not link read). |
-| `bin/claude-run` | `PU:SG 0550` | `root:SG 0550` | unchanged surface — `sudo` transitions to `ai-tools` first, so the exec check is the group bit. |
-| `bin/nvm-update.sh` | `PU:SG 0550` | `root:SG 0550` | run as `ai-tools` by its own timer; group-x. |
-| `bin/claude` (symlink) | `PU:SG` | `root:SG` | owner irrelevant for readlink; root-owned = agent still can't swap it. |
-| `.claude` | `PU:SG 3770` | `root:SG 3770` | unchanged (`o=0`): operators get nothing; agent group-writes its state, sticky blocks unlink of root-owned control files. |
-| `.claude/{settings.json,hooks}` | `PU:SG 640/750` | `root:SG 640/750` | unchanged; only the agent reads these. |
-| `.claude.json` | `PU:SG 0460` | `root:SG 0460` | unchanged; agent group-writes state; root owner can't be silently rewritten. |
-| `.gitconfig` | `PU:SG 640` | `root:SG 640` | agent reads `safe.directory`, never writes; operators add entries through the handback `SAFEDIR` verb, not by writing the file. |
-| `.gitignore` | `PU:SG 640` | `root:SG 640` | unchanged; agent reads, never writes. |
-| `.git` | `PU:PU-grp 2750` | `root:root 0700` | root-private; per-operator drift capture is meaningless with N operators. |
-| `state/<operator>/` | n/a (shared `.claude`) | `SG:SG 0700` per operator | private agent state (history, sessions, `.claude.json`); `claude-run` selects it by the launching operator. |
-| `.nvm/.cache/.local/.npm` | `SG:SG 0750` | unchanged | agent toolchain. |
-| `/var/opt/ai-tools[/sandbox-projects]` | `PU:SG 2750/2770` | `root:SG 2750/2770` | agent workspace; operator ownership was incidental. |
-| `~/.config/ai-tools/*` | `PU:PU 700/600` | unchanged, **per operator** | each operator keeps their own allowlist/secret config; already scales to N. |
-| `~/.local/bin/claude` | `PU:PU 0750` | **removed** → `/usr/local/bin/claude root:root 0755` | system wrapper; rpm-owned, fails safe for non-operators. |
-| user `nvm-update.{service,timer}` | `PU:PU 640` in operator home | `root:root` in `%{_userunitdir}`, enabled once in `ai-tools`'s `--user` instance | one shared toolchain timer, not N. |
+| `/opt/ai-tools` | `PROJECTS_USER:SANDBOX_GROUP 2750` | `root:SANDBOX_GROUP 2751` | `+o+x` search so any operator traverses to the launcher; no `o+r`. Root owner drops the single-operator binding. |
+| `/opt/ai-tools/bin` | `PROJECTS_USER:SANDBOX_GROUP 0550` | `root:SANDBOX_GROUP 0551` | `+o+x` so operators `readlink bin/claude` (readlink needs dir search, not link read). |
+| `bin/claude-run` | `PROJECTS_USER:SANDBOX_GROUP 0550` | `root:SANDBOX_GROUP 0550` | unchanged surface — `sudo` transitions to `ai-tools` first, so the exec check is the group bit. |
+| `bin/nvm-update.sh` | `PROJECTS_USER:SANDBOX_GROUP 0550` | `root:SANDBOX_GROUP 0550` | run as `ai-tools` by its own timer; group-x. |
+| `bin/claude` (symlink) | `PROJECTS_USER:SANDBOX_GROUP` | `root:SANDBOX_GROUP` | owner irrelevant for readlink; root-owned = agent still can't swap it. |
+| `.claude` | `PROJECTS_USER:SANDBOX_GROUP 3770` | `root:SANDBOX_GROUP 3770` | unchanged (`o=0`): operators get nothing; agent group-writes its state, sticky blocks unlink of root-owned control files. |
+| `.claude/{settings.json,hooks}` | `PROJECTS_USER:SANDBOX_GROUP 640/750` | `root:SANDBOX_GROUP 640/750` | unchanged; only the agent reads these. |
+| `.claude.json` | `PROJECTS_USER:SANDBOX_GROUP 0460` | `root:SANDBOX_GROUP 0460` | unchanged; agent group-writes state; root owner can't be silently rewritten. |
+| `.gitconfig` | `PROJECTS_USER:SANDBOX_GROUP 640` | `root:SANDBOX_GROUP 640` | agent reads `safe.directory`, never writes; operators add entries through the handback `SAFEDIR` verb, not by writing the file. |
+| `.gitignore` | `PROJECTS_USER:SANDBOX_GROUP 640` | `root:SANDBOX_GROUP 640` | unchanged; agent reads, never writes. |
+| `.git` | `PROJECTS_USER:PROJECTS_GROUP 2750` | `root:root 0700` | root-private; per-operator drift capture is meaningless with N operators. |
+| `state/<operator>/` | n/a (shared `.claude`) | `SANDBOX_USER:SANDBOX_GROUP 0700` per operator | private agent state (history, sessions, `.claude.json`); `claude-run` selects it by the launching operator. |
+| `.nvm/.cache/.local/.npm` | `SANDBOX_USER:SANDBOX_GROUP 0750` | unchanged | agent toolchain. |
+| `/var/opt/ai-tools[/sandbox-projects]` | `PROJECTS_USER:SANDBOX_GROUP 2750/2770` | `root:SANDBOX_GROUP 2750/2770` | agent workspace; operator ownership was incidental. |
+| `~/.config/ai-tools/*` | `PROJECTS_USER:PROJECTS_GROUP 700/600` | unchanged, **per operator** | each operator keeps their own allowlist/secret config; already scales to N. |
+| `~/.local/bin/claude` | `PROJECTS_USER:PROJECTS_GROUP 0750` | **removed** → `/usr/local/bin/claude root:root 0755` | system wrapper; rpm-owned, fails safe for non-operators. |
+| user `nvm-update.{service,timer}` | `PROJECTS_USER:PROJECTS_GROUP 640` in operator home | `root:root` in `%{_userunitdir}`, enabled once in `ai-tools`'s `--user` instance | one shared toolchain timer, not N. |
 | `/etc/sudoers.d/ai-tools-claude` | per-operator lines | `%ai-ops` group rules | one rule covers all operators. |
 | `/etc/ai-tools/operator.conf` | one `PROJECTS_USER` | `OPERATORS` **list** | handback resolves the per-project owner from it via allowlist match (tie-break: nearest parent-dir owner). |
 | helpers / libs / CLI / handback / `/var/log` | `root:*` | unchanged | already operator-agnostic. |
