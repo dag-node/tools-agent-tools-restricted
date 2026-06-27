@@ -772,7 +772,7 @@ do_install() {
         else
             _domain="$(hostname -f 2>/dev/null || hostname)"
         fi
-        install -o "${PROJECTS_USER}" -g "${SANDBOX_GROUP}" -m 640 \
+        install -o root -g "${SANDBOX_GROUP}" -m 640 \
             /dev/null "${_gitconfig}"
         printf '[user]\n\tname = %s\n\temail = %s\n\n[core]\n\tfileMode = true\n\tautocrlf = input\n\n[init]\n\tdefaultBranch = main\n\n[pull]\n\trebase = false\n' \
             "${SANDBOX_USER}" "ai-tools@${_domain}" > "${_gitconfig}"
