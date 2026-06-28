@@ -138,6 +138,18 @@ else
     note "tests/run.sh skipped (RUN_TESTS=${RUN_TESTS} or sources absent)"
 fi
 
+# ── reachability diagnostic (why can / can't the agent reach the project) ─────
+# claude-run checks `[[ -d CLAUDE_PROJECT_DIR ]]` AS the agent, so the agent must traverse every
+# ancestor. Dump each ancestor's perms + ACL and whether the agent can stat the project, so a
+# traverse-grant gap is visible rather than only surfacing as the session error below.
+banner "Reachability diagnostic"
+set -x
+ls -ld /home "/home/${OPERATOR}" "${PROJECT}" 2>&1 || true
+getfacl -p "/home/${OPERATOR}" 2>/dev/null | grep -vE '^#|^$' || true
+runuser -u ai-tools -- test -d "${PROJECT}" && echo "AGENT-CAN-REACH ${PROJECT}" || echo "AGENT-CANNOT-REACH ${PROJECT}"
+runuser -u ai-tools -- test -x "/home/${OPERATOR}" && echo "AGENT-CAN-TRAVERSE /home/${OPERATOR}" || echo "AGENT-CANNOT-TRAVERSE /home/${OPERATOR}"
+set +x
+
 # ── confined session smoke test (auth-free) ──────────────────────────────────
 # `claude --version` flows wrapper -> ai-ops gate -> allowlist -> sudo -> claude-run ->
 # `systemd-run --user --pty -- claude.exe --version`, so it exercises the whole confined
