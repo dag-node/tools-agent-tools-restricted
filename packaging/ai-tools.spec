@@ -4,7 +4,7 @@ Release:        1%{?dist}
 Summary:        Run Claude Code as a sandboxed system user (metapackage)
 
 License:        MIT
-URL:            https://github.com/example/ai-tools
+URL:            https://github.com/p4nda/ai-tools
 Source0:        %{name}-%{version}.tar.gz
 Source1:        %{name}.sysusers
 
@@ -333,7 +333,7 @@ fi
 %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
-* Thu Jun 25 2026 Packager <packager@example.com> - 0.1.0-1
+* Thu Jun 25 2026 dagnode <tools@dagnode.com> - 0.1.0-1
 - Initial RPM packaging: ai-tools-base / ai-tools-nodejs / claude-code-restricted
   subpackages from one source, sysusers account + ai-ops group creation, SELinux core
   module load, handback socket, and the bootstrap/admin commands.
