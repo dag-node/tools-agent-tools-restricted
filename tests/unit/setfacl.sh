@@ -2,7 +2,7 @@
 # tests/unit/setfacl.sh
 # Hermetic unit tests for the deployed ai-tools-setfacl helper: the group-permission ACL it
 # applies at project claim, the opt-in --with-git .git normalization (group + setgid + ACL),
-# its owner guard, and its secret/exclusion/prune skips. Runs the installed helper against a
+# its owner guard, and its secret/exclusion/skip-list skips. Runs the installed helper against a
 # /tmp testdir with a dummy allowlist (AI_TOOLS_ALLOWLIST); reads and writes nothing outside
 # the testdir.
 
@@ -104,9 +104,9 @@ else
     fail "a secret path was granted an ACL (exposed)"
 fi
 
-# (B2) pruned trees (.git) skipped; (B3) '!'-excluded subtree skipped.
-if ! g "${proj}/.git/objects/o"; then pass "pruned trees (.git) are skipped"
-else fail "a pruned-tree file was ACL'd"; fi
+# (B2) skipped trees (.git) skipped; (B3) '!'-excluded subtree skipped.
+if ! g "${proj}/.git/objects/o"; then pass "skipped trees (.git) are skipped"
+else fail "a skipped-tree file was ACL'd"; fi
 if ! g "${proj}/sub" && ! g "${proj}/sub/excluded"; then pass "'!'-excluded subtree is skipped"
 else fail "an excluded path was ACL'd"; fi
 

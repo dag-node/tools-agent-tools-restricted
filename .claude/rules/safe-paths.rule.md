@@ -74,7 +74,7 @@ silent skips), and exit `1` in the launch wrapper to match its `die`.
 - **Deployed `644 root:root`**, world-readable like `msg.lib.sh`/`log.lib.sh`: the operator
   wrapper, the CLI, and the root helpers all read the same list; it carries no secrets.
 - **Sourced, not executed**, so every consumer shares one list and one matcher — the same
-  single-source pattern as `prune-dirs.lib.sh`.
+  single-source pattern as `skip-dirs.lib.sh`.
 - **`msg.lib` is sourced from within the library** only when its function is not already
   defined (a `declare -F` guard), so the root helpers get the box without each sourcing it,
   while the wrapper/CLI — which already source `msg.lib` — do not re-source it. `msg.lib`

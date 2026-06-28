@@ -148,7 +148,7 @@ sandbox account can never hold the operator grant. The invariants the agent oper
   line-matchable). Detail in [messaging](.claude/rules/messaging.rule.md).
 - **Root sudo-helpers** live under `/usr/local/sbin/ai-tools/` (`chown`, `setgid`, `setfacl`,
   `unclaim`, `safedir`, `reclaim`, `claude-symlink`, `lockdown`, `relabel`); shared libraries under
-  `/usr/local/lib/ai-tools/` (`secret-patterns`, `prune-dirs`, `safe-paths`, `relabel`,
+  `/usr/local/lib/ai-tools/` (`secret-patterns`, `skip-dirs`, `safe-paths`, `relabel`,
   `operator`, `msg`, `log`).
 
 ### Documentation register

@@ -120,7 +120,7 @@ install -m 0750 src%{ai_bindir}/ai-tools-handback-client.py %{buildroot}%{ai_bin
 
 # ── base: shared libraries ───────────────────────────────────────────────────
 install -d -m 0750 %{buildroot}%{ai_libdir}
-for l in log msg prune-dirs relabel secret-patterns operator control-plane safe-paths; do
+for l in log msg skip-dirs relabel secret-patterns operator control-plane safe-paths; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 
@@ -264,7 +264,7 @@ fi
 %dir %attr(0750, root, ai-tools) %{ai_libdir}
 %attr(0644, root, root) %{ai_libdir}/log.lib.sh
 %attr(0644, root, root) %{ai_libdir}/msg.lib.sh
-%attr(0640, root, ai-tools) %{ai_libdir}/prune-dirs.lib.sh
+%attr(0640, root, ai-tools) %{ai_libdir}/skip-dirs.lib.sh
 %attr(0640, root, root) %{ai_libdir}/relabel.lib.sh
 %attr(0640, root, root) %{ai_libdir}/secret-patterns.lib.sh
 %attr(0644, root, root) %{ai_libdir}/operator.lib.sh

@@ -42,12 +42,12 @@ AI_TOOLS_PROTECTED_PATHS=(
 # an entry, or is an ancestor that contains one. Return 1 otherwise. Expects an absolute
 # path; normalizes a trailing slash so "/etc/" matches "/etc" and bare root stays "/".
 ai_tools_protected_path_match() {
-    local p="${1:-}" entry
-    [[ -n "${p}" ]] || return 1
-    p="${p%/}"; [[ -z "${p}" ]] && p="/"
+    local path="${1:-}" entry
+    [[ -n "${path}" ]] || return 1
+    path="${path%/}"; [[ -z "${path}" ]] && path="/"
     for entry in "${AI_TOOLS_PROTECTED_PATHS[@]}"; do
-        [[ "${p}" == "${entry}" ]] && { printf '%s\n' "${entry}"; return 0; }   # exact
-        [[ "${entry}" == "${p}/"* ]] && { printf '%s\n' "${entry}"; return 0; } # p contains entry
+        [[ "${path}" == "${entry}" ]] && { printf '%s\n' "${entry}"; return 0; }   # exact
+        [[ "${entry}" == "${path}/"* ]] && { printf '%s\n' "${entry}"; return 0; } # path contains entry
     done
     return 1
 }
@@ -59,19 +59,19 @@ ai_tools_protected_path_match() {
 # realpath -m (no existence requirement) and falls back to the raw argument, so an
 # unresolvable path is still matched against the list rather than slipping through.
 ai_tools_assert_safe_target() {
-    local raw="${1:-}" op="${2:-operation}" resolved match
-    resolved="$(realpath -m -- "${raw}" 2>/dev/null)" || resolved="${raw}"
-    match="$(ai_tools_protected_path_match "${resolved}")" || return 0
-    local l1="Refusing the ${op}: the target is a protected system directory."
-    local l2="${resolved}"
-    local l3="It is on the ai-tools protected-paths backstop (matched ${match}); the sandbox does not operate on system directories. A real project must live elsewhere -- do not add a system directory to allowed-projects."
+    local raw_path="${1:-}" operation="${2:-operation}" resolved_path matched_entry
+    resolved_path="$(realpath -m -- "${raw_path}" 2>/dev/null)" || resolved_path="${raw_path}"
+    matched_entry="$(ai_tools_protected_path_match "${resolved_path}")" || return 0
+    local line_intro="Refusing the ${operation}: the target is a protected system directory."
+    local line_path="${resolved_path}"
+    local line_detail="It is on the ai-tools protected-paths backstop (matched ${matched_entry}); the sandbox does not operate on system directories. A real project must live elsewhere -- do not add a system directory to allowed-projects."
     if declare -F ai_tools_msg_error >/dev/null 2>&1; then
-        ai_tools_msg_error "${l1}" "${l2}" "${l3}"
+        ai_tools_msg_error "${line_intro}" "${line_path}" "${line_detail}"
     else
-        printf 'ai-tools: %s\n  %s\n  %s\n' "${l1}" "${l2}" "${l3}" >&2
+        printf 'ai-tools: %s\n  %s\n  %s\n' "${line_intro}" "${line_path}" "${line_detail}" >&2
     fi
     declare -F ai_tools_log_warn >/dev/null 2>&1 \
-        && ai_tools_log_warn "refused ${op} on protected path ${resolved} (matched ${match})"
+        && ai_tools_log_warn "refused ${operation} on protected path ${resolved_path} (matched ${matched_entry})"
     return 1
 }
 

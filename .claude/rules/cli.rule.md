@@ -114,7 +114,7 @@ so it runs **as root without a prompt** — kept safe by being a fixed-path, no-
 the projects user cannot modify. `ai-tools-setfacl` and `ai-tools-unclaim` need root
 (`CAP_FOWNER`) to act on files the projects user does not own (e.g. agent-written files from
 a prior session); each re-validates its target path against the allowlist and shares the
-exclusion/secret-skip/prune rules with `ai-tools-setgid`
+exclusion/secret-skip/skip-list rules with `ai-tools-setgid`
 (see [ownership-and-hooks](ownership-and-hooks.rule.md)). `ai-tools-safedir` needs root to
 write the root-owned `.gitconfig`; on add it re-validates the path against the allowlist through
 the shared `operator.lib.sh` resolver, but edits a single entry rather than walking a tree.

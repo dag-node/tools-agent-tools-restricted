@@ -3,7 +3,7 @@ paths:
   - "src/opt/ai-tools/.claude/**"
   - "src/usr/local/sbin/ai-tools/ai-tools-chown.sh"
   - "src/usr/local/sbin/ai-tools/ai-tools-setgid.sh"
-  - "src/usr/local/lib/ai-tools/prune-dirs.lib.sh"
+  - "src/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 ---
 
 # Ownership handback, hooks, and sweeps
@@ -45,9 +45,26 @@ below instead.
 
 A `Stop` hook (`session-hook.sh`) closes the `Bash`-tool gap: at each turn's end it
 reads `.cwd`, finds the `SANDBOX_USER`-owned paths under it (bounded by a timestamp
-marker; heavy trees like `.git`/`node_modules` pruned) and hands each to `ai-tools-chown`.
+marker; heavy trees like `.git`/`node_modules` skipped) and hands each to `ai-tools-chown`.
 Running at turn end rather than per-Bash-call means handing a file to `640` (group loses
 write) cannot break an in-progress in-place Bash edit.
+
+### Listing the agent's session footprint
+
+A useful side effect falls out of the born-`SANDBOX_USER`-owned + handback model: the
+`SessionStart` pass restores every non-skipped project file to the operator, and thereafter
+each file the agent writes is born `SANDBOX_USER`-owned until a sweep hands it back. So among
+the non-skipped files, *owned by `SANDBOX_USER`* means *touched since the last handback* —
+the agent's current, not-yet-reconciled footprint. Reusing the same skip set keeps the heavy
+trees (agent-owned from before) out of the result:
+
+```
+find <project> <skip-expr> -prune -o -user SANDBOX_USER -print
+```
+
+This is a cheap way for the operator (or the agent) to see what the agent changed this
+session, distinct from `git status` in that it also surfaces untracked and `.gitignore`d
+writes.
 
 ## `SessionStart` — the unbounded recovery pass
 
@@ -120,8 +137,11 @@ owning operator (`ai_tools_resolve_owner`) and acts **only** on dirs that operat
 sandbox account holds — a dir held by any third party (root, another developer) is left
 untouched, so normalization never pulls a foreign-held dir into the agent's group. This is the claim-side partner to `ai-tools-chown`'s "act only on
 `SANDBOX_USER`-owned paths" rule. Heavy/transient trees (`.git`, `node_modules`, `.venv`,
-`__pycache__`, `bin`, `obj`, `packages`) are skipped; that prune list is shared with the
-sweep and `ai-tools-lockdown` via `/usr/local/lib/ai-tools/prune-dirs.lib.sh`.
+`__pycache__`, `bin`, `obj`, `packages`) are skipped; that skip list is shared with the
+sweep and `ai-tools-lockdown` via `/usr/local/lib/ai-tools/skip-dirs.lib.sh`, which groups
+the names into categories (VCS, package, artifact, cache) an operator can override per
+category in `operator.conf` and combines per consumer. "Skip" means omitted from the walk,
+not hidden from the agent — a skipped tree's files simply stay agent-owned.
 
 Setgid handles group *ownership* inheritance; a POSIX ACL handles *permission* inheritance in
 both directions. The root helper `ai-tools-setfacl` (run at project claim, see
@@ -134,7 +154,7 @@ OPERATOR's umask-independent access to AGENT-written files — so the operator c
 and reads agent-written `.git` objects, **without joining `SANDBOX_GROUP` and without waiting on
 the ownership handback**; it is the access counterpart to setgid's `operator→agent` group grant.
 The named entry governs agent-owned files and yields to the owner entry on operator-owned ones.
-The helper shares the allowlist/exclusion/secret-skip/prune rules with the setgid pass, so
+The helper shares the allowlist/exclusion/secret-skip/skip-list rules with the setgid pass, so
 secret-named and `!`-excluded paths receive neither grant. `other::---` is pinned explicitly
 rather than cloned from each directory's mode, which on a permissive-umask directory would
 otherwise seed `default:other::r-x` and leak read access to every future file.

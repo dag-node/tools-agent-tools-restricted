@@ -369,7 +369,7 @@ do_summary() {
     _chk /var/opt/ai-tools/sandbox-projects
     _chk /var/opt/ai-tools/README.md
     _chk /usr/local/lib/ai-tools/secret-patterns.lib.sh
-    _chk /usr/local/lib/ai-tools/prune-dirs.lib.sh
+    _chk /usr/local/lib/ai-tools/skip-dirs.lib.sh
     _chk /usr/local/lib/ai-tools/log.lib.sh
     _chk /usr/local/lib/ai-tools/msg.lib.sh
     _chk /usr/local/lib/ai-tools/operator.lib.sh
@@ -490,7 +490,7 @@ do_install() {
 
     # Shared libraries, sourced by the helpers. The dir is root-owned, group
     # SANDBOX_GROUP, 750 -- no world bit: the agent enters via group to read the
-    # prune list, but has no write, so it cannot alter the rules. Enforce on
+    # skip list, but has no write, so it cannot alter the rules. Enforce on
     # re-install even when the dir pre-exists.
     log "/usr/local/lib/ai-tools/"
     ensure_dir 750 root "${SANDBOX_GROUP}" /usr/local/lib/ai-tools
@@ -505,12 +505,12 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/secret-patterns.lib.sh" \
         /usr/local/lib/ai-tools/secret-patterns.lib.sh
 
-    # Prune-dir list: ALSO sourced by session-hook.sh, which runs AS the agent, so
+    # Skip-dir list/selector: ALSO sourced by session-hook.sh, which runs AS the agent, so
     # it needs group read -- 640 root:SANDBOX_GROUP (no world). No tokens to substitute.
-    log "/usr/local/lib/ai-tools/prune-dirs.lib.sh"
+    log "/usr/local/lib/ai-tools/skip-dirs.lib.sh"
     install -o root -g "${SANDBOX_GROUP}" -m 640 \
-        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/prune-dirs.lib.sh" \
-        /usr/local/lib/ai-tools/prune-dirs.lib.sh
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/skip-dirs.lib.sh" \
+        /usr/local/lib/ai-tools/skip-dirs.lib.sh
 
     # Logger library: 644 root:root -- world-readable. Sourced by the root helpers, by
     # the hooks (run as ai-tools), and by the CLI (run as the projects user, NOT in
@@ -1090,7 +1090,8 @@ do_uninstall() {
     rm -f /usr/local/bin/ai-tools
     rm -f /usr/local/bin/claude
     rm -f /usr/local/lib/ai-tools/secret-patterns.lib.sh
-    rm -f /usr/local/lib/ai-tools/prune-dirs.lib.sh
+    rm -f /usr/local/lib/ai-tools/skip-dirs.lib.sh
+    rm -f /usr/local/lib/ai-tools/safe-paths.lib.sh
     rm -f /usr/local/lib/ai-tools/log.lib.sh
     rm -f /usr/local/lib/ai-tools/msg.lib.sh
     rm -f /usr/local/lib/ai-tools/operator.lib.sh
@@ -1109,7 +1110,7 @@ do_uninstall() {
     rm -f /opt/ai-tools/.claude/settings.json
 
     section "Registration"
-    # Optionally prune this project from the allowlist (default: keep)
+    # Optionally remove this project from the allowlist (default: keep)
     local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
     if [[ -f "${allowlist}" ]] && grep -qxF "${SCRIPT_DIR}" "${allowlist}"; then
         _resp="$(ask "Awaiting input" "[Y]/n:" \
@@ -1124,7 +1125,7 @@ do_uninstall() {
         fi
     fi
 
-    # Optionally prune this project from git safe.directory (default: keep)
+    # Optionally remove this project from git safe.directory (default: keep)
     local git_escaped
     git_escaped="$(printf '%s' "${SCRIPT_DIR}" | sed 's/[.^$*+?{|\\[()\]]/\\&/g')"
     if git config --file /opt/ai-tools/.gitconfig \

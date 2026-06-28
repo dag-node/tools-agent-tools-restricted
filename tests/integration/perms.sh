@@ -33,14 +33,14 @@ check_file /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint root            
 check_file /usr/local/sbin/ai-tools/ai-tools-bootstrap        root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-admin           root              root              750
 # Lib dir: root-owned, group ai-tools, 750 (no world). The agent enters via group to read
-# the prune list, but has no write, so it cannot alter the rules.
+# the skip list, but has no write, so it cannot alter the rules.
 check_file /usr/local/lib/ai-tools                            root              "${SANDBOX_GROUP}" 750
 # Secret-pattern matcher: read only by the root helpers, so 640 root:root -- no group/world
 # surface. The agent (group ai-tools) cannot read it.
 check_file /usr/local/lib/ai-tools/secret-patterns.lib.sh     root              root              640
-# Prune-dir list: also sourced by session-hook.sh (runs as the agent), so 640 root:ai-tools
-# -- agent reads via group, no world.
-check_file /usr/local/lib/ai-tools/prune-dirs.lib.sh          root              "${SANDBOX_GROUP}" 640
+# Skip-dir list/selector: also sourced by session-hook.sh (runs as the agent), so 640
+# root:ai-tools -- agent reads via group, no world.
+check_file /usr/local/lib/ai-tools/skip-dirs.lib.sh           root              "${SANDBOX_GROUP}" 640
 # Logger library: 644 root:root -- world-readable, sourced by the root helpers, the hooks
 # (run as ai-tools), and the CLI (run as the projects user, not in ai-tools).
 check_file /usr/local/lib/ai-tools/log.lib.sh                 root              root              644

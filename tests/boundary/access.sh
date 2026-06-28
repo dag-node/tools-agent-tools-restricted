@@ -38,13 +38,13 @@ else
     fail "can read ${splib} -- agent can inspect the secret-pattern matcher and avoid triggering it"
 fi
 
-# Prune-dir library (640 root:ai-tools) is sourced by session-hook.sh while it runs AS the
+# Skip-dir library (640 root:ai-tools) is sourced by session-hook.sh while it runs AS the
 # agent. Group read is intentional and required; the content is not sensitive.
-pdlib=/usr/local/lib/ai-tools/prune-dirs.lib.sh
-if runuser -u "${SANDBOX_USER}" -- test -r "${pdlib}" 2>/dev/null; then
-    pass "can read ${pdlib} (640 root:ai-tools): required by session-hook.sh at runtime"
+skip_dirs_lib=/usr/local/lib/ai-tools/skip-dirs.lib.sh
+if runuser -u "${SANDBOX_USER}" -- test -r "${skip_dirs_lib}" 2>/dev/null; then
+    pass "can read ${skip_dirs_lib} (640 root:ai-tools): required by session-hook.sh at runtime"
 else
-    fail "cannot read ${pdlib} -- session-hook.sh will fail to source the prune list"
+    fail "cannot read ${skip_dirs_lib} -- session-hook.sh will fail to source the skip list"
 fi
 
 # /usr/local/sbin/ai-tools (750 root:root) holds the root helpers. Listing it lets the agent

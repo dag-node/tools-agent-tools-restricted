@@ -54,13 +54,12 @@ if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
 fi
 
-# Heavy/transient tree names from the shared list, MINUS .git -- the one tree the reclaim includes.
-readonly PRUNE_LIB="/usr/local/lib/ai-tools/prune-dirs.lib.sh"
-AI_TOOLS_PRUNE_NAMES=()
+# Directory-skip selector (shared single source of truth). A missing lib leaves a stub that
+# skips nothing -- a slower but correct walk.
+readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 # shellcheck source=/dev/null
-[[ -r "${PRUNE_LIB}" ]] && source "${PRUNE_LIB}" || true
-declare -a prune=()
-for _n in "${AI_TOOLS_PRUNE_NAMES[@]:-}"; do [[ "${_n}" == ".git" ]] || prune+=("${_n}"); done
+source "${SKIP_DIRS_LIB}" 2>/dev/null \
+    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); AI_TOOLS_SKIP_NAMES=(); return 0; }
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to walk a system directory even when
 # the allowlist includes it. A missing lib leaves a no-op stub, so the helper still works --
@@ -75,17 +74,12 @@ canonical="$(realpath -e -- "${TARGET}" 2>/dev/null)" || exit 0
 ai_tools_assert_safe_target "${canonical}" "reclaim" || exit 3
 ai_tools_resolve_owner "${canonical}" || exit 0
 
-# find <project> -xdev ( heavy-tree names ) -prune -o ( file|dir ) -user SANDBOX_USER -print0
-declare -a expr=( "${canonical}" -xdev )
-if (( ${#prune[@]} > 0 )); then
-    expr+=( '(' )
-    for i in "${!prune[@]}"; do
-        (( i > 0 )) && expr+=( -o )
-        expr+=( -name "${prune[$i]}" )
-    done
-    expr+=( ')' -prune -o )
-fi
-expr+=( '(' -type f -o -type d ')' -user "${SANDBOX_USER}" -print0 )
+# Default reclaim walks .git but skips the heavy trees; --full skips nothing. The lib owns
+# both defaults -- the helper only names the consumer.
+if ${FULL}; then ai_tools_skip_find_expr reclaim-full; else ai_tools_skip_find_expr reclaim; fi
+# find <project> -xdev <skip dirs> -prune -o ( file|dir ) -user SANDBOX_USER -print0
+declare -a expr=( "${canonical}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
+                  '(' -type f -o -type d ')' -user "${SANDBOX_USER}" -print0 )
 
 declare -i n=0
 while IFS= read -r -d '' path; do

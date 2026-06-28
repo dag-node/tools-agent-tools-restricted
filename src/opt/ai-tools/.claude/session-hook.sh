@@ -31,7 +31,7 @@
 #                 session that was killed (crash, kill -9, closed terminal) before
 #                 its Stop sweep could run -- the one gap the Stop net cannot close
 #                 itself. It ALSO reclaims the project's .git, which every sweep
-#                 prunes (see below). Gated on the hook's .source: only "startup"
+#                 skips (see below). Gated on the hook's .source: only "startup"
 #                 and "resume" (a freshly started process, which is what can follow
 #                 an interrupted session) trigger the pass. "clear"/"compact" stay
 #                 within a live process whose Stop sweeps already cover the tree,
@@ -51,14 +51,14 @@
 #                 reclaim is logged to journald alone so it never clobbers claude's
 #                 startup banner.
 #
-# .git reclaim: every sweep PRUNES .git for cost, so ai-tools-owned objects the agent
+# .git reclaim: every sweep SKIPS .git for cost, so ai-tools-owned objects the agent
 # writes there via `git commit` (Bash tool -> no Write|Edit PostToolUse) are never
 # handed back by the sweep, on a graceful exit as much as a killed one -- rotting .git
 # into mixed ownership that makes git report "dubious ownership". The unbounded
 # session-start pass therefore reclaims .git unconditionally; a per-turn Stop reclaim
 # is deliberately avoided (it would change ownership mid-turn under a live git command).
 #
-# Heavy/transient trees are pruned in both sweeping modes (their contents are world-readable
+# Heavy/transient trees are skipped in both sweeping modes (their contents are world-readable
 # anyway, so <you> can already read them) and the scan stays on one filesystem (-xdev).
 #
 # Deploy: sudo install -o @PROJECTS_USER@ -g ai-tools -m 750 \
@@ -137,7 +137,7 @@ reclaim_git_tree() {
 
 # session-end: graceful process exit. Clear the clean-exit marker so the next session-start does
 # not read this session as interrupted, and reclaim this project's .git to the operator. The
-# per-turn Stop sweeps prune .git, so objects the agent wrote there via `git commit` stay
+# per-turn Stop sweeps skip .git, so objects the agent wrote there via `git commit` stay
 # @SANDBOX_USER@-owned; reclaiming at exit -- the session is over, so no live git command to
 # disturb -- converges .git ownership to <you>:@SANDBOX_GROUP@ right away (consistent with the work
 # tree, which the Stop sweeps already hand back), rather than waiting for the next session-start.
@@ -157,12 +157,12 @@ if [[ "${MODE}" == "session-end" ]]; then
     exit 0
 fi
 
-# Pruned directory names from the shared library (single source of truth, shared
-# with ai-tools-setgid / ai-tools-lockdown). Unreadable -> empty -> no pruning.
-readonly PRUNE_LIB="/usr/local/lib/ai-tools/prune-dirs.lib.sh"
-AI_TOOLS_PRUNE_NAMES=()
+# Directory-skip selector from the shared library (single source of truth, shared with
+# ai-tools-setgid / ai-tools-lockdown). A missing lib leaves a stub that skips nothing.
+readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 # shellcheck source=/dev/null
-[[ -r "${PRUNE_LIB}" ]] && source "${PRUNE_LIB}" || true
+source "${SKIP_DIRS_LIB}" 2>/dev/null \
+    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); AI_TOOLS_SKIP_NAMES=(); return 0; }
 
 # Capture the hook JSON once (stdin is a pipe, readable only once), then parse
 # both .cwd and -- in session-start mode -- .source from the captured payload.
@@ -212,17 +212,9 @@ fi
 # from session start.
 newref="$(mktemp "/opt/ai-tools/.claude/.sweep.XXXXXX" 2>/dev/null)" || exit 0
 
-# find DIR -xdev \( prune heavy trees \) -prune -o \( ai-tools-owned [newer] file|dir \) -print0
-declare -a expr=( "${dir}" -xdev )
-if (( ${#AI_TOOLS_PRUNE_NAMES[@]} > 0 )); then
-    expr+=( '(' )
-    for i in "${!AI_TOOLS_PRUNE_NAMES[@]}"; do
-        (( i > 0 )) && expr+=( -o )
-        expr+=( -name "${AI_TOOLS_PRUNE_NAMES[$i]}" )
-    done
-    expr+=( ')' -prune -o )
-fi
-expr+=( '(' -user @SANDBOX_USER@ )
+# find DIR -xdev \( skip heavy trees \) -prune -o \( ai-tools-owned [newer] file|dir \) -print0
+ai_tools_skip_find_expr sweep
+declare -a expr=( "${dir}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" '(' -user @SANDBOX_USER@ )
 # Bound to paths changed since the marker, EXCEPT an unbounded (session-start)
 # pass, which sweeps every ai-tools-owned path. A first-ever stop run (no marker)
 # is likewise a full sweep.
@@ -262,7 +254,7 @@ reclaim_git_tree() {
 }
 
 # .git ownership reclaim, run on every unbounded (session-start) pass. Every sweep
-# PRUNES .git, so ai-tools-owned objects the agent writes there via `git commit`
+# SKIPS .git, so ai-tools-owned objects the agent writes there via `git commit`
 # (Bash tool, no file_path, so no Write|Edit PostToolUse handback) escape the sweep
 # on graceful and killed exits alike. Such objects leave .git in mixed ownership
 # (work tree <you>-owned, .git internals ai-tools-owned), which makes git report
@@ -287,7 +279,7 @@ if [[ "${unbounded}" -eq 1 ]]; then
     # cross-project mixed ownership the agent should relay, with the manual reconcile for
     # stragglers the helper could not reach (excluded or quarantined paths). The routine
     # post-git-activity reclaim runs on essentially every session-start (the per-turn sweeps
-    # always prune .git) and has already repaired ownership, so there is nothing for the user
+    # always skip .git) and has already repaired ownership, so there is nothing for the user
     # to act on; injecting additionalContext would only force a TUI re-render that clobbers
     # claude's startup banner. It therefore stays journald-only.
     total_found=$((git_found + prev_found))

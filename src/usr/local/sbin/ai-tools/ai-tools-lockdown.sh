@@ -33,12 +33,12 @@ readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=/dev/null
 source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
 
-# Pruned directory names from the shared library (single source of truth, shared
-# with session-hook.sh and ai-tools-setgid). Unreadable -> empty -> no pruning.
-readonly PRUNE_LIB="/usr/local/lib/ai-tools/prune-dirs.lib.sh"
-AI_TOOLS_PRUNE_NAMES=()
+# Directory-skip selector from the shared library (single source of truth, shared with
+# session-hook.sh and ai-tools-setgid). A missing lib leaves a stub that skips nothing.
+readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 # shellcheck source=/dev/null
-[[ -r "${PRUNE_LIB}" ]] && source "${PRUNE_LIB}" || true
+source "${SKIP_DIRS_LIB}" 2>/dev/null \
+    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); AI_TOOLS_SKIP_NAMES=(); return 0; }
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/lockdown.log.
 # Best-effort -- a no-op fallback keeps the helper working if the lib is missing.
@@ -158,16 +158,9 @@ ai_tools_load_secret_patterns
 
 # ── Enumerate secret-matching paths under the target ─────────────────────────
 # find -P (default): never follow symlinks; -type f/-type d already exclude them.
-declare -a expr=( "${target}" -xdev )
-if (( ${#AI_TOOLS_PRUNE_NAMES[@]} > 0 )); then
-    expr+=( '(' )
-    for i in "${!AI_TOOLS_PRUNE_NAMES[@]}"; do
-        (( i > 0 )) && expr+=( -o )
-        expr+=( -name "${AI_TOOLS_PRUNE_NAMES[$i]}" )
-    done
-    expr+=( ')' -prune -o )
-fi
-expr+=( '(' -type f -o -type d ')' -print0 )
+ai_tools_skip_find_expr lockdown
+declare -a expr=( "${target}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
+                  '(' -type f -o -type d ')' -print0 )
 
 declare -a hits=()
 while IFS= read -r -d '' path; do

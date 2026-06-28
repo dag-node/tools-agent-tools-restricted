@@ -48,7 +48,7 @@ redirect it.
 the real, token-substituted artifact) against a `/tmp` testdir and a dummy allowlist,
 asserting the algorithm: allowlist gating, the owner guard (acts only on projects-user- or
 sandbox-account-owned paths) where it applies, ACL/setgid/permission transforms, the
-secret/exclusion/prune skips, and -- for `-lockdown` -- the proactive sweep that locks
+secret/exclusion/skip-list skips, and -- for `-lockdown` -- the proactive sweep that locks
 **pre-existing user-owned** secrets (files `600`, dirs `700`, `<you>:SANDBOX_GROUP`) which
 the reactive `-chown` never reaches, plus its refusal to run as the sandbox account. No live
 daemon, no SELinux dependency, no wrapper. Run as root (needed to set arbitrary ownership

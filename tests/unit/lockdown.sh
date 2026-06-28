@@ -4,7 +4,7 @@
 # Unlike ai-tools-chown (reactive, agent-owned paths only), lockdown locks down EVERY
 # secret-named path under an allowed project -- including pre-existing user-owned ones the
 # agent could otherwise read -- setting files 600, directories 700, owner <you>:SANDBOX_GROUP.
-# It operates on the CWD (not a path arg), honours the same allowlist + '!'-exclusions + prune
+# It operates on the CWD (not a path arg), honours the same allowlist + '!'-exclusions + skip
 # list, refuses to run as the sandbox account, and applies through a pinned fd. Run against a
 # /tmp testdir with a dummy allowlist (AI_TOOLS_ALLOWLIST override) as root.
 
@@ -26,14 +26,14 @@ chmod 0755 "${TESTDIR}" "${proj}"
 
 # Pre-existing, user-owned fixtures (the case ai-tools-chown never reaches). Secret-named
 # file + dir, an ordinary file, a secret under a '!'-excluded subtree, and a secret under a
-# pruned (.git) tree.
+# skipped (.git) tree.
 mk_secret() { : > "$1"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "$1"; chmod 0644 "$1"; }
 mk_secret "${proj}/.env"                                            # secret file
 chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj}/secrets"; chmod 0755 "${proj}/secrets"  # secret dir
 : > "${proj}/secrets/inner"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj}/secrets/inner"
 mk_secret "${proj}/README.md" && chmod 0644 "${proj}/README.md"     # ordinary (non-secret name)
 mk_secret "${proj}/vendor/.npmrc"                                   # secret under '!'-excluded
-mk_secret "${proj}/.git/id_rsa"                                     # secret under pruned .git
+mk_secret "${proj}/.git/id_rsa"                                     # secret under skipped .git
 mk_allowlist "${proj}" "!${proj}/vendor"
 
 # Run the deployed helper in <cwd> (it acts on pwd), non-interactive (--yes), never aborting
@@ -87,11 +87,11 @@ else
     fail "excluded secret was locked: $(stat -c '%U:%G' "${proj}/vendor/.npmrc") $(perm "${proj}/vendor/.npmrc")"
 fi
 
-# (2e) Secret under a pruned tree (.git) is skipped.
+# (2e) Secret under a skipped tree (.git) is left untouched.
 if [[ "$(stat -c '%U:%G' "${proj}/.git/id_rsa")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" && "$(perm "${proj}/.git/id_rsa")" == 644 ]]; then
-    pass "secret under a pruned tree (.git) is left untouched"
+    pass "secret under a skipped tree (.git) is left untouched"
 else
-    fail "pruned-tree secret was locked: $(stat -c '%U:%G' "${proj}/.git/id_rsa") $(perm "${proj}/.git/id_rsa")"
+    fail "skipped-tree secret was locked: $(stat -c '%U:%G' "${proj}/.git/id_rsa") $(perm "${proj}/.git/id_rsa")"
 fi
 
 # (3) A non-allowlisted CWD is refused (non-zero), and its secret is untouched.

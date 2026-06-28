@@ -25,7 +25,7 @@
 # Owner guard: only the projects user's and the sandbox account's own files are touched;
 # anything owned by a third party (root, another developer) is left untouched, mirroring
 # the claim helpers. Secret-named and '!'-excluded paths are skipped (a locked secret
-# stays where it is), and heavy/transient trees are pruned -- the same rules as setgid/
+# stays where it is), and heavy/transient trees are skipped -- the same rules as setgid/
 # setfacl, via the shared libraries. .git is the exception: the main walk skips it like the
 # other heavy trees, but a dedicated one-shot pass reverts it (it is the tree a claim groups,
 # and optionally normalizes, for the agent), so the unclaim fully revokes the agent's access
@@ -62,11 +62,12 @@ if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
 fi
 
-# Heavy/transient trees pruned from the walk (shared single source of truth).
-readonly PRUNE_LIB="/usr/local/lib/ai-tools/prune-dirs.lib.sh"
-AI_TOOLS_PRUNE_NAMES=()
+# Directory-skip selector (shared single source of truth). A missing lib leaves a stub that
+# skips nothing -- a slower but correct walk.
+readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 # shellcheck source=/dev/null
-[[ -r "${PRUNE_LIB}" ]] && source "${PRUNE_LIB}" || true
+source "${SKIP_DIRS_LIB}" 2>/dev/null \
+    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); AI_TOOLS_SKIP_NAMES=(); return 0; }
 
 # Secret-name matcher: never touch a secret-named path (a locked secret stays put). We
 # run as root, so we can read the 640 root:root lib. Best-effort -- falls back to the
@@ -182,19 +183,12 @@ _safe_unclaim() {
     return "${rc}"
 }
 
-# Walk the project's directories and files (pruning heavy trees, one filesystem). A
+# Walk the project's directories and files (skipping heavy trees, one filesystem). A
 # '!'-excluded or secret-named directory has its whole subtree skipped; an excluded or
 # secret regular file is skipped on its own.
-declare -a expr=( "${canonical}" -xdev )
-if (( ${#AI_TOOLS_PRUNE_NAMES[@]} > 0 )); then
-    expr+=( '(' )
-    for i in "${!AI_TOOLS_PRUNE_NAMES[@]}"; do
-        (( i > 0 )) && expr+=( -o )
-        expr+=( -name "${AI_TOOLS_PRUNE_NAMES[$i]}" )
-    done
-    expr+=( ')' -prune -o )
-fi
-expr+=( '(' -type d -o -type f ')' -print0 )
+ai_tools_skip_find_expr unclaim
+declare -a expr=( "${canonical}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
+                  '(' -type d -o -type f ')' -print0 )
 
 declare -i changed=0
 find "${expr[@]}" 2>/dev/null \
