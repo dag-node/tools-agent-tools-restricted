@@ -5,7 +5,7 @@ in, so the agent never reads the original repository's full git history — whic
 may contain credentials or other secrets the agent should not see.
 
 ```bash
-# everything runs as @PROJECTS_USER@ — no sudo needed
+# everything runs as the operator — no sudo needed
 cd /path/to/original/repo          # a normal checkout with a remote
 ai-tools --sandbox-create          # clone it into sandbox-projects/, push a branch
 
@@ -16,7 +16,7 @@ ai-tools --sandbox-push            # send the agent's commits to the remote bran
 ```
 
 `ai-tools --sandbox-create` does three things: creates the branch
-`ai-tools/sandbox-@PROJECTS_USER@/main` from the repo's current branch and pushes
+`ai-tools/sandbox-<operator>/main` from the repo's current branch and pushes
 it to the repo's remote, shallow-clones that branch into
 `/var/opt/ai-tools/sandbox-projects/<name>` (depth 1 — no historical objects), and
 registers the clone so Claude Code may run there.
@@ -32,10 +32,10 @@ outside the sandbox entirely.
 
 The clone is intentionally **shallow**; that is the isolation. The workflow never
 pulls: the agent commits locally and `ai-tools --sandbox-push` sends the work up,
-and to pick up upstream changes you remove the sandbox and re-create it
+and to pick up upstream changes the operator removes the sandbox and re-creates it
 (`ai-tools --sandbox-create` reuses the same branch).
 
-If you ever do fetch or pull here, it stays safe **only** while `.git/shallow` is
+Any fetch or pull here stays safe **only** while `.git/shallow` is
 intact — git honours that boundary and fetches shallow changes only. Two things
 break it, and both download the original repo's full history (the secrets the
 sandbox exists to keep out) into the clone:
@@ -43,7 +43,8 @@ sandbox exists to keep out) into the clone:
 - `git fetch --unshallow` / `git fetch --deepen` — explicit deepening; never run these.
 - a **missing** `.git/shallow` — then an ordinary `git pull` unshallows. The agent
   has no credentials and cannot fetch, but it *can* delete `.git/shallow`; so before
-  pulling with your own credentials, confirm the file is still present (or don't pull).
+  pulling with the operator's own credentials, confirm the file is still present (or
+  skip the pull).
 
 When in doubt, push the work out and throw the clone away rather than syncing it.
 
@@ -52,18 +53,18 @@ When in doubt, push the work out and throw the clone away rather than syncing it
 Shallowness removes only the *history*. The clone's current working tree still
 contains whatever secrets live at the tip commit — a checked-in `.env`, a key file,
 a `kubeconfig`. The sandbox clone is an ordinary registered project, so the same
-protections apply and you should still use them as defense in depth:
+protections apply and the operator should still use them as defense in depth:
 
 - `!`-exclude live secret paths for this clone in
   `~/.config/ai-tools/allowed-projects`, so their ownership is never handed back to
   the agent group; and
 - run `ai-tools --lockdown <clone>` (or `cd <clone> && sudo ai-tools-lockdown`) to
-  lock existing secret-named files (`.env`, `*.key`, …) to `<you>:<you> 600` before
-  the agent runs. Either form prompts for your sudo password.
+  lock existing secret-named files (`.env`, `*.key`, …) to `<operator>:<operator> 600`
+  before the agent runs. Either form prompts for the operator's sudo password.
 
 `ai-tools --sandbox-create` offers to run this lockdown immediately after the
-clone. If you decline, or `sudo` is unavailable, it instead writes a guard
-`CLAUDE.md` into the clone telling the agent to do nothing until lockdown runs
+clone. When the operator declines, or `sudo` is unavailable, it instead writes a
+guard `CLAUDE.md` into the clone telling the agent to do nothing until lockdown runs
 (any existing `CLAUDE.md` is preserved as `CLAUDE.md.bak`); the guard is removed
 and the original restored automatically once `ai-tools --lockdown` completes.
 
@@ -72,18 +73,18 @@ it only keeps *past* ones out.
 
 ## Pushing back
 
-Only **@PROJECTS_USER@** can push. The sandbox account (`ai-tools`) has no SSH key
+Only the **operator** can push. The sandbox account (`ai-tools`) has no SSH key
 or git credential, so it physically cannot reach the remote — `ai-tools
---sandbox-push` runs as @PROJECTS_USER@ and uses @PROJECTS_USER@'s credentials.
+--sandbox-push` runs as the operator and uses the operator's credentials.
 
 The push target is a per-repository branch:
 
 ```
-ai-tools/sandbox-@PROJECTS_USER@/main
+ai-tools/sandbox-<operator>/main
 ```
 
 `main` is the default leaf; `ai-tools --sandbox-create` accepts a custom leaf
-(e.g. `ai-tools/sandbox-@PROJECTS_USER@/feature-x`). Each repository has its own
+(e.g. `ai-tools/sandbox-<operator>/feature-x`). Each repository has its own
 remote, so the same branch name across projects never collides.
 
 ## Merging the agent's work
@@ -92,12 +93,12 @@ Anyone with access to the repository reviews and merges the branch:
 
 ```
 git fetch origin
-git log origin/main..origin/ai-tools/sandbox-@PROJECTS_USER@/main   # review
-git merge origin/ai-tools/sandbox-@PROJECTS_USER@/main              # or rebase
+git log origin/main..origin/ai-tools/sandbox-<operator>/main   # review
+git merge origin/ai-tools/sandbox-<operator>/main              # or rebase
 ```
 
 Use a regular merge or rebase to keep every agent commit. A **squash** merge
-collapses them into one — only do that if you do not want the per-commit history.
+collapses them into one — do that only to drop the per-commit history.
 
 ## Tearing down
 
@@ -112,9 +113,9 @@ it can still be merged.
 
 `sandbox-projects/` is setgid to group `ai-tools`, so each clone is born in that
 group; `ai-tools --sandbox-create` adds group-write and the setgid bit so the
-agent can read and write the tree. The clone is owned by @PROJECTS_USER@, not by
-the sandbox account, and @PROJECTS_USER@ is **not** a member of the `ai-tools`
+agent can read and write the tree. The clone is owned by the operator, not by
+the sandbox account, and the operator is **not** a member of the `ai-tools`
 group — the shared group on the project files is what lets both collaborate
-without the projects user joining the sandbox group.
+without the operator joining the sandbox group.
 
 See the repository `CLAUDE.md` for the full security model.
