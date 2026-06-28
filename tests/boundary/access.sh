@@ -150,10 +150,13 @@ for _d in /opt/ai-tools/.config/systemd/user /opt/ai-tools/.config/systemd/user/
     fi
 done
 
-# .claude.json is operator-owned but GROUP-writable (r--rw---- 0460): the agent persists its own
-# session state to it, while the operator (owner, read-only) cannot have it silently rewritten.
-# The agent must be able to WRITE it, yet it stays operator-owned. Seeded by ai-tools-bootstrap;
-# may be absent on a control-plane-only dev install, so the check is conditional.
+# .claude.json is Claude Code's runtime state file, GROUP-writable but NOT agent-owned (root:ai-tools
+# 0460): the agent persists its session state through the group, yet -- not being the owner -- cannot
+# chmod the file to bypass the lock or repurpose it as a control-plane lever. The control plane is
+# root-owned, so the load-bearing property is "not owned by the agent"; the enforced permission
+# boundary is the locked settings.json (checked above), not this file. perms.sh pins the exact
+# root:ai-tools 0460. Seeded by ai-tools-bootstrap; may be absent on a control-plane-only dev
+# install, so the check is conditional.
 cjson=/opt/ai-tools/.claude.json
 if [[ -e "${cjson}" ]]; then
     if runuser -u "${SANDBOX_USER}" -- test -w "${cjson}" 2>/dev/null; then
@@ -161,10 +164,11 @@ if [[ -e "${cjson}" ]]; then
     else
         fail "cannot write ${cjson} -- agent cannot persist state (expected group-writable 0460)"
     fi
-    if [[ "$(stat -c %U "${cjson}")" == "${PROJECTS_USER}" ]]; then
-        pass "${cjson} owned by ${PROJECTS_USER}: operator owns the state file the agent group-writes"
+    cj_owner="$(stat -c %U "${cjson}")"
+    if [[ "${cj_owner}" != "${SANDBOX_USER}" ]]; then
+        pass "${cjson} not agent-owned (${cj_owner}): group-writes state but cannot bypass the 0460 lock"
     else
-        fail "${cjson} not owned by ${PROJECTS_USER} -- the agent owns its own state file (lock bypassable)"
+        fail "${cjson} owned by ${SANDBOX_USER} -- the agent owns its own state file (0460 lock bypassable)"
     fi
 else
     skip "${cjson} state file" "absent (ai-tools-bootstrap not run / control-plane-only install)"
