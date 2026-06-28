@@ -13,7 +13,19 @@
       "Bash(git push --force*)",
       "Bash(git push -f *)",
       "Bash(git reset --hard*)",
-      "Bash(git clean -f*)"
+      "Bash(git clean -f*)",
+      "Bash(sudo)",
+      "Bash(sudo *)",
+      "Bash(journalctl)",
+      "Bash(journalctl *)",
+      "Bash(systemctl)",
+      "Bash(systemctl *)",
+      "Bash(ausearch)",
+      "Bash(ausearch *)",
+      "Bash(auditctl)",
+      "Bash(auditctl *)",
+      "Bash(aureport)",
+      "Bash(aureport *)"
     ]
   },
   "hooks": {
