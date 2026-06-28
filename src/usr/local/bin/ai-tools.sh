@@ -370,6 +370,77 @@ reg_ownership() {
     fi
 }
 
+# agent_can_traverse <dir>  -- 0 if the sandbox account (SANDBOX_USER, a SANDBOX_GROUP member) can
+# ENTER <dir>: world-execute, or group-execute with the directory in group SANDBOX_GROUP, or an
+# explicit user:SANDBOX_USER ACL carrying execute.
+agent_can_traverse() {
+    local d="$1" m grp
+    m="$(stat -c '%a' "${d}" 2>/dev/null)" || return 1
+    if (( 8#${m} & 0001 )); then return 0; fi
+    grp="$(stat -c '%G' "${d}" 2>/dev/null || true)"
+    if [[ "${grp}" == "${SANDBOX_GROUP}" ]] && (( 8#${m} & 0010 )); then return 0; fi
+    if command -v getfacl >/dev/null 2>&1 \
+            && getfacl -p "${d}" 2>/dev/null | grep -qE "^user:${SANDBOX_USER}:..x"; then
+        return 0
+    fi
+    return 1
+}
+
+# grantable_ancestor <dir>  -- 0 if reg_reach may grant traverse on <dir>: the operator OWNS it and
+# it is not a protected system directory (the safe-paths backstop). Fail-closed when the predicate
+# is unavailable, so a broken install never widens a directory it cannot vet.
+grantable_ancestor() {
+    local p="$1"
+    declare -F ai_tools_protected_path_match >/dev/null 2>&1 || return 1
+    if ai_tools_protected_path_match "${p}" >/dev/null 2>&1; then return 1; fi
+    [[ "$(stat -c '%U' "${p}" 2>/dev/null || true)" == "${ME}" ]]
+}
+
+# reg_reach <dir>  -- ensure the sandbox account can TRAVERSE the path to <dir>. The confined
+# session runs as the sandbox account; a project nested under a directory it cannot enter (a private
+# home, 700) is unreachable, so claude-run reports it missing even after a clean claim. Grant
+# traverse-only (execute, no read -- u:SANDBOX_USER:--x) on each blocking ancestor the operator owns
+# and that is not a protected system directory: enough to enter and reach the project, never to list
+# or read it, and unprivileged because the operator owns those directories. A blocking ancestor that
+# is a system directory or someone else's is left untouched -- there an isolated sandbox clone (under
+# /var/opt/ai-tools, already agent-traversable) is the way in. Default-NO: it widens access ABOVE the
+# project, so it is a separate, explicit opt-in.
+reg_reach() {
+    local dir="$1" anc to_grant=() blocked="" a
+    anc="$(dirname "${dir}")"
+    while [[ "${anc}" != / && "${anc}" != . ]]; do
+        if agent_can_traverse "${anc}"; then break; fi
+        if grantable_ancestor "${anc}"; then
+            to_grant+=("${anc}")
+        else
+            blocked="${anc}"; break
+        fi
+        anc="$(dirname "${anc}")"
+    done
+    if [[ -n "${blocked}" ]]; then
+        warn "the sandbox account cannot reach ${dir}: it cannot traverse ${blocked}"
+        warn "  (a system directory or one you do not own) -- use an isolated clone instead:"
+        warn "    ai-tools --sandbox-create ${dir}"
+        return 0
+    fi
+    if (( ${#to_grant[@]} == 0 )); then return 0; fi
+    say ""
+    warn "the sandbox account must traverse these directories to reach the project:"
+    for a in "${to_grant[@]}"; do say "      ${a}"; done
+    say "    ${C_DIM}grants traverse-only (enter, not list or read) -- u:${SANDBOX_USER}:--x${C_RST}"
+    if confirm "Grant the sandbox account traverse-only access on them?" n; then
+        for a in "${to_grant[@]}"; do
+            if setfacl -m "u:${SANDBOX_USER}:--x" "${a}" 2>/dev/null; then
+                say "    reach: u:${SANDBOX_USER}:--x ${a}"
+            else
+                warn "reach: could not grant on ${a} -- run: setfacl -m u:${SANDBOX_USER}:--x ${a}"
+            fi
+        done
+    else
+        say "    reach: left as-is -- the agent may be unable to enter ${dir}"
+    fi
+}
+
 # normalize_clone <dir>  -- make a freshly created clone agent-accessible. The clone
 # is born in group SANDBOX_GROUP via the setgid SANDBOX_ROOT, but git creates it
 # with the projects user's umask, which may withhold group-write and lock the agent
@@ -751,6 +822,7 @@ cmd_project_claim() {
     ${need_filemode} && reg_filemode "${d}"
     [[ "${owngap}"  == true  ]] && reg_ownership "${d}"
     { ${need_acl} || ${do_git}; } && claim_setfacl "${d}" "${do_git}"
+    reg_reach "${d}"
     ${need_label} && claim_relabel "${d}"
     ok "claimed ${d}"
     ai_tools_log_info "claimed project ${d}"

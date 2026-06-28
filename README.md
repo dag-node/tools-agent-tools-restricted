@@ -277,17 +277,18 @@ that the agent works in without ever reading the original repo's full git
 history. See `/var/opt/ai-tools/README.md` for that workflow.
 
 A project nested inside your home needs one extra grant — traverse-only access for the
-sandbox account on the directories above it:
+sandbox account on the directories above it. `ai-tools --project-claim` detects this and
+offers it as a default-NO prompt; the equivalent by hand is:
 
     setfacl -m u:ai-tools:--x ~
 
 The session runs as the sandbox account, which must *traverse* the path to the project; a
 private home (`drwx------`) blocks that, so `claude-run` reports the project as "not an
 existing directory" even though the claim succeeded. `--x` (execute, no read) lets the
-account *enter* a directory to reach the claimed project but never *list* or *read* it, so
-the home's other files stay private — the same least-privilege traverse the agent already has
-on `/opt/ai-tools`. Repeat for any other non-traversable directory between your home and the
-project. A sandbox clone needs none of this: it lives under
+account *enter* a directory to reach the claimed project but never *list* or *read* it — the
+same least-privilege traverse the agent already has on `/opt/ai-tools`. The claim grants it
+only on directories you own and never on a system directory; for a project under a path you do
+not own, or to leave your home untouched, use a sandbox clone instead — it lives under
 `/var/opt/ai-tools/sandbox-projects/`, which the account already traverses.
 
 To remove everything installed by this script:

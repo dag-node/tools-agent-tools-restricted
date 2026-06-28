@@ -23,11 +23,14 @@ and as the sandbox account (the agent must not manage its own allowlist).
 
 - `--project-claim [path]` (alias `--project-create`) — claim a real project in place
   (idempotent; default cwd): register it (allowlist + git `safe.directory` via
-  `ai-tools-safedir`), pin repo-local `core.filemode=true`, apply the
-  group-permission ACL via `ai-tools-setfacl`, apply the SELinux project label, run the
-  secret pre-check, and — when a `.git` tree is present but not yet normalized — offer
-  (default-yes prompt) to normalize it for agent git-history access via `ai-tools-setfacl
-  --with-git`, re-stating the sandbox-clone alternative when history should stay hidden.
+  `ai-tools-safedir`), pin repo-local `core.filemode=true`, set the project's directory group +
+  setgid via `ai-tools-setgid` and apply the group-permission ACL via `ai-tools-setfacl`, apply the
+  SELinux project label, run the secret pre-check, ensure the sandbox account can traverse the path
+  to the project (a default-NO prompt grants a traverse-only `u:SANDBOX_USER:--x` ACL on each
+  blocking ancestor the operator owns and that is not a system directory; see *Reachability* below),
+  and — when a `.git` tree is present but not yet normalized — offer (default-yes prompt) to
+  normalize it for agent git-history access via `ai-tools-setfacl --with-git`, re-stating the
+  sandbox-clone alternative when history should stay hidden.
 - `--project-unclaim [path]` (alias `--project-remove`) — unclaim a real project
   (directory left on disk): revert the label, drop both registries, and (default-yes
   confirm) hand the tree's files back to a target group with the agent's write access
@@ -69,6 +72,19 @@ skip yet both parties write (see [ownership-and-hooks](ownership-and-hooks.rule.
 declining re-states the sandbox-clone model for keeping git history out of the agent's reach.
 Claim inspects current state and runs only the missing steps, so a re-run is a quiet no-op
 and existing projects retrofit the ACL/`filemode`/`.git` normalization on the next claim.
+
+**Reachability.** The confined session runs *as* the sandbox account, so it must be able to
+**traverse** the path to the project; a project nested under a directory the account cannot enter
+(a private home, `700`) is unreachable, and `claude-run` — which re-checks the project directory as
+the agent — refuses it as missing even after a clean claim. Claim closes this with a **default-NO**
+prompt that grants a **traverse-only** ACL (`u:SANDBOX_USER:--x` — execute, no read) on each
+blocking ancestor, so the account can *enter* a directory to reach the project but never *list* or
+*read* it. The grant is scoped by the same owner-guard + [safe-paths](safe-paths.rule.md) backstop
+the rest of claim uses: only directories the **operator owns** and that are **not** protected system
+directories, and it is **unprivileged** (the operator owns them, so no `sudo`). A blocking ancestor
+that is a system directory or owned by someone else is left untouched — there the sandbox clone
+(under `/var/opt/ai-tools`, already agent-traversable) is the way in. The grant is idempotent: an
+ancestor the account can already traverse (e.g. one carrying the ACL from a prior claim) is skipped.
 
 **Unclaim** (`--project-unclaim`) reverts that: it removes the SELinux label and both
 registries, then (default-yes confirm) runs `ai-tools-unclaim` to hand the filesystem back.
