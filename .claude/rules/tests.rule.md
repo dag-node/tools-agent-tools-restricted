@@ -7,7 +7,10 @@ paths:
 
 Tests live under `tests/`, split by category, with one shared harness. `tests/run.sh
 [unit|integration|boundary|all]` dispatches; every category needs root, so it is invoked
-via `sudo` (the harness derives the unprivileged project user from `SUDO_USER`).
+via `sudo` (the harness derives the unprivileged project user from `SUDO_USER`). It streams
+each file's output live, then — on any failure — reprints the failing files and their `FAIL`
+lines as an end-of-run summary, so a long run needs no scrolling; an all-green run prints no
+summary and exits zero.
 
 ```
 tests/
