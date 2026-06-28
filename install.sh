@@ -373,6 +373,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/log.lib.sh
     _chk /usr/local/lib/ai-tools/msg.lib.sh
     _chk /usr/local/lib/ai-tools/operator.lib.sh
+    _chk /usr/local/lib/ai-tools/safe-paths.lib.sh
     _chk /usr/local/lib/ai-tools/control-plane.lib.sh
     _chk /usr/local/lib/ai-tools/relabel.lib.sh
     _chk /etc/sudoers.d/ai-tools-claude
@@ -534,6 +535,14 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/operator.lib.sh" \
         /usr/local/lib/ai-tools/operator.lib.sh
+
+    # Protected-paths backstop: 644 root:root -- world-readable. Sourced by the operator
+    # wrapper and CLI AND the root helpers, so every principal that resolves a target path
+    # reads the same list; it holds no secrets. No tokens to substitute.
+    log "/usr/local/lib/ai-tools/safe-paths.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/safe-paths.lib.sh" \
+        /usr/local/lib/ai-tools/safe-paths.lib.sh
 
     # Control-plane boundary-mode constants: 644 root:root. The single source for the
     # /opt/ai-tools home/dir modes, sourced below in this installer and matching the spec %files

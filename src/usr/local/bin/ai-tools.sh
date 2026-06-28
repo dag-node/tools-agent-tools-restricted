@@ -127,6 +127,13 @@ if ! source "${MSG_LIB}" 2>/dev/null; then
     ai_tools_msg_warn()  { printf '%s\n' "$@" >&2; }
 fi
 
+# Protected-paths backstop (safe-paths.lib.sh): used by cmd_project_claim to refuse claiming
+# a system directory -- the front-line companion to the elevated helpers' guard. Sourced
+# after msg.lib so the box renders; a missing lib leaves a no-op stub.
+readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
+# shellcheck source=/dev/null
+source "${SAFE_PATHS_LIB}" 2>/dev/null || ai_tools_assert_safe_target() { return 0; }
+
 # confirm <prompt> [y|n] [force]  -- default decides the Enter answer and the no-tty
 # answer. A destructive caller passes 'n' so an unattended/piped run aborts safely.
 # AI_TOOLS_ASSUME_YES=1 short-circuits to yes without prompting: the launch wrapper
@@ -657,6 +664,8 @@ claim_setfacl() {
 cmd_project_claim() {
     local d; d="$(resolve_dir "${1:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
+    # Refuse to claim a protected system directory before it ever reaches the allowlist.
+    ai_tools_assert_safe_target "${d}" "project claim" || exit 3
 
     local listed safedir filemode owngap acl labelled git
     # project_state prints seven SPACE-separated tokens; this script's global IFS is

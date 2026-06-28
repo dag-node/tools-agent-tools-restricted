@@ -62,8 +62,17 @@ AI_TOOLS_PRUNE_NAMES=()
 declare -a prune=()
 for _n in "${AI_TOOLS_PRUNE_NAMES[@]:-}"; do [[ "${_n}" == ".git" ]] || prune+=("${_n}"); done
 
+# Protected-paths backstop (safe-paths.lib.sh): refuse to walk a system directory even when
+# the allowlist includes it. A missing lib leaves a no-op stub, so the helper still works --
+# the allowlist and ai-tools-chown's per-path owner-guard remain.
+readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
+# shellcheck source=/dev/null
+source "${SAFE_PATHS_LIB}" 2>/dev/null || ai_tools_assert_safe_target() { return 0; }
+
 canonical="$(realpath -e -- "${TARGET}" 2>/dev/null)" || exit 0
 [[ -d "${canonical}" ]] || exit 0
+# Refuse the whole walk if the project root is a protected system directory, before find.
+ai_tools_assert_safe_target "${canonical}" "reclaim" || exit 3
 ai_tools_resolve_owner "${canonical}" || exit 0
 
 # find <project> -xdev ( heavy-tree names ) -prune -o ( file|dir ) -user SANDBOX_USER -print0

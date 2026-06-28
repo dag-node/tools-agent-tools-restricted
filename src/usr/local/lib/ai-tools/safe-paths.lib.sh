@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# /usr/local/lib/ai-tools/safe-paths.lib.sh
+# Single source of truth for the system directories the ai-tools elevated helpers must
+# never operate on, plus the guard that enforces it. Defense in depth against an operator
+# config error: the allowlist alone would let a recursive chown/setgid/setfacl/relabel run
+# wherever it points, so a system directory mistakenly added to allowed-projects (or passed
+# to a helper) could be rewritten. This list is the independent backstop -- the launch
+# wrapper, the claim CLI, and every elevated helper refuse a protected target regardless of
+# the allowlist, before acting.
+#
+# Matching is exact-or-ancestor: a target is protected when its resolved real path EQUALS a
+# list entry or CONTAINS one (is an ancestor, e.g. "/"). Descendants pass, so a real project
+# nested under an operator home (/home/<user>/<proj>) or a sandbox clone
+# (/var/opt/ai-tools/sandbox-projects/<repo>) is unaffected -- those are the trees the
+# helpers legitimately act on. A deeper or glob-expanded accident inside a protected tree
+# stays covered by each helper's owner-guard, which acts only on agent- or operator-owned
+# paths and never the root-owned files that fill a system directory.
+#
+# Sourced (not executed) so every consumer shares ONE list and ONE matcher. Deployed
+# 644 root:root (world-readable; carries no secrets; the operator wrapper, the CLI, and the
+# root helpers all read it) like msg.lib.sh / log.lib.sh.
+
+# shellcheck disable=SC2034  # consumed by the sourcing scripts and the test suite
+AI_TOOLS_PROTECTED_PATHS=(
+    /                                              # the filesystem root itself
+    /bin /sbin /lib /lib64 /lib32 /libx32          # usrmerge compat symlinks + libraries
+    /usr /usr/bin /usr/sbin /usr/lib /usr/lib64 /usr/libexec /usr/local
+    /etc                                           # system configuration
+    /var /var/tmp                                  # variable/runtime state, spool, logs, DBs
+    /boot /boot/efi /efi                           # bootloader, kernels, EFI system partition
+    /root                                          # the root account's home
+    /home                                          # parent of every user home (homes themselves pass)
+    /srv                                           # served data
+    /opt /opt/ai-tools                             # add-on packages + the sandbox control plane
+    /dev /proc /sys /run                           # device, kernel, and runtime pseudo-filesystems
+    /mnt /media                                    # mount points
+    /tmp /lost+found                               # scratch space + fsck recovery
+)
+
+# ai_tools_protected_path_match <abspath>
+# Print the matching protected entry and return 0 when <abspath> is protected -- it equals
+# an entry, or is an ancestor that contains one. Return 1 otherwise. Expects an absolute
+# path; normalizes a trailing slash so "/etc/" matches "/etc" and bare root stays "/".
+ai_tools_protected_path_match() {
+    local p="${1:-}" entry
+    [[ -n "${p}" ]] || return 1
+    p="${p%/}"; [[ -z "${p}" ]] && p="/"
+    for entry in "${AI_TOOLS_PROTECTED_PATHS[@]}"; do
+        [[ "${p}" == "${entry}" ]] && { printf '%s\n' "${entry}"; return 0; }   # exact
+        [[ "${entry}" == "${p}/"* ]] && { printf '%s\n' "${entry}"; return 0; } # p contains entry
+    done
+    return 1
+}
+
+# ai_tools_assert_safe_target <path> [operation-label]
+# When <path> resolves to a protected system directory, emit a framed refusal (a msg.lib
+# box on a terminal, plain lines otherwise), log it at WARNING, and return 1 so the caller
+# aborts BEFORE acting. Return 0 silently when the path is safe. The path is resolved with
+# realpath -m (no existence requirement) and falls back to the raw argument, so an
+# unresolvable path is still matched against the list rather than slipping through.
+ai_tools_assert_safe_target() {
+    local raw="${1:-}" op="${2:-operation}" resolved match
+    resolved="$(realpath -m -- "${raw}" 2>/dev/null)" || resolved="${raw}"
+    match="$(ai_tools_protected_path_match "${resolved}")" || return 0
+    local l1="Refusing the ${op}: the target is a protected system directory."
+    local l2="${resolved}"
+    local l3="It is on the ai-tools protected-paths backstop (matched ${match}); the sandbox does not operate on system directories. A real project must live elsewhere -- do not add a system directory to allowed-projects."
+    if declare -F ai_tools_msg_error >/dev/null 2>&1; then
+        ai_tools_msg_error "${l1}" "${l2}" "${l3}"
+    else
+        printf 'ai-tools: %s\n  %s\n  %s\n' "${l1}" "${l2}" "${l3}" >&2
+    fi
+    declare -F ai_tools_log_warn >/dev/null 2>&1 \
+        && ai_tools_log_warn "refused ${op} on protected path ${resolved} (matched ${match})"
+    return 1
+}
+
+# Provide the msg.lib box when the consumer has not already sourced it (the root helpers do
+# not). The declare -F guard avoids a second source in the wrapper/CLI, which already source
+# msg.lib -- msg.lib has no include guard and its readonly vars would abort a re-source under
+# set -e. Best-effort: the plain-stderr fallback in the assert covers a missing library.
+if ! declare -F ai_tools_msg_error >/dev/null 2>&1; then
+    # shellcheck source=/dev/null
+    source /usr/local/lib/ai-tools/msg.lib.sh 2>/dev/null || true
+fi

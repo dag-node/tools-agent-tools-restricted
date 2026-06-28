@@ -54,6 +54,13 @@ if ! source "${SECRET_PATTERNS_LIB}"; then
     exit 1
 fi
 
+# Protected-paths backstop (safe-paths.lib.sh): refuse to act on a system directory even
+# when the allowlist includes it. A missing lib leaves a no-op stub, so the helper still
+# works -- the allowlist and owner-guard remain, and the wrapper/CLI carry the same check.
+readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
+# shellcheck source=/dev/null
+source "${SAFE_PATHS_LIB}" 2>/dev/null || ai_tools_assert_safe_target() { return 0; }
+
 # _notify_secret: emit a one-line NOTICE that a secret-named file was written and
 # ai-tools' read access revoked, to stderr (the PostToolUse hook relays it into the
 # session) and -- at WARNING level -- to journald + the root-owned chown.log. Logging
@@ -69,6 +76,10 @@ _notify_secret() {
 
 # Resolve to canonical path to block symlink traversal
 canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
+
+# Defense in depth: never act on a protected system directory, even if the allowlist
+# (mis)includes it. Fail-closed before any ownership change.
+ai_tools_assert_safe_target "${canonical}" "ownership handback" || exit 3
 
 # Resolve the operator that owns this path (operator.lib.sh); no owner -> leave it untouched.
 # Ordinary files go to OWNER (group ai-tools, agent-readable); secret-named files to SECRET_OWNER

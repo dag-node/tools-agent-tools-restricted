@@ -55,6 +55,13 @@ log()  { printf 'ai-tools-lockdown: %s\n' "$*"; }
 warn() { printf 'ai-tools-lockdown: warn: %s\n' "$*" >&2; }
 die()  { printf 'ai-tools-lockdown: error: %s\n' "$*" >&2; exit 1; }
 
+# Protected-paths backstop (safe-paths.lib.sh): refuse to act on a system directory even
+# when the allowlist includes it. A missing lib leaves a no-op stub, so the helper still
+# works -- the allowlist remains. Sourcing it also brings the msg.lib box for the refusal.
+readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
+# shellcheck source=/dev/null
+source "${SAFE_PATHS_LIB}" 2>/dev/null || ai_tools_assert_safe_target() { return 0; }
+
 usage() {
     cat >&2 <<'EOF'
 usage: cd <project> && sudo ai-tools-lockdown [options]
@@ -93,6 +100,8 @@ readonly INVOKER="${SUDO_USER:?run via sudo (SUDO_USER unset)}"
 # Resolve the invoking shell's working directory (sudo preserves it).
 target="$(pwd -P)" || die "cannot determine current directory"
 target="$(realpath -e "${target}" 2>/dev/null)" || die "cannot resolve ${target}"
+# Refuse the whole pass if the working directory is a protected system directory.
+ai_tools_assert_safe_target "${target}" "lockdown" || exit 3
 
 # Resolve the operator that owns this directory; secrets are locked to it. lockdown runs only
 # inside an allowed project, so the directory must resolve to an operator.

@@ -30,6 +30,14 @@ if ! source "${MSG_LIB}" 2>/dev/null; then
     ai_tools_msg_pick()   { printf '%s' "$1"; }   # no lib: take the default (Cancel)
 fi
 
+# Protected-paths backstop (safe-paths.lib.sh): refuse to LAUNCH in a system directory even
+# when the allowlist includes it -- the front-line companion to the elevated helpers' guard.
+# Sourced after msg.lib so the box renders; a missing lib leaves a no-op stub (the allowlist
+# gate below still applies).
+readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
+# shellcheck source=/dev/null
+source "${SAFE_PATHS_LIB}" 2>/dev/null || ai_tools_assert_safe_target() { return 0; }
+
 # Print error lines to stderr (framed by ai_tools_msg_error), then pause for Enter when
 # stdin is a tty.
 # A bare terminal: user reads the error and presses Enter to dismiss.
@@ -135,6 +143,10 @@ if [[ ! -f "${ALLOWLIST}" ]]; then
 fi
 cwd="$(realpath -e "${PWD}" 2>/dev/null)" \
     || die "claude: cannot resolve working directory"
+
+# Refuse to launch in a protected system directory before consulting the allowlist, so a
+# mis-entered allowlist cannot start a session where the ownership handback would then act.
+ai_tools_assert_safe_target "${cwd}" "launch" || exit 1
 
 declare -a allowed=()
 declare -a excluded=()

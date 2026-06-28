@@ -89,9 +89,18 @@ _is_secret_name() {
 command -v setfacl >/dev/null 2>&1 \
     || { ai_tools_log_warn "setfacl not found -- skipping ACL normalization for ${TARGET}"; exit 0; }
 
+# Protected-paths backstop (safe-paths.lib.sh): refuse to act on a system directory even
+# when the allowlist includes it. A missing lib leaves a no-op stub, so the helper still
+# works -- the allowlist and owner-guard remain, and the wrapper/CLI carry the same check.
+readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
+# shellcheck source=/dev/null
+source "${SAFE_PATHS_LIB}" 2>/dev/null || ai_tools_assert_safe_target() { return 0; }
+
 # Canonicalise the argument; block symlink traversal of the path itself.
 canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
 [[ -d "${canonical}" ]] || exit 0
+# Refuse the whole pass if the project root is a protected system directory.
+ai_tools_assert_safe_target "${canonical}" "ACL grant" || exit 3
 
 # Resolve the operator that owns this project (operator.lib.sh); no owner -> do nothing. The guard
 # below then acts only on paths the resolved operator or the sandbox account hold.

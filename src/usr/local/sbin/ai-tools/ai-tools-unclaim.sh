@@ -86,9 +86,19 @@ _is_secret_name() {
 getent group "${TARGET_GROUP}" >/dev/null 2>&1 \
     || { ai_tools_log_error "unknown target group '${TARGET_GROUP}' -- nothing changed"; exit 1; }
 
+# Protected-paths backstop (safe-paths.lib.sh): refuse to act on a system directory even
+# when the allowlist includes it. A missing lib leaves a no-op stub, so the helper still
+# works -- the allowlist and owner-guard remain. Reverting access still chgrp's/chmod's the
+# tree, so a system directory is refused here just as on claim.
+readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
+# shellcheck source=/dev/null
+source "${SAFE_PATHS_LIB}" 2>/dev/null || ai_tools_assert_safe_target() { return 0; }
+
 # Canonicalise the argument; block symlink traversal of the path itself.
 canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
 [[ -d "${canonical}" ]] || exit 0
+# Refuse the whole pass if the project root is a protected system directory.
+ai_tools_assert_safe_target "${canonical}" "unclaim" || exit 3
 
 # Resolve the operator that owns this project (operator.lib.sh); no owner -> do nothing. The guard
 # below then acts only on paths the resolved operator or the sandbox account hold.
