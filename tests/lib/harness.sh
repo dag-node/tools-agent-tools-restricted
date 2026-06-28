@@ -44,6 +44,15 @@ check_file() {
     fi
 }
 
+# check_file_optional <path> <owner> <group> <mode>: like check_file, but a missing path is a
+# SKIP, not a FAIL -- for artifacts created on demand (a per-operator override file, a %ghost log
+# written on first use) that are legitimately absent on a fresh install yet, when present, must
+# still match the model.
+check_file_optional() {
+    [[ -e "$1" ]] || { skip "$1" "absent until created on demand"; return; }
+    check_file "$@"
+}
+
 # require_root: abort unless run as root. Helper tests set arbitrary ownership/ACLs and
 # create third-party-owned fixtures, which needs root; the suites are invoked via sudo.
 require_root() {

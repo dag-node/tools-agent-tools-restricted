@@ -58,8 +58,10 @@ check_file /usr/local/lib/ai-tools/control-plane.lib.sh      root              r
 # helpers to refuse a system directory as a target; world-readable, no secrets.
 check_file /usr/local/lib/ai-tools/safe-paths.lib.sh         root              root              644
 # Secret-pattern config: user-owned 600. ai-tools (not owner/group, cannot enter the 700
-# .config/ai-tools dir) can neither read nor write it; root helpers read it.
-check_file "${PROJECTS_HOME}/.config/ai-tools/secret-patterns" "${PROJECTS_USER}" "${PROJECTS_GROUP}" 600
+# .config/ai-tools dir) can neither read nor write it; root helpers read it. Optional: it is a
+# per-operator OVERRIDE -- the shared classifier falls back to its built-in defaults when the file
+# is absent (secret-patterns.lib.sh), so install.sh seeds it but a fresh RPM enrolment need not.
+check_file_optional "${PROJECTS_HOME}/.config/ai-tools/secret-patterns" "${PROJECTS_USER}" "${PROJECTS_GROUP}" 600
 check_file /etc/sudoers.d/ai-tools-claude                     root              root              440
 # Operator identity: 644 root:root -- world-readable (agent hooks + root helpers read it),
 # root-write-only (the agent cannot rewrite the identity root hands files back to).
@@ -145,14 +147,16 @@ check_file /opt/ai-tools/.gitconfig                           root              
 check_file /opt/ai-tools/.gitignore                           root              "${SANDBOX_GROUP}" 640
 # Operation logs: dir 700 root:root, each file 600 root:root -- the root helpers append here;
 # ai-tools (neither owner nor able to traverse the 700 dir) can neither read nor tamper with
-# the trail, so secret filenames recorded by ai-tools-chown stay out of agent reach.
+# the trail, so secret filenames recorded by ai-tools-chown stay out of agent reach. The log
+# FILES are %ghost (created on first write of their op), so each is optional: a fresh install has
+# only the logs whose op has run (relabel.log waits for a relabel; install.log is install.sh-only).
 check_file /var/log/ai-tools              root root 700
-check_file /var/log/ai-tools/chown.log    root root 600
-check_file /var/log/ai-tools/setgid.log   root root 600
-check_file /var/log/ai-tools/symlink.log  root root 600
-check_file /var/log/ai-tools/lockdown.log root root 600
-check_file /var/log/ai-tools/relabel.log  root root 600
-check_file /var/log/ai-tools/install.log  root root 600
+check_file_optional /var/log/ai-tools/chown.log    root root 600
+check_file_optional /var/log/ai-tools/setgid.log   root root 600
+check_file_optional /var/log/ai-tools/symlink.log  root root 600
+check_file_optional /var/log/ai-tools/lockdown.log root root 600
+check_file_optional /var/log/ai-tools/relabel.log  root root 600
+check_file_optional /var/log/ai-tools/install.log  root root 600
 # Projects-user config dir 700 + allowlist 600: ai-tools (not owner, not in PROJECTS_GROUP,
 # cannot traverse the 700 dir) can neither read nor modify the approved-projects list even if
 # it had a looser mode; the root helpers read it on the user's behalf.
