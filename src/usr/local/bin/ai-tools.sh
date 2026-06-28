@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # /usr/local/bin/ai-tools
-# Project-lifecycle CLI for the ai-tools Claude Code sandbox. Runs AS the projects user (not as
-# root, not as the sandbox account). It writes the operator-owned allowlist
-# (@PROJECTS_HOME@/.config/ai-tools/allowed-projects) directly, and reaches the root-owned bits
+# Project-lifecycle CLI for the ai-tools Claude Code sandbox. Runs AS the invoking operator (not
+# as root, not as the sandbox account). It writes the operator-owned allowlist
+# (~/.config/ai-tools/allowed-projects) directly, and reaches the root-owned bits
 # -- the git safe.directory list in /opt/ai-tools/.gitconfig, the SELinux label, the ACL, and
 # secret lockdown -- through the sudo root helpers (no NOPASSWD: the operator is prompted for a
 # password; the sandbox account holds no grant).

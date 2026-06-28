@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # /usr/local/sbin/ai-tools/ai-tools-setgid
 # Normalizes group ownership and the setgid bit on the directories of an approved
-# project, so that files EITHER @PROJECTS_USER@ OR the agent creates there are born
+# project, so that files EITHER an operator OR the agent creates there are born
 # in group @SANDBOX_GROUP@ -- the shared group both can read/write. setgid carries
 # that group onto new files regardless of the creator's own group membership, which
-# is what lets @PROJECTS_USER@ be a NON-member of @SANDBOX_GROUP@ (defence in depth:
-# the projects user's home configs are then unreachable from the sandbox group)
+# is what lets an operator be a NON-member of @SANDBOX_GROUP@ (defence in depth:
+# the operator's home configs are then unreachable from the sandbox group)
 # while the agent can still read/write everything it hands back.
 #
 # Invoked as root by the ai-tools-handback daemon when the SessionStart hook
