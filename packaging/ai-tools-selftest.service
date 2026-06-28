@@ -1,0 +1,18 @@
+# Test-image only: runs the ai-tools container selftest once, after the system instance is
+# up and networking is online (ai-tools-bootstrap reaches the network), then stops the
+# container with the aggregate status via `systemctl exit` from the script.
+[Unit]
+Description=ai-tools RPM container selftest
+After=ai-tools-handback.socket network-online.target systemd-user-sessions.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/ai-tools-selftest
+StandardOutput=journal+console
+StandardError=journal+console
+TimeoutStartSec=1200
+
+[Install]
+WantedBy=multi-user.target
