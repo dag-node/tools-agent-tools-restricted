@@ -36,14 +36,17 @@ RUN microdnf -y install \
         git curl which glibc-langpack-en \
     && microdnf clean all
 
-# Source tree for `make rpm` + the test suite. Copy the build inputs explicitly (skips .git
-# and any host-built packaging/rpmbuild), matching the Makefile's CONTENT set plus tests/.
-COPY src        /opt/ai-tools-src/src
-COPY docs       /opt/ai-tools-src/docs
-COPY selinux    /opt/ai-tools-src/selinux
-COPY tests      /opt/ai-tools-src/tests
-COPY packaging  /opt/ai-tools-src/packaging
-COPY README.md  /opt/ai-tools-src/README.md
+# Source tree for `make rpm` + the test suite. Copy the build inputs explicitly (a
+# .containerignore at the context root drops .git, packaging/rpmbuild, and tarballs). Only the
+# prebuilt ai_tools.pp is needed from selinux/ -- the Makefile CONTENT and the spec consume just
+# that file, and the rest of the tree holds a root-owned policy/tmp scratch dir an unprivileged
+# build context cannot read.
+COPY src                      /opt/ai-tools-src/src
+COPY docs                     /opt/ai-tools-src/docs
+COPY selinux/policy/ai_tools.pp /opt/ai-tools-src/selinux/policy/ai_tools.pp
+COPY tests                    /opt/ai-tools-src/tests
+COPY packaging                /opt/ai-tools-src/packaging
+COPY README.md                /opt/ai-tools-src/README.md
 WORKDIR /opt/ai-tools-src
 
 # Build the four RPMs from the tree, publish them as a local repo, and install the METAPACKAGE

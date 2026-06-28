@@ -1,0 +1,7 @@
+# Build-context excludes for the RPM test image (packaging/*.Containerfile). Keeps the context
+# lean and avoids unreadable/gitignored scratch the COPY walk would otherwise open.
+.git
+selinux/policy/tmp
+selinux/avc
+packaging/rpmbuild
+packaging/*.tar.gz
