@@ -142,11 +142,18 @@ source "${SAFE_PATHS_LIB}" 2>/dev/null || ai_tools_assert_safe_target() { return
 # A third arg of 'force' makes the prompt IGNORE AI_TOOLS_ASSUME_YES, so a privacy- or
 # security-sensitive opt-in (the .git history grant) stays an explicit operator decision
 # even under a delegated claim -- the same exemption secret_gate's lockdown prompt takes.
+# have_tty: true only when a controlling terminal can actually be opened. `[[ -r /dev/tty ]]`
+# tests the node's permission bits (crw-rw-rw-), not openability, so it reads true even with no
+# controlling terminal (e.g. a systemd unit or under setsid); opening /dev/tty is the only honest
+# probe -- with no controlling tty the open fails ENXIO, so the prompt guards skip cleanly instead
+# of writing to /dev/tty and aborting. Mirrors claude.sh's have_tty.
+have_tty() { { : > /dev/tty; } 2>/dev/null; }
+
 confirm() {
     local prompt="$1" def="${2:-y}" force="${3:-}" resp hint
     [[ "${force}" != force && "${AI_TOOLS_ASSUME_YES:-}" == 1 ]] && return 0
     if [[ "${def}" == "y" ]]; then hint="[Y]/n"; else hint="y/[N]"; fi
-    if [[ -r /dev/tty && -w /dev/tty ]]; then
+    if have_tty; then
         printf '%s %s ' "${prompt}" "${hint}" > /dev/tty
         read -r resp < /dev/tty || resp=""
     else
@@ -159,7 +166,7 @@ confirm() {
 # ask <prompt> <default>  -- echo the chosen value on stdout; prompt to the tty.
 ask() {
     local prompt="$1" def="$2" resp
-    if [[ -r /dev/tty && -w /dev/tty ]]; then
+    if have_tty; then
         printf '%s %s[%s]%s: ' "${prompt}" "${C_DIM}" "${def}" "${C_RST}" > /dev/tty
         read -r resp < /dev/tty || resp=""
     else
@@ -493,7 +500,7 @@ secret_gate() {
     ai_tools_log_warn "secret pre-check: secrets present under ${dir} (see lockdown.log for paths)"
     # Default YES: locking down is the safe direction and the list above may be long,
     # so Enter proceeds. This prompt ignores AI_TOOLS_ASSUME_YES by design.
-    if [[ -r /dev/tty && -w /dev/tty ]]; then
+    if have_tty; then
         printf 'Lock down these secrets now? [Y]/n ' > /dev/tty
         read -r resp < /dev/tty || resp=""
     else
