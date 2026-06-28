@@ -139,8 +139,8 @@
 # while this filter is active, instead of leaving a cryptic EPERM deep in a build.
 #
 # ── Ownership ────────────────────────────────────────────────────────────────
-# 550 @PROJECTS_USER@:@SANDBOX_GROUP@ -- @SANDBOX_USER@ gets group r-x (execute)
-# but no write.  /opt/ai-tools/bin is itself 550, so the agent cannot unlink or
+# 0550 root:@SANDBOX_GROUP@ -- @SANDBOX_USER@ gets group r-x (execute)
+# but no write.  /opt/ai-tools/bin is itself 0551, so the agent cannot unlink or
 # replace this file.
 #
 # ── CLAUDE_EXEC double-validation ────────────────────────────────────────────

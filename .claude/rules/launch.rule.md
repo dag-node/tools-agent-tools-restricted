@@ -50,7 +50,7 @@ to sudoers matching, which targets the fixed path `/opt/ai-tools/bin/claude-run`
 
 ## The `claude-run` service shim (launch mechanics)
 
-`claude-run` (550 `<you>:SANDBOX_GROUP`, not writable by the agent) re-validates
+`claude-run` (`root:SANDBOX_GROUP`, not writable by the agent) re-validates
 `CLAUDE_EXEC` against the same nvm-path pattern and wraps the session in a transient
 systemd *service* unit (`systemd-run --user --pty`) before exec'ing the versioned
 binary. The service runs in `SANDBOX_USER`'s systemd user instance, kept alive by

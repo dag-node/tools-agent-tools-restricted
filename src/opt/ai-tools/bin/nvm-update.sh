@@ -158,7 +158,7 @@ main() {
     prune_versions "${node_alias}"
 
     # Refresh the stable symlink that claude-wrapper resolves with one readlink hop.
-    # /opt/ai-tools/bin is locked 550 (<you>:ai-tools) so this process -- running as
+    # /opt/ai-tools/bin is locked 0551 (root:ai-tools) so this process -- running as
     # ai-tools -- cannot write it directly; delegate the repoint to the root helper
     # via the handback socket bridge (sudo fails under NNP, which the session service
     # always runs under due to RestrictNamespaces=yes forcing PR_SET_NO_NEW_PRIVS).

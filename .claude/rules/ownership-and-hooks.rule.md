@@ -179,23 +179,31 @@ The files that drive the sandbox's own enforcement — `settings.json` (declares
 hooks), `post-tool-hook.sh` and `session-hook.sh` (the hook bodies),
 `bin/nvm-update.sh` (the updater), and `bin/claude-run` (the service shim) — are not
 writable by the agent, so it cannot disable its own handback, secret-quarantine, or
-confinement guardrails. They are owned `<you>:SANDBOX_GROUP` (group read/exec, no group
-write), **not** `SANDBOX_USER:SANDBOX_GROUP`.
+confinement guardrails. They are owned `root:SANDBOX_GROUP` (group read/exec, no group
+write), **not** `SANDBOX_USER:SANDBOX_GROUP` — and not any operator, so no single operator
+can rewrite a guardrail either; only root owns the control plane.
 
 Ownership alone is insufficient: `/opt/ai-tools/.claude` is group-writable by
 `SANDBOX_GROUP` (claude writes `sessions/`, `history.jsonl`, etc. there), and a
 group-writer can `unlink`+recreate any file in a dir it can write, regardless of the
-file's owner. So `.claude` is owned `<you>:SANDBOX_GROUP` with **setgid + sticky**
+file's owner. So `.claude` is owned `root:SANDBOX_GROUP` with **setgid + sticky**
 (`3770`): the agent stays a group-writer for its own state, but the sticky bit forbids
 deleting/replacing files it does not own, and since it is not the dir owner it cannot
 bypass that. setgid keeps new entries in group `SANDBOX_GROUP`. Sticky is wanted here
 precisely because the agent never legitimately re-edits these files — the inverse of the
 project-dir reasoning in [secrets](secret-handling.rule.md).
 
-`/opt/ai-tools/bin` is locked harder: owned `<you>:SANDBOX_GROUP` at `550`, not even
+`/opt/ai-tools/bin` is locked harder: owned `root:SANDBOX_GROUP` at `0551`, not
 group-writable. `SANDBOX_USER` gets group `r-x` — enough to execute `nvm-update.sh` and
 resolve the `claude` symlink — but no write, and it is not the dir owner, so it cannot
-edit `nvm-update.sh` in place, `unlink`/replace it, or swap the symlink. No sticky bit is
-needed because nothing here is group-writable; only root (and `<you>` after a deliberate
-`chmod`) can change it. The versioned-symlink repoint is delegated to the
+edit `nvm-update.sh` in place, `unlink`/replace it, or swap the symlink. The `o+x` bit
+(search without read) lets an operator `readlink` the known `bin/claude` launcher path
+without listing or writing the directory — the one concession that distinguishes `0551`
+from a bare `0550`. No sticky bit is needed because nothing here is group-writable; only
+root can change it. The versioned-symlink repoint is delegated to the
 `ai-tools-claude-symlink` root helper (see [updater](updater.rule.md)).
+
+The control-plane modes are single-sourced as constants in
+`/usr/local/lib/ai-tools/control-plane.lib.sh` (`CP_HOME_MODE` = `2751`, `CP_DIR_MODES` =
+`bin 0551`/`.claude 3770`), which `install.sh` and the RPM `%files` both apply; cite the
+constants rather than re-stating the octal so the modes stay defined in one place.

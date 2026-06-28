@@ -46,7 +46,7 @@ new policy module, and the same relax-the-deny-entry step applies.
 
 ## Control-plane integrity
 
-`settings.json` is operator-owned (`<you>:SANDBOX_GROUP`, no group write) and lives under
+`settings.json` is root-owned (`root:SANDBOX_GROUP`, no group write) and lives under
 the setgid+sticky `.claude` directory, so the agent cannot edit or replace it from inside
 a session (see [ownership-and-hooks](ownership-and-hooks.rule.md)). The deny rules and the
 hook declarations hold for the whole session.

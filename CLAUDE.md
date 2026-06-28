@@ -106,14 +106,17 @@ sandbox account can never hold the operator grant. The invariants the agent oper
   inside the session by construction.
 - **`SANDBOX_USER` has no login shell and no password.**
 - **The `%ai-ops` rules run only `claude-run` as `SANDBOX_USER`** — never an arbitrary
-  shell or binary. `claude-run` is a fixed-path target (no glob), `550
-  <you>:SANDBOX_GROUP`, not writable by the agent. The agent itself, *as* `SANDBOX_USER`,
-  holds no sudo rule at all.
+  shell or binary. `claude-run` is a fixed-path target (no glob), `root:SANDBOX_GROUP` and
+  not writable by the agent. The agent itself, *as* `SANDBOX_USER`, holds no sudo rule at
+  all.
 - **The control-plane files are not agent-writable** — `settings.json`, the hooks,
-  `nvm-update.sh`, and `claude-run` are `<you>:SANDBOX_GROUP` with no group write;
-  `/opt/ai-tools/.claude` is `3770` setgid+sticky and `/opt/ai-tools/bin` is `550`, so the
-  agent cannot unlink/replace them to disable its own guardrails. See
-  [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md).
+  `nvm-update.sh`, and `claude-run` are `root:SANDBOX_GROUP` with no group write;
+  `/opt/ai-tools/.claude` is setgid+sticky (the agent keeps its own state there but cannot
+  delete or replace files it does not own) and `/opt/ai-tools/bin` is not group-writable,
+  so the agent cannot unlink/replace them to disable its own guardrails. Root owns the
+  control plane, so no operator can rewrite a guardrail either. See
+  [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) for the exact modes
+  (single-sourced in `control-plane.lib.sh`).
 - **The allowlist gates where the agent launches and which written files get ownership
   restored. It is NOT a kernel-enforced read boundary** — once running, ordinary Unix
   permissions plus the `ai_tools_t` SELinux type govern reads/writes. Those filesystem
