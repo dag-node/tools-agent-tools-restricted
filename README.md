@@ -276,6 +276,20 @@ clone. A sandboxed project is a shallow clone under `/var/opt/ai-tools/sandbox-p
 that the agent works in without ever reading the original repo's full git
 history. See `/var/opt/ai-tools/README.md` for that workflow.
 
+A project nested inside your home needs one extra grant — traverse-only access for the
+sandbox account on the directories above it:
+
+    setfacl -m u:ai-tools:--x ~
+
+The session runs as the sandbox account, which must *traverse* the path to the project; a
+private home (`drwx------`) blocks that, so `claude-run` reports the project as "not an
+existing directory" even though the claim succeeded. `--x` (execute, no read) lets the
+account *enter* a directory to reach the claimed project but never *list* or *read* it, so
+the home's other files stay private — the same least-privilege traverse the agent already has
+on `/opt/ai-tools`. Repeat for any other non-traversable directory between your home and the
+project. A sandbox clone needs none of this: it lives under
+`/var/opt/ai-tools/sandbox-projects/`, which the account already traverses.
+
 To remove everything installed by this script:
 
     sudo ./install.sh uninstall

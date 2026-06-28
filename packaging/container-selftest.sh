@@ -104,6 +104,11 @@ phase "${OPERATOR} is in ai-ops + listed in operator.conf" \
 # ── project claim ────────────────────────────────────────────────────────────
 mkdir -p "${PROJECT}"; chown "${OPERATOR}:${OPERATOR}" "${PROJECT}"
 as_operator "cd '${PROJECT}' && git init -q" || true
+# The project sits inside the operator's home (mode 700), which the sandbox account cannot
+# traverse, so claude-run -- re-checking the project dir AS the agent -- would see it as missing.
+# Grant the sandbox account traverse-only (no read) on the home, mirroring the operator-set
+# `user:ai-tools:--x` ACL a real host carries for in-place claims under a private home.
+setfacl -m "u:ai-tools:--x" "/home/${OPERATOR}"
 
 # Drive the claim non-interactively: AI_TOOLS_ASSUME_YES=1 is the CLI's own assume-yes hook for its
 # default-yes prompts (claim confirm, .git normalization), so it proceeds without a controlling tty.
