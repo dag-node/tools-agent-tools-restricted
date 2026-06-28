@@ -102,7 +102,8 @@ grep -rlZ -e '@SANDBOX_USER@' -e '@SANDBOX_GROUP@' src \
 # ── base: root helpers ───────────────────────────────────────────────────────
 install -d -m 0750 %{buildroot}%{ai_sbindir}
 for h in ai-tools-chown ai-tools-setgid ai-tools-setfacl ai-tools-unclaim \
-         ai-tools-lockdown ai-tools-relabel ai-tools-admin; do
+         ai-tools-lockdown ai-tools-relabel ai-tools-safedir ai-tools-reclaim \
+         ai-tools-admin; do
     install -m 0750 src%{ai_sbindir}/${h}.sh %{buildroot}%{ai_sbindir}/${h}
 done
 install -m 0750 src%{ai_sbindir}/ai-tools-handback.py %{buildroot}%{ai_sbindir}/ai-tools-handback
@@ -210,6 +211,19 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
         restorecon -R %{ai_sbindir} %{ai_libdir} /opt/ai-tools /var/log/ai-tools >/dev/null 2>&1 || :
     fi
 fi
+# Grant the ai-ops operators group access to the shared sandbox area through a group ACL, so
+# operators create and work in clones (ai-tools --sandbox-create) without joining the ai-tools
+# group: traverse on the outer dir, rwX on sandbox-projects (a default ACL so clones inherit the
+# operator access), and read on the doc. One grant covers every operator and outlives a leave of
+# the ai-tools group. This is the shared-area counterpart to ai-tools-setfacl's per-project
+# user:<operator> grant; %files cannot express an ACL, so it is applied here. ai-ops exists from
+# %pre (sysusers); the directories exist from this package's %files.
+if command -v setfacl >/dev/null 2>&1; then
+    setfacl -m g:ai-ops:r-x /var/opt/ai-tools || :
+    setfacl -m g:ai-ops:rwx /var/opt/ai-tools/sandbox-projects || :
+    setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects || :
+    setfacl -m g:ai-ops:r-- /var/opt/ai-tools/README.md || :
+fi
 # Operator binding + toolchain are per-operator / network steps a scriptlet must not do; direct
 # the operator to them. ai-tools-bootstrap installs the Node toolchain; ai-tools-admin operator
 # add binds an operator (OPERATORS list + ai-ops membership + linger + allowlist seed).
@@ -256,6 +270,8 @@ fi
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-unclaim
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-lockdown
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-relabel
+%attr(0750, root, root) %{ai_sbindir}/ai-tools-safedir
+%attr(0750, root, root) %{ai_sbindir}/ai-tools-reclaim
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-admin
 /usr/local/sbin/ai-tools-admin
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-handback
