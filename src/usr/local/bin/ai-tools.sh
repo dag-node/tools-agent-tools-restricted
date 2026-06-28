@@ -54,6 +54,11 @@ readonly RELABEL_BIN="/usr/local/sbin/ai-tools/ai-tools-relabel"
 # group-accessible to the agent. Needs root (CAP_FOWNER) to ACL files the projects user
 # does not own; this unprivileged CLI lacks that.
 readonly SETFACL_BIN="/usr/local/sbin/ai-tools/ai-tools-setfacl"
+# Root-only setgid helper, same sudo (no NOPASSWD) model. Sets group SANDBOX_GROUP + the setgid
+# bit on a claimed project's directories. The operator is not a SANDBOX_GROUP member
+# (multi-operator), so the group change needs root; the helper carries its own allowlist + owner
+# guard. Also invoked by the handback daemon for the SessionStart normalization pass.
+readonly SETGID_BIN="/usr/local/sbin/ai-tools/ai-tools-setgid"
 # Root-only unclaim helper, same sudo (no NOPASSWD) model. Reverses the filesystem side
 # of a claim: clears the agent ACL + default ACL, regroups the tree to a target group, and
 # removes group write. Needs root to chgrp to an arbitrary group and to act on files the
@@ -340,37 +345,28 @@ dir_owngap() {
     return 0
 }
 
-# reg_ownership <dir>  -- make <dir> usable by the sandbox account: group
-# SANDBOX_GROUP (recursive, so the agent can read pre-existing project files) and
-# setgid + group-rwx on the root (so the agent can enter it and files born under it
-# inherit the group). The two registries (allowed-projects, safe.directory) do NOT
-# touch the filesystem, so without this a path can be allowlisted yet fail every
-# posix_spawn -- the session starts but cannot run a single child. The operator owns
-# project dirs and is a SANDBOX_GROUP member, so this needs no privilege; a dir owned
-# by someone else needs sudo and is only flagged, not changed.
+# reg_ownership <dir>  -- make <dir> usable by the sandbox account: group SANDBOX_GROUP + the
+# setgid bit on the project's directories, via the root ai-tools-setgid helper, so the agent can
+# enter the tree and files born there inherit the group. Without it a path can be allowlisted yet
+# fail every posix_spawn -- the session starts but cannot enter the tree or run a child. The
+# operator is not a SANDBOX_GROUP member (multi-operator), so it cannot chgrp to that group
+# unprivileged; the helper does it as root and carries its own allowlist + owner guard (a dir owned
+# by a third party is left untouched). Pre-existing FILES become agent-accessible through the group
+# ACL claim_setfacl applies next, not a recursive chgrp.
 #
-# CALLER MUST run secret_gate "${dir}" first: the recursive chgrp re-groups every file
-# to SANDBOX_GROUP, so a group-readable secret left un-locked (e.g. appsettings.json
-# 640) would become readable by the agent. secret_gate locks secrets to 600/700 first,
-# after which this chgrp leaves their (now closed) modes untouched.
+# CALLER MUST run secret_gate "${dir}" first: claim_setfacl then grants the agent group access to
+# existing files, so a group-readable secret left un-locked (e.g. appsettings.json 640) would
+# become readable by the agent. secret_gate locks secrets to 600/700 first.
 reg_ownership() {
-    local dir="$1" owner
+    local dir="$1"
     if ! dir_owngap "${dir}"; then
         say "    ownership: already group ${SANDBOX_GROUP}, setgid"
         return 0
     fi
-    owner="$(stat -c '%U' "${dir}" 2>/dev/null || true)"
-    if [[ "${owner}" != "${ME}" ]]; then
-        warn "ownership: ${dir} is owned by ${owner:-?}, not you -- fix with:"
-        warn "  sudo chgrp -R ${SANDBOX_GROUP} '${dir}' && sudo chmod g+rwxs '${dir}'"
-        return 0
-    fi
-    if chgrp -R "${SANDBOX_GROUP}" "${dir}" 2>/dev/null \
-            && chmod g+rwxs "${dir}" 2>/dev/null; then
-        say "    ownership: set group ${SANDBOX_GROUP} (recursive), setgid on root"
+    if sudo "${SETGID_BIN}" "${dir}"; then
+        say "    ownership: set group ${SANDBOX_GROUP} + setgid on the project directories"
     else
-        warn "ownership: could not set group/setgid on ${dir} -- fix with:"
-        warn "  sudo chgrp -R ${SANDBOX_GROUP} '${dir}' && sudo chmod g+rwxs '${dir}'"
+        warn "ownership: could not set group/setgid on ${dir} -- run: sudo ${SETGID_BIN} ${dir}"
     fi
 }
 
@@ -461,8 +457,8 @@ print_manual_lockdown() {
     say  "      ${C_BOLD}cd ${d} && sudo ai-tools-lockdown${C_RST}"
 }
 
-# secret_gate <dir>  -- before granting the agent recursive group access to <dir>
-# (reg_ownership's chgrp -R), make sure no group-readable secret would be exposed.
+# secret_gate <dir>  -- before granting the agent group access to <dir> (the group ACL
+# claim_setfacl applies to existing files), make sure no group-readable secret would be exposed.
 # The CLI cannot read the root-only secret-pattern library, so detection is delegated
 # to ai-tools-lockdown --dry-run (sudo, password). Found secrets are listed and the
 # user is asked to lock them down (--yes apply); the helper's own interactive mode is
@@ -662,8 +658,8 @@ claim_setfacl() {
 # ai_tools_project_t label, so the agent can work the REAL tree. Inspects current state
 # first and performs ONLY the missing steps, so a re-run is quiet and a fully-claimed
 # project is a clean no-op (no prompt, no sudo). The in-place grant is heavy
-# (reg_ownership gives the agent recursive group access; relabel and the ACL need sudo),
-# so the default-NO confirm and the sandbox-clone recommendation appear only when a
+# (setgid + the ACL give the agent group access to the whole tree; setgid, ACL, and relabel
+# all need sudo), so the default-NO confirm and the sandbox-clone recommendation appear only when a
 # heavy step (chgrp, relabel, or ACL) is actually pending. When a .git tree is present but
 # not yet normalized, a SEPARATE default-YES prompt offers to normalize it (group + setgid
 # + ACL, via ai-tools-setfacl --with-git) so the operator's own commits stay agent-
@@ -699,7 +695,7 @@ cmd_project_claim() {
     [[ "${listed}"  == true  ]] || say "    - add to allowed-projects"
     [[ "${safedir}" == true  ]] || say "    - add git safe.directory"
     ${need_filemode} && say "    - set git core.filemode true"
-    [[ "${owngap}"  == true  ]] && say "    - grant recursive group ownership (chgrp -R + setgid)"
+    [[ "${owngap}"  == true  ]] && say "    - set group ${SANDBOX_GROUP} + setgid on the project directories"
     ${need_acl} && say "    - apply group-permission ACL (default + access g:${SANDBOX_GROUP}:rwX)"
     ${need_label} && say "    - apply SELinux ai_tools_project_t label"
     ${need_git} && say "    - normalize .git so the agent can access git history (setgid + group ACL) -- you will be asked"
@@ -709,7 +705,7 @@ cmd_project_claim() {
     if [[ "${owngap}" == true ]] || ${need_acl} || ${need_label}; then
         if dir_owngap "${d}"; then
             say ""
-            warn "in-place claim grants the agent recursive group access to this tree"
+            warn "in-place claim grants the agent group access to this whole tree"
             say  "    ${C_DIM}isolated alternative that never touches it:${C_RST}"
             say  "      ${C_DIM}ai-tools --sandbox-create ${d}${C_RST}"
         fi

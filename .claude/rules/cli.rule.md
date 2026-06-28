@@ -58,8 +58,10 @@ The confined agent (`ai_tools_t`) reaches it only if the tree carries the
 `ai-tools-relabel`, and `--project-unclaim` reverts it. The label primitive (semanage
 fcontext + restorecon) lives in the shared `relabel.lib.sh`, sourced by both
 `ai-tools-relabel` and `install-selinux.sh`, so the CLI and the policy installer apply one
-implementation. Claim also applies the group-permission ACL (via `ai-tools-setfacl`) and
-pins repo-local `core.filemode=true`; these complement the recursive group-ownership grant.
+implementation. Claim sets group `SANDBOX_GROUP` + the setgid bit on the project's directories
+(via `ai-tools-setgid`, so the agent traverses the tree and new files inherit the group), applies
+the group-permission ACL for existing files (via `ai-tools-setfacl`), and pins repo-local
+`core.filemode=true`.
 A separate default-yes prompt offers to normalize the `.git` tree (`ai-tools-setfacl
 --with-git`: group `SANDBOX_GROUP` + setgid on its dirs + the same ACL) so the operator's
 own commits stay agent-readable — `.git` being the one heavy tree the per-session passes
@@ -104,18 +106,19 @@ otherwise), so the grant adds it no access.
 
 ## Privilege model
 
-The CLI itself is unprivileged. Six of its root operations — `ai-tools-lockdown`,
-`ai-tools-relabel`, `ai-tools-setfacl`, `ai-tools-unclaim`, `ai-tools-safedir`, and
-`ai-tools-reclaim` — run via `sudo` with **no** NOPASSWD grant by design, so sudo prompts for the
-projects user's password; the sandbox account has no grant for any. The exception, `--relabel` →
+The CLI itself is unprivileged. Seven of its root operations — `ai-tools-lockdown`,
+`ai-tools-relabel`, `ai-tools-setfacl`, `ai-tools-setgid`, `ai-tools-unclaim`, `ai-tools-safedir`,
+and `ai-tools-reclaim` — run via `sudo` with **no** NOPASSWD grant by design, so sudo prompts for
+the projects user's password; the sandbox account has no grant for any. The exception, `--relabel` →
 `ai-tools-relabel-entrypoint`, is: it has a dedicated fixed-path NOPASSWD rule
 (shared with the `nvm-update` timer, see [updater](updater.rule.md) / [launch](launch.rule.md)),
 so it runs **as root without a prompt** — kept safe by being a fixed-path, no-argument target
 the projects user cannot modify. `ai-tools-setfacl` and `ai-tools-unclaim` need root
 (`CAP_FOWNER`) to act on files the projects user does not own (e.g. agent-written files from
-a prior session); each re-validates its target path against the allowlist and shares the
-exclusion/secret-skip/skip-list rules with `ai-tools-setgid`
-(see [ownership-and-hooks](ownership-and-hooks.rule.md)). `ai-tools-safedir` needs root to
+a prior session); `ai-tools-setgid` needs root to `chgrp` the project's directories to
+`SANDBOX_GROUP` — a group the operator is not a member of (multi-operator), so the change is not
+possible unprivileged. Each re-validates its target path against the allowlist and shares the
+exclusion/secret-skip/skip-list rules (see [ownership-and-hooks](ownership-and-hooks.rule.md)). `ai-tools-safedir` needs root to
 write the root-owned `.gitconfig`; on add it re-validates the path against the allowlist through
 the shared `operator.lib.sh` resolver, but edits a single entry rather than walking a tree.
 `ai-tools-reclaim` walks the project and hands each agent-owned path to `ai-tools-chown`, so the
