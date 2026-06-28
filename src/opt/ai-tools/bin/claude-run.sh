@@ -354,6 +354,14 @@ done
 _setenv+=( "--setenv=HOME=/opt/ai-tools" )
 _setenv+=( "--setenv=PATH=/usr/local/sbin:/usr/sbin:/usr/local/bin:/usr/bin:$(dirname -- "${CLAUDE_EXEC}")" )
 
+# Pin the session shell to bash.  SHELL is deliberately absent from _ENV_ALLOW, but a
+# --user transient service inherits the user manager's environment as its base, and that
+# manager carries SHELL from the operator's login (e.g. /usr/bin/zsh).  Without an
+# explicit pin the agent's shell tooling runs under whatever shell the operator happens
+# to use; pinning bash keeps it deterministic and independent of the operator, the same
+# posture as the HOME/PATH pins above.
+_setenv+=( "--setenv=SHELL=/usr/bin/bash" )
+
 # Pin Node's V8 compile cache to the agent's own state area instead of letting it
 # default to os.tmpdir()/node-compile-cache.  Node honours NODE_COMPILE_CACHE (>=v22.1)
 # and claude calls module.enableCompileCache(), so without this the cache lands at
