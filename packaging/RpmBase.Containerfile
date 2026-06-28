@@ -1,10 +1,15 @@
-# Test harness for the ai-tools RPMs on Rocky Linux 9.
+# Shared base recipe for the ai-tools RPM test image. All the common build/test logic lives
+# here, parameterized by the EL base image; the per-distro files (Rocky9.Containerfile,
+# Rocky10.Containerfile) are thin pins over the image this builds, so nothing below is repeated.
 #
-#   podman build -t ai-tools-rpmtest -f packaging/Containerfile .
-#   podman run --rm -t --systemd=always ai-tools-rpmtest
+# Build a distro image (two steps; the Makefile wraps them as `rpmtest-rocky9` / `-rocky10`):
+#   podman build -t ai-tools-rpmbase:el9 -f packaging/RpmBase.Containerfile \
+#       --build-arg BASE_IMAGE=quay.io/rockylinux/rockylinux:9.7-minimal .
+#   podman build -t ai-tools-rpmtest:el9 -f packaging/Rocky9.Containerfile .
+#   podman run --rm -t --systemd=always ai-tools-rpmtest:el9
 #       # add --privileged if your runtime cannot mount cgroups for the --user manager
 #
-# Boots systemd as PID 1, then a oneshot unit (ai-tools-selftest.service) runs the full
+# Boots systemd as PID 1; the oneshot ai-tools-selftest.service runs the full
 # admin/operator/agent Quick-start workflow and `systemctl exit`s with the aggregate status,
 # so `podman run` returns non-zero on any failure. See packaging/container-selftest.sh.
 #
@@ -14,9 +19,13 @@
 # validate SELinux-enforcing confinement: `getenforce` is Disabled in a container, so %post
 # skips `semodule` and the ai_tools_t transition is never exercised -- that needs the
 # enforcing host. This harness is the fast, repeatable pre-check; the box test is the gate.
-FROM quay.io/rockylinux/rockylinux:9.7-minimal
 
-# Build + test tooling. The minimal image ships microdnf; add dnf (readable dependency
+# The EL base image to build on. The per-distro files supply this via the Makefile; building
+# this file directly requires --build-arg BASE_IMAGE=... (no default, so the distro is explicit).
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+# Build + test tooling. Rocky 9 and 10 minimal both ship microdnf; add dnf (readable dependency
 # resolution), the rpm build chain + systemd-rpm-macros (for %systemd_*/%sysusers/%_userunitdir),
 # createrepo_c (a local repo so the metapackage resolves its subpackage Requires), systemd as
 # PID 1, and the utilities the workflow uses (script/runuser from util-linux, getenforce from
