@@ -105,11 +105,24 @@ phase "${OPERATOR} is in ai-ops + listed in operator.conf" \
 mkdir -p "${PROJECT}"; chown "${OPERATOR}:${OPERATOR}" "${PROJECT}"
 as_operator "cd '${PROJECT}' && git init -q" || true
 
+# Drive the claim non-interactively: AI_TOOLS_ASSUME_YES=1 is the CLI's own assume-yes hook for its
+# default-yes prompts (claim confirm, .git normalization), so it proceeds without a controlling tty.
 phase "operator claims the project (allowlist + ACL + safedir + label)" \
-    as_operator "ai-tools --project-claim '${PROJECT}'"
+    as_operator "AI_TOOLS_ASSUME_YES=1 ai-tools --project-claim '${PROJECT}'"
 
 phase "project is in the operator's allowlist" \
     bash -c "grep -q '${PROJECT}' /home/${OPERATOR}/.config/ai-tools/allowed-projects"
+
+# OCI image layers do not carry POSIX ACLs, so the sandbox-area ai-ops ACL the base %post applies
+# at image-build time is dropped from the committed layer (a container limitation, like SELinux).
+# On a real host %post applies it at install and it persists; re-assert it at runtime so perms.sh's
+# ACL check exercises the same state a real install has.
+banner "Re-assert sandbox-area ai-ops ACL (OCI layers drop build-time ACLs)"
+setfacl -m  g:ai-ops:r-x /var/opt/ai-tools \
+    && setfacl -m  g:ai-ops:rwx /var/opt/ai-tools/sandbox-projects \
+    && setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects \
+    && setfacl -m  g:ai-ops:r-- /var/opt/ai-tools/README.md \
+    && note "sandbox ACL re-applied" || note "sandbox ACL re-apply failed (continuing)"
 
 # ── the project test suite (DAC + systemd parts; SELinux parts no-op/skip) ────
 if [[ "${RUN_TESTS}" == "1" && -f "${SRC_DIR}/tests/run.sh" ]]; then
