@@ -26,13 +26,24 @@ section "Unit file validity (systemd-analyze verify)"
 if ! command -v systemd-analyze >/dev/null 2>&1; then
     skip "unit verify" "systemd-analyze not installed"
 else
+    # verify_judge tolerates a verify failure whose ONLY complaint is an unresolved
+    # Documentation=man: page -- minimal images (and any host without the man page installed) ship
+    # nodocs, so `man restorecon(8)` is an environment gap, not a unit defect; any other complaint
+    # still FAILs.
+    verify_judge() {
+        if [[ -z "$(printf '%s\n' "$2" | grep -vE "Command 'man .+' failed" | tr -d '[:space:]')" ]]; then
+            pass "$1 (man-page Documentation not installed; unit otherwise valid)"
+        else
+            fail "$1: $2"
+        fi
+    }
     # System units. The handback@.service template is instantiated at runtime (the socket
     # passes the connection), so it is not verifiable standalone and is left to handback.sh.
     for u in ai-tools-handback.socket ai-tools-relabel.path ai-tools-relabel.service; do
         if out="$(systemd-analyze verify "${UNITDIR}/${u}" 2>&1)"; then
             pass "verify ${u}"
         else
-            fail "verify ${u}: ${out}"
+            verify_judge "verify ${u}" "${out}"
         fi
     done
     # User units verify against the --user manager context, so run as the sandbox account with
@@ -48,7 +59,7 @@ else
                           systemd-analyze --user verify "${USERUNITDIR}/${u}" 2>&1)"; then
                 pass "verify ${u} (--user)"
             else
-                fail "verify ${u} (--user): ${out}"
+                verify_judge "verify ${u} (--user)" "${out}"
             fi
         done
     fi
