@@ -139,7 +139,7 @@ sandbox account can never hold the operator grant. The invariants the agent oper
   `#` box on a terminal and emitted plain when piped (so logs and test greps stay
   line-matchable). Detail in [messaging](.claude/rules/messaging.rule.md).
 - **Root sudo-helpers** live under `/usr/local/sbin/ai-tools/` (`chown`, `setgid`, `setfacl`,
-  `unclaim`, `safedir`, `claude-symlink`, `lockdown`, `relabel`); shared libraries under
+  `unclaim`, `safedir`, `reclaim`, `claude-symlink`, `lockdown`, `relabel`); shared libraries under
   `/usr/local/lib/ai-tools/` (`secret-patterns`, `prune-dirs`, `relabel`, `operator`, `msg`,
   `log`).
 

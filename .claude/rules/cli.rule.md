@@ -4,6 +4,7 @@ paths:
   - "src/usr/local/sbin/ai-tools/ai-tools-setfacl.sh"
   - "src/usr/local/sbin/ai-tools/ai-tools-unclaim.sh"
   - "src/usr/local/sbin/ai-tools/ai-tools-safedir.sh"
+  - "src/usr/local/sbin/ai-tools/ai-tools-reclaim.sh"
   - "src/usr/local/sbin/ai-tools/ai-tools-relabel.sh"
   - "src/usr/local/lib/ai-tools/relabel.lib.sh"
 ---
@@ -36,6 +37,13 @@ and as the sandbox account (the agent must not manage its own allowlist).
   branch / remove the clone and unregister it.
 - `--lockdown [path]` — wrapper over `ai-tools-lockdown` (see
   [secret-handling](secret-handling.rule.md)).
+- `--reclaim [--full] [path]` — hand agent-written files under the project back to the
+  operator via `ai-tools-reclaim` (which walks the tree and delegates per-path to
+  `ai-tools-chown`, the same boundary the handback uses). Reclaims the `.git` tree the
+  per-session sweeps skip; the ownership companion to the `user:<operator>` ACL, run on
+  demand before an ACL-unaware backup so ownership (not the ACL) carries the operator's access
+  into the copy. `--full` includes the skipped heavy trees (`node_modules`, `.venv`, …). See
+  [ownership-and-hooks](ownership-and-hooks.rule.md).
 - `--relabel` — restore `ai_tools_exec_t` on the claude entrypoint(s) after a Node upgrade,
   via `ai-tools-relabel-entrypoint`. The manual counterpart to the automatic post-upgrade
   relabel the `nvm-update` timer runs (see [updater](updater.rule.md)); for an out-of-band
@@ -96,11 +104,11 @@ otherwise), so the grant adds it no access.
 
 ## Privilege model
 
-The CLI itself is unprivileged. Five of its root operations — `ai-tools-lockdown`,
-`ai-tools-relabel`, `ai-tools-setfacl`, `ai-tools-unclaim`, and `ai-tools-safedir` — run via
-`sudo` with **no** NOPASSWD grant by design, so sudo prompts for the projects user's password;
-the sandbox account has no grant for any. The sixth, `--relabel` →
-`ai-tools-relabel-entrypoint`, is the exception: it has a dedicated fixed-path NOPASSWD rule
+The CLI itself is unprivileged. Six of its root operations — `ai-tools-lockdown`,
+`ai-tools-relabel`, `ai-tools-setfacl`, `ai-tools-unclaim`, `ai-tools-safedir`, and
+`ai-tools-reclaim` — run via `sudo` with **no** NOPASSWD grant by design, so sudo prompts for the
+projects user's password; the sandbox account has no grant for any. The exception, `--relabel` →
+`ai-tools-relabel-entrypoint`, is: it has a dedicated fixed-path NOPASSWD rule
 (shared with the `nvm-update` timer, see [updater](updater.rule.md) / [launch](launch.rule.md)),
 so it runs **as root without a prompt** — kept safe by being a fixed-path, no-argument target
 the projects user cannot modify. `ai-tools-setfacl` and `ai-tools-unclaim` need root
@@ -110,6 +118,8 @@ exclusion/secret-skip/prune rules with `ai-tools-setgid`
 (see [ownership-and-hooks](ownership-and-hooks.rule.md)). `ai-tools-safedir` needs root to
 write the root-owned `.gitconfig`; on add it re-validates the path against the allowlist through
 the shared `operator.lib.sh` resolver, but edits a single entry rather than walking a tree.
+`ai-tools-reclaim` walks the project and hands each agent-owned path to `ai-tools-chown`, so the
+allowlist/secret/exclusion enforcement and the need for root are that helper's, not its own.
 Repo-local `core.filemode=true` and the allowlist are plain writes the projects user performs
 unprivileged.
 `/usr/local/sbin/ai-tools` is `750 root:root`, so the projects user cannot even stat the

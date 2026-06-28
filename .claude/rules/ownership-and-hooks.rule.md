@@ -67,31 +67,35 @@ re-validates each against the allowlist, so it reclaims agent files to
 
 ### `.git` reclaim
 
-Every unbounded pass also performs a `.git` reclaim, which the bounded `Stop` sweeps
-cannot. Every sweep prunes `.git`, so `SANDBOX_USER`-owned objects the agent writes there
-via `git commit` (a `Bash`-tool action with no `file_path`, so no `PostToolUse` handback)
-escape the sweep on graceful and killed exits alike. Such objects leave `.git` in mixed
-ownership (work tree `<you>`-owned, `.git` internals `SANDBOX_USER`-owned), which makes
-git report *dubious ownership* and, once `<you>` is not a `SANDBOX_GROUP` member, blocks
-reads and repacks. The pass descends the otherwise-pruned `.git` of `.cwd` and hands each
-`SANDBOX_USER`-owned path to `ai-tools-chown` (same allowlist + exclusion + secret
-re-validation as any sweep), restoring a uniformly `<you>:SANDBOX_GROUP` repo. Other
-pruned trees (`node_modules`, `.venv`, …) stay skipped: their contents are world-readable,
-so leftover `SANDBOX_USER` ownership is harmless and not worth the per-path cost. The
-reclaim is scoped to the once-per-session `session-start` pass, never the per-turn `Stop`
-sweep, so it never flips ownership mid-turn under a live `git` command.
+Every sweep skips `.git`, so `SANDBOX_USER`-owned objects the agent writes there via `git
+commit` (a `Bash`-tool action with no `file_path`, so no `PostToolUse` handback) stay
+agent-owned. **Access** to them is carried by the `user:<operator>` ACL (`ai-tools-setfacl
+--with-git`, above): a `<you>` out of `SANDBOX_GROUP` reads and repacks those objects through the
+named entry regardless of who owns them, timing-independently. The reclaim is the **ownership**
+companion to that ACL: it descends the otherwise-skipped `.git` of `.cwd` and hands each
+`SANDBOX_USER`-owned path to `ai-tools-chown` (same allowlist + exclusion + secret re-validation as
+any sweep), so `.git` ownership converges to `<you>:SANDBOX_GROUP` — consistent with the work tree,
+and so the operator's access survives an ACL-unaware copy (an `rsync`/`tar` that drops ACLs
+preserves owner). It runs on the once-per-session `session-start` pass (which also covers a killed
+prior session's leftovers) and the `session-end` pass (graceful-exit convergence), never the
+per-turn `Stop` sweep, so it never flips ownership mid-turn under a live `git` command. The other
+skipped trees (`node_modules`, `.venv`, …) stay agent-owned — harmless (world-readable,
+regenerable). The operator's on-demand counterpart is `ai-tools --reclaim [--full]` (the
+`ai-tools-reclaim` helper, which walks a project and delegates to the same `ai-tools-chown`; see
+[cli](cli.rule.md)) — e.g. before a backup, with `--full` to include the skipped heavy trees.
 
 ### Clean-exit marker
 
 Whether a session was interrupted is read from a clean-exit marker
 (`/opt/ai-tools/.claude/.session-active`): the `session-start` pass writes it (recording
 `.cwd`), and a `SessionEnd` hook (`session-hook.sh` with the `session-end` argument)
-removes it on graceful exit. A marker that survives into the next `session-start` means
+removes it on graceful exit and runs the `.git` reclaim for `.cwd` (above). A marker that
+survives into the next `session-start` means
 the previous session was killed before its `SessionEnd` ran. That signal **widens** the
 `.git` reclaim to also cover the killed session's recorded `.cwd` — which may be a
 different project than the new session's — and selects the interrupted-session NOTICE
-wording. A gracefully-exited session clears its marker, so its `.git` is reclaimed by its
-next `session-start` in that project; the cross-project pointer is needed only for a kill.
+wording. A gracefully-exited session clears its marker and reclaims its `.git` at
+`session-end`; the cross-project pointer is needed only for a kill.
 Every reclaim is logged to journald (the audit trail), but only the **interrupted** case
 is also surfaced as a `SessionStart` `additionalContext` NOTICE — the only actionable one,
 since a killed prior session can leave cross-project mixed ownership the agent should relay,

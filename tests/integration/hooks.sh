@@ -158,4 +158,23 @@ else
     fail "SessionStart (compact) unexpectedly changed ${ssf2}: $(stat -c '%U:%G' "${ssf2}")"
 fi
 
+# ── SessionEnd: .git ownership convergence on graceful exit ───────────────────────
+# The per-turn/Stop sweeps skip .git, so an object the agent wrote there stays agent-owned;
+# SessionEnd reclaims it to <projects-user>:SANDBOX_GROUP so ownership tracks the access ACL
+# (and survives an ACL-unaware copy). The reclaim walks <cwd>/.git for agent-owned paths.
+section "SessionEnd reclaim: .git ownership convergence on graceful exit"
+run_sweep_se() {  # $1 = cwd
+    printf '{"cwd":"%s"}' "$1" \
+        | timeout 30 setsid sudo -u "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" "${sweep}" session-end \
+            > /dev/null 2>&1 || true
+}
+mkdir -p "${proj}/.git/objects/ab"
+seo="${proj}/.git/objects/ab/object"; : > "${seo}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${seo}"; chmod 0444 "${seo}"
+run_sweep_se "${proj}"
+if [[ "$(stat -c '%U:%G' "${seo}")" == "${PROJECTS_USER}:${SANDBOX_GROUP}" ]]; then
+    pass "SessionEnd reclaims an agent-owned .git object to ${PROJECTS_USER}:${SANDBOX_GROUP}"
+else
+    fail "SessionEnd did not reclaim ${seo}: $(stat -c '%U:%G' "${seo}") (want ${PROJECTS_USER}:${SANDBOX_GROUP})"
+fi
+
 finish

@@ -69,6 +69,10 @@ readonly RELABEL_ENTRYPOINT_BIN="/usr/local/sbin/ai-tools/ai-tools-relabel-entry
 # safe.directory on startup) but root-write-only, so neither the operator nor the agent writes it
 # directly -- the operator reaches the validated add/--remove through this helper.
 readonly SAFEDIR_BIN="/usr/local/sbin/ai-tools/ai-tools-safedir"
+# Root-only ownership-reclaim helper, same sudo (no NOPASSWD) model. Hands agent-written files
+# under a project back to the operator via ai-tools-chown (the per-path trust boundary), needed for
+# the .git tree the per-session sweeps skip; useful before an ACL-unaware backup.
+readonly RECLAIM_BIN="/usr/local/sbin/ai-tools/ai-tools-reclaim"
 # Sentinel in a guard CLAUDE.md (see drop_lockdown_guard) so the lockdown step can
 # recognise and remove its own placeholder once secrets are secured.
 readonly GUARD_MARKER="ai-tools-lockdown-guard"
@@ -402,6 +406,14 @@ run_lockdown() {
 run_relabel() {
     local d="$1"; shift
     sudo "${RELABEL_BIN}" "$@" "${d}"
+}
+
+# run_reclaim <dir> [--full]  -- hand agent-written files under <dir> back to the operator via
+# the root helper (sudo, password); returns its status. The helper parses the path and --full in
+# any order.
+run_reclaim() {
+    local d="$1"; shift
+    sudo "${RECLAIM_BIN}" "$@" "${d}"
 }
 
 # run_setfacl <dir> <with_git>  -- apply the project's group-permission ACL on <dir> via
@@ -994,6 +1006,34 @@ cmd_lockdown() {
     fi
 }
 
+# cmd_reclaim [--full] [path]  -- hand agent-written files under the project (default: cwd) back to
+# ${ME}:${SANDBOX_GROUP} via ai-tools-reclaim (sudo). Reclaims the .git tree the per-session sweeps
+# skip; run it before an ACL-unaware backup so ownership (not the per-project ACL) carries the
+# operator's access into the copy. --full also reclaims the heavy trees the default run skips
+# (node_modules, .venv, ...).
+cmd_reclaim() {
+    local d="" a full=false; local -a passthru=()
+    for a in "$@"; do
+        case "${a}" in
+            --full) passthru+=("${a}"); full=true ;;
+            -*)     die "unknown --reclaim option: ${a} (allowed: --full)" ;;
+            *)      [[ -z "${d}" ]] && d="${a}" || die "--reclaim takes a single path" ;;
+        esac
+    done
+    d="$(resolve_dir "${d:-$PWD}")"
+    [[ -d "${d}" ]] || die "not a directory: ${d}"
+    section "Reclaim agent-written files"
+    say "  ${d}${C_DIM}$(${full} && printf ' (--full: incl. node_modules, .venv, ...)')${C_RST}"
+    say "  ${C_DIM}-> ${ME}:${SANDBOX_GROUP} (secret-named files stay ${ME}:${ME} 600)${C_RST}"
+    warn "this needs root; sudo will prompt for your password"
+    if run_reclaim "${d}" "${passthru[@]}"; then
+        ok "reclaimed: ${d}"
+        ai_tools_log_info "reclaimed agent-written files under ${d}$(${full} && printf ' (full)')"
+    else
+        die "reclaim failed for ${d}"
+    fi
+}
+
 # cmd_relabel  -- restore the ai_tools_exec_t SELinux label on the claude entrypoint(s)
 # after a Node auto-upgrade, via the root helper (sudo, password). A nvm-update installs a
 # fresh claude binary that npm leaves mislabelled (bin_t), so the agent's domain transition
@@ -1060,11 +1100,13 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
   ai-tools --sandbox-push   [path]   push the sandbox clone's commits to its branch
   ai-tools --sandbox-remove [path]   remove a sandbox clone and unregister it
   ai-tools --lockdown [path] [-n|-y] lock down secret files (sudo; default: cwd)
+  ai-tools --reclaim [--full] [path] hand agent-written files back to you (sudo; default: cwd)
   ai-tools --relabel                 relabel the claude entrypoint after a Node upgrade (sudo)
   ai-tools --list                    list registered projects
   ai-tools --help
 
   --lockdown options: -n/--dry-run (preview only), -y/--yes (skip confirmation)
+  --reclaim options:  --full (also reclaim node_modules, .venv, ... not just the work tree + .git)
 
 Sandbox workflow: /var/opt/ai-tools/README.md
 EOF
@@ -1080,6 +1122,7 @@ case "${1:-}" in
     --sandbox-push)   shift; cmd_sandbox_push   "${1:-}" ;;
     --sandbox-remove) shift; cmd_sandbox_remove "${1:-}" ;;
     --lockdown)       shift; cmd_lockdown "$@" ;;
+    --reclaim)        shift; cmd_reclaim "$@" ;;
     --relabel)        shift; cmd_relabel "$@" ;;
     --list)           cmd_list ;;
     --help|-h|"")     usage ;;

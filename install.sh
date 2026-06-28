@@ -346,6 +346,7 @@ do_summary() {
     _chk /usr/local/sbin/ai-tools/ai-tools-setfacl
     _chk /usr/local/sbin/ai-tools/ai-tools-unclaim
     _chk /usr/local/sbin/ai-tools/ai-tools-safedir
+    _chk /usr/local/sbin/ai-tools/ai-tools-reclaim
     _chk /usr/local/sbin/ai-tools/ai-tools-claude-symlink
     _chk /usr/local/sbin/ai-tools/ai-tools-lockdown
     _chk /usr/local/sbin/ai-tools/ai-tools-relabel
@@ -475,6 +476,11 @@ do_install() {
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-safedir.sh" \
         /usr/local/sbin/ai-tools/ai-tools-safedir
+
+    log "/usr/local/sbin/ai-tools/ai-tools-reclaim"
+    install_subst 750 root root \
+        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-reclaim.sh" \
+        /usr/local/sbin/ai-tools/ai-tools-reclaim
 
     log "/usr/local/sbin/ai-tools/ai-tools-claude-symlink"
     install_subst 750 root root \

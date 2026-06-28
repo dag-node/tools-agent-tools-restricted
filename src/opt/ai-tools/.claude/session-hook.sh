@@ -118,12 +118,42 @@ else
     PROJECTS_USER=''
 fi
 
-# session-end: graceful process exit. Clear the clean-exit marker so the next
-# session-start does not read this session as interrupted, then stop. Nothing
-# else to do -- the live process's Stop sweeps already handed back the work tree.
+# reclaim_git_tree PROJECT -- hand every ai-tools-owned path under PROJECT/.git to
+# ai-tools-chown, which re-validates the allowlist, exclusions and secret rules exactly as
+# the sweep does. Echoes the count of paths processed on stdout; the client redirects the
+# helper's own stdout to stderr, so it cannot corrupt the additionalContext JSON this script
+# emits. No PROJECT/.git -> echo 0. Used by the session-end reclaim and the session-start pass.
+reclaim_git_tree() {
+    local proj="$1" n=0 path
+    if [[ -n "${proj}" && -d "${proj}/.git" ]]; then
+        while IFS= read -r -d '' path; do
+            /usr/local/bin/ai-tools-handback-client CHOWN "${path}" || true
+            n=$((n + 1))
+        done < <(find "${proj}/.git" -xdev -user @SANDBOX_USER@ \
+                     \( -type f -o -type d \) -print0 2>/dev/null)
+    fi
+    printf '%s' "${n}"
+}
+
+# session-end: graceful process exit. Clear the clean-exit marker so the next session-start does
+# not read this session as interrupted, and reclaim this project's .git to the operator. The
+# per-turn Stop sweeps prune .git, so objects the agent wrote there via `git commit` stay
+# @SANDBOX_USER@-owned; reclaiming at exit -- the session is over, so no live git command to
+# disturb -- converges .git ownership to <you>:@SANDBOX_GROUP@ right away (consistent with the work
+# tree, which the Stop sweeps already hand back), rather than waiting for the next session-start.
+# The user:<operator> ACL keeps it accessible meanwhile; this just makes ownership track it. A
+# KILLED session never reaches here; its leftovers are caught by the next session-start's pass.
 if [[ "${MODE}" == "session-end" ]]; then
     ai_tools_log_debug "session-end: clearing clean-exit marker"
     rm -f "${ACTIVE_MARKER}" 2>/dev/null || true
+    end_payload="$(cat 2>/dev/null)" || exit 0
+    end_cwd="$(jq -r '.cwd // empty' <<<"${end_payload}" 2>/dev/null)" || true
+    if [[ -n "${end_cwd}" && -d "${end_cwd}" ]]; then
+        end_found="$(reclaim_git_tree "${end_cwd}")"
+        if [[ "${end_found}" -gt 0 ]]; then
+            ai_tools_log_info "session-end: reclaimed ${end_found} agent-owned .git path(s) under ${end_cwd}"
+        fi
+    fi
     exit 0
 fi
 

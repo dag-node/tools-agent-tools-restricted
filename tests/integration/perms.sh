@@ -18,6 +18,7 @@ check_file /usr/local/sbin/ai-tools/ai-tools-setgid           root              
 check_file /usr/local/sbin/ai-tools/ai-tools-setfacl          root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-unclaim          root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-safedir          root              root              750
+check_file /usr/local/sbin/ai-tools/ai-tools-reclaim          root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-claude-symlink   root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-lockdown         root              root              750
 # SELinux project-label helper: 750 root:root -- user-run via sudo, never by the agent (no
