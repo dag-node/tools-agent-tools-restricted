@@ -32,9 +32,10 @@ check_file /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint root            
 # never by the agent (no SANDBOX_USER grant, and /usr/local/sbin/ai-tools is 750 root:root).
 check_file /usr/local/sbin/ai-tools/ai-tools-bootstrap        root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-admin           root              root              750
-# Lib dir: root-owned, group ai-tools, 750 (no world). The agent enters via group to read
-# the skip list, but has no write, so it cannot alter the rules.
-check_file /usr/local/lib/ai-tools                            root              "${SANDBOX_GROUP}" 750
+# Lib dir: root-owned, group ai-tools, 0751. The agent enters via group to read the skip
+# list; world-execute lets an operator (not a SANDBOX_GROUP member) traverse in to source the
+# 644 world-readable libs by path without listing the dir. No write but root.
+check_file /usr/local/lib/ai-tools                            root              "${SANDBOX_GROUP}" 751
 # Secret-pattern matcher: read only by the root helpers, so 640 root:root -- no group/world
 # surface. The agent (group ai-tools) cannot read it.
 check_file /usr/local/lib/ai-tools/secret-patterns.lib.sh     root              root              640

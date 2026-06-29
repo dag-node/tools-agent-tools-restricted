@@ -488,14 +488,18 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-claude-symlink.sh" \
         /usr/local/sbin/ai-tools/ai-tools-claude-symlink
 
-    # Shared libraries, sourced by the helpers. The dir is root-owned, group
-    # SANDBOX_GROUP, 750 -- no world bit: the agent enters via group to read the
-    # skip list, but has no write, so it cannot alter the rules. Enforce on
-    # re-install even when the dir pre-exists.
+    # Shared libraries, sourced by the helpers AND by the operator-run CLI/wrapper.
+    # The dir is root-owned, group SANDBOX_GROUP, 0751: the agent enters via group
+    # to read the skip list; the world-execute bit lets an operator (who is NOT a
+    # SANDBOX_GROUP member under the multi-operator model) TRAVERSE in to source the
+    # world-readable 644 libs (msg/log/safe-paths) by path, without being able to
+    # LIST the dir. The group-restricted 640 files (secret-patterns, relabel,
+    # skip-dirs) stay protected by their own modes. No write for anyone but root, so
+    # the rules cannot be altered. Enforce on re-install even when the dir pre-exists.
     log "/usr/local/lib/ai-tools/"
-    ensure_dir 750 root "${SANDBOX_GROUP}" /usr/local/lib/ai-tools
+    ensure_dir 751 root "${SANDBOX_GROUP}" /usr/local/lib/ai-tools
     chown root:"${SANDBOX_GROUP}" /usr/local/lib/ai-tools
-    chmod 750 /usr/local/lib/ai-tools
+    chmod 751 /usr/local/lib/ai-tools
 
     # Secret-name matcher: read ONLY by the root helpers (ai-tools-chown,
     # ai-tools-lockdown), so 640 root:root -- no group or world surface; the agent

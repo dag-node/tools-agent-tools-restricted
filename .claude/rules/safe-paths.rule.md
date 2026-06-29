@@ -72,7 +72,12 @@ silent skips), and exit `1` in the launch wrapper to match its `die`.
 ## Design notes
 
 - **Deployed `644 root:root`**, world-readable like `msg.lib.sh`/`log.lib.sh`: the operator
-  wrapper, the CLI, and the root helpers all read the same list; it carries no secrets.
+  wrapper, the CLI, and the root helpers all read the same list; it carries no secrets. The
+  lib directory `/usr/local/lib/ai-tools` is `0751 root:SANDBOX_GROUP` so a non-group operator
+  can **traverse** in to source the `644` libs by path (without listing the dir) — the
+  world-execute bit is what makes the "world-readable" guarantee hold for an operator who, in
+  the multi-operator model, is not a `SANDBOX_GROUP` member. The group-restricted `640` files
+  (secret-patterns, relabel, skip-dirs) stay protected by their own modes.
 - **Sourced, not executed**, so every consumer shares one list and one matcher — the same
   single-source pattern as `skip-dirs.lib.sh`.
 - **`msg.lib` is sourced from within the library** only when its function is not already

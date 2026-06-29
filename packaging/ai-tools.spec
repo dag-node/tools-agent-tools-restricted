@@ -120,7 +120,10 @@ install -m 0755 src%{ai_bindir}/ai-tools.sh                 %{buildroot}%{ai_bin
 install -m 0750 src%{ai_bindir}/ai-tools-handback-client.py %{buildroot}%{ai_bindir}/ai-tools-handback-client
 
 # ── base: shared libraries ───────────────────────────────────────────────────
-install -d -m 0750 %{buildroot}%{ai_libdir}
+# 0751: group SANDBOX_GROUP r-x for the agent; world-execute so an operator (not a
+# SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
+# world-readable libs by path without listing the dir. The 640 files self-protect.
+install -d -m 0751 %{buildroot}%{ai_libdir}
 for l in log msg skip-dirs relabel secret-patterns operator control-plane safe-paths; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
@@ -277,7 +280,7 @@ fi
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-handback
 %attr(0755, root, root) %{ai_bindir}/ai-tools
 %attr(0750, root, ai-tools) %{ai_bindir}/ai-tools-handback-client
-%dir %attr(0750, root, ai-tools) %{ai_libdir}
+%dir %attr(0751, root, ai-tools) %{ai_libdir}
 %attr(0644, root, root) %{ai_libdir}/log.lib.sh
 %attr(0644, root, root) %{ai_libdir}/msg.lib.sh
 %attr(0640, root, ai-tools) %{ai_libdir}/skip-dirs.lib.sh
