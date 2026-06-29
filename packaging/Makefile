@@ -24,6 +24,9 @@ CONTENT = src docs selinux/policy/ai_tools.pp \
 OCI       ?= podman
 EL9_BASE  ?= quay.io/rockylinux/rockylinux:9.7-minimal
 EL10_BASE ?= quay.io/rockylinux/rockylinux:10-minimal
+# Extra flags passed to every `OCI build`. Set BUILD_FLAGS=--no-cache to force a clean rebuild
+# when a content-addressed COPY cache hit would otherwise reuse an RPM built from older sources.
+BUILD_FLAGS ?=
 
 .PHONY: all dist srpm rpm clean rpmtest-rocky9 rpmtest-rocky10
 
@@ -33,13 +36,13 @@ all:
 # Two builds per distro: the shared base for the chosen EL image, then the distro overlay; then
 # run it with systemd as PID 1 so the selftest fires and returns the container's exit status.
 rpmtest-rocky9:
-	$(OCI) build -t ai-tools-rpmbase:el9 -f $(CURDIR)/RpmBase.Containerfile --build-arg BASE_IMAGE=$(EL9_BASE) $(ROOT)
-	$(OCI) build -t ai-tools-rpmtest:el9 -f $(CURDIR)/Rocky9.Containerfile $(ROOT)
+	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmbase:el9 -f $(CURDIR)/RpmBase.Containerfile --build-arg BASE_IMAGE=$(EL9_BASE) $(ROOT)
+	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmtest:el9 -f $(CURDIR)/Rocky9.Containerfile $(ROOT)
 	$(OCI) run --rm -t --systemd=always ai-tools-rpmtest:el9
 
 rpmtest-rocky10:
-	$(OCI) build -t ai-tools-rpmbase:el10 -f $(CURDIR)/RpmBase.Containerfile --build-arg BASE_IMAGE=$(EL10_BASE) $(ROOT)
-	$(OCI) build -t ai-tools-rpmtest:el10 -f $(CURDIR)/Rocky10.Containerfile $(ROOT)
+	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmbase:el10 -f $(CURDIR)/RpmBase.Containerfile --build-arg BASE_IMAGE=$(EL10_BASE) $(ROOT)
+	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmtest:el10 -f $(CURDIR)/Rocky10.Containerfile $(ROOT)
 	$(OCI) run --rm -t --systemd=always ai-tools-rpmtest:el10
 
 dist:
