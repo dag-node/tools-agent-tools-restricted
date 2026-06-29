@@ -9,8 +9,12 @@ own login account, and keep Node.js and the `claude` CLI current automatically.
 ## Quick start
 
 ```bash
-# 1. Install the package (or run `sudo ./install.sh install` from a source checkout)
-sudo dnf install ./claude-code-restricted-*.rpm
+# 1. Install the full stack in one transaction. The build produces a metapackage
+#    (ai-tools) and three subpackages (ai-tools-base, ai-tools-nodejs,
+#    claude-code-restricted); pass dnf all of them at once so it resolves the
+#    inter-package deps from the local files and orders the install itself.
+#    (Or run `sudo ./install.sh install` from a source checkout.)
+sudo dnf install ./*.rpm
 
 # 2. Provision the sandbox account's Node toolchain + claude (network, once)
 sudo ai-tools-bootstrap
@@ -22,6 +26,11 @@ sudo ai-tools-admin operator add "$(id -un)"
 ai-tools --project-create ~/myproject
 cd ~/myproject && claude
 ```
+
+Order *within* step 1 is dnf's job — it installs `ai-tools-base`, then
+`ai-tools-nodejs`, then `claude-code-restricted` from the dependency graph, so a
+single transaction is all that matters. Steps 2 and 3 are independent of each
+other but must both run before step 4.
 
 `claude` resolves to the system wrapper `/usr/local/bin/claude`, which runs as you,
 checks your `ai-ops` membership and the project allowlist, then drops to `${SANDBOX_USER}`
