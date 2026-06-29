@@ -30,9 +30,14 @@ FROM ${BASE_IMAGE}
 # createrepo_c (a local repo so the metapackage resolves its subpackage Requires), systemd as
 # PID 1, and the utilities the workflow uses (script/runuser from util-linux, getenforce from
 # libselinux-utils, git/curl for bootstrap + claim).
+#
+# dbus-broker provides the per-user D-Bus the sandbox account's `systemd --user` manager needs;
+# the -minimal images omit it, and without it logind cannot sustain a lingering --user instance
+# across session open/close, so the nvm-update timer drops out from under the toolchain. On a
+# full host it is present already; the test image installs it to match.
 RUN microdnf -y install \
         dnf rpm-build systemd-rpm-macros make sed tar gzip findutils createrepo_c \
-        systemd sudo shadow-utils passwd util-linux procps-ng libselinux-utils \
+        systemd dbus-broker sudo shadow-utils passwd util-linux procps-ng libselinux-utils \
         git curl which glibc-langpack-en \
     && microdnf clean all
 
