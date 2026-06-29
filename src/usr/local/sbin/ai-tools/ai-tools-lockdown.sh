@@ -30,22 +30,22 @@ readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 # current directory. A missing lib leaves ai_tools_resolve_owner a fail-closed stub, so the resolve
 # below dies rather than lock secrets to the wrong identity.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
 
 # Directory-skip selector from the shared library (single source of truth, shared with
 # session-hook.sh and ai-tools-setgid). A missing lib leaves a stub that skips nothing.
 readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/skip-dirs.lib.sh
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
-    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); AI_TOOLS_SKIP_NAMES=(); return 0; }
+    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/lockdown.log.
 # Best-effort -- a no-op fallback keeps the helper working if the lib is missing.
 AI_TOOLS_LOG_TAG="ai-tools-lockdown"
 AI_TOOLS_LOG_FILE="lockdown.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
@@ -58,7 +58,7 @@ die()  { printf 'ai-tools-lockdown: error: %s\n' "$*" >&2; exit 1; }
 # Protected-paths backstop (safe-paths.lib.sh): refuse to act on a system directory even
 # when the allowlist includes it. See safe-paths.rule.md.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/safe-paths.lib.sh
 source "${SAFE_PATHS_LIB}"
 
 usage() {
@@ -149,7 +149,7 @@ _is_allowed  "${target}" || die "${target} is not an allowed project (see ${ALLO
 _is_excluded "${target}" && die "${target} is excluded in the allowlist; nothing to do"
 
 # ── Shared secret matcher ────────────────────────────────────────────────────
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
 if ! source "${SECRET_PATTERNS_LIB}"; then
     die "cannot source ${SECRET_PATTERNS_LIB}"
 fi

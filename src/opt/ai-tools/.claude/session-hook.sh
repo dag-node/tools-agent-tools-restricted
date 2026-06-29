@@ -89,7 +89,7 @@ readonly MODE="${1:-stop}"
 # file mutations there). Best-effort no-op fallback if the lib is missing.
 AI_TOOLS_LOG_TAG="ai-tools-hook"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
@@ -99,7 +99,7 @@ fi
 # '#' box, wrapped within 80 columns. Best-effort: if the lib is missing, fall back to
 # plain text so the notice still reaches the user.
 readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/msg.lib.sh
 if ! source "${MSG_LIB}" 2>/dev/null; then
     ai_tools_msg() { shift 2; printf '%s\n' "$@"; }
     ai_tools_msg_wrap() { shift; printf '%s\n' "$*"; }
@@ -111,7 +111,7 @@ fi
 # validator re-checks ownership. Best-effort: an unenrolled/missing config leaves PROJECTS_USER
 # empty, degrading only the suggested command's owner field.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/operator.lib.sh
 if source "${OPERATOR_LIB}" 2>/dev/null; then
     ai_tools_load_operator || true
 else
@@ -160,9 +160,9 @@ fi
 # Directory-skip selector from the shared library (single source of truth, shared with
 # ai-tools-setgid / ai-tools-lockdown). A missing lib leaves a stub that skips nothing.
 readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/skip-dirs.lib.sh
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
-    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); AI_TOOLS_SKIP_NAMES=(); return 0; }
+    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
 # Capture the hook JSON once (stdin is a pipe, readable only once), then parse
 # both .cwd and -- in session-start mode -- .source from the captured payload.

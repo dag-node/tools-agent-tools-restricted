@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # /etc/profile.d/path_dedup.sh
 #
 # PURPOSE

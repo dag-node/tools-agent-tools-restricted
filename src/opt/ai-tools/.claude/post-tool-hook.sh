@@ -32,7 +32,7 @@ set -euo pipefail
 # actual file mutation there). Best-effort no-op fallback if the lib is missing.
 AI_TOOLS_LOG_TAG="ai-tools-hook"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }

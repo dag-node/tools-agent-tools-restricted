@@ -157,7 +157,7 @@ readonly AI_TOOLS_NVM_DIR="/opt/ai-tools/.nvm"
 # otherwise. Best-effort -- the fallback keeps the prior plain-stderr behaviour if the
 # lib is missing.
 readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/msg.lib.sh
 if ! source "${MSG_LIB}" 2>/dev/null; then
     ai_tools_msg_error()  { printf '%s\n' "$@" >&2; }
     ai_tools_msg_notice() { printf '%s\n' "$@" >&2; }

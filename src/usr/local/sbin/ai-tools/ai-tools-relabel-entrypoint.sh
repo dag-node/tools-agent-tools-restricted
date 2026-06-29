@@ -34,7 +34,7 @@ readonly ENTRYPOINT_GLOB='/opt/ai-tools/.nvm/versions/node/*/lib/node_modules/@a
 AI_TOOLS_LOG_TAG="ai-tools-relabel-entrypoint"
 AI_TOOLS_LOG_FILE="relabel.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log_info() { :; }; ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
 fi

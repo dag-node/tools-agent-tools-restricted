@@ -116,7 +116,7 @@ die()     { ai_tools_log_error "$*"; ai_tools_msg_error "ai-tools: $*"; exit 1; 
 # tag "ai-tools". Best-effort no-op fallback if the lib is missing.
 AI_TOOLS_LOG_TAG="ai-tools"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
@@ -126,7 +126,7 @@ fi
 # box (wrapped within 80 columns) on a terminal, plain text otherwise. Best-effort: the
 # fallback reproduces the prior plain-stderr behaviour if the lib is missing.
 readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../lib/ai-tools/msg.lib.sh
 if ! source "${MSG_LIB}" 2>/dev/null; then
     ai_tools_msg_error() { printf '%s\n' "$@" >&2; }
     ai_tools_msg_warn()  { printf '%s\n' "$@" >&2; }
@@ -140,7 +140,7 @@ fi
 # ancestor traversal (a claimed project the agent cannot reach). Log to journald (via logger,
 # independent of log.lib which may share the broken dir) and warn the user, then exit.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../lib/ai-tools/safe-paths.lib.sh
 if ! source "${SAFE_PATHS_LIB}" 2>/dev/null \
         || ! declare -F ai_tools_assert_safe_target  >/dev/null 2>&1 \
         || ! declare -F ai_tools_protected_path_match >/dev/null 2>&1; then
@@ -306,9 +306,11 @@ reg_filemode() {
     if [[ "$(git -C "${dir}" config --local --get core.filemode 2>/dev/null)" == "true" ]]; then
         say "    git core.filemode: already true"
     else
-        git -C "${dir}" config --local core.filemode true \
-            && say "    git core.filemode: set true" \
-            || warn "git core.filemode: could not set (continuing)"
+        if git -C "${dir}" config --local core.filemode true; then
+            say "    git core.filemode: set true"
+        else
+            warn "git core.filemode: could not set (continuing)"
+        fi
     fi
 }
 
@@ -835,8 +837,11 @@ cmd_project_claim() {
         warn "normalizing .git lets the agent read this repo's full git history"
         say  "    ${C_DIM}to keep history out of the agent's reach, use an isolated shallow clone:${C_RST}"
         say  "      ${C_DIM}ai-tools --sandbox-create ${d}${C_RST}"
-        confirm "Normalize .git so the agent can access git history here?" y force \
-            && do_git=true || say "    .git: left as-is (history not accessible to the agent)"
+        if confirm "Normalize .git so the agent can access git history here?" y force; then
+            do_git=true
+        else
+            say "    .git: left as-is (history not accessible to the agent)"
+        fi
     fi
 
     [[ "${safedir}" == true  ]] || reg_safedir "${d}"
@@ -1090,7 +1095,7 @@ cmd_lockdown() {
             -n|--dry-run) passthru+=("${a}"); dry=true ;;
             -y|--yes)     passthru+=("${a}") ;;
             -*)           die "unknown --lockdown option: ${a} (allowed: --dry-run, --yes)" ;;
-            *)            [[ -z "${d}" ]] && d="${a}" || die "--lockdown takes a single path" ;;
+            *)            if [[ -z "${d}" ]]; then d="${a}"; else die "--lockdown takes a single path"; fi ;;
         esac
     done
     d="$(resolve_dir "${d:-$PWD}")"
@@ -1122,7 +1127,7 @@ cmd_reclaim() {
         case "${a}" in
             --full) passthru+=("${a}"); full=true ;;
             -*)     die "unknown --reclaim option: ${a} (allowed: --full)" ;;
-            *)      [[ -z "${d}" ]] && d="${a}" || die "--reclaim takes a single path" ;;
+            *)      if [[ -z "${d}" ]]; then d="${a}"; else die "--reclaim takes a single path"; fi ;;
         esac
     done
     d="$(resolve_dir "${d:-$PWD}")"

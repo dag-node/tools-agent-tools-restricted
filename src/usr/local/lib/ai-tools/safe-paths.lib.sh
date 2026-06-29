@@ -80,6 +80,6 @@ ai_tools_assert_safe_target() {
 # msg.lib -- msg.lib has no include guard and its readonly vars would abort a re-source under
 # set -e. Best-effort: the plain-stderr fallback in the assert covers a missing library.
 if ! declare -F ai_tools_msg_error >/dev/null 2>&1; then
-    # shellcheck source=/dev/null
+    # shellcheck source=SCRIPTDIR/msg.lib.sh
     source /usr/local/lib/ai-tools/msg.lib.sh 2>/dev/null || true
 fi

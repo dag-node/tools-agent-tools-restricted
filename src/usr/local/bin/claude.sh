@@ -22,7 +22,7 @@ readonly AI_TOOLS_CLI="/usr/local/bin/ai-tools"
 # absent, the fallback reproduces the prior plain-stderr behaviour so the wrapper (and
 # its tests) keep working unchanged.
 readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../lib/ai-tools/msg.lib.sh
 if ! source "${MSG_LIB}" 2>/dev/null; then
     ai_tools_msg_error()  { printf '%s\n' "$@" >&2; }
     ai_tools_msg_notice() { printf '%s\n' "$@" >&2; }
@@ -59,7 +59,7 @@ die() {
 # log.lib and it may share the broken dir) for the audit trail, then die()s to warn the user
 # (die needs only ai_tools_msg_error, already set with a plain fallback, so the refusal still
 # renders even if msg.lib was the missing piece).
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../lib/ai-tools/safe-paths.lib.sh
 if ! source "${SAFE_PATHS_LIB}" 2>/dev/null \
         || ! declare -F ai_tools_assert_safe_target  >/dev/null 2>&1 \
         || ! declare -F ai_tools_protected_path_match >/dev/null 2>&1; then
@@ -231,7 +231,7 @@ if [[ "${approved}" != true ]]; then
             # not launch in this directory.
             if "${AI_TOOLS_CLI}" --sandbox-create "${cwd}"; then
                 ai_tools_msg_notice "claude: sandbox ready -- cd into the clone path shown above, then run claude there"
-                [[ -t 0 ]] && read -r -p "Press Enter to close..." < /dev/tty 2>/dev/null || true
+                if [[ -t 0 ]]; then read -r -p "Press Enter to close..." < /dev/tty 2>/dev/null || true; fi
                 exit 0
             fi
             die "claude: sandbox creation did not complete -- see the output above"

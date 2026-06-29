@@ -34,8 +34,11 @@ for arg in "$@"; do
     case "${arg}" in
         --remove) REMOVE=true ;;
         -*) printf 'ai-tools-safedir: unknown option: %s\n' "${arg}" >&2; exit 2 ;;
-        *)  [[ -z "${TARGET}" ]] && TARGET="${arg}" \
-                || { printf 'ai-tools-safedir: too many arguments\n' >&2; exit 2; } ;;
+        *)  if [[ -z "${TARGET}" ]]; then
+                TARGET="${arg}"
+            else
+                printf 'ai-tools-safedir: too many arguments\n' >&2; exit 2
+            fi ;;
     esac
 done
 # No path given -> default to the current directory, and remember it was defaulted so an
@@ -52,7 +55,7 @@ readonly TARGET REMOVE FROM_CWD
 # the path. A missing lib leaves ai_tools_resolve_owner a fail-closed stub, so an ADD finds no
 # owner and leaves the file untouched.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/safedir.log.
@@ -60,7 +63,7 @@ source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
 AI_TOOLS_LOG_TAG="ai-tools-safedir"
 AI_TOOLS_LOG_FILE="safedir.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
@@ -108,7 +111,9 @@ if ${REMOVE}; then
         || { ai_tools_log_info "declined removing safe.directory ${canonical}"; exit 0; }
     if _listed "${canonical}"; then
         # --unset-all takes a value REGEX; escape the path so regex metacharacters in it are
-        # literal and anchors match the whole line.
+        # literal and anchors match the whole line. The sed program is a single-quoted regex:
+        # its $ and () are literal metacharacters, not shell expansions, so SC2016 is expected.
+        # shellcheck disable=SC2016
         esc="$(printf '%s' "${canonical}" | sed 's/[.[\*^$()+?{|\\]/\\&/g')"
         git config --file "${GITCONFIG}" --unset-all safe.directory "^${esc}$" 2>/dev/null || true
         _reassert_mode

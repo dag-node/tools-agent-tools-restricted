@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034  # boundary-mode constants, read by install.sh and the perms test
 # /usr/local/lib/ai-tools/control-plane.lib.sh
 # Canonical boundary-mode constants for the /opt/ai-tools control plane. The control plane is
 # owned root:ai-tools permanently -- the RPM ships it that way and nothing re-owns it to a person

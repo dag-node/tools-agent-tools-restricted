@@ -31,7 +31,8 @@ die()  { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p err;     echo "E
 # by which time the session has ended.
 # args:  version string (e.g. v22.23.0)
 version_in_use() {
-    local ver="$1" verdir="${HOME}/.nvm/versions/node/${ver}"
+    local ver="$1"
+    local verdir="${HOME}/.nvm/versions/node/${ver}"
     local exe tgt
     for exe in /proc/[0-9]*/exe; do
         tgt="$(readlink -- "${exe}" 2>/dev/null)" || continue

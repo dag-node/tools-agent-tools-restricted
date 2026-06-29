@@ -27,7 +27,7 @@ readonly TARGET="${1:?usage: ai-tools-chown <absolute-path>}"
 # lib leaves ai_tools_resolve_owner a fail-closed stub, so the path is left ai-tools-owned rather
 # than handed back unclassified.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/chown.log.
@@ -35,7 +35,7 @@ source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
 AI_TOOLS_LOG_TAG="ai-tools-chown"
 AI_TOOLS_LOG_FILE="chown.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
@@ -48,7 +48,7 @@ fi
 # and hand a secret back as an ordinary file -- exiting non-zero simply skips this
 # path's handback (it stays ai-tools-owned), which is fail-closed, not a leak.
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
 if ! source "${SECRET_PATTERNS_LIB}"; then
     printf 'ai-tools-chown: FATAL: cannot source %s\n' "${SECRET_PATTERNS_LIB}" >&2
     exit 1
@@ -57,7 +57,7 @@ fi
 # Protected-paths backstop (safe-paths.lib.sh): refuse to act on a system directory even
 # when the allowlist includes it. See safe-paths.rule.md.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/safe-paths.lib.sh
 source "${SAFE_PATHS_LIB}"
 
 # _notify_secret: emit a one-line NOTICE that a secret-named file was written and
@@ -259,7 +259,7 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
                 _notify_secret "${canonical}" "${current_owner}" "${target_owner}" \
                     "${current_mode}" "${new_mode}"
             else
-                ${is_dir} && _kind=directory || _kind=file
+                ${is_dir} && _kind="directory" || _kind="file"
                 ai_tools_log_info "handed back ${_kind} ${canonical} (owner ${current_owner} -> ${target_owner}, mode ${current_mode} -> ${new_mode})"
             fi
             exec {fd}<&-

@@ -144,6 +144,7 @@ ai_tools_allowlist_covers() {
 # project's owner on disk wins); failing any such ancestor, the first matching operator, so the
 # result is deterministic. Returns 1 when no operator covers the path -- the caller treats that as
 # "not an allowed project for anyone" and leaves the path untouched (fail-closed).
+# shellcheck disable=SC2034  # PROJECTS_*/AI_TOOLS_RESOLVED_ALLOWLIST are this resolver's globals, read by callers and the test suite
 ai_tools_resolve_owner() {
     local path="$1" op home tag idx=0 p owner i
     PROJECTS_USER=''; PROJECTS_HOME=''; PROJECTS_GROUP=''; PROJECTS_UID=-1

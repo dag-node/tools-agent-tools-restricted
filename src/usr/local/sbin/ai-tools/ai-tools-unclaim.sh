@@ -46,17 +46,18 @@ readonly TARGET_GROUP="${2:?usage: ai-tools-unclaim <absolute-project-path> <tar
 # Operator-identity resolver (operator.lib.sh): resolves the operator that owns the project. A
 # missing lib leaves ai_tools_resolve_owner a fail-closed stub, so the tree is left untouched.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
 # Two identities may legitimately hold a project tree (see ai-tools-setfacl); a file belonging to a
 # third party is left untouched. Matched by numeric UID; PROJECTS_UID is the resolved operator.
-readonly SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
+SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
+readonly SANDBOX_UID
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/unclaim.log.
 AI_TOOLS_LOG_TAG="ai-tools-unclaim"
 AI_TOOLS_LOG_FILE="unclaim.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
@@ -65,16 +66,16 @@ fi
 # Directory-skip selector (shared single source of truth). A missing lib leaves a stub that
 # skips nothing -- a slower but correct walk.
 readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/skip-dirs.lib.sh
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
-    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); AI_TOOLS_SKIP_NAMES=(); return 0; }
+    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
 # Secret-name matcher: never touch a secret-named path (a locked secret stays put). We
 # run as root, so we can read the 640 root:root lib. Best-effort -- falls back to the
 # '!' allowlist exclusions if the matcher cannot load.
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 _secret_loaded=false
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
 if source "${SECRET_PATTERNS_LIB}" 2>/dev/null && ai_tools_load_secret_patterns 2>/dev/null; then
     _secret_loaded=true
 fi
@@ -90,7 +91,7 @@ getent group "${TARGET_GROUP}" >/dev/null 2>&1 \
 # Protected-paths backstop (safe-paths.lib.sh): refuse to act on a system directory even
 # when the allowlist includes it. See safe-paths.rule.md.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/safe-paths.lib.sh
 source "${SAFE_PATHS_LIB}"
 
 # Canonicalise the argument; block symlink traversal of the path itself.
@@ -224,7 +225,7 @@ if [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
             [[ -d "${p}" ]] && gskip+=("${p}")
             continue
         fi
-        _safe_unclaim "${p}" && git_changed=$(( git_changed + 1 )) || true
+        if _safe_unclaim "${p}"; then git_changed=$(( git_changed + 1 )); fi
     done < <(find "${gitdir}" -xdev '(' -type d -o -type f ')' -print0 2>/dev/null)
     ai_tools_log_info "unclaimed ${git_changed} path(s) under ${gitdir} (group -> ${TARGET_GROUP}, group write removed)"
 fi

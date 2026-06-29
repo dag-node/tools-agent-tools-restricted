@@ -1,0 +1,13 @@
+# ShellCheck configuration for this repository.
+#
+# Each library `source` under src/ names its target with a `# shellcheck
+# source=SCRIPTDIR/...` directive (src/ mirrors the install tree, so one path resolves
+# both in-repo and once installed). Following them keeps cross-library references honest
+# at lint time: a name shared across the source boundary resolves to its definition, and
+# a stale source path shows up as SC1091.
+external-sources=true
+
+# The fail-soft `if ! source "${LIB}"; then <stubs>; fi` fallbacks and the trap- and
+# name-dispatched functions are reachable by design, so SC2317 stays off. SC2034 stays
+# on, scoped per producer where a name is exported for a sourcing script or the tests.
+disable=SC2317

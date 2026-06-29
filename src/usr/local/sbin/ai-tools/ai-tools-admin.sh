@@ -33,7 +33,7 @@ log() { printf 'ai-tools-admin: %s\n' "$*"; }
 
 [[ "${EUID}" -eq 0 ]] || die "run as root (sudo)"
 
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 . "${OPERATOR_LIB}" || die "cannot source ${OPERATOR_LIB}"
 
 # write_operators <name>...: rewrite operator.conf with the given operator list (root:root 644).

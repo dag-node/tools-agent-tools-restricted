@@ -55,6 +55,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Shared logging library | `log.lib.sh` | [logging](.claude/rules/logging.rule.md) |
 | User-facing message formatting (box, wrap, ties) | `msg.lib.sh` + its consumers | [messaging](.claude/rules/messaging.rule.md) |
 | Test organization, hermeticity, categories | `tests/**` | [tests](.claude/rules/tests.rule.md) |
+| ShellCheck baseline, `.shellcheckrc`, accepted findings | `src/**/*.sh`, `.shellcheckrc` | [shellcheck](.claude/rules/shellcheck.rule.md) |
 
 ## Trust chain (summary)
 

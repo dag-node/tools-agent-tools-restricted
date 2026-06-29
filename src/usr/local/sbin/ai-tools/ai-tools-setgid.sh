@@ -32,21 +32,22 @@ readonly TARGET="${1:?usage: ai-tools-setgid <absolute-project-path>}"
 # Operator-identity resolver (operator.lib.sh): resolves the operator that owns the project. A
 # missing lib leaves ai_tools_resolve_owner a fail-closed stub, so the tree is left untouched.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
 readonly GROUP="@SANDBOX_GROUP@"
 # Two identities may legitimately hold a project tree's dirs: the resolved operator and the sandbox
 # account. A directory belonging to a third party (root, another developer) is left untouched --
 # normalization must not pull a foreign dir into the agent's group. Matched by numeric UID;
 # PROJECTS_UID is the resolved operator (set below).
-readonly SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
+SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
+readonly SANDBOX_UID
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/setgid.log.
 # Best-effort -- a no-op fallback keeps the helper working if the lib is missing.
 AI_TOOLS_LOG_TAG="ai-tools-setgid"
 AI_TOOLS_LOG_FILE="setgid.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
@@ -56,9 +57,9 @@ fi
 # session-hook.sh and ai-tools-lockdown). A missing lib (broken install) leaves a stub that
 # skips nothing -- a slower but correct walk.
 readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/skip-dirs.lib.sh
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
-    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); AI_TOOLS_SKIP_NAMES=(); return 0; }
+    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
 # Secret-name matcher (defense in depth): never apply the sandbox group to a dir
 # whose basename looks like a secret (e.g. .env), so a private dir is not exposed
@@ -67,7 +68,7 @@ source "${SKIP_DIRS_LIB}" 2>/dev/null \
 # remain the authoritative control; if the matcher cannot load, fall back to them.
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 _secret_loaded=false
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
 if source "${SECRET_PATTERNS_LIB}" 2>/dev/null && ai_tools_load_secret_patterns 2>/dev/null; then
     _secret_loaded=true
 fi
@@ -79,7 +80,7 @@ _is_secret_name() {
 # Protected-paths backstop (safe-paths.lib.sh): refuse to act on a system directory even
 # when the allowlist includes it. See safe-paths.rule.md.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/safe-paths.lib.sh
 source "${SAFE_PATHS_LIB}"
 
 # Canonicalise the argument; block symlink traversal of the path itself.

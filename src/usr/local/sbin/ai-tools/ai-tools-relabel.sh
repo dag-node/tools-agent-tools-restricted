@@ -33,11 +33,11 @@ readonly RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
 # root-only test hooks: sudo strips them (env_reset, not in env_keep), so neither the operator
 # nor the agent can inject them in production (relabel is only ever reached as root via sudo).
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 if source "${OPERATOR_LIB}" 2>/dev/null; then
     ai_tools_load_operator || true
 else
-    PROJECTS_USER=''; PROJECTS_HOME=''; PROJECTS_GROUP=''; PROJECTS_UID=-1
+    PROJECTS_USER=''; PROJECTS_HOME=''   # the fallback sets only what this helper reads
 fi
 readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-${PROJECTS_HOME}/.config/ai-tools/allowed-projects}"
 
@@ -47,7 +47,7 @@ readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-${PROJECTS_HOME}/.config/ai-tools/allo
 AI_TOOLS_LOG_TAG="ai-tools-relabel"
 AI_TOOLS_LOG_FILE="relabel.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log_info() { :; }; ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
 fi
@@ -57,7 +57,7 @@ die() { ai_tools_log_error "$*"; printf 'ai-tools-relabel: error: %s\n' "$*" >&2
 # Protected-paths backstop (safe-paths.lib.sh): refuse to relabel a system directory even
 # when the allowlist includes it. See safe-paths.rule.md.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/safe-paths.lib.sh
 source "${SAFE_PATHS_LIB}"
 
 [[ "${EUID}" -eq 0 ]] || die "must run as root (via sudo)"
@@ -79,7 +79,7 @@ for a in "$@"; do
     case "${a}" in
         --remove|-r) remove=true ;;
         -*)          die "unknown option: ${a} (allowed: --remove)" ;;
-        *)           [[ -z "${target}" ]] && target="${a}" || die "takes a single path" ;;
+        *)           if [[ -z "${target}" ]]; then target="${a}"; else die "takes a single path"; fi ;;
     esac
 done
 [[ -n "${target}" ]] || die "usage: ai-tools-relabel [--remove] <dir>"
@@ -89,7 +89,7 @@ dir="$(realpath -e "${target}" 2>/dev/null)" || die "path not found: ${target}"
 # Refuse to (un)label a protected system directory.
 ai_tools_assert_safe_target "${dir}" "relabel" || exit 3
 
-# shellcheck source=/dev/null
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/relabel.lib.sh
 source "${RELABEL_LIB}" 2>/dev/null || die "missing label library: ${RELABEL_LIB}"
 
 if ai_tools_relabel_available; then :; else

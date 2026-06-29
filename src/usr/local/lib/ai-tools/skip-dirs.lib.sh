@@ -85,6 +85,7 @@ ai_tools_skip_find_expr() {
                                         "${AI_TOOLS_SKIP_ARTIFACT_DIRS[@]}" \
                                         "${AI_TOOLS_SKIP_CACHE_DIRS[@]}" )
     [[ "${skip_git}" == true ]] && names=( "${AI_TOOLS_SKIP_VCS_DIRS[@]}" "${names[@]}" )
+    # shellcheck disable=SC2034  # public lib output, read by the test suite
     AI_TOOLS_SKIP_NAMES=( "${names[@]}" )
     AI_TOOLS_SKIP_FIND_EXPR=()
     if (( ${#names[@]} > 0 )); then
