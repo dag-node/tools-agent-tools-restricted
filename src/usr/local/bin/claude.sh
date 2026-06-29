@@ -31,12 +31,12 @@ if ! source "${MSG_LIB}" 2>/dev/null; then
 fi
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to LAUNCH in a system directory even
-# when the allowlist includes it -- the front-line companion to the elevated helpers' guard.
-# Sourced after msg.lib so the box renders; a missing lib leaves a no-op stub (the allowlist
-# gate below still applies).
+# when the allowlist includes it. This is the launch path's front-line security guard, so it
+# is REQUIRED -- loaded and VERIFIED just below (after die() is defined), and the wrapper
+# FAILS CLOSED if it cannot load. A broken or mis-permissioned install is not a state to
+# launch through with the guard disabled. Every safe-paths consumer fails closed the same way
+# (no fail-open stub anywhere); see safe-paths.rule.md.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
-# shellcheck source=/dev/null
-source "${SAFE_PATHS_LIB}" 2>/dev/null || ai_tools_assert_safe_target() { return 0; }
 
 # Print error lines to stderr (framed by ai_tools_msg_error), then pause for Enter when
 # stdin is a tty.
@@ -50,6 +50,28 @@ die() {
     fi
     exit 1
 }
+
+# Load the launch safety library and FAIL CLOSED if it is unreachable. A silent no-op stub
+# would start the wrapper with the protected-path guard OFF -- the quiet degradation that
+# lets a broken or mis-permissioned install (e.g. a lib dir an operator cannot traverse) pass
+# unnoticed. Source it, then require its guard functions to exist; refuse to launch otherwise,
+# naming the likely cause. Logs to journald (via logger, since the wrapper does not source
+# log.lib and it may share the broken dir) for the audit trail, then die()s to warn the user
+# (die needs only ai_tools_msg_error, already set with a plain fallback, so the refusal still
+# renders even if msg.lib was the missing piece).
+# shellcheck source=/dev/null
+if ! source "${SAFE_PATHS_LIB}" 2>/dev/null \
+        || ! declare -F ai_tools_assert_safe_target  >/dev/null 2>&1 \
+        || ! declare -F ai_tools_protected_path_match >/dev/null 2>&1; then
+    command -v logger >/dev/null 2>&1 \
+        && logger -t claude -p user.err \
+            "required safety library ${SAFE_PATHS_LIB} unavailable for $(id -un 2>/dev/null) -- launch refused (fail closed)"
+    die "claude: cannot load the launch safety library -- refusing to start" \
+        "       ${SAFE_PATHS_LIB}" \
+        "       A critical ai-tools component is missing or unreadable, so the protected-path" \
+        "       guard cannot run. Check that /usr/local/lib/ai-tools is traversable and its" \
+        "       libraries are present, then reinstall the package if needed."
+fi
 
 # have_tty: true only when a controlling terminal can actually be opened. `[[ -r /dev/tty ]]`
 # is NOT a controlling-tty test -- the /dev/tty node is mode crw-rw-rw-, so the permission

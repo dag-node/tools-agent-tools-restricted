@@ -132,12 +132,26 @@ if ! source "${MSG_LIB}" 2>/dev/null; then
     ai_tools_msg_warn()  { printf '%s\n' "$@" >&2; }
 fi
 
-# Protected-paths backstop (safe-paths.lib.sh): used by cmd_project_claim to refuse claiming
-# a system directory -- the front-line companion to the elevated helpers' guard. Sourced
-# after msg.lib so the box renders; a missing lib leaves a no-op stub.
+# Protected-paths backstop (safe-paths.lib.sh): refuse to claim a system directory, and vet
+# ancestors for the reachability grant (reg_reach -> grantable_ancestor). It is REQUIRED:
+# FAIL CLOSED if it cannot be sourced (missing, unreadable, or the lib dir is not traversable)
+# or does not define its guard. A broken install is not a state to run through with the guard
+# disabled -- a stubbed no-op would skip the system-dir refusal AND silently never grant
+# ancestor traversal (a claimed project the agent cannot reach). Log to journald (via logger,
+# independent of log.lib which may share the broken dir) and warn the user, then exit.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 # shellcheck source=/dev/null
-source "${SAFE_PATHS_LIB}" 2>/dev/null || ai_tools_assert_safe_target() { return 0; }
+if ! source "${SAFE_PATHS_LIB}" 2>/dev/null \
+        || ! declare -F ai_tools_assert_safe_target  >/dev/null 2>&1 \
+        || ! declare -F ai_tools_protected_path_match >/dev/null 2>&1; then
+    command -v logger >/dev/null 2>&1 \
+        && logger -t ai-tools -p user.err \
+            "required safety library ${SAFE_PATHS_LIB} unavailable -- ai-tools refused (fail closed)"
+    ai_tools_msg_error "ai-tools: cannot load required safety library ${SAFE_PATHS_LIB}" \
+        "the install is incomplete or /usr/local/lib/ai-tools is not traversable (expected 0751);" \
+        "refusing (fail closed) -- reinstall the ai-tools package, then retry."
+    exit 3
+fi
 
 # confirm <prompt> [y|n] [force]  -- default decides the Enter answer and the no-tty
 # answer. A destructive caller passes 'n' so an unattended/piped run aborts safely.
@@ -744,7 +758,8 @@ claim_setfacl() {
 cmd_project_claim() {
     local d; d="$(resolve_dir "${1:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
-    # Refuse to claim a protected system directory before it ever reaches the allowlist.
+    # Refuse to claim a protected system directory before it ever reaches the allowlist. The
+    # safe-paths guard is guaranteed loaded (the top-level source fails closed otherwise).
     ai_tools_assert_safe_target "${d}" "project claim" || exit 3
 
     local listed safedir filemode owngap acl labelled git

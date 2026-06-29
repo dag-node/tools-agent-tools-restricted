@@ -55,11 +55,10 @@ fi
 die() { ai_tools_log_error "$*"; printf 'ai-tools-relabel: error: %s\n' "$*" >&2; exit 1; }
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to relabel a system directory even
-# when the allowlist includes it. A missing lib leaves a no-op stub, so the helper still
-# works -- the allowlist remains. Sourcing it also brings the msg.lib box for the refusal.
+# when the allowlist includes it. See safe-paths.rule.md.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 # shellcheck source=/dev/null
-source "${SAFE_PATHS_LIB}" 2>/dev/null || ai_tools_assert_safe_target() { return 0; }
+source "${SAFE_PATHS_LIB}"
 
 [[ "${EUID}" -eq 0 ]] || die "must run as root (via sudo)"
 

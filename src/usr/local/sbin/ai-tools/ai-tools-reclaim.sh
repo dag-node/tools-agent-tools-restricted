@@ -61,12 +61,11 @@ readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); AI_TOOLS_SKIP_NAMES=(); return 0; }
 
-# Protected-paths backstop (safe-paths.lib.sh): refuse to walk a system directory even when
-# the allowlist includes it. A missing lib leaves a no-op stub, so the helper still works --
-# the allowlist and ai-tools-chown's per-path owner-guard remain.
+# Protected-paths backstop (safe-paths.lib.sh): refuse to walk a system directory even
+# when the allowlist includes it. See safe-paths.rule.md.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 # shellcheck source=/dev/null
-source "${SAFE_PATHS_LIB}" 2>/dev/null || ai_tools_assert_safe_target() { return 0; }
+source "${SAFE_PATHS_LIB}"
 
 canonical="$(realpath -e -- "${TARGET}" 2>/dev/null)" || exit 0
 [[ -d "${canonical}" ]] || exit 0

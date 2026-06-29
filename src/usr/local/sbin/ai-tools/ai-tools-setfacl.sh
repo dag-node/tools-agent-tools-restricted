@@ -90,11 +90,10 @@ command -v setfacl >/dev/null 2>&1 \
     || { ai_tools_log_warn "setfacl not found -- skipping ACL normalization for ${TARGET}"; exit 0; }
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to act on a system directory even
-# when the allowlist includes it. A missing lib leaves a no-op stub, so the helper still
-# works -- the allowlist and owner-guard remain, and the wrapper/CLI carry the same check.
+# when the allowlist includes it. See safe-paths.rule.md.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 # shellcheck source=/dev/null
-source "${SAFE_PATHS_LIB}" 2>/dev/null || ai_tools_assert_safe_target() { return 0; }
+source "${SAFE_PATHS_LIB}"
 
 # Canonicalise the argument; block symlink traversal of the path itself.
 canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0

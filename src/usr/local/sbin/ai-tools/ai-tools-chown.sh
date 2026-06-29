@@ -55,11 +55,10 @@ if ! source "${SECRET_PATTERNS_LIB}"; then
 fi
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to act on a system directory even
-# when the allowlist includes it. A missing lib leaves a no-op stub, so the helper still
-# works -- the allowlist and owner-guard remain, and the wrapper/CLI carry the same check.
+# when the allowlist includes it. See safe-paths.rule.md.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 # shellcheck source=/dev/null
-source "${SAFE_PATHS_LIB}" 2>/dev/null || ai_tools_assert_safe_target() { return 0; }
+source "${SAFE_PATHS_LIB}"
 
 # _notify_secret: emit a one-line NOTICE that a secret-named file was written and
 # ai-tools' read access revoked, to stderr (the PostToolUse hook relays it into the
