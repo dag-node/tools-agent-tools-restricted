@@ -168,16 +168,13 @@ fi
 
 # 5. Enable the maintenance timer in the sandbox account's own systemd --user instance, which
 #    keeps Node and the agent package current. The home is root-owned (2751), so the account
-#    cannot create ~/.config and `systemctl --user enable` cannot write the wants symlink; root
-#    provisions the XDG config tree (root:group 2750 -- the account reads its units via the group
-#    but cannot add one) and the enablement symlink, then activates the timer in the running
-#    instance. The --user manager needs linger to run without an interactive login. Best-effort: a
-#    tree that ships the unit later (the dev install.sh flow) or a host with no reachable user bus
-#    warns rather than failing the toolchain bring-up; the steps are idempotent.
-if command -v loginctl >/dev/null 2>&1; then
-    loginctl enable-linger "${SANDBOX_USER}" >/dev/null 2>&1 \
-        || log "warn: could not enable linger for ${SANDBOX_USER}"
-fi
+#    cannot write ~/.config; root provisions the XDG config tree (root:group 2750 -- the account
+#    reads its units via the group) and the timers.target.wants symlink that enables the timer.
+#    Order matters: the symlink is laid down before linger brings the manager up, so the manager
+#    reaches timers.target with the enablement already in place and starts the timer itself. The
+#    explicit start that follows covers a manager that was already running. Best-effort: a tree
+#    that ships the unit later (the dev install.sh flow) warns rather than failing bring-up.
+_uid="$(id -u "${SANDBOX_USER}")"
 install -d -o root -g "${SANDBOX_GROUP}" -m 2750 \
     "${SANDBOX_HOME}/.config" \
     "${SANDBOX_HOME}/.config/systemd" \
@@ -185,19 +182,28 @@ install -d -o root -g "${SANDBOX_GROUP}" -m 2750 \
     "${SANDBOX_HOME}/.config/systemd/user/timers.target.wants"
 ln -sfn /usr/lib/systemd/user/nvm-update.timer \
     "${SANDBOX_HOME}/.config/systemd/user/timers.target.wants/nvm-update.timer"
-_uid="$(id -u "${SANDBOX_USER}")"
-# enable-linger starts the --user manager asynchronously; wait for its bus before driving it.
-for _i in $(seq 1 20); do
-    [[ -S "/run/user/${_uid}/bus" ]] && break
+
+# Linger keeps the --user manager running without an interactive login, so the timer it holds
+# stays active. Surface a failure so an instance that does not engage linger is visible.
+if command -v loginctl >/dev/null 2>&1; then
+    _linger_out="$(loginctl enable-linger "${SANDBOX_USER}" 2>&1)" \
+        || log "warn: could not enable linger for ${SANDBOX_USER} (${_linger_out:-no output})"
+fi
+# Wait for the manager to come up before driving it; XDG_RUNTIME_DIR alone lets systemctl --user
+# reach the user manager over its bus, so DBUS_SESSION_BUS_ADDRESS need not be pinned.
+for _i in $(seq 1 30); do
+    systemctl is-active "user@${_uid}.service" >/dev/null 2>&1 && break
     sleep 0.5
 done
-if sudo -u "${SANDBOX_USER}" \
+# Start the timer now to cover a manager that was already running: the wants symlink alone
+# starts it when the manager next reaches timers.target. Capture the output so the warn on a
+# failed start carries systemctl's own error text.
+if _start_out="$(sudo -u "${SANDBOX_USER}" \
         XDG_RUNTIME_DIR="/run/user/${_uid}" \
-        DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${_uid}/bus" \
-        bash -c 'systemctl --user daemon-reload && systemctl --user start nvm-update.timer' >/dev/null 2>&1; then
+        bash -c 'systemctl --user daemon-reload && systemctl --user start nvm-update.timer' 2>&1)"; then
     log "started nvm-update.timer in ${SANDBOX_USER}'s --user instance"
 else
-    log "warn: could not start nvm-update.timer -- start it after the control plane is installed"
+    log "warn: could not start nvm-update.timer (${_start_out:-no output}) -- start it after the control plane is installed"
 fi
 
 log "toolchain ready under ${SANDBOX_HOME}"
