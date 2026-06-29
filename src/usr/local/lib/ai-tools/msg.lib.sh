@@ -172,8 +172,8 @@ _ai_tools_msg_render_box() {
 # ai_tools_msg <severity> <fd> <line...> -- render the lines to file descriptor <fd>.
 # A tty target (and no PLAIN override) gets the box titled with the uppercased
 # severity; otherwise the lines are emitted plain and unwrapped so captured/piped
-# output stays grep-friendly. Formatting failures are swallowed -- never alters the
-# caller's exit status.
+# output stays grep-friendly. A formatting or write failure never alters the caller's
+# exit status; a genuine write error to <fd> surfaces on stderr rather than being hidden.
 ai_tools_msg() {
     local sev="$1" fd="$2"; shift 2
     local boxed=0
@@ -184,9 +184,9 @@ ai_tools_msg() {
     if (( boxed )); then
         local text="$1"; shift
         for l in "$@"; do text+=$'\n'"${l}"; done
-        _ai_tools_msg_render_box "${sev^^}" "${text}" >&"${fd}" 2>/dev/null || true
+        _ai_tools_msg_render_box "${sev^^}" "${text}" >&"${fd}" || true
     else
-        printf '%s\n' "$@" >&"${fd}" 2>/dev/null || true
+        printf '%s\n' "$@" >&"${fd}" || true
     fi
 }
 
