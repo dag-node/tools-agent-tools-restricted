@@ -1051,9 +1051,11 @@ do_install() {
 
 # ── uninstall ──────────────────────────────────────────────────────────────────
 
-# Disable the nvm-update timer and remove every deployed system, control-plane, and
-# user file. Leaves user-owned config (allowed-projects, secret-patterns) and the
-# ai-tools account itself in place; allowlist pruning is offered interactively.
+# Disable the nvm-update timer and remove every deployed system and control-plane file.
+# Preserves operator and agent state so a reinstall keeps working: the .nvm toolchain and
+# the bin/claude entrypoint into it, /etc/ai-tools/operator.conf, ~/.config/ai-tools, the
+# ai-tools account, and the agent's own .claude state. Allowlist and git safe.directory
+# pruning for this project are offered interactively.
 do_uninstall() {
     printf '\n%sUninstalling the ai-tools Claude Code sandbox%s\n' "${C_BOLD}" "${C_RST}"
 
@@ -1072,41 +1074,30 @@ do_uninstall() {
 
     section "Removing files"
     log "system files"
-    rm -f /usr/local/sbin/ai-tools/ai-tools-chown
-    rm -f /usr/local/sbin/ai-tools/ai-tools-setgid
-    rm -f /usr/local/sbin/ai-tools/ai-tools-setfacl
-    rm -f /usr/local/sbin/ai-tools/ai-tools-unclaim
-    rm -f /usr/local/sbin/ai-tools/ai-tools-claude-symlink
-    rm -f /usr/local/sbin/ai-tools/ai-tools-lockdown
-    rm -f /usr/local/sbin/ai-tools/ai-tools-bootstrap
-    rm -f /usr/local/sbin/ai-tools/ai-tools-admin
-    rm -f /usr/local/sbin/ai-tools-bootstrap   # PATH symlinks -> ai-tools/...
+    # Remove the helper and library trees whole: they hold only deployed files, never
+    # operator or agent state, so a dir-level removal leaves nothing behind and never
+    # drifts out of sync with the install list the way an enumerated rm would.
+    rm -rf /usr/local/sbin/ai-tools
+    rm -f /usr/local/sbin/ai-tools-bootstrap   # PATH symlinks -> ai-tools/... (outside the dir)
     rm -f /usr/local/sbin/ai-tools-admin
-    rm -f /usr/local/sbin/ai-tools/ai-tools-handback
-    rmdir /usr/local/sbin/ai-tools 2>/dev/null || true
+    rm -rf /usr/local/lib/ai-tools
     rm -f /usr/local/bin/ai-tools-handback-client
-    rm -f /usr/lib/systemd/system/ai-tools-handback.socket
-    rm -f /usr/lib/systemd/system/ai-tools-handback@.service
-    rm -f /usr/lib/systemd/user/nvm-update.service
-    rm -f /usr/lib/systemd/user/nvm-update.timer
-    rm -f /usr/lib/systemd/system/ai-tools-relabel.path
-    rm -f /usr/lib/systemd/system/ai-tools-relabel.service
     rm -f /usr/local/bin/ai-tools
     rm -f /usr/local/bin/claude
-    rm -f /usr/local/lib/ai-tools/secret-patterns.lib.sh
-    rm -f /usr/local/lib/ai-tools/skip-dirs.lib.sh
-    rm -f /usr/local/lib/ai-tools/safe-paths.lib.sh
-    rm -f /usr/local/lib/ai-tools/log.lib.sh
-    rm -f /usr/local/lib/ai-tools/msg.lib.sh
-    rm -f /usr/local/lib/ai-tools/operator.lib.sh
-    rm -f /usr/local/lib/ai-tools/control-plane.lib.sh
-    rmdir /usr/local/lib/ai-tools 2>/dev/null || true
+    # Units, after the stop/disable above. Globs cover the handback socket+service and
+    # the relabel path+service in one sweep, plus the updater service+timer.
+    rm -f /usr/lib/systemd/system/ai-tools-*
+    rm -f /usr/lib/systemd/user/nvm-update.*
     rm -f /etc/sudoers.d/ai-tools-claude
-    rm -f /etc/ai-tools/operator.conf
-    rmdir /etc/ai-tools 2>/dev/null || true
     rm -f /etc/profile.d/path_dedup.sh
+    # Keep /etc/ai-tools/operator.conf: it holds the operator bindings written by
+    # ai-tools-admin, preserved like ~/.config/ai-tools so a reinstall keeps operators bound.
 
     log "ai-tools control-plane files"
+    # Remove only the deployed control-plane scripts and settings by name. Keep
+    # /opt/ai-tools/bin itself and the bin/claude symlink: it points into the preserved
+    # .nvm toolchain, so the entrypoint stays live for a reinstall without a re-bootstrap.
+    # The agent's own state under .claude (e.g. .claude.json, project state) is likewise kept.
     rm -f /opt/ai-tools/bin/nvm-update.sh
     rm -f /opt/ai-tools/bin/claude-run
     rm -f /opt/ai-tools/.claude/post-tool-hook.sh
@@ -1146,10 +1137,12 @@ do_uninstall() {
     fi
 
     section "Uninstall complete -- always preserved"
-    say "  ${C_DIM}/opt/ai-tools/.nvm/${C_RST}    nvm and Node installation"
-    say "  ${C_DIM}/var/opt/ai-tools/${C_RST}     sandbox project clones and README"
-    say "  ${C_DIM}~/.config/ai-tools/${C_RST}    allowlist and user configuration (unless n above)"
-    say "  ${C_DIM}git safe.directory${C_RST}     project registration (unless n above)"
+    say "  ${C_DIM}/opt/ai-tools/.nvm/${C_RST}        nvm and Node installation"
+    say "  ${C_DIM}/opt/ai-tools/bin/claude${C_RST}  launcher symlink into the toolchain"
+    say "  ${C_DIM}/var/opt/ai-tools/${C_RST}         sandbox project clones and README"
+    say "  ${C_DIM}/etc/ai-tools/operator.conf${C_RST} operator bindings"
+    say "  ${C_DIM}~/.config/ai-tools/${C_RST}        allowlist and user configuration (unless n above)"
+    say "  ${C_DIM}git safe.directory${C_RST}         project registration (unless n above)"
     say ""
 }
 
