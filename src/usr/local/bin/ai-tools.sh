@@ -419,8 +419,14 @@ reg_reach() {
     done
     if [[ -n "${blocked}" ]]; then
         warn "the sandbox account cannot reach ${dir}: it cannot traverse ${blocked}"
-        warn "  (a system directory or one you do not own) -- use an isolated clone instead:"
-        warn "    ai-tools --sandbox-create ${dir}"
+        if ! declare -F ai_tools_protected_path_match >/dev/null 2>&1; then
+            warn "  (the safe-paths backstop is not loaded, so ancestors cannot be vetted)"
+        elif ai_tools_protected_path_match "${blocked}" >/dev/null 2>&1; then
+            warn "  (${blocked} is a protected system directory)"
+        else
+            warn "  (it is owned by $(stat -c '%U' "${blocked}" 2>/dev/null || echo '?'), not by ${ME})"
+        fi
+        warn "  use an isolated clone instead: ai-tools --sandbox-create ${dir}"
         return 0
     fi
     if (( ${#to_grant[@]} == 0 )); then return 0; fi
