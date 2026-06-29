@@ -8,4 +8,4 @@
 # the `RUN microdnf -y install …` here -- this overlay is the place for EL10-only adjustments,
 # so RpmBase stays distro-agnostic.
 FROM ai-tools-rpmbase:el10
-LABEL ai-tools.test.distro="rocky10"
+LABEL ai-tools.test.distro="quay.io/rockylinux/rockylinux:10-minimal"
