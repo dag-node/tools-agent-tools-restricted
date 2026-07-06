@@ -145,6 +145,18 @@ else
     # tripping set -e (the assignment failure sits in a && / || list, which is exempt).
     drive() { runuser -u "${SANDBOX_USER}" -- "${_client}" "$@" 2>&1; }
 
+    # (probe) The daemon must ANSWER -- any reply, even ERR, proves the listener and the
+    # per-connection handler run. A client-transport error (connect refused/denied, or a
+    # reset before the request is read) means no daemon answered, so every per-case
+    # assert below would fail with the same client error; report the bridge itself once
+    # and skip them. The one-command fix relabels the daemon and rebinds the listener.
+    probe_out="$(drive BOGUS /probe)" || true
+    if grep -qiE 'connection reset|connection refused|permission denied|incomplete response|no such file' <<<"${probe_out}"; then
+        _selinux_sh="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../selinux" 2>/dev/null && pwd)/install-selinux.sh"
+        fail "handback bridge does not answer (${probe_out}) -- fix: sudo ${_selinux_sh} relabel; diagnose: journalctl -u 'ai-tools-handback@*', ausearch -m avc,selinux_err -ts recent"
+        skip "handback negative cases (6)-(8)" "bridge does not answer"
+    else
+
     # (6) Unknown verb is rejected before any helper runs.
     out="$(drive BOGUS /etc/hostname)" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'unknown verb' <<<"${out}"; then
@@ -203,6 +215,8 @@ else
     else
         fail "out-of-allowlist CHOWN changed the victim: ${before} -> $(stat -c '%U:%G' "${victim}")"
     fi
+
+    fi  # bridge answers (probe)
 fi
 
 finish
