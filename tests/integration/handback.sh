@@ -30,6 +30,22 @@ else
     fail "claude.exe is '$(stat -c '%C' "${_exe}" 2>/dev/null)', NOT ai_tools_exec_t -- claude-run will refuse to launch. Fix: install-selinux.sh relabel"
 fi
 
+# (1a) The handback daemon binary must carry ai_tools_handback_exec_t, or the socket-activated
+# service transitions into unconfined_service_t instead of ai_tools_handback_t -- the exact
+# regression a bulk relabel that skipped /usr/local/sbin/ai-tools caused (connectto then failed,
+# CHOWN broke under enforcing). Pin the label on the deployed daemon. Only meaningful when the
+# module is installed (matchpathcon maps the path to the type).
+_hbd="/usr/local/sbin/ai-tools/ai-tools-handback"
+if [[ ! -x "${_hbd}" ]]; then
+    skip "handback daemon label" "${_hbd} not installed"
+elif ! command -v matchpathcon >/dev/null 2>&1 || [[ "$(matchpathcon -n "${_hbd}" 2>/dev/null)" != *ai_tools_handback_exec_t* ]]; then
+    skip "handback daemon label" "ai_tools SELinux module not installed"
+elif [[ "$(stat -c '%C' "${_hbd}" 2>/dev/null)" == *:ai_tools_handback_exec_t:* ]]; then
+    pass "handback daemon labelled ai_tools_handback_exec_t (transitions into ai_tools_handback_t)"
+else
+    fail "handback daemon is '$(stat -c '%C' "${_hbd}" 2>/dev/null)', NOT ai_tools_handback_exec_t -- the daemon runs unconfined and connectto/CHOWN fail. Fix: restorecon -Rv /usr/local/sbin/ai-tools"
+fi
+
 # (2) Handback socket is 0660 root:SANDBOX_GROUP and /run/ai-tools is traversable by the
 # sandbox user. The systemd-252 RuntimeDirectoryGroup= trap left the dir root:root and
 # un-traversable; the fix is RuntimeDirectoryMode=0711 (world --x, contents unlistable).
@@ -135,6 +151,33 @@ else
         pass "daemon rejects an unknown verb (no helper dispatched)"
     else
         fail "unknown verb not cleanly rejected (rc=${rc}): ${out}"
+    fi
+
+    # (6a) Wrong argument count is rejected by the client before any socket I/O (it requires
+    # exactly VERB ARG). A missing arg must not reach the daemon as a bare verb.
+    out="$(drive CHOWN)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'usage' <<<"${out}"; then
+        pass "client rejects a wrong argument count (usage error, no request sent)"
+    else
+        fail "wrong argc not rejected (rc=${rc}): ${out}"
+    fi
+
+    # (6b) An empty argument (absent path) is rejected by the daemon: it is not absolute.
+    out="$(drive CHOWN '')" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qiE 'malformed|missing argument' <<<"${out}"; then
+        pass "daemon rejects an empty argument"
+    else
+        fail "empty argument not cleanly rejected (rc=${rc}): ${out}"
+    fi
+
+    # (6c) A control character in the argument (here DEL, 0x7f, on the same line so it is not a
+    # request terminator) is rejected by the daemon's control-char pre-filter -- defense against
+    # a smuggled path that a later helper might mishandle.
+    out="$(drive CHOWN "$(printf '/etc/\177evil')")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'malformed' <<<"${out}"; then
+        pass "daemon rejects an argument containing a control character"
+    else
+        fail "control-character argument not cleanly rejected (rc=${rc}): ${out}"
     fi
 
     # (7) A non-absolute argument is rejected by the daemon's fail-fast pre-filter.
