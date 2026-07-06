@@ -494,13 +494,13 @@ do_install() {
         /usr/local/sbin/ai-tools/ai-tools-claude-symlink
 
     # Shared libraries, sourced by the helpers AND by the operator-run CLI/wrapper.
-    # The dir is root-owned, group SANDBOX_GROUP, 0751: the agent enters via group
-    # to read the skip list; the world-execute bit lets an operator (who is NOT a
-    # SANDBOX_GROUP member under the multi-operator model) TRAVERSE in to source the
-    # world-readable 644 libs (msg/log/safe-paths) by path, without being able to
-    # LIST the dir. The group-restricted 640 files (secret-patterns, relabel,
-    # skip-dirs) stay protected by their own modes. No write for anyone but root, so
-    # the rules cannot be altered. Enforce on re-install even when the dir pre-exists.
+    # The dir is root-owned, group SANDBOX_GROUP, 0751: the agent enters via group,
+    # and the world-execute bit lets an operator (who is NOT a SANDBOX_GROUP member
+    # under the multi-operator model) TRAVERSE in to source the world-readable 644
+    # libs (msg/log/safe-paths/skip-dirs) by path, without being able to LIST the
+    # dir. The group-restricted 640 files (secret-patterns, relabel) stay protected
+    # by their own modes. No write for anyone but root, so the rules cannot be
+    # altered. Enforce on re-install even when the dir pre-exists.
     log "/usr/local/lib/ai-tools/"
     ensure_dir 751 root "${SANDBOX_GROUP}" /usr/local/lib/ai-tools
     chown root:"${SANDBOX_GROUP}" /usr/local/lib/ai-tools
@@ -514,10 +514,12 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/secret-patterns.lib.sh" \
         /usr/local/lib/ai-tools/secret-patterns.lib.sh
 
-    # Skip-dir list/selector: ALSO sourced by session-hook.sh, which runs AS the agent, so
-    # it needs group read -- 640 root:SANDBOX_GROUP (no world). No tokens to substitute.
+    # Skip-dir list/selector: sourced by the root helpers, by session-hook.sh (as the
+    # agent), and by the operator-run CLI (the claim drift scan) -- 644 root:root, like
+    # msg/log/safe-paths. It carries no secrets: the names are documented. No tokens to
+    # substitute.
     log "/usr/local/lib/ai-tools/skip-dirs.lib.sh"
-    install -o root -g "${SANDBOX_GROUP}" -m 640 \
+    install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/skip-dirs.lib.sh" \
         /usr/local/lib/ai-tools/skip-dirs.lib.sh
 

@@ -94,8 +94,8 @@ rationale is single-sourced here, and each consumer carries a one-line pointer t
   `/usr/local/lib/ai-tools` is `0751 root:SANDBOX_GROUP`, so an operator who is not a
   `SANDBOX_GROUP` member (the multi-operator default) traverses in to source the `644` libs by
   path without listing the directory — the world-execute bit is what makes the world-readable
-  guarantee hold for that operator. The group-restricted `640` files (secret-patterns, relabel,
-  skip-dirs) stay protected by their own modes.
+  guarantee hold for that operator. The group-restricted `640` files (secret-patterns, relabel)
+  stay protected by their own modes.
 - **Sourced, not executed**, so every consumer shares one list and one matcher — the same
   single-source pattern as `skip-dirs.lib.sh`.
 - **`msg.lib` is sourced from within the library** only when its function is not already defined

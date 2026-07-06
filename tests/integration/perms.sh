@@ -39,9 +39,10 @@ check_file /usr/local/lib/ai-tools                            root              
 # Secret-pattern matcher: read only by the root helpers, so 640 root:root -- no group/world
 # surface. The agent (group ai-tools) cannot read it.
 check_file /usr/local/lib/ai-tools/secret-patterns.lib.sh     root              root              640
-# Skip-dir list/selector: also sourced by session-hook.sh (runs as the agent), so 640
-# root:ai-tools -- agent reads via group, no world.
-check_file /usr/local/lib/ai-tools/skip-dirs.lib.sh           root              "${SANDBOX_GROUP}" 640
+# Skip-dir list/selector: 644 root:root -- world-readable, sourced by the root helpers,
+# session-hook.sh (runs as the agent), and the CLI's claim drift scan (runs as the
+# projects user, not in ai-tools). Carries no secrets: the names are documented.
+check_file /usr/local/lib/ai-tools/skip-dirs.lib.sh           root              root              644
 # Logger library: 644 root:root -- world-readable, sourced by the root helpers, the hooks
 # (run as ai-tools), and the CLI (run as the projects user, not in ai-tools).
 check_file /usr/local/lib/ai-tools/log.lib.sh                 root              root              644

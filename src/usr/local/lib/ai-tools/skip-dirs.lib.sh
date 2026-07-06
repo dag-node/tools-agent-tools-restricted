@@ -14,7 +14,10 @@
 #   - setgid/ACL normalization: a skipped tree receives no setgid bit or ACL.
 #   - secret lockdown: a skipped tree is not scanned for secret-named files.
 #
-# Sourced, not executed. Deployed 640 root:ai-tools. The matcher skips DIRECTORIES only
+# Sourced, not executed. Deployed 644 root:root -- it carries no secrets (the names are
+# documented) and three principals source it: the root helpers, the hooks (as the agent),
+# and the unprivileged CLI (the claim drift scan classifies hits under these names).
+# The matcher skips DIRECTORIES only
 # (find -type d), so a file that merely shares a name (a git object named "obj") is walked
 # normally. Names are grouped into categories an operator can override in
 # /etc/ai-tools/operator.conf (parsed, never sourced -- a space-separated list per key,

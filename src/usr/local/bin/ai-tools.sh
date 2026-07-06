@@ -153,6 +153,15 @@ if ! source "${SAFE_PATHS_LIB}" 2>/dev/null \
     exit 3
 fi
 
+# Skip-dir selector (the single skip source shared with the sweeps and the claim helpers).
+# The claim drift scan uses it to tell repairable hits from skip-listed ones. Fail-soft: a
+# missing lib classifies nothing as skip-listed -- a noisier report, never a wrong repair
+# (the root helpers load their own copy for the walks).
+readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
+# shellcheck source=SCRIPTDIR/../lib/ai-tools/skip-dirs.lib.sh
+source "${SKIP_DIRS_LIB}" 2>/dev/null \
+    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_NAMES=(); AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
+
 # confirm <prompt> [y|n] [force]  -- default decides the Enter answer and the no-tty
 # answer. A destructive caller passes 'n' so an unattended/piped run aborts safely.
 # AI_TOOLS_ASSUME_YES=1 short-circuits to yes without prompting: the launch wrapper
@@ -811,12 +820,46 @@ cmd_project_claim() {
     local -a drift=()
     mapfile -t drift < <(acl_drift_scan "${d}" | head -n 200)
 
+    # Split the hits on the shared skip list: the sweeps AND the claim walks leave a
+    # skip-listed directory's contents alone (one skip contract), so a re-claim cannot
+    # repair a hit under one -- it gets its own report with the remedies that can.
+    local -a drift_skipped=()
+    if ai_tools_skip_find_expr sweep 2>/dev/null && (( ${#AI_TOOLS_SKIP_NAMES[@]} )); then
+        local -a _keep=()
+        local _hit _seg _name _under _s
+        for _hit in "${drift[@]}"; do
+            _under=false
+            IFS=/ read -ra _seg <<< "${_hit#"${d}"/}"
+            for _name in "${AI_TOOLS_SKIP_NAMES[@]}"; do
+                for _s in "${_seg[@]}"; do
+                    [[ "${_s}" == "${_name}" ]] && { _under=true; break 2; }
+                done
+            done
+            if ${_under}; then drift_skipped+=("${_hit}"); else _keep+=("${_hit}"); fi
+        done
+        drift=("${_keep[@]}")
+    fi
+
+    # skip_listed_note: the skip-listed hits are informational either way -- shown both on
+    # the fully-claimed early return and in the pending flow.
+    skip_listed_note() {
+        (( ${#drift_skipped[@]} )) || return 0
+        local _p
+        warn "${#drift_skipped[@]} path(s) with a foreign group sit under skip-listed directory names"
+        for _p in "${drift_skipped[@]:0:3}"; do say "        ${C_DIM}${_p}${C_RST}"; done
+        (( ${#drift_skipped[@]} > 3 )) && say "        ${C_DIM}... and $(( ${#drift_skipped[@]} - 3 )) more${C_RST}"
+        say "      ${C_DIM}claim leaves skip-listed trees (build output, dependencies) untouched. If one is${C_RST}"
+        say "      ${C_DIM}source in this project, narrow its category in /etc/ai-tools/operator.conf (e.g.${C_RST}"
+        say "      ${C_DIM}SKIP_ARTIFACT_DIRS=\"\") and re-claim; for ownership only: ai-tools --reclaim --full${C_RST}"
+    }
+
     section "Claim project (in place)"
     say "  ${d}"
 
     if [[ "${listed}" == true && "${safedir}" == true && "${owngap}" == false ]] \
             && ! ${need_filemode} && ! ${need_acl} && ! ${need_label} && ! ${need_git} \
             && (( ${#drift[@]} == 0 )); then
+        skip_listed_note
         ok "already fully claimed -- nothing to do"
         return 0
     fi
@@ -839,6 +882,7 @@ cmd_project_claim() {
         say "      ${C_DIM}meant to stay out of the agent's reach? decline below and record that with a${C_RST}"
         say "      ${C_DIM}'!' exclusion in ${ALLOWLIST}, or make it owner-only (chmod 700)${C_RST}"
     fi
+    skip_listed_note
 
     # Heavy steps (recursive chgrp; sudo relabel/ACL) gate behind the confirm; pure
     # registry additions do not. dir_owngap is re-checked live so the warning matches.

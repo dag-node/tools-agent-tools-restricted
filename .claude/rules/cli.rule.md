@@ -73,14 +73,19 @@ declining re-states the sandbox-clone model for keeping git history out of the a
 Claim inspects current state and runs only the missing steps, so a re-run is a quiet no-op
 and existing projects retrofit the ACL/`filemode`/`.git` normalization on the next claim.
 
-**Interior drift.** Root-level state cannot see paths brought *into* a claimed tree without
-inheriting the group/ACL (rename keeps the old group and carries no ACL entries; creation
-under the setgid + default-ACL parents inherits both). Claim therefore scans the tree
+**Interior drift.** Root-level state cannot see paths inside a claimed tree that lack the
+group/ACL — brought in by rename (which keeps the old group and carries no ACL entries;
+creation under the setgid + default-ACL parents inherits both), or sitting under a
+skip-listed directory name the claim walks leave alone. Claim therefore scans the tree
 (`acl_drift_scan`, read-only and unprivileged) for shared-looking paths with a foreign
 group — owner-only paths (`600`/`700`, e.g. locked-down secrets) and `!`-excluded subtrees
-stay unreported as out-of-reach by intent — and lists them as a pending step with a warning.
-The repair (setgid walk + ACL walk) runs only behind the same default-NO confirm and secret
-gate as a first claim; declining plus a `!` exclusion (or `chmod 700`) records an intentional
+stay unreported as out-of-reach by intent — and splits the hits on the shared skip list
+(`skip-dirs.lib.sh`, which the CLI sources): repairable hits become a pending step whose
+repair (setgid walk + ACL walk) runs only behind the same default-NO confirm and secret gate
+as a first claim, while hits under skip-listed names get an informational warning naming the
+remedies that do reach them — narrow the category override in `operator.conf` and re-claim
+(a project whose `bin/` is source, not .NET build output), or `ai-tools --reclaim --full`
+for ownership alone. Declining plus a `!` exclusion (or `chmod 700`) records an intentional
 carve-out so it is not re-reported.
 
 **Reachability.** The confined session runs *as* the sandbox account, so it must be able to
