@@ -30,6 +30,11 @@ uid ≠ `SANDBOX_USER`. DAC provides the outer gate: the socket file is
 `0660 root:SANDBOX_GROUP`, so only root and `SANDBOX_GROUP` members connect; world gets
 `EACCES` before reaching the daemon.
 
+Under SELinux, systemd derives the listening socket's context from the daemon binary's
+on-disk label at bind time, and the session's `connectto` is granted against that
+context (`ai_tools_handback_t`). The SELinux installer therefore relabels the daemon
+(`_relabel_helpers`) before any socket restart (`_relabel_runtime`).
+
 ## Verbs
 
 - `CHOWN ARG` → `ai-tools-chown ARG`

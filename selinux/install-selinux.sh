@@ -394,6 +394,9 @@ _unlabel_conf() { semanage fcontext -d "${CONF_DIR}(/.*)?" 2>/dev/null || true
 # Each step is best-effort: if the socket unit is absent (handback not installed) the
 # whole thing no-ops. A hook firing during the brief socket restart simply no-ops via
 # its `|| true` and is recovered by the next sweep.
+# Callers run _relabel_helpers first: the restart makes systemd derive the listening
+# socket's context from the daemon binary's on-disk label, so the daemon must already
+# carry ai_tools_handback_exec_t when the socket rebinds.
 _relabel_runtime() {
     if systemctl list-unit-files ai-tools-handback.socket &>/dev/null; then
         systemctl daemon-reexec 2>/dev/null || true
@@ -411,6 +414,7 @@ _relabel_runtime() {
 # (granted only to ai_tools_handback_t) is denied -- every hook handback fails with
 # EACCES. The sibling root helpers and the /usr/local/bin client are bin_t (no special
 # label). restorecon is idempotent and no-ops when handback is not installed.
+# Runs before _relabel_runtime's socket restart, which reads this label (see there).
 _relabel_helpers() { restorecon -RF /usr/local/sbin/ai-tools 2>/dev/null || true; }
 
 ########################################
@@ -450,9 +454,11 @@ case "${ACTION}" in
     [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -RF "${SANDBOX_PROJECTS}" 2>/dev/null || true
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
     [[ -d "${LOG_DIR}" ]] && restorecon -RF "${LOG_DIR}" 2>/dev/null || true
+    # Label the handback daemon first: the socket restart in _relabel_runtime derives
+    # the listener's context from the daemon binary's on-disk label at bind time.
+    _relabel_helpers
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
-    _relabel_helpers
     _home_state
     verify_entrypoint
     _label_conf
@@ -495,9 +501,11 @@ case "${ACTION}" in
     [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -RF "${SANDBOX_PROJECTS}" 2>/dev/null || true
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
     [[ -d "${LOG_DIR}" ]] && restorecon -RF "${LOG_DIR}" 2>/dev/null || true
+    # Label the handback daemon first: the socket restart in _relabel_runtime derives
+    # the listener's context from the daemon binary's on-disk label at bind time.
+    _relabel_helpers
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
-    _relabel_helpers
     _home_state
     verify_entrypoint
     _label_conf
@@ -523,9 +531,11 @@ case "${ACTION}" in
     restorecon -RF "${NVM_DIR}"  2>/dev/null || true
     [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -RF "${SANDBOX_PROJECTS}" 2>/dev/null || true
     [[ -d "${LOG_DIR}" ]] && restorecon -RF "${LOG_DIR}" 2>/dev/null || true
+    # Label the handback daemon first: the socket restart in _relabel_runtime derives
+    # the listener's context from the daemon binary's on-disk label at bind time.
+    _relabel_helpers
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
-    _relabel_helpers
     _home_state
     verify_entrypoint
     _label_conf
