@@ -141,4 +141,43 @@ else
     fail "wrapper has no recognisable CLAUDE_LINK existence guard"
 fi
 
+# ── Fail-closed on a missing safety library ──────────────────────────────────────
+#
+# The wrapper sources safe-paths.lib.sh and MUST refuse to start if it (or its guard
+# functions) cannot load -- a fail-open no-op stub would launch with the protected-path guard
+# off (the exact fail-open the project removed, [[fail-closed-everywhere]]). Prove it on the
+# real wrapper body: copy it, repoint SAFE_PATHS_LIB at a nonexistent file, and confirm the
+# copy refuses before doing anything. The check runs before the operator/allowlist gates, so
+# it fires regardless of who runs it or from where.
+section "Wrapper fails closed when the safety library is unloadable"
+brk="${TESTDIR}/claude-broken"
+sed 's#^readonly SAFE_PATHS_LIB=.*#readonly SAFE_PATHS_LIB="/nonexistent/ai-tools/safe-paths.lib.sh"#' \
+    "${wrapper}" > "${brk}"
+chmod 0755 "${brk}"
+fc_out="$(setsid "${brk}" --version < /dev/null 2>&1 || true)"
+if grep -qi 'cannot load the launch safety library' <<<"${fc_out}"; then
+    pass "wrapper refuses to start when safe-paths.lib.sh cannot load (fail closed)"
+else
+    fail "wrapper did NOT fail closed on a missing safety library (output: ${fc_out})"
+fi
+
+# ── The wrapper actually CONSULTS the protected-paths backstop ───────────────────
+#
+# safe-paths.sh unit-tests the library in isolation; this proves the deployed wrapper calls it
+# on the launch CWD. Allowlist a protected system directory in the hermetic HOME (the
+# mis-configuration the backstop exists to catch) and launch from it: the wrapper must refuse
+# with the protected-path message even though the allowlist "approves" it. The operator gate
+# runs first, so if this environment's operator is not in ai-ops the run is intercepted there --
+# skip rather than misreport.
+section "Wrapper consults the protected-paths backstop (defense in depth)"
+printf '%s\n' "/etc" > "${home}/.config/ai-tools/allowed-projects"
+pp_out="$(run_wrapper /etc)"
+if grep -qiE 'not an ai-tools operator|member of the ai-ops' <<<"${pp_out}"; then
+    skip "wrapper protected-path consult" "operator gate intercepts (test operator not in ai-ops here)"
+elif grep -qi 'protected system directory' <<<"${pp_out}"; then
+    pass "wrapper refuses to launch in an allowlisted-but-protected system directory (/etc)"
+else
+    fail "wrapper did NOT invoke the protected-paths backstop on /etc (output: ${pp_out})"
+fi
+
 finish
