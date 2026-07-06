@@ -17,8 +17,54 @@ require_root
 
 readonly hook="/opt/ai-tools/.claude/post-tool-hook.sh"
 readonly sweep="/opt/ai-tools/.claude/session-hook.sh"
+readonly settings="/opt/ai-tools/.claude/settings.json"
 readonly REAL_ALLOWLIST="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
 readonly SOCK="/run/ai-tools/handback.sock"
+
+# ── settings.json declares the hooks + Bash deny rules ───────────────────────────
+# perms.sh pins settings.json's owner/mode and access.sh pins that the agent cannot write it,
+# but nothing asserts the file still DECLARES the handback hooks and the deny rules -- an install
+# that shipped an empty or stale settings.json would disable handback + secret quarantine with
+# every permission check still green. Pin the security-load-bearing content here. This runs
+# independently of the live daemon below (it needs only the file), so a socket-down host still
+# exercises it. Requires jq; skips the content check (not the file's existence) without it.
+section "settings.json declares the hooks + deny rules (integration)"
+if [[ ! -r "${settings}" ]]; then
+    fail "${settings} is missing or unreadable -- the session ships no hook/deny configuration"
+elif ! command -v jq >/dev/null 2>&1; then
+    skip "settings.json content" "jq not available to parse ${settings}"
+elif ! jq -e . "${settings}" >/dev/null 2>&1; then
+    fail "${settings} is not valid JSON -- Claude Code would ignore it and run with no hooks/denies"
+else
+    # (0a) Each hook event points at the installed hook body with the expected argument. A
+    # regression that drops an event or repoints it silently disables that handback path.
+    declare -A want_hook=(
+        [PostToolUse]="${hook}"
+        [Stop]="${sweep}"
+        [SessionStart]="${sweep} session-start"
+        [SessionEnd]="${sweep} session-end"
+    )
+    hooks_ok=true
+    for ev in PostToolUse Stop SessionStart SessionEnd; do
+        got="$(jq -r --arg e "${ev}" \
+            '[.hooks[$e][]?.hooks[]?.command] | join("\n")' "${settings}" 2>/dev/null)"
+        if ! grep -qxF "${want_hook[$ev]}" <<<"${got}"; then
+            fail "settings.json ${ev} hook is '${got:-<none>}', expected '${want_hook[$ev]}'"
+            hooks_ok=false
+        fi
+    done
+    ${hooks_ok} && pass "settings.json declares PostToolUse/Stop/SessionStart/SessionEnd -> installed hook bodies"
+
+    # (0b) The Bash deny rules that mirror the SELinux core surface (sudo + the audit/journal/
+    # systemctl CLIs) are present. These are a tooling hint, not the boundary, but dropping them
+    # re-exposes the attempt -- pin the security-relevant ones.
+    deny="$(jq -r '.permissions.deny[]?' "${settings}" 2>/dev/null)"
+    deny_ok=true
+    for rule in 'Bash(sudo)' 'Bash(sudo *)' 'Bash(journalctl *)' 'Bash(systemctl *)' 'Bash(ausearch *)'; do
+        grep -qxF "${rule}" <<<"${deny}" || { fail "settings.json deny list is missing '${rule}'"; deny_ok=false; }
+    done
+    ${deny_ok} && pass "settings.json deny list covers sudo + the audit/journal/systemctl CLIs"
+fi
 
 section "Ownership-handback hooks end-to-end (integration)"
 
