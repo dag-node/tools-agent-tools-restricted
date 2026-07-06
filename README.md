@@ -254,7 +254,9 @@ actually takes effect.
 installed — it creates the account, installs the toolchain, seeds the symlink, and enables
 the `nvm-update.timer`. The manual equivalent:
 
+    # cd first: the block runs as ${SANDBOX_USER}, which cannot occupy your home as cwd
     sudo -u "${SANDBOX_USER}" bash -c '
+      cd /opt/ai-tools
       export NVM_DIR=/opt/ai-tools/.nvm
       export HOME=/opt/ai-tools
       curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
@@ -266,11 +268,17 @@ the `nvm-update.timer`. The manual equivalent:
 
     # Create bin dir and initial claude symlink (nvm-update.sh maintains it going forward)
     sudo -u "${SANDBOX_USER}" bash -c '
+      cd /opt/ai-tools
       source /opt/ai-tools/.nvm/nvm.sh
       mkdir -p /opt/ai-tools/bin
       ln -sf "/opt/ai-tools/.nvm/versions/node/$(nvm version default)/bin/claude" \
              /opt/ai-tools/bin/claude
     '
+
+Once `install.sh` (step 4) has run, `/opt/ai-tools/bin` is locked `0551 root:ai-tools` and
+only root maintains the symlink: instead of the `ln` above, run `sudo ai-tools-bootstrap`
+(idempotent -- it provisions whatever is missing and seeds the symlink through the root
+helper), or re-run `sudo ./install.sh install`.
 
 ## 4. Run the install script (root, once)
 

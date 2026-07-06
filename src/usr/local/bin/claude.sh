@@ -125,7 +125,8 @@ fi
 # only ever reached via sudo as ai-tools.
 if [[ ! -L "${CLAUDE_LINK}" ]]; then
     die "ERROR: claude symlink not found at ${CLAUDE_LINK}" \
-        "       Run: systemctl --user start nvm-update.service"
+        "       the sandbox toolchain is not provisioned yet -- provision it with:" \
+        "         sudo ai-tools-bootstrap"
 fi
 
 # Resolve the stable symlink ONE hop -- it points directly at the versioned

@@ -196,9 +196,11 @@ lockdown_nvm_permissions() {
 bootstrap_claude_symlink() {
     local ai_nvm_dir="/opt/ai-tools/.nvm"
     local ai_tools_bin="/opt/ai-tools/bin"
+    TOOLCHAIN_PROVISIONED=0
 
     if [[ ! -s "${ai_nvm_dir}/nvm.sh" ]]; then
         warn "ai-tools: nvm not found at ${ai_nvm_dir}/nvm.sh -- symlink skipped"
+        warn "         provision the toolchain: sudo ai-tools-bootstrap"
         return
     fi
 
@@ -209,14 +211,14 @@ bootstrap_claude_symlink() {
 
     if [[ -z "${node_version}" || "${node_version}" == "N/A" ]]; then
         warn "ai-tools: nvm 'default' alias not set -- symlink skipped"
-        warn "         Install Node as ai-tools then re-run: sudo $0 install"
+        warn "         provision the toolchain: sudo ai-tools-bootstrap"
         return
     fi
 
     local versioned_claude="${ai_nvm_dir}/versions/node/${node_version}/bin/claude"
     if [[ ! -x "${versioned_claude}" ]]; then
         warn "ai-tools: claude not found at ${versioned_claude} -- symlink skipped"
-        warn "         Install @anthropic-ai/claude-code as ai-tools then re-run: sudo $0 install"
+        warn "         provision the toolchain: sudo ai-tools-bootstrap"
         return
     fi
 
@@ -230,9 +232,12 @@ bootstrap_claude_symlink() {
     chmod 551 "${ai_tools_bin}"
     # Create the symlink via the root helper -- the only writer of the locked dir,
     # and the same validating path the sandbox updater uses on every Node upgrade.
-    /usr/local/sbin/ai-tools/ai-tools-claude-symlink "${versioned_claude}" \
-        || warn "ai-tools: failed to create ${ai_tools_bin}/claude symlink"
-    log "symlink ${ai_tools_bin}/claude -> ${versioned_claude}"
+    if /usr/local/sbin/ai-tools/ai-tools-claude-symlink "${versioned_claude}"; then
+        TOOLCHAIN_PROVISIONED=1
+        log "symlink ${ai_tools_bin}/claude -> ${versioned_claude}"
+    else
+        warn "ai-tools: failed to create ${ai_tools_bin}/claude symlink"
+    fi
 }
 
 # Restore SELinux file contexts for every path this script deploys.
@@ -1019,6 +1024,11 @@ do_install() {
     offer_selinux
 
     section "Install complete -- next steps"
+    if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 ]]; then
+        say "  provision the sandbox toolchain (nvm + Node + claude) -- required before launch:"
+        say "    ${C_BOLD}sudo ai-tools-bootstrap${C_RST}"
+        say ""
+    fi
     say "  verify the timer (in ${SANDBOX_USER}'s --user instance):"
     say "    ${C_BOLD}systemctl --user -M ${SANDBOX_USER}@ list-timers nvm-update.timer${C_RST}"
     say ""
@@ -1037,6 +1047,11 @@ do_install() {
     # `tests/run.sh` available on demand.
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
         section "Verify"
+        if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 ]]; then
+            warn "toolchain not provisioned -- the wrapper/handback/SELinux checks skip or fail"
+            warn "until it is; for a full pass run sudo ai-tools-bootstrap first, then re-test"
+            warn "with: sudo ${SCRIPT_DIR}/tests/run.sh all"
+        fi
         if [[ ! "$(ask "Run test suite" "(Enter = run, n = skip) [Y]/n" \
                 "Run the full test suite (incl. the permissions check) now to verify the install?")" =~ ^[nN] ]]; then
             section "Installed files"

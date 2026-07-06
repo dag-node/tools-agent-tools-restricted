@@ -62,6 +62,13 @@ else
     pass "wrapper short-circuits at the ai-ops gate before the allowlist check"
 fi
 
+# The allowlist-gate cases (1)-(3) exercise the wrapper PAST its symlink guard, which
+# needs the provisioned toolchain's bin/claude symlink; without it every run stops at
+# "claude symlink not found" before the gate under test.
+if [[ ! -L "/opt/ai-tools/bin/claude" ]]; then
+    skip "wrapper allowlist-gate cases (1)-(3)" "toolchain not provisioned -- run: sudo ai-tools-bootstrap"
+else
+
 # (1) An unapproved cwd is blocked at the allowlist gate. With no tty the picker takes its
 #     default (Cancel), and the refusal reads "... is not accessible to the sandbox" (or
 #     "allowlist not found" when the list file is missing). That phrase proves the BLOCK and
@@ -101,6 +108,8 @@ if printf '%s' "${out2}" | grep -q "symlink not found"; then
 else
     pass "wrapper does not falsely report the claude symlink missing"
 fi
+
+fi  # toolchain provisioned (bin/claude symlink present)
 
 # ── Symlink-existence guard: -L, not -e ──────────────────────────────────────────
 #
