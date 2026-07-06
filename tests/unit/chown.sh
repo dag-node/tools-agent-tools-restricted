@@ -131,4 +131,20 @@ else
     fail "symlink redirection modified the outside victim: now $(stat -c '%U:%G %a' "${victim}")"
 fi
 
+# (11) Symlinked PARENT: a link INSIDE the project pointing at an outside directory cannot
+# smuggle an out-of-allowlist file into handback. realpath -e canonicalises the whole path
+# (parents included), so a hand-back of proj/evildir/loot -- where evildir -> an outside dir --
+# resolves to the real outside path, which is not under any allowlisted project and is left
+# untouched. Distinct from (10), which redirects the FINAL component.
+outdir="${TESTDIR}/outside_dir"; mkdir -p "${outdir}"
+loot="${outdir}/loot"; : > "${loot}"; chown root:root "${loot}"; chmod 0600 "${loot}"
+lbefore="$(stat -c '%U:%G %a' "${loot}")"
+ln -s "${outdir}" "${proj}/evildir"           # symlinked parent inside the project
+run "${proj}/evildir/loot"
+if [[ "$(stat -c '%U:%G %a' "${loot}")" == "${lbefore}" ]]; then
+    pass "symlinked parent cannot smuggle an out-of-allowlist file into handback (loot untouched)"
+else
+    fail "symlinked parent redirected handback onto an outside file: now $(stat -c '%U:%G %a' "${loot}")"
+fi
+
 finish

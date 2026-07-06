@@ -26,8 +26,11 @@ mktestdir
 home="${TESTDIR}/home"
 approved="${TESTDIR}/approved"
 unapproved="${TESTDIR}/unapproved"
-mkdir -p "${home}/.config/ai-tools" "${approved}" "${unapproved}"
-printf '%s\n' "${approved}" > "${home}/.config/ai-tools/allowed-projects"
+# An excluded subdir UNDER the approved parent: the allowlist approves ${approved} but carves
+# ${approved}/secret back out with a '!' rule, exactly as ai-tools-chown honours it.
+excluded="${approved}/secret"
+mkdir -p "${home}/.config/ai-tools" "${approved}" "${unapproved}" "${excluded}"
+printf '%s\n' "${approved}" "!${excluded}" > "${home}/.config/ai-tools/allowed-projects"
 chmod -R 0755 "${home}" "${approved}" "${unapproved}"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${home}" "${approved}" "${unapproved}"
 
@@ -78,6 +81,16 @@ if printf '%s' "${out2}" | grep -qE "not accessible|allowlist not found"; then
     fail "wrapper incorrectly blocked an approved directory (output: ${out2})"
 else
     pass "wrapper passes the allowlist gate for an approved directory"
+fi
+
+# (2b) A '!'-excluded subdir under the approved parent is refused (trust-chain step 2: never a
+#      '!'-excluded CWD). Exclusions override allows, so launching from ${approved}/secret must
+#      be blocked with the "excluded by '!' rule" refusal even though its parent is approved.
+out_excl="$(run_wrapper "${excluded}")"
+if printf '%s' "${out_excl}" | grep -qi "excluded by"; then
+    pass "wrapper refuses a '!'-excluded subdir of an approved project"
+else
+    fail "wrapper did NOT refuse a '!'-excluded CWD (output: ${out_excl})"
 fi
 
 # (3) End-to-end symlink resolution on that same approved run: the deployed

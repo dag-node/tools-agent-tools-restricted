@@ -28,6 +28,30 @@ else
     fail "can traverse ${confdir} -- agent could read/tamper with the allowlist or secret-pattern config"
 fi
 
+# The product's headline promise (README): a session "does not reach your secrets, SSH keys, or
+# unrelated projects". The agent is neither the operator nor in the operator's primary group, so
+# the operator's private credential stores stay out of reach by plain DAC. Probe that directly
+# against the operator's real home: for each sensitive store that exists, the agent must be able
+# to neither traverse it (dirs) nor read it (files). An exposure here is a real hole in the
+# promise, not a product-internal detail -- so it FAILs rather than skips. Absent stores skip.
+for _sec in .ssh .gnupg .aws .kube .docker/config.json .netrc .config/gh/hosts.yml; do
+    _p="${PROJECTS_HOME}/${_sec}"
+    [[ -e "${_p}" ]] || continue
+    if [[ -d "${_p}" ]]; then
+        if runuser -u "${SANDBOX_USER}" -- test -x "${_p}" 2>/dev/null; then
+            fail "agent can traverse ${_p} -- operator credential store is reachable (README promise broken)"
+        else
+            pass "cannot traverse ${_p}: operator credential store unreachable to agent"
+        fi
+    else
+        if runuser -u "${SANDBOX_USER}" -- test -r "${_p}" 2>/dev/null; then
+            fail "agent can read ${_p} -- operator credential file is reachable (README promise broken)"
+        else
+            pass "cannot read ${_p}: operator credential file unreachable to agent"
+        fi
+    fi
+done
+
 # Secret-pattern library (640 root:root) defines what filenames trigger quarantine. The lib
 # dir (750 root:ai-tools) is traversable, but the file's group is root, so traversal does not
 # imply read. If readable, the agent could route secrets through a name not in the list.
