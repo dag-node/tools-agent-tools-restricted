@@ -91,6 +91,29 @@ else
     fail "claude-run does not pin DISABLE_AUTOUPDATER=1 -- agent will attempt the denied npm self-update"
 fi
 
+# (5a) claude-run pins the session's kernel-confinement properties on the transient unit:
+# RestrictNamespaces=yes (the seccomp filter that blocks clone(CLONE_NEWUSER) and forces
+# PR_SET_NO_NEW_PRIVS) and NoNewPrivileges=yes. These are trust-chain step 4; a revert here would
+# launch sessions without namespace isolation or with SUID escalation reachable, and the only
+# other signal is an on-box AVC. Pin them statically alongside DISABLE_AUTOUPDATER (the sibling
+# self-update pin above) so a regression fails the suite, not just enforcing bring-up. The
+# properties reach systemd-run as `--property=NAME=yes`.
+if [[ -r "${_crun}" ]]; then
+    for _prop in RestrictNamespaces NoNewPrivileges; do
+        if grep -qE -- "--property=${_prop}=yes" "${_crun}"; then
+            pass "claude-run pins ${_prop}=yes on the session unit"
+        else
+            fail "claude-run does not pin ${_prop}=yes -- session confinement (trust-chain step 4) weakened"
+        fi
+    done
+    # UMask=0007 keeps agent-written files 660/770 (world stripped, operator+agent co-writers).
+    if grep -qE -- '--property=UMask=0007' "${_crun}"; then
+        pass "claude-run pins UMask=0007 on the session unit"
+    else
+        fail "claude-run does not pin UMask=0007 -- agent files may be born world-accessible"
+    fi
+fi
+
 # ── Bridge input validation + allowlist boundary (negative, as the agent) ────────
 #
 # The whole privilege bridge rests on the daemon rejecting bad input and the helper
