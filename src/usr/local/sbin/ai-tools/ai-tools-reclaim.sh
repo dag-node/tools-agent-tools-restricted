@@ -78,7 +78,7 @@ ai_tools_resolve_owner "${canonical}" || exit 0
 
 # Default reclaim walks .git but skips the heavy trees; --full skips nothing. The lib owns
 # both defaults -- the helper only names the consumer.
-if ${FULL}; then ai_tools_skip_find_expr reclaim-full; else ai_tools_skip_find_expr reclaim; fi
+if ${FULL}; then ai_tools_skip_find_expr reclaim-full '' "${canonical}"; else ai_tools_skip_find_expr reclaim '' "${canonical}"; fi
 # find <project> -xdev <skip dirs> -prune -o ( file|dir ) -user SANDBOX_USER -print0
 declare -a expr=( "${canonical}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
                   '(' -type f -o -type d ')' -user "${SANDBOX_USER}" -print0 )

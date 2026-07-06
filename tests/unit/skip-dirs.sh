@@ -25,10 +25,10 @@ export AI_TOOLS_OPERATOR_CONF=/nonexistent
 source "${SKIP_DIRS_LIB}"
 
 if [[ "${AI_TOOLS_SKIP_VCS_DIRS[*]}" == ".git" \
-      && "${AI_TOOLS_SKIP_ARTIFACT_DIRS[*]}" == "bin obj" ]]; then
-    pass "category defaults are set (VCS=.git, ARTIFACT='bin obj')"
+      && "${AI_TOOLS_SKIP_ARTIFACT_DIRS[*]:-}" == "" ]]; then
+    pass "category defaults are set (VCS=.git, ARTIFACT empty -- build-output skip is opt-in)"
 else
-    fail "category defaults: VCS='${AI_TOOLS_SKIP_VCS_DIRS[*]}' ARTIFACT='${AI_TOOLS_SKIP_ARTIFACT_DIRS[*]}'"
+    fail "category defaults: VCS='${AI_TOOLS_SKIP_VCS_DIRS[*]}' ARTIFACT='${AI_TOOLS_SKIP_ARTIFACT_DIRS[*]:-}'"
 fi
 
 # (2) Per-consumer defaults (lib-owned): handback/normalization consumers skip .git + heavy.
@@ -66,33 +66,62 @@ else
     pass "unknown consumer is rejected"
 fi
 
-# (5) -type d matcher: a DIRECTORY named obj is skipped, a FILE named obj is walked.
+# (5) -type d matcher: a DIRECTORY named node_modules is skipped, a FILE sharing the name
+#     is walked.
 mktestdir
-mkdir -p "${TESTDIR}/proj/obj/nested" "${TESTDIR}/proj/.git/objects/ab" "${TESTDIR}/proj/src"
-: > "${TESTDIR}/proj/obj/nested/built"      # inside a build DIRECTORY -> skipped
-: > "${TESTDIR}/proj/.git/objects/ab/obj"   # a FILE named obj inside walked .git -> walked
-ai_tools_skip_find_expr reclaim             # walks .git, skips the heavy trees (incl. obj dir)
+mkdir -p "${TESTDIR}/proj/node_modules/nested" "${TESTDIR}/proj/.git/objects/ab" "${TESTDIR}/proj/src"
+: > "${TESTDIR}/proj/node_modules/nested/dep.js"     # inside a dependency DIRECTORY -> skipped
+: > "${TESTDIR}/proj/.git/objects/ab/node_modules"   # a FILE sharing the name, in walked .git -> walked
+ai_tools_skip_find_expr reclaim             # walks .git, skips the heavy trees
 declare -a found=()
 mapfile -d '' -t found < <(find "${TESTDIR}/proj" "${AI_TOOLS_SKIP_FIND_EXPR[@]}" -type f -print0)
 walked() { local f; for f in "${found[@]}"; do [[ "${f}" == "$1" ]] && return 0; done; return 1; }
-if walked "${TESTDIR}/proj/.git/objects/ab/obj" && ! walked "${TESTDIR}/proj/obj/nested/built"; then
-    pass "-type d skips the obj DIRECTORY but walks a FILE named obj"
+if walked "${TESTDIR}/proj/.git/objects/ab/node_modules" && ! walked "${TESTDIR}/proj/node_modules/nested/dep.js"; then
+    pass "-type d skips the node_modules DIRECTORY but walks a FILE sharing the name"
 else
-    fail "-type d matcher off: file-obj walked=$(walked "${TESTDIR}/proj/.git/objects/ab/obj" && echo y || echo n), dir-obj-content walked=$(walked "${TESTDIR}/proj/obj/nested/built" && echo y || echo n)"
+    fail "-type d matcher off: file walked=$(walked "${TESTDIR}/proj/.git/objects/ab/node_modules" && echo y || echo n), dir content walked=$(walked "${TESTDIR}/proj/node_modules/nested/dep.js" && echo y || echo n)"
 fi
 
 # (6) operator.conf category override REPLACES the default (parsed, not sourced); other
-#     categories keep their defaults.
-printf 'OPERATORS="%s"\nSKIP_PACKAGE_DIRS="node_modules vendor"\n' "${PROJECTS_USER}" \
-    > "${TESTDIR}/operator.conf"
+#     categories keep their defaults. The artifact opt-in is the documented use-case.
+printf 'OPERATORS="%s"\nSKIP_PACKAGE_DIRS="node_modules vendor"\nSKIP_ARTIFACT_DIRS="bin obj"\n' \
+    "${PROJECTS_USER}" > "${TESTDIR}/operator.conf"
 AI_TOOLS_OPERATOR_CONF="${TESTDIR}/operator.conf"
 # shellcheck source=/dev/null
 source "${SKIP_DIRS_LIB}"
 if [[ "${AI_TOOLS_SKIP_PACKAGE_DIRS[*]}" == "node_modules vendor" \
-      && "${AI_TOOLS_SKIP_ARTIFACT_DIRS[*]}" == "bin obj" ]]; then
-    pass "operator.conf overrides a category, leaving the others at default"
+      && "${AI_TOOLS_SKIP_ARTIFACT_DIRS[*]:-}" == "bin obj" \
+      && "${AI_TOOLS_SKIP_CACHE_DIRS[*]}" == "__pycache__" ]]; then
+    pass "operator.conf overrides categories (artifact opt-in), leaving the others at default"
 else
-    fail "override: PACKAGE='${AI_TOOLS_SKIP_PACKAGE_DIRS[*]}' ARTIFACT='${AI_TOOLS_SKIP_ARTIFACT_DIRS[*]}'"
+    fail "override: PACKAGE='${AI_TOOLS_SKIP_PACKAGE_DIRS[*]}' ARTIFACT='${AI_TOOLS_SKIP_ARTIFACT_DIRS[*]:-}' CACHE='${AI_TOOLS_SKIP_CACHE_DIRS[*]}'"
+fi
+
+# (7) Root-anchored artifact exclusions: with the artifact opt-in from (6) plus a relative
+#     exclusion, a walk that passes its root walks the exempted bin/ but still skips the
+#     other one; without a root the plain name skip applies to both.
+printf 'SKIP_ARTIFACT_DIRS="bin obj"\nSKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE="src/bin"\n' \
+    > "${TESTDIR}/operator.conf"
+# shellcheck source=/dev/null
+source "${SKIP_DIRS_LIB}"
+mkdir -p "${TESTDIR}/proj2/src/bin" "${TESTDIR}/proj2/out/bin"
+: > "${TESTDIR}/proj2/src/bin/tool.sh"   # exempted source dir -> walked
+: > "${TESTDIR}/proj2/out/bin/built"     # ordinary artifact dir -> skipped
+ai_tools_skip_find_expr sweep '' "${TESTDIR}/proj2"
+found=()
+mapfile -d '' -t found < <(find "${TESTDIR}/proj2" "${AI_TOOLS_SKIP_FIND_EXPR[@]}" -type f -print0)
+if walked "${TESTDIR}/proj2/src/bin/tool.sh" && ! walked "${TESTDIR}/proj2/out/bin/built"; then
+    pass "relative exclusion exempts src/bin from the artifact skip (out/bin stays skipped)"
+else
+    fail "exclusion: src/bin walked=$(walked "${TESTDIR}/proj2/src/bin/tool.sh" && echo y || echo n), out/bin walked=$(walked "${TESTDIR}/proj2/out/bin/built" && echo y || echo n)"
+fi
+ai_tools_skip_find_expr sweep   # no root -> exclusions cannot anchor
+found=()
+mapfile -d '' -t found < <(find "${TESTDIR}/proj2" "${AI_TOOLS_SKIP_FIND_EXPR[@]}" -type f -print0)
+if ! walked "${TESTDIR}/proj2/src/bin/tool.sh"; then
+    pass "without a walk root the plain name skip applies (exclusions need the root)"
+else
+    fail "rootless walk unexpectedly honoured a relative exclusion"
 fi
 
 finish

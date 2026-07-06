@@ -157,7 +157,7 @@ ai_tools_load_secret_patterns
 
 # ── Enumerate secret-matching paths under the target ─────────────────────────
 # find -P (default): never follow symlinks; -type f/-type d already exclude them.
-ai_tools_skip_find_expr lockdown
+ai_tools_skip_find_expr lockdown '' "${target}"
 declare -a expr=( "${target}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
                   '(' -type f -o -type d ')' -print0 )
 

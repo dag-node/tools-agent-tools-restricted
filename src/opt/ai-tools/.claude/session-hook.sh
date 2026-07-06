@@ -213,7 +213,7 @@ fi
 newref="$(mktemp "/opt/ai-tools/.claude/.sweep.XXXXXX" 2>/dev/null)" || exit 0
 
 # find DIR -xdev \( skip heavy trees \) -prune -o \( ai-tools-owned [newer] file|dir \) -print0
-ai_tools_skip_find_expr sweep
+ai_tools_skip_find_expr sweep '' "${dir}"
 declare -a expr=( "${dir}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" '(' -user @SANDBOX_USER@ )
 # Bound to paths changed since the marker, EXCEPT an unbounded (session-start)
 # pass, which sweeps every ai-tools-owned path. A first-ever stop run (no marker)
@@ -224,13 +224,22 @@ fi
 expr+=( '(' -type f -o -type d ')' -print0 ')' )
 
 # Delegate each path to the root validator. </dev/null keeps ai-tools-chown on its
-# non-interactive branch. Trailing `|| true` so a find/pipe non-zero (e.g. an
-# unreadable subdir) cannot trip set -e / pipefail and skip the marker update.
+# non-interactive branch. The find reads via process substitution (not a pipe) so the
+# count survives the loop; a find non-zero (e.g. an unreadable subdir) only ends the
+# stream and cannot trip set -e / pipefail or skip the marker update.
 ai_tools_log_debug "${MODE} sweep: handing back agent-owned paths under ${dir}$([[ "${unbounded}" -eq 1 ]] && echo ' (unbounded)' || echo ' (since marker)')"
-find "${expr[@]}" 2>/dev/null \
-    | while IFS= read -r -d '' path; do
-        /usr/local/bin/ai-tools-handback-client CHOWN "${path}" || true
-      done || true
+swept=0
+while IFS= read -r -d '' path; do
+    /usr/local/bin/ai-tools-handback-client CHOWN "${path}" || true
+    swept=$((swept + 1))
+done < <(find "${expr[@]}" 2>/dev/null) || true
+
+# A large sweep is the skip-list signal: hundreds of agent-owned paths per pass usually
+# means a build or dependency tree is handed back over and over. Journald-only (routine,
+# nothing to act on in-session); the operator tunes the skip categories.
+if [[ "${swept}" -ge 200 ]]; then
+    ai_tools_log_info "${MODE} sweep: handed back ${swept} paths -- a recurring build tree can be skipped via SKIP_ARTIFACT_DIRS in /etc/ai-tools/operator.conf (reference: /usr/local/lib/ai-tools/skip-dirs.lib.sh)"
+fi
 
 # Advance the marker to this scan's start time (rename within the same dir keeps
 # the mtime). Best-effort; never block the turn/session from proceeding.

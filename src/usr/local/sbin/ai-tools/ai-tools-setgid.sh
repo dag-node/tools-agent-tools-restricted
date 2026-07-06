@@ -181,7 +181,7 @@ _safe_setgid() {
 # normalize each. find emits a dir before its contents (pre-order), so when a dir
 # is '!'-excluded or secret-named we record it as a skip-prefix and skip its whole
 # subtree -- never flipping the group anywhere under a private/secret dir.
-ai_tools_skip_find_expr setgid
+ai_tools_skip_find_expr setgid '' "${canonical}"
 declare -a expr=( "${canonical}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" -type d -print0 )
 
 find "${expr[@]}" 2>/dev/null \

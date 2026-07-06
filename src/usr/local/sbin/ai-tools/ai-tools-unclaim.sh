@@ -185,7 +185,7 @@ _safe_unclaim() {
 # Walk the project's directories and files (skipping heavy trees, one filesystem). A
 # '!'-excluded or secret-named directory has its whole subtree skipped; an excluded or
 # secret regular file is skipped on its own.
-ai_tools_skip_find_expr unclaim
+ai_tools_skip_find_expr unclaim '' "${canonical}"
 declare -a expr=( "${canonical}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
                   '(' -type d -o -type f ')' -print0 )
 

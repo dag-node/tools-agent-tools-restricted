@@ -173,6 +173,7 @@ you type `claude`
 | src/usr/lib/systemd/system/ai-tools-relabel.path | /usr/lib/systemd/system/ai-tools-relabel.path (root) |
 | src/usr/lib/systemd/system/ai-tools-relabel.service | /usr/lib/systemd/system/ai-tools-relabel.service (root) |
 | src/etc/sudoers.d/ai-tools-claude | /etc/sudoers.d/ai-tools-claude (root) |
+| src/etc/ai-tools/operator.conf | /etc/ai-tools/operator.conf (root; seeded once, then operator-maintained) |
 | install.sh | run in place via sudo |
 
 ---

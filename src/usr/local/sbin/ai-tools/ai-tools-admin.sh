@@ -36,16 +36,26 @@ log() { printf 'ai-tools-admin: %s\n' "$*"; }
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 . "${OPERATOR_LIB}" || die "cannot source ${OPERATOR_LIB}"
 
-# write_operators <name>...: rewrite operator.conf with the given operator list (root:root 644).
-# 644: world-readable (the agent hooks and the root helpers both read it; it carries no secret)
-# and root-write-only, so the agent cannot rewrite the identity root hands files back to.
+# write_operators <name>...: set the OPERATORS list in operator.conf (root:root 644).
+# Edits ONLY the OPERATORS line in an existing file, preserving every other setting the
+# operator maintains there (the SKIP_* categories; template: src/etc/ai-tools/operator.conf,
+# reference: skip-dirs.lib.sh); seeds a minimal file when absent. 644: world-readable (the
+# agent hooks and the root helpers both read it; it carries no secret) and root-write-only,
+# so the agent cannot rewrite the identity root hands files back to.
 write_operators() {
     install -d -o root -g root -m 755 /etc/ai-tools
     local tmp; tmp="$(mktemp)"
-    printf '%s\n' \
-        "# ai-tools operators -- the login users whose projects the sandbox works on." \
-        "# Managed by ai-tools-admin; read at runtime by the root helpers and hooks." \
-        "OPERATORS=\"$*\"" > "${tmp}"
+    if [[ -f "${OPERATOR_CONF}" ]] && grep -qE '^[[:space:]]*OPERATORS=' "${OPERATOR_CONF}"; then
+        sed -E "s|^[[:space:]]*OPERATORS=.*|OPERATORS=\"$*\"|" "${OPERATOR_CONF}" > "${tmp}"
+    elif [[ -f "${OPERATOR_CONF}" ]]; then
+        cat "${OPERATOR_CONF}" > "${tmp}"
+        printf 'OPERATORS="%s"\n' "$*" >> "${tmp}"
+    else
+        printf '%s\n' \
+            "# ai-tools host configuration -- full reference: /usr/local/lib/ai-tools/skip-dirs.lib.sh" \
+            "# and the template src/etc/ai-tools/operator.conf." \
+            "OPERATORS=\"$*\"" > "${tmp}"
+    fi
     install -o root -g root -m 644 "${tmp}" "${OPERATOR_CONF}"
     rm -f "${tmp}"
 }

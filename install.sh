@@ -765,24 +765,25 @@ do_install() {
         "${tmp_sudoers}" /etc/sudoers.d/ai-tools-claude
     rm -f "${tmp_sudoers}"
 
-    # Operators list. The root helpers and the agent hooks resolve the operators from this file
+    # Host config. The root helpers and the agent hooks resolve the operators from this file
     # at runtime (via operator.lib.sh) instead of substituting an identity into each helper, so
     # the helper files are identical on every host. 644 root:root: world-readable -- both the
     # agent (ai_tools_t hooks) and the root helpers (ai_tools_handback_t) read it, and it carries
     # no secret -- and root-write-only, so the agent cannot rewrite the identity root hands files
-    # back to. This dev install binds the invoking user as the sole operator.
-    log "/etc/ai-tools/operator.conf (operator ${PROJECTS_USER})"
+    # back to. Seeded from the src/etc template with the invoking user as the sole operator; an
+    # EXISTING file is kept as-is -- ai-tools-admin manages the OPERATORS line in place and the
+    # operator maintains the SKIP_* settings (reference: skip-dirs.lib.sh).
     ensure_dir 755 root root /etc/ai-tools
     chown root:root /etc/ai-tools
     chmod 755 /etc/ai-tools
-    local tmp_operator
-    tmp_operator="$(mktemp)"
-    printf '%s\n' \
-        "# ai-tools operators -- the login users whose projects the sandbox works on." \
-        "# Managed by ai-tools-admin; read at runtime by the root helpers and hooks." \
-        "OPERATORS=\"${PROJECTS_USER}\"" > "${tmp_operator}"
-    install -o root -g root -m 644 "${tmp_operator}" /etc/ai-tools/operator.conf
-    rm -f "${tmp_operator}"
+    if [[ -f /etc/ai-tools/operator.conf ]]; then
+        log "/etc/ai-tools/operator.conf kept (managed by ai-tools-admin and the operator)"
+    else
+        log "/etc/ai-tools/operator.conf (operator ${PROJECTS_USER})"
+        install_subst 644 root root \
+            "${SCRIPT_DIR}/src/etc/ai-tools/operator.conf" \
+            /etc/ai-tools/operator.conf
+    fi
 
     # ai-ops operators group + membership grants the operator the sudoers rules above (the RPM
     # creates the group via sysusers; the dev install creates it here). The sandbox account must

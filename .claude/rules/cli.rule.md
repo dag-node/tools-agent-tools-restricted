@@ -83,10 +83,11 @@ stay unreported as out-of-reach by intent — and splits the hits on the shared 
 (`skip-dirs.lib.sh`, which the CLI sources): repairable hits become a pending step whose
 repair (setgid walk + ACL walk) runs only behind the same default-NO confirm and secret gate
 as a first claim, while hits under skip-listed names get an informational warning naming the
-remedies that do reach them — narrow the category override in `operator.conf` and re-claim
-(a project whose `bin/` is source, not .NET build output), or `ai-tools --reclaim --full`
-for ownership alone. Declining plus a `!` exclusion (or `chmod 700`) records an intentional
-carve-out so it is not re-reported.
+remedies that do reach them — narrow the category override in `operator.conf`, list the
+path in `SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE` (a source dir sharing a skipped
+build-output name), then re-claim; or `ai-tools --reclaim --full` for ownership alone.
+Declining plus a `!` exclusion (or `chmod 700`) records an intentional carve-out so it is
+not re-reported.
 
 **Reachability.** The confined session runs *as* the sandbox account, so it must be able to
 **traverse** the path to the project; a project nested under a directory the account cannot enter

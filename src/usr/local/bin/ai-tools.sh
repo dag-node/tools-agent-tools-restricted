@@ -826,15 +826,25 @@ cmd_project_claim() {
     local -a drift_skipped=()
     if ai_tools_skip_find_expr sweep 2>/dev/null && (( ${#AI_TOOLS_SKIP_NAMES[@]} )); then
         local -a _keep=()
-        local _hit _seg _name _under _s
+        local _hit _rel _seg _name _under _s _x
         for _hit in "${drift[@]}"; do
             _under=false
-            IFS=/ read -ra _seg <<< "${_hit#"${d}"/}"
+            _rel="${_hit#"${d}"/}"
+            IFS=/ read -ra _seg <<< "${_rel}"
             for _name in "${AI_TOOLS_SKIP_NAMES[@]}"; do
                 for _s in "${_seg[@]}"; do
                     [[ "${_s}" == "${_name}" ]] && { _under=true; break 2; }
                 done
             done
+            # A relative artifact exclusion re-opens its subtree to the walks, so a hit
+            # under one is repairable, not skip-listed.
+            if ${_under}; then
+                for _x in "${AI_TOOLS_SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE[@]:-}"; do
+                    [[ -z "${_x}" ]] && continue
+                    _x="${_x%/}"
+                    [[ "${_rel}" == "${_x}" || "${_rel}" == "${_x}"/* ]] && { _under=false; break; }
+                done
+            fi
             if ${_under}; then drift_skipped+=("${_hit}"); else _keep+=("${_hit}"); fi
         done
         drift=("${_keep[@]}")
@@ -849,8 +859,10 @@ cmd_project_claim() {
         for _p in "${drift_skipped[@]:0:3}"; do say "        ${C_DIM}${_p}${C_RST}"; done
         (( ${#drift_skipped[@]} > 3 )) && say "        ${C_DIM}... and $(( ${#drift_skipped[@]} - 3 )) more${C_RST}"
         say "      ${C_DIM}claim leaves skip-listed trees (build output, dependencies) untouched. If one is${C_RST}"
-        say "      ${C_DIM}source in this project, narrow its category in /etc/ai-tools/operator.conf (e.g.${C_RST}"
-        say "      ${C_DIM}SKIP_ARTIFACT_DIRS=\"\") and re-claim; for ownership only: ai-tools --reclaim --full${C_RST}"
+        say "      ${C_DIM}source in this project, exempt it in /etc/ai-tools/operator.conf -- narrow the${C_RST}"
+        say "      ${C_DIM}category (SKIP_ARTIFACT_DIRS=...) or list the path relative to the project root in${C_RST}"
+        say "      ${C_DIM}SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE -- then re-claim (reference:${C_RST}"
+        say "      ${C_DIM}/usr/local/lib/ai-tools/skip-dirs.lib.sh); ownership only: ai-tools --reclaim --full${C_RST}"
     }
 
     section "Claim project (in place)"

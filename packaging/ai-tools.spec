@@ -144,6 +144,15 @@ install -m 0644 %{SOURCE1} %{buildroot}%{_sysusersdir}/ai-tools.conf
 install -d -m 0750 %{buildroot}%{_sysconfdir}/sudoers.d
 install -m 0440 src%{_sysconfdir}/sudoers.d/ai-tools-claude %{buildroot}%{_sysconfdir}/sudoers.d/ai-tools-claude
 
+# ── base: host-config template. The @PROJECTS_USER@ token stays literal at build (the
+#    operator is a runtime identity), so stage the template with OPERATORS emptied;
+#    `ai-tools-admin operator add` fills it in place. %config(noreplace) keeps the
+#    operator's OPERATORS/SKIP_* edits across upgrades. ──
+install -d -m 0755 %{buildroot}%{_sysconfdir}/ai-tools
+sed 's/^OPERATORS=.*/OPERATORS=""/' src%{_sysconfdir}/ai-tools/operator.conf \
+    > %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
+chmod 0644 %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
+
 # ── base: SELinux core policy module (prebuilt) ──────────────────────────────
 install -d -m 0755 %{buildroot}%{_datadir}/selinux/packages/ai-tools
 install -m 0644 selinux/policy/ai_tools.pp %{buildroot}%{_datadir}/selinux/packages/ai-tools/ai_tools.pp
@@ -283,7 +292,7 @@ fi
 %dir %attr(0751, root, ai-tools) %{ai_libdir}
 %attr(0644, root, root) %{ai_libdir}/log.lib.sh
 %attr(0644, root, root) %{ai_libdir}/msg.lib.sh
-%attr(0640, root, ai-tools) %{ai_libdir}/skip-dirs.lib.sh
+%attr(0644, root, root) %{ai_libdir}/skip-dirs.lib.sh
 %attr(0640, root, root) %{ai_libdir}/relabel.lib.sh
 %attr(0640, root, root) %{ai_libdir}/secret-patterns.lib.sh
 %attr(0644, root, root) %{ai_libdir}/operator.lib.sh
@@ -293,6 +302,8 @@ fi
 %{_unitdir}/ai-tools-handback@.service
 %attr(0644, root, root) %{_sysconfdir}/profile.d/path_dedup.sh
 %config(noreplace) %attr(0440, root, root) %{_sysconfdir}/sudoers.d/ai-tools-claude
+%dir %attr(0755, root, root) %{_sysconfdir}/ai-tools
+%config(noreplace) %attr(0644, root, root) %{_sysconfdir}/ai-tools/operator.conf
 %{_sysusersdir}/ai-tools.conf
 %dir %{_datadir}/selinux/packages/ai-tools
 %{_datadir}/selinux/packages/ai-tools/ai_tools.pp

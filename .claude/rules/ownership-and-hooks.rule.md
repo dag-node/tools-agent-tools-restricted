@@ -137,11 +137,17 @@ owning operator (`ai_tools_resolve_owner`) and acts **only** on dirs that operat
 sandbox account holds — a dir held by any third party (root, another developer) is left
 untouched, so normalization never pulls a foreign-held dir into the agent's group. This is the claim-side partner to `ai-tools-chown`'s "act only on
 `SANDBOX_USER`-owned paths" rule. Heavy/transient trees (`.git`, `node_modules`, `.venv`,
-`__pycache__`, `bin`, `obj`, `packages`) are skipped; that skip list is shared with the
-sweep and `ai-tools-lockdown` via `/usr/local/lib/ai-tools/skip-dirs.lib.sh`, which groups
-the names into categories (VCS, package, artifact, cache) an operator can override per
-category in `operator.conf` and combines per consumer. "Skip" means omitted from the walk,
-not hidden from the agent — a skipped tree's files simply stay agent-owned.
+`__pycache__`, `packages`) are skipped; that skip list is shared with the sweep and
+`ai-tools-lockdown` via `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (the authoritative
+reference), which groups the names into categories (VCS, package, artifact, cache) an
+operator can override per category in `operator.conf` and combines per consumer. The
+artifact category ships empty — `bin`/`obj`-style build-output names double as source dirs
+in many codebases, so skipping them is a per-host perf opt-in (`SKIP_ARTIFACT_DIRS="bin
+obj"`), with root-relative exemptions for same-named source dirs
+(`SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE`; every walk passes its root to the selector).
+"Skip" means omitted from the walk, not hidden from the agent — a skipped tree's files
+simply stay agent-owned. A Stop sweep that hands back an unusually large batch logs a
+journald hint naming the artifact opt-in.
 
 Setgid handles group *ownership* inheritance; a POSIX ACL handles *permission* inheritance in
 both directions. The root helper `ai-tools-setfacl` (run at project claim, see

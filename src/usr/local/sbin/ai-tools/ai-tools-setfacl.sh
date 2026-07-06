@@ -207,7 +207,7 @@ _safe_setfacl() {
 # ACL each. find emits a dir before its contents (pre-order), so when a dir is
 # '!'-excluded or secret-named we record it as a skip-prefix and skip its whole
 # subtree; an excluded/secret regular file is skipped on its own.
-ai_tools_skip_find_expr setfacl
+ai_tools_skip_find_expr setfacl '' "${canonical}"
 declare -a expr=( "${canonical}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
                   '(' -type d -o -type f ')' -print0 )
 
