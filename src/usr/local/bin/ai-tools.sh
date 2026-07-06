@@ -361,6 +361,30 @@ dir_owngap() {
     return 0
 }
 
+# acl_drift_scan <dir>  -- list paths inside a claimed tree that look shared but carry the
+# wrong group: owned by the operator or the sandbox account, group not SANDBOX_GROUP, yet
+# with group/other permission bits set. Creation under a claimed tree inherits the group
+# (setgid) and the ACLs (default entries); a path lacking both arrived by rename(2) -- mv
+# from outside the tree preserves the old group and inherits nothing -- and the agent gets
+# EACCES on it deep inside an allowlisted project. Owner-only paths (600/700: locked-down
+# secrets, deliberately private files) and '!'-excluded subtrees are not reported -- out of
+# the agent's reach by intent. Read-only and unprivileged, detection only: the repair runs
+# behind the claim confirm + secret gate, and the helper walks keep their own secret-name/
+# exclusion/foreign-owner skips, so reporting a path here never by itself widens access.
+acl_drift_scan() {
+    local dir="$1" excl
+    local -a skip=( -name .git -prune )
+    # Leave this project's '!'-excluded subtrees out of the walk: an intentional
+    # carve-out stays unreported.
+    while IFS= read -r excl; do
+        excl="${excl#!}"
+        [[ "${excl}" == "${dir}"/* ]] && skip+=( -o -path "${excl}" -prune )
+    done < <(grep '^!' "${ALLOWLIST}" 2>/dev/null || true)
+    find "${dir}" -xdev \( "${skip[@]}" \) -o \
+        \( -user "${ME}" -o -user "${SANDBOX_USER}" \) \
+        ! -group "${SANDBOX_GROUP}" -perm /077 -print 2>/dev/null
+}
+
 # reg_ownership <dir>  -- make <dir> usable by the sandbox account: group SANDBOX_GROUP + the
 # setgid bit on the project's directories, via the root ai-tools-setgid helper, so the agent can
 # enter the tree and files born there inherit the group. Without it a path can be allowlisted yet
@@ -374,8 +398,10 @@ dir_owngap() {
 # existing files, so a group-readable secret left un-locked (e.g. appsettings.json 640) would
 # become readable by the agent. secret_gate locks secrets to 600/700 first.
 reg_ownership() {
-    local dir="$1"
-    if ! dir_owngap "${dir}"; then
+    local dir="$1" force="${2:-}"
+    # 'force' runs the helper walk even when the project root already matches -- the
+    # interior-drift repair, where the gap sits below the root.
+    if [[ "${force}" != force ]] && ! dir_owngap "${dir}"; then
         say "    ownership: already group ${SANDBOX_GROUP}, setgid"
         return 0
     fi
@@ -757,6 +783,9 @@ claim_setfacl() {
 # not yet normalized, a SEPARATE default-YES prompt offers to normalize it (group + setgid
 # + ACL, via ai-tools-setfacl --with-git) so the operator's own commits stay agent-
 # readable; declining re-states the sandbox-clone alternative for keeping history hidden.
+# A re-claim also scans for interior drift (acl_drift_scan: shared-looking paths brought
+# into the tree without inheriting the group/ACL) and offers the group+ACL re-apply behind
+# the same confirm and secret gate -- detection is always on, repair never runs unconfirmed.
 cmd_project_claim() {
     local d; d="$(resolve_dir "${1:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
@@ -775,11 +804,19 @@ cmd_project_claim() {
     local need_acl=false; [[ "${acl}" == true ]] && need_acl=true
     local need_git=false; [[ "${git}" == true ]] && need_git=true
 
+    # Interior drift: the root-level state says nothing about paths brought INTO a claimed
+    # tree without inheriting the group/ACL (mv keeps the old group). Detect them here;
+    # the repair applies further down behind the same confirm + secret gate as the other
+    # in-place steps.
+    local -a drift=()
+    mapfile -t drift < <(acl_drift_scan "${d}" | head -n 200)
+
     section "Claim project (in place)"
     say "  ${d}"
 
     if [[ "${listed}" == true && "${safedir}" == true && "${owngap}" == false ]] \
-            && ! ${need_filemode} && ! ${need_acl} && ! ${need_label} && ! ${need_git}; then
+            && ! ${need_filemode} && ! ${need_acl} && ! ${need_label} && ! ${need_git} \
+            && (( ${#drift[@]} == 0 )); then
         ok "already fully claimed -- nothing to do"
         return 0
     fi
@@ -793,10 +830,19 @@ cmd_project_claim() {
     ${need_acl} && say "    - apply group-permission ACL (default + access g:${SANDBOX_GROUP}:rwX)"
     ${need_label} && say "    - apply SELinux ai_tools_project_t label"
     ${need_git} && say "    - normalize .git so the agent can access git history (setgid + group ACL) -- you will be asked"
+    if (( ${#drift[@]} )); then
+        warn "${#drift[@]} path(s) inside the tree carry a foreign group yet stay group-accessible"
+        say "    - re-apply group ${SANDBOX_GROUP} + ACL to them (they arrived without inheriting either):"
+        local _p
+        for _p in "${drift[@]:0:3}"; do say "        ${C_DIM}${_p}${C_RST}"; done
+        (( ${#drift[@]} > 3 )) && say "        ${C_DIM}... and $(( ${#drift[@]} - 3 )) more$( (( ${#drift[@]} >= 200 )) && printf ' (list capped at 200)' )${C_RST}"
+        say "      ${C_DIM}meant to stay out of the agent's reach? decline below and record that with a${C_RST}"
+        say "      ${C_DIM}'!' exclusion in ${ALLOWLIST}, or make it owner-only (chmod 700)${C_RST}"
+    fi
 
     # Heavy steps (recursive chgrp; sudo relabel/ACL) gate behind the confirm; pure
     # registry additions do not. dir_owngap is re-checked live so the warning matches.
-    if [[ "${owngap}" == true ]] || ${need_acl} || ${need_label}; then
+    if [[ "${owngap}" == true ]] || ${need_acl} || ${need_label} || (( ${#drift[@]} )); then
         if dir_owngap "${d}"; then
             say ""
             warn "in-place claim grants the agent group access to this whole tree"
@@ -817,9 +863,11 @@ cmd_project_claim() {
     #     by setgid inheritance from a claimed parent (so no chgrp is pending) yet have
     #     never been scanned. Under the collaborative umask its files are group-readable,
     #     so a first-ever claim must scan even when ownership is already in place.
-    # A re-claim of an already-listed tree was scanned on its first claim, so it skips.
+    # A re-claim of an already-listed tree was scanned on its first claim, so it skips --
+    # unless drift repair is pending: the drifted paths become newly group-accessible to
+    # the agent, the same exposure a first claim creates, so they get the same scan.
     # Roll back only our own allowlist addition on a failed gate.
-    if [[ "${listed}" != true || "${owngap}" == true ]]; then
+    if [[ "${listed}" != true || "${owngap}" == true ]] || (( ${#drift[@]} )); then
         if ! secret_gate "${d}"; then
             [[ "${listed}" == true ]] || unreg_allow "${d}"
             die "claim stopped -- lock down secrets first: ai-tools --lockdown ${d}"
@@ -846,8 +894,12 @@ cmd_project_claim() {
 
     [[ "${safedir}" == true  ]] || reg_safedir "${d}"
     ${need_filemode} && reg_filemode "${d}"
-    [[ "${owngap}"  == true  ]] && reg_ownership "${d}"
-    { ${need_acl} || ${do_git}; } && claim_setfacl "${d}" "${do_git}"
+    if [[ "${owngap}" == true ]]; then
+        reg_ownership "${d}"
+    elif (( ${#drift[@]} )); then
+        reg_ownership "${d}" force
+    fi
+    { ${need_acl} || ${do_git} || (( ${#drift[@]} )); } && claim_setfacl "${d}" "${do_git}"
     reg_reach "${d}"
     ${need_label} && claim_relabel "${d}"
     ok "claimed ${d}"

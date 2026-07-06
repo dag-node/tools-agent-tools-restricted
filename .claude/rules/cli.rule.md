@@ -73,6 +73,16 @@ declining re-states the sandbox-clone model for keeping git history out of the a
 Claim inspects current state and runs only the missing steps, so a re-run is a quiet no-op
 and existing projects retrofit the ACL/`filemode`/`.git` normalization on the next claim.
 
+**Interior drift.** Root-level state cannot see paths brought *into* a claimed tree without
+inheriting the group/ACL (rename keeps the old group and carries no ACL entries; creation
+under the setgid + default-ACL parents inherits both). Claim therefore scans the tree
+(`acl_drift_scan`, read-only and unprivileged) for shared-looking paths with a foreign
+group — owner-only paths (`600`/`700`, e.g. locked-down secrets) and `!`-excluded subtrees
+stay unreported as out-of-reach by intent — and lists them as a pending step with a warning.
+The repair (setgid walk + ACL walk) runs only behind the same default-NO confirm and secret
+gate as a first claim; declining plus a `!` exclusion (or `chmod 700`) records an intentional
+carve-out so it is not re-reported.
+
 **Reachability.** The confined session runs *as* the sandbox account, so it must be able to
 **traverse** the path to the project; a project nested under a directory the account cannot enter
 (a private home, `700`) is unreachable, and `claude-run` — which re-checks the project directory as
