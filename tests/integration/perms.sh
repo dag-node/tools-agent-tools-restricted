@@ -176,4 +176,19 @@ else
     fail "/etc/sudoers.d/ai-tools-claude has syntax errors"
 fi
 
+# env_keep surface: claude-run re-validates CLAUDE_EXEC/CLAUDE_PROJECT_DIR (claude-run.sh test),
+# which is the real defense, but the drop-in's per-command env_keep should pass through ONLY
+# those two -- a widened list would smuggle attacker-influenced env into the launch path. Pin it:
+# every env_keep in the file names exactly CLAUDE_EXEC and CLAUDE_PROJECT_DIR, nothing else.
+if [[ -r /etc/sudoers.d/ai-tools-claude ]]; then
+    ek_extra="$(grep -oE 'env_keep[[:space:]]*\+?=[[:space:]]*"[^"]*"' /etc/sudoers.d/ai-tools-claude \
+        | grep -oE '"[^"]*"' | tr -d '"' | tr ' ' '\n' \
+        | grep -vE '^[[:space:]]*$' | grep -vxE 'CLAUDE_EXEC|CLAUDE_PROJECT_DIR' || true)"
+    if [[ -z "${ek_extra}" ]]; then
+        pass "sudoers env_keep passes only CLAUDE_EXEC + CLAUDE_PROJECT_DIR"
+    else
+        fail "sudoers env_keep names unexpected variable(s): ${ek_extra//$'\n'/ } -- widened launch env surface"
+    fi
+fi
+
 finish

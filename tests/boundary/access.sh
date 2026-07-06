@@ -207,4 +207,21 @@ elif [[ -e "${gi}" ]]; then
     fail "can write ${gi} -- agent could weaken the default-deny secret guard"
 fi
 
+# /opt/ai-tools is deliberately NOT a nosuid mount (the sudo UID-switch to the sandbox account
+# needs suid to take effect there -- see launch.rule.md), and the agent owns its toolchain tree
+# (.nvm). A suid/sgid binary born under an agent-owned, non-nosuid path would be a standing
+# escalation primitive. The toolchain the updater installs carries none today; assert it stays
+# that way. Scoped to the agent-owned trees to keep the walk cheap and the finding meaningful.
+suid_hits=""
+for _tree in /opt/ai-tools/.nvm /opt/ai-tools/.cache; do
+    [[ -d "${_tree}" ]] || continue
+    _found="$(find "${_tree}" -xdev -type f -perm /06000 2>/dev/null || true)"
+    [[ -n "${_found}" ]] && suid_hits+="${_found}"$'\n'
+done
+if [[ -z "${suid_hits//[$'\n\t ']/}" ]]; then
+    pass "no suid/sgid files under the agent-owned toolchain trees (.nvm/.cache on a non-nosuid mount)"
+else
+    fail "suid/sgid file(s) under agent-owned trees -- escalation primitive on /opt (non-nosuid): ${suid_hits//$'\n'/ }"
+fi
+
 finish
