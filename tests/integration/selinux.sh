@@ -15,13 +15,26 @@ require_root
 
 section "SELinux confinement is enforcing (integration)"
 
+# selinux_note: printed with the layer-absent skips so a DAC-only run states its posture
+# and the recommendation once: DAC is the enforced boundary either way; the SELinux layer
+# is the recommended second one on hosts that support it. A container (e.g. podman) has
+# no policy of its own -- the layer belongs to the host running it.
+selinux_note() {
+    printf '  NOTE  running on DAC alone -- the filesystem boundary holds; the optional SELinux layer is not active\n'
+    printf '        recommended on SELinux-capable hosts:  sudo %s install\n' \
+        "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/selinux/install-selinux.sh"
+    printf '        (inside a container, e.g. podman, the layer is provided by the host)\n'
+}
+
 # (0) SELinux must be present and not globally disabled, or the confinement layer is moot.
 if ! command -v getenforce >/dev/null 2>&1; then
-    skip "SELinux enforcing" "getenforce not installed (SELinux userspace absent)"; finish; exit
+    skip "SELinux enforcing" "getenforce not installed (SELinux userspace absent)"
+    selinux_note; finish; exit
 fi
 mode="$(getenforce 2>/dev/null || true)"
 if [[ -z "${mode}" || "${mode}" == "Disabled" ]]; then
-    skip "SELinux enforcing" "SELinux is ${mode:-unavailable} (no policy loaded on this host)"; finish; exit
+    skip "SELinux enforcing" "SELinux is ${mode:-unavailable} (no policy loaded on this host)"
+    selinux_note; finish; exit
 fi
 
 # (1) Is the ai_tools confinement module loaded? Prefer semodule; fall back to seinfo (setools).
@@ -40,7 +53,7 @@ if [[ ${ml} -eq 2 ]]; then
     skip "SELinux enforcing" "neither semodule nor seinfo available to detect the ai_tools module"; finish; exit
 elif [[ ${ml} -ne 0 ]]; then
     skip "SELinux enforcing" "ai_tools SELinux module not loaded (confinement layer not installed on this host)"
-    finish; exit
+    selinux_note; finish; exit
 fi
 
 # (2) Module IS loaded: global mode must be Enforcing. Permissive here means the confined

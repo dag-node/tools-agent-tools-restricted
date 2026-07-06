@@ -152,8 +152,15 @@ else
     # and skip them. The one-command fix relabels the daemon and rebinds the listener.
     probe_out="$(drive BOGUS /probe)" || true
     if grep -qiE 'connection reset|connection refused|permission denied|incomplete response|no such file' <<<"${probe_out}"; then
-        _selinux_sh="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../selinux" 2>/dev/null && pwd)/install-selinux.sh"
-        fail "handback bridge does not answer (${probe_out}) -- fix: sudo ${_selinux_sh} relabel; diagnose: journalctl -u 'ai-tools-handback@*', ausearch -m avc,selinux_err -ts recent"
+        # The remedy depends on the confinement layer: with SELinux active the usual cause
+        # is a listener bound before the daemon was labelled (relabel rebinds it in order);
+        # on a DAC-only host the socket unit itself needs attention.
+        if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
+            _fix="sudo $(cd "$(dirname "${BASH_SOURCE[0]}")/../../selinux" 2>/dev/null && pwd)/install-selinux.sh relabel; diagnose: journalctl -u 'ai-tools-handback@*', ausearch -m avc,selinux_err -ts recent"
+        else
+            _fix="sudo systemctl restart ai-tools-handback.socket; diagnose: journalctl -u 'ai-tools-handback@*'"
+        fi
+        fail "handback bridge does not answer (${probe_out}) -- fix: ${_fix}"
         skip "handback negative cases (6)-(8)" "bridge does not answer"
     else
 
