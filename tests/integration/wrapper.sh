@@ -153,8 +153,11 @@ section "Wrapper fails closed when the safety library is unloadable"
 brk="${TESTDIR}/claude-broken"
 sed 's#^readonly SAFE_PATHS_LIB=.*#readonly SAFE_PATHS_LIB="/nonexistent/ai-tools/safe-paths.lib.sh"#' \
     "${wrapper}" > "${brk}"
-chmod 0755 "${brk}"
-fc_out="$(setsid "${brk}" --version < /dev/null 2>&1 || true)"
+# Run the copy via `bash <file>`, not by executing it: TESTDIR is under /tmp, which a hardened
+# host mounts noexec (and the tmp label blocks execve under confinement), so a direct exec fails
+# with EACCES before the wrapper's own logic runs. `bash <file>` reads it as a script, exercising
+# the fail-closed branch regardless of the mount options or the file's SELinux type.
+fc_out="$(setsid bash "${brk}" --version < /dev/null 2>&1 || true)"
 if grep -qi 'cannot load the launch safety library' <<<"${fc_out}"; then
     pass "wrapper refuses to start when safe-paths.lib.sh cannot load (fail closed)"
 else
