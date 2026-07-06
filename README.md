@@ -1,10 +1,13 @@
-# Claude CR
+# Agent Tools Restricted
 
-Claude Code Restricted, run sessions as sandboxed user.
+Run coding agents sandboxed — under their own locked-down system user.
 
-Run Anthropic's **Claude Code as a dedicated, unprivileged system user
-(`SANDBOX_USER`, the account created as `ai-tools`)** instead of as your
-own login account, and keep Node.js and the `claude` CLI current automatically.
+Agent Tools Restricted runs an autonomous coding agent under a dedicated, unprivileged
+service account (`SANDBOX_USER`, the account created as `ai-tools`) with a tightly scoped set
+of privileges, and keeps its Node.js toolchain and CLI current automatically. **Claude Code is
+the first supported agent**; the confinement, ownership-handback, and toolchain machinery are
+agent-agnostic. Targets Enterprise Linux 9 and 10 — RHEL and its rebuilds (Rocky, AlmaLinux,
+Oracle Linux/UEK).
 
 ## Quick start
 
@@ -42,7 +45,7 @@ are the from-source equivalents of steps 1–2.
 
 ## Why
 
-Claude Code is an autonomous agent that reads, writes, and runs commands. Run as
+A coding agent like Claude Code reads, writes, and runs commands autonomously. Run as
 your own user it inherits everything you can touch — SSH keys, browser profiles,
 every project, your full sudo rights. This project gives the agent its own UID
 with a tightly scoped set of privileges instead:
@@ -100,20 +103,26 @@ spec is in [`docs/naming-conventions.md`](docs/naming-conventions.md).
 | Sandbox user | `SANDBOX_USER` / `@SANDBOX_USER@` | `ai-tools` | the unprivileged service account Claude Code runs as |
 | …its group | `SANDBOX_GROUP` / `@SANDBOX_GROUP@` | `ai-tools` | the sandbox user's group |
 
-`install.sh` resolves these automatically. The `@…@` token form is what the
-shipped templates carry; `install.sh` substitutes it at deploy time. The literal
-`ai-tools` is kept in paths (`/opt/ai-tools`), SELinux types (`ai_tools_t`), and
-helper names (`ai-tools-chown`) — these are not the account and stay fixed even
-if `SANDBOX_USER` changes.
+The package and `install.sh` resolve these automatically — you never type them. The
+`@…@` token form is what the shipped templates carry; the RPM `%prep` and `install.sh`
+substitute it to `ai-tools` at build/deploy time, and the RPM creates the account from a
+`sysusers.d` entry (`u ai-tools …`) with no prompt, so the name is **not** an install-time
+choice today. `SANDBOX_USER`/`SANDBOX_GROUP` name the account (`ai-tools`); the literal
+`ai-tools` is also kept in paths (`/opt/ai-tools`), SELinux types (`ai_tools_t`), the `ai-tools`
+CLI, and helper names (`ai-tools-chown`) — those are fixed and do not track the account name.
 
-For the **manual** install steps below, export the variables once so the
-commands paste verbatim:
+The variables matter only if you install **from source** by running the manual steps below
+(the `install.sh` and RPM paths need none of this). Set them once, in the shell you run those
+steps in, so the commands paste verbatim:
 
-    PROJECTS_USER="$(id -un)"
-    PROJECTS_GROUP="$(id -gn)"
-    PROJECTS_HOME="${HOME}"
-    SANDBOX_USER=ai-tools
-    SANDBOX_GROUP=ai-tools
+    export PROJECTS_USER="$(id -un)"
+    export PROJECTS_GROUP="$(id -gn)"
+    export PROJECTS_HOME="${HOME}"
+    export SANDBOX_USER=ai-tools
+    export SANDBOX_GROUP=ai-tools
+
+Every manual command below expands these in your shell; run them in that same shell. Each
+critical step also re-states the sandbox name inline, so a step pasted on its own still works.
 
 ## Architecture at a glance
 
@@ -213,7 +222,12 @@ produces the same PATH, so the double call for login shells is safe.
 
 ## 2. Create the SANDBOX_USER OS account at /opt (root, once)
 
-    sudo mkdir -p /opt/ai-tools
+    # The sandbox account name is fixed at ai-tools (see "Identities and naming"). Set it here
+    # so this block works even pasted on its own -- an unset SANDBOX_USER makes useradd fail
+    # with "invalid user name ''".
+    SANDBOX_USER=ai-tools
+    SANDBOX_GROUP=ai-tools
+
     sudo useradd \
         --system \
         --shell /sbin/nologin \
@@ -221,11 +235,14 @@ produces the same PATH, so the double call for login shells is safe.
         --no-create-home \
         --comment "AI tools sandbox user" \
         "${SANDBOX_USER}"
-    sudo chown ${SANDBOX_USER}:${SANDBOX_GROUP} /opt/ai-tools
-    sudo chmod 755 /opt/ai-tools       # ${PROJECTS_USER} needs +x to traverse into bin/
+    sudo install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 755 /opt/ai-tools
 
     # Lock password (system users have no password by default, but be explicit)
     sudo passwd -l "${SANDBOX_USER}"
+
+The `install -d` creates `/opt/ai-tools` owned by the account with `+x` for all, so
+`${PROJECTS_USER}` can traverse into `bin/`. The RPM ships this account via `sysusers.d`, so
+this step applies only to the from-source path.
 
 `/home` is mounted `nosuid`, which would prevent the `sudo` UID-switch from taking
 effect. `/opt/ai-tools` has no `nosuid` restriction, so the switch to `${SANDBOX_USER}`
@@ -257,8 +274,10 @@ the `nvm-update.timer`. The manual equivalent:
 
 ## 4. Run the install script (root, once)
 
-Steps 4–12 are fully automated by `install.sh`. After completing steps 1–3
-above, run:
+Steps 4–12 are fully automated by `install.sh`. **Complete steps 2 and 3 first** — the
+account must exist (else the script stops with `ai-tools user not found`) and
+`/opt/ai-tools/bin` must exist (step 3 creates it; the script writes `nvm-update.sh` into it).
+`sudo ai-tools-bootstrap` does both in one idempotent command. Then run:
 
     sudo ./install.sh install
 

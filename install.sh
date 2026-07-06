@@ -403,7 +403,7 @@ print_banner() {
     printf '%s%s%s\n' "${C_BOLD}" '| |___| |_ / ___ \| |_|   |_|   |___   |  |__|   _ < '   "${C_RST}"
     printf '%s%s%s\n' "${C_BOLD}" ' \____|______/  __\_____/|____/|_____|  \____|_| \__\ '  "${C_RST}"
     printf '\n'
-    printf '  Claude Code Restricted, run sessions as sandboxed user.  %s(v%s)%s\n' \
+    printf '  Agent Tools Restricted -- run ai-tools sandboxed.  %s(v%s)%s\n' \
         "${C_DIM}" "${VERSION}" "${C_RST}"
     printf '\n'
 }

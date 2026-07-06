@@ -1,6 +1,7 @@
-# Claude CR
+# Agent Tools Restricted
 
-Claude Code Restricted — run sessions as a sandboxed user.
+Run coding agents sandboxed — under their own locked-down system user. Claude Code is the
+first supported agent.
 
 <!-- This file is the router + invariants. Component deep-dives live in
      .claude/rules/*.rule.md (path-scoped, loaded when you open matching src files).
@@ -10,11 +11,12 @@ Claude Code Restricted — run sessions as a sandboxed user.
 
 ## Purpose
 
-This repo installs and maintains a way to run Anthropic's **Claude Code as a
+This repo installs and maintains a way to run an autonomous coding agent as a
 dedicated, locked-down system user (`SANDBOX_USER`, the account created as
-`ai-tools`)** instead of as your own login account, so an autonomous coding agent
-works on your projects without inheriting your user's privileges. It runs under a
-separate UID with no login shell, launches only inside explicitly approved project
+`ai-tools`) instead of as your own login account, so the agent works on your projects
+without inheriting your user's privileges. **Claude Code is the first supported agent**;
+the confinement, ownership-handback, and toolchain machinery are agent-agnostic. It runs
+under a separate UID with no login shell, launches only inside explicitly approved project
 directories, escalates only through two narrow `sudo` rules, and does not reach your
 secrets, SSH keys, or unrelated projects.
 
