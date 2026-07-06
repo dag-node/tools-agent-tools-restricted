@@ -53,7 +53,7 @@ for _sec in .ssh .gnupg .aws .kube .docker/config.json .netrc .config/gh/hosts.y
 done
 
 # Secret-pattern library (640 root:root) defines what filenames trigger quarantine. The lib
-# dir (750 root:ai-tools) is traversable, but the file's group is root, so traversal does not
+# dir (0751 root:ai-tools) is traversable, but the file's group is root, so traversal does not
 # imply read. If readable, the agent could route secrets through a name not in the list.
 splib=/usr/local/lib/ai-tools/secret-patterns.lib.sh
 if ! runuser -u "${SANDBOX_USER}" -- test -r "${splib}" 2>/dev/null; then

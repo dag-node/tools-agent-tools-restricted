@@ -5,8 +5,8 @@
 # world bits stripped, quarantines secret-named ones to <projects-user>:<projects-user> 600,
 # honors '!' exclusions, refuses paths outside the allowlist, and is TOCTOU-safe (pinned fd,
 # refuses symlink redirection). Installed helper against a /tmp testdir with a dummy
-# allowlist. The audit-log side-effect (/var/log) is covered by the integration suite, not
-# here, to keep this test inside its boundary.
+# allowlist. This test stays out of /var/log to keep its hermetic boundary; the audit-log
+# FILE's ownership and mode are pinned in perms.sh (the written log line itself is not asserted).
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"

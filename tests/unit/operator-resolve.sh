@@ -6,8 +6,9 @@
 # hooks: ai_tools_allowlist_covers (allow/exclude/nested matching) and ai_tools_resolve_owner (a
 # covered path resolves to the operator and exposes the owner's allowlist; an excluded or
 # out-of-list path resolves to no owner, so the helpers leave it untouched). Multi-operator
-# tie-break resolution needs several real operator accounts and is covered by the integration
-# suite. Run as root via sudo (the harness derives the projects user from SUDO_USER).
+# tie-break resolution (which of several covering operators wins) needs several real operator
+# accounts and is not exercised by the suite yet. Run as root via sudo (the harness derives the
+# projects user from SUDO_USER).
 #
 # ai_tools_resolve_owner is exercised in a child shell: it assigns PROJECTS_USER/HOME/GROUP/UID,
 # which the harness pins readonly, so it must run where those are not yet frozen.

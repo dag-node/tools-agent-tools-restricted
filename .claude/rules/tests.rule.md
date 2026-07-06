@@ -60,12 +60,20 @@ while plain configs and build artifacts the toolchain must read do not.
 
 **`integration`** — checks that need a completed install and the running system
 (`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`, `cli.sh`,
-`claude-run.sh`, `systemd.sh`): installed-artifact ownership/modes, sudoers syntax, the
-wrapper launched end-to-end, the handback `socket → daemon → helper` chain (including its
-negative paths — unknown verb, non-absolute arg, and an out-of-allowlist CHOWN all
-refused), the CLI principal guard (refuses root and the sandbox account), `claude-run`'s
+`claude-run.sh`, `systemd.sh`, `selinux.sh`): installed-artifact ownership/modes, sudoers
+syntax, the wrapper launched end-to-end (its allowlist gate, `!`-exclusion refusal,
+fail-closed load of `safe-paths.lib.sh`, and consultation of the protected-paths backstop on
+the launch CWD), the handback `socket → daemon → helper` chain (including its negative paths —
+unknown verb, wrong/empty/non-absolute/control-character args, and an out-of-allowlist CHOWN
+all refused), the CLI principal guard (refuses root and the sandbox account), `claude-run`'s
 `CLAUDE_EXEC` / `CLAUDE_PROJECT_DIR` re-validation (a bad value is refused before any
-session launches), and SELinux labels. `systemd.sh` is the single home for unit checks:
+session launches) plus its pinned session-confinement properties
+(`RestrictNamespaces`/`NoNewPrivileges`/`UMask`), the `settings.json` hook + deny-rule
+declarations, and SELinux labels (the `claude.exe` entrypoint and the handback daemon
+binary). `selinux.sh` asserts the confinement layer is actually enforcing: when the
+`ai_tools` module is loaded the system is `Enforcing` and neither `ai_tools_t` nor
+`ai_tools_handback_t` is marked permissive; it skips when the module is absent (the layer is
+optional). `systemd.sh` is the single home for unit checks:
 `systemd-analyze verify` on each shipped unit, plus enablement in the correct instance —
 the `nvm-update` timer in the sandbox account's own `--user` instance, the relabel watcher
 and handback socket in the system instance. The
@@ -87,10 +95,13 @@ it through `tests/run.sh all`. Adding or repermissioning an installed file means
 
 **`boundary`** — confinement assertions executed **as the agent** (`sudo -u SANDBOX_USER`)
 (`access.sh`, `sudo.sh`): the agent cannot read the secret-pattern library or write the
-control plane, the sandbox account holds no sudo rights (both NOPASSWD rules belong to the
-projects user and drop privilege), an `ai_tools_t` process is denied what the policy
-forbids, etc. These deliberately probe the current environment from the sandbox account's
-vantage point.
+control plane, cannot reach the operator's credential stores (`~/.ssh`, `~/.gnupg`, …), and
+holds no sudo rights — `sudo -l` reports it is not allowed to run sudo at all (both NOPASSWD
+rules belong to the projects user and drop privilege), plus the account hygiene that invariant
+leans on (nologin shell, locked password, non-membership in `ai-ops`). These probe **DAC and
+account state** from the sandbox account's vantage — they run as the sandbox *user*, not inside
+the `ai_tools_t` SELinux domain (a launched session), so they assert the filesystem/credential
+boundary; the SELinux enforcing posture is asserted separately in `integration/selinux.sh`.
 
 ## Quirks
 
