@@ -66,6 +66,31 @@ else
     ${deny_ok} && pass "settings.json deny list covers sudo + the audit/journal/systemctl CLIs"
 fi
 
+# ── /tmp isolation posture (pam_namespace, optional) ─────────────────────────────
+# pam_namespace polyinstantiation of /tmp + /var/tmp gives each session a private /tmp instance
+# (a confinement property, and the reason this suite keeps its live-chain fixtures under $HOME
+# rather than /tmp). It is OPTIONAL: a host without it is a supported install state, so its
+# absence is not a failure -- it only means per-session /tmp isolation must come from the
+# deferred PrivateTmp launch path instead (see the testsuite-gap-audit memory TODO). This check
+# only REPORTS the posture; it never fails. On a host that does polyinstantiate, it also flags an
+# unexpected loss of one of the two entries as a note rather than an error.
+section "/tmp isolation posture (pam_namespace, optional)"
+readonly NSCONF="/etc/security/namespace.conf"
+if [[ ! -r "${NSCONF}" ]]; then
+    skip "/tmp isolation posture" "pam_namespace not configured (supported; isolation relies on the deferred PrivateTmp path)"
+else
+    has_tmp=false; has_vartmp=false
+    awk -v d=/tmp     '!/^[[:space:]]*#/ && $1==d && $3 ~ /level|context|user/ {exit 0} END{exit 1}' "${NSCONF}" && has_tmp=true
+    awk -v d=/var/tmp '!/^[[:space:]]*#/ && $1==d && $3 ~ /level|context|user/ {exit 0} END{exit 1}' "${NSCONF}" && has_vartmp=true
+    if ${has_tmp} && ${has_vartmp}; then
+        pass "pam_namespace polyinstantiates /tmp and /var/tmp per session (isolation active)"
+    elif ${has_tmp} || ${has_vartmp}; then
+        skip "/tmp isolation posture" "only one of /tmp,/var/tmp is polyinstantiated (partial; supported host state)"
+    else
+        skip "/tmp isolation posture" "namespace.conf present but no /tmp,/var/tmp entries (supported; deferred PrivateTmp path)"
+    fi
+fi
+
 section "Ownership-handback hooks end-to-end (integration)"
 
 if [[ ! -x "${hook}" || ! -x "${sweep}" ]]; then
