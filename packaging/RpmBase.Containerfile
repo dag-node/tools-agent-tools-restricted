@@ -25,6 +25,11 @@
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
+# Empty (the spec's own default Release "1") for a real release; the Makefile's rpmtest-rockyN
+# targets forward their own RPM_RELEASE here so a CI dev build's snapshot Release lands on the
+# RPMs this image produces too -- see packaging/Makefile and the spec's Release: line.
+ARG RPM_RELEASE=""
+
 # Build + test tooling. Rocky 9 and 10 minimal both ship microdnf; add dnf (readable dependency
 # resolution), the rpm build chain + systemd-rpm-macros (for %systemd_*/%sysusers/%_userunitdir),
 # createrepo_c (a local repo so the metapackage resolves its subpackage Requires), systemd as
@@ -60,7 +65,7 @@ WORKDIR /opt/ai-tools-src
 # must be live at boot for the selftest (preset policy may leave them off in a minimal image).
 RUN set -eux; \
     rm -rf packaging/rpmbuild packaging/*.tar.gz; \
-    make -C packaging rpm; \
+    make -C packaging rpm RPM_RELEASE="${RPM_RELEASE}"; \
     mkdir -p /tmp/ai-repo; \
     cp packaging/rpmbuild/RPMS/noarch/*.rpm /tmp/ai-repo/; \
     createrepo_c /tmp/ai-repo; \

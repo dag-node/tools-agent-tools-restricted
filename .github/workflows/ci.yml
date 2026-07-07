@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main, develop]
+    tags: ["v*.*.*"]
   pull_request:
 
 concurrency:
@@ -30,6 +31,10 @@ jobs:
   # `make -C packaging rpmtest-rockyN` exactly -- see packaging/README.md for what this
   # does and does not cover (no SELinux-enforcing confinement; that still needs an
   # enforcing host, see the docs/rpm-packaging.md manual gate).
+  #
+  # Every push/PR run builds a dev/snapshot Release (see the comment on Release: in
+  # packaging/ai-tools.spec) and uploads the resulting RPMs as a workflow artifact, so a
+  # build off any commit is downloadable and inspectable without cutting a real release.
   rpm-selftest:
     runs-on: ubuntu-latest
     strategy:
@@ -42,5 +47,74 @@ jobs:
       - name: Install podman
         run: sudo apt-get update && sudo apt-get install -y podman
 
+      - name: Compute dev Release
+        id: relver
+        run: echo "release=0.${{ github.run_number }}.git$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: make -C packaging rpmtest-rocky${{ matrix.el }}
-        run: make -C packaging rpmtest-rocky${{ matrix.el }}
+        run: make -C packaging rpmtest-rocky${{ matrix.el }} RPM_RELEASE=${{ steps.relver.outputs.release }}
+
+      # ai-tools-rpmbase:elN is still cached locally (only the final test container was --rm'd),
+      # so the RPMs it built are extractable without rebuilding anything.
+      - name: Extract dev RPMs
+        run: |
+          cid=$(podman create ai-tools-rpmbase:el${{ matrix.el }})
+          mkdir -p dist-rpms
+          podman cp "${cid}":/opt/ai-tools-src/packaging/rpmbuild/RPMS/noarch/. dist-rpms/
+          podman rm "${cid}" >/dev/null
+
+      - name: Upload dev RPM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-tools-rpms-el${{ matrix.el }}-${{ steps.relver.outputs.release }}
+          path: dist-rpms/*.rpm
+          retention-days: 14
+
+  # Tag-triggered only (push a vX.Y.Z tag once packaging/VERSION is bumped to match). Rebuilds
+  # clean release RPMs (RPM_RELEASE unset, so the spec's own default Release "1" applies --
+  # deliberately not reusing rpm-selftest's dev-Release artifacts, which are snapshot builds by
+  # construction) and publishes them as a GitHub Release with auto-generated notes.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [shellcheck, rpm-selftest]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify the tag matches packaging/VERSION
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          file_version="$(cat packaging/VERSION)"
+          if [[ "${tag_version}" != "${file_version}" ]]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match packaging/VERSION (${file_version}) -- bump the file and re-tag" >&2
+            exit 1
+          fi
+
+      - name: Install podman
+        run: sudo apt-get update && sudo apt-get install -y podman
+
+      - name: Build + extract release RPMs
+        run: |
+          # rpmbase-elN, not rpmtest-rockyN: the `needs: rpm-selftest` dependency above
+          # already ran and passed the full selftest on this exact commit, so re-running it
+          # here would only re-prove what's already proven. This step's only remaining job
+          # is producing the release artifacts themselves, built clean (RPM_RELEASE unset,
+          # so the spec's default Release "1" applies instead of a dev/snapshot one).
+          for el in 9 10; do
+            make -C packaging rpmbase-el${el}
+            cid=$(podman create ai-tools-rpmbase:el${el})
+            mkdir -p "dist-rpms/el${el}"
+            podman cp "${cid}":/opt/ai-tools-src/packaging/rpmbuild/RPMS/noarch/. "dist-rpms/el${el}/"
+            podman rm "${cid}" >/dev/null
+          done
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            dist-rpms/el9/*.rpm dist-rpms/el10/*.rpm

@@ -8,16 +8,21 @@
 #
 # The tarball is built from the WORKING TREE (not `git archive`), so it includes
 # not-yet-committed sources during development.
+#
+# RPM_RELEASE overrides the spec's Release for a dev/snapshot build (a tagged release leaves
+# it unset, so the spec's own default "1" applies): make rpm RPM_RELEASE=0.42.gitabcdef1
 
 NAME    = ai-tools
-VERSION = 0.1.0
+VERSION := $(shell cat VERSION)
 TARBALL = $(NAME)-$(VERSION).tar.gz
 ROOT    = $(CURDIR)/..
 TOPDIR  = $(CURDIR)/rpmbuild
+RPM_RELEASE ?=
+RELEASE_DEFINE = $(if $(RPM_RELEASE),--define "rpm_release $(RPM_RELEASE)",)
 
 # Tracked + working-tree sources the spec consumes, relative to the repo root.
 CONTENT = src docs selinux/policy/ai_tools.pp \
-          packaging/$(NAME).spec packaging/$(NAME).sysusers README.md
+          packaging/$(NAME).spec packaging/$(NAME).sysusers packaging/VERSION README.md
 
 # Container smoke test: the shared RpmBase recipe parameterized by an EL base image, then a
 # thin per-distro overlay (see RpmBase.Containerfile). OCI tool + EL bases are overridable.
@@ -28,20 +33,29 @@ EL10_BASE ?= quay.io/rockylinux/rockylinux:10-minimal
 # when a content-addressed COPY cache hit would otherwise reuse an RPM built from older sources.
 BUILD_FLAGS ?=
 
-.PHONY: all dist srpm rpm clean rpmtest-rocky9 rpmtest-rocky10
+.PHONY: all dist srpm rpm clean rpmbase-el9 rpmbase-el10 rpmtest-rocky9 rpmtest-rocky10
 
 all:
-	@echo "make dist | srpm | rpm | clean | rpmtest-rocky9 | rpmtest-rocky10"
+	@echo "make dist | srpm | rpm | clean | rpmbase-el9 | rpmbase-el10 | rpmtest-rocky9 | rpmtest-rocky10"
 
-# Two builds per distro: the shared base for the chosen EL image, then the distro overlay; then
-# run it with systemd as PID 1 so the selftest fires and returns the container's exit status.
-rpmtest-rocky9:
-	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmbase:el9 -f $(CURDIR)/RpmBase.Containerfile --build-arg BASE_IMAGE=$(EL9_BASE) $(ROOT)
+# The shared base image alone: builds the RPMs inside it (via its own `make rpm`, so
+# RPM_RELEASE flows through -- see RpmBase.Containerfile) and installs the metapackage, with
+# no test overlay and no `run`. rpmtest-rockyN below layers the selftest on top of this; CI's
+# release job targets this directly to get clean release RPMs without re-running the full
+# selftest a prior CI job already passed on the same commit.
+rpmbase-el9:
+	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmbase:el9 -f $(CURDIR)/RpmBase.Containerfile --build-arg BASE_IMAGE=$(EL9_BASE) --build-arg RPM_RELEASE=$(RPM_RELEASE) $(ROOT)
+
+rpmbase-el10:
+	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmbase:el10 -f $(CURDIR)/RpmBase.Containerfile --build-arg BASE_IMAGE=$(EL10_BASE) --build-arg RPM_RELEASE=$(RPM_RELEASE) $(ROOT)
+
+# The distro overlay on top of the base image, run with systemd as PID 1 so the selftest
+# fires and returns the container's exit status.
+rpmtest-rocky9: rpmbase-el9
 	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmtest:el9 -f $(CURDIR)/Rocky9.Containerfile $(ROOT)
 	$(OCI) run --rm -t --systemd=always ai-tools-rpmtest:el9
 
-rpmtest-rocky10:
-	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmbase:el10 -f $(CURDIR)/RpmBase.Containerfile --build-arg BASE_IMAGE=$(EL10_BASE) $(ROOT)
+rpmtest-rocky10: rpmbase-el10
 	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmtest:el10 -f $(CURDIR)/Rocky10.Containerfile $(ROOT)
 	$(OCI) run --rm -t --systemd=always ai-tools-rpmtest:el10
 
@@ -56,14 +70,16 @@ rpm: dist
 	mkdir -p $(TOPDIR)
 	rpmbuild -bb $(NAME).spec \
 	    --define "_topdir $(TOPDIR)" \
-	    --define "_sourcedir $(CURDIR)"
+	    --define "_sourcedir $(CURDIR)" \
+	    $(RELEASE_DEFINE)
 	@echo "RPMs under $(TOPDIR)/RPMS/"
 
 srpm: dist
 	mkdir -p $(TOPDIR)
 	rpmbuild -bs $(NAME).spec \
 	    --define "_topdir $(TOPDIR)" \
-	    --define "_sourcedir $(CURDIR)"
+	    --define "_sourcedir $(CURDIR)" \
+	    $(RELEASE_DEFINE)
 
 clean:
 	rm -f $(TARBALL)

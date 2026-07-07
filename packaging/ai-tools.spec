@@ -1,12 +1,21 @@
 Name:           ai-tools
-Version:        0.1.0
-Release:        1%{?dist}
+# Single source of truth for the version: packaging/VERSION (also read by the Makefile),
+# so a release bump touches one file. rpmbuild's own --define "_sourcedir ..." (set by every
+# Makefile target below) always resolves this to packaging/VERSION before this line parses.
+Version:        %(cat %{_sourcedir}/VERSION)
+# Plain "1" for a real release; the Makefile's RPM_RELEASE overrides it to a dev/snapshot
+# string (e.g. "0.42.gitabcdef1") for CI builds that are not a tagged release. The leading
+# "0." on a dev Release is the Fedora pre-release convention: rpm's version comparison
+# then always ranks a real release (Release starts at plain "1") above any dev snapshot
+# that preceded it, and ranks newer dev snapshots above older ones as the counter climbs.
+Release:        %{!?rpm_release:1}%{?rpm_release}%{?dist}
 Summary:        Run Claude Code as a sandboxed system user (metapackage)
 
 License:        AGPL-3.0-or-later
 URL:            https://github.com/dag-node/ai-tools
 Source0:        %{name}-%{version}.tar.gz
 Source1:        %{name}.sysusers
+Source2:        VERSION
 
 BuildArch:      noarch
 BuildRequires:  systemd-rpm-macros

@@ -219,6 +219,16 @@ the constant `@SANDBOX_*@` tokens. The prebuilt `ai_tools.pp` is shipped as a
 build artifact checked into the source tarball, so the build needs no
 `selinux-policy-devel`.
 
+`packaging/VERSION` is the single source of truth for `Version:` — the spec reads
+it directly (`%(cat %{_sourcedir}/VERSION)`, also shipped as `Source2` so a
+rebuild from the SRPM alone still resolves it) and the Makefile reads the same
+file, so a release bump touches one place. `Release:` defaults to plain `1`
+(a tagged release); `make rpm`/`rpmtest-rockyN`/`rpmbase-elN` accept
+`RPM_RELEASE=<snapshot>` to override it for a CI dev build, e.g.
+`0.42.gitabcdef1` — the leading `0.` is the Fedora pre-release convention, so
+rpm's version comparison always ranks a real release above any dev snapshot
+that preceded it.
+
 Runtime dependencies: `ai-tools-base` requires `systemd`, `sudo`, `acl`,
 `python3`, `coreutils`, and `policycoreutils` (for `restorecon`/`semodule`);
 `ai-tools-nodejs` adds `curl`, `tar`, and `gzip` for bootstrap. Node is not an RPM

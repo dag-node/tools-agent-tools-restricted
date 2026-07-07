@@ -47,6 +47,32 @@ make -C packaging rpmtest-rocky10 OCI=docker EL10_BASE=quay.io/rockylinux/rockyl
 
 `OCI` selects the build/run tool (default `podman`); `EL9_BASE`/`EL10_BASE` override the base image. The selftest itself reads `OPERATOR` (default `tester`), `PROJECT` (default `/home/tester/proj`), and `RUN_TESTS` (default `1`); because it runs from a `systemd` unit rather than the container's main process, change these in `ai-tools-selftest.service`'s `Environment=` or invoke `/usr/local/bin/ai-tools-selftest` directly via `podman exec`.
 
+## Releasing
+
+A release is triggered by a git tag, never by a plain push to a branch — nothing
+publishes automatically off an ordinary commit:
+
+1. Decide the new version (semver `MAJOR.MINOR.PATCH`) and set it in
+   `packaging/VERSION`, the single source of truth this Makefile and the spec
+   both read (see `docs/rpm-packaging.md`'s Build section). Commit and push it.
+2. Tag that same commit `vX.Y.Z` — the `v` prefix matters, `.github/workflows/ci.yml`
+   only fires the release job on `v*.*.*` — and push the tag:
+
+       git tag v0.2.0
+       git push origin v0.2.0
+
+3. CI takes it from there. `shellcheck` and `rpm-selftest` (the full container
+   selftest above, both EL9 and EL10) run against the tagged commit first; only
+   once both pass does the `release` job verify the tag matches
+   `packaging/VERSION`, rebuild clean RPMs (`RPM_RELEASE` left unset, so
+   `Release: 1` applies rather than the dev/snapshot Release every other CI run
+   gets), and publish a GitHub Release with those RPMs attached and
+   auto-generated notes (`gh release create --generate-notes`).
+
+A tag that does not match `packaging/VERSION` fails the release job immediately
+with an explicit error instead of publishing a mismatched release — bump the
+file first, then tag.
+
 ## Scope
 
 A container validates packaging and dependency resolution, the install scriptlets, the `bootstrap` toolchain, operator enrolment, project claim, the test suite's DAC and `systemd` parts, and a DAC-confined launch. It does **not** validate SELinux-enforcing confinement: `getenforce` reports `Disabled` in a container, so `%post` skips `semodule` and the `ai_tools_t` domain transition never fires. This harness is the fast, repeatable pre-check; the enforcing-host `dnf install` + `sudo tests/run.sh all` remains the real gate. ⚠️ The test image also adds a NOPASSWD sudoers drop-in for the operator user — convenience for the unattended run, not part of the shipped model; the sandbox account `ai-tools` still holds no sudo grant, which the selftest re-checks.
