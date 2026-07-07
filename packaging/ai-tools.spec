@@ -1,7 +1,8 @@
 Name:           ai-tools
-# Single source of truth for the version: packaging/VERSION (also read by the Makefile),
-# so a release bump touches one file. rpmbuild's own --define "_sourcedir ..." (set by every
-# Makefile target below) always resolves this to packaging/VERSION before this line parses.
+# Single source of truth for the version: packaging/VERSION (the Makefile reads the same
+# file), so a release bump touches one place. Parsing this spec requires _sourcedir to
+# point at packaging/ -- the Makefile's rpm/srpm targets pass --define "_sourcedir ..."
+# for that reason; a bare parse (rpmlint, IDE tooling) without it yields an empty Version.
 Version:        %(cat %{_sourcedir}/VERSION)
 # Plain "1" for a real release; the Makefile's RPM_RELEASE overrides it to a dev/snapshot
 # string (e.g. "0.42.gitabcdef1") for CI builds that are not a tagged release. The leading
@@ -12,7 +13,7 @@ Release:        %{!?rpm_release:1}%{?rpm_release}%{?dist}
 Summary:        Run Claude Code as a sandboxed system user (metapackage)
 
 License:        AGPL-3.0-or-later
-URL:            https://github.com/dag-node/ai-tools
+URL:            https://github.com/dag-node/tools-agent-tools-restricted
 Source0:        %{name}-%{version}.tar.gz
 Source1:        %{name}.sysusers
 Source2:        VERSION

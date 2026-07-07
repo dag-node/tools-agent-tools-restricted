@@ -1,6 +1,6 @@
 # Agent Tools Restricted
 
-[![CI](https://github.com/dag-node/ai-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/dag-node/ai-tools/actions/workflows/ci.yml)
+[![CI](https://github.com/dag-node/tools-agent-tools-restricted/actions/workflows/ci.yml/badge.svg)](https://github.com/dag-node/tools-agent-tools-restricted/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 
 Run coding agents sandboxed — under their own locked-down system user.

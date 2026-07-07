@@ -38,10 +38,16 @@ container:
 
 ## Linting
 
-Every shell script lints under ShellCheck against the repo's `.shellcheckrc`:
+Shell sources lint under ShellCheck 0.10 (the version the baseline in
+`.claude/rules/shellcheck.rule.md` is defined against) with the repo's `.shellcheckrc`.
+The baseline covers `src/**/*.sh` plus `install.sh`:
 
-    find src tests selinux packaging -name '*.sh' -print0 | xargs -0 shellcheck
+    find src -name '*.sh' -print0 | xargs -0 shellcheck
     shellcheck install.sh
+
+Extending lint coverage to `tests/`, `selinux/`, or `packaging/` means verifying the
+directory lints clean and updating the rule file and `.github/workflows/ci.yml`
+together.
 
 `.github/workflows/ci.yml` runs both the lint and the container smoke test on every
 push and pull request.
