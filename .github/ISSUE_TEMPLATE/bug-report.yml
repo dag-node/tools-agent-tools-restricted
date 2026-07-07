@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         **Suspected security vulnerability?** Do not file it here — use private
-        reporting instead (see [SECURITY.md](../blob/develop/SECURITY.md)).
+        reporting instead (see the [security policy](https://github.com/dag-node/tools-agent-tools-restricted/security/policy)).
   - type: textarea
     id: what-happened
     attributes:
