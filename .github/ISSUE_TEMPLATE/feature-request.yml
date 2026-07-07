@@ -1,0 +1,29 @@
+name: Feature request
+description: Propose an improvement or a new capability.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you're trying to do and what stands in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: security-impact
+    attributes:
+      label: Security-model impact
+      description: |
+        Does this touch the trust chain, the sudoers surface, the handback bridge,
+        ownership handback, or secret handling? If so, say how the invariants
+        (CLAUDE.md, "Security model") are preserved.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

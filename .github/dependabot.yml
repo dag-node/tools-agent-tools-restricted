@@ -1,0 +1,9 @@
+# Keeps the GitHub Actions pins in .github/workflows/ current. No other ecosystems:
+# this is a shell project with no package-manager dependency manifests.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: ["dependencies"]

@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/dag-node/tools-agent-tools-restricted/actions/workflows/ci.yml/badge.svg)](https://github.com/dag-node/tools-agent-tools-restricted/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![Platform: EL 9 | EL 10](https://img.shields.io/badge/platform-EL%209%20%7C%20EL%2010-blue.svg)](#requirements)
 
 Run coding agents sandboxed — under their own locked-down system user.
 
@@ -9,8 +10,28 @@ Agent Tools Restricted runs an autonomous coding agent under a dedicated, unpriv
 service account (`SANDBOX_USER`, the account created as `ai-tools`) with a tightly scoped set
 of privileges, and keeps its Node.js toolchain and CLI current automatically. **Claude Code is
 the first supported agent**; the confinement, ownership-handback, and toolchain machinery are
-agent-agnostic. Targets Enterprise Linux 9 and 10 — RHEL and its rebuilds (Rocky, AlmaLinux,
-Oracle Linux/UEK).
+agent-agnostic.
+
+**Contents**: [Requirements](#requirements) · [Quick start](#quick-start) · [Why](#why) ·
+[Identities and naming](#identities-and-naming) ·
+[Architecture at a glance](#architecture-at-a-glance) · [Files](#files) ·
+[From-source install (steps 1–4)](#1-install-path-deduplication-script-root-once) ·
+[Upgrade behaviour](#upgrade-behaviour) · [Operation logging](#operation-logging) ·
+[SELinux](#selinux) · [Community](#community) · [License](#license)
+
+## Requirements
+
+- **Enterprise Linux 9 or 10** — RHEL and its rebuilds (Rocky, AlmaLinux, Oracle
+  Linux/UEK). Other distributions are untested; the design assumes systemd, sudo,
+  and EL filesystem conventions.
+- **systemd** (system instance plus user instances with lingering) and **POSIX ACL**
+  support on the filesystem holding your projects.
+- **SELinux targeted policy, enforcing** — recommended; the session is confined in
+  `ai_tools_t`. With SELinux disabled the system runs in a documented DAC-only
+  posture.
+- **Network access once** for `ai-tools-bootstrap` (fetches nvm, Node, and the agent
+  npm package); day-to-day operation and updates run from a systemd timer.
+- Optional: **podman** to run the container test harness (`packaging/README.md`).
 
 ## Quick start
 
@@ -415,6 +436,17 @@ If `${SANDBOX_USER}`'s home needs a custom label:
 For the wrapper in `/usr/local/bin`:
 
     restorecon -v /usr/local/bin/claude
+
+## Community
+
+- **Bugs and feature requests** — [GitHub issues](https://github.com/dag-node/tools-agent-tools-restricted/issues);
+  the templates ask for the environment details and journald excerpts that make a
+  report actionable.
+- **Security vulnerabilities** — never a public issue; see [`SECURITY.md`](SECURITY.md)
+  for private reporting channels and what's in scope.
+- **Contributing** — [`CONTRIBUTING.md`](CONTRIBUTING.md): development setup, the test
+  categories, the lint baseline, and the branch/PR conventions.
+- **Conduct** — [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) (Contributor Covenant 2.1).
 
 ## License
 
