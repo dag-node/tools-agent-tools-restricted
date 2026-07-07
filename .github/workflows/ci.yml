@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Lint every shell script against the repo's .shellcheckrc
+        run: |
+          find src tests selinux packaging -name '*.sh' -print0 \
+            | xargs -0 shellcheck
+          shellcheck install.sh
+
+  # Builds the four RPMs and runs the full admin -> operator -> agent workflow (bootstrap,
+  # operator enrolment, project claim, tests/run.sh all, a confined `claude --version`
+  # session) inside a throwaway Rocky container with systemd as PID 1. Mirrors
+  # `make -C packaging rpmtest-rockyN` exactly -- see packaging/README.md for what this
+  # does and does not cover (no SELinux-enforcing confinement; that still needs an
+  # enforcing host, see the docs/rpm-packaging.md manual gate).
+  rpm-selftest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        el: ["9", "10"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install podman
+        run: sudo apt-get update && sudo apt-get install -y podman
+
+      - name: make -C packaging rpmtest-rocky${{ matrix.el }}
+        run: make -C packaging rpmtest-rocky${{ matrix.el }}
