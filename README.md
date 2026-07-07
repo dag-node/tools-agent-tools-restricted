@@ -412,3 +412,17 @@ If `${SANDBOX_USER}`'s home needs a custom label:
 For the wrapper in `/usr/local/bin`:
 
     restorecon -v /usr/local/bin/claude
+
+## License
+
+All source in this repository is published under the GNU Affero General
+Public License v3.0 — free and open, with no gated tier. You may use, copy,
+modify, and distribute it subject to that license's terms. The most
+important one: if you run a modified version as a network service, you must
+make your modified source available to that service's users. Full text:
+[`LICENSE`](LICENSE), or <https://www.gnu.org/licenses/agpl-3.0.html>.
+
+dag-node's commercial/enterprise offerings (fleet management, centralized
+audit/policy reporting, SSO integration, support contracts) are built on top
+of this open core rather than gating any part of it. See
+[github.com/dag-node](https://github.com/dag-node) for those.

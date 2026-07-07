@@ -3,8 +3,8 @@ Version:        0.1.0
 Release:        1%{?dist}
 Summary:        Run Claude Code as a sandboxed system user (metapackage)
 
-License:        MIT
-URL:            https://github.com/p4nda/ai-tools
+License:        AGPL-3.0-or-later
+URL:            https://github.com/dag-node/ai-tools
 Source0:        %{name}-%{version}.tar.gz
 Source1:        %{name}.sysusers
 
