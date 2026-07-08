@@ -32,6 +32,11 @@ check_file /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint root            
 # never by the agent (no SANDBOX_USER grant, and /usr/local/sbin/ai-tools is 750 root:root).
 check_file /usr/local/sbin/ai-tools/ai-tools-bootstrap        root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-admin           root              root              750
+# Their sudo-PATH symlinks in /usr/sbin (sudoers secure_path on stock EL excludes
+# /usr/local/sbin, so `sudo ai-tools-bootstrap` resolves here). check_file lstat()s the
+# link itself (777 is a symlink's fixed mode); -e inside it also catches a dangling link.
+check_file /usr/sbin/ai-tools-bootstrap                       root              root              777
+check_file /usr/sbin/ai-tools-admin                           root              root              777
 # Lib dir: root-owned, group ai-tools, 0751. The agent enters via group to read the skip
 # list; world-execute lets an operator (not a SANDBOX_GROUP member) traverse in to source the
 # 644 world-readable libs by path without listing the dir. No write but root.

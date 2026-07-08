@@ -357,8 +357,8 @@ do_summary() {
     _chk /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
     _chk /usr/local/sbin/ai-tools/ai-tools-bootstrap
     _chk /usr/local/sbin/ai-tools/ai-tools-admin
-    _chk /usr/local/sbin/ai-tools-bootstrap
-    _chk /usr/local/sbin/ai-tools-admin
+    _chk /usr/sbin/ai-tools-bootstrap
+    _chk /usr/sbin/ai-tools-admin
     _chk /usr/local/sbin/ai-tools/ai-tools-handback
     _chk /usr/local/bin/claude
     _chk /usr/local/bin/ai-tools-handback-client
@@ -616,16 +616,18 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-admin.sh" \
         /usr/local/sbin/ai-tools/ai-tools-admin
 
-    # Put the two human-facing admin commands on root's PATH. The sudo-helpers under
-    # /usr/local/sbin/ai-tools/ are invoked by the daemon and sudoers by fixed path and stay
-    # hidden there, but ai-tools-bootstrap and ai-tools-admin are typed by an administrator and
-    # documented as bare commands. /usr/local/sbin is in root's secure_path, so a symlink there
-    # makes `sudo ai-tools-bootstrap` and `sudo ai-tools-admin ...` resolve. The targets keep
-    # their canonical /usr/local/sbin/ai-tools/ path (sudoers, perms checks, docs reference it).
-    log "/usr/local/sbin/ai-tools-bootstrap -> ai-tools/ai-tools-bootstrap"
-    ln -sfn ai-tools/ai-tools-bootstrap /usr/local/sbin/ai-tools-bootstrap
-    log "/usr/local/sbin/ai-tools-admin -> ai-tools/ai-tools-admin"
-    ln -sfn ai-tools/ai-tools-admin /usr/local/sbin/ai-tools-admin
+    # Put the two human-facing admin commands where `sudo <name>` resolves them. The
+    # sudo-helpers under /usr/local/sbin/ai-tools/ are invoked by the daemon and sudoers by
+    # fixed path and stay hidden there, but ai-tools-bootstrap and ai-tools-admin are typed by
+    # an administrator and documented as bare commands. sudo resolves a bare command against
+    # the sudoers secure_path, which on stock EL is /sbin:/bin:/usr/sbin:/usr/bin -- it does
+    # NOT include /usr/local/sbin -- so the symlinks live in /usr/sbin (also on root's shell
+    # PATH). The targets keep their canonical /usr/local/sbin/ai-tools/ path (sudoers, perms
+    # checks, docs reference it).
+    log "/usr/sbin/ai-tools-bootstrap -> /usr/local/sbin/ai-tools/ai-tools-bootstrap"
+    ln -sfn /usr/local/sbin/ai-tools/ai-tools-bootstrap /usr/sbin/ai-tools-bootstrap
+    log "/usr/sbin/ai-tools-admin -> /usr/local/sbin/ai-tools/ai-tools-admin"
+    ln -sfn /usr/local/sbin/ai-tools/ai-tools-admin /usr/sbin/ai-tools-admin
 
     # Handback privilege bridge daemon.  750 root:root -- root-owned and only
     # root-executable: this is the privileged endpoint; the SANDBOX_USER reaches it
@@ -1099,8 +1101,8 @@ do_uninstall() {
     # operator or agent state, so a dir-level removal leaves nothing behind and never
     # drifts out of sync with the install list the way an enumerated rm would.
     rm -rf /usr/local/sbin/ai-tools
-    rm -f /usr/local/sbin/ai-tools-bootstrap   # PATH symlinks -> ai-tools/... (outside the dir)
-    rm -f /usr/local/sbin/ai-tools-admin
+    rm -f /usr/sbin/ai-tools-bootstrap         # sudo-PATH symlinks -> /usr/local/sbin/ai-tools/...
+    rm -f /usr/sbin/ai-tools-admin
     rm -rf /usr/local/lib/ai-tools
     rm -f /usr/local/bin/ai-tools-handback-client
     rm -f /usr/local/bin/ai-tools
