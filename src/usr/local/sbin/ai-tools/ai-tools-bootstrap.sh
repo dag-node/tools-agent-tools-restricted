@@ -118,21 +118,13 @@ nvm alias default "${NODE_MAJOR}"
 npm install -g "${PKG}"
 EOSU
 
-# 3. Seed agent state and the launcher symlink, as root: the home root is root-owned, so the
-#    agent cannot create these top-level entries itself.
-# .claude.json: an empty {} so the agent has a writable state file on first run. root:ai-tools
-#    0460 -- owner root r, group rw -- so the agent persists state through the group while root's
-#    copy cannot be silently rewritten. {} is valid JSON that claude extends in place; seeded only
-#    when absent, so live state is never clobbered on a re-run.
-if [[ ! -e "${SANDBOX_HOME}/.claude.json" ]]; then
-    printf '{}\n' > "${SANDBOX_HOME}/.claude.json"
-    chown "root:${SANDBOX_GROUP}" "${SANDBOX_HOME}/.claude.json"
-    chmod 0460 "${SANDBOX_HOME}/.claude.json"
-fi
-
-# Point /opt/ai-tools/bin/<launcher> at the versioned binary, for a package whose launcher is
-# known and present. bin is the locked control-plane dir (0551 root:ai-tools); root writes the
-# symlink here, and install.sh / the RPM repoint it through the root symlink helper afterwards.
+# 3. Point /opt/ai-tools/bin/<launcher> at the versioned binary, for a package whose launcher
+#    is known and present. Runs as root: the agent cannot create top-level entries in the home
+#    root. bin is the locked control-plane dir (0551 root:ai-tools); root writes the symlink
+#    here, and install.sh / the RPM repoint it through the root symlink helper afterwards.
+#    Agent runtime state needs no seeding: claude-run pins CLAUDE_CONFIG_DIR to the
+#    group-writable .claude dir, where claude creates its own state files (.claude.json
+#    included).
 if [[ -n "${LAUNCHER}" ]]; then
     _ver="$(sudo -u "${SANDBOX_USER}" env NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" \
             bash -c '. "${NVM_DIR}/nvm.sh"; nvm version default' 2>/dev/null || true)"

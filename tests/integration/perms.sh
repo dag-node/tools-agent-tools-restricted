@@ -155,11 +155,6 @@ check_file /opt/ai-tools                                      root              
 check_file /opt/ai-tools/bin/claude-run                       root              "${SANDBOX_GROUP}" 550
 check_file /opt/ai-tools/.gitconfig                           root              "${SANDBOX_GROUP}" 644
 check_file /opt/ai-tools/.gitignore                           root              "${SANDBOX_GROUP}" 640
-# .claude.json is Claude Code's runtime state/credentials file (HOME=/opt/ai-tools). root-owned so
-# the agent cannot chmod/replace it, group SANDBOX_GROUP rw so the agent persists session state
-# (0460); the enforced permission boundary stays the locked settings.json, not this file. Seeded by
-# ai-tools-bootstrap, so optional (absent on a control-plane-only install before bootstrap runs).
-check_file_optional /opt/ai-tools/.claude.json                root              "${SANDBOX_GROUP}" 460
 # Operation logs: dir 700 root:root, each file 600 root:root -- the root helpers append here;
 # ai-tools (neither owner nor able to traverse the 700 dir) can neither read nor tamper with
 # the trail, so secret filenames recorded by ai-tools-chown stay out of agent reach. The log

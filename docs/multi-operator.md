@@ -98,7 +98,7 @@ Ownership cells use the shell-variable identities from
 | `bin/claude` (symlink) | `PROJECTS_USER:SANDBOX_GROUP` | `root:SANDBOX_GROUP` | owner irrelevant for readlink; root-owned = agent still can't swap it. |
 | `.claude` | `PROJECTS_USER:SANDBOX_GROUP 3770` | `root:SANDBOX_GROUP 3770` | unchanged (`o=0`): operators get nothing; agent group-writes its state, sticky blocks unlink of root-owned control files. |
 | `.claude/{settings.json,hooks}` | `PROJECTS_USER:SANDBOX_GROUP 640/750` | `root:SANDBOX_GROUP 640/750` | unchanged; only the agent reads these. |
-| `.claude.json` | `PROJECTS_USER:SANDBOX_GROUP 0460` | `root:SANDBOX_GROUP 0460` | unchanged; agent group-writes state; root owner can't be silently rewritten. |
+| `.claude/.claude.json` | `SANDBOX_USER:SANDBOX_GROUP` (agent-created via the `CLAUDE_CONFIG_DIR` pin) | moves into `state/<operator>/` | agent-owned state, saved atomically (temp + rename), so it lives where the agent holds directory write; the enforced boundary is the root-owned `settings.json`. |
 | `.gitconfig` | `PROJECTS_USER:SANDBOX_GROUP 640` | `root:SANDBOX_GROUP 644` | agent reads `safe.directory`; world-readable so the operator and wrapper read it without `ai-tools` group membership; root-write-only. Operators register entries through the `ai-tools-safedir` root helper (`sudo`), not by writing the file. |
 | `.gitignore` | `PROJECTS_USER:SANDBOX_GROUP 640` | `root:SANDBOX_GROUP 640` | unchanged; agent reads, never writes. |
 | `.git` | `PROJECTS_USER:PROJECTS_GROUP 2750` | `root:root 0700` | root-private; per-operator drift capture is meaningless with N operators. |
@@ -148,10 +148,13 @@ boundary-mode constants the installer/spec assert.
 
 ## Remaining verification
 
-Claude Code's config-vs-state split: which env var/path selects the per-session **state**
-dir (history/sessions/`.claude.json`) independently of the **global** managed settings and
-hooks, so a per-operator `state/<operator>/` does not lose the shared control settings.
-Confirmed before wiring `claude-run`'s per-operator state selection.
+Claude Code has no config-vs-state split: `CLAUDE_CONFIG_DIR` — which `claude-run` pins to
+the shared `/opt/ai-tools/.claude` — selects history, sessions, `.claude.json`, **and** the
+`settings.json`/hooks layer together. A per-operator `state/<operator>/` would therefore
+relocate the guardrail settings too; a candidate home for the shared control settings is
+the managed-settings layer (`/etc/claude-code/managed-settings.json`, root-owned). Whether
+that layer carries the hook and deny-rule declarations is unverified, and per-operator
+state selection remains an optional, undecided direction.
 
 ## Migration
 

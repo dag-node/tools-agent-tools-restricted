@@ -123,10 +123,11 @@ The home root stays `root:ai-tools 2751`, which the agent (group `ai-tools`) can
 so bootstrap pre-creates the agent-owned subtrees it must populate — `.nvm`, `.cache`,
 `.npm`, `.local`, each `ai-tools:ai-tools 0750` — as root, then runs nvm/Node/npm as the
 sandbox account, writing only within them (`PROFILE=/dev/null` keeps nvm's installer off the
-root-owned home profile). It seeds an empty `~/.claude.json` (`{}`, `root:ai-tools 0460`) as
-root so the agent has a group-writable state file on first run, and creates the launcher
-symlink under the locked `bin` as root. A re-run reuses an existing toolchain; Node updates
-land inside the agent-owned `.nvm` subtree.
+root-owned home profile). It creates the launcher symlink under the locked `bin` as root;
+agent runtime state needs no seeding — `claude-run` pins `CLAUDE_CONFIG_DIR` to the
+group-writable `.claude`, where claude creates its own state files (`.claude.json`
+included). A re-run reuses an existing toolchain; Node updates land inside the agent-owned
+`.nvm` subtree.
 
 The nvm release is resolved at run time — its latest GitHub release by default, so
 the command does not carry a version that rots — overridable with

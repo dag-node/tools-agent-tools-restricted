@@ -49,7 +49,7 @@ if ! source "${MSG_LIB}" 2>/dev/null; then
 fi
 readonly HOME_DIR="/opt/ai-tools/.claude"
 readonly NVM_DIR="/opt/ai-tools/.nvm"
-HOME_STATE=(.claude.json .npm .cache .local .config .gitconfig)
+HOME_STATE=(.npm .cache .local .config .gitconfig)
 
 [[ "${EUID}" -eq 0 ]] || { echo "selinux: run with sudo" >&2; exit 1; }
 PROJECTS_USER="${SUDO_USER:?selinux: invoke via sudo, not as root directly}"

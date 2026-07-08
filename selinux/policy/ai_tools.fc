@@ -55,12 +55,11 @@
 /opt/ai-tools/\.claude(/.*)?  gen_context(system_u:object_r:ai_tools_home_t,s0)
 
 # The rest of the agent's HOME state. HOME is /opt/ai-tools, whose base is usr_t,
-# so without these the agent's own writes to .claude.json / .npm / .cache / .local
-# / .config land on usr_t -- and granting the domain usr_t write would also hand it
-# the read-only node/program tree. Labelling just these paths ai_tools_home_t keeps
-# the writes on a type the domain already manages, and leaves .nvm (usr_t,
-# read-only) and bin (bin_t, the locked control-plane) untouched.
-/opt/ai-tools/\.claude\.json  --  gen_context(system_u:object_r:ai_tools_home_t,s0)
+# so without these the agent's own writes to .npm / .cache / .local / .config land
+# on usr_t -- and granting the domain usr_t write would also hand it the read-only
+# node/program tree. Labelling just these paths ai_tools_home_t keeps the writes
+# on a type the domain already manages, and leaves .nvm (usr_t, read-only) and bin
+# (bin_t, the locked control-plane) untouched.
 /opt/ai-tools/\.npm(/.*)?         gen_context(system_u:object_r:ai_tools_home_t,s0)
 /opt/ai-tools/\.cache(/.*)?       gen_context(system_u:object_r:ai_tools_home_t,s0)
 /opt/ai-tools/\.local(/.*)?       gen_context(system_u:object_r:ai_tools_home_t,s0)

@@ -165,7 +165,7 @@ the tightening was deciding what the agent *needs* versus what some tool merely
   (`sendmail_exec_t`); benign `statfs`/tty-attr noise.
 
 **Fixed by labelling, not by allowing:** the pass also logged `usr_t` *writes* —
-the agent writing its own HOME state (`/opt/ai-tools/.claude.json`, `.npm`,
+the agent writing its own HOME state (`/opt/ai-tools/.npm`,
 `.cache`, `.local`). Those paths are now labelled `ai_tools_home_t` in
 `ai_tools.fc`, so the writes land on a type the domain already manages. Granting
 `usr_t` write was rejected: it would also hand the agent the read-only node tree.

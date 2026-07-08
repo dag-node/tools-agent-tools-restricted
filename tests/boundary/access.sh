@@ -174,29 +174,22 @@ for _d in /opt/ai-tools/.config/systemd/user /opt/ai-tools/.config/systemd/user/
     fi
 done
 
-# .claude.json is Claude Code's runtime state file, GROUP-writable but NOT agent-owned (root:ai-tools
-# 0460): the agent persists its session state through the group, yet -- not being the owner -- cannot
-# chmod the file to bypass the lock or repurpose it as a control-plane lever. The control plane is
-# root-owned, so the load-bearing property is "not owned by the agent"; the enforced permission
-# boundary is the locked settings.json (checked above), not this file. perms.sh pins the exact
-# root:ai-tools 0460. Seeded by ai-tools-bootstrap; may be absent on a control-plane-only dev
-# install, so the check is conditional.
-cjson=/opt/ai-tools/.claude.json
-if [[ -e "${cjson}" ]]; then
-    if runuser -u "${SANDBOX_USER}" -- test -w "${cjson}" 2>/dev/null; then
-        pass "can write ${cjson} (0460 group-write): agent persists session state across the home lock"
-    else
-        fail "cannot write ${cjson} -- agent cannot persist state (expected group-writable 0460)"
-    fi
-    cj_owner="$(stat -c %U "${cjson}")"
-    if [[ "${cj_owner}" != "${SANDBOX_USER}" ]]; then
-        pass "${cjson} not agent-owned (${cj_owner}): group-writes state but cannot bypass the 0460 lock"
-    else
-        fail "${cjson} owned by ${SANDBOX_USER} -- the agent owns its own state file (0460 lock bypassable)"
-    fi
+# Claude Code persists its state (.claude.json under CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude)
+# atomically -- a temp file beside the target, then rename -- so persistence needs create+rename
+# in the CONTAINING DIR, not write on the file. .claude (root:ai-tools 3770) grants the agent
+# exactly that through the group bits, while the sticky bit keeps the root-owned control files
+# undeletable (the settings.json lock is checked above). A regression here fails every state
+# save silently: login and onboarding state are lost and each session demands a fresh token.
+_state_tmp="/opt/ai-tools/.claude/.test_state_$$.tmp"
+_state_dst="/opt/ai-tools/.claude/.test_state_$$.json"
+if runuser -u "${SANDBOX_USER}" -- \
+       bash -c "printf '{}\n' > '${_state_tmp}' && mv -- '${_state_tmp}' '${_state_dst}'" 2>/dev/null \
+   && [[ -e "${_state_dst}" ]]; then
+    pass "agent can create+rename under /opt/ai-tools/.claude: atomic state saves (.claude.json) persist"
 else
-    skip "${cjson} state file" "absent (ai-tools-bootstrap not run / control-plane-only install)"
+    fail "agent cannot create+rename under /opt/ai-tools/.claude -- state saves fail, login is lost each session"
 fi
+rm -f "${_state_tmp}" "${_state_dst}"
 
 # .gitignore (640) is the default-deny guard that keeps secrets uncommittable if the operator
 # versions the control plane. Agent group-read but NOT group-write: it cannot weaken the denylist.

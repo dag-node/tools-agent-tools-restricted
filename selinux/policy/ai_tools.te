@@ -93,8 +93,8 @@ application_domain(ai_tools_t, ai_tools_exec_t)
 type ai_tools_project_t;
 files_type(ai_tools_project_t)
 
-# The agent's own config/state -- /opt/ai-tools/.claude plus its HOME state files
-# (.claude.json, .npm, .cache, .local, .config; see ai_tools.fc). A private
+# The agent's own config/state -- /opt/ai-tools/.claude plus its HOME state trees
+# (.npm, .cache, .local, .config; see ai_tools.fc). A private
 # writable area distinct from the read-only nvm/program tree (usr_t), so the
 # policy need not grant write to usr_t. The <you>-owned control files inside
 # (settings.json, post-tool-hook.sh) stay protected by DAC regardless of label.
@@ -538,7 +538,7 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 # dontaudit ai_tools_t systemd_unit_file_t:{ dir file } { getattr open read write create add_name };
 
 # NB: the bring-up also logged usr_t writes. Those were the agent writing its own
-# HOME state (.claude.json, .npm, .cache, .local) which was mislabelled usr_t.
+# HOME state (.npm, .cache, .local) which was mislabelled usr_t.
 # That is NOT dontaudit'd here -- it is FIXED by labelling those paths
 # ai_tools_home_t in ai_tools.fc, so the writes land on a type the agent already
 # manages. (Granting usr_t write would also hand it the node/program tree.)

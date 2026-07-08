@@ -7,9 +7,9 @@
 # This file is *sourced* (never executed) so the installer and the test suite assert the same
 # boundary modes the spec %files declares, from one source.
 #
-# It carries constants only: the canonical home, its mode, the per-subdirectory modes, and the
-# group-writable state-file mode. The agent's own subtrees (.nvm/.cache/.local/.npm) stay
-# agent-owned and .git is root-private 0700, so they are not described here.
+# It carries constants only: the canonical home, its mode, and the per-subdirectory modes. The
+# agent's own subtrees (.nvm/.cache/.local/.npm) stay agent-owned and .git is root-private 0700,
+# so they are not described here.
 
 # Sourced more than once in a single shell: the readonly below would abort under set -e on the
 # second pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for an unset
@@ -31,8 +31,5 @@ readonly CP_HOME=/opt/ai-tools
 #                                  o+x so an operator readlinks bin/claude
 #                     3770 .claude setgid+sticky -- the agent is a group-writer for its own session
 #                                  state but cannot unlink the control files it does not own
-#   CP_STATE_MODE  0460 group-writable state files: the agent persists its own state while the
-#                       root-owned copy cannot be silently rewritten
 readonly CP_HOME_MODE=2751
 readonly -A CP_DIR_MODES=( [bin]=0551 [.claude]=3770 )
-readonly CP_STATE_MODE=0460

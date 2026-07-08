@@ -70,14 +70,19 @@ sudoers `umask`.
 **Environment is an explicit allowlist.** The user manager spawns the service with
 its own environment, not `claude-run`'s, so `claude-run` forwards only a named
 allowlist (`TERM`/`COLORTERM`, the locale `LC_*`/`LANG` set, proxy vars) via
-`--setenv=NAME`, and pins `HOME=/opt/ai-tools`, a controlled `PATH`, and
+`--setenv=NAME`, and pins `HOME=/opt/ai-tools`, a controlled `PATH`,
+`CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude`, and
 `NODE_COMPILE_CACHE=/opt/ai-tools/.cache/node-compile-cache`. The operator's secrets
 (`ANTHROPIC_API_KEY`, `AWS_*`, `SSH_AUTH_SOCK`, …) stay out of the session by
 construction, independent of sudo's `env_reset`/`env_keep`. To share a variable
 deliberately, add its name to `_ENV_ALLOW` in `claude-run`. `HOME` stays
-`/opt/ai-tools`: the agent's control plane (`settings.json`, the hooks,
-`~/.claude.json`) is operator-owned and `ai_tools_home_t`, and is not relocated into
-the agent-writable project tree.
+`/opt/ai-tools`: the agent's control plane (`settings.json`, the hooks) is root-owned
+and `ai_tools_home_t`, and is not relocated into the agent-writable project tree.
+`CLAUDE_CONFIG_DIR` keeps claude's state file `.claude.json` (login account, onboarding
+flags, per-project trust) inside the group-writable, sticky `.claude`: claude saves it
+atomically — a temp file beside it, then rename — which needs write on the containing
+directory; the home root (`2751`) denies the agent that, so an unpinned
+`${HOME}/.claude.json` never persists and every session demands a fresh login.
 
 **`WorkingDirectory` is the validated project directory.** A transient unit defaults
 its cwd to `/`. The wrapper exports the realpath'd, allowlist- and claim-validated

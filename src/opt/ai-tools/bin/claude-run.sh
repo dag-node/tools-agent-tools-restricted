@@ -354,6 +354,18 @@ done
 _setenv+=( "--setenv=HOME=/opt/ai-tools" )
 _setenv+=( "--setenv=PATH=/usr/local/sbin:/usr/sbin:/usr/local/bin:/usr/bin:$(dirname -- "${CLAUDE_EXEC}")" )
 
+# Pin claude's config/state dir to /opt/ai-tools/.claude.  claude saves its state file
+# .claude.json (login account, onboarding flags, per-project trust) atomically -- a temp
+# file beside it, then rename -- so persisting it needs write on the CONTAINING
+# DIRECTORY, not on the file.  .claude (3770 setgid+sticky) grants the agent exactly
+# that through the group bits, while the sticky bit keeps the control files it does not
+# own (settings.json, the hooks) undeletable.  Unpinned, the file would sit at
+# ${HOME}/.claude.json under the home root (2751, agent creates nothing there): the
+# rename is refused, no state survives, and every session demands a fresh login token.
+# claude's remaining state (settings.json, projects/, .credentials.json) resolves to
+# this same dir, so the one pin covers all of it.
+_setenv+=( "--setenv=CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude" )
+
 # Pin the session shell to bash.  SHELL is deliberately absent from _ENV_ALLOW, but a
 # --user transient service inherits the user manager's environment as its base, and that
 # manager carries SHELL from the operator's login (e.g. /usr/bin/zsh).  Without an
