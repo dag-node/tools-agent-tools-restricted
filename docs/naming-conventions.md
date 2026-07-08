@@ -99,11 +99,11 @@ grant; `claude-run` refuses to launch if that is ever violated.
 
 ## Generic / fixed terms that are NOT these identities
 
-### Generic host user (`src/etc/profile.d/path_dedup.sh`)
-"normal users", "user-tier", "user-trust", "explicit user wrappers",
-"all users", "userspace app", `_T2_USER_BIN` refer to **any** account that
-sources `/etc/profile.d` — not the IDE user and not the sandbox user. Left as
-generic "user"; a clarifying comment marks it as such.
+### Generic host user (`src/usr/local/lib/ai-tools/path-dedup.sh`)
+"user", "user-tier", "user-writable", and the `~`-relative tiers refer to
+**any** account wired to source the PATH dedup fragment — not the IDE user
+and not the sandbox user. Left as generic "user"; the tiers resolve against
+the sourcing shell's own `$HOME`.
 
 ### Fixed external identifiers — never renamed
 - SELinux types/concepts: `user_home_t`, `user_home_dir_t`, `user_tmp_t`,

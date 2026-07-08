@@ -68,7 +68,10 @@ check_file /etc/sudoers.d/ai-tools-claude                     root              
 # Operator identity: 644 root:root -- world-readable (agent hooks + root helpers read it),
 # root-write-only (the agent cannot rewrite the identity root hands files back to).
 check_file /etc/ai-tools/operator.conf                        root              root              644
-check_file /etc/profile.d/path_dedup.sh                       root              root              644
+# PATH dedup fragment: 644 root:root -- world-readable, sourced by the operator shells
+# ai-tools-admin wires (never installed into /etc/profile.d; unwired accounts keep their
+# stock PATH).
+check_file /usr/local/lib/ai-tools/path-dedup.sh              root              root              644
 # /opt/ai-tools/bin is locked: root:ai-tools 0551, so ai-tools has group r-x but no write. The
 # agent can execute nvm-update.sh and resolve the claude symlink, but cannot edit the updater or
 # swap the symlink -- only root (via ai-tools-claude-symlink) writes here. The o+x search bit
@@ -112,7 +115,7 @@ check_file /usr/lib/systemd/system/ai-tools-relabel.service   root root 644
 # sandbox account); root-owned so the agent cannot rewrite it, world-exec is harmless since
 # it edits only user-writable registries.
 check_file /usr/local/bin/ai-tools                            root root 755
-# Launch wrapper: 755 root:root -- system-wide on every operator's PATH (path_dedup.sh ranks
+# Launch wrapper: 755 root:root -- system-wide on every operator's PATH (path-dedup.sh ranks
 # /usr/local/bin above the nvm shims, so it shadows nvm's claude). Runs as the invoking
 # operator, gates on ai-ops membership, then drops to the sandbox account via sudo; root-owned
 # so the agent cannot rewrite it.

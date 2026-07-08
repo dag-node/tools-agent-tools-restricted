@@ -45,7 +45,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 
 | Area | Source | Rule |
 |---|---|---|
-| Launch, allowlist gating, sudoers, PATH | `bin/claude-run.sh`, `usr/local/bin/claude.sh`, `allowed-projects`, `sudoers.d/ai-tools-claude` | [launch](.claude/rules/launch.rule.md) |
+| Launch, allowlist gating, sudoers, PATH | `bin/claude-run.sh`, `usr/local/bin/claude.sh`, `allowed-projects`, `sudoers.d/ai-tools-claude`, `lib/ai-tools/path-dedup.sh` | [launch](.claude/rules/launch.rule.md) |
 | Namespaces, SELinux transition, preflight, `/tmp` | `selinux/**`, `bin/claude-run.sh` | [confinement](.claude/rules/confinement.rule.md) |
 | Root-op socket (daemon/client/units) | `ai-tools-handback*`, `ai-tools-handback-client*` | [handback-bridge](.claude/rules/handback-bridge.rule.md) |
 | Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `.claude/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
@@ -157,7 +157,8 @@ sandbox account can never hold the operator grant. The invariants the agent oper
 - **Root sudo-helpers** live under `/usr/local/sbin/ai-tools/` (`chown`, `setgid`, `setfacl`,
   `unclaim`, `safedir`, `reclaim`, `claude-symlink`, `lockdown`, `relabel`); shared libraries under
   `/usr/local/lib/ai-tools/` (`secret-patterns`, `skip-dirs`, `safe-paths`, `relabel`,
-  `operator`, `msg`, `log`).
+  `operator`, `msg`, `log`), plus `path-dedup.sh`, the PATH-ordering fragment
+  `ai-tools-admin` wires into operator dotfiles (see [launch](.claude/rules/launch.rule.md)).
 
 ### Documentation register
 

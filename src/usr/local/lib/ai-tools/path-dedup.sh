@@ -1,7 +1,14 @@
 # shellcheck shell=bash
-# /etc/profile.d/path_dedup.sh — one security-ordered, deduplicated PATH for
-# every login shell. Also source it from ~/.bashrc (after nvm) for interactive
-# non-login shells, where /etc/profile.d/ is not read.
+# /usr/local/lib/ai-tools/path-dedup.sh — deduplicates the existing PATH
+# entries of an operator shell and orders them so the root-owned system tiers
+# win first-match. That places /usr/local/bin/claude — the wrapper that
+# launches claude restricted — ahead of any nvm-managed claude, so typing
+# `claude` always enters the sandbox. Sourced per-account: `ai-tools-admin
+# operator add` wires it into the operator's ~/.bashrc and ~/.bash_profile
+# after their nvm init (it must follow anything that prepends to PATH), which
+# scopes the reorder to the operators who need it — root and unrelated
+# accounts keep their stock PATH. The sandbox session needs no sourcing:
+# claude-run pins the session PATH as a unit property.
 #
 # PATH is first-match-wins: an early directory shadows every later one. The
 # order below puts the least-writable directories first, so a user- or
@@ -64,5 +71,5 @@ _dedup_path() {
 
 _dedup_path
 
-# Keep every user's shell namespace clean.
+# Keep the sourcing shell's namespace clean.
 unset -f _dedup_path

@@ -92,11 +92,13 @@ seed_allowlist() {
     rm -f "${tmp}"
 }
 
-# wire_dedup <user>: offer (interactively) to source the host-wide PATH dedup from the operator's
-# ~/.bashrc and ~/.bash_profile after their nvm init, so ~/.local/bin wins over the nvm shim in
-# every shell. Edits the operator's home, so it asks first and never rewrites non-interactively;
-# a piped run prints the line to add.
-readonly DEDUP_GUARD='[[ -f /etc/profile.d/path_dedup.sh ]] && source /etc/profile.d/path_dedup.sh || true'
+# wire_dedup <user>: offer (interactively) to source the ai-tools PATH dedup from the operator's
+# ~/.bashrc and ~/.bash_profile after their nvm init, so /usr/local/bin (the claude wrapper)
+# wins over the nvm shim in every shell. This wiring is the dedup's only delivery: the file
+# lives in the ai-tools lib dir, not /etc/profile.d, so unwired accounts keep their stock PATH.
+# Edits the operator's home, so it asks first and never rewrites non-interactively; a piped run
+# prints the line to add.
+readonly DEDUP_GUARD='[[ -f /usr/local/lib/ai-tools/path-dedup.sh ]] && source /usr/local/lib/ai-tools/path-dedup.sh || true'
 wire_dedup() {
     local user="$1" home group bashrc bashprof reply f
     home="$(getent passwd "${user}" | cut -d: -f6)"
@@ -106,17 +108,17 @@ wire_dedup() {
     _wire_one() {
         f="$1"
         [[ -e "${f}" ]] || install -o "${user}" -g "${group}" -m 644 /dev/null "${f}"
-        if grep -qF '/etc/profile.d/path_dedup.sh' "${f}"; then
+        if grep -qF '/usr/local/lib/ai-tools/path-dedup.sh' "${f}"; then
             log "PATH dedup already present in ${f}"; return
         fi
         grep -qF 'NVM_DIR' "${f}" \
-            || log "note: NVM_DIR not found in ${f} -- path_dedup still works, but it is meant to follow your nvm init"
-        printf '\n# Added by ai-tools-admin: source the host-wide PATH dedup (must follow nvm init).\n%s\n' \
+            || log "note: NVM_DIR not found in ${f} -- path-dedup still works, but it is meant to follow your nvm init"
+        printf '\n# Added by ai-tools-admin: source the ai-tools PATH dedup (must follow nvm init).\n%s\n' \
             "${DEDUP_GUARD}" >> "${f}"
         log "wired PATH dedup into ${f}"
     }
     if [[ -t 0 && -e /dev/tty ]]; then
-        printf 'ai-tools-admin: wire the host-wide PATH dedup into %s and %s? [Y]/n ' \
+        printf 'ai-tools-admin: wire the ai-tools PATH dedup into %s and %s? [Y]/n ' \
             "${bashrc}" "${bashprof}" > /dev/tty
         read -r reply < /dev/tty || reply=""
         case "${reply}" in

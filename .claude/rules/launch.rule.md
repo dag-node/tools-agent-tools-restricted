@@ -3,7 +3,7 @@ paths:
   - "src/opt/ai-tools/bin/claude-run.sh"
   - "src/usr/local/bin/claude.sh"
   - "src/etc/sudoers.d/ai-tools-claude"
-  - "src/etc/profile.d/path_dedup.sh"
+  - "src/usr/local/lib/ai-tools/path-dedup.sh"
 ---
 
 # Launch path and project gating
@@ -17,9 +17,10 @@ of that unit (namespaces, SELinux transition, `/tmp`) lives in
 ## Resolution and gating (the wrapper)
 
 1. `claude` resolves to the system wrapper `/usr/local/bin/claude` (`claude.sh`,
-   `root:root 0755`, rpm-owned), which runs as the invoking operator. `path_dedup.sh`
-   ranks `/usr/local/bin` (Tier 1) above the nvm shims, so it shadows the nvm-managed
-   `claude` on every login shell's PATH without any per-operator dotfile edit.
+   `root:root 0755`, rpm-owned), which runs as the invoking operator. `path-dedup.sh`,
+   wired into the operator's dotfiles by `ai-tools-admin operator add`, ranks
+   `/usr/local/bin` (Tier 1) above the nvm shims, so the wrapper shadows the
+   nvm-managed `claude` on the operator's PATH.
 2. It gates on `ai-ops` membership first: a caller not in the operators group is refused
    with a framed `msg.lib` message that names the `ai-tools-admin operator add` fix,
    rather than leaking the raw `sudo` denial the `%ai-ops` rule would otherwise produce.
@@ -145,11 +146,15 @@ contents; globs match as-is.
 
 ## PATH ordering
 
-The wrapper lives in `/usr/local/bin`, which `path_dedup.sh` ranks Tier 1 — above the nvm
+The wrapper lives in `/usr/local/bin`, which `path-dedup.sh`
+(`/usr/local/lib/ai-tools/path-dedup.sh`, `644 root:root`) ranks Tier 1 — above the nvm
 shims it leaves in Tier 4 — so `/usr/local/bin/claude` resolves ahead of the nvm-managed
-`claude` regardless of where the operator's dotfiles place anything. `path_dedup.sh` (in
-`/etc/profile.d/`) is sourced host-wide for every login shell, so the ordering holds with no
-per-operator action there; interactive non-login shells read `~/.bashrc` only, so the dotfile
-must source `path_dedup.sh` after `nvm.sh` to get the same PATH. `ai-tools-admin operator add`
-offers to add that guard to the operator's two dotfiles (after their nvm init), and
-`ai-tools-bootstrap` adds it to the sandbox account's `~/.bash_profile`.
+`claude` and typing `claude` always enters the sandboxed launch path. The fragment is
+sourced per-account: `ai-tools-admin operator add` offers to add the guard line to the
+operator's `~/.bashrc` and `~/.bash_profile` **after** their nvm init, the one position
+where the ordering holds (the dedup must follow anything that prepends to PATH, and
+non-login interactive shells read `~/.bashrc` only). Per-account wiring scopes the reorder
+to the operators who launch the agent: root and accounts unrelated to ai-tools keep their
+stock PATH, and ai-tools ships nothing into `/etc/profile.d`, keeping the host's
+every-login-shell code surface untouched. The sandbox account needs no wiring:
+`claude-run` pins the session PATH as a unit property, on the same Tier-1-first ordering.

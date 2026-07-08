@@ -15,7 +15,7 @@ agent-agnostic.
 **Contents**: [Requirements](#requirements) · [Quick start](#quick-start) · [Why](#why) ·
 [Identities and naming](#identities-and-naming) ·
 [Architecture at a glance](#architecture-at-a-glance) · [Files](#files) ·
-[From-source install (steps 1–4)](#1-install-path-deduplication-script-root-once) ·
+[From-source install (steps 1–4)](#1-install-path-dedup-fragment-root-once) ·
 [Upgrade behaviour](#upgrade-behaviour) · [Operation logging](#operation-logging) ·
 [SELinux](#selinux) · [Community](#community) · [License](#license)
 
@@ -172,7 +172,7 @@ you type `claude`
 
 | File | Deploy path |
 |---|---|
-| src/etc/profile.d/path_dedup.sh | /etc/profile.d/path_dedup.sh (root) |
+| src/usr/local/lib/ai-tools/path-dedup.sh | /usr/local/lib/ai-tools/path-dedup.sh (root) |
 | src/opt/ai-tools/bin/nvm-update.sh | /opt/ai-tools/bin/nvm-update.sh |
 | src/usr/local/sbin/ai-tools/ai-tools-chown.sh | /usr/local/sbin/ai-tools/ai-tools-chown (root) |
 | src/usr/local/sbin/ai-tools/ai-tools-setgid.sh | /usr/local/sbin/ai-tools/ai-tools-setgid (root) |
@@ -202,48 +202,36 @@ you type `claude`
 
 ---
 
-## 1. Install PATH deduplication script (root, once)
+## 1. Install PATH dedup fragment (root, once)
 
+    sudo install -d -o root -g root -m 751 /usr/local/lib/ai-tools
     sudo install -o root -g root -m 644 \
-        src/etc/profile.d/path_dedup.sh /etc/profile.d/path_dedup.sh
+        src/usr/local/lib/ai-tools/path-dedup.sh /usr/local/lib/ai-tools/path-dedup.sh
 
-nvm must be sourced **before** path_dedup in both init files. nvm prepends
-its versioned bin dir to `$PATH`; path_dedup then restructures it into Tier 4,
-keeping it behind the T1 system bins — which include `/usr/local/bin/claude`,
-the wrapper, so it shadows the nvm-managed `claude` — and T2 `~/.local/bin`.
-If path_dedup runs first, nvm prepends itself ahead of T1 and breaks the
-ordering.
+(The lib directory's group becomes `ai-tools` once the account exists —
+`install.sh` and the RPM re-assert `root:ai-tools 0751`.)
 
-### ~/.bashrc (interactive non-login shells)
+path-dedup deduplicates the shell's existing `$PATH` and orders it
+root-owned-first, so `/usr/local/bin/claude` — the wrapper that launches
+claude restricted — always resolves ahead of the nvm-managed `claude`. It is
+sourced per-account: only the operator shells wired for it get the ordering,
+and every other account on the host keeps its stock PATH.
 
-`/etc/profile.d/` is not sourced for non-login shells, so path_dedup must be
-called explicitly here, after nvm:
-
-    # #######
-    # $PATH #
-    # #######
-    export NVM_DIR="${HOME}/.nvm"
-    [ -s "${NVM_DIR}/nvm.sh" ] && source "${NVM_DIR}/nvm.sh"
-
-    # shellcheck source=/etc/profile.d/path_dedup.sh
-    [[ -f /etc/profile.d/path_dedup.sh ]] && source /etc/profile.d/path_dedup.sh
-
-### ~/.bash_profile (login shells)
-
-`/etc/profile.d/path_dedup.sh` is sourced automatically by `/etc/profile`
-early in login shell startup — before nvm runs. A second call at the end of
-`~/.bash_profile`, after nvm, corrects the order:
+`ai-tools-admin operator add` (step 3 of the quick start) offers to wire the
+source line into your `~/.bashrc` and `~/.bash_profile`. To wire it by hand,
+add it to **both** files (non-login interactive shells read only `~/.bashrc`,
+login shells `~/.bash_profile`), after your nvm init:
 
     export NVM_DIR="${HOME}/.nvm"
     [ -s "${NVM_DIR}/nvm.sh" ] && source "${NVM_DIR}/nvm.sh"
 
-    # Re-order after nvm; /etc/profile sourced path_dedup earlier but nvm
-    # had not run yet at that point.
-    # shellcheck source=/etc/profile.d/path_dedup.sh
-    [[ -f /etc/profile.d/path_dedup.sh ]] && source /etc/profile.d/path_dedup.sh
+    # ai-tools PATH dedup (must follow nvm init)
+    [[ -f /usr/local/lib/ai-tools/path-dedup.sh ]] && source /usr/local/lib/ai-tools/path-dedup.sh
 
-path_dedup.sh is idempotent — sourcing it a second time in the same shell
-produces the same PATH, so the double call for login shells is safe.
+nvm must be sourced **before** path-dedup: nvm prepends its versioned bin dir
+to `$PATH`, and path-dedup then restructures it into Tier 4, behind the T1
+system bins (which include the wrapper) and T2 `~/.local/bin`. path-dedup.sh
+is idempotent — sourcing it again in the same shell produces the same PATH.
 
 ## 2. Create the SANDBOX_USER OS account at /opt (root, once)
 

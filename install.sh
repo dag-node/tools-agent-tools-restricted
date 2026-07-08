@@ -254,7 +254,6 @@ do_selinux_restore() {
     log "SELinux: restoring file contexts"
     restorecon \
         /etc/sudoers.d/ai-tools-claude \
-        /etc/profile.d/path_dedup.sh \
         /etc/ai-tools/operator.conf
     restorecon -R \
         /usr/local/sbin/ai-tools/ \
@@ -381,9 +380,9 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/safe-paths.lib.sh
     _chk /usr/local/lib/ai-tools/control-plane.lib.sh
     _chk /usr/local/lib/ai-tools/relabel.lib.sh
+    _chk /usr/local/lib/ai-tools/path-dedup.sh
     _chk /etc/sudoers.d/ai-tools-claude
     _chk /etc/ai-tools/operator.conf
-    _chk /etc/profile.d/path_dedup.sh
     _chk /opt/ai-tools/bin/nvm-update.sh
     _chk /opt/ai-tools/bin/claude-run
     _chk /opt/ai-tools/bin/claude
@@ -563,6 +562,14 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/control-plane.lib.sh" \
         /usr/local/lib/ai-tools/control-plane.lib.sh
 
+    # PATH dedup shell fragment: 644 root:root -- world-readable. Sourced by operator
+    # login shells via the dotfile lines ai-tools-admin wires (never installed into
+    # /etc/profile.d, so unwired accounts keep their stock PATH). No secrets, no tokens.
+    log "/usr/local/lib/ai-tools/path-dedup.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/path-dedup.sh" \
+        /usr/local/lib/ai-tools/path-dedup.sh
+
     # Project-label library: 640 root:root -- read ONLY by root principals (the
     # ai-tools-relabel helper and selinux/install-selinux.sh's sweep). No group or
     # world surface: the unprivileged CLI does not source it (it inlines its read-only
@@ -684,7 +691,8 @@ do_install() {
         /usr/local/bin/ai-tools
 
     # Launch wrapper. Ships system-wide root:root 0755 -- rpm-owned, on every operator's PATH
-    # (path_dedup.sh ranks /usr/local/bin above the nvm shims, so it shadows nvm's claude). It
+    # (path-dedup.sh, wired into operator dotfiles by ai-tools-admin, ranks /usr/local/bin
+    # above the nvm shims, so it shadows nvm's claude). It
     # runs as the invoking operator, gates on ai-ops membership, and drops to ai-tools via sudo.
     log "/usr/local/bin/claude"
     install_subst 755 root root \
@@ -745,11 +753,6 @@ do_install() {
             install -o root -g root -m 600 /dev/null "/var/log/ai-tools/${_logfile}.log"
         fi
     done
-
-    log "/etc/profile.d/path_dedup.sh"
-    install -o root -g root -m 644 \
-        "${SCRIPT_DIR}/src/etc/profile.d/path_dedup.sh" \
-        /etc/profile.d/path_dedup.sh
 
     # Static %ai-ops group drop-in -- no per-operator substitution, only the sandbox-account
     # tokens. Membership in ai-ops (below) is what grants access.
@@ -1107,7 +1110,6 @@ do_uninstall() {
     rm -f /usr/lib/systemd/system/ai-tools-*
     rm -f /usr/lib/systemd/user/nvm-update.*
     rm -f /etc/sudoers.d/ai-tools-claude
-    rm -f /etc/profile.d/path_dedup.sh
     # Keep /etc/ai-tools/operator.conf: it holds the operator bindings written by
     # ai-tools-admin, preserved like ~/.config/ai-tools so a reinstall keeps operators bound.
 

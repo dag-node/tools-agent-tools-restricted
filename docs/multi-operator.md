@@ -30,8 +30,9 @@ operators list).
   bit** (`o+x`) on `/opt/ai-tools` and `/opt/ai-tools/bin` lets any operator `readlink`
   the launcher. Everything deeper stays `o=0`.
 - The launch wrapper ships system-wide as **`/usr/local/bin/claude`** (`root:root
-  0755`), rpm-owned. `path_dedup.sh` already ranks `/usr/local/bin` (Tier 1) above the
-  nvm shim, so it shadows any nvm-managed `claude`.
+  0755`), rpm-owned. `path-dedup.sh`, wired into each operator's dotfiles by
+  `ai-tools-admin operator add`, ranks `/usr/local/bin` (Tier 1) above the nvm shim,
+  so it shadows any nvm-managed `claude`.
 - The wrapper checks `ai-ops` membership first and frames a `msg.lib` refusal for a
   non-operator, instead of leaking a raw `sudo` denial.
 - The `nvm-update` timer runs **once**, in `ai-tools`'s own `systemd --user` instance

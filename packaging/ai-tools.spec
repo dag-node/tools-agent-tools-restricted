@@ -137,15 +137,16 @@ install -d -m 0751 %{buildroot}%{ai_libdir}
 for l in log msg skip-dirs relabel secret-patterns operator control-plane safe-paths; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
+# PATH dedup fragment for operator shells; ai-tools-admin wires the source line into
+# operator dotfiles, so no /etc/profile.d entry ships.
+install -m 0644 src%{ai_libdir}/path-dedup.sh %{buildroot}%{ai_libdir}/path-dedup.sh
 
 # ── base: handback systemd units ─────────────────────────────────────────────
 install -d -m 0755 %{buildroot}%{_unitdir}
 install -m 0644 src%{_unitdir}/ai-tools-handback.socket    %{buildroot}%{_unitdir}/
 install -m 0644 src%{_unitdir}/ai-tools-handback@.service  %{buildroot}%{_unitdir}/
 
-# ── base: profile.d PATH dedup + sysusers ────────────────────────────────────
-install -d -m 0755 %{buildroot}%{_sysconfdir}/profile.d
-install -m 0644 src%{_sysconfdir}/profile.d/path_dedup.sh %{buildroot}%{_sysconfdir}/profile.d/path_dedup.sh
+# ── base: sysusers ───────────────────────────────────────────────────────────
 install -d -m 0755 %{buildroot}%{_sysusersdir}
 install -m 0644 %{SOURCE1} %{buildroot}%{_sysusersdir}/ai-tools.conf
 
@@ -202,9 +203,10 @@ install -m 0644 src%{_unitdir}/ai-tools-relabel.path    %{buildroot}%{_unitdir}/
 install -m 0644 src%{_unitdir}/ai-tools-relabel.service %{buildroot}%{_unitdir}/ai-tools-relabel.service
 
 # ── claude: launch wrapper + confinement shim + hooks + settings ──────────────
-# The wrapper ships root:root 0755 in /usr/local/bin (Tier 1 in path_dedup.sh, so it shadows
-# the nvm-managed claude on every operator's PATH); it runs as the invoking operator, gates on
-# ai-ops membership, then drops to the sandbox account via sudo.
+# The wrapper ships root:root 0755 in /usr/local/bin (Tier 1 in path-dedup.sh, wired into
+# operator dotfiles by ai-tools-admin, so it shadows the nvm-managed claude on every
+# operator's PATH); it runs as the invoking operator, gates on ai-ops membership, then drops
+# to the sandbox account via sudo.
 install -m 0755 src%{ai_bindir}/claude.sh                  %{buildroot}%{ai_bindir}/claude
 install -m 0550 src/opt/ai-tools/bin/claude-run.sh         %{buildroot}/opt/ai-tools/bin/claude-run
 install -m 0750 src/opt/ai-tools/.claude/post-tool-hook.sh %{buildroot}/opt/ai-tools/.claude/post-tool-hook.sh
@@ -308,9 +310,9 @@ fi
 %attr(0644, root, root) %{ai_libdir}/operator.lib.sh
 %attr(0644, root, root) %{ai_libdir}/control-plane.lib.sh
 %attr(0644, root, root) %{ai_libdir}/safe-paths.lib.sh
+%attr(0644, root, root) %{ai_libdir}/path-dedup.sh
 %{_unitdir}/ai-tools-handback.socket
 %{_unitdir}/ai-tools-handback@.service
-%attr(0644, root, root) %{_sysconfdir}/profile.d/path_dedup.sh
 %config(noreplace) %attr(0440, root, root) %{_sysconfdir}/sudoers.d/ai-tools-claude
 %dir %attr(0755, root, root) %{_sysconfdir}/ai-tools
 %config(noreplace) %attr(0644, root, root) %{_sysconfdir}/ai-tools/operator.conf

@@ -336,9 +336,9 @@ for _name in "${_ENV_ALLOW[@]}"; do
     [[ -n "${!_name:-}" ]] && _setenv+=( "--setenv=${_name}" )
 done
 # HOME and PATH are pinned to sandbox values, never inherited from the operator.
-# PATH mirrors /etc/profile.d/path_dedup.sh's security ordering: root-owned, least-
+# PATH mirrors path-dedup.sh's security ordering: root-owned, least-
 # writable dirs first (Tier 1) so they win first-match, with the versioned node bin
-# placed LAST (path_dedup's Tier 4).  Safe because no node/npm/npx exists in any system
+# placed LAST (path-dedup's Tier 4).  Safe because no node/npm/npx exists in any system
 # dir, so the version-pinned node still resolves without being shadowed.  Redundant
 # /sbin and /bin are dropped (usrmerge symlinks them onto /usr/sbin and /usr/bin).
 #

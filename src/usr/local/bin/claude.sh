@@ -7,8 +7,8 @@
 # re-executes /opt/ai-tools/bin/claude-run as the ai-tools user via sudo. claude-run wraps
 # the session in a systemd transient service (systemd-run --user --pty;
 # RestrictNamespaces=yes, PrivateTmp, UMask=0007) before exec'ing the versioned binary.
-# path_dedup.sh ranks /usr/local/bin (Tier 1) above the nvm shims, so this shadows any
-# nvm-managed claude on every login shell's PATH.
+# path-dedup.sh (wired into operator dotfiles by ai-tools-admin) ranks /usr/local/bin
+# (Tier 1) above the nvm shims, so this shadows any nvm-managed claude on an operator's PATH.
 
 set -euo pipefail
 IFS=$'\n\t'
