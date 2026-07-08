@@ -39,9 +39,15 @@ chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${home}" "${approved}" "${unappro
 # execs), not a sudo command-line assignment, so it reaches the wrapper regardless of sudo's
 # env_reset/set_home handling -- the wrapper keys its allowlist off ${HOME}. Echoes combined
 # stdout+stderr.
+#
+# The probe args are two-fold on purpose: a SOLE --version/--help is the wrapper's
+# print-and-exit pass-through and legitimately skips the CWD gates under test, so a second
+# dummy argument keeps the gates in the path; --version stays first so that if a gate ever
+# regresses and the session launches, claude prints/errors and exits fast instead of
+# hanging the suite on an interactive session.
 run_wrapper() {  # $1 = cwd
     ( cd "$1" && setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
-        "${wrapper}" --version < /dev/null 2>&1 || true )
+        "${wrapper}" --version --gate-probe < /dev/null 2>&1 || true )
 }
 
 # (0) Operator gate: the wrapper refuses anyone not in the ai-ops group BEFORE it reaches the
@@ -50,7 +56,7 @@ run_wrapper() {  # $1 = cwd
 #     the allowlist gate ("not accessible"), proving the gate short-circuits first. The
 #     subsequent operator runs (1)-(3), which DO reach the allowlist, are the positive case.
 gate_out="$( cd "${home}" && setsid sudo -u "${SANDBOX_USER}" -- env HOME="${home}" \
-    "${wrapper}" --version < /dev/null 2>&1 || true )"
+    "${wrapper}" --version --gate-probe < /dev/null 2>&1 || true )"
 if printf '%s' "${gate_out}" | grep -qE "not an ai-tools operator|member of the ai-ops"; then
     pass "wrapper refuses a non-operator (sandbox account) at the ai-ops gate"
 else
@@ -78,6 +84,20 @@ if printf '%s' "${out}" | grep -qE "not accessible|allowlist not found"; then
     pass "wrapper blocks execution from an unapproved directory"
 else
     fail "wrapper did NOT block an unapproved directory (output: ${out})"
+fi
+
+# (1b) The print-and-exit pass-through: a SOLE --version from that same unapproved cwd is
+#      deliberately NOT gated -- it carries no project surface, so the wrapper launches the
+#      confined session with the sandbox home as WorkingDirectory and claude prints its
+#      version. Asserts the refusal is absent and a version string came back.
+pv_out="$( cd "${unapproved}" && setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
+    "${wrapper}" --version < /dev/null 2>&1 || true )"
+if printf '%s' "${pv_out}" | grep -qE "not accessible|allowlist not found"; then
+    fail "sole --version was gated on the CWD -- the pass-through regressed (output: ${pv_out})"
+elif printf '%s' "${pv_out}" | grep -qE '[0-9]+\.[0-9]+\.[0-9]+'; then
+    pass "sole --version passes through from an unapproved cwd and prints the version"
+else
+    fail "sole --version did not yield a version string (output: ${pv_out})"
 fi
 
 # (2) An approved cwd passes the allowlist gate. It then stops at the downstream claim guard

@@ -33,6 +33,10 @@ of that unit (namespaces, SELinux transition, `/tmp`) lives in
    matching `${AI_TOOLS_NVM_DIR}/versions/node/*/bin/claude`, exports it as
    `CLAUDE_EXEC`, and execs
    `sudo -u SANDBOX_USER -g SANDBOX_GROUP -- /opt/ai-tools/bin/claude-run`.
+5. A print-and-exit invocation — `--version`/`-v`/`--help`/`-h` as the sole argument —
+   skips the CWD gates (backstop, allowlist, claim): it touches no working tree, so no
+   project grant is implied. It still launches the same validated binary confined as
+   `SANDBOX_USER`, with the sandbox home as `WorkingDirectory`.
 
 The resolved path is validated as an integrity check against a misconfigured or
 compromised `ai-tools-claude-symlink` root helper, not a guard against external

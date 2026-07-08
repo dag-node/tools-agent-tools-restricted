@@ -153,6 +153,21 @@ if [[ "${CLAUDE_REAL}" == *"/../"* ]]; then
     die "ERROR: resolved claude path '${CLAUDE_REAL}' contains parent-directory references"
 fi
 
+# Print-and-exit invocations (--version/--help as the sole argument) carry no project
+# surface: the binary prints and exits without touching a working tree, so no allowlist,
+# backstop, or claim gate applies to the CWD. The session still runs confined as the
+# sandbox account -- the same validated binary under the same unit properties -- with the
+# sandbox home as its WorkingDirectory (always present, no project grant implied).
+if [[ $# -eq 1 ]]; then
+    case "$1" in
+        --version|-v|--help|-h)
+            export CLAUDE_EXEC="${CLAUDE_REAL}"
+            export CLAUDE_PROJECT_DIR="/opt/ai-tools"
+            exec sudo -u ai-tools -g ai-tools -- /opt/ai-tools/bin/claude-run "$@"
+            ;;
+    esac
+fi
+
 # Allowlist guard: Claude Code only runs in explicitly approved directories.
 # Create ~/.config/ai-tools/allowed-projects (one path per line) before use.
 # Lines beginning with ! are exclusions. They override allows -- exactly as in
