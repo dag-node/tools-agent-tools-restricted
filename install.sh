@@ -315,6 +315,25 @@ offer_selinux() {
     fi
 }
 
+# Suggest lint tools the sandboxed agent can use in its sessions (shellcheck for shell
+# sources, rpmlint for RPM specs, yamllint for YAML/workflows) when the host lacks them.
+# Print-only, and strictly from the repos ALREADY enabled -- it neither installs anything
+# nor enables EPEL (which carries all three on EL); a tool no enabled repo provides is
+# silently dropped from the suggestion. Any packaged version serves; no pinning.
+suggest_lint_tools() {
+    command -v dnf >/dev/null 2>&1 || return 0
+    local -a available=()
+    local t
+    for t in ShellCheck rpmlint yamllint; do
+        rpm -q "${t}" >/dev/null 2>&1 && continue
+        dnf -q list --available "${t}" >/dev/null 2>&1 && available+=("${t}")
+    done
+    (( ${#available[@]} )) || return 0
+    say "  optional lint tools for agent sessions (available from your enabled repos):"
+    say "    ${C_BOLD}dnf install ${available[*]}${C_RST}"
+    say ""
+}
+
 # Print a one-line summary row for a single file.
 # Returns 1 (and prints MISSING) when the file does not exist.
 _summary_row() {
@@ -782,13 +801,18 @@ do_install() {
     # agent (ai_tools_t hooks) and the root helpers (ai_tools_handback_t) read it, and it carries
     # no secret -- and root-write-only, so the agent cannot rewrite the identity root hands files
     # back to. Seeded from the src/etc template with the invoking user as the sole operator; an
-    # EXISTING file is kept as-is -- ai-tools-admin manages the OPERATORS line in place and the
-    # operator maintains the SKIP_* settings (reference: skip-dirs.lib.sh).
+    # EXISTING file is kept by default (keep_existing prompt; unattended installs always keep)
+    # -- ai-tools-admin manages the OPERATORS line in place and the operator maintains the
+    # SKIP_* settings (reference: skip-dirs.lib.sh) -- with owner and mode re-asserted.
     ensure_dir 755 root root /etc/ai-tools
     chown root:root /etc/ai-tools
     chmod 755 /etc/ai-tools
-    if [[ -f /etc/ai-tools/operator.conf ]]; then
+    if keep_existing /etc/ai-tools/operator.conf \
+            "reseed with the shipped default (operator ${PROJECTS_USER})" \
+            "Overwriting discards the OPERATORS binding managed by ai-tools-admin and any SKIP_* settings -- every other operator loses ownership handback until re-added."; then
         log "/etc/ai-tools/operator.conf kept (managed by ai-tools-admin and the operator)"
+        chown root:root /etc/ai-tools/operator.conf
+        chmod 644 /etc/ai-tools/operator.conf
     else
         log "/etc/ai-tools/operator.conf (operator ${PROJECTS_USER})"
         install_subst 644 root root \
@@ -845,9 +869,22 @@ do_install() {
     install_subst 750 root "${SANDBOX_GROUP}" \
         "${SCRIPT_DIR}/src/opt/ai-tools/.claude/session-hook.sh" \
         /opt/ai-tools/.claude/session-hook.sh
-    install -o root -g "${SANDBOX_GROUP}" -m 640 \
-        "${SCRIPT_DIR}/src/opt/ai-tools/.claude/settings.json" \
-        /opt/ai-tools/.claude/settings.json
+    # settings.json is kept by default when it already exists (keep_existing prompt;
+    # unattended installs always keep): it may carry deliberate host tuning -- e.g. a deny
+    # entry relaxed alongside an enabled SELinux group (see claude-settings.rule.md) -- and
+    # a reseed silently reverts that. Ownership and mode are re-asserted either way, so a
+    # kept file still satisfies the control-plane integrity checks.
+    if keep_existing /opt/ai-tools/.claude/settings.json \
+            "reseed with the shipped default (hooks + permission rules)"; then
+        log "/opt/ai-tools/.claude/settings.json kept (host-tuned permission rules preserved)"
+        chown root:"${SANDBOX_GROUP}" /opt/ai-tools/.claude/settings.json
+        chmod 640 /opt/ai-tools/.claude/settings.json
+    else
+        log "/opt/ai-tools/.claude/settings.json"
+        install -o root -g "${SANDBOX_GROUP}" -m 640 \
+            "${SCRIPT_DIR}/src/opt/ai-tools/.claude/settings.json" \
+            /opt/ai-tools/.claude/settings.json
+    fi
 
     # .gitconfig: root:SANDBOX_GROUP 644 (world-readable, root-write-only). safe.directory is
     # registered through the ai-tools-safedir root helper -- see its header for the 644/sudo model.
@@ -1052,6 +1089,7 @@ do_install() {
     say "    ${C_BOLD}ai-tools --lockdown /path/to/project${C_RST}          ${C_DIM}# revoke agent access to secrets${C_RST}"
     say "  see ${C_DIM}/var/opt/ai-tools/README.md${C_RST}"
     say ""
+    suggest_lint_tools
 
     # Optional post-install verification, run LAST -- after the optional SELinux setup -- so
     # the installed-files summary and the full test suite both see the final, labelled state.
