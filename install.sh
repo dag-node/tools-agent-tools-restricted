@@ -74,6 +74,11 @@ if ! source "${MSG_LIB}" 2>/dev/null; then
     ai_tools_msg_block() { shift; printf '%s\n' "$@" >&2; }
 fi
 
+# Version stamped into the deployed CLI (`ai-tools --version`); the RPM stamps %{version}
+# from the same file at build. A missing file falls back to "dev" rather than aborting.
+AI_TOOLS_VERSION="$(tr -d '[:space:]' < "${SCRIPT_DIR}/packaging/VERSION" 2>/dev/null || true)"
+readonly AI_TOOLS_VERSION="${AI_TOOLS_VERSION:-dev}"
+
 # Control-plane boundary-mode constants, sourced from the SOURCE TREE (the installed copy may not
 # exist yet). The single source for the /opt/ai-tools home/dir modes the dev install and the spec
 # %files both assert; these modes are load-bearing, so a missing lib is fatal rather than silently
@@ -148,6 +153,7 @@ install_subst() {
         -e "s/@PROJECTS_GROUP@/${PROJECTS_GROUP}/g" \
         -e "s/@SANDBOX_USER@/${SANDBOX_USER}/g" \
         -e "s/@SANDBOX_GROUP@/${SANDBOX_GROUP}/g" \
+        -e "s/@AI_TOOLS_VERSION@/${AI_TOOLS_VERSION}/g" \
         "${src}" > "${tmp}"
     install -o "${owner}" -g "${group}" -m "${mode}" "${tmp}" "${dst}"
     rm -f "${tmp}"

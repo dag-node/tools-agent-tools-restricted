@@ -20,6 +20,7 @@
 #   --sandbox-remove [path]   remove a sandbox clone and unregister it
 #   --relabel                 relabel the claude entrypoint after a Node upgrade (sudo)
 #   --list                    list registered projects (real vs sandbox)
+#   --version                 print the installed ai-tools version
 #   --help
 #
 # Sandbox model: the agent works in a shallow clone under SANDBOX_ROOT so it never
@@ -37,6 +38,11 @@ IFS=$'\n\t'
 
 readonly SANDBOX_USER="@SANDBOX_USER@"
 readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
+# Substituted at deploy time (install.sh from packaging/VERSION; the RPM from %{version});
+# a raw source-tree run reports "dev".
+AI_TOOLS_VERSION="@AI_TOOLS_VERSION@"
+[[ "${AI_TOOLS_VERSION}" == @*@ ]] && AI_TOOLS_VERSION="dev"
+readonly AI_TOOLS_VERSION
 readonly GITCONFIG="/opt/ai-tools/.gitconfig"
 readonly SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
 # Root-only secret lockdown helper. Invoked via sudo (NO NOPASSWD grant exists for
@@ -81,6 +87,13 @@ readonly RECLAIM_BIN="/usr/local/sbin/ai-tools/ai-tools-reclaim"
 # Sentinel in a guard CLAUDE.md (see drop_lockdown_guard) so the lockdown step can
 # recognise and remove its own placeholder once secrets are secured.
 readonly GUARD_MARKER="ai-tools-lockdown-guard"
+
+# --version is informational and principal-independent -- answered before the invoker
+# guards so any account (root included) can identify the installed version.
+if [[ "${1:-}" == "--version" || "${1:-}" == "-V" ]]; then
+    printf 'ai-tools %s\n' "${AI_TOOLS_VERSION}"
+    exit 0
+fi
 
 # ── Invoker guards ───────────────────────────────────────────────────────────────
 # This is a user tool. It must run as the projects user: never as root (it would
@@ -1321,6 +1334,7 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
   ai-tools --reclaim [--full] [path] hand agent-written files back to you (sudo; default: cwd)
   ai-tools --relabel                 relabel the claude entrypoint after a Node upgrade (sudo)
   ai-tools --list                    list registered projects
+  ai-tools --version
   ai-tools --help
 
   --lockdown options: -n/--dry-run (preview only), -y/--yes (skip confirmation)

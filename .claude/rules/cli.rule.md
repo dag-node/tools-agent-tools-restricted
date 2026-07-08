@@ -51,7 +51,8 @@ and as the sandbox account (the agent must not manage its own allowlist).
   via `ai-tools-relabel-entrypoint`. The manual counterpart to the automatic post-upgrade
   relabel the `nvm-update` timer runs (see [updater](updater.rule.md)); for an out-of-band
   upgrade or if the timer's relabel failed and `claude-run` is fail-closing on the launch.
-- `--list`, `--help`.
+- `--list`, `--version` (the deploy-stamped package version; `dev` from a raw source tree),
+  `--help`.
 
 ## Two project models
 

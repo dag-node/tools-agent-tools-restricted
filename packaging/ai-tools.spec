@@ -102,6 +102,9 @@ provider package would sit beside this one on the same base and nodejs layers.
 # (written by ai-tools-admin), so every host ships identical files.
 grep -rlZ -e '@SANDBOX_USER@' -e '@SANDBOX_GROUP@' src \
     | xargs -0 -r sed -i -e 's/@SANDBOX_USER@/ai-tools/g' -e 's/@SANDBOX_GROUP@/ai-tools/g'
+# Stamp the package version into the CLI (`ai-tools --version`).
+grep -rlZ '@AI_TOOLS_VERSION@' src \
+    | xargs -0 -r sed -i 's/@AI_TOOLS_VERSION@/%{version}-%{release}/g'
 
 %install
 # The /opt control plane and the /var trees ship root:ai-tools and stay that way: root (not the
