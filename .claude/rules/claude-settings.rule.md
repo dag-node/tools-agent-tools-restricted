@@ -10,17 +10,23 @@ ownership hooks (covered in [ownership-and-hooks](ownership-and-hooks.rule.md)) 
 Bash-tool permission rules. This rule covers the **permission rules** and how they couple
 to the SELinux policy.
 
-## `permissions.allow` — three tiers, two shipped
+## Permission rules — three outcomes
 
-The `allow` array pre-approves Bash invocations so routine checks cost no permission
-prompt. JSON carries no comments, so the per-entry rationale lives here. Entries are
-grouped in three hardening tiers; the shipped `settings.json` carries tiers 1 and 2,
-tier 3 is a documented opt-in. No tier is a capability boundary — an allowed command
-still runs as `SANDBOX_USER` confined by `ai_tools_t`, and a tool absent from the host
-simply fails to resolve. What the tiering manages is the **prompt surface**: which
-actions are silent and which remain operator-visible.
+The two arrays sort a Bash command into one of three observable outcomes: **runs
+without asking** (`allow`), **asks first** (unlisted — the default), or **refused**
+(`deny`). None of this is a capability boundary — whatever runs still executes as
+`SANDBOX_USER` confined by `ai_tools_t`, and a tool absent from the host simply fails
+to resolve. The lists manage the **operator-visibility surface**: what is silent, what
+is mediated by a prompt, and what the agent must raise with the operator in
+conversation. JSON carries no comments, so the per-entry rationale lives here.
 
-### Tier 1 — minimal: project VCS state
+### Runs without asking (`allow`)
+
+An entry earns its place by being **frequent** and **inspection-only**: it discloses
+nothing beyond what the harness's dedicated read tools (Read/Grep/Glob) already access
+without any Bash prompt, or it processes data already in hand.
+
+**Project VCS state** — the working set every session touches:
 
 | Entry | Why |
 |---|---|
@@ -28,47 +34,36 @@ actions are silent and which remain operator-visible.
 | `git diff`, `git diff --staged*`, `git diff --cached*` | Pending and staged changes. Only these forms; other `git diff` arguments still prompt. |
 | `git branch`, `git branch *` | Branch listing and context. The starred form also covers create/delete — accepted: branches are project-tree state the agent already fully writes. |
 
-### Tier 2 — recommended: nothing beyond the harness read baseline
-
-Criterion: the command discloses only file content/metadata that the harness's dedicated
-read tools (Read/Grep/Glob) already access **without any Bash prompt**, or processes data
-already in hand — pre-approving it adds no disclosure surface the session does not
-already have.
+**Filesystem inspection and lint**:
 
 | Entry | Why |
 |---|---|
 | `git log`, `git log *`, `git show`, `git show *`, `git blame *` | Project history — what changed, when, in which commit. |
 | `shellcheck *`, `rpmlint *`, `yamllint *` | Lint project sources in-session instead of pushing the first lint to CI. Host-provided (EPEL packages all three on EL; `install.sh` suggests whichever the enabled repos offer, print-only — it never installs them or enables a repo). |
-| `jq *` | Filter/inspect JSON already in hand (tool output, configs). A shell redirect can write a file — no new capability; the Write tool already writes freely. |
+| `jq *` | Filter/inspect JSON already in hand (tool output, configs). |
 | `ls`, `ls *`, `tree`, `tree *` | Listings with owner/mode — the ownership model's primary observable. |
 | `stat *`, `getfacl *` | Per-path owner/mode/context and the collaborative-ownership ACL grants — diagnose handback and claim state ([ownership-and-hooks](ownership-and-hooks.rule.md)). |
 | `head *`, `tail *`, `wc *`, `sort`, `sort *`, `uniq`, `uniq *`, `grep *` | Pipeline staples that bound and filter the output of the commands above. |
 | `file *` | Identify a file's type before reading it. |
 
-### Tier 3 — extended: host-state queries (documented, NOT shipped)
+### Asks first (everything unlisted)
 
-Criterion: the command queries system state through an interface **beyond** the file-read
-baseline. Project work rarely needs these, so their permission prompt is kept as a
-**tripwire**: the first prompt for one is a human-visible tell that the agent pivoted
-from project work to host survey — the shape of prompt-injection-driven reconnaissance.
-A host that wants any of them silent opts in by adding the entry to
-`/opt/ai-tools/.claude/settings.json` (or additively in a project settings layer).
+The default for a command in neither list — mutations (`chmod`, `git push`, …) and
+one-off tools. One caveat bounds what "unlisted" buys: the harness's own command
+analysis auto-approves commands it classifies as safe reads, **past both the allow list
+and the prompt** (verified empirically: `df` ran silently in a session whose local
+settings layers were empty, while `ls > file` in the same session prompted — the same
+analysis reclassifies a redirect as a write). An unlisted safe-read therefore does
+**not** reliably prompt; a read that must stay operator-visible needs a `deny` entry,
+which is why the host-survey group below is denied rather than merely unlisted.
 
-| Entry | What it discloses |
-|---|---|
-| `id`, `id *`, `getent *` | Account and group enumeration — NSS can reach a directory service (sssd/LDAP), beyond local file reads. |
-| `rpm -q*` | Installed-package inventory (query forms only) — a classic reconnaissance target. |
-| `ps`, `ps *` | Host-wide process survey. |
-| `df`, `df *`, `du *` | Mount/storage topology and tree-size survey of arbitrary paths. |
-| `readlink *` | Runtime layout via `/proc` magic links. |
-| `getenforce`, `matchpathcon *` | Security-posture probing — whether enforcement is on, which labels are expected. Useful when diagnosing confinement *with* the operator; approve per-call then. |
+### Refused (`deny`)
 
-## `permissions.deny` mirrors the SELinux core module's denied surface
+Two groups with distinct criteria.
 
-The `deny` array lists Bash invocations the tooling refuses before running them. Each
-names a command the core posture refuses **categorically** — regardless of arguments or
-target — so the agent does not spend a tool call, and emit an AVC, on an action the
-kernel refuses anyway:
+**Categorical dead-ends** — the core posture refuses these regardless of arguments or
+target, so a deny stops the agent spending a tool call, and emitting an AVC, on an
+action the kernel refuses anyway:
 
 - `sudo`, `su` — SUID is inoperative under the session's `PR_SET_NO_NEW_PRIVS` (see
   below), so both fail by construction.
@@ -78,23 +73,38 @@ kernel refuses anyway:
 - `dnf`, `yum` — package management is the `pkgmgmt` optional group, disabled by
   default; with it off the core module refuses the package-manager stack.
 - `mount *`, `umount` — mounting needs `CAP_SYS_ADMIN`, and `RestrictNamespaces=yes`
-  closes the user-namespace route to it. Bare `mount` stays undenied: it only lists the
-  mount table (a tier-3-shaped disclosure, so it still prompts — see `allow` above).
+  closes the user-namespace route to it. (Bare `mount` succeeds — it lists the mount
+  table — so it is denied with the host-survey group below instead.)
 - `setenforce`/`semodule`/`semanage` — root-only SELinux management; label repair flows
   through the root-side relabel path, never the agent.
 
-The criterion is *categorical*: a command that fails only situationally does not belong
-here (see Why not).
+`sudo` is the purest case: it is structurally inoperative under the session's
+`PR_SET_NO_NEW_PRIVS`, which drops the SUID bit (see [confinement](confinement.rule.md)),
+so its deny entry corresponds to a capability no policy change can restore — pure noise
+suppression. A command that fails only situationally does not belong in this group (see
+Why not).
+
+**Host-survey queries** — these **succeed** but disclose system state beyond the
+file-read baseline, and the harness's safe-read auto-approval means an unlisted one runs
+silently (see "Asks first"). `deny` is the one settings layer that overrides that
+auto-approval, so the set ships denied. This is stronger mediation than a prompt, not
+weaker: the agent that genuinely needs one must ask the operator in conversation, with
+its reasoning, instead of the operator approving a bare command string. A host that
+wants one silent removes the deny entry in its settings layer.
+
+| Entry | What it discloses |
+|---|---|
+| `id`, `id *`, `getent *` | Account and group enumeration — NSS can reach a directory service (sssd/LDAP), beyond local file reads. |
+| `rpm`, `rpm *` | Installed-package inventory — a classic reconnaissance target (the write forms fail as non-root anyway). |
+| `ps`, `ps *` | Host-wide process survey. |
+| `df`, `df *`, `du`, `du *`, `mount` | Mount/storage topology and tree-size surveys. |
+| `readlink *` | Runtime layout via `/proc` magic links; benign in-project symlink inspection is covered by the allowed `ls -l`. |
+| `getenforce`, `matchpathcon *` | Security-posture probing — whether enforcement is on, which labels are expected. When diagnosing confinement *with* the operator, the operator runs them or relaxes the entry. |
 
 This layer is a **tooling hint, not a boundary.** The enforced isolation is SELinux type
 enforcement plus DAC (see [confinement](confinement.rule.md)); a `deny` entry only keeps
 the agent from attempting a denied action. Removing an entry re-exposes the attempt to the
 SELinux floor — it does not by itself grant the capability.
-
-`sudo` is a special case: it is structurally inoperative under the session's
-`PR_SET_NO_NEW_PRIVS`, which drops the SUID bit (see [confinement](confinement.rule.md)),
-so its deny entry corresponds to a capability no policy change can restore — it is pure
-noise suppression.
 
 ## Coupling to optional SELinux groups
 
@@ -129,8 +139,8 @@ hook declarations hold for the whole session.
   `install -m`, `cp -p`, `setfacl`, `os.chmod`, …, and the abuse-shaped forms
   (`777`/`o+w`/`+s`) are already reverted by the handback's world-bit stripping while
   setuid on a sandbox-owned file escalates nothing. The same reasoning keeps a
-  "safe subset" like `chmod +x *` out of `allow`: the tiers stay inspection-only so
-  their criterion stays crisp.
+  "safe subset" like `chmod +x *` out of `allow`: the allow list stays inspection-only
+  so its criterion stays crisp.
 - **Filtering `allow` to the host's installed tools** (at install or after): an entry for
   an absent tool is inert — the command fails to resolve — and *removing* it makes the
   interaction worse (the operator gets prompted for a tool that then fails anyway). A
@@ -139,10 +149,12 @@ hook declarations hold for the whole session.
   prompt then preserves the stale filter across reinstalls. Host- or project-specific
   tuning layers **additively** via Claude Code's settings merge; the shipped baseline
   stays byte-identical on every host.
-- **Shipping tier 3 by default**: no capability is at stake either way (DAC + `ai_tools_t`
-  decide), but pre-approving host-state queries would silence the one human-visible
-  tripwire for reconnaissance-shaped behaviour, for marginal convenience in sessions that
-  rarely need those commands.
+- **Leaving the host-survey reads unlisted (or allowing them) instead of denying**: no
+  capability is at stake either way (DAC + `ai_tools_t` decide), but "unlisted" does not
+  mean "prompted" — the harness's safe-read analysis auto-approves them silently (see
+  "Asks first"), and allowing them would make that silence official. Only a deny keeps
+  reconnaissance-shaped queries operator-mediated, by forcing the agent to ask in
+  conversation.
 
 ## Deferred
 
