@@ -55,15 +55,56 @@ else
     done
     ${hooks_ok} && pass "settings.json declares PostToolUse/Stop/SessionStart/SessionEnd -> installed hook bodies"
 
-    # (0b) The Bash deny rules that mirror the SELinux core surface (sudo + the audit/journal/
-    # systemctl CLIs) are present. These are a tooling hint, not the boundary, but dropping them
-    # re-exposes the attempt -- pin the security-relevant ones.
+    # (0b) The categorical deny rules are present: commands the core posture refuses
+    # regardless of arguments or target (sudo/su under NNP, the manager/journal/audit
+    # CLIs, the package managers while pkgmgmt is off, mount/umount, SELinux management).
+    # A tooling hint, not the boundary, but dropping one re-exposes the attempt -- pin
+    # them all (groups and criteria: claude-settings.rule.md).
     deny="$(jq -r '.permissions.deny[]?' "${settings}" 2>/dev/null)"
     deny_ok=true
-    for rule in 'Bash(sudo)' 'Bash(sudo *)' 'Bash(journalctl *)' 'Bash(systemctl *)' 'Bash(ausearch *)'; do
+    for rule in 'Bash(sudo)' 'Bash(sudo *)' 'Bash(su)' 'Bash(su *)' 'Bash(journalctl *)' \
+                'Bash(systemctl *)' 'Bash(ausearch *)' 'Bash(auditctl *)' 'Bash(aureport *)' \
+                'Bash(dnf *)' 'Bash(yum *)' 'Bash(mount *)' 'Bash(umount *)' \
+                'Bash(setenforce *)' 'Bash(semodule *)' 'Bash(semanage *)'; do
         grep -qxF "${rule}" <<<"${deny}" || { fail "settings.json deny list is missing '${rule}'"; deny_ok=false; }
     done
-    ${deny_ok} && pass "settings.json deny list covers sudo + the audit/journal/systemctl CLIs"
+    ${deny_ok} && pass "settings.json denies the categorical dead-ends (sudo/su, manager/audit CLIs, pkg, mount, SELinux mgmt)"
+
+    # (0c) The host-survey deny group exists. Unlisted safe-reads are auto-approved by
+    # the harness past the prompt, so these denies are the only layer keeping host recon
+    # (accounts, packages, processes, storage, security posture) operator-mediated. A
+    # host may deliberately relax individual entries (claude-settings.rule.md), so a
+    # partial set passes with the relaxed entries named; a file with NONE of them
+    # predates the group (a kept pre-upgrade settings.json) and fails. One form per
+    # command keeps the relax report readable.
+    survey_missing=(); survey_present=0
+    for rule in 'Bash(df)' 'Bash(du *)' 'Bash(ps *)' 'Bash(id)' 'Bash(getent *)' \
+                'Bash(rpm *)' 'Bash(mount)' 'Bash(readlink *)' 'Bash(getenforce)' \
+                'Bash(matchpathcon *)'; do
+        if grep -qxF "${rule}" <<<"${deny}"; then
+            survey_present=$(( survey_present + 1 ))
+        else
+            survey_missing+=("${rule}")
+        fi
+    done
+    if (( survey_present == 0 )); then
+        fail "settings.json has no host-survey denies -- the file predates the deny group (reseed or add them)"
+    elif (( ${#survey_missing[@]} > 0 )); then
+        pass "host-survey denies present (${survey_present}) -- relaxed on this host: ${survey_missing[*]}"
+    else
+        pass "settings.json denies the full host-survey group (accounts, packages, processes, storage, posture)"
+    fi
+
+    # (0d) No entry sits in both lists. deny wins at runtime, so an overlap is not a
+    # bypass, but it means the lists drifted -- an allow a deny silently overrides is a
+    # config error worth surfacing.
+    overlap="$(comm -12 <(jq -r '.permissions.allow[]?' "${settings}" | sort -u) \
+                        <(printf '%s\n' "${deny}" | sort -u))"
+    if [[ -n "${overlap}" ]]; then
+        fail "settings.json entries present in BOTH allow and deny: $(tr '\n' ' ' <<<"${overlap}")"
+    else
+        pass "settings.json allow and deny lists are disjoint"
+    fi
 fi
 
 # ── /tmp isolation posture (pam_namespace, optional) ─────────────────────────────

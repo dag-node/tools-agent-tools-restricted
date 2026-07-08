@@ -106,6 +106,11 @@ enforcement plus DAC (see [confinement](confinement.rule.md)); a `deny` entry on
 the agent from attempting a denied action. Removing an entry re-exposes the attempt to the
 SELinux floor — it does not by itself grant the capability.
 
+`tests/integration/hooks.sh` pins both deny groups at install time (the verify phase runs
+it): a missing categorical entry fails; host-survey relaxations are reported by name and
+pass, but a file with none of them (a kept pre-upgrade settings.json) fails; an entry in
+both lists fails as drift.
+
 ## Coupling to optional SELinux groups
 
 The deny list is matched to the **core** policy alone. Enabling an optional SELinux group
