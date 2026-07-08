@@ -4,8 +4,8 @@
 # the launch wrapper, the claim CLI, and every elevated helper source to refuse acting on a
 # system directory even when the allowlist (mis)includes it. Pins the matching contract
 # hermetically: it sources the deployed library and asserts the exact-or-ancestor rule --
-# a system directory (and "/") is protected, while a real project nested under an operator
-# home or the sandbox-clone area passes. Also checks the assert emits a refusal and returns
+# a system directory (and "/") is protected, a user home root is protected exactly, while
+# a real project nested under an operator home or the sandbox-clone area passes. Also checks the assert emits a refusal and returns
 # non-zero on a protected target and is silent + zero on a safe one. Run as root via sudo
 # (the suite contract); needs no privilege of its own.
 
@@ -44,6 +44,17 @@ for p in /home/alice/project /home/bob/code/app /var/opt/ai-tools/sandbox-projec
     fi
 done
 ${safe_ok} && pass "project trees nested under a protected parent are allowed"
+
+# (2b) A user home ROOT (direct child of /home) is protected exactly -- claiming a whole
+#      home would hand the agent every dotfile and key in it -- while deeper paths pass
+#      (asserted in (2) above). A trailing slash normalises to the same verdict.
+home_ok=true
+for p in /home/alice /home/bob /home/svc-ci/; do
+    if ! ai_tools_protected_path_match "${p}" >/dev/null; then
+        fail "user home root should be protected: ${p}"; home_ok=false
+    fi
+done
+${home_ok} && pass "user home roots are protected"
 
 # (3) An ancestor that CONTAINS a protected entry is itself protected (e.g. /opt contains
 #     /opt/ai-tools). The match prints the offending entry.

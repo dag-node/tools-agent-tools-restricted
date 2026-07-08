@@ -9,10 +9,12 @@
 # the allowlist, before acting.
 #
 # Matching is exact-or-ancestor: a target is protected when its resolved real path EQUALS a
-# list entry or CONTAINS one (is an ancestor, e.g. "/"). Descendants pass, so a real project
-# nested under an operator home (/home/<user>/<proj>) or a sandbox clone
-# (/var/opt/ai-tools/sandbox-projects/<repo>) is unaffected -- those are the trees the
-# helpers legitimately act on. A deeper or glob-expanded accident inside a protected tree
+# list entry or CONTAINS one (is an ancestor, e.g. "/"). A user home ROOT (a direct child
+# of /home) is additionally protected exactly: a whole home as a claim or sweep target
+# would hand the agent every dotfile and key in it (~/.ssh, ~/.gnupg, ...). Descendants
+# pass, so a real project nested under an operator home (/home/<user>/<proj>) or a sandbox
+# clone (/var/opt/ai-tools/sandbox-projects/<repo>) is unaffected -- those are the trees
+# the helpers legitimately act on. A deeper or glob-expanded accident inside a protected tree
 # stays covered by each helper's owner-guard, which acts only on agent- or operator-owned
 # paths and never the root-owned files that fill a system directory.
 #
@@ -39,8 +41,9 @@ AI_TOOLS_PROTECTED_PATHS=(
 
 # ai_tools_protected_path_match <abspath>
 # Print the matching protected entry and return 0 when <abspath> is protected -- it equals
-# an entry, or is an ancestor that contains one. Return 1 otherwise. Expects an absolute
-# path; normalizes a trailing slash so "/etc/" matches "/etc" and bare root stays "/".
+# an entry, is an ancestor that contains one, or is a user home root. Return 1 otherwise.
+# Expects an absolute path; normalizes a trailing slash so "/etc/" matches "/etc" and bare
+# root stays "/".
 ai_tools_protected_path_match() {
     local path="${1:-}" entry
     [[ -n "${path}" ]] || return 1
@@ -49,6 +52,10 @@ ai_tools_protected_path_match() {
         [[ "${path}" == "${entry}" ]] && { printf '%s\n' "${entry}"; return 0; }   # exact
         [[ "${entry}" == "${path}/"* ]] && { printf '%s\n' "${entry}"; return 0; } # path contains entry
     done
+    # User home roots: a direct child of /home matches exactly; deeper paths pass.
+    if [[ "${path}" =~ ^/home/[^/]+$ ]]; then
+        printf '%s\n' "${path} (user home root)"; return 0
+    fi
     return 1
 }
 

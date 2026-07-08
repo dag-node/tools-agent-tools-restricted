@@ -128,10 +128,12 @@ sandbox account can never hold the operator grant. The invariants the agent oper
   memory.)
 - **A protected-paths backstop refuses system directories as targets.** Independently of
   the allowlist, the launch wrapper, the claim CLI, and every elevated helper refuse to act
-  on a system directory (`/`, `/etc`, `/var`, `/usr`, `/home`, `/opt/ai-tools`, …) — defense
-  in depth against a system directory mistakenly added to `allowed-projects`. Matching is
-  exact-or-ancestor, so real projects nested under an operator home or the sandbox-clone
-  area pass. See [safe-paths](.claude/rules/safe-paths.rule.md).
+  on a system directory (`/`, `/etc`, `/var`, `/usr`, `/home`, `/opt/ai-tools`, …) or a user
+  home root (`/home/<user>` — a whole home as a target would hand the agent its dotfiles
+  and keys) — defense in depth against a system directory mistakenly added to
+  `allowed-projects`. Matching is exact-or-ancestor, so real projects nested under an
+  operator home or the sandbox-clone area pass. See
+  [safe-paths](.claude/rules/safe-paths.rule.md).
 
 ## Cross-cutting conventions
 

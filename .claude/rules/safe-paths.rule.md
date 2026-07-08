@@ -23,9 +23,12 @@ a system tree into a claim target.
 ## Matching: exact or ancestor
 
 A target is protected when its resolved real path **equals** a list entry or **contains** one
-(is an ancestor, e.g. `/`). Descendants pass, so a real project nested under an operator home
-(`/home/<user>/<proj>`) or a sandbox clone (`/var/opt/ai-tools/sandbox-projects/<repo>`) is
-unaffected — those are the trees the helpers act on. The boundary catches a *whole* system
+(is an ancestor, e.g. `/`). A **user home root** (a direct child of `/home`) is additionally
+protected exactly: a whole home as a claim or sweep target would hand the agent every dotfile
+and key in it (`~/.ssh`, `~/.gnupg`, …). Descendants pass, so a real project nested under an
+operator home (`/home/<user>/<proj>`) or a sandbox clone
+(`/var/opt/ai-tools/sandbox-projects/<repo>`) is unaffected — those are the trees the helpers
+act on. The boundary catches a *whole* system
 directory being claimed or swept, which requires the target to be (or contain) the system
 tree; a deeper or glob-expanded path *inside* a protected tree is covered instead by each
 helper's owner-guard, which acts only on agent- or operator-owned paths and never the
@@ -33,10 +36,10 @@ root-owned files that fill a system directory ([ownership-and-hooks](ownership-a
 [cli](cli.rule.md)).
 
 The list (`AI_TOOLS_PROTECTED_PATHS`) covers the FHS system roots — `/`, the usrmerge
-symlinks and `/usr` tree, `/etc`, `/var`, `/boot`, `/root`, `/home` (the parent of every user
-home; the homes themselves pass), `/srv`, `/opt` and `/opt/ai-tools` (the control plane), the
-`/dev`/`/proc`/`/sys`/`/run` pseudo-filesystems, the `/mnt`/`/media` mount points, and
-`/tmp`/`/lost+found`. The sandbox's own working areas — `/opt/ai-tools` and
+symlinks and `/usr` tree, `/etc`, `/var`, `/boot`, `/root`, `/home` (with each home root
+matched by the rule above; projects inside a home pass), `/srv`, `/opt` and `/opt/ai-tools`
+(the control plane), the `/dev`/`/proc`/`/sys`/`/run` pseudo-filesystems, the `/mnt`/`/media`
+mount points, and `/tmp`/`/lost+found`. The sandbox's own working areas — `/opt/ai-tools` and
 `/var/opt/ai-tools/sandbox-projects` — are reached as *descendants* of listed entries, so they
 work without a carve-out.
 
