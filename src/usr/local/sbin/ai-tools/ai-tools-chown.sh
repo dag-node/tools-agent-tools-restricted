@@ -5,7 +5,9 @@
 # (ai_tools_handback_t) when the PostToolUse/Stop/SessionStart hooks send a CHOWN
 # request over the handback socket. Accepts a single regular-file or directory
 # target; for directories it strips world bits while preserving group rwx so the
-# agent can keep working in a dir it created.
+# agent can keep working in a dir it created. An interactive invocation confirms
+# per path; --yes skips that for a batch caller (ai-tools-reclaim) that already
+# confirmed its whole set.
 #
 # Reads the operator's allowed-projects allowlist for allow and exclude rules (its path is
 # derived from the operator identity in /etc/ai-tools/operator.conf). That file is owned by
@@ -21,7 +23,25 @@
 
 set -euo pipefail
 
-readonly TARGET="${1:?usage: ai-tools-chown <absolute-path>}"
+# Args: an optional --yes flag (anywhere) skips the interactive per-path confirmation --
+# a batch caller (ai-tools-reclaim) that already took ONE confirmation for the whole set
+# passes it so a long walk does not re-ask per path. The remaining argument is the path.
+ASSUME_YES=false
+TARGET=""
+for arg in "$@"; do
+    case "${arg}" in
+        -y|--yes) ASSUME_YES=true ;;
+        -*) printf 'ai-tools-chown: unknown option: %s\n' "${arg}" >&2; exit 2 ;;
+        *)  if [[ -z "${TARGET}" ]]; then
+                TARGET="${arg}"
+            else
+                printf 'ai-tools-chown: too many arguments\n' >&2; exit 2
+            fi ;;
+    esac
+done
+[[ -n "${TARGET}" ]] \
+    || { printf 'usage: ai-tools-chown [-y|--yes] <absolute-path>\n' >&2; exit 2; }
+readonly TARGET ASSUME_YES
 
 # Operator-identity resolver (operator.lib.sh): resolves the operator that owns a path. A missing
 # lib leaves ai_tools_resolve_owner a fail-closed stub, so the path is left ai-tools-owned rather
@@ -59,6 +79,15 @@ fi
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/safe-paths.lib.sh
 source "${SAFE_PATHS_LIB}"
+
+# Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like
+# safe-paths.lib.sh: the bare source under set -e aborts if it is missing -- a valid
+# install ships it, so there is no fallback. Include-guarded, so this is a no-op when
+# safe-paths.lib.sh above already loaded it.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
+source /usr/local/lib/ai-tools/msg.lib.sh
+# Fixed 80-column frame for any box this helper renders, aligned with the CLI's.
+export AI_TOOLS_MSG_FULLWIDTH=1
 
 # _notify_secret: emit a one-line NOTICE that a secret-named file was written and
 # ai-tools' read access revoked, to stderr (the PostToolUse hook relays it into the
@@ -204,16 +233,16 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
 
             # Interactive invocation (terminal available): show changes and confirm.
             # Non-interactive (hook context, stdin is a pipe): apply silently --
-            # the allowlist is the user's standing authorisation.
-            if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
+            # the allowlist is the user's standing authorisation. --yes skips the
+            # prompt for a batch caller that already confirmed the whole set.
+            if ! ${ASSUME_YES} \
+                    && { [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; }; then
                 {
                     printf '\nchown: %s\n' "${canonical}"
                     printf '  owner:  %s -> %s\n' "${current_owner}" "${target_owner}"
                     printf '%s\n' "${perm_info}"
-                    printf 'apply? [Y]/n '
                 } > /dev/tty
-                read -r response < /dev/tty
-                [[ "${response}" =~ ^[nN] ]] && exit 0
+                ai_tools_msg_confirm "apply?" y || exit 0
             fi
 
             # TOCTOU-safe apply. Every check above ran against the path *string*,
