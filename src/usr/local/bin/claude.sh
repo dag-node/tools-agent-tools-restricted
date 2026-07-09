@@ -396,18 +396,9 @@ elif ${safe_gap}; then
     fi
 fi
 
-if [[ -t 1 ]]; then
-    readonly _C_BOLD=$'\033[1m' _C_DIM=$'\033[2m' _C_RST=$'\033[0m'
-    printf '\n'
-    printf '%s%s%s\n' "${_C_BOLD}" '  ____ _      _    _   _ ____   _____    ____ ____ '     "${_C_RST}"
-    printf '%s%s%s\n' "${_C_BOLD}" ' / ___| |    / \  | | | |  _ \ | ____|  /  __|    \ '    "${_C_RST}"
-    printf '%s%s%s\n' "${_C_BOLD}" '| |     |   / _ \ | | | | | |  |  _|   |  |  | __) | '   "${_C_RST}"
-    printf '%s%s%s\n' "${_C_BOLD}" '| |___| |_ / ___ \| |_|   |_|   |___   |  |__|   _ < '   "${_C_RST}"
-    printf '%s%s%s\n' "${_C_BOLD}" ' \____|______/  __\_____/|____/|_____|  \____|_| \__\ '   "${_C_RST}"
-    printf '\n'
-    printf '  %sClaude Code Restricted, run sessions as sandboxed user.%s\n' "${_C_DIM}" "${_C_RST}"
-    printf '\n'
-fi
+# Launch banner: the shared umbrella brand mark (msg.lib.sh, single-sourced) with this
+# tool's subtitle. The renderer self-gates on a terminal, so no separate [ -t 1 ] guard.
+ai_tools_msg_banner 'Claude Code Restricted — run sessions as an unprivileged sandbox user'
 
 # Pass the validated versioned path to claude-run via an env var that sudo's
 # env_keep carries through. claude-run re-validates before using it.

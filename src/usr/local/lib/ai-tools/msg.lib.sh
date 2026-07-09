@@ -368,3 +368,67 @@ ai_tools_msg_confirm() {
     _ai_tools_msg_audit "confirm: ${question} -> ${result} (${how})"
     [[ "${result}" == "yes" ]]
 }
+
+# ── Umbrella brand banner ──────────────────────────────────────────────────────
+
+# The AI-TOOLS brand mark (ANSI Shadow figlet) -- the SINGLE source of the umbrella logo for
+# every ai-tools surface: this repo's installer and launch wrapper, and any sibling tool in
+# the suite that sources this lib. Kept pristine (no per-context suffixes like an "(inst.)"
+# tag): a caller distinguishes itself in the subtitle, never by altering the art. UTF-8
+# box-drawing glyphs, so it is rendered only to a terminal (see ai_tools_msg_banner).
+_AI_TOOLS_BANNER_ART=(
+' █████╗ ██╗   ████████╗ ██████╗  ██████╗ ██╗     ███████╗'
+'██╔══██╗██║   ╚══██╔══╝██╔═══██╗██╔═══██╗██║     ██╔════╝'
+'███████║██║█████╗██║   ██║   ██║██║   ██║██║     ███████╗'
+'██╔══██║██║╚════╝██║   ██║   ██║██║   ██║██║     ╚════██║'
+'██║  ██║██║      ██║   ╚██████╔╝╚██████╔╝███████╗███████║'
+'╚═╝  ╚═╝╚═╝      ╚═╝    ╚═════╝  ╚═════╝ ╚══════╝╚══════╝'
+)
+
+# ai_tools_msg_version <raw> -- normalize a version string for a banner/meta line. A bare
+# version NUMBER (starts with a digit, or a lone 'v' + digit: 0.1.0, v1.2) is rendered with
+# exactly one leading 'v'. Any other build id -- a `git describe` like 'proj-v1-144-gABCDEF',
+# or the literal 'dev' -- is printed VERBATIM, since 'v'-prefixing it would read as
+# 'vproj-...'. An empty or 'unknown'/'none' value prints nothing, so the caller drops the
+# meta entirely. Echoes the display string on stdout; always succeeds.
+ai_tools_msg_version() {
+    local v="${1:-}"
+    [[ -z "${v}" || "${v}" == unknown || "${v}" == none ]] && return 0
+    if [[ "${v}" =~ ^v?[0-9] ]]; then
+        printf 'v%s' "${v#v}"
+    else
+        printf '%s' "${v}"
+    fi
+}
+
+# ai_tools_msg_banner <subtitle> [version] [mode] -- render the umbrella banner on stdout:
+# the AI-TOOLS brand mark, a subtitle naming THIS tool and what it does, and -- when either
+# is present -- a dim meta line "[mode · ]version" (version via ai_tools_msg_version, so a
+# real number gets a 'v' while a build id / 'dev' / empty is left alone or dropped). The one
+# banner for every umbrella tool: a sibling repo sources this lib and calls it with its own
+# subtitle, so the brand reads the same across surfaces and repos. The caller owns the
+# version SOURCE (e.g. a package version vs a git-describe) and the mode word ("installer");
+# this only formats and lays them out.
+#
+# Printed ONLY on a terminal ([ -t 1 ]); on a pipe/redirect/capture it prints nothing, so a
+# tee'd install log, a piped run, or a `--version` scrape is never polluted with escape codes
+# or box-drawing glyphs. Colour is emitted once past that gate (there is a terminal to read
+# it). Always returns success.
+ai_tools_msg_banner() {
+    [[ -t 1 ]] || return 0
+    local subtitle="${1:-}" version="${2:-}" mode="${3:-}"
+    local bold=$'\033[1m' dim=$'\033[2m' rst=$'\033[0m' line
+    printf '\n'
+    for line in "${_AI_TOOLS_BANNER_ART[@]}"; do
+        printf '%s%s%s\n' "${bold}" "${line}" "${rst}"
+    done
+    printf '\n'
+    [[ -n "${subtitle}" ]] && printf '  %s\n' "${subtitle}"
+    local vshow meta=""
+    vshow="$(ai_tools_msg_version "${version}")"
+    [[ -n "${mode}" ]] && meta="${mode}"
+    [[ -n "${vshow}" ]] && meta="${meta:+${meta} · }${vshow}"
+    [[ -n "${meta}" ]] && printf '  %s%s%s\n' "${dim}" "${meta}" "${rst}"
+    printf '\n'
+    return 0
+}

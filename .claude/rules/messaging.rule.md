@@ -17,9 +17,10 @@ carries no secrets and operator, agent, and root principals all source it, exact
 [logging](logging.rule.md)'s `log.lib.sh`). It exposes `ai_tools_msg <severity> <fd>
 <line...>`, the convenience emitters `ai_tools_msg_{error,warn,notice,info,success}`,
 `ai_tools_msg_wrap <width> <text>` for callers that need wrapped-but-unframed text to
-embed elsewhere, and the two question renderers `ai_tools_msg_pick` and
+embed elsewhere, the two question renderers `ai_tools_msg_pick` and
 `ai_tools_msg_confirm` — every menu and every yes/no prompt in the project renders and
-defaults through them.
+defaults through them — and the umbrella banner `ai_tools_msg_banner` (with its
+`ai_tools_msg_version` helper).
 
 ## What the library guarantees
 
@@ -120,6 +121,27 @@ audits to journald only. `msg.lib.sh` sources `log.lib.sh` from its sibling path
 best-effort — a missing logger drops the audit line, never the prompt — and both libs carry
 an include guard so a consumer that sources both loads each once. The audit never alters the
 decision's exit status, the same guarantee the emitters give.
+
+## Umbrella banner
+
+`ai_tools_msg_banner <subtitle> [version] [mode]` is the single renderer for the **AI-TOOLS**
+brand mark — the ANSI-Shadow figlet that heads this repo's installer (`install.sh
+print_banner`) and launch wrapper (`claude.sh`), and any sibling tool in the suite that
+sources this lib. The art is the **umbrella brand**, single-sourced here (`_AI_TOOLS_BANNER_ART`)
+and kept pristine: a caller distinguishes itself only in the `subtitle` (`<product> — <what it
+does>`), never by decorating the art. `AI-TOOLS` is a **brand/namespace mark, not an
+acronym** — product names stay descriptive (`Agent Tools Restricted`, `Claude Code
+Restricted`), so nothing asserts an "AI" vs "Agent" expansion. It prints only on a terminal
+(`[ -t 1 ]`), so a tee'd install log, a piped run, or a `--version` scrape stays free of
+escape codes and box glyphs.
+
+`version` is laid out through `ai_tools_msg_version`, which prefixes a `v` **only** to a bare
+version number (`0.1.0` → `v0.1.0`) and leaves a build id (a `git describe`), the literal
+`dev`, or an empty value alone — so the installer passes the package version
+(`AI_TOOLS_VERSION`, the value `ai-tools --version` reports), not the noisy git-describe, and
+gets `installer · v0.1.0`. The `mode` word (`installer`) marks a non-running phase; the
+running wrapper passes none. The caller owns which version to feed it (this tool's, or a
+component's); the renderer only formats.
 
 ## The library is required — one implementation, no per-consumer fallback
 

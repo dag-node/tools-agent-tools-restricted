@@ -24,8 +24,6 @@ IFS=$'\n\t'
 
 readonly ACTION="${1:-install}"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSION="$(git -C "${SCRIPT_DIR}" describe --tags --always 2>/dev/null || echo 'dev')"
-readonly VERSION
 
 # ── Guards ─────────────────────────────────────────────────────────────────────
 
@@ -441,17 +439,15 @@ do_summary() {
     fi
 }
 
+# Installer banner. Delegates to the shared umbrella renderer (msg.lib.sh) so the AI-TOOLS
+# brand mark is single-sourced; the installer only supplies its subtitle, the package
+# version (AI_TOOLS_VERSION, the same value `ai-tools --version` reports -- not the noisy
+# git-describe), and the "installer" mode word (this is the install phase, not the running
+# app). The renderer prints nothing when stdout is not a terminal.
 print_banner() {
-    printf '\n'
-    printf '%s%s%s\n' "${C_BOLD}" '  ____ _      _    _   _ ____   _____    ____ ____ '     "${C_RST}"
-    printf '%s%s%s\n' "${C_BOLD}" ' / ___| |    / \  | | | |  _ \ | ____|  /  __|    \ '    "${C_RST}"
-    printf '%s%s%s\n' "${C_BOLD}" '| |     |   / _ \ | | | | | |  |  _|   |  |  | __) | '   "${C_RST}"
-    printf '%s%s%s\n' "${C_BOLD}" '| |___| |_ / ___ \| |_|   |_|   |___   |  |__|   _ < '   "${C_RST}"
-    printf '%s%s%s\n' "${C_BOLD}" ' \____|______/  __\_____/|____/|_____|  \____|_| \__\ '  "${C_RST}"
-    printf '\n'
-    printf '  Agent Tools Restricted -- run ai-tools sandboxed.  %s(v%s)%s\n' \
-        "${C_DIM}" "${VERSION}" "${C_RST}"
-    printf '\n'
+    ai_tools_msg_banner \
+        'Agent Tools Restricted — run coding agents with limited system access' \
+        "${AI_TOOLS_VERSION}" installer
 }
 
 # ── install ────────────────────────────────────────────────────────────────────
