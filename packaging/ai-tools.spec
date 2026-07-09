@@ -193,6 +193,10 @@ install -d -m 0770 %{buildroot}/opt/ai-tools/.claude
 # Default-deny git guard for the control-plane home: ai-tools-bootstrap captures the control
 # plane in a root-private git repo, and this gitignore keeps secrets and churn out of it.
 install -m 0640 src/opt/ai-tools/gitignore %{buildroot}/opt/ai-tools/.gitignore
+# .gitconfig content is host-derived (email domain), so it is %ghost + generated in %post
+# below rather than shipped static, unlike .gitignore. Touched here only so %files' %attr
+# claim has a buildroot target, mirroring the /var/log/ai-tools/*.log ghosts above.
+touch %{buildroot}/opt/ai-tools/.gitconfig
 
 # ── nodejs: toolchain helpers + updater ──────────────────────────────────────
 for h in ai-tools-claude-symlink ai-tools-relabel-entrypoint ai-tools-bootstrap; do
@@ -259,6 +263,19 @@ if command -v setfacl >/dev/null 2>&1; then
     setfacl -m g:ai-ops:rwx /var/opt/ai-tools/sandbox-projects || :
     setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects || :
     setfacl -m g:ai-ops:r-- /var/opt/ai-tools/README.md || :
+fi
+# Root-owned git identity for the control-plane repo ai-tools-bootstrap captures (the RPM
+# counterpart of install.sh's do_install .gitconfig step). $1 -eq 1 is "fresh install only"
+# (RPM's %post argument), the scriptlet equivalent of install.sh's keep_existing -- an
+# upgrade never clobbers operator edits. No operator is bound yet at %post time (that is
+# `ai-tools-admin operator add`, run after this), so only install.sh's hostname -f fallback
+# branch applies here; the projects-user-email branch has nothing to read from yet.
+if [ "$1" -eq 1 ]; then
+    domain="$(hostname -f 2>/dev/null || hostname)"
+    printf '[user]\n\tname = ai-tools\n\temail = ai-tools@%s\n\n[core]\n\tfileMode = true\n\tautocrlf = input\n\n[init]\n\tdefaultBranch = main\n\n[pull]\n\trebase = false\n' \
+        "${domain}" > /opt/ai-tools/.gitconfig
+    chown root:ai-tools /opt/ai-tools/.gitconfig
+    chmod 0644 /opt/ai-tools/.gitconfig
 fi
 # Operator binding + toolchain are per-operator / network steps a scriptlet must not do; direct
 # the operator to them. ai-tools-bootstrap installs the Node toolchain; ai-tools-admin operator
@@ -352,6 +369,7 @@ fi
 %dir %attr(0551, root, ai-tools) /opt/ai-tools/bin
 %dir %attr(3770, root, ai-tools) /opt/ai-tools/.claude
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.gitignore
+%ghost %attr(0644, root, ai-tools) /opt/ai-tools/.gitconfig
 
 %files -n ai-tools-nodejs
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-claude-symlink
