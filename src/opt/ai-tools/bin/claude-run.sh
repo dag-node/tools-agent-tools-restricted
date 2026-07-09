@@ -425,6 +425,52 @@ _unit="@SANDBOX_USER@-claude-$$.service"
 declare -a _workdir_opt=()
 [[ -n "${_workdir}" ]] && _workdir_opt=( "--working-directory=${_workdir}" )
 
+# ── Launch banner + version audit ───────────────────────────────────────────────
+# claude-run runs AS @SANDBOX_USER@, so it can read the toolchain the operator cannot (the
+# 700 package tree) -- the only side that can report the Claude Code version. Gather the
+# three versions with no extra process spawn: Node is the <ver> path component of the
+# versioned binary; Claude Code is the "version" field of its package.json (readable here);
+# ai-tools is the package version stamped at install (@AI_TOOLS_VERSION@, the value
+# `ai-tools --version` reports; the @*@ literal means an unsubstituted source tree -> dev).
+# Each is best-effort -- an unreadable piece shows n/a and never blocks a launch. Logged for
+# debugging (which toolchain a session ran), then shown under the umbrella banner: skipped
+# for the --version/--help print-and-exit passthrough, and (like every banner) only on a
+# terminal.
+# Each value is accepted ONLY if it is a MAJOR.MINOR.PATCH version (optional leading 'v') --
+# the same node-version shape ai-tools-claude-symlink validates, covering both 'v22.23.1' and
+# '2.1.203'. This is a security boundary, not cosmetics: Node comes from the validated
+# CLAUDE_EXEC path, but the Claude Code version is read from a package.json the sandbox
+# account OWNS and can rewrite -- untrusted input flowing to the operator's terminal and
+# journal -- so the strict shape blocks terminal-escape (and any non-version) injection
+# through a tampered value, which falls back to n/a.
+readonly _VER_RE='^v?[0-9]+\.[0-9]+\.[0-9]+$'
+_ait_ver="@AI_TOOLS_VERSION@"; [[ "${_ait_ver}" == @*@ ]] && _ait_ver="dev"
+_node_ver="${CLAUDE_EXEC#*/versions/node/}"; _node_ver="${_node_ver%%/*}"
+[[ "${_node_ver}" =~ ${_VER_RE} ]] || _node_ver="n/a"
+_cc_ver="n/a"
+_pkg="$(realpath -e "${CLAUDE_EXEC}" 2>/dev/null || true)"
+_pkgjson="${_pkg%/bin/claude.exe}/package.json"
+# Regular file only (never block on a fifo swapped in) and a bounded read (never stream a
+# huge one) -- the version sits in the first bytes of package.json.
+if [[ -n "${_pkg}" && -f "${_pkgjson}" && -r "${_pkgjson}" ]]; then
+    _v="$(head -c 65536 -- "${_pkgjson}" 2>/dev/null \
+        | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+    [[ "${_v}" =~ ${_VER_RE} ]] && _cc_ver="${_v}"
+fi
+command -v logger >/dev/null 2>&1 && logger -t claude-run -p authpriv.info \
+    "versions: claude-code=${_cc_ver} node=${_node_ver} ai-tools=${_ait_ver}"
+
+_show_banner=1
+[[ $# -eq 1 ]] && case "$1" in --version|-v|--help|-h) _show_banner=0 ;; esac
+if (( _show_banner )); then
+    printf -v _l_cc '%-13s%s' 'Claude Code' "$(ai_tools_msg_version "${_cc_ver}")"
+    printf -v _l_nd '%-13s%s' 'Node'        "$(ai_tools_msg_version "${_node_ver}")"
+    printf -v _l_at '%-13s%s' 'ai-tools'    "$(ai_tools_msg_version "${_ait_ver}")"
+    ai_tools_msg_banner \
+        'Claude Code Restricted — run sessions as an unprivileged sandbox user' \
+        "${_l_cc}" "${_l_nd}" "${_l_at}"
+fi
+
 exec systemd-run --user --pty \
     --unit="${_unit}" \
     --description="Claude Code @SANDBOX_USER@ session" \

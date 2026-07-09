@@ -396,9 +396,9 @@ elif ${safe_gap}; then
     fi
 fi
 
-# Launch banner: the shared umbrella brand mark (msg.lib.sh, single-sourced) with this
-# tool's subtitle. The renderer self-gates on a terminal, so no separate [ -t 1 ] guard.
-ai_tools_msg_banner 'Claude Code Restricted — run sessions as an unprivileged sandbox user'
+# The launch banner is emitted by claude-run, not here: it runs as the sandbox account and
+# can read the toolchain the operator cannot (the 700 package tree), so it reports the
+# Claude Code / Node / ai-tools versions under the umbrella logo. See claude-run.
 
 # Pass the validated versioned path to claude-run via an env var that sudo's
 # env_keep carries through. claude-run re-validates before using it.

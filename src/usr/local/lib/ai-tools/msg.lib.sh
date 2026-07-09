@@ -401,14 +401,14 @@ ai_tools_msg_version() {
     fi
 }
 
-# ai_tools_msg_banner <subtitle> [version] [mode] -- render the umbrella banner on stdout:
-# the AI-TOOLS brand mark, a subtitle naming THIS tool and what it does, and -- when either
-# is present -- a dim meta line "[mode · ]version" (version via ai_tools_msg_version, so a
-# real number gets a 'v' while a build id / 'dev' / empty is left alone or dropped). The one
-# banner for every umbrella tool: a sibling repo sources this lib and calls it with its own
-# subtitle, so the brand reads the same across surfaces and repos. The caller owns the
-# version SOURCE (e.g. a package version vs a git-describe) and the mode word ("installer");
-# this only formats and lays them out.
+# ai_tools_msg_banner <subtitle> [dim_line...] -- render the umbrella banner on stdout: the
+# AI-TOOLS brand mark, a subtitle naming THIS tool and what it does, then each remaining
+# argument as a dim meta line (an empty one is skipped, so a maybe-empty line is safe to
+# pass). The caller composes the meta -- one line "installer · v0.1.0", or several aligned
+# lines "Claude Code  v2.1.203" / "Node  v22.23.1" / "ai-tools  v0.1.0" -- typically running
+# each version through ai_tools_msg_version. The one banner for every umbrella tool: a
+# sibling repo sources this lib and calls it with its own subtitle, so the brand reads the
+# same across surfaces and repos.
 #
 # Printed ONLY on a terminal ([ -t 1 ]); on a pipe/redirect/capture it prints nothing, so a
 # tee'd install log, a piped run, or a `--version` scrape is never polluted with escape codes
@@ -416,7 +416,7 @@ ai_tools_msg_version() {
 # it). Always returns success.
 ai_tools_msg_banner() {
     [[ -t 1 ]] || return 0
-    local subtitle="${1:-}" version="${2:-}" mode="${3:-}"
+    local subtitle="${1:-}"; [[ $# -gt 0 ]] && shift
     local bold=$'\033[1m' dim=$'\033[2m' rst=$'\033[0m' line
     printf '\n'
     for line in "${_AI_TOOLS_BANNER_ART[@]}"; do
@@ -424,11 +424,9 @@ ai_tools_msg_banner() {
     done
     printf '\n'
     [[ -n "${subtitle}" ]] && printf '  %s\n' "${subtitle}"
-    local vshow meta=""
-    vshow="$(ai_tools_msg_version "${version}")"
-    [[ -n "${mode}" ]] && meta="${mode}"
-    [[ -n "${vshow}" ]] && meta="${meta:+${meta} · }${vshow}"
-    [[ -n "${meta}" ]] && printf '  %s%s%s\n' "${dim}" "${meta}" "${rst}"
+    for line in "$@"; do
+        [[ -n "${line}" ]] && printf '  %s%s%s\n' "${dim}" "${line}" "${rst}"
+    done
     printf '\n'
     return 0
 }

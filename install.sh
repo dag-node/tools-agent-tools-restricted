@@ -447,7 +447,7 @@ do_summary() {
 print_banner() {
     ai_tools_msg_banner \
         'Agent Tools Restricted — run coding agents with limited system access' \
-        "${AI_TOOLS_VERSION}" installer
+        "installer · $(ai_tools_msg_version "${AI_TOOLS_VERSION}")"
 }
 
 # ── install ────────────────────────────────────────────────────────────────────

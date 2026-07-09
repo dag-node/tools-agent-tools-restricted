@@ -124,24 +124,19 @@ decision's exit status, the same guarantee the emitters give.
 
 ## Umbrella banner
 
-`ai_tools_msg_banner <subtitle> [version] [mode]` is the single renderer for the **AI-TOOLS**
-brand mark — the ANSI-Shadow figlet that heads this repo's installer (`install.sh
-print_banner`) and launch wrapper (`claude.sh`), and any sibling tool in the suite that
-sources this lib. The art is the **umbrella brand**, single-sourced here (`_AI_TOOLS_BANNER_ART`)
-and kept pristine: a caller distinguishes itself only in the `subtitle` (`<product> — <what it
-does>`), never by decorating the art. `AI-TOOLS` is a **brand/namespace mark, not an
-acronym** — product names stay descriptive (`Agent Tools Restricted`, `Claude Code
-Restricted`), so nothing asserts an "AI" vs "Agent" expansion. It prints only on a terminal
-(`[ -t 1 ]`), so a tee'd install log, a piped run, or a `--version` scrape stays free of
-escape codes and box glyphs.
+`ai_tools_msg_banner <subtitle> [dim_line...]` renders the **AI-TOOLS** brand mark — the
+single-sourced ANSI-Shadow figlet (`_AI_TOOLS_BANNER_ART`) that heads the installer, the
+launch, and any sibling tool that sources this lib. Each tool supplies its own `subtitle`
+(`<product> — <what it does>`) and dim meta lines while the art stays constant, so the brand
+reads the same everywhere. `AI-TOOLS` is a brand mark, so product names stay descriptive
+(`Agent Tools Restricted`, `Claude Code Restricted`). It draws on a terminal only.
 
-`version` is laid out through `ai_tools_msg_version`, which prefixes a `v` **only** to a bare
-version number (`0.1.0` → `v0.1.0`) and leaves a build id (a `git describe`), the literal
-`dev`, or an empty value alone — so the installer passes the package version
-(`AI_TOOLS_VERSION`, the value `ai-tools --version` reports), not the noisy git-describe, and
-gets `installer · v0.1.0`. The `mode` word (`installer`) marks a non-running phase; the
-running wrapper passes none. The caller owns which version to feed it (this tool's, or a
-component's); the renderer only formats.
+Meta lines are composed via `ai_tools_msg_version`, which `v`-prefixes a bare version number
+(`0.1.0` → `v0.1.0`) and passes a build id or `dev` through unchanged. The installer shows
+one line (`installer · v0.1.0`, the package version `ai-tools --version` reports). The launch
+banner shows three — `Claude Code`, `Node`, `ai-tools` — from **`claude-run`**, which runs as
+the sandbox account so it can read each from the toolchain, and logs them (`logger -t
+claude-run`) as a record of which versions a session ran.
 
 ## The library is required — one implementation, no per-consumer fallback
 
