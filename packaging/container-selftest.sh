@@ -104,15 +104,20 @@ phase "${OPERATOR} is in ai-ops + listed in operator.conf" \
 # ── project claim ────────────────────────────────────────────────────────────
 mkdir -p "${PROJECT}"; chown "${OPERATOR}:${OPERATOR}" "${PROJECT}"
 as_operator "cd '${PROJECT}' && git init -q" || true
-# The project sits inside the operator's home (mode 700), unreachable by the sandbox account. No
-# manual grant here: `ai-tools --project-claim` detects the unreachable ancestor and -- under
-# AI_TOOLS_ASSUME_YES -- grants the traverse-only ACL on the home itself, so this exercises that
-# reg_reach path end to end (the home is operator-owned and not a protected dir, so it qualifies).
+# The project sits inside the operator's home (mode 700), unreachable by the sandbox account. A
+# home ROOT (a direct child of /home) is itself an exact protected path (safe-paths.lib.sh), so
+# reg_reach's blocking-ancestor walk hits it first and always warns-and-skips rather than granting
+# -- this scenario exercises that blocked path, never the grant-apply branch (which needs a
+# blocking ancestor the operator owns that is NOT a home root, e.g. a private dir one level deeper).
+# Either way the claim itself still succeeds; reg_reach's outcome is a warning, not a failure.
 
-# Drive the claim non-interactively: AI_TOOLS_ASSUME_YES=1 is the CLI's own assume-yes hook for its
-# default-yes prompts (claim confirm, .git normalization), so it proceeds without a controlling tty.
+# Drive the claim non-interactively. AI_TOOLS_ASSUME_YES=1 is the CLI's own assume-yes hook, but it
+# only fast-tracks default-YES prompts (here: .git normalization) -- by design (messaging.rule.md),
+# it never pre-answers a default-NO one. The claim's own proceed prompt ("Apply the pending steps IN
+# PLACE?") is default-NO, so it needs the CLI's per-invocation --yes, the same flag claude.sh passes
+# for its own delegated claim.
 phase "operator claims the project (allowlist + ACL + safedir + label)" \
-    as_operator "AI_TOOLS_ASSUME_YES=1 ai-tools --project-claim '${PROJECT}'"
+    as_operator "AI_TOOLS_ASSUME_YES=1 ai-tools --project-claim --yes '${PROJECT}'"
 
 phase "project is in the operator's allowlist" \
     bash -c "grep -q '${PROJECT}' /home/${OPERATOR}/.config/ai-tools/allowed-projects"
