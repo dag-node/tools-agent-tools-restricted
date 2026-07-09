@@ -106,6 +106,21 @@ Pre-answering is two distinct mechanisms, by direction:
   `ai-tools-chown --yes` (the batch caller's per-path skip) — an auditable operator
   decision, never ambient state.
 
+## Decision audit trail
+
+`ai_tools_msg_confirm` and `ai_tools_msg_pick` are the project's two decision points, so
+each records its outcome through the shared logger ([logging](logging.rule.md)): one INFO
+line naming the question and the answer (`confirm: <question> -> yes|no (answered | default
+| assume-yes | no-tty-default)`) or the menu choice (`menu: chose <n>/<N> (<label>)`). This
+gives every user action taken through this library **one consistent trail** at the single
+chokepoint, rather than each call site logging its own outcome (or, as before, mostly not).
+It lands in journald always and in the root-only file sink under the caller's
+`AI_TOOLS_LOG_FILE` when a root helper set one; a non-root caller (the wrapper, the CLI)
+audits to journald only. `msg.lib.sh` sources `log.lib.sh` from its sibling path for this,
+best-effort — a missing logger drops the audit line, never the prompt — and both libs carry
+an include guard so a consumer that sources both loads each once. The audit never alters the
+decision's exit status, the same guarantee the emitters give.
+
 ## The library is required — one implementation, no per-consumer fallback
 
 `msg.lib.sh` carries the project's yes/no decisions, not just formatting, so every

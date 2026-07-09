@@ -71,6 +71,28 @@
 if [[ -n "${_AI_TOOLS_MSG_LIB_LOADED:-}" ]]; then return 0; fi
 readonly _AI_TOOLS_MSG_LIB_LOADED=1
 
+# Decision audit trail. ai_tools_msg_confirm and ai_tools_msg_pick below record every
+# yes/no answer and menu choice through the shared logger (log.lib.sh), so every user
+# action taken through this library leaves ONE consistent trail: journald always, and the
+# root-only file sink (/var/log/ai-tools/<component>.log) when a root caller set
+# AI_TOOLS_LOG_FILE. The logger is sourced from the SIBLING file -- resolved relative to
+# this one, so it works both in the source tree and installed -- and only when not already
+# loaded (log.lib.sh is include-guarded, so a consumer that sources both loads it once).
+# Best-effort: a missing logger degrades to no audit line, never a broken prompt, matching
+# every other logging call in the project.
+if ! declare -F ai_tools_log >/dev/null 2>&1; then
+    # shellcheck source=SCRIPTDIR/log.lib.sh
+    source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || true
+fi
+
+# _ai_tools_msg_audit <text...> -- emit one INFO audit line for a decision made through this
+# library, tagged with the caller's AI_TOOLS_LOG_TAG. A no-op when the logger is
+# unavailable; never alters the caller's exit status (logging is best-effort throughout).
+_ai_tools_msg_audit() {
+    declare -F ai_tools_log >/dev/null 2>&1 || return 0
+    ai_tools_log info "$@"
+}
+
 # Inner text width cap so a framed line never exceeds 80 columns:
 #   "# " (2) + text + " #" (2) = text + 4  =>  text <= 76.
 readonly AI_TOOLS_MSG_WIDTH="${AI_TOOLS_MSG_WIDTH:-76}"
@@ -292,9 +314,16 @@ ai_tools_msg_pick() {
             fi
         done
         printf 'Enter number (default %d): ' "${def}"
-    } > /dev/tty 2>/dev/null || { printf '%s' "${def}"; return 0; }
+    # 2>/dev/null BEFORE > /dev/tty (as in ai_tools_msg_confirm): redirections apply left to
+    # right, and with no controlling terminal it is the > /dev/tty open that fails, so stderr
+    # must already be silenced or the shell leaks the ENXIO complaint to the caller.
+    } 2>/dev/null > /dev/tty || {
+        _ai_tools_msg_audit "menu: no terminal, took default ${def}/${n} (${!def})"
+        printf '%s' "${def}"; return 0
+    }
     IFS= read -r choice < /dev/tty 2>/dev/null || choice=""
     [[ "${choice}" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= n )) || choice="${def}"
+    _ai_tools_msg_audit "menu: chose ${choice}/${n} (${!choice})"
     printf '%s' "${choice}"
 }
 
@@ -315,22 +344,27 @@ ai_tools_msg_pick() {
 # that must pre-answer a default-NO question does it with its own explicit flag (e.g.
 # ai-tools --yes, ai-tools-chown --yes), an auditable per-invocation decision.
 ai_tools_msg_confirm() {
-    local question="$1" def="${2:?ai_tools_msg_confirm: default (y|n) is required}" hint resp
+    local question="$1" def="${2:?ai_tools_msg_confirm: default (y|n) is required}" hint resp how result
     case "${def}" in
         y) hint="[Y/n] (default: Yes)" ;;
         n) hint="[y/N] (default: No)" ;;
         *) printf 'ai_tools_msg_confirm: default must be y or n, got %s\n' "${def}" >&2
            return 2 ;;
     esac
-    [[ "${def}" == "y" && "${AI_TOOLS_ASSUME_YES:-}" == 1 ]] && return 0
+    if [[ "${def}" == "y" && "${AI_TOOLS_ASSUME_YES:-}" == 1 ]]; then
+        resp="y"; how="assume-yes"
     # 2>/dev/null BEFORE > /dev/tty: redirections apply left to right, and with no
     # controlling terminal it is the > /dev/tty open itself that fails -- stderr must
     # already be silenced or the shell prints the ENXIO complaint to the caller's stderr.
-    if printf '%s %s: ' "${question}" "${hint}" 2>/dev/null > /dev/tty; then
+    elif printf '%s %s: ' "${question}" "${hint}" 2>/dev/null > /dev/tty; then
         IFS= read -r resp < /dev/tty 2>/dev/null || resp=""
+        if [[ -n "${resp}" ]]; then how="answered"; else how="default"; fi
+        resp="${resp:-${def}}"
     else
-        resp=""
+        resp="${def}"; how="no-tty-default"
     fi
-    resp="${resp:-${def}}"
-    [[ "${resp}" =~ ^[yY] ]]
+    if [[ "${resp}" =~ ^[yY] ]]; then result="yes"; else result="no"; fi
+    # One audit line per decision, at the single yes/no chokepoint (see log.lib.sh sink).
+    _ai_tools_msg_audit "confirm: ${question} -> ${result} (${how})"
+    [[ "${result}" == "yes" ]]
 }
