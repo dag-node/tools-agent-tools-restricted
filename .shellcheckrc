@@ -10,4 +10,12 @@ external-sources=true
 # The fail-soft `if ! source "${LIB}"; then <stubs>; fi` fallbacks and the trap- and
 # name-dispatched functions are reachable by design, so SC2317 stays off. SC2034 stays
 # on, scoped per producer where a name is exported for a sourcing script or the tests.
-disable=SC2317
+#
+# SC2053 (unquoted RHS of `==` in `[[ ]]`) fires on the secret-name and protected-path
+# loops, which match a value against a *pattern* by design: the agent-influenced operand
+# is quoted and matches literally, the unquoted side is the operator/root-owned glob.
+# SC2010/SC2012 (`ls -Z`/`ls | grep`) fire on the SELinux context reads, each a single
+# quoted path, so the non-alphanumeric-filename concern does not apply. All three are
+# correct as written across six files; see .claude/rules/shellcheck.rule.md's "Accepted
+# findings" for the full rationale.
+disable=SC2317,SC2053,SC2010,SC2012

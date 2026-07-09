@@ -21,9 +21,12 @@ from each file to find it):
   on the installed system. Following keeps cross-library references honest at lint time: a
   name shared across the source boundary resolves to its definition, and a stale source path
   shows up as `SC1091`.
-- **`disable=SC2317`** (command appears unreachable). With sources followed, this marks only
-  the fail-soft `if ! source "${LIB}"; then <stubs>; fi` fallbacks and functions dispatched
-  indirectly (traps, name lookup), both reachable by design.
+- **`disable=SC2317,SC2053,SC2010,SC2012`** turns off the four codes in "Accepted findings"
+  below repo-wide, so CI's plain `shellcheck` run (no `--severity` override) gates on
+  everything else while these stay silent without a per-line disable anywhere. SC2317
+  (command appears unreachable) marks the fail-soft
+  `if ! source "${LIB}"; then <stubs>; fi` fallbacks and functions dispatched indirectly
+  (traps, name lookup), both reachable by design.
 - **`SC2034`** (variable appears unused) stays on. A library that sets a name for a sourcing
   script or the test suite to read carries an inline `# shellcheck disable=SC2034` at the
   definition, naming the reader — the control-plane constants, the `ai_tools_resolve_owner`

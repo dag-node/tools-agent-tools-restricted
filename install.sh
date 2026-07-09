@@ -23,7 +23,8 @@ set -euo pipefail
 IFS=$'\n\t'
 
 readonly ACTION="${1:-install}"
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
 
 # ── Guards ─────────────────────────────────────────────────────────────────────
 
