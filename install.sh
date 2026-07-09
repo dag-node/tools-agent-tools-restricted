@@ -66,13 +66,16 @@ warn()    { printf '  %s!%s %s\n' "${C_YEL}" "${C_RST}" "$*" >&2; }
 die()     { printf '%sinstall: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; exit 1; }
 
 # Shared message formatter, sourced from the SOURCE TREE (the installed copy may not exist
-# yet -- this script installs it). Frames interactive prompts in the '#' box. Best-effort:
-# a plain fallback keeps the installer working if the file is missing.
+# yet -- this script installs it). Frames interactive prompts in the '#' box and carries
+# the yes/no prompts (ai_tools_msg_confirm). REQUIRED, like control-plane.lib.sh below:
+# the prompts gate decisions, and the source tree that provides this script provides the
+# lib -- a missing file means a broken checkout, which is fatal rather than degraded.
 readonly MSG_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/msg.lib.sh"
 # shellcheck source=/dev/null
-if ! source "${MSG_LIB}" 2>/dev/null; then
-    ai_tools_msg_block() { shift; printf '%s\n' "$@" >&2; }
-fi
+source "${MSG_LIB}" || {
+    printf 'install.sh: cannot source %s\n' "${MSG_LIB}" >&2; exit 1; }
+# One fixed 80-column frame for every box in the install flow, so consecutive prompts align.
+export AI_TOOLS_MSG_FULLWIDTH=1
 
 # Version stamped into the deployed CLI (`ai-tools --version`); the RPM stamps %{version}
 # from the same file at build. A missing file falls back to "dev" rather than aborting.
@@ -88,48 +91,44 @@ readonly CONTROL_PLANE_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/control-pla
 source "${CONTROL_PLANE_LIB}" || {
     printf 'install.sh: cannot source %s\n' "${CONTROL_PLANE_LIB}" >&2; exit 1; }
 
-# ask <title> <question> <context-line...> -- the one interactive prompt shape, so every
-# prompt in the install flow looks the same:
+# confirm_boxed <title> <y|n> <question> [context-line...] -- the one interactive prompt
+# shape, so every prompt in the install flow looks the same:
 #   * a FIXED 80-column box (AI_TOOLS_MSG_FULLWIDTH) titled <title>, framing the context,
-#   * the inline <question> (carry its own [Y]/n or y/[N] hint),
+#   * the shared inline yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh),
 # all on the controlling terminal, BYPASSING the do_install log tee that captures
 # stdout+stderr. msg.lib.sh prints a blank line BEFORE every box, so prompts self-separate.
-# Echoes the raw reply on stdout (empty when non-interactive, so the caller picks the
-# default). Read it with resp="$(ask ...)".
-ask() {
-    local title="$1" question="$2"; shift 2
-    local reply=''
+# Non-interactive runs draw nothing and take <y|n>, the safe default for the question.
+confirm_boxed() {
+    local title="$1" def="$2" question="$3"; shift 3
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
-        AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg_block "${title}" "$@" 2>/dev/tty
-        printf '%s ' "${question}" > /dev/tty
-        read -r reply < /dev/tty
+        (( $# )) && ai_tools_msg_block "${title}" "$@" 2>/dev/tty
     fi
-    printf '%s' "${reply}"
+    ai_tools_msg_confirm "${question}" "${def}"
 }
 
 # Decide what to do with an existing user config file. Interactive: ask whether
 # to keep it (default) or overwrite. When warn is non-empty a second confirmation
-# is required before overwriting (use for destructive cases). Non-interactive:
-# always keep, so an unattended re-install never clobbers user edits. Returns 0
-# to KEEP the existing file, 1 to (re)write it.
+# is required before overwriting (for overwrites that discard operator-maintained
+# state). Non-interactive: always keep (the confirms take their defaults), so an
+# unattended re-install never clobbers user edits. Returns 0 to KEEP the existing
+# file, 1 to (re)write it.
 # $1 path      file to check
-# $2 overwrite short label for the "n =" branch (default: "overwrite with shipped default")
+# $2 overwrite short label for what answering No does (default: "overwrite with shipped default")
 # $3 warn      if non-empty, printed before a second prompt; overwrite is cancelled
-#              unless the user explicitly types y/Y
+#              unless the user explicitly answers yes
 keep_existing() {
-    local path="$1" overwrite="${2:-overwrite with shipped default}" warn="${3:-}" resp confirm
+    local path="$1" overwrite="${2:-overwrite with shipped default}" warn="${3:-}"
     [[ -f "${path}" ]] || return 1            # absent: caller writes a fresh copy
-    resp="$(ask "Awaiting input" "Keep it? (Enter = keep, n = ${overwrite}) [Y]/n" \
-                "${path} already exists.")"
-    if [[ "${resp}" =~ ^[nN] ]]; then
-        if [[ -n "${warn}" ]]; then
-            confirm="$(ask "Warning" "Confirm overwrite? (y = overwrite, Enter/N = cancel) y/[N]" \
-                           "${warn}")"
-            [[ "${confirm}" =~ ^[yY] ]] || return 0   # cancelled: keep
-        fi
-        return 1
+    if confirm_boxed "Awaiting input" y "Keep it?" \
+            "${path} already exists." \
+            "Answering No will ${overwrite}."; then
+        return 0                               # non-interactive or Enter: keep
     fi
-    return 0                                   # non-interactive or Enter: keep
+    if [[ -n "${warn}" ]]; then
+        confirm_boxed "Warning" n "Overwrite it now?" "${warn}" \
+            || return 0                        # cancelled: keep
+    fi
+    return 1
 }
 
 # Create a directory only if it does not already exist, preserving perms on
@@ -293,38 +292,55 @@ offer_selinux() {
         return 0
     fi
 
+    # Current module state up front, so the decision -- and especially a skip -- is
+    # unambiguous about what stays loaded and enforcing from a previous install.
+    local loaded
+    loaded="$(semodule -l 2>/dev/null | grep '^ai_tools' | paste -sd ' ' - || true)"
+
     say "  SELinux is active. An optional confinement layer locks the agent"
     say "  to domain ${C_BOLD}ai_tools_t${C_RST} (ships prebuilt; loads ${C_BOLD}ENFORCING${C_RST})."
+    if [[ -n "${loaded}" ]]; then
+        say "  loaded from a previous install: ${C_BOLD}${loaded}${C_RST}"
+    else
+        say "  no ai_tools policy module is currently loaded."
+    fi
     say ""
 
-    local resp run_it=1
-    resp="$(ask "Awaiting input" "(Enter = install, n = skip) [Y]/n" \
-                "Build and load the SELinux policy module now?")"
-    [[ "${resp}" =~ ^[nN] ]] && run_it=0
-
-    if (( run_it )); then
+    if confirm_boxed "Awaiting input" y \
+            "Build and load the SELinux policy module now?" \
+            "The optional SELinux confinement layer can be installed now or any time later."; then
         if "${selinux_script}" install; then
             ok "SELinux confinement installed"
         else
             warn "SELinux install did not complete -- bring it up later with:"
             warn "  sudo ${selinux_script} install"
         fi
+    elif [[ -n "${loaded}" ]]; then
+        log "skipped -- the loaded module(s) stay active and enforcing: ${loaded}"
+        say "    ${C_DIM}manage them with: sudo ${selinux_script} {install|remove|list-groups}${C_RST}"
     else
-        log "skipped -- bring it up later with:"
+        log "skipped -- the sandbox runs without SELinux confinement until you run:"
         say "    ${C_BOLD}sudo ${selinux_script} install${C_RST}"
     fi
 }
 
 # Suggest lint tools the sandboxed agent can use in its sessions (shellcheck for shell
 # sources, rpmlint for RPM specs, yamllint for YAML/workflows) when the host lacks them.
-# Print-only, and strictly from the repos ALREADY enabled -- it neither installs anything
-# nor enables EPEL (which carries all three on EL); a tool no enabled repo provides is
-# silently dropped from the suggestion. Any packaged version serves; no pinning.
+# A tool counts as present by its binary (any install method: package, pip, manual) or by
+# its package name, so nothing already usable is re-suggested. Print-only, and strictly
+# from the repos ALREADY enabled -- it neither installs anything nor enables EPEL (which
+# carries all three on EL); a tool no enabled repo provides is silently dropped from the
+# suggestion. Any packaged version serves; no pinning.
 suggest_lint_tools() {
     command -v dnf >/dev/null 2>&1 || return 0
+    # The script-global IFS ($'\n\t') would join ${available[*]} with newlines and break
+    # the dnf command line across lines; the join below needs a space.
+    local IFS=' '
     local -a available=()
-    local t
-    for t in ShellCheck rpmlint yamllint; do
+    local t bin
+    for t in ShellCheck:shellcheck rpmlint:rpmlint yamllint:yamllint; do
+        bin="${t#*:}"; t="${t%%:*}"
+        command -v "${bin}" >/dev/null 2>&1 && continue
         rpm -q "${t}" >/dev/null 2>&1 && continue
         dnf -q list --available "${t}" >/dev/null 2>&1 && available+=("${t}")
     done
@@ -384,6 +400,7 @@ do_summary() {
     _chk /usr/local/sbin/ai-tools/ai-tools-admin
     _chk /usr/sbin/ai-tools-bootstrap
     _chk /usr/sbin/ai-tools-admin
+    _chk /usr/sbin/ai-tools
     _chk /usr/local/sbin/ai-tools/ai-tools-handback
     _chk /usr/local/bin/claude
     _chk /usr/local/bin/ai-tools-handback-client
@@ -449,6 +466,32 @@ do_install() {
     id "${SANDBOX_USER}" &>/dev/null \
         || die "${SANDBOX_USER} user not found -- create it first (README step 2)"
 
+    print_banner
+    say "  projects user : ${PROJECTS_USER} (${PROJECTS_HOME})"
+    say "  sandbox user  : ${SANDBOX_USER}:${SANDBOX_GROUP}"
+
+    # Proceed gate -- everything above is print-only; the first change to the host
+    # (including the install log itself) happens only past this point. Two questions:
+    # Enter proceeds through the first, but the second defaults to CANCEL, so an
+    # accidental double-Enter installs nothing. Interactive only -- an unattended run
+    # (CI, container self-test) proceeds as before.
+    if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
+        if ! confirm_boxed "Awaiting input" y "Proceed with the install?" \
+            "This installs the ai-tools sandbox from this source tree onto the host." \
+            "" \
+            "The dnf/rpm package is the preferred install method; running install.sh" \
+            "directly requires the manual steps described in README.md." \
+            "No changes have been made yet."; then
+            say "  cancelled -- no changes were made"
+            exit 0
+        fi
+        if ! confirm_boxed "Confirm" n "Modify this system now?" \
+            "Second confirmation: the install writes system files as root."; then
+            say "  cancelled -- no changes were made"
+            exit 0
+        fi
+    fi
+
     # Capture the full install transcript to /var/log/ai-tools/install.log. tee keeps
     # colour on the terminal and writes a colour-stripped copy to the file; stderr is
     # folded in so warnings land in the log too. The dir is created 700 root:root now so
@@ -465,10 +508,6 @@ do_install() {
     logger -t ai-tools-install -p daemon.notice -- \
         "install started (projects user ${PROJECTS_USER}, sandbox ${SANDBOX_USER}:${SANDBOX_GROUP})" \
         2>/dev/null || true
-
-    print_banner
-    say "  projects user : ${PROJECTS_USER} (${PROJECTS_HOME})"
-    say "  sandbox user  : ${SANDBOX_USER}:${SANDBOX_GROUP}"
 
     section "System files (root-owned)"
 
@@ -653,6 +692,12 @@ do_install() {
     ln -sfn /usr/local/sbin/ai-tools/ai-tools-bootstrap /usr/sbin/ai-tools-bootstrap
     log "/usr/sbin/ai-tools-admin -> /usr/local/sbin/ai-tools/ai-tools-admin"
     ln -sfn /usr/local/sbin/ai-tools/ai-tools-admin /usr/sbin/ai-tools-admin
+    # The ai-tools CLI gets the same secure_path symlink for the OPPOSITE reason: it must
+    # never run under sudo, and without the symlink `sudo ai-tools` dies with sudo's
+    # "command not found" (/usr/local/bin is not in secure_path) before the CLI's own
+    # refusal -- "run as the projects user" -- can explain the right invocation.
+    log "/usr/sbin/ai-tools -> /usr/local/bin/ai-tools"
+    ln -sfn /usr/local/bin/ai-tools /usr/sbin/ai-tools
 
     # Handback privilege bridge daemon.  750 root:root -- root-owned and only
     # root-executable: this is the privileged endpoint; the SANDBOX_USER reaches it
@@ -1084,9 +1129,8 @@ do_install() {
     say "    ${C_BOLD}systemctl --user -M ${SANDBOX_USER}@ list-timers nvm-update.timer${C_RST}"
     say ""
     say "  register projects with the ai-tools CLI (run as ${PROJECTS_USER}, no sudo):"
-    say "    ${C_BOLD}ai-tools --project-create /path/to/project${C_RST}    ${C_DIM}# a real project${C_RST}"
-    say "    ${C_BOLD}ai-tools --sandbox-create /path/to/repo${C_RST}       ${C_DIM}# an isolated shallow clone${C_RST}"
-    say "    ${C_BOLD}ai-tools --lockdown /path/to/project${C_RST}          ${C_DIM}# revoke agent access to secrets${C_RST}"
+    say "    ${C_BOLD}ai-tools --project-claim /path/to/project${C_RST}     ${C_DIM}# claim a project in place${C_RST}"
+    say "    ${C_BOLD}ai-tools --help${C_RST}                               ${C_DIM}# all commands${C_RST}"
     say "  see ${C_DIM}/var/opt/ai-tools/README.md${C_RST}"
     say ""
     suggest_lint_tools
@@ -1098,18 +1142,22 @@ do_install() {
     # skips all of it (a surprising, heavy default), leaving `install.sh check-perms` and
     # `tests/run.sh` available on demand.
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
-        section "Verify"
         if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 ]]; then
             warn "toolchain not provisioned -- the wrapper/handback/SELinux checks skip or fail"
             warn "until it is; for a full pass run sudo ai-tools-bootstrap first, then re-test"
             warn "with: sudo ${SCRIPT_DIR}/tests/run.sh all"
         fi
-        if [[ ! "$(ask "Run test suite" "(Enter = run, n = skip) [Y]/n" \
-                "Run the full test suite (incl. the permissions check) now to verify the install?")" =~ ^[nN] ]]; then
+        # The section header prints only when the suite actually runs, so a skip leaves
+        # no empty "Verify" heading in the transcript.
+        if confirm_boxed "Run test suite" y "Run it now?" \
+                "Run the full test suite (incl. the permissions check) now to verify the install?"; then
+            section "Verify"
             section "Installed files"
             do_summary
             "${SCRIPT_DIR}/tests/run.sh" all \
                 || warn "test suite reported failures -- review the output above"
+        else
+            log "test suite skipped -- run it any time with: sudo ${SCRIPT_DIR}/tests/run.sh all"
         fi
     fi
 
@@ -1147,6 +1195,7 @@ do_uninstall() {
     rm -rf /usr/local/sbin/ai-tools
     rm -f /usr/sbin/ai-tools-bootstrap         # sudo-PATH symlinks -> /usr/local/sbin/ai-tools/...
     rm -f /usr/sbin/ai-tools-admin
+    rm -f /usr/sbin/ai-tools                   # secure_path symlink -> /usr/local/bin/ai-tools
     rm -rf /usr/local/lib/ai-tools
     rm -f /usr/local/bin/ai-tools-handback-client
     rm -f /usr/local/bin/ai-tools
@@ -1174,15 +1223,14 @@ do_uninstall() {
     # Optionally remove this project from the allowlist (default: keep)
     local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
     if [[ -f "${allowlist}" ]] && grep -qxF "${SCRIPT_DIR}" "${allowlist}"; then
-        _resp="$(ask "Awaiting input" "[Y]/n:" \
-                     "Keep this project in allowed-projects?" "  ${SCRIPT_DIR}")"
-        if [[ "${_resp}" =~ ^[nN] ]]; then
+        if confirm_boxed "Awaiting input" y \
+                "Keep this project in allowed-projects?" "  ${SCRIPT_DIR}"; then
+            log "allowed-projects: kept"
+        else
             local escaped
             escaped="$(printf '%s' "${SCRIPT_DIR}" | sed 's/[\\|]/\\&/g')"
             sed -i "\|^${escaped}$|d" "${allowlist}"
             log "allowed-projects: removed"
-        else
-            log "allowed-projects: kept"
         fi
     fi
 
@@ -1191,14 +1239,13 @@ do_uninstall() {
     git_escaped="$(printf '%s' "${SCRIPT_DIR}" | sed 's/[.^$*+?{|\\[()\]]/\\&/g')"
     if git config --file /opt/ai-tools/.gitconfig \
             --get-all safe.directory 2>/dev/null | grep -qxF "${SCRIPT_DIR}"; then
-        _resp="$(ask "Awaiting input" "[Y]/n:" \
-                     "Keep this project in git safe.directory?" "  ${SCRIPT_DIR}")"
-        if [[ "${_resp}" =~ ^[nN] ]]; then
+        if confirm_boxed "Awaiting input" y \
+                "Keep this project in git safe.directory?" "  ${SCRIPT_DIR}"; then
+            log "git safe.directory: kept"
+        else
             git config --file /opt/ai-tools/.gitconfig \
                 --unset-all safe.directory "^${git_escaped}$" 2>/dev/null || true
             log "git safe.directory: removed"
-        else
-            log "git safe.directory: kept"
         fi
     fi
 

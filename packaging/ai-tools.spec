@@ -134,6 +134,11 @@ ln -s %{ai_sbindir}/ai-tools-admin %{buildroot}%{_sbindir}/ai-tools-admin
 install -d -m 0755 %{buildroot}%{ai_bindir}
 install -m 0755 src%{ai_bindir}/ai-tools.sh                 %{buildroot}%{ai_bindir}/ai-tools
 install -m 0750 src%{ai_bindir}/ai-tools-handback-client.py %{buildroot}%{ai_bindir}/ai-tools-handback-client
+# The CLI gets a %%{_sbindir} symlink for the OPPOSITE reason ai-tools-admin does: it must
+# never run under sudo, and without the symlink `sudo ai-tools` dies with sudo's "command
+# not found" (%%{ai_bindir} is not in secure_path) before the CLI's own refusal -- run as
+# the projects user, drop the sudo -- can explain the right invocation.
+ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 
 # ── base: shared libraries ───────────────────────────────────────────────────
 # 0751: group SANDBOX_GROUP r-x for the agent; world-execute so an operator (not a
@@ -307,6 +312,7 @@ fi
 %{_sbindir}/ai-tools-admin
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-handback
 %attr(0755, root, root) %{ai_bindir}/ai-tools
+%{_sbindir}/ai-tools
 %attr(0750, root, ai-tools) %{ai_bindir}/ai-tools-handback-client
 %dir %attr(0751, root, ai-tools) %{ai_libdir}
 %attr(0644, root, root) %{ai_libdir}/log.lib.sh
