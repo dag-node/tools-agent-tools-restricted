@@ -10,7 +10,10 @@
 #
 # Runs as root via sudo under ai-tools --project-claim (no-NOPASSWD, like ai-tools-lockdown);
 # CAP_FOWNER lets it ACL files the operator does not own. The walk skips secret-named,
-# '!'-excluded, skip-list, and foreign-owned paths.
+# '!'-excluded, skip-list, and foreign-owned paths. Alongside the ACL, the walk normalizes
+# the primary group of a DRIFTED path -- group-accessible yet not group @SANDBOX_GROUP@
+# (it arrived by rename, inheriting neither the setgid group nor the default ACL) -- so a
+# re-claim's drift scan (acl_drift_scan in the CLI) finds the tree settled.
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
@@ -160,12 +163,12 @@ _is_allowed  "${canonical}" || exit 0
 # access AND default ACL; regular files the access ACL only. Mirrors ai-tools-setgid's
 # pinned-fd apply. Returns 0 on apply, 1 when skipped or on error.
 _safe_setfacl() {
-    local path="$1" normalize="${2:-}" expect_ident fd got_ident got_uid got_ftype
+    local path="$1" normalize="${2:-}" expect_ident fd got_ident got_uid got_grp got_mode got_ftype
     expect_ident="$(stat -c '%d:%i' "${path}" 2>/dev/null)" || return 1
     { exec {fd}< "${path}"; } 2>/dev/null || return 1
-    # %u BEFORE %F: %F ("regular empty file") is multi-word and must be the last field.
-    read -r got_ident got_uid got_ftype \
-        < <(stat -L -c '%d:%i %u %F' "/proc/self/fd/${fd}" 2>/dev/null) \
+    # %u/%G/%a BEFORE %F: %F ("regular empty file") is multi-word and must be the last field.
+    read -r got_ident got_uid got_grp got_mode got_ftype \
+        < <(stat -L -c '%d:%i %u %G %a %F' "/proc/self/fd/${fd}" 2>/dev/null) \
         || { exec {fd}<&-; return 1; }
     if [[ "${got_ident}" != "${expect_ident}" ]]; then
         exec {fd}<&-
@@ -178,10 +181,21 @@ _safe_setfacl() {
         return 1
     fi
     local rc=0
+    # Group ownership (plus setgid on dirs) so future entries inherit group GROUP -- the
+    # ownership inheritance ai-tools-setgid gives the work tree's directories. Applied
+    # unconditionally under 'normalize' (the .git pass), and on the main walk to a DRIFTED
+    # path: group-accessible (any group/other bit) yet not group GROUP -- it arrived by
+    # rename, inheriting neither the setgid group nor the default ACL; the same predicate
+    # the CLI's acl_drift_scan reports. The chgrp is what settles the drift report: an ACL
+    # entry alone grants access but leaves the primary group foreign, so the scan would
+    # re-flag the path on every claim. Operates on the pinned fd, TOCTOU-safe like the ACL.
+    local fix_group=false
     if [[ "${normalize}" == "normalize" ]]; then
-        # Group ownership (plus setgid on dirs) so future entries inherit group GROUP --
-        # the ownership inheritance ai-tools-setgid gives the work tree, applied here to
-        # .git. Operates on the pinned fd, TOCTOU-safe like the ACL below.
+        fix_group=true
+    elif [[ "${got_grp}" != "${GROUP}" ]] && (( 8#${got_mode} & 077 )); then
+        fix_group=true
+    fi
+    if ${fix_group}; then
         chgrp -- "${GROUP}" "/proc/self/fd/${fd}" 2>/dev/null || rc=1
         [[ "${got_ftype}" == directory ]] \
             && { chmod -- g+s "/proc/self/fd/${fd}" 2>/dev/null || rc=1; }
