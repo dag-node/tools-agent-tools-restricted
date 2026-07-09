@@ -52,10 +52,24 @@
 # contains commands: flush-left lines wrap as prose, indented/blank lines stay verbatim
 # (commands on one line, long ones overflowing the right border). ai_tools_msg_pick draws
 # a numbered menu under such a block and echoes the chosen index, defaulting safely when no
-# terminal is present -- the question companion to a block. See each function.
+# terminal is present -- the question companion to a block. ai_tools_msg_confirm is the
+# single yes/no prompt: the standard bracketed hint with the default spelled out --
+# "[Y/n] (default: Yes): " / "[y/N] (default: No): " -- on /dev/tty, returning the default
+# when no terminal answers, so every yes/no question in the project renders and defaults
+# one way. See each function.
 #
-# Best-effort, like log.lib.sh: this library only formats; it never changes the exit
-# status of the operation whose outcome it reports.
+# This library is REQUIRED by its consumers (bare-sourced under set -e, like
+# safe-paths.lib.sh): ai_tools_msg_confirm carries yes/no decisions, so there is no
+# per-consumer fallback -- a valid install ships the lib, and a broken one fails closed.
+# The one exception is session-hook.sh, which only emits and whose sweep must run
+# regardless (see its header). The emitters still only format: they never change the
+# exit status of the operation whose outcome they report.
+
+# Include guard. Consumers source this lib directly AND through safe-paths.lib.sh; the
+# readonly constants below would abort a re-source under set -e, so a second source is a
+# no-op instead.
+if [[ -n "${_AI_TOOLS_MSG_LIB_LOADED:-}" ]]; then return 0; fi
+readonly _AI_TOOLS_MSG_LIB_LOADED=1
 
 # Inner text width cap so a framed line never exceeds 80 columns:
 #   "# " (2) + text + " #" (2) = text + 4  =>  text <= 76.
@@ -282,4 +296,41 @@ ai_tools_msg_pick() {
     IFS= read -r choice < /dev/tty 2>/dev/null || choice=""
     [[ "${choice}" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= n )) || choice="${def}"
     printf '%s' "${choice}"
+}
+
+# ai_tools_msg_confirm <question> <y|n> -- the yes/no companion to ai_tools_msg_pick,
+# and the ONE renderer for the project's inline yes/no prompt, in the standard bracketed
+# notation with the Enter outcome spelled out:
+#   "<question> [Y/n] (default: Yes): "   for a yes default
+#   "<question> [y/N] (default: No): "    for a no default
+# Drawn on /dev/tty and answered from /dev/tty; returns 0 for yes, 1 for no. The default
+# is a REQUIRED argument: every call site states which way its question falls. Frame the
+# question positively (ask about the action, never its negation) and give it the default
+# that is the SAFE outcome -- Enter, and any run with no terminal, take it (opening
+# /dev/tty is the honest probe: with no controlling terminal it fails ENXIO), so an
+# unattended or piped run never blocks and never lands on the unsafe side.
+# AI_TOOLS_ASSUME_YES=1 (unattended runs, tests) skips the prompt and answers yes ONLY
+# when the default is already 'y': it fast-tracks safe-direction questions but never
+# flips a default-NO question -- those always ask (or take No with no terminal). A caller
+# that must pre-answer a default-NO question does it with its own explicit flag (e.g.
+# ai-tools --yes, ai-tools-chown --yes), an auditable per-invocation decision.
+ai_tools_msg_confirm() {
+    local question="$1" def="${2:?ai_tools_msg_confirm: default (y|n) is required}" hint resp
+    case "${def}" in
+        y) hint="[Y/n] (default: Yes)" ;;
+        n) hint="[y/N] (default: No)" ;;
+        *) printf 'ai_tools_msg_confirm: default must be y or n, got %s\n' "${def}" >&2
+           return 2 ;;
+    esac
+    [[ "${def}" == "y" && "${AI_TOOLS_ASSUME_YES:-}" == 1 ]] && return 0
+    # 2>/dev/null BEFORE > /dev/tty: redirections apply left to right, and with no
+    # controlling terminal it is the > /dev/tty open itself that fails -- stderr must
+    # already be silenced or the shell prints the ENXIO complaint to the caller's stderr.
+    if printf '%s %s: ' "${question}" "${hint}" 2>/dev/null > /dev/tty; then
+        IFS= read -r resp < /dev/tty 2>/dev/null || resp=""
+    else
+        resp=""
+    fi
+    resp="${resp:-${def}}"
+    [[ "${resp}" =~ ^[yY] ]]
 }

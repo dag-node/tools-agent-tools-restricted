@@ -72,21 +72,15 @@ ai_tools_assert_safe_target() {
     local line_intro="Refusing the ${operation}: the target is a protected system directory."
     local line_path="${resolved_path}"
     local line_detail="It is on the ai-tools protected-paths backstop (matched ${matched_entry}); the sandbox does not operate on system directories. A real project must live elsewhere -- do not add a system directory to allowed-projects."
-    if declare -F ai_tools_msg_error >/dev/null 2>&1; then
-        ai_tools_msg_error "${line_intro}" "${line_path}" "${line_detail}"
-    else
-        printf 'ai-tools: %s\n  %s\n  %s\n' "${line_intro}" "${line_path}" "${line_detail}" >&2
-    fi
+    ai_tools_msg_error "${line_intro}" "${line_path}" "${line_detail}"
     declare -F ai_tools_log_warn >/dev/null 2>&1 \
         && ai_tools_log_warn "refused ${operation} on protected path ${resolved_path} (matched ${matched_entry})"
     return 1
 }
 
-# Provide the msg.lib box when the consumer has not already sourced it (the root helpers do
-# not). The declare -F guard avoids a second source in the wrapper/CLI, which already source
-# msg.lib -- msg.lib has no include guard and its readonly vars would abort a re-source under
-# set -e. Best-effort: the plain-stderr fallback in the assert covers a missing library.
-if ! declare -F ai_tools_msg_error >/dev/null 2>&1; then
-    # shellcheck source=SCRIPTDIR/msg.lib.sh
-    source /usr/local/lib/ai-tools/msg.lib.sh 2>/dev/null || true
-fi
+# msg.lib is REQUIRED (the refusal above renders through it, and the sourcing helpers
+# rely on its ai_tools_msg_confirm): a bare source, so a missing lib fails this library's
+# own load and the consumer's fail-closed handling takes over. msg.lib carries an include
+# guard, so a consumer that already sourced it re-sources a no-op.
+# shellcheck source=SCRIPTDIR/msg.lib.sh
+source /usr/local/lib/ai-tools/msg.lib.sh

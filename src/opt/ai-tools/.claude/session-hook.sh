@@ -96,8 +96,12 @@ if ! source "${LOG_LIB}" 2>/dev/null; then
 fi
 
 # Shared message formatter -- frames the SessionStart NOTICE below in the paste-safe
-# '#' box, wrapped within 80 columns. Best-effort: if the lib is missing, fall back to
-# plain text so the notice still reaches the user.
+# '#' box, wrapped within 80 columns. THE one msg.lib consumer that keeps a fallback:
+# every other consumer requires the lib (it carries their yes/no decisions and their
+# runs may fail closed), but this hook only EMITS, and its sweep is itself the safety
+# action -- the handback must run even on an install broken enough to lose the
+# formatter, so a missing lib degrades the notice to plain text instead of stopping
+# the sweep (see messaging.rule.md).
 readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/msg.lib.sh
 if ! source "${MSG_LIB}" 2>/dev/null; then

@@ -154,14 +154,12 @@ readonly AI_TOOLS_NVM_DIR="/opt/ai-tools/.nvm"
 
 # Shared message formatter: frames the pre-launch refusals and the podman NOTICE below
 # in the paste-safe '#' box (wrapped within 80 columns) on a terminal, plain text
-# otherwise. Best-effort -- the fallback keeps the prior plain-stderr behaviour if the
-# lib is missing.
+# otherwise. REQUIRED, like the wrapper's own load: a missing lib means a broken
+# install, and this shim fails closed on those -- the bare source under set -e refuses
+# the launch (see messaging.rule.md).
 readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/msg.lib.sh
-if ! source "${MSG_LIB}" 2>/dev/null; then
-    ai_tools_msg_error()  { printf '%s\n' "$@" >&2; }
-    ai_tools_msg_notice() { printf '%s\n' "$@" >&2; }
-fi
+source "${MSG_LIB}"
 
 # Identity guard: the session must run AS @SANDBOX_USER@ -- the confined account the transient
 # unit, the SELinux transition, and the umask are all built around. A direct or sudo invocation
