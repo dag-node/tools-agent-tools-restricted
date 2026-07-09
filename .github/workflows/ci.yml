@@ -118,8 +118,8 @@ jobs:
             exit 1
           fi
 
-      - name: Install podman
-        run: sudo apt-get update && sudo apt-get install -y podman
+      - name: Install podman + zip
+        run: sudo apt-get update && sudo apt-get install -y podman zip
 
       - name: Build + extract release RPMs
         run: |
@@ -137,6 +137,16 @@ jobs:
           done
           sudo chown -R "$(id -u):$(id -g)" dist-rpms
 
+      # Both el9 and el10 RPMs land as flat, same-named-prefix assets on one release page
+      # (see the upload below); a per-EL zip removes the "which four files go together"
+      # ambiguity that creates -- `dnf install ./*.rpm` after unzipping is then unambiguous
+      # by construction, since each archive holds only one EL's four packages.
+      - name: Bundle per-EL zip archives
+        run: |
+          for el in 9 10; do
+            (cd "dist-rpms/el${el}" && zip -j "../ai-tools-el${el}-${GITHUB_REF_NAME}.zip" ./*.rpm)
+          done
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -144,4 +154,6 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
+            dist-rpms/ai-tools-el9-${GITHUB_REF_NAME}.zip \
+            dist-rpms/ai-tools-el10-${GITHUB_REF_NAME}.zip \
             dist-rpms/el9/*.rpm dist-rpms/el10/*.rpm

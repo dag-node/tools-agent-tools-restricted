@@ -41,6 +41,9 @@ agent-agnostic.
 #    claude-code-restricted); pass dnf all of them at once so it resolves the
 #    inter-package deps from the local files and orders the install itself.
 #    (Or run `sudo ./install.sh install` from a source checkout.)
+#    A GitHub Release lists both EL9 and EL10 builds as flat assets -- grab the
+#    matching ai-tools-elN-vX.Y.Z.zip (not the loose *.rpm files) so this glob
+#    can't mix major versions.
 sudo dnf install ./*.rpm
 
 # 2. Provision the sandbox account's Node toolchain + claude (network, once)
@@ -444,6 +447,14 @@ modify, and distribute it subject to that license's terms. The most
 important one: if you run a modified version as a network service, you must
 make your modified source available to that service's users. Full text:
 [`LICENSE`](LICENSE), or <https://www.gnu.org/licenses/agpl-3.0.html>.
+
+**Claude Code is separate.** This license covers only this repository's own
+source — the sandboxing, install, and CLI machinery. `ai-tools-bootstrap`
+installs Claude Code itself (`@anthropic-ai/claude-code`) fresh from npm at
+your own bootstrap step; it is a separate proprietary Anthropic product
+under its own license and terms, never vendored or redistributed by this
+project. See [Anthropic's Claude Code](https://github.com/anthropics/claude-code)
+for its own terms.
 
 dag-node's commercial/enterprise offerings (fleet management, centralized
 audit/policy reporting, SSO integration, support contracts) are built on top
