@@ -196,9 +196,9 @@ printf 'ai-tools-lockdown: %d secret-matching path(s) under %s:\n' \
 ai_tools_log_info "scan${scan_mode}: ${#hits[@]} secret-matching path(s) under ${target}"
 for path in "${hits[@]}"; do
     if [[ -d "${path}" ]]; then
-        printf '  [dir]  %s\n' "${path}" >&2
+        printf '  [dir]  %s\n' "${path//[[:cntrl:]]/?}" >&2
     else
-        printf '  [file] %s\n' "${path}" >&2
+        printf '  [file] %s\n' "${path//[[:cntrl:]]/?}" >&2
     fi
     ai_tools_log_info "scan: secret-matching ${path}"
 done
@@ -258,7 +258,7 @@ _safe_apply() {
     /usr/bin/chmod -- "${mode}"  "/proc/self/fd/${fd}"
     exec {fd}<&-
     ai_tools_log_info "locked ${path} -> ${OWNER} ${mode}"
-    printf '  locked %s  ->  %s %s\n' "${path}" "${OWNER}" "${mode}" >&2
+    printf '  locked %s  ->  %s %s\n' "${path//[[:cntrl:]]/?}" "${OWNER}" "${mode}" >&2
     return 0
 }
 

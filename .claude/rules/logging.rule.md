@@ -43,6 +43,18 @@ present-tense `DEBUG`; one after a completed unit of work is past-tense `INFO`. 
 are best-effort — a failed write is swallowed, so logging never aborts or alters the exit
 status of the operation it describes.
 
+Messages are **control-character-sanitized** before either sink: `ai_tools_log` replaces
+every `[[:cntrl:]]` byte in the message with `?` (printable text and multi-byte UTF-8
+untouched). Agent-created filenames reach the log (a handback records the path it restored),
+so this keeps a terminal escape in a crafted filename from injecting into a session that
+`cat`s the root-owned file log, and a newline from forging an extra line. The helpers that
+also print an agent-named path straight to a terminal — `ai-tools-chown`'s per-path prompt
+and breach `NOTICE`, `ai-tools-reclaim`'s pre-confirmation sample, `ai-tools-lockdown`'s
+scan and locked lines — defang it the same way (`${path//[[:cntrl:]]/?}`) at the print site,
+since those bypass the library. The handback
+daemon needs no such step: it rejects any request argument carrying a control byte before it
+reaches a helper or its own `handback.log`.
+
 The directory is labelled `ai_tools_log_t` (`selinux/policy/ai_tools.fc`); the helpers that run
 in `ai_tools_t` (`ai-tools-chown`, `ai-tools-setgid`, and `ai-tools-claude-symlink` under
 the updater) are granted append/create on that type (`selinux/policy/ai_tools.te`), so file

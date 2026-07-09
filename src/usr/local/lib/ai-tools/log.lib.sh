@@ -67,6 +67,11 @@ ai_tools_log() {
     local tag="${AI_TOOLS_LOG_TAG:-ai-tools}" prio msg
     prio="$(_ai_tools_log_prio "${level}")"
     msg="$*"
+    # Defang control characters before EITHER sink. Agent-created filenames flow through here
+    # (a handback logs the path it restored), so a raw ESC would inject terminal escapes into
+    # a session that `cat`s the file log, and a raw newline would forge an extra log line.
+    # Replace each control char with '?'; printable text and multi-byte UTF-8 are untouched.
+    msg="${msg//[[:cntrl:]]/?}"
 
     # journald via logger(1): -t sets the SyslogIdentifier, -p the facility.level
     # PRIORITY. Always attempted; failure (no logger, no journald) is ignored.

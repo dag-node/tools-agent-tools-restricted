@@ -96,6 +96,7 @@ export AI_TOOLS_MSG_FULLWIDTH=1
 # args:  path  old_owner  new_owner  old_mode  new_mode
 _notify_secret() {
     local path="$1" old_owner="$2" new_owner="$3" old_mode="$4" new_mode="$5" msg
+    path="${path//[[:cntrl:]]/?}"   # agent-named path -> stderr + log: defang terminal escapes
     printf -v msg 'NOTICE: secret-named file written by agent considered breached, rotate the secret: %s (ai-tools read access revoked; owner %s -> %s, mode %s -> %s)' \
         "${path}" "${old_owner}" "${new_owner}" "${old_mode}" "${new_mode}"
     printf 'ai-tools-chown: %s\n' "${msg}" >&2
@@ -238,7 +239,7 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             if ! ${ASSUME_YES} \
                     && { [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; }; then
                 {
-                    printf '\nchown: %s\n' "${canonical}"
+                    printf '\nchown: %s\n' "${canonical//[[:cntrl:]]/?}"
                     printf '  owner:  %s -> %s\n' "${current_owner}" "${target_owner}"
                     printf '%s\n' "${perm_info}"
                 } > /dev/tty

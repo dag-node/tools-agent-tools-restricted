@@ -114,7 +114,7 @@ printf 'ai-tools-reclaim: %d agent-owned path(s) under %s, e.g.:\n' \
     "${#paths[@]}" "${canonical}" >&2
 for path in "${paths[@]:0:3}"; do
     read -r og m < <(stat -c '%U:%G %a' "${path}" 2>/dev/null) || { og='?'; m='?'; }
-    printf '  %-18s %-4s %s\n' "${og}" "${m}" "${path}" >&2
+    printf '  %-18s %-4s %s\n' "${og}" "${m}" "${path//[[:cntrl:]]/?}" >&2
 done
 (( ${#paths[@]} > 3 )) && printf '  ... and %d more\n' "$(( ${#paths[@]} - 3 ))" >&2
 
