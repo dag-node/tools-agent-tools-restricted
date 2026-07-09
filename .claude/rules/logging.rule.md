@@ -20,7 +20,12 @@ secrets and every principal sources it). It exposes `ai_tools_log <level>` and
   `600 root:root`: the root helpers append as root, while `SANDBOX_USER` — neither the dir
   owner nor able to traverse a `700` dir — can neither read nor tamper with the trail. That
   keeps the secret filenames `ai-tools-chown` records out of the agent's reach. The files
-  are `chown.log`, `setgid.log`, `symlink.log`, `lockdown.log`, and `install.log`.
+  are `chown.log`, `setgid.log`, `setfacl.log`, `symlink.log`, `lockdown.log`,
+  `relabel.log`, and `install.log`. The directory path defaults to `/var/log/ai-tools` but
+  honors an `AI_TOOLS_LOG_DIR` override — a root-only test hook (sudo strips it, the
+  handback daemon execs with its own environment), so the test suite points a run's file
+  logs at a throwaway dir instead of the production trail (see
+  [tests](tests.rule.md)); no production principal can redirect it.
 
 What is logged is a caller convention, not enforced by the library: the privileged
 operations the hooks and helpers perform, the CLI's workflow milestones (project/sandbox

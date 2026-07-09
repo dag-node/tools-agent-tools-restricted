@@ -78,6 +78,20 @@ declare -a _cleanup=()
 _teardown() { local p; for p in "${_cleanup[@]:-}"; do [[ -n "${p}" ]] && rm -rf "${p}"; done; return 0; }
 trap _teardown EXIT
 
+# Redirect the helpers' root-only file logs (chown.log, setgid.log, setfacl.log, ...) away
+# from the production /var/log/ai-tools into a throwaway dir, so a test run never appends
+# to -- or raises spurious ERROR lines in (a negative-path test feeds a helper /etc/passwd,
+# a missing group, a bogus version) -- the real operation trail. AI_TOOLS_LOG_DIR is a
+# root-only hook, exactly like AI_TOOLS_ALLOWLIST / AI_TOOLS_OPERATOR_CONF: sudo strips it
+# and the live handback daemon execs helpers with its own environment, so only a root
+# caller execing a helper directly (this suite) redirects it. The journald sink still
+# carries every line under its per-component tag, so nothing is lost. A helper the LIVE
+# daemon execs (integration/handback.sh) keeps the real dir -- the daemon does not inherit
+# this -- matching the AI_TOOLS_ALLOWLIST limitation. Registered for teardown.
+_test_logdir="$(mktemp -d /tmp/ai-tools-testlog.XXXXXX)"
+_cleanup+=("${_test_logdir}")
+export AI_TOOLS_LOG_DIR="${_test_logdir}"
+
 # mktestdir: create THE dedicated /tmp boundary for this test and register it for teardown.
 # Mode 0755 so an `sudo -u ai-tools` boundary check can traverse in to a fixture (the
 # fixture's own mode is what the check exercises). Sets the global TESTDIR.

@@ -41,6 +41,16 @@ its own environment, so neither the operator nor the agent can inject it in prod
 only a root caller that sets the env and execs a helper directly (the test suite) can
 redirect it.
 
+The harness redirects the helpers' root-only **file log** the same way: it exports
+`AI_TOOLS_LOG_DIR` (the third root-only hook, same rationale as `AI_TOOLS_ALLOWLIST`) at a
+throwaway `/tmp` dir cleaned up on exit, so a helper a test execs directly writes its
+`chown.log`/`setgid.log`/… lines there instead of appending to — or raising spurious
+`ERROR` lines in (a negative-path test feeds a helper `/etc/passwd`, a missing group, a
+bogus version) — the production `/var/log/ai-tools` trail. A helper the **live daemon**
+execs (`integration/handback.sh`) keeps the real dir, since the daemon does not inherit the
+override — the same limitation as `AI_TOOLS_ALLOWLIST`. The journald sink is unaffected, so
+every line is still queryable by its per-component tag.
+
 ## Categories
 
 **`unit`** — hermetic logic tests of the deployed helpers (`ai-tools-chown`, `-setgid`,

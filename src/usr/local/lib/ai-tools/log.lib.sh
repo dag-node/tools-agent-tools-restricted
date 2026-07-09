@@ -30,7 +30,21 @@
 # created, locked down), and the full install transcript -- not routine per-path sweep
 # churn, which is emitted at DEBUG only (and only when a path is actually changed).
 
-readonly AI_TOOLS_LOG_DIR="/var/log/ai-tools"
+# Include guard. Consumers source this lib directly, and msg.lib.sh sources it too (for its
+# decision audit trail), so one process can reach it twice; the readonly below would abort a
+# re-source under set -e, so a second source is a no-op. Tags, files, and levels are read per
+# call, so a single definition serves every caller.
+if [[ -n "${_AI_TOOLS_LOG_LIB_LOADED:-}" ]]; then return 0; fi
+readonly _AI_TOOLS_LOG_LIB_LOADED=1
+
+# Directory for the optional root-only file sink. Defaults to /var/log/ai-tools; an
+# AI_TOOLS_LOG_DIR already in the environment overrides it. Like AI_TOOLS_ALLOWLIST this is
+# a root-only hook -- sudo strips it (env_reset, not in env_keep) and the handback daemon
+# execs the helpers with its own environment, so neither an operator nor the agent can
+# redirect the audit trail in production; only a root caller that execs a helper directly
+# (the test suite) can, so a test run's helper logs land in a throwaway dir instead of the
+# real trail. The journald sink is unaffected. See tests.rule.md.
+readonly AI_TOOLS_LOG_DIR="${AI_TOOLS_LOG_DIR:-/var/log/ai-tools}"
 
 # _ai_tools_log_prio <level> -- map a level word to its syslog priority. Unknown -> info.
 _ai_tools_log_prio() {
@@ -59,10 +73,19 @@ ai_tools_log() {
     logger -t "${tag}" -p "daemon.${prio}" -- "${msg}" 2>/dev/null || true
 
     # Optional root-only file sink. The umask subshell keeps a freshly created log 600.
+    # AI_TOOLS_LOG_FILE is reduced to a bare basename (strip any leading path), so a value
+    # carrying '/' or '..' can never escape AI_TOOLS_LOG_DIR into an arbitrary file. This is
+    # defense in depth, not a live exposure: only the root helpers set the variable, each to
+    # a literal like "chown.log" (a plain assignment that overwrites anything a caller
+    # inherited), and an agent cannot reach a root writer's environment (the handback daemon
+    # execs helpers with systemd's env, not the session's; sudo strips the caller's), while
+    # the sink no-ops for a non-root caller regardless. The guard bounds a FUTURE caller that
+    # might set it from less-trusted input.
     if [[ -n "${AI_TOOLS_LOG_FILE:-}" ]]; then
+        local file="${AI_TOOLS_LOG_FILE##*/}"
         ( umask 077
           printf '%s %-7s [%d] %s\n' "$(date -Is)" "${level^^}" "$$" "${msg}" \
-              >> "${AI_TOOLS_LOG_DIR}/${AI_TOOLS_LOG_FILE}"
+              >> "${AI_TOOLS_LOG_DIR}/${file}"
         ) 2>/dev/null || true
     fi
 }
