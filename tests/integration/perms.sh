@@ -166,6 +166,7 @@ check_file_optional /var/log/ai-tools/setgid.log   root root 600
 check_file_optional /var/log/ai-tools/symlink.log  root root 600
 check_file_optional /var/log/ai-tools/lockdown.log root root 600
 check_file_optional /var/log/ai-tools/relabel.log  root root 600
+check_file_optional /var/log/ai-tools/handback.log root root 600
 check_file_optional /var/log/ai-tools/install.log  root root 600
 # Projects-user config dir 700 + allowlist 600: ai-tools (not owner, not in PROJECTS_GROUP,
 # cannot traverse the 700 dir) can neither read nor modify the approved-projects list even if

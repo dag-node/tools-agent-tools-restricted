@@ -31,10 +31,18 @@
 # each line as a MSG response line so the client can forward it to its own stderr,
 # which the hooks forward to the agent session -- preserving the NOTICE UX.
 #
+# Audit trail (_audit): the daemon records its own events -- rejected peers, malformed or
+# refused requests, helper timeouts/exec failures, and one line per served request -- to
+# journald AND the root-only /var/log/ai-tools/handback.log, the socket-layer counterpart to
+# the helpers' chown.log/setgid.log/symlink.log.  Only the root daemon writes the file; the
+# agent-side client cannot (DAC), so it stays journald-only.
+#
 # Deploy: install.sh deploys src/usr/local/sbin/ai-tools/ai-tools-handback.py
 # to /usr/local/sbin/ai-tools/ai-tools-handback (750 root:root, @SANDBOX_USER@
 # substituted by install_subst).
 
+import datetime
+import os
 import pwd
 import signal
 import socket
@@ -43,6 +51,44 @@ import subprocess
 import sys
 
 _SANDBOX_USER = '@SANDBOX_USER@'
+
+# Durable operation trail, co-located with the root helpers' own logs under the root-only
+# /var/log/ai-tools (dir 0700, files 0600 root:root; labelled ai_tools_log_t, which
+# ai_tools_handback_t may create/append -- see ai_tools.te). The daemon runs as root, so it
+# can write it; the client runs as the agent and cannot (DAC), so the file trail is the
+# daemon's alone, while the client stays journald-only. _audit records the events a reader
+# of chown.log/setgid.log/symlink.log would NOT otherwise see -- rejected peers, malformed
+# or refused requests, helper timeouts/exec failures -- plus one line per served request, so
+# the bridge's own activity is visible rather than inferred from the helpers' logs.
+_LOG_FILE = '/var/log/ai-tools/handback.log'
+
+# sd-daemon log-level prefixes: systemd's journal stream parses a leading "<N>" as the
+# syslog priority, so `journalctl -t ai-tools-handback -p warning` filters correctly without
+# spawning logger(1) (a subprocess the tight SystemCallFilter is better off not needing).
+_PRIO = {'error': '<3>', 'warning': '<4>', 'notice': '<5>', 'info': '<6>', 'debug': '<7>'}
+
+
+def _audit(level, msg):
+    # type: (str, str) -> None
+    # Two sinks, mirroring log.lib.sh: journald via stderr (StandardError=journal; systemd
+    # stamps the timestamp + identifier, the "<N>" prefix the priority) ALWAYS, and the
+    # root-only file with an explicit "<ts> <LEVEL> [<pid>] <msg>" line matching the helpers'
+    # format. Both are best-effort: a failed write never aborts or delays the handback.
+    try:
+        sys.stderr.write(_PRIO.get(level, '<6>') + msg + '\n')
+        sys.stderr.flush()
+    except OSError:
+        pass
+    try:
+        stamp = datetime.datetime.now().astimezone().replace(microsecond=0).isoformat()
+        line = '%s %-7s [%d] %s\n' % (stamp, level.upper(), os.getpid(), msg)
+        fd = os.open(_LOG_FILE, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        try:
+            os.write(fd, line.encode('utf-8', 'replace'))
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
 
 # Request line is capped at _MAX_LINE bytes (binary read) so a client that omits
 # the trailing newline cannot force the handler to buffer arbitrarily large data.
@@ -96,9 +142,7 @@ def main():
     try:
         expected_uid = pwd.getpwnam(_SANDBOX_USER).pw_uid
     except KeyError:
-        sys.stderr.write(
-            'ai-tools-handback: unknown sandbox user %r\n' % _SANDBOX_USER
-        )
+        _audit('error', 'unknown sandbox user %r' % _SANDBOX_USER)
         _send('ERR internal: unknown sandbox user %s' % _SANDBOX_USER)
         sys.exit(1)
 
@@ -112,16 +156,14 @@ def main():
         )
         sock.close()
     except OSError as exc:
-        sys.stderr.write('ai-tools-handback: SO_PEERCRED: %s\n' % exc)
+        _audit('error', 'SO_PEERCRED check failed: %s' % exc)
         _send('ERR internal: credential check failed')
         sys.exit(1)
 
     peer_pid, peer_uid, _ = struct.unpack('iII', cred_raw)
     if peer_uid != expected_uid:
-        sys.stderr.write(
-            'ai-tools-handback: rejected uid %d pid %d (want uid %d)\n'
-            % (peer_uid, peer_pid, expected_uid)
-        )
+        _audit('warning',
+               'rejected uid %d pid %d (want uid %d)' % (peer_uid, peer_pid, expected_uid))
         _send('ERR unauthorized uid %d' % peer_uid)
         sys.exit(1)
 
@@ -137,9 +179,7 @@ def main():
     #      Reading via the binary buffer keeps the cap in bytes rather than decoded
     #      characters, so a run of multi-byte UTF-8 cannot sneak past the limit.
     def _on_alarm(signum, frame):  # type: ignore[override]
-        sys.stderr.write(
-            'ai-tools-handback: timeout: no request received in %ds\n' % _READ_TIMEOUT
-        )
+        _audit('warning', 'timeout: no request received in %ds' % _READ_TIMEOUT)
         sys.exit(1)
 
     signal.signal(signal.SIGALRM, _on_alarm)
@@ -148,13 +188,14 @@ def main():
         raw = sys.stdin.buffer.readline(_MAX_LINE)
         line = raw.decode('utf-8', errors='replace').rstrip('\n')
     except OSError as exc:
-        sys.stderr.write('ai-tools-handback: read: %s\n' % exc)
+        _audit('error', 'read error: %s' % exc)
         _send('ERR read error')
         sys.exit(1)
     finally:
         signal.alarm(0)  # cancel the alarm once the read completes
 
     if not line:
+        _audit('warning', 'empty request from pid %d' % peer_pid)
         _send('ERR empty request')
         sys.exit(1)
 
@@ -165,9 +206,11 @@ def main():
     arg = parts[1].strip() if len(parts) > 1 else ''
 
     if verb not in _HELPERS:
+        _audit('warning', 'unknown verb %r from pid %d' % (verb, peer_pid))
         _send('ERR unknown verb %r' % verb)
         sys.exit(1)
     if not arg:
+        _audit('warning', 'missing argument for %s from pid %d' % (verb, peer_pid))
         _send('ERR missing argument for %s' % verb)
         sys.exit(1)
 
@@ -178,10 +221,7 @@ def main():
     # helper; a well-formed one is still fully re-validated there.
     if not arg.startswith('/') or len(arg) > _MAX_ARG \
             or any(ord(c) < 0x20 or ord(c) == 0x7f for c in arg):
-        sys.stderr.write(
-            'ai-tools-handback: rejected malformed arg for %s (pid %d)\n'
-            % (verb, peer_pid)
-        )
+        _audit('warning', 'rejected malformed arg for %s (pid %d)' % (verb, peer_pid))
         _send('ERR malformed argument')
         sys.exit(1)
 
@@ -206,14 +246,12 @@ def main():
             timeout=_HELPER_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
-        sys.stderr.write(
-            'ai-tools-handback: %s timed out after %ds (pid %d)\n'
-            % (verb, _HELPER_TIMEOUT, peer_pid)
-        )
+        _audit('error',
+               '%s timed out after %ds (pid %d)' % (verb, _HELPER_TIMEOUT, peer_pid))
         _send('ERR helper timed out')
         sys.exit(1)
     except (OSError, ValueError) as exc:
-        sys.stderr.write('ai-tools-handback: exec %r: %s\n' % (_HELPERS[verb], exc))
+        _audit('error', 'exec %r failed: %s' % (_HELPERS[verb], exc))
         _send('ERR exec failed: %s' % exc)
         sys.exit(1)
 
@@ -226,9 +264,17 @@ def main():
         if safe:
             _send('MSG ' + safe)              # → client → hook stderr → session
 
+    # One served-request line so the bridge's activity is visible in its own log rather than
+    # inferred from the helpers'. A non-zero helper exit is NOT necessarily an error (e.g.
+    # ai-tools-chown exits 1 for a path outside the allowlist, a routine skip), so the served
+    # line stays INFO and records the code; the daemon-level failures above carry the
+    # WARNING/ERROR levels.
     if result.returncode == 0:
+        _audit('info', 'served %s pid=%d arg=%s -> OK' % (verb, peer_pid, arg))
         _send('OK')
     else:
+        _audit('info',
+               'served %s pid=%d arg=%s -> ERR(%d)' % (verb, peer_pid, arg, result.returncode))
         _send('ERR helper exited %d' % result.returncode)
 
 

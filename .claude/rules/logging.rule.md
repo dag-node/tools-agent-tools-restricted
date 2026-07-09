@@ -14,14 +14,21 @@ secrets and every principal sources it). It exposes `ai_tools_log <level>` and
   (`AI_TOOLS_LOG_TAG`) and a syslog priority matching the level. This is the universal
   sink: the non-root components write here because they cannot write the root-only files.
   Query with `journalctl -t ai-tools-chown` (or `-setgid`, `-claude-symlink`, `-lockdown`,
-  `-hook`, `ai-tools`, `ai-tools-install`), with `-p warning` to filter by level.
+  `-hook`, `-handback`, `ai-tools`, `ai-tools-install`), with `-p warning` to filter by
+  level.
 - **`/var/log/ai-tools/<component>.log`** — only when the caller sets `AI_TOOLS_LOG_FILE`,
   which only the root writers do. The directory is `700 root:root`, each file
   `600 root:root`: the root helpers append as root, while `SANDBOX_USER` — neither the dir
   owner nor able to traverse a `700` dir — can neither read nor tamper with the trail. That
   keeps the secret filenames `ai-tools-chown` records out of the agent's reach. The files
   are `chown.log`, `setgid.log`, `setfacl.log`, `symlink.log`, `lockdown.log`,
-  `relabel.log`, and `install.log`. The directory path defaults to `/var/log/ai-tools` but
+  `relabel.log`, `handback.log`, and `install.log`. Most are written through this library
+  by the root helpers; `handback.log` is the exception — the socket daemon
+  (`ai-tools-handback`, root, Python) writes it directly (not through this library, which it
+  does not source), recording the bridge's own events (rejected peers, malformed/refused
+  requests, helper timeouts, one line per served request) in the same
+  `<ts> <LEVEL> [<pid>] <msg>` format. The agent-side client writes no file (DAC), only
+  journald. The directory path defaults to `/var/log/ai-tools` but
   honors an `AI_TOOLS_LOG_DIR` override — a root-only test hook (sudo strips it, the
   handback daemon execs with its own environment), so the test suite points a run's file
   logs at a throwaway dir instead of the production trail (see

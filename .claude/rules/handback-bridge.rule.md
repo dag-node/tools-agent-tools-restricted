@@ -45,6 +45,22 @@ Each root helper re-validates the path against the allowlist and the
 `SANDBOX_USER`-owned guard independently, so the daemon is a thin dispatcher that adds
 no trust of its own.
 
+## Logging
+
+The daemon keeps its own operation trail (`_audit`), the socket-layer counterpart to the
+helpers' `chown.log`/`setgid.log`/`symlink.log`. Because it is Python it does not source
+`log.lib.sh`; it writes the same `<ts> <LEVEL> [<pid>] <msg>` format to two sinks: journald
+(stderr → `StandardError=journal`, with an sd-daemon `<N>` priority prefix so `journalctl -t
+ai-tools-handback -p warning` filters) and the root-only `/var/log/ai-tools/handback.log`.
+It runs as root (and `ai_tools_handback_t` holds `create`/`append` on `ai_tools_log_t`, so
+the write succeeds under enforcing), so it is the file's only writer; the agent-side client
+cannot write the `700` dir (DAC) and stays journald-only. Recorded events: rejected peers
+(`SO_PEERCRED` mismatch, `WARNING`), malformed or refused requests (`WARNING`), helper
+timeouts/exec failures (`ERROR`), and one `INFO` line per served request (`verb`, peer pid,
+arg, helper result) — a non-zero helper exit stays `INFO`, since it is often a routine skip
+(a path outside the allowlist). Writes are best-effort, never blocking or failing a
+handback. See [logging](logging.rule.md).
+
 ## Files
 
 - daemon `/usr/local/sbin/ai-tools/ai-tools-handback` (750 root:root, Python 3)

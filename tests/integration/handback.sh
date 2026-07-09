@@ -92,8 +92,22 @@ elif [[ -z "${_tgt}" ]]; then
     skip "handback SYMLINK verb end-to-end" "cannot read /opt/ai-tools/bin/claude target"
 elif runuser -u "${SANDBOX_USER}" -- "${_client}" SYMLINK "${_tgt}" >/dev/null 2>&1; then
     pass "handback SYMLINK verb OK (socket reach + getattr on entrypoint)"
+    _symlink_ok=1
 else
     fail "handback SYMLINK verb FAILED -- check /run/ai-tools (0711) reachable and ai_tools_handback_t getattr on ai_tools_exec_t"
+fi
+
+# (4a) The served request above must leave a line in the daemon's own trail
+# (/var/log/ai-tools/handback.log, root-only, written by the root daemon at its hardcoded
+# path -- unaffected by the harness AI_TOOLS_LOG_DIR override). Its presence proves the
+# daemon file sink AND, under enforcing, the ai_tools_handback_t -> ai_tools_log_t append
+# rule; the daemon writes it before answering OK, so it is present once the client returned.
+if [[ "${_symlink_ok:-0}" != 1 ]]; then
+    skip "handback.log served-request line" "live SYMLINK verb did not run"
+elif grep -qF "arg=${_tgt} -> OK" /var/log/ai-tools/handback.log 2>/dev/null; then
+    pass "daemon records served requests to handback.log (file sink + ai_tools_log_t append)"
+else
+    fail "no served-request line in handback.log after a live handback -- daemon file sink or ai_tools_handback_t->ai_tools_log_t append rule broken"
 fi
 
 # (5) claude-run pins DISABLE_AUTOUPDATER=1: the node tree is read-only to the agent, so the
