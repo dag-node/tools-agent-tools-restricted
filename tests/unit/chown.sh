@@ -131,7 +131,24 @@ else
     fail "symlink redirection modified the outside victim: now $(stat -c '%U:%G %a' "${victim}")"
 fi
 
-# (11) Symlinked PARENT: a link INSIDE the project pointing at an outside directory cannot
+# (11) Argument handling: --yes (the batch caller's per-path-prompt skip) is accepted and
+# applies the same hand-back; an unknown option or a second path is rejected (usage, rc 2).
+by="${proj}/batch.txt"; : > "${by}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${by}"; chmod 0644 "${by}"
+setsid "${HELPER}" --yes "${by}" < /dev/null > /dev/null 2>&1 || true
+if [[ "$(stat -c '%U:%G' "${by}")" == "${PROJECTS_USER}:${SANDBOX_GROUP}" ]]; then
+    pass "--yes applies the hand-back (batch mode)"
+else
+    fail "--yes run left ${by} at $(stat -c '%U:%G' "${by}")"
+fi
+badopt_rc=0; "${HELPER}" --frob "${by}" < /dev/null > /dev/null 2>&1 || badopt_rc=$?
+twoarg_rc=0; "${HELPER}" "${by}" "${by}" < /dev/null > /dev/null 2>&1 || twoarg_rc=$?
+if [[ "${badopt_rc}" == 2 && "${twoarg_rc}" == 2 ]]; then
+    pass "unknown option and extra path are usage errors (rc 2)"
+else
+    fail "argument validation wrong (unknown-opt rc=${badopt_rc}, two-path rc=${twoarg_rc})"
+fi
+
+# (12) Symlinked PARENT: a link INSIDE the project pointing at an outside directory cannot
 # smuggle an out-of-allowlist file into handback. realpath -e canonicalises the whole path
 # (parents included), so a hand-back of proj/evildir/loot -- where evildir -> an outside dir --
 # resolves to the real outside path, which is not under any allowlisted project and is left

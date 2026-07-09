@@ -175,4 +175,53 @@ else
     fail "fixed-width frames not 80 cols (short=${short_w}, long=${long_w})"
 fi
 
+# ── ai_tools_msg_confirm: the single yes/no prompt ─────────────────────────────────
+# Each probe runs under setsid (no controlling tty), so the /dev/tty open fails and the
+# confirm answers from its default -- the unattended path every consumer relies on.
+_confirm() { setsid bash -c 'source "'"${LIB}"'"; '"$1" </dev/null 2>/dev/null; }
+
+# (15) With no terminal the confirm takes its explicit default: 0 for y, 1 for n.
+y_rc=0; _confirm 'ai_tools_msg_confirm "Q?" y' || y_rc=$?
+n_rc=0; _confirm 'ai_tools_msg_confirm "Q?" n' || n_rc=$?
+if [[ "${y_rc}" == 0 && "${n_rc}" == 1 ]]; then
+    pass "confirm answers its default with no terminal (y->yes, n->no)"
+else
+    fail "confirm no-tty defaults wrong (y rc=${y_rc}, n rc=${n_rc})"
+fi
+
+# (16) AI_TOOLS_ASSUME_YES=1 fast-tracks ONLY a default-YES prompt; a default-NO
+# question is never flipped to yes by the environment.
+ay_rc=0; _confirm 'AI_TOOLS_ASSUME_YES=1 ai_tools_msg_confirm "Q?" y' || ay_rc=$?
+an_rc=0; _confirm 'AI_TOOLS_ASSUME_YES=1 ai_tools_msg_confirm "Q?" n' || an_rc=$?
+if [[ "${ay_rc}" == 0 && "${an_rc}" == 1 ]]; then
+    pass "AI_TOOLS_ASSUME_YES answers yes only when the default is already yes"
+else
+    fail "AI_TOOLS_ASSUME_YES semantics wrong (y rc=${ay_rc}, n rc=${an_rc})"
+fi
+
+# (17) The default is a required, validated argument -- a missing or bad value is an
+# error, never a silently assumed answer.
+miss_rc=0; _confirm 'ai_tools_msg_confirm "Q?"'   || miss_rc=$?
+bad_rc=0;  _confirm 'ai_tools_msg_confirm "Q?" x' || bad_rc=$?
+if [[ "${miss_rc}" != 0 && "${bad_rc}" == 2 ]]; then
+    pass "confirm rejects a missing (rc=${miss_rc}) or invalid (rc=2) default"
+else
+    fail "confirm default validation wrong (missing rc=${miss_rc}, bad rc=${bad_rc})"
+fi
+
+# (18) The prompt renders the standard bracketed notation with the default spelled out.
+if grep -qF '[Y/n] (default: Yes)' "${LIB}" && grep -qF '[y/N] (default: No)' "${LIB}"; then
+    pass "confirm hint uses the [Y/n]/(default: Yes) and [y/N]/(default: No) notation"
+else
+    fail "confirm hint notation drifted from [Y/n] (default: Yes) / [y/N] (default: No)"
+fi
+
+# (19) Include guard: a consumer that sources the lib directly AND through
+# safe-paths.lib.sh must survive the re-source under set -e (readonly constants).
+if bash -c 'set -euo pipefail; source "'"${LIB}"'"; source "'"${LIB}"'"'; then
+    pass "a second source of msg.lib.sh is a no-op (include guard)"
+else
+    fail "re-sourcing msg.lib.sh aborts under set -e (include guard broken)"
+fi
+
 finish

@@ -25,16 +25,34 @@ mk_allowlist "${proj}"
 wt="${proj}/src/app.js";            : > "${wt}"
 go="${proj}/.git/objects/ab/obj";   : > "${go}"
 nm="${proj}/node_modules/pkg/i.js"; : > "${nm}"
-chown -R "${SANDBOX_USER}:${SANDBOX_GROUP}" "${proj}"
 
 own() { stat -c '%U' "$1" 2>/dev/null; }
 
+# (0) Two-phase, empty set: nothing agent-owned yet (the fixtures are root-owned), so
+# the collect phase reports exactly that and stops before any confirmation or change.
+noop_out="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 > /dev/null || true)"
+if grep -qF "nothing to reclaim" <<<"${noop_out}"; then
+    pass "a tree with nothing agent-owned reports 'nothing to reclaim'"
+else
+    fail "no-op run did not report 'nothing to reclaim': ${noop_out}"
+fi
+
+chown -R "${SANDBOX_USER}:${SANDBOX_GROUP}" "${proj}"
+
 # (A) Default: work tree + .git reclaimed to the operator; node_modules left agent-owned.
-setsid "${HELPER}" "${proj}" < /dev/null > /dev/null 2>&1 || true
+# Under setsid there is no controlling tty, so the batch confirm takes its yes default;
+# the helper reports the pre-scan count and the handed-back total on stderr.
+runA_out="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 > /dev/null || true)"
 if [[ "$(own "${wt}")" == "${PROJECTS_USER}" && "$(own "${go}")" == "${PROJECTS_USER}" ]]; then
     pass "default reclaims the work tree and .git to ${PROJECTS_USER}"
 else
     fail "default did not reclaim: app.js=$(own "${wt}") .git/obj=$(own "${go}")"
+fi
+if grep -qE 'agent-owned path\(s\) under' <<<"${runA_out}" \
+        && grep -qE 'handed back [0-9]+ path\(s\)' <<<"${runA_out}"; then
+    pass "batch run reports the pre-scan count and the handed-back total"
+else
+    fail "batch run output missing count/summary: ${runA_out}"
 fi
 if [[ "$(own "${nm}")" == "${SANDBOX_USER}" ]]; then
     pass "default leaves node_modules agent-owned (heavy tree skipped)"

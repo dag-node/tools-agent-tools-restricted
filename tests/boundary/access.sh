@@ -3,7 +3,7 @@
 # Boundary: what the sandbox account can and cannot actually reach at runtime, probed AS the
 # agent (runuser -u ai-tools). Each check names the threat its boundary prevents. "can"
 # checks confirm access the sandbox needs to function; "cannot" checks confirm control-plane
-# integrity and secret isolation. Non-destructive (test -r/-w/-x); the one unlink attempt
+# integrity and secret isolation. Probe-only (test -r/-w/-x); the one unlink attempt
 # targets a DECOY file (projects-user-owned, in the sticky .claude dir) so real control-plane
 # files are never at risk. Run as root via sudo; drops to the agent per check.
 
