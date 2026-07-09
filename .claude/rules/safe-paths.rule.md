@@ -101,7 +101,8 @@ rationale is single-sourced here, and each consumer carries a one-line pointer t
   stay protected by their own modes.
 - **Sourced, not executed**, so every consumer shares one list and one matcher — the same
   single-source pattern as `skip-dirs.lib.sh`.
-- **`msg.lib` is sourced from within the library** only when its function is not already defined
-  (a `declare -F` guard), so the root helpers get the box without each sourcing it while the
-  wrapper/CLI — which already source `msg.lib` — do not re-source it (`msg.lib` has no include
-  guard, and its `readonly` vars abort a re-source under `set -e`).
+- **`msg.lib` is required from within the library** (a bare `source`, no fallback): the
+  refusal renders through it, and it is a required dependency everywhere (see
+  [messaging](messaging.rule.md)). A missing `msg.lib` fails this library's own load, so the
+  consumer's fail-closed handling takes over; `msg.lib`'s include guard makes the wrapper/CLI's
+  own earlier source plus this one a single load.

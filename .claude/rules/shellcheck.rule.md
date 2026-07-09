@@ -35,12 +35,15 @@ from each file to find it):
 The `source` directives are lint-only; the runtime load gates. A missing critical library
 fails closed: the launch wrapper and the CLI verify `safe-paths.lib.sh`'s guard functions
 and `die` otherwise; the root helpers bare-`source` it under `set -e`; `ai-tools-chown` and
-`ai-tools-lockdown` `exit 1` when `secret-patterns.lib.sh` will not load (see
-[safe-paths](safe-paths.rule.md), [secret-handling](secret-handling.rule.md), and the
-fail-closed invariant in the root `CLAUDE.md`). The output libraries (`msg.lib.sh`,
-`log.lib.sh`) and the owner resolver (`operator.lib.sh`) carry faithful fallbacks, because
-they format or resolve rather than gate — a missing one degrades output or yields "no
-owner" (which stops the operation), never a bypassed security decision.
+`ai-tools-lockdown` `exit 1` when `secret-patterns.lib.sh` will not load; and `msg.lib.sh`
+is required the same way — it carries the yes/no decisions (`ai_tools_msg_confirm`), so
+its consumers refuse rather than run through a private fallback, with `session-hook.sh`
+the one emit-only exception (see [safe-paths](safe-paths.rule.md),
+[secret-handling](secret-handling.rule.md), [messaging](messaging.rule.md), and the
+fail-closed invariant in the root `CLAUDE.md`). The logger (`log.lib.sh`) and the owner
+resolver (`operator.lib.sh`) carry faithful fallbacks, because they log or resolve rather
+than gate — a missing one degrades output or yields "no owner" (which stops the
+operation), never a bypassed security decision.
 
 ## Accepted findings
 

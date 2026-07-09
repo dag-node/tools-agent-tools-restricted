@@ -15,9 +15,11 @@ Every refusal, notice, and warning the user reads is rendered through one shared
 library, `/usr/local/lib/ai-tools/msg.lib.sh` (`644 root:root`, world-readable — it
 carries no secrets and operator, agent, and root principals all source it, exactly like
 [logging](logging.rule.md)'s `log.lib.sh`). It exposes `ai_tools_msg <severity> <fd>
-<line...>`, the convenience emitters `ai_tools_msg_{error,warn,notice,info,success}`, and
+<line...>`, the convenience emitters `ai_tools_msg_{error,warn,notice,info,success}`,
 `ai_tools_msg_wrap <width> <text>` for callers that need wrapped-but-unframed text to
-embed elsewhere.
+embed elsewhere, and the two question renderers `ai_tools_msg_pick` and
+`ai_tools_msg_confirm` — every menu and every yes/no prompt in the project renders and
+defaults through them.
 
 ## What the library guarantees
 
@@ -75,22 +77,56 @@ empty input, an out-of-range number, or no terminal — so an unattended or pipe
 the safe default (typically Cancel) and never blocks on input. It draws on `/dev/tty` and
 emits only the index on stdout, so the caller reads it with `$(...)`.
 
-## The source-with-fallback idiom
+## `ai_tools_msg_confirm` — the single yes/no prompt
 
-Each consumer sources the library best-effort and defines no-op/plain fallbacks if it is
-absent, mirroring how the hooks source `log.lib.sh`:
+`ai_tools_msg_confirm <question> <y|n>` is the one renderer for the project's yes/no
+questions, in the standard bracketed notation with the Enter outcome spelled out:
 
-```sh
-readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
-if ! source "${MSG_LIB}" 2>/dev/null; then
-    ai_tools_msg_error()  { printf '%s\n' "$@" >&2; }
-    ai_tools_msg_notice() { printf '%s\n' "$@" >&2; }
-fi
+```
+Do you want to download updates? [Y/n] (default: Yes):
+Do you want to wipe the cache? [y/N] (default: No):
 ```
 
-The fallback reproduces the prior plain-stderr behaviour, so a consumer (and its tests)
-keep working unchanged if the library is not yet deployed. The library only formats; like
-`log.lib.sh` it never changes the exit status of the operation whose outcome it reports.
+It draws and reads on `/dev/tty` and returns 0 for yes, 1 for no. Wording rules for call
+sites: frame the question **positively** (ask about the action, never its negation — a
+"No" to a negative is a double negative), and give it the default that is the **safe**
+outcome, because Enter *and any run without a terminal* take the default — an unattended
+or piped run never blocks and never lands on the unsafe side. The default is a required,
+validated argument: every call site states which way its question falls, and a missing or
+invalid value is an error, never an assumed answer.
+
+Pre-answering is two distinct mechanisms, by direction:
+
+- `AI_TOOLS_ASSUME_YES=1` (environment; unattended runs, tests) skips the prompt and
+  answers yes **only when the default is already `y`** — it fast-tracks safe-direction
+  questions and never flips a default-NO question.
+- A default-NO question is pre-answered only by an **explicit per-invocation flag** on the
+  command that owns it — `ai-tools --project-claim -y/--yes` (the launch wrapper's
+  delegated claim, covering just the proceed prompt), `ai-tools-lockdown --yes`,
+  `ai-tools-chown --yes` (the batch caller's per-path skip) — an auditable operator
+  decision, never ambient state.
+
+## The library is required — one implementation, no per-consumer fallback
+
+`msg.lib.sh` carries the project's yes/no decisions, not just formatting, so every
+consumer **requires** it the way they require `safe-paths.lib.sh`: a valid install ships
+the lib (`tests/integration/perms.sh` is the single test asserting every deployed
+library's presence, owner, and mode), and a broken one fails closed rather than running
+through a private re-implementation. Root helpers bare-`source` it under `set -e`; the
+user-facing entry points (`claude.sh`, `ai-tools`, `claude-run`) refuse with a reinstall
+hint; the installers source it from the source tree and abort if the checkout is broken.
+Consumers call the lib's functions directly — no `declare -F` probing, no stub branches.
+
+The library carries an **include guard** (`_AI_TOOLS_MSG_LIB_LOADED`), so a consumer that
+sources it directly *and* receives it transitively (`safe-paths.lib.sh` requires it too)
+re-sources a no-op; without the guard the `readonly` constants would abort the second
+source under `set -e`.
+
+One deliberate exception: `session-hook.sh` keeps a plain-text fallback, because it only
+*emits* and its sweep is itself the safety action — the handback must run even on an
+install broken enough to lose the formatter. Every prompting or refusing consumer fails
+closed instead. The emitters still only format: they never change the exit status of the
+operation whose outcome they report.
 
 ## Where it is wired
 
@@ -107,22 +143,22 @@ keep working unchanged if the library is not yet deployed. The library only form
 - **`session-hook.sh`** frames the interrupted-session `SessionStart` NOTICE (see
   [ownership-and-hooks](ownership-and-hooks.rule.md)).
 - **`install.sh` and `selinux/install-selinux.sh`** frame their interactive prompts
-  uniformly. `install.sh` routes every prompt through one helper, `ask <title> <question>
-  <context-line...>`: a fixed 80-column box (`AI_TOOLS_MSG_FULLWIDTH`) titled <title> with
-  the inline <question> below it — all on `/dev/tty`, because `do_install` tees stdout+stderr
-  to the install log and a prompt must reach the real terminal. Consecutive prompts separate
-  via the lib's leading blank before each box. `ask` echoes the raw reply on stdout (empty when
-  non-interactive, so the caller picks the default). A closing `ask` prompt gates the whole
-  verification phase, which runs **last — after the optional SELinux bring-up** so it sees
-  the final labelled state: the installed-files summary (`do_summary`), then the full test
-  suite (`tests/run.sh all`), which includes the permissions check
-  (`tests/integration/perms.sh`, the single source for installed-artifact ownership/modes).
-  It is interactive only (a non-interactive install skips all of it) and defaults to run;
-  `install.sh check-perms` (which runs `perms.sh`) and `tests/run.sh` remain available on
-  demand. The SELinux installer does not tee, so its
-  full-width boxes go to stderr directly. Both source the lib from the **source
+  uniformly. `install.sh` routes every prompt through one helper, `confirm_boxed <title>
+  <y|n> <question> [context-line...]`: a fixed 80-column box (`AI_TOOLS_MSG_FULLWIDTH`)
+  titled <title> framing the context, then the shared inline yes/no prompt — all on
+  `/dev/tty`, because `do_install` tees stdout+stderr to the install log and a prompt must
+  reach the real terminal. Consecutive prompts separate via the lib's leading blank before
+  each box; a non-interactive run draws nothing and takes the default. A closing
+  `confirm_boxed` gates the whole verification phase, which runs **last — after the
+  optional SELinux bring-up** so it sees the final labelled state: the installed-files
+  summary (`do_summary`), then the full test suite (`tests/run.sh all`), which includes
+  the permissions check (`tests/integration/perms.sh`, the single source for
+  installed-artifact ownership/modes). It is interactive only (a non-interactive install
+  skips all of it) and defaults to run; `install.sh check-perms` (which runs `perms.sh`)
+  and `tests/run.sh` remain available on demand. The SELinux installer does not tee, so
+  its full-width boxes go to stderr directly. Both source the lib from the **source
   tree** (`${SCRIPT_DIR}/src/...` / `${DIR}/../src/...`), since the installed copy may not
-  exist yet, with a plain fallback.
+  exist yet, and abort if it cannot load.
 
 `ai_tools_msg_block` doubles as the **prompt-context renderer**: it shows the title *as
 given* (so "Awaiting input" stays title-case, unlike the uppercased severity emitters) and
@@ -138,10 +174,10 @@ keeps an indented path line verbatim. The per-item selection loop in the SELinux
   instead, which keeps indented command lines verbatim and overflows the long ones.
 - **Short prompts stay inline.** Yes/no prompts keep the inline hint form with the cursor
   on the same line; framing a one-line question with the cursor below the box reads worse
-  than it helps. The hint brackets the default in uppercase and lowercases the alternative
-  — `[Y]/n` for a yes default, `y/[N]` for a no default — and every yes/no prompt in the
-  project uses this one form. Each question names the affirmative as the action proposed,
-  so the default reads as a plain yes.
+  than it helps. The hint is the standard bracketed notation with the Enter outcome
+  spelled out — `[Y/n] (default: Yes):` for a yes default, `[y/N] (default: No):` for a no
+  default — and every yes/no prompt in the project renders through
+  `ai_tools_msg_confirm`, so there is exactly one form.
 - **Routine progress is not framed.** Per-line status (`ok`/`say`/`section`) stays plain;
   the box is for attention messages — errors, warnings, and notices — not every tick.
 - **The wrap pins `IFS` locally.** The library is sourced into callers that set their own

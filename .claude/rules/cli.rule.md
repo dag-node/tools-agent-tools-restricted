@@ -30,7 +30,12 @@ and as the sandbox account (the agent must not manage its own allowlist).
   blocking ancestor the operator owns and that is not a system directory; see *Reachability* below),
   and — when a `.git` tree is present but not yet normalized — offer (default-yes prompt) to
   normalize it for agent git-history access via `ai-tools-setfacl --with-git`, re-stating the
-  sandbox-clone alternative when history should stay hidden.
+  sandbox-clone alternative when history should stay hidden. `-y/--yes` pre-answers only the
+  claim's own default-NO proceed prompt ("Apply the pending steps IN PLACE?") — the launch
+  wrapper passes it for a delegated claim after taking its own confirmation, so the same
+  decision is not asked twice; the scoped opt-ins (secret lockdown, `.git` history, ancestor
+  traversal) still ask on their own terms (see [messaging](messaging.rule.md) for the
+  prompt/pre-answer doctrine).
 - `--project-unclaim [path]` (alias `--project-remove`) — unclaim a real project
   (directory left on disk): revert the label, drop both registries, and (default-yes
   confirm) hand the tree's files back to a target group with the agent's write access
@@ -83,7 +88,10 @@ group — owner-only paths (`600`/`700`, e.g. locked-down secrets) and `!`-exclu
 stay unreported as out-of-reach by intent — and splits the hits on the shared skip list
 (`skip-dirs.lib.sh`, which the CLI sources): repairable hits become a pending step whose
 repair (setgid walk + ACL walk) runs only behind the same default-NO confirm and secret gate
-as a first claim, while hits under skip-listed names get an informational warning naming the
+as a first claim. The ACL walk (`ai-tools-setfacl`) settles the drift itself: alongside the
+ACL it normalizes a drifted path's primary group to `SANDBOX_GROUP` (same predicate as the
+scan), so the next claim reports the tree clean instead of re-flagging the same paths.
+Hits under skip-listed names get an informational warning naming the
 remedies that do reach them — narrow the category override in `operator.conf`, list the
 path in `SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE` (a source dir sharing a skipped
 build-output name), then re-claim; or `ai-tools --reclaim --full` for ownership alone.
