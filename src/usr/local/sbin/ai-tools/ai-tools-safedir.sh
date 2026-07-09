@@ -69,6 +69,14 @@ if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
 fi
 
+# Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like
+# safe-paths.lib.sh: the bare source under set -e aborts if it is missing -- a valid
+# install ships it, so there is no fallback. Include-guarded, so a re-source is a no-op.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
+source /usr/local/lib/ai-tools/msg.lib.sh
+# Fixed 80-column frame for any box this helper renders, aligned with the CLI's.
+export AI_TOOLS_MSG_FULLWIDTH=1
+
 # Re-assert the control-plane ownership/mode after a write. git config edits via a lock file
 # renamed over the target, which can pick up a different group/mode from the parent dir's
 # setgid bit and root's umask; pin it back to root:GROUP 644 (world-readable for the operator
@@ -87,7 +95,7 @@ _listed() {
         | grep -qxF "$1"
 }
 
-# _confirm_cwd <question>: an inline [Y]/n gate (default yes -- registering safe.directory is a
+# _confirm_cwd <question>: a shared-confirm gate (default yes -- registering safe.directory is a
 # restrict-nothing convenience) that fires only when the path was defaulted from the current
 # directory AND a terminal is present, so a bare interactive `sudo ai-tools-safedir` confirms
 # before registering/dropping cwd. When an explicit path was given (the tooling passes one) or
@@ -96,10 +104,7 @@ _listed() {
 _confirm_cwd() {
     ${FROM_CWD} || return 0
     [[ -t 0 ]] || return 0
-    local reply
-    printf '%s [Y]/n ' "$1" >&2
-    read -r reply || reply=""
-    [[ ! "${reply}" =~ ^[nN] ]]
+    ai_tools_msg_confirm "$1" y
 }
 
 if ${REMOVE}; then

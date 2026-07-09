@@ -39,14 +39,18 @@ readonly DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly POLICY_DIR="${DIR}/policy"
 readonly MODULE="ai_tools"
 
-# Shared message formatter (source tree first, installed fallback): frames the interactive
-# confirmations below in the '#' box. Best-effort plain fallback if the file is absent.
+# Shared message formatter (source tree first, installed copy second): frames the
+# interactive confirmations below in the '#' box and carries the yes/no prompts
+# (ai_tools_msg_confirm). REQUIRED -- the prompts gate decisions, so a missing lib fails
+# the run instead of degrading; one of the two locations exists on any host this script
+# runs on (the repo checkout or an installed system).
 MSG_LIB="${DIR}/../src/usr/local/lib/ai-tools/msg.lib.sh"
 [[ -r "${MSG_LIB}" ]] || MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
 # shellcheck source=/dev/null
-if ! source "${MSG_LIB}" 2>/dev/null; then
-    ai_tools_msg_block() { shift; printf '%s\n' "$@" >&2; }
-fi
+source "${MSG_LIB}" \
+    || { printf 'selinux: cannot source required library %s\n' "${MSG_LIB}" >&2; exit 1; }
+# One fixed 80-column frame for the whole install flow's boxes, so consecutive prompts align.
+export AI_TOOLS_MSG_FULLWIDTH=1
 readonly HOME_DIR="/opt/ai-tools/.claude"
 readonly NVM_DIR="/opt/ai-tools/.nvm"
 HOME_STATE=(.npm .cache .local .config .gitconfig)
@@ -235,7 +239,7 @@ _check_permissive_alignment() {
 
     [[ -z "${active_permissive}" ]] && return 0
 
-    local dom stale_mod ans misaligned=()
+    local dom stale_mod misaligned=()
     while IFS= read -r dom; do
         [[ -z "${dom}" ]] && continue
         echo "${expected_permissive}" | grep -qx "${dom}" && continue   # expected
@@ -250,14 +254,12 @@ _check_permissive_alignment() {
         if semodule -l 2>/dev/null | grep -q "^${stale_mod}[[:space:]]"; then
             warn "  ${dom}: stale semodule '${stale_mod}' overrides compiled policy"
             if [[ -t 0 ]]; then
-                AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg_block "Awaiting input" "Remove stale semodule '${stale_mod}'?"
-                printf '[Y]/n ' >&2
-                read -r ans </dev/tty
-                case "${ans,,}" in
-                    n*) warn "  leaving '${stale_mod}' -- ${dom} will remain PERMISSIVE" ;;
-                    *)  semodule -r "${stale_mod}"
-                        ok "removed '${stale_mod}' -- ${dom} is now ENFORCING" ;;
-                esac
+                if ai_tools_msg_confirm "Remove stale semodule '${stale_mod}'?" y; then
+                    semodule -r "${stale_mod}"
+                    ok "removed '${stale_mod}' -- ${dom} is now ENFORCING"
+                else
+                    warn "  leaving '${stale_mod}' -- ${dom} will remain PERMISSIVE"
+                fi
             else
                 warn "  fix: sudo semodule -r ${stale_mod}"
             fi
@@ -285,15 +287,13 @@ prompt_groups() {
     warn "  relying on it (see the avc-denials harness)."
     sayx ""
 
-    local entry name desc ans
+    local entry name desc
     for entry in "${POLICY_GROUPS[@]}"; do
         name="$(_gname "${entry}")"
         desc="$(_gdesc "${entry}")"
         if [[ -t 0 ]]; then
             printf '    %s[%s]%s %s\n' "${C_DIM}" "${name}" "${C_RST}" "${desc}" >&2
-            printf '    Enable? y/[N] ' >&2
-            read -r ans </dev/tty
-            [[ "${ans,,}" == y* ]] && SELECTED_GROUPS+=("${name}")
+            ai_tools_msg_confirm "    Enable?" n && SELECTED_GROUPS+=("${name}")
         else
             sayx "    [${name}] ${desc}  -> default: no (non-interactive)"
         fi
@@ -430,10 +430,9 @@ case "${ACTION}" in
     # .te/.fc -- default no. With no prebuilt package present we must build anyway.
     _recompile=0
     if [[ -f "${POLICY_DIR}/${MODULE}.pp" && -t 0 ]]; then
-        AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg_block "Awaiting input" "Recompile the core policy module from source? (needs selinux-policy-devel)"
-        printf 'y/[N] ' >&2
-        read -r _ans </dev/tty
-        [[ "${_ans,,}" == y* ]] && _recompile=1
+        ai_tools_msg_confirm \
+            "Recompile the core policy module from source? (needs selinux-policy-devel)" n \
+            && _recompile=1
     fi
     if (( _recompile )); then
         build_pp "${MODULE}.pp"

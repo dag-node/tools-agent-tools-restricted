@@ -61,6 +61,15 @@ readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/safe-paths.lib.sh
 source "${SAFE_PATHS_LIB}"
 
+# Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like
+# safe-paths.lib.sh: the bare source under set -e aborts if it is missing -- a valid
+# install ships it, so there is no fallback. Include-guarded, so this is a no-op when
+# safe-paths.lib.sh above already loaded it.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
+source /usr/local/lib/ai-tools/msg.lib.sh
+# Fixed 80-column frame for any box this helper renders, aligned with the CLI's.
+export AI_TOOLS_MSG_FULLWIDTH=1
+
 usage() {
     cat >&2 <<'EOF'
 usage: cd <project> && sudo ai-tools-lockdown [options]
@@ -202,10 +211,9 @@ fi
 
 if ! ${ASSUME_YES}; then
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
-        printf 'Set files 600 / dirs 700, chown %s, revoking ai-tools access? y/[N] ' \
-            "${OWNER}" > /dev/tty
-        read -r response < /dev/tty
-        [[ "${response}" =~ ^[yY] ]] || { log "aborted; no changes made"; exit 0; }
+        ai_tools_msg_confirm \
+            "Set files 600 / dirs 700, chown ${OWNER}, revoking ai-tools access?" n \
+            || { log "aborted; no changes made"; exit 0; }
     else
         die "no TTY for confirmation; re-run with --yes to apply non-interactively"
     fi

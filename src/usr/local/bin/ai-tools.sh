@@ -8,7 +8,8 @@
 # password; the sandbox account holds no grant).
 #
 # Commands (each confirms before applying and reports the result):
-#   --project-claim   [path]  claim a real project in place (idempotent; default: cwd)
+#   --project-claim   [path]  claim a real project in place (idempotent; default: cwd);
+#                             -y/--yes pre-answers its proceed prompt (delegated claims)
 #   --project-create  [path]  alias for --project-claim (kept for back-compat)
 #   --project-unclaim [path]  unclaim a real project: drop the registries, revert the
 #                             label, and hand the files back to a group with the agent's
@@ -101,7 +102,8 @@ fi
 # (the agent must not manage its own allowlist).
 ME="$(id -un)"
 [[ "${ME}" == "root" ]] \
-    && { echo "ai-tools: do not run as root -- run as the projects user" >&2; exit 1; }
+    && { echo "ai-tools: do not run as root -- run as the projects user, without sudo" >&2
+         echo "          (the CLI invokes sudo itself for the steps that need it)" >&2; exit 1; }
 [[ "${ME}" == "${SANDBOX_USER}" ]] \
     && { echo "ai-tools: refusing to run as the sandbox account ${SANDBOX_USER}" >&2; exit 1; }
 
@@ -121,6 +123,7 @@ say()     { printf '%s\n' "$*"; }
 section() { printf '\n%s%s%s\n' "${C_BOLD}" "$*" "${C_RST}"; }
 ok()      { printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$*"; }
 warn()    { ai_tools_msg_warn "$*"; }
+notice()  { ai_tools_msg_notice "$*"; }
 die()     { ai_tools_log_error "$*"; ai_tools_msg_error "ai-tools: $*"; exit 1; }
 
 # Shared leveled logger -- journald only (this CLI runs as the projects user, not root,
@@ -135,15 +138,25 @@ if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
 fi
 
-# Shared message formatter -- die()/warn() above frame their text in the paste-safe '#'
-# box (wrapped within 80 columns) on a terminal, plain text otherwise. Best-effort: the
-# fallback reproduces the prior plain-stderr behaviour if the lib is missing.
+# Shared message formatter -- die()/warn()/notice() above frame their text in the
+# paste-safe '#' box (wrapped within 80 columns) on a terminal, plain text otherwise, and
+# ai_tools_msg_confirm carries every yes/no prompt. REQUIRED, like safe-paths.lib.sh
+# below: the confirms gate real decisions, so a missing lib fails closed instead of
+# running through a private fallback (see messaging.rule.md).
 readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/msg.lib.sh
 if ! source "${MSG_LIB}" 2>/dev/null; then
-    ai_tools_msg_error() { printf '%s\n' "$@" >&2; }
-    ai_tools_msg_warn()  { printf '%s\n' "$@" >&2; }
+    command -v logger >/dev/null 2>&1 \
+        && logger -t ai-tools -p user.err \
+            "required library ${MSG_LIB} unavailable -- ai-tools refused (fail closed)"
+    printf 'ai-tools: cannot load required library %s\n' "${MSG_LIB}" >&2
+    printf '  the install is incomplete or /usr/local/lib/ai-tools is not traversable;\n' >&2
+    printf '  refusing (fail closed) -- reinstall the ai-tools package, then retry.\n' >&2
+    exit 3
 fi
+# One fixed 80-column frame for every box this CLI shows: a claim/reclaim run emits a
+# SEQUENCE of boxes, which aligns instead of each sizing to its own text.
+export AI_TOOLS_MSG_FULLWIDTH=1
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to claim a system directory, and vet
 # ancestors for the reachability grant (reg_reach -> grantable_ancestor). It is REQUIRED:
@@ -175,14 +188,13 @@ readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_NAMES=(); AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
-# confirm <prompt> [y|n] [force]  -- default decides the Enter answer and the no-tty
-# answer. A destructive caller passes 'n' so an unattended/piped run aborts safely.
-# AI_TOOLS_ASSUME_YES=1 short-circuits to yes without prompting: the launch wrapper
-# sets it for ONE delegated --project-create after taking its own confirmation, so the
-# registration does not prompt a second time. It is never exported in normal use.
-# A third arg of 'force' makes the prompt IGNORE AI_TOOLS_ASSUME_YES, so a privacy- or
-# security-sensitive opt-in (the .git history grant) stays an explicit operator decision
-# even under a delegated claim -- the same exemption secret_gate's lockdown prompt takes.
+# confirm <prompt> <y|n>  -- the shared yes/no prompt (ai_tools_msg_confirm; see
+# msg.lib.sh): the explicit default decides the Enter answer and the no-tty answer, so
+# each caller states the default whose unattended answer is the safe outcome for its
+# question. AI_TOOLS_ASSUME_YES=1 fast-tracks only default-YES prompts (the lib's rule);
+# a default-NO prompt is answered ahead of time only by the CLI's own --yes flag -- the
+# launch wrapper passes it for a delegated --project-claim after taking its own
+# confirmation, so the claim's proceed prompt does not ask a second time.
 # have_tty: true only when a controlling terminal can actually be opened. `[[ -r /dev/tty ]]`
 # tests the node's permission bits (crw-rw-rw-), not openability, so it reads true even with no
 # controlling terminal (e.g. a systemd unit or under setsid); opening /dev/tty is the only honest
@@ -190,19 +202,7 @@ source "${SKIP_DIRS_LIB}" 2>/dev/null \
 # of writing to /dev/tty and aborting. Mirrors claude.sh's have_tty.
 have_tty() { { : > /dev/tty; } 2>/dev/null; }
 
-confirm() {
-    local prompt="$1" def="${2:-y}" force="${3:-}" resp hint
-    [[ "${force}" != force && "${AI_TOOLS_ASSUME_YES:-}" == 1 ]] && return 0
-    if [[ "${def}" == "y" ]]; then hint="[Y]/n"; else hint="y/[N]"; fi
-    if have_tty; then
-        printf '%s %s ' "${prompt}" "${hint}" > /dev/tty
-        read -r resp < /dev/tty || resp=""
-    else
-        resp=""
-    fi
-    resp="${resp:-$def}"
-    [[ "${resp}" =~ ^[yY] ]]
-}
+confirm() { ai_tools_msg_confirm "$@"; }
 
 # ask <prompt> <default>  -- echo the chosen value on stdout; prompt to the tty.
 ask() {
@@ -414,7 +414,9 @@ acl_drift_scan() {
 # operator is not a SANDBOX_GROUP member (multi-operator), so it cannot chgrp to that group
 # unprivileged; the helper does it as root and carries its own allowlist + owner guard (a dir owned
 # by a third party is left untouched). Pre-existing FILES become agent-accessible through the group
-# ACL claim_setfacl applies next, not a recursive chgrp.
+# ACL claim_setfacl applies next -- not a recursive chgrp: only a DRIFTED file (group-accessible
+# yet foreign group, per acl_drift_scan) gets its primary group normalized there, which is what
+# settles the drift report instead of re-flagging the same paths on every claim.
 #
 # CALLER MUST run secret_gate "${dir}" first: claim_setfacl then grants the agent group access to
 # existing files, so a group-readable secret left un-locked (e.g. appsettings.json 640) would
@@ -609,12 +611,12 @@ print_manual_lockdown() {
 # auto-confirmed project-create. Returns 0 only when the tree is safe to chgrp (no
 # secrets found, or all locked down); non-zero means the caller must abort.
 secret_gate() {
-    local dir="$1" out resp
+    local dir="$1" out
     # The scan runs as root (ai-tools-lockdown is 750 root:root with no NOPASSWD grant),
     # so the dry-run below is the first sudo prompt of a claim. Announce it so the
     # password ask is not unexplained.
     say "    first-time scan to lock down secrets before granting the agent access"
-    warn "this scan requires sudo; you will be prompted for your password"
+    notice "this scan requires sudo; you will be prompted for your password"
     if ! out="$(run_lockdown "${dir}" --dry-run 2>&1)"; then
         warn "secret scan failed for ${dir} -- not granting access:"
         printf '%s\n' "${out}" >&2
@@ -636,15 +638,8 @@ secret_gate() {
          "lockdown is best effort, matching only known secret patterns -- handle any secret it misses yourself first"
     ai_tools_log_warn "secret pre-check: secrets present under ${dir} (see lockdown.log for paths)"
     # Default YES: locking down is the safe direction and the list above may be long,
-    # so Enter proceeds. This prompt ignores AI_TOOLS_ASSUME_YES by design.
-    if have_tty; then
-        printf 'Lock down these secrets now? [Y]/n ' > /dev/tty
-        read -r resp < /dev/tty || resp=""
-    else
-        resp=""
-    fi
-    resp="${resp:-y}"
-    if [[ "${resp}" =~ ^[nN] ]]; then
+    # so Enter -- and an unattended run -- proceeds to lock down.
+    if ! confirm "Lock down these secrets now?" y; then
         warn "declined -- registration will not grant access while secrets are exposed"
         ai_tools_log_warn "secret pre-check: lockdown declined for ${dir}, access not granted"
         return 1
@@ -809,7 +804,21 @@ claim_setfacl() {
 # into the tree without inheriting the group/ACL) and offers the group+ACL re-apply behind
 # the same confirm and secret gate -- detection is always on, repair never runs unconfirmed.
 cmd_project_claim() {
-    local d; d="$(resolve_dir "${1:-$PWD}")"
+    # -y/--yes pre-answers the claim's own proceed prompt ("Apply the pending steps IN
+    # PLACE?", default NO) -- an explicit per-invocation flag, passed by a caller that
+    # already confirmed the same decision (the launch wrapper's delegated claim). The
+    # scoped opt-ins (secret lockdown, .git history, ancestor traversal) are separate
+    # questions it does not answer.
+    local a path="" ASSUME_YES=false
+    for a in "$@"; do
+        case "${a}" in
+            -y|--yes) ASSUME_YES=true ;;
+            -*) die "unknown --project-claim option: ${a} (allowed: -y/--yes)" ;;
+            *)  if [[ -z "${path}" ]]; then path="${a}"
+                else die "--project-claim takes a single path"; fi ;;
+        esac
+    done
+    local d; d="$(resolve_dir "${path:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
     # Refuse to claim a protected system directory before it ever reaches the allowlist. The
     # safe-paths guard is guaranteed loaded (the top-level source fails closed otherwise).
@@ -863,14 +872,36 @@ cmd_project_claim() {
         drift=("${_keep[@]}")
     fi
 
+    # _drift_lines <path...>: print each path prefixed with its owner:group and mode --
+    # the columns that show at a glance why the path is flagged (the foreign group) and
+    # whether the mode is what the operator expects.
+    _drift_lines() {
+        local _p _og _m
+        for _p in "$@"; do
+            read -r _og _m < <(stat -c '%U:%G %a' "${_p}" 2>/dev/null) || { _og='?'; _m='?'; }
+            printf '        %s%-18s %-4s %s%s\n' "${C_DIM}" "${_og}" "${_m}" "${_p}" "${C_RST}"
+        done
+    }
+
+    # _drift_list_all <label> <path...>: after a truncated sample, offer the full list
+    # (owner/group/mode columns). Default yes: it is read-only and the point of asking is
+    # a long list, so Enter shows it; a piped/delegated run prints it too (grep-able).
+    _drift_list_all() {
+        local _label="$1"; shift
+        confirm "      list all $# ${_label} with ownership and mode?" y || return 0
+        _drift_lines "$@"
+    }
+
     # skip_listed_note: the skip-listed hits are informational either way -- shown both on
     # the fully-claimed early return and in the pending flow.
     skip_listed_note() {
         (( ${#drift_skipped[@]} )) || return 0
-        local _p
         warn "${#drift_skipped[@]} path(s) with a foreign group sit under skip-listed directory names"
-        for _p in "${drift_skipped[@]:0:3}"; do say "        ${C_DIM}${_p}${C_RST}"; done
-        (( ${#drift_skipped[@]} > 3 )) && say "        ${C_DIM}... and $(( ${#drift_skipped[@]} - 3 )) more${C_RST}"
+        _drift_lines "${drift_skipped[@]:0:3}"
+        if (( ${#drift_skipped[@]} > 3 )); then
+            say "        ${C_DIM}... and $(( ${#drift_skipped[@]} - 3 )) more${C_RST}"
+            _drift_list_all "path(s)" "${drift_skipped[@]}"
+        fi
         say "      ${C_DIM}claim leaves skip-listed trees (build output, dependencies) untouched. If one is${C_RST}"
         say "      ${C_DIM}source in this project, exempt it in /etc/ai-tools/operator.conf -- narrow the${C_RST}"
         say "      ${C_DIM}category (SKIP_ARTIFACT_DIRS=...) or list the path relative to the project root in${C_RST}"
@@ -901,9 +932,11 @@ cmd_project_claim() {
     if (( ${#drift[@]} )); then
         warn "${#drift[@]} path(s) inside the tree carry a foreign group yet stay group-accessible"
         say "    - re-apply group ${SANDBOX_GROUP} + ACL to them (they arrived without inheriting either):"
-        local _p
-        for _p in "${drift[@]:0:3}"; do say "        ${C_DIM}${_p}${C_RST}"; done
-        (( ${#drift[@]} > 3 )) && say "        ${C_DIM}... and $(( ${#drift[@]} - 3 )) more$( (( ${#drift[@]} >= 200 )) && printf ' (list capped at 200)' )${C_RST}"
+        _drift_lines "${drift[@]:0:3}"
+        if (( ${#drift[@]} > 3 )); then
+            say "        ${C_DIM}... and $(( ${#drift[@]} - 3 )) more$( (( ${#drift[@]} >= 200 )) && printf ' (list capped at 200)' )${C_RST}"
+            _drift_list_all "path(s)" "${drift[@]}"
+        fi
         say "      ${C_DIM}meant to stay out of the agent's reach? decline below and record that with a${C_RST}"
         say "      ${C_DIM}'!' exclusion in ${ALLOWLIST}, or make it owner-only (chmod 700)${C_RST}"
     fi
@@ -918,7 +951,11 @@ cmd_project_claim() {
             say  "    ${C_DIM}isolated alternative that never touches it:${C_RST}"
             say  "      ${C_DIM}ai-tools --sandbox-create ${d}${C_RST}"
         fi
-        confirm "Apply the pending steps IN PLACE?" n \
+        # --yes pre-answers exactly this proceed prompt: the launch wrapper passes it
+        # after taking its own "Claim it in place now?" confirmation, so a delegated
+        # claim does not ask the same question twice. The scoped opt-ins below (secret
+        # lockdown, .git history, ancestor traversal) still ask on their own terms.
+        ${ASSUME_YES} || confirm "Apply the pending steps IN PLACE?" n \
             || die "aborted -- for an isolated clone use: ai-tools --sandbox-create ${d}"
     fi
 
@@ -943,18 +980,18 @@ cmd_project_claim() {
         fi
     fi
 
-    # .git access is opt-in (default yes), asked separately from the heavy in-place
-    # confirm: normalizing .git lets the agent read this repo's full git history, so
-    # re-state the isolated shallow-clone alternative for when that is not intended. The
-    # confirm is forced -- it ignores AI_TOOLS_ASSUME_YES so a wrapper-delegated claim
-    # still asks before exposing history, the same exemption secret_gate's prompt takes.
+    # .git access is opt-in (default yes), asked separately from the proceed prompt --
+    # which --yes covers; this one it does not, so a wrapper-delegated claim still asks
+    # before exposing history: normalizing .git lets the agent read this repo's full git
+    # history, so re-state the isolated shallow-clone alternative for when that is not
+    # intended.
     local do_git=false
     if ${need_git}; then
         say ""
         warn "normalizing .git lets the agent read this repo's full git history"
         say  "    ${C_DIM}to keep history out of the agent's reach, use an isolated shallow clone:${C_RST}"
         say  "      ${C_DIM}ai-tools --sandbox-create ${d}${C_RST}"
-        if confirm "Normalize .git so the agent can access git history here?" y force; then
+        if confirm "Normalize .git so the agent can access git history here?" y; then
             do_git=true
         else
             say "    .git: left as-is (history not accessible to the agent)"
@@ -1129,7 +1166,7 @@ cmd_sandbox_create() {
         drop_lockdown_guard "${dst}"
         print_manual_lockdown "${dst}"
     else
-        warn "this needs root; sudo will prompt for your password"
+        notice "this needs root; sudo will prompt for your password"
         if confirm "Run lockdown now?" y; then
             if run_lockdown "${dst}"; then
                 locked=true
@@ -1227,7 +1264,7 @@ cmd_lockdown() {
     section "Lock down project secrets"
     say "  ${d}"
     say "  ${C_DIM}secret-matching files -> 600, dirs -> 700, owner ${ME}:${SANDBOX_GROUP}${C_RST}"
-    warn "this needs root; sudo will prompt for your password"
+    notice "this needs root; sudo will prompt for your password"
     if run_lockdown "${d}" "${passthru[@]}"; then
         ${dry} || clear_lockdown_guard "${d}"
         ok "lockdown done: ${d}"
@@ -1256,13 +1293,12 @@ cmd_reclaim() {
     section "Reclaim agent-written files"
     say "  ${d}${C_DIM}$(${full} && printf ' (--full: incl. node_modules, .venv, ...)')${C_RST}"
     say "  ${C_DIM}-> ${ME}:${SANDBOX_GROUP} (secret-named files stay ${ME}:${ME} 600)${C_RST}"
-    warn "this needs root; sudo will prompt for your password"
-    if run_reclaim "${d}" "${passthru[@]}"; then
-        ok "reclaimed: ${d}"
-        ai_tools_log_info "reclaimed agent-written files under ${d}$(${full} && printf ' (full)')"
-    else
-        die "reclaim failed for ${d}"
-    fi
+    notice "this needs root; sudo will prompt for your password"
+    # The helper reports the outcome itself -- the pre-scan count, the one whole-set
+    # confirm, then "handed back N" / "nothing to reclaim" / "declined" -- so no blanket
+    # success line here: the CLI states only what actually happened.
+    run_reclaim "${d}" "${passthru[@]}" || die "reclaim failed for ${d}"
+    ai_tools_log_info "reclaim run for ${d}$(${full} && printf ' (full)')"
 }
 
 # cmd_relabel  -- restore the ai_tools_exec_t SELinux label on the claude entrypoint(s)
@@ -1323,7 +1359,7 @@ usage() {
     cat <<EOF
 ai-tools -- manage Claude Code sandbox projects (run as the projects user)
 
-  ai-tools --project-claim   [path]  claim a real project in place (idempotent; default: cwd)
+  ai-tools --project-claim [-y] [path]  claim a real project in place (idempotent; default: cwd)
   ai-tools --project-create  [path]  alias for --project-claim (back-compat)
   ai-tools --project-unclaim [path]  unclaim a real project (hand files back, revoke agent)
   ai-tools --project-remove  [path]  alias for --project-unclaim (back-compat)
@@ -1337,6 +1373,8 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
   ai-tools --version
   ai-tools --help
 
+  --project-claim options: -y/--yes (pre-answer the proceed prompt; the secret-lockdown,
+                      .git-history, and ancestor-traversal questions still ask)
   --lockdown options: -n/--dry-run (preview only), -y/--yes (skip confirmation)
   --reclaim options:  --full (also reclaim node_modules, .venv, ... not just the work tree + .git)
 
@@ -1346,8 +1384,8 @@ EOF
 
 # ── Dispatch ─────────────────────────────────────────────────────────────────────
 case "${1:-}" in
-    --project-claim)   shift; cmd_project_claim   "${1:-}" ;;
-    --project-create)  shift; cmd_project_create  "${1:-}" ;;
+    --project-claim)   shift; cmd_project_claim   "$@" ;;
+    --project-create)  shift; cmd_project_create  "$@" ;;
     --project-unclaim) shift; cmd_project_unclaim "${1:-}" ;;
     --project-remove)  shift; cmd_project_unclaim "${1:-}" ;;
     --sandbox-create) shift; cmd_sandbox_create "${1:-}" ;;

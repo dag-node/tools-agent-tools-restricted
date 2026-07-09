@@ -18,17 +18,24 @@ readonly CLAUDE_LINK="/opt/ai-tools/bin/claude"
 readonly AI_TOOLS_CLI="/usr/local/bin/ai-tools"
 
 # Shared message formatter: frames refusals in the paste-safe '#' box (wrapped within
-# 80 columns) on a real terminal, plain text otherwise. Best-effort -- if the lib is
-# absent, the fallback reproduces the prior plain-stderr behaviour so the wrapper (and
-# its tests) keep working unchanged.
+# 80 columns) on a real terminal, plain text otherwise; ai_tools_msg_pick and
+# ai_tools_msg_confirm carry the launch path's questions. REQUIRED, like
+# safe-paths.lib.sh below: the prompts gate real decisions, so a missing lib fails the
+# launch closed instead of running through a private fallback (see messaging.rule.md).
 readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/msg.lib.sh
 if ! source "${MSG_LIB}" 2>/dev/null; then
-    ai_tools_msg_error()  { printf '%s\n' "$@" >&2; }
-    ai_tools_msg_notice() { printf '%s\n' "$@" >&2; }
-    ai_tools_msg_block()  { shift; printf '%s\n' "$@" >&2; }
-    ai_tools_msg_pick()   { printf '%s' "$1"; }   # no lib: take the default (Cancel)
+    command -v logger >/dev/null 2>&1 \
+        && logger -t claude-wrapper -p user.err \
+            "required library ${MSG_LIB} unavailable -- launch refused (fail closed)"
+    printf 'claude: cannot load required library %s\n' "${MSG_LIB}" >&2
+    printf '  the install is incomplete or /usr/local/lib/ai-tools is not traversable;\n' >&2
+    printf '  refusing to launch (fail closed) -- reinstall ai-tools, then retry.\n' >&2
+    exit 1
 fi
+# One fixed 80-column frame for every box the wrapper shows, so the guidance screens
+# and refusals of a launch align instead of each sizing to its own text.
+export AI_TOOLS_MSG_FULLWIDTH=1
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to LAUNCH in a system directory even
 # when the allowlist includes it. This is the launch path's front-line security guard, so it
@@ -253,11 +260,11 @@ if [[ "${approved}" != true ]]; then
             die "claude: sandbox creation did not complete -- see the output above"
             ;;
         2)
-            # Claim in place. ASSUME_YES answers only the CLI's top-level confirm (you chose
-            # it here); the secret-lockdown prompt, the .git history grant, and the sudo
-            # relabel stay explicit. --project-claim is idempotent and registers a brand-new
-            # path from scratch.
-            AI_TOOLS_ASSUME_YES=1 "${AI_TOOLS_CLI}" --project-claim "${cwd}" || true
+            # Claim in place. --yes pre-answers only the CLI's proceed prompt (you chose
+            # claiming here); the secret-lockdown prompt, the .git history grant, and the
+            # traverse grant stay explicit. --project-claim is idempotent and registers a
+            # brand-new path from scratch.
+            "${AI_TOOLS_CLI}" --project-claim --yes "${cwd}" || true
             # Confirm the claim registered the path before falling through to the claim guard,
             # which re-verifies ownership/label (both just applied) and then launches.
             grep -qxF "${cwd}" "${ALLOWLIST}" 2>/dev/null \
@@ -320,8 +327,8 @@ if ${own_gap} || ${label_gap}; then
     # Severity-based default: the in-place ownership grant is heavy (recursive chgrp), so
     # it defaults NO and recommends the clone; a label-only gap is cheap and required, so
     # it defaults YES.
-    claim_hint='y/[N]'; claim_default_yes=false
-    ${own_gap} || { claim_hint='[Y]/n'; claim_default_yes=true; }
+    claim_default='n'
+    ${own_gap} || claim_default='y'
     declare -a blk2=()
     ${own_gap}   && blk2+=( "- group is '${cwd_gid:-?}', not 'ai-tools' -- sessions cannot spawn children here" )
     ${label_gap} && blk2+=( "- missing SELinux label ai_tools_project_t -- the agent cannot read/write here" )
@@ -342,23 +349,14 @@ if ${own_gap} || ${label_gap}; then
     fi
     blk2+=( "" "Both default to the current directory. See 'ai-tools --help' for what each does." )
     ai_tools_msg_block "This project is not fully claimed" "${blk2[@]}"
-    reply=""
-    if have_tty; then
-        printf 'Claim it in place now? %s ' "${claim_hint}" > /dev/tty
-        read -r reply < /dev/tty || reply=""
-    fi
     claim_ok=false
-    if ${claim_default_yes}; then
-        [[ ! "${reply}" =~ ^[nN] ]] && claim_ok=true
-    else
-        [[ "${reply}" =~ ^[yY] ]] && claim_ok=true
-    fi
+    ai_tools_msg_confirm "Claim it in place now?" "${claim_default}" && claim_ok=true
     if ${claim_ok}; then
-        # Delegate the claim. ASSUME_YES answers only the CLI's top-level confirm (you
+        # Delegate the claim. --yes pre-answers only the CLI's proceed prompt (you
         # answered it here); its secret-lockdown prompt, the .git history grant, and the
-        # sudo relabel stay explicit. --project-claim is idempotent and closes whichever
-        # gaps apply.
-        AI_TOOLS_ASSUME_YES=1 "${AI_TOOLS_CLI}" --project-claim "${cwd}" || true
+        # traverse grant stay explicit. --project-claim is idempotent and closes
+        # whichever gaps apply.
+        "${AI_TOOLS_CLI}" --project-claim --yes "${cwd}" || true
         # Re-verify the FATAL gaps actually closed before launching.
         cwd_gid="$(stat -c '%G' "${cwd}" 2>/dev/null || true)"
         cwd_mode="$(stat -c '%a' "${cwd}" 2>/dev/null || true)"
@@ -385,10 +383,7 @@ elif ${safe_gap}; then
     ai_tools_msg_notice \
         "claude: ${cwd} is not in git safe.directory; git will report \"dubious ownership\" here until it is registered."
     if have_tty; then
-        printf 'Register it now (needs sudo)? [Y]/n ' > /dev/tty
-        reply=""
-        read -r reply < /dev/tty || reply=""
-        if [[ ! "${reply}" =~ ^[nN] ]]; then
+        if ai_tools_msg_confirm "Register it now (needs sudo)?" y; then
             if sudo "${SAFEDIR_BIN}" "${cwd}"; then
                 printf 'claude: registered %s in git safe.directory.\n' "${cwd}" >&2
             else

@@ -36,6 +36,14 @@ log() { printf 'ai-tools-admin: %s\n' "$*"; }
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 . "${OPERATOR_LIB}" || die "cannot source ${OPERATOR_LIB}"
 
+# Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like the
+# operator lib above: a valid install ships it, so there is no fallback.
+# Include-guarded, so a re-source is a no-op.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
+source /usr/local/lib/ai-tools/msg.lib.sh || die "cannot source /usr/local/lib/ai-tools/msg.lib.sh"
+# Fixed 80-column frame for any box this tool renders, aligned with the CLI's.
+export AI_TOOLS_MSG_FULLWIDTH=1
+
 # write_operators <name>...: set the OPERATORS list in operator.conf (root:root 644).
 # Edits ONLY the OPERATORS line in an existing file, preserving every other setting the
 # operator maintains there (the SKIP_* categories; template: src/etc/ai-tools/operator.conf,
@@ -100,7 +108,7 @@ seed_allowlist() {
 # prints the line to add.
 readonly DEDUP_GUARD='[[ -f /usr/local/lib/ai-tools/path-dedup.sh ]] && source /usr/local/lib/ai-tools/path-dedup.sh || true'
 wire_dedup() {
-    local user="$1" home group bashrc bashprof reply f
+    local user="$1" home group bashrc bashprof f
     home="$(getent passwd "${user}" | cut -d: -f6)"
     group="$(id -gn "${user}")"
     [[ -n "${home}" && -d "${home}" ]] || return 0
@@ -118,14 +126,13 @@ wire_dedup() {
         log "wired PATH dedup into ${f}"
     }
     if [[ -t 0 && -e /dev/tty ]]; then
-        printf 'ai-tools-admin: wire the ai-tools PATH dedup into %s and %s? [Y]/n ' \
-            "${bashrc}" "${bashprof}" > /dev/tty
-        read -r reply < /dev/tty || reply=""
-        case "${reply}" in
-            [Nn]*) log "skipped PATH dedup; add this line after your nvm init in ${bashrc} and ${bashprof}:"
-                   log "  ${DEDUP_GUARD}" ;;
-            *)     _wire_one "${bashrc}"; _wire_one "${bashprof}" ;;
-        esac
+        if ai_tools_msg_confirm \
+            "ai-tools-admin: wire the ai-tools PATH dedup into ${bashrc} and ${bashprof}?" y; then
+            _wire_one "${bashrc}"; _wire_one "${bashprof}"
+        else
+            log "skipped PATH dedup; add this line after your nvm init in ${bashrc} and ${bashprof}:"
+            log "  ${DEDUP_GUARD}"
+        fi
     else
         log "non-interactive: not editing shell init. Add this line after your nvm init in ${bashrc} and ${bashprof}:"
         log "  ${DEDUP_GUARD}"
