@@ -43,17 +43,49 @@ present-tense `DEBUG`; one after a completed unit of work is past-tense `INFO`. 
 are best-effort — a failed write is swallowed, so logging never aborts or alters the exit
 status of the operation it describes.
 
-Messages are **control-character-sanitized** before either sink: `ai_tools_log` replaces
-every `[[:cntrl:]]` byte in the message with `?` (printable text and multi-byte UTF-8
-untouched). Agent-created filenames reach the log (a handback records the path it restored),
-so this keeps a terminal escape in a crafted filename from injecting into a session that
-`cat`s the root-owned file log, and a newline from forging an extra line. The helpers that
-also print an agent-named path straight to a terminal — `ai-tools-chown`'s per-path prompt
-and breach `NOTICE`, `ai-tools-reclaim`'s pre-confirmation sample, `ai-tools-lockdown`'s
-scan and locked lines — defang it the same way (`${path//[[:cntrl:]]/?}`) at the print site,
-since those bypass the library. The handback
-daemon needs no such step: it rejects any request argument carrying a control byte before it
-reaches a helper or its own `handback.log`.
+Messages are **reduced to safe-for-display characters** before either sink by
+`ai_tools_log_sanitize`, a default-deny **allowlist**: it keeps only printable ASCII
+(0x20–0x7E) and replaces every other byte — the ASCII controls (ESC, the C0 set, DEL) and
+every byte of a non-ASCII sequence — with `?`. Allowing a known-safe set, rather than
+blocklisting an open-ended list of dangerous control/format/bidi code points (which the shell
+cannot enumerate — it has no Unicode database), rejects every unknown by construction, with no
+maintenance. Matching is byte-wise under a forced `C` locale, so it is locale-independent and
+neutralizes multi-byte sequences a byte at a time; the cost is deliberate — a legitimate
+non-ASCII filename shows as `?` while the real name stays on disk. Agent-created filenames
+reach the log (a handback records the path it restored), so this stops a crafted filename from
+injecting a terminal escape into a session that `cat`s the root-owned file log, forging a log
+line, or visually reordering the audit text (the Trojan-Source bidi class). When a message is
+altered, `ai_tools_log` appends an inline `[!] non-standard characters replaced` marker — a
+non-standard byte where a path is expected is a probe worth recording; the marker is pure
+ASCII, so it cannot itself re-trigger a replacement.
+
+The handback daemon carries the same allowlist at its `handback.log` write site (`_sanitize`,
+`' ' <= c <= '~'` per code point, with the same inline marker) so both trails share one
+contract; `tests/unit/log.sh` pins both on the same byte vectors. The daemon's
+request-argument pre-filter already rejects a control **byte**, but a bidi or zero-width code
+point is a valid path byte that reaches the served-request line, so it is reduced at the log
+boundary.
+
+The reduction is **fail-closed** where it protects a terminal: the helpers that print an
+agent-named path straight to stderr — `ai-tools-chown`'s per-path prompt and breach `NOTICE`,
+`ai-tools-reclaim`'s pre-confirmation sample, `ai-tools-lockdown`'s scan and locked lines —
+route each path through `ai_tools_log_sanitize` and **require** `log.lib.sh` (a missing logger
+aborts the helper rather than emitting an agent path raw), unlike the pure-logging consumers
+that keep a soft no-op fallback. The test harness applies the same allowlist to every
+`pass`/`fail`/`skip`/`section` line (`_san`), so a suite run — which executes as root via
+`sudo`, often on a live host — cannot print a crafted byte a fixture carried into a result
+message.
+
+## Deferred
+
+- **Control/bidi as a malicious-attempt detector.** The allowlist above reduces non-standard
+  bytes to `?` for safe display. Retained but **not yet wired**:
+  `ai_tools_log_sanitize_unicode_controlchars` (shell, byte-wise C0/C1/zero-width/bidi/BOM
+  ranges) and `_sanitize_unicode_controlchars` (daemon, `unicodedata` categories
+  `Cc`/`Cf`/`Cs`/`Co`/`Zl`/`Zp`, covering the astral tag chars too). A sane agent never emits
+  these in a path, so their presence is a signal worth **quarantine-logging** (who, which path,
+  which code points) rather than silently reducing. Wire the retained functions into a
+  quarantine sink when that detector is built.
 
 The directory is labelled `ai_tools_log_t` (`selinux/policy/ai_tools.fc`); the helpers that run
 in `ai_tools_t` (`ai-tools-chown`, `ai-tools-setgid`, and `ai-tools-claude-symlink` under

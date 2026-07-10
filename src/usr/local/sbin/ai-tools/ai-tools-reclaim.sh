@@ -57,9 +57,11 @@ AI_TOOLS_LOG_TAG="ai-tools-reclaim"
 AI_TOOLS_LOG_FILE="chown.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
-if ! source "${LOG_LIB}" 2>/dev/null; then
-    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
-    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+# Required, fail-closed: this helper prints agent-named paths to stderr and the log, so it
+# needs ai_tools_log_sanitize -- a missing logger must refuse, not emit an agent path raw.
+if ! source "${LOG_LIB}"; then
+    printf 'ai-tools-reclaim: FATAL: cannot source %s\n' "${LOG_LIB}" >&2
+    exit 1
 fi
 
 # Directory-skip selector (shared single source of truth). A missing lib leaves a stub that
@@ -114,7 +116,7 @@ printf 'ai-tools-reclaim: %d agent-owned path(s) under %s, e.g.:\n' \
     "${#paths[@]}" "${canonical}" >&2
 for path in "${paths[@]:0:3}"; do
     read -r og m < <(stat -c '%U:%G %a' "${path}" 2>/dev/null) || { og='?'; m='?'; }
-    printf '  %-18s %-4s %s\n' "${og}" "${m}" "${path//[[:cntrl:]]/?}" >&2
+    printf '  %-18s %-4s %s\n' "${og}" "${m}" "$(ai_tools_log_sanitize "${path}")" >&2
 done
 (( ${#paths[@]} > 3 )) && printf '  ... and %d more\n' "$(( ${#paths[@]} - 3 ))" >&2
 

@@ -44,9 +44,14 @@ its consumers refuse rather than run through a private fallback, with `session-h
 the one emit-only exception (see [safe-paths](safe-paths.rule.md),
 [secret-handling](secret-handling.rule.md), [messaging](messaging.rule.md), and the
 fail-closed invariant in the root `CLAUDE.md`). The logger (`log.lib.sh`) and the owner
-resolver (`operator.lib.sh`) carry faithful fallbacks, because they log or resolve rather
-than gate — a missing one degrades output or yields "no owner" (which stops the
-operation), never a bypassed security decision.
+resolver (`operator.lib.sh`) carry faithful fallbacks for their pure-logging/resolving
+consumers, because they log or resolve rather than gate — a missing one degrades output or
+yields "no owner" (which stops the operation), never a bypassed security decision. The
+exception is the three helpers that print an agent-named path to a terminal
+(`ai-tools-chown`, `ai-tools-lockdown`, `ai-tools-reclaim`): there `log.lib.sh` also supplies
+the input sanitizer (`ai_tools_log_sanitize`), a security function, so they require it
+fail-closed (`exit 1` if it will not load) rather than degrade to emitting a path raw — see
+[logging](logging.rule.md).
 
 ## Accepted findings
 

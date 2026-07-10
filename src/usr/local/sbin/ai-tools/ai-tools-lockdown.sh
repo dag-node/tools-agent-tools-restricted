@@ -46,9 +46,11 @@ AI_TOOLS_LOG_TAG="ai-tools-lockdown"
 AI_TOOLS_LOG_FILE="lockdown.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
-if ! source "${LOG_LIB}" 2>/dev/null; then
-    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
-    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+# Required, fail-closed: this helper prints agent-named paths to stderr and the log, so it
+# needs ai_tools_log_sanitize -- a missing logger must refuse, not emit an agent path raw.
+if ! source "${LOG_LIB}"; then
+    printf 'ai-tools-lockdown: FATAL: cannot source %s\n' "${LOG_LIB}" >&2
+    exit 1
 fi
 
 log()  { printf 'ai-tools-lockdown: %s\n' "$*"; }
@@ -196,9 +198,9 @@ printf 'ai-tools-lockdown: %d secret-matching path(s) under %s:\n' \
 ai_tools_log_info "scan${scan_mode}: ${#hits[@]} secret-matching path(s) under ${target}"
 for path in "${hits[@]}"; do
     if [[ -d "${path}" ]]; then
-        printf '  [dir]  %s\n' "${path//[[:cntrl:]]/?}" >&2
+        printf '  [dir]  %s\n' "$(ai_tools_log_sanitize "${path}")" >&2
     else
-        printf '  [file] %s\n' "${path//[[:cntrl:]]/?}" >&2
+        printf '  [file] %s\n' "$(ai_tools_log_sanitize "${path}")" >&2
     fi
     ai_tools_log_info "scan: secret-matching ${path}"
 done
@@ -258,7 +260,7 @@ _safe_apply() {
     /usr/bin/chmod -- "${mode}"  "/proc/self/fd/${fd}"
     exec {fd}<&-
     ai_tools_log_info "locked ${path} -> ${OWNER} ${mode}"
-    printf '  locked %s  ->  %s %s\n' "${path//[[:cntrl:]]/?}" "${OWNER}" "${mode}" >&2
+    printf '  locked %s  ->  %s %s\n' "$(ai_tools_log_sanitize "${path}")" "${OWNER}" "${mode}" >&2
     return 0
 }
 

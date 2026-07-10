@@ -58,20 +58,67 @@ _ai_tools_log_prio() {
     esac
 }
 
+# ai_tools_log_sanitize <text> -- reduce text to safe-for-display characters before it reaches
+# a log sink or a terminal, printing the result. A default-deny **allowlist**: it keeps only
+# printable ASCII (0x20-0x7E) and replaces every other byte -- the ASCII controls (ESC, the C0
+# set, DEL) and every byte of a non-ASCII sequence -- with `?`. Agent-influenced filenames flow
+# through the logger (a handback records the path it restored), so this stops a crafted name
+# from injecting a terminal escape into a session that `cat`s the root-owned file log, forging a
+# log line, or visually reordering the audit text (the Trojan-Source bidi class).
+#
+# Allowlist, not a blocklist, on purpose: enumerating every dangerous control/format/bidi code
+# point is open-ended (Unicode keeps adding them) and needs the Unicode database the shell
+# cannot reach, so it is never provably complete; permitting a known-safe set rejects every
+# unknown by construction, with no maintenance. The cost is deliberate -- a legitimate
+# non-ASCII filename shows as `?` in the log, while the real name stays on disk. Matching is
+# byte-wise under a forced C locale (`[[:print:]]` is then 0x20-0x7E), so the result is
+# locale-independent and each non-ASCII byte becomes one `?`. The handback daemon carries the
+# same allowlist in Python (`_sanitize`). Retaining the control/bidi set instead as a
+# malicious-attempt *detector* (quarantine-logging the probe) is a deferred idea; see the
+# `## Deferred` section of logging.rule.md.
+ai_tools_log_sanitize() {
+    local s="$1"
+    local LC_ALL=C                                # byte-wise: [[:print:]] is 0x20-0x7E only
+    printf '%s' "${s//[^[:print:]]/?}"
+}
+
+# DEFERRED -- retained, not yet called. Where ai_tools_log_sanitize (the allowlist) reduces
+# non-standard bytes to '?' for safe display, this is the complementary *detector*: it targets
+# exactly the ASCII/Unicode control, format, and bidi bytes (C0/C1, zero-width, the
+# Trojan-Source bidi overrides/isolates, line/paragraph separators, BOM), byte-wise and
+# locale-independent. A sane agent never emits these in a filename or path, so their presence is
+# a malicious-attempt signal worth quarantine-logging (path + which bytes) rather than silently
+# reducing. Kept here so the hard-won byte set is not lost; wire it into a quarantine sink when
+# that detector is built (see the `## Deferred` section of logging.rule.md).
+# shellcheck disable=SC2317  # deferred: defined for a future caller, intentionally unused now
+ai_tools_log_sanitize_unicode_controlchars() {
+    local s="$1"
+    s="${s//[[:cntrl:]]/?}"                       # C0 controls + DEL
+    s="${s//$'\xc2'[$'\x80'-$'\x9f']/?}"          # C1 controls              U+0080-009F
+    s="${s//$'\xc2\xad'/?}"                        # soft hyphen              U+00AD
+    s="${s//$'\xd8\x9c'/?}"                        # Arabic letter mark       U+061C
+    s="${s//$'\xe2\x80'[$'\x8b'-$'\x8f']/?}"       # zero-width, LRM/RLM      U+200B-200F
+    s="${s//$'\xe2\x80'[$'\xa8'-$'\xae']/?}"       # line/para sep, bidi      U+2028-202E
+    s="${s//$'\xe2\x81'[$'\xa0'-$'\xaf']/?}"       # word joiner, isolates    U+2060-206F
+    s="${s//$'\xef\xbb\xbf'/?}"                    # BOM / ZWNBSP             U+FEFF
+    s="${s//$'\xef\xbf'[$'\xb9'-$'\xbb']/?}"       # interlinear annotation   U+FFF9-FFFB
+    printf '%s' "${s}"
+}
+
 # ai_tools_log <level> <message...> -- emit one leveled line to journald (always) and,
 # when AI_TOOLS_LOG_FILE is set and writable, to /var/log/ai-tools/<file>. AI_TOOLS_LOG_TAG
 # (default "ai-tools") becomes the journald SyslogIdentifier. Read at call time, so the
 # caller may set either variable any time before logging.
 ai_tools_log() {
     local level="$1"; shift
-    local tag="${AI_TOOLS_LOG_TAG:-ai-tools}" prio msg
+    local tag="${AI_TOOLS_LOG_TAG:-ai-tools}" prio msg raw="$*"
     prio="$(_ai_tools_log_prio "${level}")"
-    msg="$*"
-    # Defang control characters before EITHER sink. Agent-created filenames flow through here
-    # (a handback logs the path it restored), so a raw ESC would inject terminal escapes into
-    # a session that `cat`s the file log, and a raw newline would forge an extra log line.
-    # Replace each control char with '?'; printable text and multi-byte UTF-8 are untouched.
-    msg="${msg//[[:cntrl:]]/?}"
+    # Reduce the message to safe-for-display characters before EITHER sink (see
+    # ai_tools_log_sanitize). If anything was replaced, flag it inline -- a non-standard byte
+    # where a filename or path is expected is worth recording as a possible probe. The marker
+    # is pure ASCII, so it cannot itself re-trigger a replacement.
+    msg="$(ai_tools_log_sanitize "${raw}")"
+    [[ "${msg}" == "${raw}" ]] || msg="${msg}  [!] non-standard characters replaced"
 
     # journald via logger(1): -t sets the SyslogIdentifier, -p the facility.level
     # PRIORITY. Always attempted; failure (no logger, no journald) is ignored.

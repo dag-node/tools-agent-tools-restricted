@@ -56,9 +56,11 @@ AI_TOOLS_LOG_TAG="ai-tools-chown"
 AI_TOOLS_LOG_FILE="chown.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
-if ! source "${LOG_LIB}" 2>/dev/null; then
-    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
-    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+# Required, fail-closed: this helper prints agent-named paths to stderr and the log, so it
+# needs ai_tools_log_sanitize -- a missing logger must refuse, not emit an agent path raw.
+if ! source "${LOG_LIB}"; then
+    printf 'ai-tools-chown: FATAL: cannot source %s\n' "${LOG_LIB}" >&2
+    exit 1
 fi
 
 # Shared secret-name matcher, sourced (not executed) so this helper and
@@ -96,7 +98,7 @@ export AI_TOOLS_MSG_FULLWIDTH=1
 # args:  path  old_owner  new_owner  old_mode  new_mode
 _notify_secret() {
     local path="$1" old_owner="$2" new_owner="$3" old_mode="$4" new_mode="$5" msg
-    path="${path//[[:cntrl:]]/?}"   # agent-named path -> stderr + log: defang terminal escapes
+    path="$(ai_tools_log_sanitize "${path}")"   # agent-named path -> stderr + log: safe display
     printf -v msg 'NOTICE: secret-named file written by agent considered breached, rotate the secret: %s (ai-tools read access revoked; owner %s -> %s, mode %s -> %s)' \
         "${path}" "${old_owner}" "${new_owner}" "${old_mode}" "${new_mode}"
     printf 'ai-tools-chown: %s\n' "${msg}" >&2
@@ -239,7 +241,7 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             if ! ${ASSUME_YES} \
                     && { [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; }; then
                 {
-                    printf '\nchown: %s\n' "${canonical//[[:cntrl:]]/?}"
+                    printf '\nchown: %s\n' "$(ai_tools_log_sanitize "${canonical}")"
                     printf '  owner:  %s -> %s\n' "${current_owner}" "${target_owner}"
                     printf '%s\n' "${perm_info}"
                 } > /dev/tty

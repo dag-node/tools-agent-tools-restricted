@@ -10,10 +10,21 @@
 set -euo pipefail
 
 declare -i _pass=0 _fail=0 _skip=0
-pass()    { printf '  PASS  %s\n' "$*";            _pass=$(( _pass + 1 )); }
-fail()    { printf '  FAIL  %s\n' "$*" >&2;        _fail=$(( _fail + 1 )); }
-skip()    { printf '  SKIP  %s  (%s)\n' "$1" "$2"; _skip=$(( _skip + 1 )); }
-section() { printf '\n── %s\n' "$*"; }
+
+# _san <text>: reduce text to printable ASCII (0x20-0x7E), replacing every other byte with '?'.
+# Result messages interpolate values that may carry crafted control/bidi bytes -- a filename
+# fixture, a daemon reply relayed verbatim, or a sanitizer's own output on the regression the
+# assertion just caught. The suite runs as ROOT via sudo, often on a live host, and run.sh tees
+# every line to the terminal, so a raw byte reaching stdout/stderr could inject a terminal
+# escape or bidi reordering. This is the suite-wide net: sanitize at the point every result is
+# printed, so no individual test can emit a dangerous byte regardless of what it interpolates.
+# Byte-wise under a forced C locale, so it is locale-independent and neutralizes multi-byte
+# sequences too. (An individual test may still hex-render a value for a better diagnostic.)
+_san() { local LC_ALL=C; printf '%s' "${1//[^[:print:]]/?}"; }
+pass()    { printf '  PASS  %s\n' "$(_san "$*")";            _pass=$(( _pass + 1 )); }
+fail()    { printf '  FAIL  %s\n' "$(_san "$*")" >&2;        _fail=$(( _fail + 1 )); }
+skip()    { printf '  SKIP  %s  (%s)\n' "$(_san "$1")" "$(_san "$2")"; _skip=$(( _skip + 1 )); }
+section() { printf '\n── %s\n' "$(_san "$*")"; }
 
 # perm <path>: the rwx permission bits only, as octal (masks setgid/setuid/sticky). GNU
 # coreutils `chmod` with a numeric mode does NOT clear a directory's setgid bit, and a

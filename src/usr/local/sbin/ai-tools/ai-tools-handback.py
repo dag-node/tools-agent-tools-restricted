@@ -49,6 +49,7 @@ import socket
 import struct
 import subprocess
 import sys
+import unicodedata  # used by the deferred _sanitize_unicode_controlchars detector below
 
 _SANDBOX_USER = '@SANDBOX_USER@'
 
@@ -68,12 +69,50 @@ _LOG_FILE = '/var/log/ai-tools/handback.log'
 _PRIO = {'error': '<3>', 'warning': '<4>', 'notice': '<5>', 'info': '<6>', 'debug': '<7>'}
 
 
+def _sanitize(msg):
+    # type: (str) -> str
+    # Reduce the message to safe-for-display characters before it reaches either sink. A
+    # default-deny allowlist mirroring log.lib.sh's ai_tools_log_sanitize: keep only printable
+    # ASCII (0x20-0x7E) and replace every other code point -- ASCII controls, and the whole
+    # Unicode control/format/bidi space -- with '?'. Allowing a known-safe set (rather than
+    # blocklisting an open-ended set of dangerous code points) rejects every unknown by
+    # construction. The request-arg pre-filter already rejects a control BYTE, but a bidi
+    # override or zero-width character is a valid path byte that reaches this trail via the
+    # served-request line, so it is reduced here. (A deferred detector that instead flags such
+    # bytes as a malicious-attempt signal is noted in logging.rule.md.)
+    return ''.join(c if ' ' <= c <= '~' else '?' for c in msg)
+
+
+def _sanitize_unicode_controlchars(msg):
+    # type: (str) -> str
+    # DEFERRED -- retained, not yet called. The complement to _sanitize (the allowlist): where
+    # that reduces every non-ASCII code point to '?' for safe display, this targets exactly the
+    # control/format/bidi space -- Unicode general categories Cc, Cf, Cs, Co plus the
+    # line/paragraph separators Zl, Zp (U+2028/2029), and via unicodedata it also catches the
+    # astral tag characters (U+E0000-E007F) -- leaving ordinary text, spaces, and legitimate
+    # multi-byte UTF-8 intact. A sane agent never emits these in a path, so their presence is a
+    # malicious-attempt signal worth quarantine-logging rather than silently reducing. Kept so
+    # the authoritative UCD-backed set is not lost; wire it into a quarantine sink when that
+    # detector is built (see the "## Deferred" section of logging.rule.md).
+    return ''.join(
+        '?' if unicodedata.category(c) in ('Cc', 'Cf', 'Cs', 'Co', 'Zl', 'Zp') else c
+        for c in msg
+    )
+
+
 def _audit(level, msg):
     # type: (str, str) -> None
     # Two sinks, mirroring log.lib.sh: journald via stderr (StandardError=journal; systemd
     # stamps the timestamp + identifier, the "<N>" prefix the priority) ALWAYS, and the
     # root-only file with an explicit "<ts> <LEVEL> [<pid>] <msg>" line matching the helpers'
-    # format. Both are best-effort: a failed write never aborts or delays the handback.
+    # format. Both are best-effort: a failed write never aborts or delays the handback. The
+    # message is reduced to safe-for-display characters once for both sinks; if anything was
+    # replaced it is flagged inline (a non-standard byte where a path is expected is a probe
+    # worth recording). The marker is pure ASCII, so it cannot itself re-trigger a replacement.
+    clean = _sanitize(msg)
+    if clean != msg:
+        clean += '  [!] non-standard characters replaced'
+    msg = clean
     try:
         sys.stderr.write(_PRIO.get(level, '<6>') + msg + '\n')
         sys.stderr.flush()
@@ -258,7 +297,11 @@ def main():
     stderr_text = (
         result.stderr.decode('utf-8', errors='replace') if result.stderr else ''
     )
-    for msg in stderr_text.splitlines()[:_MAX_MSG_LINES]:
+    for line in stderr_text.splitlines()[:_MAX_MSG_LINES]:
+        # Sanitize before relaying: the helpers already reduce agent-named paths in their
+        # NOTICEs, but the daemon does not trust that -- a relayed line reaches journald AND
+        # the agent session's terminal, so it must not carry a raw control/escape byte here.
+        msg = _sanitize(line)
         sys.stderr.write(msg + '\n')          # → journal
         safe = msg.strip()[:500]
         if safe:
