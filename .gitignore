@@ -11,3 +11,8 @@ selinux/avc/audits/
 ai_tools_exec_t
 # Self-cleaning fixture dir from tests/integration/hooks.sh (left only if a run is killed).
 .handback-test.*
+
+# Python bytecode cache -- created next to the handback daemon/client when they are run or
+# imported (e.g. a test loading the daemon); never a source artifact.
+__pycache__/
+*.pyc
