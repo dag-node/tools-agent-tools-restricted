@@ -64,6 +64,70 @@ resolve_nvm_version() {
     fi
 }
 
+# configure_git_identity: offer to set the sandbox git identity -- the name/email the agent
+# authors commits with -- in the shared control-plane gitconfig. install.sh / the RPM %post
+# seed a safe default (ai-tools@<domain-or-hostname>); this is the one interactive point both
+# install flows share (an RPM %post cannot prompt), so the operator can adopt their own git
+# identity, keep the default, or edit the file by hand. Runs only when the control plane is
+# present (gitconfig + msg.lib both deployed -- a bootstrap that precedes install.sh skips it);
+# an unattended run keeps the default via msg.lib's no-tty path. Never fatal: any gap logs a
+# hint and returns.
+configure_git_identity() {
+    local gc="${SANDBOX_HOME}/.gitconfig"
+    command -v git >/dev/null 2>&1 \
+        || { log "git not found -- set the sandbox commit identity in ${gc} by hand"; return 0; }
+    [[ -f "${gc}" ]] \
+        || { log "git identity: ${gc} not present yet -- install the control plane, then re-run to set it"; return 0; }
+
+    local msglib=/usr/local/lib/ai-tools/msg.lib.sh
+    # shellcheck source=/dev/null
+    if ! { [[ -r "${msglib}" ]] && source "${msglib}"; } 2>/dev/null; then
+        log "git identity: review ${gc} and set the agent's commit name/email"
+        return 0
+    fi
+
+    local cur_name cur_email
+    cur_name="$(git config --file "${gc}" user.name  2>/dev/null || true)"
+    cur_email="$(git config --file "${gc}" user.email 2>/dev/null || true)"
+
+    # The operator who invoked sudo; their personal git identity is the adopt-able option.
+    local op="${SUDO_USER:-}" op_home op_name="" op_email=""
+    if [[ -n "${op}" ]]; then
+        op_home="$(getent passwd "${op}" | cut -d: -f6 || true)"
+        if [[ -n "${op_home}" && -r "${op_home}/.gitconfig" ]]; then
+            op_name="$(git config --file "${op_home}/.gitconfig" user.name  2>/dev/null || true)"
+            op_email="$(git config --file "${op_home}/.gitconfig" user.email 2>/dev/null || true)"
+        fi
+    fi
+
+    ai_tools_msg_block "Sandbox git identity" \
+        "The sandbox account authors git commits in your projects with this identity." \
+        "" \
+        "  current: ${cur_name:-?} <${cur_email:-?}>"
+
+    # Default is always Keep, so an unattended/piped run (no tty) leaves the seeded identity.
+    local sel adopt=""
+    [[ -n "${op_email}" ]] && adopt="Use your identity: ${op_name:-${op}} <${op_email}>"
+    if [[ -n "${adopt}" ]]; then
+        sel="$(ai_tools_msg_pick 2 "${adopt}" "Keep the current identity" "Edit ${gc} by hand")"
+    else
+        # No operator identity to adopt: keep-or-edit only; option 1 is the default.
+        sel="$(ai_tools_msg_pick 1 "Keep the current identity" "Edit ${gc} by hand")"
+        # Shift so the branches below read the same in both shapes (1=adopt, 2=keep, 3=edit).
+        (( sel += 1 ))
+    fi
+
+    case "${sel}" in
+        1)  git config --file "${gc}" user.name  "${op_name:-${op}}"
+            git config --file "${gc}" user.email "${op_email}"
+            chown "root:${SANDBOX_GROUP}" "${gc}"; chmod 0644 "${gc}"
+            log "sandbox git identity set to ${op_name:-${op}} <${op_email}>" ;;
+        3)  log "left ${gc} unchanged -- edit it to set the agent's commit identity" ;;
+        *)  log "kept the current sandbox git identity: ${cur_name:-?} <${cur_email:-?}>" ;;
+    esac
+    log "verify the result in ${gc}"
+}
+
 [[ "${EUID}" -eq 0 ]] || die "run as root (sudo)"
 command -v curl >/dev/null 2>&1 || die "curl is required to fetch nvm"
 
@@ -199,6 +263,11 @@ else
 fi
 
 log "toolchain ready under ${SANDBOX_HOME}"
+
+# Sandbox git commit identity (control-plane gitconfig). Offered here as the shared interactive
+# step; skipped cleanly when the control plane is not yet in place.
+configure_git_identity
+
 # Bootstrap runs in either order relative to the control plane: after a package/install.sh
 # deploy (the common flow -- the wrapper is already present), or before it on a from-source
 # host. Name the step that is actually still outstanding rather than assuming one order.

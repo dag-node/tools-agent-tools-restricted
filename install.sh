@@ -435,11 +435,24 @@ do_summary() {
 
     printf '  %s\n' "${sep}"
     if (( missing == 0 )); then
-        printf '  %d/%d files in place.\n\n' "${ok}" "$(( ok + missing ))"
+        printf '  %d/%d files in place.\n' "${ok}" "$(( ok + missing ))"
     else
-        printf '  %d/%d files in place -- %d MISSING, check above.\n\n' \
+        printf '  %d/%d files in place -- %d MISSING, check above.\n' \
             "${ok}" "$(( ok + missing ))" "${missing}"
     fi
+
+    # Sandbox git identity: the name/email the agent authors commits with, read from the shared
+    # control-plane gitconfig. Surfaced so the operator can verify it -- and catch the
+    # ai-tools@<hostname> fallback -- and knows the one command that reconfigures it.
+    local _gc=/opt/ai-tools/.gitconfig _gcname _gcemail
+    if [[ -f "${_gc}" ]]; then
+        _gcname="$(git config --file "${_gc}" user.name 2>/dev/null || true)"
+        _gcemail="$(git config --file "${_gc}" user.email 2>/dev/null || true)"
+        printf '\n  sandbox git identity : %s <%s>\n' "${_gcname:-?}" "${_gcemail:-?}"
+        printf '  %sset it with sudo ai-tools-bootstrap; verify %s afterwards%s\n' \
+            "${C_DIM}" "${_gc}" "${C_RST}"
+    fi
+    printf '\n'
 }
 
 # Installer banner. Delegates to the shared umbrella renderer (msg.lib.sh) so the AI-TOOLS
