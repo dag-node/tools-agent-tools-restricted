@@ -228,14 +228,17 @@ _mode_label() {
 # remove the stale module interactively; prints the fix command otherwise.
 _check_permissive_alignment() {
     # Domains the compiled .te expects permissive (non-commented permissive lines).
+    # A no-match grep exits 1, which pipefail propagates to the assignment and set -e
+    # would abort on -- the normal ENFORCING case has zero permissive lines here, so
+    # tolerate an empty result (the -z checks below are the intended empty-path).
     local expected_permissive
     expected_permissive=$(grep -E '^[[:space:]]*permissive[[:space:]]+ai_tools_[^[:space:]]+[[:space:]]*;' \
                           "${POLICY_DIR}/${MODULE}.te" 2>/dev/null \
-                          | awk '{gsub(/;/,""); print $2}')
+                          | awk '{gsub(/;/,""); print $2}') || true
 
     # All ai_tools_* domains currently permissive in the running kernel.
     local active_permissive
-    active_permissive=$(seinfo --permissive 2>/dev/null | grep -E '^\s+ai_tools_' | tr -d ' ')
+    active_permissive=$(seinfo --permissive 2>/dev/null | grep -E '^\s+ai_tools_' | tr -d ' ') || true
 
     [[ -z "${active_permissive}" ]] && return 0
 
