@@ -10,6 +10,13 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
+# The negative section below drives real rejections through the live socket; each connection
+# is a transient ai-tools-handback@<n>.service that systemd marks FAILED when the daemon
+# exits non-zero on the bad request. Clear those instances on exit so the manager's
+# failed-unit list shows only genuine faults -- not this suite's synthetic rejections, which
+# an operator auditing `systemctl --failed` would otherwise keep rediscovering.
+on_teardown systemctl reset-failed 'ai-tools-handback@*'
+
 # The systemd units (the nvm-update timer in the sandbox account's --user instance, the
 # relabel watcher, this socket) are validated and their enablement checked in systemd.sh.
 
@@ -164,7 +171,12 @@ else
     # reset before the request is read) means no daemon answered, so every per-case
     # assert below would fail with the same client error; report the bridge itself once
     # and skip them. The one-command fix relabels the daemon and rebinds the listener.
-    probe_out="$(drive BOGUS /probe)" || true
+    #
+    # The unknown verb is SELFTEST (not a generic BOGUS): the daemon logs it verbatim as
+    # `unknown verb 'SELFTEST'`, so this suite's synthetic rejections self-identify in the
+    # real handback.log an operator later audits, rather than reading as a live intrusion
+    # probe. Keep it self-describing if renamed.
+    probe_out="$(drive SELFTEST /probe)" || true
     if grep -qiE 'connection reset|connection refused|permission denied|incomplete response|no such file' <<<"${probe_out}"; then
         # The remedy depends on the confinement layer: with SELinux active the usual cause
         # is a listener bound before the daemon was labelled (relabel rebinds it in order);
@@ -178,8 +190,9 @@ else
         skip "handback negative cases (6)-(8)" "bridge does not answer"
     else
 
-    # (6) Unknown verb is rejected before any helper runs.
-    out="$(drive BOGUS /etc/hostname)" && rc=0 || rc=$?
+    # (6) Unknown verb is rejected before any helper runs (SELFTEST, self-identifying in the
+    # daemon's audit log -- see the probe above).
+    out="$(drive SELFTEST /etc/hostname)" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'unknown verb' <<<"${out}"; then
         pass "daemon rejects an unknown verb (no helper dispatched)"
     else

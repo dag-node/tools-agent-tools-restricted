@@ -74,8 +74,22 @@ readonly SANDBOX_GROUP="ai-tools"
 # under `set -e` a non-zero teardown status -- e.g. the empty-_cleanup loop where the final
 # `[[ -n "" ]]` is false, or an `rm` of an already-gone path -- would otherwise become the
 # script's exit status and mask an all-PASS run as a failure. The result comes from finish.
-declare -a _cleanup=()
-_teardown() { local p; for p in "${_cleanup[@]:-}"; do [[ -n "${p}" ]] && rm -rf "${p}"; done; return 0; }
+#
+# _teardown_cmd holds one non-path cleanup command -- state that is not a file to unlink --
+# registered with on_teardown and run directly (no eval; best-effort, output discarded) after
+# the path sweep. The live case is a bridge integration test clearing the transient
+# `ai-tools-handback@*` instances its negative cases leave FAILED, so the manager's
+# failed-unit list reflects only real faults, not test-induced rejections. Quote a glob you
+# want passed to the command literally (systemd does its own unit-name matching):
+# on_teardown systemctl reset-failed 'ai-tools-handback@*'.
+declare -a _cleanup=() _teardown_cmd=()
+on_teardown() { _teardown_cmd=("$@"); }
+_teardown() {
+    local p
+    for p in "${_cleanup[@]:-}"; do [[ -n "${p}" ]] && rm -rf "${p}"; done
+    [[ ${#_teardown_cmd[@]} -gt 0 ]] && "${_teardown_cmd[@]}" >/dev/null 2>&1
+    return 0
+}
 trap _teardown EXIT
 
 # Redirect the helpers' root-only file logs (chown.log, setgid.log, setfacl.log, ...) away
