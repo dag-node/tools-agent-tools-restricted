@@ -4,6 +4,7 @@ paths:
   - "selinux/*.fc"
   - "selinux/README.md"
   - "src/opt/ai-tools/bin/claude-run.sh"
+  - "src/usr/local/lib/ai-tools/confinement.lib.sh"
 ---
 
 # Session confinement (namespaces, SELinux, `/tmp`)
@@ -67,15 +68,28 @@ regardless of which role the manager holds. The manager's domain also needs `sea
 A session that fails to transition into `ai_tools_t` runs *unconfined*, and because
 `ai-tools` maps to `unconfined_u` the module cannot forbid that (the ESC-001 base-policy
 floor; `user_u` was rejected because it breaks the `ai-tools`→root sudo). A wrapper
-cannot observe its successor's post-`exec` domain, so `claude-run` verifies the
-transition's two inputs *before* launch: the entrypoint's label (`matchpathcon` vs
-`stat -c %C`) and the `systemd --user` manager's domain (`/proc/<pid>/attr/current`).
-It logs both on every launch (journald, `claude-run` tag). When SELinux is enforcing
-and confinement is expected (the module's file-contexts are installed), it refuses to
-launch if the binary is mislabelled (→ `relabel`) or the manager domain is not one
-`ai_tools.te` has a `domtrans_pattern` for (→ add the rule, `rebuild`). The check is a
-no-op where the SELinux layer is absent, so DAC-only and permissive boxes are
-unaffected.
+cannot observe its successor's post-`exec` domain, so `claude-run` probes the
+transition's inputs *before* launch: the entrypoint's label (`matchpathcon` vs
+`stat -c %C`), the `systemd --user` manager's domain (`/proc/<pid>/attr/current`), and
+whether the `ai_tools` module is in the policy store (`semodule -l`). It logs them on
+every launch (journald, `claude-run` tag). `claude-run` performs that probing and I/O;
+the launch-vs-refuse decision is the pure `ai_tools_confinement_verdict`
+(`confinement.lib.sh`), so the policy is unit-tested apart from the probing
+(`tests/unit/confinement.sh` drives the truth table with no SELinux host).
+
+The decision is **fail-closed once confinement is expected**. When SELinux is enforcing
+and the module's file-contexts are active (`matchpathcon` resolves the entrypoint to
+`ai_tools_exec_t`), it refuses to launch if the binary's live label is not
+`ai_tools_exec_t` (→ `relabel`) or the manager domain is not one `ai_tools.te` has a
+`domtrans_pattern` for (→ add the rule, `rebuild`; this one is advisory — an unreadable
+domain does not block). When SELinux is enforcing but the label does **not** resolve, the
+verdict splits on the store: **module present** means confinement is installed yet
+inactive — a half-installed host (module staged and not reloaded, or `matchpathcon`
+missing) — so it refuses (`unverifiable`, → `install-selinux.sh install`) rather than
+launch DAC-only and silently drop confinement; **module absent** means the SELinux layer
+was never installed here, so it launches (an intentional DAC-only deployment, cleared for
+a staged host with `semodule -r ai_tools` or permissive mode). The check is a no-op where
+SELinux is not enforcing, so DAC-only and permissive boxes are unaffected.
 
 ## `/tmp` model
 

@@ -103,12 +103,14 @@
 #   ps -eZ | grep 'systemd --user'
 # and key the domtrans rule to whatever it actually is.  If the rule's source does
 # not match, no transition fires and the session would run unconfined -- which the
-# confinement preflight below catches BEFORE launch: it reads the manager's domain and
-# the entrypoint label, refuses when SELinux is enforcing and confinement was expected
-# but would not fire, and logs those inputs for every launch.  (The check is pre-launch,
-# not post-transition: a wrapper cannot observe its successor's domain -- the transition
-# happens when the manager exec's claude.exe, replacing nothing the wrapper can read --
-# so it verifies the two transition inputs instead.)
+# confinement preflight below catches BEFORE launch: it reads the manager's domain, the
+# entrypoint label, and whether the ai_tools module is installed, refuses when SELinux is
+# enforcing and confinement was expected but would not fire (or cannot be verified), and
+# logs those inputs for every launch.  (The check is pre-launch, not post-transition: a
+# wrapper cannot observe its successor's domain -- the transition happens when the manager
+# exec's claude.exe, replacing nothing the wrapper can read -- so it verifies the
+# transition's inputs instead.  The launch/refuse decision is the pure
+# ai_tools_confinement_verdict in confinement.lib.sh; this shim performs the probing.)
 #
 # --service --pty (NOT --scope) is required: RestrictNamespaces is an exec-context
 # sandbox directive, which systemd 252 REJECTS on a scope unit ("Unknown
@@ -160,6 +162,13 @@ readonly AI_TOOLS_NVM_DIR="/opt/ai-tools/.nvm"
 readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/msg.lib.sh
 source "${MSG_LIB}"
+
+# The pure decision for the fail-closed SELinux preflight below (ai_tools_confinement_verdict).
+# REQUIRED like MSG_LIB: a missing lib is a broken install, and the bare source under set -e
+# refuses the launch rather than skip the confinement gate (see confinement.rule.md).
+readonly CONFINEMENT_LIB="/usr/local/lib/ai-tools/confinement.lib.sh"
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/confinement.lib.sh
+source "${CONFINEMENT_LIB}"
 
 # Identity guard: the session must run AS @SANDBOX_USER@ -- the confined account the transient
 # unit, the SELinux transition, and the umask are all built around. A direct or sudo invocation
@@ -253,10 +262,17 @@ if command -v getenforce >/dev/null 2>&1; then
     # transition entrypoint).  It succeeds because claude-run runs as @SANDBOX_USER@,
     # which owns the 700 package dir (it would EACCES for the operator).
     _real="$(realpath -e "${CLAUDE_EXEC}" 2>/dev/null || printf '%s' "${CLAUDE_EXEC}")"
-    _want="" _have="" _mgrdom=""
+    _want="" _have="" _mgrdom="" _modpresent=no
     if command -v matchpathcon >/dev/null 2>&1; then
-        _want="$(matchpathcon -n "${_real}" 2>/dev/null | awk -F: '{print $3}' || true)"   # expected label (module installed?)
+        _want="$(matchpathcon -n "${_real}" 2>/dev/null | awk -F: '{print $3}' || true)"   # matchpathcon-expected label
         _have="$(stat -c '%C' -- "${_real}" 2>/dev/null | awk -F: '{print $3}' || true)"   # live label
+    fi
+    # Is the ai_tools module in the policy store? This tells a half-installed ENFORCING host
+    # (module present but its file-contexts not yet active -> fail closed) apart from an
+    # intentional DAC-only host (module never installed -> launch). semodule -l is best-effort
+    # here (same tolerance as the podman-group check below); absent -> treated as not present.
+    if command -v semodule >/dev/null 2>&1 && semodule -l 2>/dev/null | grep -qE '^ai_tools([[:space:]]|$)'; then
+        _modpresent=yes
     fi
     # The manager is the systemd --user process that will exec claude.exe; read its
     # domain (same uid, so /proc/<pid>/attr/current is readable).
@@ -264,28 +280,36 @@ if command -v getenforce >/dev/null 2>&1; then
     [[ -n "${_mgrpid}" ]] && _mgrdom="$(tr -d '\000' < "/proc/${_mgrpid}/attr/current" 2>/dev/null | awk -F: '{print $3}' || true)"
 
     command -v logger >/dev/null 2>&1 && logger -t claude-run -p authpriv.info \
-        "launch: selinux=${_enf} exec_label=${_have:-none} expected=${_want:-none} manager_domain=${_mgrdom:-unknown}"
+        "launch: selinux=${_enf} module=${_modpresent} exec_label=${_have:-none} expected=${_want:-none} manager_domain=${_mgrdom:-unknown}"
 
-    if [[ "${_enf}" == "Enforcing" && "${_want}" == "ai_tools_exec_t" ]]; then
-        if [[ "${_have}" != "ai_tools_exec_t" ]]; then
+    # The launch/refuse decision is the pure ai_tools_confinement_verdict (confinement.lib.sh);
+    # this block owns the I/O -- the probes above and the message/log/exit below.
+    case "$(ai_tools_confinement_verdict "${_enf}" "${_modpresent}" "${_want}" "${_have}" "${_mgrdom}")" in
+        mislabel)
             ai_tools_msg_error \
                 "claude-run: refusing to launch -- ${_real} is mislabelled \"${_have:-none}\"" \
                 "(expected ai_tools_exec_t), so no domain transition fires and the session would run UNCONFINED (relabel is required after upgrade)." \
                 "Fix:  ai-tools --relabel"
             command -v logger >/dev/null 2>&1 && logger -t claude-run -p authpriv.warning \
                 "REFUSED: entrypoint mislabelled (${_have:-none}, want ai_tools_exec_t)"
-            exit 1
-        fi
-        if [[ -n "${_mgrdom}" && "${_mgrdom}" != "init_t" && "${_mgrdom}" != "unconfined_t" ]]; then
+            exit 1 ;;
+        manager-domain)
             ai_tools_msg_error \
                 "claude-run: refusing to launch -- the systemd --user manager runs in domain \"${_mgrdom}\", which no domtrans_pattern in ai_tools.te covers, so the session would run UNCONFINED.  Add the source and rebuild:" \
                 "  domtrans_pattern(${_mgrdom}, ai_tools_exec_t, ai_tools_t)   # in selinux/policy/ai_tools.te" \
                 "  sudo selinux/install-selinux.sh rebuild"
             command -v logger >/dev/null 2>&1 && logger -t claude-run -p authpriv.warning \
                 "REFUSED: manager domain ${_mgrdom} has no domtrans to ai_tools_t"
-            exit 1
-        fi
-    fi
+            exit 1 ;;
+        unverifiable)
+            ai_tools_msg_error \
+                "claude-run: refusing to launch -- the ai_tools SELinux module is installed but its file-contexts are not active, so the ai_tools_t transition cannot be verified and the session would run UNCONFINED (fail closed on a half-installed host)." \
+                "Bring confinement up:  sudo selinux/install-selinux.sh install" \
+                "Or make this a DAC-only host:  sudo semodule -r ai_tools   (or run SELinux permissive)"
+            command -v logger >/dev/null 2>&1 && logger -t claude-run -p authpriv.warning \
+                "REFUSED: ai_tools module present but file-contexts inactive (expected=${_want:-none})"
+            exit 1 ;;
+    esac
 fi
 
 # Pre-flight: if the namespace-creating optional group (podman) is loaded, the

@@ -6,6 +6,12 @@
 # not a single point of trust). Drives the deployed shim AS the agent with crafted env and
 # asserts it refuses at validation, BEFORE systemd-run. Every case carries an invalid input so
 # the shim always exits early and never spawns a session; a timeout backstops that. Run as root.
+#
+# The SELinux fail-closed launch refusal (a mislabelled entrypoint under enforcing) is NOT
+# exercised here: the gate keys on matchpathcon of the real /opt/ai-tools/.nvm path, so any
+# end-to-end check must write a deliberately mislabelled file into the production toolchain tree,
+# which this suite runs against on enforcing hosts -- an interrupted run could leave that leftover
+# behind. The pure decision is covered hermetically in tests/unit/confinement.sh instead.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
