@@ -12,7 +12,7 @@ of privileges, and keeps its Node.js toolchain and CLI current automatically. **
 the first supported agent**; the confinement, ownership-handback, and toolchain machinery are
 agent-agnostic.
 
-**Contents**: [Requirements](#requirements) · [Quick start](#quick-start) · [Why](#why) ·
+**Contents**: [Requirements](#requirements) · [Package install](#package-install) · [Why](#why) ·
 [Identities and naming](#identities-and-naming) ·
 [Architecture at a glance](#architecture-at-a-glance) · [Files](#files) ·
 [From-source install (steps 1–4)](#1-install-path-dedup-fragment-root-once) ·
@@ -33,42 +33,40 @@ agent-agnostic.
   npm package); day-to-day operation and updates run from a systemd timer.
 - Optional: **podman** to run the container test harness (`packaging/README.md`).
 
-## Quick start
+## Package install
 
 ```bash
-# 1. Install the full stack in one transaction. The build produces a metapackage
-#    (ai-tools) and three subpackages (ai-tools-base, ai-tools-nodejs,
-#    claude-code-restricted); pass dnf all of them at once so it resolves the
-#    inter-package deps from the local files and orders the install itself.
-#    (Or run `sudo ./install.sh install` from a source checkout.)
-#    A GitHub Release lists both EL9 and EL10 builds as flat assets -- grab the
-#    matching ai-tools-elN-vX.Y.Z.zip (not the loose *.rpm files) so this glob
-#    can't mix major versions.
-sudo dnf install ./*.rpm
+# 1. Install from the release zip built for your EL major. It bundles the four RPMs
+#    (metapackage + ai-tools-base, ai-tools-nodejs, claude-code-restricted); they
+#    extract flat and dnf orders them itself. --nogpgcheck is only needed until the
+#    RPMs are served from a signed repo.
+unzip ai-tools-el10-vX.Y.Z.zip          # ai-tools-el9-... to match your platform
+sudo dnf install --nogpgcheck ./*.rpm
 
-# 2. Provision the sandbox account's Node toolchain + claude (network, once)
+# 2. One-time setup: install Node.js, nvm, and Claude Code (from npm) and enable the
+#    timer that keeps them current (needs network).
 sudo ai-tools-bootstrap
 
-# 3. Enrol yourself as an operator (ai-ops membership, allowlist seed)
+# 3. Enrol yourself as an operator: records you in /etc/ai-tools/operator.conf and
+#    grants ai-ops membership (the sudo rules and ownership hand-back).
 sudo ai-tools-admin operator add "$(id -un)"
 
-# 4. Register a project, then launch
+# 4. Register a project and launch. `ai-tools --help` lists every command. Run inside
+#    a project, `claude` (the wrapper) walks you through claiming it; the claim refuses
+#    system paths and home roots.
 ai-tools --project-create ~/myproject
 cd ~/myproject && claude
 ```
 
-Order *within* step 1 is dnf's job — it installs `ai-tools-base`, then
-`ai-tools-nodejs`, then `claude-code-restricted` from the dependency graph, so a
-single transaction is all that matters. Steps 2 and 3 are independent of each
-other but must both run before step 4.
+Steps 2 and 3 are independent of each other but must both run before step 4.
 
 `claude` resolves to the system wrapper `/usr/local/bin/claude`, which runs as you,
 checks your `ai-ops` membership and the project allowlist, then drops to `${SANDBOX_USER}`
-via `sudo` and wraps the session in a confined `systemd --user` service. `ai-tools-bootstrap`
-installs nvm, Node, and `@anthropic-ai/claude-code` under `/opt/ai-tools` and enables the
-daily `nvm-update.timer` in `${SANDBOX_USER}`'s own `--user` instance, which keeps them
-current; `ai-tools-admin operator add` grants a login user access. The manual steps below
-are the from-source equivalents of steps 1–2.
+via `sudo` and wraps the session in a confined `systemd --user` service. Launched in an
+unclaimed project it prompts you to claim it first; the claim and every elevated helper
+refuse system directories and home roots (the
+[safe-paths backstop](.claude/rules/safe-paths.rule.md)). The from-source install below
+is the manual equivalent of steps 1–2.
 
 ## Why
 
@@ -91,11 +89,12 @@ with a tightly scoped set of privileges instead:
 - **Ownership hand-back** — files Claude writes are chowned back to
   `${PROJECTS_USER}:${SANDBOX_GROUP}` (group-readable, world-closed) inside approved paths only, along
   with any directories Claude created on the way (world bits stripped, group
-  `rwx` kept; only dirs the agent itself made are touched). Secret-named files
-  (`.env`, `*.key`, `*.pem`, SSH keys, `kubeconfig`, …) are chowned to
-  `${PROJECTS_USER}:${PROJECTS_GROUP} 600` instead, removing `${SANDBOX_USER}`'s read access; a `NOTICE` is written to
-  the session and the operation log (root-only `/var/log/ai-tools/chown.log` plus
-  journald — see *Operation logging* below).
+  `rwx` kept; only dirs the agent itself made are touched).
+- **Secrets stay out of reach** — a secret-named file Claude writes (`.env`, `*.key`,
+  `*.pem`, SSH keys, `kubeconfig`, …) is instead chowned to
+  `${PROJECTS_USER}:${PROJECTS_GROUP} 600`, removing `${SANDBOX_USER}`'s read access entirely; a `NOTICE`
+  lands in the session and the operation log. `ai-tools --lockdown` applies the same over an
+  existing tree. See [secret handling](.claude/rules/secret-handling.rule.md).
 - **Collaborative access** — a POSIX default ACL on each approved tree makes you and
   Claude co-writers without `${PROJECTS_USER}` joining `${SANDBOX_GROUP}`:
   `g:${SANDBOX_GROUP}:rwX` grants Claude access to your files and
@@ -220,7 +219,7 @@ claude restricted — always resolves ahead of the nvm-managed `claude`. It is
 sourced per-account: only the operator shells wired for it get the ordering,
 and every other account on the host keeps its stock PATH.
 
-`ai-tools-admin operator add` (step 3 of the quick start) offers to wire the
+`ai-tools-admin operator add` (step 3 of *Package install*) offers to wire the
 source line into your `~/.bashrc` and `~/.bash_profile`. To wire it by hand,
 add it to **both** files (non-login interactive shells read only `~/.bashrc`,
 login shells `~/.bash_profile`), after your nvm init:

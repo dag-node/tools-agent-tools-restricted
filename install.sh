@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# install.sh -- install, uninstall, or extend the ai-tools Claude Code sandbox
+# install.sh -- from-source installer for the ai-tools Claude Code sandbox
+#
+# PREFER the packaged install (`sudo dnf install ./*.rpm` from a release zip): it
+# deploys the same files through RPM and is the supported path for production use.
+# Running this script directly is for DEVELOPMENT from a source checkout, and needs
+# the one-time prerequisites below completed first (the RPM provisions them itself).
 #
 # Usage:
 #   sudo ./install.sh install              deploy all files, enable timer
@@ -11,11 +16,8 @@
 #   ai-tools --project-create <dir>        register a real project
 #   ai-tools --sandbox-create <dir>        shallow-clone a repo into the sandbox area
 #
-# RPM integration (future):
-#   %post scriptlet   ->  ./install.sh install
-#   %preun scriptlet  ->  ./install.sh uninstall
-#
-# Prerequisites (one-time manual steps before running install):
+# Prerequisites (one-time manual steps before running install; `sudo ai-tools-bootstrap`
+# does both in one idempotent command):
 #   - ai-tools OS user created at /opt/ai-tools  (README step 2)
 #   - nvm + Node v22 + claude installed as ai-tools  (README step 3)
 
