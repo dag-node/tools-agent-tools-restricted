@@ -66,6 +66,19 @@ CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_FSETID CAP_DAC_OVERRIDE
 #     so a SIGSYS in the journal during the bring-up test names the syscall to add.
 #   SystemCallArchitectures=native: drop non-native ABIs (compat/x32) to cut exotic
 #     syscall-confusion surface; the daemon and helpers are all native.
+# Python runtime hardening. The daemon imports only stdlib, so there is no pip/third-party
+# telemetry to opt out of and no hash-DoS surface (one bounded request line, a 3-key dispatch
+# dict) -- PYTHONHASHSEED stays at its randomized default. These three do fit:
+#   PYTHONDONTWRITEBYTECODE -- never write a .pyc; the daemon runs as __main__ and imports
+#     only stdlib, so none is written today, but this forecloses a stray file (and the AVC a
+#     write under sbin in ai_tools_handback_t would raise) if a future edit adds a local import.
+#   PYTHONUNBUFFERED        -- flush stdout (the response socket) and stderr (journal) without
+#     buffering, so an audit line is never stranded in a buffer if a handler is killed.
+#   PYTHONFAULTHANDLER      -- dump a C-level traceback to stderr (journal) on a fatal signal;
+#     cheap crash diagnostics for a root daemon holding CAP_DAC_OVERRIDE.
+# PYTHONOPTIMIZE is deliberately NOT set: it strips asserts and would alter runtime semantics
+# for no meaningful gain on a per-connection script.
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONFAULTHANDLER=1
 RestrictAddressFamilies=AF_UNIX
 IPAddressDeny=any
 ProtectKernelTunables=yes
