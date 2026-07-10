@@ -25,8 +25,18 @@ points `/opt/ai-tools/bin/<launcher>` at the versioned binary, and captures the 
 control plane in a root-private git repo. It is the one network step, so it is an operator
 command rather than an RPM scriptlet (which must succeed offline). It is idempotent: an
 existing account, nvm install, or Node version is reused. It enables `SANDBOX_USER` linger
-and the `nvm-update.timer` in that instance as its last step (best-effort), so the
-maintenance schedule is live once the toolchain exists.
+and the `nvm-update.timer` in that instance (best-effort), so the maintenance schedule is
+live once the toolchain exists.
+
+As a closing interactive step it offers to set the **sandbox git commit identity** in the
+control-plane gitconfig — the name/email the agent authors commits with. This is the one
+interactive point both install flows share: the RPM `%post` (and `install.sh`) seed a
+default (`ai-tools@<domain-or-hostname>`) but `%post` cannot prompt, so the operator adopts
+their own git identity, keeps the default, or edits the file by hand here. It runs only when
+the control plane is present (the gitconfig exists) — a bootstrap that precedes control-plane
+install has nothing to configure and skips; past that gate `msg.lib` is deployed, so the
+prompt requires it and fails closed like any other, no fallback (see
+[messaging](messaging.rule.md)).
 
 ## Where the update runs
 

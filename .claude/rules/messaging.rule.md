@@ -5,6 +5,7 @@ paths:
   - src/usr/local/bin/ai-tools.sh
   - src/opt/ai-tools/bin/claude-run.sh
   - src/opt/ai-tools/.claude/session-hook.sh
+  - src/usr/local/sbin/ai-tools/ai-tools-bootstrap.sh
   - install.sh
   - selinux/install-selinux.sh
 ---
@@ -155,10 +156,13 @@ re-sources a no-op; without the guard the `readonly` constants would abort the s
 source under `set -e`.
 
 One deliberate exception: `session-hook.sh` keeps a plain-text fallback, because it only
-*emits* and its sweep is itself the safety action — the handback must run even on an
-install broken enough to lose the formatter. Every prompting or refusing consumer fails
-closed instead. The emitters still only format: they never change the exit status of the
-operation whose outcome they report.
+*emits* (never prompts) and its sweep is itself the safety action — the handback must run
+even on an install broken enough to lose the formatter, so fail-closing there would skip a
+security sweep. Every consumer that *prompts or refuses* fails closed instead — including
+`ai-tools-bootstrap`, whose git-identity prompt is gated on the control plane already being
+present (the gitconfig exists), where `msg.lib` is deployed too, so it requires the lib past
+that gate rather than carrying a fallback. The emitters still only format: they never change
+the exit status of the operation whose outcome they report.
 
 ## Where it is wired
 
@@ -174,10 +178,16 @@ operation whose outcome they report.
 - **`claude-run.sh`** routes its pre-launch refusals and the podman NOTICE.
 - **`session-hook.sh`** frames the interrupted-session `SessionStart` NOTICE (see
   [ownership-and-hooks](ownership-and-hooks.rule.md)).
+- **`ai-tools-bootstrap.sh`** frames its git-identity offer with `ai_tools_msg_block` and
+  drives an `ai_tools_msg_pick` menu (adopt the operator's identity / keep the default / edit
+  by hand). It sources the lib from the deployed path, gated on the control plane being
+  present, so it requires it there like every other prompting consumer (see
+  [updater](updater.rule.md)).
 - **`install.sh` and `selinux/install-selinux.sh`** frame their interactive prompts
   uniformly. `install.sh` routes every prompt through one helper, `confirm_boxed <title>
   <y|n> <question> [context-line...]`: a fixed 80-column box (`AI_TOOLS_MSG_FULLWIDTH`)
-  titled <title> framing the context, then the shared inline yes/no prompt — all on
+  titled <title> — named for its action (`Review install`, `Existing file`, `SELinux
+  confinement`, …) — framing the context, then the shared inline yes/no prompt — all on
   `/dev/tty`, because `do_install` tees stdout+stderr to the install log and a prompt must
   reach the real terminal. Consecutive prompts separate via the lib's leading blank before
   each box; a non-interactive run draws nothing and takes the default. A closing
@@ -193,9 +203,10 @@ operation whose outcome they report.
   exist yet, and abort if it cannot load.
 
 `ai_tools_msg_block` doubles as the **prompt-context renderer**: it shows the title *as
-given* (so "Awaiting input" stays title-case, unlike the uppercased severity emitters) and
-keeps an indented path line verbatim. The per-item selection loop in the SELinux installer
-(optional policy groups) stays a compact inline list, not one box per option.
+given* (so an action-named title like `Existing file` stays title-case, unlike the
+uppercased severity emitters) and keeps an indented path line verbatim. The per-item
+selection loop in the SELinux installer (optional policy groups) stays a compact inline
+list, not one box per option.
 
 ## Quirks
 

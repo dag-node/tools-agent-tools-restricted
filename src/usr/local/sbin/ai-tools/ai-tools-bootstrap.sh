@@ -69,9 +69,10 @@ resolve_nvm_version() {
 # seed a safe default (ai-tools@<domain-or-hostname>); this is the one interactive point both
 # install flows share (an RPM %post cannot prompt), so the operator can adopt their own git
 # identity, keep the default, or edit the file by hand. Runs only when the control plane is
-# present (gitconfig + msg.lib both deployed -- a bootstrap that precedes install.sh skips it);
-# an unattended run keeps the default via msg.lib's no-tty path. Never fatal: any gap logs a
-# hint and returns.
+# present (the gitconfig exists) -- a bootstrap that precedes install.sh has nothing to
+# configure and skips. Past that gate msg.lib is deployed, so it is REQUIRED like every other
+# prompting consumer (a missing lib is a broken install and dies, not a silent skip); an
+# unattended run keeps the default via msg.lib's no-tty path.
 configure_git_identity() {
     local gc="${SANDBOX_HOME}/.gitconfig"
     command -v git >/dev/null 2>&1 \
@@ -79,12 +80,12 @@ configure_git_identity() {
     [[ -f "${gc}" ]] \
         || { log "git identity: ${gc} not present yet -- install the control plane, then re-run to set it"; return 0; }
 
+    # The control plane is present (gitconfig above), so its msg.lib is deployed too; require it
+    # like every other prompting consumer -- a missing lib is a broken install, not a skip.
     local msglib=/usr/local/lib/ai-tools/msg.lib.sh
+    [[ -r "${msglib}" ]] || die "control plane present but ${msglib} missing -- reinstall ai-tools"
     # shellcheck source=/dev/null
-    if ! { [[ -r "${msglib}" ]] && source "${msglib}"; } 2>/dev/null; then
-        log "git identity: review ${gc} and set the agent's commit name/email"
-        return 0
-    fi
+    source "${msglib}"
 
     local cur_name cur_email
     cur_name="$(git config --file "${gc}" user.name  2>/dev/null || true)"
