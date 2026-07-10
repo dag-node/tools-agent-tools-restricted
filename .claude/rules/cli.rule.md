@@ -19,6 +19,16 @@ root-write-only) through the `ai-tools-safedir` root helper (`sudo`), alongside 
 root operations. It refuses to run as root (would write the registries with the wrong owner)
 and as the sandbox account (the agent must not manage its own allowlist).
 
+## Bootstrap preflight
+
+A single `require_bootstrap` gate runs **before dispatch**: it keys on the `/opt/ai-tools/bin/claude`
+launcher symlink — bootstrap's last load-bearing artifact, written after the account,
+Node, and the agent package all succeed — so its presence means provisioning finished, and
+its absence fails the CLI fast with the provisioning hint rather than mid-operation in a
+root helper. This is the same symlink the launch wrapper gates on (`claude.sh`'s
+`CLAUDE_LINK`), so both entry points share one definition of "provisioned". Every command
+is behind the gate, `--version` included — an unfinished install reports nothing, fail-closed.
+
 ## Commands
 
 - `--project-claim [path]` (alias `--project-create`) — claim a real project in place
