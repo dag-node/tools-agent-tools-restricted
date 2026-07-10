@@ -888,7 +888,7 @@ cmd_project_claim() {
     # a long list, so Enter shows it; a piped/delegated run prints it too (grep-able).
     _drift_list_all() {
         local _label="$1"; shift
-        confirm "      list all $# ${_label} with ownership and mode?" y || return 0
+        confirm "      List all $# ${_label} with ownership and mode?" y || return 0
         _drift_lines "$@"
     }
 
@@ -1121,7 +1121,7 @@ cmd_sandbox_create() {
     fi
     say "  2. shallow-clone that branch into ${C_BOLD}${dst}${C_RST}"
     say "  3. register ${dst} (allowed-projects + git safe.directory)"
-    confirm "Proceed?" y || die "aborted"
+    confirm "Create the sandbox clone?" y || die "aborted"
 
     if ${br_exists}; then
         ok "reusing existing remote branch ${br}"

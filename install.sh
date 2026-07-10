@@ -107,29 +107,40 @@ confirm_boxed() {
     ai_tools_msg_confirm "${question}" "${def}"
 }
 
-# Decide what to do with an existing user config file. Interactive: ask whether
-# to keep it (default) or overwrite. When warn is non-empty a second confirmation
-# is required before overwriting (for overwrites that discard operator-maintained
-# state). Non-interactive: always keep (the confirms take their defaults), so an
-# unattended re-install never clobbers user edits. Returns 0 to KEEP the existing
-# file, 1 to (re)write it.
-# $1 path      file to check
-# $2 overwrite short label for what answering No does (default: "overwrite with shipped default")
-# $3 warn      if non-empty, printed before a second prompt; overwrite is cancelled
-#              unless the user explicitly answers yes
+# Decide what to do with an existing user config file. Interactive: ask whether to keep it
+# (default) or reset it to shipped defaults. Declining the first prompt always leads to a
+# second, default-No confirmation stating the impact, so every reset is a deliberate two-step
+# choice; warn overrides the generic impact line for files that discard particular
+# operator-maintained state (operator.conf, settings.json, the allowlist). Both prompts default
+# to keeping, so Enter -- and any non-interactive run -- never clobbers user edits. Returns 0
+# to KEEP the existing file, 1 to (re)seed it.
+# $1 path   file to check
+# $2 warn   impact line for the second prompt (default: a generic reset note); pass a specific
+#           one for a reset that discards particular state
 keep_existing() {
-    local path="$1" overwrite="${2:-overwrite with shipped default}" warn="${3:-}"
+    local path="$1" warn="${2:-Resets the file to shipped defaults, discarding any changes.}"
     [[ -f "${path}" ]] || return 1            # absent: caller writes a fresh copy
-    if confirm_boxed "Awaiting input" y "Keep it?" \
+    if confirm_boxed "Existing file" y "Keep it?" \
             "${path} already exists." \
-            "Answering No will ${overwrite}."; then
+            "Keep it, or reset it to shipped defaults."; then
         return 0                               # non-interactive or Enter: keep
     fi
-    if [[ -n "${warn}" ]]; then
-        confirm_boxed "Warning" n "Overwrite it now?" "${warn}" \
-            || return 0                        # cancelled: keep
-    fi
+    confirm_boxed "Confirm reset" n "Reset it now?" "${warn}" \
+        || return 0                            # cancelled: keep
     return 1
+}
+
+# Report a keep_existing outcome in one consistent line, so every seeded file confirms what
+# happened in the same vocabulary regardless of the branch taken: kept, reseeded (an existing
+# file replaced), or created (none was there).
+# $1 path  $2 existed(1/0)  $3 kept(1/0)  $4 detail (optional parenthetical)
+seed_result() {
+    local path="$1" existed="$2" kept="$3" detail="${4:-}"
+    local verb
+    if (( kept )); then verb="kept"
+    elif (( existed )); then verb="reseeded"
+    else verb="created"; fi
+    log "${path} ${verb}${detail:+ (${detail})}"
 }
 
 # Create a directory only if it does not already exist, preserving perms on
@@ -307,7 +318,7 @@ offer_selinux() {
     fi
     say ""
 
-    if confirm_boxed "Awaiting input" y \
+    if confirm_boxed "SELinux confinement" y \
             "Build and load the SELinux policy module now?" \
             "The optional SELinux confinement layer can be installed now or any time later."; then
         if "${selinux_script}" install; then
@@ -488,7 +499,7 @@ do_install() {
     # accidental double-Enter installs nothing. Interactive only -- an unattended run
     # (CI, container self-test) proceeds as before.
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
-        if ! confirm_boxed "Awaiting input" y "Proceed with the install?" \
+        if ! confirm_boxed "Review install" y "Proceed with the install?" \
             "This installs the ai-tools sandbox from this source tree onto the host." \
             "" \
             "The dnf/rpm package is the preferred install method; running install.sh" \
@@ -497,7 +508,7 @@ do_install() {
             say "  cancelled -- no changes were made"
             exit 0
         fi
-        if ! confirm_boxed "Confirm" n "Modify this system now?" \
+        if ! confirm_boxed "Confirm install" n "Modify this system now?" \
             "Second confirmation: the install writes system files as root."; then
             say "  cancelled -- no changes were made"
             exit 0
@@ -864,17 +875,17 @@ do_install() {
     ensure_dir 755 root root /etc/ai-tools
     chown root:root /etc/ai-tools
     chmod 755 /etc/ai-tools
-    if keep_existing /etc/ai-tools/operator.conf \
-            "reseed with the shipped default (operator ${PROJECTS_USER})" \
-            "Overwriting discards the OPERATORS binding managed by ai-tools-admin and any SKIP_* settings -- every other operator loses ownership handback until re-added."; then
-        log "/etc/ai-tools/operator.conf kept (managed by ai-tools-admin and the operator)"
-        chown root:root /etc/ai-tools/operator.conf
-        chmod 644 /etc/ai-tools/operator.conf
+    local opconf=/etc/ai-tools/operator.conf opconf_existed=0
+    [[ -f "${opconf}" ]] && opconf_existed=1
+    if keep_existing "${opconf}" \
+            "Discards the operator binding and SKIP_* settings; other operators lose handback until re-added."; then
+        chown root:root "${opconf}"
+        chmod 644 "${opconf}"
+        seed_result "${opconf}" "${opconf_existed}" 1 "managed by ai-tools-admin and the operator"
     else
-        log "/etc/ai-tools/operator.conf (operator ${PROJECTS_USER})"
         install_subst 644 root root \
-            "${SCRIPT_DIR}/src/etc/ai-tools/operator.conf" \
-            /etc/ai-tools/operator.conf
+            "${SCRIPT_DIR}/src/etc/ai-tools/operator.conf" "${opconf}"
+        seed_result "${opconf}" "${opconf_existed}" 0 "operator ${PROJECTS_USER}"
     fi
 
     # ai-ops operators group + membership grants the operator the sudoers rules above (the RPM
@@ -928,31 +939,33 @@ do_install() {
         /opt/ai-tools/.claude/session-hook.sh
     # settings.json is kept by default when it already exists (keep_existing prompt;
     # unattended installs always keep): it may carry deliberate host tuning -- e.g. a deny
-    # entry relaxed alongside an enabled SELinux group (see claude-settings.rule.md) -- and
-    # a reseed silently reverts that. Ownership and mode are re-asserted either way, so a
-    # kept file still satisfies the control-plane integrity checks.
-    if keep_existing /opt/ai-tools/.claude/settings.json \
-            "reseed with the shipped default (hooks + permission rules)"; then
-        log "/opt/ai-tools/.claude/settings.json kept (host-tuned permission rules preserved)"
-        chown root:"${SANDBOX_GROUP}" /opt/ai-tools/.claude/settings.json
-        chmod 640 /opt/ai-tools/.claude/settings.json
+    # entry relaxed alongside an enabled SELinux group (see claude-settings.rule.md) -- that a
+    # reset would revert, so it passes a warn and the reset is gated behind the second
+    # confirmation. Ownership and mode are re-asserted either way, so a kept file still
+    # satisfies the control-plane integrity checks.
+    local settings=/opt/ai-tools/.claude/settings.json settings_existed=0
+    [[ -f "${settings}" ]] && settings_existed=1
+    if keep_existing "${settings}" \
+            "Discards any host-tuned permission rules; reverts to the shipped hooks and deny set."; then
+        chown root:"${SANDBOX_GROUP}" "${settings}"
+        chmod 640 "${settings}"
+        seed_result "${settings}" "${settings_existed}" 1 "host-tuned permission rules preserved"
     else
-        log "/opt/ai-tools/.claude/settings.json"
         install -o root -g "${SANDBOX_GROUP}" -m 640 \
-            "${SCRIPT_DIR}/src/opt/ai-tools/.claude/settings.json" \
-            /opt/ai-tools/.claude/settings.json
+            "${SCRIPT_DIR}/src/opt/ai-tools/.claude/settings.json" "${settings}"
+        seed_result "${settings}" "${settings_existed}" 0
     fi
 
     # .gitconfig: root:SANDBOX_GROUP 644 (world-readable, root-write-only). safe.directory is
     # registered through the ai-tools-safedir root helper -- see its header for the 644/sudo model.
     # Ownership and mode are re-asserted even when keeping existing content; keep_existing preserves
     # safe.directory entries (and any customisations) on re-install.
-    log "/opt/ai-tools/.gitconfig"
-    local _gitconfig="/opt/ai-tools/.gitconfig"
-    if keep_existing "${_gitconfig}" "reseed with shipped defaults"; then
-        log "keeping existing ${_gitconfig}"
+    local _gitconfig="/opt/ai-tools/.gitconfig" _gitconfig_existed=0
+    [[ -f "${_gitconfig}" ]] && _gitconfig_existed=1
+    if keep_existing "${_gitconfig}"; then
         chown "root:${SANDBOX_GROUP}" "${_gitconfig}"
         chmod 644 "${_gitconfig}"
+        seed_result "${_gitconfig}" "${_gitconfig_existed}" 1
     else
         # Derive the sandbox email domain from the projects user's git user.email;
         # fall back to the machine's fully-qualified hostname.
@@ -970,7 +983,7 @@ do_install() {
             /dev/null "${_gitconfig}"
         printf '[user]\n\tname = %s\n\temail = %s\n\n[core]\n\tfileMode = true\n\tautocrlf = input\n\n[init]\n\tdefaultBranch = main\n\n[pull]\n\trebase = false\n' \
             "${SANDBOX_USER}" "ai-tools@${_domain}" > "${_gitconfig}"
-        log "created ${_gitconfig} (ai-tools@${_domain})"
+        seed_result "${_gitconfig}" "${_gitconfig_existed}" 0 "ai-tools@${_domain}"
     fi
 
     # .gitignore: a default-deny guard for a git repo in /opt/ai-tools that versions the control
@@ -979,17 +992,16 @@ do_install() {
     # auth tokens (.credentials.json, .claude.json), conversation logs (history.jsonl, sessions/),
     # and nvm/npm churn are never committable. root:SANDBOX_GROUP 640: the agent reads it through
     # the group but never writes it. keep_existing preserves customisations on re-install.
-    log "/opt/ai-tools/.gitignore"
-    local _gitignore="/opt/ai-tools/.gitignore"
-    if keep_existing "${_gitignore}" "reseed with shipped defaults"; then
-        log "keeping existing ${_gitignore}"
+    local _gitignore="/opt/ai-tools/.gitignore" _gitignore_existed=0
+    [[ -f "${_gitignore}" ]] && _gitignore_existed=1
+    if keep_existing "${_gitignore}"; then
         chown "root:${SANDBOX_GROUP}" "${_gitignore}"
         chmod 640 "${_gitignore}"
+        seed_result "${_gitignore}" "${_gitignore_existed}" 1
     else
         install -o root -g "${SANDBOX_GROUP}" -m 640 \
-            "${SCRIPT_DIR}/src/opt/ai-tools/gitignore" \
-            /opt/ai-tools/.gitignore
-        log "created ${_gitignore}"
+            "${SCRIPT_DIR}/src/opt/ai-tools/gitignore" "${_gitignore}"
+        seed_result "${_gitignore}" "${_gitignore_existed}" 0
     fi
 
     # Assert the control-plane home and dir boundary modes from the shared constants: the home is
@@ -1015,14 +1027,10 @@ do_install() {
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/ai-tools"
     local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
     local allowlist_existed=0; [[ -f "${allowlist}" ]] && allowlist_existed=1
-    local allowlist_action
     if keep_existing "${allowlist}" \
-            "clear all approved projects" \
-            "all entries will be removed from the allowlist (project directories themselves are untouched)"; then
-        log "keeping existing ${allowlist}"
-        allowlist_action="kept existing"
+            "Removes every approved project from the allowlist (the directories are untouched)."; then
+        seed_result "${allowlist}" "${allowlist_existed}" 1
     else
-        log "writing ${allowlist}"
         printf '%s\n' \
             "# Approved project directories for Claude Code (ai-tools)." \
             "#" \
@@ -1046,9 +1054,11 @@ do_install() {
             "" > "${allowlist}"
         chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${allowlist}"
         chmod 600 "${allowlist}"
-        (( allowlist_existed )) \
-            && allowlist_action="cleared (all entries removed)" \
-            || allowlist_action="created fresh"
+        if (( allowlist_existed )); then
+            seed_result "${allowlist}" 1 0 "all entries cleared"
+        else
+            seed_result "${allowlist}" 0 0
+        fi
     fi
     # Remove the install dir if a previous install added it.
     if grep -qxF "${SCRIPT_DIR}" "${allowlist}" 2>/dev/null; then
@@ -1065,22 +1075,13 @@ do_install() {
     # shared library.
     local patternfile="${PROJECTS_HOME}/.config/ai-tools/secret-patterns"
     local secret_existed=0; [[ -f "${patternfile}" ]] && secret_existed=1
-    local secret_action
     if keep_existing "${patternfile}"; then
-        log "keeping existing ${patternfile}"
-        secret_action="kept existing"
+        seed_result "${patternfile}" "${secret_existed}" 1
     else
-        log "writing ${patternfile}"
         install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 600 \
             "${SCRIPT_DIR}/src/home/user/.config/ai-tools/secret-patterns" "${patternfile}"
-        (( secret_existed )) \
-            && secret_action="reseeded from shipped default" \
-            || secret_action="created fresh"
+        seed_result "${patternfile}" "${secret_existed}" 0
     fi
-
-    say ""
-    say "  ${C_DIM}allowed-projects :${C_RST} ${allowlist_action}"
-    say "  ${C_DIM}secret-patterns  :${C_RST} ${secret_action}"
 
     section "Systemd (auto-update timer)"
 
@@ -1235,7 +1236,7 @@ do_uninstall() {
     # Optionally remove this project from the allowlist (default: keep)
     local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
     if [[ -f "${allowlist}" ]] && grep -qxF "${SCRIPT_DIR}" "${allowlist}"; then
-        if confirm_boxed "Awaiting input" y \
+        if confirm_boxed "Keep registration" y \
                 "Keep this project in allowed-projects?" "  ${SCRIPT_DIR}"; then
             log "allowed-projects: kept"
         else
@@ -1251,7 +1252,7 @@ do_uninstall() {
     git_escaped="$(printf '%s' "${SCRIPT_DIR}" | sed 's/[.^$*+?{|\\[()\]]/\\&/g')"
     if git config --file /opt/ai-tools/.gitconfig \
             --get-all safe.directory 2>/dev/null | grep -qxF "${SCRIPT_DIR}"; then
-        if confirm_boxed "Awaiting input" y \
+        if confirm_boxed "Keep registration" y \
                 "Keep this project in git safe.directory?" "  ${SCRIPT_DIR}"; then
             log "git safe.directory: kept"
         else

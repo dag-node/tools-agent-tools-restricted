@@ -127,7 +127,7 @@ wire_dedup() {
     }
     if [[ -t 0 && -e /dev/tty ]]; then
         if ai_tools_msg_confirm \
-            "ai-tools-admin: wire the ai-tools PATH dedup into ${bashrc} and ${bashprof}?" y; then
+            "Wire the ai-tools PATH dedup into ${bashrc} and ${bashprof}?" y; then
             _wire_one "${bashrc}"; _wire_one "${bashprof}"
         else
             log "skipped PATH dedup; add this line after your nvm init in ${bashrc} and ${bashprof}:"

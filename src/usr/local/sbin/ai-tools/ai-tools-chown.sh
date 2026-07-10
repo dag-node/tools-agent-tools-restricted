@@ -243,7 +243,7 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
                     printf '  owner:  %s -> %s\n' "${current_owner}" "${target_owner}"
                     printf '%s\n' "${perm_info}"
                 } > /dev/tty
-                ai_tools_msg_confirm "apply?" y || exit 0
+                ai_tools_msg_confirm "Apply?" y || exit 0
             fi
 
             # TOCTOU-safe apply. Every check above ran against the path *string*,
