@@ -299,17 +299,32 @@ offer_selinux() {
     local selinux_script="${SCRIPT_DIR}/selinux/install-selinux.sh"
     [[ -f "${selinux_script}" ]] || return 0
 
-    if [[ "$(getenforce 2>/dev/null)" == "Disabled" ]]; then
-        log "SELinux disabled -- skipping the optional confinement layer"
+    local mode
+    mode="$(getenforce 2>/dev/null || true)"
+
+    # SELinux off (Disabled, or no userspace): the confinement layer cannot load, so skip the
+    # section. DAC-only confinement is the model for running inside a container, where the
+    # container runtime is the isolation boundary; on a non-containerized host the SELinux layer
+    # is recommended, so say so.
+    if [[ -z "${mode}" || "${mode}" == "Disabled" ]]; then
+        warn "SELinux is inactive -- the agent runs DAC-only (no ai_tools_t domain). DAC-only"
+        warn "  suits running inside a container; on a non-containerized host the SELinux layer"
+        warn "  is recommended -- enable SELinux, then: sudo ${selinux_script} install"
         return 0
     fi
+
+    # Enforcing -> the confinement layer takes effect on load, so recommend it; a permissive
+    # bring-up host gets the neutral "optional".
+    local suffix="optional"
+    [[ "${mode}" == "Enforcing" ]] && suffix="recommended"
+    section "SELinux confinement (${suffix})"
 
     # Current module state up front, so the decision -- and especially a skip -- is
     # unambiguous about what stays loaded and enforcing from a previous install.
     local loaded
     loaded="$(semodule -l 2>/dev/null | grep '^ai_tools' | paste -sd ' ' - || true)"
 
-    say "  SELinux is active. An optional confinement layer locks the agent"
+    say "  SELinux is active. A confinement layer locks the agent"
     say "  to domain ${C_BOLD}ai_tools_t${C_RST} (ships prebuilt; loads ${C_BOLD}ENFORCING${C_RST})."
     if [[ -n "${loaded}" ]]; then
         say "  loaded from a previous install: ${C_BOLD}${loaded}${C_RST}"
@@ -320,7 +335,7 @@ offer_selinux() {
 
     if confirm_boxed "SELinux confinement" y \
             "Build and load the SELinux policy module now?" \
-            "The optional SELinux confinement layer can be installed now or any time later."; then
+            "The SELinux confinement layer can be installed now or any time later."; then
         if "${selinux_script}" install; then
             ok "SELinux confinement installed"
         else
@@ -1137,7 +1152,6 @@ do_install() {
     bootstrap_claude_symlink
     do_selinux_restore
 
-    section "SELinux confinement (optional)"
     offer_selinux
 
     section "Install complete -- next steps"

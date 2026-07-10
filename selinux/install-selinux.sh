@@ -282,6 +282,11 @@ _check_permissive_alignment() {
 SELECTED_GROUPS=()
 
 prompt_groups() {
+    # One gate for the whole EXPERIMENTAL section: the default skips it, so an operator who
+    # wants the core module alone answers once here instead of declining each group. A
+    # non-interactive run takes the default (skip) through the confirm's no-tty behaviour.
+    ai_tools_msg_confirm "Skip the EXPERIMENTAL non-core policy modules?" y && return 0
+
     section "Optional policy groups (all default: disabled)" >&2
     sayx "  Core alone covers project/home/tmp files, git, coreutils, HTTPS to the"
     sayx "  Anthropic API, and the sudo->helper calls. Enable a group only when a task"
@@ -294,12 +299,8 @@ prompt_groups() {
     for entry in "${POLICY_GROUPS[@]}"; do
         name="$(_gname "${entry}")"
         desc="$(_gdesc "${entry}")"
-        if [[ -t 0 ]]; then
-            printf '    %s[%s]%s %s\n' "${C_DIM}" "${name}" "${C_RST}" "${desc}" >&2
-            ai_tools_msg_confirm "    Enable?" n && SELECTED_GROUPS+=("${name}")
-        else
-            sayx "    [${name}] ${desc}  -> default: no (non-interactive)"
-        fi
+        printf '    %s[%s]%s %s\n' "${C_DIM}" "${name}" "${C_RST}" "${desc}" >&2
+        ai_tools_msg_confirm "    Enable?" n && SELECTED_GROUPS+=("${name}")
     done
     sayx ""
 }
@@ -322,7 +323,7 @@ source "${RELABEL_LIB}" || die "missing label library: ${RELABEL_LIB}"
 # not -- without that label the unconfined_t -> ai_tools_t transition never fires
 # and claude runs unconfined.
 verify_entrypoint() {
-    local exe ctx found=0
+    local exe ctx found=0 bad=0
     for exe in /opt/ai-tools/.nvm/versions/node/*/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe; do
         [[ -e "${exe}" ]] || continue
         found=1
@@ -331,6 +332,7 @@ verify_entrypoint() {
         if [[ "${ctx}" == *:ai_tools_exec_t:* ]]; then
             ok "entrypoint labelled ai_tools_exec_t: ${exe}"
         else
+            bad=1
             warn "${exe}"
             warn "    is '${ctx}', NOT ai_tools_exec_t -- the transition will NOT fire and"
             warn "    claude will run UNCONFINED. matchpathcon expects:"
@@ -338,6 +340,12 @@ verify_entrypoint() {
             warn "    chase with: restorecon -nv '${exe}'  and  semanage fcontext -C -l"
         fi
     done
+    # An entrypoint that restorecon left mislabelled is an unrecoverable confinement gap (the
+    # module is loaded but the transition would not fire), so fail the install here rather than
+    # proceed to the optional groups with a broken core. A missing entrypoint (toolchain not
+    # provisioned yet) stays a warning -- there is nothing to label.
+    [[ "${bad}" -eq 0 ]] \
+        || die "entrypoint not labelled ai_tools_exec_t (see above) -- claude would run UNCONFINED"
     [[ "${found}" -eq 1 ]] || warn "no claude.exe found under the nvm tree to label"
     log "reminder: a running claude keeps its OLD context -- exit and relaunch, then"
     log "          confirm with:  ps -eo label,cmd | grep '[c]laude'  (expect ai_tools_t)"
@@ -465,6 +473,11 @@ case "${ACTION}" in
     verify_entrypoint
     _label_conf
     for_each_project _label_one
+
+    # Core is loaded and labelled -- a clear checkpoint before the optional groups. Reaching
+    # here means the steps above succeeded (a hard failure aborts under set -e; a mislabelled
+    # entrypoint dies in verify_entrypoint), so the optional section is purely additive.
+    ok "SELinux core module installed"
 
     prompt_groups
     if [[ ${#SELECTED_GROUPS[@]} -gt 0 ]]; then
