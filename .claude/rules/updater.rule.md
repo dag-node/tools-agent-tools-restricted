@@ -21,9 +21,12 @@ root helper and the new entrypoint is relabelled for the SELinux transition.
 `ai-tools-bootstrap` provisions the toolchain the updater then maintains: run once as root,
 it creates the `SANDBOX_USER` account and its `/opt/ai-tools` home if absent, installs nvm,
 Node (`AI_TOOLS_NODE_MAJOR`, default 22), and the agent's npm package as `SANDBOX_USER`,
-points `/opt/ai-tools/bin/<launcher>` at the versioned binary, and captures the initial
-control plane in a root-private git repo. It is the one network step, so it is an operator
-command rather than an RPM scriptlet (which must succeed offline). It is idempotent: an
+points `/opt/ai-tools/bin/<launcher>` at the versioned binary, relabels the freshly
+installed entrypoint (`ai-tools-relabel-entrypoint`, gated on that helper being deployed, so
+the first launch after a fresh provision is confined without a manual `ai-tools --relabel`),
+and captures the initial control plane in a root-private git repo. It is the one network
+step, so it is an operator command rather than an RPM scriptlet (which must succeed
+offline). It is idempotent: an
 existing account, nvm install, or Node version is reused. It enables `SANDBOX_USER` linger
 and the `nvm-update.timer` in that instance (best-effort), so the maintenance schedule is
 live once the toolchain exists.
