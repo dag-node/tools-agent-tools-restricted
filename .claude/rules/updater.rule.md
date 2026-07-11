@@ -82,12 +82,19 @@ and no-ops when SELinux is off or the `ai_tools` module is not installed — it 
 entrypoints the file-context DB maps to `ai_tools_exec_t`, the same condition `claude-run`
 keys on.
 
-Two paths run the helper, both as root, never `SANDBOX_USER`:
+`ai-tools-bootstrap` runs the helper directly at provision time (above). Two further paths
+run it after an upgrade, both as root, never `SANDBOX_USER`:
 
 - **Automatically**, through the `ai-tools-relabel.path` watcher. The `.path` watches
-  `/opt/ai-tools/bin/claude` — the symlink the updater repoints as its last step — and
-  triggers `ai-tools-relabel.service` (a root oneshot in the system instance) when it
-  changes, so a Node bump relabels without operator action.
+  `/opt/ai-tools/bin/claude` — the symlink the updater repoints as its last step, atomically
+  (`mv -T` over the old link), so the inode changes and the watcher fires on **every** repoint
+  including a same-version reinstall that reminted `claude.exe` at `bin_t` — and triggers
+  `ai-tools-relabel.service` (a root oneshot in the system instance) when it changes, so a
+  Node bump relabels without operator action. The repoint is the sole trigger: the sandbox
+  updater holds no relabel rights and reaches root only through the handback bridge, whose
+  domain deliberately holds none either, so a repoint that does not land (handback down in a
+  manual run) leaves the relabel to `claude-run`'s fail-closed preflight and the operator's
+  `ai-tools --relabel`.
 - **On demand**, through `ai-tools --relabel` (see [cli](cli.rule.md)), which runs the
   same helper via the `%ai-ops` NOPASSWD sudo rule (the relabel rule in
   `sudoers.d/ai-tools-claude`; see [launch](launch.rule.md)). `install-selinux.sh relabel`

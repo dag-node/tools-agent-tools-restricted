@@ -66,6 +66,8 @@ printf 'ai-tools-claude-symlink: %s -> %s\n' "${LINK}" "${TARGET}"
 # This helper does NOT relabel the new claude.exe entrypoint. It runs in
 # ai_tools_handback_t, which is deliberately not granted relabel rights (ai_tools.te), so a
 # restorecon here is a no-op under enforcing. Restoring ai_tools_exec_t on a freshly
-# installed (bin_t) entrypoint is owned by the updater, which runs ai-tools-relabel-entrypoint
-# as root right after this repoint, and by `ai-tools --relabel` on demand. If the label is
-# still wrong at launch, claude-run fail-closes (refuses) rather than running unconfined.
+# installed (bin_t) entrypoint is driven by the ai-tools-relabel.path watcher, which the
+# atomic rename above trips (the link's inode changes on every repoint), and by
+# `ai-tools --relabel` on demand -- both root-side, off the agent-reachable handback domain.
+# If the label is still wrong at launch, claude-run fail-closes (refuses) rather than
+# running unconfined.
