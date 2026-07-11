@@ -495,7 +495,16 @@ if (( _show_banner )); then
         "${_l_cc}" "${_l_nd}" "${_l_at}"
 fi
 
-exec systemd-run --user --pty \
+# Run the session (not exec) so an abnormal exit is not a silent teardown. systemd-run
+# --pty implies --wait and returns the payload's exit status. A session that dies at startup
+# -- e.g. an incompletely provisioned toolchain whose claude.exe exits "native binary not
+# installed" -- tears the pty down with its error easily lost, leaving the operator only the
+# launch banner. Capture the status and, on a FAST failure, surface a breadcrumb: a real
+# session the operator quit (even via Ctrl-C, status 130) runs longer than the threshold and
+# is not flagged, so a normal exit stays quiet. The status is re-raised unchanged.
+_t0=${SECONDS}
+_rc=0
+systemd-run --user --pty \
     --unit="${_unit}" \
     --description="Claude Code @SANDBOX_USER@ session" \
     "${_setenv[@]}" \
@@ -503,4 +512,15 @@ exec systemd-run --user --pty \
     --property=RestrictNamespaces=yes \
     --property=NoNewPrivileges=yes \
     --property=UMask=0007 \
-    -- "${CLAUDE_EXEC}" "$@"
+    -- "${CLAUDE_EXEC}" "$@" || _rc=$?
+
+if (( _rc != 0 && SECONDS - _t0 < 5 )); then
+    command -v logger >/dev/null 2>&1 && logger -t claude-run -p authpriv.warning \
+        "session unit ${_unit} exited with status ${_rc} at startup"
+    ai_tools_msg_warn \
+        "claude-run: the session exited with status ${_rc} almost immediately." \
+        "If it ended with no output, the sandbox toolchain may be incompletely" \
+        "installed -- reprovision it as root, then relaunch:"
+    printf '  sudo ai-tools-bootstrap\n' >&2
+fi
+exit "${_rc}"
