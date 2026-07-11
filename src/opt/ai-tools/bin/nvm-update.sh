@@ -165,8 +165,15 @@ main() {
     # always runs under due to RestrictNamespaces=yes forcing PR_SET_NO_NEW_PRIVS).
     local versioned_claude="${nvm_dir}/versions/node/${target_version}/bin/claude"
     [[ -x "${versioned_claude}" ]] || die "claude binary not found at ${versioned_claude}"
-    /usr/local/bin/ai-tools-handback-client SYMLINK "${versioned_claude}" \
-        || die "failed to repoint ${AI_TOOLS_BIN}/claude via handback SYMLINK"
+    # Repoint (and, via the ai-tools-relabel.path watcher the touched symlink drives,
+    # relabel) is best-effort, NOT fatal: this warns rather than dying. A manual/out-of-band
+    # run (this script's documented use) executes outside a session, where the handback
+    # socket may be down -- and the toolchain is already installed by this point, so aborting
+    # here would strand a completed update over a symlink the operator can repoint by hand.
+    # The scheduled timer run has the socket up and repoints normally.
+    if ! /usr/local/bin/ai-tools-handback-client SYMLINK "${versioned_claude}"; then
+        warn "failed to repoint ${AI_TOOLS_BIN}/claude via handback SYMLINK -- the toolchain is updated but the stable symlink may be stale; repoint it as root: ln -sfn ${versioned_claude} ${AI_TOOLS_BIN}/claude && ai-tools --relabel"
+    fi
 
     log "Done. Active: $(nvm version "${node_alias}")"
 }

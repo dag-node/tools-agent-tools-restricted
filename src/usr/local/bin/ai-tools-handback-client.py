@@ -38,7 +38,17 @@ def main():
 
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-            sock.connect(_SOCK_PATH)
+            try:
+                sock.connect(_SOCK_PATH)
+            except OSError as exc:
+                # Name the socket and the likely cause: a bare "[Errno 2] No such file
+                # or directory" from connect() gives the caller nothing to act on.
+                sys.stderr.write(
+                    'ai-tools-handback-client: cannot reach the handback socket %s '
+                    '(%s) -- is ai-tools-handback.socket running?\n'
+                    % (_SOCK_PATH, exc)
+                )
+                sys.exit(1)
             sock.sendall(('%s %s\n' % (verb, arg)).encode('utf-8'))
             # Read the response line by line.  sock.makefile() wraps the socket in a
             # buffered text reader; closing it does NOT close the underlying socket
