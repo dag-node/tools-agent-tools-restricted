@@ -180,7 +180,13 @@ fi
 . "${NVM_DIR}/nvm.sh"
 nvm install "${NODE_MAJOR}"
 nvm alias default "${NODE_MAJOR}"
-npm install -g "${PKG}"
+# npm 11.5+ gates preinstall/install/postinstall behind an allowScripts allowlist, so a
+# bare `npm install -g` BLOCKS the package's postinstall. @anthropic-ai/claude-code fetches
+# and wires its platform-native binary in that postinstall (node install.cjs); blocked, the
+# JS launcher installs but exits "native binary not installed" at every launch. Approve the
+# script per invocation, scoped to the one package being installed (nvm-update.sh keeps the
+# whole managed set current the same way) -- never --dangerously-allow-all-scripts.
+npm install -g --allow-scripts="${PKG}" "${PKG}"
 EOSU
 
 # 3. Point /opt/ai-tools/bin/<launcher> at the versioned binary, for a package whose launcher
