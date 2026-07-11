@@ -1,5 +1,7 @@
-# Deployed to /opt/ai-tools/.gitignore (install.sh / the RPM rename it). The source is named
-# without the leading dot so git does not read it as ignore rules for the source tree itself.
+# Deployed to /opt/ai-tools/.gitignore: install.sh installs it; the RPM ships this as
+# %{_datadir}/ai-tools/gitignore and its %post copies it into place when absent (the live file
+# is not rpm-owned, so an erase preserves it). The source is named without the leading dot so
+# git does not read it as ignore rules for the source tree itself.
 #
 # ── Default-deny home-dir repo for /opt/ai-tools ──────────────────────────
 # Ignore everything, then re-include ONLY durable, operator-owned assets.

@@ -191,12 +191,13 @@ install -d -m 0755 %{buildroot}/opt/ai-tools
 install -d -m 0755 %{buildroot}/opt/ai-tools/bin
 install -d -m 0770 %{buildroot}/opt/ai-tools/.claude
 # Default-deny git guard for the control-plane home: ai-tools-bootstrap captures the control
-# plane in a root-private git repo, and this gitignore keeps secrets and churn out of it.
-install -m 0640 src/opt/ai-tools/gitignore %{buildroot}/opt/ai-tools/.gitignore
-# .gitconfig content is host-derived (email domain), so it is %ghost + generated in %post
-# below rather than shipped static, unlike .gitignore. Touched here only so %files' %attr
-# claim has a buildroot target, mirroring the /var/log/ai-tools/*.log ghosts above.
-touch %{buildroot}/opt/ai-tools/.gitconfig
+# plane in a root-private git repo, and this gitignore keeps secrets and churn out of it. The
+# LIVE /opt/ai-tools/.gitignore is NOT rpm-owned -- neither it nor the host-derived .gitconfig
+# is listed in %files, so an erase preserves both (operator state, like .nvm and the clones).
+# The canonical guard ships read-only under %{_datadir} as the reseed source; %post copies it to
+# /opt/ai-tools/.gitignore, and generates .gitconfig, only when the live file is absent.
+install -d -m 0755 %{buildroot}%{_datadir}/ai-tools
+install -m 0644 src/opt/ai-tools/gitignore %{buildroot}%{_datadir}/ai-tools/gitignore
 
 # ── nodejs: toolchain helpers + updater ──────────────────────────────────────
 for h in ai-tools-claude-symlink ai-tools-relabel-entrypoint ai-tools-bootstrap; do
@@ -264,18 +265,29 @@ if command -v setfacl >/dev/null 2>&1; then
     setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects || :
     setfacl -m g:ai-ops:r-- /var/opt/ai-tools/README.md || :
 fi
-# Root-owned git identity for the control-plane repo ai-tools-bootstrap captures (the RPM
-# counterpart of install.sh's do_install .gitconfig step). $1 -eq 1 is "fresh install only"
-# (RPM's %post argument), the scriptlet equivalent of install.sh's keep_existing -- an
-# upgrade never clobbers operator edits. No operator is bound yet at %post time (that is
-# `ai-tools-admin operator add`, run after this), so only install.sh's hostname -f fallback
-# branch applies here; the projects-user-email branch has nothing to read from yet.
-if [ "$1" -eq 1 ]; then
+# Control-plane git guard + identity for the repo ai-tools-bootstrap captures (the RPM
+# counterpart of install.sh's do_install .gitignore/.gitconfig steps). Neither file is
+# rpm-owned, so an erase preserves them; %post reseeds each ONLY when absent (install.sh's
+# keep_existing semantics), so a fresh install or upgrade self-heals a missing guard while an
+# existing -- possibly operator-customised -- file is never clobbered. This runs on every
+# transition, not fresh-install only, so a file lost to an earlier package's config handling is
+# restored. No operator is bound yet at %post time (that is `ai-tools-admin operator add`, run
+# after this), so the .gitconfig email uses the hostname -f fallback.
+if [ ! -f /opt/ai-tools/.gitignore ]; then
+    install -m 0640 -o root -g ai-tools \
+        %{_datadir}/ai-tools/gitignore /opt/ai-tools/.gitignore
+fi
+if [ ! -f /opt/ai-tools/.gitconfig ]; then
     domain="$(hostname -f 2>/dev/null || hostname)"
     printf '[user]\n\tname = ai-tools\n\temail = ai-tools@%s\n\n[core]\n\tfileMode = true\n\tautocrlf = input\n\n[init]\n\tdefaultBranch = main\n\n[pull]\n\trebase = false\n' \
         "${domain}" > /opt/ai-tools/.gitconfig
     chown root:ai-tools /opt/ai-tools/.gitconfig
     chmod 0644 /opt/ai-tools/.gitconfig
+fi
+# Relabel the reseeded files: the -R restorecon above ran before this block created them, so
+# label them explicitly (no-op when SELinux is off or they already carry the right context).
+if command -v restorecon >/dev/null 2>&1; then
+    restorecon /opt/ai-tools/.gitignore /opt/ai-tools/.gitconfig >/dev/null 2>&1 || :
 fi
 # Operator binding + toolchain are per-operator / network steps a scriptlet must not do; direct
 # the operator to them. ai-tools-bootstrap installs the Node toolchain; ai-tools-admin operator
@@ -291,8 +303,9 @@ EOF
 
 %postun -n ai-tools-base
 %systemd_postun_with_restart ai-tools-handback.socket
-# On final erase only, unload the SELinux module. The ai-tools account, /opt/ai-tools/.nvm,
-# /var/opt/ai-tools clones, and each operator's ~/.config/ai-tools are intentionally preserved.
+# On final erase only, unload the SELinux module. Intentionally preserved (not rpm-owned): the
+# ai-tools account, /opt/ai-tools/.nvm, the control-plane .gitignore/.gitconfig, /var/opt/ai-tools
+# clones, and each operator's ~/.config/ai-tools.
 if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
     semodule -n -r ai_tools >/dev/null 2>&1 || :
 fi
@@ -369,8 +382,11 @@ fi
 %dir %attr(2751, root, ai-tools) /opt/ai-tools
 %dir %attr(0551, root, ai-tools) /opt/ai-tools/bin
 %dir %attr(3770, root, ai-tools) /opt/ai-tools/.claude
-%config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.gitignore
-%ghost %attr(0644, root, ai-tools) /opt/ai-tools/.gitconfig
+# /opt/ai-tools/.gitignore and .gitconfig are deliberately NOT listed here: rpm-owning them
+# would delete them on erase. They are scriptlet-managed (%post reseed-if-missing) so an erase
+# preserves the operator's copies. The canonical .gitignore reseed source ships read-only here.
+%dir %{_datadir}/ai-tools
+%{_datadir}/ai-tools/gitignore
 
 %files -n ai-tools-nodejs
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-claude-symlink
