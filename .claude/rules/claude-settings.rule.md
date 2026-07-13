@@ -6,9 +6,18 @@ paths:
 # Claude Code settings (`settings.json`)
 
 `settings.json` is the agent session's Claude Code configuration. It declares the
-ownership hooks (covered in [ownership-and-hooks](ownership-and-hooks.rule.md)) and the
-Bash-tool permission rules. This rule covers the **permission rules** and how they couple
-to the SELinux policy.
+ownership hooks (covered in [ownership-and-hooks](ownership-and-hooks.rule.md)), the
+Bash-tool permission rules, a privacy `env` block, and the auto-mode default. This rule
+covers the **permission rules** and how they couple to the SELinux policy, the **`env`
+privacy default**, and the **`disableAutoMode`** default. The catalog of other Claude Code
+options an operator MAY add — and which are set elsewhere — is in
+[`docs/claude-options.md`](../../docs/claude-options.md).
+
+Settings coupled to the sandbox's layout rather than to Claude Code policy live in
+`claude-run`'s environment allowlist instead of here: `DISABLE_AUTOUPDATER=1` (the agent's
+Node tree is not agent-writable, so in-session self-update fails; updates run out-of-band —
+see [updater](updater.rule.md)) and the `HOME`/`PATH`/`CLAUDE_CONFIG_DIR` pins (see
+[launch](launch.rule.md)).
 
 ## Permission rules — three outcomes
 
@@ -111,6 +120,42 @@ it): a missing categorical entry fails; host-survey relaxations are reported by 
 pass, but a file with none of them (a kept pre-upgrade settings.json) fails; an entry in
 both lists fails as drift.
 
+## `env` — the privacy default
+
+The top-level `env` block applies environment variables to every session. It ships one
+entry:
+
+```json
+"env": { "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1" }
+```
+
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` opts the session out of all non-essential
+outbound traffic in one variable: it subsumes `DISABLE_TELEMETRY`,
+`DISABLE_ERROR_REPORTING`, `DISABLE_FEEDBACK_COMMAND`, and
+`CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY`, so the four are redundant beside it and are not set
+individually. The essential Anthropic API traffic the agent needs is unaffected, as is the
+WebFetch domain safety check (which has its own `skipWebFetchPreflight` opt-out, left on).
+
+It lives here rather than in `claude-run`'s allowlist because it is Claude Code product
+policy, not confinement structure — Claude Code's own config surface, beside the permission
+and hook declarations. Layering and override are under "Control-plane integrity" below.
+
+## `disableAutoMode` — confirm-by-default
+
+```json
+"disableAutoMode": "disable"
+```
+
+`"disable"` removes `auto` from the `Shift+Tab` permission-mode cycle and rejects
+`--permission-mode auto` at startup, so a session takes actions under a confirming
+permission mode rather than acting autonomously. The value is the literal string
+`"disable"`; the key absent (or any other value) leaves auto mode selectable.
+
+The default keeps a human in the loop for the outward-facing, irreversible actions a
+session reaches — commits, pushes, other state-changing Bash commands — which the sandbox
+confines but does not gate on confirmation. It is a control-plane default, overridable per
+project (see "Control-plane integrity" below).
+
 ## Coupling to optional SELinux groups
 
 The deny list is matched to the **core** policy alone. Enabling an optional SELinux group
@@ -129,9 +174,22 @@ new policy module, and the same relax-the-deny-entry step applies.
 ## Control-plane integrity
 
 `settings.json` is root-owned (`root:SANDBOX_GROUP`, no group write) and lives under
-the setgid+sticky `.claude` directory, so the agent cannot edit or replace it from inside
-a session (see [ownership-and-hooks](ownership-and-hooks.rule.md)). The deny rules and the
-hook declarations hold for the whole session.
+the setgid+sticky `.claude` directory, so the agent cannot edit or replace **this file**
+from inside a session (see [ownership-and-hooks](ownership-and-hooks.rule.md)). It is the
+user-level settings layer; Claude Code merges a higher-precedence **project** layer
+(`.claude/settings.local.json`, then `.claude/settings.json`) over it, and that layer lives
+in the agent-writable project tree. The layers compose differently per setting:
+
+- The **deny rules** and **hook declarations** merge additively across every layer — a
+  deny from any source wins over any allow, and project hooks add to rather than replace
+  these — so a project layer cannot remove them. They hold for the whole session.
+- The **`env` privacy default** and **`disableAutoMode`** are single-valued: a
+  higher-precedence project layer overrides them per key — control-plane defaults, not
+  locks. Neither is a containment boundary (telemetry is not one, and `disableAutoMode`
+  only removes confirmation prompts; the session's confinement is unchanged either way), so
+  a lock is unneeded. The one unoverridable layer, managed policy
+  (`/etc/claude-code/managed-settings.json`), is machine-wide — it applies to every Claude
+  Code user on the host — so the sandbox does not ship it.
 
 ## Why not
 
