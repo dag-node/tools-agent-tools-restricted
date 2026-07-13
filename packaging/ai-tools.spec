@@ -408,6 +408,23 @@ fi
 %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Mon Jul 13 2026 dagnode <tools@dagnode.com> - 0.4.0-1
+- Sessions now default to confirm-before-acting: the shipped settings.json sets
+  "disableAutoMode": "disable", which removes "auto" from the Shift+Tab cycle and rejects
+  --permission-mode auto. Auto mode (autonomous agentic actions, on by default since Claude
+  Code 2.1.207) is therefore off for sandbox sessions. Operators who relied on it re-enable
+  it per project via that project's .claude/settings.json.
+  Note the option name is a double-negative trap: the key is disableAutoMode and its
+  activating value is also "disable", so the guard is engaged by "disable"-ing a
+  "disable"-named key. The two negatives do not cancel — they compound to auto mode being
+  off — and the name gives the reader no cue to that; a positive spelling (autoMode: "off")
+  would read plainly. We set the vendor key as-is because it is the only knob Claude Code
+  exposes for this.
+- Privacy default: settings.json sets CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1, opting
+  sessions out of telemetry, error reporting, the /feedback upload, and the quality survey
+  in one variable. Essential Anthropic API traffic is unaffected. New reference:
+  docs/claude-options.md catalogs the Claude Code options an operator may layer per project.
+
 * Thu Jun 25 2026 dagnode <tools@dagnode.com> - 0.1.0-1
 - Initial RPM packaging: ai-tools-base / ai-tools-nodejs / claude-code-restricted
   subpackages from one source, sysusers account + ai-ops group creation, SELinux core
