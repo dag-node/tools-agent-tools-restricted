@@ -145,7 +145,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg skip-dirs relabel secret-patterns operator control-plane safe-paths confinement; do
+for l in log msg skip-dirs relabel secret-patterns operator control-plane safe-paths confinement npm-verify; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # PATH dedup fragment for operator shells; ai-tools-admin wires the source line into
@@ -354,6 +354,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/control-plane.lib.sh
 %attr(0644, root, root) %{ai_libdir}/safe-paths.lib.sh
 %attr(0644, root, root) %{ai_libdir}/confinement.lib.sh
+%attr(0644, root, root) %{ai_libdir}/npm-verify.lib.sh
 %attr(0644, root, root) %{ai_libdir}/path-dedup.sh
 %{_unitdir}/ai-tools-handback.socket
 %{_unitdir}/ai-tools-handback@.service

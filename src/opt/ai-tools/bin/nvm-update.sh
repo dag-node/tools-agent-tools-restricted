@@ -20,6 +20,32 @@ log()  { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p info;    echo "I
 warn() { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p warning; echo "WARN : $*" >&2; }
 die()  { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p err;     echo "ERROR: $*" >&2; exit 1; }
 
+# npm signature verifier (npm-verify.lib.sh). Best-effort source: the lib is root-owned, so a
+# missing one is a broken install, not agent action -- degrade to "unable to verify" (a warn,
+# never a blocked update), matching the check's own can't-verify posture. The lib refuses to
+# run as root; this updater runs as the sandbox account, which is the required principal.
+readonly NPM_VERIFY_LIB="/usr/local/lib/ai-tools/npm-verify.lib.sh"
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/npm-verify.lib.sh
+if ! source "${NPM_VERIFY_LIB}" 2>/dev/null \
+        || ! declare -F ai_tools_verify_npm_signatures >/dev/null 2>&1; then
+    warn "signature-verification library unavailable (${NPM_VERIFY_LIB}) -- skipping the check"
+    ai_tools_verify_npm_signatures() { return 2; }
+fi
+
+# verify_toolchain_signatures: run the signature check and apply the fail-closed policy.
+# rc 0 verified; rc 1 TAMPER -> die BEFORE the prune/repoint, so the previous trusted version
+# stays active and installed; rc 2 unable to verify -> warn and proceed (the toolchain is
+# installed regardless, and the check is best-effort against offline/unsupported hosts).
+verify_toolchain_signatures() {
+    local rc=0
+    ai_tools_verify_npm_signatures || rc=$?
+    case "${rc}" in
+        0) log "npm registry signatures verified for the installed toolchain" ;;
+        1) die "npm signature verification FAILED (possible registry tampering) -- refusing to activate the new toolchain; the previous version stays in use" ;;
+        *) warn "could not verify npm signatures (offline or unsupported) -- proceeding; the toolchain is updated but unverified" ;;
+    esac
+}
+
 # version_in_use: succeed if a live process is executing from this version's tree.
 # A session is pinned to the Node version it launched with (claude-run sets PATH to
 # that version's bin and DISABLE_AUTOUPDATER=1), so pruning a version out from under a
@@ -155,6 +181,11 @@ main() {
     local allow_csv; allow_csv="$(IFS=,; printf '%s' "${tools[*]}")"
     log "Packages: ${tools[*]}"
     install_packages "${allow_csv}" "${tools[@]}"
+
+    # Fail-closed signature gate BEFORE prune and repoint: a detected tamper (die) leaves the
+    # previous version un-pruned and the launcher symlink un-repointed, so the trusted toolchain
+    # stays active. Runs against the just-installed global tree as the sandbox account.
+    verify_toolchain_signatures
 
     prune_versions "${node_alias}"
 

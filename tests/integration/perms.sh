@@ -65,6 +65,7 @@ check_file /usr/local/lib/ai-tools/control-plane.lib.sh      root              r
 # helpers to refuse a system directory as a target; world-readable, no secrets.
 check_file /usr/local/lib/ai-tools/safe-paths.lib.sh         root              root              644
 check_file /usr/local/lib/ai-tools/confinement.lib.sh        root              root              644
+check_file /usr/local/lib/ai-tools/npm-verify.lib.sh         root              root              644
 # Secret-pattern config: user-owned 600. ai-tools (not owner/group, cannot enter the 700
 # .config/ai-tools dir) can neither read nor write it; root helpers read it. Optional: it is a
 # per-operator OVERRIDE -- the shared classifier falls back to its built-in defaults when the file

@@ -107,7 +107,8 @@ with a tightly scoped set of privileges instead:
   root-only files under **`/var/log/ai-tools/`**.
 - **Auto-updating** — a `systemd --user` timer in `${SANDBOX_USER}`'s own instance keeps
   Node and `@anthropic-ai/claude-code` current under `/opt/ai-tools`, and a root-side
-  watcher relabels the new entrypoint for SELinux after each upgrade.
+  watcher relabels the new entrypoint for SELinux after each upgrade. Each update verifies the
+  toolchain's npm registry signatures and fails closed on a tamper before activating it.
 
 > **On the boundary.** The allowlist gates where Claude *launches* and which
 > files get ownership restored — it is not a kernel-enforced read boundary. The CWD is
@@ -121,7 +122,7 @@ The enforced isolation boundary is DAC plus the `ai_tools_t` SELinux type. A few
 **out of scope by design**, not oversights: all operators share one `${SANDBOX_USER}` account
 (sessions are not kernel-isolated from each other), and `ai-ops` operators are trusted — the
 model defends the host from the *agent*, not from an operator. The full trust model, the
-non-goals, and the deferred hardening (per-operator isolation, npm signature verification) are
+non-goals, and the deferred hardening (per-operator isolation, registry-key pinning) are
 in [`CLAUDE.md`](CLAUDE.md#boundaries-and-non-goals).
 
 ## Identities and naming

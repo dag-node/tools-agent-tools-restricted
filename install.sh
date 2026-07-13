@@ -448,6 +448,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/operator.lib.sh
     _chk /usr/local/lib/ai-tools/safe-paths.lib.sh
     _chk /usr/local/lib/ai-tools/confinement.lib.sh
+    _chk /usr/local/lib/ai-tools/npm-verify.lib.sh
     _chk /usr/local/lib/ai-tools/control-plane.lib.sh
     _chk /usr/local/lib/ai-tools/relabel.lib.sh
     _chk /usr/local/lib/ai-tools/path-dedup.sh
@@ -624,6 +625,14 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/skip-dirs.lib.sh" \
         /usr/local/lib/ai-tools/skip-dirs.lib.sh
+
+    # npm signature verifier: sourced by nvm-update.sh and ai-tools-bootstrap (both run as the
+    # sandbox account) to verify the toolchain's npm registry signatures before activation.
+    # 644 root:root -- world-readable, no secrets; token-free, so no substitution.
+    log "/usr/local/lib/ai-tools/npm-verify.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/npm-verify.lib.sh" \
+        /usr/local/lib/ai-tools/npm-verify.lib.sh
 
     # Logger library: 644 root:root -- world-readable. Sourced by the root helpers, by
     # the hooks (run as ai-tools), and by the CLI (run as the projects user, NOT in

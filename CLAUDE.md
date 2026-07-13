@@ -157,9 +157,11 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   [confinement](.claude/rules/confinement.rule.md) and memory).
 - **`ai-ops` operators are trusted.** The model defends the host and other users from the
   *agent*, not from an operator, who already holds the launch grant.
-- **Toolchain provenance is checksum- and allowlist-gated.** The updater fetches Node
-  (checksum-verified) and npm packages (install scripts gated by an allowlist); npm package
-  signature/provenance verification is deferred (see [updater](.claude/rules/updater.rule.md)).
+- **Toolchain provenance is checksum-, allowlist-, and signature-gated.** The updater
+  checksum-verifies Node, gates npm install scripts behind an allowlist, and verifies the
+  installed toolchain's npm registry signatures before activating it — failing closed on a
+  tamper (see [updater](.claude/rules/updater.rule.md)). Pinning the registry signing key
+  (defense against a fully compromised registry) is deferred.
 
 ## Cross-cutting conventions
 

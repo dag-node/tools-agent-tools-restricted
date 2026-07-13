@@ -121,11 +121,41 @@ install-script execution behind an `--allow-scripts` allowlist scoped to the nam
 tools (never a blanket allow-all). `npm install` verifies each package's registry integrity
 hash, so a corrupted download is rejected.
 
-### Deferred
+The integrity hash proves only that the download matches what the registry advertised, so npm
+registry **signature** verification closes the compromised-registry/mirror vector.
+`npm-verify.lib.sh` runs `npm audit signatures` (the registry ECDSA signature over each
+package, plus SLSA provenance where published) over the installed toolchain. `npm audit
+signatures` refuses a global install (`EAUDITGLOBAL`), so the verifier audits a throwaway
+project whose `node_modules` is a symlink to the global tree (`npm root -g`) and whose
+`package.json` lists the global top-level packages: npm's arborist reads the real installed
+tree, including transitive dependencies, with no reinstall and no network beyond the registry
+key/attestation fetch.
 
-npm package **signature/provenance** verification is not wired: the integrity hash does not
-prove the registry served a genuine package, so a compromised registry or mirror is the
-uncovered vector. `npm audit signatures` verifies the registry ECDSA signature (and SLSA
-provenance where published) but refuses global installs (`EAUDITGLOBAL`), which the toolchain
-uses — so a global-package workaround is required. Scoped in memory
-(`task-npm-signature-verification`).
+The verifier runs as the sandbox account, never root: it audits the sandbox-owned (agent-
+writable) global tree, and as root it would resolve root's global prefix — a verdict over the
+wrong tree — and run `npm`/`node` over agent-controlled files as root. `nvm-update.sh` runs it
+directly; `ai-tools-bootstrap` runs it inside a `sudo -u` sandbox-account step; and the impure
+entry `ai_tools_verify_npm_signatures` refuses to run as root as a fail-closed backstop. The
+pure decision `ai_tools_npm_verdict` — no npm, no filesystem, no privilege — is split out and
+unit-tested over the audit-output truth table (`tests/unit/npm-verify.sh`), mirroring
+`confinement.lib.sh`'s pure verdict.
+
+The verdict gates activation fail-closed. An **invalid** signature (tamper) aborts before the
+prune and the launcher-symlink repoint, so the previous, trusted version stays active and the
+tampered tree is left unwired. An **inability to verify** — offline, an npm without `audit
+signatures`, or a missing library (root-owned, so a missing one is a broken install, not agent
+action) — warns and proceeds, since the update itself is not the danger and the check is
+best-effort against such hosts. The signing keys are fetched from the registry keys endpoint
+(`<registry>/-/npm/v1/keys`) over HTTPS on each run.
+
+## Deferred
+
+**Pinning the registry signing key.** Fetching the keys each run detects a mirror or cache
+that serves a tampered package without the real signature, but not a fully compromised primary
+registry that serves a forged package, signature, and matching keys together. npm exposes no
+configuration to pin the signing key for `npm audit signatures`, so pinning requires replacing
+it with a bespoke verification against a hardcoded key — which forgoes npm's maintained
+verifier and the free transitive-tree coverage, and must track npm's key rotation (the endpoint
+already serves one retired and one active key) or a rotation breaks updates. TLS covers the
+man-in-the-middle key swap, so pinning is defense in depth against a primary-registry
+root-of-trust compromise, held against that cost.

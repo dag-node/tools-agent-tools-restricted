@@ -189,6 +189,35 @@ nvm alias default "${NODE_MAJOR}"
 npm install -g --allow-scripts="${PKG}" "${PKG}"
 EOSU
 
+# 2b. Verify the installed toolchain's npm registry signatures BEFORE wiring the launcher, so a
+#     compromised registry serving a tampered package is caught before the first launch can use
+#     it. Runs as ${SANDBOX_USER} (the verifier refuses root: it audits the sandbox-owned global
+#     tree and as root would resolve the wrong prefix). nvm is re-sourced so npm/node are on
+#     PATH. Gated on the lib being deployed: a bootstrap that precedes the control plane has no
+#     lib yet -- the nvm-update timer verifies on its first run instead. A tamper aborts the
+#     bootstrap before the symlink/relabel, leaving the tampered tree unwired; an inability to
+#     verify (offline/unsupported) warns and proceeds, matching the check's best-effort posture.
+_verify_lib=/usr/local/lib/ai-tools/npm-verify.lib.sh
+if [[ -r "${_verify_lib}" ]]; then
+    _vrc=0
+    sudo -u "${SANDBOX_USER}" env \
+        NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" VERIFY_LIB="${_verify_lib}" \
+        bash -c '
+            set -euo pipefail
+            . "${NVM_DIR}/nvm.sh" >/dev/null 2>&1
+            nvm use default >/dev/null 2>&1 || true
+            . "${VERIFY_LIB}"
+            ai_tools_verify_npm_signatures
+        ' || _vrc=$?
+    case "${_vrc}" in
+        0) log "npm registry signatures verified for the installed toolchain" ;;
+        1) die "npm signature verification FAILED (possible registry tampering) -- aborting before wiring the launcher; the installed package is left unactivated" ;;
+        *) log "warn: could not verify npm signatures (offline or unsupported) -- proceeding; the toolchain is installed but unverified" ;;
+    esac
+else
+    log "warn: signature-verification library not deployed yet -- skipping the check; the nvm-update timer verifies on its first run"
+fi
+
 # 3. Point /opt/ai-tools/bin/<launcher> at the versioned binary, for a package whose launcher
 #    is known and present. Runs as root: the agent cannot create top-level entries in the home
 #    root. bin is the locked control-plane dir (0551 root:ai-tools); root writes the symlink
