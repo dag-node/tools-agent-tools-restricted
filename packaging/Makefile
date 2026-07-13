@@ -33,10 +33,28 @@ EL10_BASE ?= quay.io/rockylinux/rockylinux:10-minimal
 # when a content-addressed COPY cache hit would otherwise reuse an RPM built from older sources.
 BUILD_FLAGS ?=
 
-.PHONY: all dist srpm rpm clean rpmbase-el9 rpmbase-el10 rpmtest-rocky9 rpmtest-rocky10
+.PHONY: all dist srpm rpm clean rpmbase-el9 rpmbase-el10 rpmtest-rocky9 rpmtest-rocky10 \
+        check-version changelog hooks
 
 all:
 	@echo "make dist | srpm | rpm | clean | rpmbase-el9 | rpmbase-el10 | rpmtest-rocky9 | rpmtest-rocky10"
+	@echo "     check-version | changelog | hooks"
+
+# Assert VERSION, the newest %changelog entry, and (with TAG=vX.Y.Z) a tag all agree. The
+# release build runs this at tag time; run it by hand before tagging to catch a missing entry.
+check-version:
+	@bash $(CURDIR)/check-version.sh $(TAG)
+
+# Draft a %changelog block for the current VERSION from commits since the last tag, to stdout
+# for curation (see change-docs). Prints nothing to the spec -- paste and edit the result.
+changelog:
+	@bash $(CURDIR)/changelog-draft.sh
+
+# Opt in (once per clone) to the local git hooks in .githooks -- currently a non-blocking
+# commit-msg reminder to complete the %changelog on a "bump version" commit.
+hooks:
+	git -C $(ROOT) config core.hooksPath .githooks
+	@echo "git hooks enabled (core.hooksPath=.githooks)"
 
 # The shared base image alone: builds the RPMs inside it (via its own `make rpm`, so
 # RPM_RELEASE flows through -- see RpmBase.Containerfile) and installs the metapackage, with

@@ -109,14 +109,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Verify the tag matches packaging/VERSION
-        run: |
-          tag_version="${GITHUB_REF_NAME#v}"
-          file_version="$(cat packaging/VERSION)"
-          if [[ "${tag_version}" != "${file_version}" ]]; then
-            echo "::error::tag ${GITHUB_REF_NAME} does not match packaging/VERSION (${file_version}) -- bump the file and re-tag" >&2
-            exit 1
-          fi
+      # Tag-only gate: the tag, packaging/VERSION, and the newest %changelog entry must all
+      # name the same version before public RPMs are published. Enforced here rather than on
+      # push/PR so a version bump never blocks dev flow -- only a release does. Recovery for
+      # a mismatch is to fix VERSION/%changelog and re-tag (see the concurrency note above).
+      - name: Verify tag, VERSION, and %changelog agree
+        run: bash packaging/check-version.sh "${GITHUB_REF_NAME}"
 
       - name: Install podman + zip
         run: sudo apt-get update && sudo apt-get install -y podman zip

@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# commit-msg hook: when the message announces a version bump, remind (do NOT block) if
+# packaging/VERSION and the newest %changelog entry in ai-tools.spec disagree, so the
+# changelog can be completed before the push. The hard gate is tag-only in CI's release job
+# (only vX.Y.Z tags publish RPMs); this local nudge never fails a commit, so dev flow is
+# never disrupted. Reuses the same check CI runs (packaging/check-version.sh).
+#
+# Only a version-bump commit triggers the reminder; every other commit passes through.
+# $1 is the path to the file holding the proposed commit message.
+#
+# Not installed automatically -- enable once per clone with `make -C packaging hooks`
+# (sets core.hooksPath to .githooks). The check reads the working tree, matching CI.
+set -euo pipefail
+
+msg_file="$1"
+repo_root="$(git rev-parse --show-toplevel)"
+
+# The bump-commit convention is "bump version to X.Y.Z" (see git log); match it
+# case-insensitively, ignoring the commit template's comment lines.
+if git stripspace --strip-comments <"${msg_file}" | grep -qiE 'bump version'; then
+    if ! bash "${repo_root}/packaging/check-version.sh" >/dev/null 2>&1; then
+        version="$(cat "${repo_root}/packaging/VERSION")"
+        echo "commit-msg reminder: no '${version}-1' %changelog entry in packaging/ai-tools.spec yet." >&2
+        echo "  Draft one with 'make -C packaging changelog', curate it, and add it before you tag ${version}." >&2
+        echo "  (Not blocking this commit; the release build enforces it at tag time.)" >&2
+    fi
+fi
