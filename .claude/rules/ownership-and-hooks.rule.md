@@ -25,6 +25,12 @@ not owned by `SANDBOX_USER` is a pre-existing user file or directory the agent c
 have written; it is left completely untouched (no re-chown, no bit-stripping, and for a
 secret-named path no false `breached` NOTICE about a secret the agent never accessed).
 
+It acts only on a regular file or directory — a symlink or a hardlinked file is refused —
+and applies the `chown`/`chmod` race-safely: it opens the target, re-verifies inode and
+type through the held descriptor, and mutates via `/proc/self/fd`, so a `SANDBOX_USER` path
+swap between validation and mutation cannot redirect root's `chown` onto a file outside the
+tree. The full pinned-fd sequence is in the `ai-tools-chown.sh` header.
+
 ## `PostToolUse` — the immediate path
 
 A `PostToolUse` hook (`post-tool-hook.sh`, declared in `settings.json`) calls

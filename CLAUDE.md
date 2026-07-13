@@ -103,7 +103,9 @@ sandbox account can never hold the operator grant. The invariants the agent oper
 
 - **`SANDBOX_USER` has no sudo rights** — not `rm -rf /`, not `cat /etc/shadow`, not any
   root helper. Root operations (chown, setgid, symlink repoint) go **exclusively**
-  through the authenticated `ai-tools-handback` socket
+  through the authenticated `ai-tools-handback` socket, which verifies the caller's uid
+  with a kernel-supplied credential the peer cannot forge and adds no trust of its own —
+  each verb's root helper re-validates independently
   ([handback-bridge](.claude/rules/handback-bridge.rule.md)). The session runs under
   `PR_SET_NO_NEW_PRIVS`, which drops `sudo`'s SUID bit, so `sudo` is inoperative from
   inside the session by construction.
@@ -123,9 +125,16 @@ sandbox account can never hold the operator grant. The invariants the agent oper
 - **The allowlist gates where the agent launches and which written files get ownership
   restored. It is NOT a kernel-enforced read boundary** — once running, ordinary Unix
   permissions plus the `ai_tools_t` SELinux type govern reads/writes. Those filesystem
-  permissions are the enforced isolation boundary. (A per-session `bubblewrap` mount
+  permissions are the enforced isolation boundary. The CWD and every allowlist entry are
+  canonicalized (`realpath`) before matching, so a symlink or `..` cannot smuggle a path
+  past the gate ([launch](.claude/rules/launch.rule.md)). (A per-session `bubblewrap` mount
   namespace to make the allowlist a true access boundary is a deferred proposal; see
-  memory.)
+  [Boundaries and non-goals](#boundaries-and-non-goals) and memory.)
+- **The ownership handback touches only `SANDBOX_USER`-owned inodes and cannot be
+  redirected outside the tree.** `ai-tools-chown` acts on a path only while it is
+  `SANDBOX_USER`-owned (the born-owner of an agent write), refuses symlinks and hardlinks,
+  and applies the change race-safely against a path swap
+  ([ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md)).
 - **A protected-paths backstop refuses system directories as targets.** Independently of
   the allowlist, the launch wrapper, the claim CLI, and every elevated helper refuse to act
   on a system directory (`/`, `/etc`, `/var`, `/usr`, `/home`, `/opt/ai-tools`, …) or a user
@@ -134,6 +143,23 @@ sandbox account can never hold the operator grant. The invariants the agent oper
   `allowed-projects`. Matching is exact-or-ancestor, so real projects nested under an
   operator home or the sandbox-clone area pass. See
   [safe-paths](.claude/rules/safe-paths.rule.md).
+
+## Boundaries and non-goals
+
+The enforced isolation boundary is DAC plus the `ai_tools_t` SELinux type. The following are
+deliberate scope decisions, not gaps, so a reader tells bounded design from an oversight:
+
+- **The shared `SANDBOX_USER` account is the trust unit, not the session.** All operators'
+  sessions run as one UID; per-project *ownership* returns to the owning operator, but two
+  sessions under that account are not kernel-isolated from each other, and session scratch
+  (`/tmp/claude-<uid>`, `/opt/ai-tools/.claude`) is shared. Per-operator UIDs and per-session
+  `bubblewrap`/`--system` isolation are deferred (see
+  [confinement](.claude/rules/confinement.rule.md) and memory).
+- **`ai-ops` operators are trusted.** The model defends the host and other users from the
+  *agent*, not from an operator, who already holds the launch grant.
+- **Toolchain provenance is checksum- and allowlist-gated.** The updater fetches Node
+  (checksum-verified) and npm packages (install scripts gated by an allowlist); npm package
+  signature/provenance verification is deferred (see [updater](.claude/rules/updater.rule.md)).
 
 ## Cross-cutting conventions
 

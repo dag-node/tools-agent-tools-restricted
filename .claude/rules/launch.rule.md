@@ -27,7 +27,11 @@ of that unit (namespaces, SELinux transition, `/tmp`) lives in
 3. The wrapper checks the current directory against the operator's approved-projects
    allowlist (`~/.config/ai-tools/allowed-projects`, keyed off the launching operator's
    `${HOME}`); it starts only inside an allowed project and refuses a CWD carved out by a
-   `!` exclusion.
+   `!` exclusion. The CWD and every allowlist entry are canonicalized with `realpath -e`
+   before matching, and the match is exact-or-`/`-prefixed, so a symlink or `..` component
+   cannot smuggle a CWD past the gate and a sibling sharing a name prefix does not match.
+   `ai-tools-chown` parses the same list the same way, so the launch gate and the ownership
+   handback agree on what is in-project.
 4. It resolves the versioned binary via the stable symlink `/opt/ai-tools/bin/claude`
    with a single `readlink` hop, validates the target is an absolute, `..`-free path
    matching `${AI_TOOLS_NVM_DIR}/versions/node/*/bin/claude`, exports it as

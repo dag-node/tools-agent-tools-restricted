@@ -113,3 +113,19 @@ operator clears with `ai-tools --relabel`, never an unconfined session.
 Linger on `SANDBOX_USER` keeps its `systemd --user` instance running without an
 interactive login, so both the daily `nvm-update` timer and each `claude-run` session unit
 have a live user manager. Required for headless/unattended operation.
+
+## Toolchain provenance
+
+`nvm` verifies Node's published `SHASUMS256` on download, and `install_packages` gates npm
+install-script execution behind an `--allow-scripts` allowlist scoped to the named managed
+tools (never a blanket allow-all). `npm install` verifies each package's registry integrity
+hash, so a corrupted download is rejected.
+
+### Deferred
+
+npm package **signature/provenance** verification is not wired: the integrity hash does not
+prove the registry served a genuine package, so a compromised registry or mirror is the
+uncovered vector. `npm audit signatures` verifies the registry ECDSA signature (and SLSA
+provenance where published) but refuses global installs (`EAUDITGLOBAL`), which the toolchain
+uses — so a global-package workaround is required. Scoped in memory
+(`task-npm-signature-verification`).

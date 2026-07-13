@@ -82,10 +82,11 @@ with a tightly scoped set of privileges instead:
   (with `!` exclusions to carve out subdirectories or secrets).
 - **Minimal sudo surface** — `${SANDBOX_USER}` has **no** sudo rights. Root operations
   (ownership handback, setgid normalisation, symlink repoint) go through a dedicated
-  socket daemon (`ai-tools-handback`, started at boot) that authenticates callers via
-  `SO_PEERCRED`. The one `%ai-ops` rule that drops to `${SANDBOX_USER}` runs only
-  `claude-run` — a fixed-path sudo target, not a glob, which wraps the session in a
-  systemd `--user --pty` service before exec'ing the versioned binary. Nothing else.
+  socket daemon (`ai-tools-handback`) that verifies the caller's identity with a kernel
+  credential the caller cannot forge. The one `%ai-ops` rule that drops to `${SANDBOX_USER}`
+  runs only `claude-run` — a fixed-path sudo target, not a glob, which wraps the session in a
+  confined systemd `--user --pty` service. Nothing else. See the
+  [handback bridge](.claude/rules/handback-bridge.rule.md).
 - **Ownership hand-back** — files Claude writes are chowned back to
   `${PROJECTS_USER}:${SANDBOX_GROUP}` (group-readable, world-closed) inside approved paths only, along
   with any directories Claude created on the way (world bits stripped, group
@@ -109,11 +110,19 @@ with a tightly scoped set of privileges instead:
   watcher relabels the new entrypoint for SELinux after each upgrade.
 
 > **On the boundary.** The allowlist gates where Claude *launches* and which
-> files get ownership restored — it is not a kernel-enforced read boundary. Once
-> running as `${SANDBOX_USER}`, ordinary Unix permissions govern access; that is what
-> actually isolates the agent from other users' files. A per-session
-> `bubblewrap` mount namespace to make the allowlist a true access boundary is
-> proposed but not yet implemented.
+> files get ownership restored — it is not a kernel-enforced read boundary. The CWD is
+> canonicalized before it is checked, so a symlink cannot slip a path past it. Once running
+> as `${SANDBOX_USER}`, ordinary Unix permissions plus the `ai_tools_t` SELinux type govern
+> access; that is what actually isolates the agent from other users' files. A per-session
+> `bubblewrap` mount namespace to make the allowlist a true access boundary is proposed but
+> not yet implemented.
+
+The enforced isolation boundary is DAC plus the `ai_tools_t` SELinux type. A few things are
+**out of scope by design**, not oversights: all operators share one `${SANDBOX_USER}` account
+(sessions are not kernel-isolated from each other), and `ai-ops` operators are trusted — the
+model defends the host from the *agent*, not from an operator. The full trust model, the
+non-goals, and the deferred hardening (per-operator isolation, npm signature verification) are
+in [`CLAUDE.md`](CLAUDE.md#boundaries-and-non-goals).
 
 ## Identities and naming
 
@@ -160,15 +169,21 @@ you type `claude`
        ├─ resolve /opt/ai-tools/bin/claude    (one readlink hop; export as CLAUDE_EXEC)
        ├─ export CWD as CLAUDE_PROJECT_DIR    (validated project dir → unit WorkingDirectory)
        └─ exec sudo -u "${SANDBOX_USER}" -- /opt/ai-tools/bin/claude-run
+            │                                  (DROPS privilege to the unprivileged sandbox
+            │                                   account — the wrapper never runs as root)
             └─ systemd transient service      (--pty; RestrictNamespaces=yes, UMask=0007,
                                                WorkingDirectory=project, NODE_COMPILE_CACHE pinned)
                  └─ claude runs as ${SANDBOX_USER} in ai_tools_t (SELinux)
                       └─ on Write/Edit → PostToolUse hook (or Stop/SessionStart sweep)
                            └─ ai-tools-handback-client CHOWN <file>   (socket, no sudo)
-                                └─ ai-tools-handback daemon (root, SO_PEERCRED auth)
-                                     └─ ai-tools-chown <file>   (allowlist-checked)
+                                └─ ai-tools-handback daemon            (root; authenticated caller)
+                                     └─ ai-tools-chown <file>          (allowlist-checked)
                                           └─ chown ${PROJECTS_USER}:${SANDBOX_GROUP}, strip world bits
 ```
+
+The privilege model and every guard above are specified in
+[`CLAUDE.md`](CLAUDE.md) (trust chain and invariants) and the per-component
+[`.claude/rules/`](.claude/rules/).
 
 ## Files
 
@@ -401,11 +416,14 @@ only, `700 root:root`). Query journald by component:
     sudo journalctl -t ai-tools-chown            # the ownership-restore helper
     sudo journalctl -t ai-tools-lockdown -p warning
     sudo journalctl -t ai-tools-hook             # the lifecycle hooks
+    sudo journalctl -t ai-tools-handback         # the privilege bridge (one line per request)
     sudo journalctl -t ai-tools                  # the CLI (project/sandbox created, …)
 
-Root-only log files: `chown.log`, `setgid.log`, `symlink.log`, `lockdown.log`,
-`install.log`. After editing the SELinux source, rebuild with
-`sudo selinux/install-selinux.sh rebuild`.
+The handback daemon keeps a per-request audit line — the peer PID, the verb, the path, and
+the helper result — plus a `WARNING` for every rejected peer or malformed request, so each
+privileged action is attributable at the socket layer. Root-only log files: `chown.log`,
+`setgid.log`, `symlink.log`, `lockdown.log`, `handback.log`, `install.log`. After editing the
+SELinux source, rebuild with `sudo selinux/install-selinux.sh rebuild`.
 
 ## SELinux
 
