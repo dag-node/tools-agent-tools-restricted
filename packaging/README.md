@@ -54,24 +54,35 @@ publishes automatically off an ordinary commit:
 
 1. Decide the new version (semver `MAJOR.MINOR.PATCH`) and set it in
    `packaging/VERSION`, the single source of truth this Makefile and the spec
-   both read (see `docs/rpm-packaging.md`'s Build section). Commit and push it.
+   both read (see `docs/rpm-packaging.md`'s Build section). Add a matching
+   `%changelog` entry to `ai-tools.spec` — draft it from the commits since the
+   last tag with `make changelog`, then curate it into upgrade-oriented prose.
+   Confirm the two agree with `make check-version`, then commit both (the
+   `bump version to X.Y.Z` convention) and push.
 2. Tag that same commit `vX.Y.Z` — the `v` prefix matters, `.github/workflows/ci.yml`
    only fires the release job on `v*.*.*` — and push the tag:
 
-       git tag v0.2.0
-       git push origin v0.2.0
+       git tag v0.4.0
+       git push origin v0.4.0
 
 3. CI takes it from there. `shellcheck` and `rpm-selftest` (the full container
    selftest above, both EL9 and EL10) run against the tagged commit first; only
-   once both pass does the `release` job verify the tag matches
-   `packaging/VERSION`, rebuild clean RPMs (`RPM_RELEASE` left unset, so
-   `Release: 1` applies rather than the dev/snapshot Release every other CI run
-   gets), and publish a GitHub Release with those RPMs attached and
-   auto-generated notes (`gh release create --generate-notes`).
+   once both pass does the `release` job verify the tag, `packaging/VERSION`, and
+   the newest `%changelog` entry all name the same version, rebuild clean RPMs
+   (`RPM_RELEASE` left unset, so `Release: 1` applies rather than the dev/snapshot
+   Release every other CI run gets), and publish a GitHub Release with those RPMs
+   attached and auto-generated notes (`gh release create --generate-notes`).
+4. After the release publishes, bump `packaging/VERSION` on `develop` to the next
+   anticipated version (leave the `%changelog` for that version's own release —
+   the checks run only at tag time) and push. This keeps `develop` ahead of the
+   last release, so the dev/snapshot RPMs every CI run builds
+   (`Release: 0.<n>.git<sha>`) sort *above* the last release and *below* the next
+   one; left at the released number, a newer snapshot sorts as an older package.
 
-A tag that does not match `packaging/VERSION` fails the release job immediately
-with an explicit error instead of publishing a mismatched release — bump the
-file first, then tag.
+A tag whose version does not match `packaging/VERSION` and the newest `%changelog`
+entry fails the release job immediately with an explicit error instead of
+publishing a mismatch — fix the files first, then re-tag. `make check-version`
+(or `check-version TAG=vX.Y.Z`) runs the same check locally before you tag.
 
 ## Scope
 
