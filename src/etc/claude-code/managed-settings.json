@@ -1,0 +1,20 @@
+{
+  "env": {
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_TELEMETRY": "1",
+    "DISABLE_ERROR_REPORTING": "1",
+    "DISABLE_FEEDBACK_COMMAND": "1",
+    "OTEL_METRICS_EXPORTER": "none",
+    "OTEL_LOGS_EXPORTER": "none",
+    "OTEL_TRACES_EXPORTER": "none",
+    "DISABLE_UPDATES": "1",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-5",
+    "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1"
+  },
+  "model": "claude-opus-4-8",
+  "disableAutoMode": "disable",
+  "feedbackSurveyRate": 0,
+  "showThinkingSummaries": true,
+  "verbose": true,
+  "cleanupPeriodDays": 36500
+}
