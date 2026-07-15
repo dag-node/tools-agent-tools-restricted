@@ -129,6 +129,28 @@ configure_git_identity() {
     log "verify the result in ${gc}"
 }
 
+# seed_managed_assets_step: (re)seed the ai-tools-managed agents/skills into the control plane
+# from the pristine datadir copies. Runs only when the control plane is present (its .claude and
+# the /usr/share/ai-tools pristine copies exist) and the seeder lib is deployed; a bootstrap that
+# precedes install.sh has nothing to seed and skips. Past that gate msg.lib is deployed, so the
+# update confirm requires it like every other prompting consumer. Same non-overwrite and version
+# rules as install.sh -- only ai-tools-* assets carrying x-ai-tools-managed are touched, and an
+# existing one updates only on confirm (default keep). See managed-assets.lib.sh.
+seed_managed_assets_step() {
+    local claude="${SANDBOX_HOME}/.claude" pristine=/usr/share/ai-tools
+    [[ -d "${claude}" && -d "${pristine}/agents" ]] \
+        || { log "managed assets: control plane not present yet -- install it, then re-run to seed agents/skills"; return 0; }
+    local lib=/usr/local/lib/ai-tools/managed-assets.lib.sh msglib=/usr/local/lib/ai-tools/msg.lib.sh
+    [[ -r "${lib}" && -r "${msglib}" ]] \
+        || die "control plane present but the managed-asset libs are missing -- reinstall ai-tools"
+    # shellcheck source=/dev/null
+    source "${msglib}"
+    # shellcheck source=/dev/null
+    source "${lib}"
+    log "seeding ai-tools-managed agents/skills into ${claude}"
+    ai_tools_seed_managed_assets "${pristine}" "${claude}" "${SANDBOX_GROUP}"
+}
+
 [[ "${EUID}" -eq 0 ]] || die "run as root (sudo)"
 command -v curl >/dev/null 2>&1 || die "curl is required to fetch nvm"
 
@@ -315,6 +337,10 @@ else
 fi
 
 log "toolchain ready under ${SANDBOX_HOME}"
+
+# Managed agents/skills (control-plane .claude). Seeded/updated here from the pristine datadir
+# copies; skipped cleanly when the control plane is not yet in place.
+seed_managed_assets_step
 
 # Sandbox git commit identity (control-plane gitconfig). Offered here as the shared interactive
 # step; skipped cleanly when the control plane is not yet in place.

@@ -92,6 +92,13 @@ readonly CONTROL_PLANE_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/control-pla
 source "${CONTROL_PLANE_LIB}" || {
     printf 'install.sh: cannot source %s\n' "${CONTROL_PLANE_LIB}" >&2; exit 1; }
 
+# Managed-asset seeder (agents/skills), sourced from the SOURCE TREE. Requires msg.lib.sh
+# (sourced above) for the update confirm; a missing lib is fatal like the others.
+readonly MANAGED_ASSETS_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/managed-assets.lib.sh"
+# shellcheck source=/dev/null
+source "${MANAGED_ASSETS_LIB}" || {
+    printf 'install.sh: cannot source %s\n' "${MANAGED_ASSETS_LIB}" >&2; exit 1; }
+
 # confirm_boxed <title> <y|n> <question> [context-line...] -- the one interactive prompt
 # shape, so every prompt in the install flow looks the same:
 #   * a FIXED 80-column box (AI_TOOLS_MSG_FULLWIDTH) titled <title>, framing the context,
@@ -457,6 +464,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/confinement.lib.sh
     _chk /usr/local/lib/ai-tools/npm-verify.lib.sh
     _chk /usr/local/lib/ai-tools/control-plane.lib.sh
+    _chk /usr/local/lib/ai-tools/managed-assets.lib.sh
     _chk /usr/local/lib/ai-tools/relabel.lib.sh
     _chk /usr/local/lib/ai-tools/path-dedup.sh
     _chk /etc/sudoers.d/ai-tools-claude
@@ -467,6 +475,9 @@ do_summary() {
     _chk /opt/ai-tools/.claude/post-tool-hook.sh
     _chk /opt/ai-tools/.claude/session-hook.sh
     _chk /opt/ai-tools/.claude/settings.json
+    _chk /opt/ai-tools/.claude/agents/ai-tools-reference-architect.md
+    _chk /opt/ai-tools/.claude/skills/ai-tools-docs-reference/SKILL.md
+    _chk /opt/ai-tools/.claude/skills/ai-tools-engineering-principles/SKILL.md
 
     printf '  %s\n' "${sep}"
     if (( missing == 0 )); then
@@ -687,6 +698,13 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/control-plane.lib.sh" \
         /usr/local/lib/ai-tools/control-plane.lib.sh
+
+    # Managed-asset seeder: 644 root:root -- sourced by this installer and ai-tools-bootstrap
+    # (both root) to seed the ai-tools-* agents/skills. No secrets, no tokens.
+    log "/usr/local/lib/ai-tools/managed-assets.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/managed-assets.lib.sh" \
+        /usr/local/lib/ai-tools/managed-assets.lib.sh
 
     # PATH dedup shell fragment: 644 root:root -- world-readable. Sourced by operator
     # login shells via the dotfile lines ai-tools-admin wires (never installed into
@@ -1052,6 +1070,21 @@ do_install() {
     chmod "${CP_HOME_MODE}" /opt/ai-tools
     chmod "${CP_DIR_MODES[bin]}" /opt/ai-tools/bin
     chmod "${CP_DIR_MODES[.claude]}" /opt/ai-tools/.claude
+
+    # Shipped agents/skills: stage pristine copies to the datadir (the single seed source shared
+    # with ai-tools-bootstrap), then seed the managed ones into the live .claude. Only ai-tools-*
+    # assets carrying x-ai-tools-managed are seeded; an operator's own agent/skill is never
+    # touched, and an existing managed asset updates only on confirm (default keep). See
+    # managed-assets.lib.sh and shipped-claude-assets.rule.md.
+    log "/usr/share/ai-tools/{agents,skills} (pristine managed assets)"
+    install -d -o root -g root -m 755 /usr/share/ai-tools
+    rm -rf /usr/share/ai-tools/agents /usr/share/ai-tools/skills
+    cp -rT "${SCRIPT_DIR}/src/opt/ai-tools/.claude/agents" /usr/share/ai-tools/agents
+    cp -rT "${SCRIPT_DIR}/src/opt/ai-tools/.claude/skills" /usr/share/ai-tools/skills
+    chown -R root:root /usr/share/ai-tools/agents /usr/share/ai-tools/skills
+    find /usr/share/ai-tools/agents /usr/share/ai-tools/skills -type d -exec chmod 755 {} +
+    find /usr/share/ai-tools/agents /usr/share/ai-tools/skills -type f -exec chmod 644 {} +
+    ai_tools_seed_managed_assets /usr/share/ai-tools /opt/ai-tools/.claude "${SANDBOX_GROUP}"
 
     section "Configuration (allowlist & secret patterns)"
 

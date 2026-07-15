@@ -145,7 +145,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg skip-dirs relabel secret-patterns operator control-plane safe-paths confinement npm-verify; do
+for l in log msg skip-dirs relabel secret-patterns operator control-plane safe-paths confinement npm-verify managed-assets; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # PATH dedup fragment for operator shells; ai-tools-admin wires the source line into
@@ -198,6 +198,14 @@ install -d -m 0770 %{buildroot}/opt/ai-tools/.claude
 # /opt/ai-tools/.gitignore, and generates .gitconfig, only when the live file is absent.
 install -d -m 0755 %{buildroot}%{_datadir}/ai-tools
 install -m 0644 src/opt/ai-tools/gitignore %{buildroot}%{_datadir}/ai-tools/gitignore
+# Shipped agents/skills: pristine copies under %{_datadir} are the reseed source (rpm-owned). The
+# LIVE /opt/ai-tools/.claude/{agents,skills} are NOT rpm-owned (like .gitignore); %post seeds them
+# when absent, so an erase/upgrade preserves an operator-updated copy. The interactive version
+# update is offered by install.sh / ai-tools-bootstrap (managed-assets.lib.sh, the shared seeder).
+cp -rT src/opt/ai-tools/.claude/agents %{buildroot}%{_datadir}/ai-tools/agents
+cp -rT src/opt/ai-tools/.claude/skills %{buildroot}%{_datadir}/ai-tools/skills
+find %{buildroot}%{_datadir}/ai-tools/agents %{buildroot}%{_datadir}/ai-tools/skills -type d -exec chmod 0755 {} +
+find %{buildroot}%{_datadir}/ai-tools/agents %{buildroot}%{_datadir}/ai-tools/skills -type f -exec chmod 0644 {} +
 
 # ── nodejs: toolchain helpers + updater ──────────────────────────────────────
 for h in ai-tools-claude-symlink ai-tools-relabel-entrypoint ai-tools-bootstrap; do
@@ -289,6 +297,14 @@ fi
 if command -v restorecon >/dev/null 2>&1; then
     restorecon /opt/ai-tools/.gitignore /opt/ai-tools/.gitconfig >/dev/null 2>&1 || :
 fi
+# Seed the ai-tools-managed agents/skills into the control plane, reusing the shared seeder under
+# an explicit bash (the lib is bash; a %post scriptlet runs under /bin/sh). Non-interactive, so an
+# existing managed asset is kept and only an absent one is seeded (the seeder's default); the
+# version update is offered interactively by install.sh / ai-tools-bootstrap. Mirrors the gitignore
+# reseed: control-plane content, live copies not rpm-owned, self-healing when absent.
+if [ -d %{_datadir}/ai-tools/agents ] && command -v bash >/dev/null 2>&1; then
+    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools/.claude ai-tools' >/dev/null 2>&1 || :
+fi
 # Operator binding + toolchain are per-operator / network steps a scriptlet must not do; direct
 # the operator to them. ai-tools-bootstrap installs the Node toolchain; ai-tools-admin operator
 # add binds an operator (OPERATORS list + ai-ops membership + linger + allowlist seed).
@@ -352,6 +368,7 @@ fi
 %attr(0640, root, root) %{ai_libdir}/secret-patterns.lib.sh
 %attr(0644, root, root) %{ai_libdir}/operator.lib.sh
 %attr(0644, root, root) %{ai_libdir}/control-plane.lib.sh
+%attr(0644, root, root) %{ai_libdir}/managed-assets.lib.sh
 %attr(0644, root, root) %{ai_libdir}/safe-paths.lib.sh
 %attr(0644, root, root) %{ai_libdir}/confinement.lib.sh
 %attr(0644, root, root) %{ai_libdir}/npm-verify.lib.sh
@@ -388,6 +405,10 @@ fi
 # preserves the operator's copies. The canonical .gitignore reseed source ships read-only here.
 %dir %{_datadir}/ai-tools
 %{_datadir}/ai-tools/gitignore
+# Pristine agent/skill reseed source (rpm-owned); the live /opt/ai-tools/.claude/{agents,skills}
+# copies are scriptlet-seeded and NOT rpm-owned, so an erase preserves operator-updated versions.
+%{_datadir}/ai-tools/agents
+%{_datadir}/ai-tools/skills
 
 %files -n ai-tools-nodejs
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-claude-symlink
