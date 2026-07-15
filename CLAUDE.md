@@ -36,7 +36,10 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
   it describes via `paths:` frontmatter, so it loads when you open a matching file under
   `src/` (or `selinux/`). See the component map below. A rule and its source file's header
   overlap by design and are bidirectionally coupled: changing either obligates reconciling
-  the other, resolving any conflict against the code, never defaulting to one side.
+  the other, resolving any conflict against the code, never defaulting to one side. Adding,
+  moving, or renaming a source file a rule documents obligates updating that rule's `paths:`
+  in the same change — the file→rule auto-load is only as complete as `paths:`, and a
+  documented file left out of it silently stops loading its rule.
   Conventions for writing rules: `.claude/rules/authoring.rule.md`.
 - **Auto memory** (`/memory`) — decisions, rejected alternatives, and open follow-ups
   that are not derivable from the code.
