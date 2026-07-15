@@ -326,16 +326,23 @@ offer_selinux() {
 
     say "  SELinux is active. A confinement layer locks the agent"
     say "  to domain ${C_BOLD}ai_tools_t${C_RST} (ships prebuilt; loads ${C_BOLD}ENFORCING${C_RST})."
+    # State the No-path up front so the decision is unambiguous: this step only ADDS
+    # confinement -- it never unloads a module -- so a skip leaves any module from a previous
+    # install exactly as it was (loaded and enforcing), and Yes on an already-loaded module
+    # just rebuilds and reloads it in place.
+    local ctx
     if [[ -n "${loaded}" ]]; then
         say "  loaded from a previous install: ${C_BOLD}${loaded}${C_RST}"
+        ctx="Answering No keeps the already-loaded module enabled and enforcing -- this step never removes it. Yes rebuilds and reloads it in place."
     else
         say "  no ai_tools policy module is currently loaded."
+        ctx="The SELinux confinement layer can be installed now or any time later."
     fi
     say ""
 
     if confirm_boxed "SELinux confinement" y \
             "Build and load the SELinux policy module now?" \
-            "The SELinux confinement layer can be installed now or any time later."; then
+            "${ctx}"; then
         if "${selinux_script}" install; then
             ok "SELinux confinement installed"
         else
