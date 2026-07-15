@@ -22,6 +22,14 @@ From a source checkout:
 
 See the root `README.md`'s manual install steps if you're working without the RPM.
 
+Optional, recommended for regular contributors:
+
+    make -C packaging hooks          # enable the local git hooks (a non-blocking changelog reminder)
+
+A per-clone developer opt-in: it sets `core.hooksPath` to `.githooks` and quiets git's
+ignored-hook advice for sandbox-account commits. None of this ships in the RPM — the
+package builds only from `src/`, `docs/`, the spec, and the compiled policy.
+
 ## Running the tests
 
     sudo tests/run.sh [unit|integration|boundary|all]

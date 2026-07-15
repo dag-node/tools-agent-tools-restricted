@@ -51,9 +51,14 @@ changelog:
 	@bash $(CURDIR)/changelog-draft.sh
 
 # Opt in (once per clone) to the local git hooks in .githooks -- currently a non-blocking
-# commit-msg reminder to complete the %changelog on a "bump version" commit.
+# commit-msg reminder to complete the %changelog on a "bump version" commit. Also silence
+# git's ignored-hook advice: the sandbox account commits under the SELinux ai_tools_t domain,
+# which has no execute on the project-tree ai_tools_project_t label, so git skips the hook and
+# nags about it on every agent commit. That skip is the confinement working (the operator, who
+# runs the release-tag commits, executes the hook fine), so the advice is pure noise here.
 hooks:
 	git -C $(ROOT) config core.hooksPath .githooks
+	git -C $(ROOT) config advice.ignoredHook false
 	@echo "git hooks enabled (core.hooksPath=.githooks)"
 
 # The shared base image alone: builds the RPMs inside it (via its own `make rpm`, so
