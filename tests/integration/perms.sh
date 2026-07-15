@@ -61,6 +61,9 @@ check_file /usr/local/lib/ai-tools/operator.lib.sh           root              r
 # Control-plane boundary-mode constants: 644 root:root. Sourced by install.sh as the single
 # source for the /opt/ai-tools home/dir modes the spec %files also declares.
 check_file /usr/local/lib/ai-tools/control-plane.lib.sh      root              root              644
+# Managed-asset seeder: 644 root:root. Sourced by install.sh + ai-tools-bootstrap to seed the
+# ai-tools-* agents/skills; world-readable, no secrets.
+check_file /usr/local/lib/ai-tools/managed-assets.lib.sh     root              root              644
 # Protected-paths backstop: 644 root:root. Sourced by the wrapper, the CLI, and the root
 # helpers to refuse a system directory as a target; world-readable, no secrets.
 check_file /usr/local/lib/ai-tools/safe-paths.lib.sh         root              root              644
