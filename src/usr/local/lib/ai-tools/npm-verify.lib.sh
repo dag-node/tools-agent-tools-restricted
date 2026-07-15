@@ -7,6 +7,7 @@
 # registry advertised -- a hostile registry can advertise a matching hash for a malicious
 # tarball. The registry SIGNATURE (an ECDSA signature over `<pkg>@<ver>:<integrity>` by a key
 # the client pins from the registry keys endpoint) is what the signature check adds.
+# See updater.rule.md.
 #
 # ── Runs as the sandbox account, never root ──────────────────────────────────
 # The verifier operates over the sandbox account's global npm tree -- data the agent (which

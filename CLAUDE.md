@@ -183,9 +183,10 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   `#` box on a terminal and emitted plain when piped (so logs and test greps stay
   line-matchable). Detail in [messaging](.claude/rules/messaging.rule.md).
 - **Root sudo-helpers** live under `/usr/local/sbin/ai-tools/` (`chown`, `setgid`, `setfacl`,
-  `unclaim`, `safedir`, `reclaim`, `claude-symlink`, `lockdown`, `relabel`); shared libraries under
-  `/usr/local/lib/ai-tools/` (`secret-patterns`, `skip-dirs`, `safe-paths`, `relabel`,
-  `operator`, `msg`, `log`), plus `path-dedup.sh`, the PATH-ordering fragment
+  `unclaim`, `safedir`, `reclaim`, `claude-symlink`, `lockdown`, `relabel`, `bootstrap`,
+  `relabel-entrypoint`, `admin`); shared libraries under `/usr/local/lib/ai-tools/`
+  (`secret-patterns`, `skip-dirs`, `safe-paths`, `relabel`, `operator`, `control-plane`,
+  `confinement`, `npm-verify`, `msg`, `log`), plus `path-dedup.sh`, the PATH-ordering fragment
   `ai-tools-admin` wires into operator dotfiles (see [launch](.claude/rules/launch.rule.md)).
 
 ### Documentation register

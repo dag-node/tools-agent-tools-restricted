@@ -1,6 +1,7 @@
 ---
 paths:
   - "src/opt/ai-tools/bin/nvm-update.sh"
+  - "src/usr/local/lib/ai-tools/npm-verify.lib.sh"
   - "src/usr/local/sbin/ai-tools/ai-tools-bootstrap.sh"
   - "src/usr/local/sbin/ai-tools/ai-tools-claude-symlink.sh"
   - "src/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint.sh"

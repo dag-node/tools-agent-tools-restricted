@@ -1,6 +1,7 @@
 ---
 paths:
   - "src/opt/ai-tools/.claude/settings.json"
+  - "src/etc/claude-code/managed-settings.json"
 ---
 
 # Claude Code settings (`settings.json`)

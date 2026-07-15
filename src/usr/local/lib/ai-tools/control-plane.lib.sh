@@ -5,7 +5,7 @@
 # owned root:ai-tools permanently -- the RPM ships it that way and nothing re-owns it to a person
 # -- so the agent (group ai-tools) reaches its state while root owns the locked control files.
 # This file is *sourced* (never executed) so the installer and the test suite assert the same
-# boundary modes the spec %files declares, from one source.
+# boundary modes the spec %files declares, from one source. See ownership-and-hooks.rule.md.
 #
 # It carries constants only: the canonical home, its mode, and the per-subdirectory modes. The
 # agent's own subtrees (.nvm/.cache/.local/.npm) stay agent-owned and .git is root-private 0700,
