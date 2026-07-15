@@ -429,6 +429,18 @@ fi
 %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Wed Jul 15 2026 dagnode <tools@dagnode.com> - 0.5.0-1
+- Ship a reference-architect agent and the documentation and engineering-principles
+  skills into the sandbox account, provisioned into every project the agent works in.
+  They are ai-tools- namespaced and versioned; installing or updating never overwrites
+  an agent or skill you authored yourself.
+- Surface the per-session systemd unit and a journalctl hint when a session launches.
+- Add a reference host-wide managed-settings.json.
+- Fixed: the Claude launcher symlink repoint is idempotent, so a no-op update no longer
+  churns the SELinux relabel.
+- Fixed: skipping the SELinux step during install keeps an already-installed module
+  instead of removing it.
+
 * Mon Jul 13 2026 dagnode <tools@dagnode.com> - 0.4.0-1
 - Sessions now default to confirm-before-acting: the shipped settings.json sets
   "disableAutoMode": "disable", which removes "auto" from the Shift+Tab cycle and rejects
