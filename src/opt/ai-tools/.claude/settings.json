@@ -1,8 +1,10 @@
 {
+  "disableAutoMode": "disable",
+  "showThinkingSummaries": true,
+  "verbose": true,
   "env": {
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
   },
-  "disableAutoMode": "disable",
   "permissions": {
     "allow": [
       "Bash(git status)",
