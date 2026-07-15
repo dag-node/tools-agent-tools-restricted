@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # /usr/local/sbin/ai-tools/ai-tools-claude-symlink
 # Atomically repoints the stable /opt/ai-tools/bin/claude symlink at a versioned
-# claude binary under ai-tools' nvm.
+# claude binary under ai-tools' nvm. Idempotent: it skips the repoint (and its log
+# line) when the link already points at the target and that target's entrypoint needs
+# no relabel, so the daily same-version updater run is a quiet no-op.
 #
 # /opt/ai-tools/bin is locked (0551 root:ai-tools): ai-tools cannot write
 # it, so the agent can neither tamper with nvm-update.sh nor swap the symlink the
@@ -53,6 +55,38 @@ readonly RE='^/opt/ai-tools/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+/bin/clau
 # Operate only inside the expected locked dir, never an attacker-substituted one.
 [[ -d "${BIN_DIR}" ]] || err "${BIN_DIR} missing"
 
+# Idempotency guard. The repoint is also the sole trigger for the ai-tools-relabel.path
+# watcher (the atomic rename below changes the link inode), so skipping it when nothing
+# changed must not skip a pending relabel. entrypoint_relabel_pending reports whether the
+# claude.exe the link resolves to still needs its ai_tools_exec_t label restored -- true
+# for a freshly (re)minted bin_t entrypoint, including a same-version reinstall. Any
+# uncertainty answers "pending", so the guard falls through to a repoint -- the safe
+# default that preserves the pre-idempotency always-repoint-and-relabel behaviour.
+entrypoint_relabel_pending() {
+    # 0 = relabel pending (or unknowable) -> must repoint to trip the watcher.
+    # 1 = entrypoint already correctly labelled, or SELinux/the module inactive -> may skip.
+    command -v selinuxenabled >/dev/null 2>&1 || return 1
+    selinuxenabled 2>/dev/null || return 1
+    command -v matchpathcon >/dev/null 2>&1 || return 1
+    local real want have
+    real="$(realpath -e "${TARGET}" 2>/dev/null)" || return 0   # unresolvable -> repoint
+    want="$(matchpathcon -n "${real}" 2>/dev/null | awk -F: '{print $3}' || true)"
+    [[ "${want}" == "ai_tools_exec_t" ]] || return 1            # module does not govern this path
+    have="$(stat -c '%C' -- "${real}" 2>/dev/null | awk -F: '{print $3}' || true)"
+    [[ "${have}" == "ai_tools_exec_t" ]] && return 1           # already labelled -> skip
+    return 0                                                    # mislabelled -> repoint to relabel
+}
+
+# Skip the repoint only when the stable link already points at TARGET AND no relabel is
+# pending: nothing to do, so the daily no-op timer run stops churning the symlink and the
+# log. Otherwise fall through to the atomic repoint below.
+if [[ "$(readlink -- "${LINK}" 2>/dev/null || true)" == "${TARGET}" ]] \
+   && ! entrypoint_relabel_pending; then
+    ai_tools_log_debug "already current: ${LINK} -> ${TARGET} (entrypoint labelled; no repoint)"
+    printf 'ai-tools-claude-symlink: already current: %s -> %s\n' "${LINK}" "${TARGET}"
+    exit 0
+fi
+
 # Atomic repoint: build the new symlink under a temp name in the same dir, then
 # rename(2) it over the old one -- no window in which the stable link is missing.
 # (ai-tools cannot race us here: it has no write access to this 0551 dir; only
@@ -67,7 +101,9 @@ printf 'ai-tools-claude-symlink: %s -> %s\n' "${LINK}" "${TARGET}"
 # ai_tools_handback_t, which is deliberately not granted relabel rights (ai_tools.te), so a
 # restorecon here is a no-op under enforcing. Restoring ai_tools_exec_t on a freshly
 # installed (bin_t) entrypoint is driven by the ai-tools-relabel.path watcher, which the
-# atomic rename above trips (the link's inode changes on every repoint), and by
+# atomic rename above trips (the link's inode changes on each repoint), and by
 # `ai-tools --relabel` on demand -- both root-side, off the agent-reachable handback domain.
-# If the label is still wrong at launch, claude-run fail-closes (refuses) rather than
-# running unconfined.
+# The idempotency guard skips the rename only when it has confirmed the entrypoint already
+# carries ai_tools_exec_t, so a pending relabel always drives a repoint and thus the
+# watcher. If the label is still wrong at launch, claude-run fail-closes (refuses) rather
+# than running unconfined.

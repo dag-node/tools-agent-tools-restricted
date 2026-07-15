@@ -3,8 +3,10 @@
 # Integration: the ai-tools-claude-symlink root helper -- the only writer of the locked
 # /opt/ai-tools/bin. It must repoint the stable symlink ONLY at a path matching the
 # versioned-claude shape (it cannot trust the sudoers glob, whose wildcard can match '/'),
-# and refuse anything else. Refusal cases touch nothing; the happy path repoints to the
-# symlink's CURRENT target, so it is idempotent. Run as root via sudo.
+# and refuse anything else. Refusal cases touch nothing; the happy path targets the
+# symlink's CURRENT target, so it is idempotent -- and when no relabel is pending it skips
+# the repoint entirely (reporting "already current") rather than churning the link. Run as
+# root via sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -37,14 +39,26 @@ else
     pass "helper refuses a versioned path that does not exist"
 fi
 
-# (C) Idempotent happy path: repoint to the link's current versioned target.
+# (C) Idempotent happy path: target the link's current versioned target. The end state is
+# invariant -- exit 0, link unchanged -- whether the helper repoints (relabel pending) or
+# skips (entrypoint already labelled).
 cur="$(readlink /opt/ai-tools/bin/claude 2>/dev/null || true)"
 if [[ "${cur}" =~ ^/opt/ai-tools/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+/bin/claude$ && -e "${cur}" ]]; then
-    if "${helper}" "${cur}" >/dev/null 2>&1 \
-       && [[ "$(readlink /opt/ai-tools/bin/claude)" == "${cur}" ]]; then
-        pass "helper repoints the symlink at a valid versioned target (idempotent)"
+    if out="$("${helper}" "${cur}" 2>&1)" && [[ "$(readlink /opt/ai-tools/bin/claude)" == "${cur}" ]]; then
+        pass "helper leaves the symlink at its current valid target (idempotent)"
     else
-        fail "helper failed to repoint the symlink at its current valid target ${cur}"
+        fail "helper failed on its current valid target ${cur}"
+    fi
+
+    # Without SELinux no entrypoint can need relabelling, so the helper MUST skip the
+    # repoint and say so; under enforcing either branch (skip or repoint-to-relabel) is
+    # correct, so only the end state above is asserted.
+    if ! { command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled 2>/dev/null; }; then
+        if [[ "${out}" == *"already current"* ]]; then
+            pass "helper skips the repoint when nothing changed (no SELinux)"
+        else
+            fail "helper did not report an idempotent skip off SELinux: ${out}"
+        fi
     fi
 else
     skip "helper happy path" "current symlink target is not a resolvable versioned claude path"

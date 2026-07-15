@@ -86,11 +86,15 @@ keys on.
 run it after an upgrade, both as root, never `SANDBOX_USER`:
 
 - **Automatically**, through the `ai-tools-relabel.path` watcher. The `.path` watches
-  `/opt/ai-tools/bin/claude` — the symlink the updater repoints as its last step, atomically
-  (`mv -T` over the old link), so the inode changes and the watcher fires on **every** repoint
-  including a same-version reinstall that reminted `claude.exe` at `bin_t` — and triggers
+  `/opt/ai-tools/bin/claude` — the symlink the updater repoints, atomically (`mv -T` over the
+  old link), so the inode changes and the watcher fires on **every** repoint — and triggers
   `ai-tools-relabel.service` (a root oneshot in the system instance) when it changes, so a
-  Node bump relabels without operator action. The repoint is the sole trigger: the sandbox
+  Node bump relabels without operator action. `ai-tools-claude-symlink` is idempotent: it
+  skips the repoint (and so the watcher) only when the link is already current **and** it has
+  confirmed the target entrypoint carries `ai_tools_exec_t`, so a repoint that would drive a
+  needed relabel — a version bump, or a same-version reinstall that reminted `claude.exe` at
+  `bin_t` — always fires, while a daily no-op run stops churning the link. The repoint is the
+  sole trigger: the sandbox
   updater holds no relabel rights and reaches root only through the handback bridge, whose
   domain deliberately holds none either, so a repoint that does not land (handback down in a
   manual run) leaves the relabel to `claude-run`'s fail-closed preflight and the operator's
