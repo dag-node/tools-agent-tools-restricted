@@ -229,8 +229,10 @@ bootstrap_claude_symlink() {
     fi
 
     local node_version
+    # cd / first: this sudo -u step inherits the installer's CWD, and run from an operator dir
+    # the sandbox account cannot traverse (e.g. a 0700 home), nvm/npm's internal getcwd warns.
     node_version="$(sudo -u "${SANDBOX_USER}" bash -c \
-        "source '${ai_nvm_dir}/nvm.sh' --no-use && nvm version default 2>/dev/null" \
+        "cd / && source '${ai_nvm_dir}/nvm.sh' --no-use && nvm version default 2>/dev/null" \
         2>/dev/null || true)"
 
     if [[ -z "${node_version}" || "${node_version}" == "N/A" ]]; then
@@ -1187,6 +1189,22 @@ do_install() {
         /opt/ai-tools/.config/systemd/user/timers.target.wants
     ln -sfn /usr/lib/systemd/user/nvm-update.timer \
         /opt/ai-tools/.config/systemd/user/timers.target.wants/nvm-update.timer
+    # Pre-seed the timer's Persistent run-stamp BEFORE starting it, so it begins on its next
+    # scheduled window rather than an immediate catch-up nvm-update run. That run reinstalls the
+    # agent package -- reminting claude.exe at lib_t (a freshly written entrypoint is born the
+    # default type; only restorecon applies ai_tools_exec_t) -- and its async repoint -> relabel
+    # chain races the operator's first launch, so the first claude refuses on a mislabelled
+    # entrypoint. The toolchain is current at install time, so "last run = now" is truthful
+    # (mtime is all systemd reads). Same fix as ai-tools-bootstrap; see
+    # .claude/rules/updater.rule.md. The home is root-owned, so root creates
+    # the account-owned XDG_DATA_HOME path the --user manager reads and later updates itself.
+    install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 \
+        /opt/ai-tools/.local \
+        /opt/ai-tools/.local/share \
+        /opt/ai-tools/.local/share/systemd \
+        /opt/ai-tools/.local/share/systemd/timers
+    install -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0644 /dev/null \
+        /opt/ai-tools/.local/share/systemd/timers/stamp-nvm-update.timer
     log "enable nvm-update.timer in ${SANDBOX_USER}'s --user instance"
     user_systemctl "${SANDBOX_USER}" daemon-reload
     user_systemctl "${SANDBOX_USER}" start nvm-update.timer
