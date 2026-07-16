@@ -135,23 +135,80 @@ jobs:
           done
           sudo chown -R "$(id -u):$(id -g)" dist-rpms
 
+      # Sign every release RPM INSIDE the matching-EL build container, so the rpm/gnupg toolchain
+      # that signs is the same one that built the packages -- avoids an rpm/macro mismatch with the
+      # Ubuntu host (see packaging/sign-rpms.sh and github-org-dag-node/GPG-HINTS.md). The signing
+      # key is a step-scoped env var, never baked into an image layer or build cache. Fail-closed
+      # per package (sign-rpms.sh verifies each signature and aborts on any that does not check out),
+      # but token-gated at the top level: until the org signing key + GPG_SIGNING_KEY secret exist,
+      # the release still publishes UNSIGNED with a loud warning rather than hard-failing every
+      # release during bring-up. --nogpgcheck stays documented for the unsigned window.
+      - name: Sign release RPMs (in-container)
+        env:
+          GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+          GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
+        run: |
+          if [[ -z "${GPG_SIGNING_KEY}" ]]; then
+            echo "::warning::GPG_SIGNING_KEY not set -- publishing UNSIGNED RPMs; set the dag-node org signing key to enable signing (GPG-HINTS.md)"
+            exit 0
+          fi
+          for el in 9 10; do
+            sudo podman run --rm \
+              -e GPG_SIGNING_KEY -e GPG_SIGNING_PASSPHRASE \
+              -v "$(pwd)/dist-rpms/el${el}:/rpms:Z" \
+              ai-tools-rpmbase:el${el} bash -c '
+                set -euo pipefail
+                dnf -y install --setopt=install_weak_deps=False rpm-sign gnupg2 >/dev/null
+                bash /opt/ai-tools-src/packaging/sign-rpms.sh /rpms/RPM-GPG-KEY-dag-node /rpms/*.rpm
+              '
+          done
+          sudo chown -R "$(id -u):$(id -g)" dist-rpms
+
       # Both el9 and el10 RPMs land as flat, same-named-prefix assets on one release page
       # (see the upload below); a per-EL zip removes the "which four files go together"
       # ambiguity that creates -- `dnf install ./*.rpm` after unzipping is then unambiguous
-      # by construction, since each archive holds only one EL's four packages.
+      # by construction, since each archive holds only one EL's four packages. The public key
+      # rides inside each zip too (present only when signing ran), so an operator imports it and
+      # installs from one archive offline; the canonical repo at rpm.dagnode.com serves it too.
       - name: Bundle per-EL zip archives
         run: |
           for el in 9 10; do
-            (cd "dist-rpms/el${el}" && zip -j "../ai-tools-el${el}-${GITHUB_REF_NAME}.zip" ./*.rpm)
+            key=(); [[ -f "dist-rpms/el${el}/RPM-GPG-KEY-dag-node" ]] && key=(RPM-GPG-KEY-dag-node)
+            (cd "dist-rpms/el${el}" && zip -j "../ai-tools-el${el}-${GITHUB_REF_NAME}.zip" ./*.rpm "${key[@]}")
           done
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Attach the exported public key too (present only when signing ran), so a manual
+          # download can verify without reaching rpm.dagnode.com.
+          key_asset=()
+          [[ -f dist-rpms/el9/RPM-GPG-KEY-dag-node ]] && key_asset=(dist-rpms/el9/RPM-GPG-KEY-dag-node)
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
             dist-rpms/ai-tools-el9-${GITHUB_REF_NAME}.zip \
             dist-rpms/ai-tools-el10-${GITHUB_REF_NAME}.zip \
-            dist-rpms/el9/*.rpm dist-rpms/el10/*.rpm
+            dist-rpms/el9/*.rpm dist-rpms/el10/*.rpm "${key_asset[@]}"
+
+      # Notify the central dag-node/rpm repository to rebuild and publish the signed DNF repo at
+      # rpm.dagnode.com from this release. That repo owns the single publish pipeline (createrepo_c
+      # + repomd.xml signing + GitHub Pages deploy) and serializes concurrent project releases, so
+      # this project never writes the repo directly -- it triggers the pipeline via repository_dispatch
+      # (a workflow_call reusable workflow cannot own another repo's Pages deploy: it runs in the
+      # caller's context). Best-effort and token-gated: until the org repo + RPM_REPO_DISPATCH_TOKEN
+      # exist the release still publishes and the notify is skipped with a warning. The token is a
+      # fine-grained PAT/App token with contents:write on dag-node/rpm. See GPG-HINTS.md.
+      - name: Notify central RPM repository (rpm.dagnode.com)
+        env:
+          GH_TOKEN: ${{ secrets.RPM_REPO_DISPATCH_TOKEN }}
+        run: |
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "::warning::RPM_REPO_DISPATCH_TOKEN not set -- skipping dag-node/rpm publish notify"
+            exit 0
+          fi
+          gh api "repos/dag-node/rpm/dispatches" \
+            -f "event_type=publish-rpm" \
+            -F "client_payload[project]=${GITHUB_REPOSITORY}" \
+            -F "client_payload[tag]=${GITHUB_REF_NAME}"
