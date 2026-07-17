@@ -253,10 +253,15 @@ path the README leads with). Two properties shape the design:
   macro mismatch. It imports the key from a step-scoped secret into a throwaway `GNUPGHOME`,
   signs with a fully specified non-interactive `%__gpg_sign_cmd` (loopback pinentry,
   passphrase from a 0600 file, never argv), then verifies every signature against a throwaway
-  rpmdb and fails closed on any that does not check out. Build provenance stays with the
-  project; the packages are immutable once signed. Signing is token-gated: until the org key +
-  `GPG_SIGNING_KEY` secret exist a release still publishes **unsigned** with a warning, and
-  `--nogpgcheck` stays documented for that window.
+  rpmdb. Verification requires `rpmkeys -Kv` to print a cryptographic signature line that
+  validates — not merely a zero exit, which `--checksig` also returns for an *unsigned*
+  package, so a silent `rpmsign` no-op cannot ship. Build provenance stays with the project;
+  the packages are immutable once signed. **Signing is mandatory.** The release job requires
+  `GPG_SIGNING_KEY`, `GPG_SIGNING_PASSPHRASE`, and `RPM_REPO_DISPATCH_TOKEN`, and before
+  building or publishing anything it runs `sign-rpms.sh --selftest` in each matching-EL
+  container — signing and verifying a throwaway RPM — so a wrong passphrase or a no-op signing
+  toolchain fails the job while nothing is public. A release never publishes an unsigned
+  package.
 - **A central repo owns metadata and hosting.** The signed RPMs and the public key attach to
   the GitHub Release (loose + per-EL zip), then the job notifies the dedicated `dag-node/rpm`
   repository via `repository_dispatch`. That repo — not this project — runs the single publish
@@ -267,5 +272,3 @@ The signing key and org secrets (`GPG_SIGNING_KEY`, `GPG_SIGNING_PASSPHRASE`,
 `RPM_REPO_DISPATCH_TOKEN`) are in the org playbook `GPG-HINTS.md`; the central repository's
 architecture, layout, and DNS/Pages setup are in `RPM-REPO-HINTS.md` — kept out of this
 project so its docs stay scoped to the package build.
-</content>
-</invoke>

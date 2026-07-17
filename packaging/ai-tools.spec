@@ -429,6 +429,14 @@ fi
 %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Fri Jul 17 2026 dagnode <tools@dagnode.com> - 0.6.2-1
+- Fixed: release RPMs are correctly GPG-signed on EL10. The 0.6.0 and 0.6.1 el10
+  packages shipped unsigned -- rpm's sign command ran gpg with a stray argument and
+  signed nothing. Reinstall with gpgcheck after importing RPM-GPG-KEY-dag-node.
+- Signing is now mandatory: the release proves the whole key/passphrase/sign/verify
+  chain on a throwaway package before building or publishing, so a broken signing
+  toolchain fails the release instead of shipping unsigned packages.
+
 * Fri Jul 17 2026 dagnode <tools@dagnode.com> - 0.6.1-1
 - Maintenance re-release of 0.6.0 to complete the signed rpm.dagnode.com
   publish; no changes to the installed packages.
