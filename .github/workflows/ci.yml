@@ -201,8 +201,10 @@ jobs:
           GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
         run: |
           set -euo pipefail
+          # sudo env_reset strips the step env; --preserve-env forwards exactly the two secrets
+          # (never argv -- /proc cmdline is world-readable, the environment is owner-only).
           for el in 9 10; do
-            out="$(sudo podman run --rm \
+            out="$(sudo --preserve-env=GPG_SIGNING_KEY,GPG_SIGNING_PASSPHRASE podman run --rm \
               -e GPG_SIGNING_KEY -e GPG_SIGNING_PASSPHRASE \
               --entrypoint /usr/bin/bash \
               ai-tools-rpmbase:el${el} \
@@ -228,7 +230,8 @@ jobs:
           rpmdir=/opt/ai-tools-src/packaging/rpmbuild/RPMS/noarch
           for el in 9 10; do
             mkdir -p "dist-rpms/el${el}"
-            cid="$(sudo podman create -e GPG_SIGNING_KEY -e GPG_SIGNING_PASSPHRASE \
+            cid="$(sudo --preserve-env=GPG_SIGNING_KEY,GPG_SIGNING_PASSPHRASE \
+              podman create -e GPG_SIGNING_KEY -e GPG_SIGNING_PASSPHRASE \
               --entrypoint /usr/bin/bash \
               ai-tools-rpmbase:el${el} -c '
                 bash /opt/ai-tools-src/packaging/sign-rpms.sh /tmp/pubkey.asc \
