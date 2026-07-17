@@ -76,4 +76,6 @@ whichever one didn't get updated.
 ## Pull requests
 
 Branch from `develop`, not `main`, using `feature/<ticket-num>-<feature-name>` (e.g.
-`feature/260625-rpm-package`) — and target `develop` when opening the PR.
+`feature/260625-rpm-package`) — and target `develop` when opening the PR. The full branch
+model, tag grammar, and release process (RCs, channels, rehearsal) are in
+[`docs/branching-and-release.md`](docs/branching-and-release.md).
