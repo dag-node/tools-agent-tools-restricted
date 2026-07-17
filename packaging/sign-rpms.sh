@@ -27,8 +27,7 @@
 # ::error:: prefix so GitHub Actions surfaces them as annotations; the text reads plainly on a
 # local terminal too. Every secret (imported private key, passphrase) lives in a tmpfs (RAM)
 # scratch tree wiped on exit -- never persistent disk, never the container's real keyring or
-# rpmdb. All logic is in functions with locals, so nothing leaks beyond the GNUPGHOME/HOME the
-# tools require.
+# rpmdb.
 set -euo pipefail
 
 err() { echo "::error::sign-rpms: $*" >&2; }
@@ -144,8 +143,9 @@ main() {
     # default TMPDIR where /dev/shm is absent. gpg needs the private key in a keyring DIRECTORY
     # (it cannot sign from a variable), and rpmsign forks gpg once per package, so the passphrase
     # must stay re-readable here rather than a one-shot stream -- keeping it on the same RAM tree
-    # as the unavoidable keyring adds no disk exposure. Wiped on exit; the runner VM is ephemeral.
-    local workdir
+    # as the unavoidable keyring adds no disk exposure. The runner VM is ephemeral.
+    # Script-global, not local: the EXIT trap fires after main returns, where a local is out of
+    # scope -- an unbound reference under set -u -- and the wipe must still run.
     workdir="$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)"
     trap 'rm -rf "${workdir}"' EXIT
 
