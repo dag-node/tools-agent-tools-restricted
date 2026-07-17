@@ -11,6 +11,12 @@
 #   integration  full-install checks (deployed perms, sudoers, wrapper, handback daemon, systemd)
 #   boundary     confinement checks run as the agent (SANDBOX_USER)
 #   all          every category
+#
+# A green exit proves coverage only when something PASSed: a file whose run recorded zero
+# passes (every check skipped, or no harness result line at all) and a category with no test
+# files are listed in an end-of-run "no coverage" notice. The default stays lenient -- a
+# partial/dev install legitimately skips -- and AI_TOOLS_TEST_STRICT=1 turns the notice into
+# a failure, the mode the full-install CI gate runs.
 
 set -uo pipefail
 
@@ -22,14 +28,17 @@ mode="${1:-all}"
 
 rc=0
 declare -a _failed=()                 # "category/file" of each test file that failed
+declare -a _nocoverage=()             # green files with zero PASSes; categories with no files
 _summary="$(mktemp)"                  # accumulates the FAIL lines, grouped by file
 trap 'rm -f "${_summary}"' EXIT
 
 run_dir() {
-    local dir="${HERE}/$1" f name out st
-    [[ -d "${dir}" ]] || return 0
+    local dir="${HERE}/$1" f name out st line ran=0
+    local re='^[[:space:]]*([0-9]+) passed, [0-9]+ failed, ([0-9]+) skipped$'
+    if [[ ! -d "${dir}" ]]; then _nocoverage+=("$1/ (no test files)"); return 0; fi
     for f in "${dir}"/*.sh; do
         [[ -e "${f}" ]] || continue
+        ran=$(( ran + 1 ))
         name="$1/$(basename "${f}")"
         printf '\n══════ %s ══════\n' "${name}"
         # Stream output live (tee) while capturing it, so a failed file's FAIL lines can be
@@ -41,9 +50,20 @@ run_dir() {
             rc=1
             _failed+=("${name}")
             { printf '\n%s\n' "${name}"; grep -E '^[[:space:]]*FAIL' "${out}" || true; } >> "${_summary}"
+        else
+            # A green exit proves coverage only when something PASSed: classify from the
+            # harness finish() line (the only line matching this shape).
+            line="$(grep -E "${re}" "${out}" | tail -1)"
+            if [[ "${line}" =~ ${re} ]]; then
+                [[ "${BASH_REMATCH[1]}" -gt 0 ]] \
+                    || _nocoverage+=("${name} (0 passed, ${BASH_REMATCH[2]} skipped)")
+            else
+                _nocoverage+=("${name} (no result summary)")
+            fi
         fi
         rm -f "${out}"
     done
+    [[ "${ran}" -gt 0 ]] || _nocoverage+=("$1/ (no test files)")
 }
 
 case "${mode}" in
@@ -60,6 +80,18 @@ if [[ "${rc}" -ne 0 ]]; then
     printf '\n══════ failures (%d file%s) ══════\n' \
         "${#_failed[@]}" "$([[ "${#_failed[@]}" -eq 1 ]] || echo s)"
     cat "${_summary}"
+fi
+
+# No-coverage notice: green-by-status files that proved nothing, and empty categories.
+# Lenient by default; AI_TOOLS_TEST_STRICT=1 (the full-install CI gate) fails the run, so a
+# broken prerequisite cannot hide behind skips.
+if [[ ${#_nocoverage[@]} -gt 0 ]]; then
+    printf '\n══════ no coverage (%d) ══════\n' "${#_nocoverage[@]}"
+    printf '  %s\n' "${_nocoverage[@]}"
+    if [[ "${AI_TOOLS_TEST_STRICT:-0}" == "1" ]]; then
+        printf '  AI_TOOLS_TEST_STRICT=1: no-coverage is a failure\n'
+        rc=1
+    fi
 fi
 
 printf '\n══════ overall: %s ══════\n' "$([[ ${rc} -eq 0 ]] && echo PASS || echo FAIL)"

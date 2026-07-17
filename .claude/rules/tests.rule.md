@@ -10,7 +10,14 @@ Tests live under `tests/`, split by category, with one shared harness. `tests/ru
 via `sudo` (the harness derives the unprivileged project user from `SUDO_USER`). It streams
 each file's output live, then — on any failure — reprints the failing files and their `FAIL`
 lines as an end-of-run summary, so a long run needs no scrolling; an all-green run prints no
-summary and exits zero.
+summary and exits zero. A green file that recorded no `PASS` (every check skipped, or no
+harness result line) and a category with no test files are listed in an end-of-run
+`no coverage` notice, parsed from `finish()`'s result line: green-by-exit-status alone cannot
+hide a run that proved nothing. The default stays lenient — a partial/dev install
+legitimately skips — and `AI_TOOLS_TEST_STRICT=1` turns the notice into a failure. Strict is
+the enforcing-host full-install gate (`sudo AI_TOOLS_TEST_STRICT=1 tests/run.sh all`); the
+container selftest stays lenient because SELinux is legitimately absent there, so
+`selinux.sh`'s all-skip is a documented limitation, not a broken prerequisite.
 
 ```
 tests/
@@ -66,7 +73,12 @@ and create third-party-owned fixtures). A fixture tree is `chown`ed to the proje
 before the run, or the owner guard skips it. `secret-patterns.sh` is the odd one out: it
 sources the shared classifier library (`secret-patterns.lib.sh`) and forces the built-in
 default pattern set, pinning the matcher itself — credential names match case-insensitively,
-while plain configs and build artifacts the toolchain must read do not.
+while plain configs and build artifacts the toolchain must read do not. `check-version.sh`
+departs the installed-helper pattern the other way: it runs a `TESTDIR` copy of
+`packaging/check-version.sh` (a repo release-gate script, not a deployed artifact) against
+fixture `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the
+three-way match, `vX.Y.Z-rc.N` compares its base and relaxes only the `%changelog` match,
+any other dashed tag is refused, a missing `%changelog` entry is fatal for every form.
 
 **`integration`** — checks that need a completed install and the running system
 (`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`, `cli.sh`,
