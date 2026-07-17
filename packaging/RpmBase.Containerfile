@@ -40,8 +40,11 @@ ARG RPM_RELEASE=""
 # the -minimal images omit it, and without it logind cannot sustain a lingering --user instance
 # across session open/close, so the nvm-update timer drops out from under the toolchain. On a
 # full host it is present already; the test image installs it to match.
+# rpm-sign + gnupg2 are baked in here, NOT dnf-installed at sign time: the release workflow
+# runs sign-rpms.sh in this image with the signing key in the environment, and no package
+# scriptlet may ever execute while that secret is present.
 RUN microdnf -y install \
-        dnf rpm-build systemd-rpm-macros make sed tar gzip findutils createrepo_c \
+        dnf rpm-build rpm-sign gnupg2 systemd-rpm-macros make sed tar gzip findutils createrepo_c \
         systemd dbus-broker sudo shadow-utils passwd util-linux procps-ng libselinux-utils \
         git curl which glibc-langpack-en \
     && microdnf clean all

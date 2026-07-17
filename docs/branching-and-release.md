@@ -62,7 +62,7 @@ Tag shape, RPM `Release`, and destination at a glance:
 | Trigger              | RPM Version-Release   | Published to                                    |
 |----------------------|-----------------------|-------------------------------------------------|
 | push / PR (no tag)   | `X.Y.Z-0.<run>.git<sha>` | workflow artifact only                       |
-| `workflow_dispatch`  | `X.Y.Z-1` (unpublished)  | workflow artifact only (rehearsal)           |
+| `workflow_dispatch`  | `X.Y.Z-0.<run>.rehearsal.git<sha>` | workflow artifact only (rehearsal)  |
 | tag `vX.Y.Z-rc.N`    | `X.Y.Z-0.rcN`         | GitHub **prerelease**                           |
 | tag `vX.Y.Z`         | `X.Y.Z-1`             | GitHub Release + `rpm.dagnode.com` (stable)     |
 
@@ -169,7 +169,23 @@ signing secret (the release job runs only on tags and `workflow_dispatch`); `v*`
 is restricted to maintainers by a ruleset. Details in
 [rpm-packaging.md](rpm-packaging.md#signing-and-distribution).
 
-One-time setup (repo admin): **Settings → Rules → Rulesets → New tag ruleset** — enforcement
-*Active*, target tags matching `v*`, restrict *creation*, *update*, and *deletion*, bypass
-list *Repository admin* only. The tag is the entire release authority under the rule above,
-so it gets `main`-level protection.
+Rehearsal RPMs are signed with the real key, so they carry the distinct Release
+`0.<run>.rehearsal.git<sha>` — a leaked rehearsal artifact can never share a NEVRA with, and
+so never impersonate, a published `X.Y.Z-1` package.
+
+One-time setup (repo admin), in GitHub Settings:
+
+- **Rules → Rulesets → New tag ruleset** — enforcement *Active*, target tags matching `v*`,
+  restrict *creation*, *update*, and *deletion*, bypass list *Repository admin* only. The tag
+  is the entire release authority under the rule above, so it gets `main`-level protection.
+- **Actions → General** — default workflow permissions *Read repository contents* (the
+  release job requests `contents: write` explicitly); leave "Allow GitHub Actions to create
+  and approve pull requests" off; require approval for workflow runs from all outside
+  collaborators. Actions permissions: *Allow dag-node, and select non-dag-node, actions* with
+  only *Allow actions created by GitHub* checked (every action used is `actions/*`), and
+  *Require actions to be pinned to a full-length commit SHA* on — set org-wide so every
+  dag-node repo inherits both. In the org's *Fork pull request workflows in private and
+  internal repositories* block, disable *Run workflows from fork pull requests* — the org has
+  no private repos taking fork contributions, and disabling the parent pins the write-token
+  and secrets sub-options off for every repo admin.
+- **Advanced Security** — enable secret scanning and push protection.

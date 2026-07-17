@@ -117,16 +117,22 @@ jobs:
         run: bash packaging/check-version.sh "${GITHUB_REF_NAME}"
 
       # RC tags build with the Fedora prerelease Release 0.rcN (< the final "1", > the previous
-      # release); final tags and rehearsals leave it empty. Allowlist: a dashed tag that is not
-      # vX.Y.Z-rc.N fails here.
+      # release); final tags leave it empty. Allowlist: a dashed tag that is not vX.Y.Z-rc.N
+      # fails here. A rehearsal gets its own 0.<run>.rehearsal.git<sha> Release: its RPMs are
+      # signed with the real key, so they must never share a NEVRA with a publishable release --
+      # a leaked rehearsal artifact cannot impersonate the official X.Y.Z-1 package.
       - name: Classify the tag and compute RPM_RELEASE
         id: relmode
         run: |
           prerelease=false rpm_release=""
-          if [[ "${GITHUB_REF}" == refs/tags/v* && "${GITHUB_REF_NAME}" == *-* ]]; then
-            [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.([0-9]+)$ ]] \
-              || { echo "::error::prerelease tag ${GITHUB_REF_NAME} is not vX.Y.Z-rc.N"; exit 1; }
-            prerelease=true rpm_release="0.rc${BASH_REMATCH[1]}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+              [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.([0-9]+)$ ]] \
+                || { echo "::error::prerelease tag ${GITHUB_REF_NAME} is not vX.Y.Z-rc.N"; exit 1; }
+              prerelease=true rpm_release="0.rc${BASH_REMATCH[1]}"
+            fi
+          else
+            rpm_release="0.${GITHUB_RUN_NUMBER}.rehearsal.git$(git rev-parse --short HEAD)"
           fi
           echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
           echo "rpm_release=${rpm_release}" >> "$GITHUB_OUTPUT"
@@ -195,11 +201,8 @@ jobs:
           for el in 9 10; do
             sudo podman run --rm \
               -e GPG_SIGNING_KEY -e GPG_SIGNING_PASSPHRASE \
-              ai-tools-rpmbase:el${el} bash -c '
-                set -euo pipefail
-                dnf -y install --setopt=install_weak_deps=False rpm-sign rpm-build gnupg2 >/dev/null
-                bash /opt/ai-tools-src/packaging/sign-rpms.sh --selftest
-              '
+              ai-tools-rpmbase:el${el} \
+              bash /opt/ai-tools-src/packaging/sign-rpms.sh --selftest
           done
 
       # Sign the RPMs the image built INSIDE the matching-EL container (so the rpm/gnupg toolchain
@@ -222,8 +225,6 @@ jobs:
             mkdir -p "dist-rpms/el${el}"
             cid="$(sudo podman create -e GPG_SIGNING_KEY -e GPG_SIGNING_PASSPHRASE \
               ai-tools-rpmbase:el${el} bash -c '
-                set -euo pipefail
-                dnf -y install --setopt=install_weak_deps=False rpm-sign gnupg2 >/dev/null
                 bash /opt/ai-tools-src/packaging/sign-rpms.sh /tmp/pubkey.asc \
                   /opt/ai-tools-src/packaging/rpmbuild/RPMS/noarch/*.rpm
               ')"
