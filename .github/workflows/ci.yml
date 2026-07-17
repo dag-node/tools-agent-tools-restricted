@@ -166,7 +166,7 @@ jobs:
           printf '%s\n' "${GPG_SIGNING_KEY}" | GNUPGHOME="${gnupghome}" gpg --batch --quiet --import \
             || { echo "::error::GPG_SIGNING_KEY did not import -- it is not a usable ASCII-armored key (GPG-HINTS.md)"; exit 1; }
           GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys | grep -q '^sec:' \
-            || { echo "::error::GPG_SIGNING_KEY carries no secret key -- export the private key, not just the public one (GPG-HINTS.md)"; exit 1; }
+            || { echo "::error::GPG_SIGNING_KEY carries no secret key -- set the signing-subkey export, gpg --export-secret-subkeys '<subkey-fpr>!' (GPG-HINTS.md)"; exit 1; }
 
           # Surface the HTTP status so an operator can tell a bad token (401) from a missing
           # grant/repo (403/404) at a glance -- gh prints "(HTTP NNN)" on stderr.
