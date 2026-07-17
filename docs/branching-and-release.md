@@ -140,6 +140,20 @@ The job builds `0.6.3-1`, signs, verifies, publishes the GitHub Release, and not
 dag-node/rpm, which rebuilds `rpm.dagnode.com`. This merge is the only `develop` → `main`
 merge of the release.
 
+### 3. Open the next cycle
+
+```bash
+git switch develop
+echo 0.6.4 > packaging/VERSION
+git commit -am "chore(release): bump VERSION to 0.6.4"
+git push
+```
+
+After the final release publishes, bump `packaging/VERSION` on `develop` to the next
+anticipated version. Dev/snapshot RPMs (`Release: 0.<n>.git<sha>`) then sort above the last
+release and below the next one; left at the released number, a newer snapshot sorts as an
+older package.
+
 ### If the release job goes red
 
 The job is fail-closed and idempotent: signing or verification failure stops it before anything

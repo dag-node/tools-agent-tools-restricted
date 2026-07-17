@@ -4,8 +4,8 @@ Name:           ai-tools
 # point at packaging/ -- the Makefile's rpm/srpm targets pass --define "_sourcedir ..."
 # for that reason; a bare parse (rpmlint, IDE tooling) without it yields an empty Version.
 Version:        %(cat %{_sourcedir}/VERSION)
-# Plain "1" for a real release; the Makefile's RPM_RELEASE overrides it to a dev/snapshot
-# string (e.g. "0.42.gitabcdef1") for CI builds that are not a tagged release. The leading
+# Plain "1" for a final vX.Y.Z release; the Makefile's RPM_RELEASE overrides it to a
+# dev/snapshot string (e.g. "0.42.gitabcdef1") or an rc prerelease ("0.rc1"). The leading
 # "0." on a dev Release is the Fedora pre-release convention: rpm's version comparison
 # then always ranks a real release (Release starts at plain "1") above any dev snapshot
 # that preceded it, and ranks newer dev snapshots above older ones as the counter climbs.
