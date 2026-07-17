@@ -154,8 +154,8 @@ jobs:
             exit 1
           fi
 
-      - name: Install podman + zip
-        run: sudo apt-get update && sudo apt-get install -y podman zip
+      - name: Install podman + zip + rpm
+        run: sudo apt-get update && sudo apt-get install -y podman zip rpm
 
       # Build the matching-EL images once, up front. Both the signing selftest below and the
       # release-RPM extraction reuse these cached images, so nothing is built twice. rpmbase-elN,
@@ -205,7 +205,9 @@ jobs:
       # Ubuntu host (see packaging/sign-rpms.sh and github-org-dag-node/GPG-HINTS.md). Fail-closed
       # per package: sign-rpms.sh verifies each signature actually validates and aborts on any that
       # does not, so the release cannot proceed with an unsigned or unverifiable package. The
-      # selftest above already proved the chain, so a failure here is an unexpected regression.
+      # selftest above already proved the chain, so a failure here is an unexpected regression. The
+      # container signs the RPMs in the bind mount; its own verify public key goes to a
+      # container-local path (not the mount), since the published key is exported on the runner below.
       - name: Sign release RPMs (in-container)
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
@@ -218,34 +220,66 @@ jobs:
               ai-tools-rpmbase:el${el} bash -c '
                 set -euo pipefail
                 dnf -y install --setopt=install_weak_deps=False rpm-sign gnupg2 >/dev/null
-                bash /opt/ai-tools-src/packaging/sign-rpms.sh /rpms/RPM-GPG-KEY-dag-node /rpms/*.rpm
+                bash /opt/ai-tools-src/packaging/sign-rpms.sh /tmp/pubkey.asc /rpms/*.rpm
               '
           done
           sudo chown -R "$(id -u):$(id -g)" dist-rpms
 
+      # Export the published public key on the runner, straight from the signing secret, and
+      # verify every RPM against it here -- rather than trusting a file the container wrote into
+      # the bind mount to surface on the runner (the v0.6.2 failure: the container-written key was
+      # absent at release time). The key is public; the private key is imported into a tmpfs
+      # (/dev/shm, RAM) keyring wiped on exit, never persistent disk. If the in-container signing
+      # did not actually reach the runner filesystem, the verification below fails closed instead
+      # of publishing unsigned packages.
+      - name: Export the public key and verify signatures on the runner
+        env:
+          GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          gnupghome="$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)"
+          trap 'rm -rf "${gnupghome}"' EXIT
+          printf '%s\n' "${GPG_SIGNING_KEY}" | GNUPGHOME="${gnupghome}" gpg --batch --quiet --import
+          fpr="$(GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys \
+                  | awk -F: '$1 == "fpr" { print $10; exit }')"
+          [[ -n "${fpr}" ]] || { echo "::error::no secret key after import"; exit 1; }
+          GNUPGHOME="${gnupghome}" gpg --batch --armor --export "${fpr}" > dist-rpms/RPM-GPG-KEY-dag-node
+          [[ -s dist-rpms/RPM-GPG-KEY-dag-node ]] || { echo "::error::exported public key is empty"; exit 1; }
+
+          # Verify against a throwaway rpmdb seeded only with the exported key. Require a validating
+          # signature LINE (rpmkeys -Kv), not just a zero exit -- an unsigned package exits 0.
+          verifydb="$(mktemp -d)"
+          rpmkeys --dbpath "${verifydb}" --import dist-rpms/RPM-GPG-KEY-dag-node
+          for rpm in dist-rpms/el9/*.rpm dist-rpms/el10/*.rpm; do
+            rpmkeys --dbpath "${verifydb}" -Kv "${rpm}" 2>&1 \
+              | grep -Eqi 'signature[^:]*:[[:space:]]*OK' \
+              || { echo "::error::${rpm} is not signed on the runner -- the in-container signing did not persist to the host"; exit 1; }
+          done
+          echo "verified $(find dist-rpms -name '*.rpm' | wc -l) signed RPM(s) on the runner"
+
       # Both el9 and el10 RPMs land as flat, same-named-prefix assets on one release page
       # (see the upload below); a per-EL zip removes the "which four files go together"
       # ambiguity that creates -- `dnf install ./*.rpm` after unzipping is then unambiguous
-      # by construction, since each archive holds only one EL's four packages. The public key
-      # rides inside each zip too (signing is mandatory, so it is always present), so an operator
-      # imports it and installs from one archive offline; rpm.dagnode.com serves it too.
+      # by construction, since each archive holds only one EL's four packages. The runner-exported
+      # public key (dist-rpms/RPM-GPG-KEY-dag-node) rides inside each zip too, so an operator imports
+      # it and installs from one archive offline; rpm.dagnode.com serves it too.
       - name: Bundle per-EL zip archives
         run: |
           for el in 9 10; do
-            (cd "dist-rpms/el${el}" && zip -j "../ai-tools-el${el}-${GITHUB_REF_NAME}.zip" ./*.rpm RPM-GPG-KEY-dag-node)
+            (cd "dist-rpms/el${el}" && zip -j "../ai-tools-el${el}-${GITHUB_REF_NAME}.zip" ./*.rpm ../RPM-GPG-KEY-dag-node)
           done
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Attach the exported public key too, so a manual download can verify without reaching
-          # rpm.dagnode.com. Signing is mandatory, so the key is always present.
+          # Attach the runner-exported public key too, so a manual download can verify without
+          # reaching rpm.dagnode.com. It was produced + checked in the verify step above.
           assets=(
             dist-rpms/ai-tools-el9-${GITHUB_REF_NAME}.zip
             dist-rpms/ai-tools-el10-${GITHUB_REF_NAME}.zip
             dist-rpms/el9/*.rpm dist-rpms/el10/*.rpm
-            dist-rpms/el9/RPM-GPG-KEY-dag-node
+            dist-rpms/RPM-GPG-KEY-dag-node
           )
           # Idempotent: if a later step (e.g. the publish-notify) failed and this workflow is
           # re-run, creating the release again would fail on the already-present tag. Refresh the
