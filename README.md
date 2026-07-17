@@ -59,9 +59,9 @@ key; they extract flat and dnf orders them itself:
 
 ```bash
 unzip ai-tools-el10-vX.Y.Z.zip                 # ai-tools-el9-... to match your platform
-sudo rpm --import RPM-GPG-KEY-dag-node         # then omit --nogpgcheck below
+sudo rpm --import RPM-GPG-KEY-dag-node         # every release is signed; import once
 sudo dnf install ./*.rpm
-# An unsigned or older archive ships no key: `sudo dnf install --nogpgcheck ./*.rpm`.
+# An early archive from before signing became mandatory ships no key: add --nogpgcheck.
 ```
 
 Then finish setup — steps 1 and 2 here are independent of each other but both run before

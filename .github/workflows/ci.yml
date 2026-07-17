@@ -119,48 +119,80 @@ jobs:
       # Validate the release prerequisites BEFORE building or publishing anything, so a
       # misconfigured secret fails the job while nothing has shipped -- rather than after the
       # GitHub Release is already public, where a hard failure only strands a half-published
-      # release. A secret that is set must work; an unset one keeps the documented bring-up
-      # window (unsigned) / skip window (no publish-notify) and only warns. Passphrase-correctness
-      # and the actual signing are still proven at the sign step below, which also runs before the
-      # release is created.
+      # release. Signing is MANDATORY: every published RPM must carry a verifiable dag-node
+      # signature, so a missing or unusable secret fails the release here instead of shipping
+      # unsigned. This step proves the key imports with a usable secret and the dispatch token
+      # reaches dag-node/rpm; the passphrase and the full rpmsign+verify chain are proven by the
+      # in-container selftest below, which also runs before anything is built or published.
       - name: Preflight release prerequisites
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+          GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
           RPM_REPO_DISPATCH_TOKEN: ${{ secrets.RPM_REPO_DISPATCH_TOKEN }}
         run: |
-          if [[ -n "${GPG_SIGNING_KEY}" ]]; then
-            # gpg must import into a keyring DIRECTORY to verify a usable secret key. Keep it on
-            # tmpfs (/dev/shm, RAM) so the key never lands on persistent disk, and wipe on exit --
-            # mirrors packaging/sign-rpms.sh. The key text arrives on stdin, never a temp file.
-            gnupghome="$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)"
-            trap 'rm -rf "${gnupghome}"' EXIT
-            printf '%s\n' "${GPG_SIGNING_KEY}" | GNUPGHOME="${gnupghome}" gpg --batch --quiet --import \
-              || { echo "::error::GPG_SIGNING_KEY did not import -- it is not a usable ASCII-armored key (GPG-HINTS.md)"; exit 1; }
-            GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys | grep -q '^sec:' \
-              || { echo "::error::GPG_SIGNING_KEY carries no secret key -- export the private key, not just the public one (GPG-HINTS.md)"; exit 1; }
-          else
-            echo "::warning::GPG_SIGNING_KEY not set -- release will publish UNSIGNED (bring-up window)"
-          fi
+          [[ -n "${GPG_SIGNING_KEY}" ]] \
+            || { echo "::error::GPG_SIGNING_KEY not set -- releases are signed; set the dag-node org signing key (GPG-HINTS.md)"; exit 1; }
+          [[ -n "${GPG_SIGNING_PASSPHRASE}" ]] \
+            || { echo "::error::GPG_SIGNING_PASSPHRASE not set -- the org signing key is passphrase-protected (GPG-HINTS.md)"; exit 1; }
+          [[ -n "${RPM_REPO_DISPATCH_TOKEN}" ]] \
+            || { echo "::error::RPM_REPO_DISPATCH_TOKEN not set -- required to publish the signed repo at rpm.dagnode.com (GPG-HINTS.md)"; exit 1; }
 
-          if [[ -n "${RPM_REPO_DISPATCH_TOKEN}" ]]; then
-            GH_TOKEN="${RPM_REPO_DISPATCH_TOKEN}" gh api repos/dag-node/rpm --jq .full_name >/dev/null \
-              || { echo "::error::RPM_REPO_DISPATCH_TOKEN cannot reach dag-node/rpm -- invalid, expired, or lacking access; fix it before releasing (GPG-HINTS.md)"; exit 1; }
-          else
-            echo "::warning::RPM_REPO_DISPATCH_TOKEN not set -- rpm.dagnode.com publish-notify will be skipped"
+          # gpg must import into a keyring DIRECTORY to verify a usable secret key. Keep it on
+          # tmpfs (/dev/shm, RAM) so the key never lands on persistent disk, and wipe on exit --
+          # mirrors packaging/sign-rpms.sh. The key text arrives on stdin, never a temp file.
+          gnupghome="$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)"
+          trap 'rm -rf "${gnupghome}"' EXIT
+          printf '%s\n' "${GPG_SIGNING_KEY}" | GNUPGHOME="${gnupghome}" gpg --batch --quiet --import \
+            || { echo "::error::GPG_SIGNING_KEY did not import -- it is not a usable ASCII-armored key (GPG-HINTS.md)"; exit 1; }
+          GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys | grep -q '^sec:' \
+            || { echo "::error::GPG_SIGNING_KEY carries no secret key -- export the private key, not just the public one (GPG-HINTS.md)"; exit 1; }
+
+          # Surface the HTTP status so an operator can tell a bad token (401) from a missing
+          # grant/repo (403/404) at a glance -- gh prints "(HTTP NNN)" on stderr.
+          if ! resp="$(GH_TOKEN="${RPM_REPO_DISPATCH_TOKEN}" gh api repos/dag-node/rpm --jq .full_name 2>&1)"; then
+            echo "::error::RPM_REPO_DISPATCH_TOKEN cannot reach dag-node/rpm: ${resp} -- invalid, expired, or lacking access; fix it before releasing (GPG-HINTS.md)"
+            exit 1
           fi
 
       - name: Install podman + zip
         run: sudo apt-get update && sudo apt-get install -y podman zip
 
-      - name: Build + extract release RPMs
+      # Build the matching-EL images once, up front. Both the signing selftest below and the
+      # release-RPM extraction reuse these cached images, so nothing is built twice. rpmbase-elN,
+      # not rpmtest-rockyN: the `needs: rpm-selftest` dependency above already ran and passed the
+      # full selftest on this exact commit.
+      - name: Build EL RPM images
         run: |
-          # rpmbase-elN, not rpmtest-rockyN: the `needs: rpm-selftest` dependency above
-          # already ran and passed the full selftest on this exact commit, so re-running it
-          # here would only re-prove what's already proven. This step's only remaining job
-          # is producing the release artifacts themselves, built clean (RPM_RELEASE unset,
-          # so the spec's default Release "1" applies instead of a dev/snapshot one).
           for el in 9 10; do
             make -C packaging rpmbase-el${el} OCI="sudo podman"
+          done
+
+      # Prove the ENTIRE signing chain -- key, passphrase, rpmsign, and signature verification --
+      # on a throwaway RPM inside each matching-EL container, BEFORE any release RPM is built or
+      # published. A wrong passphrase or a container where rpmsign silently no-ops (the 0.6.1
+      # failure mode) fails the job here, while nothing is public. The signing key is a step-scoped
+      # env var, never baked into an image layer or build cache.
+      - name: Prove the signing chain end-to-end (in-container)
+        env:
+          GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+          GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
+        run: |
+          for el in 9 10; do
+            sudo podman run --rm \
+              -e GPG_SIGNING_KEY -e GPG_SIGNING_PASSPHRASE \
+              ai-tools-rpmbase:el${el} bash -c '
+                set -euo pipefail
+                dnf -y install --setopt=install_weak_deps=False rpm-sign rpm-build gnupg2 >/dev/null
+                bash /opt/ai-tools-src/packaging/sign-rpms.sh --selftest
+              '
+          done
+
+      - name: Extract release RPMs
+        run: |
+          # The images are already built; this step only produces the release artifacts,
+          # built clean (RPM_RELEASE unset, so the spec's default Release "1" applies instead
+          # of a dev/snapshot one).
+          for el in 9 10; do
             cid=$(sudo podman create ai-tools-rpmbase:el${el})
             mkdir -p "dist-rpms/el${el}"
             sudo podman cp "${cid}":/opt/ai-tools-src/packaging/rpmbuild/RPMS/noarch/. "dist-rpms/el${el}/"
@@ -170,21 +202,15 @@ jobs:
 
       # Sign every release RPM INSIDE the matching-EL build container, so the rpm/gnupg toolchain
       # that signs is the same one that built the packages -- avoids an rpm/macro mismatch with the
-      # Ubuntu host (see packaging/sign-rpms.sh and github-org-dag-node/GPG-HINTS.md). The signing
-      # key is a step-scoped env var, never baked into an image layer or build cache. Fail-closed
-      # per package (sign-rpms.sh verifies each signature and aborts on any that does not check out),
-      # but token-gated at the top level: until the org signing key + GPG_SIGNING_KEY secret exist,
-      # the release still publishes UNSIGNED with a loud warning rather than hard-failing every
-      # release during bring-up. --nogpgcheck stays documented for the unsigned window.
+      # Ubuntu host (see packaging/sign-rpms.sh and github-org-dag-node/GPG-HINTS.md). Fail-closed
+      # per package: sign-rpms.sh verifies each signature actually validates and aborts on any that
+      # does not, so the release cannot proceed with an unsigned or unverifiable package. The
+      # selftest above already proved the chain, so a failure here is an unexpected regression.
       - name: Sign release RPMs (in-container)
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
           GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
         run: |
-          if [[ -z "${GPG_SIGNING_KEY}" ]]; then
-            echo "::warning::GPG_SIGNING_KEY not set -- publishing UNSIGNED RPMs; set the dag-node org signing key to enable signing (GPG-HINTS.md)"
-            exit 0
-          fi
           for el in 9 10; do
             sudo podman run --rm \
               -e GPG_SIGNING_KEY -e GPG_SIGNING_PASSPHRASE \
@@ -201,27 +227,25 @@ jobs:
       # (see the upload below); a per-EL zip removes the "which four files go together"
       # ambiguity that creates -- `dnf install ./*.rpm` after unzipping is then unambiguous
       # by construction, since each archive holds only one EL's four packages. The public key
-      # rides inside each zip too (present only when signing ran), so an operator imports it and
-      # installs from one archive offline; the canonical repo at rpm.dagnode.com serves it too.
+      # rides inside each zip too (signing is mandatory, so it is always present), so an operator
+      # imports it and installs from one archive offline; rpm.dagnode.com serves it too.
       - name: Bundle per-EL zip archives
         run: |
           for el in 9 10; do
-            key=(); [[ -f "dist-rpms/el${el}/RPM-GPG-KEY-dag-node" ]] && key=(RPM-GPG-KEY-dag-node)
-            (cd "dist-rpms/el${el}" && zip -j "../ai-tools-el${el}-${GITHUB_REF_NAME}.zip" ./*.rpm "${key[@]}")
+            (cd "dist-rpms/el${el}" && zip -j "../ai-tools-el${el}-${GITHUB_REF_NAME}.zip" ./*.rpm RPM-GPG-KEY-dag-node)
           done
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Attach the exported public key too (present only when signing ran), so a manual
-          # download can verify without reaching rpm.dagnode.com.
-          key_asset=()
-          [[ -f dist-rpms/el9/RPM-GPG-KEY-dag-node ]] && key_asset=(dist-rpms/el9/RPM-GPG-KEY-dag-node)
+          # Attach the exported public key too, so a manual download can verify without reaching
+          # rpm.dagnode.com. Signing is mandatory, so the key is always present.
           assets=(
             dist-rpms/ai-tools-el9-${GITHUB_REF_NAME}.zip
             dist-rpms/ai-tools-el10-${GITHUB_REF_NAME}.zip
-            dist-rpms/el9/*.rpm dist-rpms/el10/*.rpm "${key_asset[@]}"
+            dist-rpms/el9/*.rpm dist-rpms/el10/*.rpm
+            dist-rpms/el9/RPM-GPG-KEY-dag-node
           )
           # Idempotent: if a later step (e.g. the publish-notify) failed and this workflow is
           # re-run, creating the release again would fail on the already-present tag. Refresh the
@@ -241,17 +265,13 @@ jobs:
       # + repomd.xml signing + GitHub Pages deploy) and serializes concurrent project releases, so
       # this project never writes the repo directly -- it triggers the pipeline via repository_dispatch
       # (a workflow_call reusable workflow cannot own another repo's Pages deploy: it runs in the
-      # caller's context). Best-effort and token-gated: until the org repo + RPM_REPO_DISPATCH_TOKEN
-      # exist the release still publishes and the notify is skipped with a warning. The token is a
-      # fine-grained PAT/App token with contents:write on dag-node/rpm. See GPG-HINTS.md.
+      # caller's context). The token (a fine-grained PAT/App token with contents:write on
+      # dag-node/rpm, see GPG-HINTS.md) is required and already vetted in preflight, so this step
+      # only handles a transient dispatch failure.
       - name: Notify central RPM repository (rpm.dagnode.com)
         env:
           GH_TOKEN: ${{ secrets.RPM_REPO_DISPATCH_TOKEN }}
         run: |
-          if [[ -z "${GH_TOKEN}" ]]; then
-            echo "::warning::RPM_REPO_DISPATCH_TOKEN not set -- skipping dag-node/rpm publish notify"
-            exit 0
-          fi
           # Preflight already vetted the token, so a failure here is transient (a registry blip on
           # dag-node/rpm's side). Retry with backoff rather than degrading to a hand-built dispatch.
           # If it still fails, fail the job: the release is idempotent (see Create GitHub Release),
