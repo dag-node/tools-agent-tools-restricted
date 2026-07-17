@@ -193,27 +193,32 @@ jobs:
       # published. A wrong passphrase or a container where rpmsign silently no-ops (the 0.6.1
       # failure mode) fails the job here, while nothing is public. The signing key is a step-scoped
       # env var, never baked into an image layer or build cache.
+      # --entrypoint bypasses the image's /sbin/init (a bare command is ignored init arguments --
+      # the container would boot the selftest instead); the assertion proves sign-rpms.sh ran.
       - name: Prove the signing chain end-to-end (in-container)
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
           GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
         run: |
+          set -euo pipefail
           for el in 9 10; do
-            sudo podman run --rm \
+            out="$(sudo podman run --rm \
               -e GPG_SIGNING_KEY -e GPG_SIGNING_PASSPHRASE \
+              --entrypoint /usr/bin/bash \
               ai-tools-rpmbase:el${el} \
-              bash /opt/ai-tools-src/packaging/sign-rpms.sh --selftest
+              /opt/ai-tools-src/packaging/sign-rpms.sh --selftest)"
+            printf '%s\n' "${out}"
+            grep -q -- '--selftest OK' <<<"${out}" \
+              || { echo "::error::el${el}: sign-rpms.sh --selftest did not run -- its success line is absent"; exit 1; }
           done
 
-      # Sign the RPMs the image built INSIDE the matching-EL container (so the rpm/gnupg toolchain
-      # that signs matches the one that built them -- see packaging/sign-rpms.sh and
-      # github-org-dag-node/GPG-HINTS.md), then copy the SIGNED RPMs out with `podman cp`. This is
-      # the transport that surfaces reliably on the runner: the v0.6.2 attempt signed into a `-v`
-      # bind mount whose container writes never reached the host, so the extracted RPMs stayed
-      # unsigned. Signing in the image the earlier step already built (with the Release the tag
-      # classification computed) also folds in the former extract step. sign-rpms.sh is
-      # fail-closed and writes its own verify public key to a container-local path; the PUBLISHED
-      # key is exported and every RPM re-verified on the runner in the next step.
+      # Sign the RPMs the image built INSIDE the matching-EL container, so the rpm/gnupg toolchain
+      # that signs matches the one that built them (see packaging/sign-rpms.sh), then copy the
+      # SIGNED RPMs out with `podman cp`. --entrypoint overrides the image's /sbin/init -- a bare
+      # command is ignored init arguments, and the container would boot the selftest and power off
+      # "successfully" without signing. The success-line assertion pins the workload; the runner
+      # re-verify in the next step is the fail-closed backstop. sign-rpms.sh writes its own verify
+      # public key to a container-local path; the PUBLISHED key is exported on the runner below.
       - name: Sign and extract release RPMs (in-container)
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
@@ -224,11 +229,15 @@ jobs:
           for el in 9 10; do
             mkdir -p "dist-rpms/el${el}"
             cid="$(sudo podman create -e GPG_SIGNING_KEY -e GPG_SIGNING_PASSPHRASE \
-              ai-tools-rpmbase:el${el} bash -c '
+              --entrypoint /usr/bin/bash \
+              ai-tools-rpmbase:el${el} -c '
                 bash /opt/ai-tools-src/packaging/sign-rpms.sh /tmp/pubkey.asc \
                   /opt/ai-tools-src/packaging/rpmbuild/RPMS/noarch/*.rpm
               ')"
-            sudo podman start --attach "${cid}"
+            out="$(sudo podman start --attach "${cid}")"
+            printf '%s\n' "${out}"
+            grep -q 'signed and verified' <<<"${out}" \
+              || { echo "::error::el${el}: sign-rpms.sh did not run in the sign container"; exit 1; }
             sudo podman cp "${cid}:${rpmdir}/." "dist-rpms/el${el}/"
             sudo podman rm "${cid}" >/dev/null
           done
