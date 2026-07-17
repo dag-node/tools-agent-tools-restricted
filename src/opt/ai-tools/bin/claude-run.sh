@@ -496,15 +496,19 @@ if (( _show_banner )); then
 fi
 
 # Name the transient unit for the operator: on a terminal, print the unit name and, directly
-# under it, a copy-paste journalctl that tails this session's journal. claude-run runs AS
-# @SANDBOX_USER@, so ${EUID} is the sandbox uid whose systemd --user journal holds the unit's
-# logs. systemd-run's own "Running as unit" line is suppressed (--quiet below) so this pair
-# prints together, the hint immediately under the unit name; a piped/redirected run stays clean.
+# under it, a copy-paste journalctl that tails this session's journal. The unit runs under
+# @SANDBOX_USER@'s systemd --user manager, so its records carry _SYSTEMD_USER_UNIT=<unit> and
+# _UID=${EUID} (the sandbox uid). Read them as root through those journal fields: the sandbox
+# account is deliberately NOT in systemd-journal -- that would let it read every system log,
+# including auth events and secrets -- and reading its own --user journal is unreliable under
+# volatile storage. systemd-run's own "Running as unit" line is suppressed (--quiet below) so
+# this pair prints together, then a trailing blank line separates it from claude's banner; a
+# piped/redirected run stays clean.
 if [[ -t 1 ]]; then
     _dim=$'\033[2m'; _rst=$'\033[0m'
     printf 'Running as unit: %s\n' "${_unit}"
-    printf '%s  logs: sudo -u @SANDBOX_USER@ XDG_RUNTIME_DIR=/run/user/%s journalctl --user-unit %s -xe%s\n' \
-        "${_dim}" "${EUID}" "${_unit}" "${_rst}"
+    printf '%s  logs: sudo journalctl _SYSTEMD_USER_UNIT=%s _UID=%s -xe%s\n\n' \
+        "${_dim}" "${_unit}" "${EUID}" "${_rst}"
 fi
 
 # Run the session (not exec) so an abnormal exit is not a silent teardown. systemd-run

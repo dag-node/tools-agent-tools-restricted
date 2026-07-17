@@ -32,6 +32,20 @@ existing account, nvm install, or Node version is reused. It enables `SANDBOX_US
 and the `nvm-update.timer` in that instance (best-effort), so the maintenance schedule is
 live once the toolchain exists.
 
+Starting the timer **pre-seeds its `Persistent=` run-stamp** (`$XDG_DATA_HOME/systemd/timers/
+stamp-nvm-update.timer` under `/opt/ai-tools`, written as `SANDBOX_USER`) so it begins on its
+next scheduled window rather than an **immediate catch-up run**. The timer's daily `OnCalendar` has usually already
+passed when the toolchain is provisioned, and with no prior stamp `Persistent=true` would run
+`nvm-update.service` at once — which reinstalls the agent package, reminting `claude.exe` at
+`lib_t` (a freshly written entrypoint is born the default type; only `restorecon` applies
+`ai_tools_exec_t`, see [post-upgrade relabel](#post-upgrade-entrypoint-relabel) below), and its
+asynchronous repoint→relabel chain races the operator's first launch into the mislabel refusal.
+Provisioning has just installed the current toolchain, so recording "last run = now" is
+truthful; the next run is the next scheduled window. `ai-tools-bootstrap` and `install.sh` both
+seed the stamp before starting the timer (the RPM/dev flows), and each also runs from a neutral
+CWD so the `sudo -u SANDBOX_USER` steps do not inherit an operator directory the account cannot
+traverse back into.
+
 As a closing interactive step it offers to set the **sandbox git commit identity** in the
 control-plane gitconfig — the name/email the agent authors commits with. This is the one
 interactive point both install flows share: the RPM `%post` (and `install.sh`) seed a

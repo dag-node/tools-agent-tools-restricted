@@ -154,6 +154,13 @@ seed_managed_assets_step() {
 [[ "${EUID}" -eq 0 ]] || die "run as root (sudo)"
 command -v curl >/dev/null 2>&1 || die "curl is required to fetch nvm"
 
+# Run from a neutral, world-traversable directory. The sudo -u ${SANDBOX_USER} steps below
+# inherit this process's CWD; invoked from an operator's private dir (e.g. ~/Downloads, mode
+# 0700) the sandbox account cannot traverse back into it, so nvm/npm's internal `find` warns
+# "Failed to restore initial working directory". Nothing here depends on CWD (every path is
+# absolute), and / is always reachable, so move off the caller's directory up front.
+cd /
+
 # Concrete tag (latest, pinned, or fallback). Constrained to v + digits/dots before it reaches
 # the download URL piped to bash, so a resolved value can never inject shell or URL.
 NVM_VERSION="$(resolve_nvm_version)"
@@ -312,6 +319,20 @@ install -d -o root -g "${SANDBOX_GROUP}" -m 2750 \
     "${SANDBOX_HOME}/.config/systemd/user/timers.target.wants"
 ln -sfn /usr/lib/systemd/user/nvm-update.timer \
     "${SANDBOX_HOME}/.config/systemd/user/timers.target.wants/nvm-update.timer"
+
+# Pre-seed the timer's Persistent run-stamp so starting it begins on the next scheduled window
+# rather than an immediate catch-up run. nvm-update.timer is Persistent=true with a daily
+# OnCalendar; started (or reached via timers.target) after that time has passed with no prior
+# stamp, systemd runs nvm-update.service at once. That run reinstalls the agent package -- reminting claude.exe at lib_t (a freshly
+# written entrypoint is born the default type; only restorecon applies ai_tools_exec_t) -- and
+# its async repoint -> relabel chain races the operator's first launch, so the first `claude`
+# refuses on a mislabelled entrypoint. Bootstrap has just installed the latest toolchain, so
+# "last run = now" is truthful: record it (mtime is all systemd reads), and the next run is the
+# next scheduled window. Written AS the sandbox account into its XDG_DATA_HOME, the path the
+# --user manager reads and later updates itself. See .claude/rules/updater.rule.md.
+_stampdir="${SANDBOX_HOME}/.local/share/systemd/timers"
+sudo -u "${SANDBOX_USER}" mkdir -p "${_stampdir}"
+sudo -u "${SANDBOX_USER}" touch "${_stampdir}/stamp-nvm-update.timer"
 
 # Linger keeps the --user manager running without an interactive login, so the timer it holds
 # stays active. Surface a failure so an instance that does not engage linger is visible.

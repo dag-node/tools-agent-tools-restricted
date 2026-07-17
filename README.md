@@ -35,30 +35,60 @@ agent-agnostic.
 
 ## Package install
 
-```bash
-# 1. Install from the release zip built for your EL major. It bundles the four RPMs
-#    (metapackage + ai-tools-base, ai-tools-nodejs, claude-code-restricted); they
-#    extract flat and dnf orders them itself. --nogpgcheck is only needed until the
-#    RPMs are served from a signed repo.
-unzip ai-tools-el10-vX.Y.Z.zip          # ai-tools-el9-... to match your platform
-sudo dnf install --nogpgcheck ./*.rpm
+Install from the signed DNF repository (recommended). One `.repo` file serves EL 9 and
+EL 10 — `$releasever`/`$basearch` select the right tree — and `gpgcheck`/`repo_gpgcheck`
+verify both the packages and the repo metadata against the dag-node org signing key:
 
-# 2. One-time setup: install Node.js, nvm, and Claude Code (from npm) and enable the
-#    timer that keeps them current (needs network).
+```bash
+sudo tee /etc/yum.repos.d/dagnode.repo >/dev/null <<'EOF'
+[dagnode]
+name=DagNode RPM Repository
+baseurl=https://rpm.dagnode.com/el/$releasever/$basearch/
+gpgkey=https://rpm.dagnode.com/RPM-GPG-KEY-dag-node
+gpgcheck=1
+repo_gpgcheck=1
+enabled=1
+metadata_expire=6h
+EOF
+sudo dnf install ai-tools          # the metapackage pulls the whole stack
+```
+
+Or install a release archive directly (offline / air-gapped). The zip bundles the four RPMs
+(metapackage + `ai-tools-base`, `ai-tools-nodejs`, `claude-code-restricted`) plus the public
+key; they extract flat and dnf orders them itself:
+
+```bash
+unzip ai-tools-el10-vX.Y.Z.zip                 # ai-tools-el9-... to match your platform
+sudo rpm --import RPM-GPG-KEY-dag-node         # then omit --nogpgcheck below
+sudo dnf install ./*.rpm
+# An unsigned or older archive ships no key: `sudo dnf install --nogpgcheck ./*.rpm`.
+```
+
+Then finish setup — steps 1 and 2 here are independent of each other but both run before
+step 3:
+
+```bash
+# 1. Install Node.js, nvm, and Claude Code (from npm) and enable the update timer (network).
 sudo ai-tools-bootstrap
 
-# 3. Enrol yourself as an operator: records you in /etc/ai-tools/operator.conf and
-#    grants ai-ops membership (the sudo rules and ownership hand-back).
+# 2. Enrol yourself as an operator: records you in /etc/ai-tools/operator.conf and grants
+#    ai-ops membership (the sudo rules and ownership hand-back).
 sudo ai-tools-admin operator add "$(id -un)"
 
-# 4. Register a project and launch. `ai-tools --help` lists every command. Run inside
-#    a project, `claude` (the wrapper) walks you through claiming it; the claim refuses
-#    system paths and home roots.
+# 3. Register a project and launch. `ai-tools --help` lists every command. Run inside a
+#    project, `claude` (the wrapper) walks you through claiming it; the claim refuses system
+#    paths and home roots.
 ai-tools --project-create ~/myproject
 cd ~/myproject && claude
 ```
 
-Steps 2 and 3 are independent of each other but must both run before step 4.
+**Upgrading — upgrade in place, never `dnf remove` first.** From the repo, `sudo dnf upgrade
+'ai-tools*'`; from a downloaded archive, `sudo dnf install ./*.rpm` (a higher version upgrades
+each subpackage). Removing the packages moves your edited `/etc/ai-tools/operator.conf` to
+`operator.conf.rpmsave` and the fresh install writes an empty one, dropping your operator list
+(re-add with `ai-tools-admin operator add`); an in-place upgrade keeps it via
+`%config(noreplace)`. `dnf reinstall` needs the *same* version already installed and is not the
+way to move between versions.
 
 `claude` resolves to the system wrapper `/usr/local/bin/claude`, which runs as you,
 checks your `ai-ops` membership and the project allowlist, then drops to `${SANDBOX_USER}`
@@ -66,7 +96,7 @@ via `sudo` and wraps the session in a confined `systemd --user` service. Launche
 unclaimed project it prompts you to claim it first; the claim and every elevated helper
 refuse system directories and home roots (the
 [safe-paths backstop](.claude/rules/safe-paths.rule.md)). The from-source install below
-is the manual equivalent of steps 1–2.
+is the manual equivalent of the package install plus `ai-tools-bootstrap`.
 
 ## Why
 

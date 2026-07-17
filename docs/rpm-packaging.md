@@ -199,9 +199,14 @@ rather than packaged files:
   the package never owns — `ai-tools-admin operator add` seeds the allowlist and they
   survive erase untouched.
 
-`operator.conf` is written at runtime by `ai-tools-admin`, not packaged, so an
-upgrade never touches it and an erase leaves it in place — the host's operators
-persist across a reinstall.
+`operator.conf` ships as `%config(noreplace)` with an empty `OPERATORS=""` baseline and is
+edited in place by `ai-tools-admin operator add|remove`. `%config(noreplace)` keeps the
+edited copy across an **upgrade** (`dnf upgrade`, or `dnf install ./*.rpm` of a higher
+version), so the host's operators persist. An **erase** is different: rpm saves the modified
+config as `operator.conf.rpmsave` and removes the tracked file, so a remove-then-install
+cycle drops the operator list — the fresh install lays down the empty baseline. Upgrade in
+place rather than `dnf remove` + install; if a `.rpmsave` was left behind, re-add operators
+with `ai-tools-admin operator add` (see the README "Upgrading" note).
 
 ## Tests
 
@@ -235,5 +240,32 @@ Runtime dependencies: `ai-tools-base` requires `systemd`, `sudo`, `acl`,
 `ai-tools-nodejs` adds `curl`, `tar`, and `gzip` for bootstrap. Node is not an RPM
 dependency — it is nvm-managed under `/opt/ai-tools` so the agent can self-update
 it within the policy the SELinux module enforces.
+
+## Signing and distribution
+
+The `release` job signs each built RPM with the dag-node org GPG key and publishes it to the
+signed DNF repository at `https://rpm.dagnode.com/` (the "served from a signed repo" install
+path the README leads with). Two properties shape the design:
+
+- **Each project signs its own RPMs, in the matching-EL build container.**
+  `packaging/sign-rpms.sh` runs inside `ai-tools-rpmbase:elN` (not on the Ubuntu runner), so
+  the `rpm`/`gnupg` toolchain that signs matches the one that built — no header-signature or
+  macro mismatch. It imports the key from a step-scoped secret into a throwaway `GNUPGHOME`,
+  signs with a fully specified non-interactive `%__gpg_sign_cmd` (loopback pinentry,
+  passphrase from a 0600 file, never argv), then verifies every signature against a throwaway
+  rpmdb and fails closed on any that does not check out. Build provenance stays with the
+  project; the packages are immutable once signed. Signing is token-gated: until the org key +
+  `GPG_SIGNING_KEY` secret exist a release still publishes **unsigned** with a warning, and
+  `--nogpgcheck` stays documented for that window.
+- **A central repo owns metadata and hosting.** The signed RPMs and the public key attach to
+  the GitHub Release (loose + per-EL zip), then the job notifies the dedicated `dag-node/rpm`
+  repository via `repository_dispatch`. That repo — not this project — runs the single publish
+  pipeline (`createrepo_c`, `repomd.xml` signing, GitHub Pages deploy at `rpm.dagnode.com`),
+  serialized so concurrent project releases never race the metadata.
+
+The signing key and org secrets (`GPG_SIGNING_KEY`, `GPG_SIGNING_PASSPHRASE`,
+`RPM_REPO_DISPATCH_TOKEN`) are in the org playbook `GPG-HINTS.md`; the central repository's
+architecture, layout, and DNS/Pages setup are in `RPM-REPO-HINTS.md` — kept out of this
+project so its docs stay scoped to the package build.
 </content>
 </invoke>

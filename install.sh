@@ -229,8 +229,10 @@ bootstrap_claude_symlink() {
     fi
 
     local node_version
+    # cd / first: this sudo -u step inherits the installer's CWD, and run from an operator dir
+    # the sandbox account cannot traverse (e.g. a 0700 home), nvm/npm's internal getcwd warns.
     node_version="$(sudo -u "${SANDBOX_USER}" bash -c \
-        "source '${ai_nvm_dir}/nvm.sh' --no-use && nvm version default 2>/dev/null" \
+        "cd / && source '${ai_nvm_dir}/nvm.sh' --no-use && nvm version default 2>/dev/null" \
         2>/dev/null || true)"
 
     if [[ -z "${node_version}" || "${node_version}" == "N/A" ]]; then
@@ -331,16 +333,21 @@ offer_selinux() {
     local loaded
     loaded="$(semodule -l 2>/dev/null | grep '^ai_tools' | paste -sd ' ' - || true)"
 
+    # How a kept module actually behaves on THIS host: only global Enforcing mode blocks. Under
+    # Permissive the module is loaded but logs rather than enforces, so do not claim "enforcing".
+    local mode_state="active and enforcing"
+    [[ "${mode}" == "Enforcing" ]] || mode_state="loaded but not enforcing (SELinux is ${mode})"
+
     say "  SELinux is active. A confinement layer locks the agent"
     say "  to domain ${C_BOLD}ai_tools_t${C_RST} (ships prebuilt; loads ${C_BOLD}ENFORCING${C_RST})."
     # State the No-path up front so the decision is unambiguous: this step only ADDS
     # confinement -- it never unloads a module -- so a skip leaves any module from a previous
-    # install exactly as it was (loaded and enforcing), and Yes on an already-loaded module
-    # just rebuilds and reloads it in place.
+    # install exactly as it was, and Yes on an already-loaded module rebuilds and reloads it in
+    # place.
     local ctx
     if [[ -n "${loaded}" ]]; then
         say "  loaded from a previous install: ${C_BOLD}${loaded}${C_RST}"
-        ctx="Answering No keeps the already-loaded module enabled and enforcing -- this step never removes it. Yes rebuilds and reloads it in place."
+        ctx="Answering No keeps the already-loaded module ${mode_state} -- this step never removes it. Yes rebuilds and reloads it in place."
     else
         say "  no ai_tools policy module is currently loaded."
         ctx="The SELinux confinement layer can be installed now or any time later."
@@ -357,7 +364,7 @@ offer_selinux() {
             warn "  sudo ${selinux_script} install"
         fi
     elif [[ -n "${loaded}" ]]; then
-        log "skipped -- the loaded module(s) stay active and enforcing: ${loaded}"
+        log "skipped -- the loaded module(s) stay ${mode_state}: ${loaded}"
         say "    ${C_DIM}manage them with: sudo ${selinux_script} {install|remove|list-groups}${C_RST}"
     else
         log "skipped -- the sandbox runs without SELinux confinement until you run:"
@@ -1187,6 +1194,22 @@ do_install() {
         /opt/ai-tools/.config/systemd/user/timers.target.wants
     ln -sfn /usr/lib/systemd/user/nvm-update.timer \
         /opt/ai-tools/.config/systemd/user/timers.target.wants/nvm-update.timer
+    # Pre-seed the timer's Persistent run-stamp BEFORE starting it, so it begins on its next
+    # scheduled window rather than an immediate catch-up nvm-update run. That run reinstalls the
+    # agent package -- reminting claude.exe at lib_t (a freshly written entrypoint is born the
+    # default type; only restorecon applies ai_tools_exec_t) -- and its async repoint -> relabel
+    # chain races the operator's first launch, so the first claude refuses on a mislabelled
+    # entrypoint. The toolchain is current at install time, so "last run = now" is truthful
+    # (mtime is all systemd reads). Same fix as ai-tools-bootstrap; see
+    # .claude/rules/updater.rule.md. The home is root-owned, so root creates
+    # the account-owned XDG_DATA_HOME path the --user manager reads and later updates itself.
+    install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 \
+        /opt/ai-tools/.local \
+        /opt/ai-tools/.local/share \
+        /opt/ai-tools/.local/share/systemd \
+        /opt/ai-tools/.local/share/systemd/timers
+    install -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0644 /dev/null \
+        /opt/ai-tools/.local/share/systemd/timers/stamp-nvm-update.timer
     log "enable nvm-update.timer in ${SANDBOX_USER}'s --user instance"
     user_systemctl "${SANDBOX_USER}" daemon-reload
     user_systemctl "${SANDBOX_USER}" start nvm-update.timer
