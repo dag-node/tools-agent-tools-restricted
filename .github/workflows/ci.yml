@@ -116,6 +116,39 @@ jobs:
       - name: Verify tag, VERSION, and %changelog agree
         run: bash packaging/check-version.sh "${GITHUB_REF_NAME}"
 
+      # Validate the release prerequisites BEFORE building or publishing anything, so a
+      # misconfigured secret fails the job while nothing has shipped -- rather than after the
+      # GitHub Release is already public, where a hard failure only strands a half-published
+      # release. A secret that is set must work; an unset one keeps the documented bring-up
+      # window (unsigned) / skip window (no publish-notify) and only warns. Passphrase-correctness
+      # and the actual signing are still proven at the sign step below, which also runs before the
+      # release is created.
+      - name: Preflight release prerequisites
+        env:
+          GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+          RPM_REPO_DISPATCH_TOKEN: ${{ secrets.RPM_REPO_DISPATCH_TOKEN }}
+        run: |
+          if [[ -n "${GPG_SIGNING_KEY}" ]]; then
+            # gpg must import into a keyring DIRECTORY to verify a usable secret key. Keep it on
+            # tmpfs (/dev/shm, RAM) so the key never lands on persistent disk, and wipe on exit --
+            # mirrors packaging/sign-rpms.sh. The key text arrives on stdin, never a temp file.
+            gnupghome="$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)"
+            trap 'rm -rf "${gnupghome}"' EXIT
+            printf '%s\n' "${GPG_SIGNING_KEY}" | GNUPGHOME="${gnupghome}" gpg --batch --quiet --import \
+              || { echo "::error::GPG_SIGNING_KEY did not import -- it is not a usable ASCII-armored key (GPG-HINTS.md)"; exit 1; }
+            GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys | grep -q '^sec:' \
+              || { echo "::error::GPG_SIGNING_KEY carries no secret key -- export the private key, not just the public one (GPG-HINTS.md)"; exit 1; }
+          else
+            echo "::warning::GPG_SIGNING_KEY not set -- release will publish UNSIGNED (bring-up window)"
+          fi
+
+          if [[ -n "${RPM_REPO_DISPATCH_TOKEN}" ]]; then
+            GH_TOKEN="${RPM_REPO_DISPATCH_TOKEN}" gh api repos/dag-node/rpm --jq .full_name >/dev/null \
+              || { echo "::error::RPM_REPO_DISPATCH_TOKEN cannot reach dag-node/rpm -- invalid, expired, or lacking access; fix it before releasing (GPG-HINTS.md)"; exit 1; }
+          else
+            echo "::warning::RPM_REPO_DISPATCH_TOKEN not set -- rpm.dagnode.com publish-notify will be skipped"
+          fi
+
       - name: Install podman + zip
         run: sudo apt-get update && sudo apt-get install -y podman zip
 
@@ -185,12 +218,23 @@ jobs:
           # download can verify without reaching rpm.dagnode.com.
           key_asset=()
           [[ -f dist-rpms/el9/RPM-GPG-KEY-dag-node ]] && key_asset=(dist-rpms/el9/RPM-GPG-KEY-dag-node)
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "${GITHUB_REF_NAME}" \
-            --generate-notes \
-            dist-rpms/ai-tools-el9-${GITHUB_REF_NAME}.zip \
-            dist-rpms/ai-tools-el10-${GITHUB_REF_NAME}.zip \
+          assets=(
+            dist-rpms/ai-tools-el9-${GITHUB_REF_NAME}.zip
+            dist-rpms/ai-tools-el10-${GITHUB_REF_NAME}.zip
             dist-rpms/el9/*.rpm dist-rpms/el10/*.rpm "${key_asset[@]}"
+          )
+          # Idempotent: if a later step (e.g. the publish-notify) failed and this workflow is
+          # re-run, creating the release again would fail on the already-present tag. Refresh the
+          # existing release's assets instead, so re-running the workflow recovers on its own
+          # rather than needing a hand-built release.
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload --clobber "${GITHUB_REF_NAME}" "${assets[@]}"
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "${GITHUB_REF_NAME}" \
+              --generate-notes \
+              "${assets[@]}"
+          fi
 
       # Notify the central dag-node/rpm repository to rebuild and publish the signed DNF repo at
       # rpm.dagnode.com from this release. That repo owns the single publish pipeline (createrepo_c
@@ -208,7 +252,23 @@ jobs:
             echo "::warning::RPM_REPO_DISPATCH_TOKEN not set -- skipping dag-node/rpm publish notify"
             exit 0
           fi
-          gh api "repos/dag-node/rpm/dispatches" \
-            -f "event_type=publish-rpm" \
-            -F "client_payload[project]=${GITHUB_REPOSITORY}" \
-            -F "client_payload[tag]=${GITHUB_REF_NAME}"
+          # Preflight already vetted the token, so a failure here is transient (a registry blip on
+          # dag-node/rpm's side). Retry with backoff rather than degrading to a hand-built dispatch.
+          # If it still fails, fail the job: the release is idempotent (see Create GitHub Release),
+          # so re-running this workflow re-fires the notify and completes the publish -- no manual
+          # step.
+          attempts=5
+          for attempt in $(seq 1 "${attempts}"); do
+            if gh api "repos/dag-node/rpm/dispatches" \
+                  -f "event_type=publish-rpm" \
+                  -F "client_payload[project]=${GITHUB_REPOSITORY}" \
+                  -F "client_payload[tag]=${GITHUB_REF_NAME}"; then
+              exit 0
+            fi
+            if [[ "${attempt}" -lt "${attempts}" ]]; then
+              echo "publish-notify attempt ${attempt}/${attempts} failed; retrying in $((attempt * 10))s" >&2
+              sleep $((attempt * 10))
+            fi
+          done
+          echo "::error::publish-notify to dag-node/rpm failed after ${attempts} attempts -- re-run this workflow to retry (the release is idempotent, so nothing is duplicated)." >&2
+          exit 1

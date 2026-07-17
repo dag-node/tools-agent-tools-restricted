@@ -429,6 +429,10 @@ fi
 %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Fri Jul 17 2026 dagnode <tools@dagnode.com> - 0.6.1-1
+- Maintenance re-release of 0.6.0 to complete the signed rpm.dagnode.com
+  publish; no changes to the installed packages.
+
 * Fri Jul 17 2026 dagnode <tools@dagnode.com> - 0.6.0-1
 - Release RPMs are now GPG-signed and published to the signed DNF repo at
   rpm.dagnode.com; install with gpgcheck/repo_gpgcheck instead of --nogpgcheck
