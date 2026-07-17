@@ -77,11 +77,11 @@ rpmbase-el10:
 # fires and returns the container's exit status.
 rpmtest-rocky9: rpmbase-el9
 	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmtest:el9 -f $(CURDIR)/Rocky9.Containerfile $(ROOT)
-	$(OCI) run --rm -t --systemd=always ai-tools-rpmtest:el9
+	$(OCI) run --rm -t --systemd=always --ulimit core=0 ai-tools-rpmtest:el9
 
 rpmtest-rocky10: rpmbase-el10
 	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmtest:el10 -f $(CURDIR)/Rocky10.Containerfile $(ROOT)
-	$(OCI) run --rm -t --systemd=always ai-tools-rpmtest:el10
+	$(OCI) run --rm -t --systemd=always --ulimit core=0 ai-tools-rpmtest:el10
 
 dist:
 	tar czf $(TARBALL) -C $(ROOT) \
