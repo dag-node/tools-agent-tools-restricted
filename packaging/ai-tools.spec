@@ -429,6 +429,18 @@ fi
 %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Fri Jul 17 2026 p4nda <4882246+p4nda@users.noreply.github.com> - 0.6.0-1
+- Release RPMs are now GPG-signed and published to the signed DNF repo at
+  rpm.dagnode.com; install with gpgcheck/repo_gpgcheck instead of --nogpgcheck
+  (import the key: rpm --import https://rpm.dagnode.com/RPM-GPG-KEY-dag-node).
+- Ship curated agents and skills into the sandboxed agent's global config, seeded
+  and kept current on install and upgrade.
+- Ship a reference host-wide managed-settings.json for the sandboxed agent.
+- Provisioning no longer triggers an immediate catch-up toolchain update, so the
+  first launch after install/bootstrap is not raced into a mislabel refusal.
+- The launch banner surfaces the session unit name with a journalctl hint.
+- Harden CI: GitHub Actions are pinned to commit SHAs.
+
 * Mon Jul 13 2026 dagnode <tools@dagnode.com> - 0.4.0-1
 - Sessions now default to confirm-before-acting: the shipped settings.json sets
   "disableAutoMode": "disable", which removes "auto" from the Shift+Tab cycle and rejects
