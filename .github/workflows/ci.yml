@@ -157,6 +157,10 @@ jobs:
             || { echo "::error::GPG_SIGNING_PASSPHRASE not set -- the org signing key is passphrase-protected (GPG-HINTS.md)"; exit 1; }
           [[ -n "${RPM_REPO_DISPATCH_TOKEN}" ]] \
             || { echo "::error::RPM_REPO_DISPATCH_TOKEN not set -- required to publish the signed repo at rpm.dagnode.com (GPG-HINTS.md)"; exit 1; }
+          # The container stdin protocol reads the passphrase as the first line; a multi-line
+          # value would silently truncate there and corrupt the key read that follows.
+          [[ "${GPG_SIGNING_PASSPHRASE}" != *$'\n'* ]] \
+            || { echo "::error::GPG_SIGNING_PASSPHRASE must be single-line"; exit 1; }
 
           # gpg must import into a keyring DIRECTORY to verify a usable secret key. Keep it on
           # tmpfs (/dev/shm, RAM) so the key never lands on persistent disk, and wipe on exit --
@@ -201,14 +205,14 @@ jobs:
           GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
         run: |
           set -euo pipefail
-          # sudo env_reset strips the step env; --preserve-env forwards exactly the two secrets
-          # (never argv -- /proc cmdline is world-readable, the environment is owner-only).
+          # Secrets travel over stdin (printf is a builtin -- no argv exposure), never the
+          # container environment: podman records -e values in the on-disk container config.
           for el in 9 10; do
-            out="$(sudo --preserve-env=GPG_SIGNING_KEY,GPG_SIGNING_PASSPHRASE podman run --rm \
-              -e GPG_SIGNING_KEY -e GPG_SIGNING_PASSPHRASE \
+            out="$(printf '%s\n%s\n' "${GPG_SIGNING_PASSPHRASE}" "${GPG_SIGNING_KEY}" \
+              | sudo podman run --rm -i \
               --entrypoint /usr/bin/bash \
               ai-tools-rpmbase:el${el} \
-              /opt/ai-tools-src/packaging/sign-rpms.sh --selftest)"
+              /opt/ai-tools-src/packaging/sign-rpms.sh --secrets-stdin --selftest)"
             printf '%s\n' "${out}"
             grep -q -- '--selftest OK' <<<"${out}" \
               || { echo "::error::el${el}: sign-rpms.sh --selftest did not run -- its success line is absent"; exit 1; }
@@ -230,19 +234,19 @@ jobs:
           rpmdir=/opt/ai-tools-src/packaging/rpmbuild/RPMS/noarch
           for el in 9 10; do
             mkdir -p "dist-rpms/el${el}"
-            cid="$(sudo --preserve-env=GPG_SIGNING_KEY,GPG_SIGNING_PASSPHRASE \
-              podman create -e GPG_SIGNING_KEY -e GPG_SIGNING_PASSPHRASE \
+            cname="ai-tools-sign-el${el}"
+            out="$(printf '%s\n%s\n' "${GPG_SIGNING_PASSPHRASE}" "${GPG_SIGNING_KEY}" \
+              | sudo podman run -i --name "${cname}" \
               --entrypoint /usr/bin/bash \
               ai-tools-rpmbase:el${el} -c '
-                bash /opt/ai-tools-src/packaging/sign-rpms.sh /tmp/pubkey.asc \
+                bash /opt/ai-tools-src/packaging/sign-rpms.sh --secrets-stdin /tmp/pubkey.asc \
                   /opt/ai-tools-src/packaging/rpmbuild/RPMS/noarch/*.rpm
               ')"
-            out="$(sudo podman start --attach "${cid}")"
             printf '%s\n' "${out}"
             grep -q 'signed and verified' <<<"${out}" \
               || { echo "::error::el${el}: sign-rpms.sh did not run in the sign container"; exit 1; }
-            sudo podman cp "${cid}:${rpmdir}/." "dist-rpms/el${el}/"
-            sudo podman rm "${cid}" >/dev/null
+            sudo podman cp "${cname}:${rpmdir}/." "dist-rpms/el${el}/"
+            sudo podman rm "${cname}" >/dev/null
           done
           sudo chown -R "$(id -u):$(id -g)" dist-rpms
 

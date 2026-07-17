@@ -7,8 +7,12 @@
 # header signature an operator verifies with `rpm --import RPM-GPG-KEY-dag-node`.
 #
 # Usage (rpm-sign + gnupg2 + rpm-build must be present in the container):
-#   packaging/sign-rpms.sh <pubkey-out-path> <rpm>...   sign and verify the given RPMs
-#   packaging/sign-rpms.sh --selftest                   prove the whole chain on a throwaway RPM
+#   packaging/sign-rpms.sh [--secrets-stdin] <pubkey-out-path> <rpm>...   sign and verify the given RPMs
+#   packaging/sign-rpms.sh [--secrets-stdin] --selftest                   prove the whole chain on a throwaway RPM
+#
+# --secrets-stdin reads the secrets from stdin -- first line the passphrase, the remainder the
+# ASCII-armored private key -- instead of the environment, so a container invocation never
+# carries them in its environment (podman records -e values in the on-disk container config).
 #
 # --selftest builds a disposable package, signs it, and verifies it through the identical code
 # path, so the release workflow can prove the key, passphrase, rpmsign, and verification all
@@ -117,6 +121,12 @@ EOF
 }
 
 main() {
+    if [[ "${1:-}" == --secrets-stdin ]]; then
+        shift
+        IFS= read -r GPG_SIGNING_PASSPHRASE || die "--secrets-stdin: no passphrase line on stdin"
+        GPG_SIGNING_KEY="$(cat)"
+    fi
+
     local selftest=0
     if [[ "${1:-}" == --selftest ]]; then
         selftest=1; shift
