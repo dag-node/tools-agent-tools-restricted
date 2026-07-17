@@ -187,41 +187,34 @@ jobs:
               '
           done
 
-      - name: Extract release RPMs
-        run: |
-          # The images are already built; this step only produces the release artifacts,
-          # built clean (RPM_RELEASE unset, so the spec's default Release "1" applies instead
-          # of a dev/snapshot one).
-          for el in 9 10; do
-            cid=$(sudo podman create ai-tools-rpmbase:el${el})
-            mkdir -p "dist-rpms/el${el}"
-            sudo podman cp "${cid}":/opt/ai-tools-src/packaging/rpmbuild/RPMS/noarch/. "dist-rpms/el${el}/"
-            sudo podman rm "${cid}" >/dev/null
-          done
-          sudo chown -R "$(id -u):$(id -g)" dist-rpms
-
-      # Sign every release RPM INSIDE the matching-EL build container, so the rpm/gnupg toolchain
-      # that signs is the same one that built the packages -- avoids an rpm/macro mismatch with the
-      # Ubuntu host (see packaging/sign-rpms.sh and github-org-dag-node/GPG-HINTS.md). Fail-closed
-      # per package: sign-rpms.sh verifies each signature actually validates and aborts on any that
-      # does not, so the release cannot proceed with an unsigned or unverifiable package. The
-      # selftest above already proved the chain, so a failure here is an unexpected regression. The
-      # container signs the RPMs in the bind mount; its own verify public key goes to a
-      # container-local path (not the mount), since the published key is exported on the runner below.
-      - name: Sign release RPMs (in-container)
+      # Sign the RPMs the image built INSIDE the matching-EL container (so the rpm/gnupg toolchain
+      # that signs matches the one that built them -- see packaging/sign-rpms.sh and
+      # github-org-dag-node/GPG-HINTS.md), then copy the SIGNED RPMs out with `podman cp`. This is
+      # the transport that surfaces reliably on the runner: the v0.6.2 attempt signed into a `-v`
+      # bind mount whose container writes never reached the host, so the extracted RPMs stayed
+      # unsigned. Signing in the image the earlier step already built (RPM_RELEASE unset, so the
+      # spec's default Release "1" applies) also folds in the former extract step. sign-rpms.sh is
+      # fail-closed and writes its own verify public key to a container-local path; the PUBLISHED
+      # key is exported and every RPM re-verified on the runner in the next step.
+      - name: Sign and extract release RPMs (in-container)
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
           GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
         run: |
+          set -euo pipefail
+          rpmdir=/opt/ai-tools-src/packaging/rpmbuild/RPMS/noarch
           for el in 9 10; do
-            sudo podman run --rm \
-              -e GPG_SIGNING_KEY -e GPG_SIGNING_PASSPHRASE \
-              -v "$(pwd)/dist-rpms/el${el}:/rpms:Z" \
+            mkdir -p "dist-rpms/el${el}"
+            cid="$(sudo podman create -e GPG_SIGNING_KEY -e GPG_SIGNING_PASSPHRASE \
               ai-tools-rpmbase:el${el} bash -c '
                 set -euo pipefail
                 dnf -y install --setopt=install_weak_deps=False rpm-sign gnupg2 >/dev/null
-                bash /opt/ai-tools-src/packaging/sign-rpms.sh /tmp/pubkey.asc /rpms/*.rpm
-              '
+                bash /opt/ai-tools-src/packaging/sign-rpms.sh /tmp/pubkey.asc \
+                  /opt/ai-tools-src/packaging/rpmbuild/RPMS/noarch/*.rpm
+              ')"
+            sudo podman start --attach "${cid}"
+            sudo podman cp "${cid}:${rpmdir}/." "dist-rpms/el${el}/"
+            sudo podman rm "${cid}" >/dev/null
           done
           sudo chown -R "$(id -u):$(id -g)" dist-rpms
 
