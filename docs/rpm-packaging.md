@@ -229,11 +229,12 @@ build artifact checked into the source tarball, so the build needs no
 it directly (`%(cat %{_sourcedir}/VERSION)`, also shipped as `Source2` so a
 rebuild from the SRPM alone still resolves it) and the Makefile reads the same
 file, so a release bump touches one place. `Release:` defaults to plain `1`
-(a tagged release); `make rpm`/`rpmtest-rockyN`/`rpmbase-elN` accept
-`RPM_RELEASE=<snapshot>` to override it for a CI dev build, e.g.
-`0.42.gitabcdef1` — the leading `0.` is the Fedora pre-release convention, so
-rpm's version comparison always ranks a real release above any dev snapshot
-that preceded it.
+(a final `vX.Y.Z` release); `make rpm`/`rpmtest-rockyN`/`rpmbase-elN` accept
+`RPM_RELEASE=<override>` — CI passes `0.<run>.git<sha>` for dev builds and
+`0.rcN` for `vX.Y.Z-rc.N` prerelease tags. The leading `0.` is the Fedora
+pre-release convention, so rpm's version comparison ranks any snapshot or RC
+below the final release that follows it, and a host that installed an RC
+upgrades cleanly to the final via ordinary `dnf`.
 
 Runtime dependencies: `ai-tools-base` requires `systemd`, `sudo`, `acl`,
 `python3`, `coreutils`, and `policycoreutils` (for `restorecon`/`semodule`);
@@ -267,6 +268,11 @@ path the README leads with). Two properties shape the design:
   repository via `repository_dispatch`. That repo — not this project — runs the single publish
   pipeline (`createrepo_c`, `repomd.xml` signing, GitHub Pages deploy at `rpm.dagnode.com`),
   serialized so concurrent project releases never race the metadata.
+
+Prerelease tags (`vX.Y.Z-rc.N`) run the same sign-and-verify path but publish only a GitHub
+**prerelease** and skip the `dag-node/rpm` notify — the central repo serves final tags only. A
+`workflow_dispatch` run rehearses the identical path with every publish step skipped, leaving
+the signed output as a workflow artifact. The process is [`branching-and-release.md`](branching-and-release.md).
 
 The signing key and org secrets (`GPG_SIGNING_KEY`, `GPG_SIGNING_PASSPHRASE`,
 `RPM_REPO_DISPATCH_TOKEN`) are in the org playbook `GPG-HINTS.md`; the central repository's

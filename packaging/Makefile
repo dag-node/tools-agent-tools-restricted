@@ -9,8 +9,9 @@
 # The tarball is built from the WORKING TREE (not `git archive`), so it includes
 # not-yet-committed sources during development.
 #
-# RPM_RELEASE overrides the spec's Release for a dev/snapshot build (a tagged release leaves
-# it unset, so the spec's own default "1" applies): make rpm RPM_RELEASE=0.42.gitabcdef1
+# RPM_RELEASE overrides the spec's Release (default "1", a final vX.Y.Z release): CI passes
+# 0.<run>.git<sha> for dev/snapshot builds and 0.rcN for vX.Y.Z-rc.N prerelease tags -- the
+# leading "0." ranks both below any final release: make rpm RPM_RELEASE=0.42.gitabcdef1
 
 NAME    = ai-tools
 VERSION := $(shell cat VERSION)
