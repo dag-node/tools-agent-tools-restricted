@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Draft a %changelog block for the current packaging/VERSION from the Conventional-Commit
-# subjects since the last vX.Y.Z tag, grouped by impact. Prints to stdout for the author to
+# subjects since the last stable release, grouped by impact. Prints to stdout for the author to
 # CURATE before pasting into ai-tools.spec -- a changelog is not a commit log: prune
 # no-user-impact commits and rewrite subjects into reader-facing, upgrade-oriented prose
 # (see the change-docs standard). This removes the blank-page burden; it does not replace the
@@ -10,14 +10,32 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+spec="${here}/ai-tools.spec"
 version="$(cat "${here}/VERSION")"
 
-# Anchor on the newest vX.Y.Z tag reachable from HEAD; with no tag yet, span all history.
-anchor="$(git -C "${here}" describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
+# Anchor on the newest STABLE tag (vX.Y.Z) reachable from HEAD, excluding the vX.Y.Z-rc.N
+# prereleases cut during stabilization: a final %changelog entry spans everything since the
+# last release, not just since the last RC. With no stable tag yet, span all history.
+anchor="$(git -C "${here}" describe --tags --abbrev=0 --match 'v*' --exclude '*-*' 2>/dev/null || true)"
 range="${anchor:+${anchor}..}HEAD"
 
-name="$(git -C "${here}" config user.name || echo 'YOUR NAME')"
-email="$(git -C "${here}" config user.email || echo 'you@example.com')"
+# Attribute the draft to the packager already named in the spec's %changelog (the identity the
+# entry will be pasted next to), not the committer's git identity. Fall back to git config only
+# when the spec carries no entry yet.
+packager="$(awk '
+    /^%changelog/ { in_log = 1; next }
+    in_log && /^\*/ {
+        line = $0
+        sub(/^\* +/, "", line)                        # drop the "* " bullet
+        sub(/ - [^ ]+$/, "", line)                    # drop the trailing " - X.Y.Z-R"
+        sub(/^[^ ]+ +[^ ]+ +[^ ]+ +[^ ]+ +/, "", line)  # drop the four date tokens
+        print line
+        exit
+    }
+' "${spec}")"
+if [[ -z "${packager}" ]]; then
+    packager="$(git -C "${here}" config user.name || echo 'YOUR NAME') <$(git -C "${here}" config user.email || echo 'you@example.com')>"
+fi
 date="$(LC_ALL=C date +'%a %b %d %Y')"
 
 declare -a breaking=() feat=() fix=() perf=() other=()
@@ -40,7 +58,7 @@ done < <(git -C "${here}" log --no-merges --format='%s' "${range}")
 
 emit() { local d prefix="$1"; shift; for d in "$@"; do printf -- '- %s%s\n' "${prefix}" "${d}"; done; }
 
-echo "* ${date} ${name} <${email}> - ${version}-1"
+echo "* ${date} ${packager} - ${version}-1"
 ((${#breaking[@]})) && emit "BREAKING: " "${breaking[@]}"
 ((${#feat[@]}))     && emit "" "${feat[@]}"
 ((${#fix[@]}))      && emit "" "${fix[@]}"
