@@ -429,6 +429,14 @@ fi
 %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Sat Jul 18 2026 dagnode <tools@dagnode.com> - 0.6.3-1
+- Release RPMs are reliably GPG-signed: the signing step runs directly, past the build
+  image's init entrypoint, and asserts a signed-package line, so every published package
+  carries a verified signature. Install with gpgcheck after importing RPM-GPG-KEY-dag-node.
+- Hardened the release pipeline: the GPG signing secret stays out of the build
+  container's environment -- passed over stdin, forwarded through sudo to podman -- and
+  the signing scratch tree is wiped on exit. No change to the installed packages.
+
 * Fri Jul 17 2026 dagnode <tools@dagnode.com> - 0.6.2-1
 - Fixed: release RPMs are correctly GPG-signed on EL10. The 0.6.0 and 0.6.1 el10
   packages shipped unsigned -- rpm's sign command ran gpg with a stray argument and
@@ -440,7 +448,7 @@ fi
 * Fri Jul 17 2026 dagnode <tools@dagnode.com> - 0.6.1-1
 - Maintenance re-release of 0.6.0 to complete the signed rpm.dagnode.com
   publish; no changes to the installed packages.
-
+    
 * Fri Jul 17 2026 dagnode <tools@dagnode.com> - 0.6.0-1
 - Release RPMs are now GPG-signed and published to the signed DNF repo at
   rpm.dagnode.com; install with gpgcheck/repo_gpgcheck instead of --nogpgcheck
