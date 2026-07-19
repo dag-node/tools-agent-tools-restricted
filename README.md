@@ -102,8 +102,17 @@ is the manual equivalent of the package install plus `ai-tools-bootstrap`.
 
 A coding agent like Claude Code reads, writes, and runs commands autonomously. Run as
 your own user it inherits everything you can touch — SSH keys, browser profiles,
-every project, your full sudo rights. This project gives the agent its own UID
-with a tightly scoped set of privileges instead:
+every project, your full sudo rights. And what it reads does not stay local: an agent
+sends file contents to a third-party model service as a matter of course, so a secret
+the agent can open is a secret you may already have disclosed. Repositories onboarding
+agentic tools carry a particular blind spot here: credentials committed years ago and
+since "removed" survive in git history — invisible in the working tree, one
+`git show` away for anything that can read `.git`.
+
+This project restricts the agent's scope on the host instead of trusting it: a
+dedicated UID with a tightly scoped set of privileges, per-project consent for what it
+may touch, and shallow clones plus secret lockdown to keep history and credentials out
+of what it can ever send:
 
 - **Separate identity** — `${SANDBOX_USER}` is a system account with no login shell
   and no password. Claude executes under that UID via `sudo`, not as you.
@@ -126,6 +135,12 @@ with a tightly scoped set of privileges instead:
   `${PROJECTS_USER}:${PROJECTS_GROUP} 600`, removing `${SANDBOX_USER}`'s read access entirely; a `NOTICE`
   lands in the session and the operation log. `ai-tools --lockdown` applies the same over an
   existing tree. See [secret handling](.claude/rules/secret-handling.rule.md).
+- **Git history stays behind** — `ai-tools --sandbox-create` hands the agent a shallow
+  clone (`--depth=1`) of a dedicated branch, so credentials buried in past commits are
+  never on disk within its reach, and secret-named files in the tip commit are locked
+  down before the clone is opened to the agent at all. An in-place claim keeps `.git`
+  access an explicit opt-in prompt. See
+  [docs/project-lifecycle.md](docs/project-lifecycle.md).
 - **Collaborative access** — a POSIX default ACL on each approved tree makes you and
   Claude co-writers without `${PROJECTS_USER}` joining `${SANDBOX_GROUP}`:
   `g:${SANDBOX_GROUP}:rwX` grants Claude access to your files and
