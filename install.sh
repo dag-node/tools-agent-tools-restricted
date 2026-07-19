@@ -459,6 +459,7 @@ do_summary() {
     _chk /usr/lib/systemd/system/ai-tools-relabel.path
     _chk /usr/lib/systemd/system/ai-tools-relabel.service
     _chk /usr/local/bin/ai-tools
+    _chk /usr/local/share/man/man1/ai-tools.1
     _chk /var/opt/ai-tools
     _chk /var/opt/ai-tools/sandbox-projects
     _chk /var/opt/ai-tools/README.md
@@ -848,6 +849,14 @@ do_install() {
     install_subst 755 root root \
         "${SCRIPT_DIR}/src/usr/local/bin/ai-tools.sh" \
         /usr/local/bin/ai-tools
+
+    # ai-tools(1) man page. /usr/local/share/man/man1 is owned by the EL filesystem
+    # package, so only the page itself is deployed. Version-substituted like the CLI,
+    # and kept option-synced with the CLI's usage() text by tests/unit/man.sh.
+    log "/usr/local/share/man/man1/ai-tools.1"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/share/man/man1/ai-tools.1" \
+        /usr/local/share/man/man1/ai-tools.1
 
     # Launch wrapper. Ships system-wide root:root 0755 -- rpm-owned, on every operator's PATH
     # (path-dedup.sh, wired into operator dotfiles by ai-tools-admin, ranks /usr/local/bin
@@ -1306,6 +1315,7 @@ do_uninstall() {
     rm -rf /usr/local/lib/ai-tools
     rm -f /usr/local/bin/ai-tools-handback-client
     rm -f /usr/local/bin/ai-tools
+    rm -f /usr/local/share/man/man1/ai-tools.1
     rm -f /usr/local/bin/claude
     # Units, after the stop/disable above. Globs cover the handback socket+service and
     # the relabel path+service in one sweep, plus the updater service+timer.

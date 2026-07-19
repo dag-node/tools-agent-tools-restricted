@@ -76,6 +76,15 @@ is behind the gate, `--version` included — an unfinished install reports nothi
 - `--list`, `--version` (the deploy-stamped package version; `dev` from a raw source tree),
   `--help`.
 
+The CLI ships a man page, `ai-tools(1)`
+(`src/usr/local/share/man/man1/ai-tools.1` → `/usr/local/share/man/man1/`, deployed by
+`install.sh` and the RPM with the same `@AI_TOOLS_VERSION@` substitution as the CLI).
+It is hand-written troff — the CLI cannot be executed at package-build time for
+`help2man` (the bootstrap gate fail-closes on an unprovisioned host) — and
+`tests/unit/man.sh` keeps it honest: the long-option sets of `usage()` and the page must
+match in both directions, so adding, renaming, or removing a CLI option obligates the
+same change in the page or the suite fails.
+
 ## Two project models
 
 **Claim in place** (`--project-claim`) registers an existing working tree where it lives.

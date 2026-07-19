@@ -1414,6 +1414,9 @@ cmd_list() {
     (( shown )) || say "  (none)"
 }
 
+# usage() is paired with the ai-tools(1) man page (src/usr/local/share/man/man1/
+# ai-tools.1): tests/unit/man.sh asserts the two long-option sets match, so an option
+# added, renamed, or removed here changes the man page in the same commit.
 usage() {
     cat <<EOF
 ai-tools -- manage Claude Code sandbox projects (run as the projects user)

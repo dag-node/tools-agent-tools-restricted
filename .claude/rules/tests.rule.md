@@ -79,6 +79,10 @@ departs the installed-helper pattern the other way: it runs a `TESTDIR` copy of
 fixture `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the
 three-way match, `vX.Y.Z-rc.N` compares its base and relaxes only the `%changelog` match,
 any other dashed tag is refused, a missing `%changelog` entry is fatal for every form.
+`man.sh` is a pure text-sync check: the long-option sets of the CLI's `usage()` heredoc
+and the `ai-tools(1)` man page must match in both directions (see [cli](cli.rule.md)),
+validated from the repo sources (or the installed pair outside a checkout) without
+executing the CLI.
 
 **`integration`** — checks that need a completed install and the running system
 (`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`, `cli.sh`,
