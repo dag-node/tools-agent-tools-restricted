@@ -375,6 +375,10 @@ sandboxed project is a shallow clone under `/var/opt/ai-tools/sandbox-projects/`
 that the agent works in without ever reading the original repo's full git
 history. See `/var/opt/ai-tools/README.md` for that workflow.
 
+[docs/project-lifecycle.md](docs/project-lifecycle.md) covers the full lifecycle —
+choosing between the two models, what each consent prompt grants, re-claim drift
+repair, and every recovery/reversal path.
+
 A project nested inside your home needs one extra grant — traverse-only access for the
 sandbox account on the directories above it. `ai-tools --project-claim` detects this and
 offers it as a default-NO prompt; the equivalent by hand is:
