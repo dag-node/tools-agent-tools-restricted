@@ -32,12 +32,16 @@ LONG="The agent writes files to the project and hands them back to you on the ne
 for review by the operator, then waits at /opt/ai-tools/very/long/path/that/should/not/be/split/ever \
 before it continues."
 
-# (1) Box never exceeds 80 columns.
-over="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg NOTICE 1 "${LONG}" | awk '{ if (length($0) > 80) print }')"
-if [[ -z "${over}" ]]; then
-    pass "every framed line is <= 80 columns"
+# (1) An alert box never exceeds 50 columns (except an unbreakable token overflowing);
+# the headline box never exceeds 80.
+over="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg NOTICE 1 "${LONG}" \
+    | awk '{ if (length($0) > 50 && index($0, "/opt/ai-tools/") == 0) print }')"
+h_over="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg_headline "Claim project (in place)" 1 "${LONG}" \
+    | awk '{ if (length($0) > 80) print }')"
+if [[ -z "${over}" && -z "${h_over}" ]]; then
+    pass "alert frames stay <= 50 columns, headline frames <= 80"
 else
-    fail "framed line(s) exceed 80 columns:"$'\n'"${over}"
+    fail "frame width violated:"$'\n'"${over}${h_over}"
 fi
 
 # (2) Every framed line starts with '#' (the whole block is a shell comment).
@@ -164,15 +168,31 @@ else
     fail "caller IFS=\$'\\n\\t' broke wrapping (over-wide line):"$'\n'"${ifs_over}"
 fi
 
-# (14) Fixed-width mode: AI_TOOLS_MSG_FULLWIDTH pins every box to 80 columns regardless of
-# content, so a sequence of prompts aligns. A short and a longer message must frame identically.
+# (14) Fixed-width mode: AI_TOOLS_MSG_FULLWIDTH pins every box to its CLASS's frame --
+# alerts to 50 columns, headline/block boxes to 80 -- so a sequence of boxes aligns
+# per class. A short and a longer message must frame identically within a class.
 short_w="$(AI_TOOLS_MSG_BOX=1 AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg ERROR 1 "short" | awk '/^#/&&!s{print length;s=1}')"
 long_w="$(AI_TOOLS_MSG_BOX=1 AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg ERROR 1 \
-    "a considerably longer message that on its own would still fit under the cap" | awk '/^#/&&!s{print length;s=1}')"
-if [[ "${short_w}" == "80" && "${long_w}" == "80" ]]; then
-    pass "AI_TOOLS_MSG_FULLWIDTH pins boxes to a uniform 80 columns"
+    "a longer message that still fits the cap" | awk '/^#/&&!s{print length;s=1}')"
+head_w="$(AI_TOOLS_MSG_BOX=1 AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg_headline "Claim project" 1 "short" \
+    | awk '/^#/&&!s{print length;s=1}')"
+if [[ "${short_w}" == "50" && "${long_w}" == "50" && "${head_w}" == "80" ]]; then
+    pass "AI_TOOLS_MSG_FULLWIDTH pins alerts to 50 columns and headlines to 80"
 else
-    fail "fixed-width frames not 80 cols (short=${short_w}, long=${long_w})"
+    fail "fixed-width frames wrong (alert short=${short_w}, long=${long_w}, headline=${head_w})"
+fi
+
+# (14b) A headline box carries its caller-composed title verbatim in the top rule, and
+# plain mode emits the title as a content line (it is block structure, not decoration),
+# so logs and substring greps still see which block opened.
+mapfile -t hl < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg_headline "WARNING: interior permission drift" 1 "details")
+plain_hl="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_headline "Secret lockdown" 1 "scanning")"
+if [[ "${hl[1]}" == '#-- WARNING: interior permission drift '* ]] \
+        && grep -qxF 'Secret lockdown' <<<"${plain_hl}" \
+        && grep -qxF 'scanning' <<<"${plain_hl}"; then
+    pass "headline box titles verbatim; plain mode keeps the title line"
+else
+    fail "headline rendering wrong (top='${hl[1]}', plain='${plain_hl}')"
 fi
 
 # ── ai_tools_msg_confirm: the single yes/no prompt ─────────────────────────────────

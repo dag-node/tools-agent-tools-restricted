@@ -15,8 +15,11 @@
 #                             label, and hand the files back to a group with the agent's
 #                             write access revoked (directory left on disk)
 #   --project-remove  [path]  alias for --project-unclaim (kept for back-compat)
-#   --sandbox-create [path]   shallow-clone a repo into the sandbox area and
-#                             register it; pushes a dedicated branch first
+#   --sandbox-create [path]   shallow-clone a repo into the sandbox area (private,
+#                             umask 077), lock down tip-commit secrets, then grant
+#                             the agent access and register -- fail-closed: an
+#                             unsecured clone stays private and unregistered; run
+#                             again on the clone path to resume securing it
 #   --sandbox-push   [path]   push the sandbox clone's commits to its branch
 #   --sandbox-remove [path]   remove a sandbox clone and unregister it
 #   --relabel                 relabel the claude entrypoint after a Node upgrade (sudo)
@@ -118,9 +121,15 @@ fi
 say()     { printf '%s\n' "$*"; }
 section() { printf '\n%s%s%s\n' "${C_BOLD}" "$*" "${C_RST}"; }
 ok()      { printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$*"; }
-warn()    { ai_tools_msg_warn "$*"; }
-notice()  { ai_tools_msg_notice "$*"; }
+warn()    { ai_tools_msg_warn "$@"; }
 die()     { ai_tools_log_error "$*"; ai_tools_msg_error "ai-tools: $*"; exit 1; }
+# The claim/sandbox flows are sequences of SELF-CONTAINED blocks, each opened by a wide
+# headline box (title + summary prose), with details, prompts, and results printed plain
+# below it and a closing ✓ (or a fail-closed error) ending the block -- see
+# messaging.rule.md. headline() narrates to stdout; headline_warn() carries a
+# "WARNING: ..."-titled block on stderr.
+headline()      { ai_tools_msg_headline "$1" 1 "${@:2}"; }
+headline_warn() { ai_tools_msg_headline "$1" 2 "${@:2}"; }
 
 # Shared leveled logger -- journald only (this CLI runs as the projects user, not root,
 # so it cannot write the root-only /var/log/ai-tools files). Records workflow
@@ -134,8 +143,9 @@ if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
 fi
 
-# Shared message formatter -- die()/warn()/notice() above frame their text in the
-# paste-safe '#' box (wrapped within 80 columns) on a terminal, plain text otherwise, and
+# Shared message formatter -- die()/warn() above frame their text in the paste-safe
+# '#' alert box (50 columns) and headline()/headline_warn() open the wide (80-column)
+# flow blocks on a terminal, plain text otherwise, and
 # ai_tools_msg_confirm carries every yes/no prompt. REQUIRED, like safe-paths.lib.sh
 # below: the confirms gate real decisions, so a missing lib fails closed instead of
 # running through a private fallback (see messaging.rule.md).
@@ -358,7 +368,10 @@ git_gap() {
     local dir="$1" grp mode
     [[ -d "${dir}/.git" ]] || return 1
     command -v getfacl >/dev/null 2>&1 || return 1
-    read -r grp mode < <(stat -c '%G %a' "${dir}/.git" 2>/dev/null) || return 1
+    # IFS pinned to a space: the script's global IFS ($'\n\t') would land the whole
+    # stat line in grp and leave mode empty -- the same pitfall project_state's reader
+    # documents.
+    IFS=' ' read -r grp mode < <(stat -c '%G %a' "${dir}/.git" 2>/dev/null) || return 1
     [[ "${grp}" == "${SANDBOX_GROUP}" ]] \
         && (( (0${mode} & 02000) != 0 )) \
         && getfacl -p "${dir}/.git" 2>/dev/null | grep -qE "^default:group:${SANDBOX_GROUP}:" \
@@ -458,66 +471,87 @@ grantable_ancestor() {
     [[ "$(stat -c '%U' "${p}" 2>/dev/null || true)" == "${ME}" ]]
 }
 
-# reg_reach <dir>  -- ensure the sandbox account can TRAVERSE the path to <dir>. The confined
-# session runs as the sandbox account; a project nested under a directory it cannot enter (a private
-# home, 700) is unreachable, so claude-run reports it missing even after a clean claim. Grant
-# traverse-only (execute, no read -- u:SANDBOX_USER:--x) on each blocking ancestor the operator owns
-# and that is not a protected system directory: enough to enter and reach the project, never to list
-# or read it, and unprivileged because the operator owns those directories. A blocking ancestor that
-# is a system directory or someone else's is left untouched -- there an isolated sandbox clone (under
-# /var/opt/ai-tools, already agent-traversable) is the way in. Default-NO: it widens access ABOVE the
-# project, so it is a separate, explicit opt-in.
-reg_reach() {
-    local dir="$1" anc to_grant=() blocked="" a
+# reach_scan <dir>  -- detect the traverse gap between the sandbox account and <dir>:
+# fills REACH_GRANT (each blocking ancestor a grant may cover: operator-owned, not a
+# protected system directory) and REACH_BLOCKED (the first blocking ancestor no grant may
+# cover, empty when none). Read-only and unprivileged; reg_reach acts on the result, and
+# the claim's pending overview reads it so the traverse opt-in is announced up front.
+reach_scan() {
+    local dir="$1" anc
+    REACH_GRANT=(); REACH_BLOCKED=""
     anc="$(dirname "${dir}")"
     while [[ "${anc}" != / && "${anc}" != . ]]; do
         if agent_can_traverse "${anc}"; then break; fi
         if grantable_ancestor "${anc}"; then
-            to_grant+=("${anc}")
+            REACH_GRANT+=("${anc}")
         else
-            blocked="${anc}"; break
+            REACH_BLOCKED="${anc}"; break
         fi
         anc="$(dirname "${anc}")"
     done
-    if [[ -n "${blocked}" ]]; then
-        warn "the sandbox account cannot reach ${dir}: it cannot traverse ${blocked}"
+}
+
+# reg_reach <dir>  -- the reachability block: ensure the sandbox account can TRAVERSE the
+# path to <dir>, acting on reach_scan's result (the CALLER runs reach_scan first). The
+# confined session runs as the sandbox account; a project nested under a directory it
+# cannot enter (a private home, 700) is unreachable, so claude-run reports it missing even
+# after a clean claim. Grant traverse-only (execute, no read -- u:SANDBOX_USER:--x) on
+# each blocking ancestor the operator owns and that is not a protected system directory:
+# enough to enter and reach the project, never to list or read it, and unprivileged
+# because the operator owns those directories. A blocking ancestor that is a system
+# directory or someone else's is left untouched -- there an isolated sandbox clone (under
+# /var/opt/ai-tools, already agent-traversable) is the way in. Default-NO: it widens
+# access ABOVE the project, so it is a separate, explicit opt-in.
+reg_reach() {
+    local dir="$1" a
+    if [[ -n "${REACH_BLOCKED}" ]]; then
+        local why
         if ! declare -F ai_tools_protected_path_match >/dev/null 2>&1; then
-            warn "  (the safe-paths backstop is not loaded, so ancestors cannot be vetted)"
-        elif ai_tools_protected_path_match "${blocked}" >/dev/null 2>&1; then
-            warn "  (${blocked} is a protected system directory)"
+            why="the safe-paths backstop is not loaded, so ancestors cannot be vetted"
+        elif ai_tools_protected_path_match "${REACH_BLOCKED}" >/dev/null 2>&1; then
+            why="a protected system directory"
         else
-            warn "  (it is owned by $(stat -c '%U' "${blocked}" 2>/dev/null || echo '?'), not by ${ME})"
+            why="owned by $(stat -c '%U' "${REACH_BLOCKED}" 2>/dev/null || echo '?'), not by ${ME}"
         fi
-        warn "  use an isolated clone instead: ai-tools --sandbox-create ${dir}"
+        headline_warn "WARNING: project unreachable for the sandbox account" \
+            "the sandbox account cannot traverse ${REACH_BLOCKED} (${why}), so it cannot reach ${dir}; an isolated clone under the sandbox area is the way in:"
+        say "      ${C_BOLD}ai-tools --sandbox-create ${dir}${C_RST}"
         return 0
     fi
-    if (( ${#to_grant[@]} == 0 )); then return 0; fi
-    say ""
-    warn "the sandbox account must traverse these directories to reach the project:"
-    for a in "${to_grant[@]}"; do say "      ${a}"; done
-    say "    ${C_DIM}grants traverse-only (enter, not list or read) -- u:${SANDBOX_USER}:--x${C_RST}"
+    if (( ${#REACH_GRANT[@]} == 0 )); then return 0; fi
+    headline_warn "WARNING: parent directories block the agent" \
+        "the sandbox account must be able to traverse every parent directory to reach the project; the grant below is traverse-only (enter, never list or read): u:${SANDBOX_USER}:--x"
+    for a in "${REACH_GRANT[@]}"; do say "      ${a}"; done
     if confirm "Grant the sandbox account traverse-only access on them?" n; then
-        for a in "${to_grant[@]}"; do
+        local failed=false
+        for a in "${REACH_GRANT[@]}"; do
             if setfacl -m "u:${SANDBOX_USER}:--x" "${a}" 2>/dev/null; then
                 say "    reach: u:${SANDBOX_USER}:--x ${a}"
             else
+                failed=true
                 warn "reach: could not grant on ${a} -- run: setfacl -m u:${SANDBOX_USER}:--x ${a}"
             fi
         done
+        ${failed} || ok "parent directories traversable by the sandbox account"
     else
         say "    reach: left as-is -- the agent may be unable to enter ${dir}"
     fi
 }
 
-# normalize_clone <dir>  -- make a freshly created clone agent-accessible. The clone
-# is born in group SANDBOX_GROUP via the setgid SANDBOX_ROOT, but git creates it
-# with the projects user's umask, which may withhold group-write and lock the agent
-# out. Add group rwX and the setgid bit on every directory (owner stays the projects
-# user); the SessionStart ai-tools-setgid pass keeps it normalized thereafter.
+# normalize_clone <dir> [locked-path...]  -- make a freshly created clone
+# agent-accessible. The clone is born in group SANDBOX_GROUP via the setgid SANDBOX_ROOT
+# but cloned under umask 077 (see cmd_sandbox_create), so nothing in it is
+# group-readable until this step. Add group rwX and the setgid bit on every directory
+# (owner stays the projects user); the SessionStart ai-tools-setgid pass keeps it
+# normalized thereafter. Every <locked-path> (the secret gate's finds, locked to
+# owner-only by ai-tools-lockdown) is PRUNED from both walks -- re-opening one here
+# would undo the lockdown this step is sequenced after.
 normalize_clone() {
-    local d="$1"
-    chmod -R g+rwX "${d}"
-    find "${d}" -type d -exec chmod g+s {} +
+    local d="$1"; shift
+    local -a prune=() p
+    for p in "$@"; do prune+=( -path "${p}" -prune -o ); done
+    find "${d}" "${prune[@]}" -exec chmod g+rwX {} +
+    find "${d}" "${prune[@]}" -type d -exec chmod g+s {} +
 }
 
 # relabel_clone <dir>  -- apply the SELinux project label so the agent (ai_tools_t)
@@ -585,36 +619,24 @@ run_unclaim() {
     sudo "${UNCLAIM_BIN}" "${d}" "${g}"
 }
 
-# print_manual_lockdown <dir>  -- tell the user how to lock down <dir> by hand when
-# it was not done automatically (sudo missing, declined, or failed).
-print_manual_lockdown() {
-    local d="$1"
-    warn "secrets under this clone are NOT locked down yet"
-    say  "    secure it before running the agent (you will be asked for your password):"
-    say  "      ${C_BOLD}ai-tools --lockdown ${d}${C_RST}"
-    say  "    or directly:"
-    say  "      ${C_BOLD}cd ${d} && sudo ai-tools-lockdown${C_RST}"
-}
-
-# secret_gate <dir>  -- before granting the agent group access to <dir> (the group ACL
-# claim_setfacl applies to existing files), make sure no group-readable secret would be exposed.
-# The CLI cannot read the root-only secret-pattern library, so detection is delegated
-# to ai-tools-lockdown --dry-run (sudo, password). Found secrets are listed and the
-# user is asked to lock them down (--yes apply); the helper's own interactive mode is
-# NOT used for this because it exits 0 whether the user applies or aborts, which would
-# let an un-locked tree through. This prompt deliberately IGNORES AI_TOOLS_ASSUME_YES:
-# the security-sensitive decision stays explicit even when the launch wrapper
-# auto-confirmed project-create. Returns 0 only when the tree is safe to chgrp (no
-# secrets found, or all locked down); non-zero means the caller must abort.
+# secret_gate <dir>  -- the secret-lockdown block: before ANY step grants the agent
+# access to <dir> (the group ACL, the setgid group change, .git normalization, the
+# clone normalize), make sure no group-readable secret would be exposed. The CLI cannot
+# read the root-only secret-pattern library, so detection is delegated to
+# ai-tools-lockdown --dry-run (sudo, password -- the first sudo prompt of a claim, so it
+# lands right under this block's headline). Found secrets are listed and the user is
+# asked to lock them down (--yes apply); the helper's own interactive mode is NOT used
+# for this because it exits 0 whether the user applies or aborts, which would let an
+# un-locked tree through. Fills SECRET_GATE_LOCKED with the found paths so
+# normalize_clone can prune them. Returns 0 only when the tree is safe to expose (no
+# secrets found, or all locked down); non-zero means the caller must fail closed.
 secret_gate() {
     local dir="$1" out
-    # The scan runs as root (ai-tools-lockdown is 750 root:root with no NOPASSWD grant),
-    # so the dry-run below is the first sudo prompt of a claim. Announce it so the
-    # password ask is not unexplained.
-    say "    first-time scan to lock down secrets before granting the agent access"
-    notice "this scan requires sudo; you will be prompted for your password"
+    SECRET_GATE_LOCKED=()
+    headline "Secret lockdown" \
+        "scanning ${dir} for secret-named files before the agent is granted access"
     if ! out="$(run_lockdown "${dir}" --dry-run 2>&1)"; then
-        warn "secret scan failed for ${dir} -- not granting access:"
+        warn "secret scan failed -- not granting access:"
         printf '%s\n' "${out}" >&2
         ai_tools_log_error "secret pre-check: scan failed for ${dir}, access not granted"
         return 1
@@ -622,25 +644,29 @@ secret_gate() {
     # "N secret-matching path(s)" when any are found vs "no secret-matching paths"
     # when clean -- match the count form to tell them apart.
     if ! grep -qE 'ai-tools-lockdown: [0-9]+ secret-matching' <<<"${out}"; then
+        ok "no secret-matching paths found"
         ai_tools_log_info "secret pre-check: clean, no secret-matching paths under ${dir}"
-        return 0                                   # clean tree: safe to chgrp
+        return 0                                   # clean tree: safe to expose
     fi
 
     # The helper has already logged the count and each path (journald + lockdown.log);
     # record the operator-side decision here too.
-    section "Secrets detected under ${dir}"
+    mapfile -t SECRET_GATE_LOCKED < <(printf '%s\n' "${out}" \
+        | sed -n 's/^[[:space:]]*\[\(file\|dir\)\][[:space:]]*//p')
+    say ""
+    say "  found ${#SECRET_GATE_LOCKED[@]} secret-matching path(s):"
     printf '%s\n' "${out}" | grep -E '\[(file|dir)\]' >&2 || true
-    warn "locking these down before granting the agent access is recommended" \
-         "lockdown is best effort, matching only known secret patterns -- handle any secret it misses yourself first"
+    warn "lockdown is best effort, matching only known secret patterns -- handle any secret it misses yourself first"
     ai_tools_log_warn "secret pre-check: secrets present under ${dir} (see lockdown.log for paths)"
     # Default YES: locking down is the safe direction and the list above may be long,
     # so Enter -- and an unattended run -- proceeds to lock down.
     if ! confirm "Lock down these secrets now?" y; then
-        warn "declined -- registration will not grant access while secrets are exposed"
+        warn "declined -- access will not be granted while secrets are exposed"
         ai_tools_log_warn "secret pre-check: lockdown declined for ${dir}, access not granted"
         return 1
     fi
     if run_lockdown "${dir}" --yes; then
+        say ""
         ok "secrets locked down"
         ai_tools_log_info "secret pre-check: secrets locked down under ${dir}"
         return 0
@@ -756,7 +782,7 @@ claim_relabel() {
         return 0
     fi
     if run_relabel "${d}"; then
-        ok "labelled ${d} ai_tools_project_t (SELinux)"
+        say "    SELinux label: ai_tools_project_t applied"
     else
         warn "could not apply the SELinux label -- run it by hand:"
         say  "      ${C_BOLD}sudo ${RELABEL_BIN} ${d}${C_RST}"
@@ -777,7 +803,7 @@ claim_setfacl() {
         return 0
     fi
     if run_setfacl "${d}" "${with_git}"; then
-        ok "applied group-permission ACL to ${d}${note}"
+        say "    group-permission ACL: applied${note}"
     else
         warn "could not apply the project ACL -- run it by hand:"
         say  "      ${C_BOLD}sudo ${SETFACL_BIN}${flag} ${d}${C_RST}"
@@ -789,16 +815,24 @@ claim_setfacl() {
 # secret lockdown + recursive ownership + group-permission ACL + SELinux
 # ai_tools_project_t label, so the agent can work the REAL tree. Inspects current state
 # first and performs ONLY the missing steps, so a re-run is quiet and a fully-claimed
-# project is a clean no-op (no prompt, no sudo). The in-place grant is heavy
-# (setgid + the ACL give the agent group access to the whole tree; setgid, ACL, and relabel
-# all need sudo), so the default-NO confirm and the sandbox-clone recommendation appear only when a
-# heavy step (chgrp, relabel, or ACL) is actually pending. When a .git tree is present but
-# not yet normalized, a SEPARATE default-YES prompt offers to normalize it (group + setgid
-# + ACL, via ai-tools-setfacl --with-git) so the operator's own commits stay agent-
-# readable; declining re-states the sandbox-clone alternative for keeping history hidden.
-# A re-claim also scans for interior drift (acl_drift_scan: shared-looking paths brought
-# into the tree without inheriting the group/ACL) and offers the group+ACL re-apply behind
-# the same confirm and secret gate -- detection is always on, repair never runs unconfirmed.
+# project is a clean no-op (no prompt, no sudo).
+#
+# The flow is a sequence of SELF-CONTAINED blocks, each opened by a headline box and
+# closed by its own confirm/result, in this order:
+#   1. Review    -- the pending-step overview (every later block announced), the drift
+#                   reports, and -- when a heavy step (chgrp, ACL, relabel, drift repair)
+#                   is pending -- the default-NO proceed confirm that covers exactly the
+#                   steps listed.
+#   2. Secret lockdown -- BEFORE any access-granting step, whenever one is pending or
+#                   this is a first claim (see secret_gate); fails the claim closed.
+#   3. .git history  -- separate default-YES opt-in (ai-tools-setfacl --with-git).
+#   4. Reachability  -- separate default-NO opt-in for traverse-only ancestor ACLs.
+#   5. Apply     -- the approved steps back to back, one result line each, closed by
+#                   the final "claimed" ✓.
+# A re-claim with ownership in place also scans for interior drift (acl_drift_scan:
+# shared-looking paths brought into the tree without inheriting the group/ACL) and folds
+# the group+ACL re-apply into the proceed confirm and secret gate -- repair never runs
+# unconfirmed. A first claim skips the report: its normal walk repairs the whole tree.
 cmd_project_claim() {
     # -y/--yes pre-answers the claim's own proceed prompt ("Apply the pending steps IN
     # PLACE?", default NO) -- an explicit per-invocation flag, passed by a caller that
@@ -834,9 +868,14 @@ cmd_project_claim() {
     # Interior drift: the root-level state says nothing about paths brought INTO a claimed
     # tree without inheriting the group/ACL (mv keeps the old group). Detect them here;
     # the repair applies further down behind the same confirm + secret gate as the other
-    # in-place steps.
+    # in-place steps. Scanned only on a RE-CLAIM whose ownership is already in place: a
+    # first claim (or one with the setgid step still pending) walks and repairs the whole
+    # tree anyway, and its every path would trivially match the drift predicate -- a
+    # 200-line report of what the claim is about to fix is noise, not signal.
     local -a drift=()
-    mapfile -t drift < <(acl_drift_scan "${d}" | head -n 200)
+    if [[ "${listed}" == true && "${owngap}" == false ]]; then
+        mapfile -t drift < <(acl_drift_scan "${d}" | head -n 200)
+    fi
 
     # Split the hits on the shared skip list: the sweeps AND the claim walks leave a
     # skip-listed directory's contents alone (one skip contract), so a re-claim cannot
@@ -874,7 +913,8 @@ cmd_project_claim() {
     _drift_lines() {
         local _p _og _m
         for _p in "$@"; do
-            read -r _og _m < <(stat -c '%U:%G %a' "${_p}" 2>/dev/null) || { _og='?'; _m='?'; }
+            IFS=' ' read -r _og _m < <(stat -c '%U:%G %a' "${_p}" 2>/dev/null) \
+                || { _og='?'; _m='?'; }
             printf '        %s%-18s %-4s %s%s\n' "${C_DIM}" "${_og}" "${_m}" "${_p}" "${C_RST}"
         done
     }
@@ -892,28 +932,51 @@ cmd_project_claim() {
     # the fully-claimed early return and in the pending flow.
     skip_listed_note() {
         (( ${#drift_skipped[@]} )) || return 0
-        warn "${#drift_skipped[@]} path(s) with a foreign group sit under skip-listed directory names"
+        headline_warn "NOTICE: drift under skip-listed directories" \
+            "${#drift_skipped[@]} path(s) with a foreign group sit under skip-listed directory names (build output, dependencies, caches); claim leaves those trees untouched."
         _drift_lines "${drift_skipped[@]:0:3}"
         if (( ${#drift_skipped[@]} > 3 )); then
             say "        ${C_DIM}... and $(( ${#drift_skipped[@]} - 3 )) more${C_RST}"
             _drift_list_all "path(s)" "${drift_skipped[@]}"
         fi
-        say "      ${C_DIM}claim leaves skip-listed trees (build output, dependencies) untouched. If one is${C_RST}"
-        say "      ${C_DIM}source in this project, exempt it in /etc/ai-tools/operator.conf -- narrow the${C_RST}"
-        say "      ${C_DIM}category (SKIP_ARTIFACT_DIRS=...) or list the path relative to the project root in${C_RST}"
-        say "      ${C_DIM}SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE -- then re-claim (reference:${C_RST}"
-        say "      ${C_DIM}/usr/local/lib/ai-tools/skip-dirs.lib.sh); ownership only: ai-tools --reclaim --full${C_RST}"
+        say "      ${C_DIM}if one is source in this project, exempt it in /etc/ai-tools/operator.conf --${C_RST}"
+        say "      ${C_DIM}narrow the category (SKIP_ARTIFACT_DIRS=...) or list the path relative to the${C_RST}"
+        say "      ${C_DIM}project root in SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE -- then re-claim;${C_RST}"
+        say "      ${C_DIM}ownership only: ai-tools --reclaim --full${C_RST}"
     }
 
-    section "Claim project (in place)"
-    say "  ${d}"
+    # ── Review block: the flow headline, the pending-step overview, and the drift
+    # reports, so the proceed confirm that closes it covers exactly what was just
+    # shown. Every later block is announced here with a "you will be asked" marker. ──
+    local heavy=false
+    local -a head=("${d}")
+    if [[ "${owngap}" == true ]] || ${need_acl} || ${need_label} || (( ${#drift[@]} )); then
+        heavy=true
+        head+=("claiming in place grants the agent group access to this whole tree")
+    fi
+    headline "Claim project (in place)" "${head[@]}"
+
+    reach_scan "${d}"
 
     if [[ "${listed}" == true && "${safedir}" == true && "${owngap}" == false ]] \
             && ! ${need_filemode} && ! ${need_acl} && ! ${need_label} && ! ${need_git} \
             && (( ${#drift[@]} == 0 )); then
         skip_listed_note
+        # A claimed project can still sit under a non-traversable parent (a later
+        # chmod 700 above it), so the reachability block runs on the no-op path too.
+        reg_reach "${d}"
         ok "already fully claimed -- nothing to do"
         return 0
+    fi
+
+    # The gate runs whenever any pending step widens the agent's access -- the setgid
+    # group change, the group ACL, drift repair, .git normalization, the SELinux label --
+    # and on every first claim (a tree can be group-accessible by setgid inheritance yet
+    # never scanned). Only pure registry additions (safedir, filemode) skip it.
+    local need_gate=false
+    if [[ "${listed}" != true || "${owngap}" == true ]] \
+            || ${need_acl} || ${need_git} || ${need_label} || (( ${#drift[@]} )); then
+        need_gate=true
     fi
 
     say ""
@@ -924,69 +987,53 @@ cmd_project_claim() {
     [[ "${owngap}"  == true  ]] && say "    - set group ${SANDBOX_GROUP} + setgid on the project directories"
     ${need_acl} && say "    - apply group-permission ACL (default + access g:${SANDBOX_GROUP}:rwX)"
     ${need_label} && say "    - apply SELinux ai_tools_project_t label"
-    ${need_git} && say "    - normalize .git so the agent can access git history (setgid + group ACL) -- you will be asked"
+    (( ${#drift[@]} )) && say "    - re-apply group ${SANDBOX_GROUP} + ACL to ${#drift[@]} drifted path(s) -- details below"
+    ${need_gate} && say "    - scan for secret-named files and lock them down -- you will confirm"
+    ${need_git} && say "    - normalize .git so the agent can access git history -- you will be asked"
+    (( ${#REACH_GRANT[@]} )) && say "    - grant traverse-only access on ${#REACH_GRANT[@]} parent path(s) -- you will be asked"
+
     if (( ${#drift[@]} )); then
-        warn "${#drift[@]} path(s) inside the tree carry a foreign group yet stay group-accessible"
-        say "    - re-apply group ${SANDBOX_GROUP} + ACL to them (they arrived without inheriting either):"
+        headline_warn "WARNING: interior permission drift" \
+            "${#drift[@]} path(s) inside the tree carry a foreign group yet stay group-accessible (they arrived without inheriting the project group or ACL)."
         _drift_lines "${drift[@]:0:3}"
         if (( ${#drift[@]} > 3 )); then
             say "        ${C_DIM}... and $(( ${#drift[@]} - 3 )) more$( (( ${#drift[@]} >= 200 )) && printf ' (list capped at 200)' )${C_RST}"
             _drift_list_all "path(s)" "${drift[@]}"
         fi
-        say "      ${C_DIM}meant to stay out of the agent's reach? decline below and record that with a${C_RST}"
-        say "      ${C_DIM}'!' exclusion in ${ALLOWLIST}, or make it owner-only (chmod 700)${C_RST}"
     fi
     skip_listed_note
 
-    # Heavy steps (recursive chgrp; sudo relabel/ACL) gate behind the confirm; pure
-    # registry additions do not. dir_owngap is re-checked live so the warning matches.
-    if [[ "${owngap}" == true ]] || ${need_acl} || ${need_label} || (( ${#drift[@]} )); then
-        if dir_owngap "${d}"; then
-            say ""
-            warn "in-place claim grants the agent group access to this whole tree"
-            say  "    ${C_DIM}isolated alternative that never touches it:${C_RST}"
-            say  "      ${C_DIM}ai-tools --sandbox-create ${d}${C_RST}"
-        fi
-        # --yes pre-answers exactly this proceed prompt: the launch wrapper passes it
-        # after taking its own "Claim it in place now?" confirmation, so a delegated
-        # claim does not ask the same question twice. The scoped opt-ins below (secret
-        # lockdown, .git history, ancestor traversal) still ask on their own terms.
-        ${ASSUME_YES} || confirm "Apply the pending steps IN PLACE?" n \
-            || die "aborted -- for an isolated clone use: ai-tools --sandbox-create ${d}"
+    # Heavy steps (recursive chgrp; sudo relabel/ACL; drift repair) close the Review
+    # block behind the proceed confirm; pure registry additions do not. --yes pre-answers
+    # exactly this prompt: the launch wrapper passes it after taking its own "Claim it in
+    # place now?" confirmation, so a delegated claim does not ask the same question
+    # twice. The scoped opt-ins below (secret lockdown, .git history, ancestor traversal)
+    # still ask on their own terms.
+    if ${heavy}; then
+        ${ASSUME_YES} || confirm "Apply the pending steps above IN PLACE?" n \
+            || die "aborted"
     fi
 
-    # Allowlist first: ai-tools-lockdown only scans an allowlisted path.
+    # Allowlist first: ai-tools-lockdown only scans an allowlisted path. Rolled back on
+    # a failed gate.
     [[ "${listed}" == true ]] || reg_allow "${d}"
 
-    # Secret gate before the tree becomes agent-accessible, on either trigger:
-    #   - owngap: a recursive chgrp is pending -- the step that newly exposes
-    #     group-readable files to the agent.
-    #   - first claim (not yet listed): the tree may already be group ${SANDBOX_GROUP}
-    #     by setgid inheritance from a claimed parent (so no chgrp is pending) yet have
-    #     never been scanned. Under the collaborative umask its files are group-readable,
-    #     so a first-ever claim must scan even when ownership is already in place.
-    # A re-claim of an already-listed tree was scanned on its first claim, so it skips --
-    # unless drift repair is pending: the drifted paths become newly group-accessible to
-    # the agent, the same exposure a first claim creates, so they get the same scan.
-    # Roll back only our own allowlist addition on a failed gate.
-    if [[ "${listed}" != true || "${owngap}" == true ]] || (( ${#drift[@]} )); then
+    if ${need_gate}; then
         if ! secret_gate "${d}"; then
             [[ "${listed}" == true ]] || unreg_allow "${d}"
-            die "claim stopped -- lock down secrets first: ai-tools --lockdown ${d}"
+            say "    lock down secrets first, then re-run the claim:"
+            say "      ${C_BOLD}ai-tools --lockdown ${d}${C_RST}"
+            die "claim stopped -- secrets not locked down"
         fi
     fi
 
     # .git access is opt-in (default yes), asked separately from the proceed prompt --
     # which --yes covers; this one it does not, so a wrapper-delegated claim still asks
-    # before exposing history: normalizing .git lets the agent read this repo's full git
-    # history, so re-state the isolated shallow-clone alternative for when that is not
-    # intended.
+    # before exposing the repo's full git history.
     local do_git=false
     if ${need_git}; then
-        say ""
-        warn "normalizing .git lets the agent read this repo's full git history"
-        say  "    ${C_DIM}to keep history out of the agent's reach, use an isolated shallow clone:${C_RST}"
-        say  "      ${C_DIM}ai-tools --sandbox-create ${d}${C_RST}"
+        headline_warn "WARNING: git history exposure" \
+            "normalizing .git lets the agent read this repo's full git history"
         if confirm "Normalize .git so the agent can access git history here?" y; then
             do_git=true
         else
@@ -994,6 +1041,11 @@ cmd_project_claim() {
         fi
     fi
 
+    reg_reach "${d}"
+
+    # ── Apply block: the approved steps run back to back, each reporting one result
+    # line; the closing ✓ is the claim's completion. ──
+    headline "Applying claim steps" "${d}"
     [[ "${safedir}" == true  ]] || reg_safedir "${d}"
     ${need_filemode} && reg_filemode "${d}"
     if [[ "${owngap}" == true ]]; then
@@ -1002,8 +1054,8 @@ cmd_project_claim() {
         reg_ownership "${d}" force
     fi
     { ${need_acl} || ${do_git} || (( ${#drift[@]} )); } && claim_setfacl "${d}" "${do_git}"
-    reg_reach "${d}"
     ${need_label} && claim_relabel "${d}"
+    say ""
     ok "claimed ${d}"
     ai_tools_log_info "claimed project ${d}"
 }
@@ -1063,12 +1115,59 @@ cmd_project_unclaim() {
     ai_tools_log_info "unclaimed project ${d}"
 }
 
+# sandbox_finalize <dst>  -- the access-granting tail of every sandbox create, run only
+# AFTER the clone exists: allowlist (the lockdown scan acts only on an allowlisted path;
+# rolled back on a failed gate), the secret-lockdown gate, then -- strictly past the
+# gate -- normalize (pruning the locked paths), relabel, and register. FAIL CLOSED: a
+# declined or failed gate leaves the clone on disk but private to the operator -- cloned
+# under umask 077, so nothing in it is group-readable -- not normalized, not relabelled,
+# not registered, with a guard CLAUDE.md dropped and the resume command printed.
+# Re-running --sandbox-create on the existing clone path resumes here.
+sandbox_finalize() {
+    local dst="$1"
+    reg_allow "${dst}"
+    if ! secret_gate "${dst}"; then
+        unreg_allow "${dst}"
+        drop_lockdown_guard "${dst}"
+        warn "sandbox not secured -- the clone stays private to you:" \
+             "not group-accessible, not registered; the agent has no access to it"
+        say  "    handle the secrets, then finish the create:"
+        say  "      ${C_BOLD}ai-tools --sandbox-create ${dst}${C_RST}"
+        die "sandbox create stopped -- secrets not locked down"
+    fi
+    clear_lockdown_guard "${dst}"
+    normalize_clone "${dst}" "${SECRET_GATE_LOCKED[@]}"
+    say "    access: group ${SANDBOX_GROUP} rwX + setgid dirs (locked secrets stay private)"
+    relabel_clone "${dst}"
+    reg_safedir "${dst}"
+    say ""
+    ok "sandbox ready: ${dst}"
+    ai_tools_log_info "sandbox secured and registered: ${dst}"
+
+    section "Next"
+    say "  run the agent  : ${C_BOLD}cd ${dst} && claude${C_RST}"
+    say "  push its work  : ${C_BOLD}ai-tools --sandbox-push ${dst}${C_RST}"
+    say "  ${C_YEL}shallow${C_RST}        : push-only -- never git pull/fetch here, or you pull the full history"
+}
+
 # cmd_sandbox_create [path]  -- create or reuse the per-repo branch
-# ai-tools/sandbox-<user>/<leaf>, shallow-clone it into SANDBOX_ROOT, normalize and
-# relabel the clone for agent access, register it, then lock down tip-commit secrets
-# (or drop a guard CLAUDE.md when lockdown is skipped).
+# ai-tools/sandbox-<user>/<leaf>, shallow-clone it PRIVATELY (umask 077) into
+# SANDBOX_ROOT, then hand off to sandbox_finalize: secret lockdown first, and only past
+# that gate normalize + relabel + register (fail-closed otherwise). Pointed at an
+# EXISTING clone under SANDBOX_ROOT, it resumes sandbox_finalize on it -- the recovery
+# path for a create whose gate was declined or failed.
 cmd_sandbox_create() {
     local src; src="$(resolve_dir "${1:-$PWD}")"
+
+    case "${src}/" in
+        "${SANDBOX_ROOT}"/*)
+            git -C "${src}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+                || die "not a git clone: ${src}"
+            headline "Resume sandbox project" "${src}" \
+                "securing and registering an existing clone"
+            sandbox_finalize "${src}"
+            return 0 ;;
+    esac
     git -C "${src}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
         || die "not a git repository: ${src}"
     local top; top="$(git -C "${src}" rev-parse --show-toplevel)"
@@ -1085,7 +1184,8 @@ cmd_sandbox_create() {
     [[ -n "${remote}" ]] || die "repository has no remote; the sandbox workflow needs one: ${top}"
     local remote_url; remote_url="$(git -C "${top}" remote get-url "${remote}")"
 
-    section "Create sandbox project"
+    headline "Create sandbox project" \
+        "an isolated shallow clone of this repo, registered for the agent; work is pushed to a dedicated branch that you merge back"
     say "  source repo    : ${top}"
     say "  current branch : ${cur}"
     say "  remote         : ${remote}  ${C_DIM}${remote_url}${C_RST}"
@@ -1098,7 +1198,11 @@ cmd_sandbox_create() {
     local name; name="$(ask "Sandbox directory name under ${SANDBOX_ROOT}" "$(basename "${top}")")"
     [[ -n "${name}" && "${name}" != */* ]] || die "invalid directory name: ${name}"
     local dst="${SANDBOX_ROOT}/${name}"
-    [[ -e "${dst}" ]] && die "destination already exists: ${dst}"
+    if [[ -e "${dst}" ]]; then
+        say "    to finish securing/registering an earlier clone of this name:"
+        say "      ${C_BOLD}ai-tools --sandbox-create ${dst}${C_RST}"
+        die "destination already exists: ${dst}"
+    fi
     [[ -d "${SANDBOX_ROOT}" ]] || die "sandbox area missing: ${SANDBOX_ROOT} -- run install first"
 
     # If the branch already exists on the remote (a prior sandbox of this repo),
@@ -1109,14 +1213,14 @@ cmd_sandbox_create() {
         && br_exists=true
 
     say ""
-    say "Will:"
+    say "  will:"
     if ${br_exists}; then
-        say "  1. ${C_YEL}reuse existing remote branch${C_RST} ${C_BOLD}${br}${C_RST} (your current ${cur} is NOT pushed over it)"
+        say "    1. ${C_YEL}reuse existing remote branch${C_RST} ${C_BOLD}${br}${C_RST} (your current ${cur} is NOT pushed over it)"
     else
-        say "  1. create branch ${C_BOLD}${br}${C_RST} from ${cur} and push it to ${remote}"
+        say "    1. create branch ${C_BOLD}${br}${C_RST} from ${cur} and push it to ${remote}"
     fi
-    say "  2. shallow-clone that branch into ${C_BOLD}${dst}${C_RST}"
-    say "  3. register ${dst} (allowed-projects + git safe.directory)"
+    say "    2. shallow-clone that branch into ${C_BOLD}${dst}${C_RST}, private to you"
+    say "    3. lock down tip-commit secrets, then grant the agent access and register the clone"
     confirm "Create the sandbox clone?" y || die "aborted"
 
     if ${br_exists}; then
@@ -1135,54 +1239,15 @@ cmd_sandbox_create() {
     case "${remote_url}" in
         /*|./*|../*) clone_url="file://$(realpath -m "${remote_url}")" ;;
     esac
-    git clone --depth=1 -b "${br}" "${clone_url}" "${dst}"
-    ok "shallow-cloned into ${dst}"
+    # umask 077: the clone is born OWNER-ONLY, so the tip commit's files -- possibly
+    # checked-in credentials -- are unreadable to the sandbox account (the setgid
+    # SANDBOX_ROOT already puts them in group SANDBOX_GROUP) until the secret gate has
+    # run and normalize_clone deliberately opens the non-secret paths.
+    ( umask 077 && git clone --depth=1 -b "${br}" "${clone_url}" "${dst}" )
+    ok "shallow-cloned into ${dst} (private until secured)"
+    ai_tools_log_info "created sandbox clone ${dst} (branch ${br}, remote ${remote})"
 
-    normalize_clone "${dst}"
-    ok "normalized clone for agent access (group ${SANDBOX_GROUP}, group-writable, setgid dirs)"
-
-    relabel_clone "${dst}"
-
-    reg_allow "${dst}"
-    reg_safedir "${dst}"
-    ok "registered ${dst}"
-    ai_tools_log_info "created sandbox ${dst} (branch ${br}, remote ${remote})"
-
-    # A shallow clone drops the history but keeps the tip commit, which may carry
-    # checked-in credential files the agent could read. Lock them down now; if we
-    # cannot (no sudo, declined, or it failed), drop a guard CLAUDE.md so the agent
-    # does nothing until the user runs lockdown by hand.
-    section "Secure tip-commit secrets"
-    say "  The tip commit may contain credential files (${C_DIM}appsettings.json, .env, *.key${C_RST})"
-    say "  the agent could read. Lock them down before running the agent."
-
-    local locked=false
-    if ! command -v sudo >/dev/null 2>&1; then
-        warn "sudo not found -- cannot lock down automatically"
-        drop_lockdown_guard "${dst}"
-        print_manual_lockdown "${dst}"
-    else
-        notice "this needs root; sudo will prompt for your password"
-        if confirm "Run lockdown now?" y; then
-            if run_lockdown "${dst}"; then
-                locked=true
-                ok "secrets locked down in ${dst}"
-            else
-                warn "lockdown did not complete"
-                drop_lockdown_guard "${dst}"
-                print_manual_lockdown "${dst}"
-            fi
-        else
-            drop_lockdown_guard "${dst}"
-            print_manual_lockdown "${dst}"
-        fi
-    fi
-
-    section "Next"
-    say "  run the agent  : ${C_BOLD}cd ${dst} && claude${C_RST}"
-    say "  push its work  : ${C_BOLD}ai-tools --sandbox-push ${dst}${C_RST}"
-    say "  ${C_YEL}shallow${C_RST}        : push-only -- never git pull/fetch here, or you pull the full history"
-    ${locked} || say "  ${C_YEL}secrets${C_RST}        : NOT locked down -- run ${C_BOLD}ai-tools --lockdown ${dst}${C_RST}"
+    sandbox_finalize "${dst}"
 }
 
 # cmd_sandbox_push [path]  -- push the sandbox clone's commits ahead of its upstream
@@ -1260,7 +1325,6 @@ cmd_lockdown() {
     section "Lock down project secrets"
     say "  ${d}"
     say "  ${C_DIM}secret-matching files -> 600, dirs -> 700, owner ${ME}:${SANDBOX_GROUP}${C_RST}"
-    notice "this needs root; sudo will prompt for your password"
     if run_lockdown "${d}" "${passthru[@]}"; then
         ${dry} || clear_lockdown_guard "${d}"
         ok "lockdown done: ${d}"
@@ -1289,7 +1353,6 @@ cmd_reclaim() {
     section "Reclaim agent-written files"
     say "  ${d}${C_DIM}$(${full} && printf ' (--full: incl. node_modules, .venv, ...)')${C_RST}"
     say "  ${C_DIM}-> ${ME}:${SANDBOX_GROUP} (secret-named files stay ${ME}:${ME} 600)${C_RST}"
-    notice "this needs root; sudo will prompt for your password"
     # The helper reports the outcome itself -- the pre-scan count, the one whole-set
     # confirm, then "handed back N" / "nothing to reclaim" / "declined" -- so no blanket
     # success line here: the CLI states only what actually happened.

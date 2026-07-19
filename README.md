@@ -368,8 +368,10 @@ Register projects with the `ai-tools` CLI, run as your own user (no sudo):
     ai-tools --lockdown /path/to/project          # revoke agent access to secrets (sudo)
 
 `ai-tools --lockdown` wraps the root `ai-tools-lockdown` helper (it prompts for
-your sudo password) and `ai-tools --sandbox-create` offers to run it right after a
-clone. A sandboxed project is a shallow clone under `/var/opt/ai-tools/sandbox-projects/`
+your sudo password), and `ai-tools --sandbox-create` runs the same lockdown gate on the
+fresh clone **before** granting the agent any access — a declined or failed gate leaves
+the clone private and unregistered (re-run the command on the clone path to resume). A
+sandboxed project is a shallow clone under `/var/opt/ai-tools/sandbox-projects/`
 that the agent works in without ever reading the original repo's full git
 history. See `/var/opt/ai-tools/README.md` for that workflow.
 

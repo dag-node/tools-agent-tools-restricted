@@ -3,34 +3,38 @@
 # Shared user-facing message formatter for the ai-tools sandbox components. Sourced
 # (not executed) by the operator-facing scripts (the claude wrapper, the ai-tools
 # CLI), the launch shim (claude-run), and the lifecycle hooks (session-hook.sh), so
-# every refusal, prompt, and NOTICE the user reads is rendered one way: wrapped to fit
-# 80 columns, with line breaks chosen so a line never ends on a preposition, article,
-# or short conjunction (a TeX-style tie), and -- on a real terminal -- inside an ASCII
-# frame.
+# every refusal, prompt, and NOTICE the user reads is rendered one way: wrapped to its
+# frame class's width (alerts 50 columns, blocks/headlines 80), with line breaks chosen
+# so a line never ends on a preposition, article, or short conjunction (a TeX-style tie),
+# and -- on a real terminal -- inside an ASCII frame.
 #
 # ── Two render modes, chosen per target file descriptor ───────────────────────
 #
-# TERMINAL (the target fd is a tty): the text is wrapped to <=76 columns and drawn in
-# a titled box whose every line begins with '#', so the frame total stays within 80
-# columns AND the whole block is a shell comment -- if a user copy-pastes it into a
-# prompt nothing executes. A blank line PRECEDES every box, so consecutive boxes (and a
-# box following other output) separate visually without the caller adding spacing:
+# TERMINAL (the target fd is a tty): the text is wrapped and drawn in a titled box whose
+# every line begins with '#', so the whole block is a shell comment -- if a user
+# copy-pastes it into a prompt nothing executes. Two frame classes give the reader a
+# visual hierarchy: the severity ALERTS (ai_tools_msg_*) frame within 50 columns -- a
+# narrow box reads as an inline alert -- while the structural boxes (ai_tools_msg_block,
+# ai_tools_msg_headline) frame within 80, so a wide box reads as a section headline or a
+# guidance screen. A blank line PRECEDES every box, so consecutive boxes (and a box
+# following other output) separate visually without the caller adding spacing:
 #
-#   #-- NOTICE ---------------------------------------------------#
-#   # Reclaimed 85 agent-owned paths in the project .git tree,    #
-#   # restoring ownership. Act only when git reports trouble.     #
-#   #-------------------------------------------------------------#
+#   #-- NOTICE ----------------------------------------#
+#   # Reclaimed 85 agent-owned paths in the project    #
+#   # .git tree, restoring ownership.                  #
+#   #--------------------------------------------------#
 #
 # NOT A TERMINAL (piped, captured, redirected to a log, or fed to a hook's
 # additionalContext): the text is emitted PLAIN and UNWRAPPED -- each caller-supplied
 # line on its own line, no frame. This keeps the output grep-friendly: the test suite
 # and log readers match message substrings with line-based `grep`, which a wrap could
-# split across lines. The 80-column frame is a terminal nicety, not a wire format.
+# split across lines. The frames are a terminal nicety, not a wire format.
 #
 # Overrides (env): AI_TOOLS_MSG_PLAIN=1 forces plain even on a tty; AI_TOOLS_MSG_BOX=1
 # forces the box even when the target is not a tty (used by the box unit test);
-# AI_TOOLS_MSG_FULLWIDTH=1 pins every box to a fixed 80-column frame instead of sizing it
-# to its content, so a SEQUENCE of boxes (e.g. an install flow's prompts) aligns uniformly.
+# AI_TOOLS_MSG_FULLWIDTH=1 pins every box to its class's fixed frame (alerts 50 columns,
+# blocks/headlines 80) instead of sizing it to its content, so a SEQUENCE of boxes
+# (e.g. an install flow's prompts) aligns uniformly.
 #
 # ── Tie-words and orphan control (typographic refinements of the wrap) ────────
 #
@@ -50,7 +54,9 @@
 # exposed for callers that need wrapped-but-unframed text to embed elsewhere (e.g. a
 # hook's additionalContext). ai_tools_msg_block frames a multi-line guidance SCREEN that
 # contains commands: flush-left lines wrap as prose, indented/blank lines stay verbatim
-# (commands on one line, long ones overflowing the right border). ai_tools_msg_pick draws
+# (commands on one line, long ones overflowing the right border). ai_tools_msg_headline
+# opens a self-contained flow block: a wide titled box carrying the block's summary,
+# with details printed plain below it by the caller. ai_tools_msg_pick draws
 # a numbered menu under such a block and echoes the chosen index, defaulting safely when no
 # terminal is present -- the question companion to a block. ai_tools_msg_confirm is the
 # single yes/no prompt: the standard bracketed hint with the default spelled out --
@@ -93,9 +99,13 @@ _ai_tools_msg_audit() {
     ai_tools_log info "$@"
 }
 
-# Inner text width cap so a framed line never exceeds 80 columns:
-#   "# " (2) + text + " #" (2) = text + 4  =>  text <= 76.
+# Inner text width caps, one per frame class ("# " (2) + text + " #" (2) = text + 4):
+#   structural boxes (block, headline)  text <= 76  =>  frame <= 80 columns
+#   severity alerts (ai_tools_msg_*)    text <= 46  =>  frame <= 50 columns
+# The width difference is the visual hierarchy: a narrow frame is an inline alert, a wide
+# one a section headline or guidance screen.
 readonly AI_TOOLS_MSG_WIDTH="${AI_TOOLS_MSG_WIDTH:-76}"
+readonly AI_TOOLS_MSG_ALERT_WIDTH="${AI_TOOLS_MSG_ALERT_WIDTH:-46}"
 
 # Words a wrapped line must not END with. Lowercased, space-delimited, matched after
 # stripping one trailing punctuation char. Articles + coordinating conjunctions +
@@ -172,23 +182,23 @@ ai_tools_msg_wrap() {
     done <<<"${text}"
 }
 
-# _ai_tools_msg_render_box <title> <text...> -- wrap <text> and draw the titled
-# '#'-bordered box on stdout. Box width tracks the longest wrapped line (capped at
-# AI_TOOLS_MSG_WIDTH), widened only as needed to seat the title in the top rule.
+# _ai_tools_msg_render_box <width> <title> <text...> -- wrap <text> to <width> and draw
+# the titled '#'-bordered box on stdout. Box width tracks the longest wrapped line
+# (capped at <width>), widened only as needed to seat the title in the top rule.
 _ai_tools_msg_render_box() {
-    local title="$1"; shift
+    local width="$1" title="$2"; shift 2
     local -a lines=()
     local l
     while IFS= read -r l || [[ -n "${l}" ]]; do
         lines+=( "${l}" )
-    done < <(ai_tools_msg_wrap "${AI_TOOLS_MSG_WIDTH}" "$*")
+    done < <(ai_tools_msg_wrap "${width}" "$*")
 
     local cw=0
     for l in "${lines[@]}"; do (( ${#l} > cw )) && cw=${#l}; done
     local need=$(( ${#title} + 6 ))             # "#-- " + title + " " + closing "#"
     (( cw < need )) && cw=${need}
-    (( cw > AI_TOOLS_MSG_WIDTH )) && cw=${AI_TOOLS_MSG_WIDTH}
-    [[ "${AI_TOOLS_MSG_FULLWIDTH:-}" == 1 ]] && cw=${AI_TOOLS_MSG_WIDTH}   # fixed 80-col frame
+    (( cw > width )) && cw=${width}
+    [[ "${AI_TOOLS_MSG_FULLWIDTH:-}" == 1 ]] && cw=${width}   # fixed frame per class
     local tw=$(( cw + 4 ))                       # total line width incl. borders
 
     local head dashes pad
@@ -205,11 +215,12 @@ _ai_tools_msg_render_box() {
     printf '#%s#\n' "${dashes}"                  # bottom rule
 }
 
-# ai_tools_msg <severity> <fd> <line...> -- render the lines to file descriptor <fd>.
-# A tty target (and no PLAIN override) gets the box titled with the uppercased
-# severity; otherwise the lines are emitted plain and unwrapped so captured/piped
-# output stays grep-friendly. A formatting or write failure never alters the caller's
-# exit status; a genuine write error to <fd> surfaces on stderr rather than being hidden.
+# ai_tools_msg <severity> <fd> <line...> -- render the lines to file descriptor <fd>
+# as a severity ALERT (the narrow, <=50-column frame class). A tty target (and no PLAIN
+# override) gets the box titled with the uppercased severity; otherwise the lines are
+# emitted plain and unwrapped so captured/piped output stays grep-friendly. A formatting
+# or write failure never alters the caller's exit status; a genuine write error to <fd>
+# surfaces on stderr rather than being hidden.
 ai_tools_msg() {
     local sev="$1" fd="$2"; shift 2
     local boxed=0
@@ -220,7 +231,8 @@ ai_tools_msg() {
     if (( boxed )); then
         local text="$1"; shift
         for l in "$@"; do text+=$'\n'"${l}"; done
-        _ai_tools_msg_render_box "${sev^^}" "${text}" >&"${fd}" || true
+        _ai_tools_msg_render_box "${AI_TOOLS_MSG_ALERT_WIDTH}" "${sev^^}" "${text}" \
+            >&"${fd}" || true
     else
         printf '%s\n' "$@" >&"${fd}" || true
     fi
@@ -233,6 +245,33 @@ ai_tools_msg_warn()    { ai_tools_msg WARNING 2 "$@"; }
 ai_tools_msg_notice()  { ai_tools_msg NOTICE  2 "$@"; }
 ai_tools_msg_info()    { ai_tools_msg INFO    1 "$@"; }
 ai_tools_msg_success() { ai_tools_msg OK      1 "$@"; }
+
+# ai_tools_msg_headline <title> <fd> <line...> -- render a section HEADLINE box to file
+# descriptor <fd>: the wide (80-column) frame class, titled as given (not uppercased --
+# the caller composes the title, e.g. "Claim project (in place)" or "WARNING: interior
+# permission drift"). It opens a self-contained flow block: the box carries the block's
+# title and summary prose, while details (path lists, per-step results, prompts) print
+# plain BELOW it, so long paths stay copy-pasteable. On a non-tty target (and under
+# PLAIN) the title and lines are emitted plain -- the title is block content, so unlike
+# an alert's severity tag it survives capture for logs and test greps. Write-failure
+# semantics match ai_tools_msg.
+ai_tools_msg_headline() {
+    local title="$1" fd="$2"; shift 2
+    local boxed=0
+    if   [[ "${AI_TOOLS_MSG_BOX:-}"   == 1 ]]; then boxed=1
+    elif [[ "${AI_TOOLS_MSG_PLAIN:-}" == 1 ]]; then boxed=0
+    elif [[ -t "${fd}" ]];                     then boxed=1
+    fi
+    if (( boxed )); then
+        local text="${1-}" l
+        (( $# )) && shift
+        for l in "$@"; do text+=$'\n'"${l}"; done
+        _ai_tools_msg_render_box "${AI_TOOLS_MSG_WIDTH}" "${title}" "${text}" \
+            >&"${fd}" || true
+    else
+        printf '%s\n' "${title}" "$@" >&"${fd}" || true
+    fi
+}
 
 # ai_tools_msg_block <title> <line...> -- frame a multi-line guidance block in the titled
 # '#' box on stderr. Unlike the emitters above (which wrap every line), this preserves
