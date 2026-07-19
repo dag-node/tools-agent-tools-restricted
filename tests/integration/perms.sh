@@ -125,6 +125,13 @@ check_file /usr/lib/systemd/system/ai-tools-relabel.service   root root 644
 # sandbox account); root-owned so the agent cannot rewrite it, world-exec is harmless since
 # it edits only user-writable registries.
 check_file /usr/local/bin/ai-tools                            root root 755
+# ai-tools(1) man page: the RPM's brp-compress gzips it, the from-source install does not,
+# so check whichever form is deployed.
+if [[ -e /usr/local/share/man/man1/ai-tools.1.gz ]]; then
+    check_file /usr/local/share/man/man1/ai-tools.1.gz        root root 644
+else
+    check_file /usr/local/share/man/man1/ai-tools.1           root root 644
+fi
 # Launch wrapper: 755 root:root -- system-wide on every operator's PATH (path-dedup.sh ranks
 # /usr/local/bin above the nvm shims, so it shadows nvm's claude). Runs as the invoking
 # operator, gates on ai-ops membership, then drops to the sandbox account via sudo; root-owned

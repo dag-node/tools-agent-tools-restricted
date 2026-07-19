@@ -34,6 +34,7 @@ BuildRequires:  systemd-rpm-macros
 # the hooks' handback-client path, and sudoers, so the package must place files there.
 %global ai_sbindir /usr/local/sbin/ai-tools
 %global ai_bindir  /usr/local/bin
+%global ai_mandir  /usr/local/share/man
 %global ai_libdir  /usr/local/lib/ai-tools
 
 # Metapackage: pulls the whole stack. The real content is in the subpackages below.
@@ -134,6 +135,10 @@ ln -s %{ai_sbindir}/ai-tools-admin %{buildroot}%{_sbindir}/ai-tools-admin
 install -d -m 0755 %{buildroot}%{ai_bindir}
 install -m 0755 src%{ai_bindir}/ai-tools.sh                 %{buildroot}%{ai_bindir}/ai-tools
 install -m 0750 src%{ai_bindir}/ai-tools-handback-client.py %{buildroot}%{ai_bindir}/ai-tools-handback-client
+# ai-tools(1) man page; the man1 dir is owned by the filesystem package, so only the page
+# ships. brp-compress may gzip it (hence the %%files glob).
+install -d -m 0755 %{buildroot}%{ai_mandir}/man1
+install -m 0644 src%{ai_mandir}/man1/ai-tools.1             %{buildroot}%{ai_mandir}/man1/ai-tools.1
 # The CLI gets a %%{_sbindir} symlink for the OPPOSITE reason ai-tools-admin does: it must
 # never run under sudo, and without the symlink `sudo ai-tools` dies with sudo's "command
 # not found" (%%{ai_bindir} is not in secure_path) before the CLI's own refusal -- run as
@@ -359,6 +364,7 @@ fi
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-handback
 %attr(0755, root, root) %{ai_bindir}/ai-tools
 %{_sbindir}/ai-tools
+%attr(0644, root, root) %{ai_mandir}/man1/ai-tools.1*
 %attr(0750, root, ai-tools) %{ai_bindir}/ai-tools-handback-client
 %dir %attr(0751, root, ai-tools) %{ai_libdir}
 %attr(0644, root, root) %{ai_libdir}/log.lib.sh

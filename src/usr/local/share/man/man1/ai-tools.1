@@ -1,0 +1,141 @@
+.\" ai-tools(1) -- project-lifecycle CLI of Agent Tools Restricted.
+.\" Kept in sync with the CLI's usage() text by tests/unit/man.sh, which
+.\" compares the long-option sets of both; @AI_TOOLS_VERSION@ is substituted
+.\" at deploy time (install.sh install_subst / the RPM %prep), like the CLI.
+.TH AI-TOOLS 1 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
+.SH NAME
+ai-tools \- manage the projects a sandboxed coding agent may work in
+.SH SYNOPSIS
+.B ai-tools
+.I command
+.RI [ options ]
+.RI [ path ]
+.SH DESCRIPTION
+.B ai-tools
+registers, secures, and hands back the projects the sandboxed coding agent
+(Claude Code, running as the unprivileged
+.B ai-tools
+system account) may work in. Run it as your own login user \(em never as root
+and never as the sandbox account; the CLI refuses both. Steps that need root
+(secret lockdown, ownership, SELinux labels) invoke
+.B sudo
+themselves and prompt for your password.
+.PP
+Every
+.I path
+argument defaults to the current working directory. Every yes/no question
+states its default in the prompt
+.RB ( "[Y/n] (default: Yes)" );
+plain Enter \(em and any run without a terminal \(em takes the default, which
+always falls on the safe side of the question.
+.SH COMMANDS
+.TP
+.B \-\-project\-claim \fR[\fB\-y\fR] [\fIpath\fR]
+Claim a real project in place so the agent works your actual tree: register it
+(allowlist and git safe.directory), scan for and lock down secret-named files
+.I before
+any access is granted, set the shared group and ACL, and apply the SELinux
+project label. Idempotent \(em a re-claim runs only the missing steps and
+repairs interior permission drift behind the same confirm. Access to the
+repository's git history
+.RB ( .git )
+is a separate opt-in prompt.
+.TP
+.B \-\-project\-create
+Alias for
+.BR \-\-project\-claim .
+.TP
+.B \-\-project\-unclaim \fR[\fIpath\fR]
+Reverse a claim: revert the SELinux label, drop both registries, and \(em behind
+its own confirm \(em hand the tree to a chosen group with the agent's write
+access revoked. The directory stays on disk.
+.TP
+.B \-\-project\-remove
+Alias for
+.BR \-\-project\-unclaim .
+.TP
+.B \-\-sandbox\-create \fR[\fIpath\fR]
+Shallow-clone the repository at
+.I path
+into the sandbox area so the agent never reads the origin's full git history.
+The clone is born owner-only; tip-commit secrets are locked down first, and
+only past that gate is the clone opened to the agent and registered. A declined
+or failed lockdown stops fail-closed \(em the clone stays private and
+unregistered; re-run this command on the clone path to resume securing it.
+.TP
+.B \-\-sandbox\-push \fR[\fIpath\fR]
+Push the sandbox clone's commits to its dedicated remote branch
+.RB ( ai\-tools/sandbox\- <user> / <leaf> ).
+.TP
+.B \-\-sandbox\-remove \fR[\fIpath\fR]
+Delete a sandbox clone and unregister it, warning about unpushed commits
+first. The remote branch stays for others to merge.
+.TP
+.B \-\-lockdown \fR[\fIpath\fR] [\fB\-n\fR|\fB\-y\fR]
+Lock secret-named files under the project (\fB.env\fR, \fB*.key\fR, ...) to
+owner-only, revoking the agent's read access. Runs via
+.BR sudo .
+.TP
+.B \-\-reclaim \fR[\fB\-\-full\fR] [\fIpath\fR]
+Hand agent-written files under the project back to you (including the
+.B .git
+tree the per-session sweeps skip). Runs via
+.BR sudo .
+.TP
+.B \-\-relabel
+Restore the SELinux label on the agent entrypoint after a Node upgrade, for
+when the automatic post-upgrade relabel did not run.
+.TP
+.B \-\-list
+List registered projects, real and sandbox.
+.TP
+.B \-\-version
+Print the installed version.
+.TP
+.B \-\-help
+Print the command summary.
+.SH OPTIONS
+.TP
+.BR \-y ", " \-\-yes
+For
+.BR \-\-project\-claim :
+pre-answer only the proceed prompt; the secret-lockdown, git-history, and
+ancestor-traversal questions still ask. For
+.BR \-\-lockdown :
+skip the confirmation.
+.TP
+.BR \-n ", " \-\-dry\-run
+For
+.BR \-\-lockdown :
+report what would be locked without changing anything.
+.TP
+.B \-\-full
+For
+.BR \-\-reclaim :
+also reclaim the heavy skipped trees
+.RB ( node_modules ", " .venv ,
+\&...), not just the work tree and
+.BR .git .
+.SH FILES
+.TP
+.I ~/.config/ai-tools/allowed-projects
+Per-operator allowlist of project paths; a
+.RB \(oq ! \(cq-prefixed
+line excludes a subtree. Gates where sessions launch \(em not a read boundary.
+.TP
+.I /etc/ai-tools/operator.conf
+Operator registry and skip-list overrides.
+.TP
+.I /var/opt/ai-tools/sandbox-projects/
+The sandbox-clone area;
+.I /var/opt/ai-tools/README.md
+documents the push-only clone workflow.
+.SH SEE ALSO
+.BR sudo (8),
+.BR setfacl (1).
+.PP
+The lifecycle guide (claim vs sandbox decision, what each prompt grants,
+recovery paths):
+.I docs/project\-lifecycle.md
+in the source repository
+.RI ( https://github.com/dag\-node/tools\-agent\-tools\-restricted ).
