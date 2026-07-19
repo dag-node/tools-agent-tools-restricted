@@ -14,8 +14,7 @@ agent-agnostic.
 
 **Contents**: [Requirements](#requirements) · [Package install](#package-install) · [Why](#why) ·
 [Identities and naming](#identities-and-naming) ·
-[Architecture at a glance](#architecture-at-a-glance) · [Files](#files) ·
-[From-source install (steps 1–4)](#1-install-path-dedup-fragment-root-once) ·
+[Architecture at a glance](#architecture-at-a-glance) · [From source](#from-source) ·
 [Upgrade behaviour](#upgrade-behaviour) · [Operation logging](#operation-logging) ·
 [SELinux](#selinux) · [Community](#community) · [License](#license)
 
@@ -95,15 +94,24 @@ checks your `ai-ops` membership and the project allowlist, then drops to `${SAND
 via `sudo` and wraps the session in a confined `systemd --user` service. Launched in an
 unclaimed project it prompts you to claim it first; the claim and every elevated helper
 refuse system directories and home roots (the
-[safe-paths backstop](.claude/rules/safe-paths.rule.md)). The from-source install below
+[safe-paths backstop](.claude/rules/safe-paths.rule.md)). [From source](#from-source)
 is the manual equivalent of the package install plus `ai-tools-bootstrap`.
 
 ## Why
 
 A coding agent like Claude Code reads, writes, and runs commands autonomously. Run as
 your own user it inherits everything you can touch — SSH keys, browser profiles,
-every project, your full sudo rights. This project gives the agent its own UID
-with a tightly scoped set of privileges instead:
+every project, your full sudo rights. And what it reads does not stay local: an agent
+sends file contents to a third-party model service as a matter of course, so a secret
+the agent can open is a secret you may already have disclosed. Repositories onboarding
+agentic tools carry a particular blind spot here: credentials committed years ago and
+since "removed" survive in git history — invisible in the working tree, one
+`git show` away for anything that can read `.git`.
+
+This project restricts the agent's scope on the host instead of trusting it: a
+dedicated UID with a tightly scoped set of privileges, per-project consent for what it
+may touch, and shallow clones plus secret lockdown to keep history and credentials out
+of what it can ever send:
 
 - **Separate identity** — `${SANDBOX_USER}` is a system account with no login shell
   and no password. Claude executes under that UID via `sudo`, not as you.
@@ -126,6 +134,12 @@ with a tightly scoped set of privileges instead:
   `${PROJECTS_USER}:${PROJECTS_GROUP} 600`, removing `${SANDBOX_USER}`'s read access entirely; a `NOTICE`
   lands in the session and the operation log. `ai-tools --lockdown` applies the same over an
   existing tree. See [secret handling](.claude/rules/secret-handling.rule.md).
+- **Git history stays behind** — `ai-tools --sandbox-create` hands the agent a shallow
+  clone (`--depth=1`) of a dedicated branch, so credentials buried in past commits are
+  never on disk within its reach, and secret-named files in the tip commit are locked
+  down before the clone is opened to the agent at all. An in-place claim keeps `.git`
+  access an explicit opt-in prompt. See
+  [docs/project-lifecycle.md](docs/project-lifecycle.md).
 - **Collaborative access** — a POSIX default ACL on each approved tree makes you and
   Claude co-writers without `${PROJECTS_USER}` joining `${SANDBOX_GROUP}`:
   `g:${SANDBOX_GROUP}:rwX` grants Claude access to your files and
@@ -177,18 +191,9 @@ choice today. `SANDBOX_USER`/`SANDBOX_GROUP` name the account (`ai-tools`); the 
 `ai-tools` is also kept in paths (`/opt/ai-tools`), SELinux types (`ai_tools_t`), the `ai-tools`
 CLI, and helper names (`ai-tools-chown`) — those are fixed and do not track the account name.
 
-The variables matter only if you install **from source** by running the manual steps below
-(the `install.sh` and RPM paths need none of this). Set them once, in the shell you run those
-steps in, so the commands paste verbatim:
-
-    export PROJECTS_USER="$(id -un)"
-    export PROJECTS_GROUP="$(id -gn)"
-    export PROJECTS_HOME="${HOME}"
-    export SANDBOX_USER=ai-tools
-    export SANDBOX_GROUP=ai-tools
-
-Every manual command below expands these in your shell; run them in that same shell. Each
-critical step also re-states the sandbox name inline, so a step pasted on its own still works.
+Setting the variables by hand matters only on the manual from-source path — the export
+block and every step that uses it are in
+[docs/install-from-source.md](docs/install-from-source.md).
 
 ## Architecture at a glance
 
@@ -216,183 +221,21 @@ The privilege model and every guard above are specified in
 [`CLAUDE.md`](CLAUDE.md) (trust chain and invariants) and the per-component
 [`.claude/rules/`](.claude/rules/).
 
-## Files
+## From source
 
-| File | Deploy path |
-|---|---|
-| src/usr/local/lib/ai-tools/path-dedup.sh | /usr/local/lib/ai-tools/path-dedup.sh (root) |
-| src/opt/ai-tools/bin/nvm-update.sh | /opt/ai-tools/bin/nvm-update.sh |
-| src/usr/local/sbin/ai-tools/ai-tools-chown.sh | /usr/local/sbin/ai-tools/ai-tools-chown (root) |
-| src/usr/local/sbin/ai-tools/ai-tools-setgid.sh | /usr/local/sbin/ai-tools/ai-tools-setgid (root) |
-| src/usr/local/sbin/ai-tools/ai-tools-claude-symlink.sh | /usr/local/sbin/ai-tools/ai-tools-claude-symlink (root) |
-| src/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint.sh | /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint (root) |
-| src/usr/local/sbin/ai-tools/ai-tools-bootstrap.sh | /usr/local/sbin/ai-tools/ai-tools-bootstrap (root) |
-| src/usr/local/sbin/ai-tools/ai-tools-admin.sh | /usr/local/sbin/ai-tools/ai-tools-admin (root) |
-| src/usr/local/sbin/ai-tools/ai-tools-lockdown.sh | /usr/local/sbin/ai-tools/ai-tools-lockdown (root) |
-| src/usr/local/sbin/ai-tools/ai-tools-handback.py | /usr/local/sbin/ai-tools/ai-tools-handback (root) |
-| src/usr/local/bin/ai-tools-handback-client.py | /usr/local/bin/ai-tools-handback-client (root:ai-tools) |
-| src/usr/lib/systemd/system/ai-tools-handback.socket | /usr/lib/systemd/system/ai-tools-handback.socket (root) |
-| src/usr/lib/systemd/system/ai-tools-handback@.service | /usr/lib/systemd/system/ai-tools-handback@.service (root) |
-| src/usr/local/lib/ai-tools/secret-patterns.lib.sh | /usr/local/lib/ai-tools/secret-patterns.lib.sh (root) |
-| src/usr/local/lib/ai-tools/skip-dirs.lib.sh | /usr/local/lib/ai-tools/skip-dirs.lib.sh (root) |
-| src/usr/local/bin/claude.sh | /usr/local/bin/claude (root) |
-| src/opt/ai-tools/bin/claude-run.sh | /opt/ai-tools/bin/claude-run |
-| src/opt/ai-tools/.claude/post-tool-hook.sh | /opt/ai-tools/.claude/post-tool-hook.sh |
-| src/opt/ai-tools/.claude/session-hook.sh | /opt/ai-tools/.claude/session-hook.sh |
-| src/opt/ai-tools/.claude/settings.json | /opt/ai-tools/.claude/settings.json |
-| src/usr/lib/systemd/user/nvm-update.service | /usr/lib/systemd/user/nvm-update.service (root) |
-| src/usr/lib/systemd/user/nvm-update.timer | /usr/lib/systemd/user/nvm-update.timer (root) |
-| src/usr/lib/systemd/system/ai-tools-relabel.path | /usr/lib/systemd/system/ai-tools-relabel.path (root) |
-| src/usr/lib/systemd/system/ai-tools-relabel.service | /usr/lib/systemd/system/ai-tools-relabel.service (root) |
-| src/etc/sudoers.d/ai-tools-claude | /etc/sudoers.d/ai-tools-claude (root) |
-| src/etc/ai-tools/operator.conf | /etc/ai-tools/operator.conf (root; seeded once, then operator-maintained) |
-| install.sh | run in place via sudo |
+    git clone https://github.com/dag-node/tools-agent-tools-restricted.git
+    cd tools-agent-tools-restricted
+    # steps 1-3: PATH fragment, the ai-tools account, nvm + Node + claude
+    sudo ./install.sh install                   # step 4: helpers, units, sudoers, CLI
+    sudo ai-tools-admin operator add <user>     # enrol yourself as an operator
 
----
-
-## 1. Install PATH dedup fragment (root, once)
-
-    sudo install -d -o root -g root -m 751 /usr/local/lib/ai-tools
-    sudo install -o root -g root -m 644 \
-        src/usr/local/lib/ai-tools/path-dedup.sh /usr/local/lib/ai-tools/path-dedup.sh
-
-(The lib directory's group becomes `ai-tools` once the account exists —
-`install.sh` and the RPM re-assert `root:ai-tools 0751`.)
-
-path-dedup deduplicates the shell's existing `$PATH` and orders it
-root-owned-first, so `/usr/local/bin/claude` — the wrapper that launches
-claude restricted — always resolves ahead of the nvm-managed `claude`. It is
-sourced per-account: only the operator shells wired for it get the ordering,
-and every other account on the host keeps its stock PATH.
-
-`ai-tools-admin operator add` (step 3 of *Package install*) offers to wire the
-source line into your `~/.bashrc` and `~/.bash_profile`. To wire it by hand,
-add it to **both** files (non-login interactive shells read only `~/.bashrc`,
-login shells `~/.bash_profile`), after your nvm init:
-
-    export NVM_DIR="${HOME}/.nvm"
-    [ -s "${NVM_DIR}/nvm.sh" ] && source "${NVM_DIR}/nvm.sh"
-
-    # ai-tools PATH dedup (must follow nvm init)
-    [[ -f /usr/local/lib/ai-tools/path-dedup.sh ]] && source /usr/local/lib/ai-tools/path-dedup.sh
-
-nvm must be sourced **before** path-dedup: nvm prepends its versioned bin dir
-to `$PATH`, and path-dedup then restructures it into Tier 4, behind the T1
-system bins (which include the wrapper) and T2 `~/.local/bin`. path-dedup.sh
-is idempotent — sourcing it again in the same shell produces the same PATH.
-
-## 2. Create the SANDBOX_USER OS account at /opt (root, once)
-
-    # The sandbox account name is fixed at ai-tools (see "Identities and naming"). Set it here
-    # so this block works even pasted on its own -- an unset SANDBOX_USER makes useradd fail
-    # with "invalid user name ''".
-    SANDBOX_USER=ai-tools
-    SANDBOX_GROUP=ai-tools
-
-    sudo useradd \
-        --system \
-        --shell /sbin/nologin \
-        --home-dir /opt/ai-tools \
-        --no-create-home \
-        --comment "AI tools sandbox user" \
-        "${SANDBOX_USER}"
-    sudo install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 755 /opt/ai-tools
-
-    # Lock password (system users have no password by default, but be explicit)
-    sudo passwd -l "${SANDBOX_USER}"
-
-The `install -d` creates `/opt/ai-tools` owned by the account with `+x` for all, so
-`${PROJECTS_USER}` can traverse into `bin/`. The RPM ships this account via `sysusers.d`, so
-this step applies only to the from-source path.
-
-`/home` is mounted `nosuid`, which would prevent the `sudo` UID-switch from taking
-effect. `/opt/ai-tools` has no `nosuid` restriction, so the switch to `${SANDBOX_USER}`
-actually takes effect.
-
-## 3. Install nvm + Node + claude as SANDBOX_USER (root, once)
-
-`ai-tools-bootstrap` does steps 2 and 3 in one idempotent command once the package is
-installed — it creates the account, installs the toolchain, seeds the symlink, and enables
-the `nvm-update.timer`. The manual equivalent:
-
-    # cd first: the block runs as ${SANDBOX_USER}, which cannot occupy your home as cwd
-    sudo -u "${SANDBOX_USER}" bash -c '
-      cd /opt/ai-tools
-      export NVM_DIR=/opt/ai-tools/.nvm
-      export HOME=/opt/ai-tools
-      curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-      source /opt/ai-tools/.nvm/nvm.sh
-      nvm install 22
-      nvm alias default 22
-      npm install -g @anthropic-ai/claude-code
-    '
-
-    # Create bin dir and initial claude symlink (nvm-update.sh maintains it going forward)
-    sudo -u "${SANDBOX_USER}" bash -c '
-      cd /opt/ai-tools
-      source /opt/ai-tools/.nvm/nvm.sh
-      mkdir -p /opt/ai-tools/bin
-      ln -sf "/opt/ai-tools/.nvm/versions/node/$(nvm version default)/bin/claude" \
-             /opt/ai-tools/bin/claude
-    '
-
-Once `install.sh` (step 4) has run, `/opt/ai-tools/bin` is locked `0551 root:ai-tools` and
-only root maintains the symlink: instead of the `ln` above, run `sudo ai-tools-bootstrap`
-(idempotent -- it provisions whatever is missing and seeds the symlink through the root
-helper), or re-run `sudo ./install.sh install`.
-
-## 4. Run the install script (root, once)
-
-Steps 4–12 are fully automated by `install.sh`. **Complete steps 2 and 3 first** — the
-account must exist (else the script stops with `ai-tools user not found`) and
-`/opt/ai-tools/bin` must exist (step 3 creates it; the script writes `nvm-update.sh` into it).
-`sudo ai-tools-bootstrap` does both in one idempotent command. Then run:
-
-    sudo ./install.sh install
-
-The script deploys the static `%ai-ops` sudoers drop-in, the helpers and the system
-units, creates the approved-projects allowlist with format documentation, installs the
-`ai-tools` project CLI and the `/var/opt/ai-tools` sandbox area, enables the
-`nvm-update.timer` in `${SANDBOX_USER}`'s `--user` instance, and enables the
-`ai-tools-relabel.path` watcher. It is idempotent — safe to re-run after updates. The
-install directory is never auto-registered as a project.
-
-Enrol each login user as an operator (ai-ops membership, allowlist seed):
-
-    sudo ai-tools-admin operator add <user>     # defaults to $SUDO_USER
-
-Register projects with the `ai-tools` CLI, run as your own user (no sudo):
-
-    ai-tools --project-create /path/to/project    # a real project
-    ai-tools --sandbox-create /path/to/repo       # an isolated shallow clone
-    ai-tools --lockdown /path/to/project          # revoke agent access to secrets (sudo)
-
-`ai-tools --lockdown` wraps the root `ai-tools-lockdown` helper (it prompts for
-your sudo password), and `ai-tools --sandbox-create` runs the same lockdown gate on the
-fresh clone **before** granting the agent any access — a declined or failed gate leaves
-the clone private and unregistered (re-run the command on the clone path to resume). A
-sandboxed project is a shallow clone under `/var/opt/ai-tools/sandbox-projects/`
-that the agent works in without ever reading the original repo's full git
-history. See `/var/opt/ai-tools/README.md` for that workflow.
-
-A project nested inside your home needs one extra grant — traverse-only access for the
-sandbox account on the directories above it. `ai-tools --project-claim` detects this and
-offers it as a default-NO prompt; the equivalent by hand is:
-
-    setfacl -m u:ai-tools:--x ~
-
-The session runs as the sandbox account, which must *traverse* the path to the project; a
-private home (`drwx------`) blocks that, so `claude-run` reports the project as "not an
-existing directory" even though the claim succeeded. `--x` (execute, no read) lets the
-account *enter* a directory to reach the claimed project but never *list* or *read* it — the
-same least-privilege traverse the agent already has on `/opt/ai-tools`. The claim grants it
-only on directories you own and never on a system directory; for a project under a path you do
-not own, or to leave your home untouched, use a sandbox clone instead — it lives under
-`/var/opt/ai-tools/sandbox-projects/`, which the account already traverses.
-
-To remove everything installed by this script:
-
-    sudo ./install.sh uninstall
+`install.sh` stops unless the sandbox account and `/opt/ai-tools/bin` already exist —
+steps 1–3 create them (once the package is deployed, `sudo ai-tools-bootstrap` does both
+in one idempotent command). The four steps, the full source→deploy file map, and
+`sudo ./install.sh uninstall` are in
+[docs/install-from-source.md](docs/install-from-source.md); registering projects is the
+same as the package path — see
+[docs/project-lifecycle.md](docs/project-lifecycle.md).
 
 ## Upgrade behaviour
 
@@ -415,27 +258,12 @@ so the SELinux domain transition keeps firing. Until the entrypoint is relabelle
 `claude-run` fail-closes (refuses to launch rather than run unconfined); `ai-tools
 --relabel` is the manual fallback.
 
-On launch the wrapper resolves the symlink **one hop** via `readlink` (not
-`realpath`/`readlink -f`: the versioned `bin/claude` is itself an npm symlink into the
-package dir, mode 700 `${SANDBOX_USER}`-owned, which the invoking user cannot traverse —
-EACCES) and exports it as `CLAUDE_EXEC`. `claude-run` re-validates `CLAUDE_EXEC` against
-the nvm versioned-binary pattern and exec's it directly; the only sudoers rule dropping to
-`${SANDBOX_USER}` targets the fixed path `/opt/ai-tools/bin/claude-run`, never the
-versioned binary.
-
-> **Rationale — what the mode-700 package dir does and doesn't do.** The npm package dir
-> (`…/node_modules/@anthropic-ai/claude-code/`) is `700` and `${SANDBOX_USER}`-owned. That
-> keeps the agent's toolchain **private** to the sandbox account and root — no other login
-> user can read the package internals. It is **not** a tamper barrier against the agent:
-> `${SANDBOX_USER}` owns that tree and may write within it. The integrity of *what
-> executes* rests elsewhere — on `/opt/ai-tools/bin` being `0551 root:ai-tools` (only root,
-> through the `ai-tools-claude-symlink` helper, writes the stable `bin/claude` symlink the
-> wrapper trusts) and on `claude-run` re-validating `CLAUDE_EXEC` against the nvm path
-> pattern before exec. The **one-hop `readlink`** is a consequence of that mode: a
-> full `realpath`/`readlink -f` would traverse the `700` dir *as the invoking operator* and
-> hit EACCES — a silent abort under `set -e` — so the wrapper reads only the root-owned
-> symlink and validates its target by string. Trust comes from the root-owned `bin/` and
-> `claude-run`'s re-validation, not from resolving into a directory the agent controls.
+On launch the wrapper resolves the symlink one hop via `readlink`, exports it as
+`CLAUDE_EXEC`, and `claude-run` re-validates it against the nvm versioned-binary pattern
+before exec; the only sudoers rule dropping to `${SANDBOX_USER}` targets the fixed path
+`/opt/ai-tools/bin/claude-run`, never the versioned binary. Why one hop, and what the
+mode-700 package dir does and does not guarantee, is specified in
+[launch](.claude/rules/launch.rule.md) and [updater](.claude/rules/updater.rule.md).
 
 After an update, **new** Claude sessions resolve the repointed `bin/claude` symlink and use
 the new Node version. A **running** session stays pinned to the version it launched with for
@@ -455,8 +283,7 @@ only, `700 root:root`). Query journald by component:
 The handback daemon keeps a per-request audit line — the peer PID, the verb, the path, and
 the helper result — plus a `WARNING` for every rejected peer or malformed request, so each
 privileged action is attributable at the socket layer. Root-only log files: `chown.log`,
-`setgid.log`, `symlink.log`, `lockdown.log`, `handback.log`, `install.log`. After editing the
-SELinux source, rebuild with `sudo selinux/install-selinux.sh rebuild`.
+`setgid.log`, `symlink.log`, `lockdown.log`, `handback.log`, `install.log`.
 
 ## SELinux
 
@@ -477,6 +304,9 @@ If `${SANDBOX_USER}`'s home needs a custom label:
 For the wrapper in `/usr/local/bin`:
 
     restorecon -v /usr/local/bin/claude
+
+After editing the SELinux policy source, rebuild and reload with
+`sudo selinux/install-selinux.sh rebuild`.
 
 ## Community
 

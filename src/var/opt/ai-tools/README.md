@@ -2,7 +2,9 @@
 
 This directory holds **shallow clones** that the Claude Code sandbox agent works
 in, so the agent never reads the original repository's full git history — which
-may contain credentials or other secrets the agent should not see.
+may contain credentials or other secrets the agent should not see. (For choosing
+between a sandbox clone and an in-place claim, and the recovery paths of either,
+see `docs/project-lifecycle.md` in the source repository.)
 
 ```bash
 # everything runs as the operator — no sudo needed
