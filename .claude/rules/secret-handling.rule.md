@@ -95,10 +95,14 @@ projects user cannot stat the helper — only `sudo`, as root, can reach it.
 
 ### Lockdown on clone
 
-`ai-tools --sandbox-create` invokes this lockdown directly after a shallow clone, since
-the clone's tip commit may still hold credential files. If the user declines or `sudo` is
-unavailable, the CLI drops a guard `CLAUDE.md` into the clone instructing the agent to do
-nothing until lockdown runs (any existing `CLAUDE.md` is preserved via `git mv` to
-`CLAUDE.md.bak`); a later successful `ai-tools --lockdown` removes the guard and restores
-the original. The guard carries a sentinel comment (`ai-tools-lockdown-guard`) so the CLI
-recognizes its own placeholder and never clobbers a real `CLAUDE.md`.
+`ai-tools --sandbox-create` runs this lockdown directly after a shallow clone and
+**before** the clone is opened to the agent group or registered, since the tip commit may
+still hold credential files (the clone is born owner-only via `umask 077`, so nothing is
+group-readable in the interim — see [cli](cli.rule.md)). If the user declines or lockdown
+fails, the create stops fail-closed — the clone stays private and unregistered — and the
+CLI drops a guard `CLAUDE.md` into the clone instructing the agent to do nothing until
+lockdown runs (any existing `CLAUDE.md` is preserved via `git mv` to `CLAUDE.md.bak`);
+re-running `--sandbox-create` on the clone path resumes the gate and, on success, removes
+the guard and restores the original. The guard carries a sentinel comment
+(`ai-tools-lockdown-guard`) so the CLI recognizes its own placeholder and never clobbers
+a real `CLAUDE.md`.

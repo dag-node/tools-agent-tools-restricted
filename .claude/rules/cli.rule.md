@@ -39,10 +39,14 @@ is behind the gate, `--version` included — an unfinished install reports nothi
   to the project (a default-NO prompt grants a traverse-only `u:SANDBOX_USER:--x` ACL on each
   blocking ancestor the operator owns and that is not a system directory; see *Reachability* below),
   and — when a `.git` tree is present but not yet normalized — offer (default-yes prompt) to
-  normalize it for agent git-history access via `ai-tools-setfacl --with-git`, re-stating the
-  sandbox-clone alternative when history should stay hidden. `-y/--yes` pre-answers only the
-  claim's own default-NO proceed prompt ("Apply the pending steps IN PLACE?") — the launch
-  wrapper passes it for a delegated claim after taking its own confirmation, so the same
+  normalize it for agent git-history access via `ai-tools-setfacl --with-git`. The flow renders
+  as a sequence of **self-contained blocks** (see [messaging](messaging.rule.md) for the headline
+  frame): *Review* (the pending-step overview announcing every later block, the drift reports, and
+  the default-NO proceed confirm covering exactly the steps listed), *Secret lockdown* (before any
+  access-granting step; fails the claim closed), the *`.git` history* and *Reachability* opt-ins,
+  then *Apply* (one result line per step, closed by the final `claimed` ✓). `-y/--yes` pre-answers
+  only the claim's own default-NO proceed prompt ("Apply the pending steps above IN PLACE?") — the
+  launch wrapper passes it for a delegated claim after taking its own confirmation, so the same
   decision is not asked twice; the scoped opt-ins (secret lockdown, `.git` history, ancestor
   traversal) still ask on their own terms (see [messaging](messaging.rule.md) for the
   prompt/pre-answer doctrine).
@@ -50,7 +54,10 @@ is behind the gate, `--version` included — an unfinished install reports nothi
   (directory left on disk): revert the label, drop both registries, and (default-yes
   confirm) hand the tree's files back to a target group with the agent's write access
   revoked, via `ai-tools-unclaim`.
-- `--sandbox-create [path]` — shallow-clone a repo into the sandbox area and register it.
+- `--sandbox-create [path]` — shallow-clone a repo into the sandbox area **privately**
+  (`umask 077`), lock down tip-commit secrets, and only past that gate grant the agent
+  access and register the clone; fail-closed otherwise, resumable by re-running on the
+  clone path (see *Sandbox clone* below).
 - `--sandbox-push [path]` / `--sandbox-remove [path]` — push the clone's commits to its
   branch / remove the clone and unregister it.
 - `--lockdown [path]` — wrapper over `ai-tools-lockdown` (see
@@ -84,24 +91,29 @@ the group-permission ACL for existing files (via `ai-tools-setfacl`), and pins r
 A separate default-yes prompt offers to normalize the `.git` tree (`ai-tools-setfacl
 --with-git`: group `SANDBOX_GROUP` + setgid on its dirs + the same ACL) so the operator's
 own commits stay agent-readable — `.git` being the one heavy tree the per-session passes
-skip yet both parties write (see [ownership-and-hooks](ownership-and-hooks.rule.md));
-declining re-states the sandbox-clone model for keeping git history out of the agent's reach.
+skip yet both parties write (see [ownership-and-hooks](ownership-and-hooks.rule.md)).
 Claim inspects current state and runs only the missing steps, so a re-run is a quiet no-op
 and existing projects retrofit the ACL/`filemode`/`.git` normalization on the next claim.
+The flow carries no inline `--sandbox-create` cross-references — the launch wrapper's
+choice screen and `--help`/docs present the sandbox-clone alternative; the one exception
+is the *Reachability* blocked case below, where an in-place claim genuinely cannot work.
 
 **Interior drift.** Root-level state cannot see paths inside a claimed tree that lack the
 group/ACL — brought in by rename (which keeps the old group and carries no ACL entries;
 creation under the setgid + default-ACL parents inherits both), or sitting under a
-skip-listed directory name the claim walks leave alone. Claim therefore scans the tree
-(`acl_drift_scan`, read-only and unprivileged) for shared-looking paths with a foreign
-group — owner-only paths (`600`/`700`, e.g. locked-down secrets) and `!`-excluded subtrees
-stay unreported as out-of-reach by intent — and splits the hits on the shared skip list
+skip-listed directory name the claim walks leave alone. A **re-claim whose ownership is
+already in place** therefore scans the tree (`acl_drift_scan`, read-only and unprivileged)
+for shared-looking paths with a foreign group — owner-only paths (`600`/`700`, e.g.
+locked-down secrets) and `!`-excluded subtrees stay unreported as out-of-reach by intent.
+A first claim (or one with the setgid step still pending) skips the report: its normal
+walk repairs the whole tree, and every path would trivially match the predicate. The scan
+splits the hits on the shared skip list
 (`skip-dirs.lib.sh`, which the CLI sources): repairable hits become a pending step whose
 repair (setgid walk + ACL walk) runs only behind the same default-NO confirm and secret gate
 as a first claim. The ACL walk (`ai-tools-setfacl`) settles the drift itself: alongside the
 ACL it normalizes a drifted path's primary group to `SANDBOX_GROUP` (same predicate as the
 scan), so the next claim reports the tree clean instead of re-flagging the same paths.
-Hits under skip-listed names get an informational warning naming the
+Hits under skip-listed names get an informational block naming the
 remedies that do reach them — narrow the category override in `operator.conf`, list the
 path in `SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE` (a source dir sharing a skipped
 build-output name), then re-claim; or `ai-tools --reclaim --full` for ownership alone.
@@ -120,6 +132,9 @@ directories, and it is **unprivileged** (the operator owns them, so no `sudo`). 
 that is a system directory or owned by someone else is left untouched — there the sandbox clone
 (under `/var/opt/ai-tools`, already agent-traversable) is the way in. The grant is idempotent: an
 ancestor the account can already traverse (e.g. one carrying the ACL from a prior claim) is skipped.
+Detection (`reach_scan`) runs up front so the Review overview announces the opt-in, and the
+block runs on the fully-claimed no-op path too — a claimed project can still lose
+reachability to a later `chmod 700` above it.
 
 **Unclaim** (`--project-unclaim`) reverts that: it removes the SELinux label and both
 registries, then (default-yes confirm) runs `ai-tools-unclaim` to hand the filesystem back.
@@ -148,6 +163,18 @@ only the projects user can push (the sandbox account holds no git credentials), 
 with repo access merges that branch back, preserving the agent's commits granularly (see
 `/var/opt/ai-tools/README.md`). Clones are labelled statically by `ai_tools.fc` + a plain
 restorecon, not by `ai-tools-relabel`.
+
+The create is **lock-before-grant**: the clone is born owner-only (`umask 077` around the
+`git clone`, so the tip commit's possibly checked-in credentials are unreadable to the
+sandbox account from the first instant), then `sandbox_finalize` runs the same secret gate
+as a claim — allowlist entry first (the lockdown scan acts only on an allowlisted path;
+rolled back on a failed gate), the scan + lockdown confirm — and only past the gate opens
+the clone up: `normalize_clone` adds group `rwX` + setgid dirs while **pruning every path
+the gate locked** (re-opening one would undo the lockdown), then relabels and registers.
+A declined or failed gate **fails closed**: the clone stays on disk but private —
+not group-accessible, not relabelled, not registered — with a guard `CLAUDE.md` dropped
+and the resume command printed. Re-running `--sandbox-create` **on the existing clone
+path** (any path under `SANDBOX_ROOT`) resumes `sandbox_finalize` on it.
 
 The shared sandbox area carries a `g:ai-ops:rwX` ACL (traverse on `/var/opt/ai-tools`, rwX +
 default on `sandbox-projects`, applied by `install.sh`), so an operator creates and works in
@@ -183,6 +210,14 @@ helpers — only sudo, as root, reaches them.
 
 Before granting access, the CLI runs `ai-tools-lockdown --dry-run` and, when secret-matching
 files are present, prompts to lock them down (see
-[secret-handling](secret-handling.rule.md)). When lockdown is declined or unavailable it
-drops a guard `CLAUDE.md` (sentinel `ai-tools-lockdown-guard`) instructing the agent to do
-nothing until lockdown runs, preserving any real `CLAUDE.md` via `git mv` to `CLAUDE.md.bak`.
+[secret-handling](secret-handling.rule.md)). On a claim the gate (`secret_gate`) runs
+whenever **any pending step widens the agent's access** — the setgid group change, the
+group ACL, drift repair, `.git` normalization, the SELinux label — and on every first
+claim (a tree can be group-accessible by setgid inheritance yet never scanned); only pure
+registry additions (safedir, filemode) skip it. A declined or failed gate fails the
+operation closed: the claim aborts (rolling back its own allowlist addition) and the
+sandbox create leaves the clone private and unregistered, dropping a guard `CLAUDE.md`
+(sentinel `ai-tools-lockdown-guard`) instructing the agent to do nothing until lockdown
+runs, preserving any real `CLAUDE.md` via `git mv` to `CLAUDE.md.bak`. The gate exports
+the found paths (`SECRET_GATE_LOCKED`) so `normalize_clone` prunes them from its
+group-access walk.

@@ -62,11 +62,13 @@ protections apply and the operator should still use them as defense in depth:
   lock existing secret-named files (`.env`, `*.key`, …) to `<operator>:<operator> 600`
   before the agent runs. Either form prompts for the operator's sudo password.
 
-`ai-tools --sandbox-create` offers to run this lockdown immediately after the
-clone. When the operator declines, or `sudo` is unavailable, it instead writes a
-guard `CLAUDE.md` into the clone telling the agent to do nothing until lockdown runs
-(any existing `CLAUDE.md` is preserved as `CLAUDE.md.bak`); the guard is removed
-and the original restored automatically once `ai-tools --lockdown` completes.
+`ai-tools --sandbox-create` runs this lockdown on the fresh clone **before** granting
+the agent any access: the clone is born owner-only, and only after the lockdown gate
+passes is it opened to the agent group and registered. When the operator declines, or
+lockdown fails, the create stops fail-closed — the clone stays private and unregistered,
+with a guard `CLAUDE.md` written into it (any existing `CLAUDE.md` is preserved as
+`CLAUDE.md.bak`); re-running `ai-tools --sandbox-create <clone>` resumes securing and
+registering it, removing the guard and restoring the original.
 
 A shallow clone is not a substitute for keeping the agent away from live secrets —
 it only keeps *past* ones out.
