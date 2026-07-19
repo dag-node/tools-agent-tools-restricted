@@ -435,6 +435,24 @@ fi
 %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Sun Jul 19 2026 dagnode <tools@dagnode.com> - 0.6.4-1
+- Secret lockdown now precedes every access-widening step: a re-claim that only adds the
+  group ACL, .git normalization, or the SELinux label scans first, and --sandbox-create
+  clones privately (umask 077), locks tip-commit secrets, and only then opens and
+  registers the clone -- declining leaves it private and unregistered, resumable by
+  re-running on the clone path.
+- Reworked the --project-claim / --sandbox-create dialogs into self-contained blocks:
+  each decision shows its own headline, details, and result, warnings frame at 50
+  columns vs 80 for section headlines, and the sudo-password notices are gone.
+- Fixed the normalize-.git prompt re-asking on every re-claim of an already-normalized
+  tree, and the drift listing's empty mode column (both an IFS parsing bug).
+- Fixed first claims flagging the entire tree as "interior permission drift"; the
+  report now appears only on re-claims, where it is actionable.
+- Added an ai-tools(1) man page (man ai-tools), kept in sync with ai-tools --help by
+  the test suite.
+- New operator guide docs/project-lifecycle.md (claim vs sandbox decision, what each
+  prompt grants, recovery paths); README slimmed to a front page that links out.
+
 * Sat Jul 18 2026 dagnode <tools@dagnode.com> - 0.6.3-1
 - Release RPMs are reliably GPG-signed: the signing step runs directly, past the build
   image's init entrypoint, and asserts a signed-package line, so every published package
