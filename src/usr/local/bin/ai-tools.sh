@@ -358,7 +358,7 @@ git_gap() {
     local dir="$1" grp mode
     [[ -d "${dir}/.git" ]] || return 1
     command -v getfacl >/dev/null 2>&1 || return 1
-    read -r grp mode < <(stat -c '%G %a' "${dir}/.git" 2>/dev/null) || return 1
+    IFS=' ' read -r grp mode < <(stat -c '%G %a' "${dir}/.git" 2>/dev/null) || return 1
     [[ "${grp}" == "${SANDBOX_GROUP}" ]] \
         && (( (0${mode} & 02000) != 0 )) \
         && getfacl -p "${dir}/.git" 2>/dev/null | grep -qE "^default:group:${SANDBOX_GROUP}:" \
@@ -874,7 +874,7 @@ cmd_project_claim() {
     _drift_lines() {
         local _p _og _m
         for _p in "$@"; do
-            read -r _og _m < <(stat -c '%U:%G %a' "${_p}" 2>/dev/null) || { _og='?'; _m='?'; }
+            IFS=' ' read -r _og _m < <(stat -c '%U:%G %a' "${_p}" 2>/dev/null) || { _og='?'; _m='?'; }
             printf '        %s%-18s %-4s %s%s\n' "${C_DIM}" "${_og}" "${_m}" "${_p}" "${C_RST}"
         done
     }
