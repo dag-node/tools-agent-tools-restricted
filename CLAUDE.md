@@ -183,9 +183,10 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   `/var/log/ai-tools/*.log` (root writers only). Detail in
   [logging](.claude/rules/logging.rule.md).
 - **User-facing messages** — refusals, notices, and warnings render through `msg.lib.sh`:
-  wrapped within 80 columns with no line ending on a preposition, framed in a paste-safe
-  `#` box on a terminal and emitted plain when piped (so logs and test greps stay
-  line-matchable). Detail in [messaging](.claude/rules/messaging.rule.md).
+  wrapped with no line ending on a preposition, framed in a paste-safe `#` box on a
+  terminal (alerts within 50 columns, flow-block headlines and guidance screens within 80)
+  and emitted plain when piped (so logs and test greps stay line-matchable). Detail
+  in [messaging](.claude/rules/messaging.rule.md).
 - **Root sudo-helpers** live under `/usr/local/sbin/ai-tools/` (`chown`, `setgid`, `setfacl`,
   `unclaim`, `safedir`, `reclaim`, `claude-symlink`, `lockdown`, `relabel`, `bootstrap`,
   `relabel-entrypoint`, `admin`); shared libraries under `/usr/local/lib/ai-tools/`

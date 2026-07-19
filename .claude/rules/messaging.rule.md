@@ -17,6 +17,7 @@ library, `/usr/local/lib/ai-tools/msg.lib.sh` (`644 root:root`, world-readable �
 carries no secrets and operator, agent, and root principals all source it, exactly like
 [logging](logging.rule.md)'s `log.lib.sh`). It exposes `ai_tools_msg <severity> <fd>
 <line...>`, the convenience emitters `ai_tools_msg_{error,warn,notice,info,success}`,
+the flow-block opener `ai_tools_msg_headline <title> <fd> <line...>`,
 `ai_tools_msg_wrap <width> <text>` for callers that need wrapped-but-unframed text to
 embed elsewhere, the two question renderers `ai_tools_msg_pick` and
 `ai_tools_msg_confirm` — every menu and every yes/no prompt in the project renders and
@@ -25,7 +26,11 @@ defaults through them — and the umbrella banner `ai_tools_msg_banner` (with it
 
 ## What the library guarantees
 
-- **Wrapped within 80 columns.** Long messages reflow to fit a standard terminal.
+- **Two frame classes make a visual hierarchy.** The severity alerts (`ai_tools_msg_*`)
+  frame within **50 columns** — a narrow box reads as an inline alert — while the
+  structural boxes (`ai_tools_msg_block`, `ai_tools_msg_headline`) frame within **80**,
+  so a wide box reads as a section headline or a guidance screen. Long messages reflow to
+  fit their class's width.
 - **No line ends on a tie-word, no one-word widow.** A TeX-style tie glues each article,
   coordinating conjunction, preposition, or wh-/relative word to the word after it, so a
   line break never strands one at the right margin (the set lives in `_AI_TOOLS_MSG_TIES`).
@@ -39,8 +44,9 @@ defaults through them — and the umbrella banner `ai_tools_msg_banner` (with it
   shell comment: pasted into a prompt by accident, nothing executes. The border character
   is `#`, not `|`, for exactly this reason.
 - **Uniform width on demand.** A box sizes to its content by default; `AI_TOOLS_MSG_FULLWIDTH=1`
-  pins it to a fixed 80-column frame, so a *sequence* of boxes (an install flow's prompts)
-  aligns instead of each shrinking to its own text.
+  pins it to its class's fixed frame (alerts 50 columns, blocks/headlines 80), so a
+  *sequence* of boxes (an install flow's prompts, a claim's flow blocks) aligns per class
+  instead of each shrinking to its own text.
 - **Boxes self-separate.** A blank line precedes every box, so consecutive boxes (or a box
   after other output) are visually separated without the caller inserting spacing. The blank
   is not a `#` comment line, so a paste-safety check must ignore blank lines.
@@ -57,12 +63,22 @@ caller-supplied line whole, so those assertions keep matching. `AI_TOOLS_MSG_PLA
 forces plain even on a tty; `AI_TOOLS_MSG_BOX=1` forces the box even off one (the unit
 test and the session-hook NOTICE use the latter to render a box into captured output).
 
-## Two renderers: alert vs block
+## Three renderers: alert, headline, block
 
 The emitters (`ai_tools_msg_*`) **wrap every line** — right for a short refusal or notice,
 but a wrap splits a multi-word command across lines, so command-bearing prose handed to an
 emitter must keep its command on a separate plain line (the session NOTICE does this: boxed
 prose, reconcile command printed below the frame).
+
+`ai_tools_msg_headline <title> <fd> <line...>` opens a **self-contained flow block** —
+the structure the `ai-tools` claim/sandbox flows are built from: a wide (80-column) box
+carrying the block's caller-composed title (verbatim, not uppercased: `Claim project (in
+place)`, `WARNING: interior permission drift`) and its summary prose, with the block's
+details — path lists, per-step results, its confirm prompt — printed **plain and indented
+below the box** so long paths stay copy-pasteable, and a closing `✓` (or a fail-closed
+error) ending the block. In plain (non-tty) mode the title is emitted as a content line —
+it is block structure, not decoration, so logs and test greps still see which block
+opened.
 
 `ai_tools_msg_block <title> <line...>` is the renderer for a multi-line guidance screen
 that *contains* commands (the `claude.sh` not-yet-claimed screen). It frames a titled `#`
@@ -174,7 +190,12 @@ the exit status of the operation whose outcome they report.
   Neither repeats paths: the claim/clone commands default to the current directory. The
   not-accessible screen drives an `ai_tools_msg_pick` menu — **1)** Create sandbox, **2)**
   Claim in place, **3)** Cancel (the default, so an unattended/piped run refuses safely).
-- **`ai-tools.sh`** routes `die()` and `warn()` through the error/warning emitters.
+- **`ai-tools.sh`** routes `die()` and `warn()` through the error/warning emitters, and
+  builds the `--project-claim` / `--sandbox-create` flows from `ai_tools_msg_headline`
+  blocks (Review, Secret lockdown, `.git` history, Reachability, Apply — see
+  [cli](cli.rule.md)). The flows carry **no sudo-password notices**: the first sudo prompt
+  (the secret scan) lands directly under the Secret-lockdown headline, and sudo's own
+  prompt is self-explanatory.
 - **`claude-run.sh`** routes its pre-launch refusals and the podman NOTICE.
 - **`session-hook.sh`** frames the interrupted-session `SessionStart` NOTICE (see
   [ownership-and-hooks](ownership-and-hooks.rule.md)).
@@ -222,7 +243,8 @@ list, not one box per option.
   default — and every yes/no prompt in the project renders through
   `ai_tools_msg_confirm`, so there is exactly one form.
 - **Routine progress is not framed.** Per-line status (`ok`/`say`/`section`) stays plain;
-  the box is for attention messages — errors, warnings, and notices — not every tick.
+  a box is either an attention alert (errors, warnings, notices) or a flow-block headline —
+  never a per-tick frame. Inside a headline block, results stay plain lines under the box.
 - **The wrap pins `IFS` locally.** The library is sourced into callers that set their own
   `IFS` — the claude wrapper uses `IFS=$'\n\t'` (no space). The wrap's word-splitting
   (`read -ra`, `$*`) must split on spaces regardless, so `ai_tools_msg_wrap` sets a local
