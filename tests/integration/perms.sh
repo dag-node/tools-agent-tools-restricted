@@ -69,6 +69,12 @@ check_file /usr/local/lib/ai-tools/managed-assets.lib.sh     root              r
 check_file /usr/local/lib/ai-tools/safe-paths.lib.sh         root              root              644
 check_file /usr/local/lib/ai-tools/confinement.lib.sh        root              root              644
 check_file /usr/local/lib/ai-tools/npm-verify.lib.sh         root              root              644
+# Provider/agent resolver: 644 root:root -- world-readable, sourced by ai-tools-bootstrap and
+# nvm-update (both run as the sandbox account) to read the agent manifests; carries no secrets.
+check_file /usr/local/lib/ai-tools/providers.lib.sh          root              root              644
+# Agent manifest, shipped by ai-tools-agents-claude-code-restricted (not base): 644 root:root,
+# parsed data naming the Claude npm package + launcher. Its agents.d dir is base-owned 0755.
+check_file /usr/local/lib/ai-tools/agents.d/claude-code.conf root              root              644
 # Secret-pattern config: user-owned 600. ai-tools (not owner/group, cannot enter the 700
 # .config/ai-tools dir) can neither read nor write it; root helpers read it. Optional: it is a
 # per-operator OVERRIDE -- the shared classifier falls back to its built-in defaults when the file

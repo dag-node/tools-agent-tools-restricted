@@ -182,9 +182,12 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg skip-dirs relabel secret-patterns operator control-plane safe-paths confinement npm-verify managed-assets; do
+for l in log msg skip-dirs relabel secret-patterns operator control-plane safe-paths confinement npm-verify managed-assets providers; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
+# Agent manifest directory (base owns the dir; each ai-tools-agents-* member ships its own
+# <name>.conf here). providers.lib.sh reads these to keep the toolchain layer agent-agnostic.
+install -d -m 0755 %{buildroot}%{ai_libdir}/agents.d
 # PATH dedup fragment for operator shells; ai-tools-admin wires the source line into
 # operator dotfiles, so no /etc/profile.d entry ships.
 install -m 0644 src%{ai_libdir}/path-dedup.sh %{buildroot}%{ai_libdir}/path-dedup.sh
@@ -274,6 +277,10 @@ install -m 0550 src/opt/ai-tools/bin/claude-run.sh         %{buildroot}/opt/ai-t
 install -m 0750 src/opt/ai-tools/.claude/post-tool-hook.sh %{buildroot}/opt/ai-tools/.claude/post-tool-hook.sh
 install -m 0750 src/opt/ai-tools/.claude/session-hook.sh   %{buildroot}/opt/ai-tools/.claude/session-hook.sh
 install -m 0640 src/opt/ai-tools/.claude/settings.json     %{buildroot}/opt/ai-tools/.claude/settings.json
+# The claude-code agent manifest: providers.lib.sh reads it so the toolchain layer installs the
+# Claude npm package and symlinks the claude launcher without hardcoding either (the agents.d
+# directory itself is owned by ai-tools-base).
+install -m 0644 src%{ai_libdir}/agents.d/claude-code.conf  %{buildroot}%{ai_libdir}/agents.d/claude-code.conf
 
 # ── base: ghost the operation logs so the package owns them with the right context ──
 for f in chown setgid setfacl symlink lockdown relabel handback install; do
@@ -410,6 +417,8 @@ fi
 %attr(0644, root, root) %{ai_libdir}/safe-paths.lib.sh
 %attr(0644, root, root) %{ai_libdir}/confinement.lib.sh
 %attr(0644, root, root) %{ai_libdir}/npm-verify.lib.sh
+%attr(0644, root, root) %{ai_libdir}/providers.lib.sh
+%dir %attr(0755, root, root) %{ai_libdir}/agents.d
 %attr(0644, root, root) %{ai_libdir}/path-dedup.sh
 %{_unitdir}/ai-tools-handback.socket
 %{_unitdir}/ai-tools-handback@.service
@@ -466,6 +475,7 @@ fi
 # Umbrella metapackage: no files of its own; weakly pulls the ai-tools-agents-* members.
 
 %files -n ai-tools-agents-claude-code-restricted
+%attr(0644, root, root) %{ai_libdir}/agents.d/claude-code.conf
 %attr(0755, root, root) %{ai_bindir}/claude
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/claude-run
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/post-tool-hook.sh
@@ -473,6 +483,17 @@ fi
 %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Mon Jul 27 2026 dagnode <tools@dagnode.com> - 0.8.0-1
+- The toolchain layer no longer hardcodes Claude Code: ai-tools-bootstrap and the nvm-update
+  timer now provision whichever AI agents are enabled, reading each agent's npm package and
+  launcher from a per-package manifest (/usr/local/lib/ai-tools/agents.d/<name>.conf) rather than
+  a built-in default. ai-tools-agents-claude-code-restricted ships the claude-code manifest.
+- New operator.conf key AI_TOOLS_AGENTS selects which agents to provision: absent = the baseline
+  (every installed agent marked default_enable=yes, i.e. Claude Code); present = an exact
+  allowlist. Fail-closed -- an unreadable config falls back to the baseline, and an agent named
+  but not installed is skipped with a warning. Default behavior (Claude Code provisioned) is
+  unchanged.
+
 * Sun Jul 26 2026 dagnode <tools@dagnode.com> - 0.7.0-1
 - Reorganized the package tree under two umbrellas: the Claude Code provider is now
   ai-tools-agents-claude-code-restricted (under the ai-tools-agents umbrella) and the

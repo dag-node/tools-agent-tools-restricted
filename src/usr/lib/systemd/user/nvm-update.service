@@ -19,7 +19,9 @@ Environment=HOME=%h
 Environment=NVM_DIR=%h/.nvm
 Environment=NVM_NODE_ALIAS=default
 Environment=NVM_NODE_MAJOR=22
-Environment="AI_TOOLS_GLOBAL_TOOLS=npm @anthropic-ai/claude-code"
+# AI_TOOLS_GLOBAL_TOOLS is intentionally unset: the managed tool set defaults to npm plus each
+# enabled agent's npm package, resolved from the agent manifests (providers.lib.sh), so the unit
+# carries no hardcoded agent. Set it here only to override that set for a bespoke deployment.
 
 # The updater writes its own .nvm tree as ai-tools and reaches the locked bin/ through
 # the handback socket, so the session runs with no privilege escalation.

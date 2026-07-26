@@ -471,6 +471,8 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/safe-paths.lib.sh
     _chk /usr/local/lib/ai-tools/confinement.lib.sh
     _chk /usr/local/lib/ai-tools/npm-verify.lib.sh
+    _chk /usr/local/lib/ai-tools/providers.lib.sh
+    _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
     _chk /usr/local/lib/ai-tools/control-plane.lib.sh
     _chk /usr/local/lib/ai-tools/managed-assets.lib.sh
     _chk /usr/local/lib/ai-tools/relabel.lib.sh
@@ -659,6 +661,24 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/npm-verify.lib.sh" \
         /usr/local/lib/ai-tools/npm-verify.lib.sh
+
+    # Provider/agent resolver: 644 root:root -- world-readable, sourced by ai-tools-bootstrap and
+    # nvm-update (both run as the sandbox account) to resolve which agents to provision from the
+    # manifests in agents.d. No secrets, no tokens.
+    log "/usr/local/lib/ai-tools/providers.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/providers.lib.sh" \
+        /usr/local/lib/ai-tools/providers.lib.sh
+
+    # Agent manifests: the agents.d directory (0755 root:root) plus each agent's <name>.conf
+    # (644, parsed data naming its npm package + launcher). This from-source installer deploys the
+    # full stack, so it lays down the claude-code manifest here (the RPM ships it in the agent
+    # subpackage). No secrets, no tokens.
+    log "/usr/local/lib/ai-tools/agents.d/claude-code.conf"
+    install -d -o root -g root -m 755 /usr/local/lib/ai-tools/agents.d
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/agents.d/claude-code.conf" \
+        /usr/local/lib/ai-tools/agents.d/claude-code.conf
 
     # Logger library: 644 root:root -- world-readable. Sourced by the root helpers, by
     # the hooks (run as ai-tools), and by the CLI (run as the projects user, NOT in
