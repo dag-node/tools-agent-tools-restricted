@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
 # /usr/local/sbin/ai-tools/ai-tools-bootstrap
 # Provision the sandbox account's Node toolchain: create the @SANDBOX_USER@ system account
-# and its /opt/ai-tools home (if absent), then install nvm, Node, and the agent's npm package
-# AS @SANDBOX_USER@, and point /opt/ai-tools/bin/<tool> at the freshly installed binary. This
-# is the one step that reaches the network (nvm from GitHub, packages from npm), so it is a
-# command run once by the operator -- never an RPM scriptlet, which must succeed offline and
-# inside build chroots. The scheduled nvm-update timer maintains the tree afterwards.
+# and its /opt/ai-tools home (if absent), then install nvm, Node, and the enabled agents' npm
+# packages AS @SANDBOX_USER@, and point /opt/ai-tools/bin/<launcher> at each freshly installed
+# binary. This is the one step that reaches the network (nvm from GitHub, packages from npm),
+# so it is a command run once by the operator -- never an RPM scriptlet, which must succeed
+# offline and inside build chroots. The scheduled nvm-update timer maintains the tree afterwards.
 #
-# Provider-generic: the npm package is an argument (default @anthropic-ai/claude-code), so the
-# same command serves other AI tools. The /opt/ai-tools/bin/<tool> symlink is created only for
-# a package that ships a matching launcher.
+# Agent-agnostic: it installs no hardcoded agent. Which agents to provision -- their npm package
+# and launcher name -- comes from the per-package manifests under
+# /usr/local/lib/ai-tools/agents.d, gated by operator.conf AI_TOOLS_AGENTS (providers.lib.sh).
+# With no manifests deployed yet it provisions Node alone; a re-run after an ai-tools-agents-*
+# package is installed provisions that agent.
 #
 # Idempotent: an existing account, nvm install, or Node version is reused, not rebuilt.
 #
 # Run as root (it creates a user and execs npm as @SANDBOX_USER@):
-#       sudo ai-tools-bootstrap [npm-package]
+#       sudo ai-tools-bootstrap
 # nvm defaults to its latest GitHub release (resolved at run time, so it does not rot); set
 # AI_TOOLS_NVM_VERSION=vX.Y.Z to pin it, or AI_TOOLS_NODE_MAJOR to choose the Node line.
 #
@@ -32,14 +34,6 @@ readonly NVM_DIR="${SANDBOX_HOME}/.nvm"
 # The fallback is used only when the GitHub API cannot be reached and no pin is set.
 readonly NVM_FALLBACK_VERSION="v0.40.3"
 readonly NODE_MAJOR="${AI_TOOLS_NODE_MAJOR:-22}"
-readonly PKG="${1:-@anthropic-ai/claude-code}"
-# The launcher name a package installs into the Node bin dir, symlinked at
-# /opt/ai-tools/bin/<launcher> for the wrapper to resolve. Only the Claude Code package is
-# mapped; an unknown package installs the toolchain without a bin symlink.
-case "${PKG}" in
-    @anthropic-ai/claude-code) readonly LAUNCHER="claude" ;;
-    *)                         readonly LAUNCHER="" ;;
-esac
 
 die() { printf 'ai-tools-bootstrap: error: %s\n' "$*" >&2; exit 1; }
 log() { printf 'ai-tools-bootstrap: %s\n' "$*"; }
@@ -190,16 +184,39 @@ for _sub in .nvm .cache .npm .local; do
     install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 "${SANDBOX_HOME}/${_sub}"
 done
 
-# 2. nvm + Node + the npm package, installed AS the sandbox account (network). The heredoc
-#    is single-quoted, so the variables are expanded by the inner shell from the env passed
-#    via `env`, never by this script. PROFILE=/dev/null directs nvm's installer to append its
-#    init lines to a discard sink instead of the root-owned home profile. Existing nvm/Node are
-#    reused (idempotent); all writes land within the pre-created .nvm/.npm subtrees.
-log "installing nvm ${NVM_VERSION} + Node ${NODE_MAJOR} + ${PKG} as ${SANDBOX_USER} (network)"
+# Resolve which agents to provision from the installed manifests (agents.d) gated by
+# operator.conf AI_TOOLS_AGENTS -- providers.lib.sh, the seam that keeps this toolchain step
+# agent-agnostic. Each enabled line is "name<TAB>npm_pkg<TAB>launcher"; collect the packages
+# (installed in step 2) and launchers (symlinked in step 3). The lib is control-plane, so a
+# bootstrap that PRECEDES control-plane install has none yet: Node is provisioned bare and a
+# re-run picks up the agents. Its stderr warns of an enabled-but-uninstalled agent.
+_providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
+_agent_packages=(); _agent_launchers=()
+if [[ -r "${_providers_lib}" ]]; then
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/providers.lib.sh
+    source "${_providers_lib}"
+    while IFS=$'\t' read -r _ manifest_package manifest_launcher; do
+        [[ -n "${manifest_package}" ]]  && _agent_packages+=("${manifest_package}")
+        [[ -n "${manifest_launcher}" ]] && _agent_launchers+=("${manifest_launcher}")
+    done < <(ai_tools_enabled_agents)
+else
+    log "providers lib not deployed yet -- provisioning Node only; re-run after the control plane and an ai-tools-agents-* package are installed to provision agents"
+fi
+
+# 2. nvm + Node + the enabled agents' npm packages, installed AS the sandbox account (network).
+#    The heredoc is single-quoted, so the variables are expanded by the inner shell from the env
+#    passed via `env`, never by this script. PROFILE=/dev/null directs nvm's installer to append
+#    its init lines to a discard sink instead of the root-owned home profile. Existing nvm/Node
+#    are reused (idempotent); all writes land within the pre-created .nvm/.npm subtrees.
+if [[ ${#_agent_packages[@]} -gt 0 ]]; then
+    log "installing nvm ${NVM_VERSION} + Node ${NODE_MAJOR} + ${_agent_packages[*]} as ${SANDBOX_USER} (network)"
+else
+    log "installing nvm ${NVM_VERSION} + Node ${NODE_MAJOR} (no agents enabled) as ${SANDBOX_USER} (network)"
+fi
 sudo -u "${SANDBOX_USER}" env \
     NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" PROFILE=/dev/null \
     NVM_VERSION="${NVM_VERSION}" NODE_MAJOR="${NODE_MAJOR}" \
-    PKG="${PKG}" \
+    AGENT_PACKAGES="${_agent_packages[*]}" \
     bash -s <<'EOSU'
 set -euo pipefail
 if [ ! -s "${NVM_DIR}/nvm.sh" ]; then
@@ -209,13 +226,20 @@ fi
 . "${NVM_DIR}/nvm.sh"
 nvm install "${NODE_MAJOR}"
 nvm alias default "${NODE_MAJOR}"
-# npm 11.5+ gates preinstall/install/postinstall behind an allowScripts allowlist, so a
-# bare `npm install -g` BLOCKS the package's postinstall. @anthropic-ai/claude-code fetches
-# and wires its platform-native binary in that postinstall (node install.cjs); blocked, the
-# JS launcher installs but exits "native binary not installed" at every launch. Approve the
-# script per invocation, scoped to the one package being installed (nvm-update.sh keeps the
-# whole managed set current the same way) -- never --dangerously-allow-all-scripts.
-npm install -g --allow-scripts="${PKG}" "${PKG}"
+# Install each enabled agent's npm package. npm 11.5+ gates preinstall/install/postinstall
+# behind an allowScripts allowlist, so a bare `npm install -g` BLOCKS the postinstall --
+# @anthropic-ai/claude-code fetches and wires its platform-native binary there (node
+# install.cjs); blocked, the JS launcher installs but exits "native binary not installed" at
+# every launch. npm re-scans the WHOLE global tree on each install, so the allowlist must cover
+# the full set on every call (mirrors nvm-update.sh's install_packages) -- scoped to our named
+# agents, never --dangerously-allow-all-scripts. With no agents enabled, Node is provisioned bare.
+read -ra agent_packages <<< "${AGENT_PACKAGES}"
+if [ "${#agent_packages[@]}" -gt 0 ]; then
+    allow_scripts="$(IFS=,; printf '%s' "${agent_packages[*]}")"
+    for agent_package in "${agent_packages[@]}"; do
+        npm install -g --allow-scripts="${allow_scripts}" "${agent_package}"
+    done
+fi
 EOSU
 
 # 2b. Verify the installed toolchain's npm registry signatures BEFORE wiring the launcher, so a
@@ -247,20 +271,22 @@ else
     log "warn: signature-verification library not deployed yet -- skipping the check; the nvm-update timer verifies on its first run"
 fi
 
-# 3. Point /opt/ai-tools/bin/<launcher> at the versioned binary, for a package whose launcher
-#    is known and present. Runs as root: the agent cannot create top-level entries in the home
-#    root. bin is the locked control-plane dir (0551 root:ai-tools); root writes the symlink
-#    here, and install.sh / the RPM repoint it through the root symlink helper afterwards.
+# 3. Point /opt/ai-tools/bin/<launcher> at the versioned binary, once per enabled agent whose
+#    launcher is present. Runs as root: the agent cannot create top-level entries in the home
+#    root. bin is the locked control-plane dir (0551 root:ai-tools); root writes the symlinks
+#    here, and install.sh / the RPM repoint them through the root symlink helper afterwards.
 #    Agent runtime state needs no seeding: claude-run pins CLAUDE_CONFIG_DIR to the
 #    group-writable .claude dir, where claude creates its own state files (.claude.json
 #    included).
-if [[ -n "${LAUNCHER}" ]]; then
-    _ver="$(sudo -u "${SANDBOX_USER}" env NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" \
+if [[ ${#_agent_launchers[@]} -gt 0 ]]; then
+    _node_version="$(sudo -u "${SANDBOX_USER}" env NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" \
             bash -c '. "${NVM_DIR}/nvm.sh"; nvm version default' 2>/dev/null || true)"
-    _bin="${NVM_DIR}/versions/node/${_ver}/bin/${LAUNCHER}"
-    if [[ -n "${_ver}" && -x "${_bin}" ]]; then
+    if [[ -n "${_node_version}" ]]; then
         install -d -o root -g "${SANDBOX_GROUP}" -m 0551 "${SANDBOX_HOME}/bin"
-        ln -sfn "${_bin}" "${SANDBOX_HOME}/bin/${LAUNCHER}"
+        for _launcher in "${_agent_launchers[@]}"; do
+            _launcher_bin="${NVM_DIR}/versions/node/${_node_version}/bin/${_launcher}"
+            [[ -x "${_launcher_bin}" ]] && ln -sfn "${_launcher_bin}" "${SANDBOX_HOME}/bin/${_launcher}"
+        done
     fi
 fi
 

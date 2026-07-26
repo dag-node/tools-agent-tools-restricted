@@ -8,8 +8,9 @@
 # Configuration via the unit's Environment= directives:
 #   NVM_NODE_ALIAS           nvm alias to track            (default: default)
 #   NVM_NODE_MAJOR           major series to track for LTS (default: 22)
-#   AI_TOOLS_GLOBAL_TOOLS    space-separated sandbox packages
-#                            (default: npm @anthropic-ai/claude-code)
+#   AI_TOOLS_GLOBAL_TOOLS    space-separated sandbox packages; overrides the default set
+#                            (npm plus each enabled agent's npm package, resolved from the
+#                            agent manifests via providers.lib.sh -- see main)
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -174,8 +175,29 @@ main() {
 
     nvm use "${node_alias}"
 
+    # The managed tool set: an explicit AI_TOOLS_GLOBAL_TOOLS (unit Environment= or manual)
+    # overrides; otherwise npm (self-update) plus each enabled agent's npm package, resolved from
+    # the agent manifests via providers.lib.sh -- the same seam ai-tools-bootstrap uses, so the
+    # updater carries no hardcoded agent. A missing lib (a broken install, root-owned so not agent
+    # action) degrades to npm alone: existing agents keep working, they are simply not refreshed
+    # this run.
     local -a tools
-    IFS=' ' read -ra tools <<< "${AI_TOOLS_GLOBAL_TOOLS:-npm @anthropic-ai/claude-code}"
+    if [[ -n "${AI_TOOLS_GLOBAL_TOOLS:-}" ]]; then
+        IFS=' ' read -ra tools <<< "${AI_TOOLS_GLOBAL_TOOLS}"
+    else
+        tools=(npm)
+        local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
+        if [[ -r "${providers_lib}" ]]; then
+            # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/providers.lib.sh
+            source "${providers_lib}"
+            local manifest_package
+            while IFS=$'\t' read -r _ manifest_package _; do
+                [[ -n "${manifest_package}" ]] && tools+=("${manifest_package}")
+            done < <(ai_tools_enabled_agents)
+        else
+            warn "providers lib not deployed (${providers_lib}) -- updating npm only; enabled agents are unrefreshed this run"
+        fi
+    fi
     # The full managed set is the allow-scripts allowlist -- npm re-scans the whole
     # global tree on every install, so each call must cover all of them (see install_packages).
     local allow_csv; allow_csv="$(IFS=,; printf '%s' "${tools[*]}")"
@@ -189,21 +211,28 @@ main() {
 
     prune_versions "${node_alias}"
 
-    # Refresh the stable symlink that claude-wrapper resolves with one readlink hop.
-    # /opt/ai-tools/bin is locked 0551 (root:ai-tools) so this process -- running as
-    # ai-tools -- cannot write it directly; delegate the repoint to the root helper
-    # via the handback socket bridge (sudo fails under NNP, which the session service
-    # always runs under due to RestrictNamespaces=yes forcing PR_SET_NO_NEW_PRIVS).
+    # Refresh the stable symlink the wrapper resolves with one readlink hop. This stays
+    # claude-specific: claude is the only launcher the wrapper and the ai-tools-claude-symlink
+    # helper (which validates a .../bin/claude path) support today, so per-agent launcher repoints
+    # travel with a second agent and that helper's generalization. Skip cleanly when claude is not
+    # installed (e.g. an operator who dropped it from AI_TOOLS_AGENTS) rather than failing the run.
+    # /opt/ai-tools/bin is locked 0551 (root:ai-tools) so this process -- running as ai-tools --
+    # cannot write it directly; delegate the repoint to the root helper via the handback socket
+    # bridge (sudo fails under NNP, which the session service always runs under due to
+    # RestrictNamespaces=yes forcing PR_SET_NO_NEW_PRIVS).
     local versioned_claude="${nvm_dir}/versions/node/${target_version}/bin/claude"
-    [[ -x "${versioned_claude}" ]] || die "claude binary not found at ${versioned_claude}"
-    # Repoint (and, via the ai-tools-relabel.path watcher the touched symlink drives,
-    # relabel) is best-effort, NOT fatal: this warns rather than dying. A manual/out-of-band
-    # run (this script's documented use) executes outside a session, where the handback
-    # socket may be down -- and the toolchain is already installed by this point, so aborting
-    # here would strand a completed update over a symlink the operator can repoint by hand.
-    # The scheduled timer run has the socket up and repoints normally.
-    if ! /usr/local/bin/ai-tools-handback-client SYMLINK "${versioned_claude}"; then
-        warn "failed to repoint ${AI_TOOLS_BIN}/claude via handback SYMLINK -- the toolchain is updated but the stable symlink may be stale; repoint it as root: ln -sfn ${versioned_claude} ${AI_TOOLS_BIN}/claude && ai-tools --relabel"
+    if [[ -x "${versioned_claude}" ]]; then
+        # Repoint (and, via the ai-tools-relabel.path watcher the touched symlink drives,
+        # relabel) is best-effort, NOT fatal: this warns rather than dying. A manual/out-of-band
+        # run (this script's documented use) executes outside a session, where the handback
+        # socket may be down -- and the toolchain is already installed by this point, so aborting
+        # here would strand a completed update over a symlink the operator can repoint by hand.
+        # The scheduled timer run has the socket up and repoints normally.
+        if ! /usr/local/bin/ai-tools-handback-client SYMLINK "${versioned_claude}"; then
+            warn "failed to repoint ${AI_TOOLS_BIN}/claude via handback SYMLINK -- the toolchain is updated but the stable symlink may be stale; repoint it as root: ln -sfn ${versioned_claude} ${AI_TOOLS_BIN}/claude && ai-tools --relabel"
+        fi
+    else
+        log "claude not installed in ${target_version} -- skipping the stable-symlink repoint"
     fi
 
     log "Done. Active: $(nvm version "${node_alias}")"

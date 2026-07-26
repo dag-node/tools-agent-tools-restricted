@@ -13,16 +13,19 @@ paths:
 
 # Node/claude updater and symlink repoint
 
-A scheduled `nvm-update` job keeps Node.js and `@anthropic-ai/claude-code` current under
-`/opt/ai-tools`. After an upgrade the versioned `claude` symlink is repointed through a
-root helper and the new entrypoint is relabelled for the SELinux transition.
+A scheduled `nvm-update` job keeps Node.js and the enabled agents' npm packages current under
+`/opt/ai-tools`. Which agents — their npm package and launcher — is resolved from the
+per-package manifests, not hardcoded; see [providers](providers.rule.md). After an upgrade the
+versioned `claude` symlink is repointed through a root helper and the new entrypoint is
+relabelled for the SELinux transition.
 
 ## Toolchain provisioning (`ai-tools-bootstrap`)
 
 `ai-tools-bootstrap` provisions the toolchain the updater then maintains: run once as root,
 it creates the `SANDBOX_USER` account and its `/opt/ai-tools` home if absent, installs nvm,
-Node (`AI_TOOLS_NODE_MAJOR`, default 22), and the agent's npm package as `SANDBOX_USER`,
-points `/opt/ai-tools/bin/<launcher>` at the versioned binary, relabels the freshly
+Node (`AI_TOOLS_NODE_MAJOR`, default 22), and each enabled agent's npm package as `SANDBOX_USER`
+(the enabled set resolved via [providers](providers.rule.md)), points
+`/opt/ai-tools/bin/<launcher>` at each versioned binary, relabels the freshly
 installed entrypoint (`ai-tools-relabel-entrypoint`, gated on that helper being deployed, so
 the first launch after a fresh provision is confined without a manual `ai-tools --relabel`),
 and captures the initial control plane in a root-private git repo. It is the one network
