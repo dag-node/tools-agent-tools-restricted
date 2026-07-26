@@ -13,7 +13,7 @@ serious class of bug this project can have, and reports of one are taken accordi
 - Alternative: email **tools@dagnode.com** with subject prefix `[SECURITY]`.
 
 Include what you can: EL version, `getenforce` output, installed package versions
-(`rpm -q ai-tools-base ai-tools-nodejs claude-code-restricted`), reproduction steps,
+(`rpm -q ai-tools-base ai-tools-integration-nodejs ai-tools-agents-claude-code-restricted`), reproduction steps,
 and your assessment of impact. A proof of concept helps but is not required.
 
 This is currently a single-maintainer project. Reports are acknowledged within

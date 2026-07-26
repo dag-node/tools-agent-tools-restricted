@@ -28,7 +28,7 @@ body:
       value: |
         - EL release (`cat /etc/os-release | grep -E '^(NAME|VERSION)='`):
         - `getenforce`:
-        - `rpm -q ai-tools-base ai-tools-nodejs claude-code-restricted` (or `install.sh` from-source):
+        - `rpm -q ai-tools-base ai-tools-integration-nodejs ai-tools-agents-claude-code-restricted` (or `install.sh` from-source):
       render: markdown
     validations:
       required: true

@@ -62,10 +62,12 @@ COPY packaging                /opt/ai-tools-src/packaging
 COPY README.md                /opt/ai-tools-src/README.md
 WORKDIR /opt/ai-tools-src
 
-# Build the four RPMs from the tree, publish them as a local repo, and install the METAPACKAGE
-# only -- dnf pulls ai-tools-base / -nodejs / claude-code-restricted via Requires, proving the
-# dependency graph (the verbose transaction table is the evidence). Then enable the units that
-# must be live at boot for the selftest (preset policy may leave them off in a minimal image).
+# Build the six RPMs from the tree, publish them as a local repo, and install the METAPACKAGE
+# only -- dnf pulls ai-tools-base (hard Requires) plus the ai-tools-agents / ai-tools-integration
+# umbrellas and their members (weak Recommends), proving the dependency graph (the verbose
+# transaction table is the evidence). install_weak_deps is forced on so the pull is deterministic
+# regardless of the base image's dnf config. Then enable the units that must be live at boot for
+# the selftest (preset policy may leave them off in a minimal image).
 RUN set -eux; \
     rm -rf packaging/rpmbuild packaging/*.tar.gz; \
     make -C packaging rpm RPM_RELEASE="${RPM_RELEASE}"; \
@@ -74,8 +76,9 @@ RUN set -eux; \
     createrepo_c /tmp/ai-repo; \
     printf '[ai-tools-local]\nname=ai-tools-local\nbaseurl=file:///tmp/ai-repo\nenabled=1\ngpgcheck=0\n' \
         > /etc/yum.repos.d/ai-tools-local.repo; \
-    dnf -y -v install ai-tools; \
-    rpm -q ai-tools ai-tools-base ai-tools-nodejs claude-code-restricted; \
+    dnf -y -v --setopt=install_weak_deps=True install ai-tools; \
+    rpm -q ai-tools ai-tools-base ai-tools-integration ai-tools-integration-nodejs \
+          ai-tools-agents ai-tools-agents-claude-code-restricted; \
     systemctl enable ai-tools-handback.socket
 
 # A non-root login user to enrol as the operator. The NOPASSWD drop-in is TEST-ONLY: it lets
