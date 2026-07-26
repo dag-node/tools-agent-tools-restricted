@@ -24,7 +24,7 @@ jobs:
   shellcheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # Pin the version the repo's lint baseline is defined against
       # (.claude/rules/shellcheck.rule.md pins 0.10); ubuntu-latest's apt ships 0.9,
@@ -66,7 +66,7 @@ jobs:
       matrix:
         el: ["9", "10"]
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install podman
         run: sudo apt-get update && sudo apt-get install -y podman
@@ -113,7 +113,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # Tag-only: a rehearsal has no version identity. check-version.sh relaxes the %changelog
       # match for -rc.N tags; recovery for a mismatch is fix VERSION/%changelog and re-tag.
