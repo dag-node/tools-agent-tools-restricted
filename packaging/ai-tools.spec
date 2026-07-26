@@ -37,17 +37,21 @@ BuildRequires:  systemd-rpm-macros
 %global ai_mandir  /usr/local/share/man
 %global ai_libdir  /usr/local/lib/ai-tools
 
-# Metapackage: pulls the whole stack. The real content is in the subpackages below.
+# Metapackage: pulls the whole stack. ai-tools-base is the mandatory foundation; the
+# ai-tools-agents and ai-tools-integration umbrellas are weak (Recommends), so a default
+# dnf install pulls them while `--setopt=install_weak_deps=0` yields base alone. The real
+# content is in the subpackages below.
 Requires:       ai-tools-base = %{version}-%{release}
-Requires:       ai-tools-nodejs = %{version}-%{release}
-Requires:       claude-code-restricted = %{version}-%{release}
+Recommends:     ai-tools-agents = %{version}-%{release}
+Recommends:     ai-tools-integration = %{version}-%{release}
 
 %description
 Run Anthropic's Claude Code (and other npm-packaged AI tools) as a dedicated,
 locked-down system user instead of your own login account. This metapackage
 installs the full stack: the ai-tools-base sandbox account and ownership
-machinery, ai-tools-nodejs toolchain management, and the claude-code-restricted
-provider layer.
+machinery, the ai-tools-integration toolchain layer (nvm-managed Node and other
+host-toolchain integrations), and the ai-tools-agents provider layer (Claude
+Code). Both umbrellas are weakly pulled, so an install can drop either.
 
 # ─────────────────────────────────────────────────────────────────────────────
 %package -n ai-tools-base
@@ -69,14 +73,28 @@ the handback privilege-bridge socket, and the base SELinux confinement domain.
 Other AI-tool packages build on this layer.
 
 # ─────────────────────────────────────────────────────────────────────────────
-%package -n ai-tools-nodejs
+# ai-tools-integration umbrella: the host-toolchain integration layers the sandboxed agent
+# builds against (nvm-managed Node today; language/runtime integrations as
+# ai-tools-integration-* siblings). A thin metapackage that weakly pulls its members, so an
+# integration a host cannot use, or an operator does not want, drops without breaking the stack.
+%package -n ai-tools-integration
+Summary:        Umbrella for the ai-tools sandbox toolchain/runtime integrations (metapackage)
+Recommends:     ai-tools-integration-nodejs = %{version}-%{release}
+
+%description -n ai-tools-integration
+Metapackage grouping the ai-tools-integration-* toolchain layers the sandboxed agent builds
+against. Members are weakly pulled, so a host without a given toolchain, or an operator who
+does not want it, installs the umbrella without that member.
+
+# ─────────────────────────────────────────────────────────────────────────────
+%package -n ai-tools-integration-nodejs
 Summary:        nvm-managed Node toolchain and updater for the ai-tools sandbox
 Requires:       ai-tools-base = %{version}-%{release}
 Requires:       curl
 Requires:       tar
 Requires:       gzip
 
-%description -n ai-tools-nodejs
+%description -n ai-tools-integration-nodejs
 Manages the sandbox account's private nvm-managed Node toolchain: the bootstrap
 command that installs nvm/Node/the agent package, the scheduled version updater,
 and the symlink-repoint and post-upgrade entrypoint-relabel helpers. Node itself
@@ -84,15 +102,29 @@ is nvm-managed under /opt/ai-tools, not an RPM dependency, so the agent can
 self-update it within the SELinux policy.
 
 # ─────────────────────────────────────────────────────────────────────────────
-%package -n claude-code-restricted
-Summary:        Claude Code launch wrapper, confinement shim, and hooks for the ai-tools sandbox
-Requires:       ai-tools-nodejs = %{version}-%{release}
+# ai-tools-agents umbrella: the AI coding agents that run confined in the sandbox. A thin
+# metapackage that weakly pulls its members (Claude Code today; other providers as
+# ai-tools-agents-* siblings on the same base and integration layers).
+%package -n ai-tools-agents
+Summary:        Umbrella for the sandboxed AI coding agents (metapackage)
+Recommends:     ai-tools-agents-claude-code-restricted = %{version}-%{release}
 
-%description -n claude-code-restricted
+%description -n ai-tools-agents
+Metapackage grouping the ai-tools-agents-* provider layers -- the AI coding agents that run
+confined in the sandbox. Members are weakly pulled, so an operator installs the umbrella and
+drops any agent they do not use.
+
+# ─────────────────────────────────────────────────────────────────────────────
+%package -n ai-tools-agents-claude-code-restricted
+Summary:        Claude Code launch wrapper, confinement shim, and hooks for the ai-tools sandbox
+Requires:       ai-tools-integration-nodejs = %{version}-%{release}
+
+%description -n ai-tools-agents-claude-code-restricted
 The Claude Code provider layer: the confinement service shim (claude-run) that
 wraps each session in a transient systemd unit, the Claude Code hooks that drive
-ownership handback and secret quarantine, and the session settings. A future
-provider package would sit beside this one on the same base and nodejs layers.
+ownership handback and secret quarantine, and the session settings. A sibling
+ai-tools-agents-* provider would sit beside this one on the same base and
+integration layers.
 
 %prep
 %autosetup
@@ -126,8 +158,8 @@ install -m 0750 src%{ai_sbindir}/ai-tools-handback.py %{buildroot}%{ai_sbindir}/
 # base helper that is not daemon- or sudoers-invoked by fixed path, so it gets a symlink in
 # %{_sbindir}: sudo resolves a bare command against the sudoers secure_path, which on stock
 # EL is /sbin:/bin:/usr/sbin:/usr/bin and does NOT include /usr/local/sbin. The target keeps
-# its canonical %{ai_sbindir} path. ai-tools-bootstrap gets the same treatment in the nodejs
-# subpackage.
+# its canonical %{ai_sbindir} path. ai-tools-bootstrap gets the same treatment in the
+# ai-tools-integration-nodejs subpackage.
 install -d -m 0755 %{buildroot}%{_sbindir}
 ln -s %{ai_sbindir}/ai-tools-admin %{buildroot}%{_sbindir}/ai-tools-admin
 
@@ -212,7 +244,7 @@ cp -rT src/opt/ai-tools/.claude/skills %{buildroot}%{_datadir}/ai-tools/skills
 find %{buildroot}%{_datadir}/ai-tools/agents %{buildroot}%{_datadir}/ai-tools/skills -type d -exec chmod 0755 {} +
 find %{buildroot}%{_datadir}/ai-tools/agents %{buildroot}%{_datadir}/ai-tools/skills -type f -exec chmod 0644 {} +
 
-# ── nodejs: toolchain helpers + updater ──────────────────────────────────────
+# ── integration-nodejs: toolchain helpers + updater ──────────────────────────
 for h in ai-tools-claude-symlink ai-tools-relabel-entrypoint ai-tools-bootstrap; do
     install -m 0750 src%{ai_sbindir}/${h}.sh %{buildroot}%{ai_sbindir}/${h}
 done
@@ -222,7 +254,7 @@ done
 ln -s %{ai_sbindir}/ai-tools-bootstrap %{buildroot}%{_sbindir}/ai-tools-bootstrap
 install -m 0550 src/opt/ai-tools/bin/nvm-update.sh %{buildroot}/opt/ai-tools/bin/nvm-update.sh
 
-# ── nodejs: toolchain update units + post-upgrade relabel watcher ─────────────
+# ── integration-nodejs: toolchain update units + post-upgrade relabel watcher ─
 # The update service+timer run in the sandbox account's own systemd --user instance
 # (%{_userunitdir}); the relabel .path watches the bin/claude symlink and triggers the
 # root-side .service (restorecon to ai_tools_exec_t) after a Node bump.
@@ -232,7 +264,7 @@ install -m 0644 src%{_userunitdir}/nvm-update.timer     %{buildroot}%{_userunitd
 install -m 0644 src%{_unitdir}/ai-tools-relabel.path    %{buildroot}%{_unitdir}/ai-tools-relabel.path
 install -m 0644 src%{_unitdir}/ai-tools-relabel.service %{buildroot}%{_unitdir}/ai-tools-relabel.service
 
-# ── claude: launch wrapper + confinement shim + hooks + settings ──────────────
+# ── agents-claude: launch wrapper + confinement shim + hooks + settings ───────
 # The wrapper ships root:root 0755 in /usr/local/bin (Tier 1 in path-dedup.sh, wired into
 # operator dotfiles by ai-tools-admin, so it shadows the nvm-managed claude on every
 # operator's PATH); it runs as the invoking operator, gates on ai-ops membership, then drops
@@ -331,16 +363,16 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
     semodule -n -r ai_tools >/dev/null 2>&1 || :
 fi
 
-%post -n ai-tools-nodejs
+%post -n ai-tools-integration-nodejs
 # Enable the root-side relabel watcher (system unit). The nvm-update.timer is a --user unit
 # enabled in the sandbox account's own instance by ai-tools-bootstrap, which is where that
 # instance is brought up with linger -- a scriptlet cannot reliably reach it.
 %systemd_post ai-tools-relabel.path
 
-%preun -n ai-tools-nodejs
+%preun -n ai-tools-integration-nodejs
 %systemd_preun ai-tools-relabel.path
 
-%postun -n ai-tools-nodejs
+%postun -n ai-tools-integration-nodejs
 %systemd_postun_with_restart ai-tools-relabel.path
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -416,7 +448,10 @@ fi
 %{_datadir}/ai-tools/agents
 %{_datadir}/ai-tools/skills
 
-%files -n ai-tools-nodejs
+%files -n ai-tools-integration
+# Umbrella metapackage: no files of its own; weakly pulls the ai-tools-integration-* members.
+
+%files -n ai-tools-integration-nodejs
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-claude-symlink
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-relabel-entrypoint
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-bootstrap
@@ -427,7 +462,10 @@ fi
 %{_unitdir}/ai-tools-relabel.path
 %{_unitdir}/ai-tools-relabel.service
 
-%files -n claude-code-restricted
+%files -n ai-tools-agents
+# Umbrella metapackage: no files of its own; weakly pulls the ai-tools-agents-* members.
+
+%files -n ai-tools-agents-claude-code-restricted
 %attr(0755, root, root) %{ai_bindir}/claude
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/claude-run
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/post-tool-hook.sh
@@ -435,6 +473,16 @@ fi
 %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Sun Jul 26 2026 dagnode <tools@dagnode.com> - 0.7.0-1
+- Reorganized the package tree under two umbrellas: the Claude Code provider is now
+  ai-tools-agents-claude-code-restricted (under the ai-tools-agents umbrella) and the
+  nvm-managed Node toolchain is now ai-tools-integration-nodejs (under ai-tools-integration).
+  The ai-tools metapackage weakly Recommends both umbrellas, so an install can drop either.
+  No functional change to the sandbox, confinement, CLI, or bootstrap.
+- Upgrade requires a reinstall: the renamed packages carry no compatibility Provides, so remove
+  the old claude-code-restricted and ai-tools-nodejs and install the new names (reinstalling the
+  ai-tools metapackage pulls them via the umbrellas).
+
 * Sun Jul 19 2026 dagnode <tools@dagnode.com> - 0.6.4-1
 - Secret lockdown now precedes every access-widening step: a re-claim that only adds the
   group ACL, .git normalization, or the SELinux label scans first, and --sandbox-create

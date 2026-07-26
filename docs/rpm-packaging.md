@@ -7,38 +7,50 @@ contract the spec file and the `src/` reorganization satisfy.
 
 ## Package set
 
-One source package (`ai-tools`) builds three subpackages, layered by dependency:
+One source package (`ai-tools`) builds six subpackages: the base foundation, two
+umbrella metapackages (`ai-tools-agents`, `ai-tools-integration`), and their members,
+layered by dependency:
 
 ```
 ai-tools.spec  (one source RPM, BuildArch: noarch)
- ├─ ai-tools-base            the provider-agnostic umbrella
- ├─ ai-tools-nodejs          Requires: ai-tools-base = %{version}-%{release}
- └─ claude-code-restricted   Requires: ai-tools-nodejs = %{version}-%{release}
+ ├─ ai-tools                    Requires: ai-tools-base; Recommends: both umbrellas
+ ├─ ai-tools-base               the provider-agnostic foundation
+ ├─ ai-tools-integration        Recommends: ai-tools-integration-nodejs
+ │   └─ ai-tools-integration-nodejs               Requires: ai-tools-base
+ └─ ai-tools-agents             Recommends: ai-tools-agents-claude-code-restricted
+     └─ ai-tools-agents-claude-code-restricted    Requires: ai-tools-integration-nodejs
 ```
 
 `ai-tools-base` carries the sandbox account, the project-management workflow, and
 the ownership/secret machinery — everything independent of which AI tool runs in
-the sandbox. `ai-tools-nodejs` adds nvm-managed Node and the auto-update timer.
-`claude-code-restricted` is the Claude Code provider layer. A future provider
-package (`ai-tools-<provider>`) is a sibling of `claude-code-restricted`,
-depending on the same base and nodejs layers, so the base is shared rather than
-duplicated.
+the sandbox. The `ai-tools-integration` umbrella groups the host-toolchain layers the
+agent builds against: `ai-tools-integration-nodejs` adds nvm-managed Node and the
+auto-update timer, and language/runtime integrations join as `ai-tools-integration-*`
+siblings. The `ai-tools-agents` umbrella groups the sandboxed agents:
+`ai-tools-agents-claude-code-restricted` is the Claude Code provider layer, and other
+providers join as `ai-tools-agents-*` siblings on the same base and integration layers,
+so the base is shared rather than duplicated.
 
-Inter-subpackage `Requires` pin the exact `%{version}-%{release}`, so the three
-move as a unit and a partial upgrade cannot mix layers.
+The `ai-tools` metapackage `Requires` the base (the mandatory foundation) and weakly
+`Recommends` both umbrellas, each of which weakly `Recommends` its members — so a default
+`dnf install ai-tools` pulls the whole stack while `--setopt=install_weak_deps=0` yields
+base alone, and an operator can drop an umbrella or a single member. The umbrellas own no
+files. The member→base and member→integration `Requires` pin the exact
+`%{version}-%{release}`, so a member and the layers it hard-depends on move as a unit and a
+partial upgrade cannot mix layers.
 
 ## Boundaries
 
 | Subpackage | Owns |
 |---|---|
 | `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home (its default-deny `.gitignore` git guard and `.gitconfig` identity, both `%post`-seeded-if-missing and not rpm-owned, so an erase preserves them) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `secret-patterns` template; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `skip-dirs.lib.sh`, `safe-paths.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`; the base SELinux domain (`ai_tools_t` and the handback/helper types) |
-| `ai-tools-nodejs` | nvm under `/opt/ai-tools/.nvm`; the per-sandbox-user Node-version auto-update service and timer; `ai-tools-bootstrap`; the symlink-repoint helper (`ai-tools-claude-symlink`) and the post-upgrade entrypoint relabel (`ai-tools-relabel-entrypoint`) |
-| `claude-code-restricted` | the `claude` wrapper and `claude-run`; `/opt/ai-tools/bin/claude`; the Claude Code hooks (`post-tool-hook.sh`, `session-hook.sh`) and `settings.json`; the SELinux `ai_tools_exec_t` entrypoint file-context for `claude.exe` |
+| `ai-tools-integration-nodejs` | nvm under `/opt/ai-tools/.nvm`; the per-sandbox-user Node-version auto-update service and timer; `ai-tools-bootstrap`; the symlink-repoint helper (`ai-tools-claude-symlink`) and the post-upgrade entrypoint relabel (`ai-tools-relabel-entrypoint`) |
+| `ai-tools-agents-claude-code-restricted` | the `claude` wrapper and `claude-run`; `/opt/ai-tools/bin/claude`; the Claude Code hooks (`post-tool-hook.sh`, `session-hook.sh`) and `settings.json`; the SELinux `ai_tools_exec_t` entrypoint file-context for `claude.exe` |
 
 The handback daemon is a verb dispatcher over a helper table; the generic verbs
 (`CHOWN`, `SETGID`, `SETFACL`) and the daemon live in the base, while the
 node/provider-specific verb path (`SYMLINK`, repointing the provider binary)
-lives in `ai-tools-nodejs`. The SELinux core domain confines whichever entrypoint
+lives in `ai-tools-integration-nodejs`. The SELinux core domain confines whichever entrypoint
 the sandbox user execs; the base ships the domain and helper types, and the
 provider package supplies the `.fc` rule that labels its own entrypoint
 `ai_tools_exec_t`, so a second provider relabels its binary into the same domain
@@ -111,7 +123,7 @@ ordered `sudo ai-tools-bootstrap` then `sudo ai-tools-admin operator add <user>`
 ## Bootstrap
 
 `ai-tools-bootstrap [npm-package]` (`/usr/local/sbin/ai-tools/ai-tools-bootstrap`,
-root, run via `sudo`; shipped by `ai-tools-nodejs`) creates the `ai-tools` system
+root, run via `sudo`; shipped by `ai-tools-integration-nodejs`) creates the `ai-tools` system
 account and its `/opt/ai-tools` home when absent, then installs nvm, Node, and the
 agent's npm package under `/opt/ai-tools` as the sandbox account, and points
 `/opt/ai-tools/bin/<launcher>` at the versioned binary. It defaults to the Claude
@@ -160,12 +172,12 @@ nvm-update timer maintains the tree from then on.
   final erase (`$1 == 0`) removes the SELinux core module and re-applies default
   contexts.
 
-`ai-tools-nodejs`: `%post`/`%preun`/`%postun` manage the system `ai-tools-relabel.path`
+`ai-tools-integration-nodejs`: `%post`/`%preun`/`%postun` manage the system `ai-tools-relabel.path`
 watcher with the systemd macros. The `nvm-update` service and timer ship in
 `%{_userunitdir}` (`/usr/lib/systemd/user/`); `ai-tools-bootstrap` enables the timer in
 `ai-tools`'s own `--user` instance once it has provisioned the toolchain.
 
-`claude-code-restricted`: `%post` applies the entrypoint file-context and, when
+`ai-tools-agents-claude-code-restricted`: `%post` applies the entrypoint file-context and, when
 SELinux is enabled, relabels `/opt/ai-tools/bin`; no service of its own.
 
 The `nvm-update` user units ship in `%{_userunitdir}`, so RPM owns them and one shipped
@@ -238,7 +250,7 @@ upgrades cleanly to the final via ordinary `dnf`.
 
 Runtime dependencies: `ai-tools-base` requires `systemd`, `sudo`, `acl`,
 `python3`, `coreutils`, and `policycoreutils` (for `restorecon`/`semodule`);
-`ai-tools-nodejs` adds `curl`, `tar`, and `gzip` for bootstrap. Node is not an RPM
+`ai-tools-integration-nodejs` adds `curl`, `tar`, and `gzip` for bootstrap. Node is not an RPM
 dependency — it is nvm-managed under `/opt/ai-tools` so the agent can self-update
 it within the policy the SELinux module enforces.
 

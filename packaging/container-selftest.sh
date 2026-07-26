@@ -58,16 +58,18 @@ as_operator() { runuser -l "${OPERATOR}" -c "$*"; }
 banner "Environment"
 set -x
 grep -E '^(NAME|VERSION)=' /etc/os-release || true
-rpm -q ai-tools ai-tools-base ai-tools-nodejs claude-code-restricted || true
+rpm -q ai-tools ai-tools-base ai-tools-integration ai-tools-integration-nodejs \
+       ai-tools-agents ai-tools-agents-claude-code-restricted || true
 getenforce || echo "getenforce: unavailable (no SELinux in container -> DAC-only test)"
 id "${OPERATOR}"
 systemctl is-system-running || true
 set +x
 
 # ── installed-artifact + dependency checks ───────────────────────────────────
-# The metapackage's job is to pull the three subpackages; prove all four are present.
-phase "Metapackage pulled the three subpackages" \
-    bash -c 'rpm -q ai-tools-base ai-tools-nodejs claude-code-restricted >/dev/null'
+# The metapackage's job is to pull the base plus the agents/integration umbrellas and their
+# members; prove all five subpackages are present.
+phase "Metapackage pulled the umbrellas and members" \
+    bash -c 'rpm -q ai-tools-base ai-tools-integration ai-tools-integration-nodejs ai-tools-agents ai-tools-agents-claude-code-restricted >/dev/null'
 
 phase "Handback socket is active (system instance up)" \
     systemctl is-active --quiet ai-tools-handback.socket

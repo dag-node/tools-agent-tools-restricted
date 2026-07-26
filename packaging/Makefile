@@ -1,6 +1,6 @@
 # Build the ai-tools source tarball and RPMs. Run from this directory (packaging/).
 #   make dist            build the source tarball from the working tree
-#   make rpm             build the binary subpackage RPMs (base / nodejs / claude-code-restricted)
+#   make rpm             build the six subpackage RPMs (base, the agents/integration umbrellas + members)
 #   make srpm            build the source RPM
 #   make clean           remove build artifacts
 #   make rpmtest-rocky9  build + run the Rocky 9 RPM smoke-test container (see *.Containerfile)
