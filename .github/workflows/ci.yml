@@ -9,6 +9,11 @@ on:
   # container path is runner-sensitive and should be testable without touching develop).
   workflow_dispatch:
 
+# Least-privilege default for every job. shellcheck and rpm-selftest only read the repo;
+# the release job re-grants contents: write for its own GITHUB_TOKEN needs (below).
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   # Never cancel a tag run: a re-tag (the documented recovery for a tag/VERSION
