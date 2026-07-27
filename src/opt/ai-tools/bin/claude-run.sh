@@ -430,32 +430,68 @@ _setenv+=( "--setenv=DISABLE_AUTOUPDATER=1" )
 # package drops a root-owned fragment /usr/local/lib/ai-tools/claude-run.d/<name>.env.sh; this
 # sources the ones operator.conf ENABLES (AI_TOOLS_INTEGRATIONS via providers.lib.sh), so an
 # installed-but-disabled integration adds nothing to the session.  A fragment appends to _setenv
-# (env vars) and _extra_path (PATH additions).  It is sourced as @SANDBOX_USER@ (post-sudo), so --
-# exactly like claude-run itself -- it is trusted ONLY because it is root-owned and not
-# group/other-writable: a fragment failing that check is skipped and logged, never sourced, so the
-# agent cannot inject env into its own session by planting a writable fragment.  Best-effort by
-# design: a missing providers lib (a broken control plane) or dir yields no integration env and
-# leaves the confined launch unaffected -- this is not the fail-closed tier msg.lib/confinement.lib
-# hold, because the integration env is additive, not load-bearing for the confined launch.
-_providers_lib="/usr/local/lib/ai-tools/providers.lib.sh"
-_claude_run_d="/usr/local/lib/ai-tools/claude-run.d"
-if [[ -r "${_providers_lib}" && -d "${_claude_run_d}" ]]; then
-    # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/providers.lib.sh
-    source "${_providers_lib}"
-    while IFS= read -r _integration; do
-        [[ -n "${_integration}" ]] || continue
-        _fragment="${_claude_run_d}/${_integration}.env.sh"
-        [[ -f "${_fragment}" ]] || continue
-        _fragment_owner="$(stat -c '%u' "${_fragment}" 2>/dev/null || printf '%s' -1)"
-        _fragment_mode="$(stat -c '%a' "${_fragment}" 2>/dev/null || printf '%s' 777)"
-        if [[ "${_fragment_owner}" == 0 ]] && (( (0${_fragment_mode} & 022) == 0 )); then
-            # shellcheck source=/dev/null
-            source "${_fragment}"
-        else
-            ai_tools_msg_warn "claude-run: skipping integration fragment (not root-owned or group/other-writable): ${_fragment}"
-            logger -t claude-run "skipped untrusted integration fragment ${_fragment} (owner=${_fragment_owner} mode=${_fragment_mode})" 2>/dev/null || true
-        fi
-    done < <(ai_tools_enabled_integrations 2>/dev/null)
+# (env vars) and _extra_path (PATH additions).
+#
+# This code runs as @SANDBOX_USER@ (post-sudo), and everything it sources decides what the agent's
+# own session gets -- so the agent must not be able to influence any of it.  Every input is gated
+# on ai_tools_conf_is_trusted (root-owned, not a symlink, not group/other-writable), DIRECTORY
+# first: a group-writable directory lets a non-root writer unlink and replace the root-owned file
+# inside it, so a trusted file in an untrusted directory is not trusted.  A failing input is
+# skipped and logged, never sourced.  Trust bootstraps on the lib directory itself, checked inline
+# here because the predicate that checks everything else lives inside it; /usr/local/lib/ai-tools
+# is 0751 root:@SANDBOX_GROUP@ (asserted by tests/integration/perms.sh), so a file found there can
+# only have been placed by root.
+#
+# Best-effort by design: a missing or untrusted lib, directory, or fragment yields no integration
+# env and leaves the confined launch unaffected -- this is not the fail-closed tier
+# msg.lib/confinement.lib hold, because the integration env is additive, not load-bearing for the
+# confined launch.  Fail-closed here means "no integration", which is always a safe answer.
+_ai_lib_dir="/usr/local/lib/ai-tools"
+_claude_run_d="${_ai_lib_dir}/claude-run.d"
+_integration_env_skip() {
+    ai_tools_msg_warn "claude-run: skipping integration env -- $1"
+    if command -v logger >/dev/null 2>&1; then
+        logger -t claude-run -p authpriv.warning "integration env skipped: $1" 2>/dev/null || true
+    fi
+    return 0
+}
+# Bootstrap: the lib dir must be root-owned and not group/other-writable before anything in it is
+# sourced.  stat -c is read directly here (not through the predicate) because the predicate is one
+# of the files this gate protects.
+_ai_lib_dir_trusted() {
+    local meta owner mode
+    [[ -L "${_ai_lib_dir}" ]] && return 1
+    meta="$(stat -c '%u %a' "${_ai_lib_dir}" 2>/dev/null)" || return 1
+    owner="${meta%% *}"; mode="${meta##* }"
+    [[ "${owner}" == 0 ]] || return 1
+    [[ "${mode}" =~ ^[0-7]+$ ]] || return 1
+    (( (0${mode} & 022) == 0 ))
+}
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/conf.lib.sh
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/providers.lib.sh
+if _ai_lib_dir_trusted \
+   && source "${_ai_lib_dir}/conf.lib.sh" 2>/dev/null \
+   && declare -F ai_tools_conf_is_trusted >/dev/null 2>&1 \
+   && ai_tools_conf_is_trusted "${_ai_lib_dir}/providers.lib.sh" \
+   && source "${_ai_lib_dir}/providers.lib.sh" 2>/dev/null \
+   && declare -F ai_tools_enabled_integrations >/dev/null 2>&1; then
+    if ! ai_tools_conf_is_trusted "${_claude_run_d}"; then
+        [[ -e "${_claude_run_d}" ]] && _integration_env_skip \
+            "${_claude_run_d} is not root-owned or is writable by group/other"
+    else
+        while IFS= read -r _integration; do
+            [[ -n "${_integration}" ]] || continue
+            _fragment="${_claude_run_d}/${_integration}.env.sh"
+            [[ -e "${_fragment}" ]] || continue
+            if ai_tools_conf_is_trusted "${_fragment}"; then
+                # shellcheck source=/dev/null
+                source "${_fragment}"
+            else
+                _integration_env_skip \
+                    "${_fragment} is not root-owned or is writable by group/other"
+            fi
+        done < <(ai_tools_enabled_integrations 2>/dev/null)
+    fi
 fi
 
 # Emit PATH once: base tiers first (root-owned, least-writable win first-match; node bin last),

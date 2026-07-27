@@ -187,15 +187,19 @@ main() {
     else
         tools=(npm)
         local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
-        if [[ -r "${providers_lib}" ]]; then
-            # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/providers.lib.sh
-            source "${providers_lib}"
+        # Guarded load: providers.lib.sh returns non-zero and defines nothing when its own
+        # dependency (conf.lib.sh, the shared KEY=value grammar) is missing, so probe the resolver
+        # rather than assume the source succeeded -- a bare `source` under set -e would abort the
+        # run instead of degrading to npm-only.
+        # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/providers.lib.sh
+        if source "${providers_lib}" 2>/dev/null \
+                && declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
             local manifest_package
             while IFS=$'\t' read -r _ manifest_package _; do
                 [[ -n "${manifest_package}" ]] && tools+=("${manifest_package}")
             done < <(ai_tools_enabled_agents)
         else
-            warn "providers lib not deployed (${providers_lib}) -- updating npm only; enabled agents are unrefreshed this run"
+            warn "provider resolver unavailable (${providers_lib}) -- updating npm only; enabled agents are unrefreshed this run"
         fi
     fi
     # The full managed set is the allow-scripts allowlist -- npm re-scans the whole

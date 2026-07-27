@@ -4,6 +4,7 @@ paths:
   - "src/usr/local/bin/claude.sh"
   - "src/etc/sudoers.d/ai-tools-claude"
   - "src/usr/local/lib/ai-tools/path-dedup.sh"
+  - "src/usr/local/lib/ai-tools/claude-run.d/**"
 ---
 
 # Launch path and project gating
@@ -87,6 +88,20 @@ flags, per-project trust) inside the group-writable, sticky `.claude`: claude sa
 atomically — a temp file beside it, then rename — which needs write on the containing
 directory; the home root (`2751`) denies the agent that, so an unpinned
 `${HOME}/.claude.json` never persists and every session demands a fresh login.
+
+**Enabled integrations extend that allowlist, and nothing else may.** An installed
+host-toolchain integration contributes session env and a PATH tail through a root-owned
+fragment `/usr/local/lib/ai-tools/claude-run.d/<name>.env.sh`, which `claude-run` sources
+for exactly the integrations `operator.conf` enables — see [providers](providers.rule.md)
+for the manifests, the enablement rules, and the trust checks every input passes. Two
+launch-side consequences: PATH is **assembled and emitted once**, after the fragments run,
+so the base tiers (root-owned, least-writable first) always precede any integration
+addition; and the fragments are sourced **as `SANDBOX_USER`, before the unit is created**,
+which is why each one — and the directory holding it, and the libraries doing the sourcing
+— must be root-owned and non-group-writable. A failing check skips the fragment and logs;
+an installed-but-disabled integration contributes nothing. The seam is additive and
+best-effort, so a broken or absent provider library costs the session its integration env
+and leaves every property in this section intact.
 
 **`WorkingDirectory` is the validated project directory.** A transient unit defaults
 its cwd to `/`. The wrapper exports the realpath'd, allowlist- and claim-validated

@@ -36,7 +36,16 @@ from each file to find it):
 ## Runtime load is fail-closed
 
 The `source` directives are lint-only; the runtime load gates. A missing critical library
-fails closed: the launch wrapper and the CLI verify `safe-paths.lib.sh`'s guard functions
+fails closed. `conf.lib.sh` shows the three shapes that takes, chosen by what the consumer
+loses without it: `providers.lib.sh` **requires** it (without the shared grammar and the
+trust predicate it can neither parse a manifest nor tell a trusted input from a planted
+one), so it returns non-zero and defines nothing, and each consumer loads it as
+`source … && declare -F <resolver>` and resolves no providers on failure;
+`operator.lib.sh` fails closed *by consequence* — no parser means no operators resolved,
+and "no owner" already stops a handback; `skip-dirs.lib.sh` fails **soft**, keeping its
+compiled-in defaults, because a skip list is a walk-cost optimization and not an access
+boundary, so the worst case is a slower walk rather than a widened boundary. The launch
+wrapper and the CLI verify `safe-paths.lib.sh`'s guard functions
 and `die` otherwise; the root helpers bare-`source` it under `set -e`; `ai-tools-chown` and
 `ai-tools-lockdown` `exit 1` when `secret-patterns.lib.sh` will not load; and `msg.lib.sh`
 is required the same way — it carries the yes/no decisions (`ai_tools_msg_confirm`), so

@@ -1,5 +1,6 @@
 ---
 paths:
+  - "src/usr/local/lib/ai-tools/conf.lib.sh"
   - "src/usr/local/lib/ai-tools/providers.lib.sh"
   - "src/usr/local/lib/ai-tools/agents.d/**"
   - "src/usr/local/lib/ai-tools/integrations.d/**"
@@ -34,21 +35,80 @@ execute code in the privileged scripts that read it:
 `ai-tools-base` owns the three directories (`agents.d`, `integrations.d`, `claude-run.d`) and ships
 `providers.lib.sh`; each member package ships only its own files into them.
 
+## The shared config grammar (`conf.lib.sh`)
+
+Every `KEY=value` file in the project — `/etc/ai-tools/operator.conf` and every manifest — is read
+by one parser, `conf.lib.sh`, which `operator.lib.sh`, `skip-dirs.lib.sh`, and `providers.lib.sh`
+all source. One grammar means a key reads the same whichever component reads it:
+
+```
+KEY=value            quotes optional; whitespace around the key and `=` trimmed
+KEY="a b"            one layer of matched quotes stripped
+KEY=a, b  c          list items separate on commas AND whitespace, freely mixed
+KEY=value   # why    `#` at the start of a value or after whitespace ends it; inside
+                     quotes it is literal, so a value containing one is written "a#b"
+KEY=                 PRESENT with an empty value — distinct from an ABSENT key
+```
+
+A repeated key takes its last assignment; a line with no `=` is ignored. Files are **parsed, never
+sourced**, so a malformed or tampered one yields a bad value, never executed code.
+
+`ai_tools_conf_read` returns present/absent separately from the value, which is what makes
+`KEY=` (an explicit "none") distinguishable from an omitted key — the distinction the gating below
+turns on. `ai_tools_conf_list` overwrites its target array **only** when the key is present, so an
+override key overrides and an absent one leaves the caller's default standing (how the `SKIP_*`
+categories in [ownership-and-hooks](ownership-and-hooks.rule.md) keep their built-in defaults).
+
+**Splitting pins `IFS` locally.** The parser is sourced into scripts that set the strict-mode
+`IFS=$'\n\t'` (`nvm-update.sh`, `claude.sh`), where an inherited `IFS` would read `"a b"` as one
+item — for a provider allowlist that reads as "no such provider", a wrong verdict that disables a
+configured agent with only a warning. `tests/unit/conf.sh` drives the splitter under that IFS.
+
 ## Enablement is fail-closed
 
-`operator.conf` `AI_TOOLS_AGENTS` / `AI_TOOLS_INTEGRATIONS` (space-separated names) gates each kind:
+`operator.conf` `AI_TOOLS_AGENTS` / `AI_TOOLS_INTEGRATIONS` (provider names, in the grammar above)
+gates each kind:
 
 - **key present** → enabled = exactly the listed names (an allowlist; an empty value = none).
   `default_enable` is ignored, so an operator's explicit list always wins.
 - **key absent** → enabled = installed providers with `default_enable=yes` (the baseline). Both
   keys ship commented in the template, so a fresh or upgraded host (whose `%config(noreplace)` file
   may predate them) runs the baseline.
-- **config unreadable/malformed** → treated as absent (the baseline; never "enable all").
-- **a listed name with no installed manifest** → reported to stderr and skipped, never guessed.
+- **config unreadable, malformed, or untrusted** → treated as absent (the baseline; never
+  "enable all").
+- **a listed name with no installed manifest** → reported and skipped, never guessed.
 
 A `default_enable=yes` is the shipping package's claim that its provider widens no host surface
 beyond the sandbox (Claude Code); a surface-widening one ships `default_enable=no` and is enabled
 only when an operator names it (dotnet). This is the fail-closed default-when-unset rule.
+
+## The sandbox cannot widen its own surface
+
+The inputs above decide which agents get installed and what environment a session is handed, and
+the code that reads them runs **as `SANDBOX_USER`** (`claude-run`, `nvm-update`). So each input is
+honored only while `ai_tools_conf_is_trusted` holds for it — it exists, is not a symlink, is owned
+by root, and is writable by neither group nor other — and so is the **directory** holding it, since
+a group-writable directory lets a non-root writer unlink a root-owned file and put its own in that
+name. Each refusal moves to *less* access and is reported (stderr for the operator, journald for
+the trail), never silently:
+
+| untrusted input | verdict |
+|---|---|
+| `operator.conf` | ignored → the baseline (which only enables what a package marked `default_enable=yes`) |
+| a manifest directory | that whole provider kind is refused |
+| one manifest | that one provider is skipped |
+| `claude-run.d` or a fragment | that fragment is not sourced |
+| `/usr/local/lib/ai-tools` itself | no integration env at all (`claude-run`'s bootstrap check) |
+
+Trust bootstraps on the lib directory, which `claude-run` checks inline before sourcing anything
+from it — the predicate that checks everything else lives inside it. `0751 root:SANDBOX_GROUP` on
+that directory is therefore load-bearing, not housekeeping, and
+`tests/integration/perms.sh` asserts it along with the three provider directories.
+
+This is enforced from both ends, and both halves are required: `tests/unit/providers.sh` drives
+each untrusted state through the resolver and asserts it fails closed (catching a host someone has
+already broken), while `tests/boundary/providers.sh` probes the deployed surface **as the agent**
+and asserts none of it is agent-writable (catching the agent trying to break it).
 
 ## Resolution
 
@@ -59,21 +119,33 @@ only when an operator names it (dotnet). This is the fail-closed default-when-un
 - `ai_tools_enabled_agents` — prints `name<TAB>npm_pkg<TAB>launcher` per enabled installed agent.
 - `ai_tools_enabled_integrations` — prints one enabled installed integration name per line.
 
-Data-only stdout (safe in `$(...)`); enabled-but-uninstalled names warn to stderr.
+Data-only stdout (safe in `$(...)`); enabled-but-uninstalled names and every trust refusal go to
+stderr, and to journald when `log.lib.sh` is loadable.
 `AI_TOOLS_{AGENTS,INTEGRATIONS}_DIR` and `AI_TOOLS_OPERATOR_CONF` are root-only test hooks.
+
+`conf.lib.sh` is a **required** dependency: without it `providers.lib.sh` can neither parse a
+manifest nor tell a trusted input from a planted one, and guessing either is the fail-open this
+seam exists to prevent. It therefore returns non-zero and defines nothing, so every consumer loads
+it as `source … && declare -F <resolver>` and resolves no providers when that fails — Node-only for
+`ai-tools-bootstrap`, npm-only for `nvm-update`, no integration env for `claude-run`.
 
 ## The `claude-run.d` session-env seam
 
 `claude-run` reads the enabled integrations and, for each, sources
 `/usr/local/lib/ai-tools/claude-run.d/<name>.env.sh` — a fragment that appends to the launcher's
-`_setenv` (session env) and `_extra_path` (PATH tail), emitted into the transient unit. The seam
-is **best-effort**, not the fail-closed tier `msg.lib`/`confinement.lib` hold: a missing
-`providers.lib.sh` yields no integration env and leaves the confined launch unaffected, because the
-integration env is additive, not load-bearing. A fragment is sourced as `SANDBOX_USER` (post-sudo),
-so it is trusted **only** because it is root-owned and not group/other-writable — `claude-run` skips
-and logs any fragment failing that check, so the agent cannot inject env by planting a writable
-fragment. A fragment self-gates on its host tool, so it is inert on a host without the toolchain
-even when enabled.
+`_setenv` (session env) and `_extra_path` (PATH tail), emitted into the transient unit. See
+[launch](launch.rule.md) for where that sits in the launch sequence.
+
+The seam is **best-effort**, not the fail-closed tier `msg.lib`/`confinement.lib` hold: a missing
+or untrusted lib, directory, or fragment yields no integration env and leaves the confined launch
+unaffected, because the integration env is additive, not load-bearing. "Fail closed" here means
+*no integration*, which is always a safe answer. Everything it sources is gated by the trust rules
+above; a fragment self-gates on its host tool, so it is inert on a host without the toolchain even
+when enabled.
+
+A fragment runs in `claude-run`'s own scope, so it appends to the two arrays and nothing else: it
+must not exec, prompt, read stdin (the loop feeding it is on a process substitution), or depend on
+the caller's environment, and it unsets its own temporaries.
 
 ## dotnet integration (`ai-tools-integration-dotnet`)
 
@@ -85,17 +157,35 @@ stack. `default_enable=no` (it widens surface: a new runtime exec, NuGet egress,
 so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS`.
 
 - `claude-run.d/dotnet.env.sh` self-gates on `/usr/bin/dotnet`, then sets `DOTNET_ROOT`,
-  `NUGET_PACKAGES=/opt/ai-tools/.nuget/packages`, the telemetry/first-run-off vars, and
-  `ASPNETCORE_ENVIRONMENT`/`DOTNET_ENVIRONMENT=Development`, and adds `/opt/ai-tools/.dotnet/tools`
-  to PATH.
+  `NUGET_PACKAGES=/opt/ai-tools/.nuget/packages`, `DOTNET_CLI_HOME`, `DOTNET_CLI_TELEMETRY_OPTOUT`,
+  `DOTNET_NOLOGO`, and `ASPNETCORE_ENVIRONMENT`/`DOTNET_ENVIRONMENT=Development`, and adds
+  `/opt/ai-tools/.dotnet/tools` to PATH. The variables are those current for **.NET 8 LTS and
+  later**; the .NET Core 2.x/3.x-era opt-outs (`DOTNET_SKIP_FIRST_TIME_EXPERIENCE`,
+  `DOTNET_PRINT_TELEMETRY_MESSAGE`) are absent because the SDK no longer reads them.
+  `DOTNET_CLI_HOME=/opt/ai-tools/.cache/dotnet` is what keeps the read-only shared-tools tree
+  read-only: the SDK's own state (first-use sentinels, CLI logs) defaults to `$HOME/.dotnet`, which
+  here IS that tree, so it is redirected into the already-writable, already-`ai_tools_home_t`
+  `.cache` subtree — no extra fcontext. Only the root-owned tools dir joins PATH; a tool the agent
+  installs for itself under `DOTNET_CLI_HOME` stays reachable by full path but never lands on the
+  session PATH, so the sandbox cannot put an executable of its choosing on it.
 - `ai-tools-dotnet` (root/sudo helper) `setup` creates the two dirs and labels them: the NuGet
   cache `/opt/ai-tools/.nuget` is agent-**writable** (`2770`, setgid), the shared tools
   `/opt/ai-tools/.dotnet` are **read-only** to the agent (`0755`, sudo-only writes). **Both** are
   labelled `ai_tools_home_t` via a local `semanage fcontext` (not a core-module change): the type
   grants `ai_tools_t` the SELinux access (write on the cache, exec on the tools) while the DAC modes
   are the enforced read/write boundary. `install-tools <pkg...>` installs shared global tools;
-  `status` reports host SDKs/runtimes and enablement. The RPM `%post` runs `setup`; `%postun` drops
-  the fcontexts on final erase.
+  `status` reports host SDKs/runtimes, and reads enablement through `ai_tools_enabled_integrations`
+  so it reports the same verdict `claude-run` reaches.
+- Every step **fails loudly**. A directory it cannot create, or a label it cannot apply on a host
+  that supports labelling, exits non-zero with the cause logged through `log.lib.sh` to journald and
+  `/var/log/ai-tools/dotnet.log` (see [logging](logging.rule.md)) — a half-provisioned integration
+  that looks installed surfaces later as an opaque denial inside a confined session. The genuine
+  no-ops are recognized as such: `selinux_active` gates the labelling on SELinux being enabled,
+  `policycoreutils` present, and the `ai_tools` module loaded, and skips with a logged line
+  otherwise. The RPM `%post` runs `setup`, reports the remedy and exits non-zero on failure (rpm
+  records a scriptlet failure against this package while the transaction completes — the right
+  blast radius for a weakly-pulled optional integration); `%postun` drops the fcontexts and
+  `restorecon`s what stays behind on final erase.
 
 The `.nuget` fcontext + the dirs are the enforced-writable-cache path; the CLR runs on the already-
 granted `execmem` (shared with V8). The one **SELinux bring-up unknown** is whether .NET needs

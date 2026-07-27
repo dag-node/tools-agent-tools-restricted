@@ -471,6 +471,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/safe-paths.lib.sh
     _chk /usr/local/lib/ai-tools/confinement.lib.sh
     _chk /usr/local/lib/ai-tools/npm-verify.lib.sh
+    _chk /usr/local/lib/ai-tools/conf.lib.sh
     _chk /usr/local/lib/ai-tools/providers.lib.sh
     _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
     _chk /usr/local/lib/ai-tools/claude-run.d/dotnet.env.sh
@@ -665,6 +666,14 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/npm-verify.lib.sh" \
         /usr/local/lib/ai-tools/npm-verify.lib.sh
+
+    # Shared KEY=value config grammar + the trust predicate: 644 root:root -- world-readable,
+    # sourced by operator.lib.sh, skip-dirs.lib.sh and providers.lib.sh so every key in
+    # operator.conf and every provider manifest parses identically. No secrets, no tokens.
+    log "/usr/local/lib/ai-tools/conf.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/conf.lib.sh" \
+        /usr/local/lib/ai-tools/conf.lib.sh
 
     # Provider/agent resolver: 644 root:root -- world-readable, sourced by ai-tools-bootstrap and
     # nvm-update (both run as the sandbox account) to resolve which agents to provision from the

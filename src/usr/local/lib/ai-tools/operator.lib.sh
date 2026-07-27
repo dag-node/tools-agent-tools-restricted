@@ -12,10 +12,11 @@
 # ship identical on every host and carry no per-operator value. The config holds one line:
 #     OPERATORS="alice bob svc-ci"
 # a space-separated list naming every operator. Home and primary group are derived per name
-# via getent/id. It is root-owned 644 (etc_t): world-readable so both the agent hooks
-# (ai_tools_t) and the root helpers (ai_tools_handback_t) read it -- files_read_etc_files
-# covers both domains -- and root-write-only, so the agent cannot rewrite the identity root
-# chowns files back to.
+# via getent/id. Names separate on commas or whitespace and the quotes are optional -- the one
+# KEY=value grammar conf.lib.sh defines for every key in the file. It is root-owned 644 (etc_t):
+# world-readable so both the agent hooks (ai_tools_t) and the root helpers (ai_tools_handback_t)
+# read it -- files_read_etc_files covers both domains -- and root-write-only, so the agent cannot
+# rewrite the identity root chowns files back to.
 #
 # The value is PARSED, never sourced, so a malformed or tampered file cannot execute code in
 # the privileged helpers.
@@ -42,6 +43,15 @@ if [[ -n "${_AI_TOOLS_OPERATOR_LIB:-}" ]]; then
 fi
 readonly _AI_TOOLS_OPERATOR_LIB=1
 
+# Shared KEY=value grammar (conf.lib.sh), so OPERATORS parses exactly like every other key in
+# operator.conf -- commas or whitespace between names, quotes optional, inline comments honored.
+# The load is fail-CLOSED by consequence rather than by refusal: without the parser
+# ai_tools_load_operators resolves no operators, and "no owner" is already the answer that stops
+# a handback (see the header), so a missing lib skips the operation instead of acting on a
+# half-parsed identity.
+# shellcheck source=SCRIPTDIR/conf.lib.sh
+source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null || true
+
 # Config path. AI_TOOLS_OPERATOR_CONF overrides the installed path when set -- a root-only
 # test hook, identical in spirit to AI_TOOLS_ALLOWLIST: sudo strips it (env_reset, not in
 # env_keep) and the handback daemon execs the helpers with its own environment, so neither
@@ -54,24 +64,8 @@ readonly AI_TOOLS_OPERATOR_CONF="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operato
 # as "nothing to do" (fail-closed: no operator means no ownership to restore). Idempotent.
 ai_tools_load_operators() {
     AI_TOOLS_OPERATORS=()
-    local line key val
-    if [[ -r "${AI_TOOLS_OPERATOR_CONF}" ]]; then
-        while IFS= read -r line || [[ -n "${line}" ]]; do
-            line="${line#"${line%%[![:space:]]*}"}"          # trim leading whitespace
-            [[ -z "${line}" || "${line}" == '#'* ]] && continue
-            [[ "${line}" == *=* ]] || continue
-            key="${line%%=*}"
-            val="${line#*=}"
-            key="${key%"${key##*[![:space:]]}"}"             # trim trailing ws from the key
-            val="${val#"${val%%[![:space:]]*}"}"             # trim surrounding ws from the value
-            val="${val%"${val##*[![:space:]]}"}"
-            val="${val#[\"\']}"; val="${val%[\"\']}"         # strip one optional quote layer
-            if [[ "${key}" == OPERATORS ]]; then
-                # Space-separated list; split on IFS whitespace into the array.
-                read -ra AI_TOOLS_OPERATORS <<< "${val}"
-            fi
-        done < "${AI_TOOLS_OPERATOR_CONF}"
-    fi
+    declare -F ai_tools_conf_list >/dev/null 2>&1 || return 1
+    ai_tools_conf_list AI_TOOLS_OPERATORS "${AI_TOOLS_OPERATOR_CONF}" OPERATORS || return 1
     [[ "${#AI_TOOLS_OPERATORS[@]}" -gt 0 ]]
 }
 

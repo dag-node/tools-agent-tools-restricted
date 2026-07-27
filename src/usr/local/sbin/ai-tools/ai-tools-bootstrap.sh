@@ -192,15 +192,19 @@ done
 # re-run picks up the agents. Its stderr warns of an enabled-but-uninstalled agent.
 _providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
 _agent_packages=(); _agent_launchers=()
-if [[ -r "${_providers_lib}" ]]; then
-    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/providers.lib.sh
-    source "${_providers_lib}"
+# Guarded load: providers.lib.sh returns non-zero and defines nothing when its own dependency
+# (conf.lib.sh, the shared KEY=value grammar) is missing, so probe the resolver rather than assume
+# the source succeeded -- a bare `source` under set -e would abort the provision instead of falling
+# back to Node-only.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/providers.lib.sh
+if source "${_providers_lib}" 2>/dev/null \
+        && declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
     while IFS=$'\t' read -r _ manifest_package manifest_launcher; do
         [[ -n "${manifest_package}" ]]  && _agent_packages+=("${manifest_package}")
         [[ -n "${manifest_launcher}" ]] && _agent_launchers+=("${manifest_launcher}")
     done < <(ai_tools_enabled_agents)
 else
-    log "providers lib not deployed yet -- provisioning Node only; re-run after the control plane and an ai-tools-agents-* package are installed to provision agents"
+    log "provider resolver unavailable -- provisioning Node only; re-run after the control plane and an ai-tools-agents-* package are installed to provision agents"
 fi
 
 # 2. nvm + Node + the enabled agents' npm packages, installed AS the sandbox account (network).

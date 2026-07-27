@@ -147,7 +147,10 @@ untouched, so normalization never pulls a foreign-held dir into the agent's grou
 `__pycache__`, `packages`) are skipped; that skip list is shared with the sweep and
 `ai-tools-lockdown` via `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (the authoritative
 reference), which groups the names into categories (VCS, package, artifact, cache) an
-operator can override per category in `operator.conf` and combines per consumer. The
+operator can override per category in `operator.conf` — read through the shared `KEY=value`
+grammar in `conf.lib.sh`, so a category list separates on commas or whitespace with optional
+quotes, and a **present** key replaces that category's default while an absent one leaves it
+standing (see [providers](providers.rule.md)) — and combines per consumer. The
 artifact category ships empty — `bin`/`obj`-style build-output names double as source dirs
 in many codebases, so skipping them is a per-host perf opt-in (`SKIP_ARTIFACT_DIRS="bin
 obj"`), with root-relative exemptions for same-named source dirs
