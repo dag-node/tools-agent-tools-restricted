@@ -237,6 +237,56 @@ granted `execmem` (shared with V8). The one **SELinux bring-up unknown** is whet
 host with real `restore`/`build`/`test`/`run` workloads (the `selinux/avc` loop). If needed, that is
 the single line that would touch the core `.te` (still no new module).
 
+## Boundaries
+
+Two limits of this seam are deliberate, stated so neither reads as an oversight:
+
+**The provider namespace is flat.** A name is unique host-wide, not per kind: an agent and an
+integration both called `foo` are one token in two different gating keys and share one fragment,
+`session-env.d/foo.env.sh`. Every manifest and fragment is root-owned, so a collision is a
+packaging mistake — a provider cannot capture another's fragment without root — which makes it a
+correctness wart rather than a hole, and a naming convention (`ai-tools-agents-<name>` /
+`ai-tools-integration-<name>`, so the clash is visible where it would be made) the lightest
+mechanism that answers it. No enforcement code.
+
+**An agent is an npm package on the sandbox's Node toolchain.** `npm_package` is effectively
+required (a manifest naming none provisions nothing), `ai-tools-bootstrap`/`nvm-update` install it
+with `npm install -g`, and `ai-tools-run` accepts an executable only under
+`/opt/ai-tools/.nvm/versions/node/<semver>/bin/`. That assumption lives in exactly two places —
+**provisioning** (which command installs the agent and where its launcher lands) and **exec
+validation** (which paths may start a session) — and nowhere else in the seam.
+
+### Fitting a second agent runtime
+
+A non-npm agent is an open direction, not a closed one: the host-managed .NET toolchain already
+sits in this seam as an integration, so a thin .NET agent is the near case. What it would add, and
+what it would leave alone:
+
+- **A `runtime` field on the agent manifest** (`nodejs` when absent, so today's manifests are
+  unchanged) selecting both halves of the assumption above. `npm_package` becomes the `nodejs`
+  runtime's provisioning key rather than a universal one.
+- **An exec root and a launcher shape per runtime.** The current rule is `<nvm>/versions/node/
+  <semver>/bin/<launcher>`; the version directory pins the launcher to the toolchain version the
+  updater installed. A dotnet global tool has no version directory, so its rule is its own exec
+  root (`/opt/ai-tools/.dotnet/tools/<launcher>`, root-owned and read-only to the agent — stricter
+  than the nvm tree, which the sandbox account owns). What every rule must keep is the property
+  the current one carries: an absolute, `..`-free path under a known sandbox toolchain root whose
+  launcher an **enabled manifest claims**, so nothing the agent can drop beside a launcher starts
+  a session.
+- **A provisioning branch** for that runtime (`dotnet tool install --tool-path` in place of
+  `npm install -g`), invoked from the same enabled-agent loop `ai-tools-bootstrap` and
+  `nvm-update` already run.
+- **Its SELinux entrypoint file-context**, which the manifest already carries per agent, so a new
+  entrypoint takes `ai_tools_exec_t` without touching the base policy.
+
+Unchanged: enablement and its fail-closed trust rules, the `session-env.d` fragment (a .NET agent
+inherits the dotnet integration's `DOTNET_ROOT`/NuGet-cache pins by enabling it), the `handback`
+capability (an agent with no hook system declares `handback=none` and gets the shim's session-end
+sweep), the confinement unit, and the single `%ai-ops` sudoers grant.
+
+None of it is built. The fields are named here so the first non-npm agent adds a runtime to the
+seam rather than reshaping it.
+
 ## Deferred
 
 - **Per-agent launcher symlink repoint.** The stable-symlink repoint (`ai-tools-claude-symlink`, the
