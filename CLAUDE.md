@@ -84,7 +84,9 @@ Each step's mechanism is in the rule files above; the invariant each guarantees:
 5. The session runs as `SANDBOX_USER`; files it writes are born `SANDBOX_USER`-owned.
 6. `PostToolUse`/`Stop`/`SessionStart` hooks hand agent-written paths back to
    `<you>:SANDBOX_GROUP` (secret-named files to `<you>:<you> 600`) through the
-   `ai-tools-handback` socket — `sudo` is never used inside the session.
+   `ai-tools-handback` socket — `sudo` is never used inside the session. An agent whose manifest
+   declares no such hooks (`handback` ≠ `hooks`) gets the same handback from `ai-tools-run`'s
+   session-end sweep instead, so no agent leaves the operator's tree sandbox-owned.
 7. `SessionStart` additionally reclaims `.git` and normalizes setgid for the project.
 
 ## Security model — what `SANDBOX_USER` can and cannot do

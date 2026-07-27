@@ -17,7 +17,8 @@
 # Manifest -- /usr/local/lib/ai-tools/{agents,integrations}.d/<name>.conf, one per installed
 # member package. <name> (the basename) is the token an operator writes in AI_TOOLS_AGENTS /
 # AI_TOOLS_INTEGRATIONS:
-#   agents:        npm_package=<registry package>  launcher=<bin name>  default_enable=yes|no
+#   agents:        npm_package=<registry package>  launcher=<bin name>  display_name=<label>
+#                  handback=hooks|none          default_enable=yes|no
 #   integrations:  default_enable=yes|no       (its env fragment is session-env.d/<name>.env.sh)
 #
 # ── Enablement is FAIL-CLOSED ────────────────────────────────────────────────────────────────
@@ -97,6 +98,17 @@ ai_tools_provider_is_enabled() {
         return 1
     fi
     [[ "${default_enable}" == yes ]]
+}
+
+# ai_tools_agent_sweeps_at_exit <handback-declaration> : pure verdict, no I/O -- succeed when the
+#   launcher must run the ownership sweep itself at session end. Ownership handback needs a driver:
+#   an agent that declares handback=hooks carries its own (Claude Code's PostToolUse/Stop hooks
+#   converge the tree per turn), and anything else -- handback=none, an unrecognized value, an
+#   absent key -- gets the launcher's session-end sweep. Only the exact literal disables it, so an
+#   unknown declaration errs toward sweeping: a redundant walk, never a project tree left
+#   sandbox-owned. Unit-tested over that truth table.
+ai_tools_agent_sweeps_at_exit() {
+    [[ "${1:-}" != hooks ]]
 }
 
 # _ai_tools_provider_requested <conf_key> : set requested_active (yes|no) and requested_list from

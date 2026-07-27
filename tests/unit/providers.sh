@@ -34,6 +34,7 @@ fi
 # shellcheck source=/dev/null
 if ! source "${LIB}" \
         || ! declare -F ai_tools_provider_is_enabled >/dev/null 2>&1 \
+        || ! declare -F ai_tools_agent_sweeps_at_exit >/dev/null 2>&1 \
         || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1 \
         || ! declare -F ai_tools_enabled_integrations >/dev/null 2>&1; then
     fail "could not source ${LIB} or it does not define the resolver functions"; finish; exit
@@ -57,6 +58,20 @@ verdict "allowlist opts in a default=no agent"     0 dotnet      no  yes "dotnet
 # Separators are interchangeable in the shared grammar (conf.lib.sh).
 verdict "comma-separated allowlist names it"       0 claude-code no  yes "claude-code,other"
 verdict "mixed separators name it"                 0 other       no  yes "claude-code, other  third"
+
+# --- Pure verdict: ai_tools_agent_sweeps_at_exit <handback-declaration> -----------------------
+# Which side converges ownership. Only the exact literal "hooks" may switch the launcher's
+# session-end sweep OFF, so an unknown or absent declaration errs toward sweeping -- the safe
+# direction (a redundant walk, never a project tree left sandbox-owned).
+sweeps() {
+    local desc="$1" exp_rc="$2" declared="${3-}"
+    local rc=0; ai_tools_agent_sweeps_at_exit "${declared}" || rc=$?
+    if [[ "${rc}" -eq "${exp_rc}" ]]; then pass "${desc}"; else fail "${desc}: rc ${rc}, expected ${exp_rc}"; fi
+}
+sweeps "handback=hooks -> the agent's own hooks converge, no sweep" 1 hooks
+sweeps "handback=none  -> the launcher sweeps at session end"       0 none
+sweeps "absent handback -> sweeps (no declaration, no driver)"      0
+sweeps "unrecognized value -> sweeps (allowlist, not blocklist)"    0 Hooks
 
 # --- Resolver over a /tmp fixture tree (name<TAB>npm_package<TAB>launcher per enabled agent) ---
 # The fixtures are created by this root-run suite, so they are root-owned and non-group-writable:

@@ -122,6 +122,13 @@ non-group-writable. A failing check skips that fragment and logs it; an installe
 provider contributes nothing. Fragments are additive, so a skipped one costs the session that
 provider's environment and leaves every property in this section intact.
 
+**A session-end ownership sweep for agents that carry no hooks.** The shim reads the resolved
+agent's `handback` declaration (see [providers](providers.rule.md)): `handback=hooks` means the
+agent converges the tree itself and the shim adds nothing, and any other declaration makes the
+shim sweep the project once the session exits, offering each `SANDBOX_USER`-owned path to
+`ai-tools-chown` through the handback socket. The sweep is installed as an `EXIT` trap before the
+launch, so it also runs on an interrupted shim.
+
 **`WorkingDirectory` is the validated project directory.** A transient unit defaults
 its cwd to `/`. The wrapper exports the realpath'd, allowlist- and claim-validated
 project directory as `AI_TOOLS_PROJECT_DIR`, carried through sudo via `env_keep`;

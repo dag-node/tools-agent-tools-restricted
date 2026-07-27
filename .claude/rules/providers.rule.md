@@ -30,7 +30,7 @@ execute code in the privileged scripts that read it:
 - agents: `npm_package` (the registry package), `launcher` (the bin symlinked at
   `/opt/ai-tools/bin/<launcher>`, and the name `ai-tools-run` matches an executable against to
   decide whether it may launch), `display_name` (what the launch banner and the unit description
-  call it), `default_enable`.
+  call it), `handback` (which side converges ownership — below), `default_enable`.
 - integrations: `default_enable`.
 
 Either kind may also ship `session-env.d/<name>.env.sh`, keyed by the same `<name>` — one flat
@@ -39,6 +39,30 @@ namespace across both kinds, so a provider name is unique host-wide.
 `ai-tools-base` owns the three directories (`agents.d`, `integrations.d`, `session-env.d`), ships
 `providers.lib.sh`, and owns the `ai-tools-run` shim that reads them; each member package ships
 only its own files into them.
+
+## The `handback` capability — which side converges ownership
+
+Files the agent writes are born `SANDBOX_USER`-owned, and the ownership handback returns them to
+the operator (see [ownership-and-hooks](ownership-and-hooks.rule.md)). That handback needs a
+**driver**, and only the agent knows whether it has one, so the manifest declares it:
+
+- **`handback=hooks`** — the agent runs the hooks itself, per tool call and per turn (Claude
+  Code's `PostToolUse`/`Stop`/`SessionStart`/`SessionEnd` entries in `settings.json`).
+  `ai-tools-run` adds nothing.
+- **anything else** (`handback=none`, an unrecognized value, an absent key) — no driver, so
+  `ai-tools-run` sweeps the project itself once the session exits: every `SANDBOX_USER`-owned path
+  under the project directory (heavy trees skipped, `.git` walked — the `reclaim` selector in
+  `skip-dirs.lib.sh`) is offered to `ai-tools-chown` through the handback socket. Convergence is
+  per session rather than per turn; the end state is the same.
+
+`ai_tools_agent_sweeps_at_exit <declaration>` is the pure verdict, and it is an **allowlist**:
+only the exact literal `hooks` switches the sweep off, so an agent that declares nothing gets the
+sweep — a redundant walk is the recoverable error, an operator tree left sandbox-owned is not.
+
+The sweep only chooses which paths to **offer**; each one still passes `ai-tools-chown`'s
+allowlist, exclusion, secret, and born-owner re-validation as root, so it reaches nothing the
+hooks could reach. It runs from an `EXIT` trap, so an interrupted shim (Ctrl-C, `SIGTERM`) still
+converges; a `SIGKILL` leaves the tree to the next session's sweep or `ai-tools --reclaim`.
 
 ## The shared config grammar (`conf.lib.sh`)
 
@@ -121,6 +145,8 @@ and asserts none of it is agent-writable (catching the agent trying to break it)
 
 - `ai_tools_provider_is_enabled <name> <default_enable> <allowlist_active> <allowlist>` — the pure
   enablement decision, no I/O, unit-tested over the truth table (`tests/unit/providers.sh`).
+- `ai_tools_agent_sweeps_at_exit <handback-declaration>` — the pure handback-driver decision
+  (above), likewise no I/O and unit-tested.
 - `ai_tools_enabled_agents` — prints `name<TAB>npm_package<TAB>launcher` per enabled installed agent.
 - `ai_tools_enabled_integrations` — prints one enabled installed integration name per line.
 - `ai_tools_agent_manifest_field <name> <key>` — one further field of a trusted manifest, for a
