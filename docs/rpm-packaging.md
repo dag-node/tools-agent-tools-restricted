@@ -42,6 +42,29 @@ files. The member→base and member→integration `Requires` pin the exact
 `%{version}-%{release}`, so a member and the layers it hard-depends on move as a unit and a
 partial upgrade cannot mix layers.
 
+### Renaming a subpackage
+
+A subpackage that takes over another's name and files carries both halves of the rpm rename
+contract, so dnf performs the rename as part of an ordinary upgrade:
+
+```
+Provides:       <old-name> = %{version}-%{release}
+Obsoletes:      <old-name> < <version the rename landed in>
+```
+
+Both are required, and the cost of omitting them is a **failed transaction**, not a cosmetic
+gap. The old subpackage pins `Requires: ai-tools-base = <its own version>`; the only upgrade
+candidate for the base is the new version; and with nothing obsoleting the old name, dnf can
+neither keep nor replace it, so `dnf update` fails outright and the operator is pushed into a
+manual erase that drops their `operator.conf`. Where the two packages also share a file path
+(`/opt/ai-tools/bin/claude-run`), the `Obsoletes` is additionally what lets rpm hand the file
+over instead of reporting a conflict between the installed and the incoming package.
+
+The `Obsoletes` bound is the version the rename landed in, never `%{version}`, so a future
+package legitimately reusing the old name is not obsoleted by every later release.
+`ai-tools-integration-nodejs` (from `ai-tools-nodejs`) and
+`ai-tools-agents-claude-code-restricted` (from `claude-code-restricted`) both carry the pair.
+
 ## Boundaries
 
 | Subpackage | Owns |

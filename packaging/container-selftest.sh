@@ -73,6 +73,20 @@ phase "Metapackage pulled every built subpackage" \
     bash -c 'set -e; [ -d /tmp/ai-repo ] || { echo "no local repo to derive the expected set from" >&2; exit 1; }
              rpm -q $(rpm -qp --qf "%{NAME}\n" /tmp/ai-repo/*.rpm | sort -u) >/dev/null'
 
+# Every name a subpackage Obsoletes must also be Provided by it -- the two halves of the rpm
+# rename contract (see docs/rpm-packaging.md). With the Obsoletes alone, anything still depending
+# on the old name loses its provider mid-transaction; with the Provides alone, dnf cannot replace
+# the installed old package at all and the upgrade fails outright. Derived from the built set, so
+# this covers a rename introduced later without being told about it.
+phase "Renamed subpackages Provide every name they Obsolete" \
+    bash -c 'set -e
+             for r in /tmp/ai-repo/*.rpm; do
+                 for o in $(rpm -qp --qf "[%{OBSOLETENAME}\n]" "${r}" 2>/dev/null); do
+                     rpm -qp --qf "[%{PROVIDENAME}\n]" "${r}" 2>/dev/null | grep -qx "${o}" || {
+                         echo "$(rpm -qp --qf %{NAME} "${r}") obsoletes ${o} without providing it" >&2; exit 1; }
+                 done
+             done'
+
 phase "Handback socket is active (system instance up)" \
     systemctl is-active --quiet ai-tools-handback.socket
 

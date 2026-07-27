@@ -94,6 +94,15 @@ Requires:       ai-tools-base = %{version}-%{release}
 Requires:       curl
 Requires:       tar
 Requires:       gzip
+# This package carries what ai-tools-nodejs used to. The Provides/Obsoletes pair is what makes
+# dnf treat that as a RENAME and hand the shared files over in one transaction. Without it a host
+# on the old name cannot resolve `dnf update` at all: the installed ai-tools-nodejs pins
+# `ai-tools-base = <its own version>`, the only upgrade candidate for the base is the new version,
+# and nothing obsoletes the old name to break the deadlock -- so the whole transaction fails and
+# the operator is pushed into a manual erase that drops their operator.conf. The bound is the
+# version the rename landed in, so a future package reusing the old name is never obsoleted.
+Provides:       ai-tools-nodejs = %{version}-%{release}
+Obsoletes:      ai-tools-nodejs < 0.7.0-1
 
 %description -n ai-tools-integration-nodejs
 Manages the sandbox account's private nvm-managed Node toolchain: the bootstrap
@@ -134,6 +143,11 @@ drops any agent they do not use.
 %package -n ai-tools-agents-claude-code-restricted
 Summary:        Claude Code launch wrapper, confinement shim, and hooks for the ai-tools sandbox
 Requires:       ai-tools-integration-nodejs = %{version}-%{release}
+# Renamed from claude-code-restricted; see the note on ai-tools-integration-nodejs for why the
+# pair is required rather than cosmetic. This one also owns /opt/ai-tools/bin/claude-run and the
+# hooks, so without the Obsoletes an install alongside the old name is a file conflict.
+Provides:       claude-code-restricted = %{version}-%{release}
+Obsoletes:      claude-code-restricted < 0.7.0-1
 
 %description -n ai-tools-agents-claude-code-restricted
 The Claude Code provider layer: the confinement service shim (claude-run) that
@@ -581,9 +595,8 @@ fi
   nvm-managed Node toolchain is now ai-tools-integration-nodejs (under ai-tools-integration).
   The ai-tools metapackage weakly Recommends both umbrellas, so an install can drop either.
   No functional change to the sandbox, confinement, CLI, or bootstrap.
-- Upgrade requires a reinstall: the renamed packages carry no compatibility Provides, so remove
-  the old claude-code-restricted and ai-tools-nodejs and install the new names (reinstalling the
-  ai-tools metapackage pulls them via the umbrellas).
+- The renamed packages carry Provides/Obsoletes for their old names, so dnf performs the rename
+  as an ordinary upgrade and no package has to be removed by hand.
 
 * Sun Jul 19 2026 dagnode <tools@dagnode.com> - 0.6.4-1
 - Secret lockdown now precedes every access-widening step: a re-claim that only adds the

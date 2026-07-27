@@ -84,7 +84,9 @@ cd ~/myproject && claude
 
 **Upgrading — upgrade in place, never `dnf remove` first.** From the repo, `sudo dnf upgrade
 'ai-tools*'`; from a downloaded archive, `sudo dnf install ./*.rpm` (a higher version upgrades
-each subpackage). Removing the packages moves your edited `/etc/ai-tools/operator.conf` to
+each subpackage). A subpackage that has been renamed carries `Obsoletes` for its old name, so
+dnf performs the rename as part of the same upgrade — nothing has to be removed by hand.
+Removing the packages moves your edited `/etc/ai-tools/operator.conf` to
 `operator.conf.rpmsave` and the fresh install writes an empty one, dropping your operator list
 (re-add with `ai-tools-admin operator add`); an in-place upgrade keeps it via
 `%config(noreplace)`. `dnf reinstall` needs the *same* version already installed and is not the
