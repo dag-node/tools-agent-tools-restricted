@@ -7,7 +7,7 @@ contract the spec file and the `src/` reorganization satisfy.
 
 ## Package set
 
-One source package (`ai-tools`) builds six subpackages: the base foundation, two
+One source package (`ai-tools`) builds seven subpackages: the base foundation, two
 umbrella metapackages (`ai-tools-agents`, `ai-tools-integration`), and their members,
 layered by dependency:
 
@@ -15,8 +15,9 @@ layered by dependency:
 ai-tools.spec  (one source RPM, BuildArch: noarch)
  ├─ ai-tools                    Requires: ai-tools-base; Recommends: both umbrellas
  ├─ ai-tools-base               the provider-agnostic foundation
- ├─ ai-tools-integration        Recommends: ai-tools-integration-nodejs
- │   └─ ai-tools-integration-nodejs               Requires: ai-tools-base
+ ├─ ai-tools-integration        Recommends: ai-tools-integration-{nodejs,dotnet}
+ │   ├─ ai-tools-integration-nodejs               Requires: ai-tools-base
+ │   └─ ai-tools-integration-dotnet               Requires: ai-tools-base  (host dotnet; no dotnet RPM dep)
  └─ ai-tools-agents             Recommends: ai-tools-agents-claude-code-restricted
      └─ ai-tools-agents-claude-code-restricted    Requires: ai-tools-integration-nodejs
 ```
@@ -25,8 +26,10 @@ ai-tools.spec  (one source RPM, BuildArch: noarch)
 the ownership/secret machinery — everything independent of which AI tool runs in
 the sandbox. The `ai-tools-integration` umbrella groups the host-toolchain layers the
 agent builds against: `ai-tools-integration-nodejs` adds nvm-managed Node and the
-auto-update timer, and language/runtime integrations join as `ai-tools-integration-*`
-siblings. The `ai-tools-agents` umbrella groups the sandboxed agents:
+auto-update timer, `ai-tools-integration-dotnet` adds the session-env glue for a
+host-managed .NET toolchain (inert without one), and further language/runtime
+integrations join as `ai-tools-integration-*` siblings. The `ai-tools-agents` umbrella
+groups the sandboxed agents:
 `ai-tools-agents-claude-code-restricted` is the Claude Code provider layer, and other
 providers join as `ai-tools-agents-*` siblings on the same base and integration layers,
 so the base is shared rather than duplicated.
@@ -45,6 +48,7 @@ partial upgrade cannot mix layers.
 |---|---|
 | `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home (its default-deny `.gitignore` git guard and `.gitconfig` identity, both `%post`-seeded-if-missing and not rpm-owned, so an erase preserves them) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `secret-patterns` template; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `skip-dirs.lib.sh`, `safe-paths.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`, `providers.lib.sh`; the `agents.d` agent-manifest directory (base owns the dir; each agent package drops its own manifest); the base SELinux domain (`ai_tools_t` and the handback/helper types) |
 | `ai-tools-integration-nodejs` | nvm under `/opt/ai-tools/.nvm`; the per-sandbox-user Node-version auto-update service and timer; `ai-tools-bootstrap`; the symlink-repoint helper (`ai-tools-claude-symlink`) and the post-upgrade entrypoint relabel (`ai-tools-relabel-entrypoint`) |
+| `ai-tools-integration-dotnet` | the dotnet session-env fragment (`claude-run.d/dotnet.env.sh`) and manifest (`integrations.d/dotnet.conf`); the `ai-tools-dotnet` provisioning helper (writable NuGet cache + read-only shared tools under `/opt/ai-tools/.nuget` / `.dotnet`, labelled by a local fcontext). No .NET runtime — the host's dotnet is used |
 | `ai-tools-agents-claude-code-restricted` | the `claude` wrapper and `claude-run`; `/opt/ai-tools/bin/claude`; the Claude Code hooks (`post-tool-hook.sh`, `session-hook.sh`) and `settings.json`; its agent manifest (`agents.d/claude-code.conf`, naming the npm package + launcher the toolchain provisions); the SELinux `ai_tools_exec_t` entrypoint file-context for `claude.exe` |
 
 The handback daemon is a verb dispatcher over a helper table; the generic verbs

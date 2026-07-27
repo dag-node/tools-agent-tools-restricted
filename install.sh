@@ -473,6 +473,10 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/npm-verify.lib.sh
     _chk /usr/local/lib/ai-tools/providers.lib.sh
     _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
+    _chk /usr/local/lib/ai-tools/claude-run.d/dotnet.env.sh
+    _chk /usr/local/lib/ai-tools/integrations.d/dotnet.conf
+    _chk /usr/local/sbin/ai-tools/ai-tools-dotnet
+    _chk /usr/sbin/ai-tools-dotnet
     _chk /usr/local/lib/ai-tools/control-plane.lib.sh
     _chk /usr/local/lib/ai-tools/managed-assets.lib.sh
     _chk /usr/local/lib/ai-tools/relabel.lib.sh
@@ -680,6 +684,24 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/agents.d/claude-code.conf" \
         /usr/local/lib/ai-tools/agents.d/claude-code.conf
 
+    # Integration manifest + session-env-fragment directories (base owns them; ai-tools-integration-*
+    # members drop files here). Created empty; the optional dotnet integration's files are laid down
+    # in the integration step below when this from-source install includes it.
+    install -d -o root -g root -m 755 /usr/local/lib/ai-tools/integrations.d
+    install -d -o root -g root -m 755 /usr/local/lib/ai-tools/claude-run.d
+
+    # dotnet integration data files (optional; inert without a host dotnet). The session-env
+    # fragment claude-run sources when dotnet is enabled, and the manifest providers.lib.sh reads.
+    # The ai-tools-dotnet helper is installed with the other sbin helpers below. No secrets.
+    log "/usr/local/lib/ai-tools/claude-run.d/dotnet.env.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/claude-run.d/dotnet.env.sh" \
+        /usr/local/lib/ai-tools/claude-run.d/dotnet.env.sh
+    log "/usr/local/lib/ai-tools/integrations.d/dotnet.conf"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/integrations.d/dotnet.conf" \
+        /usr/local/lib/ai-tools/integrations.d/dotnet.conf
+
     # Logger library: 644 root:root -- world-readable. Sourced by the root helpers, by
     # the hooks (run as ai-tools), and by the CLI (run as the projects user, NOT in
     # SANDBOX_GROUP), so every principal must read it; it holds no secrets. No tokens.
@@ -788,6 +810,14 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-admin.sh" \
         /usr/local/sbin/ai-tools/ai-tools-admin
 
+    # dotnet integration provisioning helper (optional integration; administrator-typed like
+    # bootstrap/admin). Creates the sandbox NuGet cache + shared tools dir and installs global
+    # tools -- run `sudo ai-tools-dotnet setup` to provision, then enable `dotnet` in operator.conf.
+    log "/usr/local/sbin/ai-tools/ai-tools-dotnet"
+    install_subst 750 root root \
+        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-dotnet.sh" \
+        /usr/local/sbin/ai-tools/ai-tools-dotnet
+
     # Put the two human-facing admin commands where `sudo <name>` resolves them. The
     # sudo-helpers under /usr/local/sbin/ai-tools/ are invoked by the daemon and sudoers by
     # fixed path and stay hidden there, but ai-tools-bootstrap and ai-tools-admin are typed by
@@ -800,6 +830,8 @@ do_install() {
     ln -sfn /usr/local/sbin/ai-tools/ai-tools-bootstrap /usr/sbin/ai-tools-bootstrap
     log "/usr/sbin/ai-tools-admin -> /usr/local/sbin/ai-tools/ai-tools-admin"
     ln -sfn /usr/local/sbin/ai-tools/ai-tools-admin /usr/sbin/ai-tools-admin
+    log "/usr/sbin/ai-tools-dotnet -> /usr/local/sbin/ai-tools/ai-tools-dotnet"
+    ln -sfn /usr/local/sbin/ai-tools/ai-tools-dotnet /usr/sbin/ai-tools-dotnet
     # The ai-tools CLI gets the same secure_path symlink for the OPPOSITE reason: it must
     # never run under sudo, and without the symlink `sudo ai-tools` dies with sudo's
     # "command not found" (/usr/local/bin is not in secure_path) before the CLI's own

@@ -374,7 +374,10 @@ done
 # "default" symlink in the .nvm tree (the agent owns that tree and could repoint such
 # a link), keeping node-in-PATH on the same resolution chain as CLAUDE_EXEC.
 _setenv+=( "--setenv=HOME=/opt/ai-tools" )
-_setenv+=( "--setenv=PATH=/usr/local/sbin:/usr/sbin:/usr/local/bin:/usr/bin:$(dirname -- "${CLAUDE_EXEC}")" )
+# PATH is assembled here as the base tiers and EMITTED after the integration seam below, so an
+# enabled integration's fragment can append its tools dir to the tail via _extra_path.
+_session_path="/usr/local/sbin:/usr/sbin:/usr/local/bin:/usr/bin:$(dirname -- "${CLAUDE_EXEC}")"
+_extra_path=()
 
 # Pin claude's config/state dir to /opt/ai-tools/.claude.  claude saves its state file
 # .claude.json (login account, onboarding flags, per-project trust) atomically -- a temp
@@ -420,6 +423,45 @@ _setenv+=( "--setenv=NODE_COMPILE_CACHE=/opt/ai-tools/.cache/node-compile-cache"
 # updater is pure noise here.  Pinning it off keeps the toolset stable for the whole
 # session, which is the intended behaviour.
 _setenv+=( "--setenv=DISABLE_AUTOUPDATER=1" )
+
+# ── Integration session env (claude-run.d fragments) ─────────────────────────────────────────
+# Optional host-toolchain integrations (see providers.rule.md) contribute session env -- e.g.
+# dotnet's DOTNET_ROOT/NUGET_PACKAGES and its tools dir on PATH.  Each ai-tools-integration-*
+# package drops a root-owned fragment /usr/local/lib/ai-tools/claude-run.d/<name>.env.sh; this
+# sources the ones operator.conf ENABLES (AI_TOOLS_INTEGRATIONS via providers.lib.sh), so an
+# installed-but-disabled integration adds nothing to the session.  A fragment appends to _setenv
+# (env vars) and _extra_path (PATH additions).  It is sourced as @SANDBOX_USER@ (post-sudo), so --
+# exactly like claude-run itself -- it is trusted ONLY because it is root-owned and not
+# group/other-writable: a fragment failing that check is skipped and logged, never sourced, so the
+# agent cannot inject env into its own session by planting a writable fragment.  Best-effort by
+# design: a missing providers lib (a broken control plane) or dir yields no integration env and
+# leaves the confined launch unaffected -- this is not the fail-closed tier msg.lib/confinement.lib
+# hold, because the integration env is additive, not load-bearing for the confined launch.
+_providers_lib="/usr/local/lib/ai-tools/providers.lib.sh"
+_claude_run_d="/usr/local/lib/ai-tools/claude-run.d"
+if [[ -r "${_providers_lib}" && -d "${_claude_run_d}" ]]; then
+    # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/providers.lib.sh
+    source "${_providers_lib}"
+    while IFS= read -r _integration; do
+        [[ -n "${_integration}" ]] || continue
+        _fragment="${_claude_run_d}/${_integration}.env.sh"
+        [[ -f "${_fragment}" ]] || continue
+        _fragment_owner="$(stat -c '%u' "${_fragment}" 2>/dev/null || printf '%s' -1)"
+        _fragment_mode="$(stat -c '%a' "${_fragment}" 2>/dev/null || printf '%s' 777)"
+        if [[ "${_fragment_owner}" == 0 ]] && (( (0${_fragment_mode} & 022) == 0 )); then
+            # shellcheck source=/dev/null
+            source "${_fragment}"
+        else
+            ai_tools_msg_warn "claude-run: skipping integration fragment (not root-owned or group/other-writable): ${_fragment}"
+            logger -t claude-run "skipped untrusted integration fragment ${_fragment} (owner=${_fragment_owner} mode=${_fragment_mode})" 2>/dev/null || true
+        fi
+    done < <(ai_tools_enabled_integrations 2>/dev/null)
+fi
+
+# Emit PATH once: base tiers first (root-owned, least-writable win first-match; node bin last),
+# then any integration additions collected above.
+[[ ${#_extra_path[@]} -gt 0 ]] && _session_path+=":$(IFS=:; printf '%s' "${_extra_path[*]}")"
+_setenv+=( "--setenv=PATH=${_session_path}" )
 
 # ExecStart is claude.exe directly: the systemd --user manager exec's the labelled
 # ai_tools_exec_t binary, so domtrans_pattern(<manager domain>, ai_tools_exec_t,
