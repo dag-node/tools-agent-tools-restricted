@@ -153,6 +153,11 @@ and asserts none of it is agent-writable (catching the agent trying to break it)
   caller that has already resolved which agent it has. The name is allowlisted to a plain
   identifier before it becomes a path, so it addresses nothing outside the manifest directory.
 
+- `ai_tools_provider_gate <conf-key>` — how a kind's enabled set is being decided (`allowlist` /
+  `baseline` / `untrusted`), read-only and side-effect free. The resolvers read it, and so does
+  `ai-tools --providers` (see [cli](cli.rule.md)), so an operator asking what is enabled and a
+  session being launched consult one implementation.
+
 Data-only stdout (safe in `$(...)`); enabled-but-uninstalled names and every trust refusal go to
 stderr, and to journald when `log.lib.sh` is loadable.
 `AI_TOOLS_{AGENTS,INTEGRATIONS}_DIR` and `AI_TOOLS_OPERATOR_CONF` are root-only test hooks.

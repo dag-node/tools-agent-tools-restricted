@@ -86,6 +86,15 @@ tree the per-session sweeps skip). Runs via
 Restore the SELinux label on the agent entrypoint after a Node upgrade, for
 when the automatic post-upgrade relabel did not run.
 .TP
+.B \-\-providers
+List the installed agents and toolchain integrations, which of them a session
+gets, and why: an exact allowlist named in
+.IR /etc/ai-tools/operator.conf ,
+or each provider's own
+.B default_enable
+when that file names none. Read-only, and it reports any input the resolver
+refused as untrusted.
+.TP
 .B \-\-list
 List registered projects, real and sandbox.
 .TP

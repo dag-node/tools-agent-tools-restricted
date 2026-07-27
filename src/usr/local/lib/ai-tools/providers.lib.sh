@@ -111,23 +111,41 @@ ai_tools_agent_sweeps_at_exit() {
     [[ "${1:-}" != hooks ]]
 }
 
+# ai_tools_provider_gate <conf_key> : print how the enabled set for <conf_key> is decided --
+#   "allowlist" (operator.conf names the key, so its value is the exact enabled set), "baseline"
+#   (it does not, so default_enable governs), or "untrusted" (operator.conf exists but fails the
+#   trust predicate, so it is ignored and the baseline applies). Read-only and side-effect free:
+#   the resolvers below and any caller REPORTING the gating both read it, so what an operator is
+#   told matches what a session gets.
+ai_tools_provider_gate() {
+    local conf_key="$1"
+    [[ -e "${AI_TOOLS_OPERATOR_CONF}" ]] || { printf 'baseline'; return 0; }
+    ai_tools_conf_is_trusted "${AI_TOOLS_OPERATOR_CONF}" || { printf 'untrusted'; return 0; }
+    if ai_tools_conf_read "${AI_TOOLS_OPERATOR_CONF}" "${conf_key}"; then
+        printf 'allowlist'
+    else
+        printf 'baseline'
+    fi
+    return 0
+}
+
 # _ai_tools_provider_requested <conf_key> : set requested_active (yes|no) and requested_list from
 #   operator.conf for the given gating key. "yes" means the key was present (its value, possibly
 #   empty, is the allowlist); "no" means absent, unreadable, or UNTRUSTED -- all of which fall
 #   back to the baseline, so a config the agent could have written cannot enable anything its own
-#   package did not already mark default_enable=yes.
+#   package did not already mark default_enable=yes. An untrusted config is reported here rather
+#   than in the pure gate, which stays side-effect free.
 _ai_tools_provider_requested() {
     local conf_key="$1"
     requested_active=no; requested_list=""
-    [[ -e "${AI_TOOLS_OPERATOR_CONF}" ]] || return 0
-    if ! ai_tools_conf_is_trusted "${AI_TOOLS_OPERATOR_CONF}"; then
-        _ai_tools_provider_warn "ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: not root-owned or writable by group/other -- using the default-enabled providers only"
-        return 0
-    fi
-    if ai_tools_conf_read "${AI_TOOLS_OPERATOR_CONF}" "${conf_key}"; then
-        requested_active=yes
-        requested_list="${_ai_tools_conf_value}"
-    fi
+    case "$(ai_tools_provider_gate "${conf_key}")" in
+        untrusted)
+            _ai_tools_provider_warn "ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: not root-owned or writable by group/other -- using the default-enabled providers only" ;;
+        allowlist)
+            requested_active=yes
+            ai_tools_conf_read "${AI_TOOLS_OPERATOR_CONF}" "${conf_key}" || true
+            requested_list="${_ai_tools_conf_value}" ;;
+    esac
     return 0
 }
 

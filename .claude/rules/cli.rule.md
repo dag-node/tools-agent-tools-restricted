@@ -73,6 +73,15 @@ is behind the gate, `--version` included — an unfinished install reports nothi
   via `ai-tools-relabel-entrypoint`. The manual counterpart to the automatic post-upgrade
   relabel the `nvm-update` timer runs (see [updater](updater.rule.md)); for an out-of-band
   upgrade or if the timer's relabel failed and `ai-tools-run` is fail-closing on the launch.
+- `--providers` — read-only report of the installed agents and integrations, which of them a
+  session gets, and why. It resolves through `providers.lib.sh` (see
+  [providers](providers.rule.md)) rather than re-reading `operator.conf`, so the report and the
+  launch agree by construction: the per-kind gating line comes from `ai_tools_provider_gate`
+  (`allowlist` / `baseline` / `untrusted`), the enabled set from the same
+  `ai_tools_enabled_{agents,integrations}` the toolchain and `ai-tools-run` use, and the installed
+  set from the manifest directory listing — so a manifest the resolver refuses shows as disabled.
+  The resolvers' refusals, which at launch reach only the terminal and journald, are captured from
+  their stderr and reported in a closing block.
 - `--list`, `--version` (the deploy-stamped package version; `dev` from a raw source tree),
   `--help`.
 
