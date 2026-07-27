@@ -279,7 +279,7 @@ fi
 #    launcher is present. Runs as root: the agent cannot create top-level entries in the home
 #    root. bin is the locked control-plane dir (0551 root:ai-tools); root writes the symlinks
 #    here, and install.sh / the RPM repoint them through the root symlink helper afterwards.
-#    Agent runtime state needs no seeding: claude-run pins CLAUDE_CONFIG_DIR to the
+#    Agent runtime state needs no seeding: ai-tools-run pins CLAUDE_CONFIG_DIR to the
 #    group-writable .claude dir, where claude creates its own state files (.claude.json
 #    included).
 if [[ ${#_agent_launchers[@]} -gt 0 ]]; then
@@ -296,13 +296,13 @@ fi
 
 # 3b. Relabel the freshly installed entrypoint for the SELinux domain transition. A fresh
 #     claude.exe is born bin_t/lib_t, so the -> ai_tools_t transition does not fire and
-#     claude-run refuses to launch (it would run UNCONFINED) until the entrypoint carries
+#     ai-tools-run refuses to launch (it would run UNCONFINED) until the entrypoint carries
 #     ai_tools_exec_t. Bootstrap runs as root (a domain that holds relabel) and has just minted
 #     the entrypoint, so it relabels here rather than leaving the first launch to fail with a
 #     manual `ai-tools --relabel`. Gated on the helper being deployed: a bootstrap that precedes
 #     the control plane has no helper yet (install.sh / the RPM relabel then). The helper is
 #     idempotent and no-ops when SELinux or the ai_tools module is inactive, so this is safe on a
-#     DAC-only host; best-effort -- a relabel gap degrades to claude-run's refusal, not a failed
+#     DAC-only host; best-effort -- a relabel gap degrades to ai-tools-run's refusal, not a failed
 #     bootstrap. See .claude/rules/updater.rule.md.
 _relabel_helper=/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
 if [[ -x "${_relabel_helper}" ]]; then

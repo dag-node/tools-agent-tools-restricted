@@ -72,7 +72,7 @@ require {
 
     # process2 carries the NNP bounded-transition permission (RHEL/Rocky 9+).
     # Required because the session always runs under NO_NEW_PRIVS (forced by the
-    # RestrictNamespaces seccomp filter claude-run sets); see the domain-entry block.
+    # RestrictNamespaces seccomp filter ai-tools-run sets); see the domain-entry block.
     class process2 nnp_transition;
 }
 
@@ -149,13 +149,13 @@ init_daemon_domain(ai_tools_handback_t, ai_tools_handback_exec_t)
 # Domain entry
 ########################################
 
-# claude is launched as a transient systemd --user *service* (claude-run uses
+# claude is launched as a transient systemd --user *service* (ai-tools-run uses
 # `systemd-run --user --pty`), so the final exec of the labelled claude.exe is done
 # by @SANDBOX_USER@'s user-manager, NOT by the sudo/systemd-run caller. Two domtrans
 # sources are authorised:
 #   - init_t        the user-manager domain on RHEL/Rocky 9 targeted policy; the live
 #                   path for a service-unit launch. The service directive
-#                   RestrictNamespaces=yes (set in claude-run) requires service mode --
+#                   RestrictNamespaces=yes (set in ai-tools-run) requires service mode --
 #                   systemd 252 rejects it on a scope unit -- which is why the exec
 #                   moved off the unconfined_t caller and onto the manager.
 #   - unconfined_t  retained for a direct exec (claude run outside the service wrapper,
@@ -174,7 +174,7 @@ init_daemon_domain(ai_tools_handback_t, ai_tools_handback_exec_t)
 domtrans_pattern(init_t, ai_tools_exec_t, ai_tools_t)
 domtrans_pattern(unconfined_t, ai_tools_exec_t, ai_tools_t)
 
-# Both transitions above happen under NO_NEW_PRIVS: claude-run launches the session with
+# Both transitions above happen under NO_NEW_PRIVS: ai-tools-run launches the session with
 # RestrictNamespaces=yes, and systemd can only install that seccomp filter behind
 # PR_SET_NO_NEW_PRIVS (true on --user AND --system units; NoNewPrivileges=no does not
 # override it -- verified on the live box).  Under NNP the kernel routes every domain
@@ -479,7 +479,7 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 #            kernel's security_create_user_ns() check falls through handleunknown=allow.
 #            A loadable module cannot add the missing permission, so SELinux cannot
 #            block the creation here.
-#            ACTIVE MITIGATION: claude-run launches every session as a systemd --user
+#            ACTIVE MITIGATION: ai-tools-run launches every session as a systemd --user
 #            service with RestrictNamespaces=yes, whose seccomp filter blocks
 #            clone(CLONE_NEWUSER) (and all namespace creation) for the session process
 #            tree. seccomp runs before the LSM hook, so this is the enforcing layer;
@@ -645,7 +645,7 @@ files_read_usr_files(ai_tools_handback_t)
 # runs as root from the ai-tools-relabel.path watcher (system instance) after the updater
 # repoints the symlink, and on demand from `ai-tools --relabel` (the operator, unconfined_t,
 # which holds relabel). A mislabelled entrypoint does NOT run unconfined under enforcing:
-# claude-run's pre-launch preflight refuses to start when the on-disk label isn't
+# ai-tools-run's pre-launch preflight refuses to start when the on-disk label isn't
 # ai_tools_exec_t (fail-closed), so a watcher relabel the system instance's domain cannot
 # perform degrades to a refused launch the operator clears with `ai-tools --relabel`, never
 # an unconfined session. The relabel privilege stays out of this agent-reachable domain.

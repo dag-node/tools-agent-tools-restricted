@@ -17,7 +17,7 @@ section "Agent sudo rights (the sandbox account has none)"
 
 # (1) Runtime: what sudo would let the sandbox account run. The invariant is that the agent can
 # run NOTHING via sudo -- so assert the canonical "not allowed to run sudo" message positively,
-# not merely the absence of the two known targets. A negative check (no claude-run / no relabel)
+# not merely the absence of the two known targets. A negative check (no ai-tools-run / no relabel)
 # would pass a rogue drop-in granting the agent some OTHER command (e.g. ALL=(ALL) NOPASSWD:ALL);
 # the positive form fails on any grant at all. (-n: never prompt.)
 avail="$(sudo -n -l -U "${SANDBOX_USER}" 2>&1 || true)"
@@ -38,13 +38,13 @@ else
 fi
 
 # (3) Static: the privilege-lowering grant uses the operators group (%ai-ops) as principal and
-# drops to the sandbox account. Exactly one such drop rule exists (claude-run); the other rule
+# drops to the sandbox account. Exactly one such drop rule exists (ai-tools-run); the other rule
 # targets root (the relabel helper), not the sandbox account. Confirms the rule lowers privilege
 # (never raises the agent's), so even invoked it hands the caller nothing it does not already have.
 if [[ -r "${SUDOERS}" ]]; then
     n="$(grep -cE "^[[:space:]]*%ai-ops[[:space:]]+ALL=\(${SANDBOX_USER}:" "${SUDOERS}" || true)"
     if [[ "${n}" -eq 1 ]]; then
-        pass "the %ai-ops grant drops to ${SANDBOX_USER} (claude-run; privilege-lowering, not raising)"
+        pass "the %ai-ops grant drops to ${SANDBOX_USER} (ai-tools-run; privilege-lowering, not raising)"
     else
         fail "expected exactly 1 %ai-ops->${SANDBOX_USER} drop rule, found ${n}"
     fi
@@ -52,7 +52,7 @@ fi
 
 # ── Account hygiene the "no sudo rights" invariant leans on ──────────────────────
 # CLAUDE.md: the sandbox account has no login shell and no password, and is never a member of
-# ai-ops (claude-run refuses to launch if it is). A shell or password would give an attacker who
+# ai-ops (ai-tools-run refuses to launch if it is). A shell or password would give an attacker who
 # reached the account an interactive foothold; ai-ops membership would hand it the operator grant.
 section "Sandbox account hygiene (${SANDBOX_USER})"
 
@@ -91,7 +91,7 @@ else
     fi
 
     # (6) Not in ai-ops: the operator grant is a %ai-ops group rule, so membership would give the
-    # agent the operator's privileges. claude-run also refuses to launch when this holds.
+    # agent the operator's privileges. ai-tools-run also refuses to launch when this holds.
     if id -nG "${SANDBOX_USER}" 2>/dev/null | tr ' ' '\n' | grep -qx 'ai-ops'; then
         fail "${SANDBOX_USER} is a member of ai-ops -- the agent would hold the operator sudo grant"
     else

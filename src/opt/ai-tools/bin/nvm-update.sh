@@ -48,7 +48,7 @@ verify_toolchain_signatures() {
 }
 
 # version_in_use: succeed if a live process is executing from this version's tree.
-# A session is pinned to the Node version it launched with (claude-run sets PATH to
+# A session is pinned to the Node version it launched with (ai-tools-run sets PATH to
 # that version's bin and DISABLE_AUTOUPDATER=1), so pruning a version out from under a
 # running session would break it -- a lazy require() or a node/npm/npx subprocess spawn
 # would hit ENOENT on the deleted tree. Scans /proc/<pid>/exe; this runs as ai-tools,

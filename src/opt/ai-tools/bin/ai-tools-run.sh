@@ -1,0 +1,359 @@
+#!/usr/bin/env bash
+# /opt/ai-tools/bin/ai-tools-run
+# Confinement shim: runs one sandboxed agent session as @SANDBOX_USER@, inside a transient
+# systemd --user service whose properties are the session's security boundary.
+#
+# Invoked only by an agent's launch wrapper, which resolves and validates the versioned
+# executable and drops privilege:
+#
+#   sudo -u @SANDBOX_USER@ -g @SANDBOX_GROUP@ -- /opt/ai-tools/bin/ai-tools-run [args...]
+#
+# with AI_TOOLS_AGENT_EXEC (the versioned executable) and AI_TOOLS_PROJECT_DIR (the session's
+# working directory) carried through sudo's env_keep. Both are re-validated here, so neither
+# side is a single point of trust.
+#
+# It names no agent. Which executables may launch, and what environment each session gets,
+# come from the root-owned provider manifests under /usr/local/lib/ai-tools/agents.d and the
+# session-env fragments under /usr/local/lib/ai-tools/session-env.d.
+#
+# Operating notes:
+#   * The session appears as @SANDBOX_USER@-<agent>-<pid>.service in `systemctl --user`.
+#     Its journal:  sudo journalctl _SYSTEMD_USER_UNIT=<unit> _UID=<sandbox uid> -xe
+#   * Every launch logs its confinement inputs and the toolchain versions under the
+#     `ai-tools-run` syslog tag.
+#   * A refusal names the fix. The common ones are a stale SELinux label after a Node upgrade
+#     (`ai-tools --relabel`) and a stopped user manager (`loginctl enable-linger`).
+#
+# Reference: launch.rule.md (launch mechanics, the wrapper contract, PATH and env pinning),
+# confinement.rule.md (namespaces, SELinux transition, /tmp), providers.rule.md (manifests,
+# enablement, the session-env seam).
+#
+# Ownership: 0550 root:@SANDBOX_GROUP@ inside the 0551 /opt/ai-tools/bin, so @SANDBOX_USER@
+# executes it but cannot modify, unlink, or replace it.
+
+set -euo pipefail
+
+readonly AI_TOOLS_LIB_DIR="/usr/local/lib/ai-tools"
+readonly AI_TOOLS_NVM_DIR="/opt/ai-tools/.nvm"
+readonly SESSION_ENV_DIR="${AI_TOOLS_LIB_DIR}/session-env.d"
+readonly SANDBOX_HOME="/opt/ai-tools"
+
+# Everything below is sourced from AI_TOOLS_LIB_DIR while running as @SANDBOX_USER@, so that
+# directory is the root of trust for this script. Verify it before sourcing anything out of it:
+# root-owned, not a symlink, not group/other-writable. ai_tools_conf_is_trusted applies the same
+# test to every later input, but it lives in the directory this gate protects.
+lib_dir_metadata="$(stat -c '%u %a' "${AI_TOOLS_LIB_DIR}" 2>/dev/null || true)"
+if [[ -L "${AI_TOOLS_LIB_DIR}" || "${lib_dir_metadata%% *}" != 0 \
+      || ! "${lib_dir_metadata##* }" =~ ^[0-7]+$ ]] \
+   || (( (0${lib_dir_metadata##* } & 022) != 0 )); then
+    printf 'ai-tools-run: %s is not root-owned or is writable by group/other -- refusing to launch\n' \
+        "${AI_TOOLS_LIB_DIR}" >&2
+    exit 1
+fi
+
+# Four required libraries. Each is a gate, not an output path, so a bare source under set -e is
+# the fail-closed load: a missing one is a broken install and refuses the launch rather than
+# skipping a check (see shellcheck.rule.md).
+#   msg          the framed refusals and the launch banner
+#   conf         the KEY=value grammar and ai_tools_conf_is_trusted
+#   providers    which agents may launch, which integrations contribute session env
+#   confinement  the pure SELinux launch verdict
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/msg.lib.sh
+source "${AI_TOOLS_LIB_DIR}/msg.lib.sh"
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/conf.lib.sh
+source "${AI_TOOLS_LIB_DIR}/conf.lib.sh"
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/providers.lib.sh
+source "${AI_TOOLS_LIB_DIR}/providers.lib.sh"
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/confinement.lib.sh
+source "${AI_TOOLS_LIB_DIR}/confinement.lib.sh"
+
+# refuse <headline> [detail...] : frame the refusal and stop. Every call names the fix, so a
+# refused launch is self-explaining at the terminal.
+refuse() {
+    local headline="ai-tools-run: $1"; shift
+    ai_tools_msg_error "${headline}" "$@"
+    exit 1
+}
+# audit <syslog-level> <message> : one journal line under the ai-tools-run tag, the durable
+# record of what a session was launched with and why one was refused.
+audit() {
+    if command -v logger >/dev/null 2>&1; then
+        logger -t ai-tools-run -p "authpriv.$1" "$2" 2>/dev/null || true
+    fi
+}
+
+# ── Principal guards ─────────────────────────────────────────────────────────────────────────
+# The session must run AS @SANDBOX_USER@: the transient unit, the SELinux transition, and the
+# umask are all built around that account. Running as root or any other user would launch the
+# agent unconfined with that user's privileges.
+current_user_name="$(id -un 2>/dev/null || true)"
+if [[ "${EUID}" -eq 0 || "${current_user_name}" != "@SANDBOX_USER@" ]]; then
+    refuse "must run as @SANDBOX_USER@, not ${current_user_name:-?} -- launch through the agent's wrapper" \
+           'the launch path runs:  sudo -u @SANDBOX_USER@ -g @SANDBOX_GROUP@ -- /opt/ai-tools/bin/ai-tools-run'
+fi
+
+# ai-ops membership carries the sudoers grant that drops into @SANDBOX_USER@ and starts a
+# session. The sandbox account holding it would let the agent drive a session as an operator.
+# This runs as @SANDBOX_USER@, so it reads its own membership authoritatively.
+if [[ " $(id -nG "@SANDBOX_USER@" 2>/dev/null) " == *" ai-ops "* ]]; then
+    refuse '@SANDBOX_USER@ is a member of the ai-ops operators group -- refusing to launch' \
+           'remove it:  sudo gpasswd -d @SANDBOX_USER@ ai-ops'
+fi
+
+# ── Agent resolution and executable validation ───────────────────────────────────────────────
+# The executable is accepted only when it is the launcher of an ENABLED, installed agent, at a
+# semver-shaped version directory inside the sandbox's own Node toolchain. The launcher set is an
+# allowlist built from root-owned manifests, so an executable no manifest claims cannot launch --
+# and the agent identity follows from the path rather than from a separate variable crossing sudo.
+declare -A agent_name_by_launcher=()
+while IFS=$'\t' read -r manifest_agent_name _ manifest_launcher; do
+    [[ -n "${manifest_launcher}" ]] && agent_name_by_launcher["${manifest_launcher}"]="${manifest_agent_name}"
+done < <(ai_tools_enabled_agents 2>/dev/null)
+(( ${#agent_name_by_launcher[@]} > 0 )) \
+    || refuse 'no agent is enabled on this host -- nothing can launch' \
+              'enable one in /etc/ai-tools/operator.conf (AI_TOOLS_AGENTS), then: sudo ai-tools-bootstrap'
+
+agent_executable_path="${AI_TOOLS_AGENT_EXEC:-}"
+[[ "${agent_executable_path}" != *"/../"* ]] \
+    || refuse 'AI_TOOLS_AGENT_EXEC contains parent-directory references'
+# Anchored to the sandbox's own Node toolchain, an exact semver version directory, and a single
+# path component for the launcher -- so the version component cannot be an arbitrary directory
+# name and the launcher cannot carry a separator.
+executable_suffix="${agent_executable_path#"${AI_TOOLS_NVM_DIR}/versions/node/"}"
+[[ "${executable_suffix}" != "${agent_executable_path}" \
+   && "${executable_suffix}" =~ ^(v?[0-9]+\.[0-9]+\.[0-9]+)/bin/([A-Za-z0-9._-]+)$ ]] \
+    || refuse 'invalid or absent AI_TOOLS_AGENT_EXEC -- cannot launch'
+node_version="${BASH_REMATCH[1]}"
+launcher_name="${BASH_REMATCH[2]}"
+
+agent_name="${agent_name_by_launcher[${launcher_name}]:-}"
+[[ -n "${agent_name}" ]] \
+    || refuse "no enabled agent provides the launcher \"${launcher_name}\" -- refusing to launch"
+# The name becomes a systemd unit name below; keep it to characters a unit name accepts.
+[[ "${agent_name}" =~ ^[A-Za-z0-9._-]+$ ]] \
+    || refuse "agent manifest name \"${agent_name}\" is not a valid unit-name component"
+
+agent_display_name="$(ai_tools_agent_manifest_field "${agent_name}" display_name || true)"
+[[ -n "${agent_display_name}" ]] || agent_display_name="${agent_name}"
+
+# ── Session working directory ────────────────────────────────────────────────────────────────
+# A transient unit does not inherit the caller's cwd, so the wrapper's validated project
+# directory is passed through and re-validated here before it becomes --working-directory.
+# Absent (a direct diagnostic run outside a wrapper) leaves the systemd default.
+session_working_directory=""
+if [[ -n "${AI_TOOLS_PROJECT_DIR:-}" ]]; then
+    [[ "${AI_TOOLS_PROJECT_DIR}" == /* ]] \
+        || refuse 'AI_TOOLS_PROJECT_DIR must be an absolute path'
+    [[ "${AI_TOOLS_PROJECT_DIR}" != *"/../"* && "${AI_TOOLS_PROJECT_DIR}" != *"/.." ]] \
+        || refuse 'AI_TOOLS_PROJECT_DIR contains parent-directory references'
+    [[ -d "${AI_TOOLS_PROJECT_DIR}" ]] \
+        || refuse "AI_TOOLS_PROJECT_DIR is not an existing directory: ${AI_TOOLS_PROJECT_DIR}"
+    session_working_directory="${AI_TOOLS_PROJECT_DIR}"
+fi
+
+# $UID is a bash built-in read from the real UID at startup -- no external command, no PATH
+# dependency -- so after the sudo drop this resolves to @SANDBOX_USER@'s runtime directory.
+export XDG_RUNTIME_DIR="/run/user/${UID}"
+[[ -S "${XDG_RUNTIME_DIR}/bus" ]] \
+    || refuse "@SANDBOX_USER@ user instance not reachable (bus socket absent: ${XDG_RUNTIME_DIR}/bus)" \
+              "ensure linger is enabled:  loginctl enable-linger @SANDBOX_USER@"
+
+# ── Fail-closed SELinux preflight ────────────────────────────────────────────────────────────
+# A session that does not transition into ai_tools_t runs UNCONFINED, and a wrapper cannot
+# observe its successor's post-exec domain -- so the transition's inputs are verified here,
+# before launch, and logged on every launch. The launch/refuse decision is the pure
+# ai_tools_confinement_verdict; this block owns only the probing and the reporting.
+if command -v getenforce >/dev/null 2>&1; then
+    selinux_mode="$(getenforce 2>/dev/null || echo unknown)"
+    # realpath resolves the launcher symlink chain to the real transition entrypoint. It
+    # succeeds here because this runs as @SANDBOX_USER@, which owns the 700 package directory.
+    entrypoint_path="$(realpath -e "${agent_executable_path}" 2>/dev/null || printf '%s' "${agent_executable_path}")"
+    expected_label="" actual_label="" manager_domain="" module_present=no
+    if command -v matchpathcon >/dev/null 2>&1; then
+        expected_label="$(matchpathcon -n "${entrypoint_path}" 2>/dev/null | awk -F: '{print $3}' || true)"
+        actual_label="$(stat -c '%C' -- "${entrypoint_path}" 2>/dev/null | awk -F: '{print $3}' || true)"
+    fi
+    # Distinguishes a half-installed enforcing host (module staged, file-contexts inactive ->
+    # refuse) from an intentional DAC-only host (module never installed -> launch).
+    if command -v semodule >/dev/null 2>&1 && semodule -l 2>/dev/null | grep -qE '^ai_tools([[:space:]]|$)'; then
+        module_present=yes
+    fi
+    # The manager is the systemd --user process that execs the entrypoint; same uid, so its
+    # domain is readable.
+    manager_pid="$(pgrep -u "${UID}" -f 'systemd --user' 2>/dev/null | head -n1 || true)"
+    [[ -n "${manager_pid}" ]] && manager_domain="$(tr -d '\000' < "/proc/${manager_pid}/attr/current" 2>/dev/null | awk -F: '{print $3}' || true)"
+
+    audit info "launch: agent=${agent_name} selinux=${selinux_mode} module=${module_present} exec_label=${actual_label:-none} expected=${expected_label:-none} manager_domain=${manager_domain:-unknown}"
+
+    case "$(ai_tools_confinement_verdict "${selinux_mode}" "${module_present}" \
+                                         "${expected_label}" "${actual_label}" "${manager_domain}")" in
+        mislabel)
+            audit warning "REFUSED: entrypoint mislabelled (${actual_label:-none}, want ai_tools_exec_t)"
+            refuse "refusing to launch -- ${entrypoint_path} is mislabelled \"${actual_label:-none}\"" \
+                   "(expected ai_tools_exec_t), so no domain transition fires and the session would run UNCONFINED (relabel is required after upgrade)." \
+                   "Fix:  ai-tools --relabel" ;;
+        manager-domain)
+            audit warning "REFUSED: manager domain ${manager_domain} has no domtrans to ai_tools_t"
+            refuse "refusing to launch -- the systemd --user manager runs in domain \"${manager_domain}\", which no domtrans_pattern in ai_tools.te covers, so the session would run UNCONFINED.  Add the source and rebuild:" \
+                   "  domtrans_pattern(${manager_domain}, ai_tools_exec_t, ai_tools_t)   # in selinux/policy/ai_tools.te" \
+                   "  sudo selinux/install-selinux.sh rebuild" ;;
+        unverifiable)
+            audit warning "REFUSED: ai_tools module present but file-contexts inactive (expected=${expected_label:-none})"
+            refuse "refusing to launch -- the ai_tools SELinux module is installed but its file-contexts are not active, so the ai_tools_t transition cannot be verified and the session would run UNCONFINED (fail closed on a half-installed host)." \
+                   "Bring confinement up:  sudo selinux/install-selinux.sh install" \
+                   "Or make this a DAC-only host:  sudo semodule -r ai_tools   (or run SELinux permissive)" ;;
+    esac
+fi
+
+# The podman policy group grants the SELinux access rootless containers need, but the session's
+# RestrictNamespaces=yes still blocks the user namespace they create. Surface that pairing as an
+# actionable notice rather than a cryptic EPERM inside a later build. Best-effort probe.
+if command -v semodule >/dev/null 2>&1 \
+   && semodule -l 2>/dev/null | grep -qE '^ai_tools_podman([[:space:]]|$)'; then
+    ai_tools_msg_notice \
+        "ai-tools-run: the \"podman\" SELinux group is enabled, but RestrictNamespaces=yes blocks the user namespace rootless podman/buildah require -- they will fail with EPERM on clone(CLONE_NEWUSER).  To allow containers, relax RestrictNamespaces in ${0} -- note that permitting the user namespace reopens ESC-001."
+fi
+
+# ── Session environment ──────────────────────────────────────────────────────────────────────
+# A service unit is spawned by the user manager with ITS OWN environment, so nothing crosses
+# into the session unless named here. Only terminal-, locale-, and connectivity-shaping
+# variables are forwarded by name; the operator's API keys, tokens, SSH_AUTH_SOCK, and cloud
+# credentials stay out by construction, independent of sudo's env_reset/env_keep.
+# --setenv=NAME imports NAME by name, so a value never reaches the command line.
+readonly FORWARDED_ENVIRONMENT_VARIABLES=(
+    TERM COLORTERM                                  # TUI rendering
+    LANG LANGUAGE LC_ALL LC_CTYPE LC_MESSAGES       # locale / UTF-8 handling
+    LC_COLLATE LC_NUMERIC LC_TIME LC_MONETARY
+    XDG_RUNTIME_DIR                                 # user bus / runtime dir
+    HTTP_PROXY HTTPS_PROXY NO_PROXY                 # outbound to the agent's API
+    http_proxy https_proxy no_proxy
+)
+declare -a session_environment_options=()
+for forwarded_variable_name in "${FORWARDED_ENVIRONMENT_VARIABLES[@]}"; do
+    [[ -n "${!forwarded_variable_name:-}" ]] \
+        && session_environment_options+=( "--setenv=${forwarded_variable_name}" )
+done
+
+# HOME and SHELL are pinned rather than inherited, so the session's identity and shell tooling
+# are the sandbox's and not whatever the operator's login carries.
+session_environment_options+=( "--setenv=HOME=${SANDBOX_HOME}" )
+session_environment_options+=( "--setenv=SHELL=/usr/bin/bash" )
+
+# PATH is assembled now and emitted after the session-env fragments run, so a fragment can extend
+# its tail. The base tiers mirror path-dedup.sh's ordering -- root-owned, least-writable
+# directories first so they win first-match -- with the versioned Node bin LAST. That directory is
+# dirname(AI_TOOLS_AGENT_EXEC), the same validated path the launcher symlink resolved to, which
+# keeps node/npm on the same trusted resolution chain as the entrypoint and follows Node upgrades
+# without routing through the agent-writable "default" symlink in the .nvm tree.
+session_path="/usr/local/sbin:/usr/sbin:/usr/local/bin:/usr/bin:${agent_executable_path%/*}"
+declare -a session_path_entries=()
+
+# ── Session-env fragments ────────────────────────────────────────────────────────────────────
+# Each enabled provider may ship /usr/local/lib/ai-tools/session-env.d/<name>.env.sh, appending to
+# session_environment_options and session_path_entries. Integrations are sourced first and the
+# agent last, so the agent's own pins are authoritative over an integration's.
+#
+# This runs as @SANDBOX_USER@ and decides what the agent's own session gets, so every fragment --
+# and the directory holding it, since a group-writable directory lets a non-root writer replace a
+# root-owned file inside it -- must pass ai_tools_conf_is_trusted. A failing fragment is skipped
+# and logged, never sourced. Fragments are additive, so skipping one costs the session that
+# provider's environment and leaves every property below intact.
+source_session_env_fragment() {
+    local provider_name="$1" fragment_path="${SESSION_ENV_DIR}/$1.env.sh"
+    [[ -e "${fragment_path}" ]] || return 0
+    if ! ai_tools_conf_is_trusted "${fragment_path}"; then
+        ai_tools_msg_warn "ai-tools-run: skipping session env for ${provider_name} -- ${fragment_path} is not root-owned or is writable by group/other"
+        audit warning "session-env fragment skipped: ${fragment_path}"
+        return 0
+    fi
+    # shellcheck source=/dev/null
+    source "${fragment_path}"
+}
+if ai_tools_conf_is_trusted "${SESSION_ENV_DIR}"; then
+    while IFS= read -r enabled_integration_name; do
+        [[ -n "${enabled_integration_name}" ]] && source_session_env_fragment "${enabled_integration_name}"
+    done < <(ai_tools_enabled_integrations 2>/dev/null)
+    source_session_env_fragment "${agent_name}"
+elif [[ -e "${SESSION_ENV_DIR}" ]]; then
+    ai_tools_msg_warn "ai-tools-run: skipping all session env -- ${SESSION_ENV_DIR} is not root-owned or is writable by group/other"
+    audit warning "session-env directory untrusted: ${SESSION_ENV_DIR}"
+fi
+
+(( ${#session_path_entries[@]} > 0 )) && session_path+=":$(IFS=:; printf '%s' "${session_path_entries[*]}")"
+session_environment_options+=( "--setenv=PATH=${session_path}" )
+
+# ── Launch ───────────────────────────────────────────────────────────────────────────────────
+# Three versions are reported and logged: Node from the validated executable path, the agent from
+# its npm package.json, and ai-tools from the value stamped at install (@*@ means an
+# unsubstituted source tree). The agent version is read from a file the sandbox account OWNS, so
+# it is accepted only in MAJOR.MINOR.PATCH shape -- untrusted input reaching the operator's
+# terminal and journal, where a crafted value could otherwise inject terminal escapes.
+readonly VERSION_PATTERN='^v?[0-9]+\.[0-9]+\.[0-9]+$'
+ai_tools_version="@AI_TOOLS_VERSION@"; [[ "${ai_tools_version}" == @*@ ]] && ai_tools_version="dev"
+[[ "${node_version}" =~ ${VERSION_PATTERN} ]] || node_version="n/a"
+
+agent_version="n/a"
+package_directory="$(realpath -e "${agent_executable_path}" 2>/dev/null || true)"
+for _ in 1 2 3; do
+    package_directory="${package_directory%/*}"
+    [[ -n "${package_directory}" && -f "${package_directory}/package.json" ]] && break
+done
+if [[ -n "${package_directory}" && -r "${package_directory}/package.json" ]]; then
+    # Bounded read of a regular file: the version sits in the first bytes, and a fifo swapped in
+    # must never block the launch.
+    declared_version="$(head -c 65536 -- "${package_directory}/package.json" 2>/dev/null \
+        | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+    [[ "${declared_version}" =~ ${VERSION_PATTERN} ]] && agent_version="${declared_version}"
+fi
+audit info "versions: ${agent_name}=${agent_version} node=${node_version} ai-tools=${ai_tools_version}"
+
+show_banner=1
+[[ $# -eq 1 ]] && case "$1" in --version|-v|--help|-h) show_banner=0 ;; esac
+if (( show_banner )); then
+    printf -v banner_agent_line '%-13s%s' "${agent_display_name}" "$(ai_tools_msg_version "${agent_version}")"
+    printf -v banner_node_line  '%-13s%s' 'Node'                  "$(ai_tools_msg_version "${node_version}")"
+    printf -v banner_tools_line '%-13s%s' 'ai-tools'              "$(ai_tools_msg_version "${ai_tools_version}")"
+    ai_tools_msg_banner 'Agent Tools Restricted — Starting sandboxed session...' \
+        "${banner_agent_line}" "${banner_node_line}" "${banner_tools_line}"
+fi
+
+# The unit name identifies the session in `systemctl --user list-units` and the journal; the pid
+# suffix keeps concurrent sessions from colliding.
+session_unit_name="@SANDBOX_USER@-${agent_name}-$$.service"
+declare -a working_directory_option=()
+[[ -n "${session_working_directory}" ]] \
+    && working_directory_option=( "--working-directory=${session_working_directory}" )
+
+# The unit runs under @SANDBOX_USER@'s manager, so its records carry _SYSTEMD_USER_UNIT and
+# _UID. They are read as root through those fields: the sandbox account is deliberately not in
+# systemd-journal, which would let it read every system log.
+if [[ -t 1 ]]; then
+    printf 'Running as unit: %s\n' "${session_unit_name}"
+    printf '%s  logs: sudo journalctl _SYSTEMD_USER_UNIT=%s _UID=%s -xe%s\n\n' \
+        $'\033[2m' "${session_unit_name}" "${EUID}" $'\033[0m'
+fi
+
+# ExecStart is the entrypoint directly, so the manager's execve performs the domain transition
+# with no intermediary. Run rather than exec: --pty implies --wait and returns the payload's
+# status, which a fast failure below turns into an actionable breadcrumb.
+session_start_seconds=${SECONDS}
+session_exit_status=0
+systemd-run --user --pty --quiet \
+    --unit="${session_unit_name}" \
+    --description="${agent_display_name} @SANDBOX_USER@ session" \
+    "${session_environment_options[@]}" \
+    "${working_directory_option[@]}" \
+    --property=RestrictNamespaces=yes \
+    --property=NoNewPrivileges=yes \
+    --property=UMask=0007 \
+    -- "${agent_executable_path}" "$@" || session_exit_status=$?
+
+if (( session_exit_status != 0 && SECONDS - session_start_seconds < 5 )); then
+    audit warning "session unit ${session_unit_name} exited with status ${session_exit_status} at startup"
+    ai_tools_msg_warn \
+        "ai-tools-run: the session exited with status ${session_exit_status} almost immediately." \
+        "If it ended with no output, the sandbox toolchain may be incompletely" \
+        "installed -- reprovision it as root, then relaunch:"
+    printf '  sudo ai-tools-bootstrap\n' >&2
+fi
+exit "${session_exit_status}"

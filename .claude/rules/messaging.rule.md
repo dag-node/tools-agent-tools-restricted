@@ -3,7 +3,7 @@ paths:
   - src/usr/local/lib/ai-tools/msg.lib.sh
   - src/usr/local/bin/claude.sh
   - src/usr/local/bin/ai-tools.sh
-  - src/opt/ai-tools/bin/claude-run.sh
+  - src/opt/ai-tools/bin/ai-tools-run.sh
   - src/opt/ai-tools/.claude/session-hook.sh
   - src/usr/local/sbin/ai-tools/ai-tools-bootstrap.sh
   - install.sh
@@ -151,9 +151,9 @@ reads the same everywhere. `AI-TOOLS` is a brand mark, so product names stay des
 Meta lines are composed via `ai_tools_msg_version`, which `v`-prefixes a bare version number
 (`0.1.0` → `v0.1.0`) and passes a build id or `dev` through unchanged. The installer shows
 one line (`installer · v0.1.0`, the package version `ai-tools --version` reports). The launch
-banner shows three — `Claude Code`, `Node`, `ai-tools` — from **`claude-run`**, which runs as
+banner shows three — `Claude Code`, `Node`, `ai-tools` — from **`ai-tools-run`**, which runs as
 the sandbox account so it can read each from the toolchain, and logs them (`logger -t
-claude-run`) as a record of which versions a session ran.
+ai-tools-run`) as a record of which versions a session ran.
 
 ## The library is required — one implementation, no per-consumer fallback
 
@@ -162,7 +162,7 @@ consumer **requires** it the way they require `safe-paths.lib.sh`: a valid insta
 the lib (`tests/integration/perms.sh` is the single test asserting every deployed
 library's presence, owner, and mode), and a broken one fails closed rather than running
 through a private re-implementation. Root helpers bare-`source` it under `set -e`; the
-user-facing entry points (`claude.sh`, `ai-tools`, `claude-run`) refuse with a reinstall
+user-facing entry points (`claude.sh`, `ai-tools`, `ai-tools-run`) refuse with a reinstall
 hint; the installers source it from the source tree and abort if the checkout is broken.
 Consumers call the lib's functions directly — no `declare -F` probing, no stub branches.
 
@@ -196,7 +196,7 @@ the exit status of the operation whose outcome they report.
   [cli](cli.rule.md)). The flows carry **no sudo-password notices**: the first sudo prompt
   (the secret scan) lands directly under the Secret-lockdown headline, and sudo's own
   prompt is self-explanatory.
-- **`claude-run.sh`** routes its pre-launch refusals and the podman NOTICE.
+- **`ai-tools-run.sh`** routes its pre-launch refusals and the podman NOTICE.
 - **`session-hook.sh`** frames the interrupted-session `SessionStart` NOTICE (see
   [ownership-and-hooks](ownership-and-hooks.rule.md)).
 - **`ai-tools-bootstrap.sh`** frames its git-identity offer with `ai_tools_msg_block` and

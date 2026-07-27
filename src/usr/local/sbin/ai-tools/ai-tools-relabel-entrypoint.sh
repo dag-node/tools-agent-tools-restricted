@@ -7,7 +7,7 @@
 #
 # Runs as root (a domain that holds relabel), never the sandbox account. Two callers drive
 # it: the ai-tools-relabel.path watcher (automatic, after an upgrade) and `ai-tools
-# --relabel` (on demand). The domain story -- the watcher, the claude-run fail-closed
+# --relabel` (on demand). The domain story -- the watcher, the ai-tools-run fail-closed
 # backstop, and why the relabel privilege stays off the agent-reachable handback domain --
 # is in .claude/rules/updater.rule.md. Takes no arguments: it acts only on the fixed
 # nvm-tree glob, nothing caller-supplied.
@@ -58,7 +58,7 @@ fi
 #
 # The ai_tools policy MODULE is optional too: act on an entrypoint only when the
 # file-context DB maps it to ai_tools_exec_t (i.e. the module is installed). This is the
-# same condition claude-run keys its pre-launch check on -- where the module is absent
+# same condition ai-tools-run keys its pre-launch check on -- where the module is absent
 # there is no ai_tools_exec_t rule to apply, so leaving the label alone is correct, not a
 # failure. 'managed' counts the entrypoints the layer actually governs.
 shopt -s nullglob

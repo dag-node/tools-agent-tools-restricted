@@ -494,7 +494,7 @@ reach_scan() {
 # reg_reach <dir>  -- the reachability block: ensure the sandbox account can TRAVERSE the
 # path to <dir>, acting on reach_scan's result (the CALLER runs reach_scan first). The
 # confined session runs as the sandbox account; a project nested under a directory it
-# cannot enter (a private home, 700) is unreachable, so claude-run reports it missing even
+# cannot enter (a private home, 700) is unreachable, so ai-tools-run reports it missing even
 # after a clean claim. Grant traverse-only (execute, no read -- u:SANDBOX_USER:--x) on
 # each blocking ancestor the operator owns and that is not a protected system directory:
 # enough to enter and reach the project, never to list or read it, and unprivileged
@@ -1363,7 +1363,7 @@ cmd_reclaim() {
 # cmd_relabel  -- restore the ai_tools_exec_t SELinux label on the claude entrypoint(s)
 # after a Node auto-upgrade, via the root helper (sudo, password). A nvm-update installs a
 # fresh claude binary that npm leaves mislabelled (bin_t), so the agent's domain transition
-# stops firing and claude-run refuses to launch (fail-closed) until the label is restored.
+# stops firing and ai-tools-run refuses to launch (fail-closed) until the label is restored.
 # Takes no path -- the helper acts only on the fixed nvm-tree entrypoint(s).
 #
 # Design note: if post-upgrade maintenance ever grows beyond this one step, fold the steps

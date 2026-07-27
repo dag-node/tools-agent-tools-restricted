@@ -171,7 +171,7 @@ op_add() {
     seed_allowlist "${user}"
 
     # The sandbox account needs a systemd --user instance without an interactive login: its
-    # nvm-update timer and each claude-run session unit run there, and it has no login shell, so
+    # nvm-update timer and each ai-tools-run session unit run there, and it has no login shell, so
     # only linger keeps that instance alive. An operator runs claude from its own active login,
     # so it needs no linger here; enabling operator linger for other reasons is host policy.
     log "enabling linger for ${SANDBOX_USER}"

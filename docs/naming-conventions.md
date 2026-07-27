@@ -95,7 +95,7 @@ through the **group** bits. This keeps each side to one permission tier and avoi
 an operator blanket read of the sandbox group's files (e.g. `.claude` session state).
 
 The sandbox user is also **not** in `ai-ops`, so it cannot hold the operators' sudoers
-grant; `claude-run` refuses to launch if that is ever violated.
+grant; `ai-tools-run` refuses to launch if that is ever violated.
 
 ## Generic / fixed terms that are NOT these identities
 

@@ -226,7 +226,7 @@ the two EXPECTED buckets and **nothing** under NEW or "ran (group enabled?)".
 ## After a Node upgrade
 
 A freshly installed `claude.exe` is mislabelled (`bin_t`), so the
-`unconfined_t → ai_tools_t` transition stops firing. `claude-run` **fail-closes** on this —
+`unconfined_t → ai_tools_t` transition stops firing. `ai-tools-run` **fail-closes** on this —
 it refuses to launch rather than run unconfined — so a mislabelled entrypoint keeps the
 agent safe while it waits to be relabelled.
 
@@ -236,7 +236,7 @@ which `restorecon`s every `claude.exe` under the nvm tree and verifies `ai_tools
 a normal upgrade keeps the agent confined across version bumps with no manual step.
 
 Relabel by hand only if you upgraded Node some other way, or if the timer's relabel failed
-(`claude-run` will be refusing to launch and pointing you here):
+(`ai-tools-run` will be refusing to launch and pointing you here):
 
 ```bash
 ai-tools --relabel

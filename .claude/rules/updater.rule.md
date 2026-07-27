@@ -97,7 +97,7 @@ fires only once the entrypoint carries `ai_tools_exec_t`. `ai-tools-relabel-entr
 restores that label: it restorecons every `claude.exe` under the nvm tree and verifies
 each took `ai_tools_exec_t`. It runs as root (a domain that holds relabel), is idempotent,
 and no-ops when SELinux is off or the `ai_tools` module is not installed — it acts only on
-entrypoints the file-context DB maps to `ai_tools_exec_t`, the same condition `claude-run`
+entrypoints the file-context DB maps to `ai_tools_exec_t`, the same condition `ai-tools-run`
 keys on.
 
 `ai-tools-bootstrap` runs the helper directly at provision time (above). Two further paths
@@ -115,7 +115,7 @@ run it after an upgrade, both as root, never `SANDBOX_USER`:
   sole trigger: the sandbox
   updater holds no relabel rights and reaches root only through the handback bridge, whose
   domain deliberately holds none either, so a repoint that does not land (handback down in a
-  manual run) leaves the relabel to `claude-run`'s fail-closed preflight and the operator's
+  manual run) leaves the relabel to `ai-tools-run`'s fail-closed preflight and the operator's
   `ai-tools --relabel`.
 - **On demand**, through `ai-tools --relabel` (see [cli](cli.rule.md)), which runs the
   same helper via the `%ai-ops` NOPASSWD sudo rule (the relabel rule in
@@ -124,7 +124,7 @@ run it after an upgrade, both as root, never `SANDBOX_USER`:
 
 The relabel runs outside the handback domain by design: `ai_tools_handback_t` is
 agent-reachable and holds no relabel rights (`ai_tools.te`), so the privilege stays off
-the agent's reach. The watcher is best-effort; `claude-run`'s fail-closed preflight (see
+the agent's reach. The watcher is best-effort; `ai-tools-run`'s fail-closed preflight (see
 [confinement](confinement.rule.md)) is the backstop — when SELinux is enforcing and the
 module is installed, it refuses to launch a session whose entrypoint is not
 `ai_tools_exec_t`, so a watcher relabel that does not land degrades to a refused launch the
@@ -133,7 +133,7 @@ operator clears with `ai-tools --relabel`, never an unconfined session.
 ## `loginctl enable-linger`
 
 Linger on `SANDBOX_USER` keeps its `systemd --user` instance running without an
-interactive login, so both the daily `nvm-update` timer and each `claude-run` session unit
+interactive login, so both the daily `nvm-update` timer and each `ai-tools-run` session unit
 have a live user manager. Required for headless/unattended operation.
 
 ## Toolchain provenance

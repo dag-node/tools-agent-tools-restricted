@@ -14,7 +14,7 @@ A session's configuration comes from three places in this project:
 | Layer | File | Owner | Scope |
 |---|---|---|---|
 | Control-plane defaults | `/opt/ai-tools/.claude/settings.json` (user layer) | `root:ai-tools`, agent cannot edit | every session |
-| Structural pins | `claude-run`'s `--setenv` allowlist | `root:ai-tools`, agent cannot edit | every session |
+| Structural pins | `ai-tools-run`'s `--setenv` allowlist | `root:ai-tools`, agent cannot edit | every session |
 | Per-project overrides | `<project>/.claude/settings.json` (project layer) | operator (agent-writable tree) | one project |
 
 Claude Code merges these by precedence: managed policy > command line > local project >
@@ -33,9 +33,9 @@ applies to every Claude Code user on the host, not only the sandbox account.
 |---|---|---|---|
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | `1` | `settings.json` `env` | Opts out of telemetry, error reporting, `/feedback` upload, and the quality survey in one variable. |
 | `disableAutoMode` | `"disable"` | `settings.json` | Removes `auto` from the `Shift+Tab` cycle and rejects `--permission-mode auto`, so a session confirms actions rather than acting autonomously. |
-| `DISABLE_AUTOUPDATER` | `1` | `claude-run` `--setenv` | The agent's Node tree is not agent-writable; updates run out-of-band via the toolchain updater. |
-| `HOME`, `PATH`, `CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE`, `SHELL` | sandbox paths | `claude-run` `--setenv` | Structural pins coupled to the sandbox layout — do not override. |
-| `TERM`, `COLORTERM`, `LANG`/`LC_*`, `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`, `XDG_RUNTIME_DIR` | forwarded from operator | `claude-run` `--setenv` | Terminal, locale, and outbound-proxy shaping imported by name from the operator's environment. |
+| `DISABLE_AUTOUPDATER` | `1` | `ai-tools-run` `--setenv` | The agent's Node tree is not agent-writable; updates run out-of-band via the toolchain updater. |
+| `HOME`, `PATH`, `CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE`, `SHELL` | sandbox paths | `ai-tools-run` `--setenv` | Structural pins coupled to the sandbox layout — do not override. |
+| `TERM`, `COLORTERM`, `LANG`/`LC_*`, `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`, `XDG_RUNTIME_DIR` | forwarded from operator | `ai-tools-run` `--setenv` | Terminal, locale, and outbound-proxy shaping imported by name from the operator's environment. |
 
 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` subsumes `DISABLE_TELEMETRY`,
 `DISABLE_ERROR_REPORTING`, `DISABLE_FEEDBACK_COMMAND`, and

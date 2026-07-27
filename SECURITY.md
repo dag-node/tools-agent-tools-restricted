@@ -31,7 +31,7 @@ In scope — anything that breaks a documented security invariant (`CLAUDE.md`,
 - Escaping or bypassing the session confinement (the transient systemd unit's
   properties, the `ai_tools_t` SELinux domain, `NoNewPrivileges`).
 - Writing, replacing, or disabling the control plane (settings, hooks,
-  `claude-run`, the updater, the locked `bin/` symlink) as the sandbox account.
+  `ai-tools-run`, the updater, the locked `bin/` symlink) as the sandbox account.
 - Authentication bypass or verb-table escape in the `ai-tools-handback` socket
   daemon, or an elevated helper acting outside the allowlist.
 - Bypassing the protected-paths backstop (an elevated helper acting on a system

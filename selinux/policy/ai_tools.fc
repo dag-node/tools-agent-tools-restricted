@@ -6,7 +6,7 @@
 # transition on exec. The [^/]+ matches any Node version dir; a Node upgrade installs the
 # new claude.exe mislabelled (bin_t), and the ai-tools-relabel.path watcher re-applies this
 # label automatically once the updater repoints the symlink (ai-tools-relabel-entrypoint,
-# run as root), or run `ai-tools --relabel`. Until relabelled, claude-run fail-closes
+# run as root), or run `ai-tools --relabel`. Until relabelled, ai-tools-run fail-closes
 # (refuses to launch) rather than run unconfined.
 /opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@anthropic-ai/claude-code/bin/claude\.exe  --  gen_context(system_u:object_r:ai_tools_exec_t,s0)
 # The rest of the nvm node tree is left to its default usr_t/bin_t/lib_t -- READ-ONLY

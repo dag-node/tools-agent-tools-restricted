@@ -3,13 +3,13 @@ paths:
   - "selinux/*.te"
   - "selinux/*.fc"
   - "selinux/README.md"
-  - "src/opt/ai-tools/bin/claude-run.sh"
+  - "src/opt/ai-tools/bin/ai-tools-run.sh"
   - "src/usr/local/lib/ai-tools/confinement.lib.sh"
 ---
 
 # Session confinement (namespaces, SELinux, `/tmp`)
 
-The kernel-level isolation `claude-run` applies to each session unit, the SELinux
+The kernel-level isolation `ai-tools-run` applies to each session unit, the SELinux
 domain transition that confines it, and the `/tmp` model. Launch mechanics
 (env, WorkingDirectory, sudoers) are in [launch](launch.rule.md).
 
@@ -68,11 +68,11 @@ regardless of which role the manager holds. The manager's domain also needs `sea
 A session that fails to transition into `ai_tools_t` runs *unconfined*, and because
 `ai-tools` maps to `unconfined_u` the module cannot forbid that (the ESC-001 base-policy
 floor; `user_u` was rejected because it breaks the `ai-tools`→root sudo). A wrapper
-cannot observe its successor's post-`exec` domain, so `claude-run` probes the
+cannot observe its successor's post-`exec` domain, so `ai-tools-run` probes the
 transition's inputs *before* launch: the entrypoint's label (`matchpathcon` vs
 `stat -c %C`), the `systemd --user` manager's domain (`/proc/<pid>/attr/current`), and
 whether the `ai_tools` module is in the policy store (`semodule -l`). It logs them on
-every launch (journald, `claude-run` tag). `claude-run` performs that probing and I/O;
+every launch (journald, `ai-tools-run` tag). `ai-tools-run` performs that probing and I/O;
 the launch-vs-refuse decision is the pure `ai_tools_confinement_verdict`
 (`confinement.lib.sh`), so the policy is unit-tested apart from the probing
 (`tests/unit/confinement.sh` drives the truth table with no SELinux host).
@@ -98,7 +98,7 @@ no-op for an unprivileged `--user` manager: it cannot pivot a private `/tmp` for
 payload (the unit starts, but the payload still sees the shared `/tmp` — claude's
 runtime dir stays visible and no private bind mount appears in the payload's
 `mountinfo`). claude keeps its runtime at a fixed `/tmp/claude-<uid>`, does not honour
-`TMPDIR`, and reuses the dir across sessions. `claude-run` does not touch that
+`TMPDIR`, and reuses the dir across sessions. `ai-tools-run` does not touch that
 directory: removing it would race claude's exists-then-`mkdir` check against another
 live same-uid session, failing startup with `EEXIST mkdir /tmp/claude-<uid>`.
 
@@ -141,7 +141,7 @@ what SELinux permits but does not lift the seccomp filter. Of the optional group
 `podman` creates namespaces (rootless containers need user+mnt+pid+ipc+net+uts), so
 `RestrictNamespaces=yes` blocks it even with the podman group loaded — the SELinux grant
 is necessary but not sufficient. Supporting rootless podman means re-allowing the user
-namespace, which *is* ESC-001, so it is not a clean partial relaxation. `claude-run`
+namespace, which *is* ESC-001, so it is not a clean partial relaxation. `ai-tools-run`
 emits an actionable NOTICE at launch when the podman group is loaded while the filter is
 active.
 

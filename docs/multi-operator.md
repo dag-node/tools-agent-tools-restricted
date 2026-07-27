@@ -57,7 +57,7 @@ operators list).
   helper (operator `sudo`, no NOPASSWD — the same model as `ai-tools-setfacl`/`-relabel`/
   `-unclaim`), and `--project-unclaim` removes it; the agent has no path to `.gitconfig` writes.
   No setgid fight, no `ai-ops` group-write, and no new sudoers rule.
-- **Each operator gets a private agent-state subdir.** `claude-run` points the session's
+- **Each operator gets a private agent-state subdir.** `ai-tools-run` points the session's
   Claude state dir at `/opt/ai-tools/state/<operator>/` (history, sessions,
   `.claude.json`), keyed off the launching operator the wrapper passes in, so operators'
   conversations do not intermix and `.claude.json` writes do not race. This is
@@ -70,7 +70,7 @@ operators list).
 - `/opt/ai-tools/.git` is **`root:root 0700`** (root-private drift capture, no
   per-operator owner).
 - Sudoers grants are **group** rules: `%ai-ops ALL=(ai-tools:ai-tools) NOPASSWD:
-  /opt/ai-tools/bin/claude-run`. The per-operator-line form is gone.
+  /opt/ai-tools/bin/ai-tools-run`. The per-operator-line form is gone.
 - **Operator management is a symmetric root helper, `ai-tools-admin operator
   add|remove|list`** (run via `sudo`), replacing the one-shot `ai-tools-enroll`. It is a
   root helper, not an `ai-tools` CLI verb, because the CLI is unprivileged and refuses
@@ -95,7 +95,7 @@ Ownership cells use the shell-variable identities from
 |---|---|---|---|
 | `/opt/ai-tools` | `PROJECTS_USER:SANDBOX_GROUP 2750` | `root:SANDBOX_GROUP 2751` | `+o+x` search so any operator traverses to the launcher; no `o+r`. Root owner drops the single-operator binding. |
 | `/opt/ai-tools/bin` | `PROJECTS_USER:SANDBOX_GROUP 0550` | `root:SANDBOX_GROUP 0551` | `+o+x` so operators `readlink bin/claude` (readlink needs dir search, not link read). |
-| `bin/claude-run` | `PROJECTS_USER:SANDBOX_GROUP 0550` | `root:SANDBOX_GROUP 0550` | unchanged surface — `sudo` transitions to `ai-tools` first, so the exec check is the group bit. |
+| `bin/ai-tools-run` | `PROJECTS_USER:SANDBOX_GROUP 0550` | `root:SANDBOX_GROUP 0550` | unchanged surface — `sudo` transitions to `ai-tools` first, so the exec check is the group bit. |
 | `bin/nvm-update.sh` | `PROJECTS_USER:SANDBOX_GROUP 0550` | `root:SANDBOX_GROUP 0550` | run as `ai-tools` by its own timer; group-x. |
 | `bin/claude` (symlink) | `PROJECTS_USER:SANDBOX_GROUP` | `root:SANDBOX_GROUP` | owner irrelevant for readlink; root-owned = agent still can't swap it. |
 | `.claude` | `PROJECTS_USER:SANDBOX_GROUP 3770` | `root:SANDBOX_GROUP 3770` | unchanged (`o=0`): operators get nothing; agent group-writes its state, sticky blocks unlink of root-owned control files. |
@@ -104,7 +104,7 @@ Ownership cells use the shell-variable identities from
 | `.gitconfig` | `PROJECTS_USER:SANDBOX_GROUP 640` | `root:SANDBOX_GROUP 644` | agent reads `safe.directory`; world-readable so the operator and wrapper read it without `ai-tools` group membership; root-write-only. Operators register entries through the `ai-tools-safedir` root helper (`sudo`), not by writing the file. |
 | `.gitignore` | `PROJECTS_USER:SANDBOX_GROUP 640` | `root:SANDBOX_GROUP 640` | unchanged; agent reads, never writes. |
 | `.git` | `PROJECTS_USER:PROJECTS_GROUP 2750` | `root:root 0700` | root-private; per-operator drift capture is meaningless with N operators. |
-| `state/<operator>/` | n/a (shared `.claude`) | `SANDBOX_USER:SANDBOX_GROUP 0700` per operator | private agent state (history, sessions, `.claude.json`); `claude-run` selects it by the launching operator. |
+| `state/<operator>/` | n/a (shared `.claude`) | `SANDBOX_USER:SANDBOX_GROUP 0700` per operator | private agent state (history, sessions, `.claude.json`); `ai-tools-run` selects it by the launching operator. |
 | `.nvm/.cache/.local/.npm` | `SANDBOX_USER:SANDBOX_GROUP 0750` | unchanged | agent toolchain. |
 | `/var/opt/ai-tools[/sandbox-projects]` | `PROJECTS_USER:SANDBOX_GROUP 2750/2770` | `root:SANDBOX_GROUP 2750/2770` | agent workspace; operator ownership was incidental. |
 | `~/.config/ai-tools/*` | `PROJECTS_USER:PROJECTS_GROUP 700/600` | unchanged, **per operator** | each operator keeps their own allowlist/secret config; already scales to N. |
@@ -150,7 +150,7 @@ boundary-mode constants the installer/spec assert.
 
 ## Remaining verification
 
-Claude Code has no config-vs-state split: `CLAUDE_CONFIG_DIR` — which `claude-run` pins to
+Claude Code has no config-vs-state split: `CLAUDE_CONFIG_DIR` — which `ai-tools-run` pins to
 the shared `/opt/ai-tools/.claude` — selects history, sessions, `.claude.json`, **and** the
 `settings.json`/hooks layer together. A per-operator `state/<operator>/` would therefore
 relocate the guardrail settings too; a candidate home for the shared control settings is

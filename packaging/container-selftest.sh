@@ -162,7 +162,7 @@ else
 fi
 
 # ── reachability diagnostic (why can / can't the agent reach the project) ─────
-# claude-run checks `[[ -d CLAUDE_PROJECT_DIR ]]` AS the agent, so the agent must traverse every
+# ai-tools-run checks `[[ -d AI_TOOLS_PROJECT_DIR ]]` AS the agent, so the agent must traverse every
 # ancestor. Dump each ancestor's perms + ACL and whether the agent can stat the project, so a
 # traverse-grant gap is visible rather than only surfacing as the session error below.
 banner "Reachability diagnostic"
@@ -174,10 +174,10 @@ runuser -u ai-tools -- test -x "/home/${OPERATOR}" && echo "AGENT-CAN-TRAVERSE /
 set +x
 
 # ── confined session smoke test (auth-free) ──────────────────────────────────
-# `claude --version` flows wrapper -> ai-ops gate -> allowlist -> sudo -> claude-run ->
+# `claude --version` flows wrapper -> ai-ops gate -> allowlist -> sudo -> ai-tools-run ->
 # `systemd-run --user --pty -- claude.exe --version`, so it exercises the whole confined
 # launch without an API key. `script` provides a controlling tty for the wrapper's
-# /dev/tty probe and claude-run's --pty; `timeout` guards a hung update check.
+# /dev/tty probe and ai-tools-run's --pty; `timeout` guards a hung update check.
 phase "confined session launches (claude --version through the wrapper)" \
     as_operator "cd '${PROJECT}' && script -qec 'timeout 90 claude --version' /dev/null"
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/unit/confinement.sh
 # Unit test for the SELinux launch-gate decision (confinement.lib.sh): the pure
-# ai_tools_confinement_verdict that claude-run's fail-closed preflight dispatches on. Drives the
+# ai_tools_confinement_verdict that ai-tools-run's fail-closed preflight dispatches on. Drives the
 # truth table over the four probed inputs -- getenforce, the matchpathcon-expected label, the
 # live label, the manager domain -- with no SELinux host required, so a regression in the gate
 # (an inverted condition, a swallowed refusal) fails here rather than reaching production as an

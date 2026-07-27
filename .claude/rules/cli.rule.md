@@ -72,7 +72,7 @@ is behind the gate, `--version` included — an unfinished install reports nothi
 - `--relabel` — restore `ai_tools_exec_t` on the claude entrypoint(s) after a Node upgrade,
   via `ai-tools-relabel-entrypoint`. The manual counterpart to the automatic post-upgrade
   relabel the `nvm-update` timer runs (see [updater](updater.rule.md)); for an out-of-band
-  upgrade or if the timer's relabel failed and `claude-run` is fail-closing on the launch.
+  upgrade or if the timer's relabel failed and `ai-tools-run` is fail-closing on the launch.
 - `--list`, `--version` (the deploy-stamped package version; `dev` from a raw source tree),
   `--help`.
 
@@ -131,7 +131,7 @@ not re-reported.
 
 **Reachability.** The confined session runs *as* the sandbox account, so it must be able to
 **traverse** the path to the project; a project nested under a directory the account cannot enter
-(a private home, `700`) is unreachable, and `claude-run` — which re-checks the project directory as
+(a private home, `700`) is unreachable, and `ai-tools-run` — which re-checks the project directory as
 the agent — refuses it as missing even after a clean claim. Claim closes this with a **default-NO**
 prompt that grants a **traverse-only** ACL (`u:SANDBOX_USER:--x` — execute, no read) on each
 blocking ancestor, so the account can *enter* a directory to reach the project but never *list* or
@@ -188,7 +188,7 @@ path** (any path under `SANDBOX_ROOT`) resumes `sandbox_finalize` on it.
 The shared sandbox area carries a `g:ai-ops:rwX` ACL (traverse on `/var/opt/ai-tools`, rwX +
 default on `sandbox-projects`, applied by `install.sh`), so an operator creates and works in
 clones without `SANDBOX_GROUP` membership — the shared-area counterpart to `ai-tools-setfacl`'s
-per-project `user:<operator>` grant. The agent is not in `ai-ops` (`claude-run` refuses to launch
+per-project `user:<operator>` grant. The agent is not in `ai-ops` (`ai-tools-run` refuses to launch
 otherwise), so the grant adds it no access.
 
 ## Privilege model

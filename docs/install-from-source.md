@@ -166,7 +166,7 @@ owner/group/mode list is `tests/integration/perms.sh`, which
 | src/usr/local/lib/ai-tools/secret-patterns.lib.sh | /usr/local/lib/ai-tools/secret-patterns.lib.sh (root) |
 | src/usr/local/lib/ai-tools/skip-dirs.lib.sh | /usr/local/lib/ai-tools/skip-dirs.lib.sh (root) |
 | src/usr/local/bin/claude.sh | /usr/local/bin/claude (root) |
-| src/opt/ai-tools/bin/claude-run.sh | /opt/ai-tools/bin/claude-run |
+| src/opt/ai-tools/bin/ai-tools-run.sh | /opt/ai-tools/bin/ai-tools-run |
 | src/opt/ai-tools/.claude/post-tool-hook.sh | /opt/ai-tools/.claude/post-tool-hook.sh |
 | src/opt/ai-tools/.claude/session-hook.sh | /opt/ai-tools/.claude/session-hook.sh |
 | src/opt/ai-tools/.claude/settings.json | /opt/ai-tools/.claude/settings.json |
