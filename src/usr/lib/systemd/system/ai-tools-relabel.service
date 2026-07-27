@@ -8,5 +8,5 @@ Documentation=man:restorecon(8)
 Type=oneshot
 # Runs the relabel helper as root in the system instance (which holds relabel privilege),
 # triggered by ai-tools-relabel.path after a Node bump. Idempotent and best-effort;
-# claude-run's fail-closed preflight is the backstop. See .claude/rules/updater.rule.md.
+# ai-tools-run's fail-closed preflight is the backstop. See .claude/rules/updater.rule.md.
 ExecStart=/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint

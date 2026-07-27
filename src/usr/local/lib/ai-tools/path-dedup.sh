@@ -8,7 +8,7 @@
 # after their nvm init (it must follow anything that prepends to PATH), which
 # scopes the reorder to the operators who need it — root and unrelated
 # accounts keep their stock PATH. The sandbox session needs no sourcing:
-# claude-run pins the session PATH as a unit property.
+# ai-tools-run pins the session PATH as a unit property.
 #
 # PATH is first-match-wins: an early directory shadows every later one. The
 # order below puts the least-writable directories first, so a user- or

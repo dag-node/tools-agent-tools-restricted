@@ -193,7 +193,7 @@ loses history access along with the rest of the tree (see [cli](cli.rule.md)).
 
 The files that drive the sandbox's own enforcement — `settings.json` (declares the
 hooks), `post-tool-hook.sh` and `session-hook.sh` (the hook bodies),
-`bin/nvm-update.sh` (the updater), and `bin/claude-run` (the service shim) — are not
+`bin/nvm-update.sh` (the updater), and `bin/ai-tools-run` (the service shim) — are not
 writable by the agent, so it cannot disable its own handback, secret-quarantine, or
 confinement guardrails. They are owned `root:SANDBOX_GROUP` (group read/exec, no group
 write), **not** `SANDBOX_USER:SANDBOX_GROUP` — and not any operator, so no single operator

@@ -6,8 +6,8 @@
 # enabled. Two provider kinds share the mechanism:
 #   * AGENTS -- the AI coding agents (ai-tools-agents-*). ai-tools-bootstrap / nvm-update install
 #     each enabled agent's npm package and symlink its launcher.
-#   * INTEGRATIONS -- host-toolchain layers (ai-tools-integration-*). claude-run sources each
-#     enabled integration's session-env fragment (claude-run.d/<name>.env.sh).
+#   * INTEGRATIONS -- host-toolchain layers (ai-tools-integration-*). ai-tools-run sources each
+#     enabled integration's session-env fragment (session-env.d/<name>.env.sh).
 # Both inputs are DATA -- parsed via conf.lib.sh, never sourced -- so a malformed or tampered file
 # cannot execute code in the scripts that read it (the same posture as operator.lib.sh /
 # skip-dirs.lib.sh). conf.lib.sh also carries the KEY=value grammar, so a manifest and
@@ -18,7 +18,7 @@
 # member package. <name> (the basename) is the token an operator writes in AI_TOOLS_AGENTS /
 # AI_TOOLS_INTEGRATIONS:
 #   agents:        npm_pkg=<registry package>  launcher=<bin name>  default_enable=yes|no
-#   integrations:  default_enable=yes|no       (its env fragment is claude-run.d/<name>.env.sh)
+#   integrations:  default_enable=yes|no       (its env fragment is session-env.d/<name>.env.sh)
 #
 # ── Enablement is FAIL-CLOSED ────────────────────────────────────────────────────────────────
 # operator.conf: AI_TOOLS_AGENTS / AI_TOOLS_INTEGRATIONS = "<name> ..." (commas and whitespace
@@ -179,9 +179,23 @@ ai_tools_enabled_agents() {
     return 0
 }
 
+# ai_tools_agent_manifest_field <agent-name> <key> : print one field of an installed agent's
+#   manifest, empty when the agent has no manifest, the manifest is untrusted, or the key is
+#   absent. For a caller that already knows which agent it resolved and needs a further
+#   declarative field (the launcher's display name) without re-listing every agent.
+ai_tools_agent_manifest_field() {
+    local agent_name="$1" wanted_key="$2"
+    # Allowlist the name before it becomes a path: manifest basenames are plain identifiers, so
+    # anything else -- a separator, a traversal -- cannot address a file outside the manifest dir.
+    [[ "${agent_name}" =~ ^[A-Za-z0-9._-]+$ && "${agent_name}" != *..* ]] || return 1
+    local manifest_file="${AI_TOOLS_AGENTS_DIR}/${agent_name}.conf"
+    ai_tools_conf_is_trusted "${manifest_file}" || return 1
+    ai_tools_conf_get "${manifest_file}" "${wanted_key}"
+}
+
 # ai_tools_enabled_integrations : print one enabled AND installed integration name per line, in
 #   manifest-filename order. An integration carries only default_enable; its session env lives in
-#   claude-run.d/<name>.env.sh, which claude-run sources by name -- after applying the same trust
+#   session-env.d/<name>.env.sh, which ai-tools-run sources by name -- after applying the same trust
 #   check to that fragment and its directory. An enabled-but-uninstalled integration, and any
 #   refusal, is reported on stderr.
 ai_tools_enabled_integrations() {

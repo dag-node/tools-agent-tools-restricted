@@ -57,7 +57,7 @@ gap. The old subpackage pins `Requires: ai-tools-base = <its own version>`; the 
 candidate for the base is the new version; and with nothing obsoleting the old name, dnf can
 neither keep nor replace it, so `dnf update` fails outright and the operator is pushed into a
 manual erase that drops their `operator.conf`. Where the two packages also share a file path
-(`/opt/ai-tools/bin/claude-run`), the `Obsoletes` is additionally what lets rpm hand the file
+(the `claude` wrapper, the hooks), the `Obsoletes` is additionally what lets rpm hand the file
 over instead of reporting a conflict between the installed and the incoming package.
 
 The `Obsoletes` bound is the version the rename landed in, never `%{version}`, so a future
@@ -69,10 +69,10 @@ package legitimately reusing the old name is not obsoleted by every later releas
 
 | Subpackage | Owns |
 |---|---|
-| `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home (its default-deny `.gitignore` git guard and `.gitconfig` identity, both `%post`-seeded-if-missing and not rpm-owned, so an erase preserves them) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `secret-patterns` template; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `skip-dirs.lib.sh`, `safe-paths.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`, `conf.lib.sh`, `providers.lib.sh`; the `agents.d`, `integrations.d`, and `claude-run.d` provider directories (base owns the dirs at `0755 root:root`; each member package drops only its own manifest or fragment into them); the base SELinux domain (`ai_tools_t` and the handback/helper types) |
+| `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home (its default-deny `.gitignore` git guard and `.gitconfig` identity, both `%post`-seeded-if-missing and not rpm-owned, so an erase preserves them) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `secret-patterns` template; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `skip-dirs.lib.sh`, `safe-paths.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`, `conf.lib.sh`, `providers.lib.sh`; the agent-agnostic confinement shim `/opt/ai-tools/bin/ai-tools-run` and the `%ai-ops` sudoers grant that reaches it; the `agents.d`, `integrations.d`, and `session-env.d` provider directories (base owns the dirs at `0755 root:root`; each member package drops only its own manifest or fragment into them); the base SELinux domain (`ai_tools_t` and the handback/helper types) |
 | `ai-tools-integration-nodejs` | nvm under `/opt/ai-tools/.nvm`; the per-sandbox-user Node-version auto-update service and timer; `ai-tools-bootstrap`; the symlink-repoint helper (`ai-tools-claude-symlink`) and the post-upgrade entrypoint relabel (`ai-tools-relabel-entrypoint`) |
-| `ai-tools-integration-dotnet` | the dotnet session-env fragment (`claude-run.d/dotnet.env.sh`) and manifest (`integrations.d/dotnet.conf`); the `ai-tools-dotnet` provisioning helper (writable NuGet cache + read-only shared tools under `/opt/ai-tools/.nuget` / `.dotnet`, labelled by a local fcontext). No .NET runtime — the host's dotnet is used |
-| `ai-tools-agents-claude-code-restricted` | the `claude` wrapper and `claude-run`; `/opt/ai-tools/bin/claude`; the Claude Code hooks (`post-tool-hook.sh`, `session-hook.sh`) and `settings.json`; its agent manifest (`agents.d/claude-code.conf`, naming the npm package + launcher the toolchain provisions); the SELinux `ai_tools_exec_t` entrypoint file-context for `claude.exe` |
+| `ai-tools-integration-dotnet` | the dotnet session-env fragment (`session-env.d/dotnet.env.sh`) and manifest (`integrations.d/dotnet.conf`); the `ai-tools-dotnet` provisioning helper (writable NuGet cache + read-only shared tools under `/opt/ai-tools/.nuget` / `.dotnet`, labelled by a local fcontext). No .NET runtime — the host's dotnet is used |
+| `ai-tools-agents-claude-code-restricted` | the `claude` launch wrapper; `/opt/ai-tools/bin/claude`; the Claude Code hooks (`post-tool-hook.sh`, `session-hook.sh`) and `settings.json`; its agent manifest (`agents.d/claude-code.conf`, naming the npm package, launcher, and display name) and session-env fragment (`session-env.d/claude-code.env.sh`); the SELinux `ai_tools_exec_t` entrypoint file-context for `claude.exe`. Confinement itself is base-owned, so this package ships no shim and needs no sudoers rule of its own |
 
 The handback daemon is a verb dispatcher over a helper table; the generic verbs
 (`CHOWN`, `SETGID`, `SETFACL`) and the daemon live in the base, while the
@@ -131,13 +131,13 @@ to run as root.
 - seeds the user's `~/.config/ai-tools/allowed-projects` (empty, with a header) when
   absent, leaving an existing allowlist untouched;
 - ensures the `ai-tools` account's linger (its `--user` instance runs the toolchain timer
-  and each `claude-run` session); an operator runs `claude` from its own login and needs none;
+  and each `ai-tools-run` session); an operator runs `claude` from its own login and needs none;
 - offers, interactively, to wire the host-wide PATH dedup into the user's `~/.bashrc`
   and `~/.bash_profile` after their nvm init; a non-interactive run prints the line to add.
 
 `remove <user>` drops the name from `OPERATORS` and the `ai-ops` group, leaving the user's
 own allowlist and config in place. `list` prints the current operators. `add` refuses to make
-the sandbox account or root an operator, and `claude-run` refuses to launch if the sandbox
+the sandbox account or root an operator, and `ai-tools-run` refuses to launch if the sandbox
 account is ever in `ai-ops`.
 
 The static `sudoers.d/ai-tools-claude` drop-in (a `%ai-ops` group rule) and the `ai-ops` group
@@ -164,7 +164,7 @@ so bootstrap pre-creates the agent-owned subtrees it must populate — `.nvm`, `
 `.npm`, `.local`, each `ai-tools:ai-tools 0750` — as root, then runs nvm/Node/npm as the
 sandbox account, writing only within them (`PROFILE=/dev/null` keeps nvm's installer off the
 root-owned home profile). It creates the launcher symlink under the locked `bin` as root;
-agent runtime state needs no seeding — `claude-run` pins `CLAUDE_CONFIG_DIR` to the
+agent runtime state needs no seeding — `ai-tools-run` pins `CLAUDE_CONFIG_DIR` to the
 group-writable `.claude`, where claude creates its own state files (`.claude.json`
 included). A re-run reuses an existing toolchain; Node updates land inside the agent-owned
 `.nvm` subtree.

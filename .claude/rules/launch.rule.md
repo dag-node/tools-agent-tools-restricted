@@ -1,15 +1,15 @@
 ---
 paths:
-  - "src/opt/ai-tools/bin/claude-run.sh"
+  - "src/opt/ai-tools/bin/ai-tools-run.sh"
   - "src/usr/local/bin/claude.sh"
   - "src/etc/sudoers.d/ai-tools-claude"
   - "src/usr/local/lib/ai-tools/path-dedup.sh"
-  - "src/usr/local/lib/ai-tools/claude-run.d/**"
+  - "src/usr/local/lib/ai-tools/session-env.d/**"
 ---
 
 # Launch path and project gating
 
-The wrapper → `claude-run` → session handoff: binary resolution, allowlist
+The wrapper → `ai-tools-run` → session handoff: binary resolution, allowlist
 gating, and placing the session in a transient systemd unit. Kernel confinement
 of that unit (namespaces, SELinux transition, `/tmp`) lives in
 [confinement](confinement.rule.md); ownership handback in
@@ -36,8 +36,8 @@ of that unit (namespaces, SELinux transition, `/tmp`) lives in
 4. It resolves the versioned binary via the stable symlink `/opt/ai-tools/bin/claude`
    with a single `readlink` hop, validates the target is an absolute, `..`-free path
    matching `${AI_TOOLS_NVM_DIR}/versions/node/*/bin/claude`, exports it as
-   `CLAUDE_EXEC`, and execs
-   `sudo -u SANDBOX_USER -g SANDBOX_GROUP -- /opt/ai-tools/bin/claude-run`.
+   `AI_TOOLS_AGENT_EXEC`, and execs
+   `sudo -u SANDBOX_USER -g SANDBOX_GROUP -- /opt/ai-tools/bin/ai-tools-run`.
 5. A print-and-exit invocation — `--version`/`-v`/`--help`/`-h` as the sole argument —
    skips the CWD gates (backstop, allowlist, claim): it touches no working tree, so no
    project grant is implied. It still launches the same validated binary confined as
@@ -56,14 +56,32 @@ The versioned `bin/claude` is itself an npm symlink into the package
 under `set -e`. One hop yields the versioned `.../node/<ver>/bin/claude` path, which
 the wrapper validates with string checks only (no filesystem traversal beyond the
 symlink). The one-hop constraint exists solely to avoid EACCES; it carries no coupling
-to sudoers matching, which targets the fixed path `/opt/ai-tools/bin/claude-run`.
+to sudoers matching, which targets the fixed path `/opt/ai-tools/bin/ai-tools-run`.
 
-## The `claude-run` service shim (launch mechanics)
+## The `ai-tools-run` service shim (launch mechanics)
 
-`claude-run` (`root:SANDBOX_GROUP`, not writable by the agent) re-validates
-`CLAUDE_EXEC` against the same nvm-path pattern and wraps the session in a transient
-systemd *service* unit (`systemd-run --user --pty`) before exec'ing the versioned
-binary. The service runs in `SANDBOX_USER`'s systemd user instance, kept alive by
+`ai-tools-run` (`/opt/ai-tools/bin/ai-tools-run`, `0550 root:SANDBOX_GROUP`, not writable by
+the agent) is **`ai-tools-base`-owned and names no agent**. One shim confines every agent, so
+an `ai-tools-agents-*` package ships only its wrapper, its manifest, and its session-env
+fragment, and inherits the single `%ai-ops` sudoers grant rather than adding one — the grant
+surface does not grow with the number of agents.
+
+The whole wrapper contract is two variables carried through sudo's `env_keep`:
+`AI_TOOLS_AGENT_EXEC` (the versioned executable) and `AI_TOOLS_PROJECT_DIR` (the working
+directory). **No agent identity crosses sudo**: which agent this is follows from the launcher
+name in the executable path, matched against the installed manifests, so the shim derives it
+rather than trusting it.
+
+The executable is re-validated on an **allowlist assembled from root-owned data**: it is
+accepted only at `${AI_TOOLS_NVM_DIR}/versions/node/<semver>/bin/<launcher>` — an exact
+`MAJOR.MINOR.PATCH` version directory and a single path component — **and** only when
+`<launcher>` is the `launcher` of an agent that `operator.conf` enables (see
+[providers](providers.rule.md)). A binary the sandbox account drops beside the launcher
+therefore cannot start a session, because no manifest claims it. A `..` component is refused
+before the match, and the resolution fails closed: with no enabled agent, nothing launches.
+
+It then wraps the session in a transient systemd *service* unit (`systemd-run --user --pty`)
+before exec'ing the versioned binary. The service runs in `SANDBOX_USER`'s systemd user instance, kept alive by
 `loginctl enable-linger` (see [updater](updater.rule.md)). The kernel security properties
 that unit carries are in [confinement](confinement.rule.md); the launch-shaping properties:
 
@@ -73,14 +91,14 @@ does), so the umask is set as a unit property, authoritative over the per-comman
 sudoers `umask`.
 
 **Environment is an explicit allowlist.** The user manager spawns the service with
-its own environment, not `claude-run`'s, so `claude-run` forwards only a named
+its own environment, not `ai-tools-run`'s, so `ai-tools-run` forwards only a named
 allowlist (`TERM`/`COLORTERM`, the locale `LC_*`/`LANG` set, proxy vars) via
 `--setenv=NAME`, and pins `HOME=/opt/ai-tools`, a controlled `PATH`,
 `CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude`, and
 `NODE_COMPILE_CACHE=/opt/ai-tools/.cache/node-compile-cache`. The operator's secrets
 (`ANTHROPIC_API_KEY`, `AWS_*`, `SSH_AUTH_SOCK`, …) stay out of the session by
 construction, independent of sudo's `env_reset`/`env_keep`. To share a variable
-deliberately, add its name to `_ENV_ALLOW` in `claude-run`. `HOME` stays
+deliberately, add its name to `_ENV_ALLOW` in `ai-tools-run`. `HOME` stays
 `/opt/ai-tools`: the agent's control plane (`settings.json`, the hooks) is root-owned
 and `ai_tools_home_t`, and is not relocated into the agent-writable project tree.
 `CLAUDE_CONFIG_DIR` keeps claude's state file `.claude.json` (login account, onboarding
@@ -89,24 +107,25 @@ atomically — a temp file beside it, then rename — which needs write on the c
 directory; the home root (`2751`) denies the agent that, so an unpinned
 `${HOME}/.claude.json` never persists and every session demands a fresh login.
 
-**Enabled integrations extend that allowlist, and nothing else may.** An installed
-host-toolchain integration contributes session env and a PATH tail through a root-owned
-fragment `/usr/local/lib/ai-tools/claude-run.d/<name>.env.sh`, which `claude-run` sources
-for exactly the integrations `operator.conf` enables — see [providers](providers.rule.md)
-for the manifests, the enablement rules, and the trust checks every input passes. Two
-launch-side consequences: PATH is **assembled and emitted once**, after the fragments run,
-so the base tiers (root-owned, least-writable first) always precede any integration
-addition; and the fragments are sourced **as `SANDBOX_USER`, before the unit is created**,
-which is why each one — and the directory holding it, and the libraries doing the sourcing
-— must be root-owned and non-group-writable. A failing check skips the fragment and logs;
-an installed-but-disabled integration contributes nothing. The seam is additive and
-best-effort, so a broken or absent provider library costs the session its integration env
-and leaves every property in this section intact.
+**Enabled providers extend that allowlist, and nothing else may.** Every enabled provider —
+each integration *and* the agent itself — may contribute session env and a PATH tail through a
+root-owned fragment `/usr/local/lib/ai-tools/session-env.d/<name>.env.sh`, which `ai-tools-run`
+sources: integrations first, **the agent last**, so the agent's own pins (its config directory,
+its cache) are authoritative over an integration's. See [providers](providers.rule.md) for the
+manifests, the enablement rules, and the trust checks every input passes.
+
+Two launch-side consequences: PATH is **assembled and emitted once**, after the fragments run,
+so the base tiers (root-owned, least-writable first) always precede any addition; and the
+fragments are sourced **as `SANDBOX_USER`, before the unit is created**, which is why each one —
+and the directory holding it, and the libraries doing the sourcing — must be root-owned and
+non-group-writable. A failing check skips that fragment and logs it; an installed-but-disabled
+provider contributes nothing. Fragments are additive, so a skipped one costs the session that
+provider's environment and leaves every property in this section intact.
 
 **`WorkingDirectory` is the validated project directory.** A transient unit defaults
 its cwd to `/`. The wrapper exports the realpath'd, allowlist- and claim-validated
-project directory as `CLAUDE_PROJECT_DIR`, carried through sudo via `env_keep`;
-`claude-run` re-validates it (absolute, `..`-free, existing) and sets it as the unit's
+project directory as `AI_TOOLS_PROJECT_DIR`, carried through sudo via `env_keep`;
+`ai-tools-run` re-validates it (absolute, `..`-free, existing) and sets it as the unit's
 `--working-directory`, so the session starts in the project. The `chdir` runs in the
 user manager's domain before the transitioning `exec`, so that domain needs `search`
 on `ai_tools_project_t` (see [confinement](confinement.rule.md)).
@@ -130,14 +149,14 @@ package ships unchanged — membership in the `ai-ops` operators group (managed 
 `ai-tools-admin`) is what grants access, so there is no per-operator line to generate:
 
 ```
-%ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/claude-run
+%ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/ai-tools-run
 %ai-ops  ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
 ```
 
 The first rule **drops** privilege to the lower-privileged `SANDBOX_USER`; the agent runs
 *as* `SANDBOX_USER`, which is not in `ai-ops` and has no rule of its own, so it can invoke
-neither. `claude-run` is a fixed-path target (no glob); the versioned binary is exec'd by
-`claude-run` after it re-validates `CLAUDE_EXEC`.
+neither. `ai-tools-run` is a fixed-path target (no glob); the versioned binary is exec'd by
+`ai-tools-run` after it re-validates `AI_TOOLS_AGENT_EXEC`.
 
 The second rule runs **as root**: `ai-tools --relabel` uses it to restore `ai_tools_exec_t`
 on the new claude entrypoint after a Node upgrade, which needs the `unconfined_t` that root
@@ -150,19 +169,19 @@ root-side `ai-tools-relabel.path` watcher, which needs no sudo rule. The toolcha
 runs as `SANDBOX_USER` in its own `systemd --user` instance, so it needs no sudo rule
 either.
 
-`SANDBOX_USER` holds no sudo rights in this file. Two `claude-run` preflights enforce the
+`SANDBOX_USER` holds no sudo rights in this file. Two `ai-tools-run` preflights enforce the
 account boundary the sudoers model assumes: it refuses to launch unless it runs **as**
 `SANDBOX_USER` (a direct or sudo invocation landing as root or another user fails closed), and
 it refuses if `SANDBOX_USER` is ever a member of `ai-ops` (so the sandbox account can never
 hold the operator grant). See the security-model invariants in `CLAUDE.md`.
 
-`umask=0007,umask_override` and `env_keep += "CLAUDE_EXEC CLAUDE_PROJECT_DIR"` (for
-`claude-run`) are scoped per-command with
+`umask=0007,umask_override` and `env_keep += "AI_TOOLS_AGENT_EXEC AI_TOOLS_PROJECT_DIR"` (for
+`ai-tools-run`) are scoped per-command with
 `Defaults!<command>`, applying only to those commands. The sudoers `umask` sets
-`claude-run`'s own process umask; the transient service unit does not inherit it, so
+`ai-tools-run`'s own process umask; the transient service unit does not inherit it, so
 the agent's umask comes authoritatively from the `UMask=0007` unit property.
-`CLAUDE_EXEC` carries the wrapper-validated versioned path for re-validation;
-`CLAUDE_PROJECT_DIR` carries the validated project directory, becoming the unit's
+`AI_TOOLS_AGENT_EXEC` carries the wrapper-validated versioned path for re-validation;
+`AI_TOOLS_PROJECT_DIR` carries the validated project directory, becoming the unit's
 `WorkingDirectory`.
 
 ## Allowlist `!` exclusions are honored by both consumers
@@ -185,4 +204,4 @@ non-login interactive shells read `~/.bashrc` only). Per-account wiring scopes t
 to the operators who launch the agent: root and accounts unrelated to ai-tools keep their
 stock PATH, and ai-tools ships nothing into `/etc/profile.d`, keeping the host's
 every-login-shell code surface untouched. The sandbox account needs no wiring:
-`claude-run` pins the session PATH as a unit property, on the same Tier-1-first ordering.
+`ai-tools-run` pins the session PATH as a unit property, on the same Tier-1-first ordering.

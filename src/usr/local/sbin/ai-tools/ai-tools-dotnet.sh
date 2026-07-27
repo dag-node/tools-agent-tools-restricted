@@ -4,7 +4,7 @@
 #
 # The .NET SDK/runtime itself is the HOST's RPM-managed dotnet (this integration adds no runtime
 # and carries no dotnet RPM dependency). This helper sets up the sandbox-side directories and
-# SELinux labels the session-env fragment (claude-run.d/dotnet.env.sh) relies on, and installs
+# SELinux labels the session-env fragment (session-env.d/dotnet.env.sh) relies on, and installs
 # shared global tools an operator wants available to every project. "Modifications require sudo":
 # the tools dir is root-owned and read-only to the agent, so only this helper changes it.
 #
@@ -122,7 +122,7 @@ install_tools() {
 }
 
 # dotnet_enabled : succeed when a session would actually get the dotnet integration -- the same
-# verdict claude-run reaches, via the shared resolver, rather than a grep over operator.conf that
+# verdict ai-tools-run reaches, via the shared resolver, rather than a grep over operator.conf that
 # would also match a commented-out line or a different name containing "dotnet".
 dotnet_enabled() {
     local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh

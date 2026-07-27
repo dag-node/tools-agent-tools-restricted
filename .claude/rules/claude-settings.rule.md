@@ -15,7 +15,7 @@ options an operator MAY add — and which are set elsewhere — is in
 [`docs/claude-options.md`](../../docs/claude-options.md).
 
 Settings coupled to the sandbox's layout rather than to Claude Code policy live in
-`claude-run`'s environment allowlist instead of here: `DISABLE_AUTOUPDATER=1` (the agent's
+`ai-tools-run`'s environment allowlist instead of here: `DISABLE_AUTOUPDATER=1` (the agent's
 Node tree is not agent-writable, so in-session self-update fails; updates run out-of-band —
 see [updater](updater.rule.md)) and the `HOME`/`PATH`/`CLAUDE_CONFIG_DIR` pins (see
 [launch](launch.rule.md)).
@@ -137,7 +137,7 @@ outbound traffic in one variable: it subsumes `DISABLE_TELEMETRY`,
 individually. The essential Anthropic API traffic the agent needs is unaffected, as is the
 WebFetch domain safety check (which has its own `skipWebFetchPreflight` opt-out, left on).
 
-It lives here rather than in `claude-run`'s allowlist because it is Claude Code product
+It lives here rather than in `ai-tools-run`'s allowlist because it is Claude Code product
 policy, not confinement structure — Claude Code's own config surface, beside the permission
 and hook declarations. Layering and override are under "Control-plane integrity" below.
 

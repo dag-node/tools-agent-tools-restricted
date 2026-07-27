@@ -23,7 +23,7 @@ on_teardown systemctl reset-failed 'ai-tools-handback@*'
 section "Handback bridge + entrypoint (regression guards)"
 
 # (1) claude.exe must carry ai_tools_exec_t, or the unconfined_t/init_t -> ai_tools_t
-# transition never fires and claude-run's preflight refuses to launch. It is a HARD LINK to
+# transition never fires and ai-tools-run's preflight refuses to launch. It is a HARD LINK to
 # the platform-package ELF, so a bulk restorecon can demote the shared inode to lib_t;
 # install-selinux.sh relabels it LAST. Only meaningful when the ai_tools module is installed.
 _exe="$(ls -1 /opt/ai-tools/.nvm/versions/node/*/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe 2>/dev/null | head -1)"
@@ -34,7 +34,7 @@ elif ! command -v matchpathcon >/dev/null 2>&1 || [[ "$(matchpathcon -n "${_exe}
 elif [[ "$(stat -c '%C' "${_exe}" 2>/dev/null)" == *:ai_tools_exec_t:* ]]; then
     pass "claude.exe labelled ai_tools_exec_t (entrypoint transition fires)"
 else
-    fail "claude.exe is '$(stat -c '%C' "${_exe}" 2>/dev/null)', NOT ai_tools_exec_t -- claude-run will refuse to launch. Fix: install-selinux.sh relabel"
+    fail "claude.exe is '$(stat -c '%C' "${_exe}" 2>/dev/null)', NOT ai_tools_exec_t -- ai-tools-run will refuse to launch. Fix: install-selinux.sh relabel"
 fi
 
 # (1a) The handback daemon binary must carry ai_tools_handback_exec_t, or the socket-activated
@@ -117,18 +117,18 @@ else
     fail "no served-request line in handback.log after a live handback -- daemon file sink or ai_tools_handback_t->ai_tools_log_t append rule broken"
 fi
 
-# (5) claude-run pins DISABLE_AUTOUPDATER=1: the node tree is read-only to the agent, so the
+# (5) ai-tools-run pins DISABLE_AUTOUPDATER=1: the node tree is read-only to the agent, so the
 # in-session auto-updater would fail every launch (+ AVC). Updates are the timer's job.
-_crun="/opt/ai-tools/bin/claude-run"
+_crun="/opt/ai-tools/bin/ai-tools-run"
 if [[ ! -r "${_crun}" ]]; then
-    skip "claude-run disables auto-updater" "${_crun} unreadable"
+    skip "ai-tools-run disables auto-updater" "${_crun} unreadable"
 elif grep -qE 'setenv=DISABLE_AUTOUPDATER=1' "${_crun}"; then
-    pass "claude-run pins DISABLE_AUTOUPDATER=1 (no in-session self-update)"
+    pass "ai-tools-run pins DISABLE_AUTOUPDATER=1 (no in-session self-update)"
 else
-    fail "claude-run does not pin DISABLE_AUTOUPDATER=1 -- agent will attempt the denied npm self-update"
+    fail "ai-tools-run does not pin DISABLE_AUTOUPDATER=1 -- agent will attempt the denied npm self-update"
 fi
 
-# (5a) claude-run pins the session's kernel-confinement properties on the transient unit:
+# (5a) ai-tools-run pins the session's kernel-confinement properties on the transient unit:
 # RestrictNamespaces=yes (the seccomp filter that blocks clone(CLONE_NEWUSER) and forces
 # PR_SET_NO_NEW_PRIVS) and NoNewPrivileges=yes. These are trust-chain step 4; a revert here would
 # launch sessions without namespace isolation or with SUID escalation reachable, and the only
@@ -138,16 +138,16 @@ fi
 if [[ -r "${_crun}" ]]; then
     for _prop in RestrictNamespaces NoNewPrivileges; do
         if grep -qE -- "--property=${_prop}=yes" "${_crun}"; then
-            pass "claude-run pins ${_prop}=yes on the session unit"
+            pass "ai-tools-run pins ${_prop}=yes on the session unit"
         else
-            fail "claude-run does not pin ${_prop}=yes -- session confinement (trust-chain step 4) weakened"
+            fail "ai-tools-run does not pin ${_prop}=yes -- session confinement (trust-chain step 4) weakened"
         fi
     done
     # UMask=0007 keeps agent-written files 660/770 (world stripped, operator+agent co-writers).
     if grep -qE -- '--property=UMask=0007' "${_crun}"; then
-        pass "claude-run pins UMask=0007 on the session unit"
+        pass "ai-tools-run pins UMask=0007 on the session unit"
     else
-        fail "claude-run does not pin UMask=0007 -- agent files may be born world-accessible"
+        fail "ai-tools-run does not pin UMask=0007 -- agent files may be born world-accessible"
     fi
 fi
 

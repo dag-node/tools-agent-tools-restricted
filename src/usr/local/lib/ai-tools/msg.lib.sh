@@ -2,7 +2,7 @@
 # /usr/local/lib/ai-tools/msg.lib.sh
 # Shared user-facing message formatter for the ai-tools sandbox components. Sourced
 # (not executed) by the operator-facing scripts (the claude wrapper, the ai-tools
-# CLI), the launch shim (claude-run), and the lifecycle hooks (session-hook.sh), so
+# CLI), the launch shim (ai-tools-run), and the lifecycle hooks (session-hook.sh), so
 # every refusal, prompt, and NOTICE the user reads is rendered one way: wrapped to its
 # frame class's width (alerts 50 columns, blocks/headlines 80), with line breaks chosen
 # so a line never ends on a preposition, article, or short conjunction (a TeX-style tie),

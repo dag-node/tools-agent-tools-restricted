@@ -6,7 +6,7 @@
 # The provider seam decides two things the agent must never get a vote on: which agents the
 # toolchain installs, and what environment (and PATH) a session is handed. Those decisions come
 # from operator.conf, the manifests under agents.d / integrations.d, the session-env fragments
-# under claude-run.d, and the two libraries that read them. providers.lib.sh and claude-run refuse
+# under session-env.d, and the two libraries that read them. providers.lib.sh and ai-tools-run refuse
 # any of these that is not root-owned and non-group/other-writable (unit-tested in
 # tests/unit/providers.sh); this file asserts the other half -- that on a real install the agent
 # cannot put any of them into that state in the first place. Both halves must hold: the runtime
@@ -46,7 +46,7 @@ not_writable() {
 not_writable /etc/ai-tools/operator.conf \
     "enable a surface-widening provider its package ships disabled"
 
-# The two libraries that make the decision, and are sourced by claude-run in the session's own
+# The two libraries that make the decision, and are sourced by ai-tools-run in the session's own
 # pre-launch scope. Writable, the agent rewrites the verdict -- or executes arbitrary code as the
 # sandbox account before confinement is applied.
 not_writable /usr/local/lib/ai-tools/conf.lib.sh \
@@ -60,16 +60,25 @@ not_writable /usr/local/lib/ai-tools/agents.d \
     "plant a manifest that provisions an npm package of its choosing"
 not_writable /usr/local/lib/ai-tools/integrations.d \
     "plant a manifest that enables an integration by default"
-not_writable /usr/local/lib/ai-tools/claude-run.d \
-    "plant a session-env fragment claude-run would source"
+not_writable /usr/local/lib/ai-tools/session-env.d \
+    "plant a session-env fragment ai-tools-run would source"
 
 # The shipped manifests and fragment themselves.
 not_writable /usr/local/lib/ai-tools/agents.d/claude-code.conf \
     "repoint the agent package the toolchain installs"
 not_writable /usr/local/lib/ai-tools/integrations.d/dotnet.conf \
     "flip the dotnet integration to enabled-by-default"
-not_writable /usr/local/lib/ai-tools/claude-run.d/dotnet.env.sh \
+not_writable /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh \
     "inject environment and PATH into its own session"
+not_writable /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh \
+    "repoint its own config directory or re-enable the in-session updater"
+
+# The confinement shim itself. It is the sudoers target: writable, the agent would be executing
+# its own code under the operators' NOPASSWD grant, with the unit properties of its choosing.
+not_writable /opt/ai-tools/bin/ai-tools-run \
+    "rewrite the confinement properties every session is launched with"
+not_writable /opt/ai-tools/bin \
+    "replace the confinement shim or the launcher symlink the wrapper resolves"
 
 # The dotnet integration's split of the sandbox home: shared tools READ-ONLY (only the sudo helper
 # writes them), the NuGet restore cache WRITABLE (the agent restores into it every build). Both

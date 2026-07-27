@@ -3,10 +3,10 @@
 # Sandboxed claude wrapper. Ships system-wide (root:root 0755, rpm-owned) and runs as the
 # invoking operator. Refuses a non-operator (not in the ai-ops group) up front with a framed
 # refusal, then resolves the current versioned claude binary under /opt/ai-tools via a stable
-# symlink maintained by nvm-update.sh, exports the resolved path as CLAUDE_EXEC, and
-# re-executes /opt/ai-tools/bin/claude-run as the ai-tools user via sudo. claude-run wraps
-# the session in a systemd transient service (systemd-run --user --pty;
-# RestrictNamespaces=yes, PrivateTmp, UMask=0007) before exec'ing the versioned binary.
+# symlink maintained by nvm-update.sh, exports the resolved path as AI_TOOLS_AGENT_EXEC, and
+# re-executes the shared confinement shim /opt/ai-tools/bin/ai-tools-run as the ai-tools user
+# via sudo. ai-tools-run resolves this agent from its manifest, re-validates the path, and wraps
+# the session in a systemd transient service before exec'ing the versioned binary.
 # path-dedup.sh (wired into operator dotfiles by ai-tools-admin) ranks /usr/local/bin
 # (Tier 1) above the nvm shims, so this shadows any nvm-managed claude on an operator's PATH.
 
@@ -168,9 +168,9 @@ fi
 if [[ $# -eq 1 ]]; then
     case "$1" in
         --version|-v|--help|-h)
-            export CLAUDE_EXEC="${CLAUDE_REAL}"
-            export CLAUDE_PROJECT_DIR="/opt/ai-tools"
-            exec sudo -u ai-tools -g ai-tools -- /opt/ai-tools/bin/claude-run "$@"
+            export AI_TOOLS_AGENT_EXEC="${CLAUDE_REAL}"
+            export AI_TOOLS_PROJECT_DIR="/opt/ai-tools"
+            exec sudo -u ai-tools -g ai-tools -- /opt/ai-tools/bin/ai-tools-run "$@"
             ;;
     esac
 fi
@@ -396,17 +396,18 @@ elif ${safe_gap}; then
     fi
 fi
 
-# The launch banner is emitted by claude-run, not here: it runs as the sandbox account and
+# The launch banner is emitted by ai-tools-run, not here: it runs as the sandbox account and
 # can read the toolchain the operator cannot (the 700 package tree), so it reports the
-# Claude Code / Node / ai-tools versions under the umbrella logo. See claude-run.
+# agent / Node / ai-tools versions under the umbrella logo.
 
-# Pass the validated versioned path to claude-run via an env var that sudo's
-# env_keep carries through. claude-run re-validates before using it.
-export CLAUDE_EXEC="${CLAUDE_REAL}"
+# Pass the validated versioned path through sudo's env_keep. ai-tools-run re-validates it, and
+# derives WHICH agent this is from the launcher name in the path, so no agent identity crosses
+# sudo as a separate variable.
+export AI_TOOLS_AGENT_EXEC="${CLAUDE_REAL}"
 # Pass the project directory the session should run IN. ${cwd} is the realpath'd PWD
 # that already cleared the allowlist + claim gates above, so it is the trustworthy
 # value -- a systemd transient unit does NOT inherit the caller's cwd (it defaults to
-# /), so claude-run hands this to systemd-run as the unit's WorkingDirectory. Carried
-# through sudo via env_keep (sudoers.d/ai-tools-claude); claude-run re-validates it.
-export CLAUDE_PROJECT_DIR="${cwd}"
-exec sudo -u ai-tools -g ai-tools -- /opt/ai-tools/bin/claude-run "$@"
+# /), so ai-tools-run hands this to systemd-run as the unit's WorkingDirectory. Carried
+# through sudo via env_keep (sudoers.d/ai-tools-claude); ai-tools-run re-validates it.
+export AI_TOOLS_PROJECT_DIR="${cwd}"
+exec sudo -u ai-tools -g ai-tools -- /opt/ai-tools/bin/ai-tools-run "$@"

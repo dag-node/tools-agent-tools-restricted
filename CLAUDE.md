@@ -48,15 +48,15 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 
 | Area | Source | Rule |
 |---|---|---|
-| Launch, allowlist gating, sudoers, PATH | `bin/claude-run.sh`, `usr/local/bin/claude.sh`, `allowed-projects`, `sudoers.d/ai-tools-claude`, `lib/ai-tools/path-dedup.sh` | [launch](.claude/rules/launch.rule.md) |
-| Namespaces, SELinux transition, preflight, `/tmp` | `selinux/**`, `bin/claude-run.sh` | [confinement](.claude/rules/confinement.rule.md) |
+| Launch, allowlist gating, sudoers, PATH | `bin/ai-tools-run.sh`, `usr/local/bin/claude.sh`, `allowed-projects`, `sudoers.d/ai-tools-claude`, `lib/ai-tools/path-dedup.sh` | [launch](.claude/rules/launch.rule.md) |
+| Namespaces, SELinux transition, preflight, `/tmp` | `selinux/**`, `bin/ai-tools-run.sh` | [confinement](.claude/rules/confinement.rule.md) |
 | Root-op socket (daemon/client/units) | `ai-tools-handback*`, `ai-tools-handback-client*` | [handback-bridge](.claude/rules/handback-bridge.rule.md) |
 | Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `.claude/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
 | Claude Code settings, Bash deny rules ↔ SELinux policy | `.claude/settings.json` | [claude-settings](.claude/rules/claude-settings.rule.md) |
 | Shipped Claude assets (agents/skills), managed-asset seeding | `.claude/agents/**`, `.claude/skills/**`, `lib/ai-tools/managed-assets.lib.sh` | [shipped-claude-assets](.claude/rules/shipped-claude-assets.rule.md) |
 | Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secret-handling.rule.md) |
 | Toolchain provisioning + Node/claude updater, symlink repoint, post-upgrade relabel | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `ai-tools-claude-symlink.sh`, `ai-tools-relabel-entrypoint.sh`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
-| Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, the `claude-run.d` session-env seam, and the dotnet integration | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,claude-run}.d/**`, `ai-tools-dotnet.sh`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
+| Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, the `session-env.d` session-env seam, and the dotnet integration | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,session-env}.d/**`, `ai-tools-dotnet.sh`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
 | Management CLI, project lifecycle, relabel | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel}.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
 | Protected-paths backstop (refuse system dirs as targets) | `safe-paths.lib.sh` + the wrapper/CLI/elevated helpers | [safe-paths](.claude/rules/safe-paths.rule.md) |
 | Shared logging library | `log.lib.sh` | [logging](.claude/rules/logging.rule.md) |
@@ -68,13 +68,16 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 
 Each step's mechanism is in the rule files above; the invariant each guarantees:
 
-1. `claude` resolves to the system wrapper `/usr/local/bin/claude`, running as the
-   non-root operator who invoked it; it refuses a caller not in the `ai-ops` operators
-   group before doing anything else.
+1. An agent's command (`claude`) resolves to that agent's system wrapper
+   (`/usr/local/bin/claude`), running as the non-root operator who invoked it; it refuses a
+   caller not in the `ai-ops` operators group before doing anything else.
 2. The wrapper launches only inside an allowed project, never a `!`-excluded CWD.
 3. It resolves the versioned binary via a single `readlink` hop, validates it, and
-   execs `claude-run` as `SANDBOX_USER` with the path in `CLAUDE_EXEC`.
-4. `claude-run` re-validates, then wraps the session in a transient systemd `--user`
+   execs the shared confinement shim `ai-tools-run` as `SANDBOX_USER` with the path in
+   `AI_TOOLS_AGENT_EXEC`.
+4. `ai-tools-run` names no agent: it accepts the executable only at a semver version
+   directory inside the sandbox toolchain **and** only when its launcher belongs to an
+   enabled agent manifest, then wraps the session in a transient systemd `--user`
    service unit whose kernel properties confine it (`RestrictNamespaces=yes`,
    `NoNewPrivileges`, SELinux `ai_tools_t`), with an env allowlist and the project as
    `WorkingDirectory`.
@@ -91,7 +94,7 @@ granting the **operators** (members of the `ai-ops` group, managed by `ai-tools-
 two NOPASSWD rules:
 
 ```
-%ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/claude-run
+%ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/ai-tools-run
 %ai-ops  ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
 ```
 
@@ -102,7 +105,7 @@ its own `systemd --user` instance and the automatic post-upgrade relabel runs th
 root-side `ai-tools-relabel.path` watcher, so neither needs a sudo rule. The agent runs
 *as* `SANDBOX_USER`, which is not in `ai-ops` and has no rule of its own, so **neither**
 rule grants it anything — including the root rule, which `SANDBOX_USER` cannot reach.
-`claude-run` additionally refuses to launch
+`ai-tools-run` additionally refuses to launch
 unless it runs as `SANDBOX_USER` and refuses if `SANDBOX_USER` is ever in `ai-ops`, so the
 sandbox account can never hold the operator grant. The invariants the agent operates under:
 
@@ -115,12 +118,12 @@ sandbox account can never hold the operator grant. The invariants the agent oper
   `PR_SET_NO_NEW_PRIVS`, which drops `sudo`'s SUID bit, so `sudo` is inoperative from
   inside the session by construction.
 - **`SANDBOX_USER` has no login shell and no password.**
-- **The `%ai-ops` rules run only `claude-run` as `SANDBOX_USER`** — never an arbitrary
-  shell or binary. `claude-run` is a fixed-path target (no glob), `root:SANDBOX_GROUP` and
+- **The `%ai-ops` rules run only `ai-tools-run` as `SANDBOX_USER`** — never an arbitrary
+  shell or binary. `ai-tools-run` is a fixed-path target (no glob), `root:SANDBOX_GROUP` and
   not writable by the agent. The agent itself, *as* `SANDBOX_USER`, holds no sudo rule at
   all.
 - **The control-plane files are not agent-writable** — `settings.json`, the hooks,
-  `nvm-update.sh`, and `claude-run` are `root:SANDBOX_GROUP` with no group write;
+  `nvm-update.sh`, and `ai-tools-run` are `root:SANDBOX_GROUP` with no group write;
   `/opt/ai-tools/.claude` is setgid+sticky (the agent keeps its own state there but cannot
   delete or replace files it does not own) and `/opt/ai-tools/bin` is not group-writable,
   so the agent cannot unlink/replace them to disable its own guardrails. Root owns the
@@ -142,7 +145,7 @@ sandbox account can never hold the operator grant. The invariants the agent oper
   ([ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md)).
 - **The sandbox cannot widen its own surface.** Which agents the toolchain installs, and what
   environment and PATH a session is handed, come from `operator.conf`, the provider manifests
-  (`{agents,integrations}.d/<name>.conf`), and the session-env fragments (`claude-run.d/*.env.sh`).
+  (`{agents,integrations}.d/<name>.conf`), and the session-env fragments (`session-env.d/*.env.sh`).
   The code reading them runs *as* `SANDBOX_USER`, so each input — **and the directory holding it**,
   since a group-writable directory lets a non-root writer replace a root-owned file inside it — is
   honored only while it is root-owned, not a symlink, and writable by neither group nor other.
@@ -198,6 +201,10 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   terminal (alerts within 50 columns, flow-block headlines and guidance screens within 80)
   and emitted plain when piped (so logs and test greps stay line-matchable). Detail
   in [messaging](.claude/rules/messaging.rule.md).
+- **One confinement shim serves every agent.** `/opt/ai-tools/bin/ai-tools-run` is
+  `ai-tools-base`-owned and agent-agnostic; an `ai-tools-agents-*` package ships its wrapper,
+  its manifest, and its session-env fragment, and inherits the single `%ai-ops` sudoers grant
+  rather than adding one. See [launch](.claude/rules/launch.rule.md).
 - **Root sudo-helpers** live under `/usr/local/sbin/ai-tools/` (`chown`, `setgid`, `setfacl`,
   `unclaim`, `safedir`, `reclaim`, `claude-symlink`, `lockdown`, `relabel`, `bootstrap`,
   `relabel-entrypoint`, `admin`, `dotnet`); shared libraries under `/usr/local/lib/ai-tools/`

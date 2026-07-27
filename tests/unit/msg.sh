@@ -80,8 +80,8 @@ fi
 
 # (5) Plain mode (non-tty / forced) keeps a multi-word phrase on ONE line so the suite's
 # substring greps still match.
-phrase='invalid or absent CLAUDE_EXEC -- cannot launch'
-if AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_error "claude-run: ${phrase}" 2>&1 \
+phrase='invalid or absent AI_TOOLS_AGENT_EXEC -- cannot launch'
+if AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_error "ai-tools-run: ${phrase}" 2>&1 \
         | grep -qF "${phrase}"; then
     pass "plain mode keeps the phrase on one line (grep-friendly)"
 else

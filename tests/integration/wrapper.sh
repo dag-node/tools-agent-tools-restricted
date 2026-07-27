@@ -51,7 +51,7 @@ run_wrapper() {  # $1 = cwd
 }
 
 # (0) Operator gate: the wrapper refuses anyone not in the ai-ops group BEFORE it reaches the
-#     allowlist. The sandbox account is never an ai-ops member (claude-run enforces this), so
+#     allowlist. The sandbox account is never an ai-ops member (ai-tools-run enforces this), so
 #     running the wrapper as it must be refused with the operator message -- and must NOT reach
 #     the allowlist gate ("not accessible"), proving the gate short-circuits first. The
 #     subsequent operator runs (1)-(3), which DO reach the allowlist, are the positive case.

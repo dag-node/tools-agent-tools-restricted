@@ -474,7 +474,8 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/conf.lib.sh
     _chk /usr/local/lib/ai-tools/providers.lib.sh
     _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
-    _chk /usr/local/lib/ai-tools/claude-run.d/dotnet.env.sh
+    _chk /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
+    _chk /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh
     _chk /usr/local/lib/ai-tools/integrations.d/dotnet.conf
     _chk /usr/local/sbin/ai-tools/ai-tools-dotnet
     _chk /usr/sbin/ai-tools-dotnet
@@ -485,7 +486,7 @@ do_summary() {
     _chk /etc/sudoers.d/ai-tools-claude
     _chk /etc/ai-tools/operator.conf
     _chk /opt/ai-tools/bin/nvm-update.sh
-    _chk /opt/ai-tools/bin/claude-run
+    _chk /opt/ai-tools/bin/ai-tools-run
     _chk /opt/ai-tools/bin/claude
     _chk /opt/ai-tools/.claude/post-tool-hook.sh
     _chk /opt/ai-tools/.claude/session-hook.sh
@@ -693,19 +694,28 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/agents.d/claude-code.conf" \
         /usr/local/lib/ai-tools/agents.d/claude-code.conf
 
+    # The claude-code agent's session env (config dir, compile cache, in-session updater),
+    # sourced by ai-tools-run after every enabled integration so these pins are authoritative.
+    # Root-owned and non-group-writable is what makes it trusted enough to source. No secrets.
+    install -d -o root -g root -m 755 /usr/local/lib/ai-tools/session-env.d
+    log "/usr/local/lib/ai-tools/session-env.d/claude-code.env.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/session-env.d/claude-code.env.sh" \
+        /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
+
     # Integration manifest + session-env-fragment directories (base owns them; ai-tools-integration-*
     # members drop files here). Created empty; the optional dotnet integration's files are laid down
     # in the integration step below when this from-source install includes it.
     install -d -o root -g root -m 755 /usr/local/lib/ai-tools/integrations.d
-    install -d -o root -g root -m 755 /usr/local/lib/ai-tools/claude-run.d
+    install -d -o root -g root -m 755 /usr/local/lib/ai-tools/session-env.d
 
     # dotnet integration data files (optional; inert without a host dotnet). The session-env
-    # fragment claude-run sources when dotnet is enabled, and the manifest providers.lib.sh reads.
+    # fragment ai-tools-run sources when dotnet is enabled, and the manifest providers.lib.sh reads.
     # The ai-tools-dotnet helper is installed with the other sbin helpers below. No secrets.
-    log "/usr/local/lib/ai-tools/claude-run.d/dotnet.env.sh"
+    log "/usr/local/lib/ai-tools/session-env.d/dotnet.env.sh"
     install -o root -g root -m 644 \
-        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/claude-run.d/dotnet.env.sh" \
-        /usr/local/lib/ai-tools/claude-run.d/dotnet.env.sh
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/session-env.d/dotnet.env.sh" \
+        /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh
     log "/usr/local/lib/ai-tools/integrations.d/dotnet.conf"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/integrations.d/dotnet.conf" \
@@ -720,7 +730,7 @@ do_install() {
         /usr/local/lib/ai-tools/log.lib.sh
 
     # Message formatter: 644 root:root -- world-readable. Sourced by the operator wrapper
-    # and CLI, by the hooks (run as ai-tools), and by claude-run, so every principal must
+    # and CLI, by the hooks (run as ai-tools), and by ai-tools-run, so every principal must
     # read it; it holds no secrets. No tokens to substitute.
     log "/usr/local/lib/ai-tools/msg.lib.sh"
     install -o root -g root -m 644 \
@@ -744,7 +754,7 @@ do_install() {
         /usr/local/lib/ai-tools/safe-paths.lib.sh
 
     # SELinux launch-gate decision: 644 root:root -- world-readable, no secrets. Sourced by
-    # claude-run (fail-closed) and the confinement unit test.
+    # ai-tools-run (fail-closed) and the confinement unit test.
     log "/usr/local/lib/ai-tools/confinement.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/confinement.lib.sh" \
@@ -1048,10 +1058,10 @@ do_install() {
         "${SCRIPT_DIR}/src/opt/ai-tools/bin/nvm-update.sh" \
         /opt/ai-tools/bin/nvm-update.sh
 
-    log "/opt/ai-tools/bin/claude-run"
+    log "/opt/ai-tools/bin/ai-tools-run"
     install_subst 550 root "${SANDBOX_GROUP}" \
-        "${SCRIPT_DIR}/src/opt/ai-tools/bin/claude-run.sh" \
-        /opt/ai-tools/bin/claude-run
+        "${SCRIPT_DIR}/src/opt/ai-tools/bin/ai-tools-run.sh" \
+        /opt/ai-tools/bin/ai-tools-run
 
     # /opt/ai-tools/.claude holds both mutable agent state (sessions/, history,
     # credentials -- ai-tools-owned) AND the root-of-trust control files
@@ -1234,10 +1244,10 @@ do_install() {
 
     section "Systemd (auto-update timer)"
 
-    # The sandbox launch (claude-run) runs `systemd-run --user` as ${SANDBOX_USER} to wrap
+    # The sandbox launch (ai-tools-run) runs `systemd-run --user` as ${SANDBOX_USER} to wrap
     # each session in a transient service unit, which needs ${SANDBOX_USER}'s own systemd
     # user instance (its /run/user/<uid>/bus). ${SANDBOX_USER} has no login shell, so only
-    # linger keeps that instance alive; without it claude-run aborts at its bus-socket
+    # linger keeps that instance alive; without it ai-tools-run aborts at its bus-socket
     # preflight ("user instance not reachable").
     log "enabling linger for ${SANDBOX_USER}"
     loginctl enable-linger "${SANDBOX_USER}"
@@ -1392,7 +1402,7 @@ do_uninstall() {
     # .nvm toolchain, so the entrypoint stays live for a reinstall without a re-bootstrap.
     # The agent's own state under .claude (e.g. .claude.json, project state) is likewise kept.
     rm -f /opt/ai-tools/bin/nvm-update.sh
-    rm -f /opt/ai-tools/bin/claude-run
+    rm -f /opt/ai-tools/bin/ai-tools-run /opt/ai-tools/bin/claude-run
     rm -f /opt/ai-tools/.claude/post-tool-hook.sh
     rm -f /opt/ai-tools/.claude/session-hook.sh
     rm -f /opt/ai-tools/.claude/settings.json

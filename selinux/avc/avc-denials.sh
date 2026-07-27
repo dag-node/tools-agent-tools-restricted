@@ -476,12 +476,12 @@ etc_sudoers_t, ...) hold inside the namespace. The real risk is kernel CVE
 surface. create_user_ns is in the process2 class (not process) on this kernel;
 system-wide user namespaces are kept enabled for Firefox sandbox and rootless
 containers -- so SELinux cannot block this here, and it is closed instead by a
-seccomp filter (RestrictNamespaces=yes) in the claude-run service wrapper, below."
+seccomp filter (RestrictNamespaces=yes) in the ai-tools-run service wrapper, below."
 
   _type="process2:create_user_ns -- blocked by a seccomp filter, not by SELinux"
   _why="WHAT IT PREVENTS: a user namespace lets an unprivileged process look like root inside it -- the usual first step for kernel-CVE privilege escalation. SELinux here cannot stop the agent from creating one: this kernel's process2 class has no create_user_ns permission, so the check is skipped (handleunknown=allow), and disabling user namespaces system-wide would break Firefox and rootless Podman. (Even if one were created, file labels still hold -- the process stays ai_tools_t -- so the danger is kernel bugs, not file access.)"
-  _floor="WHAT BLOCKS IT: claude-run starts every session as a systemd --user service with RestrictNamespaces=yes, which installs a seccomp filter that makes clone(CLONE_NEWUSER) -- and any namespace creation -- fail with EPERM for the whole session, before SELinux is even consulted. It is per-session, needs no sysctl, and leaves other users' Firefox/Podman untouched. WHEN IT DOES NOT APPLY: only sessions launched through claude-run are covered -- this probe run by hand outside the wrapper still succeeds -- and a future in-session bubblewrap (which itself needs user namespaces) would require relaxing it."
-  floor_check ESC-001 SELinux "unshare --user (process2:create_user_ns; closed by seccomp in the claude-run service)" unshare --user true
+  _floor="WHAT BLOCKS IT: ai-tools-run starts every session as a systemd --user service with RestrictNamespaces=yes, which installs a seccomp filter that makes clone(CLONE_NEWUSER) -- and any namespace creation -- fail with EPERM for the whole session, before SELinux is even consulted. It is per-session, needs no sysctl, and leaves other users' Firefox/Podman untouched. WHEN IT DOES NOT APPLY: only sessions launched through ai-tools-run are covered -- this probe run by hand outside the wrapper still succeeds -- and a future in-session bubblewrap (which itself needs user namespaces) would require relaxing it."
+  floor_check ESC-001 SELinux "unshare --user (process2:create_user_ns; closed by seccomp in the ai-tools-run service)" unshare --user true
 
   section "SECTION L: RAW KERNEL / HARDWARE MEMORY  [goal 2]" \
 "/dev/mem and /dev/kmem provide direct access to physical RAM and kernel virtual

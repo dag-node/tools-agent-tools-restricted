@@ -105,5 +105,5 @@ printf 'ai-tools-claude-symlink: %s -> %s\n' "${LINK}" "${TARGET}"
 # `ai-tools --relabel` on demand -- both root-side, off the agent-reachable handback domain.
 # The idempotency guard skips the rename only when it has confirmed the entrypoint already
 # carries ai_tools_exec_t, so a pending relabel always drives a repoint and thus the
-# watcher. If the label is still wrong at launch, claude-run fail-closes (refuses) rather
+# watcher. If the label is still wrong at launch, ai-tools-run fail-closes (refuses) rather
 # than running unconfined.

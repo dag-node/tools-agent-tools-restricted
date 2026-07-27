@@ -5,7 +5,7 @@
 # ai_tools_enabled_integrations over /tmp fixture manifest dirs + operator.conf via the root-only
 # AI_TOOLS_{AGENTS,INTEGRATIONS}_DIR / AI_TOOLS_OPERATOR_CONF hooks (the same hermetic-override
 # pattern skip-dirs.lib.sh uses). This is the FAIL-CLOSED enablement contract the toolchain layer
-# (ai-tools-bootstrap, nvm-update) and the launcher (claude-run) provision from, so a regression --
+# (ai-tools-bootstrap, nvm-update) and the launcher (ai-tools-run) provision from, so a regression --
 # a surface-widening provider enabled without an explicit opt-in, an absent/unreadable config read
 # as "enable all", a requested-but-uninstalled name silently guessed instead of skipped -- fails
 # here.
@@ -102,6 +102,31 @@ if [[ -z "${out_names}" && "${warn_out}" == *missing*"no manifest is installed"*
 else
     fail "uninstalled agent: names='${out_names}' warn='${warn_out}'"
 fi
+
+# --- Manifest field accessor: what ai-tools-run reads once it has resolved an agent -----------
+# The name becomes a path, so it is allowlisted to plain identifiers: anything else must resolve
+# nothing rather than address a file outside the manifest directory.
+printf 'npm_pkg=@anthropic-ai/claude-code\nlauncher=claude\ndisplay_name=Claude Code\ndefault_enable=yes\n' \
+    > "${agents_dir}/claude-code.conf"
+if [[ "$(ai_tools_agent_manifest_field claude-code display_name || true)" == "Claude Code" ]]; then
+    pass "manifest field read from a trusted manifest"
+else
+    fail "manifest field: got '$(ai_tools_agent_manifest_field claude-code display_name || true)'"
+fi
+for bogus_name in '../../etc/passwd' 'a/b' '..' 'no-such-agent'; do
+    if [[ -z "$(ai_tools_agent_manifest_field "${bogus_name}" display_name || true)" ]]; then
+        pass "manifest field refuses '${bogus_name}'"
+    else
+        fail "manifest field resolved something for '${bogus_name}'"
+    fi
+done
+chmod 0666 "${agents_dir}/claude-code.conf"
+if [[ -z "$(ai_tools_agent_manifest_field claude-code display_name || true)" ]]; then
+    pass "manifest field refuses a world-writable manifest"
+else
+    fail "manifest field read a world-writable manifest"
+fi
+chmod 0644 "${agents_dir}/claude-code.conf"
 
 # --- IFS independence: the resolver runs inside scripts that set the strict-mode IFS ----------
 section "providers: resolution is independent of the caller's IFS"

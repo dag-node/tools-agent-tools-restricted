@@ -3,7 +3,7 @@
 # Integration: the single source of truth for deployed-artifact ownership/permissions, plus
 # sudoers syntax. Asserts EVERY installed file and directory matches the security model --
 # root-owned helpers and handback bridge, the CLI, the locked /opt/ai-tools/bin and
-# claude-run, the setgid sandbox/control-plane dirs, the setgid+sticky .claude,
+# ai-tools-run, the setgid sandbox/control-plane dirs, the setgid+sticky .claude,
 # agent-readable-but-not-writable hooks/config, the root-only operation logs, and the
 # projects-user-only allowlist/config -- and that the sudoers drop-in parses. Needs a
 # completed install; run as root via sudo, or via `sudo ./install.sh check-perms`.
@@ -82,18 +82,22 @@ check_file /usr/local/lib/ai-tools/providers.lib.sh          root              r
 # files into them). 0755 root:root is SECURITY-LOAD-BEARING, not housekeeping: these decide which
 # agents get provisioned and what env a session gets, and a group- or other-writable directory
 # would let a non-root writer unlink and replace a root-owned manifest or fragment inside it. The
-# resolver and claude-run both refuse a directory that fails exactly this check, so an assertion
+# resolver and ai-tools-run both refuse a directory that fails exactly this check, so an assertion
 # here is the deployed-state half of that guarantee (see providers.rule.md).
 check_file /usr/local/lib/ai-tools/agents.d                  root              root              755
 check_file /usr/local/lib/ai-tools/integrations.d            root              root              755
-check_file /usr/local/lib/ai-tools/claude-run.d              root              root              755
+check_file /usr/local/lib/ai-tools/session-env.d              root              root              755
 # Agent manifest, shipped by ai-tools-agents-claude-code-restricted (not base): 644 root:root,
 # parsed data naming the Claude npm package + launcher.
 check_file /usr/local/lib/ai-tools/agents.d/claude-code.conf root              root              644
 # dotnet integration data (shipped by ai-tools-integration-dotnet, not base): 644 root:root -- the
-# manifest providers.lib.sh reads and the session-env fragment claude-run sources when enabled.
+# manifest providers.lib.sh reads and the session-env fragment ai-tools-run sources when enabled.
 check_file /usr/local/lib/ai-tools/integrations.d/dotnet.conf   root            root              644
-check_file /usr/local/lib/ai-tools/claude-run.d/dotnet.env.sh   root            root              644
+check_file /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh  root            root              644
+# The claude-code agent's own session-env fragment, shipped by its agent package. ai-tools-run
+# sources it last, so these pins outrank an integration's -- and 644 root:root is what makes it
+# trusted enough to source at all.
+check_file /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh root         root              644
 # Secret-pattern config: user-owned 600. ai-tools (not owner/group, cannot enter the 700
 # .config/ai-tools dir) can neither read nor write it; root helpers read it. Optional: it is a
 # per-operator OVERRIDE -- the shared classifier falls back to its built-in defaults when the file
@@ -163,7 +167,7 @@ fi
 # so the agent cannot rewrite it.
 check_file /usr/local/bin/claude                              root root 755
 # Message formatter: 644 root:root -- world-readable like log.lib.sh; sourced by the operator
-# wrapper/CLI, the agent's hooks, and claude-run, so every principal must read it. No secrets.
+# wrapper/CLI, the agent's hooks, and ai-tools-run, so every principal must read it. No secrets.
 check_file /usr/local/lib/ai-tools/msg.lib.sh                 root root 644
 # Sandbox area: root:SANDBOX_GROUP. Outer dir 2750 (setgid, no world); inner sandbox-projects
 # 2770 (setgid so clones are born group SANDBOX_GROUP, group-writable so the agent works in the
@@ -184,12 +188,13 @@ else
 fi
 # /opt/ai-tools root: 2751 root:SANDBOX_GROUP -- setgid propagates group SANDBOX_GROUP to new
 # files; group r-x and the o+x search bit, so the agent reads through the group and an operator
-# traverses to the launcher, but neither creates or deletes here. claude-run mirrors nvm-update.sh
-# (550, group r-x, no write). .gitconfig 644: world-readable so the agent reads safe.directory and
+# traverses to the launcher, but neither creates or deletes here. ai-tools-run is the base-owned
+# confinement shim and mirrors nvm-update.sh (550, group r-x, no write): the sandbox account
+# executes it, cannot modify it, and cannot replace it through the 0551 bin directory. .gitconfig 644: world-readable so the agent reads safe.directory and
 # the operator/wrapper read it without SANDBOX_GROUP membership; only root writes (via
 # ai-tools-safedir). .gitignore 640: a default-deny guard for a git repo versioning the control plane.
 check_file /opt/ai-tools                                      root              "${SANDBOX_GROUP}" 2751
-check_file /opt/ai-tools/bin/claude-run                       root              "${SANDBOX_GROUP}" 550
+check_file /opt/ai-tools/bin/ai-tools-run                       root              "${SANDBOX_GROUP}" 550
 check_file /opt/ai-tools/.gitconfig                           root              "${SANDBOX_GROUP}" 644
 check_file /opt/ai-tools/.gitignore                           root              "${SANDBOX_GROUP}" 640
 # Operation logs: dir 700 root:root, each file 600 root:root -- the root helpers append here;
@@ -219,16 +224,16 @@ else
     fail "/etc/sudoers.d/ai-tools-claude has syntax errors"
 fi
 
-# env_keep surface: claude-run re-validates CLAUDE_EXEC/CLAUDE_PROJECT_DIR (claude-run.sh test),
+# env_keep surface: ai-tools-run re-validates AI_TOOLS_AGENT_EXEC/AI_TOOLS_PROJECT_DIR (ai-tools-run.sh test),
 # which is the real defense, but the drop-in's per-command env_keep should pass through ONLY
 # those two -- a widened list would smuggle attacker-influenced env into the launch path. Pin it:
-# every env_keep in the file names exactly CLAUDE_EXEC and CLAUDE_PROJECT_DIR, nothing else.
+# every env_keep in the file names exactly AI_TOOLS_AGENT_EXEC and AI_TOOLS_PROJECT_DIR, nothing else.
 if [[ -r /etc/sudoers.d/ai-tools-claude ]]; then
     ek_extra="$(grep -oE 'env_keep[[:space:]]*\+?=[[:space:]]*"[^"]*"' /etc/sudoers.d/ai-tools-claude \
         | grep -oE '"[^"]*"' | tr -d '"' | tr ' ' '\n' \
-        | grep -vE '^[[:space:]]*$' | grep -vxE 'CLAUDE_EXEC|CLAUDE_PROJECT_DIR' || true)"
+        | grep -vE '^[[:space:]]*$' | grep -vxE 'AI_TOOLS_AGENT_EXEC|AI_TOOLS_PROJECT_DIR' || true)"
     if [[ -z "${ek_extra}" ]]; then
-        pass "sudoers env_keep passes only CLAUDE_EXEC + CLAUDE_PROJECT_DIR"
+        pass "sudoers env_keep passes only AI_TOOLS_AGENT_EXEC + AI_TOOLS_PROJECT_DIR"
     else
         fail "sudoers env_keep names unexpected variable(s): ${ek_extra//$'\n'/ } -- widened launch env surface"
     fi

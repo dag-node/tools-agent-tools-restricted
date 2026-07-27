@@ -99,14 +99,16 @@ access and says so, never more.
 
 **`integration`** — checks that need a completed install and the running system
 (`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`, `cli.sh`,
-`claude-run.sh`, `systemd.sh`, `selinux.sh`): installed-artifact ownership/modes, sudoers
+`ai-tools-run.sh`, `systemd.sh`, `selinux.sh`): installed-artifact ownership/modes, sudoers
 syntax, the wrapper launched end-to-end (its allowlist gate, `!`-exclusion refusal,
 fail-closed load of `safe-paths.lib.sh`, and consultation of the protected-paths backstop on
 the launch CWD), the handback `socket → daemon → helper` chain (including its negative paths —
 unknown verb, wrong/empty/non-absolute/control-character args, and an out-of-allowlist CHOWN
-all refused), the CLI principal guard (refuses root and the sandbox account), `claude-run`'s
-`CLAUDE_EXEC` / `CLAUDE_PROJECT_DIR` re-validation (a bad value is refused before any
-session launches) plus its pinned session-confinement properties
+all refused), the CLI principal guard (refuses root and the sandbox account), `ai-tools-run`'s
+`AI_TOOLS_AGENT_EXEC` / `AI_TOOLS_PROJECT_DIR` re-validation (a bad value is refused before any
+session launches — including a real sibling binary in the same versioned `bin` directory, which
+is refused because no enabled agent manifest claims that launcher, and a non-semver version
+directory) plus its pinned session-confinement properties
 (`RestrictNamespaces`/`NoNewPrivileges`/`UMask`), the `settings.json` hook + deny-rule
 declarations, and SELinux labels (the `claude.exe` entrypoint and the handback daemon
 binary). `selinux.sh` asserts the confinement layer is actually enforcing: when the
@@ -139,8 +141,9 @@ holds no sudo rights — `sudo -l` reports it is not allowed to run sudo at all 
 rules belong to the projects user and drop privilege), plus the account hygiene that invariant
 leans on (nologin shell, locked password, non-membership in `ai-ops`). `providers.sh` asserts
 the deployed half of "the sandbox cannot widen its own surface": none of `operator.conf`,
-`conf.lib.sh`, `providers.lib.sh`, the three provider directories, or the manifests and
-fragments in them is agent-writable, while the NuGet restore cache the dotnet integration needs
+`conf.lib.sh`, `providers.lib.sh`, the three provider directories, the manifests and fragments
+in them, or the `ai-tools-run` shim and the `bin` directory holding it is agent-writable, while
+the NuGet restore cache the dotnet integration needs
 **is** — both directions matter, since a read-only cache breaks the integration as surely as a
 writable tools dir breaks the boundary. It is the counterpart to `unit/providers.sh`, which
 asserts the runtime refusal; this one asserts the agent cannot reach the state that refusal

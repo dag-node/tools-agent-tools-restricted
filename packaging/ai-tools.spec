@@ -144,17 +144,18 @@ drops any agent they do not use.
 Summary:        Claude Code launch wrapper, confinement shim, and hooks for the ai-tools sandbox
 Requires:       ai-tools-integration-nodejs = %{version}-%{release}
 # Renamed from claude-code-restricted; see the note on ai-tools-integration-nodejs for why the
-# pair is required rather than cosmetic. This one also owns /opt/ai-tools/bin/claude-run and the
-# hooks, so without the Obsoletes an install alongside the old name is a file conflict.
+# pair is required rather than cosmetic. This one also owns the launch wrapper and the hooks, so
+# without the Obsoletes an install alongside the old name is a file conflict.
 Provides:       claude-code-restricted = %{version}-%{release}
 Obsoletes:      claude-code-restricted < 0.7.0-1
 
 %description -n ai-tools-agents-claude-code-restricted
-The Claude Code provider layer: the confinement service shim (claude-run) that
-wraps each session in a transient systemd unit, the Claude Code hooks that drive
-ownership handback and secret quarantine, and the session settings. A sibling
-ai-tools-agents-* provider would sit beside this one on the same base and
-integration layers.
+The Claude Code provider layer: the `claude` launch wrapper, the agent manifest
+that tells the toolchain which npm package to provision and ai-tools-run which
+executable may launch, its session-env fragment, and the Claude Code hooks that
+drive ownership handback and secret quarantine. Confinement itself is the
+base-owned ai-tools-run shim, so a sibling ai-tools-agents-* provider sits beside
+this one on the same base and integration layers.
 
 %prep
 %autosetup
@@ -217,12 +218,17 @@ for l in log msg conf skip-dirs relabel secret-patterns operator control-plane s
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
 # files here): agents.d/<name>.conf and integrations.d/<name>.conf manifests, and
-# claude-run.d/<name>.env.sh session-env fragments. providers.lib.sh reads the manifests to keep
-# the toolchain and launch layers provider-agnostic; claude-run sources enabled integrations'
-# fragments.
+# session-env.d/<name>.env.sh fragments. providers.lib.sh reads the manifests to keep the
+# toolchain and launch layers provider-agnostic; ai-tools-run sources the fragment of each enabled
+# provider, agent and integration alike.
 install -d -m 0755 %{buildroot}%{ai_libdir}/agents.d
 install -d -m 0755 %{buildroot}%{ai_libdir}/integrations.d
-install -d -m 0755 %{buildroot}%{ai_libdir}/claude-run.d
+install -d -m 0755 %{buildroot}%{ai_libdir}/session-env.d
+# The shared confinement shim. Base-owned and agent-agnostic: it resolves which agent may launch
+# from the manifests above, so an ai-tools-agents-* package ships only its wrapper, manifest, and
+# session-env fragment, and one sudoers grant serves every agent.
+install -d -m 0755 %{buildroot}/opt/ai-tools/bin
+install -m 0550 src/opt/ai-tools/bin/ai-tools-run.sh %{buildroot}/opt/ai-tools/bin/ai-tools-run
 # PATH dedup fragment for operator shells; ai-tools-admin wires the source line into
 # operator dotfiles, so no /etc/profile.d entry ships.
 install -m 0644 src%{ai_libdir}/path-dedup.sh %{buildroot}%{ai_libdir}/path-dedup.sh
@@ -304,9 +310,9 @@ install -m 0644 src%{_unitdir}/ai-tools-relabel.service %{buildroot}%{_unitdir}/
 
 # ── integration-dotnet: session-env fragment + manifest + provisioning helper ─
 # The .NET SDK/runtime is the host's; this ships only the sandbox-side glue. The env fragment
-# (claude-run.d) and manifest (integrations.d) drop into the base-owned dirs; the ai-tools-dotnet
+# (session-env.d) and manifest (integrations.d) drop into the base-owned dirs; the ai-tools-dotnet
 # helper is administrator-typed, so it gets a %{_sbindir} symlink like ai-tools-bootstrap/-admin.
-install -m 0644 src%{ai_libdir}/claude-run.d/dotnet.env.sh  %{buildroot}%{ai_libdir}/claude-run.d/dotnet.env.sh
+install -m 0644 src%{ai_libdir}/session-env.d/dotnet.env.sh %{buildroot}%{ai_libdir}/session-env.d/dotnet.env.sh
 install -m 0644 src%{ai_libdir}/integrations.d/dotnet.conf  %{buildroot}%{ai_libdir}/integrations.d/dotnet.conf
 install -m 0750 src%{ai_sbindir}/ai-tools-dotnet.sh         %{buildroot}%{ai_sbindir}/ai-tools-dotnet
 ln -s %{ai_sbindir}/ai-tools-dotnet %{buildroot}%{_sbindir}/ai-tools-dotnet
@@ -320,7 +326,6 @@ touch %{buildroot}/var/log/ai-tools/dotnet.log
 # operator's PATH); it runs as the invoking operator, gates on ai-ops membership, then drops
 # to the sandbox account via sudo.
 install -m 0755 src%{ai_bindir}/claude.sh                  %{buildroot}%{ai_bindir}/claude
-install -m 0550 src/opt/ai-tools/bin/claude-run.sh         %{buildroot}/opt/ai-tools/bin/claude-run
 install -m 0750 src/opt/ai-tools/.claude/post-tool-hook.sh %{buildroot}/opt/ai-tools/.claude/post-tool-hook.sh
 install -m 0750 src/opt/ai-tools/.claude/session-hook.sh   %{buildroot}/opt/ai-tools/.claude/session-hook.sh
 install -m 0640 src/opt/ai-tools/.claude/settings.json     %{buildroot}/opt/ai-tools/.claude/settings.json
@@ -328,6 +333,9 @@ install -m 0640 src/opt/ai-tools/.claude/settings.json     %{buildroot}/opt/ai-t
 # Claude npm package and symlinks the claude launcher without hardcoding either (the agents.d
 # directory itself is owned by ai-tools-base).
 install -m 0644 src%{ai_libdir}/agents.d/claude-code.conf  %{buildroot}%{ai_libdir}/agents.d/claude-code.conf
+# Its session env (config dir, compile cache, in-session updater), sourced by ai-tools-run last
+# so the agent's own pins are authoritative over an integration's.
+install -m 0644 src%{ai_libdir}/session-env.d/claude-code.env.sh %{buildroot}%{ai_libdir}/session-env.d/claude-code.env.sh
 
 # ── base: ghost the operation logs so the package owns them with the right context ──
 for f in chown setgid setfacl symlink lockdown relabel handback install; do
@@ -499,7 +507,8 @@ fi
 %attr(0644, root, root) %{ai_libdir}/providers.lib.sh
 %dir %attr(0755, root, root) %{ai_libdir}/agents.d
 %dir %attr(0755, root, root) %{ai_libdir}/integrations.d
-%dir %attr(0755, root, root) %{ai_libdir}/claude-run.d
+%dir %attr(0755, root, root) %{ai_libdir}/session-env.d
+%attr(0550, root, ai-tools) /opt/ai-tools/bin/ai-tools-run
 %attr(0644, root, root) %{ai_libdir}/path-dedup.sh
 %{_unitdir}/ai-tools-handback.socket
 %{_unitdir}/ai-tools-handback@.service
@@ -553,7 +562,7 @@ fi
 %{_unitdir}/ai-tools-relabel.service
 
 %files -n ai-tools-integration-dotnet
-%attr(0644, root, root) %{ai_libdir}/claude-run.d/dotnet.env.sh
+%attr(0644, root, root) %{ai_libdir}/session-env.d/dotnet.env.sh
 %attr(0644, root, root) %{ai_libdir}/integrations.d/dotnet.conf
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-dotnet
 %{_sbindir}/ai-tools-dotnet
@@ -564,8 +573,8 @@ fi
 
 %files -n ai-tools-agents-claude-code-restricted
 %attr(0644, root, root) %{ai_libdir}/agents.d/claude-code.conf
+%attr(0644, root, root) %{ai_libdir}/session-env.d/claude-code.env.sh
 %attr(0755, root, root) %{ai_bindir}/claude
-%attr(0550, root, ai-tools) /opt/ai-tools/bin/claude-run
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/post-tool-hook.sh
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/session-hook.sh
 %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
@@ -576,9 +585,14 @@ fi
   provision the enabled agents from per-package manifests under
   /usr/local/lib/ai-tools/agents.d, gated by operator.conf AI_TOOLS_AGENTS. Absent = every
   installed agent marked default_enable=yes (Claude Code); present = an exact allowlist.
-- operator.conf AI_TOOLS_INTEGRATIONS selects host-toolchain integrations by the same rules. An
-  enabled integration contributes session env and PATH through a root-owned
-  claude-run.d/<name>.env.sh fragment that claude-run sources.
+- Confinement is one agent-agnostic shim, /opt/ai-tools/bin/ai-tools-run, owned by
+  ai-tools-base. It accepts an executable only at a semver version directory in the sandbox
+  toolchain whose launcher an enabled agent manifest claims, so an ai-tools-agents-* package
+  ships a wrapper, a manifest, and a session-env fragment, and needs no sudoers rule of its own.
+- operator.conf AI_TOOLS_INTEGRATIONS selects host-toolchain integrations by the same rules.
+  Every enabled provider, agent and integration alike, contributes session env and PATH through
+  a root-owned session-env.d/<name>.env.sh fragment; integrations are sourced first and the
+  agent last, so the agent's own pins are authoritative.
 - Every key in operator.conf and every manifest is read with one grammar: quotes optional, list
   items separated by commas or whitespace, trailing "# comment" ends a value.
 - The gating is fail-closed and tamper-refusing: an unreadable, malformed, or non-root-owned

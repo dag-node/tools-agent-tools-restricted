@@ -4,7 +4,7 @@ paths:
   - "src/usr/local/lib/ai-tools/providers.lib.sh"
   - "src/usr/local/lib/ai-tools/agents.d/**"
   - "src/usr/local/lib/ai-tools/integrations.d/**"
-  - "src/usr/local/lib/ai-tools/claude-run.d/**"
+  - "src/usr/local/lib/ai-tools/session-env.d/**"
   - "src/usr/local/sbin/ai-tools/ai-tools-dotnet.sh"
 ---
 
@@ -16,7 +16,7 @@ by `providers.lib.sh`. Two provider kinds share the mechanism:
 
 - **Agents** (`ai-tools-agents-*`) — the AI coding agents. `ai-tools-bootstrap`/`nvm-update` install
   each enabled agent's npm package and symlink its launcher (see [updater](updater.rule.md)).
-- **Integrations** (`ai-tools-integration-*`) — host-toolchain layers. `claude-run` sources each
+- **Integrations** (`ai-tools-integration-*`) — host-toolchain layers. `ai-tools-run` sources each
   enabled integration's session-env fragment (see [launch](launch.rule.md)).
 
 ## Manifests
@@ -28,12 +28,17 @@ same posture as `operator.conf`/`skip-dirs.lib.sh`, so a malformed or tampered m
 execute code in the privileged scripts that read it:
 
 - agents: `npm_pkg` (the registry package), `launcher` (the bin symlinked at
-  `/opt/ai-tools/bin/<launcher>`), `default_enable`.
-- integrations: `default_enable`. The integration's session env lives in
-  `claude-run.d/<name>.env.sh`, keyed by the same `<name>`.
+  `/opt/ai-tools/bin/<launcher>`, and the name `ai-tools-run` matches an executable against to
+  decide whether it may launch), `display_name` (what the launch banner and the unit description
+  call it), `default_enable`.
+- integrations: `default_enable`.
 
-`ai-tools-base` owns the three directories (`agents.d`, `integrations.d`, `claude-run.d`) and ships
-`providers.lib.sh`; each member package ships only its own files into them.
+Either kind may also ship `session-env.d/<name>.env.sh`, keyed by the same `<name>` — one flat
+namespace across both kinds, so a provider name is unique host-wide.
+
+`ai-tools-base` owns the three directories (`agents.d`, `integrations.d`, `session-env.d`), ships
+`providers.lib.sh`, and owns the `ai-tools-run` shim that reads them; each member package ships
+only its own files into them.
 
 ## The shared config grammar (`conf.lib.sh`)
 
@@ -85,7 +90,7 @@ only when an operator names it (dotnet). This is the fail-closed default-when-un
 ## The sandbox cannot widen its own surface
 
 The inputs above decide which agents get installed and what environment a session is handed, and
-the code that reads them runs **as `SANDBOX_USER`** (`claude-run`, `nvm-update`). So each input is
+the code that reads them runs **as `SANDBOX_USER`** (`ai-tools-run`, `nvm-update`). So each input is
 honored only while `ai_tools_conf_is_trusted` holds for it — it exists, is not a symlink, is owned
 by root, and is writable by neither group nor other — and so is the **directory** holding it, since
 a group-writable directory lets a non-root writer unlink a root-owned file and put its own in that
@@ -97,10 +102,10 @@ the trail), never silently:
 | `operator.conf` | ignored → the baseline (which only enables what a package marked `default_enable=yes`) |
 | a manifest directory | that whole provider kind is refused |
 | one manifest | that one provider is skipped |
-| `claude-run.d` or a fragment | that fragment is not sourced |
-| `/usr/local/lib/ai-tools` itself | no integration env at all (`claude-run`'s bootstrap check) |
+| `session-env.d` or a fragment | that fragment is not sourced |
+| `/usr/local/lib/ai-tools` itself | no integration env at all (`ai-tools-run`'s bootstrap check) |
 
-Trust bootstraps on the lib directory, which `claude-run` checks inline before sourcing anything
+Trust bootstraps on the lib directory, which `ai-tools-run` checks inline before sourcing anything
 from it — the predicate that checks everything else lives inside it. `0751 root:SANDBOX_GROUP` on
 that directory is therefore load-bearing, not housekeeping, and
 `tests/integration/perms.sh` asserts it along with the three provider directories.
@@ -118,6 +123,9 @@ and asserts none of it is agent-writable (catching the agent trying to break it)
   enablement decision, no I/O, unit-tested over the truth table (`tests/unit/providers.sh`).
 - `ai_tools_enabled_agents` — prints `name<TAB>npm_pkg<TAB>launcher` per enabled installed agent.
 - `ai_tools_enabled_integrations` — prints one enabled installed integration name per line.
+- `ai_tools_agent_manifest_field <name> <key>` — one further field of a trusted manifest, for a
+  caller that has already resolved which agent it has. The name is allowlisted to a plain
+  identifier before it becomes a path, so it addresses nothing outside the manifest directory.
 
 Data-only stdout (safe in `$(...)`); enabled-but-uninstalled names and every trust refusal go to
 stderr, and to journald when `log.lib.sh` is loadable.
@@ -127,14 +135,19 @@ stderr, and to journald when `log.lib.sh` is loadable.
 manifest nor tell a trusted input from a planted one, and guessing either is the fail-open this
 seam exists to prevent. It therefore returns non-zero and defines nothing, so every consumer loads
 it as `source … && declare -F <resolver>` and resolves no providers when that fails — Node-only for
-`ai-tools-bootstrap`, npm-only for `nvm-update`, no integration env for `claude-run`.
+`ai-tools-bootstrap`, npm-only for `nvm-update`, no integration env for `ai-tools-run`.
 
-## The `claude-run.d` session-env seam
+## The `session-env.d` seam
 
-`claude-run` reads the enabled integrations and, for each, sources
-`/usr/local/lib/ai-tools/claude-run.d/<name>.env.sh` — a fragment that appends to the launcher's
-`_setenv` (session env) and `_extra_path` (PATH tail), emitted into the transient unit. See
-[launch](launch.rule.md) for where that sits in the launch sequence.
+A fragment `/usr/local/lib/ai-tools/session-env.d/<name>.env.sh` appends to two arrays the
+launcher owns — `session_environment_options` (`--setenv=` entries) and `session_path_entries`
+(PATH tail) — which `ai-tools-run` emits into the transient unit. Both provider kinds use it:
+`ai-tools-run` sources each enabled **integration**'s fragment, then the resolved **agent**'s,
+so the agent's pins are authoritative over an integration's. See [launch](launch.rule.md) for
+where that sits in the launch sequence.
+
+This is where per-agent environment lives, rather than as manifest fields: an agent's pins are
+arbitrary `KEY=value` shell, and a fragment is a mechanism the seam already has.
 
 The seam is **best-effort**, not the fail-closed tier `msg.lib`/`confinement.lib` hold: a missing
 or untrusted lib, directory, or fragment yields no integration env and leaves the confined launch
@@ -143,7 +156,7 @@ unaffected, because the integration env is additive, not load-bearing. "Fail clo
 above; a fragment self-gates on its host tool, so it is inert on a host without the toolchain even
 when enabled.
 
-A fragment runs in `claude-run`'s own scope, so it appends to the two arrays and nothing else: it
+A fragment runs in `ai-tools-run`'s own scope, so it appends to the two arrays and nothing else: it
 must not exec, prompt, read stdin (the loop feeding it is on a process substitution), or depend on
 the caller's environment, and it unsets its own temporaries.
 
@@ -156,7 +169,7 @@ by default on every host yet stays fully optional — removable with no effect o
 stack. `default_enable=no` (it widens surface: a new runtime exec, NuGet egress, a writable cache),
 so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS`.
 
-- `claude-run.d/dotnet.env.sh` self-gates on `/usr/bin/dotnet`, then sets `DOTNET_ROOT`,
+- `session-env.d/dotnet.env.sh` self-gates on `/usr/bin/dotnet`, then sets `DOTNET_ROOT`,
   `NUGET_PACKAGES=/opt/ai-tools/.nuget/packages`, `DOTNET_CLI_HOME`, `DOTNET_CLI_TELEMETRY_OPTOUT`,
   `DOTNET_NOLOGO`, and `ASPNETCORE_ENVIRONMENT`/`DOTNET_ENVIRONMENT=Development`, and adds
   `/opt/ai-tools/.dotnet/tools` to PATH. The variables are those current for **.NET 8 LTS and
@@ -175,7 +188,7 @@ so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS`.
   grants `ai_tools_t` the SELinux access (write on the cache, exec on the tools) while the DAC modes
   are the enforced read/write boundary. `install-tools <pkg...>` installs shared global tools;
   `status` reports host SDKs/runtimes, and reads enablement through `ai_tools_enabled_integrations`
-  so it reports the same verdict `claude-run` reaches.
+  so it reports the same verdict `ai-tools-run` reaches.
 - Every step **fails loudly**. A directory it cannot create, or a label it cannot apply on a host
   that supports labelling, exits non-zero with the cause logged through `log.lib.sh` to journald and
   `/var/log/ai-tools/dotnet.log` (see [logging](logging.rule.md)) — a half-provisioned integration

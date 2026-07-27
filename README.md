@@ -125,7 +125,7 @@ of what it can ever send:
   (ownership handback, setgid normalisation, symlink repoint) go through a dedicated
   socket daemon (`ai-tools-handback`) that verifies the caller's identity with a kernel
   credential the caller cannot forge. The one `%ai-ops` rule that drops to `${SANDBOX_USER}`
-  runs only `claude-run` — a fixed-path sudo target, not a glob, which wraps the session in a
+  runs only `ai-tools-run` — a fixed-path sudo target, not a glob, which wraps the session in a
   confined systemd `--user --pty` service. Nothing else. See the
   [handback bridge](.claude/rules/handback-bridge.rule.md).
 - **Ownership hand-back** — files Claude writes are chowned back to
@@ -205,9 +205,9 @@ you type `claude`
   └─ /usr/local/bin/claude                    (wrapper, runs as the invoking operator)
        ├─ caller ∈ ai-ops group?              refuse a non-operator with a framed message
        ├─ CWD ∈ allowed-projects?             refuse if not, or if !-excluded
-       ├─ resolve /opt/ai-tools/bin/claude    (one readlink hop; export as CLAUDE_EXEC)
-       ├─ export CWD as CLAUDE_PROJECT_DIR    (validated project dir → unit WorkingDirectory)
-       └─ exec sudo -u "${SANDBOX_USER}" -- /opt/ai-tools/bin/claude-run
+       ├─ resolve /opt/ai-tools/bin/claude    (one readlink hop; export as AI_TOOLS_AGENT_EXEC)
+       ├─ export CWD as AI_TOOLS_PROJECT_DIR    (validated project dir → unit WorkingDirectory)
+       └─ exec sudo -u "${SANDBOX_USER}" -- /opt/ai-tools/bin/ai-tools-run
             │                                  (DROPS privilege to the unprivileged sandbox
             │                                   account — the wrapper never runs as root)
             └─ systemd transient service      (--pty; RestrictNamespaces=yes, UMask=0007,
@@ -258,13 +258,13 @@ series, installs it under `/opt/ai-tools/.nvm`, refreshes the global tools, prun
 The `ai-tools-relabel.path` watcher sees the symlink repoint and runs
 `ai-tools-relabel-entrypoint` (root) to restore `ai_tools_exec_t` on the new `claude.exe`,
 so the SELinux domain transition keeps firing. Until the entrypoint is relabelled,
-`claude-run` fail-closes (refuses to launch rather than run unconfined); `ai-tools
+`ai-tools-run` fail-closes (refuses to launch rather than run unconfined); `ai-tools
 --relabel` is the manual fallback.
 
 On launch the wrapper resolves the symlink one hop via `readlink`, exports it as
-`CLAUDE_EXEC`, and `claude-run` re-validates it against the nvm versioned-binary pattern
+`AI_TOOLS_AGENT_EXEC`, and `ai-tools-run` re-validates it against the nvm versioned-binary pattern
 before exec; the only sudoers rule dropping to `${SANDBOX_USER}` targets the fixed path
-`/opt/ai-tools/bin/claude-run`, never the versioned binary. Why one hop, and what the
+`/opt/ai-tools/bin/ai-tools-run`, never the versioned binary. Why one hop, and what the
 mode-700 package dir does and does not guarantee, is specified in
 [launch](.claude/rules/launch.rule.md) and [updater](.claude/rules/updater.rule.md).
 
