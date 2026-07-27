@@ -27,7 +27,7 @@ Each installed member package ships one manifest, `/usr/local/lib/ai-tools/{agen
 same posture as `operator.conf`/`skip-dirs.lib.sh`, so a malformed or tampered manifest cannot
 execute code in the privileged scripts that read it:
 
-- agents: `npm_pkg` (the registry package), `launcher` (the bin symlinked at
+- agents: `npm_package` (the registry package), `launcher` (the bin symlinked at
   `/opt/ai-tools/bin/<launcher>`, and the name `ai-tools-run` matches an executable against to
   decide whether it may launch), `display_name` (what the launch banner and the unit description
   call it), `default_enable`.
@@ -121,7 +121,7 @@ and asserts none of it is agent-writable (catching the agent trying to break it)
 
 - `ai_tools_provider_is_enabled <name> <default_enable> <allowlist_active> <allowlist>` — the pure
   enablement decision, no I/O, unit-tested over the truth table (`tests/unit/providers.sh`).
-- `ai_tools_enabled_agents` — prints `name<TAB>npm_pkg<TAB>launcher` per enabled installed agent.
+- `ai_tools_enabled_agents` — prints `name<TAB>npm_package<TAB>launcher` per enabled installed agent.
 - `ai_tools_enabled_integrations` — prints one enabled installed integration name per line.
 - `ai_tools_agent_manifest_field <name> <key>` — one further field of a trusted manifest, for a
   caller that has already resolved which agent it has. The name is allowlisted to a plain

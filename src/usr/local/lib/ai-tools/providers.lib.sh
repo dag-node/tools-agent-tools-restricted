@@ -17,7 +17,7 @@
 # Manifest -- /usr/local/lib/ai-tools/{agents,integrations}.d/<name>.conf, one per installed
 # member package. <name> (the basename) is the token an operator writes in AI_TOOLS_AGENTS /
 # AI_TOOLS_INTEGRATIONS:
-#   agents:        npm_pkg=<registry package>  launcher=<bin name>  default_enable=yes|no
+#   agents:        npm_package=<registry package>  launcher=<bin name>  default_enable=yes|no
 #   integrations:  default_enable=yes|no       (its env fragment is session-env.d/<name>.env.sh)
 #
 # ── Enablement is FAIL-CLOSED ────────────────────────────────────────────────────────────────
@@ -149,13 +149,13 @@ _ai_tools_warn_uninstalled() {
     return 0
 }
 
-# ai_tools_enabled_agents : print one TAB-separated "name<TAB>npm_pkg<TAB>launcher" line per
+# ai_tools_enabled_agents : print one TAB-separated "name<TAB>npm_package<TAB>launcher" line per
 #   enabled AND installed agent, in manifest-filename order. Data-only stdout (safe in `$(...)`);
 #   an enabled-but-uninstalled agent, and any refusal, is reported on stderr.
 ai_tools_enabled_agents() {
     local requested_active requested_list
     _ai_tools_provider_requested AI_TOOLS_AGENTS
-    local manifest_file agent_name npm_pkg launcher default_enable
+    local manifest_file agent_name npm_package launcher default_enable
     if _ai_tools_provider_dir_trusted "${AI_TOOLS_AGENTS_DIR}" AI_TOOLS_AGENTS; then
         for manifest_file in "${AI_TOOLS_AGENTS_DIR}"/*.conf; do
             [[ -e "${manifest_file}" ]] || continue
@@ -164,13 +164,13 @@ ai_tools_enabled_agents() {
                 _ai_tools_provider_warn "skipping agent ${agent_name}: ${manifest_file} is not root-owned or is writable by group/other"
                 continue
             fi
-            npm_pkg="$(ai_tools_conf_get "${manifest_file}" npm_pkg || true)"
+            npm_package="$(ai_tools_conf_get "${manifest_file}" npm_package || true)"
             launcher="$(ai_tools_conf_get "${manifest_file}" launcher || true)"
             default_enable="$(ai_tools_conf_get "${manifest_file}" default_enable || true)"
-            [[ -n "${npm_pkg}" ]] || continue   # a manifest naming no package provisions nothing
+            [[ -n "${npm_package}" ]] || continue   # a manifest naming no package provisions nothing
             if ai_tools_provider_is_enabled "${agent_name}" "${default_enable}" \
                                             "${requested_active}" "${requested_list}"; then
-                printf '%s\t%s\t%s\n' "${agent_name}" "${npm_pkg}" "${launcher}"
+                printf '%s\t%s\t%s\n' "${agent_name}" "${npm_package}" "${launcher}"
             fi
         done
     fi

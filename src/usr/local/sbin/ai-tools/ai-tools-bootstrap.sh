@@ -186,7 +186,7 @@ done
 
 # Resolve which agents to provision from the installed manifests (agents.d) gated by
 # operator.conf AI_TOOLS_AGENTS -- providers.lib.sh, the seam that keeps this toolchain step
-# agent-agnostic. Each enabled line is "name<TAB>npm_pkg<TAB>launcher"; collect the packages
+# agent-agnostic. Each enabled line is "name<TAB>npm_package<TAB>launcher"; collect the packages
 # (installed in step 2) and launchers (symlinked in step 3). The lib is control-plane, so a
 # bootstrap that PRECEDES control-plane install has none yet: Node is provisioned bare and a
 # re-run picks up the agents. Its stderr warns of an enabled-but-uninstalled agent.

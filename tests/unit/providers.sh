@@ -58,13 +58,13 @@ verdict "allowlist opts in a default=no agent"     0 dotnet      no  yes "dotnet
 verdict "comma-separated allowlist names it"       0 claude-code no  yes "claude-code,other"
 verdict "mixed separators name it"                 0 other       no  yes "claude-code, other  third"
 
-# --- Resolver over a /tmp fixture tree (name<TAB>npm_pkg<TAB>launcher per enabled agent) ---
+# --- Resolver over a /tmp fixture tree (name<TAB>npm_package<TAB>launcher per enabled agent) ---
 # The fixtures are created by this root-run suite, so they are root-owned and non-group-writable:
 # the trusted state. The tamper section below deliberately breaks that per case and restores it.
 mktestdir
 agents_dir="${TESTDIR}/agents.d"; mkdir -p "${agents_dir}"
-printf 'npm_pkg=@anthropic-ai/claude-code\nlauncher=claude\ndefault_enable=yes\n' > "${agents_dir}/claude-code.conf"
-printf 'npm_pkg=@acme/experimental\nlauncher=acme\ndefault_enable=no\n'           > "${agents_dir}/experimental.conf"
+printf 'npm_package=@anthropic-ai/claude-code\nlauncher=claude\ndefault_enable=yes\n' > "${agents_dir}/claude-code.conf"
+printf 'npm_package=@acme/experimental\nlauncher=acme\ndefault_enable=no\n'           > "${agents_dir}/experimental.conf"
 export AI_TOOLS_AGENTS_DIR="${agents_dir}"
 conf="${TESTDIR}/operator.conf"
 
@@ -106,7 +106,7 @@ fi
 # --- Manifest field accessor: what ai-tools-run reads once it has resolved an agent -----------
 # The name becomes a path, so it is allowlisted to plain identifiers: anything else must resolve
 # nothing rather than address a file outside the manifest directory.
-printf 'npm_pkg=@anthropic-ai/claude-code\nlauncher=claude\ndisplay_name=Claude Code\ndefault_enable=yes\n' \
+printf 'npm_package=@anthropic-ai/claude-code\nlauncher=claude\ndisplay_name=Claude Code\ndefault_enable=yes\n' \
     > "${agents_dir}/claude-code.conf"
 if [[ "$(ai_tools_agent_manifest_field claude-code display_name || true)" == "Claude Code" ]]; then
     pass "manifest field read from a trusted manifest"
