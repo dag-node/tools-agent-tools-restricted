@@ -114,7 +114,10 @@ directory) plus its pinned session-confinement properties
 fragment into the two arrays it is contracted to append to, so a fragment that stops appending or
 appends to a renamed array fails rather than silently costing the session its environment), the
 `settings.json` hook + deny-rule declarations, and SELinux labels (the `claude.exe` entrypoint and the handback daemon
-binary). `selinux.sh` asserts the confinement layer is actually enforcing: when the
+binary). Every assertion about the shim lives in `ai-tools-run.sh` beside it — its input
+validation, the unit properties it pins, and the session env it sources — so a change to the
+shim has one file to answer to; `handback.sh` keeps the bridge and the entrypoint label.
+`selinux.sh` asserts the confinement layer is actually enforcing: when the
 `ai_tools` module is loaded the system is `Enforcing` and neither `ai_tools_t` nor
 `ai_tools_handback_t` is marked permissive; it skips when the module is absent (the layer is
 optional). `systemd.sh` is the single home for unit checks:

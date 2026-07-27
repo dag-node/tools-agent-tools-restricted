@@ -3,8 +3,9 @@
 # Integration: the handback-bridge + entrypoint regression guards. Pins the labels and DAC
 # that the socket privilege bridge and the SELinux domain-transition depend on: the claude.exe
 # entrypoint type, the socket's owner/mode and /run/ai-tools traversability, the socket-unit
-# directives (systemd-252 traps), a live SYMLINK verb end-to-end as the agent, and the
-# in-session auto-updater pin. Unit validity and enablement live in systemd.sh. Run as root.
+# directives (systemd-252 traps), and a live SYMLINK verb end-to-end as the agent. Unit validity
+# and enablement live in systemd.sh; the session's own confinement properties and env pins live
+# in ai-tools-run.sh, beside the shim that sets them. Run as root.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -115,63 +116,6 @@ elif grep -qF "arg=${_tgt} -> OK" /var/log/ai-tools/handback.log 2>/dev/null; th
     pass "daemon records served requests to handback.log (file sink + ai_tools_log_t append)"
 else
     fail "no served-request line in handback.log after a live handback -- daemon file sink or ai_tools_handback_t->ai_tools_log_t append rule broken"
-fi
-
-# (5) The claude-code session env. These pins are agent-specific, so they live in that agent's
-# session-env fragment rather than in the agent-agnostic shim; ai-tools-run sources it last,
-# after every enabled integration, so nothing can override them. Each one is load-bearing:
-#   DISABLE_AUTOUPDATER  the node tree is read-only to the agent, so the in-session auto-updater
-#                        would fail every launch (+ AVC); updates are the timer's job
-#   CLAUDE_CONFIG_DIR    unpinned, the state file lands under the 2751 home root where the agent
-#                        cannot create it, and every session demands a fresh login
-#   NODE_COMPILE_CACHE   unpinned, the cache lands on the shared /tmp where a stale user_tmp_t
-#                        entry denies node's own open() and the session dies at startup
-# The fragment is SOURCED into the two arrays it is contracted to append to, rather than grepped
-# for strings: that exercises the real contract, so a fragment that stops appending -- or appends
-# to a renamed array -- fails here instead of silently costing the session its environment.
-_agent_env="/usr/local/lib/ai-tools/session-env.d/claude-code.env.sh"
-if [[ ! -r "${_agent_env}" ]]; then
-    skip "claude-code session env" "${_agent_env} unreadable"
-else
-    _agent_setenv="$(
-        declare -a session_environment_options=() session_path_entries=()
-        # shellcheck source=/dev/null
-        source "${_agent_env}" 2>/dev/null || true
-        printf '%s\n' "${session_environment_options[@]:-}"
-    )"
-    for _pin in DISABLE_AUTOUPDATER=1 \
-                CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude \
-                NODE_COMPILE_CACHE=/opt/ai-tools/.cache/node-compile-cache; do
-        if grep -qxF -- "--setenv=${_pin}" <<<"${_agent_setenv}"; then
-            pass "claude-code session env pins ${_pin}"
-        else
-            fail "claude-code session env does not pin ${_pin} (${_agent_env})"
-        fi
-    done
-fi
-_crun="/opt/ai-tools/bin/ai-tools-run"
-
-# (5a) ai-tools-run pins the session's kernel-confinement properties on the transient unit:
-# RestrictNamespaces=yes (the seccomp filter that blocks clone(CLONE_NEWUSER) and forces
-# PR_SET_NO_NEW_PRIVS) and NoNewPrivileges=yes. These are trust-chain step 4; a revert here would
-# launch sessions without namespace isolation or with SUID escalation reachable, and the only
-# other signal is an on-box AVC. Pin them statically alongside DISABLE_AUTOUPDATER (the sibling
-# self-update pin above) so a regression fails the suite, not just enforcing bring-up. The
-# properties reach systemd-run as `--property=NAME=yes`.
-if [[ -r "${_crun}" ]]; then
-    for _prop in RestrictNamespaces NoNewPrivileges; do
-        if grep -qE -- "--property=${_prop}=yes" "${_crun}"; then
-            pass "ai-tools-run pins ${_prop}=yes on the session unit"
-        else
-            fail "ai-tools-run does not pin ${_prop}=yes -- session confinement (trust-chain step 4) weakened"
-        fi
-    done
-    # UMask=0007 keeps agent-written files 660/770 (world stripped, operator+agent co-writers).
-    if grep -qE -- '--property=UMask=0007' "${_crun}"; then
-        pass "ai-tools-run pins UMask=0007 on the session unit"
-    else
-        fail "ai-tools-run does not pin UMask=0007 -- agent files may be born world-accessible"
-    fi
 fi
 
 # ── Bridge input validation + allowlist boundary (negative, as the agent) ────────
