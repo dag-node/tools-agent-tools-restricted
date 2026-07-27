@@ -22,7 +22,7 @@ secrets and every principal sources it). It exposes `ai_tools_log <level>` and
   owner nor able to traverse a `700` dir — can neither read nor tamper with the trail. That
   keeps the secret filenames `ai-tools-chown` records out of the agent's reach. The files
   are `chown.log`, `setgid.log`, `setfacl.log`, `symlink.log`, `lockdown.log`,
-  `relabel.log`, `handback.log`, and `install.log`. Most are written through this library
+  `relabel.log`, `dotnet.log`, `handback.log`, and `install.log`. Most are written through this library
   by the root helpers; `handback.log` is the exception — the socket daemon
   (`ai-tools-handback`, root, Python) writes it directly (not through this library, which it
   does not source), recording the bridge's own events (rejected peers, malformed/refused
