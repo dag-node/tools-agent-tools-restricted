@@ -117,16 +117,39 @@ else
     fail "no served-request line in handback.log after a live handback -- daemon file sink or ai_tools_handback_t->ai_tools_log_t append rule broken"
 fi
 
-# (5) ai-tools-run pins DISABLE_AUTOUPDATER=1: the node tree is read-only to the agent, so the
-# in-session auto-updater would fail every launch (+ AVC). Updates are the timer's job.
-_crun="/opt/ai-tools/bin/ai-tools-run"
-if [[ ! -r "${_crun}" ]]; then
-    skip "ai-tools-run disables auto-updater" "${_crun} unreadable"
-elif grep -qE 'setenv=DISABLE_AUTOUPDATER=1' "${_crun}"; then
-    pass "ai-tools-run pins DISABLE_AUTOUPDATER=1 (no in-session self-update)"
+# (5) The claude-code session env. These pins are agent-specific, so they live in that agent's
+# session-env fragment rather than in the agent-agnostic shim; ai-tools-run sources it last,
+# after every enabled integration, so nothing can override them. Each one is load-bearing:
+#   DISABLE_AUTOUPDATER  the node tree is read-only to the agent, so the in-session auto-updater
+#                        would fail every launch (+ AVC); updates are the timer's job
+#   CLAUDE_CONFIG_DIR    unpinned, the state file lands under the 2751 home root where the agent
+#                        cannot create it, and every session demands a fresh login
+#   NODE_COMPILE_CACHE   unpinned, the cache lands on the shared /tmp where a stale user_tmp_t
+#                        entry denies node's own open() and the session dies at startup
+# The fragment is SOURCED into the two arrays it is contracted to append to, rather than grepped
+# for strings: that exercises the real contract, so a fragment that stops appending -- or appends
+# to a renamed array -- fails here instead of silently costing the session its environment.
+_agent_env="/usr/local/lib/ai-tools/session-env.d/claude-code.env.sh"
+if [[ ! -r "${_agent_env}" ]]; then
+    skip "claude-code session env" "${_agent_env} unreadable"
 else
-    fail "ai-tools-run does not pin DISABLE_AUTOUPDATER=1 -- agent will attempt the denied npm self-update"
+    _agent_setenv="$(
+        declare -a session_environment_options=() session_path_entries=()
+        # shellcheck source=/dev/null
+        source "${_agent_env}" 2>/dev/null || true
+        printf '%s\n' "${session_environment_options[@]:-}"
+    )"
+    for _pin in DISABLE_AUTOUPDATER=1 \
+                CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude \
+                NODE_COMPILE_CACHE=/opt/ai-tools/.cache/node-compile-cache; do
+        if grep -qxF -- "--setenv=${_pin}" <<<"${_agent_setenv}"; then
+            pass "claude-code session env pins ${_pin}"
+        else
+            fail "claude-code session env does not pin ${_pin} (${_agent_env})"
+        fi
+    done
 fi
+_crun="/opt/ai-tools/bin/ai-tools-run"
 
 # (5a) ai-tools-run pins the session's kernel-confinement properties on the transient unit:
 # RestrictNamespaces=yes (the seccomp filter that blocks clone(CLONE_NEWUSER) and forces

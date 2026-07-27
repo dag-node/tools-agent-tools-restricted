@@ -109,8 +109,11 @@ all refused), the CLI principal guard (refuses root and the sandbox account), `a
 session launches — including a real sibling binary in the same versioned `bin` directory, which
 is refused because no enabled agent manifest claims that launcher, and a non-semver version
 directory) plus its pinned session-confinement properties
-(`RestrictNamespaces`/`NoNewPrivileges`/`UMask`), the `settings.json` hook + deny-rule
-declarations, and SELinux labels (the `claude.exe` entrypoint and the handback daemon
+(`RestrictNamespaces`/`NoNewPrivileges`/`UMask`), the claude-code session-env pins
+(`DISABLE_AUTOUPDATER`, `CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE` — asserted by **sourcing** the
+fragment into the two arrays it is contracted to append to, so a fragment that stops appending or
+appends to a renamed array fails rather than silently costing the session its environment), the
+`settings.json` hook + deny-rule declarations, and SELinux labels (the `claude.exe` entrypoint and the handback daemon
 binary). `selinux.sh` asserts the confinement layer is actually enforcing: when the
 `ai_tools` module is loaded the system is `Enforcing` and neither `ai_tools_t` nor
 `ai_tools_handback_t` is marked permissive; it skips when the module is absent (the layer is
