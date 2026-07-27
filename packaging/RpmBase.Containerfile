@@ -62,12 +62,17 @@ COPY packaging                /opt/ai-tools-src/packaging
 COPY README.md                /opt/ai-tools-src/README.md
 WORKDIR /opt/ai-tools-src
 
-# Build the six RPMs from the tree, publish them as a local repo, and install the METAPACKAGE
+# Build every RPM the spec defines, publish them as a local repo, and install the METAPACKAGE
 # only -- dnf pulls ai-tools-base (hard Requires) plus the ai-tools-agents / ai-tools-integration
 # umbrellas and their members (weak Recommends), proving the dependency graph (the verbose
 # transaction table is the evidence). install_weak_deps is forced on so the pull is deterministic
 # regardless of the base image's dnf config. Then enable the units that must be live at boot for
 # the selftest (preset policy may leave them off in a minimal image).
+#
+# The post-install assertion is derived from the BUILT set rather than a hand-kept package list:
+# every subpackage the spec produced must resolve from the metapackage alone, so a subpackage
+# added later is covered here without touching this file -- and a member whose weak dependency
+# never resolves fails the build instead of passing unnoticed.
 RUN set -eux; \
     rm -rf packaging/rpmbuild packaging/*.tar.gz; \
     make -C packaging rpm RPM_RELEASE="${RPM_RELEASE}"; \
@@ -77,8 +82,7 @@ RUN set -eux; \
     printf '[ai-tools-local]\nname=ai-tools-local\nbaseurl=file:///tmp/ai-repo\nenabled=1\ngpgcheck=0\n' \
         > /etc/yum.repos.d/ai-tools-local.repo; \
     dnf -y -v --setopt=install_weak_deps=True install ai-tools; \
-    rpm -q ai-tools ai-tools-base ai-tools-integration ai-tools-integration-nodejs \
-          ai-tools-agents ai-tools-agents-claude-code-restricted; \
+    rpm -q $(rpm -qp --qf '%{NAME}\n' /tmp/ai-repo/*.rpm | sort -u); \
     systemctl enable ai-tools-handback.socket
 
 # A non-root login user to enrol as the operator. The NOPASSWD drop-in is TEST-ONLY: it lets

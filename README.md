@@ -52,10 +52,10 @@ EOF
 sudo dnf install ai-tools          # the metapackage pulls the whole stack
 ```
 
-Or install a release archive directly (offline / air-gapped). The zip bundles the six RPMs
-(metapackage + `ai-tools-base`, the `ai-tools-agents` / `ai-tools-integration` umbrellas, and
-their members `ai-tools-agents-claude-code-restricted` and `ai-tools-integration-nodejs`) plus
-the public key; they extract flat and dnf orders them itself:
+Or install a release archive directly (offline / air-gapped). The zip bundles every RPM of the
+release — the `ai-tools` metapackage, `ai-tools-base`, and the `ai-tools-agents` /
+`ai-tools-integration` umbrellas with their members — plus the public key; they extract flat and
+dnf orders them itself:
 
 ```bash
 unzip ai-tools-el10-vX.Y.Z.zip                 # ai-tools-el9-... to match your platform

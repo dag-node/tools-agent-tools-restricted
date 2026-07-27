@@ -44,7 +44,7 @@ jobs:
           find src -name '*.sh' -print0 | xargs -0 shellcheck
           shellcheck install.sh
 
-  # Builds the four RPMs and runs the full admin -> operator -> agent workflow (bootstrap,
+  # Builds the RPMs and runs the full admin -> operator -> agent workflow (bootstrap,
   # operator enrolment, project claim, tests/run.sh all, a confined `claude --version`
   # session) inside a throwaway Rocky container with systemd as PID 1. Mirrors
   # `make -C packaging rpmtest-rockyN` -- see packaging/README.md for what this
@@ -288,9 +288,9 @@ jobs:
           echo "verified $(find dist-rpms -name '*.rpm' | wc -l) signed RPM(s) on the runner"
 
       # Both el9 and el10 RPMs land as flat, same-named-prefix assets on one release page
-      # (see the upload below); a per-EL zip removes the "which four files go together"
+      # (see the upload below); a per-EL zip removes the "which files go together"
       # ambiguity that creates -- `dnf install ./*.rpm` after unzipping is then unambiguous
-      # by construction, since each archive holds only one EL's four packages. The runner-exported
+      # by construction, since each archive holds exactly one EL's packages. The runner-exported
       # public key (dist-rpms/RPM-GPG-KEY-dag-node) rides inside each zip too, so an operator imports
       # it and installs from one archive offline; rpm.dagnode.com serves it too.
       - name: Bundle per-EL zip archives
