@@ -84,6 +84,19 @@ and the `ai-tools(1)` man page must match in both directions (see [cli](cli.rule
 validated from the repo sources (or the installed pair outside a checkout) without
 executing the CLI.
 
+`conf.sh` and `providers.sh` are the library pair behind the provider seam (see
+[providers](providers.rule.md)). `conf.sh` pins the shared `KEY=value` grammar every
+`operator.conf` key and every manifest is read with — quotes optional, commas and whitespace
+both separating, inline comments ending a value, a present-but-empty key distinguishable
+from an absent one — plus two properties whose breakage is silent in production: the
+splitter must be **IFS-independent** (it is sourced into scripts that set `IFS=$'\n\t'`,
+where an inherited IFS collapses a multi-item value into one bogus item), and
+`ai_tools_conf_is_trusted` must refuse every state a non-root writer can create
+(non-root-owned, group- or other-writable, a symlink), for directories as well as files.
+`providers.sh` drives the enablement truth table and then, for each untrusted input in turn
+— `operator.conf`, a manifest, a manifest directory — asserts the resolver moves to *less*
+access and says so, never more.
+
 **`integration`** — checks that need a completed install and the running system
 (`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`, `cli.sh`,
 `claude-run.sh`, `systemd.sh`, `selinux.sh`): installed-artifact ownership/modes, sudoers
@@ -120,11 +133,18 @@ it through `tests/run.sh all`. Adding or repermissioning an installed file means
 `check_file` list here, nowhere else.
 
 **`boundary`** — confinement assertions executed **as the agent** (`sudo -u SANDBOX_USER`)
-(`access.sh`, `sudo.sh`): the agent cannot read the secret-pattern library or write the
+(`access.sh`, `providers.sh`, `sudo.sh`): the agent cannot read the secret-pattern library or write the
 control plane, cannot reach the operator's credential stores (`~/.ssh`, `~/.gnupg`, …), and
 holds no sudo rights — `sudo -l` reports it is not allowed to run sudo at all (both NOPASSWD
 rules belong to the projects user and drop privilege), plus the account hygiene that invariant
-leans on (nologin shell, locked password, non-membership in `ai-ops`). These probe **DAC and
+leans on (nologin shell, locked password, non-membership in `ai-ops`). `providers.sh` asserts
+the deployed half of "the sandbox cannot widen its own surface": none of `operator.conf`,
+`conf.lib.sh`, `providers.lib.sh`, the three provider directories, or the manifests and
+fragments in them is agent-writable, while the NuGet restore cache the dotnet integration needs
+**is** — both directions matter, since a read-only cache breaks the integration as surely as a
+writable tools dir breaks the boundary. It is the counterpart to `unit/providers.sh`, which
+asserts the runtime refusal; this one asserts the agent cannot reach the state that refusal
+exists to catch. These probe **DAC and
 account state** from the sandbox account's vantage — they run as the sandbox *user*, not inside
 the `ai_tools_t` SELinux domain (a launched session), so they assert the filesystem/credential
 boundary; the SELinux enforcing posture is asserted separately in `integration/selinux.sh`.

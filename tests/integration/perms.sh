@@ -72,15 +72,26 @@ check_file /usr/local/lib/ai-tools/managed-assets.lib.sh     root              r
 check_file /usr/local/lib/ai-tools/safe-paths.lib.sh         root              root              644
 check_file /usr/local/lib/ai-tools/confinement.lib.sh        root              root              644
 check_file /usr/local/lib/ai-tools/npm-verify.lib.sh         root              root              644
+# Shared KEY=value grammar + the trust predicate: 644 root:root -- world-readable, sourced by
+# operator.lib.sh, skip-dirs.lib.sh and providers.lib.sh; carries no secrets.
+check_file /usr/local/lib/ai-tools/conf.lib.sh               root              root              644
 # Provider/agent resolver: 644 root:root -- world-readable, sourced by ai-tools-bootstrap and
 # nvm-update (both run as the sandbox account) to read the agent manifests; carries no secrets.
 check_file /usr/local/lib/ai-tools/providers.lib.sh          root              root              644
+# The three provider directories, owned by ai-tools-base (each member package drops only its own
+# files into them). 0755 root:root is SECURITY-LOAD-BEARING, not housekeeping: these decide which
+# agents get provisioned and what env a session gets, and a group- or other-writable directory
+# would let a non-root writer unlink and replace a root-owned manifest or fragment inside it. The
+# resolver and claude-run both refuse a directory that fails exactly this check, so an assertion
+# here is the deployed-state half of that guarantee (see providers.rule.md).
+check_file /usr/local/lib/ai-tools/agents.d                  root              root              755
+check_file /usr/local/lib/ai-tools/integrations.d            root              root              755
+check_file /usr/local/lib/ai-tools/claude-run.d              root              root              755
 # Agent manifest, shipped by ai-tools-agents-claude-code-restricted (not base): 644 root:root,
-# parsed data naming the Claude npm package + launcher. Its agents.d dir is base-owned 0755.
+# parsed data naming the Claude npm package + launcher.
 check_file /usr/local/lib/ai-tools/agents.d/claude-code.conf root              root              644
 # dotnet integration data (shipped by ai-tools-integration-dotnet, not base): 644 root:root -- the
 # manifest providers.lib.sh reads and the session-env fragment claude-run sources when enabled.
-# Their integrations.d / claude-run.d dirs are base-owned 0755.
 check_file /usr/local/lib/ai-tools/integrations.d/dotnet.conf   root            root              644
 check_file /usr/local/lib/ai-tools/claude-run.d/dotnet.env.sh   root            root              644
 # Secret-pattern config: user-owned 600. ai-tools (not owner/group, cannot enter the 700
@@ -194,6 +205,7 @@ check_file_optional /var/log/ai-tools/lockdown.log root root 600
 check_file_optional /var/log/ai-tools/relabel.log  root root 600
 check_file_optional /var/log/ai-tools/handback.log root root 600
 check_file_optional /var/log/ai-tools/install.log  root root 600
+check_file_optional /var/log/ai-tools/dotnet.log   root root 600
 # Projects-user config dir 700 + allowlist 600: ai-tools (not owner, not in PROJECTS_GROUP,
 # cannot traverse the 700 dir) can neither read nor modify the approved-projects list even if
 # it had a looser mode; the root helpers read it on the user's behalf.

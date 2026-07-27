@@ -56,7 +56,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Shipped Claude assets (agents/skills), managed-asset seeding | `.claude/agents/**`, `.claude/skills/**`, `lib/ai-tools/managed-assets.lib.sh` | [shipped-claude-assets](.claude/rules/shipped-claude-assets.rule.md) |
 | Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secret-handling.rule.md) |
 | Toolchain provisioning + Node/claude updater, symlink repoint, post-upgrade relabel | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `ai-tools-claude-symlink.sh`, `ai-tools-relabel-entrypoint.sh`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
-| Provider manifests + fail-closed enablement (agents + integrations), the `claude-run.d` session-env seam, and the dotnet integration | `lib/ai-tools/providers.lib.sh`, `lib/ai-tools/{agents,integrations,claude-run}.d/**`, `ai-tools-dotnet.sh`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
+| Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, the `claude-run.d` session-env seam, and the dotnet integration | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,claude-run}.d/**`, `ai-tools-dotnet.sh`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
 | Management CLI, project lifecycle, relabel | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel}.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
 | Protected-paths backstop (refuse system dirs as targets) | `safe-paths.lib.sh` + the wrapper/CLI/elevated helpers | [safe-paths](.claude/rules/safe-paths.rule.md) |
 | Shared logging library | `log.lib.sh` | [logging](.claude/rules/logging.rule.md) |
@@ -140,9 +140,19 @@ sandbox account can never hold the operator grant. The invariants the agent oper
   `SANDBOX_USER`-owned (the born-owner of an agent write), refuses symlinks and hardlinks,
   and applies the change race-safely against a path swap
   ([ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md)).
+- **The sandbox cannot widen its own surface.** Which agents the toolchain installs, and what
+  environment and PATH a session is handed, come from `operator.conf`, the provider manifests
+  (`{agents,integrations}.d/<name>.conf`), and the session-env fragments (`claude-run.d/*.env.sh`).
+  The code reading them runs *as* `SANDBOX_USER`, so each input — **and the directory holding it**,
+  since a group-writable directory lets a non-root writer replace a root-owned file inside it — is
+  honored only while it is root-owned, not a symlink, and writable by neither group nor other.
+  Every failing input falls back to *less* access (an untrusted `operator.conf` yields the
+  default-enabled baseline, never "enable all") and is reported. A provider marked
+  `default_enable=no` because it widens host surface can therefore only be turned on by an
+  operator editing a root-owned file. See [providers](.claude/rules/providers.rule.md).
 - **A protected-paths backstop refuses system directories as targets.** Independently of
-  the allowlist, the launch wrapper, the claim CLI, and every elevated helper refuse to act
-  on a system directory (`/`, `/etc`, `/var`, `/usr`, `/home`, `/opt/ai-tools`, …) or a user
+  the allowlist, the launch wrapper, the claim CLI, and every elevated helper that takes a
+  caller-supplied path refuse to act on a system directory (`/`, `/etc`, `/var`, `/usr`, `/home`, `/opt/ai-tools`, …) or a user
   home root (`/home/<user>` — a whole home as a target would hand the agent its dotfiles
   and keys) — defense in depth against a system directory mistakenly added to
   `allowed-projects`. Matching is exact-or-ancestor, so real projects nested under an
@@ -190,10 +200,13 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   in [messaging](.claude/rules/messaging.rule.md).
 - **Root sudo-helpers** live under `/usr/local/sbin/ai-tools/` (`chown`, `setgid`, `setfacl`,
   `unclaim`, `safedir`, `reclaim`, `claude-symlink`, `lockdown`, `relabel`, `bootstrap`,
-  `relabel-entrypoint`, `admin`); shared libraries under `/usr/local/lib/ai-tools/`
-  (`secret-patterns`, `skip-dirs`, `safe-paths`, `relabel`, `operator`, `control-plane`,
-  `confinement`, `npm-verify`, `msg`, `log`), plus `path-dedup.sh`, the PATH-ordering fragment
-  `ai-tools-admin` wires into operator dotfiles (see [launch](.claude/rules/launch.rule.md)).
+  `relabel-entrypoint`, `admin`, `dotnet`); shared libraries under `/usr/local/lib/ai-tools/`
+  (`conf`, `secret-patterns`, `skip-dirs`, `safe-paths`, `relabel`, `operator`, `control-plane`,
+  `confinement`, `npm-verify`, `managed-assets`, `providers`, `msg`, `log`), plus `path-dedup.sh`,
+  the PATH-ordering fragment `ai-tools-admin` wires into operator dotfiles (see
+  [launch](.claude/rules/launch.rule.md)). That directory is `0751 root:SANDBOX_GROUP` and its
+  contents `root`-owned and non-group-writable — load-bearing, since the sandbox account sources
+  several of these libraries (see the provider-seam invariant below).
 
 ### Documentation register
 

@@ -7,7 +7,7 @@
 # then stops the container with the aggregate status via `systemctl exit`.
 #
 # What a container CAN validate here: package dependency resolution (the ai-tools
-# metapackage pulling the three subpackages), the install scriptlets minus SELinux, the
+# metapackage pulling every subpackage), the install scriptlets minus SELinux, the
 # bootstrap toolchain, operator enrolment, project claim, the test suite's DAC/systemd
 # parts, and a DAC-confined `claude --version` session.
 # What it CANNOT: SELinux-enforcing confinement. `getenforce` is Disabled in a container,
@@ -58,18 +58,20 @@ as_operator() { runuser -l "${OPERATOR}" -c "$*"; }
 banner "Environment"
 set -x
 grep -E '^(NAME|VERSION)=' /etc/os-release || true
-rpm -q ai-tools ai-tools-base ai-tools-integration ai-tools-integration-nodejs \
-       ai-tools-agents ai-tools-agents-claude-code-restricted || true
+rpm -qa 'ai-tools*' | sort || true
 getenforce || echo "getenforce: unavailable (no SELinux in container -> DAC-only test)"
 id "${OPERATOR}"
 systemctl is-system-running || true
 set +x
 
 # ── installed-artifact + dependency checks ───────────────────────────────────
-# The metapackage's job is to pull the base plus the agents/integration umbrellas and their
-# members; prove all five subpackages are present.
-phase "Metapackage pulled the umbrellas and members" \
-    bash -c 'rpm -q ai-tools-base ai-tools-integration ai-tools-integration-nodejs ai-tools-agents ai-tools-agents-claude-code-restricted >/dev/null'
+# The metapackage's job is to pull the base plus the agents/integration umbrellas and every
+# member. The expected set is derived from the RPMs the build produced (the local repo the image
+# installed from), not a list kept by hand here, so a subpackage added to the spec is asserted
+# automatically and a member whose weak dependency silently fails to resolve is caught.
+phase "Metapackage pulled every built subpackage" \
+    bash -c 'set -e; [ -d /tmp/ai-repo ] || { echo "no local repo to derive the expected set from" >&2; exit 1; }
+             rpm -q $(rpm -qp --qf "%{NAME}\n" /tmp/ai-repo/*.rpm | sort -u) >/dev/null'
 
 phase "Handback socket is active (system instance up)" \
     systemctl is-active --quiet ai-tools-handback.socket

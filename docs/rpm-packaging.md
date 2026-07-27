@@ -7,8 +7,8 @@ contract the spec file and the `src/` reorganization satisfy.
 
 ## Package set
 
-One source package (`ai-tools`) builds seven subpackages: the base foundation, two
-umbrella metapackages (`ai-tools-agents`, `ai-tools-integration`), and their members,
+One source package (`ai-tools`) builds the whole set: the metapackage, the base foundation,
+two umbrella metapackages (`ai-tools-agents`, `ai-tools-integration`), and their members,
 layered by dependency:
 
 ```
@@ -46,7 +46,7 @@ partial upgrade cannot mix layers.
 
 | Subpackage | Owns |
 |---|---|
-| `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home (its default-deny `.gitignore` git guard and `.gitconfig` identity, both `%post`-seeded-if-missing and not rpm-owned, so an erase preserves them) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `secret-patterns` template; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `skip-dirs.lib.sh`, `safe-paths.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`, `providers.lib.sh`; the `agents.d` agent-manifest directory (base owns the dir; each agent package drops its own manifest); the base SELinux domain (`ai_tools_t` and the handback/helper types) |
+| `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home (its default-deny `.gitignore` git guard and `.gitconfig` identity, both `%post`-seeded-if-missing and not rpm-owned, so an erase preserves them) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `secret-patterns` template; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `skip-dirs.lib.sh`, `safe-paths.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`, `conf.lib.sh`, `providers.lib.sh`; the `agents.d`, `integrations.d`, and `claude-run.d` provider directories (base owns the dirs at `0755 root:root`; each member package drops only its own manifest or fragment into them); the base SELinux domain (`ai_tools_t` and the handback/helper types) |
 | `ai-tools-integration-nodejs` | nvm under `/opt/ai-tools/.nvm`; the per-sandbox-user Node-version auto-update service and timer; `ai-tools-bootstrap`; the symlink-repoint helper (`ai-tools-claude-symlink`) and the post-upgrade entrypoint relabel (`ai-tools-relabel-entrypoint`) |
 | `ai-tools-integration-dotnet` | the dotnet session-env fragment (`claude-run.d/dotnet.env.sh`) and manifest (`integrations.d/dotnet.conf`); the `ai-tools-dotnet` provisioning helper (writable NuGet cache + read-only shared tools under `/opt/ai-tools/.nuget` / `.dotnet`, labelled by a local fcontext). No .NET runtime — the host's dotnet is used |
 | `ai-tools-agents-claude-code-restricted` | the `claude` wrapper and `claude-run`; `/opt/ai-tools/bin/claude`; the Claude Code hooks (`post-tool-hook.sh`, `session-hook.sh`) and `settings.json`; its agent manifest (`agents.d/claude-code.conf`, naming the npm package + launcher the toolchain provisions); the SELinux `ai_tools_exec_t` entrypoint file-context for `claude.exe` |
@@ -126,14 +126,15 @@ ordered `sudo ai-tools-bootstrap` then `sudo ai-tools-admin operator add <user>`
 
 ## Bootstrap
 
-`ai-tools-bootstrap [npm-package]` (`/usr/local/sbin/ai-tools/ai-tools-bootstrap`,
-root, run via `sudo`; shipped by `ai-tools-integration-nodejs`) creates the `ai-tools` system
-account and its `/opt/ai-tools` home when absent, then installs nvm, Node, and the
+`ai-tools-bootstrap` (`/usr/local/sbin/ai-tools/ai-tools-bootstrap`, root, run via
+`sudo`; shipped by `ai-tools-integration-nodejs`) creates the `ai-tools` system account
+and its `/opt/ai-tools` home when absent, then installs nvm, Node, and each **enabled**
 agent's npm package under `/opt/ai-tools` as the sandbox account, and points
-`/opt/ai-tools/bin/<launcher>` at the versioned binary. It defaults to the Claude
-Code package and accepts an explicit package argument, so the same command serves
-other providers; the launcher symlink is created only for a package whose launcher
-is known.
+`/opt/ai-tools/bin/<launcher>` at each versioned binary. It takes no arguments and names
+no agent: the enabled set, each agent's npm package, and its launcher come from the
+manifests under `/usr/local/lib/ai-tools/agents.d` gated by `operator.conf`
+`AI_TOOLS_AGENTS` (see the [providers](../.claude/rules/providers.rule.md) rule). With no
+manifests deployed it provisions Node alone, and a re-run picks up agents installed since.
 
 The home root stays `root:ai-tools 2751`, which the agent (group `ai-tools`) cannot write,
 so bootstrap pre-creates the agent-owned subtrees it must populate — `.nvm`, `.cache`,

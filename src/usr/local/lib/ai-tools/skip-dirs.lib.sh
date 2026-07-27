@@ -20,15 +20,16 @@
 # The matcher skips DIRECTORIES only
 # (find -type d), so a file that merely shares a name (a git object named "obj") is walked
 # normally. Names are grouped into categories an operator can override in
-# /etc/ai-tools/operator.conf (parsed, never sourced -- a space-separated list per key,
-# REPLACING that category's default).
+# /etc/ai-tools/operator.conf (parsed, never sourced), a PRESENT key REPLACING that
+# category's default.
 
 # Category defaults -- the authoritative reference for the skip categories
 # (/etc/ai-tools/operator.conf points here). Override per category in operator.conf with a
-# space-separated list that REPLACES that category's default, e.g.
-# SKIP_PACKAGE_DIRS="node_modules vendor". A name matches by bare directory name ANYWHERE
-# in a project, so a name that doubles as source in some ecosystem belongs in a
-# per-host override, never in these defaults.
+# list that REPLACES that category's default, e.g. SKIP_PACKAGE_DIRS="node_modules vendor"
+# (commas and whitespace both separate, quotes optional -- the shared grammar in
+# conf.lib.sh). A name matches by bare directory name ANYWHERE in a project, so a name that
+# doubles as source in some ecosystem belongs in a per-host override, never in these
+# defaults.
 AI_TOOLS_SKIP_VCS_DIRS=(.git)
 AI_TOOLS_SKIP_PACKAGE_DIRS=(node_modules .venv packages)   # restorable dependency trees
 # Build-output names ship UNSKIPPED: a skipped tree is not handed back by the sweeps, and
@@ -43,30 +44,31 @@ AI_TOOLS_SKIP_ARTIFACT_DIRS=()
 AI_TOOLS_SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE=()
 AI_TOOLS_SKIP_CACHE_DIRS=(__pycache__)                     # regenerable caches
 
-# Apply operator.conf overrides. Parsed exactly like operator.lib.sh reads OPERATORS (never
-# sourced, so a malformed/tampered config cannot execute code in the privileged helpers);
-# AI_TOOLS_OPERATOR_CONF is the same root-only test hook. A present key replaces its default.
-_ai_tools_skip_load_overrides() {
-    local operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}" line key value
-    [[ -r "${operator_conf}" ]] || return 0
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-        line="${line#"${line%%[![:space:]]*}"}"
-        [[ -z "${line}" || "${line}" == '#'* || "${line}" != *=* ]] && continue
-        key="${line%%=*}"; value="${line#*=}"
-        key="${key%"${key##*[![:space:]]}"}"
-        value="${value#"${value%%[![:space:]]*}"}"; value="${value%"${value##*[![:space:]]}"}"
-        value="${value#[\"\']}"; value="${value%[\"\']}"
-        case "${key}" in
-            SKIP_VCS_DIRS)      read -ra AI_TOOLS_SKIP_VCS_DIRS      <<< "${value}" ;;
-            SKIP_PACKAGE_DIRS)  read -ra AI_TOOLS_SKIP_PACKAGE_DIRS  <<< "${value}" ;;
-            SKIP_ARTIFACT_DIRS) read -ra AI_TOOLS_SKIP_ARTIFACT_DIRS <<< "${value}" ;;
-            SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE)
-                read -ra AI_TOOLS_SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE <<< "${value}" ;;
-            SKIP_CACHE_DIRS)    read -ra AI_TOOLS_SKIP_CACHE_DIRS    <<< "${value}" ;;
-        esac
-    done < "${operator_conf}"
-}
-_ai_tools_skip_load_overrides
+# Apply operator.conf overrides, read through the shared KEY=value grammar (conf.lib.sh) that
+# operator.lib.sh and providers.lib.sh also use, so every key in that file parses identically --
+# commas or whitespace between items, quotes optional, inline comments honored. Parsed, never
+# sourced, so a malformed/tampered config cannot execute code in the privileged helpers;
+# AI_TOOLS_OPERATOR_CONF is the same root-only test hook. A PRESENT key replaces its category's
+# default (an empty value therefore means "skip nothing in this category").
+#
+# The load is fail-SOFT, unlike the provider gating: a skip list is a walk-cost optimization, not
+# an access boundary (see the header), so a missing conf.lib.sh leaves the compiled-in defaults in
+# force rather than refusing. The worst case is a slower walk, never a widened boundary.
+# shellcheck source=SCRIPTDIR/conf.lib.sh
+if source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
+        && declare -F ai_tools_conf_list >/dev/null 2>&1; then
+    _ai_tools_skip_load_overrides() {
+        local operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
+        [[ -r "${operator_conf}" ]] || return 0
+        ai_tools_conf_list AI_TOOLS_SKIP_VCS_DIRS      "${operator_conf}" SKIP_VCS_DIRS      || true
+        ai_tools_conf_list AI_TOOLS_SKIP_PACKAGE_DIRS  "${operator_conf}" SKIP_PACKAGE_DIRS  || true
+        ai_tools_conf_list AI_TOOLS_SKIP_ARTIFACT_DIRS "${operator_conf}" SKIP_ARTIFACT_DIRS || true
+        ai_tools_conf_list AI_TOOLS_SKIP_CACHE_DIRS    "${operator_conf}" SKIP_CACHE_DIRS    || true
+        ai_tools_conf_list AI_TOOLS_SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE \
+            "${operator_conf}" SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE || true
+    }
+    _ai_tools_skip_load_overrides
+fi
 
 # ai_tools_skip_find_expr <consumer> [skip_git] [root]
 # Build the skip set for a consumer from the LIB-OWNED per-consumer defaults below, and

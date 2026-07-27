@@ -39,10 +39,12 @@ operators list).
   (`%h=/opt/ai-tools`), updating the shared `.nvm` directly. The per-operator timer,
   the per-operator `~/.local/bin/nvm-update.sh`, and the `nvm-update.sh` sudoers rule
   are removed.
-- `/etc/ai-tools/operator.conf` holds `OPERATORS="alice bob svc-ci"` — one
-  space-separated list naming both human and rootless-service project users (they all
-  drive the same `ai-tools` account, so they share one list). Home and primary group
-  are derived per name via `getent`. The handback restores agent-written project files
+- `/etc/ai-tools/operator.conf` holds `OPERATORS="alice bob svc-ci"` — one list naming
+  both human and rootless-service project users (they all drive the same `ai-tools`
+  account, so they share one list). Names separate on commas or whitespace and the quotes
+  are optional, the shared grammar every key in that file is read with
+  (`/usr/local/lib/ai-tools/conf.lib.sh`). Home and primary group are derived per name via
+  `getent`. The handback restores agent-written project files
   to the operator whose **allowlist contains the path** (`opX:ai-tools`; secret-named
   files `opX:opX 600`). When more than one operator lists the same path, the tie-break is
   the **nearest parent directory's owner**, provided that owner is an operator whose

@@ -198,7 +198,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg skip-dirs relabel secret-patterns operator control-plane safe-paths confinement npm-verify managed-assets providers; do
+for l in log msg conf skip-dirs relabel secret-patterns operator control-plane safe-paths confinement npm-verify managed-assets providers; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -296,6 +296,9 @@ install -m 0644 src%{ai_libdir}/claude-run.d/dotnet.env.sh  %{buildroot}%{ai_lib
 install -m 0644 src%{ai_libdir}/integrations.d/dotnet.conf  %{buildroot}%{ai_libdir}/integrations.d/dotnet.conf
 install -m 0750 src%{ai_sbindir}/ai-tools-dotnet.sh         %{buildroot}%{ai_sbindir}/ai-tools-dotnet
 ln -s %{ai_sbindir}/ai-tools-dotnet %{buildroot}%{_sbindir}/ai-tools-dotnet
+# Ghost this helper's operation log alongside the base helpers' (the /var/log/ai-tools dir itself
+# is base-owned), so it carries the package's context and is removed with the package.
+touch %{buildroot}/var/log/ai-tools/dotnet.log
 
 # ── agents-claude: launch wrapper + confinement shim + hooks + settings ───────
 # The wrapper ships root:root 0755 in /usr/local/bin (Tier 1 in path-dedup.sh, wired into
@@ -414,18 +417,33 @@ fi
 
 %post -n ai-tools-integration-dotnet
 # Create + SELinux-label the sandbox-side dotnet dirs (writable NuGet cache, read-only shared
-# tools) the session-env fragment relies on. Offline + idempotent; a no-op relabel on a DAC-only
-# host. Not the network tool install -- that stays the operator's `sudo ai-tools-dotnet install-tools`.
+# tools) the session-env fragment relies on. Offline + idempotent; the helper recognizes a host
+# with no enforcing ai-tools policy and skips labelling there rather than failing. Not the network
+# tool install -- that stays the operator's `sudo ai-tools-dotnet install-tools`.
+#
+# The failure is NOT swallowed: a half-provisioned integration that looks installed surfaces later
+# as an opaque denial inside a confined session. The helper logs the cause (journald +
+# /var/log/ai-tools/dotnet.log) and the scriptlet reports the remedy and exits non-zero, so rpm
+# records a scriptlet failure against this package alone -- the transaction still completes, which
+# is what a weakly-pulled optional integration should do to the rest of the stack.
 if [ -x %{ai_sbindir}/ai-tools-dotnet ]; then
-    %{ai_sbindir}/ai-tools-dotnet setup >/dev/null 2>&1 || :
+    %{ai_sbindir}/ai-tools-dotnet setup >/dev/null || {
+        echo "ai-tools-integration-dotnet: provisioning failed; see 'journalctl -t ai-tools-dotnet'" >&2
+        echo "ai-tools-integration-dotnet: fix the cause and re-run: sudo ai-tools-dotnet setup" >&2
+        exit 1
+    }
 fi
 
 %postun -n ai-tools-integration-dotnet
-# On final erase, drop the local fcontext rules for the dotnet dirs (the dirs themselves are
-# runtime state under /opt/ai-tools, preserved like .nvm). Best-effort, SELinux-guarded.
+# On final erase, drop the local fcontext rules for the dotnet dirs and restore default labels on
+# what stays behind (the dirs themselves are runtime state under /opt/ai-tools, preserved like
+# .nvm, so leaving them mapped to a type this host no longer defines would strand them).
 if [ "$1" -eq 0 ] && command -v semanage >/dev/null 2>&1; then
     semanage fcontext -d "/opt/ai-tools/.nuget(/.*)?"  >/dev/null 2>&1 || :
     semanage fcontext -d "/opt/ai-tools/.dotnet(/.*)?" >/dev/null 2>&1 || :
+    if command -v restorecon >/dev/null 2>&1; then
+        restorecon -R /opt/ai-tools/.nuget /opt/ai-tools/.dotnet >/dev/null 2>&1 || :
+    fi
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -463,6 +481,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/safe-paths.lib.sh
 %attr(0644, root, root) %{ai_libdir}/confinement.lib.sh
 %attr(0644, root, root) %{ai_libdir}/npm-verify.lib.sh
+%attr(0644, root, root) %{ai_libdir}/conf.lib.sh
 %attr(0644, root, root) %{ai_libdir}/providers.lib.sh
 %dir %attr(0755, root, root) %{ai_libdir}/agents.d
 %dir %attr(0755, root, root) %{ai_libdir}/integrations.d
@@ -524,6 +543,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/integrations.d/dotnet.conf
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-dotnet
 %{_sbindir}/ai-tools-dotnet
+%ghost %attr(0600, root, root) /var/log/ai-tools/dotnet.log
 
 %files -n ai-tools-agents
 # Umbrella metapackage: no files of its own; weakly pulls the ai-tools-agents-* members.
@@ -538,27 +558,22 @@ fi
 
 %changelog
 * Mon Jul 27 2026 dagnode <tools@dagnode.com> - 0.8.0-1
-- The toolchain layer no longer hardcodes Claude Code: ai-tools-bootstrap and the nvm-update
-  timer now provision whichever AI agents are enabled, reading each agent's npm package and
-  launcher from a per-package manifest (/usr/local/lib/ai-tools/agents.d/<name>.conf) rather than
-  a built-in default. ai-tools-agents-claude-code-restricted ships the claude-code manifest.
-- New operator.conf key AI_TOOLS_AGENTS selects which agents to provision: absent = the baseline
-  (every installed agent marked default_enable=yes, i.e. Claude Code); present = an exact
-  allowlist. Fail-closed -- an unreadable config falls back to the baseline, and an agent named
-  but not installed is skipped with a warning. Default behavior (Claude Code provisioned) is
-  unchanged.
-- New integration package ai-tools-integration-dotnet: with dotnet enabled (operator.conf
-  AI_TOOLS_INTEGRATIONS) a session gains DOTNET_ROOT, a sandbox-writable NuGet cache, and any
-  shared global tools on PATH, using the host's dotnet -- no .NET runtime is packaged. The
-  ai-tools-integration umbrella pulls it as a dnf weak dependency (Recommends), so it installs by
-  default yet stays optional (removable with no effect on the rest of the stack) and carries no
-  dotnet RPM dependency, so it is inert on a host without dotnet. Provision the writable cache and
-  shared tools with sudo ai-tools-dotnet setup / install-tools.
-- The launcher now supports host-toolchain integrations: an enabled integration contributes
-  session env and PATH via a root-owned claude-run.d/<name>.env.sh fragment, sourced only when the
-  integration is enabled and the fragment is not agent-writable. operator.conf AI_TOOLS_INTEGRATIONS
-  selects integrations with the same fail-closed rules as AI_TOOLS_AGENTS (absent = baseline,
-  present = allowlist; surface-widening integrations such as dotnet default off).
+- The toolchain and launch layers name no agent: ai-tools-bootstrap and the nvm-update timer
+  provision the enabled agents from per-package manifests under
+  /usr/local/lib/ai-tools/agents.d, gated by operator.conf AI_TOOLS_AGENTS. Absent = every
+  installed agent marked default_enable=yes (Claude Code); present = an exact allowlist.
+- operator.conf AI_TOOLS_INTEGRATIONS selects host-toolchain integrations by the same rules. An
+  enabled integration contributes session env and PATH through a root-owned
+  claude-run.d/<name>.env.sh fragment that claude-run sources.
+- Every key in operator.conf and every manifest is read with one grammar: quotes optional, list
+  items separated by commas or whitespace, trailing "# comment" ends a value.
+- The gating is fail-closed and tamper-refusing: an unreadable, malformed, or non-root-owned
+  input falls back to the default-enabled baseline, never to "enable all", so the sandbox account
+  cannot enable a provider its package ships disabled.
+- ai-tools-integration-dotnet integrates a host-managed .NET toolchain (no runtime packaged, no
+  dotnet RPM dependency, inert without one): DOTNET_ROOT, a sandbox-writable NuGet cache, and the
+  admin-provisioned shared tools on PATH. Provision with sudo ai-tools-dotnet setup /
+  install-tools. Pulled as a dnf weak dependency, so it installs by default and removes cleanly.
 
 * Sun Jul 26 2026 dagnode <tools@dagnode.com> - 0.7.0-1
 - Reorganized the package tree under two umbrellas: the Claude Code provider is now

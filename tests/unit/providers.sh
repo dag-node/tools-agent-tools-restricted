@@ -8,10 +8,22 @@
 # (ai-tools-bootstrap, nvm-update) and the launcher (claude-run) provision from, so a regression --
 # a surface-widening provider enabled without an explicit opt-in, an absent/unreadable config read
 # as "enable all", a requested-but-uninstalled name silently guessed instead of skipped -- fails
-# here. No npm, no network, no root risk.
+# here.
+#
+# Two properties get their own sections because a break in either is silent in production:
+#   * IFS INDEPENDENCE -- the resolver runs inside scripts that set IFS=$'\n\t' (nvm-update.sh).
+#     A splitter inheriting that reads a multi-name allowlist as one bogus name, disabling every
+#     configured agent with only a warning. The section below drives the resolver under that IFS.
+#   * TAMPER REFUSAL -- every input that decides what a session gets (operator.conf, the manifest
+#     directories, each manifest) is honored only while root-owned and not group/other-writable.
+#     This is the mechanism behind "the sandbox cannot widen its own surface", so each untrusted
+#     state is asserted to fall back to less access, never more.
+#
+# No npm, no network, no root risk.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
+require_root
 
 readonly LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 section "providers: agent enablement verdict + resolver (unit)"
@@ -42,8 +54,13 @@ verdict "allowlist omits it -> disabled"           1 claude-code no  yes "other"
 verdict "allowlist empty -> disabled (none)"       1 claude-code yes yes ""
 # A default_enable=no (surface-widening) agent is enabled only when explicitly opted in.
 verdict "allowlist opts in a default=no agent"     0 dotnet      no  yes "dotnet"
+# Separators are interchangeable in the shared grammar (conf.lib.sh).
+verdict "comma-separated allowlist names it"       0 claude-code no  yes "claude-code,other"
+verdict "mixed separators name it"                 0 other       no  yes "claude-code, other  third"
 
 # --- Resolver over a /tmp fixture tree (name<TAB>npm_pkg<TAB>launcher per enabled agent) ---
+# The fixtures are created by this root-run suite, so they are root-owned and non-group-writable:
+# the trusted state. The tamper section below deliberately breaks that per case and restores it.
 mktestdir
 agents_dir="${TESTDIR}/agents.d"; mkdir -p "${agents_dir}"
 printf 'npm_pkg=@anthropic-ai/claude-code\nlauncher=claude\ndefault_enable=yes\n' > "${agents_dir}/claude-code.conf"
@@ -69,6 +86,13 @@ assert_names "allowlist both -> both provisioned"        "claude-code experiment
 printf 'AI_TOOLS_AGENTS=""\n' > "${conf}"
 assert_names "explicit empty allowlist -> no agents"     "" "${conf}"
 
+# The shared grammar applies to the gating keys too: quotes optional, commas or whitespace
+# between names, an inline comment ending the value.
+printf 'AI_TOOLS_AGENTS=claude-code, experimental\n' > "${conf}"
+assert_names "unquoted, comma-separated allowlist"       "claude-code experimental " "${conf}"
+printf 'AI_TOOLS_AGENTS = claude-code  experimental   # both agents\n' > "${conf}"
+assert_names "padded value with an inline comment"       "claude-code experimental " "${conf}"
+
 # A requested-but-uninstalled agent is skipped from stdout AND reported on stderr (never guessed).
 printf 'AI_TOOLS_AGENTS="missing"\n' > "${conf}"
 warn_out="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
@@ -79,7 +103,71 @@ else
     fail "uninstalled agent: names='${out_names}' warn='${warn_out}'"
 fi
 
+# --- IFS independence: the resolver runs inside scripts that set the strict-mode IFS ----------
+section "providers: resolution is independent of the caller's IFS"
+printf 'AI_TOOLS_AGENTS="claude-code experimental"\n' > "${conf}"
+# A SUBSHELL with IFS=$'\n\t' -- exactly what nvm-update.sh sets -- so the assertion cannot be
+# masked by this file's own IFS. Without a locally-pinned IFS in the splitter the whole value
+# reads as one name and BOTH agents drop out with only a stderr warning.
+ifs_names="$( IFS=$'\n\t'; AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>/dev/null \
+              | cut -f1 | sort | tr '\n' ' ' )"
+if [[ "${ifs_names}" == "claude-code experimental " ]]; then
+    pass "multi-name allowlist resolves under IFS=\$'\\n\\t' (nvm-update's strict mode)"
+else
+    fail "IFS-dependent split: under IFS=\$'\\n\\t' got '${ifs_names}' expected 'claude-code experimental '"
+fi
+printf 'AI_TOOLS_AGENTS=claude-code,experimental\n' > "${conf}"
+ifs_names="$( IFS=$'\n\t'; AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>/dev/null \
+              | cut -f1 | sort | tr '\n' ' ' )"
+if [[ "${ifs_names}" == "claude-code experimental " ]]; then
+    pass "comma-separated allowlist resolves under IFS=\$'\\n\\t'"
+else
+    fail "IFS-dependent split (commas): got '${ifs_names}' expected 'claude-code experimental '"
+fi
+
+# --- Tamper refusal: the sandbox must not be able to widen its own surface --------------------
+# Each case makes ONE input untrusted (the states a non-root writer can create) and asserts the
+# resolver moves to LESS access, never more. Restored after each case so the next starts trusted.
+section "providers: untrusted inputs fail closed"
+
+# An operator.conf the agent could have written must not be able to opt a default_enable=no
+# provider in: it is ignored entirely, falling back to the baseline.
+printf 'AI_TOOLS_AGENTS="claude-code experimental"\n' > "${conf}"
+chown "${PROJECTS_USER}" "${conf}"
+assert_names "non-root-owned operator.conf ignored -> baseline only" "claude-code " "${conf}"
+chown root:root "${conf}"
+chmod 0664 "${conf}"
+assert_names "group-writable operator.conf ignored -> baseline only" "claude-code " "${conf}"
+chmod 0644 "${conf}"
+assert_names "restored operator.conf honored again"                  "claude-code experimental " "${conf}"
+
+# A manifest the agent could have written cannot introduce or enable a provider: that ONE
+# provider drops out, the trusted sibling survives, and the refusal is reported.
+chmod 0666 "${agents_dir}/experimental.conf"
+tamper_warn="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
+assert_names "world-writable manifest skipped, sibling survives" "claude-code " "${conf}"
+if [[ "${tamper_warn}" == *"skipping agent experimental"* ]]; then
+    pass "untrusted manifest refusal is reported, not silent"
+else
+    fail "untrusted manifest refusal not reported: '${tamper_warn}'"
+fi
+chmod 0644 "${agents_dir}/experimental.conf"
+
+# A manifest DIRECTORY a non-root writer can modify lets them unlink and replace any manifest in
+# it, so the whole kind is refused -- no agent is resolved at all.
+chmod 0777 "${agents_dir}"
+dir_warn="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
+assert_names "world-writable manifest dir -> no agents at all" "" "${conf}"
+if [[ "${dir_warn}" == *"refusing every AI_TOOLS_AGENTS provider"* ]]; then
+    pass "untrusted manifest dir refusal is reported, not silent"
+else
+    fail "untrusted manifest dir refusal not reported: '${dir_warn}'"
+fi
+chmod 0755 "${agents_dir}"
+assert_names "restored manifest dir honored again" "claude-code experimental " "${conf}"
+
 # --- Integrations resolver (one name per line; integrations carry only default_enable) ---------
+section "providers: integration enablement"
 integrations_dir="${TESTDIR}/integrations.d"; mkdir -p "${integrations_dir}"
 printf 'default_enable=no\n'  > "${integrations_dir}/dotnet.conf"    # surface-widening: opt-in only
 printf 'default_enable=yes\n' > "${integrations_dir}/baseline.conf" # a hypothetical safe-default integration
@@ -95,5 +183,13 @@ printf 'AI_TOOLS_INTEGRATIONS="dotnet"\n' > "${conf}"
 assert_ints "integrations allowlist opts dotnet in"           "dotnet "   "${conf}"
 printf 'AI_TOOLS_INTEGRATIONS=""\n' > "${conf}"
 assert_ints "integrations explicit empty -> none"             ""          "${conf}"
+printf 'AI_TOOLS_INTEGRATIONS=dotnet, baseline  # both\n' > "${conf}"
+assert_ints "integrations comma list with a comment"          "baseline dotnet " "${conf}"
+
+# The surface-widening case that matters most: an untrusted operator.conf must not be able to
+# turn dotnet (default_enable=no) on.
+printf 'AI_TOOLS_INTEGRATIONS="dotnet"\n' > "${conf}"; chmod 0666 "${conf}"
+assert_ints "untrusted conf cannot enable a default=no integration" "baseline " "${conf}"
+chmod 0644 "${conf}"
 
 finish
