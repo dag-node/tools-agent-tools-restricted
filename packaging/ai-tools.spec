@@ -80,6 +80,7 @@ Other AI-tool packages build on this layer.
 %package -n ai-tools-integration
 Summary:        Umbrella for the ai-tools sandbox toolchain/runtime integrations (metapackage)
 Recommends:     ai-tools-integration-nodejs = %{version}-%{release}
+Recommends:     ai-tools-integration-dotnet = %{version}-%{release}
 
 %description -n ai-tools-integration
 Metapackage grouping the ai-tools-integration-* toolchain layers the sandboxed agent builds
@@ -100,6 +101,21 @@ command that installs nvm/Node/the agent package, the scheduled version updater,
 and the symlink-repoint and post-upgrade entrypoint-relabel helpers. Node itself
 is nvm-managed under /opt/ai-tools, not an RPM dependency, so the agent can
 self-update it within the SELinux policy.
+
+# ─────────────────────────────────────────────────────────────────────────────
+%package -n ai-tools-integration-dotnet
+Summary:        .NET (dotnet) toolchain integration for the ai-tools sandbox
+Requires:       ai-tools-base = %{version}-%{release}
+# No dotnet RPM dependency: this integrates a HOST-managed dotnet, detected at runtime, and is
+# inert on a host without one (the session-env fragment self-gates on /usr/bin/dotnet). It is
+# weakly pulled by the ai-tools-integration umbrella, so a default install carries it harmlessly.
+
+%description -n ai-tools-integration-dotnet
+Integrates a host-managed .NET toolchain into a sandbox session: a session-env fragment that
+exports DOTNET_ROOT and a sandbox-writable NuGet cache when the dotnet integration is enabled
+(operator.conf AI_TOOLS_INTEGRATIONS), and the ai-tools-dotnet helper to provision that cache and
+shared global tools. The .NET SDK/runtime itself is the host's RPM-managed dotnet; this package
+adds no runtime and is inert until enabled on a host that has dotnet installed.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ai-tools-agents umbrella: the AI coding agents that run confined in the sandbox. A thin
@@ -185,9 +201,14 @@ install -d -m 0751 %{buildroot}%{ai_libdir}
 for l in log msg skip-dirs relabel secret-patterns operator control-plane safe-paths confinement npm-verify managed-assets providers; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
-# Agent manifest directory (base owns the dir; each ai-tools-agents-* member ships its own
-# <name>.conf here). providers.lib.sh reads these to keep the toolchain layer agent-agnostic.
+# Provider manifest + fragment directories (base owns the dirs; each member package ships its own
+# files here): agents.d/<name>.conf and integrations.d/<name>.conf manifests, and
+# claude-run.d/<name>.env.sh session-env fragments. providers.lib.sh reads the manifests to keep
+# the toolchain and launch layers provider-agnostic; claude-run sources enabled integrations'
+# fragments.
 install -d -m 0755 %{buildroot}%{ai_libdir}/agents.d
+install -d -m 0755 %{buildroot}%{ai_libdir}/integrations.d
+install -d -m 0755 %{buildroot}%{ai_libdir}/claude-run.d
 # PATH dedup fragment for operator shells; ai-tools-admin wires the source line into
 # operator dotfiles, so no /etc/profile.d entry ships.
 install -m 0644 src%{ai_libdir}/path-dedup.sh %{buildroot}%{ai_libdir}/path-dedup.sh
@@ -266,6 +287,15 @@ install -m 0644 src%{_userunitdir}/nvm-update.service   %{buildroot}%{_userunitd
 install -m 0644 src%{_userunitdir}/nvm-update.timer     %{buildroot}%{_userunitdir}/nvm-update.timer
 install -m 0644 src%{_unitdir}/ai-tools-relabel.path    %{buildroot}%{_unitdir}/ai-tools-relabel.path
 install -m 0644 src%{_unitdir}/ai-tools-relabel.service %{buildroot}%{_unitdir}/ai-tools-relabel.service
+
+# ── integration-dotnet: session-env fragment + manifest + provisioning helper ─
+# The .NET SDK/runtime is the host's; this ships only the sandbox-side glue. The env fragment
+# (claude-run.d) and manifest (integrations.d) drop into the base-owned dirs; the ai-tools-dotnet
+# helper is administrator-typed, so it gets a %{_sbindir} symlink like ai-tools-bootstrap/-admin.
+install -m 0644 src%{ai_libdir}/claude-run.d/dotnet.env.sh  %{buildroot}%{ai_libdir}/claude-run.d/dotnet.env.sh
+install -m 0644 src%{ai_libdir}/integrations.d/dotnet.conf  %{buildroot}%{ai_libdir}/integrations.d/dotnet.conf
+install -m 0750 src%{ai_sbindir}/ai-tools-dotnet.sh         %{buildroot}%{ai_sbindir}/ai-tools-dotnet
+ln -s %{ai_sbindir}/ai-tools-dotnet %{buildroot}%{_sbindir}/ai-tools-dotnet
 
 # ── agents-claude: launch wrapper + confinement shim + hooks + settings ───────
 # The wrapper ships root:root 0755 in /usr/local/bin (Tier 1 in path-dedup.sh, wired into
@@ -382,6 +412,22 @@ fi
 %postun -n ai-tools-integration-nodejs
 %systemd_postun_with_restart ai-tools-relabel.path
 
+%post -n ai-tools-integration-dotnet
+# Create + SELinux-label the sandbox-side dotnet dirs (writable NuGet cache, read-only shared
+# tools) the session-env fragment relies on. Offline + idempotent; a no-op relabel on a DAC-only
+# host. Not the network tool install -- that stays the operator's `sudo ai-tools-dotnet install-tools`.
+if [ -x %{ai_sbindir}/ai-tools-dotnet ]; then
+    %{ai_sbindir}/ai-tools-dotnet setup >/dev/null 2>&1 || :
+fi
+
+%postun -n ai-tools-integration-dotnet
+# On final erase, drop the local fcontext rules for the dotnet dirs (the dirs themselves are
+# runtime state under /opt/ai-tools, preserved like .nvm). Best-effort, SELinux-guarded.
+if [ "$1" -eq 0 ] && command -v semanage >/dev/null 2>&1; then
+    semanage fcontext -d "/opt/ai-tools/.nuget(/.*)?"  >/dev/null 2>&1 || :
+    semanage fcontext -d "/opt/ai-tools/.dotnet(/.*)?" >/dev/null 2>&1 || :
+fi
+
 # ─────────────────────────────────────────────────────────────────────────────
 # File lists
 # ─────────────────────────────────────────────────────────────────────────────
@@ -419,6 +465,8 @@ fi
 %attr(0644, root, root) %{ai_libdir}/npm-verify.lib.sh
 %attr(0644, root, root) %{ai_libdir}/providers.lib.sh
 %dir %attr(0755, root, root) %{ai_libdir}/agents.d
+%dir %attr(0755, root, root) %{ai_libdir}/integrations.d
+%dir %attr(0755, root, root) %{ai_libdir}/claude-run.d
 %attr(0644, root, root) %{ai_libdir}/path-dedup.sh
 %{_unitdir}/ai-tools-handback.socket
 %{_unitdir}/ai-tools-handback@.service
@@ -471,6 +519,12 @@ fi
 %{_unitdir}/ai-tools-relabel.path
 %{_unitdir}/ai-tools-relabel.service
 
+%files -n ai-tools-integration-dotnet
+%attr(0644, root, root) %{ai_libdir}/claude-run.d/dotnet.env.sh
+%attr(0644, root, root) %{ai_libdir}/integrations.d/dotnet.conf
+%attr(0750, root, root) %{ai_sbindir}/ai-tools-dotnet
+%{_sbindir}/ai-tools-dotnet
+
 %files -n ai-tools-agents
 # Umbrella metapackage: no files of its own; weakly pulls the ai-tools-agents-* members.
 
@@ -493,6 +547,18 @@ fi
   allowlist. Fail-closed -- an unreadable config falls back to the baseline, and an agent named
   but not installed is skipped with a warning. Default behavior (Claude Code provisioned) is
   unchanged.
+- New integration package ai-tools-integration-dotnet: with dotnet enabled (operator.conf
+  AI_TOOLS_INTEGRATIONS) a session gains DOTNET_ROOT, a sandbox-writable NuGet cache, and any
+  shared global tools on PATH, using the host's dotnet -- no .NET runtime is packaged. The
+  ai-tools-integration umbrella pulls it as a dnf weak dependency (Recommends), so it installs by
+  default yet stays optional (removable with no effect on the rest of the stack) and carries no
+  dotnet RPM dependency, so it is inert on a host without dotnet. Provision the writable cache and
+  shared tools with sudo ai-tools-dotnet setup / install-tools.
+- The launcher now supports host-toolchain integrations: an enabled integration contributes
+  session env and PATH via a root-owned claude-run.d/<name>.env.sh fragment, sourced only when the
+  integration is enabled and the fragment is not agent-writable. operator.conf AI_TOOLS_INTEGRATIONS
+  selects integrations with the same fail-closed rules as AI_TOOLS_AGENTS (absent = baseline,
+  present = allowlist; surface-widening integrations such as dotnet default off).
 
 * Sun Jul 26 2026 dagnode <tools@dagnode.com> - 0.7.0-1
 - Reorganized the package tree under two umbrellas: the Claude Code provider is now

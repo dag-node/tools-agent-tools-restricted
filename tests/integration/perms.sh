@@ -32,11 +32,14 @@ check_file /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint root            
 # never by the agent (no SANDBOX_USER grant, and /usr/local/sbin/ai-tools is 750 root:root).
 check_file /usr/local/sbin/ai-tools/ai-tools-bootstrap        root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-admin           root              root              750
+# dotnet integration provisioning helper (optional integration): 750 root:root, sudo-invoked.
+check_file /usr/local/sbin/ai-tools/ai-tools-dotnet          root              root              750
 # Their sudo-PATH symlinks in /usr/sbin (sudoers secure_path on stock EL excludes
 # /usr/local/sbin, so `sudo ai-tools-bootstrap` resolves here). check_file lstat()s the
 # link itself (777 is a symlink's fixed mode); -e inside it also catches a dangling link.
 check_file /usr/sbin/ai-tools-bootstrap                       root              root              777
 check_file /usr/sbin/ai-tools-admin                           root              root              777
+check_file /usr/sbin/ai-tools-dotnet                          root              root              777
 # Lib dir: root-owned, group ai-tools, 0751. The agent enters via group to read the skip
 # list; world-execute lets an operator (not a SANDBOX_GROUP member) traverse in to source the
 # 644 world-readable libs by path without listing the dir. No write but root.
@@ -75,6 +78,11 @@ check_file /usr/local/lib/ai-tools/providers.lib.sh          root              r
 # Agent manifest, shipped by ai-tools-agents-claude-code-restricted (not base): 644 root:root,
 # parsed data naming the Claude npm package + launcher. Its agents.d dir is base-owned 0755.
 check_file /usr/local/lib/ai-tools/agents.d/claude-code.conf root              root              644
+# dotnet integration data (shipped by ai-tools-integration-dotnet, not base): 644 root:root -- the
+# manifest providers.lib.sh reads and the session-env fragment claude-run sources when enabled.
+# Their integrations.d / claude-run.d dirs are base-owned 0755.
+check_file /usr/local/lib/ai-tools/integrations.d/dotnet.conf   root            root              644
+check_file /usr/local/lib/ai-tools/claude-run.d/dotnet.env.sh   root            root              644
 # Secret-pattern config: user-owned 600. ai-tools (not owner/group, cannot enter the 700
 # .config/ai-tools dir) can neither read nor write it; root helpers read it. Optional: it is a
 # per-operator OVERRIDE -- the shared classifier falls back to its built-in defaults when the file

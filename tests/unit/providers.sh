@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # tests/unit/providers.sh
-# Unit test for the provider/agent resolver (providers.lib.sh). Drives the PURE verdict
-# ai_tools_agent_is_enabled over its enablement truth table, then ai_tools_enabled_agents over a
-# /tmp fixture agents.d + operator.conf via the root-only AI_TOOLS_AGENTS_DIR /
-# AI_TOOLS_OPERATOR_CONF hooks (the same hermetic-override pattern skip-dirs.lib.sh uses). This is
-# the FAIL-CLOSED enablement contract the toolchain layer (ai-tools-bootstrap, nvm-update)
-# provisions agents from, so a regression -- a surface-widening agent enabled without an explicit
-# opt-in, an absent/unreadable config read as "enable all", a requested-but-uninstalled agent
-# silently guessed instead of skipped -- fails here. No npm, no network, no root risk.
+# Unit test for the provider resolver (providers.lib.sh). Drives the PURE verdict
+# ai_tools_provider_is_enabled over its enablement truth table, then ai_tools_enabled_agents and
+# ai_tools_enabled_integrations over /tmp fixture manifest dirs + operator.conf via the root-only
+# AI_TOOLS_{AGENTS,INTEGRATIONS}_DIR / AI_TOOLS_OPERATOR_CONF hooks (the same hermetic-override
+# pattern skip-dirs.lib.sh uses). This is the FAIL-CLOSED enablement contract the toolchain layer
+# (ai-tools-bootstrap, nvm-update) and the launcher (claude-run) provision from, so a regression --
+# a surface-widening provider enabled without an explicit opt-in, an absent/unreadable config read
+# as "enable all", a requested-but-uninstalled name silently guessed instead of skipped -- fails
+# here. No npm, no network, no root risk.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -20,15 +21,16 @@ if [[ ! -r "${LIB}" ]]; then
 fi
 # shellcheck source=/dev/null
 if ! source "${LIB}" \
-        || ! declare -F ai_tools_agent_is_enabled >/dev/null 2>&1 \
-        || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+        || ! declare -F ai_tools_provider_is_enabled >/dev/null 2>&1 \
+        || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1 \
+        || ! declare -F ai_tools_enabled_integrations >/dev/null 2>&1; then
     fail "could not source ${LIB} or it does not define the resolver functions"; finish; exit
 fi
 
-# --- Pure verdict: ai_tools_agent_is_enabled <name> <default_enable> <allowlist_active> <list> ---
+# --- Pure verdict: ai_tools_provider_is_enabled <name> <default_enable> <allowlist_active> <list> ---
 verdict() {
     local desc="$1" exp_rc="$2"; shift 2
-    local rc=0; ai_tools_agent_is_enabled "$@" || rc=$?
+    local rc=0; ai_tools_provider_is_enabled "$@" || rc=$?
     if [[ "${rc}" -eq "${exp_rc}" ]]; then pass "${desc}"; else fail "${desc}: rc ${rc}, expected ${exp_rc}"; fi
 }
 # Baseline (no allowlist): default_enable governs.
@@ -76,5 +78,22 @@ if [[ -z "${out_names}" && "${warn_out}" == *missing*"no manifest is installed"*
 else
     fail "uninstalled agent: names='${out_names}' warn='${warn_out}'"
 fi
+
+# --- Integrations resolver (one name per line; integrations carry only default_enable) ---------
+integrations_dir="${TESTDIR}/integrations.d"; mkdir -p "${integrations_dir}"
+printf 'default_enable=no\n'  > "${integrations_dir}/dotnet.conf"    # surface-widening: opt-in only
+printf 'default_enable=yes\n' > "${integrations_dir}/baseline.conf" # a hypothetical safe-default integration
+export AI_TOOLS_INTEGRATIONS_DIR="${integrations_dir}"
+resolve_ints() { AI_TOOLS_OPERATOR_CONF="$1" ai_tools_enabled_integrations 2>/dev/null | sort | tr '\n' ' '; }
+assert_ints() {
+    local desc="$1" expected="$2" conf_path="$3" got; got="$(resolve_ints "${conf_path}")"
+    if [[ "${got}" == "${expected}" ]]; then pass "${desc}"; else fail "${desc}: got '${got}' expected '${expected}'"; fi
+}
+# Baseline: only default_enable=yes; dotnet (surface-widening, default_enable=no) stays OFF.
+assert_ints "integrations baseline -> only default_enable=yes" "baseline " /nonexistent
+printf 'AI_TOOLS_INTEGRATIONS="dotnet"\n' > "${conf}"
+assert_ints "integrations allowlist opts dotnet in"           "dotnet "   "${conf}"
+printf 'AI_TOOLS_INTEGRATIONS=""\n' > "${conf}"
+assert_ints "integrations explicit empty -> none"             ""          "${conf}"
 
 finish
