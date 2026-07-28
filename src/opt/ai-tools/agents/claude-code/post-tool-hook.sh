@@ -23,7 +23,7 @@
 # service unit) because NNP drops sudo's SUID bit before it can switch uid.
 #
 # Deploy: sudo install -o ai-tools -g ai-tools -m 750 \
-#             src/opt/ai-tools/.claude/post-tool-hook.sh /opt/ai-tools/.claude/post-tool-hook.sh
+#             src/opt/ai-tools/agents/claude-code/post-tool-hook.sh /opt/ai-tools/.claude/post-tool-hook.sh
 
 set -euo pipefail
 
@@ -32,7 +32,7 @@ set -euo pipefail
 # actual file mutation there). Best-effort no-op fallback if the lib is missing.
 AI_TOOLS_LOG_TAG="ai-tools-hook"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
-# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/log.lib.sh
+# shellcheck source=SCRIPTDIR/../../../../usr/local/lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }

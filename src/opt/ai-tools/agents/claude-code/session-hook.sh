@@ -62,7 +62,7 @@
 # anyway, so <you> can already read them) and the scan stays on one filesystem (-xdev).
 #
 # Deploy: sudo install -o root -g ai-tools -m 750 \
-#             src/opt/ai-tools/.claude/session-hook.sh /opt/ai-tools/.claude/session-hook.sh
+#             src/opt/ai-tools/agents/claude-code/session-hook.sh /opt/ai-tools/.claude/session-hook.sh
 # Wired to the Stop, SessionStart, and SessionEnd hooks in settings.json (the
 # SessionStart entry passes "session-start", the SessionEnd entry "session-end").
 
@@ -93,7 +93,7 @@ readonly MODE="${1:-stop}"
 # file mutations there). Best-effort no-op fallback if the lib is missing.
 AI_TOOLS_LOG_TAG="ai-tools-hook"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
-# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/log.lib.sh
+# shellcheck source=SCRIPTDIR/../../../../usr/local/lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
@@ -107,7 +107,7 @@ fi
 # formatter, so a missing lib degrades the notice to plain text instead of stopping
 # the sweep (see messaging.rule.md).
 readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
-# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/msg.lib.sh
+# shellcheck source=SCRIPTDIR/../../../../usr/local/lib/ai-tools/msg.lib.sh
 if ! source "${MSG_LIB}" 2>/dev/null; then
     ai_tools_msg() { shift 2; printf '%s\n' "$@"; }
     ai_tools_msg_wrap() { shift; printf '%s\n' "$*"; }
@@ -119,7 +119,7 @@ fi
 # validator re-checks ownership. Best-effort: an unenrolled/missing config leaves PROJECTS_USER
 # empty, degrading only the suggested command's owner field.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
-# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/operator.lib.sh
+# shellcheck source=SCRIPTDIR/../../../../usr/local/lib/ai-tools/operator.lib.sh
 if source "${OPERATOR_LIB}" 2>/dev/null; then
     ai_tools_load_operator || true
 else
@@ -168,7 +168,7 @@ fi
 # Directory-skip selector from the shared library (single source of truth, shared with
 # ai-tools-setgid / ai-tools-lockdown). A missing lib leaves a stub that skips nothing.
 readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
-# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/skip-dirs.lib.sh
+# shellcheck source=SCRIPTDIR/../../../../usr/local/lib/ai-tools/skip-dirs.lib.sh
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 

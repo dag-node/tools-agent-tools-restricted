@@ -7,10 +7,10 @@
 # and are copied into that agent's config directory. Authoring or updating a skill is therefore
 # one edit in one place, whatever number of agents read it.
 # A managed asset is one whose name is `ai-tools-*` AND whose frontmatter carries
-# `x-ai-tools-managed: true`; the seeder acts only on those, so an agent or skill the operator
-# authored themselves is never claimed or overwritten. Seeded copies are root:SANDBOX_GROUP
-# (files 640, dirs 750) under the setgid+sticky .claude -- locked from the agent, updated only
-# through the root-run installer or `ai-tools-bootstrap`. Versioning is RFC-draft: the marker
+# `x-ai-tools-managed: true`; the seeder acts only on those, so an asset the operator authored
+# themselves is never claimed or overwritten. Seeded copies are root:SANDBOX_GROUP (files 640,
+# dirs 750) in their shared root -- locked from the agent, updated only through the root-run
+# installer or `ai-tools-bootstrap`. Versioning is RFC-draft: the marker
 # `x-ai-tools-version` is a monotonic integer bumped on every change, and a newer shipped version
 # is what drives the update offer. This file is *sourced* (never executed); its consumers
 # (install.sh, ai-tools-bootstrap) run as root and have already sourced msg.lib.sh. See
@@ -54,8 +54,9 @@ _ai_tools_place_asset() {
     restorecon -R "${dst}" >/dev/null 2>&1 || :
 }
 
-# Seed every managed agent/skill from a pristine source root into the live .claude. The source
-# root holds `agents/ai-tools-*.md` and `skills/ai-tools-*/`; the live root is the caller/ai-tools/.claude.
+# Seed every managed asset of the named kinds from a pristine source root into a live root. The
+# source root holds one directory per kind -- `skills/ai-tools-*/` (a directory per asset),
+# `subagents/ai-tools-*.md` (a file per asset); the live root is the caller's.
 # Absent live asset -> seeded. Present + managed + a newer shipped version -> a keep/update prompt
 # defaulting to keep (so Enter and any non-interactive run never clobber an operator-tuned copy).
 # Present + unmanaged (no marker) -> left untouched and logged: it is the operator's own file.
@@ -68,10 +69,14 @@ ai_tools_seed_managed_assets() {
     for kind in "${kinds[@]}"; do
         [[ -d "${src_root}/${kind}" ]] || continue
         install -d -o root -g "${group}" -m 750 "${live_root}/${kind}"
-        # agents are files (ai-tools-*.md); skills are directories (ai-tools-*/). README.md and any
-        # non-ai-tools- entry are excluded by the glob, so they are never seeded.
-        if [[ "${kind}" == agents ]]; then src_glob="${src_root}/agents/ai-tools-*.md"
-        else src_glob="${src_root}/skills/ai-tools-*/"; fi
+        # A kind is carried either as one FILE per asset or as one DIRECTORY per asset, and the
+        # glob has to match: subagents are files (ai-tools-*.md), skills are directories
+        # (ai-tools-*/). README.md and any non-ai-tools- entry fall outside both globs, so they
+        # are never seeded.
+        case "${kind}" in
+            subagents) src_glob="${src_root}/${kind}/ai-tools-*.md" ;;
+            *)         src_glob="${src_root}/${kind}/ai-tools-*/"  ;;
+        esac
         for src in ${src_glob}; do
             [[ -e "${src}" ]] || continue                    # no matches -> literal pattern, skip
             name="$(basename "${src}")"
@@ -107,38 +112,38 @@ ai_tools_seed_managed_assets() {
     done
 }
 
-# ai_tools_link_shared_skills <shared_root> <agent_skills_dir> <group> [readme_source]
-# Point an agent at the shared skills: one symlink per skill directory under <shared_root>, so
-# every agent reads the same file and a skill is updated in one place. Best-effort and
-# idempotent, and it never displaces anything real:
+# ai_tools_link_shared_assets <shared_root> <agent_dir> <group> [readme_source]
+# Point an agent at a shared asset kind (skills, subagents): one symlink per entry under
+# <shared_root>, so every agent reads the same file and an asset is updated in one place.
+# Best-effort and idempotent, and it never displaces anything real:
 #   * a name that does not exist in the agent's dir      -> symlink created
-#   * a symlink already pointing at the shared skill      -> left alone
-#   * a symlink into the shared root whose skill is gone  -> removed (a dropped shipped skill)
+#   * a symlink already pointing at the shared asset      -> left alone
+#   * a symlink into the shared root whose asset is gone  -> removed (a dropped shipped asset)
 #   * anything else (a real directory or file)            -> KEPT and reported: it is either an
-#                                                            agent-specific skill or the
+#                                                            agent-specific asset or the
 #                                                            operator's own, and it wins
 # The links are root-owned inside the agent's setgid+sticky config directory, so the agent reads
 # and invokes them but cannot repoint one at a file of its choosing.
-ai_tools_link_shared_skills() {
-    local shared_root="$1" agent_skills_dir="$2" group="$3" readme_source="${4:-}"
+ai_tools_link_shared_assets() {
+    local shared_root="$1" agent_dir="$2" group="$3" readme_source="${4:-}"
     [[ -d "${shared_root}" ]] || return 0
-    install -d -o root -g "${group}" -m 750 "${agent_skills_dir}"
+    install -d -o root -g "${group}" -m 750 "${agent_dir}"
 
     local src name dst linked=0
     for src in "${shared_root}"/*/; do
         [[ -d "${src}" ]] || continue                    # no matches -> literal pattern, skip
         src="${src%/}"; name="${src##*/}"
-        dst="${agent_skills_dir}/${name}"
+        dst="${agent_dir}/${name}"
         if [[ -L "${dst}" ]]; then
             [[ "$(readlink -- "${dst}")" == "${src}" ]] && continue
             ln -sfn "${src}" "${dst}"
-            _ai_tools_ma_say "skills/${name} link repointed at ${src}"
+            _ai_tools_ma_say "${agent_dir##*/}/${name} link repointed at ${src}"
         elif [[ -e "${dst}" ]]; then
-            _ai_tools_ma_say "skills/${name} kept (a real directory here wins over the shared skill)"
+            _ai_tools_ma_say "${agent_dir##*/}/${name} kept (a real directory here wins over the shared one)"
             continue
         else
             ln -s "${src}" "${dst}"
-            _ai_tools_ma_say "skills/${name} linked -> ${src}"
+            _ai_tools_ma_say "${agent_dir##*/}/${name} linked -> ${src}"
         fi
         chown -h "root:${group}" "${dst}" 2>/dev/null || :
         linked=$(( linked + 1 ))
@@ -147,16 +152,16 @@ ai_tools_link_shared_skills() {
     # Drop links into the shared root whose skill no longer ships, so a removed skill does not
     # leave a dangling entry the agent would try to read. A link pointing anywhere else is not
     # ours and is left alone.
-    for dst in "${agent_skills_dir}"/*; do
+    for dst in "${agent_dir}"/*; do
         [[ -L "${dst}" ]] || continue
         src="$(readlink -- "${dst}")"
         [[ "${src}" == "${shared_root}/"* && ! -e "${src}" ]] || continue
         rm -f "${dst}"
-        _ai_tools_ma_say "skills/${dst##*/} link removed (no longer shipped)"
+        _ai_tools_ma_say "${agent_dir##*/}/${dst##*/} link removed (no longer shipped)"
     done
 
-    ai_tools_link_asset_readme "${readme_source}" "${agent_skills_dir}" "${group}"
-    restorecon -R "${agent_skills_dir}" >/dev/null 2>&1 || :
+    ai_tools_link_asset_readme "${readme_source}" "${agent_dir}" "${group}"
+    restorecon -R "${agent_dir}" >/dev/null 2>&1 || :
     return 0
 }
 

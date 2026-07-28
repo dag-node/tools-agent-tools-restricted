@@ -1,12 +1,18 @@
-# ai-tools agents
+# ai-tools subagents — one place, every agent
 
-Subagent definitions the installer provisions into the sandbox account, so the sandboxed
-agent can invoke them on any project you launch it in.
+Subagent definitions: delegate roles an agent dispatches to. They are agent-agnostic content, so
+they live once and every agent that dispatches to subagents gets a symlink. Claude Code calls
+them "agents" and reads them from `.claude/agents/`; this project says **subagent**, because
+"agent" here means a packaged coding assistant like Claude Code itself. The manifest maps the two
+(`subagents_dir=agents`), so the name is unambiguous and the product still finds its files.
 
 ## What installs where
 
 ```text
-src/usr/share/ai-tools/agents/ai-tools-*.md  ──▶  /usr/share/ai-tools/agents/  ──▶  /opt/ai-tools/.claude/agents/
+src/usr/share/ai-tools/subagents/ai-tools-*.md   the source of truth, in this repo
+   ──▶  /usr/share/ai-tools/subagents/           pristine copy the package installs (read-only)
+   ──▶  /opt/ai-tools/subagents/<name>.md        THE live definition, seeded once, yours to edit
+   ──▶  /opt/ai-tools/.claude/agents/<name>.md   a symlink, per agent that dispatches to them
 ```
 
 `install.sh` and `ai-tools` bootstrap copy each `ai-tools-*.md` here into the live control

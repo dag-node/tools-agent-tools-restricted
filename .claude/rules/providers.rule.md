@@ -31,7 +31,9 @@ execute code in the privileged scripts that read it:
   `/opt/ai-tools/bin/<launcher>`, and the name `ai-tools-run` matches an executable against to
   decide whether it may launch), `display_name` (what the launch banner and the unit description
   call it), `handback` (which side converges ownership — below), `entrypoint_fcontext` and
-  `config_dir` (the two paths it declares to SELinux — below), `default_enable`.
+  `config_dir` (the two paths it declares to SELinux — below), `skills_dir` / `subagents_dir`
+  (where inside its config directory it reads each shared asset kind, so the shared copies can be
+  symlinked in — see [shipped-assets](shipped-assets.rule.md)), `default_enable`.
 - integrations: `default_enable`.
 
 Either kind may also ship `session-env.d/<name>.env.sh`, keyed by the same `<name>` — one flat

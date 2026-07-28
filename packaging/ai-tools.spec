@@ -271,9 +271,10 @@ install -d -m 0700 %{buildroot}/var/log/ai-tools
 #    here; the installed modes come from the file lists below. ──
 install -d -m 0755 %{buildroot}/opt/ai-tools
 install -d -m 0755 %{buildroot}/opt/ai-tools/bin
-# The shared skills root: agent-agnostic content the base owns, symlinked into each agent's own
-# skills directory rather than copied per agent.
+# The shared asset roots: agent-agnostic content the base owns, symlinked into each agent's own
+# directories rather than copied per agent.
 install -d -m 0750 %{buildroot}/opt/ai-tools/skills
+install -d -m 0750 %{buildroot}/opt/ai-tools/subagents
 # Default-deny git guard for the control-plane home: ai-tools-bootstrap captures the control
 # plane in a root-private git repo, and this gitignore keeps secrets and churn out of it. The
 # LIVE /opt/ai-tools/.gitignore is NOT rpm-owned -- neither it nor the host-derived .gitconfig
@@ -288,10 +289,10 @@ install -m 0644 src%{_datadir}/ai-tools/gitignore %{buildroot}%{_datadir}/ai-too
 # LIVE copies under that config dir are NOT rpm-owned (like .gitignore); %post seeds them when
 # absent, so an erase/upgrade preserves an operator-updated copy. The interactive version update
 # is offered by install.sh / ai-tools-bootstrap (managed-assets.lib.sh, the shared seeder).
-cp -rT src%{_datadir}/ai-tools/agents %{buildroot}%{_datadir}/ai-tools/agents
+cp -rT src%{_datadir}/ai-tools/subagents %{buildroot}%{_datadir}/ai-tools/subagents
 cp -rT src%{_datadir}/ai-tools/skills %{buildroot}%{_datadir}/ai-tools/skills
-find %{buildroot}%{_datadir}/ai-tools/agents %{buildroot}%{_datadir}/ai-tools/skills -type d -exec chmod 0755 {} +
-find %{buildroot}%{_datadir}/ai-tools/agents %{buildroot}%{_datadir}/ai-tools/skills -type f -exec chmod 0644 {} +
+find %{buildroot}%{_datadir}/ai-tools/subagents %{buildroot}%{_datadir}/ai-tools/skills -type d -exec chmod 0755 {} +
+find %{buildroot}%{_datadir}/ai-tools/subagents %{buildroot}%{_datadir}/ai-tools/skills -type f -exec chmod 0644 {} +
 
 # ── integration-nodejs: toolchain helpers + updater ──────────────────────────
 for h in ai-tools-launcher-symlink ai-tools-relabel-agent ai-tools-bootstrap; do
@@ -325,7 +326,10 @@ ln -s %{ai_sbindir}/ai-tools-dotnet %{buildroot}%{_sbindir}/ai-tools-dotnet
 # is base-owned), so it carries the package's context and is removed with the package.
 touch %{buildroot}/var/log/ai-tools/dotnet.log
 
-# ── agents-claude: launch wrapper + confinement shim + hooks + settings ───────
+# ── agents-claude: launch wrapper + hooks + settings ─────────────────────────
+# This agent's payload lives at src/opt/ai-tools/agents/claude-code/ -- named for its MANIFEST,
+# not for the .claude directory it installs into, because that destination is manifest data
+# (config_dir). A second agent adds a sibling directory named for its own manifest.
 # The wrapper ships root:root 0755 in /usr/local/bin (Tier 1 in path-dedup.sh, wired into
 # operator dotfiles by ai-tools-admin, so it shadows the nvm-managed claude on every
 # operator's PATH); it runs as the invoking operator, gates on ai-ops membership, then drops
@@ -333,9 +337,9 @@ touch %{buildroot}/var/log/ai-tools/dotnet.log
 install -m 0755 src%{ai_bindir}/claude.sh                  %{buildroot}%{ai_bindir}/claude
 # This agent's config directory, the one its manifest declares (config_dir=.claude).
 install -d -m 0770 %{buildroot}/opt/ai-tools/.claude
-install -m 0750 src/opt/ai-tools/.claude/post-tool-hook.sh %{buildroot}/opt/ai-tools/.claude/post-tool-hook.sh
-install -m 0750 src/opt/ai-tools/.claude/session-hook.sh   %{buildroot}/opt/ai-tools/.claude/session-hook.sh
-install -m 0640 src/opt/ai-tools/.claude/settings.json     %{buildroot}/opt/ai-tools/.claude/settings.json
+install -m 0750 src/opt/ai-tools/agents/claude-code/post-tool-hook.sh %{buildroot}/opt/ai-tools/.claude/post-tool-hook.sh
+install -m 0750 src/opt/ai-tools/agents/claude-code/session-hook.sh   %{buildroot}/opt/ai-tools/.claude/session-hook.sh
+install -m 0640 src/opt/ai-tools/agents/claude-code/settings.json     %{buildroot}/opt/ai-tools/.claude/settings.json
 # The claude-code agent manifest: providers.lib.sh reads it so the toolchain layer installs the
 # Claude npm package and symlinks the claude launcher without hardcoding either (the agents.d
 # directory itself is owned by ai-tools-base).
@@ -403,13 +407,15 @@ fi
 if command -v restorecon >/dev/null 2>&1; then
     restorecon /opt/ai-tools/.gitignore /opt/ai-tools/.gitconfig >/dev/null 2>&1 || :
 fi
-# Seed the ai-tools-managed SKILLS into the shared root, reusing the seeder under an explicit
-# bash (the lib is bash; a %post scriptlet runs under /bin/sh). Skills are agent-agnostic, so they
-# are seeded once here and each agent package symlinks them into its own skills directory.
-# Non-interactive, so an existing managed skill is kept and only an absent one is seeded.
-if [ -d %{_datadir}/ai-tools/skills ] && command -v bash >/dev/null 2>&1; then
-    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools ai-tools skills; ai_tools_link_asset_readme %{_datadir}/ai-tools/skills/README.md /opt/ai-tools/skills ai-tools' >/dev/null 2>&1 || :
-fi
+# Seed each ai-tools-managed SHARED kind into its own root, reusing the seeder under an explicit
+# bash (the lib is bash; a %post scriptlet runs under /bin/sh). Skills and subagent definitions
+# are agent-agnostic, so they are seeded once here and each agent package symlinks them into the
+# directories it reads. Non-interactive, so an existing managed asset is kept and only an absent
+# one is seeded.
+for kind in skills subagents; do
+    [ -d %{_datadir}/ai-tools/${kind} ] && command -v bash >/dev/null 2>&1 || continue
+    bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools ai-tools ${kind}; ai_tools_link_asset_readme %{_datadir}/ai-tools/${kind}/README.md /opt/ai-tools/${kind} ai-tools" >/dev/null 2>&1 || :
+done
 # Operator binding + toolchain are per-operator / network steps a scriptlet must not do; direct
 # the operator to them. ai-tools-bootstrap installs the Node toolchain; ai-tools-admin operator
 # add binds an operator (OPERATORS list + ai-ops membership + linger + allowlist seed).
@@ -480,21 +486,19 @@ if [ -x %{ai_sbindir}/ai-tools-relabel-agent ]; then
         exit 1
     }
 fi
-# Seed this agent's managed agents/skills into its own config directory, reusing the base's shared
-# seeder under an explicit bash (the lib is bash; a %post scriptlet runs under /bin/sh).
-# Non-interactive, so an existing managed asset is kept and only an absent one is seeded (the
-# seeder's default); the version update is offered interactively by install.sh /
-# ai-tools-bootstrap. Mirrors the gitignore reseed: control-plane content, live copies not
-# rpm-owned, self-healing when absent.
-if [ -d %{_datadir}/ai-tools/agents ] && command -v bash >/dev/null 2>&1; then
-    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools/.claude ai-tools agents' >/dev/null 2>&1 || :
-fi
-# Link the shared skills (seeded by ai-tools-base) into this agent's skills directory: one
-# symlink per skill, so a skill is authored and updated in one place however many agents read it.
-# Best-effort and idempotent; a real directory already there is never displaced.
-if [ -d /opt/ai-tools/skills ] && command -v bash >/dev/null 2>&1; then
-    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_link_shared_skills /opt/ai-tools/skills /opt/ai-tools/.claude/skills ai-tools %{_datadir}/ai-tools/skills/README.md' >/dev/null 2>&1 || :
-fi
+# Link the shared assets (seeded by ai-tools-base) into the directories THIS agent reads them
+# from: skills into skills/, subagent definitions into agents/ -- the name Claude Code uses for
+# what this project calls a subagent. One symlink per asset, so an asset is authored and updated
+# in one place however many agents read it. Reuses the base's seeder lib under an explicit bash
+# (the lib is bash; a %post scriptlet runs under /bin/sh). Best-effort and idempotent; a real
+# directory already there is never displaced.
+for kind in skills:skills subagents:agents; do
+    shared="/opt/ai-tools/${kind%%:*}"
+    dest="/opt/ai-tools/.claude/${kind#*:}"
+    readme="%{_datadir}/ai-tools/${kind%%:*}/README.md"
+    [ -d "${shared}" ] && command -v bash >/dev/null 2>&1 || continue
+    bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_link_shared_assets ${shared} ${dest} ai-tools ${readme}" >/dev/null 2>&1 || :
+done
 
 %preun -n ai-tools-agents-claude-code-restricted
 # On final erase, drop the entrypoint file-context rule this package registered and restore
@@ -586,12 +590,15 @@ fi
 # the agent's own subtrees (.nvm/.cache/...) under the home as the sandbox account.
 %dir %attr(2751, root, ai-tools) /opt/ai-tools
 %dir %attr(0551, root, ai-tools) /opt/ai-tools/bin
-# Shared skills: one place for agent-agnostic skill content; each agent's config directory
-# carries symlinks into it (control-plane.lib.sh CP_SHARED_SKILLS). The seeded skills inside are
-# NOT rpm-owned, like the other control-plane content, so an erase preserves operator updates.
+# Shared asset roots: one place for each kind of agent-agnostic content; every agent's config
+# directory carries symlinks into them (control-plane.lib.sh CP_SHARED_SKILLS /
+# CP_SHARED_SUBAGENTS). The seeded assets inside are NOT rpm-owned, like the other control-plane
+# content, so an erase preserves operator updates.
 %dir %attr(0750, root, ai-tools) /opt/ai-tools/skills
-# Pristine skill reseed source (rpm-owned), the format-neutral half of the shipped assets.
+%dir %attr(0750, root, ai-tools) /opt/ai-tools/subagents
+# Pristine reseed sources (rpm-owned) for both shared kinds.
 %{_datadir}/ai-tools/skills
+%{_datadir}/ai-tools/subagents
 # /opt/ai-tools/.gitignore and .gitconfig are deliberately NOT listed here: rpm-owning them
 # would delete them on erase. They are scriptlet-managed (%post reseed-if-missing) so an erase
 # preserves the operator's copies. The canonical .gitignore reseed source ships read-only here.
@@ -628,10 +635,6 @@ fi
 # a second agent ships its own directory instead of sharing this one. Setgid+sticky: the agent is
 # a group-writer for its session state but cannot unlink the root-owned files below.
 %dir %attr(3770, root, ai-tools) /opt/ai-tools/.claude
-# Pristine reseed source for THIS agent's own asset format (rpm-owned); the live copies under
-# its config dir are scriptlet-seeded and NOT rpm-owned, so an erase preserves operator-updated
-# versions. Skills are format-neutral and ship with the base instead.
-%{_datadir}/ai-tools/agents
 %attr(0644, root, root) %{ai_libdir}/agents.d/claude-code.conf
 %attr(0644, root, root) %{ai_libdir}/session-env.d/claude-code.env.sh
 %attr(0755, root, root) %{ai_bindir}/claude
@@ -662,9 +665,11 @@ fi
   capability, so the base policy names no agent: each enabled agent's entrypoint is labelled
   ai_tools_exec_t from the rule its manifest declares, and an agent that drives no handback hooks
   of its own has its project swept back to the operator when the session ends.
-- Skills now live in one place, /opt/ai-tools/skills, and each agent's skills directory holds a
-  symlink per skill instead of a copy: a skill is authored and updated once however many agents
-  read it, while an agent-specific skill stays a real directory the linker never displaces.
+- Skills and subagent definitions now live in one place each, /opt/ai-tools/skills and
+  /opt/ai-tools/subagents, and every agent's directories hold a symlink per asset instead of a
+  copy: an asset is authored and updated once however many agents read it, while an
+  agent-specific one stays a real file the linker never displaces. "Subagent" is the delegate
+  role an agent dispatches to; "agent" stays the packaged assistant itself.
 - An agent package now owns its control-plane directory: its name comes from the manifest
   (config_dir), the package ships the directory and the files in it, and the base contributes
   only the mode and SELinux label every agent config directory carries. The shipped Claude-format

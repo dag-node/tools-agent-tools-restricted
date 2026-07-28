@@ -4,20 +4,23 @@ paths:
   - "src/usr/local/lib/ai-tools/managed-assets.lib.sh"
 ---
 
-# Shipped assets: shared skills and per-agent agents
+# Shipped assets: shared skills and subagents
 
-The project ships two kinds of asset, and they are placed differently because their **content**
-differs in how agent-specific it is:
+The project ships two kinds of asset, and both are agent-agnostic **content**, so both are shared
+rather than copied per agent:
 
-- **Skills** are agent-agnostic prose (how to write documentation, how to weigh a design). They
-  are seeded ONCE into the shared root `/opt/ai-tools/skills` — `ai-tools-base` owns that
-  directory and the pristine copies — and every agent that reads skills gets a **symlink** per
-  skill into its own skills directory. One file to author, one to update, however many agents
-  read it. The format is Claude Code's `SKILL.md`, which is not standardized across agents; an
-  agent that cannot read it declares no `skills_dir` and takes no links.
-- **Agents** (subagent definitions) are Claude Code-format files, so they are **copied** into
-  that agent's config directory and `ai-tools-agents-claude-code-restricted` owns both them and
-  the directory.
+- **Skills** — prose that shapes how an agent works (how to write documentation, how to weigh a
+  design).
+- **Subagents** — delegate role definitions an agent dispatches to. "Subagent" is this project's
+  word; Claude Code calls them "agents" and reads them from `<config dir>/agents/`, which is why
+  the manifest maps the two (`subagents_dir=agents`). See `docs/naming-conventions.md`.
+
+Each kind is seeded ONCE into its own shared root — `/opt/ai-tools/skills` and
+`/opt/ai-tools/subagents`, both owned by `ai-tools-base` along with the pristine copies — and
+every agent gets a **symlink** per asset into the directory its own product reads. One file to
+author, one to update, however many agents read it. The formats are Claude Code's (`SKILL.md`,
+subagent frontmatter) and are not standardized across products, so an agent that cannot read a
+kind simply declares no directory for it and takes no links of that kind.
 
 Ships now: the `ai-tools-reference-architect` agent, the `ai-tools-docs-*`
 documentation skills (`reference`, `usage`, `comments`, `changelog`), and
@@ -26,7 +29,7 @@ documentation skills (`reference`, `usage`, `comments`, `changelog`), and
 ## Placement: one rule, four hops
 
 `src/` mirrors the install tree. A file installed **verbatim** lives at its literal path
-(`src/opt/ai-tools/.claude/settings.json`); a file that is **seeded** — rpm ships a read-only
+(`src/opt/ai-tools/agents/claude-code/settings.json`); a file that is **seeded** — rpm ships a read-only
 pristine copy and provisioning places an editable live one — lives in `src/` at its **pristine**
 path, because that is the path the package installs. Every shipped asset is seeded, so all of
 them live under `src/usr/share/ai-tools/`, and the directory name is the same at every hop:
@@ -39,34 +42,39 @@ src/usr/share/ai-tools/<kind>/     authoritative source, in this repo
 ```
 
 The live tree has no `src/` counterpart on purpose: it is runtime state, like `.nvm`, the sandbox
-clones, and the logs. Only **skills** currently take the third hop as a shared root; **agents**
-(Claude Code subagent definitions) are copied straight from pristine into the one agent that reads
-them, so their live copy is that agent's config directory.
+clones, and the logs.
+
+One clause completes the rule, for the files whose destination is **manifest data** rather than a
+fixed path: an agent's own payload (its `settings.json` and hooks) installs verbatim into the
+directory its manifest declares, so in `src/` it is grouped by the agent that owns it —
+`src/opt/ai-tools/agents/<manifest-name>/`. The destination is not knowable from the tree, so the
+tree mirrors ownership instead; a second agent adds a sibling directory named for its manifest.
 
 Each kind's `README.md` is the operator guide, shipped with the pristine copy and **symlinked**
 into the live root and into each agent's directory (`ai_tools_link_asset_readme`) — the doc is
 found where the assets are, and there is exactly one file to keep current.
 
-## Linking (`ai_tools_link_shared_skills`)
+## Linking (`ai_tools_link_shared_assets`)
 
-`ai_tools_link_shared_skills <shared_root> <agent_skills_dir> <group>` places one symlink per
-shared skill, and is idempotent and non-displacing:
+`ai_tools_link_shared_assets <shared_root> <agent_dir> <group> [readme_source]` places one
+symlink per shared asset, for either kind, and is idempotent and non-displacing:
 
 - a name absent from the agent's directory → linked;
-- a link already pointing at that shared skill → untouched; a stale one → repointed;
-- a link into the shared root whose skill no longer ships → removed;
+- a link already pointing at that shared asset → untouched; a stale one → repointed;
+- a link into the shared root whose asset no longer ships → removed;
 - **anything real** (a directory or file) → kept and reported. That is how an agent-specific
-  skill, or an operator's override of a shared one, wins: same name, real directory, no link.
+  asset, or an operator's override of a shared one, wins: same name, real file, no link.
 
-Which agents take links comes from `ai_tools_agent_skills_dirs` (`control-plane.lib.sh`), which
-reads each enabled agent's `config_dir` + `skills_dir` — the seeder names no path itself. The
+Which agents take links of which kind comes from `ai_tools_agent_asset_dirs <manifest-field>`
+(`control-plane.lib.sh`), which reads each enabled agent's `config_dir` plus the field naming
+that kind's directory (`skills_dir`, `subagents_dir`) — the seeder names no path itself. The
 links are root-owned inside the agent's setgid+sticky config directory, so a session reads and
 invokes them but cannot repoint one.
 
-**Assumption to hold:** the agent follows a symlinked skill directory. Claude Code scans its
-skills directory and reads `SKILL.md` beneath it, which follows links transparently;
-`tests/integration/perms.sh` asserts the shipped skill arrives as a link, so a regression to
-per-agent copies (which would silently fork the content) fails there.
+**Assumption to hold:** the agent follows a symlinked asset. Claude Code scans its skills and
+agents directories and reads the file beneath, which follows links transparently;
+`tests/integration/perms.sh` asserts a shipped asset of each kind arrives as a link, so a
+regression to per-agent copies (which would silently fork the content) fails there.
 
 ## Namespace
 
@@ -106,21 +114,20 @@ It acts on an asset **only** when its name matches `ai-tools-*` **and** its fron
 - **present + unmanaged** (no marker) → left untouched (the operator's own file);
 - **present + same-or-older version** → no-op.
 
-Seeded copies are `root:SANDBOX_GROUP`, files `640` and dirs `750` — in the shared root for
-skills, in the agent's setgid+sticky config directory for agents. The agent reads and invokes
+Seeded copies are `root:SANDBOX_GROUP`, files `640` and dirs `750` — in each kind's shared root. The agent reads and invokes
 them but cannot rewrite one, so what every session reads stays what the operator installed —
 across the account's sessions *and* across agents. The pristine source is
 `/usr/share/ai-tools/{agents,skills}` (the datadir reseed source, shared by every seeding path);
 the live copies are **not** rpm-owned, so an erase or upgrade preserves an operator-updated
 version. The seeder is bash and source-only; its consumers run as root.
 
-Three paths seed, all root, and each resolves its destinations through
-`ai_tools_agent_config_dirs` / `ai_tools_agent_skills_dirs` (`control-plane.lib.sh`) rather than
-naming them: `install.sh` (stages the datadir, then seeds skills → shared root, agents → the
-agent, then links) and `ai-tools-bootstrap` (`seed_managed_assets_step`, gated on the control
-plane being present) reuse the lib directly and offer the interactive version update; in the RPM
-the split follows package ownership — **base**'s `%post` seeds the shared skills, the **agent
-package**'s `%post` seeds its agents and links the shared skills in. Both scriptlets reuse the
+Three paths provision, all root, and each resolves its destinations through
+`ai_tools_agent_config_dirs` / `ai_tools_agent_asset_dirs` (`control-plane.lib.sh`) rather than
+naming them: `install.sh` (stages the datadir, seeds each kind into its shared root, then links)
+and `ai-tools-bootstrap` (`seed_managed_assets_step`, gated on the control plane being present)
+reuse the lib directly and offer the interactive version update; in the RPM the split follows
+package ownership — **base**'s `%post` seeds both shared roots, the **agent package**'s `%post`
+links them into the directories that agent reads. Both scriptlets reuse the
 same lib under an explicit `bash` (a scriptlet is `/bin/sh`) and, being non-interactive, place
 only what is absent. This mirrors the `.gitignore`/`.gitconfig` reseed (see
 [ownership-and-hooks](ownership-and-hooks.rule.md) for the control-plane ownership model).
