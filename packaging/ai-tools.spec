@@ -245,7 +245,7 @@ install -m 0644 %{SOURCE1} %{buildroot}%{_sysusersdir}/ai-tools.conf
 # ── base: static %ai-ops sudoers drop-in (the @SANDBOX_*@ tokens are substituted in %build;
 #    %ai-ops is literal, so the file is host-identical and ships unchanged) ──
 install -d -m 0750 %{buildroot}%{_sysconfdir}/sudoers.d
-install -m 0440 src%{_sysconfdir}/sudoers.d/ai-tools-claude %{buildroot}%{_sysconfdir}/sudoers.d/ai-tools-claude
+install -m 0440 src%{_sysconfdir}/sudoers.d/ai-tools %{buildroot}%{_sysconfdir}/sudoers.d/ai-tools
 
 # ── base: host-config template. The @PROJECTS_USER@ token stays literal at build (the
 #    operator is a runtime identity), so stage the template with OPERATORS emptied;
@@ -566,7 +566,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/path-dedup.sh
 %{_unitdir}/ai-tools-handback.socket
 %{_unitdir}/ai-tools-handback@.service
-%config(noreplace) %attr(0440, root, root) %{_sysconfdir}/sudoers.d/ai-tools-claude
+%config(noreplace) %attr(0440, root, root) %{_sysconfdir}/sudoers.d/ai-tools
 %dir %attr(0755, root, root) %{_sysconfdir}/ai-tools
 %config(noreplace) %attr(0644, root, root) %{_sysconfdir}/ai-tools/operator.conf
 %{_sysusersdir}/ai-tools.conf
@@ -679,6 +679,8 @@ fi
   agent manifest claims, and the post-upgrade relabel watcher observes the whole launcher
   directory.
 - ai-tools --providers reports the installed agents and integrations, which are enabled, and why.
+- The sudoers drop-in is /etc/sudoers.d/ai-tools, not ai-tools-claude: ai-tools-base ships it and
+  its one %ai-ops grant serves every agent. The old file is removed on upgrade.
 - ai-tools-integration-dotnet integrates a host-managed .NET toolchain (no runtime packaged, no
   dotnet RPM dependency, inert without one): DOTNET_ROOT, a sandbox-writable NuGet cache, and the
   admin-provisioned shared tools on PATH. Provision with sudo ai-tools-dotnet setup /

@@ -2,7 +2,7 @@
 paths:
   - "src/opt/ai-tools/bin/ai-tools-run.sh"
   - "src/usr/local/bin/claude.sh"
-  - "src/etc/sudoers.d/ai-tools-claude"
+  - "src/etc/sudoers.d/ai-tools"
   - "src/usr/local/lib/ai-tools/path-dedup.sh"
   - "src/usr/local/lib/ai-tools/session-env.d/**"
 ---
@@ -151,7 +151,7 @@ runs as the invoking user. `/opt/ai-tools` has no `nosuid`, so the switch to
 
 ## Sudoers grants (the two `%ai-ops` rules)
 
-The drop-in (`/etc/sudoers.d/ai-tools-claude`) is a **static** `%ai-ops` group rule the
+The drop-in (`/etc/sudoers.d/ai-tools`) is a **static** `%ai-ops` group rule the
 package ships unchanged — membership in the `ai-ops` operators group (managed by
 `ai-tools-admin`) is what grants access, so there is no per-operator line to generate:
 

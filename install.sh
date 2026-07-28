@@ -300,7 +300,7 @@ do_selinux_restore() {
     fi
     log "SELinux: restoring file contexts"
     restorecon \
-        /etc/sudoers.d/ai-tools-claude \
+        /etc/sudoers.d/ai-tools \
         /etc/ai-tools/operator.conf
     restorecon -R \
         /usr/local/sbin/ai-tools/ \
@@ -509,7 +509,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/managed-assets.lib.sh
     _chk /usr/local/lib/ai-tools/relabel.lib.sh
     _chk /usr/local/lib/ai-tools/path-dedup.sh
-    _chk /etc/sudoers.d/ai-tools-claude
+    _chk /etc/sudoers.d/ai-tools
     _chk /etc/ai-tools/operator.conf
     _chk /opt/ai-tools/bin/nvm-update.sh
     _chk /opt/ai-tools/bin/ai-tools-run
@@ -1024,17 +1024,21 @@ do_install() {
 
     # Static %ai-ops group drop-in -- no per-operator substitution, only the sandbox-account
     # tokens. Membership in ai-ops (below) is what grants access.
-    log "/etc/sudoers.d/ai-tools-claude"
+    log "/etc/sudoers.d/ai-tools"
     local tmp_sudoers
     tmp_sudoers="$(mktemp)"
     sed -e "s/@SANDBOX_USER@/${SANDBOX_USER}/g" \
         -e "s/@SANDBOX_GROUP@/${SANDBOX_GROUP}/g" \
-        "${SCRIPT_DIR}/src/etc/sudoers.d/ai-tools-claude" > "${tmp_sudoers}"
+        "${SCRIPT_DIR}/src/etc/sudoers.d/ai-tools" > "${tmp_sudoers}"
     visudo -c -f "${tmp_sudoers}" > /dev/null \
         || { rm -f "${tmp_sudoers}"; die "sudoers syntax check failed"; }
     install -o root -g root -m 0440 \
-        "${tmp_sudoers}" /etc/sudoers.d/ai-tools-claude
+        "${tmp_sudoers}" /etc/sudoers.d/ai-tools
     rm -f "${tmp_sudoers}"
+    # The drop-in used to be named for one agent. Both files define the same %ai-ops rules, so
+    # leaving the old one behind is duplicate-but-harmless -- and confusing when auditing who
+    # granted what. The RPM drops it as part of the upgrade; this covers the from-source flow.
+    rm -f /etc/sudoers.d/ai-tools-claude
 
     # Host config. The root helpers and the agent hooks resolve the operators from this file
     # at runtime (via operator.lib.sh) instead of substituting an identity into each helper, so
@@ -1473,7 +1477,7 @@ do_uninstall() {
     # the relabel path+service in one sweep, plus the updater service+timer.
     rm -f /usr/lib/systemd/system/ai-tools-*
     rm -f /usr/lib/systemd/user/nvm-update.*
-    rm -f /etc/sudoers.d/ai-tools-claude
+    rm -f /etc/sudoers.d/ai-tools /etc/sudoers.d/ai-tools-claude
     # Keep /etc/ai-tools/operator.conf: it holds the operator bindings written by
     # ai-tools-admin, preserved like ~/.config/ai-tools so a reinstall keeps operators bound.
 

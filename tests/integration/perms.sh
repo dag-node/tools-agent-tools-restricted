@@ -104,7 +104,7 @@ check_file /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh root        
 # per-operator OVERRIDE -- the shared classifier falls back to its built-in defaults when the file
 # is absent (secret-patterns.lib.sh), so install.sh seeds it but a fresh RPM enrolment need not.
 check_file_optional "${PROJECTS_HOME}/.config/ai-tools/secret-patterns" "${PROJECTS_USER}" "${PROJECTS_GROUP}" 600
-check_file /etc/sudoers.d/ai-tools-claude                     root              root              440
+check_file /etc/sudoers.d/ai-tools                     root              root              440
 # Operator identity: 644 root:root -- world-readable (agent hooks + root helpers read it),
 # root-write-only (the agent cannot rewrite the identity root hands files back to).
 check_file /etc/ai-tools/operator.conf                        root              root              644
@@ -257,18 +257,18 @@ check_file "${PROJECTS_HOME}/.config/ai-tools"                 "${PROJECTS_USER}
 check_file "${PROJECTS_HOME}/.config/ai-tools/allowed-projects" "${PROJECTS_USER}" "${PROJECTS_GROUP}" 600
 
 section "Sudoers syntax"
-if visudo -c -f /etc/sudoers.d/ai-tools-claude > /dev/null 2>&1; then
-    pass "/etc/sudoers.d/ai-tools-claude parses OK"
+if visudo -c -f /etc/sudoers.d/ai-tools > /dev/null 2>&1; then
+    pass "/etc/sudoers.d/ai-tools parses OK"
 else
-    fail "/etc/sudoers.d/ai-tools-claude has syntax errors"
+    fail "/etc/sudoers.d/ai-tools has syntax errors"
 fi
 
 # env_keep surface: ai-tools-run re-validates AI_TOOLS_AGENT_EXEC/AI_TOOLS_PROJECT_DIR (ai-tools-run.sh test),
 # which is the real defense, but the drop-in's per-command env_keep should pass through ONLY
 # those two -- a widened list would smuggle attacker-influenced env into the launch path. Pin it:
 # every env_keep in the file names exactly AI_TOOLS_AGENT_EXEC and AI_TOOLS_PROJECT_DIR, nothing else.
-if [[ -r /etc/sudoers.d/ai-tools-claude ]]; then
-    ek_extra="$(grep -oE 'env_keep[[:space:]]*\+?=[[:space:]]*"[^"]*"' /etc/sudoers.d/ai-tools-claude \
+if [[ -r /etc/sudoers.d/ai-tools ]]; then
+    ek_extra="$(grep -oE 'env_keep[[:space:]]*\+?=[[:space:]]*"[^"]*"' /etc/sudoers.d/ai-tools \
         | grep -oE '"[^"]*"' | tr -d '"' | tr ' ' '\n' \
         | grep -vE '^[[:space:]]*$' | grep -vxE 'AI_TOOLS_AGENT_EXEC|AI_TOOLS_PROJECT_DIR' || true)"
     if [[ -z "${ek_extra}" ]]; then

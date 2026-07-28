@@ -48,7 +48,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 
 | Area | Source | Rule |
 |---|---|---|
-| Launch, allowlist gating, sudoers, PATH | `bin/ai-tools-run.sh`, `usr/local/bin/claude.sh`, `allowed-projects`, `sudoers.d/ai-tools-claude`, `lib/ai-tools/path-dedup.sh` | [launch](.claude/rules/launch.rule.md) |
+| Launch, allowlist gating, sudoers, PATH | `bin/ai-tools-run.sh`, `usr/local/bin/claude.sh`, `allowed-projects`, `sudoers.d/ai-tools`, `lib/ai-tools/path-dedup.sh` | [launch](.claude/rules/launch.rule.md) |
 | Namespaces, SELinux transition, preflight, `/tmp` | `selinux/**`, `bin/ai-tools-run.sh` | [confinement](.claude/rules/confinement.rule.md) |
 | Root-op socket (daemon/client/units) | `ai-tools-handback*`, `ai-tools-handback-client*` | [handback-bridge](.claude/rules/handback-bridge.rule.md) |
 | Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `opt/ai-tools/agents/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
@@ -91,7 +91,7 @@ Each step's mechanism is in the rule files above; the invariant each guarantees:
 
 ## Security model — what `SANDBOX_USER` can and cannot do
 
-The sudoers drop-in (`/etc/sudoers.d/ai-tools-claude`) is a static `%ai-ops` group rule
+The sudoers drop-in (`/etc/sudoers.d/ai-tools`) is a static `%ai-ops` group rule
 granting the **operators** (members of the `ai-ops` group, managed by `ai-tools-admin`)
 two NOPASSWD rules:
 

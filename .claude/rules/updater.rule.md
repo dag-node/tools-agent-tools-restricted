@@ -136,7 +136,7 @@ run it after an upgrade, both as root, never `SANDBOX_USER`:
   `ai-tools --relabel`.
 - **On demand**, through `ai-tools --relabel` (see [cli](cli.rule.md)), which runs the
   same helper via the `%ai-ops` NOPASSWD sudo rule (the relabel rule in
-  `sudoers.d/ai-tools-claude`; see [launch](launch.rule.md)). `install-selinux.sh relabel`
+  `sudoers.d/ai-tools`; see [launch](launch.rule.md)). `install-selinux.sh relabel`
   is the comprehensive source-tree sweep.
 
 The relabel runs outside the handback domain by design: `ai_tools_handback_t` is

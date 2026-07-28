@@ -408,6 +408,6 @@ export AI_TOOLS_AGENT_EXEC="${CLAUDE_REAL}"
 # that already cleared the allowlist + claim gates above, so it is the trustworthy
 # value -- a systemd transient unit does NOT inherit the caller's cwd (it defaults to
 # /), so ai-tools-run hands this to systemd-run as the unit's WorkingDirectory. Carried
-# through sudo via env_keep (sudoers.d/ai-tools-claude); ai-tools-run re-validates it.
+# through sudo via env_keep (sudoers.d/ai-tools); ai-tools-run re-validates it.
 export AI_TOOLS_PROJECT_DIR="${cwd}"
 exec sudo -u ai-tools -g ai-tools -- /opt/ai-tools/bin/ai-tools-run "$@"
