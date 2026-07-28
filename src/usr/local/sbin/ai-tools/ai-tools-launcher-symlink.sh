@@ -5,20 +5,13 @@
 # line) when the link already points at the target and that target's entrypoint needs no relabel,
 # so the daily same-version updater run is a quiet no-op.
 #
-# It names no agent. The launcher is taken from the TARGET's own basename and accepted only when
-# an ENABLED agent manifest claims it -- the same allowlist ai-tools-run builds -- so the link it
-# writes is always <bin>/<launcher> for a launcher some installed agent package declared, and the
-# link name can never differ from the binary it points at.
+# It names no agent: the launcher is the TARGET's own basename, accepted only when an ENABLED
+# agent manifest claims it -- the same allowlist ai-tools-run builds -- so the link it writes is
+# always <bin>/<launcher> for a declared launcher, and never differs from the binary it points at.
 #
-# /opt/ai-tools/bin is locked (0551 root:ai-tools): the sandbox account cannot write it, so the
-# agent can neither tamper with nvm-update.sh nor swap the symlink a wrapper resolves and trusts.
-# This helper is therefore the ONLY way the sandbox updater can move a launcher symlink after a
-# Node upgrade -- it runs as root (the only principal that can write the locked dir) and validates
-# its argument strictly before acting.
-#
-# Invocation: the handback socket's SYMLINK verb (ai-tools-handback daemon, root) when
-#   nvm-update.sh repoints each enabled agent's launcher after a Node upgrade, and directly by
-#   install.sh (already root). Not a sudo target -- the sandbox account has no sudo rights.
+# /opt/ai-tools/bin is locked (0551 root:ai-tools), so this root helper is the ONLY way the
+# sandbox updater can move a launcher symlink; it validates its argument strictly, because the
+# caller is the agent-reachable handback socket (SYMLINK verb) or install.sh, never sudo.
 #
 # Deploy: sudo install -o root -g root -m 750 \
 #             src/usr/local/sbin/ai-tools/ai-tools-launcher-symlink.sh /usr/local/sbin/ai-tools/ai-tools-launcher-symlink
@@ -41,11 +34,9 @@ fi
 
 err() { ai_tools_log_error "$*"; printf 'ai-tools-launcher-symlink: %s\n' "$*" >&2; exit 1; }
 
-# Authoritative validation of the caller-supplied path -- do NOT trust the caller: the sandbox
-# account reaches this helper through the handback socket. The target must be an absolute,
-# '..'-free path of EXACTLY the shape a wrapper resolves: a single vMAJOR.MINOR.PATCH component
-# under the sandbox toolchain, then bin/, then ONE path component -- the launcher name. The
-# anchored regex admits no '..' and no slashes beyond that structure.
+# Authoritative validation of the caller-supplied path: EXACTLY the shape a wrapper resolves --
+# a single vMAJOR.MINOR.PATCH component under the sandbox toolchain, then bin/, then ONE path
+# component, the launcher name. The anchored regex admits no '..' and no extra slashes.
 readonly RE='^/opt/ai-tools/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+/bin/([A-Za-z0-9._-]+)$'
 [[ "${TARGET}" =~ $RE ]] \
     || err "target is not a versioned launcher path: ${TARGET}"
@@ -54,12 +45,10 @@ readonly LAUNCHER="${BASH_REMATCH[1]}"
 # cannot be made to point one agent's stable link at another binary.
 readonly LINK="${BIN_DIR}/${LAUNCHER}"
 
-# ...and that name must belong to an ENABLED agent, resolved from the root-owned manifests --
-# the same allowlist ai-tools-run matches an executable against. Without it, any binary sitting
-# in a versioned bin/ could be given a stable link in the locked control-plane dir. An
-# unresolvable allowlist REFUSES rather than degrading to "allow anything": providers.lib.sh
-# returns non-zero and defines nothing when its own dependency is missing, so probe the resolver
-# instead of assuming the source succeeded.
+# ...and that name must belong to an ENABLED agent: without this, any binary sitting in a
+# versioned bin/ could be given a stable link in the locked control-plane dir. An unresolvable
+# allowlist REFUSES rather than degrading to "allow anything", so probe the resolver rather than
+# assume the source succeeded (providers.lib.sh defines nothing when its dependency is missing).
 readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/providers.lib.sh
 if ! source "${PROVIDERS_LIB}" 2>/dev/null \
@@ -82,11 +71,10 @@ done < <(ai_tools_enabled_agents 2>/dev/null)
 
 # Idempotency guard. The repoint is also the sole trigger for the ai-tools-relabel.path watcher
 # (the rename below changes an entry in the watched bin directory), so skipping it when nothing
-# changed must not skip a pending relabel. entrypoint_relabel_pending reports whether the binary
-# the link resolves to still needs its ai_tools_exec_t label restored -- true for a freshly
-# (re)minted entrypoint, including a same-version reinstall. Any uncertainty answers "pending",
-# so the guard falls through to a repoint -- the safe default that preserves the
-# always-repoint-and-relabel behaviour.
+# changed must not skip a pending relabel: entrypoint_relabel_pending reports whether the binary
+# the link resolves to still needs its ai_tools_exec_t label -- true for a freshly (re)minted
+# entrypoint, including a same-version reinstall. Any uncertainty answers "pending", so the
+# guard falls through to a repoint.
 entrypoint_relabel_pending() {
     # 0 = relabel pending (or unknowable) -> must repoint to trip the watcher.
     # 1 = entrypoint already correctly labelled, or SELinux/the module inactive -> may skip.
@@ -122,12 +110,9 @@ mv -Tf "${tmp}" "${LINK}"
 ai_tools_log_info "repointed ${LINK} -> ${TARGET}"
 printf 'ai-tools-launcher-symlink: %s -> %s\n' "${LINK}" "${TARGET}"
 
-# This helper does NOT relabel the new entrypoint. It runs in ai_tools_handback_t, which is
-# deliberately not granted relabel rights (ai_tools.te), so a restorecon here is a no-op under
-# enforcing. Restoring ai_tools_exec_t on a freshly installed (bin_t) entrypoint is driven by the
-# ai-tools-relabel.path watcher -- which watches the bin DIRECTORY, so it fires for whichever
-# agent's link the rename above replaced -- and by `ai-tools --relabel` on demand; both root-side,
-# off the agent-reachable handback domain. The idempotency guard skips the rename only when it has
-# confirmed the entrypoint already carries ai_tools_exec_t, so a pending relabel always drives a
-# repoint and thus the watcher. If the label is still wrong at launch, ai-tools-run fail-closes
-# (refuses) rather than running unconfined.
+# This helper does NOT relabel the new entrypoint: it runs in ai_tools_handback_t, which holds
+# no relabel rights by design (ai_tools.te), so the privilege stays off the agent-reachable
+# domain. The rename above instead trips the root-side ai-tools-relabel.path watcher, which
+# watches the bin DIRECTORY and so fires for whichever agent's link moved; `ai-tools --relabel`
+# is the on-demand path. A label still wrong at launch makes ai-tools-run fail closed.
+# See .claude/rules/updater.rule.md.

@@ -310,3 +310,13 @@ sweep), the confinement unit, and the single `%ai-ops` sudoers grant.
 
 None of it is built. The fields are named here so the first non-npm agent adds a runtime to the
 seam rather than reshaping it.
+
+## Deferred
+
+- **A per-agent config directory.** Every agent currently shares the control plane at
+  `/opt/ai-tools/.claude`, which is baked into `control-plane.lib.sh`'s `CP_DIR_MODES` and into
+  `ai_tools.fc`. The manifest shape does not preclude splitting it — an agent already pins its own
+  config directory through its `session-env.d` fragment (`CLAUDE_CONFIG_DIR`), so a second agent
+  would add a second pin plus a directory with the same mode and label; only those two
+  base-owned lists hardcode the single path. Held until a second agent exists to need it, since
+  the split has no observable effect with one.
