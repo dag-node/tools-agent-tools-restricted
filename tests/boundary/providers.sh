@@ -102,14 +102,19 @@ not_writable /opt/ai-tools/bin/ai-tools-run \
 not_writable /opt/ai-tools/bin \
     "replace the confinement shim or the launcher symlink the wrapper resolves"
 
-# The dotnet integration's split of the sandbox home: shared tools READ-ONLY (only the sudo helper
+# The integration state root itself: base-owned, one directory per integration inside it. A
+# writable root would let the agent create or replace an integration's whole state tree.
+not_writable /opt/ai-tools/integrations \
+    "create or replace an integration's entire state tree"
+
+# The dotnet integration's split of its own state: shared tools READ-ONLY (only the sudo helper
 # writes them), the NuGet restore cache WRITABLE (the agent restores into it every build). Both
 # halves are asserted -- a read-only cache breaks the integration just as surely as a writable
 # tools dir breaks the boundary. Absent until `sudo ai-tools-dotnet setup` has run.
-not_writable /opt/ai-tools/.dotnet/tools \
+not_writable /opt/ai-tools/integrations/dotnet/tools \
     "put an executable of its own on the session PATH"
 
-_nuget=/opt/ai-tools/.nuget/packages
+_nuget=/opt/ai-tools/integrations/dotnet/nuget/packages
 if [[ ! -e "${_nuget}" ]]; then
     skip "${_nuget}" "not deployed on this host"
 elif runuser -u "${SANDBOX_USER}" -- test -w "${_nuget}" 2>/dev/null; then

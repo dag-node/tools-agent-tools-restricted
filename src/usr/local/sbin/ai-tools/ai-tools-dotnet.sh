@@ -25,11 +25,19 @@
 set -euo pipefail
 
 readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
-readonly SANDBOX_HOME="/opt/ai-tools"
-readonly NUGET_DIR="${SANDBOX_HOME}/.nuget"
-readonly DOTNET_DIR="${SANDBOX_HOME}/.dotnet"
-readonly TOOLS_DIR="${DOTNET_DIR}/tools"
 readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
+
+# The control-plane contract: CP_INTEGRATIONS is the one root every integration keeps its
+# sandbox-side state under, and the base's static file-context rule already maps that whole tree
+# to ai_tools_home_t -- so this helper creates directories and never touches SELinux policy.
+# REQUIRED: without it the paths below are unknown, and guessing them would put the cache
+# somewhere the policy does not cover. Bare source under set -e.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/control-plane.lib.sh
+source /usr/local/lib/ai-tools/control-plane.lib.sh
+readonly STATE_DIR="${CP_INTEGRATIONS}/dotnet"
+readonly NUGET_DIR="${STATE_DIR}/nuget"
+readonly CLI_HOME_DIR="${STATE_DIR}/cli"
+readonly TOOLS_DIR="${STATE_DIR}/tools"
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/dotnet.log.
 # shellcheck disable=SC2034  # read by log.lib.sh
@@ -62,36 +70,52 @@ selinux_active() {
     semodule -l 2>/dev/null | grep -qx ai_tools
 }
 
-# apply_home_label <path> : map <path> to ai_tools_home_t with a local fcontext rule and relabel
-# it, so ai_tools_t may read/write (.nuget) or read/exec (.dotnet) it under enforcing. Adds the
-# rule, or modifies an existing one; a failure of BOTH is fatal, because a silently unlabelled dir
-# breaks the integration only later, inside a confined session, as an opaque denial.
-apply_home_label() {
+# label_state <path> : give <path> the label the base policy already maps it to. No `semanage`:
+# the integrations root carries a STATIC rule in ai_tools.fc, so every integration's state is
+# covered by one base-owned rule and a new toolchain adds no policy of its own. A failure is
+# fatal -- a silently unlabelled dir breaks the integration only later, inside a confined
+# session, as an opaque denial.
+label_state() {
     local path="$1"
-    semanage fcontext -a -t ai_tools_home_t "${path}(/.*)?" 2>/dev/null \
-        || semanage fcontext -m -t ai_tools_home_t "${path}(/.*)?" 2>/dev/null \
-        || die "could not map ${path} to ai_tools_home_t (semanage fcontext -a/-m both failed)"
     restorecon -R "${path}" >/dev/null 2>&1 \
         || die "could not relabel ${path} (restorecon failed)"
-    ai_tools_log_debug "labelled ${path} ai_tools_home_t"
+    ai_tools_log_debug "labelled ${path} from the base file-context rule"
+}
+
+# drop_legacy_fcontexts : remove the local fcontext rules earlier versions of this helper added
+# for its home-root dotdirs. They name paths this integration no longer uses, and they would
+# outlive the ai_tools module that defines their type. Best-effort: absent rules are the normal
+# case on a fresh host.
+drop_legacy_fcontexts() {
+    local legacy
+    for legacy in /opt/ai-tools/.nuget /opt/ai-tools/.dotnet; do
+        semanage fcontext -d "${legacy}(/.*)?" >/dev/null 2>&1 || :
+    done
 }
 
 setup() {
-    # NuGet restore cache: agent-WRITABLE (setgid, group ai-tools rwx), shared across projects, so
-    # a package restored once serves every project.
-    install -d -o root -g "${SANDBOX_GROUP}" -m 2770 "${NUGET_DIR}" "${NUGET_DIR}/packages" \
-        || die "could not create the NuGet cache under ${NUGET_DIR}"
-    # Shared global tools + their parent: admin-managed, READ-ONLY to the agent (no group write),
-    # so only this helper (root) changes them. The SDK's own state dir is NOT here -- the session
-    # fragment points DOTNET_CLI_HOME at the writable .cache subtree.
-    install -d -o root -g "${SANDBOX_GROUP}" -m 0755 "${DOTNET_DIR}" "${TOOLS_DIR}" \
+    # This integration's state root, inside the base-owned integrations tree. Root-owned and
+    # group-traversable: what the agent may write is decided per directory below, not here.
+    install -d -o root -g "${SANDBOX_GROUP}" -m "${CP_DIR_MODES[integrations]}" \
+        "${CP_INTEGRATIONS}" "${STATE_DIR}" \
+        || die "could not create the dotnet state root ${STATE_DIR}"
+    # NuGet restore cache and the SDK's own state: agent-WRITABLE (setgid, group ai-tools rwx).
+    # The cache is shared across projects, so a package restored once serves every project; the
+    # CLI home is what keeps the shared tools tree below read-only, since the SDK would otherwise
+    # write its state into $HOME/.dotnet.
+    install -d -o root -g "${SANDBOX_GROUP}" -m 2770 \
+        "${NUGET_DIR}" "${NUGET_DIR}/packages" "${CLI_HOME_DIR}" \
+        || die "could not create the writable dotnet state under ${STATE_DIR}"
+    # Shared global tools: admin-managed, READ-ONLY to the agent (no group write), so only this
+    # helper (root) changes them.
+    install -d -o root -g "${SANDBOX_GROUP}" -m 0755 "${TOOLS_DIR}" \
         || die "could not create the shared tools dir ${TOOLS_DIR}"
-    # Both are ai_tools_home_t: the type grants ai_tools_t the SELinux access (write on the cache,
-    # exec on the tools), while the DAC modes above are the enforced read/write boundary. Mirrors
-    # the .npm/.cache home-state labels; not a core-module change.
+    # One label for the whole tree, from the base policy's static rule: the type grants ai_tools_t
+    # the SELinux access (write on the cache, exec on the tools), while the DAC modes above are
+    # the enforced read/write boundary.
     if selinux_active; then
-        apply_home_label "${NUGET_DIR}"
-        apply_home_label "${DOTNET_DIR}"
+        drop_legacy_fcontexts
+        label_state "${STATE_DIR}"
     else
         log "SELinux labelling skipped: no enforcing ai-tools policy on this host (DAC governs)"
     fi

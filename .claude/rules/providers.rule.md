@@ -239,23 +239,23 @@ stack. `default_enable=no` (it widens surface: a new runtime exec, NuGet egress,
 so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS`.
 
 - `session-env.d/dotnet.env.sh` self-gates on `/usr/bin/dotnet`, then sets `DOTNET_ROOT`,
-  `NUGET_PACKAGES=/opt/ai-tools/.nuget/packages`, `DOTNET_CLI_HOME`, `DOTNET_CLI_TELEMETRY_OPTOUT`,
+  `NUGET_PACKAGES` and `DOTNET_CLI_HOME` under its state root, `DOTNET_CLI_TELEMETRY_OPTOUT`,
   `DOTNET_NOLOGO`, and `ASPNETCORE_ENVIRONMENT`/`DOTNET_ENVIRONMENT=Development`, and adds
-  `/opt/ai-tools/.dotnet/tools` to PATH. The variables are those current for **.NET 8 LTS and
+  `integrations/dotnet/tools` to PATH. The variables are those current for **.NET 8 LTS and
   later**; the .NET Core 2.x/3.x-era opt-outs (`DOTNET_SKIP_FIRST_TIME_EXPERIENCE`,
   `DOTNET_PRINT_TELEMETRY_MESSAGE`) are absent because the SDK no longer reads them.
-  `DOTNET_CLI_HOME=/opt/ai-tools/.cache/dotnet` is what keeps the read-only shared-tools tree
-  read-only: the SDK's own state (first-use sentinels, CLI logs) defaults to `$HOME/.dotnet`, which
-  here IS that tree, so it is redirected into the already-writable, already-`ai_tools_home_t`
-  `.cache` subtree — no extra fcontext. Only the root-owned tools dir joins PATH; a tool the agent
+  `DOTNET_CLI_HOME=…/integrations/dotnet/cli` is what keeps the shared-tools tree read-only: the
+  SDK's own state (first-use sentinels, CLI logs) defaults to `$HOME/.dotnet`, so it is pinned at
+  a writable sibling inside the same state root. Only the root-owned tools dir joins PATH; a tool the agent
   installs for itself under `DOTNET_CLI_HOME` stays reachable by full path but never lands on the
   session PATH, so the sandbox cannot put an executable of its choosing on it.
-- `ai-tools-dotnet` (root/sudo helper) `setup` creates the two dirs and labels them: the NuGet
-  cache `/opt/ai-tools/.nuget` is agent-**writable** (`2770`, setgid), the shared tools
-  `/opt/ai-tools/.dotnet` are **read-only** to the agent (`0755`, sudo-only writes). **Both** are
-  labelled `ai_tools_home_t` via a local `semanage fcontext` (not a core-module change): the type
-  grants `ai_tools_t` the SELinux access (write on the cache, exec on the tools) while the DAC modes
-  are the enforced read/write boundary. `install-tools <pkg...>` installs shared global tools;
+- `ai-tools-dotnet` (root/sudo helper) `setup` creates that state root and its three
+  directories: the NuGet cache and the SDK's CLI home are agent-**writable** (`2770`, setgid),
+  the shared tools are **read-only** to the agent (`0755`, sudo-only writes). It applies **no**
+  SELinux policy of its own — the base's static rule on `integrations(/.*)?` already maps the
+  whole tree to `ai_tools_home_t`, so the type grants `ai_tools_t` the access (write on the
+  cache, exec on the tools) while the DAC modes are the enforced read/write boundary. `setup`
+  also drops the local fcontext rules earlier versions added for the old home-root dotdirs. `install-tools <pkg...>` installs shared global tools;
   `status` reports host SDKs/runtimes, and reads enablement through `ai_tools_enabled_integrations`
   so it reports the same verdict `ai-tools-run` reaches.
 - Every step **fails loudly**. A directory it cannot create, or a label it cannot apply on a host
@@ -306,7 +306,7 @@ what it would leave alone:
 - **An exec root and a launcher shape per runtime.** The current rule is `<nvm>/versions/node/
   <semver>/bin/<launcher>`; the version directory pins the launcher to the toolchain version the
   updater installed. A dotnet global tool has no version directory, so its rule is its own exec
-  root (`/opt/ai-tools/.dotnet/tools/<launcher>`, root-owned and read-only to the agent — stricter
+  root (`/opt/ai-tools/integrations/dotnet/tools/<launcher>`, root-owned and read-only to the agent — stricter
   than the nvm tree, which the sandbox account owns). What every rule must keep is the property
   the current one carries: an absolute, `..`-free path under a known sandbox toolchain root whose
   launcher an **enabled manifest claims**, so nothing the agent can drop beside a launcher starts

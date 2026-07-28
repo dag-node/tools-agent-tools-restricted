@@ -275,6 +275,9 @@ install -d -m 0755 %{buildroot}/opt/ai-tools/bin
 # directories rather than copied per agent.
 install -d -m 0750 %{buildroot}/opt/ai-tools/skills
 install -d -m 0750 %{buildroot}/opt/ai-tools/subagents
+# The integration state root: each ai-tools-integration-* package creates its own directory
+# under it (integrations/<name>), and one static file-context rule covers them all.
+install -d -m 0750 %{buildroot}/opt/ai-tools/integrations
 # Default-deny git guard for the control-plane home: ai-tools-bootstrap captures the control
 # plane in a root-private git repo, and this gitignore keeps secrets and churn out of it. The
 # LIVE /opt/ai-tools/.gitignore is NOT rpm-owned -- neither it nor the host-derived .gitconfig
@@ -510,18 +513,6 @@ if [ "$1" -eq 0 ] && [ -x %{ai_sbindir}/ai-tools-relabel-agent ]; then
     %{ai_sbindir}/ai-tools-relabel-agent --remove claude-code >/dev/null 2>&1 || :
 fi
 
-%postun -n ai-tools-integration-dotnet
-# On final erase, drop the local fcontext rules for the dotnet dirs and restore default labels on
-# what stays behind (the dirs themselves are runtime state under /opt/ai-tools, preserved like
-# .nvm, so leaving them mapped to a type this host no longer defines would strand them).
-if [ "$1" -eq 0 ] && command -v semanage >/dev/null 2>&1; then
-    semanage fcontext -d "/opt/ai-tools/.nuget(/.*)?"  >/dev/null 2>&1 || :
-    semanage fcontext -d "/opt/ai-tools/.dotnet(/.*)?" >/dev/null 2>&1 || :
-    if command -v restorecon >/dev/null 2>&1; then
-        restorecon -R /opt/ai-tools/.nuget /opt/ai-tools/.dotnet >/dev/null 2>&1 || :
-    fi
-fi
-
 # ─────────────────────────────────────────────────────────────────────────────
 # File lists
 # ─────────────────────────────────────────────────────────────────────────────
@@ -596,6 +587,10 @@ fi
 # content, so an erase preserves operator updates.
 %dir %attr(0750, root, ai-tools) /opt/ai-tools/skills
 %dir %attr(0750, root, ai-tools) /opt/ai-tools/subagents
+# The integration state root (see the .fc rule): base owns it, each integration package owns its
+# own directory inside it, and the state within is runtime data -- not rpm-owned, so an erase
+# leaves a restore cache alone.
+%dir %attr(0750, root, ai-tools) /opt/ai-tools/integrations
 # Pristine reseed sources (rpm-owned) for both shared kinds.
 %{_datadir}/ai-tools/skills
 %{_datadir}/ai-tools/subagents
@@ -679,6 +674,11 @@ fi
   agent manifest claims, and the post-upgrade relabel watcher observes the whole launcher
   directory.
 - ai-tools --providers reports the installed agents and integrations, which are enabled, and why.
+- Every integration now keeps its sandbox-side state under /opt/ai-tools/integrations/<name>
+  instead of adding dotdirs to the sandbox home, and one base-owned SELinux rule covers that
+  whole tree -- so an integration package no longer carries file-context rules of its own. The
+  dotnet cache and shared tools moved accordingly; delete the old /opt/ai-tools/.nuget and
+  /opt/ai-tools/.dotnet once (the cache repopulates on the next restore).
 - The sudoers drop-in is /etc/sudoers.d/ai-tools, not ai-tools-claude: ai-tools-base ships it and
   its one %ai-ops grant serves every agent. The old file is removed on upgrade.
 - ai-tools-integration-dotnet integrates a host-managed .NET toolchain (no runtime packaged, no
