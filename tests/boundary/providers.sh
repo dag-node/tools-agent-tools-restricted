@@ -86,6 +86,12 @@ not_writable /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh \
 not_writable /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh \
     "repoint its own config directory or re-enable the in-session updater"
 
+# The shared skills root. Every agent's skills directory symlinks into this one place, so a
+# writable root here would let one session rewrite the standing instructions every agent and
+# every later session reads -- the runtime half (its mode) is asserted in integration/perms.sh.
+not_writable /opt/ai-tools/skills \
+    "rewrite the standing instructions every agent and every later session reads"
+
 # The confinement shim itself. It is the sudoers target: writable, the agent would be executing
 # its own code under the operators' NOPASSWD grant, with the unit properties of its choosing.
 not_writable /opt/ai-tools/bin/ai-tools-run \
