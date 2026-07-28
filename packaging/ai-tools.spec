@@ -456,6 +456,35 @@ if [ -x %{ai_sbindir}/ai-tools-dotnet ]; then
     }
 fi
 
+%post -n ai-tools-agents-claude-code-restricted
+# Register this agent's SELinux entrypoint file-context and label whatever it matches. The base
+# policy names no agent (see selinux/policy/ai_tools.fc): the pattern comes from this package's
+# own manifest, and the helper maps it to the base's ai_tools_exec_t as a local rule, so a
+# session's domain transition fires. Offline and idempotent; it no-ops when SELinux or the
+# ai_tools module is inactive, and when the toolchain is not provisioned yet (a fresh install --
+# ai-tools-bootstrap relabels the entrypoint it installs).
+#
+# Not swallowed: an entrypoint that stays mislabelled means ai-tools-run refuses every launch, so
+# the scriptlet reports the remedy and exits non-zero rather than leaving that to be discovered
+# at the first `claude`.
+if [ -x %{ai_sbindir}/ai-tools-relabel-entrypoint ]; then
+    %{ai_sbindir}/ai-tools-relabel-entrypoint >/dev/null || {
+        echo "ai-tools-agents-claude-code-restricted: entrypoint labelling failed; see 'journalctl -t ai-tools-relabel-entrypoint'" >&2
+        echo "ai-tools-agents-claude-code-restricted: fix the cause and re-run: sudo ai-tools --relabel" >&2
+        exit 1
+    }
+fi
+
+%preun -n ai-tools-agents-claude-code-restricted
+# On final erase, drop the entrypoint file-context rule this package registered and restore
+# default labels on what it matched -- the type it names belongs to ai-tools-base, which the host
+# may erase next, and a local rule naming an undefined type breaks later relabels. Runs in %preun,
+# not %postun, because the pattern is read from this package's manifest, which is still on disk
+# here.
+if [ "$1" -eq 0 ] && [ -x %{ai_sbindir}/ai-tools-relabel-entrypoint ]; then
+    %{ai_sbindir}/ai-tools-relabel-entrypoint --remove claude-code >/dev/null 2>&1 || :
+fi
+
 %postun -n ai-tools-integration-dotnet
 # On final erase, drop the local fcontext rules for the dotnet dirs and restore default labels on
 # what stays behind (the dirs themselves are runtime state under /opt/ai-tools, preserved like

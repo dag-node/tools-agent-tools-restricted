@@ -318,36 +318,44 @@ RELABEL_LIB="${DIR}/../src/usr/local/lib/ai-tools/relabel.lib.sh"
 # shellcheck source=/dev/null
 source "${RELABEL_LIB}" || die "missing label library: ${RELABEL_LIB}"
 
-# verify_entrypoint: relabel the claude.exe entrypoint under the nvm tree and
-# confirm it carries ai_tools_exec_t. Logs a WARNING for any entrypoint that does
-# not -- without that label the unconfined_t -> ai_tools_t transition never fires
-# and claude runs unconfined.
+# verify_entrypoint: apply each enabled agent's declared entrypoint file-context and confirm the
+# binaries it matches carry ai_tools_exec_t -- without that label the unconfined_t/init_t ->
+# ai_tools_t transition never fires and the agent runs UNCONFINED. The work is
+# ai_tools_label_agent_entrypoints (relabel.lib.sh), the same body the always-installed
+# ai-tools-relabel-entrypoint helper runs, so this sweep and the post-upgrade relabel cannot
+# drift; this wrapper only renders the report in the installer's voice. It names no agent: the
+# path patterns come from the manifests under /usr/local/lib/ai-tools/agents.d.
 verify_entrypoint() {
-    local exe ctx found=0 bad=0
-    for exe in /opt/ai-tools/.nvm/versions/node/*/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe; do
-        [[ -e "${exe}" ]] || continue
-        found=1
-        restorecon -Fv "${exe}" 2>/dev/null || true
-        ctx="$(ls -Zd "${exe}" 2>/dev/null | awk '{print $1}')"
-        if [[ "${ctx}" == *:ai_tools_exec_t:* ]]; then
-            ok "entrypoint labelled ai_tools_exec_t: ${exe}"
-        else
-            bad=1
-            warn "${exe}"
-            warn "    is '${ctx}', NOT ai_tools_exec_t -- the transition will NOT fire and"
-            warn "    claude will run UNCONFINED. matchpathcon expects:"
-            warn "      $(matchpathcon "${exe}" 2>/dev/null | awk '{print $2}')"
-            warn "    chase with: restorecon -nv '${exe}'  and  semanage fcontext -C -l"
-        fi
-    done
+    local report="" status=0 verdict subject detail bad=0 labelled=0
+    report="$(ai_tools_label_agent_entrypoints)" || status=$?
+    if [[ "${status}" -eq 2 ]]; then
+        warn "SELinux or the ai_tools module is not active -- no entrypoint to label"
+        return 0
+    fi
+    if [[ -n "${report}" ]]; then
+        while read -r verdict subject detail; do
+            case "${verdict}" in
+                ok)   labelled=$(( labelled + 1 ))
+                      ok "entrypoint labelled ai_tools_exec_t: ${subject}" ;;
+                bad)  bad=1
+                      warn "${subject}"
+                      warn "    is '${detail}', NOT ai_tools_exec_t -- the transition will NOT fire"
+                      warn "    and the agent would run UNCONFINED. matchpathcon expects:"
+                      warn "      $(matchpathcon "${subject}" 2>/dev/null | awk '{print $2}')"
+                      warn "    chase with: restorecon -nv '${subject}'  and  semanage fcontext -C -l" ;;
+                none) warn "${subject}: declared entrypoint not installed -- nothing to label" ;;
+                skip) warn "${subject}: entrypoint labelling skipped -- ${detail}" ;;
+            esac
+        done <<< "${report}"
+    fi
     # An entrypoint that restorecon left mislabelled is an unrecoverable confinement gap (the
     # module is loaded but the transition would not fire), so fail the install here rather than
     # proceed to the optional groups with a broken core. A missing entrypoint (toolchain not
     # provisioned yet) stays a warning -- there is nothing to label.
     [[ "${bad}" -eq 0 ]] \
-        || die "entrypoint not labelled ai_tools_exec_t (see above) -- claude would run UNCONFINED"
-    [[ "${found}" -eq 1 ]] || warn "no claude.exe found under the nvm tree to label"
-    log "reminder: a running claude keeps its OLD context -- exit and relaunch, then"
+        || die "entrypoint not labelled ai_tools_exec_t (see above) -- the agent would run UNCONFINED"
+    [[ "${labelled}" -gt 0 ]] || warn "no agent entrypoint found under the nvm tree to label"
+    log "reminder: a running session keeps its OLD context -- exit and relaunch, then"
     log "          confirm with:  ps -eo label,cmd | grep '[c]laude'  (expect ai_tools_t)"
 }
 
@@ -563,6 +571,17 @@ case "${ACTION}" in
     log "dropping project fcontext rules"
     for_each_project _unlabel_one
     _unlabel_conf
+    # Agent entrypoint rules are local fcontexts naming ai_tools_exec_t, a type the module
+    # unload below removes. Drop them here, while the type still exists, for EVERY installed
+    # agent manifest (not just the enabled ones -- a disabled agent may still hold a rule from
+    # when it was on).
+    log "dropping agent entrypoint fcontext rules"
+    for manifest in /usr/local/lib/ai-tools/agents.d/*.conf; do
+        [[ -e "${manifest}" ]] || continue
+        agent="${manifest##*/}"; agent="${agent%.conf}"
+        ai_tools_unlabel_agent_entrypoint "${agent}" \
+            || log "  ${agent}: no entrypoint rule to drop"
+    done
     log "unloading all ai_tools* modules"
     # Collect all loaded ai_tools modules then remove in one semodule call.
     mapfile -t loaded < <(semodule -l 2>/dev/null | awk '/^ai_tools/{print $1}')

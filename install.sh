@@ -1306,6 +1306,18 @@ do_install() {
 
     offer_selinux
 
+    # Register each enabled agent's SELinux entrypoint file-context and label what it matches.
+    # The base policy carries no agent entrypoint (selinux/policy/ai_tools.fc): the pattern comes
+    # from the agent's manifest, so this is what makes the domain transition fire. The SELinux
+    # bring-up above already runs the same body when it is accepted -- this covers the host that
+    # declined it while a module from an earlier install stays loaded. No-ops when SELinux or the
+    # module is inactive, and when the toolchain is not provisioned yet.
+    if [[ -x /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint ]]; then
+        log "labelling the enabled agents' entrypoints"
+        /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint \
+            || warn "entrypoint labelling did not complete -- run: sudo ai-tools --relabel"
+    fi
+
     section "Install complete -- next steps"
     if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 ]]; then
         say "  provision the sandbox toolchain (nvm + Node + claude) -- required before launch:"

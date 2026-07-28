@@ -7,7 +7,7 @@ confines the agent to its own SELinux domain with a **path boundary**:
 | Type | Applied to | `ai_tools_t` may |
 |---|---|---|
 | `ai_tools_t` | the agent process (`claude.exe` as the `SANDBOX_USER` UID) | — |
-| `ai_tools_exec_t` | the versioned `claude.exe` launcher | entrypoint (drives the transition) |
+| `ai_tools_exec_t` | each enabled agent's entrypoint binary (Claude Code: the versioned `claude.exe`), labelled from the rule that agent's own manifest declares — not from this module | entrypoint (drives the transition) |
 | `ai_tools_project_t` | approved project dirs (per allowlist) | read/write (incl. all git ops) |
 | `ai_tools_home_t` | `/opt/ai-tools/.claude` | read/write its own state |
 | everything else (e.g. other `/home` files = `user_home_t`) | — | **no access** once enforcing |
@@ -231,9 +231,12 @@ it refuses to launch rather than run unconfined — so a mislabelled entrypoint 
 agent safe while it waits to be relabelled.
 
 The daily `nvm-update` timer relabels the new entrypoint automatically: after delegating the
-sandbox update it runs `ai-tools-relabel-entrypoint` as root (a dedicated NOPASSWD rule),
-which `restorecon`s every `claude.exe` under the nvm tree and verifies `ai_tools_exec_t`. So
-a normal upgrade keeps the agent confined across version bumps with no manual step.
+sandbox update it runs `ai-tools-relabel-entrypoint` as root (a dedicated NOPASSWD rule).
+That helper names no agent — for each enabled agent it applies the entrypoint file-context that
+agent's own manifest declares (`entrypoint_fcontext`, mapped to the `ai_tools_exec_t` this module
+defines), `restorecon`s every binary it matches, and verifies the type. So a normal upgrade keeps
+the agent confined across version bumps with no manual step, and a second agent is labelled by
+the same pass without a policy change.
 
 Relabel by hand only if you upgraded Node some other way, or if the timer's relabel failed
 (`ai-tools-run` will be refusing to launch and pointing you here):

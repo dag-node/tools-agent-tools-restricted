@@ -92,13 +92,22 @@ holds no relabel rights.
 
 ## Post-upgrade entrypoint relabel
 
-A fresh Node tree's `claude.exe` is born `bin_t`, so the `→ ai_tools_t` domain transition
-fires only once the entrypoint carries `ai_tools_exec_t`. `ai-tools-relabel-entrypoint`
-restores that label: it restorecons every `claude.exe` under the nvm tree and verifies
-each took `ai_tools_exec_t`. It runs as root (a domain that holds relabel), is idempotent,
-and no-ops when SELinux is off or the `ai_tools` module is not installed — it acts only on
-entrypoints the file-context DB maps to `ai_tools_exec_t`, the same condition `ai-tools-run`
-keys on.
+A freshly installed entrypoint is born the default type (`bin_t`/`lib_t`), so the
+`→ ai_tools_t` domain transition fires only once it carries `ai_tools_exec_t`.
+`ai-tools-relabel-entrypoint` applies that label, and it **names no agent**: the base policy
+carries no entrypoint rule, so for each *enabled* agent the helper reads the path pattern that
+agent's manifest declares (`entrypoint_fcontext`, see [providers](providers.rule.md)), registers
+it as a local `semanage fcontext` rule mapping it to `ai_tools_exec_t`, restorecons every file it
+matches, and verifies each took the type. It runs as root (a domain that holds relabel), is
+idempotent, and no-ops when SELinux is off or the `ai_tools` module is not installed — there is
+then no `ai_tools_exec_t` to assign, the same condition `ai-tools-run` keys on.
+
+The type is pinned in `relabel.lib.sh` and a declared pattern is accepted only when it can match
+nothing outside the sandbox toolchain root (no traversal, no alternation, an anchored literal
+head), so a manifest chooses **which** file is its entrypoint, never what label a file gets. The
+whole body lives in `relabel.lib.sh`, shared with `install-selinux.sh`'s verify pass.
+`ai-tools-relabel-entrypoint --remove <agent>` is the erase-time counterpart: the agent package's
+`%preun` drops its rule while its manifest is still on disk.
 
 `ai-tools-bootstrap` runs the helper directly at provision time (above). Two further paths
 run it after an upgrade, both as root, never `SANDBOX_USER`:
