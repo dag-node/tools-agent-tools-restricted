@@ -110,7 +110,7 @@ Ownership cells use the shell-variable identities from
 | `~/.config/ai-tools/*` | `PROJECTS_USER:PROJECTS_GROUP 700/600` | unchanged, **per operator** | each operator keeps their own allowlist/secret config; already scales to N. |
 | `~/.local/bin/claude` | `PROJECTS_USER:PROJECTS_GROUP 0750` | **removed** → `/usr/local/bin/claude root:root 0755` | system wrapper; rpm-owned, fails safe for non-operators. |
 | user `nvm-update.{service,timer}` | `PROJECTS_USER:PROJECTS_GROUP 640` in operator home | `root:root` in `%{_userunitdir}`, enabled once in `ai-tools`'s `--user` instance | one shared toolchain timer, not N. |
-| `/etc/sudoers.d/ai-tools-claude` | per-operator lines | `%ai-ops` group rules | one rule covers all operators. |
+| `/etc/sudoers.d/ai-tools` | per-operator lines | `%ai-ops` group rules | one rule covers all operators. |
 | `/etc/ai-tools/operator.conf` | one `PROJECTS_USER` | `OPERATORS` **list** | handback resolves the per-project owner from it via allowlist match (tie-break: nearest parent-dir owner). |
 | helpers / libs / CLI / handback / `/var/log` | `root:*` | unchanged | already operator-agnostic. |
 

@@ -7,13 +7,16 @@
 # (AI_TOOLS_INTEGRATIONS). It self-gates on a host dotnet, so it is inert on a host without
 # one even when enabled -- this integration packages no runtime.
 #
-# Two directories back it, provisioned by `sudo ai-tools-dotnet setup`:
-#   /opt/ai-tools/.nuget   restore cache, agent-writable across every project
-#   /opt/ai-tools/.dotnet  shared global tools, read-only to the agent (sudo-only writes)
+# One state root backs it, provisioned by `sudo ai-tools-dotnet setup` -- every integration keeps
+# its sandbox-side state under /opt/ai-tools/integrations/<name>, so no toolchain adds a dotdir to
+# the sandbox home and one SELinux rule covers them all:
+#   integrations/dotnet/nuget   restore cache, agent-writable across every project
+#   integrations/dotnet/cli     the SDK's own state (DOTNET_CLI_HOME), agent-writable
+#   integrations/dotnet/tools   shared global tools, read-only to the agent (sudo-only writes)
 #
 # The variables are those .NET 8 LTS and later read. DOTNET_CLI_HOME is what keeps the shared
-# tools tree read-only: the SDK's own state defaults to $HOME/.dotnet, which here IS that tree,
-# so it is redirected into the writable .cache subtree.
+# tools tree read-only: the SDK's own state defaults to $HOME/.dotnet, so it is pinned at the
+# writable sibling instead.
 #
 # Fragment contract (see providers.rule.md): append to session_environment_options and
 # session_path_entries, unset your own temporaries, and do not exec, prompt, or read stdin.
@@ -28,8 +31,8 @@ dotnet_root=/usr/lib64/dotnet
 
 session_environment_options+=(
     "--setenv=DOTNET_ROOT=${dotnet_root}"
-    "--setenv=NUGET_PACKAGES=/opt/ai-tools/.nuget/packages"
-    "--setenv=DOTNET_CLI_HOME=/opt/ai-tools/.cache/dotnet"
+    "--setenv=NUGET_PACKAGES=/opt/ai-tools/integrations/dotnet/nuget/packages"
+    "--setenv=DOTNET_CLI_HOME=/opt/ai-tools/integrations/dotnet/cli"
     "--setenv=DOTNET_CLI_TELEMETRY_OPTOUT=1"
     "--setenv=DOTNET_NOLOGO=1"
     "--setenv=ASPNETCORE_ENVIRONMENT=Development"
@@ -38,6 +41,6 @@ session_environment_options+=(
 # Only the root-owned shared tools join PATH. A tool the agent installs for itself under
 # DOTNET_CLI_HOME stays runnable by full path but never lands on the session PATH, so the
 # sandbox cannot put an executable of its own choosing there.
-session_path_entries+=( /opt/ai-tools/.dotnet/tools )
+session_path_entries+=( /opt/ai-tools/integrations/dotnet/tools )
 
 unset dotnet_root

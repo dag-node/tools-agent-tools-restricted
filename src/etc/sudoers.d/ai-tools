@@ -1,4 +1,4 @@
-# /etc/sudoers.d/ai-tools-claude
+# /etc/sudoers.d/ai-tools
 # Grants the ai-ops operators group (the login users that drive the sandbox) two NOPASSWD
 # rules. The first DROPS privilege to @SANDBOX_USER@; the second runs the fixed-path entrypoint
 # relabel as root. @SANDBOX_USER@ itself has NO rule here, and the agent runs AS @SANDBOX_USER@,
@@ -60,7 +60,7 @@
 #     which @SANDBOX_USER@ cannot reach.
 #   - @SANDBOX_USER@ has no login shell and no other sudo rights, and is not a member of ai-ops.
 #
-# Syntax check before deploy:  visudo -c -f /etc/sudoers.d/ai-tools-claude
+# Syntax check before deploy:  visudo -c -f /etc/sudoers.d/ai-tools
 
 Defaults!/opt/ai-tools/bin/ai-tools-run umask=0007,umask_override
 Defaults!/opt/ai-tools/bin/ai-tools-run env_keep += "AI_TOOLS_AGENT_EXEC AI_TOOLS_PROJECT_DIR"

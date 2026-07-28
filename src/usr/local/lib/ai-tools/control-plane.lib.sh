@@ -37,6 +37,12 @@ readonly CP_HOME=/opt/ai-tools
 #                     3770 setgid+sticky, applied to EVERY agent's config directory: the agent is
 #                          a group-writer for its own session state but cannot unlink the control
 #                          files (settings, hooks) it does not own
+#   CP_INTEGRATIONS        the one root under which every INTEGRATION keeps its sandbox-side
+#                          state, one directory per integration named for its manifest
+#                          (integrations/<name>/...). Base owns the root and its single SELinux
+#                          file-context rule; each integration package owns its own directory and
+#                          chooses the modes inside it, so a new toolchain adds no policy and no
+#                          dotdir at the home root.
 #   CP_SHARED_SKILLS / CP_SHARED_SUBAGENTS
 #                          the one place each SHARED asset kind lives, agent-agnostic: the base
 #                          ships them here and every agent's config directory carries SYMLINKS
@@ -44,10 +50,11 @@ readonly CP_HOME=/opt/ai-tools
 #                          read in one location. Their modes are CP_DIR_MODES[<kind>] --
 #                          root-owned, agent-readable, not agent-writable.
 readonly CP_HOME_MODE=2751
-readonly -A CP_DIR_MODES=( [bin]=0551 [skills]=0750 [subagents]=0750 )
+readonly -A CP_DIR_MODES=( [bin]=0551 [skills]=0750 [subagents]=0750 [integrations]=0750 )
 readonly CP_AGENT_CONFIG_MODE=3770
 readonly CP_SHARED_SKILLS="${CP_HOME}/skills"
 readonly CP_SHARED_SUBAGENTS="${CP_HOME}/subagents"
+readonly CP_INTEGRATIONS="${CP_HOME}/integrations"
 
 # Which agents are installed and enabled, and what each declares, comes from the provider
 # manifests. Loaded best-effort: without it the resolver below yields nothing, which leaves a

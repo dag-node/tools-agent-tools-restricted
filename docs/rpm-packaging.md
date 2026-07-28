@@ -71,7 +71,7 @@ package legitimately reusing the old name is not obsoleted by every later releas
 |---|---|
 | `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home ROOT and `bin` (plus its default-deny `.gitignore` git guard and `.gitconfig` identity, both `%post`-seeded-if-missing and not rpm-owned, so an erase preserves them); the mode and label contract every agent's config directory carries, but no such directory itself; the shared skills root `/opt/ai-tools/skills` and the pristine skill copies (skills are agent-agnostic, so every agent symlinks into this one place) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `secret-patterns` template; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `skip-dirs.lib.sh`, `safe-paths.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`, `conf.lib.sh`, `providers.lib.sh`; the agent-agnostic confinement shim `/opt/ai-tools/bin/ai-tools-run` and the `%ai-ops` sudoers grant that reaches it; the `agents.d`, `integrations.d`, and `session-env.d` provider directories (base owns the dirs at `0755 root:root`; each member package drops only its own manifest or fragment into them); the base SELinux domain (`ai_tools_t` and the handback/helper types) |
 | `ai-tools-integration-nodejs` | nvm under `/opt/ai-tools/.nvm`; the per-sandbox-user Node-version auto-update service and timer; `ai-tools-bootstrap`; the symlink-repoint helper (`ai-tools-launcher-symlink`) and the post-upgrade entrypoint relabel (`ai-tools-relabel-agent`) |
-| `ai-tools-integration-dotnet` | the dotnet session-env fragment (`session-env.d/dotnet.env.sh`) and manifest (`integrations.d/dotnet.conf`); the `ai-tools-dotnet` provisioning helper (writable NuGet cache + read-only shared tools under `/opt/ai-tools/.nuget` / `.dotnet`, labelled by a local fcontext). No .NET runtime — the host's dotnet is used |
+| `ai-tools-integration-dotnet` | the dotnet session-env fragment (`session-env.d/dotnet.env.sh`) and manifest (`integrations.d/dotnet.conf`); the `ai-tools-dotnet` provisioning helper (writable NuGet cache + read-only shared tools under its own `/opt/ai-tools/integrations/dotnet` state root, covered by the base's single fcontext rule for that tree). No .NET runtime — the host's dotnet is used |
 | `ai-tools-agents-claude-code-restricted` | the `claude` launch wrapper; `/opt/ai-tools/bin/claude`; the Claude Code hooks (`post-tool-hook.sh`, `session-hook.sh`) and `settings.json`; its agent manifest (`agents.d/claude-code.conf`, naming the npm package, launcher, display name, handback capability, config directory, and the SELinux entrypoint file-context for `claude.exe`); its own config directory `/opt/ai-tools/.claude`, the shipped Claude-format agents seeded into it, and its session-env fragment (`session-env.d/claude-code.env.sh`); the scriptlets that register that file-context on install and drop it on erase. Confinement itself is base-owned, so this package ships no shim and needs no sudoers rule of its own |
 
 The handback daemon is a verb dispatcher over a helper table; the generic verbs
@@ -127,7 +127,7 @@ to run as root.
 `add [user]` (default `$SUDO_USER`) is accumulating and idempotent:
 
 - appends the name to `OPERATORS` in `/etc/ai-tools/operator.conf`;
-- adds the user to the `ai-ops` group, which the static `sudoers.d/ai-tools-claude`
+- adds the user to the `ai-ops` group, which the static `sudoers.d/ai-tools`
   drop-in and the launch wrapper gate on;
 - seeds the user's `~/.config/ai-tools/allowed-projects` (empty, with a header) when
   absent, leaving an existing allowlist untouched;
@@ -141,7 +141,7 @@ own allowlist and config in place. `list` prints the current operators. `add` re
 the sandbox account or root an operator, and `ai-tools-run` refuses to launch if the sandbox
 account is ever in `ai-ops`.
 
-The static `sudoers.d/ai-tools-claude` drop-in (a `%ai-ops` group rule) and the `ai-ops` group
+The static `sudoers.d/ai-tools` drop-in (a `%ai-ops` group rule) and the `ai-ops` group
 ship with the package, so adding an operator is a membership change, not a sudoers edit.
 
 The `%post` of `ai-tools-base` does **not** bind an operator: it is per-operator, which a

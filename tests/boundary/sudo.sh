@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/boundary/sudo.sh
 # Boundary: the sandbox account holds NO sudo rights -- the first security-model invariant in
-# CLAUDE.md. The two NOPASSWD rules in sudoers.d/ai-tools-claude both belong to the PROJECTS
+# CLAUDE.md. The two NOPASSWD rules in sudoers.d/ai-tools both belong to the PROJECTS
 # user and DROP privilege to the sandbox account; the agent runs AS the sandbox account and
 # can invoke neither. Asserts that at runtime (sudo -l for the sandbox account reports it is not
 # allowed to run sudo at all) and statically (no grant line names the sandbox account as
@@ -12,7 +12,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-readonly SUDOERS="/etc/sudoers.d/ai-tools-claude"
+readonly SUDOERS="/etc/sudoers.d/ai-tools"
 section "Agent sudo rights (the sandbox account has none)"
 
 # (1) Runtime: what sudo would let the sandbox account run. The invariant is that the agent can

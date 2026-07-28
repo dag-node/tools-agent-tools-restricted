@@ -68,6 +68,13 @@
 /opt/ai-tools/skills(/.*)?     gen_context(system_u:object_r:ai_tools_home_t,s0)
 /opt/ai-tools/subagents(/.*)?  gen_context(system_u:object_r:ai_tools_home_t,s0)
 
+# The INTEGRATION state root: one directory per integration (integrations/<name>/...), holding
+# the sandbox-side state a host toolchain needs -- a package cache the agent writes, shared tools
+# it only executes. ONE rule covers every integration present or future, so a new toolchain adds
+# no policy: ai_tools_home_t grants the domain the access, and the DAC modes each integration
+# sets inside its own directory are the enforced read/write boundary.
+/opt/ai-tools/integrations(/.*)?  gen_context(system_u:object_r:ai_tools_home_t,s0)
+
 # The rest of the agent's HOME state, which is base-owned and fixed. HOME is /opt/ai-tools, whose base is usr_t,
 # so without these the agent's own writes to .npm / .cache / .local / .config land
 # on usr_t -- and granting the domain usr_t write would also hand it the read-only
