@@ -271,9 +271,10 @@ install -d -m 0700 %{buildroot}/var/log/ai-tools
 #    here; the installed modes come from the file lists below. ──
 install -d -m 0755 %{buildroot}/opt/ai-tools
 install -d -m 0755 %{buildroot}/opt/ai-tools/bin
-# The shared skills root: agent-agnostic content the base owns, symlinked into each agent's own
-# skills directory rather than copied per agent.
+# The shared asset roots: agent-agnostic content the base owns, symlinked into each agent's own
+# directories rather than copied per agent.
 install -d -m 0750 %{buildroot}/opt/ai-tools/skills
+install -d -m 0750 %{buildroot}/opt/ai-tools/subagents
 # Default-deny git guard for the control-plane home: ai-tools-bootstrap captures the control
 # plane in a root-private git repo, and this gitignore keeps secrets and churn out of it. The
 # LIVE /opt/ai-tools/.gitignore is NOT rpm-owned -- neither it nor the host-derived .gitconfig
@@ -406,13 +407,15 @@ fi
 if command -v restorecon >/dev/null 2>&1; then
     restorecon /opt/ai-tools/.gitignore /opt/ai-tools/.gitconfig >/dev/null 2>&1 || :
 fi
-# Seed the ai-tools-managed SKILLS into the shared root, reusing the seeder under an explicit
-# bash (the lib is bash; a %post scriptlet runs under /bin/sh). Skills are agent-agnostic, so they
-# are seeded once here and each agent package symlinks them into its own skills directory.
-# Non-interactive, so an existing managed skill is kept and only an absent one is seeded.
-if [ -d %{_datadir}/ai-tools/skills ] && command -v bash >/dev/null 2>&1; then
-    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools ai-tools skills; ai_tools_link_asset_readme %{_datadir}/ai-tools/skills/README.md /opt/ai-tools/skills ai-tools' >/dev/null 2>&1 || :
-fi
+# Seed each ai-tools-managed SHARED kind into its own root, reusing the seeder under an explicit
+# bash (the lib is bash; a %post scriptlet runs under /bin/sh). Skills and subagent definitions
+# are agent-agnostic, so they are seeded once here and each agent package symlinks them into the
+# directories it reads. Non-interactive, so an existing managed asset is kept and only an absent
+# one is seeded.
+for kind in skills subagents; do
+    [ -d %{_datadir}/ai-tools/${kind} ] && command -v bash >/dev/null 2>&1 || continue
+    bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools ai-tools ${kind}; ai_tools_link_asset_readme %{_datadir}/ai-tools/${kind}/README.md /opt/ai-tools/${kind} ai-tools" >/dev/null 2>&1 || :
+done
 # Operator binding + toolchain are per-operator / network steps a scriptlet must not do; direct
 # the operator to them. ai-tools-bootstrap installs the Node toolchain; ai-tools-admin operator
 # add binds an operator (OPERATORS list + ai-ops membership + linger + allowlist seed).
@@ -587,12 +590,15 @@ fi
 # the agent's own subtrees (.nvm/.cache/...) under the home as the sandbox account.
 %dir %attr(2751, root, ai-tools) /opt/ai-tools
 %dir %attr(0551, root, ai-tools) /opt/ai-tools/bin
-# Shared skills: one place for agent-agnostic skill content; each agent's config directory
-# carries symlinks into it (control-plane.lib.sh CP_SHARED_SKILLS). The seeded skills inside are
-# NOT rpm-owned, like the other control-plane content, so an erase preserves operator updates.
+# Shared asset roots: one place for each kind of agent-agnostic content; every agent's config
+# directory carries symlinks into them (control-plane.lib.sh CP_SHARED_SKILLS /
+# CP_SHARED_SUBAGENTS). The seeded assets inside are NOT rpm-owned, like the other control-plane
+# content, so an erase preserves operator updates.
 %dir %attr(0750, root, ai-tools) /opt/ai-tools/skills
-# Pristine skill reseed source (rpm-owned), the format-neutral half of the shipped assets.
+%dir %attr(0750, root, ai-tools) /opt/ai-tools/subagents
+# Pristine reseed sources (rpm-owned) for both shared kinds.
 %{_datadir}/ai-tools/skills
+%{_datadir}/ai-tools/subagents
 # /opt/ai-tools/.gitignore and .gitconfig are deliberately NOT listed here: rpm-owning them
 # would delete them on erase. They are scriptlet-managed (%post reseed-if-missing) so an erase
 # preserves the operator's copies. The canonical .gitignore reseed source ships read-only here.
