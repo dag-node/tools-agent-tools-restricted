@@ -55,7 +55,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Claude Code settings, Bash deny rules ↔ SELinux policy | `.claude/settings.json` | [claude-settings](.claude/rules/claude-settings.rule.md) |
 | Shipped Claude assets (agents/skills), managed-asset seeding | `.claude/agents/**`, `.claude/skills/**`, `lib/ai-tools/managed-assets.lib.sh` | [shipped-claude-assets](.claude/rules/shipped-claude-assets.rule.md) |
 | Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secret-handling.rule.md) |
-| Toolchain provisioning + Node/claude updater, symlink repoint, post-upgrade relabel | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `ai-tools-claude-symlink.sh`, `ai-tools-relabel-entrypoint.sh`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
+| Toolchain provisioning + Node/claude updater, symlink repoint, post-upgrade relabel | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `ai-tools-launcher-symlink.sh`, `ai-tools-relabel-entrypoint.sh`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
 | Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, the `session-env.d` session-env seam, and the dotnet integration | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,session-env}.d/**`, `ai-tools-dotnet.sh`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
 | Management CLI, project lifecycle, relabel | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel}.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
 | Protected-paths backstop (refuse system dirs as targets) | `safe-paths.lib.sh` + the wrapper/CLI/elevated helpers | [safe-paths](.claude/rules/safe-paths.rule.md) |
@@ -208,7 +208,7 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   its manifest, and its session-env fragment, and inherits the single `%ai-ops` sudoers grant
   rather than adding one. See [launch](.claude/rules/launch.rule.md).
 - **Root sudo-helpers** live under `/usr/local/sbin/ai-tools/` (`chown`, `setgid`, `setfacl`,
-  `unclaim`, `safedir`, `reclaim`, `claude-symlink`, `lockdown`, `relabel`, `bootstrap`,
+  `unclaim`, `safedir`, `reclaim`, `launcher-symlink`, `lockdown`, `relabel`, `bootstrap`,
   `relabel-entrypoint`, `admin`, `dotnet`); shared libraries under `/usr/local/lib/ai-tools/`
   (`conf`, `secret-patterns`, `skip-dirs`, `safe-paths`, `relabel`, `operator`, `control-plane`,
   `confinement`, `npm-verify`, `managed-assets`, `providers`, `msg`, `log`), plus `path-dedup.sh`,

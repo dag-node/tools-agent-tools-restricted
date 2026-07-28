@@ -9,7 +9,7 @@
 # calling hook can surface NOTICEs in the Claude Code session), and exits 0 on
 # OK or 1 on ERR/error.
 #
-# Replaces `sudo ai-tools-{chown,setgid,claude-symlink}` everywhere it was
+# Replaces `sudo ai-tools-{chown,setgid,launcher-symlink}` everywhere it was
 # called from the agent process tree.  Those sudo calls fail silently under NNP
 # (PR_SET_NO_NEW_PRIVS, forced by RestrictNamespaces=yes in the session service
 # unit) because NNP drops the SUID bit on sudo, leaving it running as

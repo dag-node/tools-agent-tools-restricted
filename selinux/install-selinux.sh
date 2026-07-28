@@ -71,7 +71,7 @@ readonly SANDBOX_PROJECTS="/var/opt/ai-tools/sandbox-projects"
 # domain. Applied via semanage (dynamic home path), not ai_tools.fc (fixed paths).
 readonly CONF_DIR="${PROJECTS_HOME}/.config/ai-tools"
 # Root-helper operation logs. Labelled ai_tools_log_t (static rule in ai_tools.fc) so
-# the helpers that run IN ai_tools_t (chown, setgid, claude-symlink) may append under
+# the helpers that run IN ai_tools_t (chown, setgid, launcher-symlink) may append under
 # enforcing. A plain restorecon applies the label; created by install.sh.
 readonly LOG_DIR="/var/log/ai-tools"
 # The handback socket runtime dir. /run is tmpfs, so systemd recreates this via

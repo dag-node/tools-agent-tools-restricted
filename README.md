@@ -246,18 +246,20 @@ same as the package path — see
 `/opt/ai-tools/bin/nvm-update.sh`, which resolves the latest LTS in the `NVM_NODE_MAJOR`
 series, installs it under `/opt/ai-tools/.nvm`, refreshes the global tools, prunes, and:
 
-- repoints the `/opt/ai-tools/bin/claude` symlink at the new versioned binary via the
-  handback socket bridge (`SYMLINK` verb → `ai-tools-claude-symlink`). `bin` is locked
-  `0551`, so the `${SANDBOX_USER}` updater cannot write it directly; the helper validates
-  the versioned path and is the only writer of that dir.
+- repoints each enabled agent's `/opt/ai-tools/bin/<launcher>` symlink at the new versioned
+  binary via the handback socket bridge (`SYMLINK` verb → `ai-tools-launcher-symlink`). `bin`
+  is locked `0551`, so the `${SANDBOX_USER}` updater cannot write it directly; the helper
+  validates the versioned path, accepts only a launcher an enabled agent manifest claims, and
+  is the only writer of that dir.
 - prunes old Node versions (any not referenced by a named alias) — **except** a version a
   live process still runs from. The prune scans `/proc/<pid>/exe` and defers such a
   version to the next cycle, so an update never deletes the toolchain out from under a
   running Claude session.
 
-The `ai-tools-relabel.path` watcher sees the symlink repoint and runs
-`ai-tools-relabel-entrypoint` (root) to restore `ai_tools_exec_t` on the new `claude.exe`,
-so the SELinux domain transition keeps firing. Until the entrypoint is relabelled,
+The `ai-tools-relabel.path` watcher sees the repoint (it watches the `bin` directory, so one
+watch covers every agent) and runs `ai-tools-relabel-entrypoint` (root) to restore
+`ai_tools_exec_t` on each enabled agent's new entrypoint, so the SELinux domain transition keeps
+firing. Until the entrypoint is relabelled,
 `ai-tools-run` fail-closes (refuses to launch rather than run unconfined); `ai-tools
 --relabel` is the manual fallback.
 

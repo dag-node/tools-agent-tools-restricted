@@ -22,7 +22,7 @@
 #
 # A group rule (`%ai-ops`) covers every operator from one static drop-in: the package ships it,
 # and membership in ai-ops (managed by ai-tools-admin) is what grants access, so there is no
-# per-operator line to generate. Ownership handback (ai-tools-chown, -setgid, -claude-symlink)
+# per-operator line to generate. Ownership handback (ai-tools-chown, -setgid, -launcher-symlink)
 # is NOT here: it goes through the ai-tools-handback socket daemon, which the agent reaches via
 # /usr/local/bin/ai-tools-handback-client -- sudo's SUID bit is dropped under NNP anyway.
 #

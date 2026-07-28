@@ -27,7 +27,7 @@
 # via `install-selinux.sh rebuild`/`relabel`, never a bare restorecon of the tree, which
 # could leave the inode lib_t and trip the fail-closed launch preflight.)
 
-# The root helpers grouped under one dir (chown, setgid, claude-symlink, lockdown).
+# The root helpers grouped under one dir (chown, setgid, launcher-symlink, lockdown).
 # They run IN ai_tools_handback_t (bin_t, execute_no_trans -- no separate domain).
 # Stated explicitly so restorecon labels the dir and all contents consistently.
 /usr/local/sbin/ai-tools(/.*)?  gen_context(system_u:object_r:bin_t,s0)
@@ -49,7 +49,7 @@
 # above -- only this one. cockpit and mount declare both forms for the same reason.
 /var/run/ai-tools(/.*)?  gen_context(system_u:object_r:ai_tools_run_t,s0)
 
-# The root-helper operation logs. ai-tools-chown / -setgid / -claude-symlink run IN
+# The root-helper operation logs. ai-tools-chown / -setgid / -launcher-symlink run IN
 # ai_tools_handback_t and append here; the domain is granted append/create on
 # ai_tools_log_t in ai_tools.te. DAC keeps it root-only (dir 700, files 600).
 /var/log/ai-tools(/.*)?  gen_context(system_u:object_r:ai_tools_log_t,s0)

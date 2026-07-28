@@ -127,7 +127,7 @@ but only recompiles if you answer its prompt, and it re-offers the optional grou
 Repeat exercise → `audit2allow` → fold-in → reload until `ausearch` shows **no new
 `ai_tools_t` denials** across a full session including git push and an update run.
 Expect to add at least: exec of `sudo` and the transition that runs the two root
-helpers (`ai-tools-chown`, `ai-tools-claude-symlink`), plus some temp-file /
+helpers (`ai-tools-chown`, `ai-tools-launcher-symlink`), plus some temp-file /
 `/proc/self` / socket access — these are deliberately left out of the shipped
 skeleton so each lands as an *observed* rule, not a guess.
 

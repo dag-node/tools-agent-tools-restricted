@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # /usr/local/lib/ai-tools/log.lib.sh
 # Shared leveled logger for the ai-tools sandbox components. Sourced (not executed)
-# by the sudo root helpers (ai-tools-chown / -setgid / -claude-symlink / -lockdown),
+# by the sudo root helpers (ai-tools-chown / -setgid / -launcher-symlink / -lockdown),
 # the lifecycle hooks (post-tool-hook.sh, session-hook.sh), and the ai-tools project
 # CLI, so every component records DEBUG / INFO / WARNING / ERROR lines in one format
 # to two sinks:

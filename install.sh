@@ -214,16 +214,17 @@ lockdown_nvm_permissions() {
     done
 }
 
-# Create /opt/ai-tools/bin/claude -> versioned claude binary directly, without
-# running nvm-update.service (which also prunes old Node versions).
-# Emits a warning and returns when ai-tools nvm or claude is not yet installed.
-bootstrap_claude_symlink() {
+# Point /opt/ai-tools/bin/<launcher> at each enabled agent's versioned binary directly, without
+# running nvm-update.service (which also prunes old Node versions). Which launchers those are
+# comes from the agent manifests, so this installer names no agent. Emits a warning and returns
+# when the sandbox nvm tree or a launcher is not yet installed.
+bootstrap_launcher_symlinks() {
     local ai_nvm_dir="/opt/ai-tools/.nvm"
     local ai_tools_bin="/opt/ai-tools/bin"
     TOOLCHAIN_PROVISIONED=0
 
     if [[ ! -s "${ai_nvm_dir}/nvm.sh" ]]; then
-        warn "ai-tools: nvm not found at ${ai_nvm_dir}/nvm.sh -- symlink skipped"
+        warn "ai-tools: nvm not found at ${ai_nvm_dir}/nvm.sh -- launcher symlinks skipped"
         warn "         provision the toolchain: sudo ai-tools-bootstrap"
         return
     fi
@@ -236,34 +237,54 @@ bootstrap_claude_symlink() {
         2>/dev/null || true)"
 
     if [[ -z "${node_version}" || "${node_version}" == "N/A" ]]; then
-        warn "ai-tools: nvm 'default' alias not set -- symlink skipped"
+        warn "ai-tools: nvm 'default' alias not set -- launcher symlinks skipped"
         warn "         provision the toolchain: sudo ai-tools-bootstrap"
         return
     fi
 
-    local versioned_claude="${ai_nvm_dir}/versions/node/${node_version}/bin/claude"
-    if [[ ! -x "${versioned_claude}" ]]; then
-        warn "ai-tools: claude not found at ${versioned_claude} -- symlink skipped"
-        warn "         provision the toolchain: sudo ai-tools-bootstrap"
+    # The enabled agents' launchers, from the manifests deployed above (providers.lib.sh is the
+    # same resolver the updater and ai-tools-run use). A resolver that will not load leaves the
+    # list empty and the warning below says so.
+    local -a launchers=()
+    # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/providers.lib.sh
+    if source /usr/local/lib/ai-tools/providers.lib.sh 2>/dev/null \
+            && declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+        local manifest_launcher
+        while IFS=$'\t' read -r _ _ manifest_launcher; do
+            [[ -n "${manifest_launcher}" ]] && launchers+=("${manifest_launcher}")
+        done < <(ai_tools_enabled_agents 2>/dev/null)
+    fi
+    if (( ${#launchers[@]} == 0 )); then
+        warn "ai-tools: no enabled agent to link -- launcher symlinks skipped"
+        warn "         check the agents in /etc/ai-tools/operator.conf, then: sudo ai-tools-bootstrap"
         return
     fi
 
     # Lock /opt/ai-tools/bin to 0551, owned root:ai-tools: ai-tools gets group r-x
-    # (it must execute nvm-update.sh and resolve the claude symlink) but no write, so
-    # the agent can neither tamper with the updater nor swap the symlink the wrapper
-    # resolves and trusts; the o+x search bit lets an operator readlink bin/claude.
+    # (it must execute nvm-update.sh and resolve the launcher symlinks) but no write, so
+    # the agent can neither tamper with the updater nor swap a symlink a wrapper
+    # resolves and trusts; the o+x search bit lets an operator readlink bin/<launcher>.
     # Enforce even when the dir pre-existed (README step 3 creates it ai-tools-owned).
     ensure_dir 551 root "${SANDBOX_GROUP}" "${ai_tools_bin}"
     chown "root:${SANDBOX_GROUP}" "${ai_tools_bin}"
     chmod 551 "${ai_tools_bin}"
-    # Create the symlink via the root helper -- the only writer of the locked dir,
-    # and the same validating path the sandbox updater uses on every Node upgrade.
-    if /usr/local/sbin/ai-tools/ai-tools-claude-symlink "${versioned_claude}"; then
-        TOOLCHAIN_PROVISIONED=1
-        log "symlink ${ai_tools_bin}/claude -> ${versioned_claude}"
-    else
-        warn "ai-tools: failed to create ${ai_tools_bin}/claude symlink"
-    fi
+    # Create each symlink via the root helper -- the only writer of the locked dir, and the same
+    # validating path the sandbox updater uses on every Node upgrade.
+    local launcher versioned_launcher
+    for launcher in "${launchers[@]}"; do
+        versioned_launcher="${ai_nvm_dir}/versions/node/${node_version}/bin/${launcher}"
+        if [[ ! -x "${versioned_launcher}" ]]; then
+            warn "ai-tools: ${launcher} not found at ${versioned_launcher} -- its symlink is skipped"
+            warn "         provision the toolchain: sudo ai-tools-bootstrap"
+            continue
+        fi
+        if /usr/local/sbin/ai-tools/ai-tools-launcher-symlink "${versioned_launcher}"; then
+            TOOLCHAIN_PROVISIONED=1
+            log "symlink ${ai_tools_bin}/${launcher} -> ${versioned_launcher}"
+        else
+            warn "ai-tools: failed to create the ${ai_tools_bin}/${launcher} symlink"
+        fi
+    done
 }
 
 # Restore SELinux file contexts for every path this script deploys.
@@ -440,7 +461,7 @@ do_summary() {
     _chk /usr/local/sbin/ai-tools/ai-tools-unclaim
     _chk /usr/local/sbin/ai-tools/ai-tools-safedir
     _chk /usr/local/sbin/ai-tools/ai-tools-reclaim
-    _chk /usr/local/sbin/ai-tools/ai-tools-claude-symlink
+    _chk /usr/local/sbin/ai-tools/ai-tools-launcher-symlink
     _chk /usr/local/sbin/ai-tools/ai-tools-lockdown
     _chk /usr/local/sbin/ai-tools/ai-tools-relabel
     _chk /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
@@ -532,7 +553,7 @@ print_banner() {
 
 # Deploy every sandbox file with its intended owner and mode (root helpers, libs,
 # hooks, the wrapper, the CLI, systemd units), seed user config without clobbering
-# edits, bootstrap the claude symlink, enable the nvm-update timer, restore SELinux
+# edits, bootstrap the launcher symlinks, enable the nvm-update timer, restore SELinux
 # contexts, offer the optional SELinux bring-up, and -- if confirmed at the end --
 # run the installed-files summary and the test suite (which includes the permissions
 # check). Aborts if the sandbox user is absent.
@@ -625,10 +646,10 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-reclaim.sh" \
         /usr/local/sbin/ai-tools/ai-tools-reclaim
 
-    log "/usr/local/sbin/ai-tools/ai-tools-claude-symlink"
+    log "/usr/local/sbin/ai-tools/ai-tools-launcher-symlink"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-claude-symlink.sh" \
-        /usr/local/sbin/ai-tools/ai-tools-claude-symlink
+        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-launcher-symlink.sh" \
+        /usr/local/sbin/ai-tools/ai-tools-launcher-symlink
 
     # Shared libraries, sourced by the helpers AND by the operator-run CLI/wrapper.
     # The dir is root-owned, group SANDBOX_GROUP, 0751: the agent enters via group,
@@ -899,9 +920,10 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/lib/systemd/user/nvm-update.timer" \
         /usr/lib/systemd/user/nvm-update.timer
 
-    # Post-upgrade relabel watcher. The .path watches the bin/claude symlink the updater
-    # repoints and triggers the root-side .service (restorecon to ai_tools_exec_t), so the
-    # SELinux domain transition keeps firing after a Node bump. 644 root:root.
+    # Post-upgrade relabel watcher. The .path watches the control-plane bin directory whose
+    # entries the updater repoints, and triggers the root-side .service (restorecon to
+    # ai_tools_exec_t), so the SELinux domain transition keeps firing after a Node bump for
+    # whichever agent's launcher moved. 644 root:root.
     log "/usr/lib/systemd/system/ai-tools-relabel.path"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/lib/systemd/system/ai-tools-relabel.path" \
@@ -1299,9 +1321,9 @@ do_install() {
     systemctl enable --now ai-tools-handback.socket
     systemctl enable --now ai-tools-relabel.path
 
-    section "Finalising (claude symlink, SELinux)"
+    section "Finalising (launcher symlinks, SELinux)"
     lockdown_nvm_permissions
-    bootstrap_claude_symlink
+    bootstrap_launcher_symlinks
     do_selinux_restore
 
     offer_selinux
@@ -1410,8 +1432,8 @@ do_uninstall() {
 
     log "ai-tools control-plane files"
     # Remove only the deployed control-plane scripts and settings by name. Keep
-    # /opt/ai-tools/bin itself and the bin/claude symlink: it points into the preserved
-    # .nvm toolchain, so the entrypoint stays live for a reinstall without a re-bootstrap.
+    # /opt/ai-tools/bin itself and the launcher symlinks in it: they point into the preserved
+    # .nvm toolchain, so the entrypoints stay live for a reinstall without a re-bootstrap.
     # The agent's own state under .claude (e.g. .claude.json, project state) is likewise kept.
     rm -f /opt/ai-tools/bin/nvm-update.sh
     rm -f /opt/ai-tools/bin/ai-tools-run /opt/ai-tools/bin/claude-run

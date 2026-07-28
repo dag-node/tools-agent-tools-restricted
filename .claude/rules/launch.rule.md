@@ -44,7 +44,7 @@ of that unit (namespaces, SELinux transition, `/tmp`) lives in
    `SANDBOX_USER`, with the sandbox home as `WorkingDirectory`.
 
 The resolved path is validated as an integrity check against a misconfigured or
-compromised `ai-tools-claude-symlink` root helper, not a guard against external
+compromised `ai-tools-launcher-symlink` root helper, not a guard against external
 injection — only root writes `/opt/ai-tools/bin` (`0551 root:SANDBOX_GROUP`).
 
 ### Symlink resolution is one hop, not full resolution

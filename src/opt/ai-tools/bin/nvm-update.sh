@@ -130,8 +130,8 @@ install_packages() {
 
 # main: resolve the latest LTS in the vMAJOR series (or take it from $1), install it
 # under /opt/ai-tools if not already active, refresh the sandbox global tools, prune
-# superseded versions, and repoint the stable /opt/ai-tools/bin/claude symlink at the
-# versioned binary.
+# superseded versions, and repoint each enabled agent's stable /opt/ai-tools/bin/<launcher>
+# symlink at the versioned binary.
 # args:  optional target Node version override (e.g. v22.15.0)
 main() {
     local target_version="${1:-}"
@@ -175,32 +175,35 @@ main() {
 
     nvm use "${node_alias}"
 
+    # The enabled agents -- their npm packages (installed below) and their launchers (repointed
+    # at the end) -- come from the manifests via providers.lib.sh, the same seam
+    # ai-tools-bootstrap uses, so this updater names no agent. Guarded load: providers.lib.sh
+    # returns non-zero and defines nothing when its own dependency (conf.lib.sh, the shared
+    # KEY=value grammar) is missing, so probe the resolver rather than assume the source
+    # succeeded -- a bare `source` under set -e would abort the run instead of degrading. A
+    # missing lib is a broken install (root-owned, so not agent action): existing agents keep
+    # working, they are simply not refreshed or repointed this run.
+    local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
+    local -a agent_packages=() agent_launchers=()
+    # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/providers.lib.sh
+    if source "${providers_lib}" 2>/dev/null \
+            && declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+        local manifest_package manifest_launcher
+        while IFS=$'\t' read -r _ manifest_package manifest_launcher; do
+            [[ -n "${manifest_package}" ]]  && agent_packages+=("${manifest_package}")
+            [[ -n "${manifest_launcher}" ]] && agent_launchers+=("${manifest_launcher}")
+        done < <(ai_tools_enabled_agents)
+    else
+        warn "provider resolver unavailable (${providers_lib}) -- updating npm only; enabled agents are unrefreshed and their launchers unrepointed this run"
+    fi
+
     # The managed tool set: an explicit AI_TOOLS_GLOBAL_TOOLS (unit Environment= or manual)
-    # overrides; otherwise npm (self-update) plus each enabled agent's npm package, resolved from
-    # the agent manifests via providers.lib.sh -- the same seam ai-tools-bootstrap uses, so the
-    # updater carries no hardcoded agent. A missing lib (a broken install, root-owned so not agent
-    # action) degrades to npm alone: existing agents keep working, they are simply not refreshed
-    # this run.
+    # overrides; otherwise npm (self-update) plus each enabled agent's package.
     local -a tools
     if [[ -n "${AI_TOOLS_GLOBAL_TOOLS:-}" ]]; then
         IFS=' ' read -ra tools <<< "${AI_TOOLS_GLOBAL_TOOLS}"
     else
-        tools=(npm)
-        local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
-        # Guarded load: providers.lib.sh returns non-zero and defines nothing when its own
-        # dependency (conf.lib.sh, the shared KEY=value grammar) is missing, so probe the resolver
-        # rather than assume the source succeeded -- a bare `source` under set -e would abort the
-        # run instead of degrading to npm-only.
-        # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/providers.lib.sh
-        if source "${providers_lib}" 2>/dev/null \
-                && declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
-            local manifest_package
-            while IFS=$'\t' read -r _ manifest_package _; do
-                [[ -n "${manifest_package}" ]] && tools+=("${manifest_package}")
-            done < <(ai_tools_enabled_agents)
-        else
-            warn "provider resolver unavailable (${providers_lib}) -- updating npm only; enabled agents are unrefreshed this run"
-        fi
+        tools=(npm "${agent_packages[@]}")
     fi
     # The full managed set is the allow-scripts allowlist -- npm re-scans the whole
     # global tree on every install, so each call must cover all of them (see install_packages).
@@ -215,29 +218,31 @@ main() {
 
     prune_versions "${node_alias}"
 
-    # Refresh the stable symlink the wrapper resolves with one readlink hop. This stays
-    # claude-specific: claude is the only launcher the wrapper and the ai-tools-claude-symlink
-    # helper (which validates a .../bin/claude path) support today, so per-agent launcher repoints
-    # travel with a second agent and that helper's generalization. Skip cleanly when claude is not
-    # installed (e.g. an operator who dropped it from AI_TOOLS_AGENTS) rather than failing the run.
+    # Refresh the stable launcher symlink each wrapper resolves with one readlink hop -- one per
+    # enabled agent, from the same manifest-resolved set installed above, so the updater names no
+    # agent here either. A launcher missing from the new version (an agent whose install failed,
+    # or one an operator dropped from AI_TOOLS_AGENTS) is skipped rather than failing the run.
     # /opt/ai-tools/bin is locked 0551 (root:ai-tools) so this process -- running as ai-tools --
-    # cannot write it directly; delegate the repoint to the root helper via the handback socket
+    # cannot write it directly; delegate each repoint to the root helper via the handback socket
     # bridge (sudo fails under NNP, which the session service always runs under due to
     # RestrictNamespaces=yes forcing PR_SET_NO_NEW_PRIVS).
-    local versioned_claude="${nvm_dir}/versions/node/${target_version}/bin/claude"
-    if [[ -x "${versioned_claude}" ]]; then
-        # Repoint (and, via the ai-tools-relabel.path watcher the touched symlink drives,
+    local launcher versioned_launcher
+    for launcher in "${agent_launchers[@]}"; do
+        versioned_launcher="${nvm_dir}/versions/node/${target_version}/bin/${launcher}"
+        if [[ ! -x "${versioned_launcher}" ]]; then
+            log "${launcher} not installed in ${target_version} -- skipping its stable-symlink repoint"
+            continue
+        fi
+        # Repoint (and, via the ai-tools-relabel.path watcher the touched bin directory drives,
         # relabel) is best-effort, NOT fatal: this warns rather than dying. A manual/out-of-band
         # run (this script's documented use) executes outside a session, where the handback
         # socket may be down -- and the toolchain is already installed by this point, so aborting
         # here would strand a completed update over a symlink the operator can repoint by hand.
         # The scheduled timer run has the socket up and repoints normally.
-        if ! /usr/local/bin/ai-tools-handback-client SYMLINK "${versioned_claude}"; then
-            warn "failed to repoint ${AI_TOOLS_BIN}/claude via handback SYMLINK -- the toolchain is updated but the stable symlink may be stale; repoint it as root: ln -sfn ${versioned_claude} ${AI_TOOLS_BIN}/claude && ai-tools --relabel"
+        if ! /usr/local/bin/ai-tools-handback-client SYMLINK "${versioned_launcher}"; then
+            warn "failed to repoint ${AI_TOOLS_BIN}/${launcher} via handback SYMLINK -- the toolchain is updated but the stable symlink may be stale; repoint it as root: ln -sfn ${versioned_launcher} ${AI_TOOLS_BIN}/${launcher} && ai-tools --relabel"
         fi
-    else
-        log "claude not installed in ${target_version} -- skipping the stable-symlink repoint"
-    fi
+    done
 
     log "Done. Active: $(nvm version "${node_alias}")"
 }

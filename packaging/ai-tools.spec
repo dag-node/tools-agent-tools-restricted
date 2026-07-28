@@ -289,7 +289,7 @@ find %{buildroot}%{_datadir}/ai-tools/agents %{buildroot}%{_datadir}/ai-tools/sk
 find %{buildroot}%{_datadir}/ai-tools/agents %{buildroot}%{_datadir}/ai-tools/skills -type f -exec chmod 0644 {} +
 
 # ── integration-nodejs: toolchain helpers + updater ──────────────────────────
-for h in ai-tools-claude-symlink ai-tools-relabel-entrypoint ai-tools-bootstrap; do
+for h in ai-tools-launcher-symlink ai-tools-relabel-entrypoint ai-tools-bootstrap; do
     install -m 0750 src%{ai_sbindir}/${h}.sh %{buildroot}%{ai_sbindir}/${h}
 done
 # ai-tools-bootstrap is administrator-typed (documented as a bare command); symlinked in
@@ -580,7 +580,7 @@ fi
 # Umbrella metapackage: no files of its own; weakly pulls the ai-tools-integration-* members.
 
 %files -n ai-tools-integration-nodejs
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-claude-symlink
+%attr(0750, root, root) %{ai_sbindir}/ai-tools-launcher-symlink
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-relabel-entrypoint
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-bootstrap
 %{_sbindir}/ai-tools-bootstrap
@@ -631,6 +631,10 @@ fi
   capability, so the base policy names no agent: each enabled agent's entrypoint is labelled
   ai_tools_exec_t from the rule its manifest declares, and an agent that drives no handback hooks
   of its own has its project swept back to the operator when the session ends.
+- The toolchain updater repoints every enabled agent's launcher symlink, not just Claude Code's:
+  ai-tools-claude-symlink is now ai-tools-launcher-symlink, it accepts only a launcher an enabled
+  agent manifest claims, and the post-upgrade relabel watcher observes the whole launcher
+  directory.
 - ai-tools --providers reports the installed agents and integrations, which are enabled, and why.
 - ai-tools-integration-dotnet integrates a host-managed .NET toolchain (no runtime packaged, no
   dotnet RPM dependency, inert without one): DOTNET_ROOT, a sandbox-writable NuGet cache, and the

@@ -310,10 +310,3 @@ sweep), the confinement unit, and the single `%ai-ops` sudoers grant.
 
 None of it is built. The fields are named here so the first non-npm agent adds a runtime to the
 seam rather than reshaping it.
-
-## Deferred
-
-- **Per-agent launcher symlink repoint.** The stable-symlink repoint (`ai-tools-claude-symlink`, the
-  handback `SYMLINK` verb) validates a `.../bin/claude` path, so it is claude-specific; `nvm-update`
-  repoints only `claude` and skips cleanly when it is not installed. Generalizing to arbitrary
-  launchers travels with a second agent.

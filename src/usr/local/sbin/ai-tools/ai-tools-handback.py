@@ -14,7 +14,7 @@
 # Verbs:
 #   CHOWN  <abs-path>        -- ownership handback (ai-tools-chown)
 #   SETGID <abs-path>        -- setgid normalisation (ai-tools-setgid)
-#   SYMLINK <versioned-path> -- stable symlink repoint (ai-tools-claude-symlink)
+#   SYMLINK <versioned-path> -- launcher symlink repoint (ai-tools-launcher-symlink)
 #
 # Security model:
 #   DAC: socket is 0660 SocketGroup=@SANDBOX_GROUP@ -- only root and @SANDBOX_USER@
@@ -159,7 +159,7 @@ _MAX_MSG_LINES = 50
 _HELPERS = {
     'CHOWN':   '/usr/local/sbin/ai-tools/ai-tools-chown',
     'SETGID':  '/usr/local/sbin/ai-tools/ai-tools-setgid',
-    'SYMLINK': '/usr/local/sbin/ai-tools/ai-tools-claude-symlink',
+    'SYMLINK': '/usr/local/sbin/ai-tools/ai-tools-launcher-symlink',
 }
 
 

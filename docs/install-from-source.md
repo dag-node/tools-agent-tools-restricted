@@ -154,7 +154,7 @@ owner/group/mode list is `tests/integration/perms.sh`, which
 | src/opt/ai-tools/bin/nvm-update.sh | /opt/ai-tools/bin/nvm-update.sh |
 | src/usr/local/sbin/ai-tools/ai-tools-chown.sh | /usr/local/sbin/ai-tools/ai-tools-chown (root) |
 | src/usr/local/sbin/ai-tools/ai-tools-setgid.sh | /usr/local/sbin/ai-tools/ai-tools-setgid (root) |
-| src/usr/local/sbin/ai-tools/ai-tools-claude-symlink.sh | /usr/local/sbin/ai-tools/ai-tools-claude-symlink (root) |
+| src/usr/local/sbin/ai-tools/ai-tools-launcher-symlink.sh | /usr/local/sbin/ai-tools/ai-tools-launcher-symlink (root) |
 | src/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint.sh | /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint (root) |
 | src/usr/local/sbin/ai-tools/ai-tools-bootstrap.sh | /usr/local/sbin/ai-tools/ai-tools-bootstrap (root) |
 | src/usr/local/sbin/ai-tools/ai-tools-admin.sh | /usr/local/sbin/ai-tools/ai-tools-admin (root) |

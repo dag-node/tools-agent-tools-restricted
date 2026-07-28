@@ -21,7 +21,7 @@ policy_module(ai_tools_pkgmgmt, 0.1.0)
 ## Note: dnf and rpm typically require root. The agent runs them via sudo, which
 ## already works through the existing PAM/sudo path in the core module. If you
 ## want the agent to run dnf as root, add a sudoers rule for it separately --
-## the two existing rules (ai-tools-chown, ai-tools-claude-symlink) are the only
+## the two existing rules (ai-tools-chown, ai-tools-launcher-symlink) are the only
 ## ones the sandbox currently grants.
 
 require {

@@ -71,7 +71,7 @@ not the account itself and are coupled to other contracts:
 - filesystem paths — `/opt/ai-tools`, `~/.config/ai-tools`
 - SELinux types and modules — `ai_tools_t`, `ai_tools_conf_t`, `ai_tools.te`, …
 - root-helper binary names — `ai-tools-chown`, `ai-tools-lockdown`,
-  `ai-tools-claude-symlink`
+  `ai-tools-launcher-symlink`
 
 Renaming those would break paths, policy, and the sudoers grant; they stay
 literal regardless of `SANDBOX_USER`.
