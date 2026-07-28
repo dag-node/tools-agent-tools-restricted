@@ -23,6 +23,8 @@
 #   --sandbox-push   [path]   push the sandbox clone's commits to its branch
 #   --sandbox-remove [path]   remove a sandbox clone and unregister it
 #   --relabel                 relabel the claude entrypoint after a Node upgrade (sudo)
+#   --providers               report the installed agents/integrations, which are enabled,
+#                             and why (read-only; resolved through providers.lib.sh)
 #   --list                    list registered projects (real vs sandbox)
 #   --version                 print the installed ai-tools version
 #   --help
@@ -1386,6 +1388,87 @@ cmd_relabel() {
     fi
 }
 
+# cmd_providers  -- report the installed providers of both kinds and, for each, whether a
+# session gets it and why. Read-only: it resolves through providers.lib.sh, the same resolver
+# ai-tools-run and the toolchain layer use, so what it reports is what a session gets rather than
+# a second reading of operator.conf. The resolver's refusals -- an untrusted manifest, an
+# enabled-but-uninstalled name -- go to its stderr and are captured and shown here; at launch
+# they reach only the terminal and journald.
+cmd_providers() {
+    [[ "$#" -eq 0 ]] || die "--providers takes no arguments"
+    local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
+    # shellcheck source=SCRIPTDIR/../lib/ai-tools/providers.lib.sh
+    if ! source "${providers_lib}" 2>/dev/null \
+            || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1 \
+            || ! declare -F ai_tools_provider_gate  >/dev/null 2>&1; then
+        die "cannot load ${providers_lib} -- reinstall the ai-tools package"
+    fi
+
+    # The resolvers report every refusal on stderr; collect both kinds' into one file so they
+    # are shown together at the end instead of interleaved with the listings.
+    local refusals; refusals="$(mktemp)"
+
+    # gate_line <conf-key> -- the gating decision for one kind, in the operator's terms.
+    gate_line() {
+        case "$(ai_tools_provider_gate "$1")" in
+            allowlist) printf '%s in %s (an exact allowlist)' "$1" "${AI_TOOLS_OPERATOR_CONF}" ;;
+            untrusted) printf '%sdefault_enable only -- %s is ignored (not root-owned, or writable by group/other)%s' \
+                           "${C_YEL}" "${AI_TOOLS_OPERATOR_CONF}" "${C_RST}" ;;
+            *)         printf 'default_enable (no %s in %s)' "$1" "${AI_TOOLS_OPERATOR_CONF}" ;;
+        esac
+    }
+    # agent_detail <name> -- an agent manifest's own description of itself. Empty for a manifest
+    # the trust predicate refuses; that is the refusals block's story to tell.
+    agent_detail() {
+        local package launcher handback
+        package="$( ai_tools_agent_manifest_field "$1" npm_package || true)"
+        launcher="$(ai_tools_agent_manifest_field "$1" launcher    || true)"
+        handback="$(ai_tools_agent_manifest_field "$1" handback    || true)"
+        [[ -n "${package}" ]] || return 0
+        printf '%s%s%s' "${package}" "${launcher:+, launcher ${launcher}}" \
+            "${handback:+, handback ${handback}}"
+    }
+    # kind_block <label> <conf-key> <manifest-dir> <resolver> <detail-fn|-> -- one section per
+    # provider kind: the gating decision, then every INSTALLED manifest marked enabled or
+    # disabled. Installed comes from the directory listing and enabled from the resolver, so a
+    # manifest the resolver refuses shows as disabled with its reason in the refusals block.
+    kind_block() {
+        local label="$1" conf_key="$2" dir="$3" resolver="$4" detail_fn="$5"
+        local enabled manifest name detail state colour found=0
+        section "${label}"
+        say "  enabled by: $(gate_line "${conf_key}")"
+        # cut -f1 reads both resolvers the same way (agents print further TAB-separated fields).
+        enabled="$("${resolver}" 2>>"${refusals}" | cut -f1)"
+        for manifest in "${dir}"/*.conf; do
+            [[ -e "${manifest}" ]] || continue
+            found=1
+            name="${manifest##*/}"; name="${name%.conf}"
+            detail=""; [[ "${detail_fn}" == - ]] || detail="$("${detail_fn}" "${name}")"
+            if grep -qxF -- "${name}" <<<"${enabled}"; then
+                state=enabled;  colour="${C_GRN}"
+            else
+                state=disabled; colour="${C_DIM}"
+            fi
+            printf '    %s%-8s%s %-16s %s\n' "${colour}" "${state}" "${C_RST}" "${name}" "${detail}"
+        done
+        (( found )) || say "    (none installed)"
+    }
+
+    kind_block "Agents"       AI_TOOLS_AGENTS       "${AI_TOOLS_AGENTS_DIR}" \
+               ai_tools_enabled_agents agent_detail
+    kind_block "Integrations" AI_TOOLS_INTEGRATIONS "${AI_TOOLS_INTEGRATIONS_DIR}" \
+               ai_tools_enabled_integrations -
+
+    if [[ -s "${refusals}" ]]; then
+        section "Refused inputs"
+        sed 's/^/    /' "${refusals}"
+        say "    a refusal always means LESS access -- the provider is skipped, never guessed."
+    fi
+    rm -f "${refusals}"
+    say ""
+    say "  ${C_DIM}providers are enabled by name in ${AI_TOOLS_OPERATOR_CONF} (root-owned, root-edited)${C_RST}"
+}
+
 # cmd_list  -- print each allowlist entry as project, sandbox, or exclude, with its
 # git safe.directory status.
 cmd_list() {
@@ -1431,6 +1514,7 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
   ai-tools --lockdown [path] [-n|-y] lock down secret files (sudo; default: cwd)
   ai-tools --reclaim [--full] [path] hand agent-written files back to you (sudo; default: cwd)
   ai-tools --relabel                 relabel the claude entrypoint after a Node upgrade (sudo)
+  ai-tools --providers               list installed agents/integrations and which are enabled
   ai-tools --list                    list registered projects
   ai-tools --version
   ai-tools --help
@@ -1468,6 +1552,7 @@ case "${1:-}" in
     --lockdown)       shift; cmd_lockdown "$@" ;;
     --reclaim)        shift; cmd_reclaim "$@" ;;
     --relabel)        shift; cmd_relabel "$@" ;;
+    --providers)      shift; cmd_providers "$@" ;;
     --list)           cmd_list ;;
     --version|-V)     printf 'ai-tools %s\n' "${AI_TOOLS_VERSION}" ;;
     --help|-h|"")     usage ;;

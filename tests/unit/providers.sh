@@ -34,6 +34,7 @@ fi
 # shellcheck source=/dev/null
 if ! source "${LIB}" \
         || ! declare -F ai_tools_provider_is_enabled >/dev/null 2>&1 \
+        || ! declare -F ai_tools_agent_sweeps_at_exit >/dev/null 2>&1 \
         || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1 \
         || ! declare -F ai_tools_enabled_integrations >/dev/null 2>&1; then
     fail "could not source ${LIB} or it does not define the resolver functions"; finish; exit
@@ -58,13 +59,27 @@ verdict "allowlist opts in a default=no agent"     0 dotnet      no  yes "dotnet
 verdict "comma-separated allowlist names it"       0 claude-code no  yes "claude-code,other"
 verdict "mixed separators name it"                 0 other       no  yes "claude-code, other  third"
 
-# --- Resolver over a /tmp fixture tree (name<TAB>npm_pkg<TAB>launcher per enabled agent) ---
+# --- Pure verdict: ai_tools_agent_sweeps_at_exit <handback-declaration> -----------------------
+# Which side converges ownership. Only the exact literal "hooks" may switch the launcher's
+# session-end sweep OFF, so an unknown or absent declaration errs toward sweeping -- the safe
+# direction (a redundant walk, never a project tree left sandbox-owned).
+sweeps() {
+    local desc="$1" exp_rc="$2" declared="${3-}"
+    local rc=0; ai_tools_agent_sweeps_at_exit "${declared}" || rc=$?
+    if [[ "${rc}" -eq "${exp_rc}" ]]; then pass "${desc}"; else fail "${desc}: rc ${rc}, expected ${exp_rc}"; fi
+}
+sweeps "handback=hooks -> the agent's own hooks converge, no sweep" 1 hooks
+sweeps "handback=none  -> the launcher sweeps at session end"       0 none
+sweeps "absent handback -> sweeps (no declaration, no driver)"      0
+sweeps "unrecognized value -> sweeps (allowlist, not blocklist)"    0 Hooks
+
+# --- Resolver over a /tmp fixture tree (name<TAB>npm_package<TAB>launcher per enabled agent) ---
 # The fixtures are created by this root-run suite, so they are root-owned and non-group-writable:
 # the trusted state. The tamper section below deliberately breaks that per case and restores it.
 mktestdir
 agents_dir="${TESTDIR}/agents.d"; mkdir -p "${agents_dir}"
-printf 'npm_pkg=@anthropic-ai/claude-code\nlauncher=claude\ndefault_enable=yes\n' > "${agents_dir}/claude-code.conf"
-printf 'npm_pkg=@acme/experimental\nlauncher=acme\ndefault_enable=no\n'           > "${agents_dir}/experimental.conf"
+printf 'npm_package=@anthropic-ai/claude-code\nlauncher=claude\ndefault_enable=yes\n' > "${agents_dir}/claude-code.conf"
+printf 'npm_package=@acme/experimental\nlauncher=acme\ndefault_enable=no\n'           > "${agents_dir}/experimental.conf"
 export AI_TOOLS_AGENTS_DIR="${agents_dir}"
 conf="${TESTDIR}/operator.conf"
 
@@ -106,7 +121,7 @@ fi
 # --- Manifest field accessor: what ai-tools-run reads once it has resolved an agent -----------
 # The name becomes a path, so it is allowlisted to plain identifiers: anything else must resolve
 # nothing rather than address a file outside the manifest directory.
-printf 'npm_pkg=@anthropic-ai/claude-code\nlauncher=claude\ndisplay_name=Claude Code\ndefault_enable=yes\n' \
+printf 'npm_package=@anthropic-ai/claude-code\nlauncher=claude\ndisplay_name=Claude Code\ndefault_enable=yes\n' \
     > "${agents_dir}/claude-code.conf"
 if [[ "$(ai_tools_agent_manifest_field claude-code display_name || true)" == "Claude Code" ]]; then
     pass "manifest field read from a trusted manifest"

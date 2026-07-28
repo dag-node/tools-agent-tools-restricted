@@ -89,6 +89,23 @@ else
     fail "ai-tools-run does not pin UMask=0007 -- agent files may be born world-accessible"
 fi
 
+# Ownership handback needs exactly one driver. The shim sweeps the project at session end for
+# every agent EXCEPT one whose manifest declares handback=hooks, and the deployed claude-code
+# manifest must be that one: its own PostToolUse/Stop hooks already converge the tree per turn,
+# so a lost declaration would add a full-tree walk to the end of every Claude session. Read
+# through the resolver, the same accessor the shim uses.
+agent_manifest="/usr/local/lib/ai-tools/agents.d/claude-code.conf"
+providers_lib="/usr/local/lib/ai-tools/providers.lib.sh"
+# shellcheck source=/dev/null
+if [[ ! -r "${agent_manifest}" ]] || ! source "${providers_lib}" 2>/dev/null \
+        || ! declare -F ai_tools_agent_sweeps_at_exit >/dev/null 2>&1; then
+    skip "claude-code handback declaration" "manifest or provider resolver not deployed"
+elif ai_tools_agent_sweeps_at_exit "$(ai_tools_agent_manifest_field claude-code handback || true)"; then
+    fail "claude-code does not declare handback=hooks (${agent_manifest}) -- every session would end with a redundant full-tree sweep"
+else
+    pass "claude-code declares handback=hooks, so the shim adds no session-end sweep"
+fi
+
 section "ai-tools-run: AI_TOOLS_AGENT_EXEC / AI_TOOLS_PROJECT_DIR re-validation"
 
 if ! command -v runuser >/dev/null 2>&1; then

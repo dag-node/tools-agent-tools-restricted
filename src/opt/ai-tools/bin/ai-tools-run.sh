@@ -12,9 +12,10 @@
 # working directory) carried through sudo's env_keep. Both are re-validated here, so neither
 # side is a single point of trust.
 #
-# It names no agent. Which executables may launch, and what environment each session gets,
-# come from the root-owned provider manifests under /usr/local/lib/ai-tools/agents.d and the
-# session-env fragments under /usr/local/lib/ai-tools/session-env.d.
+# It names no agent. Which executables may launch, what environment each session gets, and
+# whether the session's ownership handback needs driving from here come from the root-owned
+# provider manifests under /usr/local/lib/ai-tools/agents.d and the session-env fragments under
+# /usr/local/lib/ai-tools/session-env.d.
 #
 # Operating notes:
 #   * The session appears as @SANDBOX_USER@-<agent>-<pid>.service in `systemctl --user`.
@@ -135,6 +136,10 @@ agent_name="${agent_name_by_launcher[${launcher_name}]:-}"
 
 agent_display_name="$(ai_tools_agent_manifest_field "${agent_name}" display_name || true)"
 [[ -n "${agent_display_name}" ]] || agent_display_name="${agent_name}"
+# Which side converges ownership after the agent writes a file. An agent that declares
+# handback=hooks drives it from its own tool/turn hooks; every other declaration gets the
+# session-end sweep below (see the sweep section).
+agent_handback="$(ai_tools_agent_manifest_field "${agent_name}" handback || true)"
 
 # ── Session working directory ────────────────────────────────────────────────────────────────
 # A transient unit does not inherit the caller's cwd, so the wrapper's validated project
@@ -282,6 +287,46 @@ fi
 (( ${#session_path_entries[@]} > 0 )) && session_path+=":$(IFS=:; printf '%s' "${session_path_entries[*]}")"
 session_environment_options+=( "--setenv=PATH=${session_path}" )
 
+# ── Session-end ownership sweep (agents that carry no handback hooks) ────────────────────────
+# Files the agent writes are born @SANDBOX_USER@-owned and are returned to the operator by the
+# ownership handback. An agent whose manifest declares handback=hooks drives that itself, per
+# turn (Claude Code's PostToolUse/Stop/SessionStart hooks); an agent that declares anything else
+# has no driver, and the operator's tree would silently stay sandbox-owned. For those the shim
+# sweeps once, after the session ends -- slower to converge than per-turn hooks, same end state.
+#
+# The walk only chooses which paths to OFFER: each one goes through the handback socket to
+# ai-tools-chown, which re-validates the allowlist, the exclusions, and the born-owner guard as
+# root, so this reaches nothing the hooks could not.
+readonly HANDBACK_CLIENT="/usr/local/bin/ai-tools-handback-client"
+
+# Directory-skip selector, shared with the hooks and the root helpers. Fail-SOFT by its own
+# design -- a skip list is walk cost, not an access boundary -- so a missing lib leaves a stub
+# that skips nothing: a slower, more thorough sweep, never a narrower one.
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/skip-dirs.lib.sh
+source "${AI_TOOLS_LIB_DIR}/skip-dirs.lib.sh" 2>/dev/null \
+    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
+
+# sweep_project_ownership : hand every @SANDBOX_USER@-owned path under the session's project
+# directory to ai-tools-chown through the handback socket. No project directory (a diagnostic
+# run outside a wrapper) or no client leaves it a no-op.
+sweep_project_ownership() {
+    [[ -n "${session_working_directory}" && -d "${session_working_directory}" ]] || return 0
+    [[ -x "${HANDBACK_CLIENT}" ]] || return 0
+    # The "reclaim" consumer omits the heavy dependency/build trees but WALKS .git -- the tree
+    # the per-turn hooks skip, and which nothing else on this path would reach.
+    ai_tools_skip_find_expr reclaim '' "${session_working_directory}"
+    local swept=0 path
+    while IFS= read -r -d '' path; do
+        "${HANDBACK_CLIENT}" CHOWN "${path}" >/dev/null 2>&1 || true
+        swept=$(( swept + 1 ))
+    done < <(find "${session_working_directory}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
+                  '(' -user '@SANDBOX_USER@' '(' -type f -o -type d ')' -print0 ')' 2>/dev/null)
+    if (( swept > 0 )); then
+        audit info "session-end sweep: handed back ${swept} path(s) under ${session_working_directory} (agent=${agent_name})"
+    fi
+    return 0
+}
+
 # ── Launch ───────────────────────────────────────────────────────────────────────────────────
 # Three versions are reported and logged: Node from the validated executable path, the agent from
 # its npm package.json, and ai-tools from the value stamped at install (@*@ means an
@@ -331,6 +376,12 @@ if [[ -t 1 ]]; then
     printf 'Running as unit: %s\n' "${session_unit_name}"
     printf '%s  logs: sudo journalctl _SYSTEMD_USER_UNIT=%s _UID=%s -xe%s\n\n' \
         $'\033[2m' "${session_unit_name}" "${EUID}" $'\033[0m'
+fi
+
+# An EXIT trap rather than a call after the run, so an interrupted shim (Ctrl-C, SIGTERM) still
+# converges the tree; a SIGKILL leaves it to the next session's sweep or `ai-tools --reclaim`.
+if ai_tools_agent_sweeps_at_exit "${agent_handback}"; then
+    trap 'sweep_project_ownership || true' EXIT
 fi
 
 # ExecStart is the entrypoint directly, so the manager's execve performs the domain transition

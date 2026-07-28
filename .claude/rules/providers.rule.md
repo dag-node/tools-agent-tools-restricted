@@ -27,10 +27,10 @@ Each installed member package ships one manifest, `/usr/local/lib/ai-tools/{agen
 same posture as `operator.conf`/`skip-dirs.lib.sh`, so a malformed or tampered manifest cannot
 execute code in the privileged scripts that read it:
 
-- agents: `npm_pkg` (the registry package), `launcher` (the bin symlinked at
+- agents: `npm_package` (the registry package), `launcher` (the bin symlinked at
   `/opt/ai-tools/bin/<launcher>`, and the name `ai-tools-run` matches an executable against to
   decide whether it may launch), `display_name` (what the launch banner and the unit description
-  call it), `default_enable`.
+  call it), `handback` (which side converges ownership — below), `default_enable`.
 - integrations: `default_enable`.
 
 Either kind may also ship `session-env.d/<name>.env.sh`, keyed by the same `<name>` — one flat
@@ -39,6 +39,30 @@ namespace across both kinds, so a provider name is unique host-wide.
 `ai-tools-base` owns the three directories (`agents.d`, `integrations.d`, `session-env.d`), ships
 `providers.lib.sh`, and owns the `ai-tools-run` shim that reads them; each member package ships
 only its own files into them.
+
+## The `handback` capability — which side converges ownership
+
+Files the agent writes are born `SANDBOX_USER`-owned, and the ownership handback returns them to
+the operator (see [ownership-and-hooks](ownership-and-hooks.rule.md)). That handback needs a
+**driver**, and only the agent knows whether it has one, so the manifest declares it:
+
+- **`handback=hooks`** — the agent runs the hooks itself, per tool call and per turn (Claude
+  Code's `PostToolUse`/`Stop`/`SessionStart`/`SessionEnd` entries in `settings.json`).
+  `ai-tools-run` adds nothing.
+- **anything else** (`handback=none`, an unrecognized value, an absent key) — no driver, so
+  `ai-tools-run` sweeps the project itself once the session exits: every `SANDBOX_USER`-owned path
+  under the project directory (heavy trees skipped, `.git` walked — the `reclaim` selector in
+  `skip-dirs.lib.sh`) is offered to `ai-tools-chown` through the handback socket. Convergence is
+  per session rather than per turn; the end state is the same.
+
+`ai_tools_agent_sweeps_at_exit <declaration>` is the pure verdict, and it is an **allowlist**:
+only the exact literal `hooks` switches the sweep off, so an agent that declares nothing gets the
+sweep — a redundant walk is the recoverable error, an operator tree left sandbox-owned is not.
+
+The sweep only chooses which paths to **offer**; each one still passes `ai-tools-chown`'s
+allowlist, exclusion, secret, and born-owner re-validation as root, so it reaches nothing the
+hooks could reach. It runs from an `EXIT` trap, so an interrupted shim (Ctrl-C, `SIGTERM`) still
+converges; a `SIGKILL` leaves the tree to the next session's sweep or `ai-tools --reclaim`.
 
 ## The shared config grammar (`conf.lib.sh`)
 
@@ -121,11 +145,18 @@ and asserts none of it is agent-writable (catching the agent trying to break it)
 
 - `ai_tools_provider_is_enabled <name> <default_enable> <allowlist_active> <allowlist>` — the pure
   enablement decision, no I/O, unit-tested over the truth table (`tests/unit/providers.sh`).
-- `ai_tools_enabled_agents` — prints `name<TAB>npm_pkg<TAB>launcher` per enabled installed agent.
+- `ai_tools_agent_sweeps_at_exit <handback-declaration>` — the pure handback-driver decision
+  (above), likewise no I/O and unit-tested.
+- `ai_tools_enabled_agents` — prints `name<TAB>npm_package<TAB>launcher` per enabled installed agent.
 - `ai_tools_enabled_integrations` — prints one enabled installed integration name per line.
 - `ai_tools_agent_manifest_field <name> <key>` — one further field of a trusted manifest, for a
   caller that has already resolved which agent it has. The name is allowlisted to a plain
   identifier before it becomes a path, so it addresses nothing outside the manifest directory.
+
+- `ai_tools_provider_gate <conf-key>` — how a kind's enabled set is being decided (`allowlist` /
+  `baseline` / `untrusted`), read-only and side-effect free. The resolvers read it, and so does
+  `ai-tools --providers` (see [cli](cli.rule.md)), so an operator asking what is enabled and a
+  session being launched consult one implementation.
 
 Data-only stdout (safe in `$(...)`); enabled-but-uninstalled names and every trust refusal go to
 stderr, and to journald when `log.lib.sh` is loadable.
@@ -205,6 +236,56 @@ granted `execmem` (shared with V8). The one **SELinux bring-up unknown** is whet
 `execmod`/`execstack` on `/usr/lib64/dotnet/*.so` beyond `execmem` — verifiable only on an enforcing
 host with real `restore`/`build`/`test`/`run` workloads (the `selinux/avc` loop). If needed, that is
 the single line that would touch the core `.te` (still no new module).
+
+## Boundaries
+
+Two limits of this seam are deliberate, stated so neither reads as an oversight:
+
+**The provider namespace is flat.** A name is unique host-wide, not per kind: an agent and an
+integration both called `foo` are one token in two different gating keys and share one fragment,
+`session-env.d/foo.env.sh`. Every manifest and fragment is root-owned, so a collision is a
+packaging mistake — a provider cannot capture another's fragment without root — which makes it a
+correctness wart rather than a hole, and a naming convention (`ai-tools-agents-<name>` /
+`ai-tools-integration-<name>`, so the clash is visible where it would be made) the lightest
+mechanism that answers it. No enforcement code.
+
+**An agent is an npm package on the sandbox's Node toolchain.** `npm_package` is effectively
+required (a manifest naming none provisions nothing), `ai-tools-bootstrap`/`nvm-update` install it
+with `npm install -g`, and `ai-tools-run` accepts an executable only under
+`/opt/ai-tools/.nvm/versions/node/<semver>/bin/`. That assumption lives in exactly two places —
+**provisioning** (which command installs the agent and where its launcher lands) and **exec
+validation** (which paths may start a session) — and nowhere else in the seam.
+
+### Fitting a second agent runtime
+
+A non-npm agent is an open direction, not a closed one: the host-managed .NET toolchain already
+sits in this seam as an integration, so a thin .NET agent is the near case. What it would add, and
+what it would leave alone:
+
+- **A `runtime` field on the agent manifest** (`nodejs` when absent, so today's manifests are
+  unchanged) selecting both halves of the assumption above. `npm_package` becomes the `nodejs`
+  runtime's provisioning key rather than a universal one.
+- **An exec root and a launcher shape per runtime.** The current rule is `<nvm>/versions/node/
+  <semver>/bin/<launcher>`; the version directory pins the launcher to the toolchain version the
+  updater installed. A dotnet global tool has no version directory, so its rule is its own exec
+  root (`/opt/ai-tools/.dotnet/tools/<launcher>`, root-owned and read-only to the agent — stricter
+  than the nvm tree, which the sandbox account owns). What every rule must keep is the property
+  the current one carries: an absolute, `..`-free path under a known sandbox toolchain root whose
+  launcher an **enabled manifest claims**, so nothing the agent can drop beside a launcher starts
+  a session.
+- **A provisioning branch** for that runtime (`dotnet tool install --tool-path` in place of
+  `npm install -g`), invoked from the same enabled-agent loop `ai-tools-bootstrap` and
+  `nvm-update` already run.
+- **Its SELinux entrypoint file-context**, which the manifest already carries per agent, so a new
+  entrypoint takes `ai_tools_exec_t` without touching the base policy.
+
+Unchanged: enablement and its fail-closed trust rules, the `session-env.d` fragment (a .NET agent
+inherits the dotnet integration's `DOTNET_ROOT`/NuGet-cache pins by enabling it), the `handback`
+capability (an agent with no hook system declares `handback=none` and gets the shim's session-end
+sweep), the confinement unit, and the single `%ai-ops` sudoers grant.
+
+None of it is built. The fields are named here so the first non-npm agent adds a runtime to the
+seam rather than reshaping it.
 
 ## Deferred
 
