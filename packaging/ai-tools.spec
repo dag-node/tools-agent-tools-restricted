@@ -638,53 +638,45 @@ fi
 %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
-* Mon Jul 27 2026 dagnode <tools@dagnode.com> - 0.8.0-1
-- The toolchain and launch layers name no agent: ai-tools-bootstrap and the nvm-update timer
-  provision the enabled agents from per-package manifests under
-  /usr/local/lib/ai-tools/agents.d, gated by operator.conf AI_TOOLS_AGENTS. Absent = every
-  installed agent marked default_enable=yes (Claude Code); present = an exact allowlist.
-- Confinement is one agent-agnostic shim, /opt/ai-tools/bin/ai-tools-run, owned by
-  ai-tools-base. It accepts an executable only at a semver version directory in the sandbox
-  toolchain whose launcher an enabled agent manifest claims, so an ai-tools-agents-* package
-  ships a wrapper, a manifest, and a session-env fragment, and needs no sudoers rule of its own.
-- operator.conf AI_TOOLS_INTEGRATIONS selects host-toolchain integrations by the same rules.
-  Every enabled provider, agent and integration alike, contributes session env and PATH through
-  a root-owned session-env.d/<name>.env.sh fragment; integrations are sourced first and the
-  agent last, so the agent's own pins are authoritative.
-- Every key in operator.conf and every manifest is read with one grammar: quotes optional, list
-  items separated by commas or whitespace, trailing "# comment" ends a value.
-- The gating is fail-closed and tamper-refusing: an unreadable, malformed, or non-root-owned
-  input falls back to the default-enabled baseline, never to "enable all", so the sandbox account
-  cannot enable a provider its package ships disabled.
-- An agent package carries its own SELinux entrypoint file-context and its own handback
-  capability, so the base policy names no agent: each enabled agent's entrypoint is labelled
-  ai_tools_exec_t from the rule its manifest declares, and an agent that drives no handback hooks
-  of its own has its project swept back to the operator when the session ends.
-- Skills and subagent definitions now live in one place each, /opt/ai-tools/skills and
-  /opt/ai-tools/subagents, and every agent's directories hold a symlink per asset instead of a
-  copy: an asset is authored and updated once however many agents read it, while an
-  agent-specific one stays a real file the linker never displaces. "Subagent" is the delegate
-  role an agent dispatches to; "agent" stays the packaged assistant itself.
-- An agent package now owns its control-plane directory: its name comes from the manifest
-  (config_dir), the package ships the directory and the files in it, and the base contributes
-  only the mode and SELinux label every agent config directory carries. The shipped Claude-format
-  agents moved to the Claude Code package with it.
-- The toolchain updater repoints every enabled agent's launcher symlink, not just Claude Code's:
-  ai-tools-claude-symlink is now ai-tools-launcher-symlink, it accepts only a launcher an enabled
-  agent manifest claims, and the post-upgrade relabel watcher observes the whole launcher
-  directory.
-- ai-tools --providers reports the installed agents and integrations, which are enabled, and why.
-- Every integration now keeps its sandbox-side state under /opt/ai-tools/integrations/<name>
-  instead of adding dotdirs to the sandbox home, and one base-owned SELinux rule covers that
-  whole tree -- so an integration package no longer carries file-context rules of its own. The
-  dotnet cache and shared tools moved accordingly; delete the old /opt/ai-tools/.nuget and
-  /opt/ai-tools/.dotnet once (the cache repopulates on the next restore).
-- The sudoers drop-in is /etc/sudoers.d/ai-tools, not ai-tools-claude: ai-tools-base ships it and
-  its one %ai-ops grant serves every agent. The old file is removed on upgrade.
+* Tue Jul 28 2026 dagnode <tools@dagnode.com> - 0.8.0-1
+- The stack is multi-agent: nothing in ai-tools-base names an agent. Which agents exist, what
+  each provisions, where it keeps its config directory, which binary the SELinux domain
+  transition keys on, which side converges file ownership, and where it reads skills and
+  subagents all come from per-package manifests under /usr/local/lib/ai-tools/agents.d. A second
+  agent package ships a wrapper, a manifest, and a session-env fragment -- no sudoers rule, no
+  policy change, no edit to the base.
+- Confinement is one agent-agnostic shim, /opt/ai-tools/bin/ai-tools-run. It accepts an
+  executable only at a semver version directory in the sandbox toolchain whose launcher an
+  enabled manifest claims, then wraps the session in the same confined transient unit as before.
+- operator.conf AI_TOOLS_AGENTS and AI_TOOLS_INTEGRATIONS choose what a host runs: a key present
+  is an exact allowlist, absent means every installed provider its own package marked
+  default_enable=yes. Every enabled provider contributes session environment and PATH through a
+  root-owned session-env.d/<name>.env.sh fragment, integrations first and the agent last.
+- The gating is fail-closed and tamper-refusing throughout: each input is honored only while it
+  is root-owned and writable by neither group nor other, and every failure resolves to LESS
+  access -- the default-enabled baseline, never "enable all" -- and is reported.
+- Skills and subagent definitions live in one place each, /opt/ai-tools/skills and
+  /opt/ai-tools/subagents, and every agent's directories hold a symlink per asset. An asset is
+  authored and updated once however many agents read it, while an agent-specific one is a real
+  file the linker never displaces. Adding one: /usr/share/ai-tools/skills/README.md.
+- Each integration keeps its sandbox-side state under /opt/ai-tools/integrations/<name>, covered
+  by a single base-owned SELinux rule, so an integration package carries no file-context rules
+  of its own and adds no directory to the sandbox home.
 - ai-tools-integration-dotnet integrates a host-managed .NET toolchain (no runtime packaged, no
   dotnet RPM dependency, inert without one): DOTNET_ROOT, a sandbox-writable NuGet cache, and the
   admin-provisioned shared tools on PATH. Provision with sudo ai-tools-dotnet setup /
   install-tools. Pulled as a dnf weak dependency, so it installs by default and removes cleanly.
+- New command: ai-tools --providers reports the installed agents and integrations, which of them
+  a session gets, and why -- including any input refused as untrusted.
+- Upgrading from 0.7.0 needs no action beyond dnf, but five things moved. dnf handles the first;
+  the rest are stale copies worth deleting once:
+    /etc/sudoers.d/ai-tools-claude   is now /etc/sudoers.d/ai-tools (removed on upgrade)
+    ai-tools-claude-symlink          is now ai-tools-launcher-symlink
+    ai-tools-relabel-entrypoint      is now ai-tools-relabel-agent
+    /opt/ai-tools/.nuget, .dotnet    dotnet state now lives under integrations/dotnet
+    .claude/{skills,agents}          shipped copies now live in the shared roots; delete the old
+                                     per-agent ones so the symlinks take over
+  A hand-written agent manifest must spell the npm key npm_package, not npm_pkg.
 
 * Sun Jul 26 2026 dagnode <tools@dagnode.com> - 0.7.0-1
 - Reorganized the package tree under two umbrellas: the Claude Code provider is now
