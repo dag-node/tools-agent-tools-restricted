@@ -7,10 +7,10 @@
 # and are copied into that agent's config directory. Authoring or updating a skill is therefore
 # one edit in one place, whatever number of agents read it.
 # A managed asset is one whose name is `ai-tools-*` AND whose frontmatter carries
-# `x-ai-tools-managed: true`; the seeder acts only on those, so an agent or skill the operator
-# authored themselves is never claimed or overwritten. Seeded copies are root:SANDBOX_GROUP
-# (files 640, dirs 750) under the setgid+sticky .claude -- locked from the agent, updated only
-# through the root-run installer or `ai-tools-bootstrap`. Versioning is RFC-draft: the marker
+# `x-ai-tools-managed: true`; the seeder acts only on those, so an asset the operator authored
+# themselves is never claimed or overwritten. Seeded copies are root:SANDBOX_GROUP (files 640,
+# dirs 750) in their shared root -- locked from the agent, updated only through the root-run
+# installer or `ai-tools-bootstrap`. Versioning is RFC-draft: the marker
 # `x-ai-tools-version` is a monotonic integer bumped on every change, and a newer shipped version
 # is what drives the update offer. This file is *sourced* (never executed); its consumers
 # (install.sh, ai-tools-bootstrap) run as root and have already sourced msg.lib.sh. See
@@ -54,8 +54,9 @@ _ai_tools_place_asset() {
     restorecon -R "${dst}" >/dev/null 2>&1 || :
 }
 
-# Seed every managed agent/skill from a pristine source root into the live .claude. The source
-# root holds `agents/ai-tools-*.md` and `skills/ai-tools-*/`; the live root is the caller/ai-tools/.claude.
+# Seed every managed asset of the named kinds from a pristine source root into a live root. The
+# source root holds one directory per kind -- `skills/ai-tools-*/` (a directory per asset),
+# `subagents/ai-tools-*.md` (a file per asset); the live root is the caller's.
 # Absent live asset -> seeded. Present + managed + a newer shipped version -> a keep/update prompt
 # defaulting to keep (so Enter and any non-interactive run never clobber an operator-tuned copy).
 # Present + unmanaged (no marker) -> left untouched and logged: it is the operator's own file.
