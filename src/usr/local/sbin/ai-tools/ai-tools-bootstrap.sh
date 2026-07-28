@@ -154,6 +154,7 @@ seed_managed_assets_step() {
     install -d -o root -g "${SANDBOX_GROUP}" -m "${CP_DIR_MODES[skills]}" "${CP_SHARED_SKILLS}"
     log "seeding ai-tools-managed skills into ${CP_SHARED_SKILLS}"
     ai_tools_seed_managed_assets "${pristine}" "${CP_HOME}" "${SANDBOX_GROUP}" skills
+    ai_tools_link_asset_readme "${pristine}/skills/README.md" "${CP_SHARED_SKILLS}" "${SANDBOX_GROUP}"
 
     local agent config_dir seeded=0
     while IFS=$'\t' read -r agent config_dir; do
@@ -168,7 +169,8 @@ seed_managed_assets_step() {
     local skills_dir
     while IFS=$'\t' read -r agent skills_dir; do
         log "linking the shared skills into ${skills_dir}"
-        ai_tools_link_shared_skills "${CP_SHARED_SKILLS}" "${skills_dir}" "${SANDBOX_GROUP}"
+        ai_tools_link_shared_skills "${CP_SHARED_SKILLS}" "${skills_dir}" \
+            "${SANDBOX_GROUP}" "${pristine}/skills/README.md"
         seeded=1
     done < <(ai_tools_agent_skills_dirs)
     (( seeded )) || log "managed assets: no agent config directory to seed yet"

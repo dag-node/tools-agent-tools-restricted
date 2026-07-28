@@ -281,15 +281,15 @@ install -d -m 0750 %{buildroot}/opt/ai-tools/skills
 # The canonical guard ships read-only under %{_datadir} as the reseed source; %post copies it to
 # /opt/ai-tools/.gitignore, and generates .gitconfig, only when the live file is absent.
 install -d -m 0755 %{buildroot}%{_datadir}/ai-tools
-install -m 0644 src/opt/ai-tools/gitignore %{buildroot}%{_datadir}/ai-tools/gitignore
+install -m 0644 src%{_datadir}/ai-tools/gitignore %{buildroot}%{_datadir}/ai-tools/gitignore
 # Shipped agents/skills: pristine copies under %{_datadir} are the reseed source (rpm-owned).
 # They are in the CLAUDE CODE asset format, so the agent package owns them and seeds them into
 # its own config directory; the base owns only the parent dir and the shared seeder library. The
 # LIVE copies under that config dir are NOT rpm-owned (like .gitignore); %post seeds them when
 # absent, so an erase/upgrade preserves an operator-updated copy. The interactive version update
 # is offered by install.sh / ai-tools-bootstrap (managed-assets.lib.sh, the shared seeder).
-cp -rT src/opt/ai-tools/.claude/agents %{buildroot}%{_datadir}/ai-tools/agents
-cp -rT src/opt/ai-tools/skills %{buildroot}%{_datadir}/ai-tools/skills
+cp -rT src%{_datadir}/ai-tools/agents %{buildroot}%{_datadir}/ai-tools/agents
+cp -rT src%{_datadir}/ai-tools/skills %{buildroot}%{_datadir}/ai-tools/skills
 find %{buildroot}%{_datadir}/ai-tools/agents %{buildroot}%{_datadir}/ai-tools/skills -type d -exec chmod 0755 {} +
 find %{buildroot}%{_datadir}/ai-tools/agents %{buildroot}%{_datadir}/ai-tools/skills -type f -exec chmod 0644 {} +
 
@@ -408,7 +408,7 @@ fi
 # are seeded once here and each agent package symlinks them into its own skills directory.
 # Non-interactive, so an existing managed skill is kept and only an absent one is seeded.
 if [ -d %{_datadir}/ai-tools/skills ] && command -v bash >/dev/null 2>&1; then
-    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools ai-tools skills' >/dev/null 2>&1 || :
+    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools ai-tools skills; ai_tools_link_asset_readme %{_datadir}/ai-tools/skills/README.md /opt/ai-tools/skills ai-tools' >/dev/null 2>&1 || :
 fi
 # Operator binding + toolchain are per-operator / network steps a scriptlet must not do; direct
 # the operator to them. ai-tools-bootstrap installs the Node toolchain; ai-tools-admin operator
@@ -493,7 +493,7 @@ fi
 # symlink per skill, so a skill is authored and updated in one place however many agents read it.
 # Best-effort and idempotent; a real directory already there is never displaced.
 if [ -d /opt/ai-tools/skills ] && command -v bash >/dev/null 2>&1; then
-    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_link_shared_skills /opt/ai-tools/skills /opt/ai-tools/.claude/skills ai-tools' >/dev/null 2>&1 || :
+    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_link_shared_skills /opt/ai-tools/skills /opt/ai-tools/.claude/skills ai-tools %{_datadir}/ai-tools/skills/README.md' >/dev/null 2>&1 || :
 fi
 
 %preun -n ai-tools-agents-claude-code-restricted

@@ -1181,7 +1181,7 @@ do_install() {
         seed_result "${_gitignore}" "${_gitignore_existed}" 1
     else
         install -o root -g "${SANDBOX_GROUP}" -m 640 \
-            "${SCRIPT_DIR}/src/opt/ai-tools/gitignore" "${_gitignore}"
+            "${SCRIPT_DIR}/src/usr/share/ai-tools/gitignore" "${_gitignore}"
         seed_result "${_gitignore}" "${_gitignore_existed}" 0
     fi
 
@@ -1212,8 +1212,8 @@ do_install() {
     log "/usr/share/ai-tools/{agents,skills} (pristine managed assets)"
     install -d -o root -g root -m 755 /usr/share/ai-tools
     rm -rf /usr/share/ai-tools/agents /usr/share/ai-tools/skills
-    cp -rT "${SCRIPT_DIR}/src/opt/ai-tools/.claude/agents" /usr/share/ai-tools/agents
-    cp -rT "${SCRIPT_DIR}/src/opt/ai-tools/skills" /usr/share/ai-tools/skills
+    cp -rT "${SCRIPT_DIR}/src/usr/share/ai-tools/agents" /usr/share/ai-tools/agents
+    cp -rT "${SCRIPT_DIR}/src/usr/share/ai-tools/skills" /usr/share/ai-tools/skills
     chown -R root:root /usr/share/ai-tools/agents /usr/share/ai-tools/skills
     find /usr/share/ai-tools/agents /usr/share/ai-tools/skills -type d -exec chmod 755 {} +
     find /usr/share/ai-tools/agents /usr/share/ai-tools/skills -type f -exec chmod 644 {} +
@@ -1223,6 +1223,8 @@ do_install() {
     chown "root:${SANDBOX_GROUP}" "${CP_SHARED_SKILLS}"
     chmod "${CP_DIR_MODES[skills]}" "${CP_SHARED_SKILLS}"
     ai_tools_seed_managed_assets /usr/share/ai-tools "${CP_HOME}" "${SANDBOX_GROUP}" skills
+    ai_tools_link_asset_readme /usr/share/ai-tools/skills/README.md \
+        "${CP_SHARED_SKILLS}" "${SANDBOX_GROUP}"
 
     while IFS=$'\t' read -r _agent agent_config_dir; do
         # The shipped agents are in the Claude Code format, so they go to that agent alone.
@@ -1231,7 +1233,8 @@ do_install() {
     done < <(ai_tools_agent_config_dirs)
     while IFS=$'\t' read -r _agent agent_skills_dir; do
         log "linking the shared skills into ${agent_skills_dir}"
-        ai_tools_link_shared_skills "${CP_SHARED_SKILLS}" "${agent_skills_dir}" "${SANDBOX_GROUP}"
+        ai_tools_link_shared_skills "${CP_SHARED_SKILLS}" "${agent_skills_dir}" \
+            "${SANDBOX_GROUP}" /usr/share/ai-tools/skills/README.md
     done < <(ai_tools_agent_skills_dirs)
 
     section "Configuration (allowlist & secret patterns)"

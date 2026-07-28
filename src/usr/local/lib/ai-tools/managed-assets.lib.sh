@@ -107,7 +107,7 @@ ai_tools_seed_managed_assets() {
     done
 }
 
-# ai_tools_link_shared_skills <shared_root> <agent_skills_dir> <group>
+# ai_tools_link_shared_skills <shared_root> <agent_skills_dir> <group> [readme_source]
 # Point an agent at the shared skills: one symlink per skill directory under <shared_root>, so
 # every agent reads the same file and a skill is updated in one place. Best-effort and
 # idempotent, and it never displaces anything real:
@@ -120,7 +120,7 @@ ai_tools_seed_managed_assets() {
 # The links are root-owned inside the agent's setgid+sticky config directory, so the agent reads
 # and invokes them but cannot repoint one at a file of its choosing.
 ai_tools_link_shared_skills() {
-    local shared_root="$1" agent_skills_dir="$2" group="$3"
+    local shared_root="$1" agent_skills_dir="$2" group="$3" readme_source="${4:-}"
     [[ -d "${shared_root}" ]] || return 0
     install -d -o root -g "${group}" -m 750 "${agent_skills_dir}"
 
@@ -155,6 +155,19 @@ ai_tools_link_shared_skills() {
         _ai_tools_ma_say "skills/${dst##*/} link removed (no longer shipped)"
     done
 
+    ai_tools_link_asset_readme "${readme_source}" "${agent_skills_dir}" "${group}"
     restorecon -R "${agent_skills_dir}" >/dev/null 2>&1 || :
+    return 0
+}
+
+# ai_tools_link_asset_readme <readme_source> <target_dir> <group>
+# Point <target_dir>/README.md at the shipped guide for that asset kind, so the documentation is
+# found where the assets are rather than only in the datadir. A link, never a copy, so there is
+# one file to keep current. Silent no-op when either end is absent.
+ai_tools_link_asset_readme() {
+    local readme_source="$1" target_dir="$2" group="$3"
+    [[ -n "${readme_source}" && -e "${readme_source}" && -d "${target_dir}" ]] || return 0
+    ln -sfn "${readme_source}" "${target_dir}/README.md"
+    chown -h "root:${group}" "${target_dir}/README.md" 2>/dev/null || :
     return 0
 }

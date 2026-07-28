@@ -6,10 +6,10 @@ Claude Code, so they are **not** stored per agent. They live once, and every age
 them gets a symlink:
 
 ```text
-src/opt/ai-tools/skills/ai-tools-*/   the source of truth, in this repo
-        ──▶  /usr/share/ai-tools/skills/          pristine copy the package ships
-        ──▶  /opt/ai-tools/skills/<name>/         THE live skill, seeded once
-        ──▶  /opt/ai-tools/.claude/skills/<name>  a symlink, per agent that reads skills
+src/usr/share/ai-tools/skills/ai-tools-*/     the source of truth, in this repo
+   ──▶  /usr/share/ai-tools/skills/           pristine copy the package installs (read-only)
+   ──▶  /opt/ai-tools/skills/<name>/          THE live skill, seeded once, yours to edit
+   ──▶  /opt/ai-tools/.claude/skills/<name>   a symlink, per agent that reads skills
 ```
 
 Edit a skill in one file and every agent sees the change. Add one and every agent gets it. No
@@ -17,7 +17,7 @@ copy is ever forked per agent — `tests/integration/perms.sh` fails if one is.
 
 ## Add a skill
 
-1. Create `src/opt/ai-tools/skills/ai-tools-<name>/SKILL.md` with the frontmatter below (copy a
+1. Create `src/usr/share/ai-tools/skills/ai-tools-<name>/SKILL.md` with the frontmatter below (copy a
    sibling; the `ai-tools-` prefix is the shipped namespace and must match the `name:` field).
 2. Reinstall (`sudo ./install.sh install`) or `sudo ai-tools-bootstrap`. The skill is seeded into
    `/opt/ai-tools/skills/` and linked into each agent's own skills directory.

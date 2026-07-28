@@ -1,7 +1,6 @@
 ---
 paths:
-  - "src/opt/ai-tools/.claude/agents/**"
-  - "src/opt/ai-tools/skills/**"
+  - "src/usr/share/ai-tools/**"
   - "src/usr/local/lib/ai-tools/managed-assets.lib.sh"
 ---
 
@@ -20,10 +19,33 @@ differs in how agent-specific it is:
   that agent's config directory and `ai-tools-agents-claude-code-restricted` owns both them and
   the directory.
 
-The source tree — `src/opt/ai-tools/skills/` and `src/opt/ai-tools/.claude/agents/` — is
-authoritative. Ships now: the `ai-tools-reference-architect` agent, the `ai-tools-docs-*`
+Ships now: the `ai-tools-reference-architect` agent, the `ai-tools-docs-*`
 documentation skills (`reference`, `usage`, `comments`, `changelog`), and
 `ai-tools-engineering-principles`.
+
+## Placement: one rule, four hops
+
+`src/` mirrors the install tree. A file installed **verbatim** lives at its literal path
+(`src/opt/ai-tools/.claude/settings.json`); a file that is **seeded** — rpm ships a read-only
+pristine copy and provisioning places an editable live one — lives in `src/` at its **pristine**
+path, because that is the path the package installs. Every shipped asset is seeded, so all of
+them live under `src/usr/share/ai-tools/`, and the directory name is the same at every hop:
+
+```text
+src/usr/share/ai-tools/<kind>/     authoritative source, in this repo
+   ──▶ /usr/share/ai-tools/<kind>/            pristine: rpm-owned, read-only, world-readable
+   ──▶ /opt/ai-tools/<kind>/                  LIVE: operator-editable, agent-readable, NOT rpm-owned
+   ──▶ <agent config>/<kind-dir>/<name>       a symlink into live, per agent that declares one
+```
+
+The live tree has no `src/` counterpart on purpose: it is runtime state, like `.nvm`, the sandbox
+clones, and the logs. Only **skills** currently take the third hop as a shared root; **agents**
+(Claude Code subagent definitions) are copied straight from pristine into the one agent that reads
+them, so their live copy is that agent's config directory.
+
+Each kind's `README.md` is the operator guide, shipped with the pristine copy and **symlinked**
+into the live root and into each agent's directory (`ai_tools_link_asset_readme`) — the doc is
+found where the assets are, and there is exactly one file to keep current.
 
 ## Linking (`ai_tools_link_shared_skills`)
 
@@ -113,8 +135,8 @@ seeded file and link the label the agent (`ai_tools_t`) already reads as home st
 
 ## Coupling
 
-This rule is coupled to `src/opt/ai-tools/skills/README.md` and
-`src/opt/ai-tools/.claude/agents/README.md` (the operator-facing orientation) and the
+This rule is coupled to `src/usr/share/ai-tools/{skills,agents}/README.md` (the operator-facing
+orientation) and the
 `managed-assets.lib.sh` header (the seeder contract); changing the seeding
 behavior, the namespace, or the versioning scheme obligates reconciling all three against the
 code. Adding a shipped asset obligates keeping this rule's `paths:` and the shipped-set list above

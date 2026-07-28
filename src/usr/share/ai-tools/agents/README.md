@@ -6,7 +6,7 @@ agent can invoke them on any project you launch it in.
 ## What installs where
 
 ```text
-src/opt/ai-tools/.claude/agents/ai-tools-*.md  ──▶  /opt/ai-tools/.claude/agents/
+src/usr/share/ai-tools/agents/ai-tools-*.md  ──▶  /usr/share/ai-tools/agents/  ──▶  /opt/ai-tools/.claude/agents/
 ```
 
 `install.sh` and `ai-tools` bootstrap copy each `ai-tools-*.md` here into the live control
