@@ -97,12 +97,12 @@ two NOPASSWD rules:
 
 ```
 %ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/ai-tools-run
-%ai-ops  ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
+%ai-ops  ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint ""
 ```
 
 The first **drops** privilege to `SANDBOX_USER` (launch); the second runs **as root** for
-the on-demand `ai-tools --relabel` entrypoint relabel (a fixed-path, no-argument target —
-see [launch](.claude/rules/launch.rule.md)). The toolchain update runs as `SANDBOX_USER` in
+the on-demand `ai-tools --relabel` entrypoint relabel (a fixed path, pinned by the trailing
+`""` to the zero-argument form — see [launch](.claude/rules/launch.rule.md)). The toolchain update runs as `SANDBOX_USER` in
 its own `systemd --user` instance and the automatic post-upgrade relabel runs through the
 root-side `ai-tools-relabel.path` watcher, so neither needs a sudo rule. The agent runs
 *as* `SANDBOX_USER`, which is not in `ai-ops` and has no rule of its own, so **neither**

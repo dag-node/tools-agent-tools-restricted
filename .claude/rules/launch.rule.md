@@ -157,7 +157,7 @@ package ships unchanged — membership in the `ai-ops` operators group (managed 
 
 ```
 %ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/ai-tools-run
-%ai-ops  ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
+%ai-ops  ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint ""
 ```
 
 The first rule **drops** privilege to the lower-privileged `SANDBOX_USER`; the agent runs
@@ -166,10 +166,12 @@ neither. `ai-tools-run` is a fixed-path target (no glob); the versioned binary i
 `ai-tools-run` after it re-validates `AI_TOOLS_AGENT_EXEC`.
 
 The second rule runs **as root**: `ai-tools --relabel` uses it to restore `ai_tools_exec_t`
-on the new claude entrypoint after a Node upgrade, which needs the `unconfined_t` that root
+on each enabled agent's entrypoint after a Node upgrade, which needs the `unconfined_t` that root
 holds (see [updater](updater.rule.md)). The grant is scoped to exactly that action — a
-**fixed, non-glob path with no arguments**, so it resolves to one program doing one thing
-(`restorecon` the nvm-tree entrypoint) — and the helper is `750 root:root`, owned and
+**fixed, non-glob path**, plus the trailing `""` that pins it to the **zero-argument** form, since
+a command listed without arguments permits *any* (`sudoers(5)`). So it resolves to one program
+doing one thing, and the helper's other form, `--remove <agent>` (the agent package's erase-time
+step), stays reachable by root alone. The helper is `750 root:root`, owned and
 writable by root alone. It is an operators-group grant, keeping the root privilege on the
 operator side beside the launch rule. The automatic post-upgrade relabel runs through the
 root-side `ai-tools-relabel.path` watcher, which needs no sudo rule. The toolchain update
