@@ -666,6 +666,10 @@ fi
   dotnet RPM dependency, inert without one): DOTNET_ROOT, a sandbox-writable NuGet cache, and the
   admin-provisioned shared tools on PATH. Provision with sudo ai-tools-dotnet setup /
   install-tools. Pulled as a dnf weak dependency, so it installs by default and removes cleanly.
+  Known limitation on an SELinux-enforcing host: the SDK cannot restore or build, because NuGet
+  mmaps a shared-memory file under /tmp and the sandbox domain holds no map permission on its own
+  tmp files. Running a prebuilt assembly works, as does a DAC-only host; the policy grant is
+  planned for 0.8.1.
 - New command: ai-tools --providers reports the installed agents and integrations, which of them
   a session gets, and why -- including any input refused as untrusted.
 - Upgrading from 0.7.0 needs no action beyond dnf, but five things moved. dnf handles the first;
