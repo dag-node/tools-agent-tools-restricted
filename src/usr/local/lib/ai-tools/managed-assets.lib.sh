@@ -68,10 +68,14 @@ ai_tools_seed_managed_assets() {
     for kind in "${kinds[@]}"; do
         [[ -d "${src_root}/${kind}" ]] || continue
         install -d -o root -g "${group}" -m 750 "${live_root}/${kind}"
-        # agents are files (ai-tools-*.md); skills are directories (ai-tools-*/). README.md and any
-        # non-ai-tools- entry are excluded by the glob, so they are never seeded.
-        if [[ "${kind}" == agents ]]; then src_glob="${src_root}/agents/ai-tools-*.md"
-        else src_glob="${src_root}/skills/ai-tools-*/"; fi
+        # A kind is carried either as one FILE per asset or as one DIRECTORY per asset, and the
+        # glob has to match: subagents are files (ai-tools-*.md), skills are directories
+        # (ai-tools-*/). README.md and any non-ai-tools- entry fall outside both globs, so they
+        # are never seeded.
+        case "${kind}" in
+            subagents) src_glob="${src_root}/${kind}/ai-tools-*.md" ;;
+            *)         src_glob="${src_root}/${kind}/ai-tools-*/"  ;;
+        esac
         for src in ${src_glob}; do
             [[ -e "${src}" ]] || continue                    # no matches -> literal pattern, skip
             name="$(basename "${src}")"
