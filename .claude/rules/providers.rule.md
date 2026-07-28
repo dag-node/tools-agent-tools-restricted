@@ -30,8 +30,8 @@ execute code in the privileged scripts that read it:
 - agents: `npm_package` (the registry package), `launcher` (the bin symlinked at
   `/opt/ai-tools/bin/<launcher>`, and the name `ai-tools-run` matches an executable against to
   decide whether it may launch), `display_name` (what the launch banner and the unit description
-  call it), `handback` (which side converges ownership — below), `entrypoint_fcontext` (the
-  SELinux entrypoint rule — below), `default_enable`.
+  call it), `handback` (which side converges ownership — below), `entrypoint_fcontext` and
+  `config_dir` (the two paths it declares to SELinux — below), `default_enable`.
 - integrations: `default_enable`.
 
 Either kind may also ship `session-env.d/<name>.env.sh`, keyed by the same `<name>` — one flat
@@ -65,28 +65,40 @@ allowlist, exclusion, secret, and born-owner re-validation as root, so it reache
 hooks could reach. It runs from an `EXIT` trap, so an interrupted shim (Ctrl-C, `SIGTERM`) still
 converges; a `SIGKILL` leaves the tree to the next session's sweep or `ai-tools --reclaim`.
 
-## `entrypoint_fcontext` — the agent labels its own entrypoint
+## `entrypoint_fcontext` and `config_dir` — the agent declares its own paths
 
-A session is confined because the binary the user manager execs carries `ai_tools_exec_t`, the
-entrypoint type of `ai_tools_t`. Which binary that is belongs to the agent, so the base SELinux
-module declares **no** entrypoint rule: the manifest carries the path pattern
-(`entrypoint_fcontext`, a file-context regex — `[^/]+` spans the Node version directory), and
-`ai-tools-relabel-entrypoint` registers it as a local `semanage fcontext` rule and relabels what
-it matches (see [updater](updater.rule.md)). A second agent package therefore brings its own
-binary into the domain without touching the base policy.
+Two paths per agent must carry a type this policy defines, and both belong to the agent rather
+than to the base, so the base SELinux module declares **neither** and the manifest carries both:
+
+| manifest field | path | type | without it |
+|---|---|---|---|
+| `entrypoint_fcontext` | the launcher binary (a file-context regex; `[^/]+` spans the Node version directory) | `ai_tools_exec_t` | no domain transition — the session would run unconfined, so `ai-tools-run` refuses to launch |
+| `config_dir` | the agent's control-plane directory, one component under `/opt/ai-tools` | `ai_tools_home_t` | the confined session cannot write its own state (the home root is `usr_t`) |
+
+`ai-tools-relabel-agent` registers each as a local `semanage fcontext` rule and relabels what it
+matches (see [updater](updater.rule.md)). A second agent package therefore brings both its binary
+and its state directory into this policy without touching the base.
+
+`config_dir` is more than a label: the agent's package **owns that directory** and the files in it
+(`settings.json`, the hooks), while the base pins its mode (`CP_AGENT_CONFIG_MODE`,
+setgid+sticky) and resolves the set of them (`ai_tools_agent_config_dirs` in
+`control-plane.lib.sh`) for the installer, the labelling, the managed-asset seeding, and the
+permission test. The agent's session-env fragment pins the same directory as its config variable
+(`CLAUDE_CONFIG_DIR`), so the manifest and the fragment must agree.
 
 Two constraints keep that from being a label-anything primitive, and both live in
 `relabel.lib.sh`, not in the manifest:
 
-- **The type is pinned there** (`ai_tools_exec_t`). A manifest declares *which file* is its
-  entrypoint, never *what label* a file gets.
-- **The pattern must be containable to the sandbox toolchain**: an anchored literal head under
-  `/opt/ai-tools/.nvm/versions/node/`, no `..`, and none of the regex constructs (`|`, groups)
-  that could make it match elsewhere. `tests/unit/relabel.sh` drives that predicate.
+- **The types are pinned there**, never in a manifest. An agent declares *which path* is which,
+  never *what label* a path gets.
+- **Each declaration must be containable**: the entrypoint pattern to an anchored literal head
+  under `/opt/ai-tools/.nvm/versions/node/`, with no `..` and none of the regex constructs (`|`,
+  groups) that could make it match elsewhere; the config directory to one plain component under
+  the sandbox home. `tests/unit/relabel.sh` drives both predicates.
 
 The rule's lifecycle follows the package: applied by the agent package's `%post` (and by
 `install.sh`, `ai-tools-bootstrap`, the relabel watcher, and `ai-tools --relabel`), dropped by its
-`%preun` on final erase via `ai-tools-relabel-entrypoint --remove <agent>`.
+`%preun` on final erase via `ai-tools-relabel-agent --remove <agent>`.
 
 ## The shared config grammar (`conf.lib.sh`)
 
@@ -306,17 +318,8 @@ what it would leave alone:
 Unchanged: enablement and its fail-closed trust rules, the `session-env.d` fragment (a .NET agent
 inherits the dotnet integration's `DOTNET_ROOT`/NuGet-cache pins by enabling it), the `handback`
 capability (an agent with no hook system declares `handback=none` and gets the shim's session-end
-sweep), the confinement unit, and the single `%ai-ops` sudoers grant.
+sweep), its own `config_dir` (mode, label, and ownership already follow the manifest), the
+confinement unit, and the single `%ai-ops` sudoers grant.
 
 None of it is built. The fields are named here so the first non-npm agent adds a runtime to the
 seam rather than reshaping it.
-
-## Deferred
-
-- **A per-agent config directory.** Every agent currently shares the control plane at
-  `/opt/ai-tools/.claude`, which is baked into `control-plane.lib.sh`'s `CP_DIR_MODES` and into
-  `ai_tools.fc`. The manifest shape does not preclude splitting it — an agent already pins its own
-  config directory through its `session-env.d` fragment (`CLAUDE_CONFIG_DIR`), so a second agent
-  would add a second pin plus a directory with the same mode and label; only those two
-  base-owned lists hardcode the single path. Held until a second agent exists to need it, since
-  the split has no observable effect with one.

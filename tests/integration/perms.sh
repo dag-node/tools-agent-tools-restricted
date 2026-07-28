@@ -19,15 +19,16 @@ check_file /usr/local/sbin/ai-tools/ai-tools-setfacl          root              
 check_file /usr/local/sbin/ai-tools/ai-tools-unclaim          root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-safedir          root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-reclaim          root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-launcher-symlink   root              root              750
+check_file /usr/local/sbin/ai-tools/ai-tools-launcher-symlink root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-lockdown         root              root              750
 # SELinux project-label helper: 750 root:root -- user-run via sudo, never by the agent (no
 # SANDBOX_USER grant); same surface as lockdown.
 check_file /usr/local/sbin/ai-tools/ai-tools-relabel          root              root              750
-# SELinux entrypoint-relabel helper: 750 root:root -- run AS root automatically by the
+# SELinux agent-relabel helper: 750 root:root -- run AS root automatically by the
 # ai-tools-relabel.path watcher and on demand by `ai-tools --relabel` (the %ai-ops NOPASSWD
-# rule), never by the agent. Fixed-path, no-arg target, so the root grant cannot be parameterized.
-check_file /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint root            root              750
+# rule), never by the agent. The grant is pinned to its zero-argument form, so the root rule
+# cannot be parameterized.
+check_file /usr/local/sbin/ai-tools/ai-tools-relabel-agent    root              root              750
 # Toolchain bootstrap + operator administration: 750 root:root -- run by the operator via sudo,
 # never by the agent (no SANDBOX_USER grant, and /usr/local/sbin/ai-tools is 750 root:root).
 check_file /usr/local/sbin/ai-tools/ai-tools-bootstrap        root              root              750
@@ -122,10 +123,42 @@ check_file /opt/ai-tools/bin/nvm-update.sh                    root              
 check_file /opt/ai-tools/.claude/post-tool-hook.sh            root              "${SANDBOX_GROUP}" 750
 check_file /opt/ai-tools/.claude/session-hook.sh             root              "${SANDBOX_GROUP}" 750
 check_file /opt/ai-tools/.claude/settings.json               root              "${SANDBOX_GROUP}" 640
-# .claude is root-owned with setgid+sticky (3770): ai-tools is a group-writer for its own state
-# but cannot unlink/replace the root-owned control files above. Owned by ai-tools, or without
-# the sticky bit, the agent could delete and recreate them.
-check_file /opt/ai-tools/.claude                              root              "${SANDBOX_GROUP}" 3770
+# EVERY agent's config directory is root-owned with setgid+sticky (CP_AGENT_CONFIG_MODE, 3770):
+# ai-tools is a group-writer for its own state but cannot unlink/replace the root-owned control
+# files above. Owned by ai-tools, or without the sticky bit, the agent could delete and recreate
+# them. The set of directories comes from the manifests (control-plane.lib.sh), so a second agent
+# is covered here without editing this list; a host with none asserts nothing and says so.
+# The SHARED skills root: base-owned, agent-readable, NOT agent-writable. Every agent's skills
+# directory symlinks into it, so a writable root here would let one session rewrite the
+# instructions every agent and every future session reads.
+check_file /opt/ai-tools/skills                               root              "${SANDBOX_GROUP}" 750
+_cp_lib=/usr/local/lib/ai-tools/control-plane.lib.sh
+# shellcheck source=/dev/null
+if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_agent_config_dirs >/dev/null 2>&1; then
+    _cfg_found=0
+    while IFS=$'\t' read -r _agent _cfg; do
+        [[ -n "${_cfg}" ]] || continue
+        _cfg_found=1
+        check_file "${_cfg}" root "${SANDBOX_GROUP}" "${CP_AGENT_CONFIG_MODE}"
+    done < <(ai_tools_agent_config_dirs)
+    (( _cfg_found )) || skip "agent config directory modes" "no enabled agent declares a config_dir"
+    # Each agent's skills directory carries SYMLINKS into the shared root, not copies -- that is
+    # what keeps a skill authored in one place. Assert the shipped skills arrived that way, so a
+    # regression to per-agent copies (silently forking the content) fails here.
+    while IFS=$'\t' read -r _agent _skills; do
+        [[ -d "${_skills}" ]] || { skip "${_skills}" "not deployed on this host"; continue; }
+        _link="${_skills}/ai-tools-docs-reference"
+        if [[ ! -e "${_link}" ]]; then
+            skip "${_link}" "shipped skill not seeded on this host"
+        elif [[ -L "${_link}" && "$(readlink "${_link}")" == /opt/ai-tools/skills/* ]]; then
+            pass "${_link} is a symlink into the shared skills root"
+        else
+            fail "${_link} is not a symlink into /opt/ai-tools/skills -- the shared skill has been copied, so it now forks per agent"
+        fi
+    done < <(ai_tools_agent_skills_dirs)
+else
+    skip "agent config directory modes" "${_cp_lib} does not resolve the agents' config dirs"
+fi
 # The agent's XDG config for its --user manager: root-owned root:ai-tools 2750 (setgid inherited
 # from the control-plane home), so the manager reads its units through the group but the agent
 # cannot add a --user unit. An agent-writable wants dir would let a confined session register a

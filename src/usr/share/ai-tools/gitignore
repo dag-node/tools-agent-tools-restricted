@@ -14,21 +14,31 @@
 !/.gitignore
 !/.gitconfig
 
-# ── Control plane (.claude): re-include selectively ───────────────────────
-!/.claude/
-/.claude/*
-# Operator-authored guardrails (operator:ai-tools, not agent-writable)
-!/.claude/settings.json
-!/.claude/post-tool-hook.sh
-!/.claude/session-hook.sh
+# Shared skills: the one agent-agnostic copy every agent symlinks to. Each agent's own
+# skills/ below is re-included as well -- it holds those symlinks plus any agent-specific
+# skill, and a committed symlink is a faithful record of which skills that agent carried.
+!/skills/
+
+# ── Agent control planes: re-include selectively ──────────────────────────
+# Each agent owns a config directory under this home whose NAME its manifest declares
+# (.claude for Claude Code), so these patterns match ANY dot-directory rather than one name --
+# a second agent's guardrails are captured without editing this base-owned file. The other
+# dot-directories here (.nvm, .npm, .cache, .local) hold no file matching the re-includes
+# below, and git tracks files rather than directories, so admitting their directory entries
+# costs nothing.
+!/.*/
+/.*/*
+# Agent-authored guardrails (root:ai-tools, not agent-writable)
+!/.*/settings.json
+!/.*/*-hook.sh
 # Skills (whole tree)
-!/.claude/skills/
+!/.*/skills/
 # Auto-memory: only the memory/ dirs, never the session logs beside them
-!/.claude/projects/
-/.claude/projects/*
-!/.claude/projects/*/
-/.claude/projects/*/*
-!/.claude/projects/*/memory/
+!/.*/projects/
+/.*/projects/*
+!/.*/projects/*/
+/.*/projects/*/*
+!/.*/projects/*/memory/
 
 # ── Hard secret denylist (belt-and-suspenders) ────────────────────────────
 # Re-asserted last so a future negation edit can never expose these.

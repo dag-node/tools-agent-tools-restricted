@@ -68,7 +68,11 @@
 
 set -euo pipefail
 
-readonly MARKER="/opt/ai-tools/.claude/.sweep-marker"
+# The hook's own directory -- this agent's config dir, whose name its manifest declares -- so the
+# state files below follow the hook instead of repeating a path the base layer no longer owns.
+HOOK_DIR="${BASH_SOURCE[0]%/*}"
+readonly HOOK_DIR
+readonly MARKER="${HOOK_DIR}/.sweep-marker"
 
 # Clean-exit marker: written at session-start (process birth), removed at
 # session-end (graceful exit). Surviving into the next session-start means the
@@ -78,7 +82,7 @@ readonly MARKER="/opt/ai-tools/.claude/.sweep-marker"
 # concurrent sessions the single marker races (a second start sees the first's
 # marker as "interrupted"); the sandbox is single-session by design, same caveat
 # as MARKER.
-readonly ACTIVE_MARKER="/opt/ai-tools/.claude/.session-active"
+readonly ACTIVE_MARKER="${HOOK_DIR}/.session-active"
 
 # Mode: "stop" (default, bounded sweep), "session-start" (unbounded reclaim) or
 # "session-end" (clear the clean-exit marker).
@@ -214,7 +218,7 @@ fi
 # completes, so anything written during the sweep is still caught next time. In
 # session-start mode this resets the marker, so this session's Stop sweeps bound
 # from session start.
-newref="$(mktemp "/opt/ai-tools/.claude/.sweep.XXXXXX" 2>/dev/null)" || exit 0
+newref="$(mktemp "${HOOK_DIR}/.sweep.XXXXXX" 2>/dev/null)" || exit 0
 
 # find DIR -xdev \( skip heavy trees \) -prune -o \( ai-tools-owned [newer] file|dir \) -print0
 ai_tools_skip_find_expr sweep '' "${dir}"

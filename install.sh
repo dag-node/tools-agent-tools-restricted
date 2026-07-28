@@ -306,9 +306,14 @@ do_selinux_restore() {
         /usr/local/sbin/ai-tools/ \
         /usr/local/lib/ai-tools/ \
         /opt/ai-tools/bin/ \
-        /opt/ai-tools/.claude/ \
         /opt/ai-tools/.config/ \
         /var/log/ai-tools/
+    # Each agent's config directory is labelled from the rule its own manifest declares, applied
+    # by ai-tools-relabel-agent after this; restore what is already mapped.
+    local _cfg
+    while IFS=$'\t' read -r _ _cfg; do
+        [[ -d "${_cfg}" ]] && restorecon -R "${_cfg}"
+    done < <(ai_tools_agent_config_dirs)
     restorecon \
         /usr/local/bin/claude \
         /usr/lib/systemd/user/nvm-update.service \
@@ -464,7 +469,7 @@ do_summary() {
     _chk /usr/local/sbin/ai-tools/ai-tools-launcher-symlink
     _chk /usr/local/sbin/ai-tools/ai-tools-lockdown
     _chk /usr/local/sbin/ai-tools/ai-tools-relabel
-    _chk /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
+    _chk /usr/local/sbin/ai-tools/ai-tools-relabel-agent
     _chk /usr/local/sbin/ai-tools/ai-tools-bootstrap
     _chk /usr/local/sbin/ai-tools/ai-tools-admin
     _chk /usr/sbin/ai-tools-bootstrap
@@ -513,8 +518,9 @@ do_summary() {
     _chk /opt/ai-tools/.claude/session-hook.sh
     _chk /opt/ai-tools/.claude/settings.json
     _chk /opt/ai-tools/.claude/agents/ai-tools-reference-architect.md
-    _chk /opt/ai-tools/.claude/skills/ai-tools-docs-reference/SKILL.md
-    _chk /opt/ai-tools/.claude/skills/ai-tools-engineering-principles/SKILL.md
+    _chk /opt/ai-tools/skills/ai-tools-docs-reference/SKILL.md
+    _chk /opt/ai-tools/skills/ai-tools-engineering-principles/SKILL.md
+    _chk /opt/ai-tools/.claude/skills/ai-tools-docs-reference
 
     printf '  %s\n' "${sep}"
     if (( missing == 0 )); then
@@ -831,10 +837,10 @@ do_install() {
     # ai-tools-relabel.path watcher after a Node upgrade, and on demand by `ai-tools --relabel`
     # (the second %ai-ops NOPASSWD rule); never by ai-tools. No @-substitution needed (no
     # placeholders), but install_subst keeps the deploy path uniform with the other helpers.
-    log "/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint"
+    log "/usr/local/sbin/ai-tools/ai-tools-relabel-agent"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint.sh" \
-        /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
+        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-relabel-agent.sh" \
+        /usr/local/sbin/ai-tools/ai-tools-relabel-agent
 
     # Node toolchain bootstrap (creates the sandbox account + installs nvm/Node/claude). Run by
     # the operator (sudo) before/independently of install; deployed here for re-runs and the RPM.
@@ -1085,31 +1091,40 @@ do_install() {
         "${SCRIPT_DIR}/src/opt/ai-tools/bin/ai-tools-run.sh" \
         /opt/ai-tools/bin/ai-tools-run
 
-    # /opt/ai-tools/.claude holds both mutable agent state (sessions/, history,
-    # credentials -- ai-tools-owned) AND the root-of-trust control files
-    # (settings.json, post-tool-hook.sh). Root ownership of the control files is not
-    # enough on its own: a group-writer can unlink+recreate any file in a dir it can
-    # write. So the dir is root-owned with setgid+sticky (3770): ai-tools stays a
-    # group-writer -- it can create and manage its own state files -- but the sticky
-    # bit forbids it from deleting or replacing files it does not own, and it is not
-    # the dir owner, so it cannot bypass that. setgid keeps new entries in group
-    # ai-tools. Created here (mode asserted at section end) so the hooks below can be
-    # installed into it.
-    log "/opt/ai-tools/.claude/"
-    ensure_dir 3770 root "${SANDBOX_GROUP}" /opt/ai-tools/.claude
+    # Each enabled agent's config directory holds both mutable agent state (sessions/, history,
+    # credentials -- ai-tools-owned) AND that agent's root-of-trust control files (settings.json,
+    # its hooks). Root ownership of the control files is not enough on its own: a group-writer can
+    # unlink+recreate any file in a dir it can write. So the dir is root-owned with setgid+sticky
+    # (CP_AGENT_CONFIG_MODE): ai-tools stays a group-writer -- it can create and manage its own
+    # state files -- but the sticky bit forbids it from deleting or replacing files it does not
+    # own, and it is not the dir owner, so it cannot bypass that. setgid keeps new entries in group
+    # ai-tools. The DIRECTORIES are created here, from the manifests (the base names none of them),
+    # so the agent layer below can install into its own; modes are re-asserted at section end.
+    local agent_config_dir agent_skills_dir _agent
+    while IFS=$'\t' read -r _ agent_config_dir; do
+        [[ -n "${agent_config_dir}" ]] || continue
+        log "${agent_config_dir}/"
+        ensure_dir "${CP_AGENT_CONFIG_MODE}" root "${SANDBOX_GROUP}" "${agent_config_dir}"
+    done < <(ai_tools_agent_config_dirs)
+
+    # The claude-code agent layer: its hooks and settings, into the directory its own manifest
+    # declares. This from-source installer deploys the whole stack, so it lays down the agent's
+    # files here (the RPM ships them in the agent subpackage).
+    local claude_config_dir="/opt/ai-tools/.claude"
+    ensure_dir "${CP_AGENT_CONFIG_MODE}" root "${SANDBOX_GROUP}" "${claude_config_dir}"
     install_subst 750 root "${SANDBOX_GROUP}" \
         "${SCRIPT_DIR}/src/opt/ai-tools/.claude/post-tool-hook.sh" \
-        /opt/ai-tools/.claude/post-tool-hook.sh
+        "${claude_config_dir}/post-tool-hook.sh"
     install_subst 750 root "${SANDBOX_GROUP}" \
         "${SCRIPT_DIR}/src/opt/ai-tools/.claude/session-hook.sh" \
-        /opt/ai-tools/.claude/session-hook.sh
+        "${claude_config_dir}/session-hook.sh"
     # settings.json is kept by default when it already exists (keep_existing prompt;
     # unattended installs always keep): it may carry deliberate host tuning -- e.g. a deny
     # entry relaxed alongside an enabled SELinux group (see claude-settings.rule.md) -- that a
     # reset would revert, so it passes a warn and the reset is gated behind the second
     # confirmation. Ownership and mode are re-asserted either way, so a kept file still
     # satisfies the control-plane integrity checks.
-    local settings=/opt/ai-tools/.claude/settings.json settings_existed=0
+    local settings="${claude_config_dir}/settings.json" settings_existed=0
     [[ -f "${settings}" ]] && settings_existed=1
     if keep_existing "${settings}" \
             "Discards any host-tuned permission rules; reverts to the shipped hooks and deny set."; then
@@ -1166,34 +1181,61 @@ do_install() {
         seed_result "${_gitignore}" "${_gitignore_existed}" 1
     else
         install -o root -g "${SANDBOX_GROUP}" -m 640 \
-            "${SCRIPT_DIR}/src/opt/ai-tools/gitignore" "${_gitignore}"
+            "${SCRIPT_DIR}/src/usr/share/ai-tools/gitignore" "${_gitignore}"
         seed_result "${_gitignore}" "${_gitignore_existed}" 0
     fi
 
     # Assert the control-plane home and dir boundary modes from the shared constants: the home is
-    # owned root:ai-tools with the o+x search bit and setgid (2751), bin is locked (0551), and
-    # .claude is setgid+sticky (3770). The agent reaches the tree through group ai-tools; root owns
-    # the locked control files so the agent cannot replace them.
+    # owned root:ai-tools with the o+x search bit and setgid (CP_HOME_MODE), bin is locked, and
+    # every agent's config directory is setgid+sticky. The agent reaches the tree through group
+    # ai-tools; root owns the locked control files so the agent cannot replace them.
     log "asserting control-plane ownership and boundary modes (root:${SANDBOX_GROUP})"
-    chown "root:${SANDBOX_GROUP}" /opt/ai-tools /opt/ai-tools/bin /opt/ai-tools/.claude
+    chown "root:${SANDBOX_GROUP}" /opt/ai-tools /opt/ai-tools/bin
     chmod "${CP_HOME_MODE}" /opt/ai-tools
     chmod "${CP_DIR_MODES[bin]}" /opt/ai-tools/bin
-    chmod "${CP_DIR_MODES[.claude]}" /opt/ai-tools/.claude
+    while IFS=$'\t' read -r _ agent_config_dir; do
+        [[ -d "${agent_config_dir}" ]] || continue
+        chown "root:${SANDBOX_GROUP}" "${agent_config_dir}"
+        chmod "${CP_AGENT_CONFIG_MODE}" "${agent_config_dir}"
+    done < <(ai_tools_agent_config_dirs)
 
-    # Shipped agents/skills: stage pristine copies to the datadir (the single seed source shared
-    # with ai-tools-bootstrap), then seed the managed ones into the live .claude. Only ai-tools-*
-    # assets carrying x-ai-tools-managed are seeded; an operator's own agent/skill is never
-    # touched, and an existing managed asset updates only on confirm (default keep). See
-    # managed-assets.lib.sh and shipped-claude-assets.rule.md.
+    # Shipped assets: stage pristine copies to the datadir (the single seed source shared with
+    # ai-tools-bootstrap), then place them.
+    #
+    # SKILLS are agent-agnostic, so they are seeded ONCE into the shared /opt/ai-tools/skills and
+    # each agent's own skills directory gets a symlink per skill -- one place to author or update
+    # a skill, however many agents read it. AGENTS are Claude Code-format files, so they are
+    # copied into that agent's config directory. Only ai-tools-* assets carrying
+    # x-ai-tools-managed are touched, an operator's own agent/skill is never claimed, and an
+    # existing managed asset updates only on confirm (default keep). See managed-assets.lib.sh
+    # and shipped-assets.rule.md.
     log "/usr/share/ai-tools/{agents,skills} (pristine managed assets)"
     install -d -o root -g root -m 755 /usr/share/ai-tools
     rm -rf /usr/share/ai-tools/agents /usr/share/ai-tools/skills
-    cp -rT "${SCRIPT_DIR}/src/opt/ai-tools/.claude/agents" /usr/share/ai-tools/agents
-    cp -rT "${SCRIPT_DIR}/src/opt/ai-tools/.claude/skills" /usr/share/ai-tools/skills
+    cp -rT "${SCRIPT_DIR}/src/usr/share/ai-tools/agents" /usr/share/ai-tools/agents
+    cp -rT "${SCRIPT_DIR}/src/usr/share/ai-tools/skills" /usr/share/ai-tools/skills
     chown -R root:root /usr/share/ai-tools/agents /usr/share/ai-tools/skills
     find /usr/share/ai-tools/agents /usr/share/ai-tools/skills -type d -exec chmod 755 {} +
     find /usr/share/ai-tools/agents /usr/share/ai-tools/skills -type f -exec chmod 644 {} +
-    ai_tools_seed_managed_assets /usr/share/ai-tools /opt/ai-tools/.claude "${SANDBOX_GROUP}"
+
+    log "${CP_SHARED_SKILLS}/ (shared skills, symlinked into every agent that reads them)"
+    ensure_dir "${CP_DIR_MODES[skills]}" root "${SANDBOX_GROUP}" "${CP_SHARED_SKILLS}"
+    chown "root:${SANDBOX_GROUP}" "${CP_SHARED_SKILLS}"
+    chmod "${CP_DIR_MODES[skills]}" "${CP_SHARED_SKILLS}"
+    ai_tools_seed_managed_assets /usr/share/ai-tools "${CP_HOME}" "${SANDBOX_GROUP}" skills
+    ai_tools_link_asset_readme /usr/share/ai-tools/skills/README.md \
+        "${CP_SHARED_SKILLS}" "${SANDBOX_GROUP}"
+
+    while IFS=$'\t' read -r _agent agent_config_dir; do
+        # The shipped agents are in the Claude Code format, so they go to that agent alone.
+        [[ "${_agent}" == claude-code && -d "${agent_config_dir}" ]] || continue
+        ai_tools_seed_managed_assets /usr/share/ai-tools "${agent_config_dir}" "${SANDBOX_GROUP}" agents
+    done < <(ai_tools_agent_config_dirs)
+    while IFS=$'\t' read -r _agent agent_skills_dir; do
+        log "linking the shared skills into ${agent_skills_dir}"
+        ai_tools_link_shared_skills "${CP_SHARED_SKILLS}" "${agent_skills_dir}" \
+            "${SANDBOX_GROUP}" /usr/share/ai-tools/skills/README.md
+    done < <(ai_tools_agent_skills_dirs)
 
     section "Configuration (allowlist & secret patterns)"
 
@@ -1334,9 +1376,9 @@ do_install() {
     # bring-up above already runs the same body when it is accepted -- this covers the host that
     # declined it while a module from an earlier install stays loaded. No-ops when SELinux or the
     # module is inactive, and when the toolchain is not provisioned yet.
-    if [[ -x /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint ]]; then
+    if [[ -x /usr/local/sbin/ai-tools/ai-tools-relabel-agent ]]; then
         log "labelling the enabled agents' entrypoints"
-        /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint \
+        /usr/local/sbin/ai-tools/ai-tools-relabel-agent \
             || warn "entrypoint labelling did not complete -- run: sudo ai-tools --relabel"
     fi
 

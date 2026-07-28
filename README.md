@@ -148,6 +148,11 @@ of what it can ever send:
   `g:${SANDBOX_GROUP}:rwX` grants Claude access to your files and
   `user:${PROJECTS_USER}:rwX` grants you access to Claude's, both umask-independent;
   world access stays closed. Applied at `ai-tools --project-claim`.
+- **Shared skills, one copy** — the documentation and engineering-judgment skills the project
+  ships live once in `/opt/ai-tools/skills`; each agent's config directory holds a symlink per
+  skill, so a skill is authored and updated in one place however many agents read it, and an
+  agent-specific skill is simply a real directory that the linker never displaces. See
+  `/usr/share/ai-tools/skills/README.md`.
 - **Operation logging** — the `sudo` helpers, the lifecycle hooks, the `ai-tools`
   CLI, and `install.sh` log through one library to **journald** (always, leveled and
   tagged: `journalctl -t ai-tools-chown`) and, for the root writers only, to
@@ -268,7 +273,7 @@ series, installs it under `/opt/ai-tools/.nvm`, refreshes the global tools, prun
   running Claude session.
 
 The `ai-tools-relabel.path` watcher sees the repoint (it watches the `bin` directory, so one
-watch covers every agent) and runs `ai-tools-relabel-entrypoint` (root) to restore
+watch covers every agent) and runs `ai-tools-relabel-agent` (root) to restore
 `ai_tools_exec_t` on each enabled agent's new entrypoint, so the SELinux domain transition keeps
 firing. Until the entrypoint is relabelled,
 `ai-tools-run` fail-closes (refuses to launch rather than run unconfined); `ai-tools

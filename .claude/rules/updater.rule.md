@@ -4,7 +4,7 @@ paths:
   - "src/usr/local/lib/ai-tools/npm-verify.lib.sh"
   - "src/usr/local/sbin/ai-tools/ai-tools-bootstrap.sh"
   - "src/usr/local/sbin/ai-tools/ai-tools-launcher-symlink.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint.sh"
+  - "src/usr/local/sbin/ai-tools/ai-tools-relabel-agent.sh"
   - "src/usr/lib/systemd/user/nvm-update.service"
   - "src/usr/lib/systemd/user/nvm-update.timer"
   - "src/usr/lib/systemd/system/ai-tools-relabel.path"
@@ -26,7 +26,7 @@ it creates the `SANDBOX_USER` account and its `/opt/ai-tools` home if absent, in
 Node (`AI_TOOLS_NODE_MAJOR`, default 22), and each enabled agent's npm package as `SANDBOX_USER`
 (the enabled set resolved via [providers](providers.rule.md)), points
 `/opt/ai-tools/bin/<launcher>` at each versioned binary, relabels the freshly
-installed entrypoint (`ai-tools-relabel-entrypoint`, gated on that helper being deployed, so
+installed entrypoint (`ai-tools-relabel-agent`, gated on that helper being deployed, so
 the first launch after a fresh provision is confined without a manual `ai-tools --relabel`),
 and captures the initial control plane in a root-private git repo. It is the one network
 step, so it is an operator command rather than an RPM scriptlet (which must succeed
@@ -99,7 +99,7 @@ which holds no relabel rights.
 
 A freshly installed entrypoint is born the default type (`bin_t`/`lib_t`), so the
 `→ ai_tools_t` domain transition fires only once it carries `ai_tools_exec_t`.
-`ai-tools-relabel-entrypoint` applies that label, and it **names no agent**: the base policy
+`ai-tools-relabel-agent` applies that label, and it **names no agent**: the base policy
 carries no entrypoint rule, so for each *enabled* agent the helper reads the path pattern that
 agent's manifest declares (`entrypoint_fcontext`, see [providers](providers.rule.md)), registers
 it as a local `semanage fcontext` rule mapping it to `ai_tools_exec_t`, restorecons every file it
@@ -111,7 +111,7 @@ The type is pinned in `relabel.lib.sh` and a declared pattern is accepted only w
 nothing outside the sandbox toolchain root (no traversal, no alternation, an anchored literal
 head), so a manifest chooses **which** file is its entrypoint, never what label a file gets. The
 whole body lives in `relabel.lib.sh`, shared with `install-selinux.sh`'s verify pass.
-`ai-tools-relabel-entrypoint --remove <agent>` is the erase-time counterpart: the agent package's
+`ai-tools-relabel-agent --remove <agent>` is the erase-time counterpart: the agent package's
 `%preun` drops its rule while its manifest is still on disk.
 
 `ai-tools-bootstrap` runs the helper directly at provision time (above). Two further paths

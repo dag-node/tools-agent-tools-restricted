@@ -51,7 +51,6 @@ source "${MSG_LIB}" \
     || { printf 'selinux: cannot source required library %s\n' "${MSG_LIB}" >&2; exit 1; }
 # One fixed 80-column frame for the whole install flow's boxes, so consecutive prompts align.
 export AI_TOOLS_MSG_FULLWIDTH=1
-readonly HOME_DIR="/opt/ai-tools/.claude"
 readonly NVM_DIR="/opt/ai-tools/.nvm"
 HOME_STATE=(.npm .cache .local .config .gitconfig)
 
@@ -318,43 +317,44 @@ RELABEL_LIB="${DIR}/../src/usr/local/lib/ai-tools/relabel.lib.sh"
 # shellcheck source=/dev/null
 source "${RELABEL_LIB}" || die "missing label library: ${RELABEL_LIB}"
 
-# verify_entrypoint: apply each enabled agent's declared entrypoint file-context and confirm the
-# binaries it matches carry ai_tools_exec_t -- without that label the unconfined_t/init_t ->
-# ai_tools_t transition never fires and the agent runs UNCONFINED. The work is
-# ai_tools_label_agent_entrypoints (relabel.lib.sh), the same body the always-installed
-# ai-tools-relabel-entrypoint helper runs, so this sweep and the post-upgrade relabel cannot
-# drift; this wrapper only renders the report in the installer's voice. It names no agent: the
-# path patterns come from the manifests under /usr/local/lib/ai-tools/agents.d.
-verify_entrypoint() {
-    local report="" status=0 verdict subject detail bad=0 labelled=0
-    report="$(ai_tools_label_agent_entrypoints)" || status=$?
+# verify_agent_labels: apply each enabled agent's declared file-context rules -- its entrypoint
+# (-> ai_tools_exec_t, without which the domain transition never fires and the agent would run
+# UNCONFINED) and its config directory (-> ai_tools_home_t, without which the confined session
+# cannot write its own state) -- and confirm what they match took the type. The work is
+# ai_tools_label_agent_paths (relabel.lib.sh), the same body the always-installed
+# ai-tools-relabel-agent helper runs, so this sweep and the post-upgrade relabel cannot drift;
+# this wrapper only renders the report in the installer's voice. It names no agent: the paths
+# come from the manifests under /usr/local/lib/ai-tools/agents.d.
+verify_agent_labels() {
+    local report="" status=0 verdict subject detail wanted bad=0 labelled=0
+    report="$(ai_tools_label_agent_paths)" || status=$?
     if [[ "${status}" -eq 2 ]]; then
-        warn "SELinux or the ai_tools module is not active -- no entrypoint to label"
+        warn "SELinux or the ai_tools module is not active -- no agent paths to label"
         return 0
     fi
     if [[ -n "${report}" ]]; then
-        while read -r verdict subject detail; do
+        while read -r verdict subject detail wanted; do
             case "${verdict}" in
                 ok)   labelled=$(( labelled + 1 ))
-                      ok "entrypoint labelled ai_tools_exec_t: ${subject}" ;;
+                      ok "labelled: ${subject}" ;;
                 bad)  bad=1
                       warn "${subject}"
-                      warn "    is '${detail}', NOT ai_tools_exec_t -- the transition will NOT fire"
-                      warn "    and the agent would run UNCONFINED. matchpathcon expects:"
+                      warn "    is '${detail}', NOT ${wanted} -- the session would run unconfined"
+                      warn "    or fail to write its own state. matchpathcon expects:"
                       warn "      $(matchpathcon "${subject}" 2>/dev/null | awk '{print $2}')"
                       warn "    chase with: restorecon -nv '${subject}'  and  semanage fcontext -C -l" ;;
-                none) warn "${subject}: declared entrypoint not installed -- nothing to label" ;;
-                skip) warn "${subject}: entrypoint labelling skipped -- ${detail}" ;;
+                none) warn "${subject}: ${detail} is not installed -- nothing to label" ;;
+                skip) warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
             esac
         done <<< "${report}"
     fi
-    # An entrypoint that restorecon left mislabelled is an unrecoverable confinement gap (the
-    # module is loaded but the transition would not fire), so fail the install here rather than
-    # proceed to the optional groups with a broken core. A missing entrypoint (toolchain not
-    # provisioned yet) stays a warning -- there is nothing to label.
+    # A path that restorecon left mislabelled is an unrecoverable gap (the module is loaded but
+    # the transition would not fire, or the agent cannot write its state), so fail the install
+    # here rather than proceed to the optional groups with a broken core. A missing path
+    # (toolchain not provisioned yet) stays a warning -- there is nothing to label.
     [[ "${bad}" -eq 0 ]] \
-        || die "entrypoint not labelled ai_tools_exec_t (see above) -- the agent would run UNCONFINED"
-    [[ "${labelled}" -gt 0 ]] || warn "no agent entrypoint found under the nvm tree to label"
+        || die "an agent path did not take its type (see above) -- the agent would run UNCONFINED"
+    [[ "${labelled}" -gt 0 ]] || warn "no agent path found to label"
     log "reminder: a running session keeps its OLD context -- exit and relaunch, then"
     log "          confirm with:  ps -eo label,cmd | grep '[c]laude'  (expect ai_tools_t)"
 }
@@ -466,7 +466,6 @@ case "${ACTION}" in
     _check_permissive_alignment
 
     section "Labelling"
-    restorecon -RF "${HOME_DIR}" 2>/dev/null || true
     restorecon -RF "${NVM_DIR}"  2>/dev/null || true
     # Apply the static sandbox-clone label (ai_tools.fc) to any existing clones.
     [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -RF "${SANDBOX_PROJECTS}" 2>/dev/null || true
@@ -478,13 +477,13 @@ case "${ACTION}" in
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
     _home_state
-    verify_entrypoint
+    verify_agent_labels
     _label_conf
     for_each_project _label_one
 
     # Core is loaded and labelled -- a clear checkpoint before the optional groups. Reaching
     # here means the steps above succeeded (a hard failure aborts under set -e; a mislabelled
-    # entrypoint dies in verify_entrypoint), so the optional section is purely additive.
+    # path dies in verify_agent_labels), so the optional section is purely additive.
     ok "SELinux core module installed"
 
     prompt_groups
@@ -512,13 +511,12 @@ case "${ACTION}" in
             log "the expanded surface before removing 'permissive ai_tools_t;'"
         fi
     fi
-    log "verify:  semodule -l | grep ai_tools;  matchpathcon ${HOME_DIR}"
+    log "verify:  semodule -l | grep ai_tools;  ai-tools --providers"
     log "after launching claude:  ps -eo label,cmd | grep -m1 claude  (expect ai_tools_t)"
     ;;
 
   relabel)
     section "Re-applying labels"
-    restorecon -RF "${HOME_DIR}" 2>/dev/null || true
     restorecon -RF "${NVM_DIR}"  2>/dev/null || true
     # Apply the static sandbox-clone label (ai_tools.fc) to any existing clones.
     [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -RF "${SANDBOX_PROJECTS}" 2>/dev/null || true
@@ -530,7 +528,7 @@ case "${ACTION}" in
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
     _home_state
-    verify_entrypoint
+    verify_agent_labels
     _label_conf
     for_each_project _label_one
     ok "relabel done"
@@ -550,7 +548,6 @@ case "${ACTION}" in
     _check_permissive_alignment
 
     section "Re-applying labels"
-    restorecon -RF "${HOME_DIR}" 2>/dev/null || true
     restorecon -RF "${NVM_DIR}"  2>/dev/null || true
     [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -RF "${SANDBOX_PROJECTS}" 2>/dev/null || true
     [[ -d "${LOG_DIR}" ]] && restorecon -RF "${LOG_DIR}" 2>/dev/null || true
@@ -560,7 +557,7 @@ case "${ACTION}" in
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
     _home_state
-    verify_entrypoint
+    verify_agent_labels
     _label_conf
     for_each_project _label_one
     ok "rebuild done"
@@ -571,16 +568,15 @@ case "${ACTION}" in
     log "dropping project fcontext rules"
     for_each_project _unlabel_one
     _unlabel_conf
-    # Agent entrypoint rules are local fcontexts naming ai_tools_exec_t, a type the module
-    # unload below removes. Drop them here, while the type still exists, for EVERY installed
-    # agent manifest (not just the enabled ones -- a disabled agent may still hold a rule from
-    # when it was on).
-    log "dropping agent entrypoint fcontext rules"
+    # The agents' path rules are local fcontexts naming types the module unload below removes.
+    # Drop them here, while those types still exist, for EVERY installed agent manifest (not just
+    # the enabled ones -- a disabled agent may still hold a rule from when it was on).
+    log "dropping the agents' fcontext rules"
     for manifest in /usr/local/lib/ai-tools/agents.d/*.conf; do
         [[ -e "${manifest}" ]] || continue
         agent="${manifest##*/}"; agent="${agent%.conf}"
-        ai_tools_unlabel_agent_entrypoint "${agent}" \
-            || log "  ${agent}: no entrypoint rule to drop"
+        ai_tools_unlabel_agent_paths "${agent}" \
+            || log "  ${agent}: no file-context rules to drop"
     done
     log "unloading all ai_tools* modules"
     # Collect all loaded ai_tools modules then remove in one semodule call.
@@ -589,7 +585,6 @@ case "${ACTION}" in
         semodule -r "${loaded[@]}" 2>/dev/null || true
     fi
     log "reverting contexts to defaults"
-    _restore_one "${HOME_DIR}"
     _restore_one "${NVM_DIR}"
     _home_state
     for_each_project _restore_one

@@ -6,7 +6,7 @@ agent can invoke them on any project you launch it in.
 ## What installs where
 
 ```text
-src/opt/ai-tools/.claude/agents/ai-tools-*.md  ──▶  /opt/ai-tools/.claude/agents/
+src/usr/share/ai-tools/agents/ai-tools-*.md  ──▶  /usr/share/ai-tools/agents/  ──▶  /opt/ai-tools/.claude/agents/
 ```
 
 `install.sh` and `ai-tools` bootstrap copy each `ai-tools-*.md` here into the live control
@@ -36,4 +36,4 @@ plus the `x-ai-tools-updated` date. On install or bootstrap a newer shipped vers
 as an update and an unchanged one is a no-op; overwriting an existing managed asset asks first
 and defaults to keep, so a copy you tuned on the host is never discarded silently.
 
-Mechanism and invariants: `.claude/rules/shipped-claude-assets.rule.md`.
+Mechanism and invariants: `.claude/rules/shipped-assets.rule.md`.

@@ -116,7 +116,7 @@ regenerable). The operator's on-demand counterpart is `ai-tools --reclaim [--ful
 ### Clean-exit marker
 
 Whether a session was interrupted is read from a clean-exit marker
-(`/opt/ai-tools/.claude/.session-active`): the `session-start` pass writes it (recording
+(`.session-active`, beside the hook in that agent's config directory): the `session-start` pass writes it (recording
 `.cwd`), and a `SessionEnd` hook (`session-hook.sh` with the `session-end` argument)
 removes it on graceful exit and runs the `.git` reclaim for `.cwd` (above). A marker that
 survives into the next `session-start` means
@@ -194,7 +194,7 @@ reverses this symmetrically: `ai-tools-unclaim` reverts `.git` in its own pass (
 target group, clear the agent + default ACL, drop group write, clear dir setgid), so the agent
 loses history access along with the rest of the tree (see [cli](cli.rule.md)).
 
-## Control-plane file integrity (`/opt/ai-tools/.claude`, `bin/`)
+## Control-plane file integrity (the agent config dirs, `bin/`)
 
 The files that drive the sandbox's own enforcement — `settings.json` (declares the
 hooks), `post-tool-hook.sh` and `session-hook.sh` (the hook bodies),
@@ -204,14 +204,14 @@ confinement guardrails. They are owned `root:SANDBOX_GROUP` (group read/exec, no
 write), **not** `SANDBOX_USER:SANDBOX_GROUP` — and not any operator, so no single operator
 can rewrite a guardrail either; only root owns the control plane.
 
-Ownership alone is insufficient: `/opt/ai-tools/.claude` is group-writable by
+Ownership alone is insufficient: an agent's config directory is group-writable by
 `SANDBOX_GROUP` (claude writes `sessions/`, `history.jsonl`, etc. there), and a
 group-writer can `unlink`+recreate any file in a dir it can write, regardless of the
-file's owner. So `.claude` is owned `root:SANDBOX_GROUP` with **setgid + sticky**
-(`3770`): the agent stays a group-writer for its own state, but the sticky bit forbids
-deleting/replacing files it does not own, and since it is not the dir owner it cannot
-bypass that. setgid keeps new entries in group `SANDBOX_GROUP`. Sticky is wanted here
-precisely because the agent never legitimately re-edits these files — the inverse of the
+file's owner. So every agent config directory is owned `root:SANDBOX_GROUP` with
+**setgid + sticky** (`CP_AGENT_CONFIG_MODE`): the agent stays a group-writer for its own state,
+but the sticky bit forbids deleting/replacing files it does not own, and since it is not the dir
+owner it cannot bypass that. setgid keeps new entries in group `SANDBOX_GROUP`. Sticky is wanted
+here precisely because the agent never legitimately re-edits these files — the inverse of the
 project-dir reasoning in [secrets](secret-handling.rule.md).
 
 `/opt/ai-tools/bin` is locked harder: owned `root:SANDBOX_GROUP` at `0551`, not
@@ -225,6 +225,14 @@ root can change it. Repointing a launcher symlink at a new toolchain version is 
 the `ai-tools-launcher-symlink` root helper (see [updater](updater.rule.md)).
 
 The control-plane modes are single-sourced as constants in
-`/usr/local/lib/ai-tools/control-plane.lib.sh` (`CP_HOME_MODE` = `2751`, `CP_DIR_MODES` =
-`bin 0551`/`.claude 3770`), which `install.sh` and the RPM `%files` both apply; cite the
-constants rather than re-stating the octal so the modes stay defined in one place.
+`/usr/local/lib/ai-tools/control-plane.lib.sh` (`CP_HOME_MODE`, `CP_DIR_MODES` for the
+base-owned `bin`, and `CP_AGENT_CONFIG_MODE` for every agent's config directory), which
+`install.sh` and the RPM `%files` both apply; cite the constants rather than re-stating the octal
+so the modes stay defined in one place.
+
+**Which directory that is belongs to the agent, not the base.** Its name comes from the agent
+manifest's `config_dir`, its files (`settings.json`, the hooks) are shipped by that agent's
+package, and its SELinux label is applied from the same manifest — so a second agent brings its
+own control-plane directory instead of sharing this one, and the base names none of them (see
+[providers](providers.rule.md)). The hook bodies derive their state paths (`.sweep-marker`,
+`.session-active`) from their own location for the same reason.

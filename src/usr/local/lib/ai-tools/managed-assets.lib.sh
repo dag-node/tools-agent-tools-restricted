@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # /usr/local/lib/ai-tools/managed-assets.lib.sh
-# Seeds the ai-tools-managed agents and skills into the live control plane (/opt/ai-tools/.claude).
+# Seeds the ai-tools-managed agents and skills, and links the SHARED skills into each agent.
+#
+# Skills are agent-agnostic content, so they are seeded ONCE into /opt/ai-tools/skills and each
+# agent's own skills directory carries a SYMLINK per skill; agents are Claude Code-format files
+# and are copied into that agent's config directory. Authoring or updating a skill is therefore
+# one edit in one place, whatever number of agents read it.
 # A managed asset is one whose name is `ai-tools-*` AND whose frontmatter carries
 # `x-ai-tools-managed: true`; the seeder acts only on those, so an agent or skill the operator
 # authored themselves is never claimed or overwritten. Seeded copies are root:SANDBOX_GROUP
@@ -9,7 +14,7 @@
 # `x-ai-tools-version` is a monotonic integer bumped on every change, and a newer shipped version
 # is what drives the update offer. This file is *sourced* (never executed); its consumers
 # (install.sh, ai-tools-bootstrap) run as root and have already sourced msg.lib.sh. See
-# shipped-claude-assets.rule.md.
+# shipped-assets.rule.md.
 
 # Sourced more than once in a single shell: return early so the second pass is a no-op (an
 # if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips set -e).
@@ -50,16 +55,17 @@ _ai_tools_place_asset() {
 }
 
 # Seed every managed agent/skill from a pristine source root into the live .claude. The source
-# root holds `agents/ai-tools-*.md` and `skills/ai-tools-*/`; the live root is /opt/ai-tools/.claude.
+# root holds `agents/ai-tools-*.md` and `skills/ai-tools-*/`; the live root is the caller/ai-tools/.claude.
 # Absent live asset -> seeded. Present + managed + a newer shipped version -> a keep/update prompt
 # defaulting to keep (so Enter and any non-interactive run never clobber an operator-tuned copy).
 # Present + unmanaged (no marker) -> left untouched and logged: it is the operator's own file.
 # Present + same-or-older version -> no-op.
-# $1 src_root  $2 live_root(/opt/ai-tools/.claude)  $3 group
+# $1 src_root  $2 live_root (resolved by the caller)  $3 group  $4.. kinds (default: both)
 ai_tools_seed_managed_assets() {
-    local src_root="$1" live_root="$2" group="$3"
+    local src_root="$1" live_root="$2" group="$3"; shift 3
+    local -a kinds=( "$@" ); (( ${#kinds[@]} )) || kinds=( agents skills )
     local kind src_glob src marker name dst dst_marker cur new
-    for kind in agents skills; do
+    for kind in "${kinds[@]}"; do
         [[ -d "${src_root}/${kind}" ]] || continue
         install -d -o root -g "${group}" -m 750 "${live_root}/${kind}"
         # agents are files (ai-tools-*.md); skills are directories (ai-tools-*/). README.md and any
@@ -99,4 +105,69 @@ ai_tools_seed_managed_assets() {
             fi
         done
     done
+}
+
+# ai_tools_link_shared_skills <shared_root> <agent_skills_dir> <group> [readme_source]
+# Point an agent at the shared skills: one symlink per skill directory under <shared_root>, so
+# every agent reads the same file and a skill is updated in one place. Best-effort and
+# idempotent, and it never displaces anything real:
+#   * a name that does not exist in the agent's dir      -> symlink created
+#   * a symlink already pointing at the shared skill      -> left alone
+#   * a symlink into the shared root whose skill is gone  -> removed (a dropped shipped skill)
+#   * anything else (a real directory or file)            -> KEPT and reported: it is either an
+#                                                            agent-specific skill or the
+#                                                            operator's own, and it wins
+# The links are root-owned inside the agent's setgid+sticky config directory, so the agent reads
+# and invokes them but cannot repoint one at a file of its choosing.
+ai_tools_link_shared_skills() {
+    local shared_root="$1" agent_skills_dir="$2" group="$3" readme_source="${4:-}"
+    [[ -d "${shared_root}" ]] || return 0
+    install -d -o root -g "${group}" -m 750 "${agent_skills_dir}"
+
+    local src name dst linked=0
+    for src in "${shared_root}"/*/; do
+        [[ -d "${src}" ]] || continue                    # no matches -> literal pattern, skip
+        src="${src%/}"; name="${src##*/}"
+        dst="${agent_skills_dir}/${name}"
+        if [[ -L "${dst}" ]]; then
+            [[ "$(readlink -- "${dst}")" == "${src}" ]] && continue
+            ln -sfn "${src}" "${dst}"
+            _ai_tools_ma_say "skills/${name} link repointed at ${src}"
+        elif [[ -e "${dst}" ]]; then
+            _ai_tools_ma_say "skills/${name} kept (a real directory here wins over the shared skill)"
+            continue
+        else
+            ln -s "${src}" "${dst}"
+            _ai_tools_ma_say "skills/${name} linked -> ${src}"
+        fi
+        chown -h "root:${group}" "${dst}" 2>/dev/null || :
+        linked=$(( linked + 1 ))
+    done
+
+    # Drop links into the shared root whose skill no longer ships, so a removed skill does not
+    # leave a dangling entry the agent would try to read. A link pointing anywhere else is not
+    # ours and is left alone.
+    for dst in "${agent_skills_dir}"/*; do
+        [[ -L "${dst}" ]] || continue
+        src="$(readlink -- "${dst}")"
+        [[ "${src}" == "${shared_root}/"* && ! -e "${src}" ]] || continue
+        rm -f "${dst}"
+        _ai_tools_ma_say "skills/${dst##*/} link removed (no longer shipped)"
+    done
+
+    ai_tools_link_asset_readme "${readme_source}" "${agent_skills_dir}" "${group}"
+    restorecon -R "${agent_skills_dir}" >/dev/null 2>&1 || :
+    return 0
+}
+
+# ai_tools_link_asset_readme <readme_source> <target_dir> <group>
+# Point <target_dir>/README.md at the shipped guide for that asset kind, so the documentation is
+# found where the assets are rather than only in the datadir. A link, never a copy, so there is
+# one file to keep current. Silent no-op when either end is absent.
+ai_tools_link_asset_readme() {
+    local readme_source="$1" target_dir="$2" group="$3"
+    [[ -n "${readme_source}" && -e "${readme_source}" && -d "${target_dir}" ]] || return 0
+    ln -sfn "${readme_source}" "${target_dir}/README.md"
+    chown -h "root:${group}" "${target_dir}/README.md" 2>/dev/null || :
+    return 0
 }
