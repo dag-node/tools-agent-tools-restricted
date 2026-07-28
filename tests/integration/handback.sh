@@ -27,11 +27,22 @@ section "Handback bridge + entrypoint (regression guards)"
 # transition never fires and ai-tools-run's preflight refuses to launch. It is a HARD LINK to
 # the platform-package ELF, so a bulk restorecon can demote the shared inode to lib_t;
 # install-selinux.sh relabels it LAST. Only meaningful when the ai_tools module is installed.
+#
+# The module supplies the TYPE; the rule that maps this path to it comes from the claude-code
+# manifest and is registered by ai-tools-relabel-entrypoint (see providers.rule.md). So the two
+# conditions are checked separately: no module is a legitimate skip (the SELinux layer is
+# optional), but a loaded module whose file-contexts do not map the entrypoint is the broken
+# state ai-tools-run fail-closes on, and it FAILS here rather than skipping quietly.
 _exe="$(ls -1 /opt/ai-tools/.nvm/versions/node/*/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe 2>/dev/null | head -1)"
+_module_loaded=no
+command -v semodule >/dev/null 2>&1 \
+    && semodule -l 2>/dev/null | grep -qE '^ai_tools([[:space:]]|$)' && _module_loaded=yes
 if [[ -z "${_exe}" ]]; then
     skip "claude.exe entrypoint label" "no claude.exe under the nvm tree"
-elif ! command -v matchpathcon >/dev/null 2>&1 || [[ "$(matchpathcon -n "${_exe}" 2>/dev/null)" != *ai_tools_exec_t* ]]; then
+elif [[ "${_module_loaded}" != yes ]] || ! command -v matchpathcon >/dev/null 2>&1; then
     skip "claude.exe entrypoint label" "ai_tools SELinux module not installed"
+elif [[ "$(matchpathcon -n "${_exe}" 2>/dev/null)" != *ai_tools_exec_t* ]]; then
+    fail "no file-context maps ${_exe} to ai_tools_exec_t -- the claude-code entrypoint rule is not registered, so ai-tools-run refuses to launch. Fix: sudo ai-tools --relabel"
 elif [[ "$(stat -c '%C' "${_exe}" 2>/dev/null)" == *:ai_tools_exec_t:* ]]; then
     pass "claude.exe labelled ai_tools_exec_t (entrypoint transition fires)"
 else
