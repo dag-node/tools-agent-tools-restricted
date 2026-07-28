@@ -627,6 +627,11 @@ fi
 - The gating is fail-closed and tamper-refusing: an unreadable, malformed, or non-root-owned
   input falls back to the default-enabled baseline, never to "enable all", so the sandbox account
   cannot enable a provider its package ships disabled.
+- An agent package carries its own SELinux entrypoint file-context and its own handback
+  capability, so the base policy names no agent: each enabled agent's entrypoint is labelled
+  ai_tools_exec_t from the rule its manifest declares, and an agent that drives no handback hooks
+  of its own has its project swept back to the operator when the session ends.
+- ai-tools --providers reports the installed agents and integrations, which are enabled, and why.
 - ai-tools-integration-dotnet integrates a host-managed .NET toolchain (no runtime packaged, no
   dotnet RPM dependency, inert without one): DOTNET_ROOT, a sandbox-writable NuGet cache, and the
   admin-provisioned shared tools on PATH. Provision with sudo ai-tools-dotnet setup /

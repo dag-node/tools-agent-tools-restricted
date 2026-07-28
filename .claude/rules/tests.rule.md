@@ -97,6 +97,13 @@ where an inherited IFS collapses a multi-item value into one bogus item), and
 — `operator.conf`, a manifest, a manifest directory — asserts the resolver moves to *less*
 access and says so, never more.
 
+`relabel.sh` pins the other manifest-supplied decision with a security consequence: the
+entrypoint file-context predicate (`relabel.lib.sh`). A declared pattern becomes a `semanage`
+rule granting `ai_tools_exec_t`, the confined domain's exec entrypoint, so the test drives every
+way a pattern could name something outside the sandbox toolchain (traversal, alternation, a
+foreign prefix) and asserts each is refused — plus that the type is the library's constant, never
+manifest-supplied.
+
 **`integration`** — checks that need a completed install and the running system
 (`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`, `cli.sh`,
 `ai-tools-run.sh`, `systemd.sh`, `selinux.sh`): installed-artifact ownership/modes, sudoers
