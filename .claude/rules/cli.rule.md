@@ -70,7 +70,7 @@ is behind the gate, `--version` included — an unfinished install reports nothi
   into the copy. `--full` includes the skipped heavy trees (`node_modules`, `.venv`, …). See
   [ownership-and-hooks](ownership-and-hooks.rule.md).
 - `--relabel` — restore `ai_tools_exec_t` on the claude entrypoint(s) after a Node upgrade,
-  via `ai-tools-relabel-entrypoint`. The manual counterpart to the automatic post-upgrade
+  via `ai-tools-relabel-agent`. The manual counterpart to the automatic post-upgrade
   relabel the `nvm-update` timer runs (see [updater](updater.rule.md)); for an out-of-band
   upgrade or if the timer's relabel failed and `ai-tools-run` is fail-closing on the launch.
 - `--providers` — read-only report of the installed agents and integrations, which of them a
@@ -206,7 +206,7 @@ The CLI itself is unprivileged. Seven of its root operations — `ai-tools-lockd
 `ai-tools-relabel`, `ai-tools-setfacl`, `ai-tools-setgid`, `ai-tools-unclaim`, `ai-tools-safedir`,
 and `ai-tools-reclaim` — run via `sudo` with **no** NOPASSWD grant by design, so sudo prompts for
 the projects user's password; the sandbox account has no grant for any. The exception, `--relabel` →
-`ai-tools-relabel-entrypoint`, is: it has a dedicated fixed-path NOPASSWD rule
+`ai-tools-relabel-agent`, is: it has a dedicated fixed-path NOPASSWD rule
 (shared with the `nvm-update` timer, see [updater](updater.rule.md) / [launch](launch.rule.md)),
 so it runs **as root without a prompt** — kept safe by being a fixed path the projects user
 cannot modify, granted only in its zero-argument form (the rule's trailing `""`). `ai-tools-setfacl` and `ai-tools-unclaim` need root

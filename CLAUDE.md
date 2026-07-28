@@ -55,7 +55,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Claude Code settings, Bash deny rules ↔ SELinux policy | `.claude/settings.json` | [claude-settings](.claude/rules/claude-settings.rule.md) |
 | Shipped Claude assets (agents/skills), managed-asset seeding | `.claude/agents/**`, `.claude/skills/**`, `lib/ai-tools/managed-assets.lib.sh` | [shipped-claude-assets](.claude/rules/shipped-claude-assets.rule.md) |
 | Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secret-handling.rule.md) |
-| Toolchain provisioning + Node/claude updater, symlink repoint, post-upgrade relabel | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `ai-tools-launcher-symlink.sh`, `ai-tools-relabel-entrypoint.sh`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
+| Toolchain provisioning + Node/claude updater, symlink repoint, post-upgrade relabel | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `ai-tools-launcher-symlink.sh`, `ai-tools-relabel-agent.sh`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
 | Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, the `session-env.d` session-env seam, and the dotnet integration | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,session-env}.d/**`, `ai-tools-dotnet.sh`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
 | Management CLI, project lifecycle, relabel | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel}.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
 | Protected-paths backstop (refuse system dirs as targets) | `safe-paths.lib.sh` + the wrapper/CLI/elevated helpers | [safe-paths](.claude/rules/safe-paths.rule.md) |
@@ -97,7 +97,7 @@ two NOPASSWD rules:
 
 ```
 %ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/ai-tools-run
-%ai-ops  ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint ""
+%ai-ops  ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-agent ""
 ```
 
 The first **drops** privilege to `SANDBOX_USER` (launch); the second runs **as root** for
@@ -145,8 +145,10 @@ The invariants the agent operates under:
   all.
 - **The control-plane files are not agent-writable** — `settings.json`, the hooks,
   `nvm-update.sh`, and `ai-tools-run` are `root:SANDBOX_GROUP` with no group write;
-  `/opt/ai-tools/.claude` is setgid+sticky (the agent keeps its own state there but cannot
-  delete or replace files it does not own) and `/opt/ai-tools/bin` is not group-writable,
+  each agent's config directory (`/opt/ai-tools/<config_dir>`, `.claude` for Claude Code — the
+  agent's own package owns it, the base pins its mode) is setgid+sticky, so the agent keeps its
+  own state there but cannot delete or replace files it does not own, and `/opt/ai-tools/bin` is
+  not group-writable,
   so the agent cannot unlink/replace them to disable its own guardrails. Root owns the
   control plane, so no operator can rewrite a guardrail either. See
   [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) for the exact modes
@@ -233,7 +235,7 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   rather than adding one. See [launch](.claude/rules/launch.rule.md).
 - **Root sudo-helpers** live under `/usr/local/sbin/ai-tools/` (`chown`, `setgid`, `setfacl`,
   `unclaim`, `safedir`, `reclaim`, `launcher-symlink`, `lockdown`, `relabel`, `bootstrap`,
-  `relabel-entrypoint`, `admin`, `dotnet`); shared libraries under `/usr/local/lib/ai-tools/`
+  `relabel-agent`, `admin`, `dotnet`); shared libraries under `/usr/local/lib/ai-tools/`
   (`conf`, `secret-patterns`, `skip-dirs`, `safe-paths`, `relabel`, `operator`, `control-plane`,
   `confinement`, `npm-verify`, `managed-assets`, `providers`, `msg`, `log`), plus `path-dedup.sh`,
   the PATH-ordering fragment `ai-tools-admin` wires into operator dotfiles (see

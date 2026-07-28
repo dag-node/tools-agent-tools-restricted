@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # /usr/local/lib/ai-tools/managed-assets.lib.sh
-# Seeds the ai-tools-managed agents and skills into the live control plane (/opt/ai-tools/.claude).
+# Seeds the ai-tools-managed agents and skills into an agent's live config directory.
 # A managed asset is one whose name is `ai-tools-*` AND whose frontmatter carries
 # `x-ai-tools-managed: true`; the seeder acts only on those, so an agent or skill the operator
 # authored themselves is never claimed or overwritten. Seeded copies are root:SANDBOX_GROUP
@@ -50,12 +50,12 @@ _ai_tools_place_asset() {
 }
 
 # Seed every managed agent/skill from a pristine source root into the live .claude. The source
-# root holds `agents/ai-tools-*.md` and `skills/ai-tools-*/`; the live root is /opt/ai-tools/.claude.
+# root holds `agents/ai-tools-*.md` and `skills/ai-tools-*/`; the live root is the caller/ai-tools/.claude.
 # Absent live asset -> seeded. Present + managed + a newer shipped version -> a keep/update prompt
 # defaulting to keep (so Enter and any non-interactive run never clobber an operator-tuned copy).
 # Present + unmanaged (no marker) -> left untouched and logged: it is the operator's own file.
 # Present + same-or-older version -> no-op.
-# $1 src_root  $2 live_root(/opt/ai-tools/.claude)  $3 group
+# $1 src_root  $2 live_root (the agent's config dir, resolved by the caller)  $3 group
 ai_tools_seed_managed_assets() {
     local src_root="$1" live_root="$2" group="$3"
     local kind src_glob src marker name dst dst_marker cur new

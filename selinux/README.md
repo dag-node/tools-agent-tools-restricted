@@ -9,7 +9,7 @@ confines the agent to its own SELinux domain with a **path boundary**:
 | `ai_tools_t` | the agent process (`claude.exe` as the `SANDBOX_USER` UID) | — |
 | `ai_tools_exec_t` | each enabled agent's entrypoint binary (Claude Code: the versioned `claude.exe`), labelled from the rule that agent's own manifest declares — not from this module | entrypoint (drives the transition) |
 | `ai_tools_project_t` | approved project dirs (per allowlist) | read/write (incl. all git ops) |
-| `ai_tools_home_t` | `/opt/ai-tools/.claude` | read/write its own state |
+| `ai_tools_home_t` | each agent's config directory (`.claude` for Claude Code) and the sandbox home state, labelled from the rule that agent's manifest declares | read/write its own state |
 | everything else (e.g. other `/home` files = `user_home_t`) | — | **no access** once enforcing |
 
 This is what stops the agent inadvertently touching **unrelated** files: once
@@ -68,7 +68,7 @@ sudo ./install-selinux.sh install
 ```
 
 This loads the prebuilt `ai_tools.pp` (enforcing) — or recompiles it first if you
-answer yes to the prompt — labels `/opt/ai-tools/.claude` (`ai_tools_home_t`) and
+answer yes to the prompt — labels each agent's config directory (`ai_tools_home_t`) and
 the `claude.exe` entrypoint, and labels every project in
 `~/.config/ai-tools/allowed-projects` as `ai_tools_project_t`.
 
@@ -76,7 +76,7 @@ Verify:
 
 ```bash
 semodule -l | grep ai_tools                 # module present
-matchpathcon /opt/ai-tools/.claude          # -> ai_tools_home_t
+matchpathcon /opt/ai-tools/.claude          # -> ai_tools_home_t (from the agent's manifest)
 claude --version                            # launch once
 ps -eo label,cmd | grep -m1 '[c]laude'      # process label -> ...:ai_tools_t
 ```
@@ -231,7 +231,7 @@ it refuses to launch rather than run unconfined — so a mislabelled entrypoint 
 agent safe while it waits to be relabelled.
 
 The daily `nvm-update` timer relabels the new entrypoint automatically: after delegating the
-sandbox update it runs `ai-tools-relabel-entrypoint` as root (a dedicated NOPASSWD rule).
+sandbox update it runs `ai-tools-relabel-agent` as root (a dedicated NOPASSWD rule).
 That helper names no agent — for each enabled agent it applies the entrypoint file-context that
 agent's own manifest declares (`entrypoint_fcontext`, mapped to the `ai_tools_exec_t` this module
 defines), `restorecon`s every binary it matches, and verifies the type. So a normal upgrade keeps
@@ -288,7 +288,7 @@ cd selinux && sudo ./install-selinux.sh remove
 ```
 
 Unloads the module, deletes the project fcontext rules, and `restorecon`s
-`/opt/ai-tools/.claude`, the nvm tree, and each project back to default contexts.
+each agent's config directory, the nvm tree, and each project back to default contexts.
 DAC hardening (ownership/permissions/sticky `.claude`/locked `bin`) is untouched.
 
 ## Notes

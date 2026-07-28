@@ -266,11 +266,11 @@ install -d -m 2770 %{buildroot}/var/opt/ai-tools/sandbox-projects
 install -m 0640 src/var/opt/ai-tools/README.md %{buildroot}/var/opt/ai-tools/README.md
 install -d -m 0700 %{buildroot}/var/log/ai-tools
 
-# ── base: control-plane home root + dirs (files added by nodejs/claude). Staging modes are
-#    writable so files can be placed here; the installed modes come from the file lists below. ──
+# ── base: control-plane home root + bin (files added by nodejs/claude; the agent's own config
+#    directory is staged in its section below). Staging modes are writable so files can be placed
+#    here; the installed modes come from the file lists below. ──
 install -d -m 0755 %{buildroot}/opt/ai-tools
 install -d -m 0755 %{buildroot}/opt/ai-tools/bin
-install -d -m 0770 %{buildroot}/opt/ai-tools/.claude
 # Default-deny git guard for the control-plane home: ai-tools-bootstrap captures the control
 # plane in a root-private git repo, and this gitignore keeps secrets and churn out of it. The
 # LIVE /opt/ai-tools/.gitignore is NOT rpm-owned -- neither it nor the host-derived .gitconfig
@@ -279,17 +279,19 @@ install -d -m 0770 %{buildroot}/opt/ai-tools/.claude
 # /opt/ai-tools/.gitignore, and generates .gitconfig, only when the live file is absent.
 install -d -m 0755 %{buildroot}%{_datadir}/ai-tools
 install -m 0644 src/opt/ai-tools/gitignore %{buildroot}%{_datadir}/ai-tools/gitignore
-# Shipped agents/skills: pristine copies under %{_datadir} are the reseed source (rpm-owned). The
-# LIVE /opt/ai-tools/.claude/{agents,skills} are NOT rpm-owned (like .gitignore); %post seeds them
-# when absent, so an erase/upgrade preserves an operator-updated copy. The interactive version
-# update is offered by install.sh / ai-tools-bootstrap (managed-assets.lib.sh, the shared seeder).
+# Shipped agents/skills: pristine copies under %{_datadir} are the reseed source (rpm-owned).
+# They are in the CLAUDE CODE asset format, so the agent package owns them and seeds them into
+# its own config directory; the base owns only the parent dir and the shared seeder library. The
+# LIVE copies under that config dir are NOT rpm-owned (like .gitignore); %post seeds them when
+# absent, so an erase/upgrade preserves an operator-updated copy. The interactive version update
+# is offered by install.sh / ai-tools-bootstrap (managed-assets.lib.sh, the shared seeder).
 cp -rT src/opt/ai-tools/.claude/agents %{buildroot}%{_datadir}/ai-tools/agents
 cp -rT src/opt/ai-tools/.claude/skills %{buildroot}%{_datadir}/ai-tools/skills
 find %{buildroot}%{_datadir}/ai-tools/agents %{buildroot}%{_datadir}/ai-tools/skills -type d -exec chmod 0755 {} +
 find %{buildroot}%{_datadir}/ai-tools/agents %{buildroot}%{_datadir}/ai-tools/skills -type f -exec chmod 0644 {} +
 
 # ── integration-nodejs: toolchain helpers + updater ──────────────────────────
-for h in ai-tools-launcher-symlink ai-tools-relabel-entrypoint ai-tools-bootstrap; do
+for h in ai-tools-launcher-symlink ai-tools-relabel-agent ai-tools-bootstrap; do
     install -m 0750 src%{ai_sbindir}/${h}.sh %{buildroot}%{ai_sbindir}/${h}
 done
 # ai-tools-bootstrap is administrator-typed (documented as a bare command); symlinked in
@@ -326,6 +328,8 @@ touch %{buildroot}/var/log/ai-tools/dotnet.log
 # operator's PATH); it runs as the invoking operator, gates on ai-ops membership, then drops
 # to the sandbox account via sudo.
 install -m 0755 src%{ai_bindir}/claude.sh                  %{buildroot}%{ai_bindir}/claude
+# This agent's config directory, the one its manifest declares (config_dir=.claude).
+install -d -m 0770 %{buildroot}/opt/ai-tools/.claude
 install -m 0750 src/opt/ai-tools/.claude/post-tool-hook.sh %{buildroot}/opt/ai-tools/.claude/post-tool-hook.sh
 install -m 0750 src/opt/ai-tools/.claude/session-hook.sh   %{buildroot}/opt/ai-tools/.claude/session-hook.sh
 install -m 0640 src/opt/ai-tools/.claude/settings.json     %{buildroot}/opt/ai-tools/.claude/settings.json
@@ -396,14 +400,6 @@ fi
 if command -v restorecon >/dev/null 2>&1; then
     restorecon /opt/ai-tools/.gitignore /opt/ai-tools/.gitconfig >/dev/null 2>&1 || :
 fi
-# Seed the ai-tools-managed agents/skills into the control plane, reusing the shared seeder under
-# an explicit bash (the lib is bash; a %post scriptlet runs under /bin/sh). Non-interactive, so an
-# existing managed asset is kept and only an absent one is seeded (the seeder's default); the
-# version update is offered interactively by install.sh / ai-tools-bootstrap. Mirrors the gitignore
-# reseed: control-plane content, live copies not rpm-owned, self-healing when absent.
-if [ -d %{_datadir}/ai-tools/agents ] && command -v bash >/dev/null 2>&1; then
-    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools/.claude ai-tools' >/dev/null 2>&1 || :
-fi
 # Operator binding + toolchain are per-operator / network steps a scriptlet must not do; direct
 # the operator to them. ai-tools-bootstrap installs the Node toolchain; ai-tools-admin operator
 # add binds an operator (OPERATORS list + ai-ops membership + linger + allowlist seed).
@@ -467,12 +463,21 @@ fi
 # Not swallowed: an entrypoint that stays mislabelled means ai-tools-run refuses every launch, so
 # the scriptlet reports the remedy and exits non-zero rather than leaving that to be discovered
 # at the first `claude`.
-if [ -x %{ai_sbindir}/ai-tools-relabel-entrypoint ]; then
-    %{ai_sbindir}/ai-tools-relabel-entrypoint >/dev/null || {
-        echo "ai-tools-agents-claude-code-restricted: entrypoint labelling failed; see 'journalctl -t ai-tools-relabel-entrypoint'" >&2
+if [ -x %{ai_sbindir}/ai-tools-relabel-agent ]; then
+    %{ai_sbindir}/ai-tools-relabel-agent >/dev/null || {
+        echo "ai-tools-agents-claude-code-restricted: entrypoint labelling failed; see 'journalctl -t ai-tools-relabel-agent'" >&2
         echo "ai-tools-agents-claude-code-restricted: fix the cause and re-run: sudo ai-tools --relabel" >&2
         exit 1
     }
+fi
+# Seed this agent's managed agents/skills into its own config directory, reusing the base's shared
+# seeder under an explicit bash (the lib is bash; a %post scriptlet runs under /bin/sh).
+# Non-interactive, so an existing managed asset is kept and only an absent one is seeded (the
+# seeder's default); the version update is offered interactively by install.sh /
+# ai-tools-bootstrap. Mirrors the gitignore reseed: control-plane content, live copies not
+# rpm-owned, self-healing when absent.
+if [ -d %{_datadir}/ai-tools/agents ] && command -v bash >/dev/null 2>&1; then
+    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools/.claude ai-tools' >/dev/null 2>&1 || :
 fi
 
 %preun -n ai-tools-agents-claude-code-restricted
@@ -481,8 +486,8 @@ fi
 # may erase next, and a local rule naming an undefined type breaks later relabels. Runs in %preun,
 # not %postun, because the pattern is read from this package's manifest, which is still on disk
 # here.
-if [ "$1" -eq 0 ] && [ -x %{ai_sbindir}/ai-tools-relabel-entrypoint ]; then
-    %{ai_sbindir}/ai-tools-relabel-entrypoint --remove claude-code >/dev/null 2>&1 || :
+if [ "$1" -eq 0 ] && [ -x %{ai_sbindir}/ai-tools-relabel-agent ]; then
+    %{ai_sbindir}/ai-tools-relabel-agent --remove claude-code >/dev/null 2>&1 || :
 fi
 
 %postun -n ai-tools-integration-dotnet
@@ -565,23 +570,18 @@ fi
 # the agent's own subtrees (.nvm/.cache/...) under the home as the sandbox account.
 %dir %attr(2751, root, ai-tools) /opt/ai-tools
 %dir %attr(0551, root, ai-tools) /opt/ai-tools/bin
-%dir %attr(3770, root, ai-tools) /opt/ai-tools/.claude
 # /opt/ai-tools/.gitignore and .gitconfig are deliberately NOT listed here: rpm-owning them
 # would delete them on erase. They are scriptlet-managed (%post reseed-if-missing) so an erase
 # preserves the operator's copies. The canonical .gitignore reseed source ships read-only here.
 %dir %{_datadir}/ai-tools
 %{_datadir}/ai-tools/gitignore
-# Pristine agent/skill reseed source (rpm-owned); the live /opt/ai-tools/.claude/{agents,skills}
-# copies are scriptlet-seeded and NOT rpm-owned, so an erase preserves operator-updated versions.
-%{_datadir}/ai-tools/agents
-%{_datadir}/ai-tools/skills
 
 %files -n ai-tools-integration
 # Umbrella metapackage: no files of its own; weakly pulls the ai-tools-integration-* members.
 
 %files -n ai-tools-integration-nodejs
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-launcher-symlink
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-relabel-entrypoint
+%attr(0750, root, root) %{ai_sbindir}/ai-tools-relabel-agent
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-bootstrap
 %{_sbindir}/ai-tools-bootstrap
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/nvm-update.sh
@@ -601,6 +601,16 @@ fi
 # Umbrella metapackage: no files of its own; weakly pulls the ai-tools-agents-* members.
 
 %files -n ai-tools-agents-claude-code-restricted
+# This agent owns its own control-plane directory -- the base owns the home root and bin, and
+# pins the mode every agent's config dir carries (control-plane.lib.sh CP_AGENT_CONFIG_MODE), so
+# a second agent ships its own directory instead of sharing this one. Setgid+sticky: the agent is
+# a group-writer for its session state but cannot unlink the root-owned files below.
+%dir %attr(3770, root, ai-tools) /opt/ai-tools/.claude
+# Pristine agent/skill reseed source for THIS agent's asset format (rpm-owned); the live copies
+# under its config dir are scriptlet-seeded and NOT rpm-owned, so an erase preserves
+# operator-updated versions.
+%{_datadir}/ai-tools/agents
+%{_datadir}/ai-tools/skills
 %attr(0644, root, root) %{ai_libdir}/agents.d/claude-code.conf
 %attr(0644, root, root) %{ai_libdir}/session-env.d/claude-code.env.sh
 %attr(0755, root, root) %{ai_bindir}/claude
@@ -631,6 +641,10 @@ fi
   capability, so the base policy names no agent: each enabled agent's entrypoint is labelled
   ai_tools_exec_t from the rule its manifest declares, and an agent that drives no handback hooks
   of its own has its project swept back to the operator when the session ends.
+- An agent package now owns its control-plane directory: its name comes from the manifest
+  (config_dir), the package ships the directory and the files in it, and the base contributes
+  only the mode and SELinux label every agent config directory carries. The shipped Claude-format
+  agents and skills moved to the Claude Code package with it.
 - The toolchain updater repoints every enabled agent's launcher symlink, not just Claude Code's:
   ai-tools-claude-symlink is now ai-tools-launcher-symlink, it accepts only a launcher an enabled
   agent manifest claims, and the post-upgrade relabel watcher observes the whole launcher

@@ -4,7 +4,7 @@
 # unconfined_t/init_t -> ai_tools_t transition must carry ai_tools_exec_t, but which binary
 # that is belongs to the agent, not to this base module: each ai-tools-agents-* package
 # declares its own path pattern (entrypoint_fcontext in its manifest under
-# /usr/local/lib/ai-tools/agents.d), and ai-tools-relabel-entrypoint applies it as a LOCAL
+# /usr/local/lib/ai-tools/agents.d), and ai-tools-relabel-agent applies it as a LOCAL
 # semanage fcontext rule mapping it to the ai_tools_exec_t this module defines. A second agent
 # therefore labels its entrypoint into this domain without a base-policy change. The type is
 # pinned by relabel.lib.sh and the pattern is accepted only under the sandbox toolchain root,
@@ -54,12 +54,14 @@
 # ai_tools_log_t in ai_tools.te. DAC keeps it root-only (dir 700, files 600).
 /var/log/ai-tools(/.*)?  gen_context(system_u:object_r:ai_tools_log_t,s0)
 
-# The agent's own config/state dir -- a private writable area, so the policy need
-# not grant write to the whole nvm tree (usr_t). The <you>-owned control files inside
-# (settings.json, post-tool-hook.sh) remain protected by DAC regardless of label.
-/opt/ai-tools/\.claude(/.*)?  gen_context(system_u:object_r:ai_tools_home_t,s0)
+# NO AGENT CONFIG DIRECTORY IS LISTED HERE either. Each agent has a private writable
+# config/state dir under the home -- what keeps the policy from having to grant write on the
+# whole nvm tree (usr_t) -- but which directory that is belongs to the agent: its manifest
+# declares config_dir, and ai-tools-relabel-agent maps it to the ai_tools_home_t below as a
+# LOCAL semanage rule, exactly as it does for the entrypoint. The root-owned control files
+# inside it (settings.json, the hooks) remain protected by DAC regardless of label.
 
-# The rest of the agent's HOME state. HOME is /opt/ai-tools, whose base is usr_t,
+# The rest of the agent's HOME state, which is base-owned and fixed. HOME is /opt/ai-tools, whose base is usr_t,
 # so without these the agent's own writes to .npm / .cache / .local / .config land
 # on usr_t -- and granting the domain usr_t write would also hand it the read-only
 # node/program tree. Labelling just these paths ai_tools_home_t keeps the writes

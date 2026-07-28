@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
-# /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
-# Give every enabled agent's launcher binary the ai_tools_exec_t label, so its exec fires the
-# -> ai_tools_t domain transition and the launched session is confined. A freshly installed
-# binary is born the default type (bin_t/lib_t) and only restorecon applies the entrypoint type.
+# /usr/local/sbin/ai-tools/ai-tools-relabel-agent
+# Apply the SELinux file-context rules every enabled agent declares, and restore the labels on
+# what they match: its launcher binary -> ai_tools_exec_t, so its exec fires the -> ai_tools_t
+# domain transition and the session is confined, and its config directory -> ai_tools_home_t, so
+# the confined session can write its own state. Freshly installed files are born the default type
+# and only restorecon applies these.
 #
-# It names no agent: each ai-tools-agents-* package declares its own entrypoint path pattern
-# (entrypoint_fcontext in its manifest under /usr/local/lib/ai-tools/agents.d), and this helper
-# registers that pattern as a local file-context rule and relabels what it matches. The labelling
-# body lives in relabel.lib.sh, shared with selinux/install-selinux.sh's verify pass so the two
-# cannot drift.
+# It names no agent: each ai-tools-agents-* package declares its own paths (entrypoint_fcontext
+# and config_dir in its manifest under /usr/local/lib/ai-tools/agents.d), and this helper
+# registers them as local file-context rules. The labelling body lives in relabel.lib.sh, shared
+# with selinux/install-selinux.sh's verify pass so the two cannot drift.
 #
 # Usage:
-#   ai-tools-relabel-entrypoint              relabel every enabled agent's entrypoint (idempotent)
-#   ai-tools-relabel-entrypoint --remove <agent>
-#                                            drop that agent's file-context rule and restore
-#                                            default labels -- run while its manifest still
-#                                            exists (rpm %preun of the agent package)
+#   ai-tools-relabel-agent              relabel every enabled agent's paths (idempotent)
+#   ai-tools-relabel-agent --remove <agent>
+#                                       drop that agent's file-context rules and restore default
+#                                       labels -- run while its manifest still exists (rpm %preun
+#                                       of the agent package)
 #
 # Runs as root (a domain that holds relabel), never the sandbox account. Three callers drive the
 # default form: ai-tools-bootstrap at provision time, the ai-tools-relabel.path watcher after an
@@ -29,15 +30,15 @@
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
-#     src/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint.sh \
-#     /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
+#     src/usr/local/sbin/ai-tools/ai-tools-relabel-agent.sh \
+#     /usr/local/sbin/ai-tools/ai-tools-relabel-agent
 
 set -euo pipefail
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/relabel.log
 # (shared with ai-tools-relabel). Best-effort -- a no-op fallback keeps the helper working
 # if the lib is missing.
-AI_TOOLS_LOG_TAG="ai-tools-relabel-entrypoint"
+AI_TOOLS_LOG_TAG="ai-tools-relabel-agent"
 AI_TOOLS_LOG_FILE="relabel.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
@@ -45,8 +46,8 @@ if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log_info() { :; }; ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
 fi
 
-say() { printf 'ai-tools-relabel-entrypoint: %s\n' "$*"; }
-die() { ai_tools_log_error "$*"; printf 'ai-tools-relabel-entrypoint: error: %s\n' "$*" >&2; exit 1; }
+say() { printf 'ai-tools-relabel-agent: %s\n' "$*"; }
+die() { ai_tools_log_error "$*"; printf 'ai-tools-relabel-agent: error: %s\n' "$*" >&2; exit 1; }
 
 [[ "${EUID}" -eq 0 ]] || die "must run as root (via sudo)"
 
@@ -55,65 +56,66 @@ die() { ai_tools_log_error "$*"; printf 'ai-tools-relabel-entrypoint: error: %s\
 # mislabelled entrypoint with no explanation. Bare source under set -e.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/relabel.lib.sh
 source /usr/local/lib/ai-tools/relabel.lib.sh
-declare -F ai_tools_label_agent_entrypoints >/dev/null 2>&1 \
+declare -F ai_tools_label_agent_paths >/dev/null 2>&1 \
     || die "relabel.lib.sh is incomplete -- reinstall ai-tools-base"
 
 # --remove <agent>: erase-time counterpart, invoked by the agent package's own %preun while its
-# manifest is still on disk. Dropping the rule matters because the type it names belongs to the
+# manifest is still on disk. Dropping the rules matters because the types they name belong to the
 # base policy, which the host may erase next.
 if [[ "${1:-}" == --remove ]]; then
-    agent="${2:?usage: ai-tools-relabel-entrypoint --remove <agent-name>}"
-    rc=0; ai_tools_unlabel_agent_entrypoint "${agent}" || rc=$?
+    agent="${2:?usage: ai-tools-relabel-agent --remove <agent-name>}"
+    rc=0; ai_tools_unlabel_agent_paths "${agent}" || rc=$?
     case "${rc}" in
-        0) say "dropped the entrypoint file-context for ${agent}"
-           ai_tools_log_info "dropped entrypoint fcontext for ${agent}" ;;
+        0) say "dropped the file-context rules for ${agent}"
+           ai_tools_log_info "dropped the file-context rules for ${agent}" ;;
         2) say "SELinux confinement inactive -- no file-context to drop" ;;
-        *) die "${agent} declares no usable entrypoint_fcontext -- nothing dropped" ;;
+        *) die "${agent} declares no usable path rules -- nothing dropped" ;;
     esac
     exit 0
 fi
-[[ "$#" -eq 0 ]] || die "usage: ai-tools-relabel-entrypoint [--remove <agent-name>]"
+[[ "$#" -eq 0 ]] || die "usage: ai-tools-relabel-agent [--remove <agent-name>]"
 
 # Collect the report first, so the lib's return code survives (2 = the SELinux layer is not
 # active here, which is a supported deployment and not a failure).
 report=""; status=0
-report="$(ai_tools_label_agent_entrypoints)" || status=$?
+report="$(ai_tools_label_agent_paths)" || status=$?
 if (( status == 2 )); then
-    say "SELinux confinement inactive -- no entrypoint labelling needed"
+    say "SELinux confinement inactive -- no agent labelling needed"
     exit 0
 fi
 
-# Render the lib's status lines: it reports per entrypoint and per agent, this decides what an
-# operator reads and what fails the run.
+# Render the lib's status lines: it reports per path and per agent, this decides what an operator
+# reads and what fails the run. The wanted type travels with a "bad" line, since an agent
+# declares two paths that carry different types.
 labelled=0 mislabelled=0
 if [[ -n "${report}" ]]; then
-    while read -r verdict subject detail; do
+    while read -r verdict subject detail wanted; do
         case "${verdict}" in
             ok)   labelled=$(( labelled + 1 ))
-                  say "labelled ${AI_TOOLS_ENTRYPOINT_TYPE}: ${subject}"
-                  ai_tools_log_info "relabelled entrypoint ${AI_TOOLS_ENTRYPOINT_TYPE}: ${subject}" ;;
+                  say "labelled: ${subject}"
+                  ai_tools_log_info "relabelled ${subject}" ;;
             bad)  mislabelled=$(( mislabelled + 1 ))
-                  say "WARNING: ${subject} is '${detail}', NOT ${AI_TOOLS_ENTRYPOINT_TYPE}"
-                  ai_tools_log_warn "${subject} did not take ${AI_TOOLS_ENTRYPOINT_TYPE} (now '${detail}')" ;;
-            none) say "${subject}: its declared entrypoint is not installed -- nothing to label"
-                  ai_tools_log_info "${subject}: no installed entrypoint to label" ;;
-            skip) say "${subject}: skipped -- ${detail}"
-                  ai_tools_log_warn "${subject}: entrypoint labelling skipped -- ${detail}" ;;
+                  say "WARNING: ${subject} is '${detail}', NOT ${wanted}"
+                  ai_tools_log_warn "${subject} did not take ${wanted} (now '${detail}')" ;;
+            none) say "${subject}: ${detail} is not installed -- nothing to label"
+                  ai_tools_log_info "${subject}: ${detail} absent, nothing to label" ;;
+            skip) say "${subject}: skipped -- ${detail} ${wanted}"
+                  ai_tools_log_warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
         esac
     done <<< "${report}"
 fi
 
-# A mislabelled entrypoint is a confinement gap: the transition would not fire, so fail rather
-# than report success. ai-tools-run refuses such a launch too -- this is the earlier, clearer
-# signal.
+# A mislabelled path is a broken session: a mislabelled entrypoint runs unconfined (ai-tools-run
+# refuses the launch) and a mislabelled config directory leaves the agent unable to write its own
+# state. Fail rather than report success -- this is the earlier, clearer signal.
 (( mislabelled == 0 )) \
-    || die "${mislabelled} entrypoint(s) did not take ${AI_TOOLS_ENTRYPOINT_TYPE} -- is the ai_tools module loaded? run: sudo selinux/install-selinux.sh install"
+    || die "${mislabelled} path(s) did not take their type -- is the ai_tools module loaded? run: sudo selinux/install-selinux.sh install"
 (( status == 0 )) \
-    || die "an agent's entrypoint file-context could not be applied (see above)"
+    || die "an agent's file-context rule could not be applied (see above)"
 
 if (( labelled > 0 )); then
-    say "all ${labelled} entrypoint(s) labelled ${AI_TOOLS_ENTRYPOINT_TYPE} -- exit any running session and relaunch"
-    ai_tools_log_info "relabelled ${labelled} entrypoint(s) ${AI_TOOLS_ENTRYPOINT_TYPE}"
+    say "all ${labelled} path(s) labelled -- exit any running session and relaunch"
+    ai_tools_log_info "relabelled ${labelled} agent path(s)"
 elif [[ -z "${report}" ]]; then
-    say "no enabled agent declares an entrypoint file-context -- nothing to label"
+    say "no enabled agent declares a file-context rule -- nothing to label"
 fi

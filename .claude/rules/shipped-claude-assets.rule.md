@@ -8,8 +8,11 @@ paths:
 # Shipped Claude assets (agents and skills)
 
 The project ships a set of Claude Code **agents** and **skills** and provisions them into the
-sandbox account's global config (`/opt/ai-tools/.claude/{agents,skills}`), so the sandboxed
-agent carries them into every project a session runs in. The source tree under
+config directory of the agent whose format they are in — `claude-code`, resolved from the
+manifests rather than named by the seeder — so the sandboxed agent carries them into every
+project a session runs in. They are in the Claude Code asset format, so the
+`ai-tools-agents-claude-code-restricted` package owns both the pristine datadir copies and the
+directory they are seeded into; another agent brings its own. The source tree under
 `src/opt/ai-tools/.claude/{agents,skills}` is authoritative; the live path is the install
 target. Ships now: the `ai-tools-reference-architect` agent, the `ai-tools-docs-*` documentation
 skills (`reference`, `usage`, `comments`, `changelog`), and `ai-tools-engineering-principles`.
@@ -59,16 +62,17 @@ poison the instructions shared across the account's sessions. The pristine sourc
 the live copies are **not** rpm-owned, so an erase or upgrade preserves an operator-updated
 version. The seeder is bash and source-only; its consumers run as root.
 
-Three paths seed, all root: `install.sh` (stages the datadir, then seeds) and
-`ai-tools-bootstrap` (`seed_managed_assets_step`, gated on the control plane being present) reuse
-the lib directly and offer the interactive version update; the RPM `%post` reuses the same lib
-under an explicit `bash` (its scriptlet is `/bin/sh`) and, being non-interactive, seeds only what
-is absent. This mirrors the `.gitignore`/`.gitconfig` reseed (see
+Three paths seed, all root, and each resolves the destination through
+`ai_tools_agent_config_dirs` (`control-plane.lib.sh`) rather than naming it: `install.sh` (stages
+the datadir, then seeds) and `ai-tools-bootstrap` (`seed_managed_assets_step`, gated on the
+control plane being present) reuse the lib directly and offer the interactive version update; the
+**agent package's** `%post` reuses the same lib under an explicit `bash` (its scriptlet is
+`/bin/sh`) and, being non-interactive, seeds only what is absent. This mirrors the `.gitignore`/`.gitconfig` reseed (see
 [ownership-and-hooks](ownership-and-hooks.rule.md) for the control-plane ownership model).
 
 ## SELinux
 
-The live assets need no file-context rule of their own: `/opt/ai-tools/.claude(/.*)?` already
+The live assets need no file-context rule of their own: the agent's config-directory rule already
 labels everything under `.claude` `ai_tools_home_t`, which the agent (`ai_tools_t`) reads as its
 home state, so the seeder's `restorecon -R` gives the seeded files the label the agent already
 reads. The datadir copies stay `usr_t` and are read by root, like the gitignore datadir. See

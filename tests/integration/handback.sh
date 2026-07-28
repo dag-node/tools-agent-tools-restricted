@@ -29,7 +29,7 @@ section "Handback bridge + entrypoint (regression guards)"
 # install-selinux.sh relabels it LAST. Only meaningful when the ai_tools module is installed.
 #
 # The module supplies the TYPE; the rule that maps this path to it comes from the claude-code
-# manifest and is registered by ai-tools-relabel-entrypoint (see providers.rule.md). So the two
+# manifest and is registered by ai-tools-relabel-agent (see providers.rule.md). So the two
 # conditions are checked separately: no module is a legitimate skip (the SELinux layer is
 # optional), but a loaded module whose file-contexts do not map the entrypoint is the broken
 # state ai-tools-run fail-closes on, and it FAILS here rather than skipping quietly.

@@ -268,7 +268,7 @@ series, installs it under `/opt/ai-tools/.nvm`, refreshes the global tools, prun
   running Claude session.
 
 The `ai-tools-relabel.path` watcher sees the repoint (it watches the `bin` directory, so one
-watch covers every agent) and runs `ai-tools-relabel-entrypoint` (root) to restore
+watch covers every agent) and runs `ai-tools-relabel-agent` (root) to restore
 `ai_tools_exec_t` on each enabled agent's new entrypoint, so the SELinux domain transition keeps
 firing. Until the entrypoint is relabelled,
 `ai-tools-run` fail-closes (refuses to launch rather than run unconfined); `ai-tools

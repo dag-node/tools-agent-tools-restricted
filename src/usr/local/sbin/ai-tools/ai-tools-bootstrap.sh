@@ -123,26 +123,41 @@ configure_git_identity() {
     log "verify the result in ${gc}"
 }
 
-# seed_managed_assets_step: (re)seed the ai-tools-managed agents/skills into the control plane
-# from the pristine datadir copies. Runs only when the control plane is present (its .claude and
-# the /usr/share/ai-tools pristine copies exist) and the seeder lib is deployed; a bootstrap that
-# precedes install.sh has nothing to seed and skips. Past that gate msg.lib is deployed, so the
-# update confirm requires it like every other prompting consumer. Same non-overwrite and version
-# rules as install.sh -- only ai-tools-* assets carrying x-ai-tools-managed are touched, and an
-# existing one updates only on confirm (default keep). See managed-assets.lib.sh.
+# seed_managed_assets_step: (re)seed the ai-tools-managed agents/skills from the pristine datadir
+# copies into the config directory of each agent that uses that asset format. The directories come
+# from the manifests (control-plane.lib.sh), so this names no path of its own. Runs only when the
+# control plane is present (a config dir and the /usr/share/ai-tools pristine copies exist) and
+# the seeder lib is deployed; a bootstrap that precedes install.sh has nothing to seed and skips.
+# Past that gate msg.lib is deployed, so the update confirm requires it like every other prompting
+# consumer. Same non-overwrite and version rules as install.sh -- only ai-tools-* assets carrying
+# x-ai-tools-managed are touched, and an existing one updates only on confirm (default keep). See
+# managed-assets.lib.sh.
 seed_managed_assets_step() {
-    local claude="${SANDBOX_HOME}/.claude" pristine=/usr/share/ai-tools
-    [[ -d "${claude}" && -d "${pristine}/agents" ]] \
-        || { log "managed assets: control plane not present yet -- install it, then re-run to seed agents/skills"; return 0; }
+    local pristine=/usr/share/ai-tools
     local lib=/usr/local/lib/ai-tools/managed-assets.lib.sh msglib=/usr/local/lib/ai-tools/msg.lib.sh
+    local cplib=/usr/local/lib/ai-tools/control-plane.lib.sh
+    [[ -d "${pristine}/agents" && -r "${cplib}" ]] \
+        || { log "managed assets: control plane not present yet -- install it, then re-run to seed agents/skills"; return 0; }
     [[ -r "${lib}" && -r "${msglib}" ]] \
         || die "control plane present but the managed-asset libs are missing -- reinstall ai-tools"
     # shellcheck source=/dev/null
     source "${msglib}"
     # shellcheck source=/dev/null
     source "${lib}"
-    log "seeding ai-tools-managed agents/skills into ${claude}"
-    ai_tools_seed_managed_assets "${pristine}" "${claude}" "${SANDBOX_GROUP}"
+    # shellcheck source=/dev/null
+    source "${cplib}"
+    declare -F ai_tools_agent_config_dirs >/dev/null 2>&1 \
+        || die "control plane present but ${cplib} does not resolve the agents' config dirs"
+    local agent config_dir seeded=0
+    while IFS=$'\t' read -r agent config_dir; do
+        # The shipped assets are in the Claude Code format, so they are seeded for that agent
+        # only; another agent brings its own (see shipped-claude-assets.rule.md).
+        [[ "${agent}" == claude-code && -d "${config_dir}" ]] || continue
+        log "seeding ai-tools-managed agents/skills into ${config_dir}"
+        ai_tools_seed_managed_assets "${pristine}" "${config_dir}" "${SANDBOX_GROUP}"
+        seeded=1
+    done < <(ai_tools_agent_config_dirs)
+    (( seeded )) || log "managed assets: no agent config directory to seed yet"
 }
 
 [[ "${EUID}" -eq 0 ]] || die "run as root (sudo)"
@@ -304,7 +319,7 @@ fi
 #     idempotent and no-ops when SELinux or the ai_tools module is inactive, so this is safe on a
 #     DAC-only host; best-effort -- a relabel gap degrades to ai-tools-run's refusal, not a failed
 #     bootstrap. See .claude/rules/updater.rule.md.
-_relabel_helper=/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
+_relabel_helper=/usr/local/sbin/ai-tools/ai-tools-relabel-agent
 if [[ -x "${_relabel_helper}" ]]; then
     "${_relabel_helper}" \
         || log "warn: entrypoint relabel did not complete -- run 'ai-tools --relabel' before launching claude"

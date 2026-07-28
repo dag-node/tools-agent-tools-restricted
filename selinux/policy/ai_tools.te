@@ -641,7 +641,7 @@ files_read_usr_files(ai_tools_handback_t)
 # "ai-tools update failed". This domain needs ONLY getattr: ai-tools-launcher-symlink
 # stat()s the entrypoint for its -e existence check but never relabels it. Restoring
 # ai_tools_exec_t on a freshly bumped (bin_t) entrypoint needs relabelfrom/relabelto,
-# intentionally NOT granted here -- it is owned by ai-tools-relabel-entrypoint. That helper
+# intentionally NOT granted here -- it is owned by ai-tools-relabel-agent. That helper
 # runs as root from the ai-tools-relabel.path watcher (system instance) after the updater
 # repoints the symlink, and on demand from `ai-tools --relabel` (the operator, unconfined_t,
 # which holds relabel). A mislabelled entrypoint does NOT run unconfined under enforcing:
