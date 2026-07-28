@@ -23,7 +23,7 @@
 # service unit) because NNP drops sudo's SUID bit before it can switch uid.
 #
 # Deploy: sudo install -o ai-tools -g ai-tools -m 750 \
-#             src/opt/ai-tools/.claude/post-tool-hook.sh /opt/ai-tools/.claude/post-tool-hook.sh
+#             src/opt/ai-tools/agents/claude-code/post-tool-hook.sh /opt/ai-tools/.claude/post-tool-hook.sh
 
 set -euo pipefail
 

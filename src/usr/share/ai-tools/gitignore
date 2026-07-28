@@ -14,10 +14,11 @@
 !/.gitignore
 !/.gitconfig
 
-# Shared skills: the one agent-agnostic copy every agent symlinks to. Each agent's own
-# skills/ below is re-included as well -- it holds those symlinks plus any agent-specific
-# skill, and a committed symlink is a faithful record of which skills that agent carried.
+# Shared assets: the one agent-agnostic copy of each kind that every agent symlinks to. Each
+# agent's own skills/ and agents/ below are re-included as well -- they hold those symlinks plus
+# anything agent-specific, and a committed symlink faithfully records what that agent carried.
 !/skills/
+!/subagents/
 
 # ── Agent control planes: re-include selectively ──────────────────────────
 # Each agent owns a config directory under this home whose NAME its manifest declares

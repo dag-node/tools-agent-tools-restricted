@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/opt/ai-tools/.claude/settings.json"
+  - "src/opt/ai-tools/agents/*/settings.json"
   - "src/etc/claude-code/managed-settings.json"
 ---
 

@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/opt/ai-tools/.claude/**"
+  - "src/opt/ai-tools/agents/**"
   - "src/usr/local/sbin/ai-tools/ai-tools-chown.sh"
   - "src/usr/local/sbin/ai-tools/ai-tools-setgid.sh"
   - "src/usr/local/lib/ai-tools/skip-dirs.lib.sh"

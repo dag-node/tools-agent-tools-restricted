@@ -97,6 +97,22 @@ an operator blanket read of the sandbox group's files (e.g. `.claude` session st
 The sandbox user is also **not** in `ai-ops`, so it cannot hold the operators' sudoers
 grant; `ai-tools-run` refuses to launch if that is ever violated.
 
+## Agent vs subagent
+
+Two different things are called "agent" in this space, so this project fixes the vocabulary:
+
+- **agent** — a packaged coding assistant that runs confined in the sandbox: Claude Code today.
+  It is what `ai-tools-agents-*` packages ship, what `agents.d/<name>.conf` describes, what
+  `operator.conf AI_TOOLS_AGENTS` enables, and what `ai-tools --providers` lists.
+- **subagent** — a delegate role definition an agent reads and dispatches to (the
+  `ai-tools-reference-architect` markdown file). Shared across agents, so it lives in
+  `/opt/ai-tools/subagents` beside `skills`.
+
+Claude Code calls the second one "agents" and reads them from `<config dir>/agents/`. That is the
+vendor's layout, not our vocabulary: the manifest maps between them (`subagents_dir=agents`), so
+our name is unambiguous and the product still finds its files where it expects. Use "subagent"
+in prose, in path names, and in identifiers everywhere this project controls the name.
+
 ## Generic / fixed terms that are NOT these identities
 
 ### Generic host user (`src/usr/local/lib/ai-tools/path-dedup.sh`)

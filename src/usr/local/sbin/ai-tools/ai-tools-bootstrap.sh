@@ -148,31 +148,23 @@ seed_managed_assets_step() {
     source "${cplib}"
     declare -F ai_tools_agent_config_dirs >/dev/null 2>&1 \
         || die "control plane present but ${cplib} does not resolve the agents' config dirs"
-    # Skills first, into the shared root: they are agent-agnostic, so they live in one place and
-    # each agent gets symlinks to them. Then the Claude Code-format agents, into that agent's own
-    # config directory.
-    install -d -o root -g "${SANDBOX_GROUP}" -m "${CP_DIR_MODES[skills]}" "${CP_SHARED_SKILLS}"
-    log "seeding ai-tools-managed skills into ${CP_SHARED_SKILLS}"
-    ai_tools_seed_managed_assets "${pristine}" "${CP_HOME}" "${SANDBOX_GROUP}" skills
-    ai_tools_link_asset_readme "${pristine}/skills/README.md" "${CP_SHARED_SKILLS}" "${SANDBOX_GROUP}"
-
-    local agent config_dir seeded=0
-    while IFS=$'\t' read -r agent config_dir; do
-        # The shipped agents are in the Claude Code format, so they are seeded for that agent
-        # only; another agent brings its own (see shipped-assets.rule.md).
-        [[ "${agent}" == claude-code && -d "${config_dir}" ]] || continue
-        log "seeding ai-tools-managed agents into ${config_dir}"
-        ai_tools_seed_managed_assets "${pristine}" "${config_dir}" "${SANDBOX_GROUP}" agents
-        seeded=1
-    done < <(ai_tools_agent_config_dirs)
-
-    local skills_dir
-    while IFS=$'\t' read -r agent skills_dir; do
-        log "linking the shared skills into ${skills_dir}"
-        ai_tools_link_shared_skills "${CP_SHARED_SKILLS}" "${skills_dir}" \
-            "${SANDBOX_GROUP}" "${pristine}/skills/README.md"
-        seeded=1
-    done < <(ai_tools_agent_skills_dirs)
+    # The SHARED kinds first, into their own roots: skills and subagent definitions are
+    # agent-agnostic, so they live in one place and each agent gets symlinks to them. The pairs
+    # are <shared kind>:<the manifest field naming where that agent keeps it>.
+    local spec kind shared asset_dir seeded=0
+    for spec in skills:skills_dir subagents:subagents_dir; do
+        kind="${spec%%:*}"; shared="${CP_HOME}/${kind}"
+        install -d -o root -g "${SANDBOX_GROUP}" -m "${CP_DIR_MODES[${kind}]}" "${shared}"
+        log "seeding ai-tools-managed ${kind} into ${shared}"
+        ai_tools_seed_managed_assets "${pristine}" "${CP_HOME}" "${SANDBOX_GROUP}" "${kind}"
+        ai_tools_link_asset_readme "${pristine}/${kind}/README.md" "${shared}" "${SANDBOX_GROUP}"
+        while IFS=$'\t' read -r _ asset_dir; do
+            log "linking the shared ${kind} into ${asset_dir}"
+            ai_tools_link_shared_assets "${shared}" "${asset_dir}" \
+                "${SANDBOX_GROUP}" "${pristine}/${kind}/README.md"
+            seeded=1
+        done < <(ai_tools_agent_asset_dirs "${spec#*:}")
+    done
     (( seeded )) || log "managed assets: no agent config directory to seed yet"
 }
 

@@ -107,38 +107,38 @@ ai_tools_seed_managed_assets() {
     done
 }
 
-# ai_tools_link_shared_skills <shared_root> <agent_skills_dir> <group> [readme_source]
-# Point an agent at the shared skills: one symlink per skill directory under <shared_root>, so
-# every agent reads the same file and a skill is updated in one place. Best-effort and
-# idempotent, and it never displaces anything real:
+# ai_tools_link_shared_assets <shared_root> <agent_dir> <group> [readme_source]
+# Point an agent at a shared asset kind (skills, subagents): one symlink per entry under
+# <shared_root>, so every agent reads the same file and an asset is updated in one place.
+# Best-effort and idempotent, and it never displaces anything real:
 #   * a name that does not exist in the agent's dir      -> symlink created
-#   * a symlink already pointing at the shared skill      -> left alone
-#   * a symlink into the shared root whose skill is gone  -> removed (a dropped shipped skill)
+#   * a symlink already pointing at the shared asset      -> left alone
+#   * a symlink into the shared root whose asset is gone  -> removed (a dropped shipped asset)
 #   * anything else (a real directory or file)            -> KEPT and reported: it is either an
-#                                                            agent-specific skill or the
+#                                                            agent-specific asset or the
 #                                                            operator's own, and it wins
 # The links are root-owned inside the agent's setgid+sticky config directory, so the agent reads
 # and invokes them but cannot repoint one at a file of its choosing.
-ai_tools_link_shared_skills() {
-    local shared_root="$1" agent_skills_dir="$2" group="$3" readme_source="${4:-}"
+ai_tools_link_shared_assets() {
+    local shared_root="$1" agent_dir="$2" group="$3" readme_source="${4:-}"
     [[ -d "${shared_root}" ]] || return 0
-    install -d -o root -g "${group}" -m 750 "${agent_skills_dir}"
+    install -d -o root -g "${group}" -m 750 "${agent_dir}"
 
     local src name dst linked=0
     for src in "${shared_root}"/*/; do
         [[ -d "${src}" ]] || continue                    # no matches -> literal pattern, skip
         src="${src%/}"; name="${src##*/}"
-        dst="${agent_skills_dir}/${name}"
+        dst="${agent_dir}/${name}"
         if [[ -L "${dst}" ]]; then
             [[ "$(readlink -- "${dst}")" == "${src}" ]] && continue
             ln -sfn "${src}" "${dst}"
-            _ai_tools_ma_say "skills/${name} link repointed at ${src}"
+            _ai_tools_ma_say "${agent_dir##*/}/${name} link repointed at ${src}"
         elif [[ -e "${dst}" ]]; then
-            _ai_tools_ma_say "skills/${name} kept (a real directory here wins over the shared skill)"
+            _ai_tools_ma_say "${agent_dir##*/}/${name} kept (a real directory here wins over the shared one)"
             continue
         else
             ln -s "${src}" "${dst}"
-            _ai_tools_ma_say "skills/${name} linked -> ${src}"
+            _ai_tools_ma_say "${agent_dir##*/}/${name} linked -> ${src}"
         fi
         chown -h "root:${group}" "${dst}" 2>/dev/null || :
         linked=$(( linked + 1 ))
@@ -147,16 +147,16 @@ ai_tools_link_shared_skills() {
     # Drop links into the shared root whose skill no longer ships, so a removed skill does not
     # leave a dangling entry the agent would try to read. A link pointing anywhere else is not
     # ours and is left alone.
-    for dst in "${agent_skills_dir}"/*; do
+    for dst in "${agent_dir}"/*; do
         [[ -L "${dst}" ]] || continue
         src="$(readlink -- "${dst}")"
         [[ "${src}" == "${shared_root}/"* && ! -e "${src}" ]] || continue
         rm -f "${dst}"
-        _ai_tools_ma_say "skills/${dst##*/} link removed (no longer shipped)"
+        _ai_tools_ma_say "${agent_dir##*/}/${dst##*/} link removed (no longer shipped)"
     done
 
-    ai_tools_link_asset_readme "${readme_source}" "${agent_skills_dir}" "${group}"
-    restorecon -R "${agent_skills_dir}" >/dev/null 2>&1 || :
+    ai_tools_link_asset_readme "${readme_source}" "${agent_dir}" "${group}"
+    restorecon -R "${agent_dir}" >/dev/null 2>&1 || :
     return 0
 }
 

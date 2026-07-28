@@ -517,6 +517,7 @@ do_summary() {
     _chk /opt/ai-tools/.claude/post-tool-hook.sh
     _chk /opt/ai-tools/.claude/session-hook.sh
     _chk /opt/ai-tools/.claude/settings.json
+    _chk /opt/ai-tools/subagents/ai-tools-reference-architect.md
     _chk /opt/ai-tools/.claude/agents/ai-tools-reference-architect.md
     _chk /opt/ai-tools/skills/ai-tools-docs-reference/SKILL.md
     _chk /opt/ai-tools/skills/ai-tools-engineering-principles/SKILL.md
@@ -1100,7 +1101,7 @@ do_install() {
     # own, and it is not the dir owner, so it cannot bypass that. setgid keeps new entries in group
     # ai-tools. The DIRECTORIES are created here, from the manifests (the base names none of them),
     # so the agent layer below can install into its own; modes are re-asserted at section end.
-    local agent_config_dir agent_skills_dir _agent
+    local agent_config_dir agent_asset_dir _agent
     while IFS=$'\t' read -r _ agent_config_dir; do
         [[ -n "${agent_config_dir}" ]] || continue
         log "${agent_config_dir}/"
@@ -1113,10 +1114,10 @@ do_install() {
     local claude_config_dir="/opt/ai-tools/.claude"
     ensure_dir "${CP_AGENT_CONFIG_MODE}" root "${SANDBOX_GROUP}" "${claude_config_dir}"
     install_subst 750 root "${SANDBOX_GROUP}" \
-        "${SCRIPT_DIR}/src/opt/ai-tools/.claude/post-tool-hook.sh" \
+        "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/post-tool-hook.sh" \
         "${claude_config_dir}/post-tool-hook.sh"
     install_subst 750 root "${SANDBOX_GROUP}" \
-        "${SCRIPT_DIR}/src/opt/ai-tools/.claude/session-hook.sh" \
+        "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/session-hook.sh" \
         "${claude_config_dir}/session-hook.sh"
     # settings.json is kept by default when it already exists (keep_existing prompt;
     # unattended installs always keep): it may carry deliberate host tuning -- e.g. a deny
@@ -1133,7 +1134,7 @@ do_install() {
         seed_result "${settings}" "${settings_existed}" 1 "host-tuned permission rules preserved"
     else
         install -o root -g "${SANDBOX_GROUP}" -m 640 \
-            "${SCRIPT_DIR}/src/opt/ai-tools/.claude/settings.json" "${settings}"
+            "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json" "${settings}"
         seed_result "${settings}" "${settings_existed}" 0
     fi
 
@@ -1218,24 +1219,28 @@ do_install() {
     find /usr/share/ai-tools/agents /usr/share/ai-tools/skills -type d -exec chmod 755 {} +
     find /usr/share/ai-tools/agents /usr/share/ai-tools/skills -type f -exec chmod 644 {} +
 
-    log "${CP_SHARED_SKILLS}/ (shared skills, symlinked into every agent that reads them)"
-    ensure_dir "${CP_DIR_MODES[skills]}" root "${SANDBOX_GROUP}" "${CP_SHARED_SKILLS}"
-    chown "root:${SANDBOX_GROUP}" "${CP_SHARED_SKILLS}"
-    chmod "${CP_DIR_MODES[skills]}" "${CP_SHARED_SKILLS}"
-    ai_tools_seed_managed_assets /usr/share/ai-tools "${CP_HOME}" "${SANDBOX_GROUP}" skills
-    ai_tools_link_asset_readme /usr/share/ai-tools/skills/README.md \
-        "${CP_SHARED_SKILLS}" "${SANDBOX_GROUP}"
+    local _kind _shared
+    for _kind in skills subagents; do
+        _shared="${CP_HOME}/${_kind}"
+        log "${_shared}/ (shared ${_kind}, symlinked into every agent that reads them)"
+        ensure_dir "${CP_DIR_MODES[${_kind}]}" root "${SANDBOX_GROUP}" "${_shared}"
+        chown "root:${SANDBOX_GROUP}" "${_shared}"
+        chmod "${CP_DIR_MODES[${_kind}]}" "${_shared}"
+        ai_tools_seed_managed_assets /usr/share/ai-tools "${CP_HOME}" "${SANDBOX_GROUP}" "${_kind}"
+        ai_tools_link_asset_readme "/usr/share/ai-tools/${_kind}/README.md" \
+            "${_shared}" "${SANDBOX_GROUP}"
+    done
 
-    while IFS=$'\t' read -r _agent agent_config_dir; do
-        # The shipped agents are in the Claude Code format, so they go to that agent alone.
-        [[ "${_agent}" == claude-code && -d "${agent_config_dir}" ]] || continue
-        ai_tools_seed_managed_assets /usr/share/ai-tools "${agent_config_dir}" "${SANDBOX_GROUP}" agents
-    done < <(ai_tools_agent_config_dirs)
-    while IFS=$'\t' read -r _agent agent_skills_dir; do
-        log "linking the shared skills into ${agent_skills_dir}"
-        ai_tools_link_shared_skills "${CP_SHARED_SKILLS}" "${agent_skills_dir}" \
-            "${SANDBOX_GROUP}" /usr/share/ai-tools/skills/README.md
-    done < <(ai_tools_agent_skills_dirs)
+    # <shared kind>:<the manifest field naming where that agent keeps it>
+    local _spec
+    for _spec in skills:skills_dir subagents:subagents_dir; do
+        _kind="${_spec%%:*}"
+        while IFS=$'\t' read -r _agent agent_asset_dir; do
+            log "linking the shared ${_kind} into ${agent_asset_dir}"
+            ai_tools_link_shared_assets "${CP_HOME}/${_kind}" "${agent_asset_dir}" \
+                "${SANDBOX_GROUP}" "/usr/share/ai-tools/${_kind}/README.md"
+        done < <(ai_tools_agent_asset_dirs "${_spec#*:}")
+    done
 
     section "Configuration (allowlist & secret patterns)"
 

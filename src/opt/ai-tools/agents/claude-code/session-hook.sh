@@ -62,7 +62,7 @@
 # anyway, so <you> can already read them) and the scan stays on one filesystem (-xdev).
 #
 # Deploy: sudo install -o root -g ai-tools -m 750 \
-#             src/opt/ai-tools/.claude/session-hook.sh /opt/ai-tools/.claude/session-hook.sh
+#             src/opt/ai-tools/agents/claude-code/session-hook.sh /opt/ai-tools/.claude/session-hook.sh
 # Wired to the Stop, SessionStart, and SessionEnd hooks in settings.json (the
 # SessionStart entry passes "session-start", the SessionEnd entry "session-end").
 
