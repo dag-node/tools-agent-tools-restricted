@@ -58,6 +58,27 @@ execs (`integration/handback.sh`) keeps the real dir, since the daemon does not 
 override — the same limitation as `AI_TOOLS_ALLOWLIST`. The journald sink is unaffected, so
 every line is still queryable by its per-component tag.
 
+## Two-ended assertions
+
+A security guarantee is covered by a **pair** of tests, not one, and the pair is what makes the
+coverage meaningful:
+
+- a **runtime** assertion that the refusal fires — drive the deployed code into the bad state
+  (an untrusted config, a mislabelled entrypoint, a path outside the allowlist) and assert it
+  resolves to *less* access and says so;
+- a **boundary** assertion, executed **as the agent**, that the bad state is unreachable — the
+  agent cannot write the file, directory, or binary whose corruption the refusal exists to catch.
+
+Neither is sufficient alone. The runtime half catches a host someone has already broken (an
+operator's `chmod`, a botched install, a tamper); the boundary half catches the agent trying to
+break it. A guarantee with only the first is untested against its actual adversary; one with only
+the second silently stops refusing the day the predicate regresses.
+
+The provider seam is the worked example: `unit/providers.sh` drives each untrusted input through
+the resolver and asserts the fail-closed verdict, while `boundary/providers.sh` probes the same
+deployed files as the sandbox account and asserts none of them is agent-writable. A new guarantee
+lands with both halves, in the category each belongs to.
+
 ## Categories
 
 **`unit`** — hermetic logic tests of the deployed helpers (`ai-tools-chown`, `-setgid`,

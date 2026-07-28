@@ -157,6 +157,17 @@ of what it can ever send:
   watcher relabels the new entrypoint for SELinux after each upgrade. Each update verifies the
   toolchain's npm registry signatures and fails closed on a tamper before activating it.
 
+One property ties those together, and it is the one to check when reviewing this project:
+**every input that decides what a session gets is read through the same trust predicate, and
+every way it can fail gives the agent *less*.** A config it cannot read, a manifest someone made
+writable, an entrypoint whose SELinux label will not verify, a toolchain whose npm signatures do
+not check out — each one costs a capability and is reported; none of them grants one. So there is
+no state the agent can arrange that improves its own position, only states that shut it down.
+
+Each of those refusals is tested from both ends: once that the refusal fires, and once — running
+*as* the sandbox account — that the agent cannot create the state the refusal exists to catch
+(`tests/unit/providers.sh` and `tests/boundary/providers.sh` are the worked pair).
+
 > **On the boundary.** The allowlist gates where Claude *launches* and which
 > files get ownership restored — it is not a kernel-enforced read boundary. The CWD is
 > canonicalized before it is checked, so a symlink cannot slip a path past it. Once running
