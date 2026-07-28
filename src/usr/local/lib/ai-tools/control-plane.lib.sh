@@ -62,6 +62,17 @@ readonly CP_INTEGRATIONS="${CP_HOME}/integrations"
 # shellcheck source=SCRIPTDIR/providers.lib.sh
 source "${BASH_SOURCE[0]%/*}/providers.lib.sh" 2>/dev/null || true
 
+# ai_tools_apply_mode <mode> <path>... : set the mode EXACTLY, special bits included.
+#   Load-bearing here because the control-plane home is setgid (CP_HOME_MODE): every directory
+#   created under it INHERITS setgid, and GNU chmod preserves a directory's setuid/setgid bits
+#   unless the octal mode carries five digits -- so `chmod 0750` leaves 2750 in place and a
+#   declared mode silently does not hold. The RPM sets modes exactly, so without this the two
+#   install paths would disagree about the same directory. Normalizes to five digits.
+ai_tools_apply_mode() {
+    local mode="0000${1}"; shift
+    chmod "0${mode: -4}" "$@"
+}
+
 # ai_tools_agent_config_dir_valid <name> : pure check -- succeed when <name> is usable as an
 #   agent's config directory: ONE path component under the home, no traversal, no separator. The
 #   value reaches root helpers as a path and a `semanage fcontext` pattern, so a manifest names a

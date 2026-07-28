@@ -265,9 +265,9 @@ bootstrap_launcher_symlinks() {
     # the agent can neither tamper with the updater nor swap a symlink a wrapper
     # resolves and trusts; the o+x search bit lets an operator readlink bin/<launcher>.
     # Enforce even when the dir pre-existed (README step 3 creates it ai-tools-owned).
-    ensure_dir 551 root "${SANDBOX_GROUP}" "${ai_tools_bin}"
+    ensure_dir "${CP_DIR_MODES[bin]}" root "${SANDBOX_GROUP}" "${ai_tools_bin}"
     chown "root:${SANDBOX_GROUP}" "${ai_tools_bin}"
-    chmod 551 "${ai_tools_bin}"
+    ai_tools_apply_mode "${CP_DIR_MODES[bin]}" "${ai_tools_bin}"
     # Create each symlink via the root helper -- the only writer of the locked dir, and the same
     # validating path the sandbox updater uses on every Node upgrade.
     local launcher versioned_launcher
@@ -1196,12 +1196,12 @@ do_install() {
     # ai-tools; root owns the locked control files so the agent cannot replace them.
     log "asserting control-plane ownership and boundary modes (root:${SANDBOX_GROUP})"
     chown "root:${SANDBOX_GROUP}" /opt/ai-tools /opt/ai-tools/bin
-    chmod "${CP_HOME_MODE}" /opt/ai-tools
-    chmod "${CP_DIR_MODES[bin]}" /opt/ai-tools/bin
+    ai_tools_apply_mode "${CP_HOME_MODE}" /opt/ai-tools
+    ai_tools_apply_mode "${CP_DIR_MODES[bin]}" /opt/ai-tools/bin
     while IFS=$'\t' read -r _ agent_config_dir; do
         [[ -d "${agent_config_dir}" ]] || continue
         chown "root:${SANDBOX_GROUP}" "${agent_config_dir}"
-        chmod "${CP_AGENT_CONFIG_MODE}" "${agent_config_dir}"
+        ai_tools_apply_mode "${CP_AGENT_CONFIG_MODE}" "${agent_config_dir}"
     done < <(ai_tools_agent_config_dirs)
 
     # Shipped assets: stage pristine copies to the datadir (the single seed source shared with
@@ -1229,7 +1229,7 @@ do_install() {
         log "${_shared}/ (shared ${_kind}, symlinked into every agent that reads them)"
         ensure_dir "${CP_DIR_MODES[${_kind}]}" root "${SANDBOX_GROUP}" "${_shared}"
         chown "root:${SANDBOX_GROUP}" "${_shared}"
-        chmod "${CP_DIR_MODES[${_kind}]}" "${_shared}"
+        ai_tools_apply_mode "${CP_DIR_MODES[${_kind}]}" "${_shared}"
         ai_tools_seed_managed_assets /usr/share/ai-tools "${CP_HOME}" "${SANDBOX_GROUP}" "${_kind}"
         ai_tools_link_asset_readme "/usr/share/ai-tools/${_kind}/README.md" \
             "${_shared}" "${SANDBOX_GROUP}"

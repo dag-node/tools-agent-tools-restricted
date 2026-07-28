@@ -99,6 +99,10 @@ setup() {
     install -d -o root -g "${SANDBOX_GROUP}" -m "${CP_DIR_MODES[integrations]}" \
         "${CP_INTEGRATIONS}" "${STATE_DIR}" \
         || die "could not create the dotnet state root ${STATE_DIR}"
+    # Set both modes exactly: created under the setgid control-plane home, a new directory
+    # inherits setgid, and a plain chmod would not clear it (see ai_tools_apply_mode).
+    ai_tools_apply_mode "${CP_DIR_MODES[integrations]}" "${CP_INTEGRATIONS}" "${STATE_DIR}" \
+        || die "could not set the mode on ${STATE_DIR}"
     # NuGet restore cache and the SDK's own state: agent-WRITABLE (setgid, group ai-tools rwx).
     # The cache is shared across projects, so a package restored once serves every project; the
     # CLI home is what keeps the shared tools tree below read-only, since the SDK would otherwise
@@ -110,6 +114,7 @@ setup() {
     # helper (root) changes them.
     install -d -o root -g "${SANDBOX_GROUP}" -m 0755 "${TOOLS_DIR}" \
         || die "could not create the shared tools dir ${TOOLS_DIR}"
+    ai_tools_apply_mode 0755 "${TOOLS_DIR}" || die "could not set the mode on ${TOOLS_DIR}"
     # One label for the whole tree, from the base policy's static rule: the type grants ai_tools_t
     # the SELinux access (write on the cache, exec on the tools), while the DAC modes above are
     # the enforced read/write boundary.
