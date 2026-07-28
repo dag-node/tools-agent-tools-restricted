@@ -12,6 +12,12 @@ of privileges, and keeps its Node.js toolchain and CLI current automatically. **
 the first supported agent**; the confinement, ownership-handback, and toolchain machinery are
 agent-agnostic.
 
+> **Fun fact.** This project is written inside its own sandbox. The agent that edits these
+> files runs as `ai-tools` under the confinement described here — its writes come back to the
+> author through the ownership handback, and when a Node upgrade leaves an entrypoint
+> mislabelled it refuses to launch the very session that would fix it. Several of the sharper
+> edges below were found that way rather than reasoned about.
+
 **Contents**: [Requirements](#requirements) · [Package install](#package-install) · [Why](#why) ·
 [Identities and naming](#identities-and-naming) ·
 [Architecture at a glance](#architecture-at-a-glance) · [From source](#from-source) ·
@@ -34,34 +40,15 @@ agent-agnostic.
 
 ## Package install
 
-Install from the signed DNF repository (recommended). One `.repo` file serves EL 9 and
-EL 10 — `$releasever`/`$basearch` select the right tree — and `gpgcheck`/`repo_gpgcheck`
-verify both the packages and the repo metadata against the dag-node org signing key:
+Two commands. The first installs the dag-node release package, which brings the signed DNF
+repository definition and the org signing key with it
+([source](https://github.com/dag-node/rpm-dagnode-release)); the second pulls the stack. One
+repository serves EL 9 and EL 10, and both the packages and the repository metadata are
+signature-verified.
 
 ```bash
-sudo tee /etc/yum.repos.d/dagnode.repo >/dev/null <<'EOF'
-[dagnode]
-name=DagNode RPM Repository
-baseurl=https://rpm.dagnode.com/el/$releasever/$basearch/
-gpgkey=https://rpm.dagnode.com/RPM-GPG-KEY-dag-node
-gpgcheck=1
-repo_gpgcheck=1
-enabled=1
-metadata_expire=6h
-EOF
+sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
 sudo dnf install ai-tools          # the metapackage pulls the whole stack
-```
-
-Or install a release archive directly (offline / air-gapped). The zip bundles every RPM of the
-release — the `ai-tools` metapackage, `ai-tools-base`, and the `ai-tools-agents` /
-`ai-tools-integration` umbrellas with their members — plus the public key; they extract flat and
-dnf orders them itself:
-
-```bash
-unzip ai-tools-el10-vX.Y.Z.zip                 # ai-tools-el9-... to match your platform
-sudo rpm --import RPM-GPG-KEY-dag-node         # every release is signed; import once
-rpm --checksig ./*.rpm                         # each line should end in: digests signatures OK
-sudo dnf install ./*.rpm
 ```
 
 Then finish setup — steps 1 and 2 here are independent of each other but both run before
@@ -82,15 +69,9 @@ ai-tools --project-create ~/myproject
 cd ~/myproject && claude
 ```
 
-**Upgrading — upgrade in place, never `dnf remove` first.** From the repo, `sudo dnf upgrade
-'ai-tools*'`; from a downloaded archive, `sudo dnf install ./*.rpm` (a higher version upgrades
-each subpackage). A subpackage that has been renamed carries `Obsoletes` for its old name, so
-dnf performs the rename as part of the same upgrade — nothing has to be removed by hand.
-Removing the packages moves your edited `/etc/ai-tools/operator.conf` to
-`operator.conf.rpmsave` and the fresh install writes an empty one, dropping your operator list
-(re-add with `ai-tools-admin operator add`); an in-place upgrade keeps it via
-`%config(noreplace)`. `dnf reinstall` needs the *same* version already installed and is not the
-way to move between versions.
+Installing offline from a release archive, and what an upgrade preserves (upgrade in place —
+never `dnf remove` first), are in
+[docs/rpm-packaging.md](docs/rpm-packaging.md#installing-and-upgrading).
 
 `claude` resolves to the system wrapper `/usr/local/bin/claude`, which runs as you,
 checks your `ai-ops` membership and the project allowlist, then drops to `${SANDBOX_USER}`
@@ -308,26 +289,33 @@ privileged action is attributable at the socket layer. Root-only log files: `cho
 
 ## SELinux
 
-If AVC denials appear after install:
+The optional confinement layer puts the session in its own domain, `ai_tools_t`, on top of the
+file permissions that already isolate it. It ships **prebuilt and enforcing**, so a normal
+install loads it without a policy toolchain, and it is a second boundary rather than the only
+one — a host without it is still confined by DAC.
 
-    ausearch -m avc -ts recent | audit2why
+The one thing an operator meets in practice is a **stale label after a Node upgrade**. A freshly
+installed agent binary is born with the default type, so its exec fires no domain transition —
+and rather than run the session unconfined, `ai-tools-run` **refuses to launch** and says so. The
+post-upgrade watcher normally relabels it for you; when it has not, the fix is one command:
 
-Common cause: directories or binaries under `/opt/ai-tools` carry a wrong
-label after creation. Fix:
+```bash
+ai-tools --relabel        # relabels every enabled agent's entrypoint and config directory
+```
 
-    sudo restorecon -Rv /opt/ai-tools
+Two things worth knowing before reaching for `restorecon` yourself: the agent entrypoints and
+each agent's config directory are labelled from rules the **agent's own manifest** declares, so
+`ai-tools --relabel` (or `sudo selinux/install-selinux.sh relabel`) applies them in the right
+order, and a bare recursive `restorecon` over `/opt/ai-tools` can leave a hardlinked entrypoint
+mislabelled — which the launch will then refuse. To inspect a denial:
 
-If `${SANDBOX_USER}`'s home needs a custom label:
+```bash
+sudo ausearch -m avc -ts recent | audit2why
+```
 
-    sudo semanage fcontext -a -t usr_t '/opt/ai-tools(/.*)?'
-    sudo restorecon -Rv /opt/ai-tools
-
-For the wrapper in `/usr/local/bin`:
-
-    restorecon -v /usr/local/bin/claude
-
-After editing the SELinux policy source, rebuild and reload with
-`sudo selinux/install-selinux.sh rebuild`.
+Policy layout, the optional policy groups, and the bring-up loop:
+[`selinux/README.md`](selinux/README.md). What the domain guarantees and where it stops:
+[confinement](.claude/rules/confinement.rule.md).
 
 ## Community
 

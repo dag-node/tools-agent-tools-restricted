@@ -65,6 +65,34 @@ package legitimately reusing the old name is not obsoleted by every later releas
 `ai-tools-integration-nodejs` (from `ai-tools-nodejs`) and
 `ai-tools-agents-claude-code-restricted` (from `claude-code-restricted`) both carry the pair.
 
+## Installing and upgrading
+
+The recommended install is the two commands in the README: the `dagnode-release` package brings
+the signed repository definition and the org signing key, then `dnf install ai-tools` pulls the
+stack. This section covers the cases that do not fit on the front page.
+
+**Offline / air-gapped, from a release archive.** The zip bundles every RPM of the release — the
+`ai-tools` metapackage, `ai-tools-base`, and the `ai-tools-agents` / `ai-tools-integration`
+umbrellas with their members — plus the public key. They extract flat and dnf orders them itself:
+
+```bash
+unzip ai-tools-el10-vX.Y.Z.zip                 # ai-tools-el9-... to match your platform
+sudo rpm --import RPM-GPG-KEY-dag-node         # every release is signed; import once
+rpm --checksig ./*.rpm                         # each line should end in: digests signatures OK
+sudo dnf install ./*.rpm
+```
+
+**Upgrade in place; never `dnf remove` first.** From the repository, `sudo dnf upgrade
+'ai-tools*'`; from a downloaded archive, `sudo dnf install ./*.rpm` (a higher version upgrades
+each subpackage). A subpackage that has been renamed carries `Obsoletes` for its old name, so dnf
+performs the rename inside the same transaction and nothing has to be removed by hand.
+
+Removing the packages moves an edited `/etc/ai-tools/operator.conf` to `operator.conf.rpmsave`
+and a fresh install writes an empty one, dropping the operator list (re-add with
+`ai-tools-admin operator add`); an in-place upgrade keeps it via `%config(noreplace)`. What else
+survives an erase is in [Preservation on erase](#preservation-on-erase). `dnf reinstall` requires
+the *same* version already installed and is not the way to move between versions.
+
 ## Boundaries
 
 | Subpackage | Owns |

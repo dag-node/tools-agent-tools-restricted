@@ -20,9 +20,11 @@ underneath — both layers must allow an access.
 ## Enforcing by default, prebuilt
 
 The core module ships **prebuilt** (`ai_tools.pp`) and **enforcing**, so a normal
-install loads it with no toolchain. The transition **fails open** — if `claude.exe`
-ever loses its label (e.g. a Node upgrade before `relabel`), no transition fires
-and claude simply runs unconfined; it never breaks.
+install loads it with no toolchain. A missing transition **fails closed**: if an agent's
+entrypoint loses its label (a Node upgrade before the relabel lands), `ai-tools-run` refuses to
+launch rather than start an unconfined session, and names `ai-tools --relabel` as the fix. The
+layer as a whole is still optional — a host that never installs the module runs DAC-only, which
+the launch preflight recognises and allows.
 
 You cannot confine a complex app (Node + git + the Bash tool) correctly by
 guessing rules — the rule set must be *observed*. The policy here was completed
