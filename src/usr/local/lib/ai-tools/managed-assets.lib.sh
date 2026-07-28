@@ -148,10 +148,13 @@ ai_tools_link_shared_assets() {
     [[ -d "${shared_root}" ]] || return 0
     install -d -o root -g "${group}" -m 750 "${agent_dir}"
 
+    # Every entry, whatever shape the kind uses: a skill is a directory, a subagent is a file.
+    # The kind's README is linked separately (below), so it is not treated as an asset.
     local src name dst linked=0
-    for src in "${shared_root}"/*/; do
-        [[ -d "${src}" ]] || continue                    # no matches -> literal pattern, skip
-        src="${src%/}"; name="${src##*/}"
+    for src in "${shared_root}"/*; do
+        [[ -e "${src}" ]] || continue                    # no matches -> literal pattern, skip
+        name="${src##*/}"
+        [[ "${name}" == README.md ]] && continue
         dst="${agent_dir}/${name}"
         if [[ -L "${dst}" ]]; then
             [[ "$(readlink -- "${dst}")" == "${src}" ]] && continue
