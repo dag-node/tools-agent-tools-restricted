@@ -128,6 +128,10 @@ check_file /opt/ai-tools/.claude/settings.json               root              "
 # files above. Owned by ai-tools, or without the sticky bit, the agent could delete and recreate
 # them. The set of directories comes from the manifests (control-plane.lib.sh), so a second agent
 # is covered here without editing this list; a host with none asserts nothing and says so.
+# The SHARED skills root: base-owned, agent-readable, NOT agent-writable. Every agent's skills
+# directory symlinks into it, so a writable root here would let one session rewrite the
+# instructions every agent and every future session reads.
+check_file /opt/ai-tools/skills                               root              "${SANDBOX_GROUP}" 750
 _cp_lib=/usr/local/lib/ai-tools/control-plane.lib.sh
 # shellcheck source=/dev/null
 if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_agent_config_dirs >/dev/null 2>&1; then
@@ -138,6 +142,20 @@ if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_agent_config_dirs >/de
         check_file "${_cfg}" root "${SANDBOX_GROUP}" "${CP_AGENT_CONFIG_MODE}"
     done < <(ai_tools_agent_config_dirs)
     (( _cfg_found )) || skip "agent config directory modes" "no enabled agent declares a config_dir"
+    # Each agent's skills directory carries SYMLINKS into the shared root, not copies -- that is
+    # what keeps a skill authored in one place. Assert the shipped skills arrived that way, so a
+    # regression to per-agent copies (silently forking the content) fails here.
+    while IFS=$'\t' read -r _agent _skills; do
+        [[ -d "${_skills}" ]] || { skip "${_skills}" "not deployed on this host"; continue; }
+        _link="${_skills}/ai-tools-docs-reference"
+        if [[ ! -e "${_link}" ]]; then
+            skip "${_link}" "shipped skill not seeded on this host"
+        elif [[ -L "${_link}" && "$(readlink "${_link}")" == /opt/ai-tools/skills/* ]]; then
+            pass "${_link} is a symlink into the shared skills root"
+        else
+            fail "${_link} is not a symlink into /opt/ai-tools/skills -- the shared skill has been copied, so it now forks per agent"
+        fi
+    done < <(ai_tools_agent_skills_dirs)
 else
     skip "agent config directory modes" "${_cp_lib} does not resolve the agents' config dirs"
 fi

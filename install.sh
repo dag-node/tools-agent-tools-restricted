@@ -518,8 +518,9 @@ do_summary() {
     _chk /opt/ai-tools/.claude/session-hook.sh
     _chk /opt/ai-tools/.claude/settings.json
     _chk /opt/ai-tools/.claude/agents/ai-tools-reference-architect.md
-    _chk /opt/ai-tools/.claude/skills/ai-tools-docs-reference/SKILL.md
-    _chk /opt/ai-tools/.claude/skills/ai-tools-engineering-principles/SKILL.md
+    _chk /opt/ai-tools/skills/ai-tools-docs-reference/SKILL.md
+    _chk /opt/ai-tools/skills/ai-tools-engineering-principles/SKILL.md
+    _chk /opt/ai-tools/.claude/skills/ai-tools-docs-reference
 
     printf '  %s\n' "${sep}"
     if (( missing == 0 )); then
@@ -1099,7 +1100,7 @@ do_install() {
     # own, and it is not the dir owner, so it cannot bypass that. setgid keeps new entries in group
     # ai-tools. The DIRECTORIES are created here, from the manifests (the base names none of them),
     # so the agent layer below can install into its own; modes are re-asserted at section end.
-    local agent_config_dir _agent
+    local agent_config_dir agent_skills_dir _agent
     while IFS=$'\t' read -r _ agent_config_dir; do
         [[ -n "${agent_config_dir}" ]] || continue
         log "${agent_config_dir}/"
@@ -1198,24 +1199,40 @@ do_install() {
         chmod "${CP_AGENT_CONFIG_MODE}" "${agent_config_dir}"
     done < <(ai_tools_agent_config_dirs)
 
-    # Shipped agents/skills: stage pristine copies to the datadir (the single seed source shared
-    # with ai-tools-bootstrap), then seed the managed ones into the live config directory of each
-    # agent that uses this asset format -- claude-code today, resolved from the manifests rather
-    # than named here. Only ai-tools-* assets carrying x-ai-tools-managed are seeded; an
-    # operator's own agent/skill is never touched, and an existing managed asset updates only on
-    # confirm (default keep). See managed-assets.lib.sh and shipped-claude-assets.rule.md.
+    # Shipped assets: stage pristine copies to the datadir (the single seed source shared with
+    # ai-tools-bootstrap), then place them.
+    #
+    # SKILLS are agent-agnostic, so they are seeded ONCE into the shared /opt/ai-tools/skills and
+    # each agent's own skills directory gets a symlink per skill -- one place to author or update
+    # a skill, however many agents read it. AGENTS are Claude Code-format files, so they are
+    # copied into that agent's config directory. Only ai-tools-* assets carrying
+    # x-ai-tools-managed are touched, an operator's own agent/skill is never claimed, and an
+    # existing managed asset updates only on confirm (default keep). See managed-assets.lib.sh
+    # and shipped-assets.rule.md.
     log "/usr/share/ai-tools/{agents,skills} (pristine managed assets)"
     install -d -o root -g root -m 755 /usr/share/ai-tools
     rm -rf /usr/share/ai-tools/agents /usr/share/ai-tools/skills
     cp -rT "${SCRIPT_DIR}/src/opt/ai-tools/.claude/agents" /usr/share/ai-tools/agents
-    cp -rT "${SCRIPT_DIR}/src/opt/ai-tools/.claude/skills" /usr/share/ai-tools/skills
+    cp -rT "${SCRIPT_DIR}/src/opt/ai-tools/skills" /usr/share/ai-tools/skills
     chown -R root:root /usr/share/ai-tools/agents /usr/share/ai-tools/skills
     find /usr/share/ai-tools/agents /usr/share/ai-tools/skills -type d -exec chmod 755 {} +
     find /usr/share/ai-tools/agents /usr/share/ai-tools/skills -type f -exec chmod 644 {} +
+
+    log "${CP_SHARED_SKILLS}/ (shared skills, symlinked into every agent that reads them)"
+    ensure_dir "${CP_DIR_MODES[skills]}" root "${SANDBOX_GROUP}" "${CP_SHARED_SKILLS}"
+    chown "root:${SANDBOX_GROUP}" "${CP_SHARED_SKILLS}"
+    chmod "${CP_DIR_MODES[skills]}" "${CP_SHARED_SKILLS}"
+    ai_tools_seed_managed_assets /usr/share/ai-tools "${CP_HOME}" "${SANDBOX_GROUP}" skills
+
     while IFS=$'\t' read -r _agent agent_config_dir; do
+        # The shipped agents are in the Claude Code format, so they go to that agent alone.
         [[ "${_agent}" == claude-code && -d "${agent_config_dir}" ]] || continue
-        ai_tools_seed_managed_assets /usr/share/ai-tools "${agent_config_dir}" "${SANDBOX_GROUP}"
+        ai_tools_seed_managed_assets /usr/share/ai-tools "${agent_config_dir}" "${SANDBOX_GROUP}" agents
     done < <(ai_tools_agent_config_dirs)
+    while IFS=$'\t' read -r _agent agent_skills_dir; do
+        log "linking the shared skills into ${agent_skills_dir}"
+        ai_tools_link_shared_skills "${CP_SHARED_SKILLS}" "${agent_skills_dir}" "${SANDBOX_GROUP}"
+    done < <(ai_tools_agent_skills_dirs)
 
     section "Configuration (allowlist & secret patterns)"
 

@@ -148,6 +148,11 @@ of what it can ever send:
   `g:${SANDBOX_GROUP}:rwX` grants Claude access to your files and
   `user:${PROJECTS_USER}:rwX` grants you access to Claude's, both umask-independent;
   world access stays closed. Applied at `ai-tools --project-claim`.
+- **Shared skills, one copy** — the documentation and engineering-judgment skills the project
+  ships live once in `/opt/ai-tools/skills`; each agent's config directory holds a symlink per
+  skill, so a skill is authored and updated in one place however many agents read it, and an
+  agent-specific skill is simply a real directory that the linker never displaces. See
+  `/usr/share/ai-tools/skills/README.md`.
 - **Operation logging** — the `sudo` helpers, the lifecycle hooks, the `ai-tools`
   CLI, and `install.sh` log through one library to **journald** (always, leveled and
   tagged: `journalctl -t ai-tools-chown`) and, for the root writers only, to

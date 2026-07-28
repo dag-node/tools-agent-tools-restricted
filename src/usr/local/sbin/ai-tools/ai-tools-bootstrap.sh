@@ -148,15 +148,29 @@ seed_managed_assets_step() {
     source "${cplib}"
     declare -F ai_tools_agent_config_dirs >/dev/null 2>&1 \
         || die "control plane present but ${cplib} does not resolve the agents' config dirs"
+    # Skills first, into the shared root: they are agent-agnostic, so they live in one place and
+    # each agent gets symlinks to them. Then the Claude Code-format agents, into that agent's own
+    # config directory.
+    install -d -o root -g "${SANDBOX_GROUP}" -m "${CP_DIR_MODES[skills]}" "${CP_SHARED_SKILLS}"
+    log "seeding ai-tools-managed skills into ${CP_SHARED_SKILLS}"
+    ai_tools_seed_managed_assets "${pristine}" "${CP_HOME}" "${SANDBOX_GROUP}" skills
+
     local agent config_dir seeded=0
     while IFS=$'\t' read -r agent config_dir; do
-        # The shipped assets are in the Claude Code format, so they are seeded for that agent
-        # only; another agent brings its own (see shipped-claude-assets.rule.md).
+        # The shipped agents are in the Claude Code format, so they are seeded for that agent
+        # only; another agent brings its own (see shipped-assets.rule.md).
         [[ "${agent}" == claude-code && -d "${config_dir}" ]] || continue
-        log "seeding ai-tools-managed agents/skills into ${config_dir}"
-        ai_tools_seed_managed_assets "${pristine}" "${config_dir}" "${SANDBOX_GROUP}"
+        log "seeding ai-tools-managed agents into ${config_dir}"
+        ai_tools_seed_managed_assets "${pristine}" "${config_dir}" "${SANDBOX_GROUP}" agents
         seeded=1
     done < <(ai_tools_agent_config_dirs)
+
+    local skills_dir
+    while IFS=$'\t' read -r agent skills_dir; do
+        log "linking the shared skills into ${skills_dir}"
+        ai_tools_link_shared_skills "${CP_SHARED_SKILLS}" "${skills_dir}" "${SANDBOX_GROUP}"
+        seeded=1
+    done < <(ai_tools_agent_skills_dirs)
     (( seeded )) || log "managed assets: no agent config directory to seed yet"
 }
 

@@ -36,4 +36,4 @@ plus the `x-ai-tools-updated` date. On install or bootstrap a newer shipped vers
 as an update and an unchanged one is a no-op; overwriting an existing managed asset asks first
 and defaults to keep, so a copy you tuned on the host is never discarded silently.
 
-Mechanism and invariants: `.claude/rules/shipped-claude-assets.rule.md`.
+Mechanism and invariants: `.claude/rules/shipped-assets.rule.md`.

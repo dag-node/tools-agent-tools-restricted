@@ -37,9 +37,16 @@ readonly CP_HOME=/opt/ai-tools
 #                     3770 setgid+sticky, applied to EVERY agent's config directory: the agent is
 #                          a group-writer for its own session state but cannot unlink the control
 #                          files (settings, hooks) it does not own
+#   CP_SHARED_SKILLS
+#                          the one place skills live, agent-agnostic: the base ships them here
+#                          and each agent's config directory carries SYMLINKS into it rather than
+#                          a copy, so a skill is authored, updated, and read in one location. Its
+#                          mode is CP_DIR_MODES[skills] -- root-owned, agent-readable, not
+#                          agent-writable.
 readonly CP_HOME_MODE=2751
-readonly -A CP_DIR_MODES=( [bin]=0551 )
+readonly -A CP_DIR_MODES=( [bin]=0551 [skills]=0750 )
 readonly CP_AGENT_CONFIG_MODE=3770
+readonly CP_SHARED_SKILLS="${CP_HOME}/skills"
 
 # Which agents are installed and enabled, and what each declares, comes from the provider
 # manifests. Loaded best-effort: without it the resolver below yields nothing, which leaves a
@@ -56,6 +63,21 @@ ai_tools_agent_config_dir_valid() {
     [[ -n "${name}" ]] || return 1
     [[ "${name}" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
     [[ "${name}" != . && "${name}" != .. && "${name}" != *..* ]]
+}
+
+# ai_tools_agent_skills_dirs : print "agent<TAB>absolute-path" for the skills directory of every
+#   ENABLED agent that declares one (manifest skills_dir, a single component inside its config
+#   directory). An agent that declares none takes no skill links -- the shared skills are in the
+#   Claude Code SKILL.md format, so an agent that cannot read that format simply does not ask.
+ai_tools_agent_skills_dirs() {
+    declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 0
+    local agent config_dir skills_dir
+    while IFS=$'\t' read -r agent config_dir; do
+        skills_dir="$(ai_tools_agent_manifest_field "${agent}" skills_dir || true)"
+        ai_tools_agent_config_dir_valid "${skills_dir}" || continue
+        printf '%s\t%s/%s\n' "${agent}" "${config_dir}" "${skills_dir}"
+    done < <(ai_tools_agent_config_dirs)
+    return 0
 }
 
 # ai_tools_agent_config_dirs : print "agent<TAB>absolute-path" for every ENABLED agent that

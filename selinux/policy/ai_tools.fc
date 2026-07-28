@@ -61,6 +61,12 @@
 # LOCAL semanage rule, exactly as it does for the entrypoint. The root-owned control files
 # inside it (settings.json, the hooks) remain protected by DAC regardless of label.
 
+# The SHARED skills root: agent-agnostic skill content the base owns, which every agent's config
+# directory symlinks into. Base-owned and at a fixed path, so unlike an agent's own config
+# directory it is declared statically here. The domain reads it (and follows the symlinks into
+# it); DAC keeps it root-owned and non-agent-writable.
+/opt/ai-tools/skills(/.*)?  gen_context(system_u:object_r:ai_tools_home_t,s0)
+
 # The rest of the agent's HOME state, which is base-owned and fixed. HOME is /opt/ai-tools, whose base is usr_t,
 # so without these the agent's own writes to .npm / .cache / .local / .config land
 # on usr_t -- and granting the domain usr_t write would also hand it the read-only

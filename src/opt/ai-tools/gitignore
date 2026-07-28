@@ -14,6 +14,11 @@
 !/.gitignore
 !/.gitconfig
 
+# Shared skills: the one agent-agnostic copy every agent symlinks to. Each agent's own
+# skills/ below is re-included as well -- it holds those symlinks plus any agent-specific
+# skill, and a committed symlink is a faithful record of which skills that agent carried.
+!/skills/
+
 # ── Agent control planes: re-include selectively ──────────────────────────
 # Each agent owns a config directory under this home whose NAME its manifest declares
 # (.claude for Claude Code), so these patterns match ANY dot-directory rather than one name --
