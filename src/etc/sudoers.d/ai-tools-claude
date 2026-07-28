@@ -22,7 +22,7 @@
 #
 # A group rule (`%ai-ops`) covers every operator from one static drop-in: the package ships it,
 # and membership in ai-ops (managed by ai-tools-admin) is what grants access, so there is no
-# per-operator line to generate. Ownership handback (ai-tools-chown, -setgid, -claude-symlink)
+# per-operator line to generate. Ownership handback (ai-tools-chown, -setgid, -launcher-symlink)
 # is NOT here: it goes through the ai-tools-handback socket daemon, which the agent reaches via
 # /usr/local/bin/ai-tools-handback-client -- sudo's SUID bit is dropped under NNP anyway.
 #
@@ -49,9 +49,12 @@
 #     exec's it after re-validating AI_TOOLS_AGENT_EXEC against the enabled agents' launchers.
 #   - ai-tools-relabel-entrypoint runs AS ROOT: restoring ai_tools_exec_t on the new agent
 #     entrypoint needs unconfined_t, which root holds. The grant is scoped to that one action --
-#     a FIXED, non-glob path with NO arguments -- and the helper is 750 root:root, writable by
-#     root alone. It is an operator grant, keeping the root privilege on the operator side rather
-#     than in the agent-reachable handback domain.
+#     a FIXED, non-glob path, and the trailing `""` pins it to the ZERO-ARGUMENT form (a command
+#     listed with no arguments at all would instead permit any, per sudoers(5)). The helper's
+#     other form, `--remove <agent>`, is therefore reachable by root alone: it is an erase-time
+#     step for the agent package's scriptlet, not an operator action. The helper is 750 root:root,
+#     writable by root alone. This is an operator grant, keeping the root privilege on the
+#     operator side rather than in the agent-reachable handback domain.
 #   - The first rule DROPS privilege; the agent runs AS @SANDBOX_USER@ and cannot invoke an
 #     ai-ops rule, so neither rule grants the agent anything -- including the root relabel rule,
 #     which @SANDBOX_USER@ cannot reach.
@@ -63,4 +66,4 @@ Defaults!/opt/ai-tools/bin/ai-tools-run umask=0007,umask_override
 Defaults!/opt/ai-tools/bin/ai-tools-run env_keep += "AI_TOOLS_AGENT_EXEC AI_TOOLS_PROJECT_DIR"
 
 %ai-ops ALL=(@SANDBOX_USER@:@SANDBOX_GROUP@) NOPASSWD: /opt/ai-tools/bin/ai-tools-run
-%ai-ops ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
+%ai-ops ALL=(root) NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint ""

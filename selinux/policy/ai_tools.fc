@@ -1,28 +1,33 @@
 # File contexts shipped with the ai_tools module (fixed paths only).
 #
-# The claude entrypoint -- a standalone ELF reached via two symlinks
-# (/opt/ai-tools/bin/claude -> versioned bin/claude -> claude.exe). Labelling the
-# final ELF as ai_tools_exec_t is what drives the unconfined_t -> ai_tools_t
-# transition on exec. The [^/]+ matches any Node version dir; a Node upgrade installs the
-# new claude.exe mislabelled (bin_t), and the ai-tools-relabel.path watcher re-applies this
-# label automatically once the updater repoints the symlink (ai-tools-relabel-entrypoint,
-# run as root), or run `ai-tools --relabel`. Until relabelled, ai-tools-run fail-closes
-# (refuses to launch) rather than run unconfined.
-/opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@anthropic-ai/claude-code/bin/claude\.exe  --  gen_context(system_u:object_r:ai_tools_exec_t,s0)
+# NO AGENT ENTRYPOINT IS LISTED HERE. The binary whose exec drives the
+# unconfined_t/init_t -> ai_tools_t transition must carry ai_tools_exec_t, but which binary
+# that is belongs to the agent, not to this base module: each ai-tools-agents-* package
+# declares its own path pattern (entrypoint_fcontext in its manifest under
+# /usr/local/lib/ai-tools/agents.d), and ai-tools-relabel-entrypoint applies it as a LOCAL
+# semanage fcontext rule mapping it to the ai_tools_exec_t this module defines. A second agent
+# therefore labels its entrypoint into this domain without a base-policy change. The type is
+# pinned by relabel.lib.sh and the pattern is accepted only under the sandbox toolchain root,
+# so a manifest chooses which file is its entrypoint, never what type a file gets.
+#
+# The relabel runs at provision time (ai-tools-bootstrap), on the ai-tools-relabel.path watcher
+# after a Node upgrade reinstalls the binary mislabelled, and on demand via `ai-tools --relabel`.
+# Until it lands, ai-tools-run fail-closes (refuses to launch) rather than run unconfined.
+#
 # The rest of the nvm node tree is left to its default usr_t/bin_t/lib_t -- READ-ONLY
 # to an interactive ai_tools_t session (files_read_usr_files / libs_read_lib_files /
 # corecmd_exec_bin), so the agent cannot modify its own toolchain mid-session: the agent's
 # in-session `npm install -g`/`update -g` is denied by design. Node/npm self-management is
 # done out-of-band by the scheduled nvm-update.service in the sandbox account's own --user
 # instance, which writes this tree.
-# (claude.exe is hard-linked to the platform package's ELF under
-# node_modules/@anthropic-ai/claude-code-<arch>/; install-selinux.sh's verify_entrypoint
-# restorecon's claude.exe LAST, so the shared inode lands ai_tools_exec_t regardless of
-# the bulk-relabel order. Relabel via `install-selinux.sh rebuild`/`relabel`, never a
-# bare restorecon of the tree, which could leave the inode lib_t and trip the
-# fail-closed launch preflight.)
+# (An entrypoint can be HARD-LINKED into this tree -- claude.exe shares its inode with the
+# platform package's ELF under node_modules/@anthropic-ai/claude-code-<arch>/ -- so the two
+# names carry one label. install-selinux.sh relabels the entrypoints LAST, after the bulk
+# sweep, so the shared inode ends on ai_tools_exec_t whatever order the sweep took. Relabel
+# via `install-selinux.sh rebuild`/`relabel`, never a bare restorecon of the tree, which
+# could leave the inode lib_t and trip the fail-closed launch preflight.)
 
-# The root helpers grouped under one dir (chown, setgid, claude-symlink, lockdown).
+# The root helpers grouped under one dir (chown, setgid, launcher-symlink, lockdown).
 # They run IN ai_tools_handback_t (bin_t, execute_no_trans -- no separate domain).
 # Stated explicitly so restorecon labels the dir and all contents consistently.
 /usr/local/sbin/ai-tools(/.*)?  gen_context(system_u:object_r:bin_t,s0)
@@ -44,7 +49,7 @@
 # above -- only this one. cockpit and mount declare both forms for the same reason.
 /var/run/ai-tools(/.*)?  gen_context(system_u:object_r:ai_tools_run_t,s0)
 
-# The root-helper operation logs. ai-tools-chown / -setgid / -claude-symlink run IN
+# The root-helper operation logs. ai-tools-chown / -setgid / -launcher-symlink run IN
 # ai_tools_handback_t and append here; the domain is granted append/create on
 # ai_tools_log_t in ai_tools.te. DAC keeps it root-only (dir 700, files 600).
 /var/log/ai-tools(/.*)?  gen_context(system_u:object_r:ai_tools_log_t,s0)

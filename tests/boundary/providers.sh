@@ -54,6 +54,19 @@ not_writable /usr/local/lib/ai-tools/conf.lib.sh \
 not_writable /usr/local/lib/ai-tools/providers.lib.sh \
     "rewrite which providers resolve as enabled"
 
+# The library that turns a manifest's declared entrypoint pattern into a `semanage fcontext`
+# rule. It pins the type (ai_tools_exec_t) and the containment check on the pattern, so writable
+# it would let the agent label a file of its choosing as an entrypoint of the confined domain --
+# or as anything else.
+not_writable /usr/local/lib/ai-tools/relabel.lib.sh \
+    "label a file of its choosing as an entrypoint of the confined domain"
+
+# The root helper that writes the launcher symlinks. It is reachable from a session through the
+# handback SYMLINK verb, so its argument validation and manifest allowlist are the only things
+# bounding what it will link; writable, the agent would rewrite both.
+not_writable /usr/local/sbin/ai-tools/ai-tools-launcher-symlink \
+    "rewrite the validation that bounds which launcher symlinks it can write"
+
 # The three provider directories. A group- or other-writable directory is as good as a writable
 # file: a non-root writer can unlink a root-owned manifest and put its own in that name.
 not_writable /usr/local/lib/ai-tools/agents.d \

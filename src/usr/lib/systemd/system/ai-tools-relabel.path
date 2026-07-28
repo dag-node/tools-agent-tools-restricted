@@ -1,12 +1,16 @@
 [Unit]
-Description=Watch the sandbox claude entrypoint and relabel it after a Node upgrade
+Description=Watch the sandbox launcher symlinks and relabel the agent entrypoints after a Node upgrade
 Documentation=man:restorecon(8)
 
 [Path]
-# Watches the bin/claude symlink the updater repoints as its last step and triggers the
-# root-side relabel service, so a freshly installed (bin_t) claude.exe takes
-# ai_tools_exec_t for the domain transition. See .claude/rules/updater.rule.md.
-PathChanged=/opt/ai-tools/bin/claude
+# Watches the control-plane bin DIRECTORY, whose entries are the stable launcher symlinks the
+# updater repoints as its last step: the rename lands as a change in this directory, whichever
+# agent's launcher it was, so one watch covers every installed agent. Triggers the root-side
+# relabel service, which gives each enabled agent's freshly installed entrypoint its
+# ai_tools_exec_t label. Only root writes this directory (0551 root:ai-tools), so a trigger is
+# always a control-plane change; the service is idempotent, so an unrelated one costs a no-op
+# pass. See .claude/rules/updater.rule.md.
+PathChanged=/opt/ai-tools/bin
 Unit=ai-tools-relabel.service
 
 [Install]

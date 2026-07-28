@@ -1,5 +1,5 @@
 [Unit]
-Description=Relabel the sandbox claude entrypoint to ai_tools_exec_t
+Description=Relabel the enabled agents' sandbox entrypoints to ai_tools_exec_t
 Documentation=man:restorecon(8)
 # Triggered by ai-tools-relabel.path; also runnable on demand: systemctl start
 # ai-tools-relabel.service.

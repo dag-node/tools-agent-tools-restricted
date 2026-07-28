@@ -3,7 +3,7 @@
 # Instantiated by ai-tools-handback.socket (Accept=yes); NOT enabled directly.
 #
 # Runs as root so the root helpers (ai-tools-chown, ai-tools-setgid,
-# ai-tools-claude-symlink) can chown/chmod project files.
+# ai-tools-launcher-symlink) can chown/chmod project files.
 #
 # NoNewPrivileges=yes: safe here because this daemon is never invoked via SUID
 # (unlike the agent session, which needed SUID sudo for the hooks -- the exact

@@ -218,11 +218,11 @@ project-dir reasoning in [secrets](secret-handling.rule.md).
 group-writable. `SANDBOX_USER` gets group `r-x` — enough to execute `nvm-update.sh` and
 resolve the `claude` symlink — but no write, and it is not the dir owner, so it cannot
 edit `nvm-update.sh` in place, `unlink`/replace it, or swap the symlink. The `o+x` bit
-(search without read) lets an operator `readlink` the known `bin/claude` launcher path
+(search without read) lets an operator `readlink` a known `bin/<launcher>` path
 without listing or writing the directory — the one concession that distinguishes `0551`
 from a bare `0550`. No sticky bit is needed because nothing here is group-writable; only
-root can change it. The versioned-symlink repoint is delegated to the
-`ai-tools-claude-symlink` root helper (see [updater](updater.rule.md)).
+root can change it. Repointing a launcher symlink at a new toolchain version is delegated to
+the `ai-tools-launcher-symlink` root helper (see [updater](updater.rule.md)).
 
 The control-plane modes are single-sourced as constants in
 `/usr/local/lib/ai-tools/control-plane.lib.sh` (`CP_HOME_MODE` = `2751`, `CP_DIR_MODES` =

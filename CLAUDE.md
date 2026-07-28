@@ -55,7 +55,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Claude Code settings, Bash deny rules ↔ SELinux policy | `.claude/settings.json` | [claude-settings](.claude/rules/claude-settings.rule.md) |
 | Shipped Claude assets (agents/skills), managed-asset seeding | `.claude/agents/**`, `.claude/skills/**`, `lib/ai-tools/managed-assets.lib.sh` | [shipped-claude-assets](.claude/rules/shipped-claude-assets.rule.md) |
 | Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secret-handling.rule.md) |
-| Toolchain provisioning + Node/claude updater, symlink repoint, post-upgrade relabel | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `ai-tools-claude-symlink.sh`, `ai-tools-relabel-entrypoint.sh`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
+| Toolchain provisioning + Node/claude updater, symlink repoint, post-upgrade relabel | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `ai-tools-launcher-symlink.sh`, `ai-tools-relabel-entrypoint.sh`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
 | Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, the `session-env.d` session-env seam, and the dotnet integration | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,session-env}.d/**`, `ai-tools-dotnet.sh`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
 | Management CLI, project lifecycle, relabel | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel}.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
 | Protected-paths backstop (refuse system dirs as targets) | `safe-paths.lib.sh` + the wrapper/CLI/elevated helpers | [safe-paths](.claude/rules/safe-paths.rule.md) |
@@ -97,19 +97,38 @@ two NOPASSWD rules:
 
 ```
 %ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/ai-tools-run
-%ai-ops  ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint
+%ai-ops  ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint ""
 ```
 
 The first **drops** privilege to `SANDBOX_USER` (launch); the second runs **as root** for
-the on-demand `ai-tools --relabel` entrypoint relabel (a fixed-path, no-argument target —
-see [launch](.claude/rules/launch.rule.md)). The toolchain update runs as `SANDBOX_USER` in
+the on-demand `ai-tools --relabel` entrypoint relabel (a fixed path, pinned by the trailing
+`""` to the zero-argument form — see [launch](.claude/rules/launch.rule.md)). The toolchain update runs as `SANDBOX_USER` in
 its own `systemd --user` instance and the automatic post-upgrade relabel runs through the
 root-side `ai-tools-relabel.path` watcher, so neither needs a sudo rule. The agent runs
 *as* `SANDBOX_USER`, which is not in `ai-ops` and has no rule of its own, so **neither**
 rule grants it anything — including the root rule, which `SANDBOX_USER` cannot reach.
 `ai-tools-run` additionally refuses to launch
 unless it runs as `SANDBOX_USER` and refuses if `SANDBOX_USER` is ever in `ai-ops`, so the
-sandbox account can never hold the operator grant. The invariants the agent operates under:
+sandbox account can never hold the operator grant.
+
+### Trust is one-sided, and every refusal moves to less access
+
+The invariants below are instances of one property, stated once here rather than re-derived in
+each: **every input that decides what a session may do passes a single predicate for its kind,
+and every way that predicate can fail resolves to *less* access — never more — and is reported.**
+There is no input whose corruption, absence, or tampering widens what the agent gets, so the
+sandbox cannot improve its own position by breaking something.
+
+| decision | its predicate | what a failure yields |
+|---|---|---|
+| where a session may start | the canonicalized allowlist + the protected-paths backstop | no launch |
+| which executable may start it | a launcher an enabled manifest claims, at a semver path in the toolchain | no launch |
+| whether it will be confined | the pre-launch SELinux transition probe | no launch |
+| which providers it gets | `ai_tools_conf_is_trusted` on every manifest, directory, and fragment | the default-enabled baseline, never "enable all" |
+| which paths handback may touch | born-`SANDBOX_USER` ownership, re-checked race-safely as root | the path is left alone |
+| which toolchain may be activated | npm registry signature verification | the previous, trusted version stays |
+
+The invariants the agent operates under:
 
 - **`SANDBOX_USER` has no sudo rights** — not `rm -rf /`, not `cat /etc/shadow`, not any
   root helper. Root operations (chown, setgid, symlink repoint) go **exclusively**
@@ -145,16 +164,14 @@ sandbox account can never hold the operator grant. The invariants the agent oper
   `SANDBOX_USER`-owned (the born-owner of an agent write), refuses symlinks and hardlinks,
   and applies the change race-safely against a path swap
   ([ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md)).
-- **The sandbox cannot widen its own surface.** Which agents the toolchain installs, and what
-  environment and PATH a session is handed, come from `operator.conf`, the provider manifests
-  (`{agents,integrations}.d/<name>.conf`), and the session-env fragments (`session-env.d/*.env.sh`).
-  The code reading them runs *as* `SANDBOX_USER`, so each input — **and the directory holding it**,
-  since a group-writable directory lets a non-root writer replace a root-owned file inside it — is
-  honored only while it is root-owned, not a symlink, and writable by neither group nor other.
-  Every failing input falls back to *less* access (an untrusted `operator.conf` yields the
-  default-enabled baseline, never "enable all") and is reported. A provider marked
-  `default_enable=no` because it widens host surface can therefore only be turned on by an
-  operator editing a root-owned file. See [providers](.claude/rules/providers.rule.md).
+- **The sandbox cannot widen its own surface.** Which agents the toolchain installs, what
+  environment and PATH a session is handed, which binary may be labelled as an agent entrypoint,
+  and which launcher symlinks exist all come from `operator.conf` and the root-owned provider
+  manifests and fragments. The code reading them runs *as* `SANDBOX_USER`, so each input — **and
+  the directory holding it**, since a group-writable directory lets a non-root writer replace a
+  root-owned file inside it — is honored only while it passes the trust predicate above. A
+  provider marked `default_enable=no` because it widens host surface can therefore only be turned
+  on by an operator editing a root-owned file. See [providers](.claude/rules/providers.rule.md).
 - **A protected-paths backstop refuses system directories as targets.** Independently of
   the allowlist, the launch wrapper, the claim CLI, and every elevated helper that takes a
   caller-supplied path refuse to act on a system directory (`/`, `/etc`, `/var`, `/usr`, `/home`, `/opt/ai-tools`, …) or a user
@@ -185,6 +202,13 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
 
 ## Cross-cutting conventions
 
+- **A security guarantee is asserted from both ends.** Every refusal above is covered by a
+  **pair** of tests: a runtime one that the refusal actually fires (drive the resolver or helper
+  into the bad state and assert it moves to less access), and a boundary one, run **as the
+  agent**, that the state which triggers it is unreachable in the first place. Neither is
+  sufficient alone — the first catches a host someone has already broken, the second catches the
+  agent trying to break it — so a new guarantee lands with both. Detail and the worked example in
+  [tests](.claude/rules/tests.rule.md).
 - **`/opt/ai-tools`, not `/home`** — `/home` is `nosuid`, which would defeat the
   `sudo` UID-switch; `/opt/ai-tools` is not. Detail in
   [launch](.claude/rules/launch.rule.md).
@@ -208,7 +232,7 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   its manifest, and its session-env fragment, and inherits the single `%ai-ops` sudoers grant
   rather than adding one. See [launch](.claude/rules/launch.rule.md).
 - **Root sudo-helpers** live under `/usr/local/sbin/ai-tools/` (`chown`, `setgid`, `setfacl`,
-  `unclaim`, `safedir`, `reclaim`, `claude-symlink`, `lockdown`, `relabel`, `bootstrap`,
+  `unclaim`, `safedir`, `reclaim`, `launcher-symlink`, `lockdown`, `relabel`, `bootstrap`,
   `relabel-entrypoint`, `admin`, `dotnet`); shared libraries under `/usr/local/lib/ai-tools/`
   (`conf`, `secret-patterns`, `skip-dirs`, `safe-paths`, `relabel`, `operator`, `control-plane`,
   `confinement`, `npm-verify`, `managed-assets`, `providers`, `msg`, `log`), plus `path-dedup.sh`,

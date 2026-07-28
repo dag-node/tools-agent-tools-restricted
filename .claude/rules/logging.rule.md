@@ -13,7 +13,7 @@ secrets and every principal sources it). It exposes `ai_tools_log <level>` and
 - **journald** — always, via `logger` with a per-component `SyslogIdentifier`
   (`AI_TOOLS_LOG_TAG`) and a syslog priority matching the level. This is the universal
   sink: the non-root components write here because they cannot write the root-only files.
-  Query with `journalctl -t ai-tools-chown` (or `-setgid`, `-claude-symlink`, `-lockdown`,
+  Query with `journalctl -t ai-tools-chown` (or `-setgid`, `-launcher-symlink`, `-lockdown`,
   `-hook`, `-handback`, `ai-tools`, `ai-tools-install`), with `-p warning` to filter by
   level.
 - **`/var/log/ai-tools/<component>.log`** — only when the caller sets `AI_TOOLS_LOG_FILE`,
@@ -88,7 +88,7 @@ message.
   quarantine sink when that detector is built.
 
 The directory is labelled `ai_tools_log_t` (`selinux/policy/ai_tools.fc`); the helpers that run
-in `ai_tools_t` (`ai-tools-chown`, `ai-tools-setgid`, and `ai-tools-claude-symlink` under
+in `ai_tools_t` (`ai-tools-chown`, `ai-tools-setgid`, and `ai-tools-launcher-symlink` under
 the updater) are granted append/create on that type (`selinux/policy/ai_tools.te`), so file
 writes succeed under enforcing. `ai-tools-lockdown` and the CLI run unconfined; the hooks
 reach journald over the already-granted `/dev/log` path.

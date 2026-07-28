@@ -204,8 +204,9 @@ if command -v getenforce >/dev/null 2>&1; then
                    "  sudo selinux/install-selinux.sh rebuild" ;;
         unverifiable)
             audit warning "REFUSED: ai_tools module present but file-contexts inactive (expected=${expected_label:-none})"
-            refuse "refusing to launch -- the ai_tools SELinux module is installed but its file-contexts are not active, so the ai_tools_t transition cannot be verified and the session would run UNCONFINED (fail closed on a half-installed host)." \
-                   "Bring confinement up:  sudo selinux/install-selinux.sh install" \
+            refuse "refusing to launch -- the ai_tools SELinux module is installed but no file-context maps ${entrypoint_path} to ai_tools_exec_t, so the transition cannot be verified and the session would run UNCONFINED (fail closed on a half-installed host)." \
+                   "The agent's entrypoint rule comes from its own manifest; register it:  ai-tools --relabel" \
+                   "Or bring the whole layer up:  sudo selinux/install-selinux.sh install" \
                    "Or make this a DAC-only host:  sudo semodule -r ai_tools   (or run SELinux permissive)" ;;
     esac
 fi

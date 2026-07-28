@@ -157,6 +157,17 @@ of what it can ever send:
   watcher relabels the new entrypoint for SELinux after each upgrade. Each update verifies the
   toolchain's npm registry signatures and fails closed on a tamper before activating it.
 
+One property ties those together, and it is the one to check when reviewing this project:
+**every input that decides what a session gets is read through the same trust predicate, and
+every way it can fail gives the agent *less*.** A config it cannot read, a manifest someone made
+writable, an entrypoint whose SELinux label will not verify, a toolchain whose npm signatures do
+not check out — each one costs a capability and is reported; none of them grants one. So there is
+no state the agent can arrange that improves its own position, only states that shut it down.
+
+Each of those refusals is tested from both ends: once that the refusal fires, and once — running
+*as* the sandbox account — that the agent cannot create the state the refusal exists to catch
+(`tests/unit/providers.sh` and `tests/boundary/providers.sh` are the worked pair).
+
 > **On the boundary.** The allowlist gates where Claude *launches* and which
 > files get ownership restored — it is not a kernel-enforced read boundary. The CWD is
 > canonicalized before it is checked, so a symlink cannot slip a path past it. Once running
@@ -246,18 +257,20 @@ same as the package path — see
 `/opt/ai-tools/bin/nvm-update.sh`, which resolves the latest LTS in the `NVM_NODE_MAJOR`
 series, installs it under `/opt/ai-tools/.nvm`, refreshes the global tools, prunes, and:
 
-- repoints the `/opt/ai-tools/bin/claude` symlink at the new versioned binary via the
-  handback socket bridge (`SYMLINK` verb → `ai-tools-claude-symlink`). `bin` is locked
-  `0551`, so the `${SANDBOX_USER}` updater cannot write it directly; the helper validates
-  the versioned path and is the only writer of that dir.
+- repoints each enabled agent's `/opt/ai-tools/bin/<launcher>` symlink at the new versioned
+  binary via the handback socket bridge (`SYMLINK` verb → `ai-tools-launcher-symlink`). `bin`
+  is locked `0551`, so the `${SANDBOX_USER}` updater cannot write it directly; the helper
+  validates the versioned path, accepts only a launcher an enabled agent manifest claims, and
+  is the only writer of that dir.
 - prunes old Node versions (any not referenced by a named alias) — **except** a version a
   live process still runs from. The prune scans `/proc/<pid>/exe` and defers such a
   version to the next cycle, so an update never deletes the toolchain out from under a
   running Claude session.
 
-The `ai-tools-relabel.path` watcher sees the symlink repoint and runs
-`ai-tools-relabel-entrypoint` (root) to restore `ai_tools_exec_t` on the new `claude.exe`,
-so the SELinux domain transition keeps firing. Until the entrypoint is relabelled,
+The `ai-tools-relabel.path` watcher sees the repoint (it watches the `bin` directory, so one
+watch covers every agent) and runs `ai-tools-relabel-entrypoint` (root) to restore
+`ai_tools_exec_t` on each enabled agent's new entrypoint, so the SELinux domain transition keeps
+firing. Until the entrypoint is relabelled,
 `ai-tools-run` fail-closes (refuses to launch rather than run unconfined); `ai-tools
 --relabel` is the manual fallback.
 

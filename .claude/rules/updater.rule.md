@@ -3,7 +3,7 @@ paths:
   - "src/opt/ai-tools/bin/nvm-update.sh"
   - "src/usr/local/lib/ai-tools/npm-verify.lib.sh"
   - "src/usr/local/sbin/ai-tools/ai-tools-bootstrap.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-claude-symlink.sh"
+  - "src/usr/local/sbin/ai-tools/ai-tools-launcher-symlink.sh"
   - "src/usr/local/sbin/ai-tools/ai-tools-relabel-entrypoint.sh"
   - "src/usr/lib/systemd/user/nvm-update.service"
   - "src/usr/lib/systemd/user/nvm-update.timer"
@@ -77,40 +77,57 @@ collects all versions referenced by any named alias into an associative array be
 removing anything, so a version another alias points to is retained, as is any version a
 live session still runs from.
 
-## Symlink repoint root helper (`ai-tools-claude-symlink`)
+## Launcher symlink repoint root helper (`ai-tools-launcher-symlink`)
 
 `/opt/ai-tools/bin` is `0551` and not group-writable (see
-[ownership-and-hooks](ownership-and-hooks.rule.md)), so `SANDBOX_USER` reaches the
-versioned `claude` symlink only through a root helper. `ai-tools-claude-symlink` accepts
-one argument, validates it is exactly a `…/node/v<MAJOR>.<MINOR>.<PATCH>/bin/claude` path
-that exists (its own anchored-regex check, **not** the coarse sudoers glob, is
-authoritative — argument wildcards can match `/`), then atomically repoints the symlink.
-The sandbox updater and `install.sh` are the only callers; the updater reaches it through
-the [handback bridge](handback-bridge.rule.md) `SYMLINK` verb. The helper repoints the
-symlink but does not relabel the new entrypoint — it runs in the handback domain, which
-holds no relabel rights.
+[ownership-and-hooks](ownership-and-hooks.rule.md)), so `SANDBOX_USER` reaches a stable
+launcher symlink only through a root helper. `ai-tools-launcher-symlink` takes one argument and
+**names no agent**. It validates the path is exactly
+`…/node/v<MAJOR>.<MINOR>.<PATCH>/bin/<launcher>` and exists, takes `<launcher>` from that path's
+own basename, and accepts it only when an **enabled agent manifest claims that launcher** — the
+same allowlist `ai-tools-run` matches an executable against (see [providers](providers.rule.md)).
+Two properties follow: the link it writes is always `/opt/ai-tools/bin/<launcher>` for the binary
+of that same name, so the two can never diverge; and the set of links it can write is exactly the
+set of enabled agents. An allowlist it cannot resolve **refuses** rather than admitting anything.
+
+The updater (one call per enabled agent) and `install.sh` are the only callers; the updater
+reaches it through the [handback bridge](handback-bridge.rule.md) `SYMLINK` verb. The helper
+repoints the symlink but does not relabel the new entrypoint — it runs in the handback domain,
+which holds no relabel rights.
 
 ## Post-upgrade entrypoint relabel
 
-A fresh Node tree's `claude.exe` is born `bin_t`, so the `→ ai_tools_t` domain transition
-fires only once the entrypoint carries `ai_tools_exec_t`. `ai-tools-relabel-entrypoint`
-restores that label: it restorecons every `claude.exe` under the nvm tree and verifies
-each took `ai_tools_exec_t`. It runs as root (a domain that holds relabel), is idempotent,
-and no-ops when SELinux is off or the `ai_tools` module is not installed — it acts only on
-entrypoints the file-context DB maps to `ai_tools_exec_t`, the same condition `ai-tools-run`
-keys on.
+A freshly installed entrypoint is born the default type (`bin_t`/`lib_t`), so the
+`→ ai_tools_t` domain transition fires only once it carries `ai_tools_exec_t`.
+`ai-tools-relabel-entrypoint` applies that label, and it **names no agent**: the base policy
+carries no entrypoint rule, so for each *enabled* agent the helper reads the path pattern that
+agent's manifest declares (`entrypoint_fcontext`, see [providers](providers.rule.md)), registers
+it as a local `semanage fcontext` rule mapping it to `ai_tools_exec_t`, restorecons every file it
+matches, and verifies each took the type. It runs as root (a domain that holds relabel), is
+idempotent, and no-ops when SELinux is off or the `ai_tools` module is not installed — there is
+then no `ai_tools_exec_t` to assign, the same condition `ai-tools-run` keys on.
+
+The type is pinned in `relabel.lib.sh` and a declared pattern is accepted only when it can match
+nothing outside the sandbox toolchain root (no traversal, no alternation, an anchored literal
+head), so a manifest chooses **which** file is its entrypoint, never what label a file gets. The
+whole body lives in `relabel.lib.sh`, shared with `install-selinux.sh`'s verify pass.
+`ai-tools-relabel-entrypoint --remove <agent>` is the erase-time counterpart: the agent package's
+`%preun` drops its rule while its manifest is still on disk.
 
 `ai-tools-bootstrap` runs the helper directly at provision time (above). Two further paths
 run it after an upgrade, both as root, never `SANDBOX_USER`:
 
-- **Automatically**, through the `ai-tools-relabel.path` watcher. The `.path` watches
-  `/opt/ai-tools/bin/claude` — the symlink the updater repoints, atomically (`mv -T` over the
-  old link), so the inode changes and the watcher fires on **every** repoint — and triggers
-  `ai-tools-relabel.service` (a root oneshot in the system instance) when it changes, so a
-  Node bump relabels without operator action. `ai-tools-claude-symlink` is idempotent: it
+- **Automatically**, through the `ai-tools-relabel.path` watcher. The `.path` watches the
+  `/opt/ai-tools/bin` **directory** — whose entries are the stable launcher symlinks the updater
+  repoints, atomically (`mv -T` over the old link), so the rename lands as a change in that
+  directory whichever agent's launcher moved — and triggers `ai-tools-relabel.service` (a root
+  oneshot in the system instance), which relabels **every** enabled agent's entrypoint, so a Node
+  bump needs no operator action and one watch covers any number of agents. Only root writes that
+  directory, so a trigger is always a control-plane change, and the service is idempotent, so an
+  unrelated one costs a no-op pass. `ai-tools-launcher-symlink` is idempotent too: it
   skips the repoint (and so the watcher) only when the link is already current **and** it has
   confirmed the target entrypoint carries `ai_tools_exec_t`, so a repoint that would drive a
-  needed relabel — a version bump, or a same-version reinstall that reminted `claude.exe` at
+  needed relabel — a version bump, or a same-version reinstall that reminted the entrypoint at
   `bin_t` — always fires, while a daily no-op run stops churning the link. The repoint is the
   sole trigger: the sandbox
   updater holds no relabel rights and reaches root only through the handback bridge, whose

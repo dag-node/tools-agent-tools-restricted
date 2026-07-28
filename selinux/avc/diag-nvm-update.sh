@@ -106,7 +106,7 @@ probe_rw "${HOME}/.npm" "(control: ai_tools_home_t carve-out, must stay writable
 ########################################
 # 3. Symlink-resolution chain -- the stat() the SYMLINK verb depends on
 #
-# ai-tools-claude-symlink (root, ai_tools_handback_t) does `[[ -e TARGET ]]`, which
+# ai-tools-launcher-symlink (root, ai_tools_handback_t) does `[[ -e TARGET ]]`, which
 # stat()s through the versioned bin/claude symlink to its resolved end, claude.exe
 # (ai_tools_exec_t). This step runs the identical chain from ai_tools_t (which holds
 # libs_read_lib_files + the entrypoint grant) as a sanity check that the chain itself
@@ -115,7 +115,7 @@ probe_rw "${HOME}/.npm" "(control: ai_tools_home_t carve-out, must stay writable
 # bridge. (A denied getattr there silently reports false -- the swallowed-EACCES shape
 # -- and the helper fails closed with "target does not exist".)
 ########################################
-step "3. Symlink-resolution chain (same stat() chain ai-tools-claude-symlink follows, run from ai_tools_t)"
+step "3. Symlink-resolution chain (same stat() chain ai-tools-launcher-symlink follows, run from ai_tools_t)"
 if [[ -e "${versioned_claude}" ]]; then
     pass "[[ -e ${versioned_claude} ]] resolves OK from ai_tools_t -- chain is sound; libs_read_lib_files covers it here"
 else

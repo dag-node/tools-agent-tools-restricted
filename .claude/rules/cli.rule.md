@@ -208,8 +208,8 @@ and `ai-tools-reclaim` — run via `sudo` with **no** NOPASSWD grant by design, 
 the projects user's password; the sandbox account has no grant for any. The exception, `--relabel` →
 `ai-tools-relabel-entrypoint`, is: it has a dedicated fixed-path NOPASSWD rule
 (shared with the `nvm-update` timer, see [updater](updater.rule.md) / [launch](launch.rule.md)),
-so it runs **as root without a prompt** — kept safe by being a fixed-path, no-argument target
-the projects user cannot modify. `ai-tools-setfacl` and `ai-tools-unclaim` need root
+so it runs **as root without a prompt** — kept safe by being a fixed path the projects user
+cannot modify, granted only in its zero-argument form (the rule's trailing `""`). `ai-tools-setfacl` and `ai-tools-unclaim` need root
 (`CAP_FOWNER`) to act on files the projects user does not own (e.g. agent-written files from
 a prior session); `ai-tools-setgid` needs root to `chgrp` the project's directories to
 `SANDBOX_GROUP` — a group the operator is not a member of (multi-operator), so the change is not

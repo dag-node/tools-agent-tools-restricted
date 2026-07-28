@@ -289,7 +289,7 @@ find %{buildroot}%{_datadir}/ai-tools/agents %{buildroot}%{_datadir}/ai-tools/sk
 find %{buildroot}%{_datadir}/ai-tools/agents %{buildroot}%{_datadir}/ai-tools/skills -type f -exec chmod 0644 {} +
 
 # ── integration-nodejs: toolchain helpers + updater ──────────────────────────
-for h in ai-tools-claude-symlink ai-tools-relabel-entrypoint ai-tools-bootstrap; do
+for h in ai-tools-launcher-symlink ai-tools-relabel-entrypoint ai-tools-bootstrap; do
     install -m 0750 src%{ai_sbindir}/${h}.sh %{buildroot}%{ai_sbindir}/${h}
 done
 # ai-tools-bootstrap is administrator-typed (documented as a bare command); symlinked in
@@ -456,6 +456,35 @@ if [ -x %{ai_sbindir}/ai-tools-dotnet ]; then
     }
 fi
 
+%post -n ai-tools-agents-claude-code-restricted
+# Register this agent's SELinux entrypoint file-context and label whatever it matches. The base
+# policy names no agent (see selinux/policy/ai_tools.fc): the pattern comes from this package's
+# own manifest, and the helper maps it to the base's ai_tools_exec_t as a local rule, so a
+# session's domain transition fires. Offline and idempotent; it no-ops when SELinux or the
+# ai_tools module is inactive, and when the toolchain is not provisioned yet (a fresh install --
+# ai-tools-bootstrap relabels the entrypoint it installs).
+#
+# Not swallowed: an entrypoint that stays mislabelled means ai-tools-run refuses every launch, so
+# the scriptlet reports the remedy and exits non-zero rather than leaving that to be discovered
+# at the first `claude`.
+if [ -x %{ai_sbindir}/ai-tools-relabel-entrypoint ]; then
+    %{ai_sbindir}/ai-tools-relabel-entrypoint >/dev/null || {
+        echo "ai-tools-agents-claude-code-restricted: entrypoint labelling failed; see 'journalctl -t ai-tools-relabel-entrypoint'" >&2
+        echo "ai-tools-agents-claude-code-restricted: fix the cause and re-run: sudo ai-tools --relabel" >&2
+        exit 1
+    }
+fi
+
+%preun -n ai-tools-agents-claude-code-restricted
+# On final erase, drop the entrypoint file-context rule this package registered and restore
+# default labels on what it matched -- the type it names belongs to ai-tools-base, which the host
+# may erase next, and a local rule naming an undefined type breaks later relabels. Runs in %preun,
+# not %postun, because the pattern is read from this package's manifest, which is still on disk
+# here.
+if [ "$1" -eq 0 ] && [ -x %{ai_sbindir}/ai-tools-relabel-entrypoint ]; then
+    %{ai_sbindir}/ai-tools-relabel-entrypoint --remove claude-code >/dev/null 2>&1 || :
+fi
+
 %postun -n ai-tools-integration-dotnet
 # On final erase, drop the local fcontext rules for the dotnet dirs and restore default labels on
 # what stays behind (the dirs themselves are runtime state under /opt/ai-tools, preserved like
@@ -551,7 +580,7 @@ fi
 # Umbrella metapackage: no files of its own; weakly pulls the ai-tools-integration-* members.
 
 %files -n ai-tools-integration-nodejs
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-claude-symlink
+%attr(0750, root, root) %{ai_sbindir}/ai-tools-launcher-symlink
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-relabel-entrypoint
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-bootstrap
 %{_sbindir}/ai-tools-bootstrap
@@ -598,6 +627,15 @@ fi
 - The gating is fail-closed and tamper-refusing: an unreadable, malformed, or non-root-owned
   input falls back to the default-enabled baseline, never to "enable all", so the sandbox account
   cannot enable a provider its package ships disabled.
+- An agent package carries its own SELinux entrypoint file-context and its own handback
+  capability, so the base policy names no agent: each enabled agent's entrypoint is labelled
+  ai_tools_exec_t from the rule its manifest declares, and an agent that drives no handback hooks
+  of its own has its project swept back to the operator when the session ends.
+- The toolchain updater repoints every enabled agent's launcher symlink, not just Claude Code's:
+  ai-tools-claude-symlink is now ai-tools-launcher-symlink, it accepts only a launcher an enabled
+  agent manifest claims, and the post-upgrade relabel watcher observes the whole launcher
+  directory.
+- ai-tools --providers reports the installed agents and integrations, which are enabled, and why.
 - ai-tools-integration-dotnet integrates a host-managed .NET toolchain (no runtime packaged, no
   dotnet RPM dependency, inert without one): DOTNET_ROOT, a sandbox-writable NuGet cache, and the
   admin-provisioned shared tools on PATH. Provision with sudo ai-tools-dotnet setup /

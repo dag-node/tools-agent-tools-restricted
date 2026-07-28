@@ -19,7 +19,7 @@ check_file /usr/local/sbin/ai-tools/ai-tools-setfacl          root              
 check_file /usr/local/sbin/ai-tools/ai-tools-unclaim          root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-safedir          root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-reclaim          root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-claude-symlink   root              root              750
+check_file /usr/local/sbin/ai-tools/ai-tools-launcher-symlink   root              root              750
 check_file /usr/local/sbin/ai-tools/ai-tools-lockdown         root              root              750
 # SELinux project-label helper: 750 root:root -- user-run via sudo, never by the agent (no
 # SANDBOX_USER grant); same surface as lockdown.
@@ -113,8 +113,8 @@ check_file /etc/ai-tools/operator.conf                        root              
 check_file /usr/local/lib/ai-tools/path-dedup.sh              root              root              644
 # /opt/ai-tools/bin is locked: root:ai-tools 0551, so ai-tools has group r-x but no write. The
 # agent can execute nvm-update.sh and resolve the claude symlink, but cannot edit the updater or
-# swap the symlink -- only root (via ai-tools-claude-symlink) writes here. The o+x search bit
-# lets an operator readlink bin/claude.
+# swap the symlink -- only root (via ai-tools-launcher-symlink) writes here. The o+x search bit
+# lets an operator readlink bin/<launcher>.
 check_file /opt/ai-tools/bin                                  root              "${SANDBOX_GROUP}" 551
 # Control-plane files: root:ai-tools. The agent (running as ai-tools) gets group read/exec but
 # no write, so it cannot rewrite its own updater, hook, or hook config.
