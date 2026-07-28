@@ -1207,23 +1207,23 @@ do_install() {
     # Shipped assets: stage pristine copies to the datadir (the single seed source shared with
     # ai-tools-bootstrap), then place them.
     #
-    # SKILLS are agent-agnostic, so they are seeded ONCE into the shared /opt/ai-tools/skills and
-    # each agent's own skills directory gets a symlink per skill -- one place to author or update
-    # a skill, however many agents read it. AGENTS are Claude Code-format files, so they are
-    # copied into that agent's config directory. Only ai-tools-* assets carrying
-    # x-ai-tools-managed are touched, an operator's own agent/skill is never claimed, and an
-    # existing managed asset updates only on confirm (default keep). See managed-assets.lib.sh
-    # and shipped-assets.rule.md.
-    log "/usr/share/ai-tools/{agents,skills} (pristine managed assets)"
+    # Both kinds are agent-agnostic, so each is seeded ONCE into its own shared root
+    # (/opt/ai-tools/skills, /opt/ai-tools/subagents) and every agent's directories get a symlink
+    # per asset -- one place to author or update an asset, however many agents read it. Only
+    # ai-tools-* assets carrying x-ai-tools-managed are touched, an operator's own is never
+    # claimed, and an existing managed asset updates only on confirm (default keep). See
+    # managed-assets.lib.sh and shipped-assets.rule.md.
+    log "/usr/share/ai-tools/{skills,subagents} (pristine managed assets)"
     install -d -o root -g root -m 755 /usr/share/ai-tools
-    rm -rf /usr/share/ai-tools/agents /usr/share/ai-tools/skills
-    cp -rT "${SCRIPT_DIR}/src/usr/share/ai-tools/agents" /usr/share/ai-tools/agents
-    cp -rT "${SCRIPT_DIR}/src/usr/share/ai-tools/skills" /usr/share/ai-tools/skills
-    chown -R root:root /usr/share/ai-tools/agents /usr/share/ai-tools/skills
-    find /usr/share/ai-tools/agents /usr/share/ai-tools/skills -type d -exec chmod 755 {} +
-    find /usr/share/ai-tools/agents /usr/share/ai-tools/skills -type f -exec chmod 644 {} +
-
     local _kind _shared
+    for _kind in skills subagents; do
+        rm -rf "/usr/share/ai-tools/${_kind}"
+        cp -rT "${SCRIPT_DIR}/src/usr/share/ai-tools/${_kind}" "/usr/share/ai-tools/${_kind}"
+        chown -R root:root "/usr/share/ai-tools/${_kind}"
+        find "/usr/share/ai-tools/${_kind}" -type d -exec chmod 755 {} +
+        find "/usr/share/ai-tools/${_kind}" -type f -exec chmod 644 {} +
+    done
+
     for _kind in skills subagents; do
         _shared="${CP_HOME}/${_kind}"
         log "${_shared}/ (shared ${_kind}, symlinked into every agent that reads them)"
