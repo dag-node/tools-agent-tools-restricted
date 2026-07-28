@@ -674,8 +674,9 @@ fi
     ai-tools-claude-symlink          is now ai-tools-launcher-symlink
     ai-tools-relabel-entrypoint      is now ai-tools-relabel-agent
     /opt/ai-tools/.nuget, .dotnet    dotnet state now lives under integrations/dotnet
-    .claude/{skills,agents}          shipped copies now live in the shared roots; delete the old
-                                     per-agent ones so the symlinks take over
+    .claude/{skills,agents}          shipped copies now live in the shared roots; an unchanged
+                                     per-agent copy is converted to a symlink on the next
+                                     install or bootstrap, one you edited is kept and reported
   A hand-written agent manifest must spell the npm key npm_package, not npm_pkg.
 
 * Sun Jul 26 2026 dagnode <tools@dagnode.com> - 0.7.0-1

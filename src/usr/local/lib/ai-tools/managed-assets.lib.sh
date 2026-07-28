@@ -112,6 +112,25 @@ ai_tools_seed_managed_assets() {
     done
 }
 
+# _ai_tools_asset_is_stale_copy <shared> <live> : true when <live> is a copy this project placed
+# under the pre-shared layout and is byte-identical to <shared> -- i.e. replacing it with a link
+# loses nothing. Requires BOTH the ai-tools-managed marker (so an operator's own asset is never
+# touched) and identical content (so an edited or drifted copy is never discarded). Without the
+# comparison tools it answers false, keeping the copy.
+_ai_tools_asset_is_stale_copy() {
+    local shared="$1" live="$2" marker="$2"
+    [[ -d "${live}" ]] && marker="${live}/SKILL.md"
+    ai_tools_asset_is_managed "${marker}" || return 1
+    if [[ -d "${shared}" && -d "${live}" ]]; then
+        command -v diff >/dev/null 2>&1 || return 1
+        diff -rq "${shared}" "${live}" >/dev/null 2>&1
+    elif [[ -f "${shared}" && -f "${live}" ]]; then
+        cmp -s "${shared}" "${live}"
+    else
+        return 1
+    fi
+}
+
 # ai_tools_link_shared_assets <shared_root> <agent_dir> <group> [readme_source]
 # Point an agent at a shared asset kind (skills, subagents): one symlink per entry under
 # <shared_root>, so every agent reads the same file and an asset is updated in one place.
@@ -139,8 +158,21 @@ ai_tools_link_shared_assets() {
             ln -sfn "${src}" "${dst}"
             _ai_tools_ma_say "${agent_dir##*/}/${name} link repointed at ${src}"
         elif [[ -e "${dst}" ]]; then
-            _ai_tools_ma_say "${agent_dir##*/}/${name} kept (a real directory here wins over the shared one)"
-            continue
+            # Something real sits here. It is either the operator's own (or agent-specific)
+            # asset, which always wins -- or OUR copy from the layout before these assets were
+            # shared, which should become a link so the shared file is the only one to maintain.
+            # Convert only when it is BOTH ai-tools-managed and byte-identical to the shared
+            # copy: same provenance, nothing to lose. A managed copy that differs is left alone
+            # and reported, because the difference is either an operator edit or version drift,
+            # and this is not the place to resolve either.
+            if _ai_tools_asset_is_stale_copy "${src}" "${dst}"; then
+                rm -rf "${dst}"
+                ln -s "${src}" "${dst}"
+                _ai_tools_ma_say "${agent_dir##*/}/${name} converted to a link (was an identical managed copy)"
+            else
+                _ai_tools_ma_say "${agent_dir##*/}/${name} kept (a real entry here wins over the shared one)"
+                continue
+            fi
         else
             ln -s "${src}" "${dst}"
             _ai_tools_ma_say "${agent_dir##*/}/${name} linked -> ${src}"

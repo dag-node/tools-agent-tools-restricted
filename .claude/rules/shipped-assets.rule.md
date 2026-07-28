@@ -63,7 +63,12 @@ symlink per shared asset, for either kind, and is idempotent and non-displacing:
 - a link already pointing at that shared asset → untouched; a stale one → repointed;
 - a link into the shared root whose asset no longer ships → removed;
 - **anything real** (a directory or file) → kept and reported. That is how an agent-specific
-  asset, or an operator's override of a shared one, wins: same name, real file, no link.
+  asset, or an operator's override of a shared one, wins: same name, real file, no link. The one
+  exception is a copy that is **both** `x-ai-tools-managed` **and** byte-identical to the shared
+  asset: that is this project's own copy from the layout before these assets were shared, so it
+  is replaced by a link (nothing is lost). A managed copy that *differs* is kept and reported —
+  the difference is an operator edit or version drift, and the linker is not the place to
+  resolve either.
 
 Which agents take links of which kind comes from `ai_tools_agent_asset_dirs <manifest-field>`
 (`control-plane.lib.sh`), which reads each enabled agent's `config_dir` plus the field naming

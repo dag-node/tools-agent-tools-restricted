@@ -150,15 +150,21 @@ if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_agent_config_dirs >/de
     for _spec in "skills_dir:/opt/ai-tools/skills:ai-tools-docs-reference" \
                  "subagents_dir:/opt/ai-tools/subagents:ai-tools-reference-architect.md"; do
         _field="${_spec%%:*}"; _rest="${_spec#*:}"; _root="${_rest%%:*}"; _asset="${_rest#*:}"
+        _marker=""
         while IFS=$'\t' read -r _agent _dir; do
             [[ -d "${_dir}" ]] || { skip "${_dir}" "not deployed on this host"; continue; }
             _link="${_dir}/${_asset}"
+            _marker="${_link}"; [[ -d "${_link}" ]] && _marker="${_link}/SKILL.md"
             if [[ ! -e "${_link}" ]]; then
                 skip "${_link}" "shipped asset not seeded on this host"
             elif [[ -L "${_link}" && "$(readlink "${_link}")" == "${_root}"/* ]]; then
                 pass "${_link} is a symlink into ${_root}"
+            elif ! grep -qE '^x-ai-tools-managed:[[:space:]]*true' "${_marker}" 2>/dev/null; then
+                # A real entry that is NOT ai-tools-managed is the operator's own override, which
+                # the linker is contracted to leave alone -- the feature, not a regression.
+                skip "${_link}" "an operator override sits here (not ai-tools-managed)"
             else
-                fail "${_link} is not a symlink into ${_root} -- the shared asset has been copied, so it now forks per agent"
+                fail "${_link} is a managed COPY, not a symlink into ${_root} -- the shared asset forks per agent. An identical copy is converted on the next install/bootstrap; one that differs is kept, so reconcile or remove it"
             fi
         done < <(ai_tools_agent_asset_dirs "${_field}")
     done
