@@ -125,6 +125,15 @@ way a pattern could name something outside the sandbox toolchain (traversal, alt
 foreign prefix) and asserts each is refused — plus that the type is the library's constant, never
 manifest-supplied.
 
+`selinux-groups.sh` pins the optional-group registry (`selinux-groups.lib.sh`, shared by
+`ai-tools-admin selinux` and `install-selinux.sh`): the four-field accessors (including the
+`stability` field, guarding the regression where a fourth pipe field bleeds into the reason), the
+validity predicate the `enable-group` gate depends on (an unknown name is rejected), and the
+`is_experimental` predicate agreeing with the field (it drives the experimental warn-and-confirm
+gate). And — because the groups ship **prebuilt** — registry↔filesystem lockstep, that every
+registered group has a `.te` source and a committed `.pp`, and that no policy module on disk is
+missing from the registry. The lockstep half needs the checkout, so it runs only there.
+
 **`integration`** — checks that need a completed install and the running system
 (`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`, `cli.sh`,
 `ai-tools-run.sh`, `systemd.sh`, `selinux.sh`): installed-artifact ownership/modes, sudoers

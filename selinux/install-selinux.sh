@@ -19,8 +19,9 @@
 #   sudo ./install-selinux.sh list-groups          show group availability and state
 #
 # selinux-policy-devel is required ONLY to COMPILE a module from source -- i.e. to
-# recompile the core or build an optional group (the groups are not shipped
-# prebuilt). The shipped core needs no toolchain. Install when needed:
+# recompile the core or a group after editing its .te/.fc. The core AND every optional
+# group ship prebuilt (ai_tools.pp, ai_tools_<group>.pp), so a normal install and a
+# plain enable-group need no toolchain. Install it only when rebuilding from source:
 #   sudo dnf install selinux-policy-devel
 #
 # Policy groups (all DISABLED by default; core alone covers repo-only work):
@@ -28,6 +29,7 @@
 #   pkgmgmt   rpm (rpm_exec_t), RPM database (rpm_var_lib_t)
 #   netadmin  firewall-cmd D-Bus (firewalld_t), nmcli D-Bus (NetworkManager_t)
 #   podman    container runtime exec, image/layer storage reads
+#   tmpmap    mmap of the agent's own /tmp files (dotnet build, git/SQLite in /tmp)
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -51,6 +53,16 @@ source "${MSG_LIB}" \
     || { printf 'selinux: cannot source required library %s\n' "${MSG_LIB}" >&2; exit 1; }
 # One fixed 80-column frame for the whole install flow's boxes, so consecutive prompts align.
 export AI_TOOLS_MSG_FULLWIDTH=1
+
+# Optional policy-group registry (names/descriptions/reasons + predicates), single-sourced
+# so this authoring tool and the installed ai-tools-admin never disagree on the group set.
+# REQUIRED -- the enable/disable/list actions and the install prompt all read it; a missing
+# lib fails the run. Same source-tree-first, installed-second resolution as MSG_LIB above.
+GROUPS_LIB="${DIR}/../src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
+[[ -r "${GROUPS_LIB}" ]] || GROUPS_LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
+# shellcheck source=/dev/null
+source "${GROUPS_LIB}" \
+    || { printf 'selinux: cannot source required library %s\n' "${GROUPS_LIB}" >&2; exit 1; }
 readonly NVM_DIR="/opt/ai-tools/.nvm"
 HOME_STATE=(.npm .cache .local .config .gitconfig)
 
@@ -105,42 +117,9 @@ sayx()    { printf '%s\n' "$*" >&2; }
 [[ "$(getenforce 2>/dev/null)" != "Disabled" ]] \
     || { log "SELinux is disabled -- nothing to do"; exit 0; }
 
-########################################
-# Optional policy group registry
-#
-# Each entry is a pipe-delimited record:
-#   name | install-prompt description | agent-facing reason (surfaced when needed)
-#
-# The reason text is what the agent quotes when a task needs a group that is not
-# loaded: it explains WHY in terms of the SELinux type mismatch, then gives the
-# exact command to run.
-########################################
-POLICY_GROUPS=(
-    "systemd\
-|System inspection (systemctl, journalctl, unit files)\
-|systemctl is labelled systemd_systemctl_exec_t; ai_tools_t needs execute +\
- D-Bus access to query PID 1. journalctl is journalctl_exec_t."
-    "pkgmgmt\
-|Package management (rpm, dnf, RPM database)\
-|/usr/bin/rpm is labelled rpm_exec_t (not bin_t); the RPM database is\
- rpm_var_lib_t. Both need explicit allow rules. dnf is bin_t (already\
- executable) but also reads rpm_var_lib_t."
-    "netadmin\
-|Network administration (firewall-cmd D-Bus, nmcli D-Bus)\
-|firewall-cmd and nmcli are bin_t (already executable) but send commands\
- to firewalld_t and NetworkManager_t via D-Bus; ai_tools_t lacks the\
- dbus send_msg permission those daemons require."
-    "podman\
-|Container operations (podman/buildah exec, image storage reads)\
-|/usr/bin/podman is labelled container_runtime_exec_t; ai_tools_t cannot\
- execute it without this group. Container image storage (container_file_t)\
- is dontaudit'd in the core module and needs explicit read here."
-)
-
-# Parse record fields from a POLICY_GROUPS entry.
-_gname()   { printf '%s' "${1%%|*}"; }
-_gdesc()   { local s="${1#*|}"; printf '%s' "${s%%|*}"; }
-_greason() { printf '%s' "${1##*|}"; }
+# The optional policy-group registry (AI_TOOLS_SELINUX_GROUPS) and its accessors
+# (ai_tools_selinux_group_{name,desc,reason,valid,loaded}) come from the shared
+# selinux-groups.lib.sh sourced above -- the single source shared with ai-tools-admin.
 
 ########################################
 # Build helpers
@@ -148,23 +127,23 @@ _greason() { printf '%s' "${1##*|}"; }
 
 # require_devel <pp>: exit with install guidance unless the refpolicy devel
 # toolchain (make + /usr/share/selinux/devel/Makefile from selinux-policy-devel) is
-# present. Only reached when a module must be COMPILED from source -- the core
-# module ships prebuilt, so a normal install never lands here; it is the optional
-# (non-core) groups, which are not shipped prebuilt, that require the toolchain.
+# present. Only reached when a module must be COMPILED from source -- the core AND
+# every group ship prebuilt, so a normal install and a plain enable-group never land
+# here; a rebuild after editing a .te/.fc is what requires the toolchain.
 require_devel() {
     command -v make >/dev/null && [[ -f /usr/share/selinux/devel/Makefile ]] && return 0
     warn "building ${1:-this policy module} needs the selinux-policy-devel toolchain,"
-    warn "  which is not installed. The core module ships prebuilt and needs no"
-    warn "  toolchain; only the optional groups must be compiled. Install it with:"
+    warn "  which is not installed. The shipped modules are prebuilt and need no"
+    warn "  toolchain; only a rebuild from edited source does. Install it with:"
     warn "      sudo dnf install selinux-policy-devel"
     warn "  then re-run. See ${DIR}/README.md for the policy build/bring-up workflow."
     exit 1
 }
 
 # ensure_pp <module.pp>: guarantee the compiled package ${POLICY_DIR}/<module.pp> exists.
-# Prefers the prebuilt package shipped in the repo so a normal install needs no
-# toolchain; compiles from source (requiring selinux-policy-devel) only when the
-# package is absent -- i.e. an optional group, or after editing the .te/.fc source.
+# Prefers the prebuilt package shipped in the repo so a normal install and enable-group
+# need no toolchain; compiles from source (requiring selinux-policy-devel) only when the
+# package is absent -- i.e. after deleting a .pp or editing the .te/.fc source.
 ensure_pp() {
     local pp="$1"
     if [[ -f "${POLICY_DIR}/${pp}" ]]; then
@@ -191,20 +170,8 @@ build_pp() {
         || true
 }
 
-# is_group_loaded <name>: return 0 if the optional policy group ai_tools_<name> is
-# currently loaded in the kernel (semodule -l).
-is_group_loaded() {
-    semodule -l 2>/dev/null | grep -q "^ai_tools_${1}[[:space:]]"
-}
-
-# valid_group <name>: return 0 if <name> is a known group in POLICY_GROUPS.
-valid_group() {
-    local name="$1" entry
-    for entry in "${POLICY_GROUPS[@]}"; do
-        [[ "$(_gname "${entry}")" == "${name}" ]] && return 0
-    done
-    return 1
-}
+# Group validity/loaded predicates (ai_tools_selinux_group_valid / _loaded) come from
+# selinux-groups.lib.sh, shared with ai-tools-admin.
 
 # _mode_label: read ai_tools.te and return a human-readable enforcement label.
 # If every permissive line is commented out -> "ENFORCING".
@@ -295,9 +262,9 @@ prompt_groups() {
     sayx ""
 
     local entry name desc
-    for entry in "${POLICY_GROUPS[@]}"; do
-        name="$(_gname "${entry}")"
-        desc="$(_gdesc "${entry}")"
+    for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
+        name="$(ai_tools_selinux_group_name "${entry}")"
+        desc="$(ai_tools_selinux_group_desc "${entry}")"
         printf '    %s[%s]%s %s\n' "${C_DIM}" "${name}" "${C_RST}" "${desc}" >&2
         ai_tools_msg_confirm "    Enable?" n && SELECTED_GROUPS+=("${name}")
     done
@@ -593,10 +560,10 @@ case "${ACTION}" in
 
   enable-group)
     name="${2:?usage: sudo $0 enable-group <name>}"
-    if ! valid_group "${name}"; then
+    if ! ai_tools_selinux_group_valid "${name}"; then
         warn "unknown group '${name}'. Available groups:"
-        for entry in "${POLICY_GROUPS[@]}"; do
-            printf '    %-10s %s\n' "$(_gname "${entry}")" "$(_gdesc "${entry}")" >&2
+        for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
+            printf '    %-10s %s\n' "$(ai_tools_selinux_group_name "${entry}")" "$(ai_tools_selinux_group_desc "${entry}")" >&2
         done
         exit 1
     fi
@@ -611,7 +578,7 @@ case "${ACTION}" in
 
   disable-group)
     name="${2:?usage: sudo $0 disable-group <name>}"
-    if is_group_loaded "${name}"; then
+    if ai_tools_selinux_group_loaded "${name}"; then
         semodule -r "ai_tools_${name}"
         ok "group '${name}' disabled"
     else
@@ -633,10 +600,10 @@ case "${ACTION}" in
     log "core module (${MODULE}): ${core_state}"
     say ""
     say "  Optional policy groups:"
-    for entry in "${POLICY_GROUPS[@]}"; do
-        gname="$(_gname "${entry}")"
-        gdesc="$(_gdesc "${entry}")"
-        if is_group_loaded "${gname}"; then
+    for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
+        gname="$(ai_tools_selinux_group_name "${entry}")"
+        gdesc="$(ai_tools_selinux_group_desc "${entry}")"
+        if ai_tools_selinux_group_loaded "${gname}"; then
             printf '    %s[LOADED]%s   %-10s -- %s\n' "${C_GRN}" "${C_RST}" "${gname}" "${gdesc}"
         else
             printf '    %s[disabled]%s %-10s -- %s\n' "${C_DIM}" "${C_RST}" "${gname}" "${gdesc}"
@@ -660,8 +627,8 @@ selinux: usage: sudo $0 <action> [args]
 
 Optional groups (all disabled by default):
 EOF
-    for entry in "${POLICY_GROUPS[@]}"; do
-        printf '  %-10s %s\n' "$(_gname "${entry}")" "$(_gdesc "${entry}")" >&2
+    for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
+        printf '  %-10s %s\n' "$(ai_tools_selinux_group_name "${entry}")" "$(ai_tools_selinux_group_desc "${entry}")" >&2
     done
     exit 1
     ;;

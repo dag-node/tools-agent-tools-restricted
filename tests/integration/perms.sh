@@ -79,6 +79,9 @@ check_file /usr/local/lib/ai-tools/conf.lib.sh               root              r
 # Provider/agent resolver: 644 root:root -- world-readable, sourced by ai-tools-bootstrap and
 # nvm-update (both run as the sandbox account) to read the agent manifests; carries no secrets.
 check_file /usr/local/lib/ai-tools/providers.lib.sh          root              root              644
+# Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by
+# ai-tools-admin and selinux/install-selinux.sh (both root); read-only data, carries no secrets.
+check_file /usr/local/lib/ai-tools/selinux-groups.lib.sh     root              root              644
 # The three provider directories, owned by ai-tools-base (each member package drops only its own
 # files into them). 0755 root:root is SECURITY-LOAD-BEARING, not housekeeping: these decide which
 # agents get provisioned and what env a session gets, and a group- or other-writable directory

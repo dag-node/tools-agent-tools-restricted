@@ -499,6 +499,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/npm-verify.lib.sh
     _chk /usr/local/lib/ai-tools/conf.lib.sh
     _chk /usr/local/lib/ai-tools/providers.lib.sh
+    _chk /usr/local/lib/ai-tools/selinux-groups.lib.sh
     _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
     _chk /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
     _chk /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh
@@ -712,6 +713,14 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/providers.lib.sh" \
         /usr/local/lib/ai-tools/providers.lib.sh
 
+    # Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by
+    # ai-tools-admin (to load a prebuilt group) and selinux/install-selinux.sh (to compile one)
+    # so the two never disagree on the group set. Read-only data, no secrets.
+    log "/usr/local/lib/ai-tools/selinux-groups.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/selinux-groups.lib.sh" \
+        /usr/local/lib/ai-tools/selinux-groups.lib.sh
+
     # Agent manifests: the agents.d directory (0755 root:root) plus each agent's <name>.conf
     # (644, parsed data naming its npm package + launcher). This from-source installer deploys the
     # full stack, so it lays down the claude-code manifest here (the RPM ships it in the agent
@@ -748,6 +757,20 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/integrations.d/dotnet.conf" \
         /usr/local/lib/ai-tools/integrations.d/dotnet.conf
+
+    # SELinux policy packages (prebuilt): stage the core plus every optional group under the
+    # canonical package dir, so the installed ai-tools-admin can `selinux enable-group` a prebuilt
+    # module without a source checkout (parity with the RPM). install-selinux.sh loads/labels the
+    # core from the source tree separately; this only lays the .pp down for ai-tools-admin. The
+    # groups stay OFF until an operator enables one. No secrets.
+    log "/usr/share/selinux/packages/ai-tools/*.pp"
+    install -d -o root -g root -m 755 /usr/share/selinux/packages/ai-tools
+    for _pp in "${SCRIPT_DIR}"/selinux/policy/ai_tools.pp \
+               "${SCRIPT_DIR}"/selinux/policy/ai_tools_*.pp; do
+        [[ -f "${_pp}" ]] || continue
+        install -o root -g root -m 644 "${_pp}" \
+            "/usr/share/selinux/packages/ai-tools/$(basename "${_pp}")"
+    done
 
     # Logger library: 644 root:root -- world-readable. Sourced by the root helpers, by
     # the hooks (run as ai-tools), and by the CLI (run as the projects user, NOT in

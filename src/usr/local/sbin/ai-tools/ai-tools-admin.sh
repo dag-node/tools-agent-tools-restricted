@@ -2,12 +2,15 @@
 # /usr/local/sbin/ai-tools/ai-tools-admin
 # Host administration for the ai-tools sandbox. A root helper (run via sudo), not an ai-tools
 # CLI verb: it edits host config (the OPERATORS list, the ai-ops group, the sandbox account's
-# linger) while the ai-tools CLI is unprivileged and refuses to run as root. The ai-tools-admin name
-# leaves room for further root-side admin subcommands beside operator management.
+# linger; the loaded optional SELinux policy groups) while the ai-tools CLI is unprivileged and
+# refuses to run as root.
 #
-#   sudo ai-tools-admin operator add [user]     # default: $SUDO_USER
+#   sudo ai-tools-admin operator add [user]           # default: $SUDO_USER
 #   sudo ai-tools-admin operator remove <user>
 #   sudo ai-tools-admin operator list
+#   sudo ai-tools-admin selinux list-groups                # show core + optional group state
+#   sudo ai-tools-admin selinux enable-group <name> [-y]   # load a prebuilt optional group
+#   sudo ai-tools-admin selinux disable-group <name>       # unload one
 #
 # An operator is a login user (a human or a rootless service account) that drives the sandbox
 # through the shared ai-tools account. `add` is accumulating and idempotent: it appends the
@@ -16,6 +19,15 @@
 # the sandbox account's linger, and offers to wire the PATH dedup. `remove` reverses the host-side
 # membership (drops the name from OPERATORS and ai-ops), leaving the user's own allowlist and config.
 # `list` prints the current operators.
+#
+# `selinux` toggles the optional policy groups (systemd/pkgmgmt/netadmin/podman/tmpmap), all off
+# by default. It loads the PREBUILT ai_tools_<group>.pp shipped in the base package via semodule --
+# no source tree or selinux-policy-devel needed on the host. The group set, descriptions, and
+# per-group stability are single-sourced from selinux-groups.lib.sh, shared with
+# selinux/install-selinux.sh (the source-tree authoring tool that instead COMPILES a group; this
+# operator helper only loads a shipped one). enable-group of an EXPERIMENTAL (unaudited) group
+# warns, points at the audit docs, and requires confirmation (default No; -y/--yes to proceed
+# unattended); a 'stable' group like tmpmap loads without the gate.
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
@@ -27,6 +39,7 @@ readonly SANDBOX_USER="@SANDBOX_USER@"
 readonly OPERATORS_GROUP="ai-ops"
 readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
+readonly SELINUX_GROUPS_LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 
 die() { printf 'ai-tools-admin: error: %s\n' "$*" >&2; exit 1; }
 log() { printf 'ai-tools-admin: %s\n' "$*"; }
@@ -35,6 +48,10 @@ log() { printf 'ai-tools-admin: %s\n' "$*"; }
 
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 . "${OPERATOR_LIB}" || die "cannot source ${OPERATOR_LIB}"
+
+# Optional SELinux policy-group registry + predicates, shared with install-selinux.sh.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/selinux-groups.lib.sh
+. "${SELINUX_GROUPS_LIB}" || die "cannot source ${SELINUX_GROUPS_LIB}"
 
 # Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like the
 # operator lib above: a valid install ships it, so there is no fallback.
@@ -211,8 +228,122 @@ op_list() {
     fi
 }
 
-# Dispatch: `operator <add|remove|list> [args]`.
-[[ $# -ge 1 ]] || die "usage: ai-tools-admin operator <add|remove|list> [user]"
+# ── selinux: optional policy-group management ────────────────────────────────────────
+# These load/unload the PREBUILT ai_tools_<group>.pp shipped in the base package; the group
+# set and text come from selinux-groups.lib.sh. Distinct from selinux/install-selinux.sh,
+# which compiles a group from source in a repo checkout -- this runs on any installed host.
+
+# require_selinux: guard shared by every selinux subcommand. Returns 1 (caller exits 0 --
+# nothing to manage) when SELinux is disabled; dies when semodule is absent (a real gap).
+require_selinux() {
+    if [[ "$(getenforce 2>/dev/null)" == "Disabled" ]]; then
+        log "SELinux is disabled on this host -- no policy groups to manage"
+        return 1
+    fi
+    command -v semodule >/dev/null 2>&1 || die "semodule not found -- install policycoreutils"
+    return 0
+}
+
+# _selinux_usage_groups: list the known groups (name + description) to stderr.
+_selinux_usage_groups() {
+    local entry
+    for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
+        printf '    %-10s %s\n' \
+            "$(ai_tools_selinux_group_name "${entry}")" \
+            "$(ai_tools_selinux_group_desc "${entry}")" >&2
+    done
+}
+
+sel_enable() {
+    local name="" assume_yes=0 arg
+    for arg in "$@"; do
+        case "${arg}" in
+            -y|--yes) assume_yes=1 ;;
+            -*)       die "unknown flag '${arg}' (usage: ai-tools-admin selinux enable-group <name> [-y|--yes])" ;;
+            *)        if [[ -z "${name}" ]]; then name="${arg}"; else die "one group name at a time"; fi ;;
+        esac
+    done
+    [[ -n "${name}" ]] || { die "usage: ai-tools-admin selinux enable-group <name> [-y|--yes]"; }
+    require_selinux || return 0
+    if ! ai_tools_selinux_group_valid "${name}"; then
+        log "unknown group '${name}'. Available groups:"; _selinux_usage_groups
+        die "no such policy group: ${name}"
+    fi
+    local pp="${AI_TOOLS_SELINUX_PACKAGE_DIR}/ai_tools_${name}.pp"
+    [[ -f "${pp}" ]] || die "prebuilt module ${pp} not found -- reinstall ai-tools-base, or build and load it from a source checkout: sudo selinux/install-selinux.sh enable-group ${name}"
+    if ai_tools_selinux_group_loaded "${name}"; then
+        log "group '${name}' is already loaded -- nothing to do"
+        return 0
+    fi
+    # Experimental groups are unaudited drafts that widen the sandbox domain's access; warn,
+    # point at the audit workflow, and gate on an explicit yes (default No, so an unattended or
+    # piped run does NOT enable one). --yes is the auditable per-invocation override. A 'stable'
+    # group (a single, tested rule) loads without the gate.
+    if ai_tools_selinux_group_is_experimental "${name}"; then
+        ai_tools_msg_warn \
+            "The '${name}' SELinux policy group is an EXPERIMENTAL, unaudited draft. It widens the sandbox domain's access beyond the repo-only core, and its rule set has not been verified under permissive against a real workload. Enable it only for a task that needs it, and audit it before relying on it under enforcing."
+        log "docs: selinux/README.md (\"Optional policy groups\") and the bring-up loop in selinux/avc/"
+        if [[ "${assume_yes}" -eq 1 ]]; then
+            log "proceeding on --yes"
+        elif ! ai_tools_msg_confirm "Enable the experimental '${name}' policy group?" n; then
+            log "aborted -- '${name}' not enabled"
+            return 0
+        fi
+    fi
+    log "loading group: ai_tools_${name}"
+    semodule -i "${pp}" || die "semodule failed to load ${pp}"
+    log "group '${name}' enabled"
+    log "re-run the SELinux bring-up loop (selinux/avc/) to catch any new denials from the"
+    log "expanded surface before relying on it under enforcing."
+}
+
+sel_disable() {
+    local name="${1:-}"
+    [[ -n "${name}" ]] || { die "usage: ai-tools-admin selinux disable-group <name>"; }
+    require_selinux || return 0
+    if ! ai_tools_selinux_group_valid "${name}"; then
+        log "unknown group '${name}'. Available groups:"; _selinux_usage_groups
+        die "no such policy group: ${name}"
+    fi
+    if ai_tools_selinux_group_loaded "${name}"; then
+        semodule -r "ai_tools_${name}" || die "semodule failed to remove ai_tools_${name}"
+        log "group '${name}' disabled"
+    else
+        log "group '${name}' is not loaded -- nothing to do"
+    fi
+}
+
+sel_list() {
+    require_selinux || return 0
+    local core_state="NOT loaded"
+    semodule -l 2>/dev/null | grep -qx 'ai_tools' && core_state="loaded"
+    log "core module (ai_tools): ${core_state}"
+    log "optional policy groups (all default: disabled):"
+    local entry name desc stability state
+    for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
+        name="$(ai_tools_selinux_group_name "${entry}")"
+        desc="$(ai_tools_selinux_group_desc "${entry}")"
+        stability="$(ai_tools_selinux_group_stability "${entry}")"
+        if ai_tools_selinux_group_loaded "${name}"; then state="[LOADED]  "; else state="[disabled]"; fi
+        printf '    %s %-10s %-13s %s\n' "${state}" "${name}" "(${stability})" "${desc}"
+    done
+    log "toggle: sudo ai-tools-admin selinux enable-group <name> | disable-group <name>"
+    log "experimental groups warn and require confirmation on enable (-y to proceed unattended)"
+}
+
+selinux_dispatch() {
+    [[ $# -ge 1 ]] || die "usage: ai-tools-admin selinux <list-groups|enable-group|disable-group> [name]"
+    local sub="$1"; shift
+    case "${sub}" in
+        list-groups)    sel_list ;;
+        enable-group)   sel_enable  "$@" ;;
+        disable-group)  sel_disable "${1:-}" ;;
+        *) die "unknown selinux subcommand '${sub}' (list-groups|enable-group|disable-group)" ;;
+    esac
+}
+
+# Dispatch: `operator <add|remove|list>` | `selinux <list-groups|enable-group|disable-group>`.
+[[ $# -ge 1 ]] || die "usage: ai-tools-admin <operator|selinux> ..."
 case "$1" in
     operator)
         shift
@@ -225,5 +356,9 @@ case "$1" in
             *)      die "unknown operator subcommand '${sub}' (add|remove|list)" ;;
         esac
         ;;
-    *) die "unknown subcommand '$1' (operator)" ;;
+    selinux)
+        shift
+        selinux_dispatch "$@"
+        ;;
+    *) die "unknown subcommand '$1' (operator|selinux)" ;;
 esac

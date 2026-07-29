@@ -1,10 +1,13 @@
 ---
 paths:
-  - "selinux/*.te"
-  - "selinux/*.fc"
+  - "selinux/policy/*.te"
+  - "selinux/policy/*.fc"
+  - "selinux/install-selinux.sh"
   - "selinux/README.md"
   - "src/opt/ai-tools/bin/ai-tools-run.sh"
   - "src/usr/local/lib/ai-tools/confinement.lib.sh"
+  - "src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
+  - "src/usr/local/sbin/ai-tools/ai-tools-admin.sh"
 ---
 
 # Session confinement (namespaces, SELinux, `/tmp`)
@@ -136,8 +139,27 @@ per-level isolation. Operational notes for that case:
 
 ## Optional SELinux groups and the namespace filter
 
-Enabling an optional policy group (`install-selinux.sh enable-group <name>`) widens
-what SELinux permits but does not lift the seccomp filter. Of the optional groups only
+The optional groups (`systemd`/`pkgmgmt`/`netadmin`/`podman`/`tmpmap`) are all off by
+default and each ships **prebuilt** (`ai_tools_<group>.pp`) alongside the core, in
+`/usr/share/selinux/packages/ai-tools/`. Two front doors enable one, by deployment, and
+both draw the group set and descriptions from one place — `selinux-groups.lib.sh`, so they
+cannot disagree on which groups exist:
+
+- `sudo ai-tools-admin selinux enable-group <name>` on an installed host — the operator
+  helper `semodule`-loads the prebuilt `.pp`, needing no source tree or
+  `selinux-policy-devel`. `list-groups`/`disable-group` round it out. The package erase
+  (`%postun`) unloads any group a host left loaded, since the `.pp` is removed but the
+  compiled module persists in the store. Each group carries a **stability** field in the
+  registry (`experimental`/`stable`): enabling an `experimental` group — an unaudited draft
+  that has not been verified under permissive — warns, points at the audit workflow, and
+  requires confirmation (default No, so an unattended or piped run does not enable one; `-y`
+  is the auditable per-invocation override). A `stable` group (a single, tested rule, e.g.
+  `tmpmap`) loads without the prompt.
+- `sudo selinux/install-selinux.sh enable-group <name>` from a source checkout — the
+  authoring tool, which compiles from `.te`/`.fc` when the prebuilt `.pp` is absent.
+
+Enabling an optional policy group widens what SELinux permits but does not lift the seccomp
+filter. Of the optional groups only
 `podman` creates namespaces (rootless containers need user+mnt+pid+ipc+net+uts), so
 `RestrictNamespaces=yes` blocks it even with the podman group loaded — the SELinux grant
 is necessary but not sufficient. Supporting rootless podman means re-allowing the user

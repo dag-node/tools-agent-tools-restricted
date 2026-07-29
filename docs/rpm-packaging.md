@@ -242,18 +242,24 @@ copy serves the `ai-tools` instance that runs the timer.
 
 ## SELinux
 
-The core policy module ships prebuilt (`ai_tools.pp`) under
-`%{_datadir}/selinux/packages/`, so a normal install needs no policy toolchain.
-`ai-tools-base` `%post` installs the **core module only** and applies file
-contexts when `getenforce` is not `Disabled`, and is a no-op otherwise; it does
-not prompt for or load the optional policy groups. The optional groups
-(`systemd`, `pkgmgmt`, `netadmin`, `podman`) remain available through
-`ai-tools-selinux enable-group <name>` for an operator who hits a boundary, and
-are not installed by the package.
+The core policy module and every optional group ship prebuilt (`ai_tools.pp`,
+`ai_tools_<group>.pp`) under `%{_datadir}/selinux/packages/ai-tools/`, so a normal
+install and enabling a group both need no policy toolchain. `ai-tools-base` `%post`
+loads the **core module only** and applies file contexts when `getenforce` is not
+`Disabled`, and is a no-op otherwise. The optional groups (`systemd`, `pkgmgmt`,
+`netadmin`, `podman`, `tmpmap`) are shipped but stay **off**, toggled per host by an
+operator who hits a boundary:
 
-`%postun` removes the module on final erase only. Per-project `semanage fcontext`
-rules are created by project registration, not by the package, so an erase that
-keeps registered projects leaves their labels in place.
+```bash
+sudo ai-tools-admin selinux list-groups
+sudo ai-tools-admin selinux enable-group tmpmap
+```
+
+That helper `semodule`-loads the prebuilt `.pp` from the package directory. `%postun`
+on final erase unloads the core **and** any group a host left loaded (the `.pp` is
+erased with the package, but the compiled module persists in the store otherwise).
+Per-project `semanage fcontext` rules are created by project registration, not by the
+package, so an erase that keeps registered projects leaves their labels in place.
 
 ## Preservation on erase
 
