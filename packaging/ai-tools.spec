@@ -213,7 +213,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf skip-dirs relabel secret-patterns operator control-plane safe-paths confinement npm-verify managed-assets providers; do
+for l in log msg conf skip-dirs relabel secret-patterns operator control-plane safe-paths confinement npm-verify managed-assets providers selinux-groups; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -256,9 +256,19 @@ sed 's/^OPERATORS=.*/OPERATORS=""/' src%{_sysconfdir}/ai-tools/operator.conf \
     > %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 chmod 0644 %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 
-# ── base: SELinux core policy module (prebuilt) ──────────────────────────────
+# ── base: SELinux policy packages (prebuilt) ─────────────────────────────────
+# The core (loaded on install) plus each STABLE optional group. Only stable groups ship
+# prebuilt: they are toggled per host with `ai-tools-admin selinux enable-group <name>`,
+# which semodule-loads the prebuilt .pp from this directory (no source tree or
+# selinux-policy-devel needed). EXPERIMENTAL groups are NOT shipped -- they are compiled and
+# verified from a source checkout on demand (install-selinux.sh enable-group + the avc loop);
+# ai-tools-admin points the operator there rather than loading an unaudited module. Keep this
+# list in step with the stable set in selinux-groups.lib.sh.
 install -d -m 0755 %{buildroot}%{_datadir}/selinux/packages/ai-tools
-install -m 0644 selinux/policy/ai_tools.pp %{buildroot}%{_datadir}/selinux/packages/ai-tools/ai_tools.pp
+for pp in ai_tools ai_tools_tmpmap; do
+    install -m 0644 selinux/policy/${pp}.pp \
+        %{buildroot}%{_datadir}/selinux/packages/ai-tools/${pp}.pp
+done
 
 # ── base: sandbox project workflow tree + operation-log dir ──────────────────
 install -d -m 2750 %{buildroot}/var/opt/ai-tools
@@ -366,7 +376,8 @@ done
 %post -n ai-tools-base
 %systemd_post ai-tools-handback.socket
 # Load the prebuilt SELinux core module and apply contexts when SELinux is enabled. Core
-# only -- the optional policy groups stay available via the SELinux tooling, not installed.
+# only -- the stable optional groups ship prebuilt alongside it but stay OFF, toggled per host
+# with `ai-tools-admin selinux enable-group <name>` (experimental groups are not shipped).
 if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/null 2>&1; then
     semodule -n -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp >/dev/null 2>&1 || :
     if command -v restorecon >/dev/null 2>&1; then
@@ -433,11 +444,14 @@ EOF
 
 %postun -n ai-tools-base
 %systemd_postun_with_restart ai-tools-handback.socket
-# On final erase only, unload the SELinux module. Intentionally preserved (not rpm-owned): the
-# ai-tools account, /opt/ai-tools/.nvm, the control-plane .gitignore/.gitconfig, /var/opt/ai-tools
-# clones, and each operator's ~/.config/ai-tools.
+# On final erase only, unload the SELinux modules: the core plus any optional group a host
+# loaded with `ai-tools-admin selinux enable-group` (its .pp is erased with the package, but the
+# compiled module persists in the policy store until removed). Intentionally preserved (not
+# rpm-owned): the ai-tools account, /opt/ai-tools/.nvm, the control-plane .gitignore/.gitconfig,
+# /var/opt/ai-tools clones, and each operator's ~/.config/ai-tools.
 if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
-    semodule -n -r ai_tools >/dev/null 2>&1 || :
+    mods=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' || :)
+    [ -n "${mods}" ] && semodule -n $(printf ' -r %s' ${mods}) >/dev/null 2>&1 || :
 fi
 
 %post -n ai-tools-integration-nodejs
@@ -550,6 +564,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/npm-verify.lib.sh
 %attr(0644, root, root) %{ai_libdir}/conf.lib.sh
 %attr(0644, root, root) %{ai_libdir}/providers.lib.sh
+%attr(0644, root, root) %{ai_libdir}/selinux-groups.lib.sh
 %dir %attr(0755, root, root) %{ai_libdir}/agents.d
 %dir %attr(0755, root, root) %{ai_libdir}/integrations.d
 %dir %attr(0755, root, root) %{ai_libdir}/session-env.d
@@ -563,6 +578,7 @@ fi
 %{_sysusersdir}/ai-tools.conf
 %dir %{_datadir}/selinux/packages/ai-tools
 %{_datadir}/selinux/packages/ai-tools/ai_tools.pp
+%{_datadir}/selinux/packages/ai-tools/ai_tools_tmpmap.pp
 %dir %attr(2750, root, ai-tools) /var/opt/ai-tools
 %dir %attr(2770, root, ai-tools) /var/opt/ai-tools/sandbox-projects
 %attr(0640, root, ai-tools) /var/opt/ai-tools/README.md
