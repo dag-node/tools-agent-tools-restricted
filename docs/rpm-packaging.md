@@ -296,6 +296,17 @@ non-interactive, and free of runtime-state dependencies. The hermetic unit subse
 MAY run in the spec `%check` at build time; the full suite (`tests/run.sh`) and
 `ai-tools check-perms` remain available on demand after install.
 
+## Platform scope
+
+The package targets Enterprise Linux (RHEL/Rocky/Alma and UEK R8) with the **targeted**
+SELinux policy — where the `ai_tools_t` domain is written and compiled. The `rpm-selftest`
+container runs on Rocky with SELinux absent, so a green run validates the RPM, the DAC layer, and
+the admin→operator→agent workflow, but **not** the SELinux confinement (`integration/selinux.sh`
+skips when the module is not loaded); enforcement is verified only on a real enforcing EL host.
+Non-EL SELinux is not a target: an SELinux-enabled Ubuntu host defaults to AppArmor and, when
+SELinux is used at all, runs a different base policy the prebuilt `.pp` will not load against, so
+the confinement would silently not apply; installation is RPM/`dnf`-native regardless.
+
 ## Build
 
 `make dist` produces the `%{name}-%{version}.tar.gz` source tarball consumed by
