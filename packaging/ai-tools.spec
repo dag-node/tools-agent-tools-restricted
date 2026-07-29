@@ -656,6 +656,29 @@ fi
 %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Wed Jul 29 2026 dagnode <tools@dagnode.com> - 0.8.1-1
+- Fixed the SELinux-enforcing limitation carried in 0.8.0: the sandbox domain held no map
+  permission on its own /tmp files, so dotnet restore/build -- and git or SQLite run in a /tmp
+  working tree -- failed with EACCES on the mmap. A new optional SELinux policy group, tmpmap,
+  grants exactly that one permission (ai_tools_tmp_t:file map); it is mmap-at-all and NOT
+  executable mapping (/tmp stays noexec), so it cannot run code from /tmp. With it enabled the SDK
+  restores and builds normally. On an enforcing host: sudo ai-tools-admin selinux enable-group
+  tmpmap.
+- The optional SELinux policy groups now ship prebuilt and are managed on any installed host with
+  a new ai-tools-admin selinux subcommand -- list-groups, enable-group <name>, disable-group
+  <name> -- which loads the shipped .pp via semodule, needing no source checkout or
+  selinux-policy-devel. The group set is single-sourced, so this helper and the source-tree
+  install-selinux.sh never disagree on which groups exist.
+- Enabling an experimental group -- the systemd, pkgmgmt, netadmin, and podman drafts are
+  unaudited -- warns and requires confirmation (default No; -y to proceed unattended); the tested
+  tmpmap group enables without the prompt.
+- ai-tools --providers now reports the SELinux confinement layer where SELinux is active -- the
+  core module and any loaded optional group -- and, when the dotnet integration is enabled under
+  enforcing but tmpmap is not loaded, names the enable command instead of letting the build fail
+  with an opaque EACCES.
+- Upgrading from 0.8.0 needs no action beyond dnf. A DAC-only host is unchanged; on an enforcing
+  host, dotnet builds now require enabling the tmpmap group once, as above.
+
 * Tue Jul 28 2026 dagnode <tools@dagnode.com> - 0.8.0-1
 - The stack is multi-agent: nothing in ai-tools-base names an agent. Which agents exist, what
   each provisions, where it keeps its config directory, which binary the SELinux domain
