@@ -397,6 +397,13 @@ if command -v setfacl >/dev/null 2>&1; then
     setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects || :
     setfacl -m g:ai-ops:r-- /var/opt/ai-tools/README.md || :
 fi
+# Re-assert the setgid bit on the sandbox tree. EL10's rpm (4.19+) drops the setgid from these
+# %attr(2750/2770) directories on install -- owner and group apply, the setgid is lost -- which
+# breaks the SANDBOX_GROUP inheritance the collaborative-ownership model depends on (clones and
+# agent-created files must be born group ai-tools). Setting it here guarantees the documented mode
+# regardless of how rpm honored the %attr; idempotent, and a no-op where rpm kept it (EL9).
+chmod 2750 /var/opt/ai-tools 2>/dev/null || :
+chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 # Control-plane git guard + identity for the repo ai-tools-bootstrap captures (the RPM
 # counterpart of install.sh's do_install .gitignore/.gitconfig steps). Neither file is
 # rpm-owned, so an erase preserves them; %post reseeds each ONLY when absent (install.sh's
