@@ -213,7 +213,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf skip-dirs relabel secret-patterns operator control-plane safe-paths confinement npm-verify managed-assets providers; do
+for l in log msg conf skip-dirs relabel secret-patterns operator control-plane safe-paths confinement npm-verify managed-assets providers selinux-groups; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -256,9 +256,19 @@ sed 's/^OPERATORS=.*/OPERATORS=""/' src%{_sysconfdir}/ai-tools/operator.conf \
     > %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 chmod 0644 %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 
-# ── base: SELinux core policy module (prebuilt) ──────────────────────────────
+# ── base: SELinux policy packages (prebuilt) ─────────────────────────────────
+# The core (loaded on install) plus each STABLE optional group. Only stable groups ship
+# prebuilt: they are toggled per host with `ai-tools-admin selinux enable-group <name>`,
+# which semodule-loads the prebuilt .pp from this directory (no source tree or
+# selinux-policy-devel needed). EXPERIMENTAL groups are NOT shipped -- they are compiled and
+# verified from a source checkout on demand (install-selinux.sh enable-group + the avc loop);
+# ai-tools-admin points the operator there rather than loading an unaudited module. Keep this
+# list in step with the stable set in selinux-groups.lib.sh.
 install -d -m 0755 %{buildroot}%{_datadir}/selinux/packages/ai-tools
-install -m 0644 selinux/policy/ai_tools.pp %{buildroot}%{_datadir}/selinux/packages/ai-tools/ai_tools.pp
+for pp in ai_tools ai_tools_tmpmap; do
+    install -m 0644 selinux/policy/${pp}.pp \
+        %{buildroot}%{_datadir}/selinux/packages/ai-tools/${pp}.pp
+done
 
 # ── base: sandbox project workflow tree + operation-log dir ──────────────────
 install -d -m 2750 %{buildroot}/var/opt/ai-tools
@@ -366,7 +376,8 @@ done
 %post -n ai-tools-base
 %systemd_post ai-tools-handback.socket
 # Load the prebuilt SELinux core module and apply contexts when SELinux is enabled. Core
-# only -- the optional policy groups stay available via the SELinux tooling, not installed.
+# only -- the stable optional groups ship prebuilt alongside it but stay OFF, toggled per host
+# with `ai-tools-admin selinux enable-group <name>` (experimental groups are not shipped).
 if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/null 2>&1; then
     semodule -n -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp >/dev/null 2>&1 || :
     if command -v restorecon >/dev/null 2>&1; then
@@ -386,6 +397,13 @@ if command -v setfacl >/dev/null 2>&1; then
     setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects || :
     setfacl -m g:ai-ops:r-- /var/opt/ai-tools/README.md || :
 fi
+# Re-assert the setgid bit on the sandbox tree. EL10's rpm (4.19+) drops the setgid from these
+# %attr(2750/2770) directories on install -- owner and group apply, the setgid is lost -- which
+# breaks the SANDBOX_GROUP inheritance the collaborative-ownership model depends on (clones and
+# agent-created files must be born group ai-tools). Setting it here guarantees the documented mode
+# regardless of how rpm honored the %attr; idempotent, and a no-op where rpm kept it (EL9).
+chmod 2750 /var/opt/ai-tools 2>/dev/null || :
+chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 # Control-plane git guard + identity for the repo ai-tools-bootstrap captures (the RPM
 # counterpart of install.sh's do_install .gitignore/.gitconfig steps). Neither file is
 # rpm-owned, so an erase preserves them; %post reseeds each ONLY when absent (install.sh's
@@ -433,11 +451,14 @@ EOF
 
 %postun -n ai-tools-base
 %systemd_postun_with_restart ai-tools-handback.socket
-# On final erase only, unload the SELinux module. Intentionally preserved (not rpm-owned): the
-# ai-tools account, /opt/ai-tools/.nvm, the control-plane .gitignore/.gitconfig, /var/opt/ai-tools
-# clones, and each operator's ~/.config/ai-tools.
+# On final erase only, unload the SELinux modules: the core plus any optional group a host
+# loaded with `ai-tools-admin selinux enable-group` (its .pp is erased with the package, but the
+# compiled module persists in the policy store until removed). Intentionally preserved (not
+# rpm-owned): the ai-tools account, /opt/ai-tools/.nvm, the control-plane .gitignore/.gitconfig,
+# /var/opt/ai-tools clones, and each operator's ~/.config/ai-tools.
 if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
-    semodule -n -r ai_tools >/dev/null 2>&1 || :
+    mods=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' || :)
+    [ -n "${mods}" ] && semodule -n $(printf ' -r %s' ${mods}) >/dev/null 2>&1 || :
 fi
 
 %post -n ai-tools-integration-nodejs
@@ -550,6 +571,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/npm-verify.lib.sh
 %attr(0644, root, root) %{ai_libdir}/conf.lib.sh
 %attr(0644, root, root) %{ai_libdir}/providers.lib.sh
+%attr(0644, root, root) %{ai_libdir}/selinux-groups.lib.sh
 %dir %attr(0755, root, root) %{ai_libdir}/agents.d
 %dir %attr(0755, root, root) %{ai_libdir}/integrations.d
 %dir %attr(0755, root, root) %{ai_libdir}/session-env.d
@@ -563,6 +585,7 @@ fi
 %{_sysusersdir}/ai-tools.conf
 %dir %{_datadir}/selinux/packages/ai-tools
 %{_datadir}/selinux/packages/ai-tools/ai_tools.pp
+%{_datadir}/selinux/packages/ai-tools/ai_tools_tmpmap.pp
 %dir %attr(2750, root, ai-tools) /var/opt/ai-tools
 %dir %attr(2770, root, ai-tools) /var/opt/ai-tools/sandbox-projects
 %attr(0640, root, ai-tools) /var/opt/ai-tools/README.md
@@ -638,6 +661,30 @@ fi
 %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Wed Jul 29 2026 dagnode <tools@dagnode.com> - 0.8.1-1
+- Fixed the SELinux-enforcing limitation carried in 0.8.0: the sandbox domain held no map
+  permission on its own /tmp files, so dotnet restore/build -- and git or SQLite run in a /tmp
+  working tree -- failed with EACCES on the mmap. A new optional SELinux policy group, tmpmap,
+  grants exactly that one permission (ai_tools_tmp_t:file map); it is mmap-at-all and NOT
+  executable mapping (/tmp stays noexec), so it cannot run code from /tmp. With it enabled the SDK
+  restores and builds normally. On an enforcing host: sudo ai-tools-admin selinux enable-group
+  tmpmap.
+- The STABLE optional SELinux policy groups now ship prebuilt (currently tmpmap) and are managed
+  on any installed host with a new ai-tools-admin selinux subcommand -- list-groups, enable-group
+  <name>, disable-group <name> -- which loads the shipped .pp via semodule, needing no source
+  checkout or selinux-policy-devel. The group set is single-sourced, so this helper and the
+  source-tree install-selinux.sh never disagree on which groups exist.
+- The experimental groups (systemd, pkgmgmt, netadmin, podman) are unaudited drafts and are NOT
+  shipped prebuilt; they must be compiled and verified from a source checkout first
+  (install-selinux.sh enable-group + the avc bring-up loop). ai-tools-admin enable-group of an
+  experimental group refuses and points at that workflow rather than loading an unaudited module.
+- ai-tools --providers now reports the SELinux confinement layer where SELinux is active -- the
+  core module and any loaded optional group -- and, when the dotnet integration is enabled under
+  enforcing but tmpmap is not loaded, names the enable command instead of letting the build fail
+  with an opaque EACCES.
+- Upgrading from 0.8.0 needs no action beyond dnf. A DAC-only host is unchanged; on an enforcing
+  host, dotnet builds now require enabling the tmpmap group once, as above.
+
 * Tue Jul 28 2026 dagnode <tools@dagnode.com> - 0.8.0-1
 - The stack is multi-agent: nothing in ai-tools-base names an agent. Which agents exist, what
   each provisions, where it keeps its config directory, which binary the SELinux domain

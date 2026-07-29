@@ -49,7 +49,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Area | Source | Rule |
 |---|---|---|
 | Launch, allowlist gating, sudoers, PATH | `bin/ai-tools-run.sh`, `usr/local/bin/claude.sh`, `allowed-projects`, `sudoers.d/ai-tools`, `lib/ai-tools/path-dedup.sh` | [launch](.claude/rules/launch.rule.md) |
-| Namespaces, SELinux transition, preflight, `/tmp` | `selinux/**`, `bin/ai-tools-run.sh` | [confinement](.claude/rules/confinement.rule.md) |
+| Namespaces, SELinux transition, preflight, `/tmp`, optional-group management | `selinux/**`, `bin/ai-tools-run.sh`, `selinux-groups.lib.sh`, `ai-tools-admin.sh` (`selinux` subcommand) | [confinement](.claude/rules/confinement.rule.md) |
 | Root-op socket (daemon/client/units) | `ai-tools-handback*`, `ai-tools-handback-client*` | [handback-bridge](.claude/rules/handback-bridge.rule.md) |
 | Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `opt/ai-tools/agents/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
 | Claude Code settings, Bash deny rules ↔ SELinux policy | `opt/ai-tools/agents/*/settings.json` | [claude-settings](.claude/rules/claude-settings.rule.md) |
@@ -237,7 +237,8 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   `unclaim`, `safedir`, `reclaim`, `launcher-symlink`, `lockdown`, `relabel`, `bootstrap`,
   `relabel-agent`, `admin`, `dotnet`); shared libraries under `/usr/local/lib/ai-tools/`
   (`conf`, `secret-patterns`, `skip-dirs`, `safe-paths`, `relabel`, `operator`, `control-plane`,
-  `confinement`, `npm-verify`, `managed-assets`, `providers`, `msg`, `log`), plus `path-dedup.sh`,
+  `confinement`, `npm-verify`, `managed-assets`, `providers`, `selinux-groups`, `msg`, `log`),
+  plus `path-dedup.sh`,
   the PATH-ordering fragment `ai-tools-admin` wires into operator dotfiles (see
   [launch](.claude/rules/launch.rule.md)). That directory is `0751 root:SANDBOX_GROUP` and its
   contents `root`-owned and non-group-writable — load-bearing, since the sandbox account sources

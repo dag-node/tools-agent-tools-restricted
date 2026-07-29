@@ -214,7 +214,10 @@ manage_lnk_files_pattern(ai_tools_t, ai_tools_home_t, ai_tools_home_t)
 # mmap of project/home files: Node mmaps source files and its own state; git
 # mmaps pack/index files. (Raw audit2allow flagged this as boolean
 # domain_can_mmap_files -- we grant it narrowly on our own two writable types
-# instead of flipping a system-wide boolean.)
+# instead of flipping a system-wide boolean.) The tmp type is deliberately NOT
+# here: mmap of a /tmp file (dotnet build shm, git/SQLite in /tmp) is the
+# optional 'tmpmap' policy group, off by default, since it widens the surface
+# around world-writable /tmp. See selinux/policy/ai_tools_tmpmap.te.
 allow ai_tools_t ai_tools_project_t:file map;
 allow ai_tools_t ai_tools_home_t:file map;
 

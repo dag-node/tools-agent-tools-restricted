@@ -17,7 +17,7 @@ could carry the decision.
 ## Flow
 
 ```
-      feature/<ticket>-<name>
+      feature/ATR-yyMMdd-<name>
                 |
                 | PR -> develop; the operator merges manually
                 v
@@ -74,13 +74,16 @@ cleanly to the final via ordinary `dnf`, and a real release always outranks any 
 
 ```bash
 git switch develop && git pull
-git switch -c feature/260718-my-change
+git switch -c feature/ATR-260718-my-change
 # ...work, commit...
-git push -u origin feature/260718-my-change   # open a PR targeting develop
+git push -u origin feature/ATR-260718-my-change   # open a PR targeting develop
 ```
 
-Branches are cut from `develop` and named `feature/<ticket>-<name>`; PRs target `develop`, and
-the operator merges them manually. Every push runs `shellcheck` and the full `rpm-selftest`
+Branches are cut from `develop` and named `feature/<ticket>-<yyMMdd>-<name>`: `<ticket>` is a
+tracker id where one applies, otherwise the default `ATR`; `<yyMMdd>` is the short two-digit-year
+datestamp the branch was cut (e.g. `260729` for 2026-07-29); `<name>` is a short kebab-case
+summary — so `feature/ATR-260729-selinux-optional-groups`. PRs target `develop`, and the operator
+merges them manually. Every push runs `shellcheck` and the full `rpm-selftest`
 matrix and uploads snapshot RPMs as workflow artifacts, so a build off any commit is
 inspectable without cutting a release. Do not push `v*` tags — a tag ruleset restricts tag
 creation to maintainers, because under the rule above a tag *is* a release decision.

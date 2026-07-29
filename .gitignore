@@ -1,9 +1,15 @@
 .idea/
 .env/
-# Compiled policy packages are build artifacts -- except the core module, which
-# ships prebuilt so a normal install needs no selinux-policy-devel toolchain.
+# Compiled policy packages are build artifacts. Only the STABLE ones ship prebuilt so a
+# normal install and `ai-tools-admin selinux enable-group` need no selinux-policy-devel
+# toolchain -- the core (ai_tools.pp) and each stable optional group (currently tmpmap).
+# EXPERIMENTAL groups are deliberately NOT committed: they are compiled and verified from
+# source on demand (selinux/install-selinux.sh enable-group + the avc bring-up loop), so a
+# reviewer promoting one to stable adds its `!` line here in the same change. Ignore the
+# refpolicy build scratch under tmp/.
 selinux/policy/*.pp
 !selinux/policy/ai_tools.pp
+!selinux/policy/ai_tools_tmpmap.pp
 selinux/policy/tmp/
 selinux/avc/.avc-last-run
 selinux/avc/audits/

@@ -242,18 +242,29 @@ copy serves the `ai-tools` instance that runs the timer.
 
 ## SELinux
 
-The core policy module ships prebuilt (`ai_tools.pp`) under
-`%{_datadir}/selinux/packages/`, so a normal install needs no policy toolchain.
-`ai-tools-base` `%post` installs the **core module only** and applies file
-contexts when `getenforce` is not `Disabled`, and is a no-op otherwise; it does
-not prompt for or load the optional policy groups. The optional groups
-(`systemd`, `pkgmgmt`, `netadmin`, `podman`) remain available through
-`ai-tools-selinux enable-group <name>` for an operator who hits a boundary, and
-are not installed by the package.
+The core policy module and the **stable** optional groups ship prebuilt (`ai_tools.pp` and
+each stable `ai_tools_<group>.pp`, currently `ai_tools_tmpmap.pp`) under
+`%{_datadir}/selinux/packages/ai-tools/`, so a normal install and enabling a stable group
+both need no policy toolchain. `ai-tools-base` `%post` loads the **core module only** and
+applies file contexts when `getenforce` is not `Disabled`, and is a no-op otherwise. The
+stable groups are shipped but stay **off**, toggled per host by an operator who hits a
+boundary:
 
-`%postun` removes the module on final erase only. Per-project `semanage fcontext`
-rules are created by project registration, not by the package, so an erase that
-keeps registered projects leaves their labels in place.
+```bash
+sudo ai-tools-admin selinux list-groups
+sudo ai-tools-admin selinux enable-group tmpmap
+```
+
+That helper `semodule`-loads the prebuilt `.pp` from the package directory. The
+**experimental** groups (`systemd`, `pkgmgmt`, `netadmin`, `podman`) are unaudited drafts and
+are **not** packaged: `ai-tools-admin` refuses them and directs the operator to compile and
+verify one from a source checkout first (`install-selinux.sh enable-group` + the `avc/`
+loop). The shipped set is single-sourced with the stable set in `selinux-groups.lib.sh` and
+must be kept in step across the spec, `install.sh`, `.gitignore`, and `packaging/Makefile`.
+`%postun` on final erase unloads the core **and** any group a host left loaded (the `.pp` is
+erased with the package, but the compiled module persists in the store otherwise).
+Per-project `semanage fcontext` rules are created by project registration, not by the
+package, so an erase that keeps registered projects leaves their labels in place.
 
 ## Preservation on erase
 
@@ -284,6 +295,17 @@ deployed system with at least one operator and a live user session, and scriptle
 non-interactive, and free of runtime-state dependencies. The hermetic unit subset
 MAY run in the spec `%check` at build time; the full suite (`tests/run.sh`) and
 `ai-tools check-perms` remain available on demand after install.
+
+## Platform scope
+
+The package targets Enterprise Linux (RHEL/Rocky/Alma and UEK R8) with the **targeted**
+SELinux policy — where the `ai_tools_t` domain is written and compiled. The `rpm-selftest`
+container runs on Rocky with SELinux absent, so a green run validates the RPM, the DAC layer, and
+the admin→operator→agent workflow, but **not** the SELinux confinement (`integration/selinux.sh`
+skips when the module is not loaded); enforcement is verified only on a real enforcing EL host.
+Non-EL SELinux is not a target: an SELinux-enabled Ubuntu host defaults to AppArmor and, when
+SELinux is used at all, runs a different base policy the prebuilt `.pp` will not load against, so
+the confinement would silently not apply; installation is RPM/`dnf`-native regardless.
 
 ## Build
 

@@ -272,21 +272,23 @@ so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS`.
 The state root's label comes from the base's static rule on `integrations(/.*)?`; the CLR runs on
 the already-granted `execmem` (shared with V8).
 
-**Known limitation under SELinux enforcing (fix planned for 0.8.1).** The SDK cannot restore or
-build. .NET backs a named mutex with a shared-memory file under `/tmp/.dotnet/shm` and NuGet takes
-one on every restore, but `ai_tools_t` holds no `map` on `ai_tools_tmp_t`, so the mmap fails
-`EACCES` and `dotnet new`/`restore`/`build` abort. Running an already-built assembly
-(`dotnet exec`) works, and a DAC-only host is unaffected. The gap is **not dotnet-specific** — any
-tool that mmaps a temp file hits it, `git` in a `/tmp` working tree included — so the grant
-belongs in an optional policy group (`install-selinux.sh enable-group`), off by default like the
-others, rather than in the base module or in this integration.
+**SELinux enforcing requires the `tmpmap` policy group for restore/build.** .NET backs a named
+mutex with a shared-memory file under `/tmp/.dotnet/shm` and NuGet takes one on every restore, but
+the core module holds no `map` on `ai_tools_tmp_t`, so without that grant the mmap fails `EACCES`
+and `dotnet new`/`restore`/`build` abort. Running an already-built assembly (`dotnet exec`) works
+regardless, and a DAC-only host is unaffected. The grant is **not dotnet-specific** — any tool
+that mmaps a temp file needs it, `git` in a `/tmp` working tree included — so it lives in the
+optional `tmpmap` policy group, off by default like the others, rather than in the base module or
+in this integration. Enable it on an installed host with
+`sudo ai-tools-admin selinux enable-group tmpmap` (or `selinux/install-selinux.sh enable-group
+tmpmap` from a source checkout). See `selinux/policy/ai_tools_tmpmap.te`.
 
-The grant is `file:map`, which is mmap-at-all and **not** executable mapping: `PROT_EXEC` on a
-file additionally requires `file:execute`, which this domain does not hold on its tmp type, and
-`/tmp` is mounted `noexec`, which no SELinux rule can override. The remaining **bring-up unknown**
-is whether .NET needs `execmod`/`execstack` on `/usr/lib64/dotnet/*.so` beyond `execmem` —
-verifiable only on an enforcing host with real `restore`/`build`/`test`/`run` workloads (the
-`selinux/avc` loop).
+That group's one rule is `file:map`, which is mmap-at-all and **not** executable mapping:
+`PROT_EXEC` on a file additionally requires `file:execute`, which this domain does not hold on its
+tmp type, and `/tmp` is mounted `noexec`, which no SELinux rule can override. The remaining
+**bring-up unknown** is whether .NET needs `execmod`/`execstack` on `/usr/lib64/dotnet/*.so`
+beyond `execmem` — verifiable only on an enforcing host with real `restore`/`build`/`test`/`run`
+workloads (the `selinux/avc` loop).
 
 ## Boundaries
 

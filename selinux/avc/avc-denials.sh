@@ -3,7 +3,7 @@
 # agent must NOT be able to do are actually DENIED under enforcing.
 #
 # Probe sections and goals:
-#   A    Group surfaces (disabled by default): systemd, pkgmgmt, netadmin, podman
+#   A    Group surfaces (disabled by default): systemd, pkgmgmt, netadmin, podman, tmpmap
 #   B-F  In-core boundary (dontaudit'd): /proc state, user home/config, container
 #        storage, non-http ports, MTA exec
 #   G    Credentials: /etc/shadow, /etc/gshadow           (goal 1)
@@ -302,6 +302,23 @@ boundary has a gap. These are plain deny (not dontaudit'd); AVCs log without -DB
   _type="container_runtime_exec_t (exec)"
   _why="podman info reveals the container runtime config, storage driver, and registry list. Container runtime access is a known escape vector and the prerequisite for socket-API abuse (see LAT-002)."
   check GRP-006 SELinux "exec podman info" podman info
+
+  # tmpmap is a map grant, not an exec: create a /tmp file (born ai_tools_tmp_t)
+  # and mmap it. With the group off the map is denied; a success means tmpmap is on.
+  _type="ai_tools_tmp_t (file map)"
+  _why="dotnet build and NuGet restore mmap a shared-memory mutex file under /tmp/.dotnet/shm, and git in a /tmp working tree mmaps its pack/index. Without the optional tmpmap group ai_tools_t has no map on ai_tools_tmp_t, so the mmap is denied. A success here means the tmpmap group is enabled."
+  if command -v python3 >/dev/null 2>&1; then
+    check GRP-007 SELinux "mmap a /tmp file" python3 -c '
+import mmap, os, tempfile
+fd, path = tempfile.mkstemp(dir="/tmp")
+try:
+    os.write(fd, b"x" * 4096)
+    mmap.mmap(fd, 4096, mmap.MAP_SHARED, mmap.PROT_READ).close()
+finally:
+    os.close(fd); os.unlink(path)'
+  else
+    skip_check GRP-007 SELinux "mmap a /tmp file" "python3 not available to attempt the mmap"
+  fi
 
   section "SECTION B: OTHER-DOMAIN /proc STATE" \
 "Every process has a /proc/<pid>/ subtree exposing cmdline, maps, environment,
