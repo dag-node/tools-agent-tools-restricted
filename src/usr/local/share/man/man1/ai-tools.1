@@ -93,7 +93,14 @@ gets, and why: an exact allowlist named in
 or each provider's own
 .B default_enable
 when that file names none. Read-only, and it reports any input the resolver
-refused as untrusted.
+refused as untrusted. On an SELinux host it also reports the loaded optional
+policy groups, and warns with the
+.B ai-tools-admin selinux enable-group tmpmap
+fix when the
+.B dotnet
+integration is enabled under Enforcing but the
+.B tmpmap
+group that its build needs is not loaded.
 .TP
 .B \-\-list
 List registered projects, real and sandbox.
