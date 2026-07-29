@@ -106,6 +106,8 @@ readonly BOUNDARY_NAMED_RE='(user_home_t|user_home_dir_t|home_root_t|config_home
 #   netadmin -> firewalld_t, NetworkManager_t   (firewall-cmd/nmcli D-Bus chat)
 #   podman   -> container_runtime_exec_t        (container_file_t is BOUNDARY above:
 #                                                core dontaudit's it regardless)
+# tmpmap is handled separately below (_g2): its type, ai_tools_tmp_t, is core-granted
+# for read/write, so it is matched on the `map` PERMISSION, not the type alone.
 readonly GROUP_DISABLED_RE='(systemd_systemctl_exec_t|journalctl_exec_t|systemd_unit_file_t|rpm_exec_t|rpm_var_lib_t|firewalld_t|NetworkManager_t|container_runtime_exec_t)'
 
 # One line per denial, from the raw AVC records.
@@ -125,6 +127,12 @@ boundary="$(printf '%s\n' "${_b1}" "${_b2}" "${_b3}" | sort -u | grep -v '^$' ||
 # already claimed by boundary (boundary wins, so each line lands in one bucket --
 # e.g. a /proc read of NetworkManager_t stays boundary, its D-Bus chat is group).
 _g="$(printf '%s\n' "${LINES}" | grep -E "tcontext=[^ ]*:${GROUP_DISABLED_RE}:" || true)"
+# tmpmap group: the `map` permission on the sandbox's own /tmp files. ai_tools_tmp_t
+# is a core-granted type (read/write/create), so match on the permission -- only a
+# `map` denial here is the disabled group. An execute denial on it stays NEW
+# (deliberately never granted; /tmp is noexec regardless).
+_g2="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:ai_tools_tmp_t:' | grep -E 'denied.*\bmap\b' || true)"
+_g="$(printf '%s\n' "${_g}" "${_g2}" | grep -v '^$' || true)"
 groupdis="$(comm -23 <(printf '%s\n' "${_g}" | sort -u | grep -v '^$') \
                      <(printf '%s\n' "${boundary}" | sort -u | grep -v '^$') | grep -v '^$' || true)"
 
