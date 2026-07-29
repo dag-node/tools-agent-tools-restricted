@@ -85,30 +85,28 @@ else
     pass "ai_tools_selinux_group_valid rejects an unknown group"
 fi
 
-# --- Lockstep with the shipped artifacts (checkout only) ---
+# --- Lockstep with the source tree + git (real checkout only) ---
+# This half needs the .te SOURCES and git track-state, both present only in a source checkout. A
+# partial deployment skips it: the RPM selftest container copies just the prebuilt .pp (not the
+# .te/.fc sources, and no .git), so the policy dir exists but the sources do not -- gate on the git
+# work tree, not the dir. The accessor and validity checks above already ran and carry this file's
+# coverage.
 POL="${ROOT}/selinux/policy"
-if [[ ! -d "${POL}" ]]; then
-    skip "registry<->filesystem lockstep" "not a source checkout (no ${POL})"
+if ! git -C "${ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    skip "registry<->filesystem lockstep" "not a git work tree (installed or partial deployment)"
     finish; exit
 fi
+tracked_pp() { git -C "${ROOT}" ls-files --error-unmatch "selinux/policy/ai_tools_${1}.pp" >/dev/null 2>&1; }
 
 # Forward: each registry group has a .te source. STABLE groups additionally ship a COMMITTED
 # prebuilt .pp; EXPERIMENTAL groups must NOT commit one -- they are compiled and verified from
 # source on demand, so a committed experimental .pp (or a compiled-but-untracked dev copy) is not
 # what ships. Track-state comes from git, so a stray on-disk .pp in a dev tree is not mistaken for
-# a shipped one; the check needs a work tree.
-have_git=0
-git -C "${ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1 && have_git=1
-tracked_pp() { git -C "${ROOT}" ls-files --error-unmatch "selinux/policy/ai_tools_${1}.pp" >/dev/null 2>&1; }
-
+# a shipped one.
 for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
     n="$(ai_tools_selinux_group_name "${entry}")"
     [[ -f "${POL}/ai_tools_${n}.te" ]] \
         || fail "group '${n}' in registry but ${POL}/ai_tools_${n}.te is missing"
-    if [[ "${have_git}" -ne 1 ]]; then
-        skip "group '${n}' .pp track-state" "not a git work tree"
-        continue
-    fi
     if ai_tools_selinux_group_is_experimental "${n}"; then
         if tracked_pp "${n}"; then
             fail "experimental group '${n}' has a committed .pp -- experimental groups are source-only; do not commit ai_tools_${n}.pp"
