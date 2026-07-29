@@ -257,15 +257,17 @@ sed 's/^OPERATORS=.*/OPERATORS=""/' src%{_sysconfdir}/ai-tools/operator.conf \
 chmod 0644 %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 
 # ── base: SELinux policy packages (prebuilt) ─────────────────────────────────
-# The core (loaded on install) plus every optional group. The group packages are shipped
-# but NOT loaded here: they stay off by default and are toggled per host with
-# `ai-tools-admin selinux enable-group <name>`, which semodule-loads the prebuilt .pp from
-# this directory (no source tree or selinux-policy-devel needed).
+# The core (loaded on install) plus each STABLE optional group. Only stable groups ship
+# prebuilt: they are toggled per host with `ai-tools-admin selinux enable-group <name>`,
+# which semodule-loads the prebuilt .pp from this directory (no source tree or
+# selinux-policy-devel needed). EXPERIMENTAL groups are NOT shipped -- they are compiled and
+# verified from a source checkout on demand (install-selinux.sh enable-group + the avc loop);
+# ai-tools-admin points the operator there rather than loading an unaudited module. Keep this
+# list in step with the stable set in selinux-groups.lib.sh.
 install -d -m 0755 %{buildroot}%{_datadir}/selinux/packages/ai-tools
-install -m 0644 selinux/policy/ai_tools.pp %{buildroot}%{_datadir}/selinux/packages/ai-tools/ai_tools.pp
-for g in systemd pkgmgmt netadmin podman tmpmap; do
-    install -m 0644 selinux/policy/ai_tools_${g}.pp \
-        %{buildroot}%{_datadir}/selinux/packages/ai-tools/ai_tools_${g}.pp
+for pp in ai_tools ai_tools_tmpmap; do
+    install -m 0644 selinux/policy/${pp}.pp \
+        %{buildroot}%{_datadir}/selinux/packages/ai-tools/${pp}.pp
 done
 
 # ── base: sandbox project workflow tree + operation-log dir ──────────────────
@@ -374,8 +376,8 @@ done
 %post -n ai-tools-base
 %systemd_post ai-tools-handback.socket
 # Load the prebuilt SELinux core module and apply contexts when SELinux is enabled. Core
-# only -- the optional policy groups ship prebuilt alongside it but stay OFF, toggled per host
-# with `ai-tools-admin selinux enable-group <name>`.
+# only -- the stable optional groups ship prebuilt alongside it but stay OFF, toggled per host
+# with `ai-tools-admin selinux enable-group <name>` (experimental groups are not shipped).
 if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/null 2>&1; then
     semodule -n -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp >/dev/null 2>&1 || :
     if command -v restorecon >/dev/null 2>&1; then
@@ -576,10 +578,6 @@ fi
 %{_sysusersdir}/ai-tools.conf
 %dir %{_datadir}/selinux/packages/ai-tools
 %{_datadir}/selinux/packages/ai-tools/ai_tools.pp
-%{_datadir}/selinux/packages/ai-tools/ai_tools_systemd.pp
-%{_datadir}/selinux/packages/ai-tools/ai_tools_pkgmgmt.pp
-%{_datadir}/selinux/packages/ai-tools/ai_tools_netadmin.pp
-%{_datadir}/selinux/packages/ai-tools/ai_tools_podman.pp
 %{_datadir}/selinux/packages/ai-tools/ai_tools_tmpmap.pp
 %dir %attr(2750, root, ai-tools) /var/opt/ai-tools
 %dir %attr(2770, root, ai-tools) /var/opt/ai-tools/sandbox-projects
@@ -664,14 +662,15 @@ fi
   executable mapping (/tmp stays noexec), so it cannot run code from /tmp. With it enabled the SDK
   restores and builds normally. On an enforcing host: sudo ai-tools-admin selinux enable-group
   tmpmap.
-- The optional SELinux policy groups now ship prebuilt and are managed on any installed host with
-  a new ai-tools-admin selinux subcommand -- list-groups, enable-group <name>, disable-group
-  <name> -- which loads the shipped .pp via semodule, needing no source checkout or
-  selinux-policy-devel. The group set is single-sourced, so this helper and the source-tree
-  install-selinux.sh never disagree on which groups exist.
-- Enabling an experimental group -- the systemd, pkgmgmt, netadmin, and podman drafts are
-  unaudited -- warns and requires confirmation (default No; -y to proceed unattended); the tested
-  tmpmap group enables without the prompt.
+- The STABLE optional SELinux policy groups now ship prebuilt (currently tmpmap) and are managed
+  on any installed host with a new ai-tools-admin selinux subcommand -- list-groups, enable-group
+  <name>, disable-group <name> -- which loads the shipped .pp via semodule, needing no source
+  checkout or selinux-policy-devel. The group set is single-sourced, so this helper and the
+  source-tree install-selinux.sh never disagree on which groups exist.
+- The experimental groups (systemd, pkgmgmt, netadmin, podman) are unaudited drafts and are NOT
+  shipped prebuilt; they must be compiled and verified from a source checkout first
+  (install-selinux.sh enable-group + the avc bring-up loop). ai-tools-admin enable-group of an
+  experimental group refuses and points at that workflow rather than loading an unaudited module.
 - ai-tools --providers now reports the SELinux confinement layer where SELinux is active -- the
   core module and any loaded optional group -- and, when the dotnet integration is enabled under
   enforcing but tmpmap is not loaded, names the enable command instead of letting the build fail

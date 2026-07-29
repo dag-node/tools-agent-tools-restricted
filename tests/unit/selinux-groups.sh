@@ -92,14 +92,35 @@ if [[ ! -d "${POL}" ]]; then
     finish; exit
 fi
 
-# Forward: each registry name has a .te source AND a committed prebuilt .pp.
-for n in "${names[@]}"; do
+# Forward: each registry group has a .te source. STABLE groups additionally ship a COMMITTED
+# prebuilt .pp; EXPERIMENTAL groups must NOT commit one -- they are compiled and verified from
+# source on demand, so a committed experimental .pp (or a compiled-but-untracked dev copy) is not
+# what ships. Track-state comes from git, so a stray on-disk .pp in a dev tree is not mistaken for
+# a shipped one; the check needs a work tree.
+have_git=0
+git -C "${ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1 && have_git=1
+tracked_pp() { git -C "${ROOT}" ls-files --error-unmatch "selinux/policy/ai_tools_${1}.pp" >/dev/null 2>&1; }
+
+for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
+    n="$(ai_tools_selinux_group_name "${entry}")"
     [[ -f "${POL}/ai_tools_${n}.te" ]] \
         || fail "group '${n}' in registry but ${POL}/ai_tools_${n}.te is missing"
-    if [[ -f "${POL}/ai_tools_${n}.pp" ]]; then
-        pass "group '${n}': .te source and prebuilt .pp both present"
+    if [[ "${have_git}" -ne 1 ]]; then
+        skip "group '${n}' .pp track-state" "not a git work tree"
+        continue
+    fi
+    if ai_tools_selinux_group_is_experimental "${n}"; then
+        if tracked_pp "${n}"; then
+            fail "experimental group '${n}' has a committed .pp -- experimental groups are source-only; do not commit ai_tools_${n}.pp"
+        else
+            pass "experimental group '${n}': .te present, .pp not committed (source-only)"
+        fi
     else
-        fail "group '${n}' ships prebuilt but ${POL}/ai_tools_${n}.pp is missing (build it: make -C ${POL} -f /usr/share/selinux/devel/Makefile ai_tools_${n}.pp)"
+        if tracked_pp "${n}"; then
+            pass "stable group '${n}': .te source and committed prebuilt .pp"
+        else
+            fail "stable group '${n}' ships prebuilt but ai_tools_${n}.pp is not committed (build it and git add it)"
+        fi
     fi
 done
 

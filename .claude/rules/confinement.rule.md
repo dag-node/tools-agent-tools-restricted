@@ -140,23 +140,24 @@ per-level isolation. Operational notes for that case:
 ## Optional SELinux groups and the namespace filter
 
 The optional groups (`systemd`/`pkgmgmt`/`netadmin`/`podman`/`tmpmap`) are all off by
-default and each ships **prebuilt** (`ai_tools_<group>.pp`) alongside the core, in
-`/usr/share/selinux/packages/ai-tools/`. Two front doors enable one, by deployment, and
-both draw the group set and descriptions from one place — `selinux-groups.lib.sh`, so they
-cannot disagree on which groups exist:
+default and each carries a **stability** field in the registry (`experimental`/`stable`)
+that decides how it is shipped and enabled. Both front doors draw the group set, descriptions,
+and stability from one place — `selinux-groups.lib.sh`, so they cannot disagree:
 
-- `sudo ai-tools-admin selinux enable-group <name>` on an installed host — the operator
-  helper `semodule`-loads the prebuilt `.pp`, needing no source tree or
-  `selinux-policy-devel`. `list-groups`/`disable-group` round it out. The package erase
-  (`%postun`) unloads any group a host left loaded, since the `.pp` is removed but the
-  compiled module persists in the store. Each group carries a **stability** field in the
-  registry (`experimental`/`stable`): enabling an `experimental` group — an unaudited draft
-  that has not been verified under permissive — warns, points at the audit workflow, and
-  requires confirmation (default No, so an unattended or piped run does not enable one; `-y`
-  is the auditable per-invocation override). A `stable` group (a single, tested rule, e.g.
-  `tmpmap`) loads without the prompt.
-- `sudo selinux/install-selinux.sh enable-group <name>` from a source checkout — the
-  authoring tool, which compiles from `.te`/`.fc` when the prebuilt `.pp` is absent.
+- **Stable** groups (a single, tested rule, e.g. `tmpmap`) ship **prebuilt**
+  (`ai_tools_<group>.pp`) alongside the core in `/usr/share/selinux/packages/ai-tools/`, and
+  `sudo ai-tools-admin selinux enable-group <name>` `semodule`-loads the prebuilt `.pp` on an
+  installed host, needing no source tree or `selinux-policy-devel`. `list-groups`/`disable-group`
+  round it out (`disable-group` works for any loaded group). The package erase (`%postun`)
+  unloads any group a host left loaded, since the `.pp` is removed but the compiled module
+  persists in the store.
+- **Experimental** groups are unaudited drafts and are **not shipped prebuilt**;
+  `ai-tools-admin enable-group` refuses one and points at the source workflow rather than
+  loading an unaudited module. They are compiled and verified from a source checkout —
+  `sudo selinux/install-selinux.sh enable-group <name>` (which compiles from `.te`/`.fc`, then
+  loads) plus the `avc/` bring-up loop. Promoting one to stable means marking it `stable` in the
+  registry, committing its prebuilt `.pp`, and adding it to the shipped set (spec, `install.sh`,
+  `.gitignore`, `packaging/Makefile`).
 
 Enabling an optional policy group widens what SELinux permits but does not lift the seccomp
 filter. Of the optional groups only

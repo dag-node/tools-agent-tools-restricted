@@ -758,18 +758,19 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/integrations.d/dotnet.conf" \
         /usr/local/lib/ai-tools/integrations.d/dotnet.conf
 
-    # SELinux policy packages (prebuilt): stage the core plus every optional group under the
+    # SELinux policy packages (prebuilt): stage the core plus each STABLE optional group under the
     # canonical package dir, so the installed ai-tools-admin can `selinux enable-group` a prebuilt
-    # module without a source checkout (parity with the RPM). install-selinux.sh loads/labels the
-    # core from the source tree separately; this only lays the .pp down for ai-tools-admin. The
-    # groups stay OFF until an operator enables one. No secrets.
+    # module without a source checkout (parity with the RPM). Only stable groups ship prebuilt;
+    # experimental groups are compiled and verified from source on demand, so they are not staged.
+    # Keep this list in step with the stable set in selinux-groups.lib.sh. install-selinux.sh
+    # loads/labels the core from the source tree separately; this only lays the .pp down for
+    # ai-tools-admin. The groups stay OFF until an operator enables one. No secrets.
     log "/usr/share/selinux/packages/ai-tools/*.pp"
     install -d -o root -g root -m 755 /usr/share/selinux/packages/ai-tools
-    for _pp in "${SCRIPT_DIR}"/selinux/policy/ai_tools.pp \
-               "${SCRIPT_DIR}"/selinux/policy/ai_tools_*.pp; do
-        [[ -f "${_pp}" ]] || continue
-        install -o root -g root -m 644 "${_pp}" \
-            "/usr/share/selinux/packages/ai-tools/$(basename "${_pp}")"
+    for _pp in ai_tools ai_tools_tmpmap; do
+        [[ -f "${SCRIPT_DIR}/selinux/policy/${_pp}.pp" ]] || continue
+        install -o root -g root -m 644 "${SCRIPT_DIR}/selinux/policy/${_pp}.pp" \
+            "/usr/share/selinux/packages/ai-tools/${_pp}.pp"
     done
 
     # Logger library: 644 root:root -- world-readable. Sourced by the root helpers, by

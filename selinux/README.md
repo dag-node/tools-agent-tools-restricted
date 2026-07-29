@@ -67,35 +67,39 @@ surface for tasks that reach into system context, all **disabled by default**:
 | `podman`   | container runtime exec + image storage (still blocked by the namespace filter — see the confinement rule) | experimental |
 | `tmpmap`   | mmap of the agent's own `/tmp` files (`dotnet` build, `git`/SQLite in `/tmp`) | stable |
 
-**Experimental** groups are unaudited drafts: their rule set has not been verified under
-permissive against a real workload, so audit each with the bring-up loop (§2 / `avc/`)
-before relying on it. **Stable** groups are a single, tested rule (`tmpmap` grants exactly
-`ai_tools_tmp_t:file map`). Enabling an experimental group through `ai-tools-admin` warns
-and asks for confirmation (default No; pass `-y` to proceed unattended); a stable group
-loads without the prompt.
-
-Each group ships **prebuilt** (`ai_tools_<group>.pp`) alongside the core, so enabling one
-needs no toolchain. Two front doors, by deployment:
+**Stable** groups are a single, tested rule (`tmpmap` grants exactly
+`ai_tools_tmp_t:file map`). They ship **prebuilt** (`ai_tools_<group>.pp`) alongside the
+core and load on any installed host with no toolchain:
 
 ```bash
-# On an installed host (RPM or install.sh) -- loads the prebuilt .pp via semodule:
 sudo ai-tools-admin selinux list-groups
 sudo ai-tools-admin selinux enable-group tmpmap
-sudo ai-tools-admin selinux enable-group podman        # experimental -> warns + confirms
-sudo ai-tools-admin selinux disable-group podman
-
-# From a source checkout -- compiles from .te/.fc if needed, then loads:
-sudo ./install-selinux.sh enable-group tmpmap
+sudo ai-tools-admin selinux disable-group tmpmap
 ```
 
-Both read the same group registry (`selinux-groups.lib.sh`). After enabling a group,
-re-run the bring-up loop (§2 / `avc/`) to catch any new denials from the widened surface
-before relying on it under enforcing.
+**Experimental** groups are unaudited drafts: their rule set has not been verified under
+permissive against a real workload. They are **not shipped prebuilt** and cannot be enabled
+through `ai-tools-admin` — that helper refuses an experimental group and points here. Compile,
+audit, and load one from a source checkout, then re-run the bring-up loop (§2 / `avc/`) before
+relying on it:
+
+```bash
+sudo dnf install selinux-policy-devel                  # once, to compile a module
+sudo ./install-selinux.sh enable-group podman          # compiles from .te/.fc, then loads
+# ... exercise the workload, then verify under permissive with avc/ (see §2) ...
+```
+
+Both front doors read the same group registry (`selinux-groups.lib.sh`), so they agree on
+which groups exist and which are stable. Promoting a group to stable — after its rules are
+audited — means marking it `stable` in that library, committing its prebuilt `.pp`, and adding
+it to the shipped set (`packaging/ai-tools.spec`, `install.sh`, `.gitignore`,
+`packaging/Makefile`); `disable-group` works for any loaded group through either door.
 
 ## Building from source (optional)
 
-The shipped core and groups need no toolchain. `selinux-policy-devel` is required only
-to **recompile** a module after editing its `.te`/`.fc`:
+The shipped modules (the core and the stable groups) need no toolchain. `selinux-policy-devel`
+is required only to **recompile** a module after editing its `.te`/`.fc`, or to build an
+experimental group (which never ships prebuilt):
 
 ```bash
 sudo dnf install selinux-policy-devel

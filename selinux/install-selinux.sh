@@ -127,23 +127,25 @@ sayx()    { printf '%s\n' "$*" >&2; }
 
 # require_devel <pp>: exit with install guidance unless the refpolicy devel
 # toolchain (make + /usr/share/selinux/devel/Makefile from selinux-policy-devel) is
-# present. Only reached when a module must be COMPILED from source -- the core AND
-# every group ship prebuilt, so a normal install and a plain enable-group never land
-# here; a rebuild after editing a .te/.fc is what requires the toolchain.
+# present. Only reached when a module must be COMPILED from source -- the core and the
+# STABLE groups ship prebuilt, so a normal install and enabling a stable group never land
+# here; building an EXPERIMENTAL group (which never ships prebuilt), or a rebuild after
+# editing a .te/.fc, is what requires the toolchain.
 require_devel() {
     command -v make >/dev/null && [[ -f /usr/share/selinux/devel/Makefile ]] && return 0
     warn "building ${1:-this policy module} needs the selinux-policy-devel toolchain,"
-    warn "  which is not installed. The shipped modules are prebuilt and need no"
-    warn "  toolchain; only a rebuild from edited source does. Install it with:"
+    warn "  which is not installed. The shipped modules (core + stable groups) are prebuilt"
+    warn "  and need no toolchain; an experimental group or an edited-source rebuild does."
     warn "      sudo dnf install selinux-policy-devel"
     warn "  then re-run. See ${DIR}/README.md for the policy build/bring-up workflow."
     exit 1
 }
 
 # ensure_pp <module.pp>: guarantee the compiled package ${POLICY_DIR}/<module.pp> exists.
-# Prefers the prebuilt package shipped in the repo so a normal install and enable-group
-# need no toolchain; compiles from source (requiring selinux-policy-devel) only when the
-# package is absent -- i.e. after deleting a .pp or editing the .te/.fc source.
+# Prefers the prebuilt package shipped in the repo so a normal install and enabling a stable
+# group need no toolchain; compiles from source (requiring selinux-policy-devel) when the
+# package is absent -- an experimental group (never shipped prebuilt), or after editing the
+# .te/.fc source.
 ensure_pp() {
     local pp="$1"
     if [[ -f "${POLICY_DIR}/${pp}" ]]; then
