@@ -1,0 +1,38 @@
+policy_module(ai_tools_tmpmap, 0.1.0)
+
+## ai_tools OPTIONAL GROUP: tmpmap  [DEFAULT: DISABLED]
+##
+## Grants ai_tools_t the `map` permission on ai_tools_tmp_t files, so a sandbox
+## process may mmap(2) a file it created under /tmp. The core module grants
+## `map` only on the two writable project/home types (ai_tools.te), withholding
+## it on the tmp type, so any MAP_SHARED/MAP_PRIVATE of a /tmp file fails EACCES.
+## That blocks dotnet restore/build (it mmaps /tmp/.dotnet/shm/<session>/NuGet-
+## Migrations), git run inside a /tmp working tree, SQLite, and anything else
+## that memory-maps a scratch file.
+##
+## This is mmap-at-all, NOT execute-from-/tmp: a PROT_EXEC file mapping also
+## needs `file execute`, which ai_tools_t does not hold on ai_tools_tmp_t (only
+## on ai_tools_home_t, for the hook scripts), and /tmp is mounted noexec -- a
+## mount option no allow rule can override -- so the grant cannot run code from
+## /tmp. It is off by default only because it widens the surface around
+## world-writable /tmp; enable it when a task needs to mmap a temp file.
+##
+## Enable:  sudo selinux/install-selinux.sh enable-group tmpmap
+## Disable: sudo selinux/install-selinux.sh disable-group tmpmap
+##
+## When a task needs this group and it is not loaded, surface to the user:
+##   "dotnet build / git in /tmp requires the SELinux 'tmpmap' policy group.
+##    ! sudo selinux/install-selinux.sh enable-group tmpmap
+##    Why: files the agent creates under /tmp are ai_tools_tmp_t; ai_tools_t has
+##         file map only on the project and home types, so mmap of a /tmp file
+##         fails EACCES. This adds file map on ai_tools_tmp_t (mmap only)."
+
+require {
+    type ai_tools_t;
+    type ai_tools_tmp_t;
+}
+
+# mmap of the agent's own /tmp files: dotnet's build shm, git's pack/index when
+# the working tree is in /tmp, SQLite's temp store. Read/write/create on this
+# type are already granted by the core module; this adds only `map`.
+allow ai_tools_t ai_tools_tmp_t:file map;
