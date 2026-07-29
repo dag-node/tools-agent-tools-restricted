@@ -60,7 +60,12 @@ jobs:
   # podman on hosted runners does not reliably provide that. The Makefile default stays
   # rootless `podman` for local runs.
   rpm-selftest:
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: this job builds and runs podman containers, and the
+    # apt podman/crun pair on the floating latest image can skew -- a newer podman emits an
+    # OCI spec crun rejects with "unknown version specified" at container create, before any
+    # build step runs. 22.04 is the known-good combo for this pipeline. The release job below
+    # pins for the same reason; the container-free shellcheck job stays on latest.
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
@@ -68,8 +73,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Install podman
-        run: sudo apt-get update && sudo apt-get install -y podman
+      - name: Ensure podman, force the modern runc runtime, and report it
+        run: |
+          # The runner's podman (3.4.4) defaults to an ancient crun 0.17 (OCI spec 1.0.0) that
+          # rejects the runtime spec podman generates -- "crun: unknown version specified" at
+          # container create, before any build step runs. The same runner also ships a modern runc
+          # (spec 1.2.1), so make runc the default OCI runtime for every podman call via a
+          # containers.conf.d drop-in. The final `podman info` should report runtime=runc.
+          command -v podman >/dev/null || { sudo apt-get update && sudo apt-get install -y podman; }
+          sudo mkdir -p /etc/containers/containers.conf.d
+          printf '[engine]\nruntime = "runc"\n' | sudo tee /etc/containers/containers.conf.d/10-runc.conf
+          sudo podman version || true
+          runc --version 2>/dev/null || true
+          sudo podman info --format 'runtime={{.Host.OCIRuntime.Name}} {{.Host.OCIRuntime.Version}}' 2>/dev/null || true
 
       - name: Compute dev Release
         id: relver
@@ -109,7 +125,9 @@ jobs:
   release:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: [shellcheck, rpm-selftest]
-    runs-on: ubuntu-latest
+    # Pinned like rpm-selftest above: this job builds and signs RPMs inside podman containers,
+    # so it needs the same known-good podman/crun combo (see that job's note).
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
@@ -184,8 +202,17 @@ jobs:
             exit 1
           fi
 
-      - name: Install podman + zip + rpm
-        run: sudo apt-get update && sudo apt-get install -y podman zip rpm
+      - name: Ensure podman + zip + rpm, force the modern runc runtime
+        run: |
+          # See the rpm-selftest job's note: the runner's podman defaults to an ancient crun that
+          # rejects the generated OCI spec; force the modern runc via a containers.conf.d drop-in.
+          sudo apt-get update
+          sudo apt-get install -y zip rpm
+          command -v podman >/dev/null || sudo apt-get install -y podman
+          sudo mkdir -p /etc/containers/containers.conf.d
+          printf '[engine]\nruntime = "runc"\n' | sudo tee /etc/containers/containers.conf.d/10-runc.conf
+          sudo podman version || true
+          sudo podman info --format 'runtime={{.Host.OCIRuntime.Name}} {{.Host.OCIRuntime.Version}}' 2>/dev/null || true
 
       # Build the matching-EL images once, up front. Both the signing selftest below and the
       # release-RPM extraction reuse these cached images, so nothing is built twice. rpmbase-elN,
