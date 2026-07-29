@@ -1459,6 +1459,65 @@ cmd_providers() {
     kind_block "Integrations" AI_TOOLS_INTEGRATIONS "${AI_TOOLS_INTEGRATIONS_DIR}" \
                ai_tools_enabled_integrations -
 
+    # The enabled integration names, reused by the SELinux advisory below. stderr is dropped here
+    # (the integrations kind_block already captured any refusals into ${refusals}).
+    local enabled_integrations
+    enabled_integrations="$(ai_tools_enabled_integrations 2>/dev/null | cut -f1)"
+
+    # SELinux policy groups -- reported only where the MAC layer is active (Enforcing/Permissive);
+    # a DAC-only or SELinux-absent host skips the whole block. Read-only and unprivileged: getenforce
+    # and `semodule -l` read without root (the same read the confinement preflight does as the
+    # sandbox account); if the store is not readable unprivileged it degrades to a pointer rather
+    # than misreporting. The group set + predicates come from the shared registry.
+    selinux_groups_block() {
+        local enforce; enforce="$(getenforce 2>/dev/null || true)"
+        [[ -n "${enforce}" && "${enforce}" != "Disabled" ]] || return 0
+        command -v semodule >/dev/null 2>&1 || return 0
+        local groups_lib=/usr/local/lib/ai-tools/selinux-groups.lib.sh
+        # shellcheck source=SCRIPTDIR/../lib/ai-tools/selinux-groups.lib.sh
+        source "${groups_lib}" 2>/dev/null \
+            && declare -F ai_tools_selinux_group_name >/dev/null 2>&1 || return 0
+
+        section "SELinux policy groups (${enforce})"
+        local modules
+        if ! modules="$(semodule -l 2>/dev/null)" || [[ -z "${modules}" ]]; then
+            say "  ${C_DIM}cannot read the loaded module list unprivileged --"
+            say "  run: sudo ai-tools-admin selinux list-groups${C_RST}"
+            return 0
+        fi
+        group_loaded() { grep -qxF "ai_tools_$1" <<<"${modules}"; }
+
+        if grep -qxF 'ai_tools' <<<"${modules}"; then
+            say "  core module ai_tools: ${C_GRN}loaded${C_RST}"
+        else
+            say "  core module ai_tools: ${C_DIM}not loaded (DAC-only confinement)${C_RST}"
+        fi
+        local entry gname loaded_any=0
+        for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
+            gname="$(ai_tools_selinux_group_name "${entry}")"
+            if group_loaded "${gname}"; then
+                printf '    %sloaded%s   %s -- %s\n' "${C_GRN}" "${C_RST}" \
+                    "${gname}" "$(ai_tools_selinux_group_desc "${entry}")"
+                loaded_any=1
+            fi
+        done
+        (( loaded_any )) || say "    ${C_DIM}(no optional groups loaded)${C_RST}"
+        say "    ${C_DIM}toggle with: sudo ai-tools-admin selinux enable-group <name>${C_RST}"
+
+        # dotnet <-> tmpmap: dotnet restore/build mmaps a shared-memory file under /tmp, which
+        # needs the 'tmpmap' group. Under enforcing, if dotnet is enabled but tmpmap is not loaded
+        # the build fails with an opaque EACCES -- surface the exact fix here instead.
+        if [[ "${enforce}" == "Enforcing" ]] \
+                && grep -qxF dotnet <<<"${enabled_integrations}" \
+                && ! group_loaded tmpmap; then
+            say ""
+            say "  ${C_YEL}dotnet is enabled but the 'tmpmap' SELinux group is not loaded:${C_RST}"
+            say "  ${C_YEL}dotnet restore/build will fail under enforcing (EACCES on mmap of /tmp).${C_RST}"
+            say "  fix: sudo ai-tools-admin selinux enable-group tmpmap"
+        fi
+    }
+    selinux_groups_block
+
     if [[ -s "${refusals}" ]]; then
         section "Refused inputs"
         sed 's/^/    /' "${refusals}"

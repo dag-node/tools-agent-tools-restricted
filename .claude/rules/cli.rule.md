@@ -81,7 +81,14 @@ is behind the gate, `--version` included — an unfinished install reports nothi
   `ai_tools_enabled_{agents,integrations}` the toolchain and `ai-tools-run` use, and the installed
   set from the manifest directory listing — so a manifest the resolver refuses shows as disabled.
   The resolvers' refusals, which at launch reach only the terminal and journald, are captured from
-  their stderr and reported in a closing block.
+  their stderr and reported in a closing block. On a host where SELinux is not `Disabled` it adds a
+  **SELinux policy groups** section: the core module's load state and every loaded optional group,
+  read unprivileged via `semodule -l` (degrading to a `sudo ai-tools-admin selinux list-groups`
+  pointer if the store is not readable unprivileged), keyed off the shared
+  `selinux-groups.lib.sh` registry. When the `dotnet` integration is enabled under **Enforcing**
+  but the `tmpmap` group is not loaded, it warns that `dotnet` restore/build will fail (`EACCES` on
+  the `/tmp` mmap) and names the `ai-tools-admin selinux enable-group tmpmap` fix — the same
+  dependency [providers](providers.rule.md) documents, surfaced where the operator checks status.
 - `--list`, `--version` (the deploy-stamped package version; `dev` from a raw source tree),
   `--help`.
 
