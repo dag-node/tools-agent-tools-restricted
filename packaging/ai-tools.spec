@@ -338,6 +338,9 @@ install -m 0644 src%{_unitdir}/ai-tools-relabel.service %{buildroot}%{_unitdir}/
 # helper is administrator-typed, so it gets a %{_sbindir} symlink like ai-tools-bootstrap/-admin.
 install -m 0644 src%{ai_libdir}/session-env.d/dotnet.env.sh %{buildroot}%{ai_libdir}/session-env.d/dotnet.env.sh
 install -m 0644 src%{ai_libdir}/integrations.d/dotnet.conf  %{buildroot}%{ai_libdir}/integrations.d/dotnet.conf
+# Its command-filter rules (SDK verbosity), which are .NET knowledge and so ship with the .NET
+# package rather than in the base's core.rules.
+install -m 0644 src%{ai_libdir}/filters.d/dotnet.rules      %{buildroot}%{ai_libdir}/filters.d/dotnet.rules
 install -m 0750 src%{ai_sbindir}/ai-tools-dotnet.sh         %{buildroot}%{ai_sbindir}/ai-tools-dotnet
 ln -s %{ai_sbindir}/ai-tools-dotnet %{buildroot}%{_sbindir}/ai-tools-dotnet
 # Ghost this helper's operation log alongside the base helpers' (the /var/log/ai-tools dir itself
@@ -649,6 +652,7 @@ fi
 %files -n ai-tools-integration-dotnet
 %attr(0644, root, root) %{ai_libdir}/session-env.d/dotnet.env.sh
 %attr(0644, root, root) %{ai_libdir}/integrations.d/dotnet.conf
+%attr(0644, root, root) %{ai_libdir}/filters.d/dotnet.rules
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-dotnet
 %{_sbindir}/ai-tools-dotnet
 %ghost %attr(0600, root, root) /var/log/ai-tools/dotnet.log

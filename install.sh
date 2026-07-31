@@ -506,6 +506,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
     _chk /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh
     _chk /usr/local/lib/ai-tools/integrations.d/dotnet.conf
+    _chk /usr/local/lib/ai-tools/filters.d/dotnet.rules
     _chk /usr/local/sbin/ai-tools/ai-tools-dotnet
     _chk /usr/sbin/ai-tools-dotnet
     _chk /usr/local/lib/ai-tools/control-plane.lib.sh
@@ -775,6 +776,12 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/integrations.d/dotnet.conf" \
         /usr/local/lib/ai-tools/integrations.d/dotnet.conf
+    # Its command-filter rules (SDK verbosity), which are .NET knowledge and so ship with the
+    # .NET layer rather than in the base's core.rules.
+    log "/usr/local/lib/ai-tools/filters.d/dotnet.rules"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.d/dotnet.rules" \
+        /usr/local/lib/ai-tools/filters.d/dotnet.rules
 
     # SELinux policy packages (prebuilt): stage the core plus each STABLE optional group under the
     # canonical package dir, so the installed ai-tools-admin can `selinux enable-group` a prebuilt

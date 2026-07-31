@@ -107,6 +107,7 @@ check_file /usr/local/lib/ai-tools/agents.d/claude-code.conf root              r
 # manifest providers.lib.sh reads and the session-env fragment ai-tools-run sources when enabled.
 check_file /usr/local/lib/ai-tools/integrations.d/dotnet.conf   root            root              644
 check_file /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh  root            root              644
+check_file /usr/local/lib/ai-tools/filters.d/dotnet.rules       root            root              644
 # The claude-code agent's own session-env fragment, shipped by its agent package. ai-tools-run
 # sources it last, so these pins outrank an integration's -- and 644 root:root is what makes it
 # trusted enough to source at all.
