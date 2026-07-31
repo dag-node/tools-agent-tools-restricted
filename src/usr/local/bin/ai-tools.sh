@@ -187,6 +187,21 @@ if ! source "${SAFE_PATHS_LIB}" 2>/dev/null \
     exit 3
 fi
 
+# The shared config grammar, which this CLI reads allowed-projects with (ai_tools_conf_path_entry)
+# so its project listing and the launch wrapper's gate agree on what every line denotes. REQUIRED:
+# a private fallback parser is exactly the drift the shared grammar exists to prevent, and a CLI
+# that lists a different set of projects than the wrapper will launch in is worse than one that
+# refuses.
+readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
+# shellcheck source=SCRIPTDIR/../lib/ai-tools/conf.lib.sh
+if ! source "${CONF_LIB}" 2>/dev/null \
+        || ! declare -F ai_tools_conf_path_entry >/dev/null 2>&1; then
+    ai_tools_msg_error "ai-tools: cannot load required config library ${CONF_LIB}" \
+        "the install is incomplete or /usr/local/lib/ai-tools is not traversable (expected 0751);" \
+        "refusing (fail closed) -- reinstall the ai-tools package, then retry."
+    exit 3
+fi
+
 # Skip-dir selector (the single skip source shared with the sweeps and the claim helpers).
 # The claim drift scan uses it to tell repairable hits from skip-listed ones. Fail-soft: a
 # missing lib classifies nothing as skip-listed -- a noisier report, never a wrong repair
@@ -1535,7 +1550,9 @@ cmd_list() {
     section "Registered projects"
     local entry kind safe shown=0
     while IFS= read -r entry || [[ -n "${entry}" ]]; do
-        [[ -z "${entry}" || "${entry}" == '#'* ]] && continue
+        # Same shared grammar the wrapper and the chown helper read this file with.
+        ai_tools_conf_path_entry "${entry}" || continue
+        entry="${_ai_tools_conf_value}"
         shown=1
         if [[ "${entry}" == '!'* ]]; then
             printf '  %-8s %s\n' "exclude" "${entry:1}"

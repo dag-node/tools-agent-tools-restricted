@@ -80,6 +80,24 @@ if ! source "${SAFE_PATHS_LIB}" 2>/dev/null \
         "       libraries are present, then reinstall the package if needed."
 fi
 
+# The shared config grammar (conf.lib.sh), which reads the allowlist this wrapper gates on.
+# REQUIRED and verified like safe-paths.lib.sh above: without ai_tools_conf_path_entry every
+# line of allowed-projects parses as no entry, which refuses every launch -- fail-closed, but
+# indistinguishable from "you have no projects". Refusing here says which component is missing.
+readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
+# shellcheck source=SCRIPTDIR/../lib/ai-tools/conf.lib.sh
+if ! source "${CONF_LIB}" 2>/dev/null \
+        || ! declare -F ai_tools_conf_path_entry >/dev/null 2>&1; then
+    command -v logger >/dev/null 2>&1 \
+        && logger -t claude -p user.err \
+            "required config library ${CONF_LIB} unavailable for $(id -un 2>/dev/null) -- launch refused (fail closed)"
+    die "claude: cannot load the config library -- refusing to start" \
+        "       ${CONF_LIB}" \
+        "       Without it the approved-projects list cannot be read, so no project would" \
+        "       resolve as allowed. Check that /usr/local/lib/ai-tools is traversable and its" \
+        "       libraries are present, then reinstall the package if needed."
+fi
+
 # have_tty: true only when a controlling terminal can actually be opened. `[[ -r /dev/tty ]]`
 # is NOT a controlling-tty test -- the /dev/tty node is mode crw-rw-rw-, so the permission
 # bits read true even with no controlling terminal (e.g. under setsid). Opening it is the
@@ -196,7 +214,10 @@ ai_tools_assert_safe_target "${cwd}" "launch" || exit 1
 declare -a allowed=()
 declare -a excluded=()
 while IFS= read -r entry || [[ -n "${entry}" ]]; do
-    [[ -z "${entry}" || "${entry}" == '#'* ]] && continue
+    # One shared grammar (conf.lib.sh): whole-line and end-of-line comments, and quotes for a
+    # path carrying a space or a literal `#`. A line denoting no entry is skipped.
+    ai_tools_conf_path_entry "${entry}" || continue
+    entry="${_ai_tools_conf_value}"
     if [[ "${entry}" == '!'* ]]; then
         excluded+=("${entry:1}")              # strip leading !, keep raw (may contain glob)
     else

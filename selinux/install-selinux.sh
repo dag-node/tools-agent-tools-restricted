@@ -112,6 +112,27 @@ die()     { printf '%sselinux: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; ex
 # logx/sayx: stderr variants -- safe inside subshells, and used for the group
 # prompt, which must not contaminate stdout.
 logx()    { printf '  %s+%s %s\n' "${C_DIM}" "${C_RST}" "$*" >&2; }
+
+# _list <item...>: render a set as [a, b] -- a name list reads as one value that way, where
+# space-separated names blur into the prose around them and hide how many there are. Joined by
+# hand rather than through IFS: "$*" uses only the FIRST character of IFS, so a ", " separator
+# silently loses its space.
+_list() {
+    local joined="" item
+    for item in "$@"; do joined+="${joined:+, }${item}"; done
+    printf '[%s]' "${joined}"
+}
+
+# _group_cmd <verb>: the command an operator on THIS host should run to manage a policy group.
+# ai-tools-admin is the shipped entry point and is on PATH once the package is installed, so
+# prefer it; a source checkout with nothing installed yet falls back to this script's own path.
+_group_cmd() {
+    if command -v ai-tools-admin >/dev/null 2>&1; then
+        printf 'sudo ai-tools-admin selinux %s' "$1"
+    else
+        printf 'sudo %s %s' "$0" "$1"
+    fi
+}
 sayx()    { printf '%s\n' "$*" >&2; }
 
 [[ "$(getenforce 2>/dev/null)" != "Disabled" ]] \
@@ -235,7 +256,7 @@ _check_permissive_alignment() {
                 warn "  fix: sudo semodule -r ${stale_mod}"
             fi
         else
-            warn "  ${dom}: no permissive_${dom} module found -- check semanage permissive -l"
+            warn "  ${dom}: no permissive_${dom} module found -- check: sudo semanage permissive -l"
             warn "  fix:  sudo semanage permissive -d ${dom}"
         fi
     done
@@ -250,6 +271,22 @@ _check_permissive_alignment() {
 SELECTED_GROUPS=()
 
 prompt_groups() {
+    local entry name desc
+    local -a loaded_groups=()
+
+    # State what is already loaded BEFORE the gate below, because the default answer skips this
+    # section without listing anything: this step only ever ADDS modules, so a group enabled by
+    # an earlier install survives the skip, and silence here reads as if it might not.
+    for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
+        name="$(ai_tools_selinux_group_name "${entry}")"
+        ai_tools_selinux_group_loaded "${name}" && loaded_groups+=("${name}")
+    done
+    if (( ${#loaded_groups[@]} )); then
+        logx "groups already loaded and kept: ${C_BOLD}$(_list "${loaded_groups[@]}")${C_RST}"
+        sayx "    ${C_DIM}this step only adds modules; remove one with:" \
+             "$(_group_cmd 'disable-group <name>')${C_RST}"
+    fi
+
     # One gate for the whole EXPERIMENTAL section: the default skips it, so an operator who
     # wants the core module alone answers once here instead of declining each group. A
     # non-interactive run takes the default (skip) through the confirm's no-tty behaviour.
@@ -263,10 +300,18 @@ prompt_groups() {
     warn "  relying on it (see the avc-denials harness)."
     sayx ""
 
-    local entry name desc
     for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
         name="$(ai_tools_selinux_group_name "${entry}")"
         desc="$(ai_tools_selinux_group_desc "${entry}")"
+        # A group loaded by an earlier install stays loaded whatever is answered here: this step
+        # only ADDS modules. Show that state in the same vocabulary list-groups uses, and name
+        # the verb that actually removes one -- an unmarked "Enable? [n]" beside a loaded group
+        # reads as "off, and staying off", which is the opposite of what the answer does.
+        if ai_tools_selinux_group_loaded "${name}"; then
+            printf '    %s[LOADED]%s %s -- %s\n' "${C_GRN}" "${C_RST}" "${name}" "${desc}" >&2
+            sayx "        stays enabled; to remove it: $(_group_cmd "disable-group ${name}")"
+            continue
+        fi
         printf '    %s[%s]%s %s\n' "${C_DIM}" "${name}" "${C_RST}" "${desc}" >&2
         ai_tools_msg_confirm "    Enable?" n && SELECTED_GROUPS+=("${name}")
     done
@@ -302,7 +347,12 @@ verify_agent_labels() {
         return 0
     fi
     if [[ -n "${report}" ]]; then
-        while read -r verdict subject detail wanted; do
+        # Pin IFS for this read: the script runs under the strict-mode IFS=$'\n\t', and the
+        # report's fields are SPACE-separated, so an inherited IFS puts the whole line in
+        # ${verdict} and every case below misses -- including `bad`, which is what sets the
+        # flag that aborts the install when an entrypoint did not take ai_tools_exec_t. The
+        # guard against launching unconfined depends on this splitting correctly.
+        while IFS=$' \t\n' read -r verdict subject detail wanted; do
             case "${verdict}" in
                 ok)   labelled=$(( labelled + 1 ))
                       ok "labelled: ${subject}" ;;
@@ -311,9 +361,16 @@ verify_agent_labels() {
                       warn "    is '${detail}', NOT ${wanted} -- the session would run unconfined"
                       warn "    or fail to write its own state. matchpathcon expects:"
                       warn "      $(matchpathcon "${subject}" 2>/dev/null | awk '{print $2}')"
-                      warn "    chase with: restorecon -nv '${subject}'  and  semanage fcontext -C -l" ;;
+                      warn "    chase with: sudo restorecon -nv '${subject}'" 
+                      warn "            and: sudo semanage fcontext -C -l" ;;
                 none) warn "${subject}: ${detail} is not installed -- nothing to label" ;;
                 skip) warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
+                # A verdict this renderer does not know is REPORTED, not dropped. Silently
+                # ignoring one turns a labelling result into no output at all, which reads as
+                # "nothing happened" for the one path whose label decides whether a session is
+                # confined -- and leaves nothing to diagnose from.
+                *)    warn "unrecognized labelling result: ${verdict} ${subject} ${detail} ${wanted}"
+                      warn "    the entrypoint label is unconfirmed; check: sudo ai-tools --relabel" ;;
             esac
         done <<< "${report}"
     fi
@@ -323,9 +380,26 @@ verify_agent_labels() {
     # (toolchain not provisioned yet) stays a warning -- there is nothing to label.
     [[ "${bad}" -eq 0 ]] \
         || die "an agent path did not take its type (see above) -- the agent would run UNCONFINED"
-    [[ "${labelled}" -gt 0 ]] || warn "no agent path found to label"
-    log "reminder: a running session keeps its OLD context -- exit and relaunch, then"
-    log "          confirm with:  ps -eo label,cmd | grep '[c]laude'  (expect ai_tools_t)"
+    # Nothing labelled has two very different causes, and the bare message named neither. An
+    # EMPTY report means no enabled agent was iterated at all -- the manifests resolved to
+    # nothing -- which is a configuration problem: the entrypoint keeps whatever type it has, and
+    # a launch fail-closes at ai-tools-run's transition preflight. A non-empty report that
+    # labelled nothing has already printed its own per-path none/skip reason above.
+    if [[ "${labelled}" -eq 0 ]]; then
+        if [[ -z "${report}" ]]; then
+            warn "no agent resolved from the manifests, so no entrypoint was labelled."
+            warn "  Nothing here grants ai_tools_exec_t, so a session refuses to launch until it is."
+            warn "  Check which agents are enabled:  ai-tools --providers"
+            warn "  and that a manifest is installed: ls -l /usr/local/lib/ai-tools/agents.d/"
+            warn "  Re-apply once one resolves:      sudo ai-tools --relabel"
+        else
+            warn "no agent path took a label this run -- see the per-path reason above"
+        fi
+    fi
+    # Printed while the install is still running, so it states WHEN it applies: an operator who
+    # reads "exit and relaunch" mid-install has nothing to relaunch yet.
+    log "once this install finishes: a session already running keeps its OLD context, so exit"
+    log "  and relaunch it, then confirm with:  ps -eo label,cmd | grep '[c]laude'  (expect ai_tools_t)"
 }
 
 # for_each_project <fn>: call <fn> once with each allowlisted project directory,
@@ -351,7 +425,11 @@ _home_state()  { local p; for p in "${HOME_STATE[@]}"; do
 # don't die) so one bad project never aborts a whole relabel. _unlabel_one already
 # restorecons via the lib; the remove action's later _restore_one pass is a
 # harmless belt-and-suspenders.
-_label_one()   { if ai_tools_label_project "$1"; then log "labelled project ai_tools_project_t: $1"
+# Sweeps every registered project on each run, so it asks for drift REPAIR rather than a forced
+# conversion: an already-labelled tree keeps its type on its own, and a forced pass would rewrite
+# every file of every project on every install. A first-time claim converts in full through
+# ai-tools-relabel.
+_label_one()   { if ai_tools_label_project "$1" repair; then log "labelled project ai_tools_project_t: $1"
                  else warn "could not label $1 -- is the ai_tools module loaded?"; fi; }
 _unlabel_one() { ai_tools_unlabel_project "$1" || warn "could not unlabel $1"; }
 _restore_one() { restorecon -RF "$1" 2>/dev/null || true; }
@@ -361,10 +439,16 @@ _label_conf()   { [[ -d "${CONF_DIR}" ]] || { log "config dir absent, skip label
                   # semanage to accept it. 'relabel' never loads the module, so on a
                   # first run (or after a version bump) the type may be undefined --
                   # report honestly instead of logging a false success.
-                  if semanage fcontext -a -t ai_tools_conf_t "${CONF_DIR}(/.*)?" 2>/dev/null \
-                     || semanage fcontext -m -t ai_tools_conf_t "${CONF_DIR}(/.*)?" 2>/dev/null; then
+                  # Both streams are dropped: semanage announces an existing entry on stdout
+                  # ("already defined, modifying instead"), which reads as an error beside our
+                  # own status lines. Which branch fired is the useful part, so say that in this
+                  # script's own words instead.
+                  local _verb="labelled"
+                  if semanage fcontext -a -t ai_tools_conf_t "${CONF_DIR}(/.*)?" >/dev/null 2>&1 \
+                     || { _verb="re-applied"
+                          semanage fcontext -m -t ai_tools_conf_t "${CONF_DIR}(/.*)?" >/dev/null 2>&1; }; then
                       restorecon -RF "${CONF_DIR}" 2>/dev/null || true
-                      log "labelled config ai_tools_conf_t: ${CONF_DIR}"
+                      log "${_verb} config ai_tools_conf_t: ${CONF_DIR}"
                   else
                       warn "could not set ai_tools_conf_t fcontext on ${CONF_DIR}"
                       warn "    type undefined? the module must be LOADED first --"

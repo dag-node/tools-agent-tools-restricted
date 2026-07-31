@@ -92,6 +92,15 @@ readonly CONTROL_PLANE_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/control-pla
 source "${CONTROL_PLANE_LIB}" || {
     printf 'install.sh: cannot source %s\n' "${CONTROL_PLANE_LIB}" >&2; exit 1; }
 
+# The shared config grammar, sourced from the SOURCE TREE like the libs above. It carries the
+# config-sidecar handling and the hook-declaration merge this script applies to a KEPT
+# settings.json, so a missing lib would mean an upgrade silently leaving a newly shipped hook
+# undeclared -- fatal here, like the others.
+readonly CONF_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/conf.lib.sh"
+# shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/conf.lib.sh
+source "${CONF_LIB}" || {
+    printf 'install.sh: cannot source %s\n' "${CONF_LIB}" >&2; exit 1; }
+
 # Managed-asset seeder (agents/skills), sourced from the SOURCE TREE. Requires msg.lib.sh
 # (sourced above) for the update confirm; a missing lib is fatal like the others.
 readonly MANAGED_ASSETS_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/managed-assets.lib.sh"
@@ -150,6 +159,69 @@ seed_result() {
     log "${path} ${verb}${detail:+ (${detail})}"
 }
 
+# Announce the options a kept KEY=value config does not mention yet, and leave the shipped
+# baseline beside it to copy the documentation from. Unlike the hook declarations below, this
+# NEVER rewrites the file: with the present/absent grammar an absent key already means its
+# default, so a stale config costs the operator the knowledge that an option exists rather than
+# the behaviour -- not worth editing prose whose layout and annotations are theirs, least of all
+# in the file that carries the operator list.
+# $1 deployed config   $2 shipped config
+report_new_conf_keys() {
+    local deployed="$1" shipped="$2" reference=""
+    local -a new_keys=()
+    ai_tools_conf_new_keys new_keys "${deployed}" "${shipped}" || return 0
+
+    warn "${deployed} does not mention this version's new options:"
+    local key
+    for key in "${new_keys[@]}"; do
+        warn "  ${key}"
+    done
+    reference="$(ai_tools_conf_reference "${deployed}" "${shipped}")" || true
+    if [[ -n "${reference}" ]]; then
+        warn "  documented in ${reference} -- copy the blocks you want;"
+        warn "  each is optional and an unmentioned key keeps its default"
+        # Suggested, not run, and deliberately not gated on diff(1) being installed: this is a
+        # line for the operator to paste, and a host without diff simply ignores it.
+        warn "  compare:  diff -u ${deployed} ${reference}"
+    fi
+    return 0
+}
+
+# Render the shared hook-declaration merge (conf.lib.sh) in the installer's voice. The decision,
+# the backup, and the baseline copy are the library's; what belongs here is only how the outcome
+# reads in an install log.
+#
+# A kept settings.json is the one control-plane file an upgrade does not overwrite, so without
+# this a newly shipped hook never reaches an existing host: the hook body and its data install,
+# the declaration that invokes them does not, and the feature is silently inert.
+# $1 deployed settings.json   $2 shipped settings.json
+reconcile_hook_declarations() {
+    local deployed="$1" shipped="$2" status=0
+    ai_tools_conf_merge_hook_declarations "${deployed}" "${shipped}" || status=$?
+
+    case "${status}" in
+    1)  return 0 ;;                     # already current: nothing done, nothing to say
+    2)  warn "hook declarations not merged into ${deployed}: ${_ai_tools_conf_merge_reason}"
+        warn "  the file is unchanged; the hooks it does not declare do not run"
+        if [[ -n "${_ai_tools_conf_merge_reference}" ]]; then
+            warn "  shipped baseline written to ${_ai_tools_conf_merge_reference} -- merge its"
+            warn "  \"hooks\" block by hand, then re-run tests/integration/hooks.sh"
+        fi
+        return 0 ;;
+    esac
+
+    # An affirmative outcome, not a warning: the merge is the intended path, and a warning that
+    # reports success trains an operator to skim past the ones that matter. It is still not
+    # routine -- an operator-owned control-plane file changed -- so every addition is named.
+    ok "${deployed}: merged in the hook declarations this version ships"
+    local line
+    for line in "${_ai_tools_conf_merge_added[@]}"; do
+        log "  + ${line}"
+    done
+    [[ -n "${_ai_tools_conf_merge_backup}" ]] && log "  previous file saved as ${_ai_tools_conf_merge_backup}"
+    return 0
+}
+
 # Create a directory only if it does not already exist, preserving perms on
 # existing dirs. Applies owner/mode only to newly created directories.
 ensure_dir() {
@@ -178,17 +250,51 @@ install_subst() {
 }
 
 # Run systemctl --user as a given user with that user's runtime bus environment.
-# Emits a warning rather than aborting if the user session is not active.
+# Emits a warning rather than aborting if the user session is not active. The remedy names a
+# root command: the sandbox account has no login shell, so "run it as that user" is not
+# something an operator can actually do.
 # args:  <user> <systemctl args...>
 user_systemctl() {
     local user="$1"; shift
     local uid
     uid="$(id -u "${user}")"
+    # Reach the account's manager over systemd's machine transport, as root. Dropping into the
+    # account with sudo instead requires that account's own bus to accept the connection, and it
+    # refuses one from a process root switched into -- the manager is running and healthy, the
+    # bus simply declines. `-M <user>@.host` goes to the same manager through the system bus,
+    # where root is already authorized. The sudo form stays as a fallback for a host whose
+    # systemd lacks the machine transport.
+    systemctl --user -M "${user}@.host" "$@" 2>/dev/null && return 0
     sudo -u "${user}" \
         XDG_RUNTIME_DIR="/run/user/${uid}" \
         DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" \
         systemctl --user "$@" \
-        || warn "systemctl --user $* failed -- run it manually as ${user}"
+        || warn "systemctl --user $* failed by both the machine transport and the account's own" \
+                "bus; retry with: sudo systemctl --user -M ${user}@.host $*"
+}
+
+# Bring up a user's systemd --user manager and wait until the SYSTEM manager reports it active.
+#
+# `loginctl enable-linger` returns before the manager is up, so the enablement below would
+# otherwise race it. Readiness is asked of the system manager (`is-active user@<uid>.service`)
+# rather than probed through the account's own bus: that is the authoritative answer to "is the
+# manager running", it needs no bus connection, and a bus probe answers a different and narrower
+# question -- whether root can currently reach that account's bus -- which is not what gates
+# provisioning. Starting user@<uid>.service first is the documented, idempotent way to have the
+# manager exist at all for a nologin account.
+# args:  <user> [timeout_seconds]   returns 0 once the manager is active
+wait_user_manager() {
+    local user="$1" timeout="${2:-15}" uid deadline
+    uid="$(id -u "${user}")" || return 1
+    systemctl start "user@${uid}.service" 2>/dev/null || true
+    deadline=$(( SECONDS + timeout ))
+    while (( SECONDS <= deadline )); do
+        if systemctl is-active --quiet "user@${uid}.service" 2>/dev/null; then
+            return 0
+        fi
+        sleep 0.5
+    done
+    return 1
 }
 
 # Assert the sandbox nvm tree's intended ownership/mode on every (re)install, even
@@ -356,8 +462,13 @@ offer_selinux() {
 
     # Current module state up front, so the decision -- and especially a skip -- is
     # unambiguous about what stays loaded and enforcing from a previous install.
+    # Rendered as [a, b]: a name list reads as one value that way, where space-separated names
+    # blur into the prose around them and hide how many there are.
     local loaded
-    loaded="$(semodule -l 2>/dev/null | grep '^ai_tools' | paste -sd ' ' - || true)"
+    # `paste -d` takes a LIST of delimiters and cycles through them, so ', ' would alternate
+    # comma and space rather than joining with both; join on the comma, then space it out.
+    loaded="$(semodule -l 2>/dev/null | grep '^ai_tools' | paste -sd ',' - | sed 's/,/, /g' || true)"
+    [[ -n "${loaded}" ]] && loaded="[${loaded}]"
 
     # How a kept module actually behaves on THIS host: only global Enforcing mode blocks. Under
     # Permissive the module is loaded but logs rather than enforces, so do not claim "enforcing".
@@ -391,7 +502,13 @@ offer_selinux() {
         fi
     elif [[ -n "${loaded}" ]]; then
         log "skipped -- the loaded module(s) stay ${mode_state}: ${loaded}"
-        say "    ${C_DIM}manage them with: sudo ${selinux_script} {install|remove|list-groups}${C_RST}"
+        # ai-tools-admin is the shipped entry point and is deployed by now, so name it rather
+        # than the checkout path an installed host may not keep.
+        if command -v ai-tools-admin >/dev/null 2>&1; then
+            say "    ${C_DIM}manage them with: sudo ai-tools-admin selinux list-groups${C_RST}"
+        else
+            say "    ${C_DIM}manage them with: sudo ${selinux_script} {install|remove|list-groups}${C_RST}"
+        fi
     else
         log "skipped -- the sandbox runs without SELinux confinement until you run:"
         say "    ${C_BOLD}sudo ${selinux_script} install${C_RST}"
@@ -486,6 +603,7 @@ do_summary() {
     _chk /usr/lib/systemd/system/ai-tools-relabel.service
     _chk /usr/local/bin/ai-tools
     _chk /usr/local/share/man/man1/ai-tools.1
+    _chk /usr/local/share/man/man5/operator.conf.5
     _chk /var/opt/ai-tools
     _chk /var/opt/ai-tools/sandbox-projects
     _chk /var/opt/ai-tools/README.md
@@ -1007,6 +1125,14 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/share/man/man1/ai-tools.1" \
         /usr/local/share/man/man1/ai-tools.1
 
+    # operator.conf(5). Documents the shared KEY=value grammar and every host option, so an
+    # operator reading the config has a manual rather than only its inline comments.
+    log "/usr/local/share/man/man5/operator.conf.5"
+    install -d -o root -g root -m 755 /usr/local/share/man/man5
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/operator.conf.5" \
+        /usr/local/share/man/man5/operator.conf.5
+
     # Launch wrapper. Ships system-wide root:root 0755 -- rpm-owned, on every operator's PATH
     # (path-dedup.sh, wired into operator dotfiles by ai-tools-admin, ranks /usr/local/bin
     # above the nvm shims, so it shadows nvm's claude). It
@@ -1108,6 +1234,7 @@ do_install() {
         chown root:root "${opconf}"
         chmod 644 "${opconf}"
         seed_result "${opconf}" "${opconf_existed}" 1 "managed by ai-tools-admin and the operator"
+        report_new_conf_keys "${opconf}" "${SCRIPT_DIR}/src/etc/ai-tools/operator.conf"
     else
         install_subst 644 root root \
             "${SCRIPT_DIR}/src/etc/ai-tools/operator.conf" "${opconf}"
@@ -1121,8 +1248,16 @@ do_install() {
     [[ "${PROJECTS_USER}" != "${SANDBOX_USER}" ]] \
         || die "the operator must not be the sandbox account ${SANDBOX_USER}"
     getent group ai-ops >/dev/null 2>&1 || groupadd -r ai-ops
-    log "adding ${PROJECTS_USER} to group ai-ops"
-    usermod -aG ai-ops "${PROJECTS_USER}" || warn "could not add ${PROJECTS_USER} to ai-ops"
+    # Report what this run actually did. `usermod -aG` is idempotent, so re-running the installer
+    # would otherwise announce "adding" on every pass for an operator who has been a member since
+    # the first one -- and a re-install that says it granted something it did not is the kind of
+    # line that makes an operator stop trusting the rest of the output.
+    if id -nG "${PROJECTS_USER}" 2>/dev/null | tr ' ' '\n' | grep -qxF ai-ops; then
+        log "${PROJECTS_USER} is already in group ai-ops"
+    else
+        log "adding ${PROJECTS_USER} to group ai-ops"
+        usermod -aG ai-ops "${PROJECTS_USER}" || warn "could not add ${PROJECTS_USER} to ai-ops"
+    fi
 
     section "ai-tools control plane (/opt/ai-tools)"
 
@@ -1180,7 +1315,9 @@ do_install() {
     # entry relaxed alongside an enabled SELinux group (see claude-settings.rule.md) -- that a
     # reset would revert, so it passes a warn and the reset is gated behind the second
     # confirmation. Ownership and mode are re-asserted either way, so a kept file still
-    # satisfies the control-plane integrity checks.
+    # satisfies the control-plane integrity checks. A kept file additionally has this version's
+    # hook DECLARATIONS reconciled into it, so keeping host tuning never costs a shipped hook
+    # (reconcile_hook_declarations); the permission rules it was kept for are not touched.
     local settings="${claude_config_dir}/settings.json" settings_existed=0
     [[ -f "${settings}" ]] && settings_existed=1
     if keep_existing "${settings}" \
@@ -1188,6 +1325,8 @@ do_install() {
         chown root:"${SANDBOX_GROUP}" "${settings}"
         chmod 640 "${settings}"
         seed_result "${settings}" "${settings_existed}" 1 "host-tuned permission rules preserved"
+        reconcile_hook_declarations "${settings}" \
+            "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json"
     else
         install -o root -g "${SANDBOX_GROUP}" -m 640 \
             "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json" "${settings}"
@@ -1246,7 +1385,8 @@ do_install() {
     # owned root:ai-tools with the o+x search bit and setgid (CP_HOME_MODE), bin is locked, and
     # every agent's config directory is setgid+sticky. The agent reaches the tree through group
     # ai-tools; root owns the locked control files so the agent cannot replace them.
-    log "asserting control-plane ownership and boundary modes (root:${SANDBOX_GROUP})"
+    section "Control-plane assertions"
+    log "ownership and boundary modes (root:${SANDBOX_GROUP})"
     chown "root:${SANDBOX_GROUP}" /opt/ai-tools /opt/ai-tools/bin
     ai_tools_apply_mode "${CP_HOME_MODE}" /opt/ai-tools
     ai_tools_apply_mode "${CP_DIR_MODES[bin]}" /opt/ai-tools/bin
@@ -1323,6 +1463,9 @@ do_install() {
             "#   !/path/to/file        exclude: this file's ownership is never changed" \
             "#   !/path/to/dir         exclude directory and all contents" \
             "#   !/path/to/*.ext       exclude by glob (* matches any characters)" \
+            "#   /path/to/project  # note    a comment runs to the end of the line" \
+            "#   \"/path/to/my project\"       quote a path holding a space or a literal #" \
+            "#   !\"/path/to/my project/x\"    the ! comes before the quotes" \
             "#" \
             "# Exclusions (!) override allows and are checked first." \
             "# Plain paths cover their contents automatically; no trailing /* needed." \
@@ -1376,14 +1519,13 @@ do_install() {
     # preflight ("user instance not reachable").
     log "enabling linger for ${SANDBOX_USER}"
     loginctl enable-linger "${SANDBOX_USER}"
-    # enable-linger starts the --user manager asynchronously; wait for its bus before driving
-    # it, or the enable below races a not-yet-ready instance and silently no-ops.
-    local _sbx_uid _i
-    _sbx_uid="$(id -u "${SANDBOX_USER}")"
-    for _i in $(seq 1 20); do
-        [[ -S "/run/user/${_sbx_uid}/bus" ]] && break
-        sleep 0.5
-    done
+    # enable-linger returns before the manager is listening, so bring it up and wait until it
+    # actually answers (wait_user_manager). Its verdict gates only the two live calls below: the
+    # root-side provisioning that follows must happen either way, so a host whose manager never
+    # comes up still has the timer enabled for its next boot.
+    local sandbox_uid manager_ready=0
+    sandbox_uid="$(id -u "${SANDBOX_USER}")"
+    wait_user_manager "${SANDBOX_USER}" && manager_ready=1
 
     # Enable nvm-update.timer in ${SANDBOX_USER}'s --user instance. The home (/opt/ai-tools) is
     # root-owned (2751), so the account cannot create ~/.config and `systemctl --user enable` run
@@ -1415,9 +1557,20 @@ do_install() {
         /opt/ai-tools/.local/share/systemd/timers
     install -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0644 /dev/null \
         /opt/ai-tools/.local/share/systemd/timers/stamp-nvm-update.timer
-    log "enable nvm-update.timer in ${SANDBOX_USER}'s --user instance"
-    user_systemctl "${SANDBOX_USER}" daemon-reload
-    user_systemctl "${SANDBOX_USER}" start nvm-update.timer
+    if (( manager_ready )); then
+        log "enable nvm-update.timer in ${SANDBOX_USER}'s --user instance"
+        user_systemctl "${SANDBOX_USER}" daemon-reload
+        user_systemctl "${SANDBOX_USER}" start nvm-update.timer
+    else
+        # The symlink above is in place, so the timer starts with the manager at next boot. Say
+        # what is not running now and what to check, rather than pointing at a nologin account.
+        warn "${SANDBOX_USER}'s systemd --user manager did not come up -- the auto-update timer"
+        warn "  is enabled but not running, so toolchain updates wait for the next boot."
+        warn "  Check:  sudo systemctl status user@${sandbox_uid}.service"
+        warn "  Then:   sudo systemctl start user@${sandbox_uid}.service"
+        warn "  A session launch needs that instance too (ai-tools-run wraps each session in a"
+        warn "  transient --user unit), so bring it up before the first claude run."
+    fi
 
     log "reload systemd and enable ai-tools-handback.socket + ai-tools-relabel.path"
     systemctl daemon-reload
@@ -1450,12 +1603,15 @@ do_install() {
         say ""
     fi
     say "  verify the timer (in ${SANDBOX_USER}'s --user instance):"
-    say "    ${C_BOLD}systemctl --user -M ${SANDBOX_USER}@ list-timers nvm-update.timer${C_RST}"
+    say "    ${C_BOLD}sudo systemctl --user -M ${SANDBOX_USER}@.host list-timers nvm-update.timer${C_RST}"
     say ""
     say "  register projects with the ai-tools CLI (run as ${PROJECTS_USER}, no sudo):"
     say "    ${C_BOLD}ai-tools --project-claim /path/to/project${C_RST}     ${C_DIM}# claim a project in place${C_RST}"
     say "    ${C_BOLD}ai-tools --help${C_RST}                               ${C_DIM}# all commands${C_RST}"
-    say "  see ${C_DIM}/var/opt/ai-tools/README.md${C_RST}"
+    say "  configure and read up:"
+    say "    ${C_BOLD}/etc/ai-tools/operator.conf${C_RST}                  ${C_DIM}# host options, each documented inline${C_RST}"
+    say "    ${C_BOLD}man ai-tools${C_RST}                                 ${C_DIM}# the CLI${C_RST}"
+    say "    ${C_BOLD}man 5 operator.conf${C_RST}                          ${C_DIM}# every host option${C_RST}"
     say ""
     suggest_lint_tools
 
@@ -1524,6 +1680,7 @@ do_uninstall() {
     rm -f /usr/local/bin/ai-tools-handback-client
     rm -f /usr/local/bin/ai-tools
     rm -f /usr/local/share/man/man1/ai-tools.1
+    rm -f /usr/local/share/man/man5/operator.conf.5
     rm -f /usr/local/bin/claude
     # Units, after the stop/disable above. Globs cover the handback socket+service and
     # the relabel path+service in one sweep, plus the updater service+timer.
@@ -1543,7 +1700,9 @@ do_uninstall() {
     rm -f /opt/ai-tools/.claude/post-tool-hook.sh
     rm -f /opt/ai-tools/.claude/session-hook.sh
     rm -f /opt/ai-tools/.claude/filter-hook.sh
-    rm -f /opt/ai-tools/.claude/settings.json
+    rm -f /opt/ai-tools/.claude/settings.json \
+          /opt/ai-tools/.claude/settings.json.shipped \
+          /opt/ai-tools/.claude/settings.json.bak
 
     section "Registration"
     # Optionally remove this project from the allowlist (default: keep)

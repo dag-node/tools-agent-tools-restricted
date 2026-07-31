@@ -176,4 +176,166 @@ check_trust "root-owned 0755 directory is trusted"   trusted "${tdir}"
 chmod 0775 "${tdir}"
 check_trust "group-writable directory is refused"    refused "${tdir}"
 
+# --- Sidecar files: what an upgrade preserves when it rewrites an operator's config ------------
+# Two copies with two jobs -- .bak is what the operator HAD, .shipped is what they were SUPPOSED
+# to get -- and the property that makes .bak worth calling a backup is that a second run in the
+# same day cannot overwrite the first. An operator who ran the installer twice is exactly the one
+# who needs the earlier copy.
+stamp="$(date +%Y%m%d)"
+cfg="${TESTDIR}/sidecar.conf"
+printf 'ORIGINAL\n' > "${cfg}"; chown root:root "${cfg}"; chmod 640 "${cfg}"
+
+first_bak="$(ai_tools_conf_backup "${cfg}")"
+if [[ "${first_bak}" == "${cfg}.${stamp}.bak" && "$(cat "${first_bak}")" == ORIGINAL ]]; then
+    pass "a backup is date-stamped and copies the file verbatim"
+else
+    fail "backup path/content wrong: ${first_bak}"
+fi
+if [[ "$(perm "${first_bak}")" == 640 ]]; then
+    pass "a backup keeps the mode, so a restore needs no re-permissioning"
+else
+    fail "backup mode is $(perm "${first_bak}"), expected 640"
+fi
+
+printf 'CHANGED\n' > "${cfg}"
+second_bak="$(ai_tools_conf_backup "${cfg}")"
+if [[ "${second_bak}" != "${first_bak}" && "$(cat "${first_bak}")" == ORIGINAL ]]; then
+    pass "a same-day second backup takes a new name and leaves the first intact"
+else
+    fail "same-day backup collided: ${second_bak}"
+fi
+
+# The reference copy takes the DEPLOYED file's owner and mode, never the source tree's, so a
+# baseline dropped beside a 0640 control-plane file is not left world-readable.
+baseline="${TESTDIR}/sidecar.shipped-src"
+printf 'SHIPPED\n' > "${baseline}"; chmod 666 "${baseline}"
+ref="$(ai_tools_conf_reference "${cfg}" "${baseline}")"
+if [[ "${ref}" == "${cfg}.${stamp}.shipped" && "$(perm "${ref}")" == 640 ]]; then
+    pass "a reference copy is date-stamped and takes the deployed file's mode"
+else
+    fail "reference path/mode wrong: ${ref} mode $(perm "${ref}" 2>/dev/null)"
+fi
+if [[ "$(ai_tools_conf_reference "${cfg}" "${baseline}")" != "${ref}" ]]; then
+    pass "a second reference copy does not overwrite the first"
+else
+    fail "reference copy was overwritten"
+fi
+
+# Absent inputs produce no copy and no path -- a caller must never act on a name that was not made.
+if ! ai_tools_conf_backup "${TESTDIR}/absent" >/dev/null 2>&1; then
+    pass "no backup is invented for a file that is not there"
+else
+    fail "backed up a nonexistent file"
+fi
+if ! ai_tools_conf_reference "${cfg}" "${TESTDIR}/absent" >/dev/null 2>&1; then
+    pass "no reference is invented for a baseline that is not there"
+else
+    fail "referenced a nonexistent baseline"
+fi
+
+# jq is a package dependency, so the JSON paths report a broken install rather than degrading.
+if ai_tools_conf_require_jq >/dev/null 2>&1; then
+    pass "the jq gate passes where jq is installed"
+else
+    fail "the jq gate rejected a host that has jq"
+fi
+
+# --- New options in a kept KEY=value config ---------------------------------------------------
+# A kept config never gains a key a new version documents, so an install has to SAY which options
+# the operator has not seen. It must not say it twice: a key already set, or deliberately
+# commented out, has been seen, and re-announcing it every upgrade is the noise that makes an
+# operator stop reading the install output.
+shipped_conf="${TESTDIR}/shipped.conf"
+cat > "${shipped_conf}" <<'CONF'
+# A documented option, shipped commented-out as its own default.
+#EXISTING_OPTION="a"
+
+# The option this version introduces.
+#NEW_OPTION="b"
+CONF
+
+kept_conf="${TESTDIR}/kept.conf"
+printf '# older file\nEXISTING_OPTION="a"\n' > "${kept_conf}"
+declare -a found=()
+if ai_tools_conf_new_keys found "${kept_conf}" "${shipped_conf}" \
+        && [[ "${found[*]}" == "NEW_OPTION" ]]; then
+    pass "an option the kept file never mentions is reported"
+else
+    fail "new-option detection returned '${found[*]:-}'"
+fi
+
+declare -a same=()
+if ! ai_tools_conf_new_keys same "${shipped_conf}" "${shipped_conf}"; then
+    pass "a current file reports nothing"
+else
+    fail "a current file reported '${same[*]}'"
+fi
+
+# Both "seen" forms: a live setting and a commented-out default.
+printf 'NEW_OPTION="b"\n' >> "${kept_conf}"
+declare -a live=()
+if ! ai_tools_conf_new_keys live "${kept_conf}" "${shipped_conf}"; then
+    pass "an option the operator has set is not announced as new"
+else
+    fail "announced an already-set option: ${live[*]}"
+fi
+printf '# older file\nEXISTING_OPTION="a"\n#NEW_OPTION="b"\n' > "${kept_conf}"
+declare -a commented=()
+if ! ai_tools_conf_new_keys commented "${kept_conf}" "${shipped_conf}"; then
+    pass "an option the operator commented out is not re-announced"
+else
+    fail "re-announced a commented-out option: ${commented[*]}"
+fi
+
+# The scan is a reader, not a writer, and must not leave state in its caller.
+seen_key="SENTINEL"
+# shellcheck disable=SC2034  # the output array is deliberately unread here: this case asserts
+# the scan's effect on OTHER variables, not its result
+declare -a discarded=()
+ai_tools_conf_new_keys discarded "${kept_conf}" "${shipped_conf}" >/dev/null 2>&1 || true
+if [[ "${seen_key}" == "SENTINEL" ]]; then
+    pass "the scan leaks no variable into its caller"
+else
+    fail "the scan overwrote a caller variable: seen_key=${seen_key}"
+fi
+
+# --- Path-list entries (allowed-projects) -----------------------------------------------------
+# The launch allowlist shares this grammar, and three components parse that file -- the wrapper,
+# the CLI, and the chown helper. The first block is BACKWARD COMPATIBILITY: every shape an
+# existing allowlist already contains must parse exactly as before, because a line that stops
+# resolving silently removes a project from the gate.
+check_entry() {
+    local desc="$1" want="$2" line="$3" rc=0
+    ai_tools_conf_path_entry "${line}" || rc=$?
+    if [[ "${want}" == SKIP ]]; then
+        if [[ "${rc}" -ne 0 ]]; then pass "${desc}"; else fail "${desc}: yielded '${_ai_tools_conf_value}'"; fi
+    elif [[ "${rc}" -eq 0 && "${_ai_tools_conf_value}" == "${want}" ]]; then
+        pass "${desc}"
+    else
+        fail "${desc}: rc ${rc}, got '${_ai_tools_conf_value}', expected '${want}'"
+    fi
+}
+check_entry "a plain path is unchanged"            /home/me/project         '/home/me/project'
+check_entry "an exclusion keeps its !"             '!/home/me/vendor'       '!/home/me/vendor'
+check_entry "a glob exclusion stays raw"           '!/home/me/*/node_mod'   '!/home/me/*/node_mod'
+check_entry "surrounding whitespace is trimmed"    /home/me/project         '   /home/me/project   '
+check_entry "a blank line yields no entry"         SKIP                     ''
+check_entry "a whole-line comment yields no entry" SKIP                     '# a note'
+check_entry "an indented comment yields no entry"  SKIP                     '   # a note'
+
+# The grammar this file gains: end-of-line comments, and quotes for a path that must carry a
+# space or a literal `#`.
+check_entry "an end-of-line comment is removed"    /home/me/project         '/home/me/project  # why'
+check_entry "quotes carry a space"                 '/home/me/my project'    '"/home/me/my project"'
+check_entry "quotes make # literal"                '/home/me/proj #2'       '"/home/me/proj #2"'
+check_entry "single quotes work too"               '/home/me/my project'    "'/home/me/my project'"
+check_entry "an exclusion may be quoted"           '!/home/me/my project'   '!"/home/me/my project"'
+check_entry "a quoted path may be commented"       '/home/me/a b'           '"/home/me/a b"   # note'
+# An interior # with no preceding whitespace is part of the path, matching the KEY=value rule --
+# a directory literally named proj#2 keeps working unquoted.
+check_entry "an interior # needs no quotes"        '/home/me/proj#2'        '/home/me/proj#2'
+# An unmatched quote is taken verbatim rather than truncating the path at some later character,
+# so a typo cannot silently shorten an allowlist entry into a broader one.
+check_entry "an unmatched quote is taken as-is"    '/home/me/project'       '"/home/me/project'
+
 finish

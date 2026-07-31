@@ -220,6 +220,11 @@ if [[ -e /usr/local/share/man/man1/ai-tools.1.gz ]]; then
 else
     check_file /usr/local/share/man/man1/ai-tools.1           root root 644
 fi
+if [[ -e /usr/local/share/man/man5/operator.conf.5.gz ]]; then
+    check_file /usr/local/share/man/man5/operator.conf.5.gz   root root 644
+else
+    check_file /usr/local/share/man/man5/operator.conf.5      root root 644
+fi
 # Launch wrapper: 755 root:root -- system-wide on every operator's PATH (path-dedup.sh ranks
 # /usr/local/bin above the nvm shims, so it shadows nvm's claude). Runs as the invoking
 # operator, gates on ai-ops membership, then drops to the sandbox account via sudo; root-owned
