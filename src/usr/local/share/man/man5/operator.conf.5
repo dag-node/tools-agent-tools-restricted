@@ -1,0 +1,168 @@
+.\" operator.conf(5) -- host configuration of Agent Tools Restricted.
+.\" @AI_TOOLS_VERSION@ is substituted at deploy time (install.sh install_subst
+.\" and the RPM %prep), like ai-tools(1). The grammar described here is the one
+.\" conf.lib.sh implements for every KEY=value file in the project.
+.TH OPERATOR.CONF 5 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
+.SH NAME
+operator.conf \- host options for Agent Tools Restricted
+.SH SYNOPSIS
+.B /etc/ai-tools/operator.conf
+.SH DESCRIPTION
+Host-wide configuration for the sandboxed coding agent: which agents and
+integrations a session receives, which command filters it applies, and which
+directories the maintenance walks skip.
+.PP
+Every option is optional, and the shipped file sets only
+.BR OPERATORS .
+An absent key keeps its default, so a fresh install needs no edits and a file
+written for an earlier version keeps working unchanged when a new option
+appears. Anything the file does not say falls back to that default \(em the
+fail-closed direction \(em so a session receives exactly what is enabled here
+and nothing more.
+.PP
+Edit it as root; it is owned by
+.B root
+at mode
+.BR 0644 .
+Options a new version adds are reported at install time alongside a dated
+.I .shipped
+copy of the current template to merge from, so the file stays yours across
+upgrades.
+.SH GRAMMAR
+One
+.I KEY=value
+per line.
+.TP
+.B KEY=value
+Bare value; quotes are not required.
+.TP
+.BR KEY=\(dqa\ b\(dq ", " KEY=\(aqa\ b\(aq
+One layer of matched quotes is stripped. Whitespace around the key and the
+.B =
+is trimmed.
+.TP
+.B KEY=a, b  c
+List items separate on commas
+.B and
+whitespace, freely mixed; runs collapse and empty items are dropped.
+.TP
+.B KEY=value   # why
+An inline comment. A
+.B #
+ends the value at the start of it or after whitespace; inside quotes it is
+literal, so a value containing one is written
+.BR KEY=\(dqa#b\(dq .
+.TP
+.B KEY=
+Present with an
+.B empty
+value \(em distinct from an absent key. An option that reads a list uses this to
+mean "none", where an absent key means "the default".
+.PP
+A line beginning with
+.B #
+is a comment. A repeated key takes its last assignment; a line with no
+.B =
+is ignored.
+.SH OPTIONS
+.TP
+.BI OPERATORS= "user\fR[,\fP user\fR...]\fP"
+The login accounts that may launch a session and that own the project trees.
+Maintained with
+.BR "ai-tools-admin operator add" ,
+which also adds the account to the
+.B ai-ops
+group; edit by hand only to review or remove.
+.TP
+.BI AI_TOOLS_AGENTS= "name\fR[,\fP name\fR...]\fP"
+The coding agents a session may run, by provider name (a manifest basename under
+.IR /usr/local/lib/ai-tools/agents.d ).
+.B Present:
+exactly the names listed \(em an empty value enables none.
+.B Absent:
+every installed agent whose manifest declares
+.BR default_enable=yes .
+Names are reported at launch, so
+.B ai-tools --providers
+shows the resolved set.
+.TP
+.BI AI_TOOLS_INTEGRATIONS= "name\fR[,\fP name\fR...]\fP"
+Host-toolchain integrations a session receives, by provider name (a manifest
+basename under
+.IR /usr/local/lib/ai-tools/integrations.d ),
+with the same present/absent rule as
+.BR AI_TOOLS_AGENTS .
+An integration that widens host surface ships
+.B default_enable=no
+and is enabled only by naming it here \(em the dotnet integration, for example.
+.TP
+.BI AI_TOOLS_FILTERS= "name\fR[,\fP name\fR...]\fP"
+The token-saving command-filter rule sets a session applies, by rule-set name (a
+file basename under
+.IR /usr/local/lib/ai-tools/filters.d ).
+A filter rewrites a matching command so the tool prints less and strips terminal
+control noise from what it printed.
+.B Absent:
+every installed rule set applies.
+.B Present:
+exactly those named, so an
+.B empty
+value turns filtering off entirely.
+Filtering never decides what the agent may run: the permission rules in the
+agent's settings are evaluated on the rewritten command.
+.TP
+.BI SKIP_VCS_DIRS= "name\fR...\fP"
+.TQ
+.BI SKIP_PACKAGE_DIRS= "name\fR...\fP"
+.TQ
+.BI SKIP_ARTIFACT_DIRS= "name\fR...\fP"
+.TQ
+.BI SKIP_CACHE_DIRS= "name\fR...\fP"
+Directory
+.B names
+(not paths) omitted from the helper walks \(em ownership hand-back sweeps, claim
+normalization, and secret lockdown. Setting a key
+.B replaces
+that category's default rather than adding to it. Skipping bounds how much of a tree those
+walks traverse. It is a cost setting: the agent reaches a skipped directory
+through the ordinary filesystem permissions, exactly as it reaches any other.
+.TP
+.BI SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE= "path\fR...\fP"
+Project-relative paths that keep being walked even though their basename matches
+.BR SKIP_ARTIFACT_DIRS .
+For a source directory that shares a build-output name, such as a
+.I bin
+directory holding scripts rather than compiled output.
+.SH FILES
+.TP
+.I /etc/ai-tools/operator.conf
+This file.
+.TP
+.I /usr/local/lib/ai-tools/agents.d/
+.TQ
+.I /usr/local/lib/ai-tools/integrations.d/
+.TQ
+.I /usr/local/lib/ai-tools/filters.d/
+Provider manifests and rule sets, keyed by the names used above.
+.SH EXAMPLES
+Enable the dotnet integration and keep every default elsewhere:
+.PP
+.RS 4
+.EX
+AI_TOOLS_INTEGRATIONS="dotnet"
+.EE
+.RE
+.PP
+Turn command filtering off while diagnosing unexpected command output:
+.PP
+.RS 4
+.EX
+AI_TOOLS_FILTERS=
+.EE
+.RE
+.SH SEE ALSO
+.BR ai\-tools (1)
+.PP
+Report what a session actually resolves \(em the enabled agents and
+integrations, and why \(em with
+.BR "ai-tools --providers" .

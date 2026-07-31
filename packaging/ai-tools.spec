@@ -208,6 +208,9 @@ install -m 0750 src%{ai_bindir}/ai-tools-handback-client.py %{buildroot}%{ai_bin
 # ships. brp-compress may gzip it (hence the %%files glob).
 install -d -m 0755 %{buildroot}%{ai_mandir}/man1
 install -m 0644 src%{ai_mandir}/man1/ai-tools.1             %{buildroot}%{ai_mandir}/man1/ai-tools.1
+# operator.conf(5): the host options and the shared KEY=value grammar they are written in.
+install -d -m 0755 %{buildroot}%{ai_mandir}/man5
+install -m 0644 src%{ai_mandir}/man5/operator.conf.5        %{buildroot}%{ai_mandir}/man5/operator.conf.5
 # The CLI gets a %%{_sbindir} symlink for the OPPOSITE reason ai-tools-admin does: it must
 # never run under sudo, and without the symlink `sudo ai-tools` dies with sudo's "command
 # not found" (%%{ai_bindir} is not in secure_path) before the CLI's own refusal -- run as
@@ -571,6 +574,7 @@ fi
 %attr(0755, root, root) %{ai_bindir}/ai-tools
 %{_sbindir}/ai-tools
 %attr(0644, root, root) %{ai_mandir}/man1/ai-tools.1*
+%attr(0644, root, root) %{ai_mandir}/man5/operator.conf.5*
 %attr(0750, root, ai-tools) %{ai_bindir}/ai-tools-handback-client
 %dir %attr(0751, root, ai-tools) %{ai_libdir}
 %attr(0644, root, root) %{ai_libdir}/log.lib.sh
