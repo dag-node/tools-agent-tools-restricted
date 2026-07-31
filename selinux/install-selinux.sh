@@ -235,7 +235,7 @@ _check_permissive_alignment() {
                 warn "  fix: sudo semodule -r ${stale_mod}"
             fi
         else
-            warn "  ${dom}: no permissive_${dom} module found -- check semanage permissive -l"
+            warn "  ${dom}: no permissive_${dom} module found -- check: sudo semanage permissive -l"
             warn "  fix:  sudo semanage permissive -d ${dom}"
         fi
     done
@@ -325,7 +325,12 @@ verify_agent_labels() {
         return 0
     fi
     if [[ -n "${report}" ]]; then
-        while read -r verdict subject detail wanted; do
+        # Pin IFS for this read: the script runs under the strict-mode IFS=$'\n\t', and the
+        # report's fields are SPACE-separated, so an inherited IFS puts the whole line in
+        # ${verdict} and every case below misses -- including `bad`, which is what sets the
+        # flag that aborts the install when an entrypoint did not take ai_tools_exec_t. The
+        # guard against launching unconfined depends on this splitting correctly.
+        while IFS=$' \t\n' read -r verdict subject detail wanted; do
             case "${verdict}" in
                 ok)   labelled=$(( labelled + 1 ))
                       ok "labelled: ${subject}" ;;
@@ -334,9 +339,16 @@ verify_agent_labels() {
                       warn "    is '${detail}', NOT ${wanted} -- the session would run unconfined"
                       warn "    or fail to write its own state. matchpathcon expects:"
                       warn "      $(matchpathcon "${subject}" 2>/dev/null | awk '{print $2}')"
-                      warn "    chase with: restorecon -nv '${subject}'  and  semanage fcontext -C -l" ;;
+                      warn "    chase with: sudo restorecon -nv '${subject}'" 
+                      warn "            and: sudo semanage fcontext -C -l" ;;
                 none) warn "${subject}: ${detail} is not installed -- nothing to label" ;;
                 skip) warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
+                # A verdict this renderer does not know is REPORTED, not dropped. Silently
+                # ignoring one turns a labelling result into no output at all, which reads as
+                # "nothing happened" for the one path whose label decides whether a session is
+                # confined -- and leaves nothing to diagnose from.
+                *)    warn "unrecognized labelling result: ${verdict} ${subject} ${detail} ${wanted}"
+                      warn "    the entrypoint label is unconfirmed; check: sudo ai-tools --relabel" ;;
             esac
         done <<< "${report}"
     fi
@@ -346,7 +358,22 @@ verify_agent_labels() {
     # (toolchain not provisioned yet) stays a warning -- there is nothing to label.
     [[ "${bad}" -eq 0 ]] \
         || die "an agent path did not take its type (see above) -- the agent would run UNCONFINED"
-    [[ "${labelled}" -gt 0 ]] || warn "no agent path found to label"
+    # Nothing labelled has two very different causes, and the bare message named neither. An
+    # EMPTY report means no enabled agent was iterated at all -- the manifests resolved to
+    # nothing -- which is a configuration problem: the entrypoint keeps whatever type it has, and
+    # a launch fail-closes at ai-tools-run's transition preflight. A non-empty report that
+    # labelled nothing has already printed its own per-path none/skip reason above.
+    if [[ "${labelled}" -eq 0 ]]; then
+        if [[ -z "${report}" ]]; then
+            warn "no agent resolved from the manifests, so no entrypoint was labelled."
+            warn "  Nothing here grants ai_tools_exec_t, so a session refuses to launch until it is."
+            warn "  Check which agents are enabled:  ai-tools --providers"
+            warn "  and that a manifest is installed: ls -l /usr/local/lib/ai-tools/agents.d/"
+            warn "  Re-apply once one resolves:      sudo ai-tools --relabel"
+        else
+            warn "no agent path took a label this run -- see the per-path reason above"
+        fi
+    fi
     log "reminder: a running session keeps its OLD context -- exit and relaunch, then"
     log "          confirm with:  ps -eo label,cmd | grep '[c]laude'  (expect ai_tools_t)"
 }

@@ -141,11 +141,15 @@ _ai_tools_entrypoint_policy_active() {
 _ai_tools_fcontext() {
     local action="$1" file_type="$2" selinux_type="$3" pattern="$4"
     if [[ "${action}" == delete ]]; then
-        semanage fcontext -d -f "${file_type}" -- "${pattern}" 2>/dev/null || true
+        semanage fcontext -d -f "${file_type}" -- "${pattern}" >/dev/null 2>&1 || true
         return 0
     fi
-    semanage fcontext -a -f "${file_type}" -t "${selinux_type}" -- "${pattern}" 2>/dev/null && return 0
-    semanage fcontext -m -f "${file_type}" -t "${selinux_type}" -- "${pattern}" 2>/dev/null
+    # Both streams are dropped, stdout included: semanage announces "already defined, modifying
+    # instead" there, while this function's caller emits a PARSED report on stdout. Anything else
+    # written to that stream is read as a verdict line, so the commands called here stay silent.
+    # The `-m` fallback is the handling for an existing entry.
+    semanage fcontext -a -f "${file_type}" -t "${selinux_type}" -- "${pattern}" >/dev/null 2>&1 && return 0
+    semanage fcontext -m -f "${file_type}" -t "${selinux_type}" -- "${pattern}" >/dev/null 2>&1
 }
 
 # _ai_tools_agent_config_pattern <config-dir-name>: print the file-context pattern for an agent's
