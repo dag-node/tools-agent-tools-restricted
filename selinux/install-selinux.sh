@@ -401,7 +401,11 @@ _home_state()  { local p; for p in "${HOME_STATE[@]}"; do
 # don't die) so one bad project never aborts a whole relabel. _unlabel_one already
 # restorecons via the lib; the remove action's later _restore_one pass is a
 # harmless belt-and-suspenders.
-_label_one()   { if ai_tools_label_project "$1"; then log "labelled project ai_tools_project_t: $1"
+# Sweeps every registered project on each run, so it asks for drift REPAIR rather than a forced
+# conversion: an already-labelled tree keeps its type on its own, and a forced pass would rewrite
+# every file of every project on every install. A first-time claim converts in full through
+# ai-tools-relabel.
+_label_one()   { if ai_tools_label_project "$1" repair; then log "labelled project ai_tools_project_t: $1"
                  else warn "could not label $1 -- is the ai_tools module loaded?"; fi; }
 _unlabel_one() { ai_tools_unlabel_project "$1" || warn "could not unlabel $1"; }
 _restore_one() { restorecon -RF "$1" 2>/dev/null || true; }

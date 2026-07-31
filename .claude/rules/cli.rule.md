@@ -109,7 +109,12 @@ The confined agent (`ai_tools_t`) reaches it only if the tree carries the
 `ai-tools-relabel`, and `--project-unclaim` reverts it. The label primitive (semanage
 fcontext + restorecon) lives in the shared `relabel.lib.sh`, sourced by both
 `ai-tools-relabel` and `install-selinux.sh`, so the CLI and the policy installer apply one
-implementation. Claim sets group `SANDBOX_GROUP` + the setgid bit on the project's directories
+implementation. It takes the effort the caller needs: a claim **converts** (`restorecon -RF`,
+rewriting every file, which is what a tree full of `user_home_t` files requires), while the
+installer's sweep over already-registered projects **repairs** (`restorecon -R`, fixing only what
+does not match). A labelled tree keeps its type without help — a file created in a directory
+inherits that directory's type — so the sweep exists to catch drift, not to redo the conversion on
+every install. Claim sets group `SANDBOX_GROUP` + the setgid bit on the project's directories
 (via `ai-tools-setgid`, so the agent traverses the tree and new files inherit the group), applies
 the group-permission ACL for existing files (via `ai-tools-setfacl`), and pins repo-local
 `core.filemode=true`.

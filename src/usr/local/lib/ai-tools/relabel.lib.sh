@@ -59,20 +59,40 @@ ai_tools_relabel_available() {
 # root, whose subtree ai_tools.fc already maps to ai_tools_project_t.
 _ai_tools_is_sandbox() { [[ "$1/" == "${AI_TOOLS_SANDBOX_ROOT}/"* ]]; }
 
-# ai_tools_label_project <dir>: ensure <dir> and its subtree carry
+# ai_tools_label_project <dir> [convert|repair]: ensure <dir> and its subtree carry
 # ai_tools_project_t. Adds (or refreshes) the per-project fcontext rule -- skipped
 # for sandbox clones, which the static rule already covers -- then restorecons.
 # Returns 2 if SELinux is unavailable, 1 on a hard failure (e.g. the type is not in
 # the loaded policy because the module is not installed), 0 on success.
+#
+# The second argument picks how hard the relabel works, because the two callers want different
+# things from the same rule:
+#
+#   convert (default)  restorecon -RF -- rewrite every file's context whether or not it already
+#                      matches. What a first-time CLAIM needs: the tree is full of user_home_t
+#                      files, and the one-off cost buys a tree known to be converted whole.
+#   repair             restorecon -R  -- fix only what does not already match. What a repeated
+#                      SWEEP needs: a labelled tree stays labelled on its own, since a file
+#                      created inside a directory inherits that directory's type, so a forced
+#                      pass over every registered project on every install rewrites contexts that
+#                      were already right. Drift is still repaired, and an unchanged tree costs a
+#                      read-only walk instead of a write per file.
+#
+# The fcontext rule is asserted in both modes: it is what makes the type survive a future
+# restorecon, and re-asserting it is how a type change from a policy bump reaches an existing
+# project.
 ai_tools_label_project() {
-    local dir="$1"
+    local dir="$1" mode="${2:-convert}" restore_flags="-RF"
+    [[ "${mode}" == repair ]] && restore_flags="-R"
     ai_tools_relabel_available || return 2
     if ! _ai_tools_is_sandbox "${dir}"; then
-        semanage fcontext -a -t "${AI_TOOLS_PROJECT_TYPE}" "${dir}(/.*)?" 2>/dev/null \
-            || semanage fcontext -m -t "${AI_TOOLS_PROJECT_TYPE}" "${dir}(/.*)?" 2>/dev/null \
+        # `-a` on an existing entry reports it on stdout as well as failing, so both streams are
+        # dropped: the fallback to `-m` is the handling, and the message reads as an error.
+        semanage fcontext -a -t "${AI_TOOLS_PROJECT_TYPE}" "${dir}(/.*)?" >/dev/null 2>&1 \
+            || semanage fcontext -m -t "${AI_TOOLS_PROJECT_TYPE}" "${dir}(/.*)?" >/dev/null 2>&1 \
             || return 1
     fi
-    restorecon -RF "${dir}" 2>/dev/null || return 1
+    restorecon "${restore_flags}" "${dir}" 2>/dev/null || return 1
 }
 
 # ai_tools_unlabel_project <dir>: drop any per-project fcontext rule for <dir> and
