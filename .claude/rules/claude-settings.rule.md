@@ -209,6 +209,47 @@ in the agent-writable project tree. The layers compose differently per setting:
   (`/etc/claude-code/managed-settings.json`), is machine-wide — it applies to every Claude
   Code user on the host — so the sandbox does not ship it.
 
+### An upgrade keeps host tuning and still lands this version's hooks
+
+An install **keeps** an existing `settings.json` by default (`install.sh`'s `keep_existing`
+prompt; an unattended run always keeps), because the file carries host tuning a reset would
+revert — a deny entry relaxed alongside an enabled SELinux group, an added `env` key. Kept
+files then have this version's **hook declarations** merged in
+(`ai_tools_conf_merge_hook_declarations`, in `conf.lib.sh`): each shipped declaration the
+file does not carry is added,
+every other key — the permission arrays it was kept for, an operator's own hook — is left as
+written, and each addition is named in the install log.
+
+The split follows the layering above: hook declarations are control plane that merges
+additively and that no lower-precedence layer may remove, while the permission rules are the
+host's to tune. The merge is what carries a newly shipped hook onto an existing host: its body
+and data arrive with the package, and this is the step that makes the file declare it, so the
+hook runs rather than sitting installed and uninvoked.
+
+Each outcome is reported at the severity it earns, so neither is lost in an install's output:
+a merge reports at `ok` and **names every declaration it added**, which is what makes an edit
+to an operator-owned file reviewable. A file already declaring everything shipped is not
+rewritten.
+
+Two sidecar files serve two different recoveries, and neither substitutes for the other:
+
+| file | written when | answers |
+|---|---|---|
+| `settings.json.<YYYYMMDD>.bak` | a merge is about to replace the file | "what did I have?" — the only copy that can restore host tuning if a merge produces valid JSON that is nonetheless wrong, the one failure a parse check cannot catch |
+| `settings.json.<YYYYMMDD>.shipped` | a merge could **not** run — absent `jq`, malformed JSON, a result that does not parse | "what was I supposed to get?" — the baseline to merge from by hand, since an RPM-installed host has no source checkout to copy from |
+
+Each failure direction leaves the deployed file byte-identical and warns, naming which check
+refused. Both sidecars are date-stamped and neither overwrites an earlier copy, so successive
+installs read as a history of what each one offered rather than only the most recent; a no-op run
+writes neither. The suffix is deliberately not `.rpmnew` — no rpm transaction produced it, and
+rpm's suffix would both claim a provenance it lacks and hand the file to the tooling that
+sweeps rpm leftovers.
+
+`jq` is a hard runtime dependency of every hook this agent ships, not a convenience: each
+parses its event JSON with it, and absent it they take their no-op paths silently — the
+handback stops returning ownership, the session sweeps stop running, and the filters stop
+filtering. The agent package `Requires: jq` for that reason.
+
 ## Why not
 
 - **Denying `chmod`/`chown` and other target-dependent refusals**: they succeed on

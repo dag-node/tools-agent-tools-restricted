@@ -126,6 +126,19 @@ blocking words that let the agent's own flag win, rule precedence, the `AI_TOOLS
 including its empty-value kill form, and each untrusted rules file or directory. Its noise-strip
 section pins the other half of the contract — control bytes go, every line survives.
 
+`settings-merge.sh` pins install.sh's hook-declaration reconciler, the step that lets a newly
+shipped hook reach a host whose `settings.json` is kept across an upgrade (see
+[claude-settings](claude-settings.rule.md)). It edits an operator-owned control-plane file and
+every way it can go wrong is quiet, so the assertions come in three groups — what must **arrive**
+(each shipped declaration the kept file lacks), what must **survive** (the handback declaration,
+the permission arrays, a relaxed deny entry, an operator's own hook), and what must be **said**
+(the report names every addition, since the operator reviews the install log rather than the
+JSON) — plus the two sidecars, which answer different questions and do not substitute for each
+other: `.bak` is what the operator had, `.shipped` is what they were meant to get, written only
+when the merge could not run. It drives the deployed `conf.lib.sh` directly, like the other
+library unit tests: the decision lives there rather than in `install.sh` precisely so it can be
+exercised without stubs or text extraction, and the installer keeps only the rendering.
+
 `relabel.sh` pins the other manifest-supplied decision with a security consequence: the
 entrypoint file-context predicate (`relabel.lib.sh`). A declared pattern becomes a `semanage`
 rule granting `ai_tools_exec_t`, the confined domain's exec entrypoint, so the test drives every

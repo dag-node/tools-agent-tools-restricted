@@ -92,6 +92,15 @@ readonly CONTROL_PLANE_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/control-pla
 source "${CONTROL_PLANE_LIB}" || {
     printf 'install.sh: cannot source %s\n' "${CONTROL_PLANE_LIB}" >&2; exit 1; }
 
+# The shared config grammar, sourced from the SOURCE TREE like the libs above. It carries the
+# config-sidecar handling and the hook-declaration merge this script applies to a KEPT
+# settings.json, so a missing lib would mean an upgrade silently leaving a newly shipped hook
+# undeclared -- fatal here, like the others.
+readonly CONF_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/conf.lib.sh"
+# shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/conf.lib.sh
+source "${CONF_LIB}" || {
+    printf 'install.sh: cannot source %s\n' "${CONF_LIB}" >&2; exit 1; }
+
 # Managed-asset seeder (agents/skills), sourced from the SOURCE TREE. Requires msg.lib.sh
 # (sourced above) for the update confirm; a missing lib is fatal like the others.
 readonly MANAGED_ASSETS_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/managed-assets.lib.sh"
@@ -148,6 +157,41 @@ seed_result() {
     elif (( existed )); then verb="reseeded"
     else verb="created"; fi
     log "${path} ${verb}${detail:+ (${detail})}"
+}
+
+# Render the shared hook-declaration merge (conf.lib.sh) in the installer's voice. The decision,
+# the backup, and the baseline copy are the library's; what belongs here is only how the outcome
+# reads in an install log.
+#
+# A kept settings.json is the one control-plane file an upgrade does not overwrite, so without
+# this a newly shipped hook never reaches an existing host: the hook body and its data install,
+# the declaration that invokes them does not, and the feature is silently inert.
+# $1 deployed settings.json   $2 shipped settings.json
+reconcile_hook_declarations() {
+    local deployed="$1" shipped="$2" status=0
+    ai_tools_conf_merge_hook_declarations "${deployed}" "${shipped}" || status=$?
+
+    case "${status}" in
+    1)  return 0 ;;                     # already current: nothing done, nothing to say
+    2)  warn "hook declarations not merged into ${deployed}: ${_ai_tools_conf_merge_reason}"
+        warn "  the file is unchanged; the hooks it does not declare do not run"
+        if [[ -n "${_ai_tools_conf_merge_reference}" ]]; then
+            warn "  shipped baseline written to ${_ai_tools_conf_merge_reference} -- merge its"
+            warn "  \"hooks\" block by hand, then re-run tests/integration/hooks.sh"
+        fi
+        return 0 ;;
+    esac
+
+    # An affirmative outcome, not a warning: the merge is the intended path, and a warning that
+    # reports success trains an operator to skim past the ones that matter. It is still not
+    # routine -- an operator-owned control-plane file changed -- so every addition is named.
+    ok "${deployed}: merged in the hook declarations this version ships"
+    local line
+    for line in "${_ai_tools_conf_merge_added[@]}"; do
+        log "  + ${line}"
+    done
+    [[ -n "${_ai_tools_conf_merge_backup}" ]] && log "  previous file saved as ${_ai_tools_conf_merge_backup}"
+    return 0
 }
 
 # Create a directory only if it does not already exist, preserving perms on
@@ -1180,7 +1224,9 @@ do_install() {
     # entry relaxed alongside an enabled SELinux group (see claude-settings.rule.md) -- that a
     # reset would revert, so it passes a warn and the reset is gated behind the second
     # confirmation. Ownership and mode are re-asserted either way, so a kept file still
-    # satisfies the control-plane integrity checks.
+    # satisfies the control-plane integrity checks. A kept file additionally has this version's
+    # hook DECLARATIONS reconciled into it, so keeping host tuning never costs a shipped hook
+    # (reconcile_hook_declarations); the permission rules it was kept for are not touched.
     local settings="${claude_config_dir}/settings.json" settings_existed=0
     [[ -f "${settings}" ]] && settings_existed=1
     if keep_existing "${settings}" \
@@ -1188,6 +1234,8 @@ do_install() {
         chown root:"${SANDBOX_GROUP}" "${settings}"
         chmod 640 "${settings}"
         seed_result "${settings}" "${settings_existed}" 1 "host-tuned permission rules preserved"
+        reconcile_hook_declarations "${settings}" \
+            "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json"
     else
         install -o root -g "${SANDBOX_GROUP}" -m 640 \
             "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json" "${settings}"
@@ -1543,7 +1591,9 @@ do_uninstall() {
     rm -f /opt/ai-tools/.claude/post-tool-hook.sh
     rm -f /opt/ai-tools/.claude/session-hook.sh
     rm -f /opt/ai-tools/.claude/filter-hook.sh
-    rm -f /opt/ai-tools/.claude/settings.json
+    rm -f /opt/ai-tools/.claude/settings.json \
+          /opt/ai-tools/.claude/settings.json.shipped \
+          /opt/ai-tools/.claude/settings.json.bak
 
     section "Registration"
     # Optionally remove this project from the allowlist (default: keep)

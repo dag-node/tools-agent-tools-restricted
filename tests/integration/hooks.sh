@@ -68,7 +68,7 @@ else
     for ev in PreToolUse PostToolUse; do
         got="$(jq -r --arg e "${ev}" '[.hooks[$e][]?.hooks[]?.command] | join("\n")' "${settings}" 2>/dev/null)"
         if ! grep -qxF "${want_filter[$ev]}" <<<"${got}"; then
-            fail "settings.json ${ev} does not declare '${want_filter[$ev]}' -- Bash output is unfiltered"
+            fail "settings.json ${ev} does not declare '${want_filter[$ev]}' -- Bash output is unfiltered (re-run: sudo ./install.sh install, which merges shipped hook declarations into a kept settings.json)"
             filter_ok=false
         fi
     done

@@ -245,3 +245,98 @@ ai_tools_conf_require_jq() {
     printf 'conf: jq not found -- it is a package dependency; reinstall ai-tools-base\n' >&2
     return 1
 }
+
+# ── JSON hook declarations ───────────────────────────────────────────────────────────────────
+# An agent's settings file is kept across an upgrade, because it carries host tuning a reset
+# would revert. Its HOOK DECLARATIONS are not tuning though: they are control plane that merges
+# additively and that no lower-precedence layer may remove, so a version that ships a new hook
+# has to get that declaration into a kept file or the hook it installed never runs.
+#
+# The merge adds only declarations the file lacks and leaves every other key -- the permission
+# arrays it was kept for, an operator's own hook -- as written. Reporting is the caller's: this
+# sets what happened and returns how it went, so the same decision can be rendered by an
+# installer, a test, or a future agent's tooling without the wording living here.
+
+# The shipped hook commands a deployed file does not declare, as "<event>: <command>". The
+# command binds to $command before the membership test: inside index(), `.` is that function's
+# own input -- the $have array -- so an unbound form asks whether the array contains itself and
+# reports nothing wherever the event already declares a hook.
+# shellcheck disable=SC2016  # jq variables, bound by --slurpfile and jq's own `as`
+readonly _AI_TOOLS_CONF_HOOKS_MISSING_FILTER='
+    . as $cur
+    | ($shipped[0].hooks // {}) | to_entries[] as $event
+    | ([ (($cur.hooks // {})[$event.key] // [])[] | (.hooks // [])[] | .command ]) as $have
+    | $event.value[] | (.hooks // [])[] | .command as $command
+    | select(($have | index($command)) == null)
+    | "\($event.key): \($command)"'
+
+# Append whole matcher groups whose commands are absent, so a group arrives with its matcher
+# intact; a group already fully declared is left alone.
+# shellcheck disable=SC2016  # jq variables, as above
+readonly _AI_TOOLS_CONF_HOOKS_MERGE_FILTER='
+    ($shipped[0].hooks // {}) as $ship
+    | reduce ($ship | to_entries[]) as $event (
+        .;
+        ([ ((.hooks // {})[$event.key] // [])[] | (.hooks // [])[] | .command ]) as $have
+        | reduce ($event.value[]) as $group (
+            .;
+            if ((([ ($group.hooks // [])[] | .command ]) - $have) | length) == 0
+            then .
+            else .hooks[$event.key] = ((.hooks[$event.key] // []) + [$group])
+            end
+          )
+      )'
+
+# ai_tools_conf_merge_hook_declarations <deployed> <shipped> : merge the shipped hook
+#   declarations into <deployed>.
+#     returns 0  merged      _ai_tools_conf_merge_added holds "<event>: <command>" per addition,
+#                            _ai_tools_conf_merge_backup the copy of what the operator had
+#     returns 1  no change   the file already declares everything shipped; nothing written
+#     returns 2  refused     the file is byte-identical and _ai_tools_conf_merge_reference holds
+#                            the baseline dropped for a hand merge (empty if even that failed);
+#                            _ai_tools_conf_merge_reason says which check refused
+#   The deployed file is never opened for writing: the merge is built in a temporary file and
+#   validated as JSON before an atomic rename, so a failure at any point leaves the original.
+ai_tools_conf_merge_hook_declarations() {
+    local deployed="$1" shipped="$2" missing="" tmp=""
+    _ai_tools_conf_merge_added=()
+    _ai_tools_conf_merge_backup=""
+    _ai_tools_conf_merge_reference=""
+    _ai_tools_conf_merge_reason=""
+
+    _refuse() {
+        _ai_tools_conf_merge_reason="$1"
+        _ai_tools_conf_merge_reference="$(ai_tools_conf_reference "${deployed}" "${shipped}")" || true
+        return 2
+    }
+
+    [[ -f "${deployed}" && -f "${shipped}" ]] || { _ai_tools_conf_merge_reason="missing file"; return 2; }
+    ai_tools_conf_require_jq || { _refuse "jq is not installed"; return 2; }
+    jq -e . "${deployed}" >/dev/null 2>&1 || { _refuse "the deployed file is not valid JSON"; return 2; }
+
+    missing="$(jq -r --slurpfile shipped "${shipped}" \
+        "${_AI_TOOLS_CONF_HOOKS_MISSING_FILTER}" "${deployed}" 2>/dev/null)" \
+        || { _refuse "the deployed file's hook declarations could not be read"; return 2; }
+    [[ -n "${missing}" ]] || return 1
+
+    tmp="$(mktemp "${deployed}.XXXXXX" 2>/dev/null)" || { _refuse "no temporary file could be created"; return 2; }
+    if ! jq --slurpfile shipped "${shipped}" \
+            "${_AI_TOOLS_CONF_HOOKS_MERGE_FILTER}" "${deployed}" > "${tmp}" 2>/dev/null \
+            || ! jq -e . "${tmp}" >/dev/null 2>&1; then
+        rm -f "${tmp}"
+        _refuse "the merged result was not valid JSON"
+        return 2
+    fi
+
+    # Keep what the operator had before replacing it: this is the only copy that restores host
+    # tuning if a merge is valid JSON yet wrong, which the check above cannot catch.
+    _ai_tools_conf_merge_backup="$(ai_tools_conf_backup "${deployed}")" || true
+    _ai_tools_conf_match_perms "${tmp}" "${deployed}"
+    mv -f "${tmp}" "${deployed}" || { rm -f "${tmp}"; _refuse "the merged file could not be moved into place"; return 2; }
+
+    local line
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] && _ai_tools_conf_merge_added+=("${line}")
+    done <<< "${missing}"
+    return 0
+}
