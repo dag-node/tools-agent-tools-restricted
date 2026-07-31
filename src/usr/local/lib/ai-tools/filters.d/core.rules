@@ -1,0 +1,26 @@
+# /usr/local/lib/ai-tools/filters.d/core.rules
+# The base's own token-saving command rules (shipped by ai-tools-base). Parsed, never sourced, by
+# /usr/local/lib/ai-tools/filters.lib.sh, which carries the grammar and the safety rules; this
+# file carries only the per-command judgement.
+#
+#   match<TAB>action<TAB>blocking<TAB>payload
+#
+# Loaded FIRST, so a provider's rule set can override any rule here.
+#
+# Each rule below narrows how much a command PRINTS, never what it inspects, and cancels itself
+# the moment the agent passes a flag of its own about the same thing. Three commands qualify;
+# git diff, git show, git blame and grep are deliberately absent, because every terse mode they
+# have discards content the agent asked for by running them.
+
+# The default log entry is six lines per commit -- commit/Author/Date/blank/indented subject --
+# where one carries the same facts. No count is imposed: `git log -5` must keep meaning five.
+git log	args	--format,--pretty,--oneline,--graph,-p,--patch,--stat,--numstat,--shortstat,--name-only,--name-status,-L,-S,-G	--date=short --format='%h %ad %an %s'
+
+# The long form pads each file with instructional hints ("use git restore ...") the agent already
+# knows; --branch keeps the ahead/behind line, which is the part it reads.
+git status	args	-s,--short,--porcelain,--long,-v,--verbose,-z,--column	--short --branch
+
+# An unbounded tree of a repository with a package directory in it is the single largest
+# accidental output a session produces. The depth cap and the file limit both announce themselves
+# in tree's own output, so a truncated branch is visible rather than silent.
+tree	args	-L,--filelimit,-J,-X,--du	-L 3 --filelimit 100

@@ -143,6 +143,12 @@ drops any agent they do not use.
 %package -n ai-tools-agents-claude-code-restricted
 Summary:        Claude Code launch wrapper, confinement shim, and hooks for the ai-tools sandbox
 Requires:       ai-tools-integration-nodejs = %{version}-%{release}
+# jq is a HARD runtime dependency of all three hooks this package ships, not a convenience: each
+# parses its event JSON with it. Absent, every one of them takes its `|| exit 0` path silently --
+# post-tool-hook stops handing agent-written files back (they stay sandbox-owned), session-hook
+# stops reclaiming .git and stops the session-end sweep, and filter-hook stops filtering. The
+# first two are ownership guarantees, so this is Requires rather than Recommends.
+Requires:       jq
 # Renamed from claude-code-restricted; see the note on ai-tools-integration-nodejs for why the
 # pair is required rather than cosmetic. This one also owns the launch wrapper and the hooks, so
 # without the Obsoletes an install alongside the old name is a file conflict.
@@ -213,7 +219,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf skip-dirs relabel secret-patterns operator control-plane safe-paths confinement npm-verify managed-assets providers selinux-groups; do
+for l in log msg conf skip-dirs relabel secret-patterns operator control-plane safe-paths confinement npm-verify managed-assets providers selinux-groups filters; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -224,6 +230,11 @@ done
 install -d -m 0755 %{buildroot}%{ai_libdir}/agents.d
 install -d -m 0755 %{buildroot}%{ai_libdir}/integrations.d
 install -d -m 0755 %{buildroot}%{ai_libdir}/session-env.d
+# Token-saving command-filter rule sets, keyed by name the same way: filters.d/<name>.rules. Base
+# owns the directory and ships core.rules, the set every host gets; a package with commands of its
+# own ships one beside it. An agent's filter hook reads them through filters.lib.sh.
+install -d -m 0755 %{buildroot}%{ai_libdir}/filters.d
+install -m 0644 src%{ai_libdir}/filters.d/core.rules %{buildroot}%{ai_libdir}/filters.d/core.rules
 # The shared confinement shim. Base-owned and agent-agnostic: it resolves which agent may launch
 # from the manifests above, so an ai-tools-agents-* package ships only its wrapper, manifest, and
 # session-env fragment, and one sudoers grant serves every agent.
@@ -333,6 +344,9 @@ install -m 0644 src%{_unitdir}/ai-tools-relabel.service %{buildroot}%{_unitdir}/
 # helper is administrator-typed, so it gets a %{_sbindir} symlink like ai-tools-bootstrap/-admin.
 install -m 0644 src%{ai_libdir}/session-env.d/dotnet.env.sh %{buildroot}%{ai_libdir}/session-env.d/dotnet.env.sh
 install -m 0644 src%{ai_libdir}/integrations.d/dotnet.conf  %{buildroot}%{ai_libdir}/integrations.d/dotnet.conf
+# Its command-filter rules (SDK verbosity), which are .NET knowledge and so ship with the .NET
+# package rather than in the base's core.rules.
+install -m 0644 src%{ai_libdir}/filters.d/dotnet.rules      %{buildroot}%{ai_libdir}/filters.d/dotnet.rules
 install -m 0750 src%{ai_sbindir}/ai-tools-dotnet.sh         %{buildroot}%{ai_sbindir}/ai-tools-dotnet
 ln -s %{ai_sbindir}/ai-tools-dotnet %{buildroot}%{_sbindir}/ai-tools-dotnet
 # Ghost this helper's operation log alongside the base helpers' (the /var/log/ai-tools dir itself
@@ -352,6 +366,7 @@ install -m 0755 src%{ai_bindir}/claude.sh                  %{buildroot}%{ai_bind
 install -d -m 0770 %{buildroot}/opt/ai-tools/.claude
 install -m 0750 src/opt/ai-tools/agents/claude-code/post-tool-hook.sh %{buildroot}/opt/ai-tools/.claude/post-tool-hook.sh
 install -m 0750 src/opt/ai-tools/agents/claude-code/session-hook.sh   %{buildroot}/opt/ai-tools/.claude/session-hook.sh
+install -m 0750 src/opt/ai-tools/agents/claude-code/filter-hook.sh    %{buildroot}/opt/ai-tools/.claude/filter-hook.sh
 install -m 0640 src/opt/ai-tools/agents/claude-code/settings.json     %{buildroot}/opt/ai-tools/.claude/settings.json
 # The claude-code agent manifest: providers.lib.sh reads it so the toolchain layer installs the
 # Claude npm package and symlinks the claude launcher without hardcoding either (the agents.d
@@ -572,9 +587,12 @@ fi
 %attr(0644, root, root) %{ai_libdir}/conf.lib.sh
 %attr(0644, root, root) %{ai_libdir}/providers.lib.sh
 %attr(0644, root, root) %{ai_libdir}/selinux-groups.lib.sh
+%attr(0644, root, root) %{ai_libdir}/filters.lib.sh
 %dir %attr(0755, root, root) %{ai_libdir}/agents.d
 %dir %attr(0755, root, root) %{ai_libdir}/integrations.d
 %dir %attr(0755, root, root) %{ai_libdir}/session-env.d
+%dir %attr(0755, root, root) %{ai_libdir}/filters.d
+%attr(0644, root, root) %{ai_libdir}/filters.d/core.rules
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/ai-tools-run
 %attr(0644, root, root) %{ai_libdir}/path-dedup.sh
 %{_unitdir}/ai-tools-handback.socket
@@ -640,6 +658,7 @@ fi
 %files -n ai-tools-integration-dotnet
 %attr(0644, root, root) %{ai_libdir}/session-env.d/dotnet.env.sh
 %attr(0644, root, root) %{ai_libdir}/integrations.d/dotnet.conf
+%attr(0644, root, root) %{ai_libdir}/filters.d/dotnet.rules
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-dotnet
 %{_sbindir}/ai-tools-dotnet
 %ghost %attr(0600, root, root) /var/log/ai-tools/dotnet.log
@@ -658,6 +677,7 @@ fi
 %attr(0755, root, root) %{ai_bindir}/claude
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/post-tool-hook.sh
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/session-hook.sh
+%attr(0750, root, ai-tools) /opt/ai-tools/.claude/filter-hook.sh
 %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog

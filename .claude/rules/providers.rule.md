@@ -37,7 +37,12 @@ execute code in the privileged scripts that read it:
 - integrations: `default_enable`.
 
 Either kind may also ship `session-env.d/<name>.env.sh`, keyed by the same `<name>` — one flat
-namespace across both kinds, so a provider name is unique host-wide.
+namespace across both kinds, so a provider name is unique host-wide. A package with commands of
+its own may additionally ship `filters.d/<name>.rules`, keyed the same way, carrying the
+token-saving rules for those commands (see [filters](filters.rule.md)). That set is read by an
+agent's filter hook rather than by `ai-tools-run`, and it is not gated on provider enablement — a
+rule is inert unless the agent runs the command it matches — so it is a rule-set name rather than
+a provider capability.
 
 `ai-tools-base` owns the three directories (`agents.d`, `integrations.d`, `session-env.d`), ships
 `providers.lib.sh`, and owns the `ai-tools-run` shim that reads them; each member package ships
@@ -249,6 +254,9 @@ so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS`.
   a writable sibling inside the same state root. Only the root-owned tools dir joins PATH; a tool the agent
   installs for itself under `DOTNET_CLI_HOME` stays reachable by full path but never lands on the
   session PATH, so the sandbox cannot put an executable of its choosing on it.
+- `filters.d/dotnet.rules` sets `--nologo -v q` on `dotnet build|publish|restore|run|test`. The
+  SDK's verbosity has no environment-variable form, so it belongs in a command rule rather than in
+  the fragment above; quiet verbosity keeps errors and warnings. See [filters](filters.rule.md).
 - `ai-tools-dotnet` (root/sudo helper) `setup` creates that state root and its three
   directories: the NuGet cache and the SDK's CLI home are agent-**writable** (`2770`, setgid),
   the shared tools are **read-only** to the agent (`0755`, sudo-only writes). It applies **no**

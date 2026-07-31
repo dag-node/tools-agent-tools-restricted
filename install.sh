@@ -499,11 +499,14 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/npm-verify.lib.sh
     _chk /usr/local/lib/ai-tools/conf.lib.sh
     _chk /usr/local/lib/ai-tools/providers.lib.sh
+    _chk /usr/local/lib/ai-tools/filters.lib.sh
+    _chk /usr/local/lib/ai-tools/filters.d/core.rules
     _chk /usr/local/lib/ai-tools/selinux-groups.lib.sh
     _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
     _chk /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
     _chk /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh
     _chk /usr/local/lib/ai-tools/integrations.d/dotnet.conf
+    _chk /usr/local/lib/ai-tools/filters.d/dotnet.rules
     _chk /usr/local/sbin/ai-tools/ai-tools-dotnet
     _chk /usr/sbin/ai-tools-dotnet
     _chk /usr/local/lib/ai-tools/control-plane.lib.sh
@@ -517,6 +520,7 @@ do_summary() {
     _chk /opt/ai-tools/bin/claude
     _chk /opt/ai-tools/.claude/post-tool-hook.sh
     _chk /opt/ai-tools/.claude/session-hook.sh
+    _chk /opt/ai-tools/.claude/filter-hook.sh
     _chk /opt/ai-tools/.claude/settings.json
     _chk /opt/ai-tools/subagents/ai-tools-reference-architect.md
     _chk /opt/ai-tools/.claude/agents/ai-tools-reference-architect.md
@@ -713,6 +717,21 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/providers.lib.sh" \
         /usr/local/lib/ai-tools/providers.lib.sh
 
+    # Token-saving command filters: the engine (644 root:root -- world-readable, sourced by an
+    # agent's filter hook, which runs as the sandbox account) plus the filters.d directory and the
+    # base's own rule set. Root-owned and non-group-writable is what makes a rule set trusted
+    # enough to parse; a rules file a non-root account could write would decide what every command
+    # in a session becomes. Read-only data, no secrets.
+    log "/usr/local/lib/ai-tools/filters.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.lib.sh" \
+        /usr/local/lib/ai-tools/filters.lib.sh
+    log "/usr/local/lib/ai-tools/filters.d/core.rules"
+    install -d -o root -g root -m 755 /usr/local/lib/ai-tools/filters.d
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.d/core.rules" \
+        /usr/local/lib/ai-tools/filters.d/core.rules
+
     # Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by
     # ai-tools-admin (to load a prebuilt group) and selinux/install-selinux.sh (to compile one)
     # so the two never disagree on the group set. Read-only data, no secrets.
@@ -757,6 +776,12 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/integrations.d/dotnet.conf" \
         /usr/local/lib/ai-tools/integrations.d/dotnet.conf
+    # Its command-filter rules (SDK verbosity), which are .NET knowledge and so ship with the
+    # .NET layer rather than in the base's core.rules.
+    log "/usr/local/lib/ai-tools/filters.d/dotnet.rules"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.d/dotnet.rules" \
+        /usr/local/lib/ai-tools/filters.d/dotnet.rules
 
     # SELinux policy packages (prebuilt): stage the core plus each STABLE optional group under the
     # canonical package dir, so the installed ai-tools-admin can `selinux enable-group` a prebuilt
@@ -1147,6 +1172,9 @@ do_install() {
     install_subst 750 root "${SANDBOX_GROUP}" \
         "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/session-hook.sh" \
         "${claude_config_dir}/session-hook.sh"
+    install_subst 750 root "${SANDBOX_GROUP}" \
+        "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/filter-hook.sh" \
+        "${claude_config_dir}/filter-hook.sh"
     # settings.json is kept by default when it already exists (keep_existing prompt;
     # unattended installs always keep): it may carry deliberate host tuning -- e.g. a deny
     # entry relaxed alongside an enabled SELinux group (see claude-settings.rule.md) -- that a
@@ -1514,6 +1542,7 @@ do_uninstall() {
     rm -f /opt/ai-tools/bin/ai-tools-run /opt/ai-tools/bin/claude-run
     rm -f /opt/ai-tools/.claude/post-tool-hook.sh
     rm -f /opt/ai-tools/.claude/session-hook.sh
+    rm -f /opt/ai-tools/.claude/filter-hook.sh
     rm -f /opt/ai-tools/.claude/settings.json
 
     section "Registration"
