@@ -250,6 +250,21 @@ _check_permissive_alignment() {
 SELECTED_GROUPS=()
 
 prompt_groups() {
+    local entry name desc
+    local -a loaded_groups=()
+
+    # State what is already loaded BEFORE the gate below, because the default answer skips this
+    # section without listing anything: this step only ever ADDS modules, so a group enabled by
+    # an earlier install survives the skip, and silence here reads as if it might not.
+    for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
+        name="$(ai_tools_selinux_group_name "${entry}")"
+        ai_tools_selinux_group_loaded "${name}" && loaded_groups+=("${name}")
+    done
+    if (( ${#loaded_groups[@]} )); then
+        logx "groups already loaded, and kept whichever way you answer: ${loaded_groups[*]}"
+        sayx "    ${C_DIM}this step only adds modules; remove one with: sudo $0 disable-group <name>${C_RST}"
+    fi
+
     # One gate for the whole EXPERIMENTAL section: the default skips it, so an operator who
     # wants the core module alone answers once here instead of declining each group. A
     # non-interactive run takes the default (skip) through the confirm's no-tty behaviour.
@@ -263,10 +278,18 @@ prompt_groups() {
     warn "  relying on it (see the avc-denials harness)."
     sayx ""
 
-    local entry name desc
     for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
         name="$(ai_tools_selinux_group_name "${entry}")"
         desc="$(ai_tools_selinux_group_desc "${entry}")"
+        # A group loaded by an earlier install stays loaded whatever is answered here: this step
+        # only ADDS modules. Show that state in the same vocabulary list-groups uses, and name
+        # the verb that actually removes one -- an unmarked "Enable? [n]" beside a loaded group
+        # reads as "off, and staying off", which is the opposite of what the answer does.
+        if ai_tools_selinux_group_loaded "${name}"; then
+            printf '    %s[LOADED]%s %s -- %s\n' "${C_GRN}" "${C_RST}" "${name}" "${desc}" >&2
+            sayx "        stays enabled; to remove it: sudo $0 disable-group ${name}"
+            continue
+        fi
         printf '    %s[%s]%s %s\n' "${C_DIM}" "${name}" "${C_RST}" "${desc}" >&2
         ai_tools_msg_confirm "    Enable?" n && SELECTED_GROUPS+=("${name}")
     done
