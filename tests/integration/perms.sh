@@ -82,6 +82,9 @@ check_file /usr/local/lib/ai-tools/providers.lib.sh          root              r
 # Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by
 # ai-tools-admin and selinux/install-selinux.sh (both root); read-only data, carries no secrets.
 check_file /usr/local/lib/ai-tools/selinux-groups.lib.sh     root              root              644
+# Command-filter engine: 644 root:root -- world-readable, sourced by an agent's filter hook, which
+# runs AS the agent on every Bash call; read-only data plus pure logic, carries no secrets.
+check_file /usr/local/lib/ai-tools/filters.lib.sh            root              root              644
 # The three provider directories, owned by ai-tools-base (each member package drops only its own
 # files into them). 0755 root:root is SECURITY-LOAD-BEARING, not housekeeping: these decide which
 # agents get provisioned and what env a session gets, and a group- or other-writable directory
@@ -91,6 +94,12 @@ check_file /usr/local/lib/ai-tools/selinux-groups.lib.sh     root              r
 check_file /usr/local/lib/ai-tools/agents.d                  root              root              755
 check_file /usr/local/lib/ai-tools/integrations.d            root              root              755
 check_file /usr/local/lib/ai-tools/session-env.d              root              root              755
+# The command-filter rule-set directory carries the same reasoning one step further out: its files
+# decide what every command in a session becomes, so a non-root writer here could reshape the
+# commands the agent runs and the transcript the operator reads. Base owns the directory and
+# core.rules; a package with commands of its own drops a rule set beside them.
+check_file /usr/local/lib/ai-tools/filters.d                 root              root              755
+check_file /usr/local/lib/ai-tools/filters.d/core.rules      root              root              644
 # Agent manifest, shipped by ai-tools-agents-claude-code-restricted (not base): 644 root:root,
 # parsed data naming the Claude npm package + launcher.
 check_file /usr/local/lib/ai-tools/agents.d/claude-code.conf root              root              644

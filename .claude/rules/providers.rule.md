@@ -37,7 +37,12 @@ execute code in the privileged scripts that read it:
 - integrations: `default_enable`.
 
 Either kind may also ship `session-env.d/<name>.env.sh`, keyed by the same `<name>` — one flat
-namespace across both kinds, so a provider name is unique host-wide.
+namespace across both kinds, so a provider name is unique host-wide. A package with commands of
+its own may additionally ship `filters.d/<name>.rules`, keyed the same way, carrying the
+token-saving rules for those commands (see [filters](filters.rule.md)). That set is read by an
+agent's filter hook rather than by `ai-tools-run`, and it is not gated on provider enablement — a
+rule is inert unless the agent runs the command it matches — so it is a rule-set name rather than
+a provider capability.
 
 `ai-tools-base` owns the three directories (`agents.d`, `integrations.d`, `session-env.d`), ships
 `providers.lib.sh`, and owns the `ai-tools-run` shim that reads them; each member package ships

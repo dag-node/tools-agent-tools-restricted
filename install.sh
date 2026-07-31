@@ -499,6 +499,8 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/npm-verify.lib.sh
     _chk /usr/local/lib/ai-tools/conf.lib.sh
     _chk /usr/local/lib/ai-tools/providers.lib.sh
+    _chk /usr/local/lib/ai-tools/filters.lib.sh
+    _chk /usr/local/lib/ai-tools/filters.d/core.rules
     _chk /usr/local/lib/ai-tools/selinux-groups.lib.sh
     _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
     _chk /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
@@ -712,6 +714,21 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/providers.lib.sh" \
         /usr/local/lib/ai-tools/providers.lib.sh
+
+    # Token-saving command filters: the engine (644 root:root -- world-readable, sourced by an
+    # agent's filter hook, which runs as the sandbox account) plus the filters.d directory and the
+    # base's own rule set. Root-owned and non-group-writable is what makes a rule set trusted
+    # enough to parse; a rules file a non-root account could write would decide what every command
+    # in a session becomes. Read-only data, no secrets.
+    log "/usr/local/lib/ai-tools/filters.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.lib.sh" \
+        /usr/local/lib/ai-tools/filters.lib.sh
+    log "/usr/local/lib/ai-tools/filters.d/core.rules"
+    install -d -o root -g root -m 755 /usr/local/lib/ai-tools/filters.d
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.d/core.rules" \
+        /usr/local/lib/ai-tools/filters.d/core.rules
 
     # Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by
     # ai-tools-admin (to load a prebuilt group) and selinux/install-selinux.sh (to compile one)

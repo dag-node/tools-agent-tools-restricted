@@ -213,7 +213,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf skip-dirs relabel secret-patterns operator control-plane safe-paths confinement npm-verify managed-assets providers selinux-groups; do
+for l in log msg conf skip-dirs relabel secret-patterns operator control-plane safe-paths confinement npm-verify managed-assets providers selinux-groups filters; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -224,6 +224,11 @@ done
 install -d -m 0755 %{buildroot}%{ai_libdir}/agents.d
 install -d -m 0755 %{buildroot}%{ai_libdir}/integrations.d
 install -d -m 0755 %{buildroot}%{ai_libdir}/session-env.d
+# Token-saving command-filter rule sets, keyed by name the same way: filters.d/<name>.rules. Base
+# owns the directory and ships core.rules, the set every host gets; a package with commands of its
+# own ships one beside it. An agent's filter hook reads them through filters.lib.sh.
+install -d -m 0755 %{buildroot}%{ai_libdir}/filters.d
+install -m 0644 src%{ai_libdir}/filters.d/core.rules %{buildroot}%{ai_libdir}/filters.d/core.rules
 # The shared confinement shim. Base-owned and agent-agnostic: it resolves which agent may launch
 # from the manifests above, so an ai-tools-agents-* package ships only its wrapper, manifest, and
 # session-env fragment, and one sudoers grant serves every agent.
@@ -572,9 +577,12 @@ fi
 %attr(0644, root, root) %{ai_libdir}/conf.lib.sh
 %attr(0644, root, root) %{ai_libdir}/providers.lib.sh
 %attr(0644, root, root) %{ai_libdir}/selinux-groups.lib.sh
+%attr(0644, root, root) %{ai_libdir}/filters.lib.sh
 %dir %attr(0755, root, root) %{ai_libdir}/agents.d
 %dir %attr(0755, root, root) %{ai_libdir}/integrations.d
 %dir %attr(0755, root, root) %{ai_libdir}/session-env.d
+%dir %attr(0755, root, root) %{ai_libdir}/filters.d
+%attr(0644, root, root) %{ai_libdir}/filters.d/core.rules
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/ai-tools-run
 %attr(0644, root, root) %{ai_libdir}/path-dedup.sh
 %{_unitdir}/ai-tools-handback.socket

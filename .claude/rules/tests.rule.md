@@ -118,6 +118,14 @@ where an inherited IFS collapses a multi-item value into one bogus item), and
 — `operator.conf`, a manifest, a manifest directory — asserts the resolver moves to *less*
 access and says so, never more.
 
+`filters.sh` pins the token-saving command filters (`filters.lib.sh`, see
+[filters](filters.rule.md)). Filtering is not a boundary, so what the file asserts is that every
+way a rule can fail to fit lands on **pass-through** — the command as the agent wrote it: the
+shape allowlist (a pipeline, redirect, quote, substitution or glob is never rewritten), the
+blocking words that let the agent's own flag win, rule precedence, the `AI_TOOLS_FILTERS` switch
+including its empty-value kill form, and each untrusted rules file or directory. Its noise-strip
+section pins the other half of the contract — control bytes go, every line survives.
+
 `relabel.sh` pins the other manifest-supplied decision with a security consequence: the
 entrypoint file-context predicate (`relabel.lib.sh`). A declared pattern becomes a `semanage`
 rule granting `ai_tools_exec_t`, the confined domain's exec entrypoint, so the test drives every
@@ -181,7 +189,7 @@ it through `tests/run.sh all`. Adding or repermissioning an installed file means
 `check_file` list here, nowhere else.
 
 **`boundary`** — confinement assertions executed **as the agent** (`sudo -u SANDBOX_USER`)
-(`access.sh`, `providers.sh`, `sudo.sh`): the agent cannot read the secret-pattern library or write the
+(`access.sh`, `providers.sh`, `filters.sh`, `sudo.sh`): the agent cannot read the secret-pattern library or write the
 control plane, cannot reach the operator's credential stores (`~/.ssh`, `~/.gnupg`, …), and
 holds no sudo rights — `sudo -l` reports it is not allowed to run sudo at all (both NOPASSWD
 rules belong to the projects user and drop privilege), plus the account hygiene that invariant
@@ -193,7 +201,10 @@ the NuGet restore cache the dotnet integration needs
 **is** — both directions matter, since a read-only cache breaks the integration as surely as a
 writable tools dir breaks the boundary. It is the counterpart to `unit/providers.sh`, which
 asserts the runtime refusal; this one asserts the agent cannot reach the state that refusal
-exists to catch. These probe **DAC and
+exists to catch. `filters.sh` is the same pair for the command filters: the engine, `filters.d`
+and the rule sets in it, `operator.conf`, and the agent-side hook body are all asserted
+non-agent-writable — the engine because it is sourced as the agent on every Bash call, the rule
+sets because they decide what every command in a session becomes. These probe **DAC and
 account state** from the sandbox account's vantage — they run as the sandbox *user*, not inside
 the `ai_tools_t` SELinux domain (a launched session), so they assert the filesystem/credential
 boundary; the SELinux enforcing posture is asserted separately in `integration/selinux.sh`.
