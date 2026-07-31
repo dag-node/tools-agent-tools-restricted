@@ -1400,6 +1400,9 @@ do_install() {
             "#   !/path/to/file        exclude: this file's ownership is never changed" \
             "#   !/path/to/dir         exclude directory and all contents" \
             "#   !/path/to/*.ext       exclude by glob (* matches any characters)" \
+            "#   /path/to/project  # note    a comment runs to the end of the line" \
+            "#   \"/path/to/my project\"       quote a path holding a space or a literal #" \
+            "#   !\"/path/to/my project/x\"    the ! comes before the quotes" \
             "#" \
             "# Exclusions (!) override allows and are checked first." \
             "# Plain paths cover their contents automatically; no trailing /* needed." \

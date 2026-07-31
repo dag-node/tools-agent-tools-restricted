@@ -125,6 +125,15 @@ KEY=                 PRESENT with an empty value — distinct from an ABSENT key
 A repeated key takes its last assignment; a line with no `=` is ignored. Files are **parsed, never
 sourced**, so a malformed or tampered one yields a bad value, never executed code.
 
+The **path-list** files share that grammar rather than defining their own.
+`ai_tools_conf_path_entry` reads one `allowed-projects` line — whole-line and end-of-line
+comments, and one quote layer for a path carrying a space or a literal `#`, with a leading `!`
+preserved so an exclusion stays distinguishable after the quotes come off. Three components read
+that file (the launch wrapper, the CLI, and `ai-tools-chown`), which is exactly why the rule lives
+in one place: a parser copied into each is a parser that drifts, and a line the wrapper resolves
+but the chown helper does not is a project the agent can launch in whose files never come back.
+All three require the library rather than falling back to a private parser.
+
 `ai_tools_conf_read` returns present/absent separately from the value, which is what makes
 `KEY=` (an explicit "none") distinguishable from an omitted key — the distinction the gating below
 turns on. `ai_tools_conf_list` overwrites its target array **only** when the key is present, so an

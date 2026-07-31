@@ -299,4 +299,43 @@ else
     fail "the scan overwrote a caller variable: seen_key=${seen_key}"
 fi
 
+# --- Path-list entries (allowed-projects) -----------------------------------------------------
+# The launch allowlist shares this grammar, and three components parse that file -- the wrapper,
+# the CLI, and the chown helper. The first block is BACKWARD COMPATIBILITY: every shape an
+# existing allowlist already contains must parse exactly as before, because a line that stops
+# resolving silently removes a project from the gate.
+check_entry() {
+    local desc="$1" want="$2" line="$3" rc=0
+    ai_tools_conf_path_entry "${line}" || rc=$?
+    if [[ "${want}" == SKIP ]]; then
+        if [[ "${rc}" -ne 0 ]]; then pass "${desc}"; else fail "${desc}: yielded '${_ai_tools_conf_value}'"; fi
+    elif [[ "${rc}" -eq 0 && "${_ai_tools_conf_value}" == "${want}" ]]; then
+        pass "${desc}"
+    else
+        fail "${desc}: rc ${rc}, got '${_ai_tools_conf_value}', expected '${want}'"
+    fi
+}
+check_entry "a plain path is unchanged"            /home/me/project         '/home/me/project'
+check_entry "an exclusion keeps its !"             '!/home/me/vendor'       '!/home/me/vendor'
+check_entry "a glob exclusion stays raw"           '!/home/me/*/node_mod'   '!/home/me/*/node_mod'
+check_entry "surrounding whitespace is trimmed"    /home/me/project         '   /home/me/project   '
+check_entry "a blank line yields no entry"         SKIP                     ''
+check_entry "a whole-line comment yields no entry" SKIP                     '# a note'
+check_entry "an indented comment yields no entry"  SKIP                     '   # a note'
+
+# The grammar this file gains: end-of-line comments, and quotes for a path that must carry a
+# space or a literal `#`.
+check_entry "an end-of-line comment is removed"    /home/me/project         '/home/me/project  # why'
+check_entry "quotes carry a space"                 '/home/me/my project'    '"/home/me/my project"'
+check_entry "quotes make # literal"                '/home/me/proj #2'       '"/home/me/proj #2"'
+check_entry "single quotes work too"               '/home/me/my project'    "'/home/me/my project'"
+check_entry "an exclusion may be quoted"           '!/home/me/my project'   '!"/home/me/my project"'
+check_entry "a quoted path may be commented"       '/home/me/a b'           '"/home/me/a b"   # note'
+# An interior # with no preceding whitespace is part of the path, matching the KEY=value rule --
+# a directory literally named proj#2 keeps working unquoted.
+check_entry "an interior # needs no quotes"        '/home/me/proj#2'        '/home/me/proj#2'
+# An unmatched quote is taken verbatim rather than truncating the path at some later character,
+# so a typo cannot silently shorten an allowlist entry into a broader one.
+check_entry "an unmatched quote is taken as-is"    '/home/me/project'       '"/home/me/project'
+
 finish

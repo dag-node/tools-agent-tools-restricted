@@ -401,3 +401,37 @@ ai_tools_conf_new_keys() {
     done
     (( ${#_ai_tools_conf_new_out[@]} > 0 ))
 }
+
+# ── Path-list files (allowed-projects) ───────────────────────────────────────────────────────
+# The launch allowlist is one path per line rather than KEY=value, but it is read with the SAME
+# rules as everything else: a whole-line or end-of-line `#` comment, and one matched quote layer
+# for a path that must contain a space or a literal `#`. Sharing the grammar is the point --
+# three components parse this file (the launch wrapper, the CLI, and the chown helper), and a
+# rule that lives in each of them separately is a rule that drifts.
+#
+#   /home/me/project              a path
+#   /home/me/project   # why      an end-of-line comment: `#` after whitespace ends the entry
+#   "/home/me/my project"         quotes carry a space, and make `#` inside them literal
+#   !/home/me/project/vendor      an exclusion; the `!` precedes the quotes: !"/a b"
+#
+# An entry is NOT resolved or validated here: callers canonicalize with realpath and match
+# exclusions as globs, and this only decides what text the line denotes.
+
+# ai_tools_conf_path_entry <line> : set _ai_tools_conf_value to the entry <line> denotes and
+#   return 0; return 1 for a line that carries no entry (blank, or a whole-line comment), which
+#   is the caller's signal to skip it. A leading `!` is preserved on the result, so an exclusion
+#   stays distinguishable after the quotes are stripped.
+ai_tools_conf_path_entry() {
+    local line="${1-}" negate=""
+    line="${line#"${line%%[![:space:]]*}"}"
+    [[ -z "${line}" || "${line}" == '#'* ]] && { _ai_tools_conf_value=""; return 1; }
+    if [[ "${line}" == '!'* ]]; then
+        negate='!'
+        line="${line#\!}"
+        line="${line#"${line%%[![:space:]]*}"}"
+    fi
+    _ai_tools_conf_parse_value "${line}"
+    [[ -n "${_ai_tools_conf_value}" ]] || return 1
+    _ai_tools_conf_value="${negate}${_ai_tools_conf_value}"
+    return 0
+}

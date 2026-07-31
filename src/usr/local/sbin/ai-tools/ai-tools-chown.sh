@@ -82,6 +82,13 @@ readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/safe-paths.lib.sh
 source "${SAFE_PATHS_LIB}"
 
+# Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), which reads the
+# allowlist this helper gates every path on. REQUIRED like safe-paths.lib.sh: the bare source
+# under set -e aborts if it is missing, rather than leaving a parser that matches nothing and
+# silently declines every hand-back. Include-guarded, so a second source is a no-op.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
+source /usr/local/lib/ai-tools/conf.lib.sh
+
 # Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like
 # safe-paths.lib.sh: the bare source under set -e aborts if it is missing -- a valid
 # install ships it, so there is no fallback. Include-guarded, so this is a no-op when
@@ -137,7 +144,10 @@ declare -a allowed=()
 declare -a excluded=()
 
 while IFS= read -r entry || [[ -n "${entry}" ]]; do
-    [[ -z "${entry}" || "${entry}" == '#'* ]] && continue
+    # One shared grammar (conf.lib.sh): whole-line and end-of-line comments, and quotes for a
+    # path carrying a space or a literal `#`. A line denoting no entry is skipped.
+    ai_tools_conf_path_entry "${entry}" || continue
+    entry="${_ai_tools_conf_value}"
     if [[ "${entry}" == '!'* ]]; then
         excluded+=("${entry:1}")              # strip leading !, keep raw (may contain glob)
     else
