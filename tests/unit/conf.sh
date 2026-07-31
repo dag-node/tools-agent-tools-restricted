@@ -176,4 +176,68 @@ check_trust "root-owned 0755 directory is trusted"   trusted "${tdir}"
 chmod 0775 "${tdir}"
 check_trust "group-writable directory is refused"    refused "${tdir}"
 
+# --- Sidecar files: what an upgrade preserves when it rewrites an operator's config ------------
+# Two copies with two jobs -- .bak is what the operator HAD, .shipped is what they were SUPPOSED
+# to get -- and the property that makes .bak worth calling a backup is that a second run in the
+# same day cannot overwrite the first. An operator who ran the installer twice is exactly the one
+# who needs the earlier copy.
+stamp="$(date +%Y%m%d)"
+cfg="${TESTDIR}/sidecar.conf"
+printf 'ORIGINAL\n' > "${cfg}"; chown root:root "${cfg}"; chmod 640 "${cfg}"
+
+first_bak="$(ai_tools_conf_backup "${cfg}")"
+if [[ "${first_bak}" == "${cfg}.${stamp}.bak" && "$(cat "${first_bak}")" == ORIGINAL ]]; then
+    pass "a backup is date-stamped and copies the file verbatim"
+else
+    fail "backup path/content wrong: ${first_bak}"
+fi
+if [[ "$(perm "${first_bak}")" == 640 ]]; then
+    pass "a backup keeps the mode, so a restore needs no re-permissioning"
+else
+    fail "backup mode is $(perm "${first_bak}"), expected 640"
+fi
+
+printf 'CHANGED\n' > "${cfg}"
+second_bak="$(ai_tools_conf_backup "${cfg}")"
+if [[ "${second_bak}" != "${first_bak}" && "$(cat "${first_bak}")" == ORIGINAL ]]; then
+    pass "a same-day second backup takes a new name and leaves the first intact"
+else
+    fail "same-day backup collided: ${second_bak}"
+fi
+
+# The reference copy takes the DEPLOYED file's owner and mode, never the source tree's, so a
+# baseline dropped beside a 0640 control-plane file is not left world-readable.
+baseline="${TESTDIR}/sidecar.shipped-src"
+printf 'SHIPPED\n' > "${baseline}"; chmod 666 "${baseline}"
+ref="$(ai_tools_conf_reference "${cfg}" "${baseline}")"
+if [[ "${ref}" == "${cfg}.${stamp}.shipped" && "$(perm "${ref}")" == 640 ]]; then
+    pass "a reference copy is date-stamped and takes the deployed file's mode"
+else
+    fail "reference path/mode wrong: ${ref} mode $(perm "${ref}" 2>/dev/null)"
+fi
+if [[ "$(ai_tools_conf_reference "${cfg}" "${baseline}")" != "${ref}" ]]; then
+    pass "a second reference copy does not overwrite the first"
+else
+    fail "reference copy was overwritten"
+fi
+
+# Absent inputs produce no copy and no path -- a caller must never act on a name that was not made.
+if ! ai_tools_conf_backup "${TESTDIR}/absent" >/dev/null 2>&1; then
+    pass "no backup is invented for a file that is not there"
+else
+    fail "backed up a nonexistent file"
+fi
+if ! ai_tools_conf_reference "${cfg}" "${TESTDIR}/absent" >/dev/null 2>&1; then
+    pass "no reference is invented for a baseline that is not there"
+else
+    fail "referenced a nonexistent baseline"
+fi
+
+# jq is a package dependency, so the JSON paths report a broken install rather than degrading.
+if ai_tools_conf_require_jq >/dev/null 2>&1; then
+    pass "the jq gate passes where jq is installed"
+else
+    fail "the jq gate rejected a host that has jq"
+fi
+
 finish

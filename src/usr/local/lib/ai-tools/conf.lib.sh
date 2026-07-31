@@ -166,3 +166,82 @@ ai_tools_conf_list() {
     ai_tools_conf_read "${file}" "${key}" || return 1
     ai_tools_conf_split "${out_name}" "${_ai_tools_conf_value}"
 }
+
+# ── Sidecar files: what an upgrade preserves when it touches an operator's config ────────────
+# An install that rewrites a config the operator owns leaves two kinds of copy behind, and they
+# answer different questions -- neither substitutes for the other:
+#
+#   <name>.<YYYYMMDD>.bak       what the operator HAD. The only thing that restores their
+#                               settings if a rewrite is valid but wrong, which no syntax check
+#                               catches. Written only when a file is actually about to change.
+#   <name>.<YYYYMMDD>.shipped   what they were SUPPOSED to get. Written when the merge could not
+#                               run, or when the file is one this project refuses to rewrite
+#                               unattended, so the hand merge has a source -- a host installed
+#                               from the RPM has no checkout to copy from.
+#
+# The date stamp makes them survive successive runs: each install adds a copy rather than
+# overwriting the evidence of the last. A same-day second copy takes a `-N` counter, so a .bak
+# is never overwritten -- an operator who ran the installer twice in a day is exactly the one
+# who needs the first copy.
+
+# _ai_tools_conf_sidecar_path <file> <kind> : print an UNUSED sidecar path for <file>. Returns 1
+#   without printing when the day's namespace is exhausted, so a caller never silently reuses a
+#   name. Pure except for the existence tests.
+_ai_tools_conf_sidecar_path() {
+    local file="$1" kind="$2" stamp candidate index
+    stamp="$(date +%Y%m%d)" || return 1
+    candidate="${file}.${stamp}.${kind}"
+    [[ -e "${candidate}" ]] || { printf '%s' "${candidate}"; return 0; }
+    for (( index = 2; index < 100; index++ )); do
+        candidate="${file}.${stamp}-${index}.${kind}"
+        [[ -e "${candidate}" ]] || { printf '%s' "${candidate}"; return 0; }
+    done
+    return 1
+}
+
+# _ai_tools_conf_match_perms <target> <model> : give <target> the owner and mode of <model>, so a
+#   sidecar of a mode-0640 control-plane file is never left more readable than the file it copies.
+#   Best-effort: a caller without the privilege to chown still gets the copy.
+_ai_tools_conf_match_perms() {
+    local target="$1" model="$2" meta
+    [[ -e "${model}" ]] || return 0
+    meta="$(stat -c '%u:%g %a' "${model}" 2>/dev/null)" || return 0
+    chown "${meta%% *}" "${target}" 2>/dev/null || true
+    chmod "${meta##* }" "${target}" 2>/dev/null || true
+    return 0
+}
+
+# ai_tools_conf_backup <file> : copy <file> to a fresh dated .bak and print that path. `cp -p`
+#   keeps mode, ownership and timestamps, so the copy is a faithful restore point rather than a
+#   file the operator has to re-permission. Returns 1 printing nothing when no copy was made.
+ai_tools_conf_backup() {
+    local file="$1" target
+    [[ -f "${file}" ]] || return 1
+    target="$(_ai_tools_conf_sidecar_path "${file}" bak)" || return 1
+    cp -p "${file}" "${target}" 2>/dev/null || return 1
+    printf '%s' "${target}"
+}
+
+# ai_tools_conf_reference <deployed> <shipped> : copy the <shipped> baseline next to <deployed>
+#   as a fresh dated .shipped and print that path. The copy takes the DEPLOYED file's owner and
+#   mode, not the source tree's. Returns 1 printing nothing when no copy was made.
+ai_tools_conf_reference() {
+    local deployed="$1" shipped="$2" target
+    [[ -f "${shipped}" ]] || return 1
+    target="$(_ai_tools_conf_sidecar_path "${deployed}" shipped)" || return 1
+    cp "${shipped}" "${target}" 2>/dev/null || return 1
+    _ai_tools_conf_match_perms "${target}" "${deployed}"
+    printf '%s' "${target}"
+}
+
+# ai_tools_conf_require_jq : succeed when jq is callable. jq is a package dependency, so its
+#   absence is a broken install rather than a host variation -- this reports and fails instead of
+#   degrading, and callers of the JSON paths below gate on it. Deliberately NOT checked when this
+#   library is sourced: the KEY=value grammar above needs no jq, and this file is sourced on every
+#   launch (by ai-tools-run, as the sandbox account) and by every root helper, so a source-time
+#   failure would stop a session for a reason unrelated to what it asked for.
+ai_tools_conf_require_jq() {
+    command -v jq >/dev/null 2>&1 && return 0
+    printf 'conf: jq not found -- it is a package dependency; reinstall ai-tools-base\n' >&2
+    return 1
+}
