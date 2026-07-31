@@ -462,8 +462,13 @@ offer_selinux() {
 
     # Current module state up front, so the decision -- and especially a skip -- is
     # unambiguous about what stays loaded and enforcing from a previous install.
+    # Rendered as [a, b]: a name list reads as one value that way, where space-separated names
+    # blur into the prose around them and hide how many there are.
     local loaded
-    loaded="$(semodule -l 2>/dev/null | grep '^ai_tools' | paste -sd ' ' - || true)"
+    # `paste -d` takes a LIST of delimiters and cycles through them, so ', ' would alternate
+    # comma and space rather than joining with both; join on the comma, then space it out.
+    loaded="$(semodule -l 2>/dev/null | grep '^ai_tools' | paste -sd ',' - | sed 's/,/, /g' || true)"
+    [[ -n "${loaded}" ]] && loaded="[${loaded}]"
 
     # How a kept module actually behaves on THIS host: only global Enforcing mode blocks. Under
     # Permissive the module is loaded but logs rather than enforces, so do not claim "enforcing".
@@ -497,7 +502,13 @@ offer_selinux() {
         fi
     elif [[ -n "${loaded}" ]]; then
         log "skipped -- the loaded module(s) stay ${mode_state}: ${loaded}"
-        say "    ${C_DIM}manage them with: sudo ${selinux_script} {install|remove|list-groups}${C_RST}"
+        # ai-tools-admin is the shipped entry point and is deployed by now, so name it rather
+        # than the checkout path an installed host may not keep.
+        if command -v ai-tools-admin >/dev/null 2>&1; then
+            say "    ${C_DIM}manage them with: sudo ai-tools-admin selinux list-groups${C_RST}"
+        else
+            say "    ${C_DIM}manage them with: sudo ${selinux_script} {install|remove|list-groups}${C_RST}"
+        fi
     else
         log "skipped -- the sandbox runs without SELinux confinement until you run:"
         say "    ${C_BOLD}sudo ${selinux_script} install${C_RST}"
@@ -1365,7 +1376,8 @@ do_install() {
     # owned root:ai-tools with the o+x search bit and setgid (CP_HOME_MODE), bin is locked, and
     # every agent's config directory is setgid+sticky. The agent reaches the tree through group
     # ai-tools; root owns the locked control files so the agent cannot replace them.
-    log "asserting control-plane ownership and boundary modes (root:${SANDBOX_GROUP})"
+    section "Control-plane assertions"
+    log "ownership and boundary modes (root:${SANDBOX_GROUP})"
     chown "root:${SANDBOX_GROUP}" /opt/ai-tools /opt/ai-tools/bin
     ai_tools_apply_mode "${CP_HOME_MODE}" /opt/ai-tools
     ai_tools_apply_mode "${CP_DIR_MODES[bin]}" /opt/ai-tools/bin
@@ -1545,7 +1557,7 @@ do_install() {
         # what is not running now and what to check, rather than pointing at a nologin account.
         warn "${SANDBOX_USER}'s systemd --user manager did not come up -- the auto-update timer"
         warn "  is enabled but not running, so toolchain updates wait for the next boot."
-        warn "  Check:  systemctl status user@${sandbox_uid}.service"
+        warn "  Check:  sudo systemctl status user@${sandbox_uid}.service"
         warn "  Then:   sudo systemctl start user@${sandbox_uid}.service"
         warn "  A session launch needs that instance too (ai-tools-run wraps each session in a"
         warn "  transient --user unit), so bring it up before the first claude run."
@@ -1582,12 +1594,14 @@ do_install() {
         say ""
     fi
     say "  verify the timer (in ${SANDBOX_USER}'s --user instance):"
-    say "    ${C_BOLD}systemctl --user -M ${SANDBOX_USER}@ list-timers nvm-update.timer${C_RST}"
+    say "    ${C_BOLD}sudo systemctl --user -M ${SANDBOX_USER}@.host list-timers nvm-update.timer${C_RST}"
     say ""
     say "  register projects with the ai-tools CLI (run as ${PROJECTS_USER}, no sudo):"
     say "    ${C_BOLD}ai-tools --project-claim /path/to/project${C_RST}     ${C_DIM}# claim a project in place${C_RST}"
     say "    ${C_BOLD}ai-tools --help${C_RST}                               ${C_DIM}# all commands${C_RST}"
-    say "  see ${C_DIM}/var/opt/ai-tools/README.md${C_RST}"
+    say "  configure and read up:"
+    say "    ${C_BOLD}/etc/ai-tools/operator.conf${C_RST}                  ${C_DIM}# host options, each documented inline${C_RST}"
+    say "    ${C_BOLD}man ai-tools${C_RST}                                 ${C_DIM}# the CLI${C_RST}"
     say ""
     suggest_lint_tools
 

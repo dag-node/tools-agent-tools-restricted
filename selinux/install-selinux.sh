@@ -112,6 +112,27 @@ die()     { printf '%sselinux: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; ex
 # logx/sayx: stderr variants -- safe inside subshells, and used for the group
 # prompt, which must not contaminate stdout.
 logx()    { printf '  %s+%s %s\n' "${C_DIM}" "${C_RST}" "$*" >&2; }
+
+# _list <item...>: render a set as [a, b] -- a name list reads as one value that way, where
+# space-separated names blur into the prose around them and hide how many there are. Joined by
+# hand rather than through IFS: "$*" uses only the FIRST character of IFS, so a ", " separator
+# silently loses its space.
+_list() {
+    local joined="" item
+    for item in "$@"; do joined+="${joined:+, }${item}"; done
+    printf '[%s]' "${joined}"
+}
+
+# _group_cmd <verb>: the command an operator on THIS host should run to manage a policy group.
+# ai-tools-admin is the shipped entry point and is on PATH once the package is installed, so
+# prefer it; a source checkout with nothing installed yet falls back to this script's own path.
+_group_cmd() {
+    if command -v ai-tools-admin >/dev/null 2>&1; then
+        printf 'sudo ai-tools-admin selinux %s' "$1"
+    else
+        printf 'sudo %s %s' "$0" "$1"
+    fi
+}
 sayx()    { printf '%s\n' "$*" >&2; }
 
 [[ "$(getenforce 2>/dev/null)" != "Disabled" ]] \
@@ -261,8 +282,9 @@ prompt_groups() {
         ai_tools_selinux_group_loaded "${name}" && loaded_groups+=("${name}")
     done
     if (( ${#loaded_groups[@]} )); then
-        logx "groups already loaded, and kept whichever way you answer: ${loaded_groups[*]}"
-        sayx "    ${C_DIM}this step only adds modules; remove one with: sudo $0 disable-group <name>${C_RST}"
+        logx "groups already loaded and kept: ${C_BOLD}$(_list "${loaded_groups[@]}")${C_RST}"
+        sayx "    ${C_DIM}this step only adds modules; remove one with:" \
+             "$(_group_cmd 'disable-group <name>')${C_RST}"
     fi
 
     # One gate for the whole EXPERIMENTAL section: the default skips it, so an operator who
@@ -287,7 +309,7 @@ prompt_groups() {
         # reads as "off, and staying off", which is the opposite of what the answer does.
         if ai_tools_selinux_group_loaded "${name}"; then
             printf '    %s[LOADED]%s %s -- %s\n' "${C_GRN}" "${C_RST}" "${name}" "${desc}" >&2
-            sayx "        stays enabled; to remove it: sudo $0 disable-group ${name}"
+            sayx "        stays enabled; to remove it: $(_group_cmd "disable-group ${name}")"
             continue
         fi
         printf '    %s[%s]%s %s\n' "${C_DIM}" "${name}" "${C_RST}" "${desc}" >&2
@@ -374,8 +396,10 @@ verify_agent_labels() {
             warn "no agent path took a label this run -- see the per-path reason above"
         fi
     fi
-    log "reminder: a running session keeps its OLD context -- exit and relaunch, then"
-    log "          confirm with:  ps -eo label,cmd | grep '[c]laude'  (expect ai_tools_t)"
+    # Printed while the install is still running, so it states WHEN it applies: an operator who
+    # reads "exit and relaunch" mid-install has nothing to relaunch yet.
+    log "once this install finishes: a session already running keeps its OLD context, so exit"
+    log "  and relaunch it, then confirm with:  ps -eo label,cmd | grep '[c]laude'  (expect ai_tools_t)"
 }
 
 # for_each_project <fn>: call <fn> once with each allowlisted project directory,
@@ -415,10 +439,16 @@ _label_conf()   { [[ -d "${CONF_DIR}" ]] || { log "config dir absent, skip label
                   # semanage to accept it. 'relabel' never loads the module, so on a
                   # first run (or after a version bump) the type may be undefined --
                   # report honestly instead of logging a false success.
-                  if semanage fcontext -a -t ai_tools_conf_t "${CONF_DIR}(/.*)?" 2>/dev/null \
-                     || semanage fcontext -m -t ai_tools_conf_t "${CONF_DIR}(/.*)?" 2>/dev/null; then
+                  # Both streams are dropped: semanage announces an existing entry on stdout
+                  # ("already defined, modifying instead"), which reads as an error beside our
+                  # own status lines. Which branch fired is the useful part, so say that in this
+                  # script's own words instead.
+                  local _verb="labelled"
+                  if semanage fcontext -a -t ai_tools_conf_t "${CONF_DIR}(/.*)?" >/dev/null 2>&1 \
+                     || { _verb="re-applied"
+                          semanage fcontext -m -t ai_tools_conf_t "${CONF_DIR}(/.*)?" >/dev/null 2>&1; }; then
                       restorecon -RF "${CONF_DIR}" 2>/dev/null || true
-                      log "labelled config ai_tools_conf_t: ${CONF_DIR}"
+                      log "${_verb} config ai_tools_conf_t: ${CONF_DIR}"
                   else
                       warn "could not set ai_tools_conf_t fcontext on ${CONF_DIR}"
                       warn "    type undefined? the module must be LOADED first --"
