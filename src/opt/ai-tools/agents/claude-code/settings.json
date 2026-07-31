@@ -88,6 +88,17 @@
     ]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/ai-tools/.claude/filter-hook.sh pre-tool-use"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit",
@@ -95,6 +106,15 @@
           {
             "type": "command",
             "command": "/opt/ai-tools/.claude/post-tool-hook.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/ai-tools/.claude/filter-hook.sh post-tool-use"
           }
         ]
       }

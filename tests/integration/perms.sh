@@ -134,6 +134,7 @@ check_file /opt/ai-tools/bin                                  root              
 check_file /opt/ai-tools/bin/nvm-update.sh                    root              "${SANDBOX_GROUP}" 550
 check_file /opt/ai-tools/.claude/post-tool-hook.sh            root              "${SANDBOX_GROUP}" 750
 check_file /opt/ai-tools/.claude/session-hook.sh             root              "${SANDBOX_GROUP}" 750
+check_file /opt/ai-tools/.claude/filter-hook.sh              root              "${SANDBOX_GROUP}" 750
 check_file /opt/ai-tools/.claude/settings.json               root              "${SANDBOX_GROUP}" 640
 # EVERY agent's config directory is root-owned with setgid+sticky (CP_AGENT_CONFIG_MODE, 3770):
 # ai-tools is a group-writer for its own state but cannot unlink/replace the root-owned control

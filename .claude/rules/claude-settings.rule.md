@@ -8,6 +8,7 @@ paths:
 
 `settings.json` is the agent session's Claude Code configuration. It declares the
 ownership hooks (covered in [ownership-and-hooks](ownership-and-hooks.rule.md)), the
+token-saving filter hook on both `Bash` events (covered in [filters](filters.rule.md)), the
 Bash-tool permission rules, a privacy `env` block, and the auto-mode default. This rule
 covers the **permission rules** and how they couple to the SELinux policy, the **`env`
 privacy default**, and the **`disableAutoMode`** default. The catalog of other Claude Code
@@ -55,6 +56,22 @@ without any Bash prompt, or it processes data already in hand.
 | `stat *`, `getfacl *` | Per-path owner/mode/context and the collaborative-ownership ACL grants — diagnose handback and claim state ([ownership-and-hooks](ownership-and-hooks.rule.md)). |
 | `head *`, `tail *`, `wc *`, `sort`, `sort *`, `uniq`, `uniq *`, `grep *` | Pipeline staples that bound and filter the output of the commands above. |
 | `file *` | Identify a file's type before reading it. |
+
+### A rewritten command is what these rules match
+
+The `PreToolUse` filter hook may narrow a Bash command before it runs
+([filters](filters.rule.md)). It returns no permission decision, so the three outcomes above are
+decided on the **rewritten** command. Two consequences bound what a rule may do:
+
+- A rule that only inserts arguments after the leading words leaves every entry here matching as
+  written — `Bash(git log *)` covers `git log --format=… -- src/x.c`, so a narrowing rule needs no
+  allow entry of its own.
+- A rule that changes the leading command word is matched as that new command, and an entry broad
+  enough to cover a general-purpose wrapper (`Bash(<wrapper> *)`) is broader than the
+  inspection-only criterion this list holds to. Narrow per-command entries are the form that fits.
+
+A `deny` entry overrides a rewrite in either shape, so no rule can turn a refused command into a
+permitted one.
 
 ### Asks first (everything unlisted)
 

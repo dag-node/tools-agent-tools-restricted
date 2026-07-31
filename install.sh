@@ -519,6 +519,7 @@ do_summary() {
     _chk /opt/ai-tools/bin/claude
     _chk /opt/ai-tools/.claude/post-tool-hook.sh
     _chk /opt/ai-tools/.claude/session-hook.sh
+    _chk /opt/ai-tools/.claude/filter-hook.sh
     _chk /opt/ai-tools/.claude/settings.json
     _chk /opt/ai-tools/subagents/ai-tools-reference-architect.md
     _chk /opt/ai-tools/.claude/agents/ai-tools-reference-architect.md
@@ -1164,6 +1165,9 @@ do_install() {
     install_subst 750 root "${SANDBOX_GROUP}" \
         "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/session-hook.sh" \
         "${claude_config_dir}/session-hook.sh"
+    install_subst 750 root "${SANDBOX_GROUP}" \
+        "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/filter-hook.sh" \
+        "${claude_config_dir}/filter-hook.sh"
     # settings.json is kept by default when it already exists (keep_existing prompt;
     # unattended installs always keep): it may carry deliberate host tuning -- e.g. a deny
     # entry relaxed alongside an enabled SELinux group (see claude-settings.rule.md) -- that a
@@ -1531,6 +1535,7 @@ do_uninstall() {
     rm -f /opt/ai-tools/bin/ai-tools-run /opt/ai-tools/bin/claude-run
     rm -f /opt/ai-tools/.claude/post-tool-hook.sh
     rm -f /opt/ai-tools/.claude/session-hook.sh
+    rm -f /opt/ai-tools/.claude/filter-hook.sh
     rm -f /opt/ai-tools/.claude/settings.json
 
     section "Registration"

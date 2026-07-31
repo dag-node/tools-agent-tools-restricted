@@ -357,6 +357,7 @@ install -m 0755 src%{ai_bindir}/claude.sh                  %{buildroot}%{ai_bind
 install -d -m 0770 %{buildroot}/opt/ai-tools/.claude
 install -m 0750 src/opt/ai-tools/agents/claude-code/post-tool-hook.sh %{buildroot}/opt/ai-tools/.claude/post-tool-hook.sh
 install -m 0750 src/opt/ai-tools/agents/claude-code/session-hook.sh   %{buildroot}/opt/ai-tools/.claude/session-hook.sh
+install -m 0750 src/opt/ai-tools/agents/claude-code/filter-hook.sh    %{buildroot}/opt/ai-tools/.claude/filter-hook.sh
 install -m 0640 src/opt/ai-tools/agents/claude-code/settings.json     %{buildroot}/opt/ai-tools/.claude/settings.json
 # The claude-code agent manifest: providers.lib.sh reads it so the toolchain layer installs the
 # Claude npm package and symlinks the claude launcher without hardcoding either (the agents.d
@@ -666,6 +667,7 @@ fi
 %attr(0755, root, root) %{ai_bindir}/claude
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/post-tool-hook.sh
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/session-hook.sh
+%attr(0750, root, ai-tools) /opt/ai-tools/.claude/filter-hook.sh
 %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
