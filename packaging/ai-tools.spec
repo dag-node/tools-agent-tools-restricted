@@ -685,6 +685,35 @@ fi
 %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Fri Jul 31 2026 dagnode <tools@dagnode.com> - 0.9.0-1
+- NEW: Save tokens by default -- command filters narrow what a tool prints, over the root-owned
+  rule sets in filters.d and operator.conf AI_TOOLS_FILTERS (an empty value disables).
+  Access-neutral: the permission rules are re-evaluated on the rewritten command.
+- NEW: Apply the command filters on both Bash hook events
+- NEW: Quiet the dotnet SDK through its own command-filter rule set
+- NEW: Merge shipped hook declarations into a kept settings.json, so a new version's hook no
+  longer installs with nothing to invoke it
+- NEW: Report the options a kept KEY=value config has not seen
+- NEW: Add the shared config backup and baseline-copy layer -- dated .bak and .shipped sidecars,
+  never overwritten
+- NEW: Read allowed-projects with the shared config grammar (conf.lib.sh): end-of-line comments
+  and quoted paths, one parser for the wrapper, the CLI, and the handback helper
+- NEW: Add operator.conf(5)
+- FIX: Parse the labelling report so the unconfined-entrypoint guard can fire -- an entrypoint
+  that failed to take ai_tools_exec_t ran sessions UNCONFINED while the install reported success.
+  Check an enforcing host after upgrading:  ps -eo label,cmd | grep '[c]laude'  (expect
+  ai_tools_t)
+- FIX: Require jq, which every Claude Code hook depends on -- without it the ownership handback
+  and the .git reclaim silently stopped
+- FIX: Drive the sandbox user manager over the machine transport -- the toolchain auto-update
+  timer never started, failing with "Connection refused"
+- FIX: Report which optional SELinux groups are already loaded, rather than offering an active one
+- FIX: Repair project labels on re-install instead of reconverting (relabel.lib.sh), so a
+  re-install no longer rewrites every file of every registered project
+- FIX: Group the install output by the work it reports
+- Upgrading from 0.8.1 needs no action beyond dnf. Command filtering arrives ON for a host whose
+  operator.conf predates AI_TOOLS_FILTERS; set AI_TOOLS_FILTERS="" to opt out.
+
 * Wed Jul 29 2026 dagnode <tools@dagnode.com> - 0.8.1-1
 - Fixed the SELinux-enforcing limitation carried in 0.8.0: the sandbox domain held no map
   permission on its own /tmp files, so dotnet restore/build -- and git or SQLite run in a /tmp
