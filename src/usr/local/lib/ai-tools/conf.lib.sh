@@ -340,3 +340,64 @@ ai_tools_conf_merge_hook_declarations() {
     done <<< "${missing}"
     return 0
 }
+
+# ── KEY=value files: report new keys, never rewrite ──────────────────────────────────────────
+# A KEY=value config is mostly DOCUMENTATION -- commented option blocks explaining each key --
+# and an operator's copy is kept across an upgrade, so a key a new version introduces arrives
+# nowhere. The consequence differs from the JSON case and so does the treatment: with the
+# present/absent grammar an absent key already means its default, so what a stale file loses is
+# the operator's chance to KNOW the option exists, not the behaviour.
+#
+# That is why these are reported and never merged. Splicing a commented block into a file whose
+# layout, ordering and local annotations are the operator's would rewrite prose for a
+# discoverability gain, and a file that carries the launch allowlist or the operator list is the
+# last one to edit unattended. The caller names the new keys and drops the shipped baseline
+# beside the file; the operator merges what they want.
+
+# ai_tools_conf_keys <array-name> <file> : set the named array to every KEY this file mentions,
+#   whether the key is live or written as a commented-out default (`#KEY=` / `# KEY =`). Both
+#   forms count as "mentioned", which is the point: a key an operator has deliberately commented
+#   out is one they have already seen, so re-announcing it every upgrade would be noise.
+ai_tools_conf_keys() {
+    local -n _ai_tools_conf_keys_out="$1"
+    local file="$2" line key
+    _ai_tools_conf_keys_out=()
+    [[ -r "${file}" ]] || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="${line#"${line%%[![:space:]]*}"}"       # strip leading whitespace
+        line="${line#\#}"                             # a commented default is still a mention
+        line="${line#"${line%%[![:space:]]*}"}"
+        [[ "${line}" == *=* ]] || continue
+        key="${line%%=*}"
+        key="${key%"${key##*[![:space:]]}"}"          # strip trailing whitespace
+        [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+        _ai_tools_conf_keys_out+=("${key}")
+    done < "${file}"
+    return 0
+}
+
+# ai_tools_conf_new_keys <array-name> <deployed> <shipped> : set the named array to every key the
+#   shipped file documents that the deployed one does not mention at all. Returns 1 when there are
+#   none, so a caller can stay silent in the common case.
+ai_tools_conf_new_keys() {
+    local -n _ai_tools_conf_new_out="$1"
+    local deployed="$2" shipped="$3"
+    local -a deployed_keys=() shipped_keys=()
+    local key seen seen_key
+    _ai_tools_conf_new_out=()
+    ai_tools_conf_keys shipped_keys "${shipped}" || return 1
+    ai_tools_conf_keys deployed_keys "${deployed}" || return 1
+    for key in "${shipped_keys[@]}"; do
+        seen=""
+        for seen_key in "${deployed_keys[@]}"; do
+            [[ "${seen_key}" == "${key}" ]] && { seen=1; break; }
+        done
+        [[ -n "${seen}" ]] && continue
+        # A shipped file may document a key more than once; announce it once.
+        for seen_key in "${_ai_tools_conf_new_out[@]}"; do
+            [[ "${seen_key}" == "${key}" ]] && { seen=1; break; }
+        done
+        [[ -n "${seen}" ]] || _ai_tools_conf_new_out+=("${key}")
+    done
+    (( ${#_ai_tools_conf_new_out[@]} > 0 ))
+}

@@ -159,6 +159,34 @@ seed_result() {
     log "${path} ${verb}${detail:+ (${detail})}"
 }
 
+# Announce the options a kept KEY=value config does not mention yet, and leave the shipped
+# baseline beside it to copy the documentation from. Unlike the hook declarations below, this
+# NEVER rewrites the file: with the present/absent grammar an absent key already means its
+# default, so a stale config costs the operator the knowledge that an option exists rather than
+# the behaviour -- not worth editing prose whose layout and annotations are theirs, least of all
+# in the file that carries the operator list.
+# $1 deployed config   $2 shipped config
+report_new_conf_keys() {
+    local deployed="$1" shipped="$2" reference=""
+    local -a new_keys=()
+    ai_tools_conf_new_keys new_keys "${deployed}" "${shipped}" || return 0
+
+    warn "${deployed} does not mention this version's new options:"
+    local key
+    for key in "${new_keys[@]}"; do
+        warn "  ${key}"
+    done
+    reference="$(ai_tools_conf_reference "${deployed}" "${shipped}")" || true
+    if [[ -n "${reference}" ]]; then
+        warn "  documented in ${reference} -- copy the blocks you want;"
+        warn "  each is optional and an unmentioned key keeps its default"
+        # Suggested, not run, and deliberately not gated on diff(1) being installed: this is a
+        # line for the operator to paste, and a host without diff simply ignores it.
+        warn "  compare:  diff -u ${deployed} ${reference}"
+    fi
+    return 0
+}
+
 # Render the shared hook-declaration merge (conf.lib.sh) in the installer's voice. The decision,
 # the backup, and the baseline copy are the library's; what belongs here is only how the outcome
 # reads in an install log.
@@ -1152,6 +1180,7 @@ do_install() {
         chown root:root "${opconf}"
         chmod 644 "${opconf}"
         seed_result "${opconf}" "${opconf_existed}" 1 "managed by ai-tools-admin and the operator"
+        report_new_conf_keys "${opconf}" "${SCRIPT_DIR}/src/etc/ai-tools/operator.conf"
     else
         install_subst 644 root root \
             "${SCRIPT_DIR}/src/etc/ai-tools/operator.conf" "${opconf}"

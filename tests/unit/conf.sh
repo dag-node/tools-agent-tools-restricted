@@ -240,4 +240,63 @@ else
     fail "the jq gate rejected a host that has jq"
 fi
 
+# --- New options in a kept KEY=value config ---------------------------------------------------
+# A kept config never gains a key a new version documents, so an install has to SAY which options
+# the operator has not seen. It must not say it twice: a key already set, or deliberately
+# commented out, has been seen, and re-announcing it every upgrade is the noise that makes an
+# operator stop reading the install output.
+shipped_conf="${TESTDIR}/shipped.conf"
+cat > "${shipped_conf}" <<'CONF'
+# A documented option, shipped commented-out as its own default.
+#EXISTING_OPTION="a"
+
+# The option this version introduces.
+#NEW_OPTION="b"
+CONF
+
+kept_conf="${TESTDIR}/kept.conf"
+printf '# older file\nEXISTING_OPTION="a"\n' > "${kept_conf}"
+declare -a found=()
+if ai_tools_conf_new_keys found "${kept_conf}" "${shipped_conf}" \
+        && [[ "${found[*]}" == "NEW_OPTION" ]]; then
+    pass "an option the kept file never mentions is reported"
+else
+    fail "new-option detection returned '${found[*]:-}'"
+fi
+
+declare -a same=()
+if ! ai_tools_conf_new_keys same "${shipped_conf}" "${shipped_conf}"; then
+    pass "a current file reports nothing"
+else
+    fail "a current file reported '${same[*]}'"
+fi
+
+# Both "seen" forms: a live setting and a commented-out default.
+printf 'NEW_OPTION="b"\n' >> "${kept_conf}"
+declare -a live=()
+if ! ai_tools_conf_new_keys live "${kept_conf}" "${shipped_conf}"; then
+    pass "an option the operator has set is not announced as new"
+else
+    fail "announced an already-set option: ${live[*]}"
+fi
+printf '# older file\nEXISTING_OPTION="a"\n#NEW_OPTION="b"\n' > "${kept_conf}"
+declare -a commented=()
+if ! ai_tools_conf_new_keys commented "${kept_conf}" "${shipped_conf}"; then
+    pass "an option the operator commented out is not re-announced"
+else
+    fail "re-announced a commented-out option: ${commented[*]}"
+fi
+
+# The scan is a reader, not a writer, and must not leave state in its caller.
+seen_key="SENTINEL"
+# shellcheck disable=SC2034  # the output array is deliberately unread here: this case asserts
+# the scan's effect on OTHER variables, not its result
+declare -a discarded=()
+ai_tools_conf_new_keys discarded "${kept_conf}" "${shipped_conf}" >/dev/null 2>&1 || true
+if [[ "${seen_key}" == "SENTINEL" ]]; then
+    pass "the scan leaks no variable into its caller"
+else
+    fail "the scan overwrote a caller variable: seen_key=${seen_key}"
+fi
+
 finish
