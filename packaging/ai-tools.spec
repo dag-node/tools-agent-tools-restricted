@@ -143,6 +143,12 @@ drops any agent they do not use.
 %package -n ai-tools-agents-claude-code-restricted
 Summary:        Claude Code launch wrapper, confinement shim, and hooks for the ai-tools sandbox
 Requires:       ai-tools-integration-nodejs = %{version}-%{release}
+# jq is a HARD runtime dependency of all three hooks this package ships, not a convenience: each
+# parses its event JSON with it. Absent, every one of them takes its `|| exit 0` path silently --
+# post-tool-hook stops handing agent-written files back (they stay sandbox-owned), session-hook
+# stops reclaiming .git and stops the session-end sweep, and filter-hook stops filtering. The
+# first two are ownership guarantees, so this is Requires rather than Recommends.
+Requires:       jq
 # Renamed from claude-code-restricted; see the note on ai-tools-integration-nodejs for why the
 # pair is required rather than cosmetic. This one also owns the launch wrapper and the hooks, so
 # without the Obsoletes an install alongside the old name is a file conflict.
