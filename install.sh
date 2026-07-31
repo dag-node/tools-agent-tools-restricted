@@ -250,17 +250,51 @@ install_subst() {
 }
 
 # Run systemctl --user as a given user with that user's runtime bus environment.
-# Emits a warning rather than aborting if the user session is not active.
+# Emits a warning rather than aborting if the user session is not active. The remedy names a
+# root command: the sandbox account has no login shell, so "run it as that user" is not
+# something an operator can actually do.
 # args:  <user> <systemctl args...>
 user_systemctl() {
     local user="$1"; shift
     local uid
     uid="$(id -u "${user}")"
+    # Reach the account's manager over systemd's machine transport, as root. Dropping into the
+    # account with sudo instead requires that account's own bus to accept the connection, and it
+    # refuses one from a process root switched into -- the manager is running and healthy, the
+    # bus simply declines. `-M <user>@.host` goes to the same manager through the system bus,
+    # where root is already authorized. The sudo form stays as a fallback for a host whose
+    # systemd lacks the machine transport.
+    systemctl --user -M "${user}@.host" "$@" 2>/dev/null && return 0
     sudo -u "${user}" \
         XDG_RUNTIME_DIR="/run/user/${uid}" \
         DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" \
         systemctl --user "$@" \
-        || warn "systemctl --user $* failed -- run it manually as ${user}"
+        || warn "systemctl --user $* failed by both the machine transport and the account's own" \
+                "bus; retry with: sudo systemctl --user -M ${user}@.host $*"
+}
+
+# Bring up a user's systemd --user manager and wait until the SYSTEM manager reports it active.
+#
+# `loginctl enable-linger` returns before the manager is up, so the enablement below would
+# otherwise race it. Readiness is asked of the system manager (`is-active user@<uid>.service`)
+# rather than probed through the account's own bus: that is the authoritative answer to "is the
+# manager running", it needs no bus connection, and a bus probe answers a different and narrower
+# question -- whether root can currently reach that account's bus -- which is not what gates
+# provisioning. Starting user@<uid>.service first is the documented, idempotent way to have the
+# manager exist at all for a nologin account.
+# args:  <user> [timeout_seconds]   returns 0 once the manager is active
+wait_user_manager() {
+    local user="$1" timeout="${2:-15}" uid deadline
+    uid="$(id -u "${user}")" || return 1
+    systemctl start "user@${uid}.service" 2>/dev/null || true
+    deadline=$(( SECONDS + timeout ))
+    while (( SECONDS <= deadline )); do
+        if systemctl is-active --quiet "user@${uid}.service" 2>/dev/null; then
+            return 0
+        fi
+        sleep 0.5
+    done
+    return 1
 }
 
 # Assert the sandbox nvm tree's intended ownership/mode on every (re)install, even
@@ -1194,8 +1228,16 @@ do_install() {
     [[ "${PROJECTS_USER}" != "${SANDBOX_USER}" ]] \
         || die "the operator must not be the sandbox account ${SANDBOX_USER}"
     getent group ai-ops >/dev/null 2>&1 || groupadd -r ai-ops
-    log "adding ${PROJECTS_USER} to group ai-ops"
-    usermod -aG ai-ops "${PROJECTS_USER}" || warn "could not add ${PROJECTS_USER} to ai-ops"
+    # Report what this run actually did. `usermod -aG` is idempotent, so re-running the installer
+    # would otherwise announce "adding" on every pass for an operator who has been a member since
+    # the first one -- and a re-install that says it granted something it did not is the kind of
+    # line that makes an operator stop trusting the rest of the output.
+    if id -nG "${PROJECTS_USER}" 2>/dev/null | tr ' ' '\n' | grep -qxF ai-ops; then
+        log "${PROJECTS_USER} is already in group ai-ops"
+    else
+        log "adding ${PROJECTS_USER} to group ai-ops"
+        usermod -aG ai-ops "${PROJECTS_USER}" || warn "could not add ${PROJECTS_USER} to ai-ops"
+    fi
 
     section "ai-tools control plane (/opt/ai-tools)"
 
@@ -1456,14 +1498,13 @@ do_install() {
     # preflight ("user instance not reachable").
     log "enabling linger for ${SANDBOX_USER}"
     loginctl enable-linger "${SANDBOX_USER}"
-    # enable-linger starts the --user manager asynchronously; wait for its bus before driving
-    # it, or the enable below races a not-yet-ready instance and silently no-ops.
-    local _sbx_uid _i
-    _sbx_uid="$(id -u "${SANDBOX_USER}")"
-    for _i in $(seq 1 20); do
-        [[ -S "/run/user/${_sbx_uid}/bus" ]] && break
-        sleep 0.5
-    done
+    # enable-linger returns before the manager is listening, so bring it up and wait until it
+    # actually answers (wait_user_manager). Its verdict gates only the two live calls below: the
+    # root-side provisioning that follows must happen either way, so a host whose manager never
+    # comes up still has the timer enabled for its next boot.
+    local sandbox_uid manager_ready=0
+    sandbox_uid="$(id -u "${SANDBOX_USER}")"
+    wait_user_manager "${SANDBOX_USER}" && manager_ready=1
 
     # Enable nvm-update.timer in ${SANDBOX_USER}'s --user instance. The home (/opt/ai-tools) is
     # root-owned (2751), so the account cannot create ~/.config and `systemctl --user enable` run
@@ -1495,9 +1536,20 @@ do_install() {
         /opt/ai-tools/.local/share/systemd/timers
     install -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0644 /dev/null \
         /opt/ai-tools/.local/share/systemd/timers/stamp-nvm-update.timer
-    log "enable nvm-update.timer in ${SANDBOX_USER}'s --user instance"
-    user_systemctl "${SANDBOX_USER}" daemon-reload
-    user_systemctl "${SANDBOX_USER}" start nvm-update.timer
+    if (( manager_ready )); then
+        log "enable nvm-update.timer in ${SANDBOX_USER}'s --user instance"
+        user_systemctl "${SANDBOX_USER}" daemon-reload
+        user_systemctl "${SANDBOX_USER}" start nvm-update.timer
+    else
+        # The symlink above is in place, so the timer starts with the manager at next boot. Say
+        # what is not running now and what to check, rather than pointing at a nologin account.
+        warn "${SANDBOX_USER}'s systemd --user manager did not come up -- the auto-update timer"
+        warn "  is enabled but not running, so toolchain updates wait for the next boot."
+        warn "  Check:  systemctl status user@${sandbox_uid}.service"
+        warn "  Then:   sudo systemctl start user@${sandbox_uid}.service"
+        warn "  A session launch needs that instance too (ai-tools-run wraps each session in a"
+        warn "  transient --user unit), so bring it up before the first claude run."
+    fi
 
     log "reload systemd and enable ai-tools-handback.socket + ai-tools-relabel.path"
     systemctl daemon-reload
