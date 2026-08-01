@@ -463,6 +463,12 @@ ai-tools-base installed. To finish setup:
   sudo ai-tools-bootstrap                      # install nvm + Node + Claude Code (network)
   sudo ai-tools-admin operator add <your-user> # bind an operator (ai-ops, OPERATORS, linger)
 EOF
+# operator.conf is %config(noreplace): an edited file is kept and this version's copy is parked as
+# .rpmnew. rpm's own warning names that file but not what to do with it, and ignoring it costs
+# silently -- an option this version adds simply never appears on the host.
+if [ -f /etc/ai-tools/operator.conf.rpmnew ]; then
+    echo "  sudo ai-tools-admin postupgrade              # operator.conf.rpmnew is waiting"
+fi
 
 %preun -n ai-tools-base
 %systemd_preun ai-tools-handback.socket
@@ -541,6 +547,16 @@ for kind in skills:skills subagents:agents; do
     [ -d "${shared}" ] && command -v bash >/dev/null 2>&1 || continue
     bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_link_shared_assets ${shared} ${dest} ai-tools ${readme}" >/dev/null 2>&1 || :
 done
+# settings.json is %config(noreplace), so a host that tuned its permission rules keeps them and rpm
+# parks this version's copy as .rpmnew. Choosing between the two is the operator's call, made
+# through `ai-tools-admin postupgrade` -- a scriptlet does not edit a config file. Say so here,
+# because leaving it costs silently: a hook this version ships installs its body and its data, and
+# nothing invokes it until its DECLARATION reaches settings.json.
+if [ -f /opt/ai-tools/.claude/settings.json.rpmnew ]; then
+    echo "ai-tools: settings.json.rpmnew is waiting -- this version's hook declarations are not in"
+    echo "  your settings.json yet, so the hooks they declare never run. Merge them with:"
+    echo "    sudo ai-tools-admin postupgrade"
+fi
 
 %preun -n ai-tools-agents-claude-code-restricted
 # On final erase, drop the entrypoint file-context rule this package registered and restore
@@ -682,7 +698,7 @@ fi
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/post-tool-hook.sh
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/session-hook.sh
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/filter-hook.sh
-%attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
+%config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
 * Fri Jul 31 2026 dagnode <tools@dagnode.com> - 0.9.0-1
@@ -691,11 +707,21 @@ fi
   Access-neutral: the permission rules are re-evaluated on the rewritten command.
 - NEW: Apply the command filters on both Bash hook events
 - NEW: Quiet the dotnet SDK through its own command-filter rule set
+- NEW: Keep host-tuned permission rules across an upgrade -- settings.json ships
+  %config(noreplace), so rpm keeps the file you edited and parks this version's copy as
+  settings.json.rpmnew (earlier releases overwrote it and kept no copy)
+- NEW: Reconcile the .rpmnew copies an upgrade leaves with sudo ai-tools-admin postupgrade. It
+  merges shipped hook declarations into settings.json after listing exactly what it will add and
+  confirming, writing a dated .bak first. operator.conf and the sudoers grant are reported, never
+  written -- a file of commented option blocks has no merge worth learning to predict. The install
+  output points here whenever a .rpmnew is waiting
 - NEW: Merge shipped hook declarations into a kept settings.json, so a new version's hook no
-  longer installs with nothing to invoke it
-- NEW: Report the options a kept KEY=value config has not seen
-- NEW: Add the shared config backup and baseline-copy layer -- dated .bak and .shipped sidecars,
-  never overwritten
+  longer installs with nothing to invoke it (inline on a from-source install, through postupgrade
+  on RPM)
+- NEW: Report the options a kept KEY=value config has not seen (inline on a from-source install,
+  through postupgrade against operator.conf.rpmnew on RPM)
+- NEW: Add the shared config backup and baseline-copy layer to the from-source installer --
+  dated .bak and .shipped sidecars, never overwritten
 - NEW: Read allowed-projects with the shared config grammar (conf.lib.sh): end-of-line comments
   and quoted paths, one parser for the wrapper, the CLI, and the handback helper
 - NEW: Add operator.conf(5)

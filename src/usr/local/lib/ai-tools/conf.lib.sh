@@ -357,7 +357,8 @@ ai_tools_conf_merge_hook_declarations() {
 # ai_tools_conf_keys <array-name> <file> : set the named array to every KEY this file mentions,
 #   whether the key is live or written as a commented-out default (`#KEY=` / `# KEY =`). Both
 #   forms count as "mentioned", which is the point: a key an operator has deliberately commented
-#   out is one they have already seen, so re-announcing it every upgrade would be noise.
+#   out is one they have already seen, so re-announcing it every upgrade would be noise. A comment
+#   indented further than one space is prose, not a default, and mentions nothing (below).
 ai_tools_conf_keys() {
     local -n _ai_tools_conf_keys_out="$1"
     local file="$2" line key
@@ -365,8 +366,15 @@ ai_tools_conf_keys() {
     [[ -r "${file}" ]] || return 1
     while IFS= read -r line || [[ -n "${line}" ]]; do
         line="${line#"${line%%[![:space:]]*}"}"       # strip leading whitespace
-        line="${line#\#}"                             # a commented default is still a mention
-        line="${line#"${line%%[![:space:]]*}"}"
+        if [[ "${line}" == \#* ]]; then
+            line="${line#\#}"                         # a commented default is still a mention
+            # ...but only when written hard against the `#` or one space in. A comment indented
+            # further is illustrative prose: operator.conf's header documents the grammar with
+            # lines like `#   KEY=value`, so counting those would make the minimally seeded file
+            # `ai-tools-admin operator add` writes report every documented key as new.
+            [[ "${line}" != "  "* ]] || continue
+            line="${line#"${line%%[![:space:]]*}"}"
+        fi
         [[ "${line}" == *=* ]] || continue
         key="${line%%=*}"
         key="${key%"${key##*[![:space:]]}"}"          # strip trailing whitespace

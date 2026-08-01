@@ -287,6 +287,34 @@ else
     fail "re-announced a commented-out option: ${commented[*]}"
 fi
 
+# A commented-out DEFAULT and an indented EXAMPLE look alike to a naive scan, and the difference
+# decides what an upgrade reports. operator.conf documents its own grammar with lines like
+# `#   KEY=value`, so counting those as mentions makes the minimally seeded file
+# `ai-tools-admin operator add` writes look like it already knows every option there is.
+example_conf="${TESTDIR}/example.conf"
+cat > "${example_conf}" <<'CONF'
+# Grammar, by example:
+#   EXISTING_OPTION="a"
+#   NEW_OPTION="b"
+OPERATORS="root"
+CONF
+declare -a examples=()
+if ai_tools_conf_new_keys examples "${example_conf}" "${shipped_conf}" \
+        && [[ "${examples[*]}" == "EXISTING_OPTION NEW_OPTION" ]]; then
+    pass "an indented example in a header block mentions nothing"
+else
+    fail "prose examples were read as mentions (reported '${examples[*]:-}')"
+fi
+
+# The two forms that ARE defaults stay defaults, hard against the '#' and one space in.
+printf '#EXISTING_OPTION="a"\n# NEW_OPTION="b"\n' > "${kept_conf}"
+declare -a spaced=()
+if ! ai_tools_conf_new_keys spaced "${kept_conf}" "${shipped_conf}"; then
+    pass "both commented-default forms (#KEY= and # KEY=) count as mentions"
+else
+    fail "a commented default was missed: ${spaced[*]}"
+fi
+
 # The scan is a reader, not a writer, and must not leave state in its caller.
 seen_key="SENTINEL"
 # shellcheck disable=SC2034  # the output array is deliberately unread here: this case asserts

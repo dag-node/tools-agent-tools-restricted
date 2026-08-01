@@ -59,31 +59,28 @@ ai_tools_relabel_available() {
 # root, whose subtree ai_tools.fc already maps to ai_tools_project_t.
 _ai_tools_is_sandbox() { [[ "$1/" == "${AI_TOOLS_SANDBOX_ROOT}/"* ]]; }
 
-# ai_tools_label_project <dir> [convert|repair]: ensure <dir> and its subtree carry
-# ai_tools_project_t. Adds (or refreshes) the per-project fcontext rule -- skipped
-# for sandbox clones, which the static rule already covers -- then restorecons.
-# Returns 2 if SELinux is unavailable, 1 on a hard failure (e.g. the type is not in
-# the loaded policy because the module is not installed), 0 on success.
+# ai_tools_label_project <dir>: ensure <dir> and its subtree carry ai_tools_project_t.
+# Adds (or refreshes) the per-project fcontext rule -- skipped for sandbox clones, which the
+# static rule already covers -- then forces the label with `restorecon -FR`.
+# Returns 2 if SELinux is unavailable, 1 on a hard failure (e.g. the type is not in the loaded
+# policy because the module is not installed), 0 on success.
 #
-# The second argument picks how hard the relabel works, because the two callers want different
-# things from the same rule:
+# The relabel is FORCED (`-F`), and that is load-bearing, not a tuning choice. A file created
+# inside a labelled directory inherits ai_tools_project_t on its own, so an ordinary edit never
+# drifts. But a file brought in carrying an EXPLICIT foreign context -- a context-preserving copy
+# (`cp -a`, `tar --selinux`) of a system path, or any customizable type (e.g. httpd_sys_content_t)
+# -- is one a plain `restorecon` deliberately PRESERVES. Only `-F` resets those to the project
+# type. Skipping it leaves such a file unreadable to the confined agent (ai_tools_t), whose startup
+# workspace walk then denies on every one -- a per-file AVC that setroubleshootd amplifies into a
+# host-wide CPU flood. `-F` rewrites nothing already correct (restorecon compares before it writes,
+# so it is idempotent on a matching context and costs the same walk either way), so forcing pays
+# only for the drifted files it fixes.
 #
-#   convert (default)  restorecon -RF -- rewrite every file's context whether or not it already
-#                      matches. What a first-time CLAIM needs: the tree is full of user_home_t
-#                      files, and the one-off cost buys a tree known to be converted whole.
-#   repair             restorecon -R  -- fix only what does not already match. What a repeated
-#                      SWEEP needs: a labelled tree stays labelled on its own, since a file
-#                      created inside a directory inherits that directory's type, so a forced
-#                      pass over every registered project on every install rewrites contexts that
-#                      were already right. Drift is still repaired, and an unchanged tree costs a
-#                      read-only walk instead of a write per file.
-#
-# The fcontext rule is asserted in both modes: it is what makes the type survive a future
-# restorecon, and re-asserting it is how a type change from a policy bump reaches an existing
-# project.
+# The fcontext rule is asserted whether or not the type already matches: it is what makes the type
+# survive a future restorecon, and re-asserting it is how a type change from a policy bump reaches
+# an existing project.
 ai_tools_label_project() {
-    local dir="$1" mode="${2:-convert}" restore_flags="-RF"
-    [[ "${mode}" == repair ]] && restore_flags="-R"
+    local dir="$1"
     ai_tools_relabel_available || return 2
     if ! _ai_tools_is_sandbox "${dir}"; then
         # `-a` on an existing entry reports it on stdout as well as failing, so both streams are
@@ -92,7 +89,7 @@ ai_tools_label_project() {
             || semanage fcontext -m -t "${AI_TOOLS_PROJECT_TYPE}" "${dir}(/.*)?" >/dev/null 2>&1 \
             || return 1
     fi
-    restorecon "${restore_flags}" "${dir}" 2>/dev/null || return 1
+    restorecon -FR "${dir}" 2>/dev/null || return 1
 }
 
 # ai_tools_unlabel_project <dir>: drop any per-project fcontext rule for <dir> and
@@ -105,7 +102,7 @@ ai_tools_unlabel_project() {
     ai_tools_relabel_available || return 2
     _ai_tools_is_sandbox "${dir}" \
         || semanage fcontext -d "${dir}(/.*)?" 2>/dev/null || true
-    restorecon -RF "${dir}" 2>/dev/null || return 1
+    restorecon -FR "${dir}" 2>/dev/null || return 1
 }
 
 # ── Agent-declared SELinux paths ─────────────────────────────────────────────────────────────
@@ -253,7 +250,7 @@ _ai_tools_label_agent_config_dir() {
         printf 'none %s its config directory\n' "${agent}"
         return 0
     fi
-    restorecon -RF "${path}" 2>/dev/null || true
+    restorecon -FR "${path}" 2>/dev/null || true
     _ai_tools_verify_label "${path}" "${AI_TOOLS_AGENT_CONFIG_TYPE}"
 }
 
@@ -306,7 +303,7 @@ ai_tools_unlabel_agent_paths() {
         # relabelled to whatever the remaining policy maps it to rather than left on a type this
         # host may stop defining.
         path="${CP_HOME}/${config_dir}"
-        [[ -d "${path}" ]] && restorecon -RF "${path}" 2>/dev/null
+        [[ -d "${path}" ]] && restorecon -FR "${path}" 2>/dev/null
         dropped=0
     fi
     return "${dropped}"

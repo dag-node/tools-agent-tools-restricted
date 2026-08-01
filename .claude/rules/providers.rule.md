@@ -145,6 +145,42 @@ categories in [ownership-and-hooks](ownership-and-hooks.rule.md) keep their buil
 item — for a provider allowlist that reads as "no such provider", a wrong verdict that disables a
 configured agent with only a warning. `tests/unit/conf.sh` drives the splitter under that IFS.
 
+### `operator.conf` across an upgrade
+
+Two rpm directives govern a config file that a package ships and the host later edits, and the
+choice between them decides what `dnf update` does on a running host:
+
+| directive | file in place afterwards | parked copy | consequence |
+|---|---|---|---|
+| `%config` | the package's | the host's, as `.rpmsave` | the host's settings stop applying |
+| `%config(noreplace)` | the host's | the package's, as `.rpmnew` | the new version's options stay dormant |
+
+`operator.conf` takes `%config(noreplace)`, so an upgrade enables nothing the host did not ask for.
+A host that set `AI_TOOLS_FILTERS=` to turn filtering off still has it off afterwards; under
+`%config` that line would move to a file nothing reads and filtering would come back on. A dormant
+option is recoverable at any time, and a silently reverted setting is not. `settings.json` takes
+the directive for the same reason, which is why a newly shipped hook is installed but stays
+uninvoked until its declaration is merged ([claude-settings](claude-settings.rule.md)).
+
+The cost is that reconciling the `.rpmnew` is manual, so it is signposted rather than automated:
+each package's `%post` prints the pointer whenever one is present, and `sudo ai-tools-admin
+postupgrade` names the options the new version documents that the file does not mention, shows the
+difference, and offers to clear the copy. Against this file it writes nothing. An additive merge
+could append an option block the file lacks, but it could never correct the prose of one already
+there, so `operator.conf(5)` is the single current statement of what an option means and the file
+points at the man page rather than restating it.
+
+### Deferred: `operator.conf.d/`
+
+A drop-in directory read after `operator.conf` would end the reconciliation question outright: the
+package would own the defaults and the documentation, the host only its own fragments, and the two
+would never share a file.
+
+Nine options do not earn it. A `.d` directory is not one convention but several — `sysctl.d` takes
+the last assignment, `sshd_config.d` the first — so its semantics cannot be inferred from having
+seen another, and it becomes one more thing to learn before an upgrade is predictable. That price
+is worth paying against a file large enough to make hand-merging error-prone, and not before.
+
 ## Enablement is fail-closed
 
 `operator.conf` `AI_TOOLS_AGENTS` / `AI_TOOLS_INTEGRATIONS` (provider names, in the grammar above)

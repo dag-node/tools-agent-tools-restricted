@@ -72,7 +72,7 @@ RuntimeDirectory=ai-tools
 # non-@SANDBOX_GROUP@ uid that traverses in still gets EACCES on connect().  This is
 # the standard pattern for a group-gated runtime socket on pre-256 systemd.
 RuntimeDirectoryMode=0711
-ExecStartPost=-/usr/sbin/restorecon -RF /run/ai-tools
+ExecStartPost=-/usr/sbin/restorecon -FR /run/ai-tools
 
 [Install]
 WantedBy=sockets.target

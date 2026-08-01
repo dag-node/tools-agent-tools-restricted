@@ -418,21 +418,21 @@ for_each_project() {
 }
 
 _home_state()  { local p; for p in "${HOME_STATE[@]}"; do
-                   restorecon -RF "/opt/ai-tools/${p}" 2>/dev/null || true
+                   restorecon -FR "/opt/ai-tools/${p}" 2>/dev/null || true
                  done; }
 # _label_one/_unlabel_one: thin wrappers over the shared lib so this sweep and the
 # ai-tools-relabel helper share one implementation. Non-zero is swallowed (warn,
 # don't die) so one bad project never aborts a whole relabel. _unlabel_one already
 # restorecons via the lib; the remove action's later _restore_one pass is a
 # harmless belt-and-suspenders.
-# Sweeps every registered project on each run, so it asks for drift REPAIR rather than a forced
-# conversion: an already-labelled tree keeps its type on its own, and a forced pass would rewrite
-# every file of every project on every install. A first-time claim converts in full through
-# ai-tools-relabel.
-_label_one()   { if ai_tools_label_project "$1" repair; then log "labelled project ai_tools_project_t: $1"
+# Re-asserts the label on every registered project each run. The relabel is idempotent (restorecon
+# writes only a file whose context differs), so a clean tree costs a walk and no writes; a file that
+# drifted in with a foreign context -- a customizable type a plain restorecon would preserve -- is
+# forced back to ai_tools_project_t by the lib's `-F`, which is the whole point of the sweep.
+_label_one()   { if ai_tools_label_project "$1"; then log "labelled project ai_tools_project_t: $1"
                  else warn "could not label $1 -- is the ai_tools module loaded?"; fi; }
 _unlabel_one() { ai_tools_unlabel_project "$1" || warn "could not unlabel $1"; }
-_restore_one() { restorecon -RF "$1" 2>/dev/null || true; }
+_restore_one() { restorecon -FR "$1" 2>/dev/null || true; }
 # Label / unlabel ~/.config/ai-tools as ai_tools_conf_t (see CONF_DIR comment).
 _label_conf()   { [[ -d "${CONF_DIR}" ]] || { log "config dir absent, skip label: ${CONF_DIR}"; return 0; }
                   # ai_tools_conf_t must already exist in the LOADED policy for
@@ -447,7 +447,7 @@ _label_conf()   { [[ -d "${CONF_DIR}" ]] || { log "config dir absent, skip label
                   if semanage fcontext -a -t ai_tools_conf_t "${CONF_DIR}(/.*)?" >/dev/null 2>&1 \
                      || { _verb="re-applied"
                           semanage fcontext -m -t ai_tools_conf_t "${CONF_DIR}(/.*)?" >/dev/null 2>&1; }; then
-                      restorecon -RF "${CONF_DIR}" 2>/dev/null || true
+                      restorecon -FR "${CONF_DIR}" 2>/dev/null || true
                       log "${_verb} config ai_tools_conf_t: ${CONF_DIR}"
                   else
                       warn "could not set ai_tools_conf_t fcontext on ${CONF_DIR}"
@@ -455,7 +455,7 @@ _label_conf()   { [[ -d "${CONF_DIR}" ]] || { log "config dir absent, skip label
                       warn "    run 'install' (loads the module), not just 'relabel'."
                   fi; }
 _unlabel_conf() { semanage fcontext -d "${CONF_DIR}(/.*)?" 2>/dev/null || true
-                  restorecon -RF "${CONF_DIR}" 2>/dev/null || true; }
+                  restorecon -FR "${CONF_DIR}" 2>/dev/null || true; }
 # _relabel_runtime: fix the live ai_tools_run_t label on /run/ai-tools (see RUN_DIR).
 # A plain restorecon of the other trees is enough because they live on persistent
 # filesystems, but the handback runtime dir is tmpfs and recreated by systemd from
@@ -476,7 +476,7 @@ _relabel_runtime() {
             systemctl restart ai-tools-handback.socket 2>/dev/null || true
         fi
     fi
-    [[ -d "${RUN_DIR}" ]] && restorecon -RFv "${RUN_DIR}" 2>/dev/null || true
+    [[ -d "${RUN_DIR}" ]] && restorecon -FRv "${RUN_DIR}" 2>/dev/null || true
 }
 
 # _relabel_helpers: apply ai_tools_handback_exec_t to the handback daemon entrypoint
@@ -487,7 +487,7 @@ _relabel_runtime() {
 # EACCES. The sibling root helpers and the /usr/local/bin client are bin_t (no special
 # label). restorecon is idempotent and no-ops when handback is not installed.
 # Runs before _relabel_runtime's socket restart, which reads this label (see there).
-_relabel_helpers() { restorecon -RF /usr/local/sbin/ai-tools 2>/dev/null || true; }
+_relabel_helpers() { restorecon -FR /usr/local/sbin/ai-tools 2>/dev/null || true; }
 
 ########################################
 # Actions
@@ -519,11 +519,11 @@ case "${ACTION}" in
     _check_permissive_alignment
 
     section "Labelling"
-    restorecon -RF "${NVM_DIR}"  2>/dev/null || true
+    restorecon -FR "${NVM_DIR}"  2>/dev/null || true
     # Apply the static sandbox-clone label (ai_tools.fc) to any existing clones.
-    [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -RF "${SANDBOX_PROJECTS}" 2>/dev/null || true
+    [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -FR "${SANDBOX_PROJECTS}" 2>/dev/null || true
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
-    [[ -d "${LOG_DIR}" ]] && restorecon -RF "${LOG_DIR}" 2>/dev/null || true
+    [[ -d "${LOG_DIR}" ]] && restorecon -FR "${LOG_DIR}" 2>/dev/null || true
     # Label the handback daemon first: the socket restart in _relabel_runtime derives
     # the listener's context from the daemon binary's on-disk label at bind time.
     _relabel_helpers
@@ -570,11 +570,11 @@ case "${ACTION}" in
 
   relabel)
     section "Re-applying labels"
-    restorecon -RF "${NVM_DIR}"  2>/dev/null || true
+    restorecon -FR "${NVM_DIR}"  2>/dev/null || true
     # Apply the static sandbox-clone label (ai_tools.fc) to any existing clones.
-    [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -RF "${SANDBOX_PROJECTS}" 2>/dev/null || true
+    [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -FR "${SANDBOX_PROJECTS}" 2>/dev/null || true
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
-    [[ -d "${LOG_DIR}" ]] && restorecon -RF "${LOG_DIR}" 2>/dev/null || true
+    [[ -d "${LOG_DIR}" ]] && restorecon -FR "${LOG_DIR}" 2>/dev/null || true
     # Label the handback daemon first: the socket restart in _relabel_runtime derives
     # the listener's context from the daemon binary's on-disk label at bind time.
     _relabel_helpers
@@ -601,9 +601,9 @@ case "${ACTION}" in
     _check_permissive_alignment
 
     section "Re-applying labels"
-    restorecon -RF "${NVM_DIR}"  2>/dev/null || true
-    [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -RF "${SANDBOX_PROJECTS}" 2>/dev/null || true
-    [[ -d "${LOG_DIR}" ]] && restorecon -RF "${LOG_DIR}" 2>/dev/null || true
+    restorecon -FR "${NVM_DIR}"  2>/dev/null || true
+    [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -FR "${SANDBOX_PROJECTS}" 2>/dev/null || true
+    [[ -d "${LOG_DIR}" ]] && restorecon -FR "${LOG_DIR}" 2>/dev/null || true
     # Label the handback daemon first: the socket restart in _relabel_runtime derives
     # the listener's context from the daemon binary's on-disk label at bind time.
     _relabel_helpers
