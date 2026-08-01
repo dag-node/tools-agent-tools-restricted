@@ -582,10 +582,10 @@ relabel_clone() {
     local d="$1"
     command -v restorecon >/dev/null 2>&1 || return 0
     [[ "$(getenforce 2>/dev/null)" == "Disabled" ]] && return 0
-    if restorecon -RF "${d}" 2>/dev/null; then
+    if restorecon -FR "${d}" 2>/dev/null; then
         ok "labelled clone ai_tools_project_t (SELinux)"
     else
-        warn "could not relabel ${d} for SELinux; if enforcing, run: sudo restorecon -RF ${d}"
+        warn "could not relabel ${d} for SELinux; if enforcing, run: sudo restorecon -FR ${d}"
     fi
 }
 

@@ -109,12 +109,15 @@ The confined agent (`ai_tools_t`) reaches it only if the tree carries the
 `ai-tools-relabel`, and `--project-unclaim` reverts it. The label primitive (semanage
 fcontext + restorecon) lives in the shared `relabel.lib.sh`, sourced by both
 `ai-tools-relabel` and `install-selinux.sh`, so the CLI and the policy installer apply one
-implementation. It takes the effort the caller needs: a claim **converts** (`restorecon -RF`,
-rewriting every file, which is what a tree full of `user_home_t` files requires), while the
-installer's sweep over already-registered projects **repairs** (`restorecon -R`, fixing only what
-does not match). A labelled tree keeps its type without help — a file created in a directory
-inherits that directory's type — so the sweep exists to catch drift, not to redo the conversion on
-every install. Claim sets group `SANDBOX_GROUP` + the setgid bit on the project's directories
+implementation. The relabel is **forced** (`restorecon -FR`): a file created in a labelled
+directory inherits `ai_tools_project_t` on its own, but a file brought in carrying an explicit
+foreign context — a context-preserving copy (`cp -a`, `tar --selinux`) of a system path, or any
+customizable type — is one a plain `restorecon` preserves, and only `-F` resets it to the project
+type. `restorecon` writes only a file whose context differs, so forcing is idempotent on an
+already-labelled tree (a walk, no writes) and the installer's per-install sweep re-asserts the
+label cheaply while still correcting such drift — the state the confined agent must be able to
+read, or its startup workspace walk denies on every foreign-labelled path.
+Claim sets group `SANDBOX_GROUP` + the setgid bit on the project's directories
 (via `ai-tools-setgid`, so the agent traverses the tree and new files inherit the group), applies
 the group-permission ACL for existing files (via `ai-tools-setfacl`), and pins repo-local
 `core.filemode=true`.
