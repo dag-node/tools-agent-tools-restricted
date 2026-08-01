@@ -245,6 +245,26 @@ writes neither. The suffix is deliberately not `.rpmnew` — no rpm transaction 
 rpm's suffix would both claim a provenance it lacks and hand the file to the tooling that
 sweeps rpm leftovers.
 
+**On an RPM host the same merge runs on request.** `settings.json` is `%config(noreplace)`, so an
+upgrade keeps a file the host edited and parks this version's copy as `settings.json.rpmnew`. A
+file the host never edited is replaced outright and its hook declarations are current with no
+operator step.
+
+No rpm directive resolves the split on its own, because rpm has no vocabulary for merging one
+subtree of a file: plain `%config` would install the shipped file and move the host's aside to
+`.rpmsave`, reverting the permission rules the file was kept for, while `%config(noreplace)` alone
+leaves a newly shipped hook declared nowhere. The merge therefore runs on request —
+**`sudo ai-tools-admin postupgrade`**, through the same `conf.lib.sh` entry point — and the agent
+package's `%post` prints that pointer whenever a `.rpmnew` is present. No scriptlet edits a config
+file.
+
+The command runs the merge on a throwaway copy first, so the list it shows is the exact set of
+declarations the real merge adds rather than a promise of one. It then confirms, writes the dated
+`.bak`, names that backup, and offers to drop the `.rpmnew` against what is actually left: the
+cleanup prompt defaults to yes once the two files match, and to no while the permission rules still
+differ. A refusal on this path needs no `.shipped` sidecar — the `.rpmnew` is that baseline, and
+the throwaway copy is where the refused merge's own copy lands and is discarded.
+
 `jq` is a hard runtime dependency of every hook this agent ships, not a convenience: each
 parses its event JSON with it, and absent it they take their no-op paths silently — the
 handback stops returning ownership, the session sweeps stop running, and the filters stop

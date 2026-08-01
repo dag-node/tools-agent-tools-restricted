@@ -24,10 +24,9 @@ Edit it as root; it is owned by
 .B root
 at mode
 .BR 0644 .
-Options a new version adds are reported at install time alongside a dated
-.I .shipped
-copy of the current template to merge from, so the file stays yours across
-upgrades.
+An upgrade never overwrites it; see
+.B UPGRADES
+below.
 .SH GRAMMAR
 One
 .I KEY=value
@@ -160,6 +159,34 @@ Turn command filtering off while diagnosing unexpected command output:
 AI_TOOLS_FILTERS=
 .EE
 .RE
+.SH UPGRADES
+This file ships as
+.BR %config(noreplace) ,
+so an upgrade never overwrites what you wrote. When the shipped file has
+changed, rpm keeps yours and writes the new one alongside as
+.IR /etc/ai\-tools/operator.conf.rpmnew .
+.PP
+Merging the two is left to you. An option block is prose, and an automatic
+merge of prose would need a convention you would have to learn before you
+could predict what an upgrade does to this file.
+.PP
+There is no hurry. Every option is optional and an unmentioned key keeps its
+default, so a file written before an option existed keeps working exactly as
+it did; what a stale file costs is knowledge of the option, not behaviour.
+.PP
+To list the options the new version documents that your file does not mention,
+see the full difference, and clear the copy when you are done:
+.PP
+.RS 4
+.EX
+sudo ai\-tools\-admin postupgrade
+.EE
+.RE
+.PP
+Against
+.I operator.conf
+that command only reports: it names the new options and shows the difference,
+and every edit stays yours.
 .SH SEE ALSO
 .BR ai\-tools (1)
 .PP

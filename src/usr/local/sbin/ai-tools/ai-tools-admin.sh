@@ -11,6 +11,7 @@
 #   sudo ai-tools-admin selinux list-groups                # show core + optional group state
 #   sudo ai-tools-admin selinux enable-group <name>        # load a prebuilt (stable) group
 #   sudo ai-tools-admin selinux disable-group <name>       # unload one
+#   sudo ai-tools-admin postupgrade                        # reconcile the .rpmnew files upgrades leave
 #
 # An operator is a login user (a human or a rootless service account) that drives the sandbox
 # through the shared ai-tools account. `add` is accumulating and idempotent: it appends the
@@ -30,6 +31,15 @@
 # compile-and-verify workflow (install-selinux.sh + the avc bring-up loop), since this tool will
 # not load an unaudited module. disable-group works for any loaded group, stable or not.
 #
+# `postupgrade` reconciles the `<file>.rpmnew` copies an upgrade leaves beside the
+# %config(noreplace) files this stack owns. rpm keeps what the host edited and parks the new
+# version alongside it; choosing between the two is a judgement about the operator's own
+# configuration, so it happens here, when the operator asks, and never in a scriptlet. Each file
+# gets the treatment its content deserves -- merge, report, or show only, per the registry below --
+# and every treatment shows what it would change, confirms, backs the file up before writing, and
+# names each path it touched. The from-source installer reaches the same end through its own
+# keep-or-reset prompts and dated .bak/.shipped sidecars; this is the RPM-side equivalent.
+#
 # Deploy:
 #   sudo install -o root -g root -m 750 \
 #       src/usr/local/sbin/ai-tools/ai-tools-admin.sh /usr/local/sbin/ai-tools/ai-tools-admin
@@ -41,6 +51,7 @@ readonly OPERATORS_GROUP="ai-ops"
 readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 readonly SELINUX_GROUPS_LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
+readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 
 die() { printf 'ai-tools-admin: error: %s\n' "$*" >&2; exit 1; }
 log() { printf 'ai-tools-admin: %s\n' "$*"; }
@@ -53,6 +64,12 @@ log() { printf 'ai-tools-admin: %s\n' "$*"; }
 # Optional SELinux policy-group registry + predicates, shared with install-selinux.sh.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/selinux-groups.lib.sh
 . "${SELINUX_GROUPS_LIB}" || die "cannot source ${SELINUX_GROUPS_LIB}"
+
+# The shared config grammar, sidecar handling, and hook-declaration merge that `postupgrade`
+# drives. Required, not optional: a reconcile that silently skipped its merge would leave a
+# shipped hook uninvoked while reporting success.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
+. "${CONF_LIB}" || die "cannot source ${CONF_LIB}"
 
 # Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like the
 # operator lib above: a valid install ships it, so there is no fallback.
@@ -327,6 +344,151 @@ sel_list() {
     log "checkout after verification (sudo selinux/install-selinux.sh enable-group <name>)"
 }
 
+# ── postupgrade: reconcile the .rpmnew files an upgrade leaves ───────────────────────────────
+# rpm keeps an operator-modified %config(noreplace) file and parks the package's copy beside it as
+# <file>.rpmnew. Choosing between the two is a judgement call about the operator's own
+# configuration, so no scriptlet makes it: this is the explicit, interactive command that does, and
+# it is what the install output points at. Every treatment confirms first, backs the file up before
+# writing, and names each path it touched.
+#
+# The treatment follows the file's CONTENT, rather than one generic merge covering all three:
+#   json    hook DECLARATIONS merge additively -- they are control plane, and a declaration the
+#           file lacks means a shipped hook installs but nothing invokes it. The permission arrays
+#           are the host's and stay exactly as written (claude-settings.rule.md).
+#   keyval  reported, never rewritten. An absent key already means its default, so a stale file
+#           costs knowledge rather than behaviour, and its layout is the operator's own prose.
+#   review  shown only. A tool does not merge the sudo grant.
+readonly -a POSTUPGRADE_FILES=(
+    "/opt/ai-tools/.claude/settings.json|json|Claude Code settings"
+    "/etc/ai-tools/operator.conf|keyval|host options"
+    "/etc/sudoers.d/ai-tools|review|sudoers grant"
+)
+
+# _pu_diff <deployed> <rpmnew>: show what the package would change, indented. Colourized through
+# colordiff when the host has it AND stdout is a terminal: colordiff is an EPEL package on RHEL, so
+# it is used where present and never depended on, and the terminal test keeps escape sequences out
+# of a redirected run, the way every other message this project prints degrades when piped. diff(1)
+# is optional too -- without it the report continues and only the difference itself is missing.
+_pu_diff() {
+    local differ=diff
+    command -v diff >/dev/null 2>&1 || { log "    (install diffutils to see the difference here)"; return 0; }
+    [[ -t 1 ]] && command -v colordiff >/dev/null 2>&1 && differ=colordiff
+    "${differ}" -u "$1" "$2" 2>/dev/null | sed 's/^/    /' || true
+}
+
+# _pu_cleanup <rpmnew> <default>: offer to drop the .rpmnew now that it has been dealt with.
+_pu_cleanup() {
+    local rpmnew="$1" def="$2"
+    if ai_tools_msg_confirm "  Remove ${rpmnew}?" "${def}"; then
+        rm -f "${rpmnew}" && log "  removed ${rpmnew}"
+    else
+        log "  kept ${rpmnew}"
+    fi
+}
+
+# _pu_json <deployed> <rpmnew>: merge the hook declarations the deployed file does not carry.
+# The addition list comes from running the merge on a THROWAWAY COPY first, so what the operator
+# confirms is the exact set the real merge adds rather than a promise of one, and a merge that
+# would fail says so before the real file is touched.
+_pu_json() {
+    local deployed="$1" rpmnew="$2" scratch status=0
+    ai_tools_conf_require_jq || { log "  jq is missing -- cannot read JSON; merge by hand"; return 0; }
+
+    scratch="$(mktemp -d)" || return 0
+    cp -p "${deployed}" "${scratch}/probe" 2>/dev/null || { rm -rf "${scratch}"; return 0; }
+    ai_tools_conf_merge_hook_declarations "${scratch}/probe" "${rpmnew}" || status=$?
+    rm -rf "${scratch}"
+
+    case "${status}" in
+    1)  log "  hook declarations are already current -- nothing to merge"
+        log "  the difference left is in the permission rules, which are yours to tune:"
+        _pu_diff "${deployed}" "${rpmnew}"
+        _pu_cleanup "${rpmnew}" n
+        return 0 ;;
+    2)  log "  cannot merge: ${_ai_tools_conf_merge_reason}"
+        log "  ${deployed} is unchanged -- copy the \"hooks\" block from ${rpmnew} by hand"
+        return 0 ;;
+    esac
+
+    log "  hook declarations this version adds:"
+    local line
+    for line in "${_ai_tools_conf_merge_added[@]}"; do log "    + ${line}"; done
+    log "  nothing else changes -- your permission rules stay as written."
+    ai_tools_msg_confirm "  Merge these into ${deployed}?" y || { log "  skipped -- ${deployed} unchanged"; return 0; }
+
+    status=0
+    ai_tools_conf_merge_hook_declarations "${deployed}" "${rpmnew}" || status=$?
+    if (( status >= 2 )); then
+        log "  merge failed: ${_ai_tools_conf_merge_reason} -- ${deployed} is unchanged"
+        return 0
+    fi
+    log "  merged. the previous file is saved as ${_ai_tools_conf_merge_backup}"
+
+    # Offer the cleanup against what is actually left. Once the permission rules match too, the
+    # .rpmnew has nothing further to say and keeping it only invites a second look later.
+    if command -v diff >/dev/null 2>&1 && diff -q "${deployed}" "${rpmnew}" >/dev/null 2>&1; then
+        log "  ${deployed} now matches the shipped file exactly."
+        _pu_cleanup "${rpmnew}" y
+    else
+        log "  the permission rules still differ -- review them before dropping the copy:"
+        _pu_diff "${deployed}" "${rpmnew}"
+        _pu_cleanup "${rpmnew}" n
+    fi
+}
+
+# _pu_keyval <deployed> <rpmnew>: report and never write. A KEY=value config is mostly prose --
+# commented option blocks whose layout is the operator's -- and merging prose would need a
+# convention an operator has to learn before they can predict it. Name the options the new version
+# documents that this file does not mention, show the difference, and leave the edit to them.
+_pu_keyval() {
+    local deployed="$1" rpmnew="$2" key
+    local -a new_keys=()
+    if ai_tools_conf_new_keys new_keys "${deployed}" "${rpmnew}"; then
+        log "  options this version documents that ${deployed} does not mention:"
+        for key in "${new_keys[@]}"; do log "    ${key}"; done
+        log "  each one is optional and an unmentioned key keeps its default, so leaving them out"
+        log "  breaks nothing. Copy the blocks you want; see operator.conf(5)."
+    else
+        log "  every option this version documents is already mentioned in ${deployed}"
+    fi
+    log "  the full difference:"
+    _pu_diff "${deployed}" "${rpmnew}"
+    _pu_cleanup "${rpmnew}" n
+}
+
+# _pu_review <deployed> <rpmnew>: show and stop. This file is the sudo grant itself.
+_pu_review() {
+    local deployed="$1" rpmnew="$2"
+    ai_tools_msg_warn \
+        "This file defines the sudo grant that lets an operator launch the sandbox. It is shown, never merged: check any change yourself with visudo -c before adopting it."
+    _pu_diff "${deployed}" "${rpmnew}"
+    log "  adopt the packaged version with:  sudo visudo -c -f ${rpmnew} && sudo cp ${rpmnew} ${deployed}"
+    _pu_cleanup "${rpmnew}" n
+}
+
+postupgrade() {
+    [[ $# -eq 0 ]] || die "usage: ai-tools-admin postupgrade   (takes no arguments)"
+    local entry file kind label found=0
+
+    for entry in "${POSTUPGRADE_FILES[@]}"; do
+        IFS='|' read -r file kind label <<< "${entry}"
+        [[ -f "${file}.rpmnew" && -f "${file}" ]] || continue
+        found=1
+        ai_tools_msg_headline "${label}: ${file}" 1
+        case "${kind}" in
+            json)   _pu_json   "${file}" "${file}.rpmnew" ;;
+            keyval) _pu_keyval "${file}" "${file}.rpmnew" ;;
+            review) _pu_review "${file}" "${file}.rpmnew" ;;
+        esac
+    done
+
+    if (( found == 0 )); then
+        log "no .rpmnew files are waiting -- every config file this stack owns is reconciled"
+        return 0
+    fi
+    log "done. this command is idempotent -- re-run it at any time."
+}
+
 selinux_dispatch() {
     [[ $# -ge 1 ]] || die "usage: ai-tools-admin selinux <list-groups|enable-group|disable-group> [name]"
     local sub="$1"; shift
@@ -339,8 +501,12 @@ selinux_dispatch() {
 }
 
 # Dispatch: `operator <add|remove|list>` | `selinux <list-groups|enable-group|disable-group>`.
-[[ $# -ge 1 ]] || die "usage: ai-tools-admin <operator|selinux> ..."
+[[ $# -ge 1 ]] || die "usage: ai-tools-admin <operator|selinux|postupgrade> ..."
 case "$1" in
+    postupgrade)
+        shift
+        postupgrade "$@"
+        ;;
     operator)
         shift
         [[ $# -ge 1 ]] || die "usage: ai-tools-admin operator <add|remove|list> [user]"
@@ -356,5 +522,5 @@ case "$1" in
         shift
         selinux_dispatch "$@"
         ;;
-    *) die "unknown subcommand '$1' (operator|selinux)" ;;
+    *) die "unknown subcommand '$1' (operator|selinux|postupgrade)" ;;
 esac
