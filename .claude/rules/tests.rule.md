@@ -120,7 +120,10 @@ from an absent one — plus two properties whose breakage is silent in productio
 splitter must be **IFS-independent** (it is sourced into scripts that set `IFS=$'\n\t'`,
 where an inherited IFS collapses a multi-item value into one bogus item), and
 `ai_tools_conf_is_trusted` must refuse every state a non-root writer can create
-(non-root-owned, group- or other-writable, a symlink), for directories as well as files.
+(non-root-owned, group- or other-writable, a symlink), for directories as well as files. Its
+new-option report carries a third: a commented **default** (`#KEY=`, `# KEY=`) is a mention while
+an indented **example** in a header block is not, so a file seeded with `operator.conf`'s own
+grammar comments is not mistaken for one that already knows every option.
 `providers.sh` drives the enablement truth table and then, for each untrusted input in turn
 — `operator.conf`, a manifest, a manifest directory — asserts the resolver moves to *less*
 access and says so, never more.
