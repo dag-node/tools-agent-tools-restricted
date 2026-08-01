@@ -299,9 +299,10 @@ so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS`.
   a writable sibling inside the same state root. Only the root-owned tools dir joins PATH; a tool the agent
   installs for itself under `DOTNET_CLI_HOME` stays reachable by full path but never lands on the
   session PATH, so the sandbox cannot put an executable of its choosing on it.
-- `filters.d/dotnet.rules` sets `--nologo -v q` on `dotnet build|publish|restore|run|test`. The
-  SDK's verbosity has no environment-variable form, so it belongs in a command rule rather than in
-  the fragment above; quiet verbosity keeps errors and warnings. See [filters](filters.rule.md).
+- `filters.d/dotnet.rules` sets `-v q` on `dotnet build|publish|restore|run|test`. The SDK's
+  verbosity has no environment-variable form, so it belongs in a command rule rather than in the
+  fragment above; quiet verbosity keeps errors and warnings. The banner is left to `DOTNET_NOLOGO`
+  (the fragment above), so no rule carries `--nologo`. See [filters](filters.rule.md).
 - `ai-tools-dotnet` (root/sudo helper) `setup` creates that state root and its three
   directories: the NuGet cache and the SDK's CLI home are agent-**writable** (`2770`, setgid),
   the shared tools are **read-only** to the agent (`0755`, sudo-only writes). It applies **no**

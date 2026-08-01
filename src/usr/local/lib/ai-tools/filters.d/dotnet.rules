@@ -9,16 +9,17 @@
 # fragment does: they are .NET knowledge, and they install and are removed with the package that
 # has it.
 #
-# The SDK's verbosity is the whole savings here, and it has no environment-variable form --
-# DOTNET_NOLOGO (set by session-env.d/dotnet.env.sh) removes the banner, but the per-project
-# restore chatter and the target summary are MSBuild console-logger settings, so they can only be
-# set per invocation. `-v q` keeps errors and warnings, which is everything the agent acts on.
-# --nologo is repeated here because each verb prints its own banner ahead of the SDK's.
+# The SDK's verbosity is the whole savings here, and it has no environment-variable form -- the
+# per-project restore chatter and the target summary are MSBuild console-logger settings, so they
+# can only be set per invocation. `-v q` keeps errors and warnings, which is everything the agent
+# acts on. The banner is left to DOTNET_NOLOGO (set globally by session-env.d/dotnet.env.sh), so no
+# rule carries --nologo: it is redundant with that env var, and -- inserted ahead of a positional
+# -- it breaks `dotnet run <file>.cs`, where .NET 10 stops resolving the file as a file-based app.
 
-dotnet build	args	-v,--verbosity,-clp,--consoleloggerparameters,-bl,--binarylogger	--nologo -v q
-dotnet publish	args	-v,--verbosity,-clp,--consoleloggerparameters,-bl,--binarylogger	--nologo -v q
-dotnet restore	args	-v,--verbosity,-clp,--consoleloggerparameters,-bl,--binarylogger	--nologo -v q
-dotnet run	args	-v,--verbosity,-clp,--consoleloggerparameters,-bl,--binarylogger	--nologo -v q
+dotnet build	args	-v,--verbosity,-clp,--consoleloggerparameters,-bl,--binarylogger	-v q
+dotnet publish	args	-v,--verbosity,-clp,--consoleloggerparameters,-bl,--binarylogger	-v q
+dotnet restore	args	-v,--verbosity,-clp,--consoleloggerparameters,-bl,--binarylogger	-v q
+dotnet run	args	-v,--verbosity,-clp,--consoleloggerparameters,-bl,--binarylogger	-v q
 # `dotnet test` reports failures through its own logger, which -v does not quiet; the payload
 # silences the build that precedes the run, where the noise actually is.
-dotnet test	args	-v,--verbosity,-clp,--consoleloggerparameters,-bl,--binarylogger	--nologo -v q
+dotnet test	args	-v,--verbosity,-clp,--consoleloggerparameters,-bl,--binarylogger	-v q

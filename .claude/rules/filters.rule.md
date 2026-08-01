@@ -161,13 +161,15 @@ are absent: every terse mode they have discards content the agent asked for by r
 | `git status` | `--short --branch` | the per-file instructional hints; `--branch` keeps the ahead/behind line. |
 | `tree` | `-L 3 --filelimit 100` | an unbounded walk into a package directory. Both caps announce themselves in tree's own output, so a truncated branch is visible rather than silent. |
 
-`dotnet.rules` (`ai-tools-integration-dotnet`) sets `--nologo -v q` on `build`, `publish`,
-`restore`, `run` and `test`. The SDK's verbosity has no environment-variable form — `DOTNET_NOLOGO`
-removes the banner (`session-env.d/dotnet.env.sh`), while the per-project restore chatter and the
-target summary are MSBuild console-logger settings, settable only per invocation. Quiet verbosity
-keeps errors and warnings, which is what the agent acts on. These rules live with the integration
-for the reason its session-env fragment does: they are .NET knowledge, and they install and are
-removed with the package that has it (see [providers](providers.rule.md)).
+`dotnet.rules` (`ai-tools-integration-dotnet`) sets `-v q` on `build`, `publish`,
+`restore`, `run` and `test`. The SDK's verbosity has no environment-variable form — the per-project
+restore chatter and the target summary are MSBuild console-logger settings, settable only per
+invocation. Quiet verbosity keeps errors and warnings, which is what the agent acts on. The banner
+is left to `DOTNET_NOLOGO` (set globally by `session-env.d/dotnet.env.sh`), so no rule carries
+`--nologo`: it is redundant with that variable, and — inserted ahead of a positional — it breaks
+`dotnet run <file>.cs`, where .NET 10 stops resolving the file as a file-based app. These rules
+live with the integration for the reason its session-env fragment does: they are .NET knowledge,
+and they install and are removed with the package that has it (see [providers](providers.rule.md)).
 
 ## Cost
 
