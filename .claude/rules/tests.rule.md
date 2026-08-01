@@ -58,6 +58,13 @@ execs (`integration/handback.sh`) keeps the real dir, since the daemon does not 
 override — the same limitation as `AI_TOOLS_ALLOWLIST`. The journald sink is unaffected, so
 every line is still queryable by its per-component tag.
 
+`AI_TOOLS_POSTUPGRADE_ROOT` is the fourth hook of that family and the widest in reach:
+`ai-tools-admin postupgrade` reconciles a fixed registry of absolute control-plane paths, and
+this prefixes every one of them, so `unit/postupgrade.sh` drives the real command against a
+fixture tree in its testdir. It carries the same standing as the three above — the helper is
+reachable only as root, `sudo` strips the name, and a caller who could set it may already edit
+those files outright — and is unset in production, where the registry paths stand as written.
+
 ## Two-ended assertions
 
 A security guarantee is covered by a **pair** of tests, not one, and the pair is what makes the
@@ -138,6 +145,19 @@ other: `.bak` is what the operator had, `.shipped` is what they were meant to ge
 when the merge could not run. It drives the deployed `conf.lib.sh` directly, like the other
 library unit tests: the decision lives there rather than in `install.sh` precisely so it can be
 exercised without stubs or text extraction, and the installer keeps only the rendering.
+
+`postupgrade.sh` is that same reconciliation seen from the RPM side: `ai-tools-admin postupgrade`
+end to end, from dispatch through the registry to each treatment (see
+[providers](providers.rule.md) and [claude-settings](claude-settings.rule.md)). It asserts which
+treatment each file got — the settings JSON merged with its permission rules intact and a dated
+`.bak` written first, `operator.conf` reported and byte-identical afterwards, the sudoers grant
+shown and neither written nor dropped (its fixture is a grant of everything to everyone, so a
+silent adoption fails loudly) — plus the cleanup prompt, which may default to yes only once the
+two files match. Every run is under `setsid`, so each prompt takes its own default: that is the
+unattended behaviour and what makes an interactive command reproducible. The agent-side half of
+the pair is already deployed: `boundary/access.sh` covers `settings.json` and the helper
+directory, `boundary/providers.sh` and `boundary/filters.sh` cover `operator.conf`, and
+`boundary/sudo.sh` covers the grant, so no input this command reads is agent-writable.
 
 `relabel.sh` pins the other manifest-supplied decision with a security consequence: the
 entrypoint file-context predicate (`relabel.lib.sh`). A declared pattern becomes a `semanage`

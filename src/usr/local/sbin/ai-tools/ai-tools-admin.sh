@@ -364,6 +364,13 @@ readonly -a POSTUPGRADE_FILES=(
     "/etc/sudoers.d/ai-tools|review|sudoers grant"
 )
 
+# AI_TOOLS_POSTUPGRADE_ROOT prefixes every path in that registry, so the test suite drives this
+# command against fixtures in its own /tmp testdir instead of the live host's control plane. It is
+# a ROOT-ONLY test hook of the same shape and standing as AI_TOOLS_ALLOWLIST: sudo strips the
+# environment (env_reset, and this name is not in env_keep) and the helper is reachable only as
+# root, so neither an operator nor the agent can set it, and a caller who could is one that may
+# already edit these files outright. Unset in production, where the registry paths are absolute.
+
 # _pu_diff <deployed> <rpmnew>: show what the package would change, indented. Colourized through
 # colordiff when the host has it AND stdout is a terminal: colordiff is an EPEL package on RHEL, so
 # it is used where present and never depended on, and the terminal test keeps escape sequences out
@@ -469,9 +476,11 @@ _pu_review() {
 postupgrade() {
     [[ $# -eq 0 ]] || die "usage: ai-tools-admin postupgrade   (takes no arguments)"
     local entry file kind label found=0
+    local root="${AI_TOOLS_POSTUPGRADE_ROOT:-}"
 
     for entry in "${POSTUPGRADE_FILES[@]}"; do
         IFS='|' read -r file kind label <<< "${entry}"
+        file="${root}${file}"
         [[ -f "${file}.rpmnew" && -f "${file}" ]] || continue
         found=1
         ai_tools_msg_headline "${label}: ${file}" 1
