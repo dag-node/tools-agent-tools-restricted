@@ -707,11 +707,21 @@ fi
   Access-neutral: the permission rules are re-evaluated on the rewritten command.
 - NEW: Apply the command filters on both Bash hook events
 - NEW: Quiet the dotnet SDK through its own command-filter rule set
+- NEW: Keep host-tuned permission rules across an upgrade -- settings.json ships
+  %config(noreplace), so rpm keeps the file you edited and parks this version's copy as
+  settings.json.rpmnew (earlier releases overwrote it and kept no copy)
+- NEW: Reconcile the .rpmnew copies an upgrade leaves with sudo ai-tools-admin postupgrade. It
+  merges shipped hook declarations into settings.json after listing exactly what it will add and
+  confirming, writing a dated .bak first. operator.conf and the sudoers grant are reported, never
+  written -- a file of commented option blocks has no merge worth learning to predict. The install
+  output points here whenever a .rpmnew is waiting
 - NEW: Merge shipped hook declarations into a kept settings.json, so a new version's hook no
-  longer installs with nothing to invoke it
-- NEW: Report the options a kept KEY=value config has not seen
-- NEW: Add the shared config backup and baseline-copy layer -- dated .bak and .shipped sidecars,
-  never overwritten
+  longer installs with nothing to invoke it (inline on a from-source install, through postupgrade
+  on RPM)
+- NEW: Report the options a kept KEY=value config has not seen (inline on a from-source install,
+  through postupgrade against operator.conf.rpmnew on RPM)
+- NEW: Add the shared config backup and baseline-copy layer to the from-source installer --
+  dated .bak and .shipped sidecars, never overwritten
 - NEW: Read allowed-projects with the shared config grammar (conf.lib.sh): end-of-line comments
   and quoted paths, one parser for the wrapper, the CLI, and the handback helper
 - NEW: Add operator.conf(5)
