@@ -344,6 +344,26 @@ tmp type, and `/tmp` is mounted `noexec`, which no SELinux rule can override. Th
 beyond `execmem` — verifiable only on an enforcing host with real `restore`/`build`/`test`/`run`
 workloads (the `selinux/avc` loop).
 
+**Executable/host projects additionally require the `apphost` policy group.** .NET creates its
+native `apphost` and runs its W^X JIT by executing generated code from an anonymous
+`memfd_create(2)` file; the domain holds `execmem` (anonymous read-write-execute pages, shared with
+V8) but not `execute` on a tmpfs file mapping, so a project whose output is a native host — a
+console app, ASP.NET Core or worker service, `xunit.v3`'s out-of-process testhost, a single-file
+publish — fails to build or run without it. The group adds `map`+`execute` on `tmpfs_t` (the memfd
+label). This is `execute` on **tmpfs/memfd**, distinct from `tmpmap`'s `map` on **on-disk
+`ai_tools_tmp_t`**: the two cover disjoint operations, so **neither implies the other** and enabling
+one never auto-enables the other. `tmpmap` alone builds a library; `apphost` alone runs an
+already-built assembly (its JIT is the memfd path — `dotnet exec` needs no `/tmp` shm `map`); a full
+**build-and-run** workflow of an executable project enables both, which the dotnet integration
+recommends. They stay separate composable groups for exactly that reason — a session that only
+builds libraries takes on neither the /tmp-mmap nor the in-memory-exec surface. `apphost` permits
+fileless in-memory execution but grants no new privilege — code executed that way still runs as
+`ai_tools_t`, with no entrypoint to a more privileged domain — which is why it is off by default and
+`experimental` until an enforcing-host bring-up trims its rule (and scopes it from the shared
+`tmpfs_t` to a private memfd type). Enable it from a source checkout with
+`sudo selinux/install-selinux.sh enable-group apphost` (an experimental group is not shipped
+prebuilt). See `selinux/policy/ai_tools_apphost.te`.
+
 ## Boundaries
 
 Two limits of this seam are deliberate, stated so neither reads as an oversight:

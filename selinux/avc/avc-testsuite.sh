@@ -294,6 +294,21 @@ semodule -l 2>/dev/null | grep -q '^ai_tools_podman' && {
     podman info 2>/dev/null | head -5 || true
 } || note "podman group not loaded -- skip (enable-group podman to cover it)"
 
+# apphost: the .NET memfd double-mapped JIT / apphost creation (execute on a tmpfs
+# memfd file). Any managed dotnet invocation spins the CLR and sets up its executable
+# code heap through that path, so `dotnet --info` exercises it; a real executable
+# build/run under the agent (dotnet run / an xunit.v3 or ASP.NET Core project) covers
+# it more fully. Skipped when the group is off or dotnet is absent (an optional
+# integration that ships no runtime).
+semodule -l 2>/dev/null | grep -q '^ai_tools_apphost' && {
+    if command -v dotnet >/dev/null 2>&1; then
+        note "apphost group loaded -- exercising the .NET memfd JIT via dotnet --info"
+        dotnet --info >/dev/null 2>&1 || true
+    else
+        note "apphost group loaded but dotnet absent -- nothing to exercise"
+    fi
+} || note "apphost group not loaded -- skip (enable-group apphost to cover it)"
+
 ########################################
 # Cleanup + next step
 ########################################

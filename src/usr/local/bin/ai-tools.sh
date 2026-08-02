@@ -1530,6 +1530,20 @@ cmd_providers() {
             say "  ${C_YEL}dotnet restore/build will fail under enforcing (EACCES on mmap of /tmp).${C_RST}"
             say "  fix: sudo ai-tools-admin selinux enable-group tmpmap"
         fi
+        # dotnet <-> apphost: executable/host projects run their apphost/JIT code from an
+        # anonymous memfd file, which needs the 'apphost' group -- disjoint from tmpmap (that
+        # is /tmp mmap; this is memfd execute), so a full build-and-run workflow wants both.
+        # apphost is experimental, so its fix is the source enable path, not ai-tools-admin
+        # (which loads only prebuilt stable groups).
+        if [[ "${enforce}" == "Enforcing" ]] \
+                && grep -qxF dotnet <<<"${enabled_integrations}" \
+                && ! group_loaded apphost; then
+            say ""
+            say "  ${C_YEL}dotnet is enabled but the 'apphost' SELinux group is not loaded:${C_RST}"
+            say "  ${C_YEL}executable/host projects (dotnet run, ASP.NET Core, xunit.v3) will fail (memfd exec denied).${C_RST}"
+            say "  ${C_DIM}library builds and in-process test runners (MSTest) are unaffected.${C_RST}"
+            say "  fix: sudo selinux/install-selinux.sh enable-group apphost  ${C_DIM}(from a source checkout)${C_RST}"
+        fi
     }
     selinux_groups_block
 

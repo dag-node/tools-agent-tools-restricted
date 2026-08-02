@@ -1,0 +1,63 @@
+policy_module(ai_tools_apphost, 0.1.0)
+
+## ai_tools OPTIONAL GROUP: apphost  [DEFAULT: DISABLED, EXPERIMENTAL]
+##
+## Grants ai_tools_t map + execute on tmpfs (memfd) files, so the .NET host may
+## execute code from an anonymous in-memory file. .NET creates an executable
+## `apphost` and runs its W^X JIT by writing generated native code to a
+## memfd_create(2) file and mapping it a second time PROT_EXEC. The core module
+## grants `execmem` (anonymous read-write-execute pages, shared with V8's JIT) but
+## NOT `execute` on a tmpfs FILE mapping, so that second mapping fails EACCES and any
+## project that builds or runs a native host aborts:
+##   - executable output types: console apps, ASP.NET Core, worker/hosted services
+##   - test runners with an out-of-process host: xunit.v3, single-file publish
+## Library builds and in-process test runners (MSTest on Microsoft.Testing.Platform)
+## do NOT need it, which is why it is a separate group from tmpmap rather than folded
+## into the dotnet integration or the base.
+##
+## SECURITY: this permits fileless in-memory execution (memfd + PROT_EXEC, the
+## classic evasion primitive), but it grants no new PRIVILEGE. The domain already
+## holds `execmem`, so in-process arbitrary native execution is already possible;
+## this only extends it to a file-backed executable mapping. Code executed this way
+## still runs as ai_tools_t -- there is no entrypoint from this domain to a more
+## privileged one -- so an in-memory payload lands back in the same DAC + type
+## confinement, with the handback boundary and no-sudo posture intact. It is off by
+## default because it widens the surface (and detectability) around tmpfs execution.
+##
+## SCOPE: this is `execute` on TMPFS (memfd), which is distinct from the tmpmap group.
+## tmpmap adds `map` on ai_tools_tmp_t (on-disk /tmp), never `execute`; /tmp stays
+## mounted noexec, which no rule here changes. This grant does NOT touch ai_tools_tmp_t.
+## It is NOT `execmod`: .NET's W^X JIT uses two separate mappings (one writable, one
+## executable) of the same memfd, so it needs { map execute }, never a writable-and-
+## executable single mapping.
+##
+## SECCOMP: memfd_create passes the session's @system-service SystemCallFilter (only
+## namespace syscalls are filtered), so SELinux is the operative gate for this path.
+##
+## EXPERIMENTAL: the permission set below is the bring-up hypothesis. Verify it under
+## permissive against a real executable build/run (selinux/avc) and trim to the
+## observed minimum before promoting to stable; the graduation step is scoping the
+## grant to a private memfd type via a tmpfs type_transition rather than the shared
+## tmpfs_t.
+##
+## Enable:  sudo selinux/install-selinux.sh enable-group apphost
+## Disable: sudo selinux/install-selinux.sh disable-group apphost
+##
+## When a task needs this group and it is not loaded, surface to the user:
+##   "dotnet run / ASP.NET Core / xunit.v3 requires the SELinux 'apphost' policy group.
+##    ! sudo selinux/install-selinux.sh enable-group apphost
+##    Why: .NET executes its apphost and JIT'd code from an anonymous memfd file;
+##         ai_tools_t has execmem but not execute on a tmpfs file mapping, so the
+##         mapping fails EACCES. This adds map+execute on tmpfs (memfd) files."
+
+require {
+    type ai_tools_t;
+    type tmpfs_t;
+}
+
+# memfd double-mapped W^X JIT / apphost: size and write the generated code through a
+# read-write mapping of an anonymous tmpfs (memfd) file, then execute it from a second
+# read-only mapping. The executable mapping needs `execute`; both mappings need `map`;
+# creating, sizing and writing the memfd needs open/read/write/getattr. Anonymous memfd
+# files created by ai_tools_t are labelled tmpfs_t.
+allow ai_tools_t tmpfs_t:file { open read write getattr map execute };

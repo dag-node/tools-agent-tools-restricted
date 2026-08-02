@@ -108,6 +108,9 @@ readonly BOUNDARY_NAMED_RE='(user_home_t|user_home_dir_t|home_root_t|config_home
 #                                                core dontaudit's it regardless)
 # tmpmap is handled separately below (_g2): its type, ai_tools_tmp_t, is core-granted
 # for read/write, so it is matched on the `map` PERMISSION, not the type alone.
+# apphost is handled separately below (_g3): the core grants nothing on tmpfs_t:file, so
+# the whole memfd surface the .NET JIT/apphost touches (write to size it, map, and the
+# defining execute) is that group -- matched on the tmpfs_t:file TYPE.
 readonly GROUP_DISABLED_RE='(systemd_systemctl_exec_t|journalctl_exec_t|systemd_unit_file_t|rpm_exec_t|rpm_var_lib_t|firewalld_t|NetworkManager_t|container_runtime_exec_t)'
 
 # One line per denial, from the raw AVC records.
@@ -132,7 +135,15 @@ _g="$(printf '%s\n' "${LINES}" | grep -E "tcontext=[^ ]*:${GROUP_DISABLED_RE}:" 
 # `map` denial here is the disabled group. An execute denial on it stays NEW
 # (deliberately never granted; /tmp is noexec regardless).
 _g2="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:ai_tools_tmp_t:' | grep -E 'denied.*\bmap\b' || true)"
-_g="$(printf '%s\n' "${_g}" "${_g2}" | grep -v '^$' || true)"
+# apphost group: any access to a tmpfs (memfd) file. Unlike ai_tools_tmp_t above,
+# tmpfs_t:file is NOT core-granted at all -- so the whole surface .NET's JIT/apphost needs
+# (write to size the memfd, map both mappings, execute the PROT_EXEC one) is denied while
+# the group is off, and all of it is this group. Match on the TYPE, so a core-only run does
+# not misfile the write/map denials as NEW; `execute` is the highest-risk perm and the
+# reason it is gated. (The graduation-to-stable step scopes the grant to a private memfd
+# type, at which point this matches that type instead of the shared tmpfs_t.)
+_g3="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:tmpfs_t:file' || true)"
+_g="$(printf '%s\n' "${_g}" "${_g2}" "${_g3}" | grep -v '^$' || true)"
 groupdis="$(comm -23 <(printf '%s\n' "${_g}" | sort -u | grep -v '^$') \
                      <(printf '%s\n' "${boundary}" | sort -u | grep -v '^$') | grep -v '^$' || true)"
 
