@@ -21,7 +21,7 @@
 # membership (drops the name from OPERATORS and ai-ops), leaving the user's own allowlist and config.
 # `list` prints the current operators.
 #
-# `selinux` toggles the optional policy groups (systemd/pkgmgmt/netadmin/podman/tmpmap/apphost), all off
+# `selinux` toggles the optional policy groups (systemd/pkgmgmt/netadmin/podman/tmpmap/apphost/netcore), all off
 # by default. It loads the PREBUILT ai_tools_<group>.pp shipped in the base package via semodule --
 # no source tree or selinux-policy-devel needed on the host. The group set, descriptions, and
 # per-group stability are single-sourced from selinux-groups.lib.sh, shared with

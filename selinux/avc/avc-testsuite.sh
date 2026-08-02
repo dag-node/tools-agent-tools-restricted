@@ -309,6 +309,29 @@ semodule -l 2>/dev/null | grep -q '^ai_tools_apphost' && {
     fi
 } || note "apphost group not loaded -- skip (enable-group apphost to cover it)"
 
+# netcore: the .NET runtime's benign IPC half is probe-able without dotnet -- create a
+# unix socket and a FIFO under /tmp (which the base does not create there) and getsid.
+# The sensitive half (executing a built binary from the project tree) needs a real .NET
+# build, so `dotnet test`/`dotnet exec` under the agent covers it. Skipped if the group is off.
+semodule -l 2>/dev/null | grep -q '^ai_tools_netcore' && {
+    note "netcore group loaded -- exercising a /tmp socket (create+connect) + FIFO and getsid"
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c '
+import socket, os, tempfile
+d = tempfile.mkdtemp(dir="/tmp"); p = os.path.join(d, "avc.sock")
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+try:
+    s.bind(p); s.listen(1)                     # sock_file create under /tmp
+    os.mkfifo(os.path.join(d, "avc.fifo"))     # fifo_file create under /tmp
+    c.connect(p)                               # unix_stream_socket connectto (self)
+    os.getsid(0)                               # process getsession
+finally:
+    c.close(); s.close()
+' 2>/dev/null || true
+    fi
+} || note "netcore group not loaded -- skip (enable-group netcore to cover it)"
+
 ########################################
 # Cleanup + next step
 ########################################

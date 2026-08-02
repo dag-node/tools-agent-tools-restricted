@@ -3,7 +3,7 @@
 # agent must NOT be able to do are actually DENIED under enforcing.
 #
 # Probe sections and goals:
-#   A    Group surfaces (disabled by default): systemd, pkgmgmt, netadmin, podman, tmpmap, apphost
+#   A    Group surfaces (disabled by default): systemd, pkgmgmt, netadmin, podman, tmpmap, apphost, netcore
 #   B-F  In-core boundary (dontaudit'd): /proc state, user home/config, container
 #        storage, non-http ports, MTA exec
 #   G    Credentials: /etc/shadow, /etc/gshadow           (goal 1)
@@ -338,6 +338,29 @@ finally:
     os.close(fd)'
   else
     skip_check GRP-008 SELinux "mmap a memfd PROT_EXEC" "python3 with os.memfd_create (3.8+) not available"
+  fi
+
+  # netcore group (benign IPC half): a unix socket / FIFO under /tmp. The base transitions
+  # /tmp FILES to ai_tools_tmp_t but not sockets/FIFOs, so with the group off they default to
+  # tmp_t and creation is denied -- which is what stalls dotnet test and multi-node MSBuild.
+  # A success means netcore is on. The sensitive half (execute a built binary from the project
+  # tree) needs a real .NET artifact and is exercised by the workload, not this synthetic probe.
+  _type="tmp_t sock_file/fifo_file create + unix_stream_socket connectto"
+  _why=".NET opens a diagnostic unix socket and a CLR debug FIFO under /tmp, multi-node MSBuild opens worker pipes there, and Microsoft.Testing.Platform connects its runner to the test host over a unix stream socket. Without the optional netcore group ai_tools_t cannot create a sock_file/fifo_file in tmp_t, nor connectto its own stream socket, so the IPC fails: dotnet test reports it cannot connect and the build hangs. A success here means netcore is enabled."
+  if command -v python3 >/dev/null 2>&1; then
+    check GRP-009 SELinux "create + connect a /tmp unix socket, create a FIFO" python3 -c '
+import socket, os, tempfile
+d = tempfile.mkdtemp(dir="/tmp"); p = os.path.join(d, "avc.sock")
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+try:
+    s.bind(p); s.listen(1)                     # sock_file create
+    os.mkfifo(os.path.join(d, "avc.fifo"))     # fifo_file create
+    c.connect(p)                               # unix_stream_socket connectto (self)
+finally:
+    c.close(); s.close()'
+  else
+    skip_check GRP-009 SELinux "create + connect a /tmp unix socket, create a FIFO" "python3 not available to attempt it"
   fi
 
   section "SECTION B: OTHER-DOMAIN /proc STATE" \

@@ -111,6 +111,9 @@ readonly BOUNDARY_NAMED_RE='(user_home_t|user_home_dir_t|home_root_t|config_home
 # apphost is handled separately below (_g3): the core grants nothing on tmpfs_t:file, so
 # the whole memfd surface the .NET JIT/apphost touches (write to size it, map, and the
 # defining execute) is that group -- matched on the tmpfs_t:file TYPE.
+# netcore is handled separately below (_g4): the .NET runtime's sockets/FIFOs under
+# tmp/home, getsid, and executing a built binary from ai_tools_project_t -- matched on
+# those classes/perms, which the base grants nowhere.
 readonly GROUP_DISABLED_RE='(systemd_systemctl_exec_t|journalctl_exec_t|systemd_unit_file_t|rpm_exec_t|rpm_var_lib_t|firewalld_t|NetworkManager_t|container_runtime_exec_t)'
 
 # One line per denial, from the raw AVC records.
@@ -143,7 +146,18 @@ _g2="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:ai_tools_tmp_t:' | gre
 # reason it is gated. (The graduation-to-stable step scopes the grant to a private memfd
 # type, at which point this matches that type instead of the shared tmpfs_t.)
 _g3="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:tmpfs_t:file' || true)"
-_g="$(printf '%s\n' "${_g}" "${_g2}" "${_g3}" | grep -v '^$' || true)"
+# netcore group: three disjoint signals the base grants nowhere -- the .NET runtime's
+# unix sockets / debug FIFOs (created under tmp_t or ai_tools_home_t), getsid (process
+# getsession), and executing a native binary built in the project tree (ai_tools_project_t
+# file execute/execmod/execute_no_trans; `map` there is core-granted, so it is not a signal).
+_g4a="$(printf '%s\n' "${LINES}" | grep -E 'tclass=(sock_file|fifo_file)' | grep -E 'denied.*\bcreate\b' || true)"
+_g4b="$(printf '%s\n' "${LINES}" | grep -E 'denied[^}]*\bgetsession\b' || true)"
+_g4c="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:ai_tools_project_t:' | grep -E 'denied.*\b(execute|execmod|execute_no_trans)\b' || true)"
+# connectto to the domain's own unix stream sockets (the MTP test-host IPC): the base grants
+# create_stream_socket_perms on self but not connectto, so this is netcore too.
+_g4d="$(printf '%s\n' "${LINES}" | grep -E 'tclass=unix_stream_socket' | grep -E 'denied.*\bconnectto\b' || true)"
+_g4="$(printf '%s\n' "${_g4a}" "${_g4b}" "${_g4c}" "${_g4d}" | grep -v '^$' || true)"
+_g="$(printf '%s\n' "${_g}" "${_g2}" "${_g3}" "${_g4}" | grep -v '^$' || true)"
 groupdis="$(comm -23 <(printf '%s\n' "${_g}" | sort -u | grep -v '^$') \
                      <(printf '%s\n' "${boundary}" | sort -u | grep -v '^$') | grep -v '^$' || true)"
 

@@ -1544,6 +1544,18 @@ cmd_providers() {
             say "  ${C_DIM}library builds and in-process test runners (MSTest) are unaffected.${C_RST}"
             say "  fix: sudo selinux/install-selinux.sh enable-group apphost  ${C_DIM}(from a source checkout)${C_RST}"
         fi
+        # dotnet <-> netcore: the runtime's diagnostic sockets/FIFOs (dotnet test, multi-node
+        # MSBuild pipes) and running a binary built in the project tree. Experimental, so the fix
+        # is the source enable path. See .claude/rules/dotnet.rule.md.
+        if [[ "${enforce}" == "Enforcing" ]] \
+                && grep -qxF dotnet <<<"${enabled_integrations}" \
+                && ! group_loaded netcore; then
+            say ""
+            say "  ${C_YEL}dotnet is enabled but the 'netcore' SELinux group is not loaded:${C_RST}"
+            say "  ${C_YEL}dotnet test can't open its diagnostic socket, multi-node MSBuild hangs, and a built${C_RST}"
+            say "  ${C_YEL}binary won't run from the project tree.${C_RST}"
+            say "  fix: sudo selinux/install-selinux.sh enable-group netcore  ${C_DIM}(from a source checkout)${C_RST}"
+        fi
     }
     selinux_groups_block
 

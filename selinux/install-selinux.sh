@@ -31,6 +31,7 @@
 #   podman    container runtime exec, image/layer storage reads
 #   tmpmap    mmap of the agent's own /tmp files (dotnet build, git/SQLite in /tmp)
 #   apphost   map+execute of tmpfs/memfd files (.NET apphost/JIT: dotnet run, ASP.NET Core, xunit.v3)
+#   netcore   .NET runtime IPC (dotnet test / MSBuild pipes) + running a project's built executable
 
 set -euo pipefail
 IFS=$'\n\t'

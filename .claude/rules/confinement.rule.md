@@ -139,7 +139,7 @@ per-level isolation. Operational notes for that case:
 
 ## Optional SELinux groups and the namespace filter
 
-The optional groups (`systemd`/`pkgmgmt`/`netadmin`/`podman`/`tmpmap`/`apphost`) are all off by
+The optional groups (`systemd`/`pkgmgmt`/`netadmin`/`podman`/`tmpmap`/`apphost`/`netcore`) are all off by
 default and each carries a **stability** field in the registry (`experimental`/`stable`)
 that decides how it is shipped and enabled. Both front doors draw the group set, descriptions,
 and stability from one place — `selinux-groups.lib.sh`, so they cannot disagree:
