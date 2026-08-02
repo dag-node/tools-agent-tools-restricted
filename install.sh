@@ -484,7 +484,7 @@ offer_selinux() {
     local ctx
     if [[ -n "${loaded}" ]]; then
         say "  loaded from a previous install: ${C_BOLD}${loaded}${C_RST}"
-        ctx="Answering No keeps the already-loaded module ${mode_state} -- this step never removes it. Yes rebuilds and reloads it in place."
+        ctx="Answering No leaves the current confinement (the core module and any enabled groups) ${mode_state} -- nothing is removed. Yes runs the bring-up: reload the core module, then choose the optional groups."
     else
         say "  no ai_tools policy module is currently loaded."
         ctx="The SELinux confinement layer can be installed now or any time later."
@@ -501,7 +501,7 @@ offer_selinux() {
             warn "  sudo ${selinux_script} install"
         fi
     elif [[ -n "${loaded}" ]]; then
-        log "skipped -- the loaded module(s) stay ${mode_state}: ${loaded}"
+        log "skipped the bring-up -- the loaded module(s) stay ${mode_state}: ${loaded}"
         # ai-tools-admin is the shipped entry point and is deployed by now, so name it rather
         # than the checkout path an installed host may not keep.
         if command -v ai-tools-admin >/dev/null 2>&1; then
@@ -509,6 +509,11 @@ offer_selinux() {
         else
             say "    ${C_DIM}manage them with: sudo ${selinux_script} {install|remove|list-groups}${C_RST}"
         fi
+        # Declining the bring-up still relabels: the module stays loaded, and a Node upgrade can
+        # leave the agent entrypoint mislabelled (bin_t) -- which fail-closes the launch -- so the
+        # filesystem labels must be re-applied to match it. This is the single relabel on the
+        # decline path; the accept path above already relabels inside install-selinux.sh install.
+        "${selinux_script}" relabel || warn "relabel did not complete -- run: sudo ai-tools --relabel"
     else
         log "skipped -- the sandbox runs without SELinux confinement until you run:"
         say "    ${C_BOLD}sudo ${selinux_script} install${C_RST}"
@@ -1582,19 +1587,11 @@ do_install() {
     bootstrap_launcher_symlinks
     do_selinux_restore
 
+    # offer_selinux is the single labelling point: it relabels through install-selinux.sh on both
+    # the accept path (install action) and the declined-but-loaded path (relabel action), so a
+    # SELinux-active host relabels exactly once here, in one tool's consistent output. Nothing to
+    # do afterwards.
     offer_selinux
-
-    # Register each enabled agent's SELinux entrypoint file-context and label what it matches.
-    # The base policy carries no agent entrypoint (selinux/policy/ai_tools.fc): the pattern comes
-    # from the agent's manifest, so this is what makes the domain transition fire. The SELinux
-    # bring-up above already runs the same body when it is accepted -- this covers the host that
-    # declined it while a module from an earlier install stays loaded. No-ops when SELinux or the
-    # module is inactive, and when the toolchain is not provisioned yet.
-    if [[ -x /usr/local/sbin/ai-tools/ai-tools-relabel-agent ]]; then
-        log "labelling the enabled agents' entrypoints"
-        /usr/local/sbin/ai-tools/ai-tools-relabel-agent \
-            || warn "entrypoint labelling did not complete -- run: sudo ai-tools --relabel"
-    fi
 
     section "Install complete -- next steps"
     if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 ]]; then
