@@ -701,7 +701,7 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
-* Fri Jul 31 2026 dagnode <tools@dagnode.com> - 0.9.0-1
+* Sun Aug 02 2026 dagnode <tools@dagnode.com> - 0.9.0-1
 - NEW: Save tokens by default -- command filters narrow what a tool prints, over the root-owned
   rule sets in filters.d and operator.conf AI_TOOLS_FILTERS (an empty value disables).
   Access-neutral: the permission rules are re-evaluated on the rewritten command.
@@ -725,6 +725,11 @@ fi
 - NEW: Read allowed-projects with the shared config grammar (conf.lib.sh): end-of-line comments
   and quoted paths, one parser for the wrapper, the CLI, and the handback helper
 - NEW: Add operator.conf(5)
+- NEW: Optional SELinux policy group apphost lets the sandbox build and run .NET executable and
+  host projects -- console apps, ASP.NET Core and worker services, xunit.v3 tests, single-file
+  publishes. A class library, or in-process MSTest (Microsoft.Testing.Platform), does not need it.
+  It complements tmpmap (restore and build); enable both for a full build-and-run workflow. Off by
+  default:  sudo selinux/install-selinux.sh enable-group apphost
 - FIX: Parse the labelling report so the unconfined-entrypoint guard can fire -- an entrypoint
   that failed to take ai_tools_exec_t ran sessions UNCONFINED while the install reported success.
   Check an enforcing host after upgrading:  ps -eo label,cmd | grep '[c]laude'  (expect
@@ -733,12 +738,23 @@ fi
   and the .git reclaim silently stopped
 - FIX: Drive the sandbox user manager over the machine transport -- the toolchain auto-update
   timer never started, failing with "Connection refused"
-- FIX: Report which optional SELinux groups are already loaded, rather than offering an active one
 - FIX: Repair project labels on re-install instead of reconverting (relabel.lib.sh), so a
   re-install no longer rewrites every file of every registered project
 - FIX: Group the install output by the work it reports
+- FIX: Stop the "failed to set default file creation context" SELinux warnings that cluttered
+  command output under enforcing -- most visibly through dotnet build and NuGet restore
+- FIX: A second build of the same solution no longer fails on the previous project's locked
+  output (dotnet/msbuild#6461)
+- FIX: Re-apply SELinux labels once per install, and repair them even when the SELinux step is
+  declined on a host that already has the module loaded (e.g. after a Node upgrade)
+- FIX: Clearer optional-group install prompt -- each group is tagged stable or experimental, the
+  explanation precedes the skip question, an already-loaded group is reported (and can be
+  recompiled from source rather than offered for re-enable), and the summary lists every loaded
+  group
 - Upgrading from 0.8.1 needs no action beyond dnf. Command filtering arrives ON for a host whose
   operator.conf predates AI_TOOLS_FILTERS; set AI_TOOLS_FILTERS="" to opt out.
+- For .NET workloads on an enforcing host, enable the two optional groups they need: tmpmap for
+  restore/build and apphost to run an executable or host project; both stay off by default.
 
 * Wed Jul 29 2026 dagnode <tools@dagnode.com> - 0.8.1-1
 - Fixed the SELinux-enforcing limitation carried in 0.8.0: the sandbox domain held no map
