@@ -730,6 +730,10 @@ fi
   publishes. A class library, or in-process MSTest (Microsoft.Testing.Platform), does not need it.
   It complements tmpmap (restore and build); enable both for a full build-and-run workflow. Off by
   default:  sudo selinux/install-selinux.sh enable-group apphost
+- NEW: Optional SELinux policy group netcore covers the rest of a .NET workflow under enforcing --
+  dotnet test (its diagnostic socket), multi-node MSBuild (lets you drop the -m:1 workaround), and
+  running a binary you built from the project tree. Off by default:  sudo
+  selinux/install-selinux.sh enable-group netcore
 - FIX: Parse the labelling report so the unconfined-entrypoint guard can fire -- an entrypoint
   that failed to take ai_tools_exec_t ran sessions UNCONFINED while the install reported success.
   Check an enforcing host after upgrading:  ps -eo label,cmd | grep '[c]laude'  (expect
@@ -753,8 +757,9 @@ fi
   group
 - Upgrading from 0.8.1 needs no action beyond dnf. Command filtering arrives ON for a host whose
   operator.conf predates AI_TOOLS_FILTERS; set AI_TOOLS_FILTERS="" to opt out.
-- For .NET workloads on an enforcing host, enable the two optional groups they need: tmpmap for
-  restore/build and apphost to run an executable or host project; both stay off by default.
+- For .NET workloads on an enforcing host, enable the optional groups they need: tmpmap
+  (restore/build), apphost (build an executable or host project), and netcore (test and run); all
+  stay off by default.
 
 * Wed Jul 29 2026 dagnode <tools@dagnode.com> - 0.8.1-1
 - Fixed the SELinux-enforcing limitation carried in 0.8.0: the sandbox domain held no map
