@@ -110,10 +110,34 @@ ln -sf created-by-redirect.txt "${SCRATCH}/a-symlink"   # lnk_file create
 
 ########################################
 # 2. MODIFY -- in-place edits (the awkward case: sed -i rewrites via a temp+rename).
+#    Also asserts the setfscreate grant: sed -i (and cp/mv/install) presets the new
+#    temp file's label with setfscreatecon() before creating it. Without
+#    self:process setfscreate that call returns EACCES and libselinux prints a
+#    "failed to set default file creation context" warning to stderr on EVERY such
+#    command. setfscreate is a target-LESS process capability, so one grant silences
+#    it across every label the agent writes -- asserted here on ai_tools_project_t
+#    (the project tree) and ai_tools_tmp_t (/tmp); the same grant equally covers the
+#    ai_tools_home_t integration state under /opt/ai-tools. NOTE: under PERMISSIVE the
+#    preset succeeds silently (AVC logged, no stderr), so this check bites only under
+#    ENFORCING, where a missing grant surfaces as the warning.
 ########################################
-step "modify (append, sed -i in place)"
+step "modify (append, sed -i in place) + assert no setfscreate warning"
 printf 'appended line\n' >> "${SCRATCH}/created-by-redirect.txt"
-sed -i 's/hello/HELLO/' "${SCRATCH}/created-by-redirect.txt" 2>/dev/null || true
+setfscreate_warn='failed to set default file creation context'
+err="$(sed -i 's/hello/HELLO/' "${SCRATCH}/created-by-redirect.txt" 2>&1 >/dev/null || true)"
+case "${err}" in
+  *"${setfscreate_warn}"*) fail "sed -i on ai_tools_project_t warned -- setfscreate denied; add 'allow ai_tools_t self:process setfscreate;' in ai_tools.te" ;;
+  *)                       pass "sed -i on ai_tools_project_t: no setfscreate warning (self:process setfscreate granted)" ;;
+esac
+# Same edit on a /tmp file (ai_tools_tmp_t) -- proves the one grant is label-agnostic.
+ttmp="$(mktemp /tmp/avc-setfscreate.XXXXXX 2>/dev/null || echo /tmp/avc-setfscreate.fallback)"
+echo "hello" > "${ttmp}" 2>/dev/null || true
+err="$(sed -i 's/hello/HELLO/' "${ttmp}" 2>&1 >/dev/null || true)"
+case "${err}" in
+  *"${setfscreate_warn}"*) fail "sed -i on ai_tools_tmp_t warned -- setfscreate denied despite the grant; investigate" ;;
+  *)                       pass "sed -i on /tmp (ai_tools_tmp_t): no setfscreate warning" ;;
+esac
+rm -f "${ttmp}" 2>/dev/null || true
 
 ########################################
 # 3. PRIVATE TEMP -- files the agent creates under /tmp must relabel to
