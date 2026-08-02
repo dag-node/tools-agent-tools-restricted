@@ -359,6 +359,12 @@ allow ai_tools_t ai_tools_handback_t:unix_stream_socket connectto;
 
 allow ai_tools_t self:process { fork sigchld signal signull getsched setsched setpgid };
 allow ai_tools_t self:process execmem;   # V8 JIT (writable+executable code pages)
+# Coreutils and sed preset a new file's label with setfscreatecon() before creating it (sed -i,
+# cp, mv, install). Without setfscreate that call returns EACCES and libselinux prints a stderr
+# "failed to set default file creation context" warning on every such command. The grant only
+# lets the domain preset the label the files_tmp_filetrans type_transition already assigns, so it
+# widens no producible label -- the file is ai_tools_tmp_t either way; this just silences the noise.
+allow ai_tools_t self:process setfscreate;
 allow ai_tools_t self:fifo_file rw_fifo_file_perms;
 allow ai_tools_t self:unix_stream_socket create_stream_socket_perms;
 allow ai_tools_t self:unix_dgram_socket create_socket_perms;

@@ -3,7 +3,7 @@
 # agent must NOT be able to do are actually DENIED under enforcing.
 #
 # Probe sections and goals:
-#   A    Group surfaces (disabled by default): systemd, pkgmgmt, netadmin, podman, tmpmap
+#   A    Group surfaces (disabled by default): systemd, pkgmgmt, netadmin, podman, tmpmap, apphost, netcore
 #   B-F  In-core boundary (dontaudit'd): /proc state, user home/config, container
 #        storage, non-http ports, MTA exec
 #   G    Credentials: /etc/shadow, /etc/gshadow           (goal 1)
@@ -318,6 +318,49 @@ finally:
     os.close(fd); os.unlink(path)'
   else
     skip_check GRP-007 SELinux "mmap a /tmp file" "python3 not available to attempt the mmap"
+  fi
+
+  # apphost is an execute-on-memfd grant, not a /tmp map: create an anonymous memfd
+  # (born tmpfs_t) and map it PROT_EXEC -- the path .NET's JIT/apphost uses. With the
+  # group off the execute is denied; a success means apphost is on. Disjoint from GRP-007:
+  # this touches tmpfs_t (memfd), never ai_tools_tmp_t (/tmp), which stays noexec regardless.
+  _type="tmpfs_t (memfd file execute)"
+  _why=".NET writes JIT'd/apphost native code to an anonymous memfd file and maps it PROT_EXEC to run it. Without the optional apphost group ai_tools_t holds execmem (anonymous RWX) but no execute on a tmpfs file mapping, so the executable mapping is denied and any executable/host project (dotnet run, ASP.NET Core, xunit.v3) fails. A success here means the apphost group is enabled."
+  if command -v python3 >/dev/null 2>&1 \
+        && python3 -c 'import os,sys; sys.exit(0 if hasattr(os,"memfd_create") else 1)' 2>/dev/null; then
+    check GRP-008 SELinux "mmap a memfd PROT_EXEC" python3 -c '
+import mmap, os
+fd = os.memfd_create("avc-apphost")
+try:
+    os.ftruncate(fd, 4096)
+    mmap.mmap(fd, 4096, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_EXEC).close()
+finally:
+    os.close(fd)'
+  else
+    skip_check GRP-008 SELinux "mmap a memfd PROT_EXEC" "python3 with os.memfd_create (3.8+) not available"
+  fi
+
+  # netcore group (benign IPC half): a unix socket / FIFO under /tmp. The base transitions
+  # /tmp FILES to ai_tools_tmp_t but not sockets/FIFOs, so with the group off they default to
+  # tmp_t and creation is denied -- which is what stalls dotnet test and multi-node MSBuild.
+  # A success means netcore is on. The sensitive half (execute a built binary from the project
+  # tree) needs a real .NET artifact and is exercised by the workload, not this synthetic probe.
+  _type="tmp_t sock_file/fifo_file create + unix_stream_socket connectto"
+  _why=".NET opens a diagnostic unix socket and a CLR debug FIFO under /tmp, multi-node MSBuild opens worker pipes there, and Microsoft.Testing.Platform connects its runner to the test host over a unix stream socket. Without the optional netcore group ai_tools_t cannot create a sock_file/fifo_file in tmp_t, nor connectto its own stream socket, so the IPC fails: dotnet test reports it cannot connect and the build hangs. A success here means netcore is enabled."
+  if command -v python3 >/dev/null 2>&1; then
+    check GRP-009 SELinux "create + connect a /tmp unix socket, create a FIFO" python3 -c '
+import socket, os, tempfile
+d = tempfile.mkdtemp(dir="/tmp"); p = os.path.join(d, "avc.sock")
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+try:
+    s.bind(p); s.listen(1)                     # sock_file create
+    os.mkfifo(os.path.join(d, "avc.fifo"))     # fifo_file create
+    c.connect(p)                               # unix_stream_socket connectto (self)
+finally:
+    c.close(); s.close()'
+  else
+    skip_check GRP-009 SELinux "create + connect a /tmp unix socket, create a FIFO" "python3 not available to attempt it"
   fi
 
   section "SECTION B: OTHER-DOMAIN /proc STATE" \

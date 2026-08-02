@@ -110,10 +110,34 @@ ln -sf created-by-redirect.txt "${SCRATCH}/a-symlink"   # lnk_file create
 
 ########################################
 # 2. MODIFY -- in-place edits (the awkward case: sed -i rewrites via a temp+rename).
+#    Also asserts the setfscreate grant: sed -i (and cp/mv/install) presets the new
+#    temp file's label with setfscreatecon() before creating it. Without
+#    self:process setfscreate that call returns EACCES and libselinux prints a
+#    "failed to set default file creation context" warning to stderr on EVERY such
+#    command. setfscreate is a target-LESS process capability, so one grant silences
+#    it across every label the agent writes -- asserted here on ai_tools_project_t
+#    (the project tree) and ai_tools_tmp_t (/tmp); the same grant equally covers the
+#    ai_tools_home_t integration state under /opt/ai-tools. NOTE: under PERMISSIVE the
+#    preset succeeds silently (AVC logged, no stderr), so this check bites only under
+#    ENFORCING, where a missing grant surfaces as the warning.
 ########################################
-step "modify (append, sed -i in place)"
+step "modify (append, sed -i in place) + assert no setfscreate warning"
 printf 'appended line\n' >> "${SCRATCH}/created-by-redirect.txt"
-sed -i 's/hello/HELLO/' "${SCRATCH}/created-by-redirect.txt" 2>/dev/null || true
+setfscreate_warn='failed to set default file creation context'
+err="$(sed -i 's/hello/HELLO/' "${SCRATCH}/created-by-redirect.txt" 2>&1 >/dev/null || true)"
+case "${err}" in
+  *"${setfscreate_warn}"*) fail "sed -i on ai_tools_project_t warned -- setfscreate denied; add 'allow ai_tools_t self:process setfscreate;' in ai_tools.te" ;;
+  *)                       pass "sed -i on ai_tools_project_t: no setfscreate warning (self:process setfscreate granted)" ;;
+esac
+# Same edit on a /tmp file (ai_tools_tmp_t) -- proves the one grant is label-agnostic.
+ttmp="$(mktemp /tmp/avc-setfscreate.XXXXXX 2>/dev/null || echo /tmp/avc-setfscreate.fallback)"
+echo "hello" > "${ttmp}" 2>/dev/null || true
+err="$(sed -i 's/hello/HELLO/' "${ttmp}" 2>&1 >/dev/null || true)"
+case "${err}" in
+  *"${setfscreate_warn}"*) fail "sed -i on ai_tools_tmp_t warned -- setfscreate denied despite the grant; investigate" ;;
+  *)                       pass "sed -i on /tmp (ai_tools_tmp_t): no setfscreate warning" ;;
+esac
+rm -f "${ttmp}" 2>/dev/null || true
 
 ########################################
 # 3. PRIVATE TEMP -- files the agent creates under /tmp must relabel to
@@ -269,6 +293,44 @@ semodule -l 2>/dev/null | grep -q '^ai_tools_podman' && {
     note "podman group loaded -- exercising podman info"
     podman info 2>/dev/null | head -5 || true
 } || note "podman group not loaded -- skip (enable-group podman to cover it)"
+
+# apphost: the .NET memfd double-mapped JIT / apphost creation (execute on a tmpfs
+# memfd file). Any managed dotnet invocation spins the CLR and sets up its executable
+# code heap through that path, so `dotnet --info` exercises it; a real executable
+# build/run under the agent (dotnet run / an xunit.v3 or ASP.NET Core project) covers
+# it more fully. Skipped when the group is off or dotnet is absent (an optional
+# integration that ships no runtime).
+semodule -l 2>/dev/null | grep -q '^ai_tools_apphost' && {
+    if command -v dotnet >/dev/null 2>&1; then
+        note "apphost group loaded -- exercising the .NET memfd JIT via dotnet --info"
+        dotnet --info >/dev/null 2>&1 || true
+    else
+        note "apphost group loaded but dotnet absent -- nothing to exercise"
+    fi
+} || note "apphost group not loaded -- skip (enable-group apphost to cover it)"
+
+# netcore: the .NET runtime's benign IPC half is probe-able without dotnet -- create a
+# unix socket and a FIFO under /tmp (which the base does not create there) and getsid.
+# The sensitive half (executing a built binary from the project tree) needs a real .NET
+# build, so `dotnet test`/`dotnet exec` under the agent covers it. Skipped if the group is off.
+semodule -l 2>/dev/null | grep -q '^ai_tools_netcore' && {
+    note "netcore group loaded -- exercising a /tmp socket (create+connect) + FIFO and getsid"
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c '
+import socket, os, tempfile
+d = tempfile.mkdtemp(dir="/tmp"); p = os.path.join(d, "avc.sock")
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+try:
+    s.bind(p); s.listen(1)                     # sock_file create under /tmp
+    os.mkfifo(os.path.join(d, "avc.fifo"))     # fifo_file create under /tmp
+    c.connect(p)                               # unix_stream_socket connectto (self)
+    os.getsid(0)                               # process getsession
+finally:
+    c.close(); s.close()
+' 2>/dev/null || true
+    fi
+} || note "netcore group not loaded -- skip (enable-group netcore to cover it)"
 
 ########################################
 # Cleanup + next step

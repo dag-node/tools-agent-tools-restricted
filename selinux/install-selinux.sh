@@ -30,6 +30,8 @@
 #   netadmin  firewall-cmd D-Bus (firewalld_t), nmcli D-Bus (NetworkManager_t)
 #   podman    container runtime exec, image/layer storage reads
 #   tmpmap    mmap of the agent's own /tmp files (dotnet build, git/SQLite in /tmp)
+#   apphost   map+execute of tmpfs/memfd files (.NET apphost/JIT: dotnet run, ASP.NET Core, xunit.v3)
+#   netcore   .NET runtime IPC (dotnet test / MSBuild pipes) + running a project's built executable
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -265,13 +267,14 @@ _check_permissive_alignment() {
 ########################################
 # Interactive group prompt
 #
-# Prints everything to stderr so it doesn't contaminate stdout.
-# Populates the caller's SELECTED_GROUPS array.
+# Prints everything to stderr so it doesn't contaminate stdout. Populates SELECTED_GROUPS
+# (not-loaded groups to enable) and RECOMPILE_GROUPS (loaded groups to rebuild + reload).
 ########################################
 SELECTED_GROUPS=()
+RECOMPILE_GROUPS=()
 
 prompt_groups() {
-    local entry name desc
+    local entry name desc stability
     local -a loaded_groups=()
 
     # State what is already loaded BEFORE the gate below, because the default answer skips this
@@ -281,38 +284,55 @@ prompt_groups() {
         name="$(ai_tools_selinux_group_name "${entry}")"
         ai_tools_selinux_group_loaded "${name}" && loaded_groups+=("${name}")
     done
-    if (( ${#loaded_groups[@]} )); then
-        logx "groups already loaded and kept: ${C_BOLD}$(_list "${loaded_groups[@]}")${C_RST}"
-        sayx "    ${C_DIM}this step only adds modules; remove one with:" \
-             "$(_group_cmd 'disable-group <name>')${C_RST}"
-    fi
-
-    # One gate for the whole EXPERIMENTAL section: the default skips it, so an operator who
-    # wants the core module alone answers once here instead of declining each group. A
-    # non-interactive run takes the default (skip) through the confirm's no-tty behaviour.
-    ai_tools_msg_confirm "Skip the EXPERIMENTAL non-core policy modules?" y && return 0
-
+    # Header and explanation FIRST, so the skip gate below is a prompt that FOLLOWS what it
+    # decides about rather than preceding it. The groups are a mix of stability -- some stable,
+    # some experimental -- so the caveat names the experimental subset instead of the whole set.
     section "Optional policy groups (all default: disabled)" >&2
     sayx "  Core alone covers project/home/tmp files, git, coreutils, HTTPS to the"
     sayx "  Anthropic API, and the sudo->helper calls. Enable a group only when a task"
-    sayx "  must reach into system context."
-    warn "These groups are EXPERIMENTAL drafts -- audit each under permissive before"
-    warn "  relying on it (see the avc-denials harness)."
+    sayx "  must reach into system context. Each is tagged stable or experimental below;"
+    sayx "  an experimental group is an unaudited draft -- audit it under permissive (the"
+    sayx "  avc-denials harness) before relying on it."
+    # State what is already loaded before the gate: the skip path only ADDS or REBUILDS modules,
+    # so a group an earlier install enabled survives a skip -- silence would read as if it might
+    # not.
+    if (( ${#loaded_groups[@]} )); then
+        sayx ""
+        logx "already loaded and kept: ${C_BOLD}$(_list "${loaded_groups[@]}")${C_RST}"
+        # Two calls, not one with a line-continuation: sayx joins its args through "$*", which
+        # under this script's IFS=$'\n\t' glues them with a NEWLINE -- so the command would land
+        # unindented on its own line. Keep the note and its (indented) command as separate lines.
+        sayx "    ${C_DIM}this step only adds or rebuilds modules; remove one with:${C_RST}"
+        sayx "      ${C_DIM}$(_group_cmd 'disable-group <name>')${C_RST}"
+    fi
+    sayx ""
+
+    # The gate FOLLOWS the explanation. Default skips (core module alone); a non-interactive run
+    # takes that default through the confirm's no-tty behaviour.
+    ai_tools_msg_confirm "Skip the optional (non-core) policy modules?" y && return 0
+
     sayx ""
 
     for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
         name="$(ai_tools_selinux_group_name "${entry}")"
         desc="$(ai_tools_selinux_group_desc "${entry}")"
+        stability="$(ai_tools_selinux_group_stability "${entry}")"
         # A group loaded by an earlier install stays loaded whatever is answered here: this step
         # only ADDS modules. Show that state in the same vocabulary list-groups uses, and name
         # the verb that actually removes one -- an unmarked "Enable? [n]" beside a loaded group
-        # reads as "off, and staying off", which is the opposite of what the answer does.
+        # reads as "off, and staying off", which is the opposite of what the answer does. The
+        # (stability) tag matches list-groups so the stable/experimental split is visible per row.
         if ai_tools_selinux_group_loaded "${name}"; then
-            printf '    %s[LOADED]%s %s -- %s\n' "${C_GRN}" "${C_RST}" "${name}" "${desc}" >&2
-            sayx "        stays enabled; to remove it: $(_group_cmd "disable-group ${name}")"
+            printf '    %s[LOADED]%s %s %s(%s)%s -- %s\n' "${C_GRN}" "${C_RST}" "${name}" "${C_DIM}" "${stability}" "${C_RST}" "${desc}" >&2
+            sayx "        already enabled; to remove it: $(_group_cmd "disable-group ${name}")"
+            # A loaded group is still offered, because from a source checkout the operator may be
+            # iterating on its .te/.fc and want to rebuild + reload it in place. A yes recompiles
+            # FROM SOURCE (build_pp below), not a prebuilt reuse -- that is the point of offering
+            # a loaded group -- and needs the selinux-policy-devel toolchain.
+            ai_tools_msg_confirm "    Recompile from source and reload?" n && RECOMPILE_GROUPS+=("${name}")
             continue
         fi
-        printf '    %s[%s]%s %s\n' "${C_DIM}" "${name}" "${C_RST}" "${desc}" >&2
+        printf '    %s[%s]%s %s(%s)%s %s\n' "${C_DIM}" "${name}" "${C_RST}" "${C_DIM}" "${stability}" "${C_RST}" "${desc}" >&2
         ai_tools_msg_confirm "    Enable?" n && SELECTED_GROUPS+=("${name}")
     done
     sayx ""
@@ -429,7 +449,7 @@ _home_state()  { local p; for p in "${HOME_STATE[@]}"; do
 # writes only a file whose context differs), so a clean tree costs a walk and no writes; a file that
 # drifted in with a foreign context -- a customizable type a plain restorecon would preserve -- is
 # forced back to ai_tools_project_t by the lib's `-F`, which is the whole point of the sweep.
-_label_one()   { if ai_tools_label_project "$1"; then log "labelled project ai_tools_project_t: $1"
+_label_one()   { if ai_tools_label_project "$1"; then ok "labelled project ai_tools_project_t: $1"
                  else warn "could not label $1 -- is the ai_tools module loaded?"; fi; }
 _unlabel_one() { ai_tools_unlabel_project "$1" || warn "could not unlabel $1"; }
 _restore_one() { restorecon -FR "$1" 2>/dev/null || true; }
@@ -448,7 +468,7 @@ _label_conf()   { [[ -d "${CONF_DIR}" ]] || { log "config dir absent, skip label
                      || { _verb="re-applied"
                           semanage fcontext -m -t ai_tools_conf_t "${CONF_DIR}(/.*)?" >/dev/null 2>&1; }; then
                       restorecon -FR "${CONF_DIR}" 2>/dev/null || true
-                      log "${_verb} config ai_tools_conf_t: ${CONF_DIR}"
+                      ok "${_verb} config ai_tools_conf_t: ${CONF_DIR}"
                   else
                       warn "could not set ai_tools_conf_t fcontext on ${CONF_DIR}"
                       warn "    type undefined? the module must be LOADED first --"
@@ -540,13 +560,21 @@ case "${ACTION}" in
     ok "SELinux core module installed"
 
     prompt_groups
-    if [[ ${#SELECTED_GROUPS[@]} -gt 0 ]]; then
+    if (( ${#SELECTED_GROUPS[@]} || ${#RECOMPILE_GROUPS[@]} )); then
         section "Optional groups"
         for name in "${SELECTED_GROUPS[@]}"; do
             ensure_pp "ai_tools_${name}.pp"
             log "loading group: ai_tools_${name}"
             semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
             ok "group '${name}' enabled"
+        done
+        # Recompile-and-reload a loaded group from its current source: build_pp (unlike
+        # ensure_pp) never reuses a stale prebuilt, so an edited .te/.fc takes effect.
+        for name in "${RECOMPILE_GROUPS[@]}"; do
+            build_pp "ai_tools_${name}.pp"
+            log "reloading from source: ai_tools_${name}"
+            semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
+            ok "group '${name}' recompiled and reloaded"
         done
     fi
 
@@ -557,12 +585,30 @@ case "${ACTION}" in
     else
         ok "core module loaded ENFORCING -- denials are now active"
     fi
+    # Report what THIS run changed separately from the full loaded set: a group an earlier
+    # install enabled is kept unless the operator re-selected it here, so naming only the
+    # changes would read as if a kept group had become disabled.
+    # _list, not "${arr[*]}": this script runs IFS=$'\n\t', so [*] joins the names with a
+    # NEWLINE and each lands on its own unindented line. _list renders them as [a, b].
     if [[ ${#SELECTED_GROUPS[@]} -gt 0 ]]; then
-        log "groups enabled: ${SELECTED_GROUPS[*]}"
-        if [[ "${_mode}" == PERMISSIVE ]]; then
-            log "re-run the bring-up loop (avc-testsuite.sh + avc-analyze.sh) to cover"
-            log "the expanded surface before removing 'permissive ai_tools_t;'"
-        fi
+        log "newly enabled this run: $(_list "${SELECTED_GROUPS[@]}")"
+    fi
+    if [[ ${#RECOMPILE_GROUPS[@]} -gt 0 ]]; then
+        log "recompiled + reloaded this run: $(_list "${RECOMPILE_GROUPS[@]}")"
+    fi
+    _loaded_groups=()
+    for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
+        gname="$(ai_tools_selinux_group_name "${entry}")"
+        ai_tools_selinux_group_loaded "${gname}" && _loaded_groups+=("${gname}")
+    done
+    if (( ${#_loaded_groups[@]} )); then
+        log "optional groups now loaded: $(_list "${_loaded_groups[@]}")"
+    else
+        log "no optional groups loaded (core only)"
+    fi
+    if [[ "${_mode}" == PERMISSIVE ]] && (( ${#SELECTED_GROUPS[@]} || ${#RECOMPILE_GROUPS[@]} )); then
+        log "re-run the bring-up loop (avc-testsuite.sh + avc-analyze.sh) to cover"
+        log "the expanded surface before removing 'permissive ai_tools_t;'"
     fi
     log "verify:  semodule -l | grep ai_tools;  ai-tools --providers"
     log "after launching claude:  ps -eo label,cmd | grep -m1 claude  (expect ai_tools_t)"

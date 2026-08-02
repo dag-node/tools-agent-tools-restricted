@@ -85,10 +85,13 @@ is behind the gate, `--version` included — an unfinished install reports nothi
   **SELinux policy groups** section: the core module's load state and every loaded optional group,
   read unprivileged via `semodule -l` (degrading to a `sudo ai-tools-admin selinux list-groups`
   pointer if the store is not readable unprivileged), keyed off the shared
-  `selinux-groups.lib.sh` registry. When the `dotnet` integration is enabled under **Enforcing**
-  but the `tmpmap` group is not loaded, it warns that `dotnet` restore/build will fail (`EACCES` on
-  the `/tmp` mmap) and names the `ai-tools-admin selinux enable-group tmpmap` fix — the same
-  dependency [providers](providers.rule.md) documents, surfaced where the operator checks status.
+  `selinux-groups.lib.sh` registry. When the `dotnet` integration is enabled under **Enforcing** it
+  warns of the two disjoint policy groups a full .NET workflow wants but that are not loaded:
+  `tmpmap` (restore/build mmap of `/tmp`, `EACCES` without it) and `apphost` (executable/host
+  projects — `dotnet run`, ASP.NET Core, `xunit.v3` — whose memfd exec is denied without it), each
+  with its own enable command: `ai-tools-admin selinux enable-group tmpmap` for the stable one, the
+  source `install-selinux.sh enable-group apphost` for the experimental one. These are the
+  dependencies [providers](providers.rule.md) documents, surfaced where the operator checks status.
 - `--list`, `--version` (the deploy-stamped package version; `dev` from a raw source tree),
   `--help`.
 

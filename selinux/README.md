@@ -41,7 +41,7 @@ selinux/
   README.md            this guide
   policy/              policy source + the shipped prebuilt packages (core + groups)
                          ai_tools.{te,fc,if}, the optional ai_tools_{systemd,pkgmgmt,
-                         netadmin,podman,tmpmap}.{te,fc,if}, the prebuilt ai_tools.pp and
+                         netadmin,podman,tmpmap,apphost,netcore}.{te,fc,if}, the prebuilt ai_tools.pp and
                          ai_tools_<group>.pp, Makefile, helper-domain.te.draft; build
                          scratch lands in policy/tmp/
   avc/                 bring-up + diagnostics (run during policy authoring)
@@ -56,7 +56,7 @@ scripts under `avc/`. `install-selinux.sh` stays at `selinux/` and resolves both
 ## Optional policy groups
 
 The core module alone covers repo-only work (project/home/tmp files, git, coreutils,
-HTTPS to the Anthropic API, the sudo→helper calls). Five optional groups widen the
+HTTPS to the Anthropic API, the sudo→helper calls). Seven optional groups widen the
 surface for tasks that reach into system context, all **disabled by default**:
 
 | group | grants | stability |
@@ -66,6 +66,8 @@ surface for tasks that reach into system context, all **disabled by default**:
 | `netadmin` | `firewall-cmd` / `nmcli` D-Bus | experimental |
 | `podman`   | container runtime exec + image storage (still blocked by the namespace filter — see the confinement rule) | experimental |
 | `tmpmap`   | mmap of the agent's own `/tmp` files (`dotnet` build, `git`/SQLite in `/tmp`) | stable |
+| `apphost`  | map+execute of tmpfs/memfd files (.NET apphost/JIT: `dotnet run`, ASP.NET Core, `xunit.v3`); disjoint from `tmpmap` | experimental |
+| `netcore`  | .NET runtime IPC (`dotnet test` sockets, multi-node MSBuild pipes) + executing a project's built binary — see [dotnet.rule.md](../.claude/rules/dotnet.rule.md) | experimental |
 
 **Stable** groups are a single, tested rule (`tmpmap` grants exactly
 `ai_tools_tmp_t:file map`). They ship **prebuilt** (`ai_tools_<group>.pp`) alongside the

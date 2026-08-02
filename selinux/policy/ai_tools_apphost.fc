@@ -1,0 +1,2 @@
+# ai_tools_apphost has no file-context rules: it grants a permission on the existing
+# tmpfs_t type (anonymous memfd files), labelling nothing on disk.
