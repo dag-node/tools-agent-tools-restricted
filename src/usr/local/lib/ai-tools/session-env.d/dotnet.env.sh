@@ -18,6 +18,12 @@
 # tools tree read-only: the SDK's own state defaults to $HOME/.dotnet, so it is pinned at the
 # writable sibling instead.
 #
+# MSBUILDDISABLENODEREUSE=1 stops MSBuild from leaving persistent worker nodes running between
+# invocations. Every operator's builds share one sandbox UID, so a reused node keeps a build
+# task's assemblies loaded and locks the prior project's output file -- a second build in the same
+# solution then fails on the lock (dotnet/msbuild#6461, for which the maintainers recommend exactly
+# this variable). Disabling reuse costs a little per-build cold start, never correctness.
+#
 # Fragment contract (see providers.rule.md): append to session_environment_options and
 # session_path_entries, unset your own temporaries, and do not exec, prompt, or read stdin.
 # shellcheck disable=SC2154  # both arrays belong to the sourcing launcher
@@ -35,6 +41,7 @@ session_environment_options+=(
     "--setenv=DOTNET_CLI_HOME=/opt/ai-tools/integrations/dotnet/cli"
     "--setenv=DOTNET_CLI_TELEMETRY_OPTOUT=1"
     "--setenv=DOTNET_NOLOGO=1"
+    "--setenv=MSBUILDDISABLENODEREUSE=1"
     "--setenv=ASPNETCORE_ENVIRONMENT=Development"
     "--setenv=DOTNET_ENVIRONMENT=Development"
 )
