@@ -701,6 +701,18 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Wed Aug 05 2026 dagnode <tools@dagnode.com> - 0.9.1-1
+- FIX: Strip the stray group-execute bit Claude Code's file writes leave on data files. The
+  ownership handback and unclaim now clamp the group class off the owner-execute bit, so a data
+  file hands back group rw (not rwx) while a real script keeps group r-x -- and the spurious bit no
+  longer becomes a real group-execute when a project tree is archived (tar/zip) and extracted
+  without ACLs.
+- FIX: Refuse an operator command (--project-*/--sandbox-*/--lockdown/--reclaim/--relabel) up
+  front when the invoking user is not in OPERATORS in operator.conf, pointing at sudo
+  ai-tools-admin operator add <user>, instead of running through registry writes and confirm
+  prompts only to fail in a root helper and roll back. --help/--version/--list/--providers stay
+  open to any user.
+
 * Sun Aug 02 2026 dagnode <tools@dagnode.com> - 0.9.0-1
 - NEW: Save tokens by default -- command filters narrow what a tool prints, over the root-owned
   rule sets in filters.d and operator.conf AI_TOOLS_FILTERS (an empty value disables).
