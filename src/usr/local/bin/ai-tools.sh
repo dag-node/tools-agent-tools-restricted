@@ -7,6 +7,12 @@
 # secret lockdown -- through the sudo root helpers (no NOPASSWD: the operator is prompted for a
 # password; the sandbox account holds no grant).
 #
+# Two preflight gates run before dispatch: require_bootstrap (provisioned install) and, for the
+# operator-acting commands (--project-*/--sandbox-*/--lockdown/--reclaim/--relabel),
+# require_operator -- the invoking user must be in OPERATORS in operator.conf, since the root
+# helpers resolve the caller's identity from that list. --help/--version/--list/--providers stay
+# open to any user.
+#
 # Commands (each confirms before applying and reports the result):
 #   --project-claim   [path]  claim a real project in place (idempotent; default: cwd);
 #                             -y/--yes pre-answers its proceed prompt (delegated claims)
@@ -1641,6 +1647,33 @@ require_bootstrap() {
         "       sudo ai-tools-bootstrap"
 }
 require_bootstrap
+
+# require_operator -- refuse a command that acts as an operator unless the invoking user is
+# listed in OPERATORS in operator.conf. The project/sandbox/lockdown/reclaim paths resolve the
+# caller's identity from that list (operator.lib.sh, via the root helpers); an unenrolled user
+# would otherwise proceed through the registry writes and confirm prompts only to be refused by
+# the first root helper that resolves owner (e.g. ai-tools-lockdown says "not in allowed projects
+# for current operator"), after partial state was written and rolled back -- the misleading flow
+# this gate replaces with one up-front message. operator.conf is 644, so the unprivileged CLI
+# reads OPERATORS directly; adding a name there takes effect on the next command (no re-login,
+# unlike the ai-ops group the admin verb also grants for launching the agent).
+require_operator() {
+    local conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
+    local -a ops=(); local op
+    if ai_tools_conf_list ops "${conf}" OPERATORS 2>/dev/null; then
+        for op in "${ops[@]}"; do [[ "${op}" == "${ME}" ]] && return 0; done
+    fi
+    die "you (${ME}) are not a configured ai-tools operator -- add your name to OPERATORS in ${conf} with:" \
+        "       sudo ai-tools-admin operator add ${ME}"
+}
+
+# Gate the operator-acting commands up front; the informational ones (--help/--version/--list/
+# --providers) stay open so an unenrolled user can still read usage and inspect the host.
+case "${1:-}" in
+    --project-claim|--project-create|--project-unclaim|--project-remove|\
+    --sandbox-create|--sandbox-push|--sandbox-remove|\
+    --lockdown|--reclaim|--relabel) require_operator ;;
+esac
 
 # ── Dispatch ─────────────────────────────────────────────────────────────────────
 case "${1:-}" in

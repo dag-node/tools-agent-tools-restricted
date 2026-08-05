@@ -49,4 +49,38 @@ else
     fi
 fi
 
+# (4) Operator preflight: a user NOT in OPERATORS is refused on an operator-acting command,
+# BEFORE any registry write. Point the CLI at a temp operator.conf listing a bogus operator (not
+# the projects user) and run --project-claim as the projects user -- require_operator must refuse.
+if command -v runuser >/dev/null 2>&1; then
+    section "CLI operator preflight (OPERATORS membership)"
+    mktestdir
+    chmod 755 "${TESTDIR}"
+    tconf="${TESTDIR}/operator.conf"
+    printf 'OPERATORS="nobody-operator"\n' > "${tconf}"; chmod 644 "${tconf}"
+    proj="${TESTDIR}/proj"; mkdir -p "${proj}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${proj}"
+
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${tconf}" "${CLI}" --project-claim "${proj}" 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'not a configured ai-tools operator' <<<"${out}"; then
+        pass "operator-acting command refused for a non-OPERATORS user, up front"
+    else
+        fail "non-operator was not cleanly refused (rc=${rc}): ${out}"
+    fi
+    if grep -qi 'allowed-projects: added' <<<"${out}"; then
+        fail "refused claim still wrote to the allowlist: ${out}"
+    else
+        pass "refused claim wrote no registry state (gate precedes registry writes)"
+    fi
+
+    # (5) The informational commands stay open to that same non-operator user.
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${tconf}" "${CLI}" --help 2>&1)" || true
+    if grep -qi 'manage Claude Code sandbox projects' <<<"${out}"; then
+        pass "--help stays open to a non-operator user"
+    else
+        fail "--help was blocked for a non-operator: ${out}"
+    fi
+fi
+
 finish

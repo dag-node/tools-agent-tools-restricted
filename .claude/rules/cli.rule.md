@@ -29,6 +29,22 @@ root helper. This is the same symlink the launch wrapper gates on (`claude.sh`'s
 `CLAUDE_LINK`), so both entry points share one definition of "provisioned". Every command
 is behind the gate, `--version` included — an unfinished install reports nothing, fail-closed.
 
+## Operator preflight
+
+A second gate, `require_operator`, runs before dispatch for the **operator-acting** commands
+(`--project-*`, `--sandbox-*`, `--lockdown`, `--reclaim`, `--relabel`) and refuses when the
+invoking user is not listed in `OPERATORS` in `operator.conf`. Those commands resolve the
+caller's identity from that list (`operator.lib.sh`, inside the root helpers); without the gate an
+unenrolled user proceeds through the registry writes and confirm prompts only to be refused by the
+first helper that resolves owner (`ai-tools-lockdown`: "not in allowed projects for current
+operator"), after partial state was written and rolled back. The gate replaces that with one
+up-front message pointing at `sudo ai-tools-admin operator add <user>`. `operator.conf` is `644`,
+so the unprivileged CLI reads `OPERATORS` directly, and enrollment there takes effect on the next
+command — no re-login, unlike the `ai-ops` group the admin verb also grants (which the launch
+wrapper needs and which does require a fresh login). The **informational** commands
+(`--help`/`--version`/`--list`/`--providers`) stay open, so an unenrolled user can still read usage
+and inspect the host.
+
 ## Commands
 
 - `--project-claim [path]` (alias `--project-create`) — claim a real project in place
