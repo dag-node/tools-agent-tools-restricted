@@ -731,9 +731,10 @@ fi
   It complements tmpmap (restore and build); enable both for a full build-and-run workflow. Off by
   default:  sudo selinux/install-selinux.sh enable-group apphost
 - NEW: Optional SELinux policy group netcore covers the rest of a .NET workflow under enforcing --
-  dotnet test (its diagnostic socket), multi-node MSBuild (lets you drop the -m:1 workaround), and
-  running a binary you built from the project tree. Off by default:  sudo
-  selinux/install-selinux.sh enable-group netcore
+  dotnet test (its diagnostic socket and, for an out-of-process xUnit/VSTest host, the loopback TCP
+  connection to it), multi-node MSBuild (lets you drop the -m:1 workaround), and running a binary
+  you built from the project tree. Off by default:  sudo selinux/install-selinux.sh enable-group
+  netcore
 - FIX: Parse the labelling report so the unconfined-entrypoint guard can fire -- an entrypoint
   that failed to take ai_tools_exec_t ran sessions UNCONFINED while the install reported success.
   Check an enforcing host after upgrading:  ps -eo label,cmd | grep '[c]laude'  (expect

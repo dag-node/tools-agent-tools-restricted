@@ -18,9 +18,11 @@ policy_module(ai_tools_netcore, 0.1.0)
 ##     those default to tmp_t, which the domain cannot create -- the exact reason
 ##     `dotnet test` reports it cannot connect and multi-node MSBuild hangs on its worker
 ##     pipes. This section transitions and manages them, adds getsid(2)
-##     (process getsession), and reads /proc/sys/net. It widens no trust boundary:
-##     creating a socket or FIFO in the sandbox's own tmp/home is the same benign class
-##     as the file/dir management the base already grants.
+##     (process getsession), reads /proc/sys/net, and lets the runner connect(2) the
+##     ephemeral TCP port its test host binds (xUnit/VSTest). It widens no trust
+##     boundary: creating a socket or FIFO in the sandbox's own tmp/home, or reaching its
+##     own child over loopback, is the same benign class as the file/dir management the
+##     base already grants.
 ##
 ##  2. Native execution (SENSITIVE). Running a native host the agent BUILT from the
 ##     project tree -- the apphost, a testhost, R2R-mapped assemblies under `dotnet
@@ -77,6 +79,13 @@ allow ai_tools_t self:process getsession;
 
 # /proc/sys/net/* symlink reads during runtime startup.
 kernel_read_network_state_symlinks(ai_tools_t)
+
+# TCP connect to a generic (unreserved) port on loopback: the xUnit/VSTest runner and the
+# test host it spawns talk over a TCP socket bound to an ephemeral port, so the runner
+# (ai_tools_t) needs to connect(2) that port -- otherwise it returns EACCES and `dotnet
+# test` fails. Same benign IPC class as the unix-socket connectto above; the sandbox is
+# only reaching its own child, not a new host surface.
+corenet_tcp_connect_generic_port(ai_tools_t)
 
 ########################################
 # 2. Native execution  (SENSITIVE -- runs a binary the agent built)

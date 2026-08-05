@@ -31,7 +31,7 @@ is enabled.
 |---|---|---|
 | `tmpmap` | `ai_tools_tmp_t:file map` | NuGet **restore** and **build** — the runtime mmaps a shared-memory mutex under `/tmp/.dotnet/shm`. Also git/SQLite in `/tmp`. |
 | `apphost` | `tmpfs_t:file map+execute` (anonymous memfd) | **building/JIT-ing** an executable — CoreCLR maps generated code and the apphost from a memfd `PROT_EXEC`. `execmem` (base) covers anonymous exec; this covers a file-backed one. |
-| `netcore` | runtime IPC (sockets/FIFOs, `getsid`, `/proc/sys/net`) **and** executing a built binary from the project tree (`ai_tools_project_t:file execute`) | **`dotnet test`**, **multi-node MSBuild**, and **running** an apphost/testhost/R2R assembly the agent built |
+| `netcore` | runtime IPC (sockets/FIFOs, `getsid`, `/proc/sys/net`, loopback TCP connect) **and** executing a built binary from the project tree (`ai_tools_project_t:file execute`) | **`dotnet test`**, **multi-node MSBuild**, and **running** an apphost/testhost/R2R assembly the agent built |
 
 ## Which groups a project needs
 
@@ -59,6 +59,7 @@ one benign group grant and one sensitive one — the reasoning that shaped `netc
 | `self:unix_stream_socket connectto` | Microsoft.Testing.Platform runner → test-host connect | `netcore` §1 |
 | `self:process getsession` | `getsid(2)` from `csc`/`dotnet` | `netcore` §1 |
 | `kernel_read_network_state_symlinks` | `/proc/sys/net/*` at startup | `netcore` §1 |
+| `corenet_tcp_connect_generic_port` | xUnit/VSTest runner → out-of-process test host over loopback TCP | `netcore` §1 |
 | `ai_tools_project_t:file execute` (+`execmod`/`execute_no_trans`) | running a native host / R2R code built in the tree | `netcore` §2 |
 
 The `/tmp` socket/FIFO **create** denials have a precise cause: the base `files_tmp_filetrans`
