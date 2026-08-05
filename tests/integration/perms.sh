@@ -79,6 +79,12 @@ check_file /usr/local/lib/ai-tools/conf.lib.sh               root              r
 # Provider/agent resolver: 644 root:root -- world-readable, sourced by ai-tools-bootstrap and
 # nvm-update (both run as the sandbox account) to read the agent manifests; carries no secrets.
 check_file /usr/local/lib/ai-tools/providers.lib.sh          root              root              644
+# Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by
+# ai-tools-admin and selinux/install-selinux.sh (both root); read-only data, carries no secrets.
+check_file /usr/local/lib/ai-tools/selinux-groups.lib.sh     root              root              644
+# Command-filter engine: 644 root:root -- world-readable, sourced by an agent's filter hook, which
+# runs AS the agent on every Bash call; read-only data plus pure logic, carries no secrets.
+check_file /usr/local/lib/ai-tools/filters.lib.sh            root              root              644
 # The three provider directories, owned by ai-tools-base (each member package drops only its own
 # files into them). 0755 root:root is SECURITY-LOAD-BEARING, not housekeeping: these decide which
 # agents get provisioned and what env a session gets, and a group- or other-writable directory
@@ -88,6 +94,12 @@ check_file /usr/local/lib/ai-tools/providers.lib.sh          root              r
 check_file /usr/local/lib/ai-tools/agents.d                  root              root              755
 check_file /usr/local/lib/ai-tools/integrations.d            root              root              755
 check_file /usr/local/lib/ai-tools/session-env.d              root              root              755
+# The command-filter rule-set directory carries the same reasoning one step further out: its files
+# decide what every command in a session becomes, so a non-root writer here could reshape the
+# commands the agent runs and the transcript the operator reads. Base owns the directory and
+# core.rules; a package with commands of its own drops a rule set beside them.
+check_file /usr/local/lib/ai-tools/filters.d                 root              root              755
+check_file /usr/local/lib/ai-tools/filters.d/core.rules      root              root              644
 # Agent manifest, shipped by ai-tools-agents-claude-code-restricted (not base): 644 root:root,
 # parsed data naming the Claude npm package + launcher.
 check_file /usr/local/lib/ai-tools/agents.d/claude-code.conf root              root              644
@@ -95,6 +107,7 @@ check_file /usr/local/lib/ai-tools/agents.d/claude-code.conf root              r
 # manifest providers.lib.sh reads and the session-env fragment ai-tools-run sources when enabled.
 check_file /usr/local/lib/ai-tools/integrations.d/dotnet.conf   root            root              644
 check_file /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh  root            root              644
+check_file /usr/local/lib/ai-tools/filters.d/dotnet.rules       root            root              644
 # The claude-code agent's own session-env fragment, shipped by its agent package. ai-tools-run
 # sources it last, so these pins outrank an integration's -- and 644 root:root is what makes it
 # trusted enough to source at all.
@@ -122,6 +135,7 @@ check_file /opt/ai-tools/bin                                  root              
 check_file /opt/ai-tools/bin/nvm-update.sh                    root              "${SANDBOX_GROUP}" 550
 check_file /opt/ai-tools/.claude/post-tool-hook.sh            root              "${SANDBOX_GROUP}" 750
 check_file /opt/ai-tools/.claude/session-hook.sh             root              "${SANDBOX_GROUP}" 750
+check_file /opt/ai-tools/.claude/filter-hook.sh              root              "${SANDBOX_GROUP}" 750
 check_file /opt/ai-tools/.claude/settings.json               root              "${SANDBOX_GROUP}" 640
 # EVERY agent's config directory is root-owned with setgid+sticky (CP_AGENT_CONFIG_MODE, 3770):
 # ai-tools is a group-writer for its own state but cannot unlink/replace the root-owned control
@@ -205,6 +219,11 @@ if [[ -e /usr/local/share/man/man1/ai-tools.1.gz ]]; then
     check_file /usr/local/share/man/man1/ai-tools.1.gz        root root 644
 else
     check_file /usr/local/share/man/man1/ai-tools.1           root root 644
+fi
+if [[ -e /usr/local/share/man/man5/operator.conf.5.gz ]]; then
+    check_file /usr/local/share/man/man5/operator.conf.5.gz   root root 644
+else
+    check_file /usr/local/share/man/man5/operator.conf.5      root root 644
 fi
 # Launch wrapper: 755 root:root -- system-wide on every operator's PATH (path-dedup.sh ranks
 # /usr/local/bin above the nvm shims, so it shadows nvm's claude). Runs as the invoking

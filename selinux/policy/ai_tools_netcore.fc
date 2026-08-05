@@ -1,0 +1,2 @@
+# ai_tools_netcore has no file-context rules: it grants permissions on existing types
+# (ai_tools_tmp_t, ai_tools_home_t, ai_tools_project_t, tmp_t), labelling nothing on disk.

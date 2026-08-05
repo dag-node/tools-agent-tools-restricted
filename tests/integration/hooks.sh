@@ -55,6 +55,25 @@ else
     done
     ${hooks_ok} && pass "settings.json declares PostToolUse/Stop/SessionStart/SessionEnd -> installed hook bodies"
 
+    # (0a-ii) The token-saving filter hook is declared on both Bash events. Losing it costs
+    # tokens rather than a guarantee (see filters.rule.md), so it is asserted separately from the
+    # handback events above -- a failure here means unfiltered output, not unowned files. Both
+    # events must be present: PreToolUse without PostToolUse silently drops the noise stripping.
+    filter="/opt/ai-tools/.claude/filter-hook.sh"
+    declare -A want_filter=(
+        [PreToolUse]="${filter} pre-tool-use"
+        [PostToolUse]="${filter} post-tool-use"
+    )
+    filter_ok=true
+    for ev in PreToolUse PostToolUse; do
+        got="$(jq -r --arg e "${ev}" '[.hooks[$e][]?.hooks[]?.command] | join("\n")' "${settings}" 2>/dev/null)"
+        if ! grep -qxF "${want_filter[$ev]}" <<<"${got}"; then
+            fail "settings.json ${ev} does not declare '${want_filter[$ev]}' -- Bash output is unfiltered (re-run: sudo ./install.sh install, which merges shipped hook declarations into a kept settings.json)"
+            filter_ok=false
+        fi
+    done
+    ${filter_ok} && pass "settings.json declares PreToolUse/PostToolUse -> the command-filter hook"
+
     # (0b) The categorical deny rules are present: commands the core posture refuses
     # regardless of arguments or target (sudo/su under NNP, the manager/journal/audit
     # CLIs, the package managers while pkgmgmt is off, mount/umount, SELinux management).

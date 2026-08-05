@@ -18,6 +18,12 @@ SANDBOX_UID="$(id -u "${SANDBOX_USER}" 2>/dev/null || true)"
 # XDG_RUNTIME_DIR alone lets systemctl auto-discover D-Bus (EL9) or Varlink (EL10); forcing
 # DBUS_SESSION_BUS_ADDRESS breaks EL10 where the bus socket may not exist.
 sandbox_systemctl() {
+    # Prefer the machine transport. This suite runs as root, and dropping into the account with
+    # sudo needs that account's own bus to accept the connection -- which a host may refuse while
+    # the manager is perfectly healthy, making a bus refusal indistinguishable from an absent
+    # manager. The machine transport reaches the same manager over the system bus, where root is
+    # already authorized; the sudo form is the fallback for a systemd without it.
+    systemctl --user -M "${SANDBOX_USER}@.host" "$@" 2>/dev/null && return 0
     sudo -u "${SANDBOX_USER}" \
         XDG_RUNTIME_DIR="/run/user/${SANDBOX_UID}" \
         systemctl --user "$@"
@@ -110,7 +116,7 @@ else
         pass "nvm-update.timer is active in ${SANDBOX_USER}'s --user instance"
     elif ! sandbox_user_mgr_up; then
         skip "nvm-update.timer is-active" \
-            "${SANDBOX_USER}'s --user manager is not reachable in this environment (logind does not sustain the lingering instance here); enablement verified on disk"
+            "${SANDBOX_USER}'s --user manager answers on neither the machine transport nor its own bus (a container where logind does not sustain the lingering instance); enablement verified on disk"
     else
         # Manager is up but the timer is not active -- a real enablement gap. Dump its view.
         printf '\n--- nvm-update.timer diagnostics ---\n'

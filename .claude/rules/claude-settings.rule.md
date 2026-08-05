@@ -8,6 +8,7 @@ paths:
 
 `settings.json` is the agent session's Claude Code configuration. It declares the
 ownership hooks (covered in [ownership-and-hooks](ownership-and-hooks.rule.md)), the
+token-saving filter hook on both `Bash` events (covered in [filters](filters.rule.md)), the
 Bash-tool permission rules, a privacy `env` block, and the auto-mode default. This rule
 covers the **permission rules** and how they couple to the SELinux policy, the **`env`
 privacy default**, and the **`disableAutoMode`** default. The catalog of other Claude Code
@@ -55,6 +56,22 @@ without any Bash prompt, or it processes data already in hand.
 | `stat *`, `getfacl *` | Per-path owner/mode/context and the collaborative-ownership ACL grants — diagnose handback and claim state ([ownership-and-hooks](ownership-and-hooks.rule.md)). |
 | `head *`, `tail *`, `wc *`, `sort`, `sort *`, `uniq`, `uniq *`, `grep *` | Pipeline staples that bound and filter the output of the commands above. |
 | `file *` | Identify a file's type before reading it. |
+
+### A rewritten command is what these rules match
+
+The `PreToolUse` filter hook may narrow a Bash command before it runs
+([filters](filters.rule.md)). It returns no permission decision, so the three outcomes above are
+decided on the **rewritten** command. Two consequences bound what a rule may do:
+
+- A rule that only inserts arguments after the leading words leaves every entry here matching as
+  written — `Bash(git log *)` covers `git log --format=… -- src/x.c`, so a narrowing rule needs no
+  allow entry of its own.
+- A rule that changes the leading command word is matched as that new command, and an entry broad
+  enough to cover a general-purpose wrapper (`Bash(<wrapper> *)`) is broader than the
+  inspection-only criterion this list holds to. Narrow per-command entries are the form that fits.
+
+A `deny` entry overrides a rewrite in either shape, so no rule can turn a refused command into a
+permitted one.
 
 ### Asks first (everything unlisted)
 
@@ -191,6 +208,67 @@ in the agent-writable project tree. The layers compose differently per setting:
   a lock is unneeded. The one unoverridable layer, managed policy
   (`/etc/claude-code/managed-settings.json`), is machine-wide — it applies to every Claude
   Code user on the host — so the sandbox does not ship it.
+
+### An upgrade keeps host tuning and still lands this version's hooks
+
+An install **keeps** an existing `settings.json` by default (`install.sh`'s `keep_existing`
+prompt; an unattended run always keeps), because the file carries host tuning a reset would
+revert — a deny entry relaxed alongside an enabled SELinux group, an added `env` key. Kept
+files then have this version's **hook declarations** merged in
+(`ai_tools_conf_merge_hook_declarations`, in `conf.lib.sh`): each shipped declaration the
+file does not carry is added,
+every other key — the permission arrays it was kept for, an operator's own hook — is left as
+written, and each addition is named in the install log.
+
+The split follows the layering above: hook declarations are control plane that merges
+additively and that no lower-precedence layer may remove, while the permission rules are the
+host's to tune. The merge is what carries a newly shipped hook onto an existing host: its body
+and data arrive with the package, and this is the step that makes the file declare it, so the
+hook runs rather than sitting installed and uninvoked.
+
+Each outcome is reported at the severity it earns, so neither is lost in an install's output:
+a merge reports at `ok` and **names every declaration it added**, which is what makes an edit
+to an operator-owned file reviewable. A file already declaring everything shipped is not
+rewritten.
+
+Two sidecar files serve two different recoveries, and neither substitutes for the other:
+
+| file | written when | answers |
+|---|---|---|
+| `settings.json.<YYYYMMDD>.bak` | a merge is about to replace the file | "what did I have?" — the only copy that can restore host tuning if a merge produces valid JSON that is nonetheless wrong, the one failure a parse check cannot catch |
+| `settings.json.<YYYYMMDD>.shipped` | a merge could **not** run — absent `jq`, malformed JSON, a result that does not parse | "what was I supposed to get?" — the baseline to merge from by hand, since an RPM-installed host has no source checkout to copy from |
+
+Each failure direction leaves the deployed file byte-identical and warns, naming which check
+refused. Both sidecars are date-stamped and neither overwrites an earlier copy, so successive
+installs read as a history of what each one offered rather than only the most recent; a no-op run
+writes neither. The suffix is deliberately not `.rpmnew` — no rpm transaction produced it, and
+rpm's suffix would both claim a provenance it lacks and hand the file to the tooling that
+sweeps rpm leftovers.
+
+**On an RPM host the same merge runs on request.** `settings.json` is `%config(noreplace)`, so an
+upgrade keeps a file the host edited and parks this version's copy as `settings.json.rpmnew`. A
+file the host never edited is replaced outright and its hook declarations are current with no
+operator step.
+
+No rpm directive resolves the split on its own, because rpm has no vocabulary for merging one
+subtree of a file: plain `%config` would install the shipped file and move the host's aside to
+`.rpmsave`, reverting the permission rules the file was kept for, while `%config(noreplace)` alone
+leaves a newly shipped hook declared nowhere. The merge therefore runs on request —
+**`sudo ai-tools-admin postupgrade`**, through the same `conf.lib.sh` entry point — and the agent
+package's `%post` prints that pointer whenever a `.rpmnew` is present. No scriptlet edits a config
+file.
+
+The command runs the merge on a throwaway copy first, so the list it shows is the exact set of
+declarations the real merge adds rather than a promise of one. It then confirms, writes the dated
+`.bak`, names that backup, and offers to drop the `.rpmnew` against what is actually left: the
+cleanup prompt defaults to yes once the two files match, and to no while the permission rules still
+differ. A refusal on this path needs no `.shipped` sidecar — the `.rpmnew` is that baseline, and
+the throwaway copy is where the refused merge's own copy lands and is discarded.
+
+`jq` is a hard runtime dependency of every hook this agent ships, not a convenience: each
+parses its event JSON with it, and absent it they take their no-op paths silently — the
+handback stops returning ownership, the session sweeps stop running, and the filters stop
+filtering. The agent package `Requires: jq` for that reason.
 
 ## Why not
 

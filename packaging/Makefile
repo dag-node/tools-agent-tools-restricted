@@ -22,7 +22,13 @@ RPM_RELEASE ?=
 RELEASE_DEFINE = $(if $(RPM_RELEASE),--define "rpm_release $(RPM_RELEASE)",)
 
 # Tracked + working-tree sources the spec consumes, relative to the repo root.
-CONTENT = src docs selinux/policy/ai_tools.pp \
+# POLICY_PP is every prebuilt policy package present -- the core ai_tools.pp plus each STABLE
+# group's ai_tools_<group>.pp (experimental groups ship no .pp; .gitignore keeps them
+# uncommitted). Matched by wildcard rather than a hand-maintained list so a newly committed
+# stable .pp cannot be silently dropped from the tarball and fail %install; on a clean checkout
+# only the committed (stable) packages exist, so that is exactly what ships.
+POLICY_PP = $(patsubst $(ROOT)/%,%,$(wildcard $(ROOT)/selinux/policy/*.pp))
+CONTENT = src docs $(POLICY_PP) \
           packaging/$(NAME).spec packaging/$(NAME).sysusers packaging/VERSION README.md
 
 # Container smoke test: the shared RpmBase recipe parameterized by an EL base image, then a

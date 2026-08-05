@@ -143,6 +143,12 @@ drops any agent they do not use.
 %package -n ai-tools-agents-claude-code-restricted
 Summary:        Claude Code launch wrapper, confinement shim, and hooks for the ai-tools sandbox
 Requires:       ai-tools-integration-nodejs = %{version}-%{release}
+# jq is a HARD runtime dependency of all three hooks this package ships, not a convenience: each
+# parses its event JSON with it. Absent, every one of them takes its `|| exit 0` path silently --
+# post-tool-hook stops handing agent-written files back (they stay sandbox-owned), session-hook
+# stops reclaiming .git and stops the session-end sweep, and filter-hook stops filtering. The
+# first two are ownership guarantees, so this is Requires rather than Recommends.
+Requires:       jq
 # Renamed from claude-code-restricted; see the note on ai-tools-integration-nodejs for why the
 # pair is required rather than cosmetic. This one also owns the launch wrapper and the hooks, so
 # without the Obsoletes an install alongside the old name is a file conflict.
@@ -202,6 +208,9 @@ install -m 0750 src%{ai_bindir}/ai-tools-handback-client.py %{buildroot}%{ai_bin
 # ships. brp-compress may gzip it (hence the %%files glob).
 install -d -m 0755 %{buildroot}%{ai_mandir}/man1
 install -m 0644 src%{ai_mandir}/man1/ai-tools.1             %{buildroot}%{ai_mandir}/man1/ai-tools.1
+# operator.conf(5): the host options and the shared KEY=value grammar they are written in.
+install -d -m 0755 %{buildroot}%{ai_mandir}/man5
+install -m 0644 src%{ai_mandir}/man5/operator.conf.5        %{buildroot}%{ai_mandir}/man5/operator.conf.5
 # The CLI gets a %%{_sbindir} symlink for the OPPOSITE reason ai-tools-admin does: it must
 # never run under sudo, and without the symlink `sudo ai-tools` dies with sudo's "command
 # not found" (%%{ai_bindir} is not in secure_path) before the CLI's own refusal -- run as
@@ -213,7 +222,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf skip-dirs relabel secret-patterns operator control-plane safe-paths confinement npm-verify managed-assets providers; do
+for l in log msg conf skip-dirs relabel secret-patterns operator control-plane safe-paths confinement npm-verify managed-assets providers selinux-groups filters; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -224,6 +233,11 @@ done
 install -d -m 0755 %{buildroot}%{ai_libdir}/agents.d
 install -d -m 0755 %{buildroot}%{ai_libdir}/integrations.d
 install -d -m 0755 %{buildroot}%{ai_libdir}/session-env.d
+# Token-saving command-filter rule sets, keyed by name the same way: filters.d/<name>.rules. Base
+# owns the directory and ships core.rules, the set every host gets; a package with commands of its
+# own ships one beside it. An agent's filter hook reads them through filters.lib.sh.
+install -d -m 0755 %{buildroot}%{ai_libdir}/filters.d
+install -m 0644 src%{ai_libdir}/filters.d/core.rules %{buildroot}%{ai_libdir}/filters.d/core.rules
 # The shared confinement shim. Base-owned and agent-agnostic: it resolves which agent may launch
 # from the manifests above, so an ai-tools-agents-* package ships only its wrapper, manifest, and
 # session-env fragment, and one sudoers grant serves every agent.
@@ -256,9 +270,19 @@ sed 's/^OPERATORS=.*/OPERATORS=""/' src%{_sysconfdir}/ai-tools/operator.conf \
     > %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 chmod 0644 %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 
-# ── base: SELinux core policy module (prebuilt) ──────────────────────────────
+# ── base: SELinux policy packages (prebuilt) ─────────────────────────────────
+# The core (loaded on install) plus each STABLE optional group. Only stable groups ship
+# prebuilt: they are toggled per host with `ai-tools-admin selinux enable-group <name>`,
+# which semodule-loads the prebuilt .pp from this directory (no source tree or
+# selinux-policy-devel needed). EXPERIMENTAL groups are NOT shipped -- they are compiled and
+# verified from a source checkout on demand (install-selinux.sh enable-group + the avc loop);
+# ai-tools-admin points the operator there rather than loading an unaudited module. Keep this
+# list in step with the stable set in selinux-groups.lib.sh.
 install -d -m 0755 %{buildroot}%{_datadir}/selinux/packages/ai-tools
-install -m 0644 selinux/policy/ai_tools.pp %{buildroot}%{_datadir}/selinux/packages/ai-tools/ai_tools.pp
+for pp in ai_tools ai_tools_tmpmap; do
+    install -m 0644 selinux/policy/${pp}.pp \
+        %{buildroot}%{_datadir}/selinux/packages/ai-tools/${pp}.pp
+done
 
 # ── base: sandbox project workflow tree + operation-log dir ──────────────────
 install -d -m 2750 %{buildroot}/var/opt/ai-tools
@@ -323,6 +347,9 @@ install -m 0644 src%{_unitdir}/ai-tools-relabel.service %{buildroot}%{_unitdir}/
 # helper is administrator-typed, so it gets a %{_sbindir} symlink like ai-tools-bootstrap/-admin.
 install -m 0644 src%{ai_libdir}/session-env.d/dotnet.env.sh %{buildroot}%{ai_libdir}/session-env.d/dotnet.env.sh
 install -m 0644 src%{ai_libdir}/integrations.d/dotnet.conf  %{buildroot}%{ai_libdir}/integrations.d/dotnet.conf
+# Its command-filter rules (SDK verbosity), which are .NET knowledge and so ship with the .NET
+# package rather than in the base's core.rules.
+install -m 0644 src%{ai_libdir}/filters.d/dotnet.rules      %{buildroot}%{ai_libdir}/filters.d/dotnet.rules
 install -m 0750 src%{ai_sbindir}/ai-tools-dotnet.sh         %{buildroot}%{ai_sbindir}/ai-tools-dotnet
 ln -s %{ai_sbindir}/ai-tools-dotnet %{buildroot}%{_sbindir}/ai-tools-dotnet
 # Ghost this helper's operation log alongside the base helpers' (the /var/log/ai-tools dir itself
@@ -342,6 +369,7 @@ install -m 0755 src%{ai_bindir}/claude.sh                  %{buildroot}%{ai_bind
 install -d -m 0770 %{buildroot}/opt/ai-tools/.claude
 install -m 0750 src/opt/ai-tools/agents/claude-code/post-tool-hook.sh %{buildroot}/opt/ai-tools/.claude/post-tool-hook.sh
 install -m 0750 src/opt/ai-tools/agents/claude-code/session-hook.sh   %{buildroot}/opt/ai-tools/.claude/session-hook.sh
+install -m 0750 src/opt/ai-tools/agents/claude-code/filter-hook.sh    %{buildroot}/opt/ai-tools/.claude/filter-hook.sh
 install -m 0640 src/opt/ai-tools/agents/claude-code/settings.json     %{buildroot}/opt/ai-tools/.claude/settings.json
 # The claude-code agent manifest: providers.lib.sh reads it so the toolchain layer installs the
 # Claude npm package and symlinks the claude launcher without hardcoding either (the agents.d
@@ -366,7 +394,8 @@ done
 %post -n ai-tools-base
 %systemd_post ai-tools-handback.socket
 # Load the prebuilt SELinux core module and apply contexts when SELinux is enabled. Core
-# only -- the optional policy groups stay available via the SELinux tooling, not installed.
+# only -- the stable optional groups ship prebuilt alongside it but stay OFF, toggled per host
+# with `ai-tools-admin selinux enable-group <name>` (experimental groups are not shipped).
 if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/null 2>&1; then
     semodule -n -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp >/dev/null 2>&1 || :
     if command -v restorecon >/dev/null 2>&1; then
@@ -386,6 +415,13 @@ if command -v setfacl >/dev/null 2>&1; then
     setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects || :
     setfacl -m g:ai-ops:r-- /var/opt/ai-tools/README.md || :
 fi
+# Re-assert the setgid bit on the sandbox tree. EL10's rpm (4.19+) drops the setgid from these
+# %attr(2750/2770) directories on install -- owner and group apply, the setgid is lost -- which
+# breaks the SANDBOX_GROUP inheritance the collaborative-ownership model depends on (clones and
+# agent-created files must be born group ai-tools). Setting it here guarantees the documented mode
+# regardless of how rpm honored the %attr; idempotent, and a no-op where rpm kept it (EL9).
+chmod 2750 /var/opt/ai-tools 2>/dev/null || :
+chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 # Control-plane git guard + identity for the repo ai-tools-bootstrap captures (the RPM
 # counterpart of install.sh's do_install .gitignore/.gitconfig steps). Neither file is
 # rpm-owned, so an erase preserves them; %post reseeds each ONLY when absent (install.sh's
@@ -427,17 +463,26 @@ ai-tools-base installed. To finish setup:
   sudo ai-tools-bootstrap                      # install nvm + Node + Claude Code (network)
   sudo ai-tools-admin operator add <your-user> # bind an operator (ai-ops, OPERATORS, linger)
 EOF
+# operator.conf is %config(noreplace): an edited file is kept and this version's copy is parked as
+# .rpmnew. rpm's own warning names that file but not what to do with it, and ignoring it costs
+# silently -- an option this version adds simply never appears on the host.
+if [ -f /etc/ai-tools/operator.conf.rpmnew ]; then
+    echo "  sudo ai-tools-admin postupgrade              # operator.conf.rpmnew is waiting"
+fi
 
 %preun -n ai-tools-base
 %systemd_preun ai-tools-handback.socket
 
 %postun -n ai-tools-base
 %systemd_postun_with_restart ai-tools-handback.socket
-# On final erase only, unload the SELinux module. Intentionally preserved (not rpm-owned): the
-# ai-tools account, /opt/ai-tools/.nvm, the control-plane .gitignore/.gitconfig, /var/opt/ai-tools
-# clones, and each operator's ~/.config/ai-tools.
+# On final erase only, unload the SELinux modules: the core plus any optional group a host
+# loaded with `ai-tools-admin selinux enable-group` (its .pp is erased with the package, but the
+# compiled module persists in the policy store until removed). Intentionally preserved (not
+# rpm-owned): the ai-tools account, /opt/ai-tools/.nvm, the control-plane .gitignore/.gitconfig,
+# /var/opt/ai-tools clones, and each operator's ~/.config/ai-tools.
 if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
-    semodule -n -r ai_tools >/dev/null 2>&1 || :
+    mods=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' || :)
+    [ -n "${mods}" ] && semodule -n $(printf ' -r %s' ${mods}) >/dev/null 2>&1 || :
 fi
 
 %post -n ai-tools-integration-nodejs
@@ -502,6 +547,16 @@ for kind in skills:skills subagents:agents; do
     [ -d "${shared}" ] && command -v bash >/dev/null 2>&1 || continue
     bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_link_shared_assets ${shared} ${dest} ai-tools ${readme}" >/dev/null 2>&1 || :
 done
+# settings.json is %config(noreplace), so a host that tuned its permission rules keeps them and rpm
+# parks this version's copy as .rpmnew. Choosing between the two is the operator's call, made
+# through `ai-tools-admin postupgrade` -- a scriptlet does not edit a config file. Say so here,
+# because leaving it costs silently: a hook this version ships installs its body and its data, and
+# nothing invokes it until its DECLARATION reaches settings.json.
+if [ -f /opt/ai-tools/.claude/settings.json.rpmnew ]; then
+    echo "ai-tools: settings.json.rpmnew is waiting -- this version's hook declarations are not in"
+    echo "  your settings.json yet, so the hooks they declare never run. Merge them with:"
+    echo "    sudo ai-tools-admin postupgrade"
+fi
 
 %preun -n ai-tools-agents-claude-code-restricted
 # On final erase, drop the entrypoint file-context rule this package registered and restore
@@ -535,6 +590,7 @@ fi
 %attr(0755, root, root) %{ai_bindir}/ai-tools
 %{_sbindir}/ai-tools
 %attr(0644, root, root) %{ai_mandir}/man1/ai-tools.1*
+%attr(0644, root, root) %{ai_mandir}/man5/operator.conf.5*
 %attr(0750, root, ai-tools) %{ai_bindir}/ai-tools-handback-client
 %dir %attr(0751, root, ai-tools) %{ai_libdir}
 %attr(0644, root, root) %{ai_libdir}/log.lib.sh
@@ -550,9 +606,13 @@ fi
 %attr(0644, root, root) %{ai_libdir}/npm-verify.lib.sh
 %attr(0644, root, root) %{ai_libdir}/conf.lib.sh
 %attr(0644, root, root) %{ai_libdir}/providers.lib.sh
+%attr(0644, root, root) %{ai_libdir}/selinux-groups.lib.sh
+%attr(0644, root, root) %{ai_libdir}/filters.lib.sh
 %dir %attr(0755, root, root) %{ai_libdir}/agents.d
 %dir %attr(0755, root, root) %{ai_libdir}/integrations.d
 %dir %attr(0755, root, root) %{ai_libdir}/session-env.d
+%dir %attr(0755, root, root) %{ai_libdir}/filters.d
+%attr(0644, root, root) %{ai_libdir}/filters.d/core.rules
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/ai-tools-run
 %attr(0644, root, root) %{ai_libdir}/path-dedup.sh
 %{_unitdir}/ai-tools-handback.socket
@@ -563,6 +623,7 @@ fi
 %{_sysusersdir}/ai-tools.conf
 %dir %{_datadir}/selinux/packages/ai-tools
 %{_datadir}/selinux/packages/ai-tools/ai_tools.pp
+%{_datadir}/selinux/packages/ai-tools/ai_tools_tmpmap.pp
 %dir %attr(2750, root, ai-tools) /var/opt/ai-tools
 %dir %attr(2770, root, ai-tools) /var/opt/ai-tools/sandbox-projects
 %attr(0640, root, ai-tools) /var/opt/ai-tools/README.md
@@ -617,6 +678,7 @@ fi
 %files -n ai-tools-integration-dotnet
 %attr(0644, root, root) %{ai_libdir}/session-env.d/dotnet.env.sh
 %attr(0644, root, root) %{ai_libdir}/integrations.d/dotnet.conf
+%attr(0644, root, root) %{ai_libdir}/filters.d/dotnet.rules
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-dotnet
 %{_sbindir}/ai-tools-dotnet
 %ghost %attr(0600, root, root) /var/log/ai-tools/dotnet.log
@@ -635,9 +697,107 @@ fi
 %attr(0755, root, root) %{ai_bindir}/claude
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/post-tool-hook.sh
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/session-hook.sh
-%attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
+%attr(0750, root, ai-tools) /opt/ai-tools/.claude/filter-hook.sh
+%config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Wed Aug 05 2026 dagnode <tools@dagnode.com> - 0.9.1-1
+- FIX: Strip the stray group-execute bit Claude Code's file writes leave on data files. The
+  ownership handback and unclaim now clamp the group class off the owner-execute bit, so a data
+  file hands back group rw (not rwx) while a real script keeps group r-x -- and the spurious bit no
+  longer becomes a real group-execute when a project tree is archived (tar/zip) and extracted
+  without ACLs.
+- FIX: Refuse an operator command (--project-*/--sandbox-*/--lockdown/--reclaim/--relabel) up
+  front when the invoking user is not in OPERATORS in operator.conf, pointing at sudo
+  ai-tools-admin operator add <user>, instead of running through registry writes and confirm
+  prompts only to fail in a root helper and roll back. --help/--version/--list/--providers stay
+  open to any user.
+
+* Sun Aug 02 2026 dagnode <tools@dagnode.com> - 0.9.0-1
+- NEW: Save tokens by default -- command filters narrow what a tool prints, over the root-owned
+  rule sets in filters.d and operator.conf AI_TOOLS_FILTERS (an empty value disables).
+  Access-neutral: the permission rules are re-evaluated on the rewritten command.
+- NEW: Apply the command filters on both Bash hook events
+- NEW: Quiet the dotnet SDK through its own command-filter rule set
+- NEW: Keep host-tuned permission rules across an upgrade -- settings.json ships
+  %config(noreplace), so rpm keeps the file you edited and parks this version's copy as
+  settings.json.rpmnew (earlier releases overwrote it and kept no copy)
+- NEW: Reconcile the .rpmnew copies an upgrade leaves with sudo ai-tools-admin postupgrade. It
+  merges shipped hook declarations into settings.json after listing exactly what it will add and
+  confirming, writing a dated .bak first. operator.conf and the sudoers grant are reported, never
+  written -- a file of commented option blocks has no merge worth learning to predict. The install
+  output points here whenever a .rpmnew is waiting
+- NEW: Merge shipped hook declarations into a kept settings.json, so a new version's hook no
+  longer installs with nothing to invoke it (inline on a from-source install, through postupgrade
+  on RPM)
+- NEW: Report the options a kept KEY=value config has not seen (inline on a from-source install,
+  through postupgrade against operator.conf.rpmnew on RPM)
+- NEW: Add the shared config backup and baseline-copy layer to the from-source installer --
+  dated .bak and .shipped sidecars, never overwritten
+- NEW: Read allowed-projects with the shared config grammar (conf.lib.sh): end-of-line comments
+  and quoted paths, one parser for the wrapper, the CLI, and the handback helper
+- NEW: Add operator.conf(5)
+- NEW: Optional SELinux policy group apphost lets the sandbox build and run .NET executable and
+  host projects -- console apps, ASP.NET Core and worker services, xunit.v3 tests, single-file
+  publishes. A class library, or in-process MSTest (Microsoft.Testing.Platform), does not need it.
+  It complements tmpmap (restore and build); enable both for a full build-and-run workflow. Off by
+  default:  sudo selinux/install-selinux.sh enable-group apphost
+- NEW: Optional SELinux policy group netcore covers the rest of a .NET workflow under enforcing --
+  dotnet test (its diagnostic socket and, for an out-of-process xUnit/VSTest host, the loopback TCP
+  connection to it), multi-node MSBuild (lets you drop the -m:1 workaround), and running a binary
+  you built from the project tree. Off by default:  sudo selinux/install-selinux.sh enable-group
+  netcore
+- FIX: Parse the labelling report so the unconfined-entrypoint guard can fire -- an entrypoint
+  that failed to take ai_tools_exec_t ran sessions UNCONFINED while the install reported success.
+  Check an enforcing host after upgrading:  ps -eo label,cmd | grep '[c]laude'  (expect
+  ai_tools_t)
+- FIX: Require jq, which every Claude Code hook depends on -- without it the ownership handback
+  and the .git reclaim silently stopped
+- FIX: Drive the sandbox user manager over the machine transport -- the toolchain auto-update
+  timer never started, failing with "Connection refused"
+- FIX: Repair project labels on re-install instead of reconverting (relabel.lib.sh), so a
+  re-install no longer rewrites every file of every registered project
+- FIX: Group the install output by the work it reports
+- FIX: Stop the "failed to set default file creation context" SELinux warnings that cluttered
+  command output under enforcing -- most visibly through dotnet build and NuGet restore
+- FIX: A second build of the same solution no longer fails on the previous project's locked
+  output (dotnet/msbuild#6461)
+- FIX: Re-apply SELinux labels once per install, and repair them even when the SELinux step is
+  declined on a host that already has the module loaded (e.g. after a Node upgrade)
+- FIX: Clearer optional-group install prompt -- each group is tagged stable or experimental, the
+  explanation precedes the skip question, an already-loaded group is reported (and can be
+  recompiled from source rather than offered for re-enable), and the summary lists every loaded
+  group
+- Upgrading from 0.8.1 needs no action beyond dnf. Command filtering arrives ON for a host whose
+  operator.conf predates AI_TOOLS_FILTERS; set AI_TOOLS_FILTERS="" to opt out.
+- For .NET workloads on an enforcing host, enable the optional groups they need: tmpmap
+  (restore/build), apphost (build an executable or host project), and netcore (test and run); all
+  stay off by default.
+
+* Wed Jul 29 2026 dagnode <tools@dagnode.com> - 0.8.1-1
+- Fixed the SELinux-enforcing limitation carried in 0.8.0: the sandbox domain held no map
+  permission on its own /tmp files, so dotnet restore/build -- and git or SQLite run in a /tmp
+  working tree -- failed with EACCES on the mmap. A new optional SELinux policy group, tmpmap,
+  grants exactly that one permission (ai_tools_tmp_t:file map); it is mmap-at-all and NOT
+  executable mapping (/tmp stays noexec), so it cannot run code from /tmp. With it enabled the SDK
+  restores and builds normally. On an enforcing host: sudo ai-tools-admin selinux enable-group
+  tmpmap.
+- The STABLE optional SELinux policy groups now ship prebuilt (currently tmpmap) and are managed
+  on any installed host with a new ai-tools-admin selinux subcommand -- list-groups, enable-group
+  <name>, disable-group <name> -- which loads the shipped .pp via semodule, needing no source
+  checkout or selinux-policy-devel. The group set is single-sourced, so this helper and the
+  source-tree install-selinux.sh never disagree on which groups exist.
+- The experimental groups (systemd, pkgmgmt, netadmin, podman) are unaudited drafts and are NOT
+  shipped prebuilt; they must be compiled and verified from a source checkout first
+  (install-selinux.sh enable-group + the avc bring-up loop). ai-tools-admin enable-group of an
+  experimental group refuses and points at that workflow rather than loading an unaudited module.
+- ai-tools --providers now reports the SELinux confinement layer where SELinux is active -- the
+  core module and any loaded optional group -- and, when the dotnet integration is enabled under
+  enforcing but tmpmap is not loaded, names the enable command instead of letting the build fail
+  with an opaque EACCES.
+- Upgrading from 0.8.0 needs no action beyond dnf. A DAC-only host is unchanged; on an enforcing
+  host, dotnet builds now require enabling the tmpmap group once, as above.
+
 * Tue Jul 28 2026 dagnode <tools@dagnode.com> - 0.8.0-1
 - The stack is multi-agent: nothing in ai-tools-base names an agent. Which agents exist, what
   each provisions, where it keeps its config directory, which binary the SELinux domain

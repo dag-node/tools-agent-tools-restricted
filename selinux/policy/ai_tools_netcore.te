@@ -1,0 +1,98 @@
+policy_module(ai_tools_netcore, 0.1.0)
+
+## ai_tools OPTIONAL GROUP: netcore  [DEFAULT: DISABLED, EXPERIMENTAL]
+##
+## Everything the .NET (CoreCLR) runtime needs beyond repo-only work, kept OUT of the
+## base module because none of it is required for the Claude Code agent itself -- it
+## loads only where .NET is brought up, alongside the dotnet integration
+## (AI_TOOLS_INTEGRATIONS=dotnet). It pairs with two existing groups: tmpmap (mmap of the
+## /tmp shm mutex for NuGet restore and build) and apphost (memfd exec for the JIT and
+## apphost creation). Enable all three for a full build-test-run .NET workflow. The
+## project-type -> group map and the denial breakdown live in .claude/rules/dotnet.rule.md.
+##
+## Two sections, at two risk levels:
+##
+##  1. Runtime IPC (BENIGN). The SDK and runtime open a diagnostic unix socket and a CLR
+##     debug FIFO under /tmp, and an IPC socket under DOTNET_CLI_HOME (.local/share). The
+##     base transitions new /tmp FILES to ai_tools_tmp_t but NOT sockets or FIFOs, so
+##     those default to tmp_t, which the domain cannot create -- the exact reason
+##     `dotnet test` reports it cannot connect and multi-node MSBuild hangs on its worker
+##     pipes. This section transitions and manages them, adds getsid(2)
+##     (process getsession), reads /proc/sys/net, and lets the runner connect(2) the
+##     ephemeral TCP port its test host binds (xUnit/VSTest). It widens no trust
+##     boundary: creating a socket or FIFO in the sandbox's own tmp/home, or reaching its
+##     own child over loopback, is the same benign class as the file/dir management the
+##     base already grants.
+##
+##  2. Native execution (SENSITIVE). Running a native host the agent BUILT from the
+##     project tree -- the apphost, a testhost, R2R-mapped assemblies under `dotnet
+##     exec` -- needs execute on ai_tools_project_t files, which the base grants nowhere.
+##     This IS a boundary: on-disk native code the sandbox wrote, executed as a new
+##     process image. It confers no new PRIVILEGE (execmem already concedes in-process
+##     native code, and execute_no_trans keeps the child in ai_tools_t with no entrypoint
+##     to a more privileged domain), but it is the reason the whole module is off by
+##     default and experimental. execmod covers an R2R image relocated in place.
+##
+## Enable:  sudo selinux/install-selinux.sh enable-group netcore
+## Disable: sudo selinux/install-selinux.sh disable-group netcore
+##
+## When a task needs this group and it is not loaded, surface to the user:
+##   "dotnet test / running a built .NET binary requires the SELinux 'netcore' group.
+##    ! sudo selinux/install-selinux.sh enable-group netcore
+##    Why: the .NET runtime's diagnostic sockets/FIFOs, and executing a host it built in
+##         the project tree, are denied by the base module. This adds both."
+
+require {
+    type ai_tools_t;
+    type ai_tools_tmp_t;
+    type ai_tools_home_t;
+    type ai_tools_project_t;
+    type tmp_t;
+}
+
+########################################
+# 1. Runtime IPC  (benign)
+########################################
+
+# Sockets and FIFOs the runtime creates under /tmp must transition to the private tmp
+# type -- as the base already does for file/dir/lnk_file -- and then be manageable. The
+# base rule and this one are separate type_transitions over disjoint object classes, so
+# they coexist; with this group off, a /tmp socket/FIFO stays tmp_t and is denied.
+files_tmp_filetrans(ai_tools_t, ai_tools_tmp_t, { sock_file fifo_file })
+manage_sock_files_pattern(ai_tools_t, ai_tools_tmp_t, ai_tools_tmp_t)
+manage_fifo_files_pattern(ai_tools_t, ai_tools_tmp_t, ai_tools_tmp_t)
+
+# The CoreCLR IPC socket under DOTNET_CLI_HOME (.local/share/<guid>/.p) is born
+# ai_tools_home_t; the base manages file/dir/lnk_file there but not sockets/FIFOs.
+manage_sock_files_pattern(ai_tools_t, ai_tools_home_t, ai_tools_home_t)
+manage_fifo_files_pattern(ai_tools_t, ai_tools_home_t, ai_tools_home_t)
+
+# Connecting to such a socket. Microsoft.Testing.Platform's test runner and test host talk over
+# a unix stream socket under .local/share, so the runner (ai_tools_t) needs connectto to the
+# host (also ai_tools_t) -- otherwise connect(2) returns EACCES and `dotnet test` fails. The base
+# grants create_stream_socket_perms on self but NOT connectto; the sock_file write a named-socket
+# connect also needs is already covered by the manage rules above.
+allow ai_tools_t self:unix_stream_socket connectto;
+
+# getsid(2): csc and the runtime query their own session id.
+allow ai_tools_t self:process getsession;
+
+# /proc/sys/net/* symlink reads during runtime startup.
+kernel_read_network_state_symlinks(ai_tools_t)
+
+# TCP connect to a generic (unreserved) port on loopback: the xUnit/VSTest runner and the
+# test host it spawns talk over a TCP socket bound to an ephemeral port, so the runner
+# (ai_tools_t) needs to connect(2) that port -- otherwise it returns EACCES and `dotnet
+# test` fails. Same benign IPC class as the unix-socket connectto above; the sandbox is
+# only reaching its own child, not a new host surface.
+corenet_tcp_connect_generic_port(ai_tools_t)
+
+########################################
+# 2. Native execution  (SENSITIVE -- runs a binary the agent built)
+########################################
+
+# Execute a native host or R2R-mapped assembly from the project tree. execute_no_trans
+# keeps it in ai_tools_t (no entrypoint elsewhere); execmod covers an R2R image relocated
+# in place; map is the executable file mapping (already base-granted on this writable
+# type, listed for completeness).
+allow ai_tools_t ai_tools_project_t:file { map execute execute_no_trans execmod };

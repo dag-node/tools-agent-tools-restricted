@@ -9,6 +9,9 @@
 #   make ai_tools_pkgmgmt.pp         # optional: rpm, dnf RPM database
 #   make ai_tools_netadmin.pp        # optional: firewall-cmd, nmcli D-Bus
 #   make ai_tools_podman.pp          # optional: podman/buildah, container storage
+#   make ai_tools_tmpmap.pp          # optional: mmap of the agent's own /tmp files
+#   make ai_tools_apphost.pp         # optional: execute .NET apphost/JIT code from memfd
+#   make ai_tools_netcore.pp         # optional: .NET runtime IPC + run a project's built binary
 #   make clean
 #
 # Use install-selinux.sh (one level up, at selinux/) rather than semodule directly:

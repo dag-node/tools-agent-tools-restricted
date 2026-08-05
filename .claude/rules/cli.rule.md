@@ -29,6 +29,22 @@ root helper. This is the same symlink the launch wrapper gates on (`claude.sh`'s
 `CLAUDE_LINK`), so both entry points share one definition of "provisioned". Every command
 is behind the gate, `--version` included — an unfinished install reports nothing, fail-closed.
 
+## Operator preflight
+
+A second gate, `require_operator`, runs before dispatch for the **operator-acting** commands
+(`--project-*`, `--sandbox-*`, `--lockdown`, `--reclaim`, `--relabel`) and refuses when the
+invoking user is not listed in `OPERATORS` in `operator.conf`. Those commands resolve the
+caller's identity from that list (`operator.lib.sh`, inside the root helpers); without the gate an
+unenrolled user proceeds through the registry writes and confirm prompts only to be refused by the
+first helper that resolves owner (`ai-tools-lockdown`: "not in allowed projects for current
+operator"), after partial state was written and rolled back. The gate replaces that with one
+up-front message pointing at `sudo ai-tools-admin operator add <user>`. `operator.conf` is `644`,
+so the unprivileged CLI reads `OPERATORS` directly, and enrollment there takes effect on the next
+command — no re-login, unlike the `ai-ops` group the admin verb also grants (which the launch
+wrapper needs and which does require a fresh login). The **informational** commands
+(`--help`/`--version`/`--list`/`--providers`) stay open, so an unenrolled user can still read usage
+and inspect the host.
+
 ## Commands
 
 - `--project-claim [path]` (alias `--project-create`) — claim a real project in place
@@ -81,7 +97,17 @@ is behind the gate, `--version` included — an unfinished install reports nothi
   `ai_tools_enabled_{agents,integrations}` the toolchain and `ai-tools-run` use, and the installed
   set from the manifest directory listing — so a manifest the resolver refuses shows as disabled.
   The resolvers' refusals, which at launch reach only the terminal and journald, are captured from
-  their stderr and reported in a closing block.
+  their stderr and reported in a closing block. On a host where SELinux is not `Disabled` it adds a
+  **SELinux policy groups** section: the core module's load state and every loaded optional group,
+  read unprivileged via `semodule -l` (degrading to a `sudo ai-tools-admin selinux list-groups`
+  pointer if the store is not readable unprivileged), keyed off the shared
+  `selinux-groups.lib.sh` registry. When the `dotnet` integration is enabled under **Enforcing** it
+  warns of the two disjoint policy groups a full .NET workflow wants but that are not loaded:
+  `tmpmap` (restore/build mmap of `/tmp`, `EACCES` without it) and `apphost` (executable/host
+  projects — `dotnet run`, ASP.NET Core, `xunit.v3` — whose memfd exec is denied without it), each
+  with its own enable command: `ai-tools-admin selinux enable-group tmpmap` for the stable one, the
+  source `install-selinux.sh enable-group apphost` for the experimental one. These are the
+  dependencies [providers](providers.rule.md) documents, surfaced where the operator checks status.
 - `--list`, `--version` (the deploy-stamped package version; `dev` from a raw source tree),
   `--help`.
 
@@ -102,7 +128,15 @@ The confined agent (`ai_tools_t`) reaches it only if the tree carries the
 `ai-tools-relabel`, and `--project-unclaim` reverts it. The label primitive (semanage
 fcontext + restorecon) lives in the shared `relabel.lib.sh`, sourced by both
 `ai-tools-relabel` and `install-selinux.sh`, so the CLI and the policy installer apply one
-implementation. Claim sets group `SANDBOX_GROUP` + the setgid bit on the project's directories
+implementation. The relabel is **forced** (`restorecon -FR`): a file created in a labelled
+directory inherits `ai_tools_project_t` on its own, but a file brought in carrying an explicit
+foreign context — a context-preserving copy (`cp -a`, `tar --selinux`) of a system path, or any
+customizable type — is one a plain `restorecon` preserves, and only `-F` resets it to the project
+type. `restorecon` writes only a file whose context differs, so forcing is idempotent on an
+already-labelled tree (a walk, no writes) and the installer's per-install sweep re-asserts the
+label cheaply while still correcting such drift — the state the confined agent must be able to
+read, or its startup workspace walk denies on every foreign-labelled path.
+Claim sets group `SANDBOX_GROUP` + the setgid bit on the project's directories
 (via `ai-tools-setgid`, so the agent traverses the tree and new files inherit the group), applies
 the group-permission ACL for existing files (via `ai-tools-setfacl`), and pins repo-local
 `core.filemode=true`.

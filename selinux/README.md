@@ -39,10 +39,11 @@ installer detects the mode from the source and reports it.
 selinux/
   install-selinux.sh   load / rebuild / relabel / enable-group / remove (run from here)
   README.md            this guide
-  policy/              policy source + the shipped prebuilt core
+  policy/              policy source + the shipped prebuilt packages (core + groups)
                          ai_tools.{te,fc,if}, the optional ai_tools_{systemd,pkgmgmt,
-                         netadmin,podman}.{te,fc,if}, ai_tools.pp, Makefile,
-                         helper-domain.te.draft; build scratch lands in policy/tmp/
+                         netadmin,podman,tmpmap,apphost,netcore}.{te,fc,if}, the prebuilt ai_tools.pp and
+                         ai_tools_<group>.pp, Makefile, helper-domain.te.draft; build
+                         scratch lands in policy/tmp/
   avc/                 bring-up + diagnostics (run during policy authoring)
                          avc-denials.sh, avc-testsuite.sh, avc-analyze.sh,
                          diag-nvm-update.sh; capture logs in avc/audits/, marker
@@ -52,11 +53,55 @@ selinux/
 Filenames below (`ai_tools.te`, `ai_tools.pp`, …) live under `policy/`; the bring-up
 scripts under `avc/`. `install-selinux.sh` stays at `selinux/` and resolves both.
 
+## Optional policy groups
+
+The core module alone covers repo-only work (project/home/tmp files, git, coreutils,
+HTTPS to the Anthropic API, the sudo→helper calls). Seven optional groups widen the
+surface for tasks that reach into system context, all **disabled by default**:
+
+| group | grants | stability |
+|---|---|---|
+| `systemd`  | `systemctl`, `journalctl`, unit-file reads | experimental |
+| `pkgmgmt`  | `rpm`, `dnf`, the RPM database | experimental |
+| `netadmin` | `firewall-cmd` / `nmcli` D-Bus | experimental |
+| `podman`   | container runtime exec + image storage (still blocked by the namespace filter — see the confinement rule) | experimental |
+| `tmpmap`   | mmap of the agent's own `/tmp` files (`dotnet` build, `git`/SQLite in `/tmp`) | stable |
+| `apphost`  | map+execute of tmpfs/memfd files (.NET apphost/JIT: `dotnet run`, ASP.NET Core, `xunit.v3`); disjoint from `tmpmap` | experimental |
+| `netcore`  | .NET runtime IPC (`dotnet test` sockets, multi-node MSBuild pipes) + executing a project's built binary — see [dotnet.rule.md](../.claude/rules/dotnet.rule.md) | experimental |
+
+**Stable** groups are a single, tested rule (`tmpmap` grants exactly
+`ai_tools_tmp_t:file map`). They ship **prebuilt** (`ai_tools_<group>.pp`) alongside the
+core and load on any installed host with no toolchain:
+
+```bash
+sudo ai-tools-admin selinux list-groups
+sudo ai-tools-admin selinux enable-group tmpmap
+sudo ai-tools-admin selinux disable-group tmpmap
+```
+
+**Experimental** groups are unaudited drafts: their rule set has not been verified under
+permissive against a real workload. They are **not shipped prebuilt** and cannot be enabled
+through `ai-tools-admin` — that helper refuses an experimental group and points here. Compile,
+audit, and load one from a source checkout, then re-run the bring-up loop (§2 / `avc/`) before
+relying on it:
+
+```bash
+sudo dnf install selinux-policy-devel                  # once, to compile a module
+sudo ./install-selinux.sh enable-group podman          # compiles from .te/.fc, then loads
+# ... exercise the workload, then verify under permissive with avc/ (see §2) ...
+```
+
+Both front doors read the same group registry (`selinux-groups.lib.sh`), so they agree on
+which groups exist and which are stable. Promoting a group to stable — after its rules are
+audited — means marking it `stable` in that library, committing its prebuilt `.pp`, and adding
+it to the shipped set (`packaging/ai-tools.spec`, `install.sh`, `.gitignore`,
+`packaging/Makefile`); `disable-group` works for any loaded group through either door.
+
 ## Building from source (optional)
 
-The shipped core needs no toolchain. `selinux-policy-devel` is required only to
-**recompile** the core after editing `ai_tools.te`/`.fc`, or to build an optional
-group (groups are not shipped prebuilt):
+The shipped modules (the core and the stable groups) need no toolchain. `selinux-policy-devel`
+is required only to **recompile** a module after editing its `.te`/`.fc`, or to build an
+experimental group (which never ships prebuilt):
 
 ```bash
 sudo dnf install selinux-policy-devel

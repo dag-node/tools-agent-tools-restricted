@@ -106,6 +106,14 @@ readonly BOUNDARY_NAMED_RE='(user_home_t|user_home_dir_t|home_root_t|config_home
 #   netadmin -> firewalld_t, NetworkManager_t   (firewall-cmd/nmcli D-Bus chat)
 #   podman   -> container_runtime_exec_t        (container_file_t is BOUNDARY above:
 #                                                core dontaudit's it regardless)
+# tmpmap is handled separately below (_g2): its type, ai_tools_tmp_t, is core-granted
+# for read/write, so it is matched on the `map` PERMISSION, not the type alone.
+# apphost is handled separately below (_g3): the core grants nothing on tmpfs_t:file, so
+# the whole memfd surface the .NET JIT/apphost touches (write to size it, map, and the
+# defining execute) is that group -- matched on the tmpfs_t:file TYPE.
+# netcore is handled separately below (_g4): the .NET runtime's sockets/FIFOs under
+# tmp/home, getsid, and executing a built binary from ai_tools_project_t -- matched on
+# those classes/perms, which the base grants nowhere.
 readonly GROUP_DISABLED_RE='(systemd_systemctl_exec_t|journalctl_exec_t|systemd_unit_file_t|rpm_exec_t|rpm_var_lib_t|firewalld_t|NetworkManager_t|container_runtime_exec_t)'
 
 # One line per denial, from the raw AVC records.
@@ -125,6 +133,31 @@ boundary="$(printf '%s\n' "${_b1}" "${_b2}" "${_b3}" | sort -u | grep -v '^$' ||
 # already claimed by boundary (boundary wins, so each line lands in one bucket --
 # e.g. a /proc read of NetworkManager_t stays boundary, its D-Bus chat is group).
 _g="$(printf '%s\n' "${LINES}" | grep -E "tcontext=[^ ]*:${GROUP_DISABLED_RE}:" || true)"
+# tmpmap group: the `map` permission on the sandbox's own /tmp files. ai_tools_tmp_t
+# is a core-granted type (read/write/create), so match on the permission -- only a
+# `map` denial here is the disabled group. An execute denial on it stays NEW
+# (deliberately never granted; /tmp is noexec regardless).
+_g2="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:ai_tools_tmp_t:' | grep -E 'denied.*\bmap\b' || true)"
+# apphost group: any access to a tmpfs (memfd) file. Unlike ai_tools_tmp_t above,
+# tmpfs_t:file is NOT core-granted at all -- so the whole surface .NET's JIT/apphost needs
+# (write to size the memfd, map both mappings, execute the PROT_EXEC one) is denied while
+# the group is off, and all of it is this group. Match on the TYPE, so a core-only run does
+# not misfile the write/map denials as NEW; `execute` is the highest-risk perm and the
+# reason it is gated. (The graduation-to-stable step scopes the grant to a private memfd
+# type, at which point this matches that type instead of the shared tmpfs_t.)
+_g3="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:tmpfs_t:file' || true)"
+# netcore group: three disjoint signals the base grants nowhere -- the .NET runtime's
+# unix sockets / debug FIFOs (created under tmp_t or ai_tools_home_t), getsid (process
+# getsession), and executing a native binary built in the project tree (ai_tools_project_t
+# file execute/execmod/execute_no_trans; `map` there is core-granted, so it is not a signal).
+_g4a="$(printf '%s\n' "${LINES}" | grep -E 'tclass=(sock_file|fifo_file)' | grep -E 'denied.*\bcreate\b' || true)"
+_g4b="$(printf '%s\n' "${LINES}" | grep -E 'denied[^}]*\bgetsession\b' || true)"
+_g4c="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:ai_tools_project_t:' | grep -E 'denied.*\b(execute|execmod|execute_no_trans)\b' || true)"
+# connectto to the domain's own unix stream sockets (the MTP test-host IPC): the base grants
+# create_stream_socket_perms on self but not connectto, so this is netcore too.
+_g4d="$(printf '%s\n' "${LINES}" | grep -E 'tclass=unix_stream_socket' | grep -E 'denied.*\bconnectto\b' || true)"
+_g4="$(printf '%s\n' "${_g4a}" "${_g4b}" "${_g4c}" "${_g4d}" | grep -v '^$' || true)"
+_g="$(printf '%s\n' "${_g}" "${_g2}" "${_g3}" "${_g4}" | grep -v '^$' || true)"
 groupdis="$(comm -23 <(printf '%s\n' "${_g}" | sort -u | grep -v '^$') \
                      <(printf '%s\n' "${boundary}" | sort -u | grep -v '^$') | grep -v '^$' || true)"
 

@@ -51,12 +51,14 @@ RUN microdnf -y install \
 
 # Source tree for `make rpm` + the test suite. Copy the build inputs explicitly (a
 # .containerignore at the context root drops .git, packaging/rpmbuild, and tarballs). Only the
-# prebuilt ai_tools.pp is needed from selinux/ -- the Makefile CONTENT and the spec consume just
-# that file, and the rest of the tree holds a root-owned policy/tmp scratch dir an unprivileged
-# build context cannot read.
+# prebuilt policy packages are needed from selinux/ -- the core ai_tools.pp plus each stable
+# group's ai_tools_<group>.pp, which the Makefile CONTENT and the spec consume; experimental
+# groups ship no .pp. The *.pp glob matches just those files at the policy root, so it stays clear
+# of the root-owned policy/tmp scratch dir an unprivileged build context cannot read (also
+# .containerignore'd). Keep in step with the shipped set in packaging/Makefile and the spec.
 COPY src                      /opt/ai-tools-src/src
 COPY docs                     /opt/ai-tools-src/docs
-COPY selinux/policy/ai_tools.pp /opt/ai-tools-src/selinux/policy/ai_tools.pp
+COPY selinux/policy/*.pp      /opt/ai-tools-src/selinux/policy/
 COPY tests                    /opt/ai-tools-src/tests
 COPY packaging                /opt/ai-tools-src/packaging
 COPY README.md                /opt/ai-tools-src/README.md

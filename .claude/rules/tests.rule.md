@@ -58,6 +58,13 @@ execs (`integration/handback.sh`) keeps the real dir, since the daemon does not 
 override — the same limitation as `AI_TOOLS_ALLOWLIST`. The journald sink is unaffected, so
 every line is still queryable by its per-component tag.
 
+`AI_TOOLS_POSTUPGRADE_ROOT` is the fourth hook of that family and the widest in reach:
+`ai-tools-admin postupgrade` reconciles a fixed registry of absolute control-plane paths, and
+this prefixes every one of them, so `unit/postupgrade.sh` drives the real command against a
+fixture tree in its testdir. It carries the same standing as the three above — the helper is
+reachable only as root, `sudo` strips the name, and a caller who could set it may already edit
+those files outright — and is unset in production, where the registry paths stand as written.
+
 ## Two-ended assertions
 
 A security guarantee is covered by a **pair** of tests, not one, and the pair is what makes the
@@ -113,10 +120,47 @@ from an absent one — plus two properties whose breakage is silent in productio
 splitter must be **IFS-independent** (it is sourced into scripts that set `IFS=$'\n\t'`,
 where an inherited IFS collapses a multi-item value into one bogus item), and
 `ai_tools_conf_is_trusted` must refuse every state a non-root writer can create
-(non-root-owned, group- or other-writable, a symlink), for directories as well as files.
+(non-root-owned, group- or other-writable, a symlink), for directories as well as files. Its
+new-option report carries a third: a commented **default** (`#KEY=`, `# KEY=`) is a mention while
+an indented **example** in a header block is not, so a file seeded with `operator.conf`'s own
+grammar comments is not mistaken for one that already knows every option.
 `providers.sh` drives the enablement truth table and then, for each untrusted input in turn
 — `operator.conf`, a manifest, a manifest directory — asserts the resolver moves to *less*
 access and says so, never more.
+
+`filters.sh` pins the token-saving command filters (`filters.lib.sh`, see
+[filters](filters.rule.md)). Filtering is not a boundary, so what the file asserts is that every
+way a rule can fail to fit lands on **pass-through** — the command as the agent wrote it: the
+shape allowlist (a pipeline, redirect, quote, substitution or glob is never rewritten), the
+blocking words that let the agent's own flag win, rule precedence, the `AI_TOOLS_FILTERS` switch
+including its empty-value kill form, and each untrusted rules file or directory. Its noise-strip
+section pins the other half of the contract — control bytes go, every line survives.
+
+`settings-merge.sh` pins install.sh's hook-declaration reconciler, the step that lets a newly
+shipped hook reach a host whose `settings.json` is kept across an upgrade (see
+[claude-settings](claude-settings.rule.md)). It edits an operator-owned control-plane file and
+every way it can go wrong is quiet, so the assertions come in three groups — what must **arrive**
+(each shipped declaration the kept file lacks), what must **survive** (the handback declaration,
+the permission arrays, a relaxed deny entry, an operator's own hook), and what must be **said**
+(the report names every addition, since the operator reviews the install log rather than the
+JSON) — plus the two sidecars, which answer different questions and do not substitute for each
+other: `.bak` is what the operator had, `.shipped` is what they were meant to get, written only
+when the merge could not run. It drives the deployed `conf.lib.sh` directly, like the other
+library unit tests: the decision lives there rather than in `install.sh` precisely so it can be
+exercised without stubs or text extraction, and the installer keeps only the rendering.
+
+`postupgrade.sh` is that same reconciliation seen from the RPM side: `ai-tools-admin postupgrade`
+end to end, from dispatch through the registry to each treatment (see
+[providers](providers.rule.md) and [claude-settings](claude-settings.rule.md)). It asserts which
+treatment each file got — the settings JSON merged with its permission rules intact and a dated
+`.bak` written first, `operator.conf` reported and byte-identical afterwards, the sudoers grant
+shown and neither written nor dropped (its fixture is a grant of everything to everyone, so a
+silent adoption fails loudly) — plus the cleanup prompt, which may default to yes only once the
+two files match. Every run is under `setsid`, so each prompt takes its own default: that is the
+unattended behaviour and what makes an interactive command reproducible. The agent-side half of
+the pair is already deployed: `boundary/access.sh` covers `settings.json` and the helper
+directory, `boundary/providers.sh` and `boundary/filters.sh` cover `operator.conf`, and
+`boundary/sudo.sh` covers the grant, so no input this command reads is agent-writable.
 
 `relabel.sh` pins the other manifest-supplied decision with a security consequence: the
 entrypoint file-context predicate (`relabel.lib.sh`). A declared pattern becomes a `semanage`
@@ -124,6 +168,18 @@ rule granting `ai_tools_exec_t`, the confined domain's exec entrypoint, so the t
 way a pattern could name something outside the sandbox toolchain (traversal, alternation, a
 foreign prefix) and asserts each is refused — plus that the type is the library's constant, never
 manifest-supplied.
+
+`selinux-groups.sh` pins the optional-group registry (`selinux-groups.lib.sh`, shared by
+`ai-tools-admin selinux` and `install-selinux.sh`): the four-field accessors (including the
+`stability` field, guarding the regression where a fourth pipe field bleeds into the reason), the
+validity predicate the `enable-group` gate depends on (an unknown name is rejected), and the
+`is_experimental` predicate agreeing with the field (it decides whether `enable-group` loads a
+shipped module or refuses and points to the source workflow). And — because only **stable** groups
+ship prebuilt — registry↔filesystem lockstep: every registered group has a `.te` source; a
+**stable** group additionally has a **committed** `.pp` while an **experimental** group must have
+**no committed** `.pp` (source-only, so a compiled dev copy left tracked is caught); and no policy
+module on disk is missing from the registry. The lockstep half reads git track-state, so it needs
+the checkout.
 
 **`integration`** — checks that need a completed install and the running system
 (`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`, `cli.sh`,
@@ -169,7 +225,7 @@ it through `tests/run.sh all`. Adding or repermissioning an installed file means
 `check_file` list here, nowhere else.
 
 **`boundary`** — confinement assertions executed **as the agent** (`sudo -u SANDBOX_USER`)
-(`access.sh`, `providers.sh`, `sudo.sh`): the agent cannot read the secret-pattern library or write the
+(`access.sh`, `providers.sh`, `filters.sh`, `sudo.sh`): the agent cannot read the secret-pattern library or write the
 control plane, cannot reach the operator's credential stores (`~/.ssh`, `~/.gnupg`, …), and
 holds no sudo rights — `sudo -l` reports it is not allowed to run sudo at all (both NOPASSWD
 rules belong to the projects user and drop privilege), plus the account hygiene that invariant
@@ -181,7 +237,10 @@ the NuGet restore cache the dotnet integration needs
 **is** — both directions matter, since a read-only cache breaks the integration as surely as a
 writable tools dir breaks the boundary. It is the counterpart to `unit/providers.sh`, which
 asserts the runtime refusal; this one asserts the agent cannot reach the state that refusal
-exists to catch. These probe **DAC and
+exists to catch. `filters.sh` is the same pair for the command filters: the engine, `filters.d`
+and the rule sets in it, `operator.conf`, and the agent-side hook body are all asserted
+non-agent-writable — the engine because it is sourced as the agent on every Bash call, the rule
+sets because they decide what every command in a session becomes. These probe **DAC and
 account state** from the sandbox account's vantage — they run as the sandbox *user*, not inside
 the `ai_tools_t` SELinux domain (a launched session), so they assert the filesystem/credential
 boundary; the SELinux enforcing posture is asserted separately in `integration/selinux.sh`.

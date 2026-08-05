@@ -37,7 +37,12 @@ execute code in the privileged scripts that read it:
 - integrations: `default_enable`.
 
 Either kind may also ship `session-env.d/<name>.env.sh`, keyed by the same `<name>` — one flat
-namespace across both kinds, so a provider name is unique host-wide.
+namespace across both kinds, so a provider name is unique host-wide. A package with commands of
+its own may additionally ship `filters.d/<name>.rules`, keyed the same way, carrying the
+token-saving rules for those commands (see [filters](filters.rule.md)). That set is read by an
+agent's filter hook rather than by `ai-tools-run`, and it is not gated on provider enablement — a
+rule is inert unless the agent runs the command it matches — so it is a rule-set name rather than
+a provider capability.
 
 `ai-tools-base` owns the three directories (`agents.d`, `integrations.d`, `session-env.d`), ships
 `providers.lib.sh`, and owns the `ai-tools-run` shim that reads them; each member package ships
@@ -120,6 +125,15 @@ KEY=                 PRESENT with an empty value — distinct from an ABSENT key
 A repeated key takes its last assignment; a line with no `=` is ignored. Files are **parsed, never
 sourced**, so a malformed or tampered one yields a bad value, never executed code.
 
+The **path-list** files share that grammar rather than defining their own.
+`ai_tools_conf_path_entry` reads one `allowed-projects` line — whole-line and end-of-line
+comments, and one quote layer for a path carrying a space or a literal `#`, with a leading `!`
+preserved so an exclusion stays distinguishable after the quotes come off. Three components read
+that file (the launch wrapper, the CLI, and `ai-tools-chown`), which is exactly why the rule lives
+in one place: a parser copied into each is a parser that drifts, and a line the wrapper resolves
+but the chown helper does not is a project the agent can launch in whose files never come back.
+All three require the library rather than falling back to a private parser.
+
 `ai_tools_conf_read` returns present/absent separately from the value, which is what makes
 `KEY=` (an explicit "none") distinguishable from an omitted key — the distinction the gating below
 turns on. `ai_tools_conf_list` overwrites its target array **only** when the key is present, so an
@@ -130,6 +144,42 @@ categories in [ownership-and-hooks](ownership-and-hooks.rule.md) keep their buil
 `IFS=$'\n\t'` (`nvm-update.sh`, `claude.sh`), where an inherited `IFS` would read `"a b"` as one
 item — for a provider allowlist that reads as "no such provider", a wrong verdict that disables a
 configured agent with only a warning. `tests/unit/conf.sh` drives the splitter under that IFS.
+
+### `operator.conf` across an upgrade
+
+Two rpm directives govern a config file that a package ships and the host later edits, and the
+choice between them decides what `dnf update` does on a running host:
+
+| directive | file in place afterwards | parked copy | consequence |
+|---|---|---|---|
+| `%config` | the package's | the host's, as `.rpmsave` | the host's settings stop applying |
+| `%config(noreplace)` | the host's | the package's, as `.rpmnew` | the new version's options stay dormant |
+
+`operator.conf` takes `%config(noreplace)`, so an upgrade enables nothing the host did not ask for.
+A host that set `AI_TOOLS_FILTERS=` to turn filtering off still has it off afterwards; under
+`%config` that line would move to a file nothing reads and filtering would come back on. A dormant
+option is recoverable at any time, and a silently reverted setting is not. `settings.json` takes
+the directive for the same reason, which is why a newly shipped hook is installed but stays
+uninvoked until its declaration is merged ([claude-settings](claude-settings.rule.md)).
+
+The cost is that reconciling the `.rpmnew` is manual, so it is signposted rather than automated:
+each package's `%post` prints the pointer whenever one is present, and `sudo ai-tools-admin
+postupgrade` names the options the new version documents that the file does not mention, shows the
+difference, and offers to clear the copy. Against this file it writes nothing. An additive merge
+could append an option block the file lacks, but it could never correct the prose of one already
+there, so `operator.conf(5)` is the single current statement of what an option means and the file
+points at the man page rather than restating it.
+
+### Deferred: `operator.conf.d/`
+
+A drop-in directory read after `operator.conf` would end the reconciliation question outright: the
+package would own the defaults and the documentation, the host only its own fragments, and the two
+would never share a file.
+
+Nine options do not earn it. A `.d` directory is not one convention but several — `sysctl.d` takes
+the last assignment, `sshd_config.d` the first — so its semantics cannot be inferred from having
+seen another, and it becomes one more thing to learn before an upgrade is predictable. That price
+is worth paying against a file large enough to make hand-merging error-prone, and not before.
 
 ## Enablement is fail-closed
 
@@ -249,6 +299,10 @@ so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS`.
   a writable sibling inside the same state root. Only the root-owned tools dir joins PATH; a tool the agent
   installs for itself under `DOTNET_CLI_HOME` stays reachable by full path but never lands on the
   session PATH, so the sandbox cannot put an executable of its choosing on it.
+- `filters.d/dotnet.rules` sets `-v q` on `dotnet build|publish|restore|run|test`. The SDK's
+  verbosity has no environment-variable form, so it belongs in a command rule rather than in the
+  fragment above; quiet verbosity keeps errors and warnings. The banner is left to `DOTNET_NOLOGO`
+  (the fragment above), so no rule carries `--nologo`. See [filters](filters.rule.md).
 - `ai-tools-dotnet` (root/sudo helper) `setup` creates that state root and its three
   directories: the NuGet cache and the SDK's CLI home are agent-**writable** (`2770`, setgid),
   the shared tools are **read-only** to the agent (`0755`, sudo-only writes). It applies **no**
@@ -272,21 +326,10 @@ so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS`.
 The state root's label comes from the base's static rule on `integrations(/.*)?`; the CLR runs on
 the already-granted `execmem` (shared with V8).
 
-**Known limitation under SELinux enforcing (fix planned for 0.8.1).** The SDK cannot restore or
-build. .NET backs a named mutex with a shared-memory file under `/tmp/.dotnet/shm` and NuGet takes
-one on every restore, but `ai_tools_t` holds no `map` on `ai_tools_tmp_t`, so the mmap fails
-`EACCES` and `dotnet new`/`restore`/`build` abort. Running an already-built assembly
-(`dotnet exec`) works, and a DAC-only host is unaffected. The gap is **not dotnet-specific** — any
-tool that mmaps a temp file hits it, `git` in a `/tmp` working tree included — so the grant
-belongs in an optional policy group (`install-selinux.sh enable-group`), off by default like the
-others, rather than in the base module or in this integration.
-
-The grant is `file:map`, which is mmap-at-all and **not** executable mapping: `PROT_EXEC` on a
-file additionally requires `file:execute`, which this domain does not hold on its tmp type, and
-`/tmp` is mounted `noexec`, which no SELinux rule can override. The remaining **bring-up unknown**
-is whether .NET needs `execmod`/`execstack` on `/usr/lib64/dotnet/*.so` beyond `execmem` —
-verifiable only on an enforcing host with real `restore`/`build`/`test`/`run` workloads (the
-`selinux/avc` loop).
+**Under SELinux enforcing, .NET needs optional policy groups the base does not carry** — `tmpmap`
+(restore/build mmap), `apphost` (JIT/apphost memfd exec), and `netcore` (runtime IPC + running a
+built binary). Which group each workload needs, why they are separate and disjoint, and the full
+denial breakdown live in [dotnet](dotnet.rule.md); a DAC-only host needs none of them.
 
 ## Boundaries
 

@@ -165,10 +165,14 @@ owner/group/mode list is `tests/integration/perms.sh`, which
 | src/usr/lib/systemd/system/ai-tools-handback@.service | /usr/lib/systemd/system/ai-tools-handback@.service (root) |
 | src/usr/local/lib/ai-tools/secret-patterns.lib.sh | /usr/local/lib/ai-tools/secret-patterns.lib.sh (root) |
 | src/usr/local/lib/ai-tools/skip-dirs.lib.sh | /usr/local/lib/ai-tools/skip-dirs.lib.sh (root) |
+| src/usr/local/lib/ai-tools/filters.lib.sh | /usr/local/lib/ai-tools/filters.lib.sh (root) |
+| src/usr/local/lib/ai-tools/filters.d/core.rules | /usr/local/lib/ai-tools/filters.d/core.rules (root) |
+| src/usr/local/lib/ai-tools/filters.d/dotnet.rules | /usr/local/lib/ai-tools/filters.d/dotnet.rules (root) |
 | src/usr/local/bin/claude.sh | /usr/local/bin/claude (root) |
 | src/opt/ai-tools/bin/ai-tools-run.sh | /opt/ai-tools/bin/ai-tools-run |
 | src/opt/ai-tools/agents/claude-code/post-tool-hook.sh | /opt/ai-tools/.claude/post-tool-hook.sh |
 | src/opt/ai-tools/agents/claude-code/session-hook.sh | /opt/ai-tools/.claude/session-hook.sh |
+| src/opt/ai-tools/agents/claude-code/filter-hook.sh | /opt/ai-tools/.claude/filter-hook.sh |
 | src/opt/ai-tools/agents/claude-code/settings.json | /opt/ai-tools/.claude/settings.json |
 | src/usr/lib/systemd/user/nvm-update.service | /usr/lib/systemd/user/nvm-update.service (root) |
 | src/usr/lib/systemd/user/nvm-update.timer | /usr/lib/systemd/user/nvm-update.timer (root) |

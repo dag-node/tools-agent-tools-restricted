@@ -34,6 +34,8 @@ setfacl -b "${proj}" 2>/dev/null || true
 : > "${proj}/f";  chmod 0660 "${proj}/f"
 chmod 2770 "${proj}/d"                         # setgid dir, as claim leaves it
 : > "${proj}/ro"; chmod 0400 "${proj}/ro"
+: > "${proj}/gx"; chmod 0670 "${proj}/gx"      # data file the agent left group-executable
+: > "${proj}/sh"; chmod 0770 "${proj}/sh"      # a genuine script (owner has execute)
 : > "${proj}/.env/secret"
 # .git as a --with-git claim leaves it: setgid dirs + group-rw object (the main walk skips
 # .git, so only the dedicated reversal pass can revert these).
@@ -72,6 +74,23 @@ fi
 # (C) a 400 file stays 400.
 if [[ "$(perm "${proj}/ro")" == 400 ]]; then pass "a 400 file stays 400 (group already has no write)"
 else fail "ro is $(stat -c '%a' "${proj}/ro") (want 400)"; fi
+
+# (C2) a data file that landed group-executable (the agent Write's stray exec bit, surfaced
+# when setfacl -b promotes group::r-x into the mode) -> 640: execute stripped along with write.
+if [[ "$(perm "${proj}/gx")" == 640 && "$(stat -c '%G' "${proj}/gx")" == "${PROJECTS_GROUP}" ]] \
+        && ! agentacl "${proj}/gx"; then
+    pass "group-executable data file -> 640 (stray execute stripped)"
+else
+    fail "gx is $(stat -c '%a' "${proj}/gx") $(stat -c '%G' "${proj}/gx") (want 640 ${PROJECTS_GROUP})"
+fi
+
+# (C3) a genuine script (owner rwx) keeps group r-x -- only group write is dropped (770 -> 750).
+if [[ "$(perm "${proj}/sh")" == 750 && "$(stat -c '%G' "${proj}/sh")" == "${PROJECTS_GROUP}" ]] \
+        && ! agentacl "${proj}/sh"; then
+    pass "script (owner rwx) -> 750 (group r-x kept, write dropped)"
+else
+    fail "sh is $(stat -c '%a' "${proj}/sh") $(stat -c '%G' "${proj}/sh") (want 750 ${PROJECTS_GROUP})"
+fi
 
 # (D) a secret-named path is left untouched (keeps its agent ACL / not regrouped).
 if agentacl "${proj}/.env/secret"; then pass "a secret-named path is left untouched"

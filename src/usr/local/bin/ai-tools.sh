@@ -7,6 +7,12 @@
 # secret lockdown -- through the sudo root helpers (no NOPASSWD: the operator is prompted for a
 # password; the sandbox account holds no grant).
 #
+# Two preflight gates run before dispatch: require_bootstrap (provisioned install) and, for the
+# operator-acting commands (--project-*/--sandbox-*/--lockdown/--reclaim/--relabel),
+# require_operator -- the invoking user must be in OPERATORS in operator.conf, since the root
+# helpers resolve the caller's identity from that list. --help/--version/--list/--providers stay
+# open to any user.
+#
 # Commands (each confirms before applying and reports the result):
 #   --project-claim   [path]  claim a real project in place (idempotent; default: cwd);
 #                             -y/--yes pre-answers its proceed prompt (delegated claims)
@@ -182,6 +188,21 @@ if ! source "${SAFE_PATHS_LIB}" 2>/dev/null \
         && logger -t ai-tools -p user.err \
             "required safety library ${SAFE_PATHS_LIB} unavailable -- ai-tools refused (fail closed)"
     ai_tools_msg_error "ai-tools: cannot load required safety library ${SAFE_PATHS_LIB}" \
+        "the install is incomplete or /usr/local/lib/ai-tools is not traversable (expected 0751);" \
+        "refusing (fail closed) -- reinstall the ai-tools package, then retry."
+    exit 3
+fi
+
+# The shared config grammar, which this CLI reads allowed-projects with (ai_tools_conf_path_entry)
+# so its project listing and the launch wrapper's gate agree on what every line denotes. REQUIRED:
+# a private fallback parser is exactly the drift the shared grammar exists to prevent, and a CLI
+# that lists a different set of projects than the wrapper will launch in is worse than one that
+# refuses.
+readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
+# shellcheck source=SCRIPTDIR/../lib/ai-tools/conf.lib.sh
+if ! source "${CONF_LIB}" 2>/dev/null \
+        || ! declare -F ai_tools_conf_path_entry >/dev/null 2>&1; then
+    ai_tools_msg_error "ai-tools: cannot load required config library ${CONF_LIB}" \
         "the install is incomplete or /usr/local/lib/ai-tools is not traversable (expected 0751);" \
         "refusing (fail closed) -- reinstall the ai-tools package, then retry."
     exit 3
@@ -567,10 +588,10 @@ relabel_clone() {
     local d="$1"
     command -v restorecon >/dev/null 2>&1 || return 0
     [[ "$(getenforce 2>/dev/null)" == "Disabled" ]] && return 0
-    if restorecon -RF "${d}" 2>/dev/null; then
+    if restorecon -FR "${d}" 2>/dev/null; then
         ok "labelled clone ai_tools_project_t (SELinux)"
     else
-        warn "could not relabel ${d} for SELinux; if enforcing, run: sudo restorecon -RF ${d}"
+        warn "could not relabel ${d} for SELinux; if enforcing, run: sudo restorecon -FR ${d}"
     fi
 }
 
@@ -1459,6 +1480,91 @@ cmd_providers() {
     kind_block "Integrations" AI_TOOLS_INTEGRATIONS "${AI_TOOLS_INTEGRATIONS_DIR}" \
                ai_tools_enabled_integrations -
 
+    # The enabled integration names, reused by the SELinux advisory below. stderr is dropped here
+    # (the integrations kind_block already captured any refusals into ${refusals}).
+    local enabled_integrations
+    enabled_integrations="$(ai_tools_enabled_integrations 2>/dev/null | cut -f1)"
+
+    # SELinux policy groups -- reported only where the MAC layer is active (Enforcing/Permissive);
+    # a DAC-only or SELinux-absent host skips the whole block. Read-only and unprivileged: getenforce
+    # and `semodule -l` read without root (the same read the confinement preflight does as the
+    # sandbox account); if the store is not readable unprivileged it degrades to a pointer rather
+    # than misreporting. The group set + predicates come from the shared registry.
+    selinux_groups_block() {
+        local enforce; enforce="$(getenforce 2>/dev/null || true)"
+        [[ -n "${enforce}" && "${enforce}" != "Disabled" ]] || return 0
+        command -v semodule >/dev/null 2>&1 || return 0
+        local groups_lib=/usr/local/lib/ai-tools/selinux-groups.lib.sh
+        # shellcheck source=SCRIPTDIR/../lib/ai-tools/selinux-groups.lib.sh
+        source "${groups_lib}" 2>/dev/null \
+            && declare -F ai_tools_selinux_group_name >/dev/null 2>&1 || return 0
+
+        section "SELinux policy groups (${enforce})"
+        local modules
+        if ! modules="$(semodule -l 2>/dev/null)" || [[ -z "${modules}" ]]; then
+            say "  ${C_DIM}cannot read the loaded module list unprivileged --"
+            say "  run: sudo ai-tools-admin selinux list-groups${C_RST}"
+            return 0
+        fi
+        group_loaded() { grep -qxF "ai_tools_$1" <<<"${modules}"; }
+
+        if grep -qxF 'ai_tools' <<<"${modules}"; then
+            say "  core module ai_tools: ${C_GRN}loaded${C_RST}"
+        else
+            say "  core module ai_tools: ${C_DIM}not loaded (DAC-only confinement)${C_RST}"
+        fi
+        local entry gname loaded_any=0
+        for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
+            gname="$(ai_tools_selinux_group_name "${entry}")"
+            if group_loaded "${gname}"; then
+                printf '    %sloaded%s   %s -- %s\n' "${C_GRN}" "${C_RST}" \
+                    "${gname}" "$(ai_tools_selinux_group_desc "${entry}")"
+                loaded_any=1
+            fi
+        done
+        (( loaded_any )) || say "    ${C_DIM}(no optional groups loaded)${C_RST}"
+        say "    ${C_DIM}toggle with: sudo ai-tools-admin selinux enable-group <name>${C_RST}"
+
+        # dotnet <-> tmpmap: dotnet restore/build mmaps a shared-memory file under /tmp, which
+        # needs the 'tmpmap' group. Under enforcing, if dotnet is enabled but tmpmap is not loaded
+        # the build fails with an opaque EACCES -- surface the exact fix here instead.
+        if [[ "${enforce}" == "Enforcing" ]] \
+                && grep -qxF dotnet <<<"${enabled_integrations}" \
+                && ! group_loaded tmpmap; then
+            say ""
+            say "  ${C_YEL}dotnet is enabled but the 'tmpmap' SELinux group is not loaded:${C_RST}"
+            say "  ${C_YEL}dotnet restore/build will fail under enforcing (EACCES on mmap of /tmp).${C_RST}"
+            say "  fix: sudo ai-tools-admin selinux enable-group tmpmap"
+        fi
+        # dotnet <-> apphost: executable/host projects run their apphost/JIT code from an
+        # anonymous memfd file, which needs the 'apphost' group -- disjoint from tmpmap (that
+        # is /tmp mmap; this is memfd execute), so a full build-and-run workflow wants both.
+        # apphost is experimental, so its fix is the source enable path, not ai-tools-admin
+        # (which loads only prebuilt stable groups).
+        if [[ "${enforce}" == "Enforcing" ]] \
+                && grep -qxF dotnet <<<"${enabled_integrations}" \
+                && ! group_loaded apphost; then
+            say ""
+            say "  ${C_YEL}dotnet is enabled but the 'apphost' SELinux group is not loaded:${C_RST}"
+            say "  ${C_YEL}executable/host projects (dotnet run, ASP.NET Core, xunit.v3) will fail (memfd exec denied).${C_RST}"
+            say "  ${C_DIM}library builds and in-process test runners (MSTest) are unaffected.${C_RST}"
+            say "  fix: sudo selinux/install-selinux.sh enable-group apphost  ${C_DIM}(from a source checkout)${C_RST}"
+        fi
+        # dotnet <-> netcore: the runtime's diagnostic sockets/FIFOs (dotnet test, multi-node
+        # MSBuild pipes) and running a binary built in the project tree. Experimental, so the fix
+        # is the source enable path. See .claude/rules/dotnet.rule.md.
+        if [[ "${enforce}" == "Enforcing" ]] \
+                && grep -qxF dotnet <<<"${enabled_integrations}" \
+                && ! group_loaded netcore; then
+            say ""
+            say "  ${C_YEL}dotnet is enabled but the 'netcore' SELinux group is not loaded:${C_RST}"
+            say "  ${C_YEL}dotnet test can't open its diagnostic socket, multi-node MSBuild hangs, and a built${C_RST}"
+            say "  ${C_YEL}binary won't run from the project tree.${C_RST}"
+            say "  fix: sudo selinux/install-selinux.sh enable-group netcore  ${C_DIM}(from a source checkout)${C_RST}"
+        fi
+    }
+    selinux_groups_block
+
     if [[ -s "${refusals}" ]]; then
         section "Refused inputs"
         sed 's/^/    /' "${refusals}"
@@ -1476,7 +1582,9 @@ cmd_list() {
     section "Registered projects"
     local entry kind safe shown=0
     while IFS= read -r entry || [[ -n "${entry}" ]]; do
-        [[ -z "${entry}" || "${entry}" == '#'* ]] && continue
+        # Same shared grammar the wrapper and the chown helper read this file with.
+        ai_tools_conf_path_entry "${entry}" || continue
+        entry="${_ai_tools_conf_value}"
         shown=1
         if [[ "${entry}" == '!'* ]]; then
             printf '  %-8s %s\n' "exclude" "${entry:1}"
@@ -1539,6 +1647,33 @@ require_bootstrap() {
         "       sudo ai-tools-bootstrap"
 }
 require_bootstrap
+
+# require_operator -- refuse a command that acts as an operator unless the invoking user is
+# listed in OPERATORS in operator.conf. The project/sandbox/lockdown/reclaim paths resolve the
+# caller's identity from that list (operator.lib.sh, via the root helpers); an unenrolled user
+# would otherwise proceed through the registry writes and confirm prompts only to be refused by
+# the first root helper that resolves owner (e.g. ai-tools-lockdown says "not in allowed projects
+# for current operator"), after partial state was written and rolled back -- the misleading flow
+# this gate replaces with one up-front message. operator.conf is 644, so the unprivileged CLI
+# reads OPERATORS directly; adding a name there takes effect on the next command (no re-login,
+# unlike the ai-ops group the admin verb also grants for launching the agent).
+require_operator() {
+    local conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
+    local -a ops=(); local op
+    if ai_tools_conf_list ops "${conf}" OPERATORS 2>/dev/null; then
+        for op in "${ops[@]}"; do [[ "${op}" == "${ME}" ]] && return 0; done
+    fi
+    die "you (${ME}) are not a configured ai-tools operator -- add your name to OPERATORS in ${conf} with:" \
+        "       sudo ai-tools-admin operator add ${ME}"
+}
+
+# Gate the operator-acting commands up front; the informational ones (--help/--version/--list/
+# --providers) stay open so an unenrolled user can still read usage and inspect the host.
+case "${1:-}" in
+    --project-claim|--project-create|--project-unclaim|--project-remove|\
+    --sandbox-create|--sandbox-push|--sandbox-remove|\
+    --lockdown|--reclaim|--relabel) require_operator ;;
+esac
 
 # ── Dispatch ─────────────────────────────────────────────────────────────────────
 case "${1:-}" in

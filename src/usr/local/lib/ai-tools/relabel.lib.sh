@@ -59,20 +59,37 @@ ai_tools_relabel_available() {
 # root, whose subtree ai_tools.fc already maps to ai_tools_project_t.
 _ai_tools_is_sandbox() { [[ "$1/" == "${AI_TOOLS_SANDBOX_ROOT}/"* ]]; }
 
-# ai_tools_label_project <dir>: ensure <dir> and its subtree carry
-# ai_tools_project_t. Adds (or refreshes) the per-project fcontext rule -- skipped
-# for sandbox clones, which the static rule already covers -- then restorecons.
-# Returns 2 if SELinux is unavailable, 1 on a hard failure (e.g. the type is not in
-# the loaded policy because the module is not installed), 0 on success.
+# ai_tools_label_project <dir>: ensure <dir> and its subtree carry ai_tools_project_t.
+# Adds (or refreshes) the per-project fcontext rule -- skipped for sandbox clones, which the
+# static rule already covers -- then forces the label with `restorecon -FR`.
+# Returns 2 if SELinux is unavailable, 1 on a hard failure (e.g. the type is not in the loaded
+# policy because the module is not installed), 0 on success.
+#
+# The relabel is FORCED (`-F`), and that is load-bearing, not a tuning choice. A file created
+# inside a labelled directory inherits ai_tools_project_t on its own, so an ordinary edit never
+# drifts. But a file brought in carrying an EXPLICIT foreign context -- a context-preserving copy
+# (`cp -a`, `tar --selinux`) of a system path, or any customizable type (e.g. httpd_sys_content_t)
+# -- is one a plain `restorecon` deliberately PRESERVES. Only `-F` resets those to the project
+# type. Skipping it leaves such a file unreadable to the confined agent (ai_tools_t), whose startup
+# workspace walk then denies on every one -- a per-file AVC that setroubleshootd amplifies into a
+# host-wide CPU flood. `-F` rewrites nothing already correct (restorecon compares before it writes,
+# so it is idempotent on a matching context and costs the same walk either way), so forcing pays
+# only for the drifted files it fixes.
+#
+# The fcontext rule is asserted whether or not the type already matches: it is what makes the type
+# survive a future restorecon, and re-asserting it is how a type change from a policy bump reaches
+# an existing project.
 ai_tools_label_project() {
     local dir="$1"
     ai_tools_relabel_available || return 2
     if ! _ai_tools_is_sandbox "${dir}"; then
-        semanage fcontext -a -t "${AI_TOOLS_PROJECT_TYPE}" "${dir}(/.*)?" 2>/dev/null \
-            || semanage fcontext -m -t "${AI_TOOLS_PROJECT_TYPE}" "${dir}(/.*)?" 2>/dev/null \
+        # `-a` on an existing entry reports it on stdout as well as failing, so both streams are
+        # dropped: the fallback to `-m` is the handling, and the message reads as an error.
+        semanage fcontext -a -t "${AI_TOOLS_PROJECT_TYPE}" "${dir}(/.*)?" >/dev/null 2>&1 \
+            || semanage fcontext -m -t "${AI_TOOLS_PROJECT_TYPE}" "${dir}(/.*)?" >/dev/null 2>&1 \
             || return 1
     fi
-    restorecon -RF "${dir}" 2>/dev/null || return 1
+    restorecon -FR "${dir}" 2>/dev/null || return 1
 }
 
 # ai_tools_unlabel_project <dir>: drop any per-project fcontext rule for <dir> and
@@ -85,7 +102,7 @@ ai_tools_unlabel_project() {
     ai_tools_relabel_available || return 2
     _ai_tools_is_sandbox "${dir}" \
         || semanage fcontext -d "${dir}(/.*)?" 2>/dev/null || true
-    restorecon -RF "${dir}" 2>/dev/null || return 1
+    restorecon -FR "${dir}" 2>/dev/null || return 1
 }
 
 # ── Agent-declared SELinux paths ─────────────────────────────────────────────────────────────
@@ -141,11 +158,15 @@ _ai_tools_entrypoint_policy_active() {
 _ai_tools_fcontext() {
     local action="$1" file_type="$2" selinux_type="$3" pattern="$4"
     if [[ "${action}" == delete ]]; then
-        semanage fcontext -d -f "${file_type}" -- "${pattern}" 2>/dev/null || true
+        semanage fcontext -d -f "${file_type}" -- "${pattern}" >/dev/null 2>&1 || true
         return 0
     fi
-    semanage fcontext -a -f "${file_type}" -t "${selinux_type}" -- "${pattern}" 2>/dev/null && return 0
-    semanage fcontext -m -f "${file_type}" -t "${selinux_type}" -- "${pattern}" 2>/dev/null
+    # Both streams are dropped, stdout included: semanage announces "already defined, modifying
+    # instead" there, while this function's caller emits a PARSED report on stdout. Anything else
+    # written to that stream is read as a verdict line, so the commands called here stay silent.
+    # The `-m` fallback is the handling for an existing entry.
+    semanage fcontext -a -f "${file_type}" -t "${selinux_type}" -- "${pattern}" >/dev/null 2>&1 && return 0
+    semanage fcontext -m -f "${file_type}" -t "${selinux_type}" -- "${pattern}" >/dev/null 2>&1
 }
 
 # _ai_tools_agent_config_pattern <config-dir-name>: print the file-context pattern for an agent's
@@ -229,7 +250,7 @@ _ai_tools_label_agent_config_dir() {
         printf 'none %s its config directory\n' "${agent}"
         return 0
     fi
-    restorecon -RF "${path}" 2>/dev/null || true
+    restorecon -FR "${path}" 2>/dev/null || true
     _ai_tools_verify_label "${path}" "${AI_TOOLS_AGENT_CONFIG_TYPE}"
 }
 
@@ -282,7 +303,7 @@ ai_tools_unlabel_agent_paths() {
         # relabelled to whatever the remaining policy maps it to rather than left on a type this
         # host may stop defining.
         path="${CP_HOME}/${config_dir}"
-        [[ -d "${path}" ]] && restorecon -RF "${path}" 2>/dev/null
+        [[ -d "${path}" ]] && restorecon -FR "${path}" 2>/dev/null
         dropped=0
     fi
     return "${dropped}"

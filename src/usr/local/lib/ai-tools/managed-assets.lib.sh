@@ -25,7 +25,10 @@ readonly _AI_TOOLS_MANAGED_ASSETS_LIB=1
 
 # One plain progress line (captured into the install log / bootstrap output); the box is reserved
 # for attention messages, so routine seed progress stays unframed.
-_ai_tools_ma_say() { printf '  %s\n' "$*"; }
+# Per-asset status, printed under the directory heading its caller emitted: indented one level
+# further and naming the asset alone, so the listing reads as entries of that directory rather
+# than as a flat list that repeats the directory on every line.
+_ai_tools_ma_say() { printf '      %s\n' "$*"; }
 
 # Print the integer x-ai-tools-version from a managed asset's marker file; empty if absent.
 ai_tools_asset_version() {
@@ -83,30 +86,30 @@ ai_tools_seed_managed_assets() {
             # marker file carries the frontmatter: the agent file itself, or a skill's SKILL.md
             if [[ -d "${src}" ]]; then marker="${src%/}/SKILL.md"; else marker="${src}"; fi
             if ! ai_tools_asset_is_managed "${marker}"; then
-                _ai_tools_ma_say "${kind}/${name} skipped (source not ai-tools-managed)"
+                _ai_tools_ma_say "${name} skipped (source not ai-tools-managed)"
                 continue
             fi
             dst="${live_root}/${kind}/${name}"
             if [[ -d "${src}" ]]; then dst_marker="${dst}/SKILL.md"; else dst_marker="${dst}"; fi
             if [[ -e "${dst}" ]]; then
                 if ! ai_tools_asset_is_managed "${dst_marker}"; then
-                    _ai_tools_ma_say "${kind}/${name} kept (operator's own, not ai-tools-managed)"
+                    _ai_tools_ma_say "${name} kept (operator's own, not ai-tools-managed)"
                     continue
                 fi
                 cur="$(ai_tools_asset_version "${dst_marker}")"; new="$(ai_tools_asset_version "${marker}")"
                 if [[ -n "${new}" && -n "${cur}" && "${new}" -gt "${cur}" ]]; then
                     if ai_tools_msg_confirm "Update ${name} (v${cur} -> v${new})?" n; then
                         _ai_tools_place_asset "${src%/}" "${dst}" "${group}"
-                        _ai_tools_ma_say "${kind}/${name} updated (v${cur} -> v${new})"
+                        _ai_tools_ma_say "${name} updated (v${cur} -> v${new})"
                     else
-                        _ai_tools_ma_say "${kind}/${name} kept (v${cur}; v${new} available)"
+                        _ai_tools_ma_say "${name} kept (v${cur}; v${new} available)"
                     fi
                 else
-                    _ai_tools_ma_say "${kind}/${name} up to date (v${cur})"
+                    _ai_tools_ma_say "${name} up to date (v${cur})"
                 fi
             else
                 _ai_tools_place_asset "${src%/}" "${dst}" "${group}"
-                _ai_tools_ma_say "${kind}/${name} seeded (v${new:-?})"
+                _ai_tools_ma_say "${name} seeded (v${new:-?})"
             fi
         done
     done
@@ -159,7 +162,7 @@ ai_tools_link_shared_assets() {
         if [[ -L "${dst}" ]]; then
             [[ "$(readlink -- "${dst}")" == "${src}" ]] && continue
             ln -sfn "${src}" "${dst}"
-            _ai_tools_ma_say "${agent_dir##*/}/${name} link repointed at ${src}"
+            _ai_tools_ma_say "${name} link repointed at ${src}"
         elif [[ -e "${dst}" ]]; then
             # Something real sits here. It is either the operator's own (or agent-specific)
             # asset, which always wins -- or OUR copy from the layout before these assets were
@@ -171,14 +174,14 @@ ai_tools_link_shared_assets() {
             if _ai_tools_asset_is_stale_copy "${src}" "${dst}"; then
                 rm -rf "${dst}"
                 ln -s "${src}" "${dst}"
-                _ai_tools_ma_say "${agent_dir##*/}/${name} converted to a link (was an identical managed copy)"
+                _ai_tools_ma_say "${name} converted to a link (was an identical managed copy)"
             else
-                _ai_tools_ma_say "${agent_dir##*/}/${name} kept (a real entry here wins over the shared one)"
+                _ai_tools_ma_say "${name} kept (a real entry here wins over the shared one)"
                 continue
             fi
         else
             ln -s "${src}" "${dst}"
-            _ai_tools_ma_say "${agent_dir##*/}/${name} linked -> ${src}"
+            _ai_tools_ma_say "${name} linked -> ${src}"
         fi
         chown -h "root:${group}" "${dst}" 2>/dev/null || :
         linked=$(( linked + 1 ))
@@ -192,7 +195,7 @@ ai_tools_link_shared_assets() {
         src="$(readlink -- "${dst}")"
         [[ "${src}" == "${shared_root}/"* && ! -e "${src}" ]] || continue
         rm -f "${dst}"
-        _ai_tools_ma_say "${agent_dir##*/}/${dst##*/} link removed (no longer shipped)"
+        _ai_tools_ma_say "${dst##*/} link removed (no longer shipped)"
     done
 
     ai_tools_link_asset_readme "${readme_source}" "${agent_dir}" "${group}"
