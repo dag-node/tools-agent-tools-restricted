@@ -50,6 +50,43 @@ else
     fail "ordinary file ended $(stat -c '%U:%G' "${ord}") $(perm "${ord}")"
 fi
 
+# (2a) A data file the Write tool stamped group-executable (0670, no ACL) -> the stray group
+# execute is stripped while group write is kept (owner has no execute, so it is not a script).
+gx="${proj}/data.bin"; : > "${gx}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${gx}"; chmod 0670 "${gx}"
+run "${gx}"
+if [[ "$(perm "${gx}")" == 660 ]]; then
+    pass "data file with stray group execute -> 660 (670 -> 660, execute stripped, write kept)"
+else
+    fail "stray-exec data file ended $(perm "${gx}") (want 660)"
+fi
+
+# (2b) A genuine script the agent wrote (owner rwx) keeps its group r-x -- owner-execute marks
+# it executable, so handback strips only world and leaves 750.
+scr="${proj}/run.sh"; : > "${scr}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${scr}"; chmod 0755 "${scr}"
+run "${scr}"
+if [[ "$(perm "${scr}")" == 750 ]]; then
+    pass "agent script -> 750 (755 -> 750, group r-x kept)"
+else
+    fail "script ended $(perm "${scr}") (want 750)"
+fi
+
+# (2c) On an ACL'd file the strip targets the MASK only: an agent data file whose mask is rwx
+# (the mask-execute that surfaces as -rw-rwx---+) drops to mask rw, so the operator group keeps
+# read+WRITE and the agent can still edit it next turn -- only execute is removed.
+if command -v setfacl >/dev/null 2>&1 && command -v getfacl >/dev/null 2>&1; then
+    am="${proj}/acl.txt"; : > "${am}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${am}"; chmod 0660 "${am}"
+    setfacl -m "g:${SANDBOX_GROUP}:rwx" "${am}"                 # forces mask rwx (shows -rw-rwx---+)
+    run "${am}"
+    am_mask="$(getfacl -pc "${am}" 2>/dev/null | grep '^mask::' || true)"
+    if [[ "${am_mask}" == "mask::rw-" ]]; then
+        pass "ACL'd data file: mask rwx -> rw (execute stripped, write preserved)"
+    else
+        fail "ACL'd file mask ended '${am_mask}' (want mask::rw-)"
+    fi
+else
+    skip "ai-tools-chown ACL mask case" "setfacl/getfacl not available"
+fi
+
 # (3) Secret-named agent files are quarantined to the projects user's PRIVATE group, 600,
 #     with a NOTICE; representative names incl. an upper-case match.
 sec_ok=true

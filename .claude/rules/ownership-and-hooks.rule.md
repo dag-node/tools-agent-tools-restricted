@@ -58,8 +58,17 @@ below instead.
 A `Stop` hook (`session-hook.sh`) closes the `Bash`-tool gap: at each turn's end it
 reads `.cwd`, finds the `SANDBOX_USER`-owned paths under it (bounded by a timestamp
 marker; heavy trees like `.git`/`node_modules` skipped) and hands each to `ai-tools-chown`.
-Running at turn end rather than per-Bash-call means handing a file to `640` (group loses
-write) cannot break an in-progress in-place Bash edit.
+Running at turn end rather than per-Bash-call means handing a file back (world stripped)
+cannot break an in-progress in-place Bash edit.
+
+On an ordinary file `ai-tools-chown` strips the world bits and, keyed on the *owner*-execute
+bit (the only exec bit git records), a stray group/mask **execute** that Claude Code's Write
+tool leaves on a data file — a data file drops to group `rw` (`-rw-rw----+`), a genuine script
+(owner `rwx`) keeps group `r-x` (`750`). It removes execute only, not read or write, so on an
+ACL'd file the mask stays `rw` and the agent can still edit the file the next turn. Left
+unstripped, that mask-execute becomes a real group-execute bit when the tree is archived
+(`tar`/`zip` store `st_mode`, whose group bits are the mask) and extracted without ACLs — which
+is why unclaim strips it the same way (see [cli](cli.rule.md)).
 
 ### Listing the agent's session footprint
 
@@ -191,8 +200,9 @@ points to the sandbox-clone model when git history should stay out of the agent'
 two mechanisms together keep `.git` uniformly `<you>:SANDBOX_GROUP`, and the same secret-name
 and `!`-exclusion skips apply, so a credential committed into `.git` is never ACL'd. Unclaim
 reverses this symmetrically: `ai-tools-unclaim` reverts `.git` in its own pass (regroup to the
-target group, clear the agent + default ACL, drop group write, clear dir setgid), so the agent
-loses history access along with the rest of the tree (see [cli](cli.rule.md)).
+target group, clear the agent + default ACL, drop group write, drop a stray group execute on a
+data file, clear dir setgid), so the agent loses history access along with the rest of the tree
+(see [cli](cli.rule.md)).
 
 ## Control-plane file integrity (the agent config dirs, `bin/`)
 

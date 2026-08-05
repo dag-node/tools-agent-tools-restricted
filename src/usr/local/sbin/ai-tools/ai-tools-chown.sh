@@ -220,8 +220,14 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             # Secret-named files: hand to SECRET_OWNER (the user's private group)
             #   and strip BOTH group and world bits (go=), removing ai-tools' read
             #   access to the contents.
-            # Ordinary files: hand to OWNER, keep group ai-tools readable, strip
-            #   only the world bits (o=).
+            # Ordinary files: hand to OWNER, keep group ai-tools read/WRITE (the
+            #   agent co-writes via the group/mask), strip the world bits (o=), and
+            #   strip a stray group/mask EXECUTE the Write tool leaves on a data file
+            #   -- keyed on OWNER-execute (the only exec bit git records), so a real
+            #   script (owner rwx) keeps its group r-x (-> 750) while a data file
+            #   (owner rw) drops the spurious x to group rw (-> 660/640). g-x removes
+            #   execute only, so read+write stay: on an ACL'd file the mask stays rw
+            #   and the agent can still edit the file next turn.
             if ${is_dir}; then
                 target_owner="${OWNER}"
                 chmod_arg="g+rwx,o="
@@ -230,10 +236,14 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
                 target_owner="${SECRET_OWNER}"
                 chmod_arg="go="
                 new_mode="$(printf '%o' "$(( 8#${current_mode} & ~077 ))")"
-            else
-                target_owner="${OWNER}"
+            elif (( ( 8#${current_mode} >> 6 ) & 1 )); then
+                target_owner="${OWNER}"        # owner executes -> genuine script, keep group r-x
                 chmod_arg="o="
                 new_mode="$(printf '%o' "$(( 8#${current_mode} & ~7 ))")"
+            else
+                target_owner="${OWNER}"        # data file -> also drop the stray group/mask execute
+                chmod_arg="g-x,o="
+                new_mode="$(printf '%o' "$(( 8#${current_mode} & ~7 & ~010 ))")"
             fi
             if [[ "${new_mode}" != "${current_mode}" ]]; then
                 perm_info="  perms:  ${current_mode} -> ${new_mode}"
@@ -290,8 +300,10 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
                 exit 0
             fi
             # chown/chmod follow the /proc magic symlink to the pinned inode.
-            # chmod also corrects the execute bit Claude Code's Write tool sets on
-            # shebang files (755 not 750); o= for ordinary files, go= for secrets.
+            # chmod corrects the execute bit Claude Code's Write tool sets: a real
+            # shebang script (owner rwx) keeps group r-x (755 -> 750, o=), a data
+            # file the tool wrote executable (owner rw) has the stray group/mask x
+            # stripped (g-x,o=), and a secret loses both group and world (go=).
             /usr/bin/chown -- "${target_owner}" "/proc/self/fd/${fd}"
             /usr/bin/chmod -- "${chmod_arg}"    "/proc/self/fd/${fd}"
             # Record the privileged mutation. A secret is the alarming case (WARNING,

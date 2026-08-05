@@ -8,12 +8,16 @@
 #      auto group-write;
 #   2. changes the group owner to <target-group> (the operator's own group by default, or
 #      any group the operator chose), moving the tree out of @SANDBOX_GROUP@;
-#   3. removes group WRITE: 660 -> 640, 770 -> 750, 400 stays 400. Group read/execute is
-#      kept, so the new group owner can still read/traverse; only writing is disabled. On
-#      DIRECTORIES the setgid bit claim added is also cleared (`chmod g-w,g-s`), returning
-#      the tree to plain perms -- a numeric chmod cannot clear a directory's setgid, only
-#      symbolic `g-s` can. Files keep their setuid/setgid bits (an sgid binary is not
-#      silently altered).
+#   3. removes group WRITE: 660 -> 640, 770 -> 750, 400 stays 400. Group READ stays, so the
+#      new group owner can still read/traverse. Group EXECUTE stays on a directory (traversal)
+#      and on a genuine script (owner has execute), but is stripped on a data file that landed
+#      group-executable -- `setfacl -b` above promotes the tree's `group::r-x` base into the
+#      mode, so a plain file the agent wrote can surface as 0650; the strip is keyed on
+#      OWNER-execute (the bit git records) so a script keeps group r-x (750) while a data file
+#      drops to 640. On DIRECTORIES the setgid bit claim added is also cleared (`chmod g-w,g-s`),
+#      returning the tree to plain perms -- a numeric chmod cannot clear a directory's setgid,
+#      only symbolic `g-s` can. Files keep their setuid/setgid bits (an sgid binary is not
+#      silently altered): only the group write and any stray group execute are removed.
 # Net effect: the agent (group @SANDBOX_GROUP@) loses access via both the group owner and
 # the named ACL entry, and the tree carries plain Unix permissions under the new group.
 #
@@ -176,7 +180,18 @@ _safe_unclaim() {
     if [[ "${got_ftype}" == "directory" ]]; then
         chmod g-w,g-s "/proc/self/fd/${fd}" 2>/dev/null || rc=1
     else
-        chmod g-w "/proc/self/fd/${fd}" 2>/dev/null || rc=1
+        # Drop group WRITE; also drop a stray group EXECUTE on a data file. setfacl -b
+        # above promoted the ACL's group:: base (r-x on a tree the agent wrote) into the
+        # mode, so a data file can land group-executable (0650); strip that, keyed on
+        # OWNER-execute (the bit git records) so a genuine script (owner rwx) keeps group
+        # r-x (-> 750) while a data file (owner rw) drops to 640. Relative g-w[,g-x]
+        # leaves any setuid/setgid bit on the file untouched (an sgid binary is not altered).
+        local fmode gxarg=""
+        fmode="$(stat -L -c '%a' "/proc/self/fd/${fd}" 2>/dev/null)" || fmode=""
+        if [[ -n "${fmode}" ]] && (( ( ( 8#${fmode} >> 6 ) & 1 ) == 0 )); then
+            gxarg=",g-x"
+        fi
+        chmod "g-w${gxarg}" "/proc/self/fd/${fd}" 2>/dev/null || rc=1
     fi
     exec {fd}<&-
     return "${rc}"
