@@ -378,6 +378,23 @@ install -m 0644 src%{ai_libdir}/agents.d/claude-code.conf  %{buildroot}%{ai_libd
 # Its session env (config dir, compile cache, in-session updater), sourced by ai-tools-run last
 # so the agent's own pins are authoritative over an integration's.
 install -m 0644 src%{ai_libdir}/session-env.d/claude-code.env.sh %{buildroot}%{ai_libdir}/session-env.d/claude-code.env.sh
+# Claude Code-specific resolvers (the base owns the lib directory; the agent ships these into it):
+# the custom system prompt (claude.sh, wrapper-side) and the custom API endpoint (the fragment
+# above, sandbox-side). Both split their pure logic out for unit testing.
+install -m 0644 src%{ai_libdir}/claude-prompt.lib.sh   %{buildroot}%{ai_libdir}/claude-prompt.lib.sh
+install -m 0644 src%{ai_libdir}/claude-endpoint.lib.sh %{buildroot}%{ai_libdir}/claude-endpoint.lib.sh
+# The empty default custom system prompt and the endpoints directory with its inert endpoint
+# template; the operator edits each in place, both %config(noreplace) so those edits survive an
+# upgrade. Both files are 0640 root:ai-tools: the sandbox account reads them (the fragment reads the
+# endpoint, and claude.sh hands the prompt path to the confined binary) while neither is world-
+# readable -- the endpoint holds a bearer token, and a custom prompt may be proprietary. The dirs
+# stay 0755 so claude.sh can stat the prompt file as the operator.
+install -d -m 0755 %{buildroot}%{_sysconfdir}/ai-tools/prompts
+install -m 0640 src%{_sysconfdir}/ai-tools/prompts/claude-system-prompt.md \
+    %{buildroot}%{_sysconfdir}/ai-tools/prompts/claude-system-prompt.md
+install -d -m 0755 %{buildroot}%{_sysconfdir}/ai-tools/endpoints
+install -m 0640 src%{_sysconfdir}/ai-tools/endpoints/custom-claude-endpoint.conf \
+    %{buildroot}%{_sysconfdir}/ai-tools/endpoints/custom-claude-endpoint.conf
 
 # ── base: ghost the operation logs so the package owns them with the right context ──
 for f in chown setgid setfacl symlink lockdown relabel handback install; do
@@ -694,7 +711,16 @@ fi
 %dir %attr(3770, root, ai-tools) /opt/ai-tools/.claude
 %attr(0644, root, root) %{ai_libdir}/agents.d/claude-code.conf
 %attr(0644, root, root) %{ai_libdir}/session-env.d/claude-code.env.sh
+%attr(0644, root, root) %{ai_libdir}/claude-prompt.lib.sh
+%attr(0644, root, root) %{ai_libdir}/claude-endpoint.lib.sh
 %attr(0755, root, root) %{ai_bindir}/claude
+# Custom system prompt: an inert, editable default under a dedicated /etc/ai-tools/prompts. The
+# custom API endpoint: a dedicated /etc/ai-tools/endpoints holding the endpoint file, which is
+# 0640 root:ai-tools because it may carry a bearer token (not world-readable, unlike operator.conf).
+%dir %attr(0755, root, root) %{_sysconfdir}/ai-tools/prompts
+%config(noreplace) %attr(0640, root, ai-tools) %{_sysconfdir}/ai-tools/prompts/claude-system-prompt.md
+%dir %attr(0755, root, root) %{_sysconfdir}/ai-tools/endpoints
+%config(noreplace) %attr(0640, root, ai-tools) %{_sysconfdir}/ai-tools/endpoints/custom-claude-endpoint.conf
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/post-tool-hook.sh
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/session-hook.sh
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/filter-hook.sh

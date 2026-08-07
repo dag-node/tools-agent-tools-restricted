@@ -2,6 +2,7 @@
 paths:
   - "src/opt/ai-tools/bin/ai-tools-run.sh"
   - "src/usr/local/bin/claude.sh"
+  - "src/usr/local/lib/ai-tools/claude-prompt.lib.sh"
   - "src/etc/sudoers.d/ai-tools"
   - "src/usr/local/lib/ai-tools/path-dedup.sh"
   - "src/usr/local/lib/ai-tools/session-env.d/**"
@@ -142,6 +143,47 @@ directives; systemd 252 rejects them on a scope unit (`Unknown assignment`) beca
 scope has no exec context — the caller, not the manager, performs the final `exec`.
 A service unit (the manager execs `ExecStart`) accepts them, and `--pty` keeps the
 session attached to the terminal so claude's TUI works.
+
+## Custom system prompt (`claude-prompt.lib.sh`)
+
+The wrapper can prepend a custom system prompt to the session, configured in `operator.conf` and
+resolved by `claude-prompt.lib.sh` (a Claude Code-specific lib the agent package ships; its pure
+resolution is split out for unit testing, like `confinement.lib`/`providers.lib`). `claude.sh`
+sources it and, just before the final `exec`, prepends the resolved
+`--append-system-prompt-file <path>` (mode `append`, the default — keeps Claude Code's own
+tool-use/safety guidance) or `--system-prompt-file <path>` (mode `replace`) ahead of the operator's
+`"$@"`.
+
+- **`CLAUDE_SYSTEM_PROMPT_FILE`** names the prompt file, which must resolve **under
+  `/etc/ai-tools/prompts/`** — the one location the confined `ai_tools_t` domain is granted read on
+  (`etc_t`, via `files_read_etc_files`); a root-owned file elsewhere would pass the DAC trust check
+  yet be unreadable to the session, turning a mis-set path into a failed launch. The file, its
+  directory, the prompts base, and `operator.conf` each pass `ai_tools_conf_is_trusted`, and the
+  file must be readable text (not a binary). Claude Code reads the file **verbatim** — it is not
+  processed or comment-stripped — so it must hold only prompt text; the shipped default is therefore
+  **empty** (`0640 root:SANDBOX_GROUP` — a custom prompt may be proprietary, so it is not
+  world-readable; `claude.sh` only `stat`s it as the operator, and the confined binary reads it as
+  the sandbox account). Uncommenting the pointer alone changes nothing until the operator adds text.
+- **`replace` sets the request's `system` field, not the whole model context.** `--system-prompt-file`
+  replaces Claude Code's default *system prompt*; it does not remove the tool definitions or the
+  `CLAUDE.md` context Claude Code injects (the latter as `<system-reminder>` message blocks collected
+  from the cwd and its parent directories), which ride in separate request fields. "Only the file
+  reaches the model" is therefore not reachable through this flag; for a non-Anthropic endpoint,
+  shape the final request at the proxy.
+- **Fail closed when configured.** An *unconfigured* host launches with Claude Code's default
+  prompt. A *configured-but-unhonourable* prompt (missing, untrusted, outside the base, non-text,
+  or an unknown mode) **refuses the launch** rather than silently reverting — the operator relies on
+  the configured behaviour, so a wrong prompt is not a safe degradation. This is a distinct tier
+  from the confinement libraries (`safe-paths`/`conf`/`msg`), which fail every launch closed; the
+  prompt resolver fails closed **only** once a prompt is configured.
+- **Deterministic per-invocation override.** A `--{,append-}system-prompt{,-file}` flag the operator
+  types for one launch suppresses the `operator.conf` default entirely (scanned in `"$@"`), so the
+  explicit flag wins without depending on Claude Code's own flag-precedence behaviour.
+
+The two-ended tests are `tests/unit/claude-prompt.sh` (drives each bad state to no-injection or a
+refusal) and `tests/boundary/access.sh` (the prompt file and lib are not agent-writable). The
+custom **endpoint** (`ANTHROPIC_BASE_URL` and friends) is the session-env counterpart, resolved
+sandbox-side in the agent's fragment — see [providers](providers.rule.md).
 
 ## Why `/opt/ai-tools`, not `/home`
 
