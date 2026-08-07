@@ -112,9 +112,11 @@ check_file /usr/local/lib/ai-tools/filters.d/dotnet.rules       root            
 # sources it last, so these pins outrank an integration's -- and 644 root:root is what makes it
 # trusted enough to source at all.
 check_file /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh root         root              644
-# The claude-code agent's custom system prompt resolver (wrapper-side). 644 root:root -- sourced by
-# claude.sh, so root-owned and non-group-writable is what makes it trusted enough to source.
+# The claude-code agent's Claude-specific resolvers: the custom system prompt (wrapper-side) and the
+# custom API endpoint (fragment-side). 644 root:root -- sourced by claude.sh / the fragment, so
+# root-owned and non-group-writable is what makes them trusted enough to source. No secrets.
 check_file /usr/local/lib/ai-tools/claude-prompt.lib.sh      root              root              644
+check_file /usr/local/lib/ai-tools/claude-endpoint.lib.sh    root              root              644
 # Secret-pattern config: user-owned 600. ai-tools (not owner/group, cannot enter the 700
 # .config/ai-tools dir) can neither read nor write it; root helpers read it. Optional: it is a
 # per-operator OVERRIDE -- the shared classifier falls back to its built-in defaults when the file
@@ -130,6 +132,11 @@ check_file /etc/ai-tools/operator.conf                        root              
 # the operator, so no operator read is needed; the dir stays 755 so that stat can traverse it.
 check_file /etc/ai-tools/prompts                              root              root              755
 check_file /etc/ai-tools/prompts/claude-system-prompt.md      root              "${SANDBOX_GROUP}" 640
+# Custom API endpoint: the endpoint file may hold a bearer token, so unlike operator.conf it is
+# 640 root:ai-tools -- readable by root and the sandbox account (which needs the token) but NOT
+# world, and NOT by the operator (not in ai-tools). Its directory is a plain 755 root:root.
+check_file /etc/ai-tools/endpoints                            root              root              755
+check_file /etc/ai-tools/endpoints/custom-claude-endpoint.conf root             "${SANDBOX_GROUP}" 640
 # PATH dedup fragment: 644 root:root -- world-readable, sourced by the operator shells
 # ai-tools-admin wires (never installed into /etc/profile.d; unwired accounts keep their
 # stock PATH).

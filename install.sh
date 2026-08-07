@@ -628,6 +628,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
     _chk /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
     _chk /usr/local/lib/ai-tools/claude-prompt.lib.sh
+    _chk /usr/local/lib/ai-tools/claude-endpoint.lib.sh
     _chk /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh
     _chk /usr/local/lib/ai-tools/integrations.d/dotnet.conf
     _chk /usr/local/lib/ai-tools/filters.d/dotnet.rules
@@ -640,6 +641,7 @@ do_summary() {
     _chk /etc/sudoers.d/ai-tools
     _chk /etc/ai-tools/operator.conf
     _chk /etc/ai-tools/prompts/claude-system-prompt.md
+    _chk /etc/ai-tools/endpoints/custom-claude-endpoint.conf
     _chk /opt/ai-tools/bin/nvm-update.sh
     _chk /opt/ai-tools/bin/ai-tools-run
     _chk /opt/ai-tools/bin/claude
@@ -884,12 +886,15 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/session-env.d/claude-code.env.sh" \
         /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
 
-    # Claude Code-specific resolver: the custom system prompt (claude.sh, wrapper-side). Root-owned
-    # and non-group-writable so it is trusted enough to source.
-    log "/usr/local/lib/ai-tools/claude-prompt.lib.sh"
-    install -o root -g root -m 644 \
-        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/claude-prompt.lib.sh" \
-        /usr/local/lib/ai-tools/claude-prompt.lib.sh
+    # Claude Code-specific resolvers: the custom system prompt (claude.sh, wrapper-side) and the
+    # custom API endpoint (the fragment above, sandbox-side). Root-owned and non-group-writable so
+    # both are trusted enough to source. No secrets (the endpoint's token lives in its own file).
+    for _cc_lib in claude-prompt.lib.sh claude-endpoint.lib.sh; do
+        log "/usr/local/lib/ai-tools/${_cc_lib}"
+        install -o root -g root -m 644 \
+            "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/${_cc_lib}" \
+            "/usr/local/lib/ai-tools/${_cc_lib}"
+    done
 
     # Integration manifest + session-env-fragment directories (base owns them; ai-tools-integration-*
     # members drop files here). Created empty; the optional dotnet integration's files are laid down
@@ -1255,11 +1260,12 @@ do_install() {
         seed_result "${opconf}" "${opconf_existed}" 0 "operator ${PROJECTS_USER}"
     fi
 
-    # Claude Code custom system prompt (the claude-code agent's config file). It ships empty and an
-    # EXISTING copy is kept (operator edits survive a re-install, matching the RPM's %config(noreplace)),
-    # with owner and mode re-asserted. 640 root:SANDBOX_GROUP: the sandbox account reads it but it is
-    # not world-readable -- a custom prompt may be proprietary. The operator edits it with sudo; the
-    # dir stays 755 so claude.sh can stat the prompt file as the operator.
+    # Claude Code custom system prompt + custom API endpoint (the claude-code agent's config files).
+    # Both ship inert and an EXISTING copy is kept (operator edits survive a re-install, matching the
+    # RPM's %config(noreplace)), with owner and mode re-asserted. Both are 640 root:SANDBOX_GROUP: the
+    # sandbox account reads them but neither is world-readable -- the endpoint holds a bearer token,
+    # and a custom prompt may be proprietary. The operator edits each with sudo; the dirs stay 755 so
+    # claude.sh can stat the prompt file as the operator.
     ensure_dir 755 root root /etc/ai-tools/prompts
     local sysprompt=/etc/ai-tools/prompts/claude-system-prompt.md sysprompt_existed=0
     [[ -f "${sysprompt}" ]] && sysprompt_existed=1
@@ -1270,6 +1276,17 @@ do_install() {
         install -o root -g "${SANDBOX_GROUP}" -m 640 \
             "${SCRIPT_DIR}/src/etc/ai-tools/prompts/claude-system-prompt.md" "${sysprompt}"
         seed_result "${sysprompt}" "${sysprompt_existed}" 0 "empty default"
+    fi
+    ensure_dir 755 root root /etc/ai-tools/endpoints
+    local endpointf=/etc/ai-tools/endpoints/custom-claude-endpoint.conf endpointf_existed=0
+    [[ -f "${endpointf}" ]] && endpointf_existed=1
+    if keep_existing "${endpointf}" "Discards your custom endpoint URL, token, and model labels."; then
+        chown "root:${SANDBOX_GROUP}" "${endpointf}"; chmod 640 "${endpointf}"
+        seed_result "${endpointf}" "${endpointf_existed}" 1 "edited in place by the operator"
+    else
+        install -o root -g "${SANDBOX_GROUP}" -m 640 \
+            "${SCRIPT_DIR}/src/etc/ai-tools/endpoints/custom-claude-endpoint.conf" "${endpointf}"
+        seed_result "${endpointf}" "${endpointf_existed}" 0 "inert default"
     fi
 
     # ai-ops operators group + membership grants the operator the sudoers rules above (the RPM

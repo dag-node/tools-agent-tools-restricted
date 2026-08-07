@@ -128,12 +128,16 @@ grammar comments is not mistaken for one that already knows every option.
 — `operator.conf`, a manifest, a manifest directory — asserts the resolver moves to *less*
 access and says so, never more.
 
-`claude-prompt.sh` is the runtime half of the custom system prompt (see [launch](launch.rule.md)).
-It drives the resolver over a root-only base-dir override and asserts the surface-widening guard: a
-prompt file the sandbox account could influence (group/other-writable, a symlink, a writable base or
-`operator.conf`), one outside the trusted base, or otherwise invalid, resolves to **no injection or a
-launch refusal**, never to passing an untrusted or wrong value to Claude Code. The agent-side half —
-the file and lib are not agent-writable — is in `boundary/access.sh`.
+`claude-prompt.sh` and `claude-endpoint.sh` are the runtime half of the custom system prompt and
+custom API endpoint (see [launch](launch.rule.md) and [providers](providers.rule.md)). Each drives
+its resolver over a root-only base-dir override and asserts the surface-widening guard: a prompt or
+endpoint file the sandbox account could influence (group/other-writable, a symlink, a writable base
+or `operator.conf`), one outside the trusted base, or otherwise invalid, resolves to **no injection
+or a launch refusal**, never to passing an untrusted or wrong value to Claude Code. `claude-endpoint.sh`
+additionally pins that only the four recognised keys are read (an arbitrary key never becomes session
+environment) and that the auth token is imported by name (its value never appears in the resolved
+arguments). The agent-side half of both — the files and libs are not agent-writable — is in
+`boundary/access.sh`.
 
 `filters.sh` pins the token-saving command filters (`filters.lib.sh`, see
 [filters](filters.rule.md)). Filtering is not a boundary, so what the file asserts is that every

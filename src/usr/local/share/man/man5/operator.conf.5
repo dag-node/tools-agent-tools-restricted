@@ -166,6 +166,32 @@ context (collected from the working directory and its parents) in separate reque
 fields, so it does not reduce what the model receives to only this file \(em for a
 non-Anthropic endpoint, shape the final request at the proxy.
 .TP
+.BI CLAUDE_BASE_URL_FILE= path
+A dedicated file routing Claude Code sessions at a custom API endpoint (requires
+the
+.B ai-tools-agents-claude-code-restricted
+agent).
+.B Absent
+or empty (the default): the default Anthropic endpoint is used.
+.I path
+must resolve under
+.IR /etc/ai-tools/endpoints/ ,
+be root-owned and not group/other-writable. The file is parsed with this same
+grammar and only four keys are read from it \(em
+.BR ANTHROPIC_BASE_URL " (required, an http(s) URL),"
+.BR ANTHROPIC_AUTH_TOKEN ", " ANTHROPIC_MODEL ", and " ANTHROPIC_DEFAULT_HAIKU_MODEL .
+The token belongs in that file, which ships
+.B 640 root:ai-tools
+(not world-readable), never in this file. Each uncommented option is validated at
+launch and a configured-but-invalid one
+.B refuses
+the launch (fail closed); a localhost endpoint needs no token. These become
+process environment variables, over which a Claude Code settings
+.B env
+block \(em authoritatively
+.I /etc/claude-code/managed-settings.json
+\(em takes precedence.
+.TP
 .BI SKIP_VCS_DIRS= "name\fR...\fP"
 .TQ
 .BI SKIP_PACKAGE_DIRS= "name\fR...\fP"

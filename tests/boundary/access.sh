@@ -103,24 +103,31 @@ else
     fail "sticky .claude FAILED: agent deleted a ${PROJECTS_USER}-owned file -- settings.json and hooks can be replaced"
 fi
 
-# Custom system prompt: the agent-side half of "the sandbox cannot widen its own surface" (the
-# runtime refusal is unit/claude-prompt.sh). The enforced property is PERSISTENCE, not a running
-# session's own environment: the prompt config is operator configuration delivered at launch. What
-# matters here is that the agent cannot WRITE these root-owned inputs: it cannot change what any
-# session is launched with, nor plant an untrusted prompt file the resolver would honour. The resolver
-# honours the file only while root owns it and it is not group/other-writable, so we prove the agent
-# cannot reach that writable state. The prompt file is group-READABLE (the confined binary reads it),
-# so this asserts write specifically. Each is skipped when absent (a partial install).
+# Custom system prompt / custom endpoint: the agent-side half of "the sandbox cannot widen its own
+# surface" (the runtime refusal is unit/claude-prompt.sh + unit/claude-endpoint.sh). The enforced
+# property is PERSISTENCE, not a running session's own environment: the prompt/endpoint config is
+# operator configuration delivered at launch, and a session altering its OWN process env cannot
+# repoint the already-started Claude Code client (it reads ANTHROPIC_BASE_URL at startup; a Bash-tool
+# child's export does not reach the parent) -- and arbitrary egress is a network-policy matter, not
+# this variable. What matters here is that the agent cannot WRITE these root-owned inputs: it cannot
+# change what any session is launched with, cannot plant an untrusted file the resolver would honour,
+# and cannot swap the auth token other sessions use. The resolvers honour these inputs only while
+# root owns them and they are not group/other-writable, so we prove the agent cannot reach that
+# writable state. The endpoint file is group-READABLE (the fragment reads it), so this asserts write
+# specifically. Each is skipped when absent (a partial install).
 for _cc in \
     /usr/local/lib/ai-tools/claude-prompt.lib.sh \
+    /usr/local/lib/ai-tools/claude-endpoint.lib.sh \
     /etc/ai-tools/prompts \
-    /etc/ai-tools/prompts/claude-system-prompt.md; do
+    /etc/ai-tools/prompts/claude-system-prompt.md \
+    /etc/ai-tools/endpoints \
+    /etc/ai-tools/endpoints/custom-claude-endpoint.conf; do
     if [[ ! -e "${_cc}" ]]; then
-        skip "custom prompt write boundary" "${_cc} not installed"
+        skip "custom prompt/endpoint write boundary" "${_cc} not installed"
     elif ! runuser -u "${SANDBOX_USER}" -- test -w "${_cc}" 2>/dev/null; then
-        pass "cannot write ${_cc}: agent cannot change what sessions launch with"
+        pass "cannot write ${_cc}: agent cannot change what sessions launch with or swap the token"
     else
-        fail "can write ${_cc} -- agent could change the launch-time system prompt"
+        fail "can write ${_cc} -- agent could change the launch-time system prompt, endpoint URL, or auth token"
     fi
 done
 
