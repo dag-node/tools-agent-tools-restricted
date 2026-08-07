@@ -110,6 +110,62 @@ value turns filtering off entirely.
 Filtering never decides what the agent may run: the permission rules in the
 agent's settings are evaluated on the rewritten command.
 .TP
+.BI CLAUDE_SYSTEM_PROMPT_FILE= path
+A custom system prompt for Claude Code sessions (requires the
+.B ai-tools-agents-claude-code-restricted
+agent). The launch wrapper reads
+.I path
+at launch and passes it to Claude Code as
+.B --append-system-prompt-file
+(or
+.B --system-prompt-file\fR,\fP
+per the mode below).
+.B Absent
+or empty (the default): Claude Code's own default prompt is used.
+.I path
+must resolve under
+.IR /etc/ai-tools/prompts/ ,
+be root-owned and not group/other-writable, and hold readable text \(em that
+directory is the one location the confined session is granted read on. Its
+.B full contents are sent to the model verbatim
+(nothing is stripped), so it must contain only prompt text. A
+configured prompt that cannot be applied
+.B refuses
+the launch rather than silently reverting to the default, so a broken value fails
+closed. The shipped default file is
+.B empty;
+write your prompt into it, or keep your own prompt files under
+.I /etc/ai-tools/prompts/
+(root-owned, not group/other-writable) and point this key at the one you want.
+The default ships
+.B 0640 root:ai-tools
+so a custom prompt is not world-readable; the sandbox account reads it and you
+edit it with
+.BR sudo .
+.TP
+.BI CLAUDE_SYSTEM_PROMPT_MODE= "append\fR|\fPreplace"
+How
+.B CLAUDE_SYSTEM_PROMPT_FILE
+is applied.
+.B append
+(the default) layers the file after Claude Code's default prompt, keeping its
+built-in tool-use and safety guidance;
+.B replace
+drops the default entirely \(em restate whatever tool-use/safety guidance the
+session still needs. Reach for
+.B replace
+when
+.B ANTHROPIC_BASE_URL
+points at a non-Anthropic-compatible endpoint whose model does not share Claude
+Code's assumptions about itself. Note that
+.B replace
+sets only the request's system prompt: Claude Code still sends its tool
+definitions and the
+.I CLAUDE.md
+context (collected from the working directory and its parents) in separate request
+fields, so it does not reduce what the model receives to only this file \(em for a
+non-Anthropic endpoint, shape the final request at the proxy.
+.TP
 .BI SKIP_VCS_DIRS= "name\fR...\fP"
 .TQ
 .BI SKIP_PACKAGE_DIRS= "name\fR...\fP"

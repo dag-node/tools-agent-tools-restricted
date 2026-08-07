@@ -378,6 +378,16 @@ install -m 0644 src%{ai_libdir}/agents.d/claude-code.conf  %{buildroot}%{ai_libd
 # Its session env (config dir, compile cache, in-session updater), sourced by ai-tools-run last
 # so the agent's own pins are authoritative over an integration's.
 install -m 0644 src%{ai_libdir}/session-env.d/claude-code.env.sh %{buildroot}%{ai_libdir}/session-env.d/claude-code.env.sh
+# The custom system prompt resolver (claude.sh, wrapper-side; the base owns the lib directory, the
+# agent ships this into it). Its pure logic is split out for unit testing.
+install -m 0644 src%{ai_libdir}/claude-prompt.lib.sh   %{buildroot}%{ai_libdir}/claude-prompt.lib.sh
+# The empty default custom system prompt; the operator edits it in place, %config(noreplace) so the
+# edit survives an upgrade. 0640 root:ai-tools: the confined binary reads it (claude.sh hands it the
+# path) but it is not world-readable -- a custom prompt may be proprietary. The dir stays 0755 so
+# claude.sh can stat the prompt file as the operator.
+install -d -m 0755 %{buildroot}%{_sysconfdir}/ai-tools/prompts
+install -m 0640 src%{_sysconfdir}/ai-tools/prompts/claude-system-prompt.md \
+    %{buildroot}%{_sysconfdir}/ai-tools/prompts/claude-system-prompt.md
 
 # ── base: ghost the operation logs so the package owns them with the right context ──
 for f in chown setgid setfacl symlink lockdown relabel handback install; do
@@ -694,7 +704,13 @@ fi
 %dir %attr(3770, root, ai-tools) /opt/ai-tools/.claude
 %attr(0644, root, root) %{ai_libdir}/agents.d/claude-code.conf
 %attr(0644, root, root) %{ai_libdir}/session-env.d/claude-code.env.sh
+%attr(0644, root, root) %{ai_libdir}/claude-prompt.lib.sh
 %attr(0755, root, root) %{ai_bindir}/claude
+# Custom system prompt: an empty, editable default under a dedicated /etc/ai-tools/prompts. 0640
+# root:ai-tools -- the confined binary reads it, but a custom prompt may be proprietary, so it is not
+# world-readable; the dir stays 0755 so claude.sh can stat it as the operator.
+%dir %attr(0755, root, root) %{_sysconfdir}/ai-tools/prompts
+%config(noreplace) %attr(0640, root, ai-tools) %{_sysconfdir}/ai-tools/prompts/claude-system-prompt.md
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/post-tool-hook.sh
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/session-hook.sh
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/filter-hook.sh

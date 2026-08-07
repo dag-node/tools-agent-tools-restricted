@@ -112,6 +112,9 @@ check_file /usr/local/lib/ai-tools/filters.d/dotnet.rules       root            
 # sources it last, so these pins outrank an integration's -- and 644 root:root is what makes it
 # trusted enough to source at all.
 check_file /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh root         root              644
+# The claude-code agent's custom system prompt resolver (wrapper-side). 644 root:root -- sourced by
+# claude.sh, so root-owned and non-group-writable is what makes it trusted enough to source.
+check_file /usr/local/lib/ai-tools/claude-prompt.lib.sh      root              root              644
 # Secret-pattern config: user-owned 600. ai-tools (not owner/group, cannot enter the 700
 # .config/ai-tools dir) can neither read nor write it; root helpers read it. Optional: it is a
 # per-operator OVERRIDE -- the shared classifier falls back to its built-in defaults when the file
@@ -121,6 +124,12 @@ check_file /etc/sudoers.d/ai-tools                     root              root   
 # Operator identity: 644 root:root -- world-readable (agent hooks + root helpers read it),
 # root-write-only (the agent cannot rewrite the identity root hands files back to).
 check_file /etc/ai-tools/operator.conf                        root              root              644
+# Custom system prompt: an empty, editable default under a dedicated dir. 640 root:ai-tools -- the
+# sandbox account reads it (via etc_t + the group) and the operator edits it with sudo, but a custom
+# prompt is not world-readable (it may carry proprietary instructions). claude.sh only stat()s it as
+# the operator, so no operator read is needed; the dir stays 755 so that stat can traverse it.
+check_file /etc/ai-tools/prompts                              root              root              755
+check_file /etc/ai-tools/prompts/claude-system-prompt.md      root              "${SANDBOX_GROUP}" 640
 # PATH dedup fragment: 644 root:root -- world-readable, sourced by the operator shells
 # ai-tools-admin wires (never installed into /etc/profile.d; unwired accounts keep their
 # stock PATH).

@@ -103,6 +103,27 @@ else
     fail "sticky .claude FAILED: agent deleted a ${PROJECTS_USER}-owned file -- settings.json and hooks can be replaced"
 fi
 
+# Custom system prompt: the agent-side half of "the sandbox cannot widen its own surface" (the
+# runtime refusal is unit/claude-prompt.sh). The enforced property is PERSISTENCE, not a running
+# session's own environment: the prompt config is operator configuration delivered at launch. What
+# matters here is that the agent cannot WRITE these root-owned inputs: it cannot change what any
+# session is launched with, nor plant an untrusted prompt file the resolver would honour. The resolver
+# honours the file only while root owns it and it is not group/other-writable, so we prove the agent
+# cannot reach that writable state. The prompt file is group-READABLE (the confined binary reads it),
+# so this asserts write specifically. Each is skipped when absent (a partial install).
+for _cc in \
+    /usr/local/lib/ai-tools/claude-prompt.lib.sh \
+    /etc/ai-tools/prompts \
+    /etc/ai-tools/prompts/claude-system-prompt.md; do
+    if [[ ! -e "${_cc}" ]]; then
+        skip "custom prompt write boundary" "${_cc} not installed"
+    elif ! runuser -u "${SANDBOX_USER}" -- test -w "${_cc}" 2>/dev/null; then
+        pass "cannot write ${_cc}: agent cannot change what sessions launch with"
+    else
+        fail "can write ${_cc} -- agent could change the launch-time system prompt"
+    fi
+done
+
 # post-tool-hook.sh (750) fires after every Write/Edit. Overwriting it with an empty script
 # would skip handback and secret quarantine for the rest of the session.
 hook=/opt/ai-tools/.claude/post-tool-hook.sh
