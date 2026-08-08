@@ -326,7 +326,8 @@ Policy layout, the optional policy groups, and the bring-up loop:
 ## License
 
 Licensed under the **GNU Affero General Public License v3.0 only** (`AGPL-3.0-only`).
-See [`LICENSE`](LICENSE) for the full text.
+See [`LICENSE`](LICENSE) for the full text. Releases through 0.9.x were published as
+`AGPL-3.0-or-later`; from 0.10.0 the project is `AGPL-3.0-only`.
 
 **Claude Code is separate.** This license covers this repository's own source — the
 sandboxing, install, and CLI machinery. `ai-tools-bootstrap` installs Claude Code

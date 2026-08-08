@@ -10,8 +10,12 @@ security reasoning in the PR description, not just the mechanism.
 
 ## License
 
-All contributions are made under the project's license, AGPL-3.0-or-later (see
+All contributions are made under the project's license, AGPL-3.0-only (see
 `LICENSE`). By submitting a change, you agree it may be distributed under those terms.
+
+The one exception is the SELinux policy under `selinux/policy/`, which is
+`GPL-2.0-or-later` because it is built against the SELinux reference policy. Each file
+carries an `SPDX-License-Identifier` stating which applies.
 
 ## Development setup
 

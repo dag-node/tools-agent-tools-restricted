@@ -107,7 +107,7 @@ Name: ai-tools-sign-selftest
 Version: 0
 Release: 0
 Summary: throwaway package proving the release signing chain end-to-end
-License: AGPL-3.0-or-later
+License: AGPL-3.0-only
 BuildArch: noarch
 %description
 Built and discarded by sign-rpms.sh --selftest to prove that the signing key, its passphrase,

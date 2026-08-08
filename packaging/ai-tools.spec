@@ -12,7 +12,7 @@ Version:        %(cat %{_sourcedir}/VERSION)
 Release:        %{!?rpm_release:1}%{?rpm_release}%{?dist}
 Summary:        Run Claude Code as a sandboxed system user (metapackage)
 
-License:        AGPL-3.0-or-later
+License:        AGPL-3.0-only
 URL:            https://github.com/dag-node/tools-agent-tools-restricted
 Source0:        %{name}-%{version}.tar.gz
 Source1:        %{name}.sysusers
