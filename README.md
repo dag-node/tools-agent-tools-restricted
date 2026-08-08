@@ -4,13 +4,9 @@
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Platform: EL 9 | EL 10](https://img.shields.io/badge/platform-EL%209%20%7C%20EL%2010-blue.svg)](#requirements)
 
-Run coding agents sandboxed — under their own locked-down system user.
+**Confine coding agents to a locked-down system account — so they never inherit your keys, sudo rights, or secrets.**
 
-Agent Tools Restricted runs an autonomous coding agent under a dedicated, unprivileged
-service account (`SANDBOX_USER`, the account created as `ai-tools`) with a tightly scoped set
-of privileges, and keeps its Node.js toolchain and CLI current automatically. **Claude Code is
-the first supported agent**; the confinement, ownership-handback, and toolchain machinery are
-agent-agnostic.
+Agent Tools Restricted runs autonomous coding agents under a dedicated, unprivileged system user (`ai-tools`) with tightly scoped privileges, SELinux confinement, ownership hand-back, and automatic toolchain updates. The agent never runs as you. Claude Code is the first supported agent; the confinement, ownership-handback, and toolchain machinery are deliberately agent-agnostic.
 
 > **Fun fact.** This project is written inside its own sandbox. The agent that edits these
 > files runs as `ai-tools` under the confinement described here — its writes come back to the
@@ -319,33 +315,28 @@ Policy layout, the optional policy groups, and the bring-up loop:
 
 ## Community
 
-- **Bugs and feature requests** — [GitHub issues](https://github.com/dag-node/tools-agent-tools-restricted/issues);
-  the templates ask for the environment details and journald excerpts that make a
-  report actionable.
-- **Security vulnerabilities** — never a public issue; see [`SECURITY.md`](SECURITY.md)
-  for private reporting channels and what's in scope.
-- **Contributing** — [`CONTRIBUTING.md`](CONTRIBUTING.md): development setup, the test
-  categories, the lint baseline, and the branch/PR conventions.
-- **Conduct** — [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) (Contributor Covenant 2.1).
+- **Bugs and feature requests** — [GitHub Issues](https://github.com/dag-node/tools-agent-tools-restricted/issues).
+  The templates ask for the environment details and journald excerpts that make a report actionable.
+- **Security vulnerabilities** — never a public issue. See [`SECURITY.md`](SECURITY.md) for
+  private reporting channels and what is in scope.
+- **Contributing** — [`CONTRIBUTING.md`](CONTRIBUTING.md): development setup, test categories,
+  the lint baseline, branch and PR conventions, and the Contributor License Agreement.
+- **Code of Conduct** — [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) (Contributor Covenant 2.1).
 
 ## License
 
-All source in this repository is published under the GNU Affero General
-Public License v3.0 — free and open, with no gated tier. You may use, copy,
-modify, and distribute it subject to that license's terms. The most
-important one: if you run a modified version as a network service, you must
-make your modified source available to that service's users. Full text:
-[`LICENSE`](LICENSE), or <https://www.gnu.org/licenses/agpl-3.0.html>.
+Licensed under the **GNU Affero General Public License v3.0 only** (`AGPL-3.0-only`).
+See [`LICENSE`](LICENSE) for the full text.
 
-**Claude Code is separate.** This license covers only this repository's own
-source — the sandboxing, install, and CLI machinery. `ai-tools-bootstrap`
-installs Claude Code itself (`@anthropic-ai/claude-code`) fresh from npm at
-your own bootstrap step; it is a separate proprietary Anthropic product
-under its own license and terms, never vendored or redistributed by this
-project. See [Anthropic's Claude Code](https://github.com/anthropics/claude-code)
-for its own terms.
+**Claude Code is separate.** This license covers this repository's own source — the
+sandboxing, install, and CLI machinery. `ai-tools-bootstrap` installs Claude Code
+(`@anthropic-ai/claude-code`) from npm at your own bootstrap step; it is a separate
+Anthropic product under its own terms, never vendored or redistributed here.
+See [Anthropic's Claude Code](https://github.com/anthropics/claude-code).
 
-dag-node's commercial/enterprise offerings (fleet management, centralized
-audit/policy reporting, SSO integration, support contracts) are built on top
-of this open core rather than gating any part of it. See
-[github.com/dag-node](https://github.com/dag-node) for those.
+The SELinux policy under [`selinux/`](selinux) is `GPL-2.0-or-later` and ships as its own
+subpackage, as it is built against the SELinux reference policy.
+
+Contributions require a Contributor License Agreement, handled by
+[CLA Assistant](https://cla-assistant.io/) when you open a pull request.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md).
