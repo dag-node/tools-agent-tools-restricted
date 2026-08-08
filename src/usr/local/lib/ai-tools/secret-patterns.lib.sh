@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/secret-patterns.lib.sh
 # Shared secret-name pattern set for the ai-tools sandbox. This file is *sourced*
 # (never executed) by the root helpers ai-tools-chown and ai-tools-lockdown so

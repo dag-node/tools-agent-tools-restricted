@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 # Shared base recipe for the ai-tools RPM test image. All the common build/test logic lives
 # here, parameterized by the EL base image; the per-distro files (Rocky9.Containerfile,
 # Rocky10.Containerfile) are thin pins over the image this builds, so nothing below is repeated.

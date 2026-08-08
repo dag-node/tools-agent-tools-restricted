@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/sbin/ai-tools/ai-tools-lockdown
 # Proactively revoke ai-tools' access to credential files under the CURRENT
 # project. Walks the current working directory and, for every path whose basename

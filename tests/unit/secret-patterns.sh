@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/secret-patterns.sh
 # Unit test for the shared secret-name classifier (secret-patterns.lib.sh), the single
 # matcher ai-tools-chown and ai-tools-lockdown both source. Pins the SHIPPED default pattern

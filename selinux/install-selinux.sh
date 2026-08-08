@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # selinux/install-selinux.sh -- load and label the ai_tools SELinux confinement.
 # Separate from the main install.sh on purpose: this is an extra MAC layer, brought
 # up independently and refined via the audit2allow loop in README.md.

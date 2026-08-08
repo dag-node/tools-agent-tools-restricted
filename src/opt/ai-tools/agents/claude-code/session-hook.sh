@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /opt/ai-tools/.claude/session-hook.sh
 # Sandbox housekeeping hook, run at lifecycle boundaries (Stop + SessionStart). It
 # hands back every ai-tools-owned file and directory under the session's project

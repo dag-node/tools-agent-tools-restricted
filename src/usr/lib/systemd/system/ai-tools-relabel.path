@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 [Unit]
 Description=Watch the sandbox launcher symlinks and relabel the agent entrypoints after a Node upgrade
 Documentation=man:restorecon(8)

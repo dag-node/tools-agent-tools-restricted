@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /opt/ai-tools/bin/nvm-update.sh
 # Updates Node.js and sandbox npm tools under /opt/ai-tools.
 # Runs as the ai-tools user in its own systemd --user instance (nvm-update.service).

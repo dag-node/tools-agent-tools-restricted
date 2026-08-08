@@ -1,1 +1,2 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 ## <summary>Optional ai_tools policy group: execute .NET apphost/JIT code from anonymous memfd files (tmpfs_t map+execute). Exports no interfaces.</summary>

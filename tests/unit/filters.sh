@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/filters.sh
 # Unit test for the token-saving command filters (filters.lib.sh). Drives the PURE verdicts --
 # ai_tools_filter_command_is_simple and ai_tools_filter_apply_rule -- over their tables, then the

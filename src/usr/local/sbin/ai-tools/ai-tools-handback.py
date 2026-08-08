@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/sbin/ai-tools/ai-tools-handback
 # Socket-activated per-connection privilege bridge for the ai-tools sandbox.
 #

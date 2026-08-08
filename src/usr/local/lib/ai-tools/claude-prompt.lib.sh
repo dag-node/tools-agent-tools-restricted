@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/claude-prompt.lib.sh
 # Resolves the Claude Code launch arguments that carry an operator-configured custom system
 # prompt, from operator.conf's CLAUDE_SYSTEM_PROMPT_FILE / CLAUDE_SYSTEM_PROMPT_MODE keys. Sourced

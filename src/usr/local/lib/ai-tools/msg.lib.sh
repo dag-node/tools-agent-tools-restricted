@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/msg.lib.sh
 # Shared user-facing message formatter for the ai-tools sandbox components. Sourced
 # (not executed) by the operator-facing scripts (the claude wrapper, the ai-tools

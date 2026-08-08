@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/log.sh
 # Unit test for the shared logger's input sanitization: the shell ai_tools_log_sanitize in
 # log.lib.sh and the parallel _sanitize in the handback daemon. Both are a default-deny

@@ -1,1 +1,2 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 ## <summary>Optional ai_tools policy group: the .NET (CoreCLR) runtime's diagnostic-IPC sockets/FIFOs plus executing a native host built in the project tree. Exports no interfaces.</summary>

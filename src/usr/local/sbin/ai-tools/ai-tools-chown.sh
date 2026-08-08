@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/sbin/ai-tools/ai-tools-chown
 # Restores operator:ai-tools ownership on files and directories created or
 # overwritten by Claude Code. Invoked as root by the ai-tools-handback daemon

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/bin/ai-tools-selftest  (test image only)
 # Automated admin/operator/agent smoke test for the ai-tools RPMs, run once on boot by
 # ai-tools-selftest.service after the system instance is up (the handback socket and the

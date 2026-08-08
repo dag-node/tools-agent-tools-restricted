@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/setgid.sh
 # Hermetic unit tests for the deployed ai-tools-setgid helper: project setgid + group
 # normalization, the secret-dir skip, and the owner guard. Installed helper against a /tmp

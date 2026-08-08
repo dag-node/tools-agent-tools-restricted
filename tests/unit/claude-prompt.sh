@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/claude-prompt.sh
 # Unit test for the custom-system-prompt resolver (claude-prompt.lib.sh), the wrapper-side logic
 # claude.sh applies before it execs a session. The guarantee under test is one instance of "the

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/handback.sh
 # Integration: the handback-bridge + entrypoint regression guards. Pins the labels and DAC
 # that the socket privilege bridge and the SELinux domain-transition depend on: the claude.exe

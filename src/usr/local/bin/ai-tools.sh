@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/bin/ai-tools
 # Project-lifecycle CLI for the ai-tools Claude Code sandbox. Runs AS the invoking operator (not
 # as root, not as the sandbox account). It writes the operator-owned allowlist

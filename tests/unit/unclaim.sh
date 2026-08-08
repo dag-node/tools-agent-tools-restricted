@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/unclaim.sh
 # Hermetic unit tests for the deployed ai-tools-unclaim helper: the filesystem hand-back it
 # performs at project unclaim -- clear the agent ACL + default ACL, regroup to a target

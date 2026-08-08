@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/operator.lib.sh
 # Shared operator-identity resolver for the ai-tools sandbox. This file is *sourced*
 # (never executed) by the root helpers (ai-tools-chown, -setgid, -setfacl, -unclaim,

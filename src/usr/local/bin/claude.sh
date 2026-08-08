@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/bin/claude
 # Sandboxed claude wrapper. Ships system-wide (root:root 0755, rpm-owned) and runs as the
 # invoking operator. Refuses a non-operator (not in the ai-ops group) up front with a framed

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/sbin/ai-tools/ai-tools-setgid
 # Normalizes group ownership and the setgid bit on the directories of an approved
 # project, so that files EITHER an operator OR the agent creates there are born

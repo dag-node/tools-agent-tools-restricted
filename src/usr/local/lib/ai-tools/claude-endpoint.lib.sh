@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/claude-endpoint.lib.sh
 # Resolves the ANTHROPIC_* session environment that routes a Claude Code session at a custom API
 # endpoint, from a dedicated endpoint file that operator.conf's CLAUDE_BASE_URL_FILE points at.

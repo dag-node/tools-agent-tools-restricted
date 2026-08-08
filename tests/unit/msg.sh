@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/msg.sh
 # Hermetic unit tests for the shared message formatter (msg.lib.sh): the box never
 # exceeds 80 columns, every framed line is a '#' comment (paste-safe), the wrap never

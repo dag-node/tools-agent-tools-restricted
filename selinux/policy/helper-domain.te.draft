@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 ################################################################################
 # DRAFT -- separate sudo + root-helper domains for ai_tools  (NOT built/loaded)
 #

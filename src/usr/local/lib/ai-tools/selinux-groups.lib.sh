@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/selinux-groups.lib.sh
 # Single source for the optional SELinux policy-group registry: each group's name,
 # its operator-facing description, and the reason it is off by default. Sourced by

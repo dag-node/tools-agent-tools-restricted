@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/log.lib.sh
 # Shared leveled logger for the ai-tools sandbox components. Sourced (not executed)
 # by the sudo root helpers (ai-tools-chown / -setgid / -launcher-symlink / -lockdown),

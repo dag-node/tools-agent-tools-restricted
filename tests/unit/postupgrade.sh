@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/postupgrade.sh
 # Hermetic unit test for `ai-tools-admin postupgrade`: the reconciliation of the .rpmnew copies an
 # upgrade leaves beside the %config(noreplace) files this stack owns.

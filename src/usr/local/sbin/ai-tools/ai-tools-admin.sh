@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/sbin/ai-tools/ai-tools-admin
 # Host administration for the ai-tools sandbox. A root helper (run via sudo), not an ai-tools
 # CLI verb: it edits host config (the OPERATORS list, the ai-ops group, the sandbox account's

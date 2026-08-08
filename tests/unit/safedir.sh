@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/safedir.sh
 # Hermetic unit tests for the deployed ai-tools-safedir helper: the git safe.directory entry it
 # adds at project claim and removes at unclaim, its idempotency, the allowlist gate on add, and

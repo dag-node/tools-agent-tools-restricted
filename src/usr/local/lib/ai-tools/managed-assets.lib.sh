@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/managed-assets.lib.sh
 # Seeds the ai-tools-managed agents and skills, and links the SHARED skills into each agent.
 #

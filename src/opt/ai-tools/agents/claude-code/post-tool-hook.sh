@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /opt/ai-tools/.claude/post-tool-hook.sh
 # PostToolUse hook for Write|Edit tools. Restores operator:ai-tools ownership
 # on files Claude Code rewrote via atomic rename (which stamps the writer's UID).

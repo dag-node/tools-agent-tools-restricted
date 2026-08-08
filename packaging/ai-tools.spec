@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Ondřej Nedomlel <tools@dagnode.com>
+# SPDX-License-Identifier: MIT
 Name:           ai-tools
 # Single source of truth for the version: packaging/VERSION (the Makefile reads the same
 # file), so a release bump touches one place. Parsing this spec requires _sourcedir to

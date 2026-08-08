@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # Enforce the release-metadata invariant: packaging/VERSION, the newest %changelog entry in
 # ai-tools.spec, and — when a tag argument is given — the release tag all name the same
 # version. A version bump therefore cannot ship without a matching %changelog entry, and a

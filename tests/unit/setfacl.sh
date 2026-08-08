@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/setfacl.sh
 # Hermetic unit tests for the deployed ai-tools-setfacl helper: the group-permission ACL it
 # applies at project claim, the opt-in --with-git .git normalization (group + setgid + ACL),

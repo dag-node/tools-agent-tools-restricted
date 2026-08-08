@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 # Build the ai-tools source tarball and RPMs. Run from this directory (packaging/).
 #   make dist            build the source tarball from the working tree
 #   make rpm             build the binary RPMs (metapackage, base, the agents/integration umbrellas + members)
@@ -53,7 +54,7 @@ POLICY_SRC = $(patsubst $(ROOT)/%,%,$(wildcard $(ROOT)/selinux/policy/*.te \
 # the GPL text with the binary it covers, so both LICENSE and LICENSES/ are payload.
 CONTENT = src docs $(POLICY_PP) $(POLICY_SRC) \
           packaging/$(NAME).spec packaging/$(NAME).sysusers packaging/VERSION README.md \
-          LICENSE LICENSES
+          LICENSE LICENSES REUSE.toml
 
 # Container smoke test: the shared RpmBase recipe parameterized by an EL base image, then a
 # thin per-distro overlay (see RpmBase.Containerfile). OCI tool + EL bases are overridable.

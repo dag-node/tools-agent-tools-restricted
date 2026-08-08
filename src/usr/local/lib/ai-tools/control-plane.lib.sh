@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # shellcheck disable=SC2034  # boundary-mode constants, read by install.sh and the perms test
 # /usr/local/lib/ai-tools/control-plane.lib.sh
 # Canonical boundary-mode constants for the /opt/ai-tools control plane. The control plane is

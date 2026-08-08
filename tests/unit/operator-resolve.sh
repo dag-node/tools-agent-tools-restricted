@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/operator-resolve.sh
 # Unit test for the operator resolver in operator.lib.sh -- the shared source the handback helpers
 # use to decide which operator owns an agent-written path. Pins the two security-critical functions

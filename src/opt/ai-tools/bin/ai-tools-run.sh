@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /opt/ai-tools/bin/ai-tools-run
 # Confinement shim: runs one sandboxed agent session as @SANDBOX_USER@, inside a transient
 # systemd --user service whose properties are the session's security boundary.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/safe-paths.lib.sh
 # Single source of truth for the system directories the ai-tools elevated helpers must
 # never operate on, plus the guard that enforces it. Defense in depth against an operator

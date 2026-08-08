@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # install.sh -- from-source installer for the ai-tools Claude Code sandbox
 #
 # PREFER the packaged install (`sudo dnf install ./*.rpm` from a release zip): it
