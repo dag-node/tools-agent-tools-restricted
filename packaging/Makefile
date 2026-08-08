@@ -22,15 +22,36 @@ RPM_RELEASE ?=
 RELEASE_DEFINE = $(if $(RPM_RELEASE),--define "rpm_release $(RPM_RELEASE)",)
 
 # Tracked + working-tree sources the spec consumes, relative to the repo root.
-# POLICY_PP is every prebuilt policy package present -- the core ai_tools.pp plus each STABLE
-# group's ai_tools_<group>.pp (experimental groups ship no .pp; .gitignore keeps them
-# uncommitted). Matched by wildcard rather than a hand-maintained list so a newly committed
-# stable .pp cannot be silently dropped from the tarball and fail %install; on a clean checkout
-# only the committed (stable) packages exist, so that is exactly what ships.
-POLICY_PP = $(patsubst $(ROOT)/%,%,$(wildcard $(ROOT)/selinux/policy/*.pp))
+#
+# POLICY_PP is the set of prebuilt policy packages the spec installs: the core ai_tools.pp plus
+# each STABLE group's ai_tools_<group>.pp. It reads the git index, so it holds exactly the
+# committed packages -- the tarball feeds the SRPM, and only the audited, shipped policy belongs
+# in a published artifact. Experimental groups are compiled locally and gitignored, so the index
+# is what distinguishes them. In a tree with no index (the container build runs this Makefile
+# inside an image whose context excludes .git) the wildcard applies instead; that image's COPY
+# names the stable packages one by one, so both paths yield the same set.
+POLICY_PP = $(or $(shell git -C $(ROOT) ls-files 'selinux/policy/*.pp' 2>/dev/null),\
+                 $(patsubst $(ROOT)/%,%,$(wildcard $(ROOT)/selinux/policy/*.pp)))
+
+# POLICY_SRC is the corresponding source for those .pp: the policy text and the Makefile that
+# compiles it. A .pp is GPL-2.0-or-later, and GPLv2 section 3 conveys a binary only together with
+# its source, counting the scripts that control compilation as part of that source. Shipping both
+# in the tarball keeps the SRPM self-sufficient for every distribution channel, including an
+# offline release archive that reaches its recipient with no network.
+#
+# A wildcard is exact here: .gitignore covers *.pp alone, so every policy source in the tree is
+# tracked. install-selinux.sh is not source in this sense -- it loads and installs a compiled
+# module rather than controlling compilation, and holds no refpolicy content (it is AGPL-3.0-only,
+# per its SPDX header).
+POLICY_SRC = $(patsubst $(ROOT)/%,%,$(wildcard $(ROOT)/selinux/policy/*.te \
+                                               $(ROOT)/selinux/policy/*.if \
+                                               $(ROOT)/selinux/policy/*.fc \
+                                               $(ROOT)/selinux/policy/*.te.draft \
+                                               $(ROOT)/selinux/policy/Makefile))
+
 # Each subpackage carries its own licence text via %license, and the GPL policy subpackage conveys
 # the GPL text with the binary it covers, so both LICENSE and LICENSES/ are payload.
-CONTENT = src docs $(POLICY_PP) \
+CONTENT = src docs $(POLICY_PP) $(POLICY_SRC) \
           packaging/$(NAME).spec packaging/$(NAME).sysusers packaging/VERSION README.md \
           LICENSE LICENSES
 
@@ -92,11 +113,22 @@ rpmtest-rocky10: rpmbase-el10
 	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmtest:el10 -f $(CURDIR)/Rocky10.Containerfile $(ROOT)
 	$(OCI) run --rm -t --systemd=always --ulimit core=0 ai-tools-rpmtest:el10
 
+# The tarball asserts its own GPL compliance: a .pp travels only with the policy source it was
+# compiled from. Both lists are globs, and a glob that matches nothing yields a tarball that looks
+# well-formed and conveys a GPL binary with no source, so the counts are checked rather than
+# assumed -- comparing the archive against the inputs, so adding a policy module needs no edit here.
 dist:
 	tar czf $(TARBALL) -C $(ROOT) \
 	    --transform 's,^,$(NAME)-$(VERSION)/,' \
 	    --exclude='.git' --exclude='*.tar.gz' --exclude='rpmbuild' \
 	    $(CONTENT)
+	@pp=$$(tar tzf $(TARBALL) | grep -cE 'selinux/policy/[^/]+\.pp$$'); \
+	 src=$$(tar tzf $(TARBALL) | grep -cE 'selinux/policy/[^/]+\.(te|if|fc)$$'); \
+	 fail() { echo "$(TARBALL): $$1" >&2; rm -f $(TARBALL); exit 1; }; \
+	 [ "$$pp" -gt 0 ] \
+	    || fail "no prebuilt policy package -- %install needs ai_tools.pp"; \
+	 [ "$$src" -gt 0 ] \
+	    || fail "conveys $$pp GPL .pp with no policy source -- GPLv2 s.3"
 	@echo "built $(TARBALL)"
 
 rpm: dist

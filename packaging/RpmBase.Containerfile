@@ -53,15 +53,29 @@ RUN microdnf -y install \
 # .containerignore at the context root drops .git, packaging/rpmbuild, and tarballs). Only the
 # prebuilt policy packages are needed from selinux/ -- the core ai_tools.pp plus each stable
 # group's ai_tools_<group>.pp, which the Makefile CONTENT and the spec consume; experimental
-# groups ship no .pp. The *.pp glob matches just those files at the policy root, so it stays clear
-# of the root-owned policy/tmp scratch dir an unprivileged build context cannot read (also
-# .containerignore'd). Keep in step with the shipped set in packaging/Makefile and the spec.
-COPY src                      /opt/ai-tools-src/src
-COPY docs                     /opt/ai-tools-src/docs
-COPY selinux/policy/*.pp      /opt/ai-tools-src/selinux/policy/
-COPY tests                    /opt/ai-tools-src/tests
-COPY packaging                /opt/ai-tools-src/packaging
-COPY README.md                /opt/ai-tools-src/README.md
+# groups ship no .pp.
+#
+# The build context is the maintainer's working tree, where locally compiled experimental groups
+# sit beside the shipped ones, so each prebuilt package is named: the image then holds exactly the
+# audited, stable set. That naming is also what the Makefile's POLICY_PP relies on here, since the
+# image has no git index to read. Keep it in step with the shipped set in packaging/Makefile, the
+# spec %install loop, and .gitignore.
+#
+# The policy sources come too, as the corresponding source a GPL .pp is conveyed with (GPLv2 s.3);
+# a glob is exact for them because .gitignore covers only *.pp.
+COPY src                            /opt/ai-tools-src/src
+COPY docs                           /opt/ai-tools-src/docs
+COPY selinux/policy/ai_tools.pp         /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/ai_tools_tmpmap.pp  /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/Makefile            /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/*.te                /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/*.if                /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/*.fc                /opt/ai-tools-src/selinux/policy/
+COPY tests                          /opt/ai-tools-src/tests
+COPY packaging                      /opt/ai-tools-src/packaging
+COPY LICENSE                        /opt/ai-tools-src/LICENSE
+COPY LICENSES                       /opt/ai-tools-src/LICENSES
+COPY README.md                      /opt/ai-tools-src/README.md
 WORKDIR /opt/ai-tools-src
 
 # Build every RPM the spec defines, publish them as a local repo, and install the METAPACKAGE
