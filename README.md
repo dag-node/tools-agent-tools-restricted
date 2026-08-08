@@ -335,8 +335,11 @@ sandboxing, install, and CLI machinery. `ai-tools-bootstrap` installs Claude Cod
 Anthropic product under its own terms, never vendored or redistributed here.
 See [Anthropic's Claude Code](https://github.com/anthropics/claude-code).
 
-The SELinux policy under [`selinux/`](selinux) is `GPL-2.0-or-later` and ships as its own
-subpackage, as it is built against the SELinux reference policy.
+The SELinux policy modules under [`selinux/policy/`](selinux/policy) are `GPL-2.0-or-later`,
+because they are built against the SELinux reference policy, and ship as their own
+`ai-tools-selinux` subpackage. Everything else under `selinux/` — the installer and the
+denial-analysis tooling — is `AGPL-3.0-only` like the rest of the project. Each file states
+which applies in an `SPDX-License-Identifier` header; `REUSE.toml` covers the rest.
 
 Contributions require a Contributor License Agreement, handled by
 [CLA Assistant](https://cla-assistant.io/) when you open a pull request.
