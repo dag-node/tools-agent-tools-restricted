@@ -28,8 +28,11 @@ RELEASE_DEFINE = $(if $(RPM_RELEASE),--define "rpm_release $(RPM_RELEASE)",)
 # stable .pp cannot be silently dropped from the tarball and fail %install; on a clean checkout
 # only the committed (stable) packages exist, so that is exactly what ships.
 POLICY_PP = $(patsubst $(ROOT)/%,%,$(wildcard $(ROOT)/selinux/policy/*.pp))
+# Each subpackage carries its own licence text via %license, and the GPL policy subpackage conveys
+# the GPL text with the binary it covers, so both LICENSE and LICENSES/ are payload.
 CONTENT = src docs $(POLICY_PP) \
-          packaging/$(NAME).spec packaging/$(NAME).sysusers packaging/VERSION README.md
+          packaging/$(NAME).spec packaging/$(NAME).sysusers packaging/VERSION README.md \
+          LICENSE LICENSES
 
 # Container smoke test: the shared RpmBase recipe parameterized by an EL base image, then a
 # thin per-distro overlay (see RpmBase.Containerfile). OCI tool + EL bases are overridable.
