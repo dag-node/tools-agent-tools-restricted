@@ -69,6 +69,14 @@ push and pull request.
 Commit messages follow `type(scope): summary` (`feat`, `fix`, `docs`, `test`, `chore`,
 `refactor`) — check `git log` for examples. Keep the "why" in the body, not the title.
 
+### AI-assisted commits
+
+Commits in this repository frequently carry a `Co-Authored-By` trailer naming an AI
+model. This records how the change was produced. It asserts no copyright: model output
+is not separately copyrightable and Anthropic claims no rights in it. Every commit is
+authored, reviewed, and signed off by a human contributor, whose CLA covers the
+contribution in full.
+
 ## Documentation
 
 `CLAUDE.md` plus `.claude/rules/*.rule.md` are the reference docs for how each
