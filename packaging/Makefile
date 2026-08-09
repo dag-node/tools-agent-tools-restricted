@@ -56,8 +56,11 @@ CONTENT = src docs $(POLICY_PP) $(POLICY_SRC) \
           packaging/$(NAME).spec packaging/$(NAME).sysusers packaging/VERSION README.md \
           LICENSE LICENSES REUSE.toml
 
-# Container smoke test: the shared RpmBase recipe parameterized by an EL base image, then a
-# thin per-distro overlay (see RpmBase.Containerfile). OCI tool + EL bases are overridable.
+# Container smoke test: the shared ELBase recipe parameterized by an EL base image, then a
+# thin per-distro overlay (see ELBase.Containerfile). OCI tool + EL bases are overridable. Fedora
+# is not a target here: Fedora merges /usr/local/sbin into /usr/local/bin, which collides the
+# ai_sbindir helper directory with the ai_bindir CLI file; a native Fedora build needs a path
+# rework first. FedoraLatestBase.Containerfile is the stub that future Fedora CI will build on.
 OCI       ?= podman
 EL9_BASE  ?= quay.io/rockylinux/rockylinux:9.7-minimal
 EL10_BASE ?= quay.io/rockylinux/rockylinux:10-minimal
@@ -94,15 +97,15 @@ hooks:
 	@echo "git hooks enabled (core.hooksPath=.githooks)"
 
 # The shared base image alone: builds the RPMs inside it (via its own `make rpm`, so
-# RPM_RELEASE flows through -- see RpmBase.Containerfile) and installs the metapackage, with
+# RPM_RELEASE flows through -- see ELBase.Containerfile) and installs the metapackage, with
 # no test overlay and no `run`. rpmtest-rockyN below layers the selftest on top of this; CI's
 # release job targets this directly to get clean release RPMs without re-running the full
 # selftest a prior CI job already passed on the same commit.
 rpmbase-el9:
-	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmbase:el9 -f $(CURDIR)/RpmBase.Containerfile --build-arg BASE_IMAGE=$(EL9_BASE) --build-arg RPM_RELEASE=$(RPM_RELEASE) $(ROOT)
+	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmbase:el9 -f $(CURDIR)/ELBase.Containerfile --build-arg BASE_IMAGE=$(EL9_BASE) --build-arg RPM_RELEASE=$(RPM_RELEASE) $(ROOT)
 
 rpmbase-el10:
-	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmbase:el10 -f $(CURDIR)/RpmBase.Containerfile --build-arg BASE_IMAGE=$(EL10_BASE) --build-arg RPM_RELEASE=$(RPM_RELEASE) $(ROOT)
+	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmbase:el10 -f $(CURDIR)/ELBase.Containerfile --build-arg BASE_IMAGE=$(EL10_BASE) --build-arg RPM_RELEASE=$(RPM_RELEASE) $(ROOT)
 
 # The distro overlay on top of the base image, run with systemd as PID 1 so the selftest
 # fires and returns the container's exit status.

@@ -1,10 +1,18 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# Shared base recipe for the ai-tools RPM test image. All the common build/test logic lives
-# here, parameterized by the EL base image; the per-distro files (Rocky9.Containerfile,
+# Shared base recipe for the EL (Rocky/RHEL) ai-tools RPM test image. All the common build/test
+# logic lives here, parameterized by the EL base image; the per-distro files (Rocky9.Containerfile,
 # Rocky10.Containerfile) are thin pins over the image this builds, so nothing below is repeated.
+# Rocky 9/10 minimal both ship microdnf and the same package names installed below, so this recipe
+# builds unchanged across them.
+#
+# Fedora is intentionally NOT built from this recipe: Fedora merges /usr/local/sbin into
+# /usr/local/bin, so the spec's ai_sbindir helper directory (/usr/local/sbin/ai-tools) and its
+# ai_bindir CLI file (/usr/local/bin/ai-tools) canonicalize to the same path and rpm refuses the
+# transaction. Native Fedora packaging needs a path rework first; FedoraLatestBase.Containerfile is
+# the stub that future Fedora CI (unstable-feature testing, Fedora-specific RPMs) will build on.
 #
 # Build a distro image (two steps; the Makefile wraps them as `rpmtest-rocky9` / `-rocky10`):
-#   podman build -t ai-tools-rpmbase:el9 -f packaging/RpmBase.Containerfile \
+#   podman build -t ai-tools-rpmbase:el9 -f packaging/ELBase.Containerfile \
 #       --build-arg BASE_IMAGE=quay.io/rockylinux/rockylinux:9.7-minimal .
 #   podman build -t ai-tools-rpmtest:el9 -f packaging/Rocky9.Containerfile .
 #   podman run --rm -t --systemd=always ai-tools-rpmtest:el9
@@ -74,17 +82,23 @@ COPY selinux/policy/*.if                /opt/ai-tools-src/selinux/policy/
 COPY selinux/policy/*.fc                /opt/ai-tools-src/selinux/policy/
 COPY tests                          /opt/ai-tools-src/tests
 COPY packaging                      /opt/ai-tools-src/packaging
+# The licence set `make dist` bundles: LICENSE, the LICENSES/ SPDX texts, and the REUSE.toml
+# that maps files to them. All three are in the Makefile CONTENT, so all three must be here or
+# `make dist` fails to stat one.
 COPY LICENSE                        /opt/ai-tools-src/LICENSE
 COPY LICENSES                       /opt/ai-tools-src/LICENSES
+COPY REUSE.toml                     /opt/ai-tools-src/REUSE.toml
 COPY README.md                      /opt/ai-tools-src/README.md
 WORKDIR /opt/ai-tools-src
 
 # Build every RPM the spec defines, publish them as a local repo, and install the METAPACKAGE
 # only -- dnf pulls ai-tools-base (hard Requires) plus the ai-tools-agents / ai-tools-integration
-# umbrellas and their members (weak Recommends), proving the dependency graph (the verbose
-# transaction table is the evidence). install_weak_deps is forced on so the pull is deterministic
-# regardless of the base image's dnf config. Then enable the units that must be live at boot for
-# the selftest (preset policy may leave them off in a minimal image).
+# umbrellas and their members (weak Recommends), proving the dependency graph (the transaction
+# table dnf prints is the evidence). install_weak_deps is forced on so the pull is deterministic
+# regardless of the base image's dnf config; it is spelled `=1` (not `=True`) and the command
+# carries no `-v` so the same install line stays portable to dnf5 (dnf5 rejects `-v` and prefers
+# the numeric boolean), which the future FedoraLatestBase recipe reuses. Then enable the units
+# that must be live at boot for the selftest (preset policy may leave them off in a minimal image).
 #
 # The post-install assertion is derived from the BUILT set rather than a hand-kept package list:
 # every subpackage the spec produced must resolve from the metapackage alone, so a subpackage
@@ -98,7 +112,7 @@ RUN set -eux; \
     createrepo_c /tmp/ai-repo; \
     printf '[ai-tools-local]\nname=ai-tools-local\nbaseurl=file:///tmp/ai-repo\nenabled=1\ngpgcheck=0\n' \
         > /etc/yum.repos.d/ai-tools-local.repo; \
-    dnf -y -v --setopt=install_weak_deps=True install ai-tools; \
+    dnf -y --setopt=install_weak_deps=1 install ai-tools; \
     rpm -q $(rpm -qp --qf '%{NAME}\n' /tmp/ai-repo/*.rpm | sort -u); \
     systemctl enable ai-tools-handback.socket
 
