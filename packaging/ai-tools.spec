@@ -850,6 +850,48 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Mon Aug 10 2026 dagnode <tools@dagnode.com> - 0.10.0-1
+- CHANGE: The root helper programs moved from /usr/local/sbin/ai-tools to
+  /usr/local/libexec/ai-tools, so one install layout works on both EL and Fedora (Fedora merges
+  /usr/local/sbin into /usr/local/bin, which collided the helper directory with the ai-tools CLI;
+  /usr/local/libexec is untouched by that merge). The sudoers grant is re-pointed automatically on
+  upgrade with no manual step and the old directory is removed; your operator configuration is
+  untouched. If an upgrade prints a notice, run sudo ai-tools --relabel.
+- NEW: The RPMs now install on Fedora (42+). The EL9/EL10 packages previously refused the
+  transaction there because of the bin/sbin merge the layout change above resolves; a native Fedora
+  build also compiles the SELinux policy against Fedora's own reference policy. EL9/EL10 remain the
+  gated, released targets; Fedora is smoke-tested per commit.
+- LICENSE: The project license identifier is now AGPL-3.0-only. Releases through 0.9.x were
+  published as AGPL-3.0-or-later, and everyone who received them keeps the "or later" option on
+  those versions; this narrowing applies from 0.10.0 forward. No change to what the license permits
+  you to do with the code.
+- NEW: The SELinux confinement policy now ships as its own subpackage, ai-tools-selinux, licensed
+  GPL-2.0-or-later. A compiled policy module embeds macro expansions from the GPL SELinux reference
+  policy, so it is conveyed under the GPL as its own package rather than inside the AGPL base. A
+  default install still pulls it (base recommends it); installing without it leaves the sandbox in
+  the documented DAC-only mode.
+- NEW: Set a custom system prompt for sandboxed sessions by placing it at
+  /etc/ai-tools/prompts/claude-system-prompt.md (root-owned). When the file is configured the
+  launch fails closed rather than silently dropping it.
+- NEW: Route sandboxed sessions at a custom, Anthropic-compatible API endpoint via
+  /etc/ai-tools/endpoints/custom-claude-endpoint.conf (root-owned: a base URL plus the name of the
+  auth-token variable). It fails closed when configured but unusable, so a session never falls back
+  to the default endpoint unnoticed.
+- NEW: Add CLAUDE_CODE_MAX_OUTPUT_TOKENS to the default session configuration.
+- FIX: The SELinux module now reaches the running kernel policy on install and leaves it on erase.
+  Both scriptlets passed semodule --noreload, which commits to the module store without loading, so
+  a fresh install could leave the agent entrypoint unlabelled (the launch preflight then refuses
+  with mislabel until a reload) and dnf remove could leave the ai_tools domain live after the files
+  were gone.
+- FIX: The source tarball and SRPM no longer pick up policy modules built locally from source; a
+  filesystem wildcard was sweeping an experimental group compiled on the build host into the
+  published source artifact.
+- FIX: The source package now carries the SELinux policy sources alongside the compiled modules, so
+  a GPL binary is conveyed with its corresponding source (GPLv2 s.3) on every channel, including the
+  offline release archive.
+- Upgrading from 0.9.x needs no action beyond dnf: the helper-path migration and the sudoers
+  re-point are automatic. If a host prints a relabel notice, run sudo ai-tools --relabel.
+
 * Wed Aug 05 2026 dagnode <tools@dagnode.com> - 0.9.1-1
 - FIX: Strip the stray group-execute bit Claude Code's file writes leave on data files. The
   ownership handback and unclaim now clamp the group class off the owner-execute bit, so a data
