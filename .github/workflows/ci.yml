@@ -117,6 +117,60 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # Native Fedora smoke test -- INFORMATIONAL, not a release gate. Same build -> install ->
+  # selftest as the EL job (mirrors `make -C packaging rpmtest-fedora`), but Fedora "latest" is a
+  # rolling target: an upstream refpolicy or package change can break this with no change on our
+  # side. `continue-on-error` keeps such a break from failing the workflow or blocking a merge
+  # while still surfacing it, and the `release` job deliberately does NOT list this in `needs`.
+  # A separate job, not a matrix arm of rpm-selftest: Fedora builds one self-contained image
+  # (ai-tools-rpmtest:fedora) via its own make target, with no ai-tools-rpmbase:elN to extract
+  # from. Coverage is packaging/install/DAC only -- SELinux-enforcing confinement is not exercised
+  # (getenforce is Disabled in a container); that still needs an enforcing Fedora host.
+  rpm-selftest-fedora:
+    continue-on-error: true
+    # Pinned like rpm-selftest: this job builds and runs podman containers and needs the same
+    # known-good podman/runc combo (see that job's note on the ancient-crun failure).
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Ensure podman, force the modern runc runtime, and report it
+        run: |
+          command -v podman >/dev/null || { sudo apt-get update && sudo apt-get install -y podman; }
+          sudo mkdir -p /etc/containers/containers.conf.d
+          printf '[engine]\nruntime = "runc"\n' | sudo tee /etc/containers/containers.conf.d/10-runc.conf
+          sudo podman version || true
+          sudo podman info --format 'runtime={{.Host.OCIRuntime.Name}} {{.Host.OCIRuntime.Version}}' 2>/dev/null || true
+
+      - name: Compute dev Release
+        id: relver
+        run: echo "release=0.${{ github.run_number }}.git$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: make -C packaging rpmtest-fedora
+        run: make -C packaging rpmtest-fedora RPM_RELEASE=${{ steps.relver.outputs.release }} OCI="sudo podman"
+
+      # if: always() so a failed selftest still surfaces the RPMs that caused it. Fedora bakes the
+      # built RPMs into the ai-tools-rpmtest:fedora image (only the run container is --rm'd), so
+      # extract from the image like the EL job does from ai-tools-rpmbase:elN.
+      - name: Extract dev RPMs
+        if: always()
+        run: |
+          sudo podman image exists ai-tools-rpmtest:fedora || { echo "no image built; nothing to extract"; exit 0; }
+          cid=$(sudo podman create ai-tools-rpmtest:fedora)
+          mkdir -p dist-rpms
+          sudo podman cp "${cid}":/opt/ai-tools-src/packaging/rpmbuild/RPMS/noarch/. dist-rpms/
+          sudo podman rm "${cid}" >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" dist-rpms
+
+      - name: Upload dev RPM artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ai-tools-rpms-fedora-${{ steps.relver.outputs.release }}
+          path: dist-rpms/*.rpm
+          if-no-files-found: ignore
+          retention-days: 14
+
   # Release tags publish; workflow_dispatch rehearses the identical build+sign+verify path with
   # the publish steps skipped (tag-gated below). The channel follows the tag, never the branch:
   # vX.Y.Z -> GitHub Release + rpm.dagnode.com, vX.Y.Z-rc.N -> GitHub prerelease only. Process
