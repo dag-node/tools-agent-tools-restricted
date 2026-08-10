@@ -5,11 +5,10 @@
 # Rocky 9/10 minimal both ship microdnf and the same package names installed below, so this recipe
 # builds unchanged across them.
 #
-# Fedora is intentionally NOT built from this recipe: Fedora merges /usr/local/sbin into
-# /usr/local/bin, so the spec's ai_sbindir helper directory (/usr/local/sbin/ai-tools) and its
-# ai_bindir CLI file (/usr/local/bin/ai-tools) canonicalize to the same path and rpm refuses the
-# transaction. Native Fedora packaging needs a path rework first; FedoraLatestBase.Containerfile is
-# the stub that future Fedora CI (unstable-feature testing, Fedora-specific RPMs) will build on.
+# Fedora is not built from THIS recipe, but only because the base images and dnf front-end differ:
+# it has its own FedoraLatestBase.Containerfile. The helper tree lives at ai_libexecdir
+# (/usr/local/libexec/ai-tools), which the Fedora bin/sbin merge leaves untouched, so the earlier
+# /usr/local/sbin-vs-/usr/local/bin file conflict no longer exists -- one layout serves both.
 #
 # Build a distro image (two steps; the Makefile wraps them as `rpmtest-rocky9` / `-rocky10`):
 #   podman build -t ai-tools-rpmbase:el9 -f packaging/ELBase.Containerfile \
