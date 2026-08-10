@@ -2,9 +2,9 @@
 paths:
   - "src/opt/ai-tools/bin/nvm-update.sh"
   - "src/usr/local/lib/ai-tools/npm-verify.lib.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-bootstrap.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-launcher-symlink.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-relabel-agent.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh"
   - "src/usr/lib/systemd/user/nvm-update.service"
   - "src/usr/lib/systemd/user/nvm-update.timer"
   - "src/usr/lib/systemd/system/ai-tools-relabel.path"

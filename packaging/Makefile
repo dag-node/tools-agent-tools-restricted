@@ -6,6 +6,7 @@
 #   make clean           remove build artifacts
 #   make rpmtest-rocky9  build + run the Rocky 9 RPM smoke-test container (see *.Containerfile)
 #   make rpmtest-rocky10 build + run the Rocky 10 RPM smoke-test container
+#   make rpmtest-fedora  build + run the native Fedora RPM smoke-test container
 #
 # The tarball is built from the WORKING TREE (not `git archive`), so it includes
 # not-yet-committed sources during development.
@@ -58,21 +59,23 @@ CONTENT = src docs $(POLICY_PP) $(POLICY_SRC) \
 
 # Container smoke test: the shared ELBase recipe parameterized by an EL base image, then a
 # thin per-distro overlay (see ELBase.Containerfile). OCI tool + EL bases are overridable. Fedora
-# is not a target here: Fedora merges /usr/local/sbin into /usr/local/bin, which collides the
-# ai_sbindir helper directory with the ai_bindir CLI file; a native Fedora build needs a path
-# rework first. FedoraLatestBase.Containerfile is the stub that future Fedora CI will build on.
-OCI       ?= podman
-EL9_BASE  ?= quay.io/rockylinux/rockylinux:9.7-minimal
-EL10_BASE ?= quay.io/rockylinux/rockylinux:10-minimal
+# is not yet a `rpmtest-*` target: the helper tree now lives at ai_libexecdir
+# (/usr/local/libexec/ai-tools), which the F42 bin/sbin merge leaves untouched, so the old file
+# conflict is resolved and a native Fedora build is unblocked -- but its image/target/CI leg are
+# not wired yet. FedoraLatestBase.Containerfile is the stub that future Fedora CI will build on.
+OCI         ?= podman
+EL9_BASE    ?= quay.io/rockylinux/rockylinux:9.7-minimal
+EL10_BASE   ?= quay.io/rockylinux/rockylinux:10-minimal
+# FedoraLatestBase pins fedora-minimal:latest internally (single distro, no BASE_IMAGE arg).
 # Extra flags passed to every `OCI build`. Set BUILD_FLAGS=--no-cache to force a clean rebuild
 # when a content-addressed COPY cache hit would otherwise reuse an RPM built from older sources.
 BUILD_FLAGS ?=
 
 .PHONY: all dist srpm rpm clean rpmbase-el9 rpmbase-el10 rpmtest-rocky9 rpmtest-rocky10 \
-        check-version changelog hooks
+        rpmtest-fedora check-version changelog hooks
 
 all:
-	@echo "make dist | srpm | rpm | clean | rpmbase-el9 | rpmbase-el10 | rpmtest-rocky9 | rpmtest-rocky10"
+	@echo "make dist | srpm | rpm | clean | rpmbase-el9 | rpmbase-el10 | rpmtest-rocky9 | rpmtest-rocky10 | rpmtest-fedora"
 	@echo "     check-version | changelog | hooks"
 
 # Assert VERSION, the newest %changelog entry, and (with TAG=vX.Y.Z) a tag all agree. The
@@ -116,6 +119,13 @@ rpmtest-rocky9: rpmbase-el9
 rpmtest-rocky10: rpmbase-el10
 	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmtest:el10 -f $(CURDIR)/Rocky10.Containerfile $(ROOT)
 	$(OCI) run --rm -t --systemd=always --ulimit core=0 ai-tools-rpmtest:el10
+
+# Native Fedora smoke test. Unlike the EL pair, FedoraLatestBase is a complete runnable image
+# (single distro, its own FROM and ENTRYPOINT), so there is no separate base/overlay split -- build
+# it and run it directly. Building it also exercises the spec's `%if 0%{?fedora}` source .pp compile.
+rpmtest-fedora:
+	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmtest:fedora -f $(CURDIR)/FedoraLatestBase.Containerfile --build-arg RPM_RELEASE=$(RPM_RELEASE) $(ROOT)
+	$(OCI) run --rm -t --systemd=always --ulimit core=0 ai-tools-rpmtest:fedora
 
 # The tarball asserts its own GPL compliance: a .pp travels only with the policy source it was
 # compiled from. Both lists are globs, and a glob that matches nothing yields a tarball that looks

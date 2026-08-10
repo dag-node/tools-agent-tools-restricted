@@ -9,7 +9,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-readonly HELPER="/usr/local/sbin/ai-tools/ai-tools-setgid"
+readonly HELPER="/usr/local/libexec/ai-tools/ai-tools-setgid"
 section "ai-tools-setgid: project setgid normalization (unit)"
 
 if [[ ! -x "${HELPER}" ]]; then

@@ -600,7 +600,7 @@ allow ai_tools_handback_t init_t:unix_stream_socket { read write };
 allow ai_tools_handback_t init_t:unix_stream_socket { getattr ioctl };
 
 # Execute the root helper scripts.  They are labelled bin_t (the directory wildcard in
-# ai_tools.fc labels all of /usr/local/sbin/ai-tools(/.*)?  bin_t).  execute_no_trans:
+# ai_tools.fc labels all of /usr/local/libexec/ai-tools(/.*)?  bin_t).  execute_no_trans:
 # no domain transition -- helpers run in ai_tools_handback_t, not a separate domain.
 corecmd_exec_bin(ai_tools_handback_t)
 

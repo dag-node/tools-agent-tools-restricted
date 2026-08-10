@@ -22,6 +22,12 @@ Source2:        VERSION
 
 BuildArch:      noarch
 BuildRequires:  systemd-rpm-macros
+# Fedora only: the shipped SELinux .pp is compiled from source at build time rather than served
+# from the committed EL-built prebuilt, because Fedora's refpolicy is a newer, moving target and
+# an EL-built .pp may not load against it. EL keeps the committed prebuilt (no devel at build).
+%if 0%{?fedora}
+BuildRequires:  selinux-policy-devel
+%endif
 
 # Shell/Python scripts only: no ELF, so suppress the debuginfo subpackage and the
 # binary build-root policy steps (ldconfig/strip) that do not apply to a noarch package.
@@ -34,7 +40,7 @@ BuildRequires:  systemd-rpm-macros
 # Install paths are LITERAL /usr/local/* (not %%{_sbindir}/%%{_bindir}/%%{_libdir}): the
 # sandbox hardcodes these exact paths in the SELinux file-contexts, the CLI's helper lookups,
 # the hooks' handback-client path, and sudoers, so the package must place files there.
-%global ai_sbindir /usr/local/sbin/ai-tools
+%global ai_libexecdir /usr/local/libexec/ai-tools
 %global ai_bindir  /usr/local/bin
 %global ai_mandir  /usr/local/share/man
 %global ai_libdir  /usr/local/lib/ai-tools
@@ -221,22 +227,22 @@ grep -rlZ '@AI_TOOLS_VERSION@' src \
 # the launcher through an o+x search bit, so the agent is never the owner of a locked dir.
 
 # ── base: root helpers ───────────────────────────────────────────────────────
-install -d -m 0750 %{buildroot}%{ai_sbindir}
+install -d -m 0750 %{buildroot}%{ai_libexecdir}
 for h in ai-tools-chown ai-tools-setgid ai-tools-setfacl ai-tools-unclaim \
          ai-tools-lockdown ai-tools-relabel ai-tools-safedir ai-tools-reclaim \
          ai-tools-admin; do
-    install -m 0750 src%{ai_sbindir}/${h}.sh %{buildroot}%{ai_sbindir}/${h}
+    install -m 0750 src%{ai_libexecdir}/${h}.sh %{buildroot}%{ai_libexecdir}/${h}
 done
-install -m 0750 src%{ai_sbindir}/ai-tools-handback.py %{buildroot}%{ai_sbindir}/ai-tools-handback
+install -m 0750 src%{ai_libexecdir}/ai-tools-handback.py %{buildroot}%{ai_libexecdir}/ai-tools-handback
 
 # ai-tools-admin is typed by an administrator (documented as a bare command) and is the one
 # base helper that is not daemon- or sudoers-invoked by fixed path, so it gets a symlink in
 # %{_sbindir}: sudo resolves a bare command against the sudoers secure_path, which on stock
 # EL is /sbin:/bin:/usr/sbin:/usr/bin and does NOT include /usr/local/sbin. The target keeps
-# its canonical %{ai_sbindir} path. ai-tools-bootstrap gets the same treatment in the
+# its canonical %{ai_libexecdir} path. ai-tools-bootstrap gets the same treatment in the
 # ai-tools-integration-nodejs subpackage.
 install -d -m 0755 %{buildroot}%{_sbindir}
-ln -s %{ai_sbindir}/ai-tools-admin %{buildroot}%{_sbindir}/ai-tools-admin
+ln -s %{ai_libexecdir}/ai-tools-admin %{buildroot}%{_sbindir}/ai-tools-admin
 
 # ── base: CLI + handback client ──────────────────────────────────────────────
 install -d -m 0755 %{buildroot}%{ai_bindir}
@@ -295,7 +301,8 @@ install -d -m 0755 %{buildroot}%{_sysusersdir}
 install -m 0644 %{SOURCE1} %{buildroot}%{_sysusersdir}/ai-tools.conf
 
 # ── base: static %ai-ops sudoers drop-in (the @SANDBOX_*@ tokens are substituted in %build;
-#    %ai-ops is literal, so the file is host-identical and ships unchanged) ──
+#    %ai-ops is literal, so the file is host-identical and ships unchanged). Packaged %config
+#    (replace, not noreplace) so an upgrade always installs the shipped rule -- see %files. ──
 install -d -m 0750 %{buildroot}%{_sysconfdir}/sudoers.d
 install -m 0440 src%{_sysconfdir}/sudoers.d/ai-tools %{buildroot}%{_sysconfdir}/sudoers.d/ai-tools
 
@@ -319,6 +326,14 @@ chmod 0644 %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 # ai-tools-admin points the operator there rather than loading an unaudited module. Keep this
 # list in step with the stable set in selinux-groups.lib.sh.
 install -d -m 0755 %{buildroot}%{_datadir}/selinux/packages/ai-tools
+# On Fedora, compile the .pp from the shipped .te/.fc/.if via the refpolicy Makefile (in the
+# tarball for GPL compliance) so the module targets the host's own refpolicy version; on EL, serve
+# the committed prebuilt. The .fc source -- carrying the /usr/local/libexec/ai-tools helper path --
+# is the single source both consume, so the layout is identical on either build. The %{?dist} tag
+# (.fc44 vs .el10) keeps a Fedora-built .pp from ever reaching an EL host or vice versa.
+%if 0%{?fedora}
+make -C selinux/policy ai_tools.pp ai_tools_tmpmap.pp
+%endif
 for pp in ai_tools ai_tools_tmpmap; do
     install -m 0644 selinux/policy/${pp}.pp \
         %{buildroot}%{_datadir}/selinux/packages/ai-tools/${pp}.pp
@@ -363,12 +378,12 @@ find %{buildroot}%{_datadir}/ai-tools/subagents %{buildroot}%{_datadir}/ai-tools
 
 # ── integration-nodejs: toolchain helpers + updater ──────────────────────────
 for h in ai-tools-launcher-symlink ai-tools-relabel-agent ai-tools-bootstrap; do
-    install -m 0750 src%{ai_sbindir}/${h}.sh %{buildroot}%{ai_sbindir}/${h}
+    install -m 0750 src%{ai_libexecdir}/${h}.sh %{buildroot}%{ai_libexecdir}/${h}
 done
 # ai-tools-bootstrap is administrator-typed (documented as a bare command); symlinked in
 # %{_sbindir} so `sudo ai-tools-bootstrap` resolves via secure_path, mirroring
 # ai-tools-admin in the base subpackage.
-ln -s %{ai_sbindir}/ai-tools-bootstrap %{buildroot}%{_sbindir}/ai-tools-bootstrap
+ln -s %{ai_libexecdir}/ai-tools-bootstrap %{buildroot}%{_sbindir}/ai-tools-bootstrap
 install -m 0550 src/opt/ai-tools/bin/nvm-update.sh %{buildroot}/opt/ai-tools/bin/nvm-update.sh
 
 # ── integration-nodejs: toolchain update units + post-upgrade relabel watcher ─
@@ -390,8 +405,8 @@ install -m 0644 src%{ai_libdir}/integrations.d/dotnet.conf  %{buildroot}%{ai_lib
 # Its command-filter rules (SDK verbosity), which are .NET knowledge and so ship with the .NET
 # package rather than in the base's core.rules.
 install -m 0644 src%{ai_libdir}/filters.d/dotnet.rules      %{buildroot}%{ai_libdir}/filters.d/dotnet.rules
-install -m 0750 src%{ai_sbindir}/ai-tools-dotnet.sh         %{buildroot}%{ai_sbindir}/ai-tools-dotnet
-ln -s %{ai_sbindir}/ai-tools-dotnet %{buildroot}%{_sbindir}/ai-tools-dotnet
+install -m 0750 src%{ai_libexecdir}/ai-tools-dotnet.sh         %{buildroot}%{ai_libexecdir}/ai-tools-dotnet
+ln -s %{ai_libexecdir}/ai-tools-dotnet %{buildroot}%{_sbindir}/ai-tools-dotnet
 # Ghost this helper's operation log alongside the base helpers' (the /var/log/ai-tools dir itself
 # is base-owned), so it carries the package's context and is removed with the package.
 touch %{buildroot}/var/log/ai-tools/dotnet.log
@@ -528,6 +543,46 @@ fi
 # ~/.config/ai-tools. The SELinux module unload lives with the policy payload, in
 # %postun -n ai-tools-selinux.
 
+%posttrans -n ai-tools-base
+# Helper-layout migration (0.10.0): the root helper tree moved
+# /usr/local/sbin/ai-tools -> /usr/local/libexec/ai-tools so ONE layout serves EL and the
+# Fedora bin/sbin merge. rpm's own file handling completes the move (old helpers leave %files
+# and are deleted; the sudoers drop-in is now plain %config, replaced on an unmodified host).
+# This scriptlet is the fail-safe for a host that reaches 0.10.0 while STILL on the old
+# noreplace sudoers file (its new-path copy parked inert as .rpmnew), plus a guarded sweep of an
+# empty old helper dir. Every step fails closed: it only ever rewrites a validated file or
+# removes an already-empty rpm-orphaned dir, and never touches operator config.
+_su=/etc/sudoers.d/ai-tools
+_old=/usr/local/sbin/ai-tools
+_new=/usr/local/libexec/ai-tools
+# Rewrite a lingering old-path relabel-agent rule to the new path, but only through a
+# visudo-validated temp file swapped in atomically; on any validation failure leave the working
+# file untouched and report, so a malformed rewrite can never disable or widen the guardrail.
+if command -v visudo >/dev/null 2>&1 && [ -f "${_su}" ] && grep -q "${_old}/" "${_su}" 2>/dev/null; then
+    if visudo -cf "${_su}" >/dev/null 2>&1; then
+        _tmp="${_su}.rpmmig.$$"    # dotted suffix: sudo ignores it even if a failure strands it
+        if sed "s#${_old}/#${_new}/#g" "${_su}" > "${_tmp}" 2>/dev/null \
+           && visudo -cf "${_tmp}" >/dev/null 2>&1; then
+            chmod 0440 "${_tmp}" 2>/dev/null || :
+            chown root:root "${_tmp}" 2>/dev/null || :
+            mv -f "${_tmp}" "${_su}"    # atomic same-dir rename
+            command -v restorecon >/dev/null 2>&1 && restorecon "${_su}" >/dev/null 2>&1 || :
+            echo "ai-tools: migrated the sudoers relabel-agent rule to ${_new} (helper layout moved)."
+        else
+            rm -f "${_tmp}" 2>/dev/null || :
+            echo "ai-tools: WARNING could not migrate ${_su} to the new helper path; edit it with visudo and point the relabel-agent rule at ${_new}." >&2
+        fi
+    else
+        echo "ai-tools: WARNING ${_su} does not validate; not migrating the helper path automatically. Run visudo -cf ${_su}." >&2
+    fi
+fi
+# Remove the old helper directory only if it is a real, empty directory (rpm deletes the old
+# helper files as they leave %files, but the %dir may linger on a partial state). Never a symlink
+# (a Fedora host where /usr/local/sbin -> /usr/local/bin) and never recursive/forced.
+if [ -d "${_old}" ] && [ ! -L "${_old}" ]; then
+    rmdir "${_old}" 2>/dev/null || :
+fi
+
 %post -n ai-tools-selinux
 # Load the core module into the RUNNING policy and apply contexts. Core only -- the stable
 # optional groups ship prebuilt alongside it but stay OFF, toggled per host with
@@ -542,7 +597,7 @@ fi
 if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/null 2>&1; then
     semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp >/dev/null 2>&1 || :
     if command -v restorecon >/dev/null 2>&1; then
-        restorecon -R %{ai_sbindir} %{ai_libdir} /opt/ai-tools /var/log/ai-tools >/dev/null 2>&1 || :
+        restorecon -R %{ai_libexecdir} %{ai_libdir} /opt/ai-tools /var/log/ai-tools >/dev/null 2>&1 || :
     fi
 fi
 
@@ -581,8 +636,8 @@ fi
 # /var/log/ai-tools/dotnet.log) and the scriptlet reports the remedy and exits non-zero, so rpm
 # records a scriptlet failure against this package alone -- the transaction still completes, which
 # is what a weakly-pulled optional integration should do to the rest of the stack.
-if [ -x %{ai_sbindir}/ai-tools-dotnet ]; then
-    %{ai_sbindir}/ai-tools-dotnet setup >/dev/null || {
+if [ -x %{ai_libexecdir}/ai-tools-dotnet ]; then
+    %{ai_libexecdir}/ai-tools-dotnet setup >/dev/null || {
         echo "ai-tools-integration-dotnet: provisioning failed; see 'journalctl -t ai-tools-dotnet'" >&2
         echo "ai-tools-integration-dotnet: fix the cause and re-run: sudo ai-tools-dotnet setup" >&2
         exit 1
@@ -600,8 +655,8 @@ fi
 # Not swallowed: an entrypoint that stays mislabelled means ai-tools-run refuses every launch, so
 # the scriptlet reports the remedy and exits non-zero rather than leaving that to be discovered
 # at the first `claude`.
-if [ -x %{ai_sbindir}/ai-tools-relabel-agent ]; then
-    %{ai_sbindir}/ai-tools-relabel-agent >/dev/null || {
+if [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
+    %{ai_libexecdir}/ai-tools-relabel-agent >/dev/null || {
         echo "ai-tools-agents-claude-code-restricted: entrypoint labelling failed; see 'journalctl -t ai-tools-relabel-agent'" >&2
         echo "ai-tools-agents-claude-code-restricted: fix the cause and re-run: sudo ai-tools --relabel" >&2
         exit 1
@@ -637,8 +692,8 @@ fi
 # may erase next, and a local rule naming an undefined type breaks later relabels. Runs in %preun,
 # not %postun, because the pattern is read from this package's manifest, which is still on disk
 # here.
-if [ "$1" -eq 0 ] && [ -x %{ai_sbindir}/ai-tools-relabel-agent ]; then
-    %{ai_sbindir}/ai-tools-relabel-agent --remove claude-code >/dev/null 2>&1 || :
+if [ "$1" -eq 0 ] && [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
+    %{ai_libexecdir}/ai-tools-relabel-agent --remove claude-code >/dev/null 2>&1 || :
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -655,18 +710,18 @@ fi
 
 %files -n ai-tools-base
 %license LICENSE
-%dir %attr(0750, root, root) %{ai_sbindir}
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-chown
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-setgid
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-setfacl
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-unclaim
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-lockdown
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-relabel
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-safedir
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-reclaim
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-admin
+%dir %attr(0750, root, root) %{ai_libexecdir}
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-chown
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-setgid
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-setfacl
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-unclaim
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-lockdown
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-relabel
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-safedir
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-reclaim
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-admin
 %{_sbindir}/ai-tools-admin
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-handback
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-handback
 %attr(0755, root, root) %{ai_bindir}/ai-tools
 %{_sbindir}/ai-tools
 %attr(0644, root, root) %{ai_mandir}/man1/ai-tools.1*
@@ -697,7 +752,15 @@ fi
 %attr(0644, root, root) %{ai_libdir}/path-dedup.sh
 %{_unitdir}/ai-tools-handback.socket
 %{_unitdir}/ai-tools-handback@.service
-%config(noreplace) %attr(0440, root, root) %{_sysconfdir}/sudoers.d/ai-tools
+# Plain %config (replace on upgrade), NOT noreplace: the file is host-identical by
+# construction (@SANDBOX_*@ substituted to the constant ai-tools at %build, %ai-ops literal),
+# so it carries no operator config to preserve. Replace guarantees the guardrail -- including
+# the sudoers path of the root relabel-agent rule -- always matches the shipped version instead
+# of drifting under noreplace: on the unmodified host rpm sees on-disk == prior-packaged and
+# replaces silently; on a hand-edited host it parks the old file as .rpmsave (ignored by sudo,
+# which skips dotted names), so no stale-path rule ever stays active. %posttrans is the fail-safe
+# for a host that upgraded while still on the old noreplace file.
+%config %attr(0440, root, root) %{_sysconfdir}/sudoers.d/ai-tools
 %dir %attr(0755, root, root) %{_sysconfdir}/ai-tools
 %config(noreplace) %attr(0644, root, root) %{_sysconfdir}/ai-tools/operator.conf
 %{_sysusersdir}/ai-tools.conf
@@ -742,9 +805,9 @@ fi
 # Umbrella metapackage: no files of its own; weakly pulls the ai-tools-integration-* members.
 
 %files -n ai-tools-integration-nodejs
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-launcher-symlink
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-relabel-agent
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-bootstrap
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-launcher-symlink
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-relabel-agent
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-bootstrap
 %{_sbindir}/ai-tools-bootstrap
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/nvm-update.sh
 %{_userunitdir}/nvm-update.service
@@ -756,7 +819,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/session-env.d/dotnet.env.sh
 %attr(0644, root, root) %{ai_libdir}/integrations.d/dotnet.conf
 %attr(0644, root, root) %{ai_libdir}/filters.d/dotnet.rules
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-dotnet
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-dotnet
 %{_sbindir}/ai-tools-dotnet
 %ghost %attr(0600, root, root) /var/log/ai-tools/dotnet.log
 

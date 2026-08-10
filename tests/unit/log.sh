@@ -17,7 +17,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
 readonly LIB="/usr/local/lib/ai-tools/log.lib.sh"
-readonly DAEMON="/usr/local/sbin/ai-tools/ai-tools-handback"
+readonly DAEMON="/usr/local/libexec/ai-tools/ai-tools-handback"
 section "logger: input sanitization allowlist (unit)"
 
 if [[ ! -r "${LIB}" ]]; then

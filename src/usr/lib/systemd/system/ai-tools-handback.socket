@@ -38,7 +38,7 @@
 
 [Unit]
 Description=ai-tools handback privilege bridge socket
-Documentation=file:/usr/local/sbin/ai-tools/ai-tools-handback
+Documentation=file:/usr/local/libexec/ai-tools/ai-tools-handback
 
 [Socket]
 ListenStream=/run/ai-tools/handback.sock

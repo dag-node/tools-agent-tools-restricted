@@ -13,7 +13,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-readonly HELPER="/usr/local/sbin/ai-tools/ai-tools-lockdown"
+readonly HELPER="/usr/local/libexec/ai-tools/ai-tools-lockdown"
 section "ai-tools-lockdown: proactive secret sweep (unit)"
 
 if [[ ! -x "${HELPER}" ]]; then

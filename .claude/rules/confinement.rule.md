@@ -9,7 +9,7 @@ paths:
   - "src/opt/ai-tools/bin/ai-tools-run.sh"
   - "src/usr/local/lib/ai-tools/confinement.lib.sh"
   - "src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-admin.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-admin.sh"
 ---
 
 # Session confinement (namespaces, SELinux, `/tmp`)

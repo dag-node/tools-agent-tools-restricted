@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-# /usr/local/sbin/ai-tools/ai-tools-handback
+# /usr/local/libexec/ai-tools/ai-tools-handback
 # Socket-activated per-connection privilege bridge for the ai-tools sandbox.
 #
 # Spawned once per connection by ai-tools-handback@.service (Accept=yes socket
@@ -38,8 +38,8 @@
 # the helpers' chown.log/setgid.log/symlink.log.  Only the root daemon writes the file; the
 # agent-side client cannot (DAC), so it stays journald-only.
 #
-# Deploy: install.sh deploys src/usr/local/sbin/ai-tools/ai-tools-handback.py
-# to /usr/local/sbin/ai-tools/ai-tools-handback (750 root:root, @SANDBOX_USER@
+# Deploy: install.sh deploys src/usr/local/libexec/ai-tools/ai-tools-handback.py
+# to /usr/local/libexec/ai-tools/ai-tools-handback (750 root:root, @SANDBOX_USER@
 # substituted by install_subst).
 
 import datetime
@@ -158,9 +158,9 @@ _MAX_ARG = 4096
 _MAX_MSG_LINES = 50
 
 _HELPERS = {
-    'CHOWN':   '/usr/local/sbin/ai-tools/ai-tools-chown',
-    'SETGID':  '/usr/local/sbin/ai-tools/ai-tools-setgid',
-    'SYMLINK': '/usr/local/sbin/ai-tools/ai-tools-launcher-symlink',
+    'CHOWN':   '/usr/local/libexec/ai-tools/ai-tools-chown',
+    'SETGID':  '/usr/local/libexec/ai-tools/ai-tools-setgid',
+    'SYMLINK': '/usr/local/libexec/ai-tools/ai-tools-launcher-symlink',
 }
 
 

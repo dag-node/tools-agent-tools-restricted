@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# /usr/local/sbin/ai-tools/ai-tools-lockdown
+# /usr/local/libexec/ai-tools/ai-tools-lockdown
 # Proactively revoke ai-tools' access to credential files under the CURRENT
 # project. Walks the current working directory and, for every path whose basename
 # matches a secret pattern -- the SAME set ai-tools-chown uses, from the shared
@@ -21,7 +21,7 @@
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
-#       src/usr/local/sbin/ai-tools/ai-tools-lockdown.sh /usr/local/sbin/ai-tools/ai-tools-lockdown
+#       src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh /usr/local/libexec/ai-tools/ai-tools-lockdown
 
 set -euo pipefail
 

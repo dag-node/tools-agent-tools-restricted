@@ -153,7 +153,7 @@ modified after an operator is added.
 
 ## Operator administration
 
-`ai-tools-admin operator add|remove|list` (`/usr/local/sbin/ai-tools/ai-tools-admin`,
+`ai-tools-admin operator add|remove|list` (`/usr/local/libexec/ai-tools/ai-tools-admin`,
 root, run via `sudo`) manages the operators -- the login users (a human or a rootless
 service account) that drive the sandbox through the shared `ai-tools` account. It is a
 root helper rather than an `ai-tools` CLI verb, because it edits host config (the
@@ -186,7 +186,7 @@ ordered `sudo ai-tools-bootstrap` then `sudo ai-tools-admin operator add <user>`
 
 ## Bootstrap
 
-`ai-tools-bootstrap` (`/usr/local/sbin/ai-tools/ai-tools-bootstrap`, root, run via
+`ai-tools-bootstrap` (`/usr/local/libexec/ai-tools/ai-tools-bootstrap`, root, run via
 `sudo`; shipped by `ai-tools-integration-nodejs`) creates the `ai-tools` system account
 and its `/opt/ai-tools` home when absent, then installs nvm, Node, and each **enabled**
 agent's npm package under `/opt/ai-tools` as the sandbox account, and points

@@ -199,7 +199,7 @@ package ships unchanged — membership in the `ai-ops` operators group (managed 
 
 ```
 %ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/ai-tools-run
-%ai-ops  ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-agent ""
+%ai-ops  ALL=(root)                       NOPASSWD: /usr/local/libexec/ai-tools/ai-tools-relabel-agent ""
 ```
 
 The first rule **drops** privilege to the lower-privileged `SANDBOX_USER`; the agent runs

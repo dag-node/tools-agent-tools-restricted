@@ -17,7 +17,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-readonly helper="/usr/local/sbin/ai-tools/ai-tools-launcher-symlink"
+readonly helper="/usr/local/libexec/ai-tools/ai-tools-launcher-symlink"
 readonly bin_dir="/opt/ai-tools/bin"
 section "ai-tools-launcher-symlink: validation + idempotent repoint (integration)"
 

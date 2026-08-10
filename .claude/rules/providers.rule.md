@@ -6,7 +6,7 @@ paths:
   - "src/usr/local/lib/ai-tools/integrations.d/**"
   - "src/usr/local/lib/ai-tools/session-env.d/**"
   - "src/usr/local/lib/ai-tools/claude-endpoint.lib.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-dotnet.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-dotnet.sh"
 ---
 
 # Provider manifests, enablement, and integrations

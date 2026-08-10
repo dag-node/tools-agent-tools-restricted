@@ -385,7 +385,7 @@ bootstrap_launcher_symlinks() {
             warn "         provision the toolchain: sudo ai-tools-bootstrap"
             continue
         fi
-        if /usr/local/sbin/ai-tools/ai-tools-launcher-symlink "${versioned_launcher}"; then
+        if /usr/local/libexec/ai-tools/ai-tools-launcher-symlink "${versioned_launcher}"; then
             TOOLCHAIN_PROVISIONED=1
             log "symlink ${ai_tools_bin}/${launcher} -> ${versioned_launcher}"
         else
@@ -410,7 +410,7 @@ do_selinux_restore() {
         /etc/sudoers.d/ai-tools \
         /etc/ai-tools/operator.conf
     restorecon -R \
-        /usr/local/sbin/ai-tools/ \
+        /usr/local/libexec/ai-tools/ \
         /usr/local/lib/ai-tools/ \
         /opt/ai-tools/bin/ \
         /opt/ai-tools/.config/ \
@@ -583,22 +583,22 @@ do_summary() {
     printf '\n  %-54s  %-22s  %4s  %s\n' "FILE" "OWNER" "MODE" "SELINUX TYPE"
     printf '  %s\n' "${sep}"
 
-    _chk /usr/local/sbin/ai-tools/ai-tools-chown
-    _chk /usr/local/sbin/ai-tools/ai-tools-setgid
-    _chk /usr/local/sbin/ai-tools/ai-tools-setfacl
-    _chk /usr/local/sbin/ai-tools/ai-tools-unclaim
-    _chk /usr/local/sbin/ai-tools/ai-tools-safedir
-    _chk /usr/local/sbin/ai-tools/ai-tools-reclaim
-    _chk /usr/local/sbin/ai-tools/ai-tools-launcher-symlink
-    _chk /usr/local/sbin/ai-tools/ai-tools-lockdown
-    _chk /usr/local/sbin/ai-tools/ai-tools-relabel
-    _chk /usr/local/sbin/ai-tools/ai-tools-relabel-agent
-    _chk /usr/local/sbin/ai-tools/ai-tools-bootstrap
-    _chk /usr/local/sbin/ai-tools/ai-tools-admin
+    _chk /usr/local/libexec/ai-tools/ai-tools-chown
+    _chk /usr/local/libexec/ai-tools/ai-tools-setgid
+    _chk /usr/local/libexec/ai-tools/ai-tools-setfacl
+    _chk /usr/local/libexec/ai-tools/ai-tools-unclaim
+    _chk /usr/local/libexec/ai-tools/ai-tools-safedir
+    _chk /usr/local/libexec/ai-tools/ai-tools-reclaim
+    _chk /usr/local/libexec/ai-tools/ai-tools-launcher-symlink
+    _chk /usr/local/libexec/ai-tools/ai-tools-lockdown
+    _chk /usr/local/libexec/ai-tools/ai-tools-relabel
+    _chk /usr/local/libexec/ai-tools/ai-tools-relabel-agent
+    _chk /usr/local/libexec/ai-tools/ai-tools-bootstrap
+    _chk /usr/local/libexec/ai-tools/ai-tools-admin
     _chk /usr/sbin/ai-tools-bootstrap
     _chk /usr/sbin/ai-tools-admin
     _chk /usr/sbin/ai-tools
-    _chk /usr/local/sbin/ai-tools/ai-tools-handback
+    _chk /usr/local/libexec/ai-tools/ai-tools-handback
     _chk /usr/local/bin/claude
     _chk /usr/local/bin/ai-tools-handback-client
     _chk /usr/lib/systemd/system/ai-tools-handback.socket
@@ -633,7 +633,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh
     _chk /usr/local/lib/ai-tools/integrations.d/dotnet.conf
     _chk /usr/local/lib/ai-tools/filters.d/dotnet.rules
-    _chk /usr/local/sbin/ai-tools/ai-tools-dotnet
+    _chk /usr/local/libexec/ai-tools/ai-tools-dotnet
     _chk /usr/sbin/ai-tools-dotnet
     _chk /usr/local/lib/ai-tools/control-plane.lib.sh
     _chk /usr/local/lib/ai-tools/managed-assets.lib.sh
@@ -747,49 +747,61 @@ do_install() {
     section "System files (root-owned)"
 
     # All ai-tools sudo-helpers live under one dir (parallels /usr/local/lib/ai-tools).
-    # `install` does not create parents, so make it first. 750 root:root -- no world
-    # bit, preventing non-root users from listing the helper names. The helpers run in
-    # ai_tools_t via sudo with no domain transition; bin_t is the correct context for
-    # /usr/local/sbin. Enforce on re-install even when the dir pre-exists.
-    log "/usr/local/sbin/ai-tools/"
-    ensure_dir 750 root root /usr/local/sbin/ai-tools
-    chown root:root /usr/local/sbin/ai-tools
-    chmod 750 /usr/local/sbin/ai-tools
+    # libexec, not sbin: /usr/local/libexec is untouched by the Fedora bin/sbin merge, so one
+    # layout serves EL and Fedora, and FHS-correct for programs invoked by other programs (the
+    # handback socket, the sudo relabel-agent rule, sibling helpers), never typed. `install` does
+    # not create parents, so make it first. 750 root:root -- no world bit, preventing non-root
+    # users from listing the helper names. The helpers run in ai_tools_t via sudo with no domain
+    # transition; bin_t is the correct context for the tree. Enforce on re-install even when the
+    # dir pre-exists.
+    log "/usr/local/libexec/ai-tools/"
+    ensure_dir 750 root root /usr/local/libexec/ai-tools
+    chown root:root /usr/local/libexec/ai-tools
+    chmod 750 /usr/local/libexec/ai-tools
+    # Migration: the helper tree used to live at /usr/local/sbin/ai-tools. Remove the old tree so
+    # a from-source upgrade does not strand stale-path helpers a caller might still resolve. Guard
+    # to a real directory (never a symlink -- a Fedora host where /usr/local/sbin -> /usr/local/bin
+    # would otherwise take out /usr/local/bin/ai-tools). The new tree is a different path, already
+    # placed above.
+    if [[ -d /usr/local/sbin/ai-tools && ! -L /usr/local/sbin/ai-tools ]]; then
+        log "removing superseded /usr/local/sbin/ai-tools"
+        rm -rf /usr/local/sbin/ai-tools
+    fi
 
-    log "/usr/local/sbin/ai-tools/ai-tools-chown"
+    log "/usr/local/libexec/ai-tools/ai-tools-chown"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-chown.sh" \
-        /usr/local/sbin/ai-tools/ai-tools-chown
+        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-chown.sh" \
+        /usr/local/libexec/ai-tools/ai-tools-chown
 
-    log "/usr/local/sbin/ai-tools/ai-tools-setgid"
+    log "/usr/local/libexec/ai-tools/ai-tools-setgid"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-setgid.sh" \
-        /usr/local/sbin/ai-tools/ai-tools-setgid
+        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-setgid.sh" \
+        /usr/local/libexec/ai-tools/ai-tools-setgid
 
-    log "/usr/local/sbin/ai-tools/ai-tools-setfacl"
+    log "/usr/local/libexec/ai-tools/ai-tools-setfacl"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-setfacl.sh" \
-        /usr/local/sbin/ai-tools/ai-tools-setfacl
+        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh" \
+        /usr/local/libexec/ai-tools/ai-tools-setfacl
 
-    log "/usr/local/sbin/ai-tools/ai-tools-unclaim"
+    log "/usr/local/libexec/ai-tools/ai-tools-unclaim"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-unclaim.sh" \
-        /usr/local/sbin/ai-tools/ai-tools-unclaim
+        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh" \
+        /usr/local/libexec/ai-tools/ai-tools-unclaim
 
-    log "/usr/local/sbin/ai-tools/ai-tools-safedir"
+    log "/usr/local/libexec/ai-tools/ai-tools-safedir"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-safedir.sh" \
-        /usr/local/sbin/ai-tools/ai-tools-safedir
+        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-safedir.sh" \
+        /usr/local/libexec/ai-tools/ai-tools-safedir
 
-    log "/usr/local/sbin/ai-tools/ai-tools-reclaim"
+    log "/usr/local/libexec/ai-tools/ai-tools-reclaim"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-reclaim.sh" \
-        /usr/local/sbin/ai-tools/ai-tools-reclaim
+        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh" \
+        /usr/local/libexec/ai-tools/ai-tools-reclaim
 
-    log "/usr/local/sbin/ai-tools/ai-tools-launcher-symlink"
+    log "/usr/local/libexec/ai-tools/ai-tools-launcher-symlink"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-launcher-symlink.sh" \
-        /usr/local/sbin/ai-tools/ai-tools-launcher-symlink
+        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh" \
+        /usr/local/libexec/ai-tools/ai-tools-launcher-symlink
 
     # Shared libraries, sourced by the helpers AND by the operator-run CLI/wrapper.
     # The dir is root-owned, group SANDBOX_GROUP, 0751: the agent enters via group,
@@ -905,7 +917,7 @@ do_install() {
 
     # dotnet integration data files (optional; inert without a host dotnet). The session-env
     # fragment ai-tools-run sources when dotnet is enabled, and the manifest providers.lib.sh reads.
-    # The ai-tools-dotnet helper is installed with the other sbin helpers below. No secrets.
+    # The ai-tools-dotnet helper is installed with the other libexec helpers below. No secrets.
     log "/usr/local/lib/ai-tools/session-env.d/dotnet.env.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/session-env.d/dotnet.env.sh" \
@@ -1008,64 +1020,64 @@ do_install() {
         /usr/local/lib/ai-tools/relabel.lib.sh
 
     # Manual pre-flight lockdown sweep. Run by the user (sudo), never by ai-tools.
-    log "/usr/local/sbin/ai-tools/ai-tools-lockdown"
+    log "/usr/local/libexec/ai-tools/ai-tools-lockdown"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-lockdown.sh" \
-        /usr/local/sbin/ai-tools/ai-tools-lockdown
+        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh" \
+        /usr/local/libexec/ai-tools/ai-tools-lockdown
 
     # SELinux project-label helper. 750 root:root -- root-owned, root-only-executable:
     # run by the user via sudo (no SANDBOX_USER grant), never by ai-tools. install_subst
     # substitutes @PROJECTS_HOME@ (the allowlist path it validates a target against).
-    log "/usr/local/sbin/ai-tools/ai-tools-relabel"
+    log "/usr/local/libexec/ai-tools/ai-tools-relabel"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-relabel.sh" \
-        /usr/local/sbin/ai-tools/ai-tools-relabel
+        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-relabel.sh" \
+        /usr/local/libexec/ai-tools/ai-tools-relabel
 
     # SELinux entrypoint-relabel helper. 750 root:root -- run AS root: automatically by the
     # ai-tools-relabel.path watcher after a Node upgrade, and on demand by `ai-tools --relabel`
     # (the second %ai-ops NOPASSWD rule); never by ai-tools. No @-substitution needed (no
     # placeholders), but install_subst keeps the deploy path uniform with the other helpers.
-    log "/usr/local/sbin/ai-tools/ai-tools-relabel-agent"
+    log "/usr/local/libexec/ai-tools/ai-tools-relabel-agent"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-relabel-agent.sh" \
-        /usr/local/sbin/ai-tools/ai-tools-relabel-agent
+        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh" \
+        /usr/local/libexec/ai-tools/ai-tools-relabel-agent
 
     # Node toolchain bootstrap (creates the sandbox account + installs nvm/Node/claude). Run by
     # the operator (sudo) before/independently of install; deployed here for re-runs and the RPM.
-    log "/usr/local/sbin/ai-tools/ai-tools-bootstrap"
+    log "/usr/local/libexec/ai-tools/ai-tools-bootstrap"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-bootstrap.sh" \
-        /usr/local/sbin/ai-tools/ai-tools-bootstrap
+        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh" \
+        /usr/local/libexec/ai-tools/ai-tools-bootstrap
 
     # Host administration: ai-tools-admin operator add|remove|list manages the OPERATORS list and
     # ai-ops membership. This dev install binds the invoking user as the sole operator inline below.
-    log "/usr/local/sbin/ai-tools/ai-tools-admin"
+    log "/usr/local/libexec/ai-tools/ai-tools-admin"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-admin.sh" \
-        /usr/local/sbin/ai-tools/ai-tools-admin
+        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-admin.sh" \
+        /usr/local/libexec/ai-tools/ai-tools-admin
 
     # dotnet integration provisioning helper (optional integration; administrator-typed like
     # bootstrap/admin). Creates the sandbox NuGet cache + shared tools dir and installs global
     # tools -- run `sudo ai-tools-dotnet setup` to provision, then enable `dotnet` in operator.conf.
-    log "/usr/local/sbin/ai-tools/ai-tools-dotnet"
+    log "/usr/local/libexec/ai-tools/ai-tools-dotnet"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-dotnet.sh" \
-        /usr/local/sbin/ai-tools/ai-tools-dotnet
+        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-dotnet.sh" \
+        /usr/local/libexec/ai-tools/ai-tools-dotnet
 
     # Put the two human-facing admin commands where `sudo <name>` resolves them. The
-    # sudo-helpers under /usr/local/sbin/ai-tools/ are invoked by the daemon and sudoers by
+    # sudo-helpers under /usr/local/libexec/ai-tools/ are invoked by the daemon and sudoers by
     # fixed path and stay hidden there, but ai-tools-bootstrap and ai-tools-admin are typed by
     # an administrator and documented as bare commands. sudo resolves a bare command against
     # the sudoers secure_path, which on stock EL is /sbin:/bin:/usr/sbin:/usr/bin -- it does
     # NOT include /usr/local/sbin -- so the symlinks live in /usr/sbin (also on root's shell
-    # PATH). The targets keep their canonical /usr/local/sbin/ai-tools/ path (sudoers, perms
+    # PATH). The targets keep their canonical /usr/local/libexec/ai-tools/ path (sudoers, perms
     # checks, docs reference it).
-    log "/usr/sbin/ai-tools-bootstrap -> /usr/local/sbin/ai-tools/ai-tools-bootstrap"
-    ln -sfn /usr/local/sbin/ai-tools/ai-tools-bootstrap /usr/sbin/ai-tools-bootstrap
-    log "/usr/sbin/ai-tools-admin -> /usr/local/sbin/ai-tools/ai-tools-admin"
-    ln -sfn /usr/local/sbin/ai-tools/ai-tools-admin /usr/sbin/ai-tools-admin
-    log "/usr/sbin/ai-tools-dotnet -> /usr/local/sbin/ai-tools/ai-tools-dotnet"
-    ln -sfn /usr/local/sbin/ai-tools/ai-tools-dotnet /usr/sbin/ai-tools-dotnet
+    log "/usr/sbin/ai-tools-bootstrap -> /usr/local/libexec/ai-tools/ai-tools-bootstrap"
+    ln -sfn /usr/local/libexec/ai-tools/ai-tools-bootstrap /usr/sbin/ai-tools-bootstrap
+    log "/usr/sbin/ai-tools-admin -> /usr/local/libexec/ai-tools/ai-tools-admin"
+    ln -sfn /usr/local/libexec/ai-tools/ai-tools-admin /usr/sbin/ai-tools-admin
+    log "/usr/sbin/ai-tools-dotnet -> /usr/local/libexec/ai-tools/ai-tools-dotnet"
+    ln -sfn /usr/local/libexec/ai-tools/ai-tools-dotnet /usr/sbin/ai-tools-dotnet
     # The ai-tools CLI gets the same secure_path symlink for the OPPOSITE reason: it must
     # never run under sudo, and without the symlink `sudo ai-tools` dies with sudo's
     # "command not found" (/usr/local/bin is not in secure_path) before the CLI's own
@@ -1077,10 +1089,10 @@ do_install() {
     # root-executable: this is the privileged endpoint; the SANDBOX_USER reaches it
     # via the socket, never by exec'ing it directly.  install_subst substitutes
     # @SANDBOX_USER@ in the Python source before deployment.
-    log "/usr/local/sbin/ai-tools/ai-tools-handback"
+    log "/usr/local/libexec/ai-tools/ai-tools-handback"
     install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/sbin/ai-tools/ai-tools-handback.py" \
-        /usr/local/sbin/ai-tools/ai-tools-handback
+        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-handback.py" \
+        /usr/local/libexec/ai-tools/ai-tools-handback
 
     # Handback client.  750 root:SANDBOX_GROUP -- root-owned but group-executable so
     # SANDBOX_USER (a member of SANDBOX_GROUP) can run it from the hooks and the
@@ -1713,8 +1725,11 @@ do_uninstall() {
     # Remove the helper and library trees whole: they hold only deployed files, never
     # operator or agent state, so a dir-level removal leaves nothing behind and never
     # drifts out of sync with the install list the way an enumerated rm would.
-    rm -rf /usr/local/sbin/ai-tools
-    rm -f /usr/sbin/ai-tools-bootstrap         # sudo-PATH symlinks -> /usr/local/sbin/ai-tools/...
+    rm -rf /usr/local/libexec/ai-tools
+    # Sweep the pre-0.10.0 helper location too, in case an uninstall follows an install that
+    # never ran the migration. Guarded to a real dir so a Fedora sbin->bin symlink is left alone.
+    [ -d /usr/local/sbin/ai-tools ] && [ ! -L /usr/local/sbin/ai-tools ] && rm -rf /usr/local/sbin/ai-tools
+    rm -f /usr/sbin/ai-tools-bootstrap         # sudo-PATH symlinks -> /usr/local/libexec/ai-tools/...
     rm -f /usr/sbin/ai-tools-admin
     rm -f /usr/sbin/ai-tools                   # secure_path symlink -> /usr/local/bin/ai-tools
     rm -rf /usr/local/lib/ai-tools
