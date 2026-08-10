@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/providers.lib.sh
 # Resolve which sandboxed providers are enabled and how to provision each. This is the seam that
 # keeps the toolchain and launch layers provider-agnostic: a provider's details live in a

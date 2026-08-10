@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/chown.sh
 # Hermetic unit tests for the deployed ai-tools-chown helper: it acts only on agent
 # (SANDBOX_USER)-owned paths, hands ordinary ones back to <projects-user>:SANDBOX_GROUP with

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/selinux-groups.sh
 # Unit test for the optional SELinux policy-group registry (selinux-groups.lib.sh), the single
 # source shared by ai-tools-admin (loads a prebuilt group) and selinux/install-selinux.sh

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/bin/ai-tools-handback-client
 # Client for the ai-tools handback privilege bridge.
 #

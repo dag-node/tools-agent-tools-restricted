@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/sbin/ai-tools/ai-tools-relabel-agent
 # Apply the SELinux file-context rules every enabled agent declares, and restore the labels on
 # what they match: its launcher binary -> ai_tools_exec_t, so its exec fires the -> ai_tools_t

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 [Unit]
 Description=Daily sandbox Node.js and npm tools update (nvm)
 

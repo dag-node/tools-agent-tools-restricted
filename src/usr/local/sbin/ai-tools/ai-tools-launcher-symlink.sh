@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/sbin/ai-tools/ai-tools-launcher-symlink
 # Atomically repoints an agent's stable launcher symlink -- /opt/ai-tools/bin/<launcher> -- at a
 # versioned binary under the sandbox account's nvm. Idempotent: it skips the repoint (and its log

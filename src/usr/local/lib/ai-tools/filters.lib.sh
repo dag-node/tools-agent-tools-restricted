@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/filters.lib.sh
 # Token-saving command filters: rewrite a Bash command so the tool itself produces less output,
 # and strip terminal control noise from output the model is about to read. Sourced by an agent's

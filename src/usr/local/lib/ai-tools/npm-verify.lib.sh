@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/npm-verify.lib.sh
 # Verify npm registry signatures (and SLSA provenance where published) for the globally
 # installed sandbox toolchain, so a compromised registry or mirror serving a TAMPERED

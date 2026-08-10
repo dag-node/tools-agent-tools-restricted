@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # selinux/avc/avc-denials.sh -- ENFORCE-VERIFICATION harness. Confirms the things the
 # agent must NOT be able to do are actually DENIED under enforcing.
 #

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/reclaim.sh
 # Hermetic unit tests for the deployed ai-tools-reclaim helper: it hands agent-owned files under a
 # project back to the operator via ai-tools-chown, including the .git tree the sweeps skip, while

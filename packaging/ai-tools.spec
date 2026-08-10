@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Ondřej Nedomlel <tools@dagnode.com>
+# SPDX-License-Identifier: MIT
 Name:           ai-tools
 # Single source of truth for the version: packaging/VERSION (the Makefile reads the same
 # file), so a release bump touches one place. Parsing this spec requires _sourcedir to
@@ -12,7 +14,7 @@ Version:        %(cat %{_sourcedir}/VERSION)
 Release:        %{!?rpm_release:1}%{?rpm_release}%{?dist}
 Summary:        Run Claude Code as a sandboxed system user (metapackage)
 
-License:        AGPL-3.0-or-later
+License:        AGPL-3.0-only
 URL:            https://github.com/dag-node/tools-agent-tools-restricted
 Source0:        %{name}-%{version}.tar.gz
 Source1:        %{name}.sysusers
@@ -64,13 +66,49 @@ Requires:       acl
 Requires:       python3
 Requires:       coreutils
 Requires:       policycoreutils
+# Weak, not hard: without the policy the sandbox runs in a documented DAC-only mode rather than
+# failing. ai_tools_confinement_verdict returns "ok" when the module is ABSENT (an intentional
+# DAC-only deployment) and fails closed only when it is present-but-inactive, so dropping this
+# subpackage degrades confinement without bricking a launch. Also a licence boundary: the policy
+# is the one GPL payload in the stack (see its %%description), and a weak dep keeps it separable.
+Recommends:     ai-tools-selinux = %{version}-%{release}
 
 %description -n ai-tools-base
 The provider-agnostic base layer: the ai-tools system account, the ai-ops
 operators group, the ai-tools project-lifecycle CLI, the ai-tools-admin
 operator-administration command, the ownership and secret-handling root helpers,
-the handback privilege-bridge socket, and the base SELinux confinement domain.
-Other AI-tool packages build on this layer.
+and the handback privilege-bridge socket. The SELinux confinement domain itself
+ships in ai-tools-selinux, which this package weakly recommends. Other AI-tool
+packages build on this layer.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The SELinux confinement policy, split out because it is the one payload in the stack the
+# maintainer does not own: a compiled .pp embeds macro expansions from the SELinux reference
+# policy (GPL-2.0-or-later), so it is conveyed under the GPL as its own package rather than
+# relicensing the AGPL base around it. The scriptlets that load and unload the modules live
+# here WITH the payload, which also removes any cross-subpackage ordering question.
+#
+# Scriptlet tools are named explicitly rather than via %%{?selinux_requires}: that macro bakes
+# the BUILD host's selinux-policy version into a Requires (uninstallable on the older EL of a
+# noarch build) and pulls policycoreutils-python-utils, which nothing here uses. semodule and
+# restorecon come from policycoreutils; getenforce from libselinux-utils.
+%package -n ai-tools-selinux
+Summary:        SELinux confinement policy for the ai-tools sandbox
+License:        GPL-2.0-or-later
+Requires:       ai-tools-base = %{version}-%{release}
+Requires(post): policycoreutils
+Requires(post): libselinux-utils
+Requires(postun): policycoreutils
+
+%description -n ai-tools-selinux
+The SELinux targeted-policy module that confines a sandbox session in the
+ai_tools_t domain, plus the prebuilt packages for the stable optional policy
+groups. Built against the SELinux reference policy and therefore licensed
+GPL-2.0-or-later, unlike the rest of the stack.
+
+Without this package the sandbox runs in a documented DAC-only mode: ownership,
+group ACLs, and the no-new-privileges launch confinement all still apply, but
+the kernel-enforced type transition does not.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ai-tools-integration umbrella: the host-toolchain integration layers the sandboxed agent
@@ -270,7 +308,9 @@ sed 's/^OPERATORS=.*/OPERATORS=""/' src%{_sysconfdir}/ai-tools/operator.conf \
     > %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 chmod 0644 %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 
-# ── base: SELinux policy packages (prebuilt) ─────────────────────────────────
+# ── ai-tools-selinux: SELinux policy packages (prebuilt) ─────────────────────
+# Staged here, shipped in the ai-tools-selinux subpackage (which also carries the load/unload
+# scriptlets and the GPL licence text -- see its %%package block).
 # The core (loaded on install) plus each STABLE optional group. Only stable groups ship
 # prebuilt: they are toggled per host with `ai-tools-admin selinux enable-group <name>`,
 # which semodule-loads the prebuilt .pp from this directory (no source tree or
@@ -410,15 +450,6 @@ done
 
 %post -n ai-tools-base
 %systemd_post ai-tools-handback.socket
-# Load the prebuilt SELinux core module and apply contexts when SELinux is enabled. Core
-# only -- the stable optional groups ship prebuilt alongside it but stay OFF, toggled per host
-# with `ai-tools-admin selinux enable-group <name>` (experimental groups are not shipped).
-if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/null 2>&1; then
-    semodule -n -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp >/dev/null 2>&1 || :
-    if command -v restorecon >/dev/null 2>&1; then
-        restorecon -R %{ai_sbindir} %{ai_libdir} /opt/ai-tools /var/log/ai-tools >/dev/null 2>&1 || :
-    fi
-fi
 # Grant the ai-ops operators group access to the shared sandbox area through a group ACL, so
 # operators create and work in clones (ai-tools --sandbox-create) without joining the ai-tools
 # group: traverse on the outer dir, rwX on sandbox-projects (a default ACL so clones inherit the
@@ -492,14 +523,39 @@ fi
 
 %postun -n ai-tools-base
 %systemd_postun_with_restart ai-tools-handback.socket
-# On final erase only, unload the SELinux modules: the core plus any optional group a host
-# loaded with `ai-tools-admin selinux enable-group` (its .pp is erased with the package, but the
-# compiled module persists in the policy store until removed). Intentionally preserved (not
-# rpm-owned): the ai-tools account, /opt/ai-tools/.nvm, the control-plane .gitignore/.gitconfig,
-# /var/opt/ai-tools clones, and each operator's ~/.config/ai-tools.
+# Intentionally preserved on erase (not rpm-owned): the ai-tools account, /opt/ai-tools/.nvm, the
+# control-plane .gitignore/.gitconfig, /var/opt/ai-tools clones, and each operator's
+# ~/.config/ai-tools. The SELinux module unload lives with the policy payload, in
+# %postun -n ai-tools-selinux.
+
+%post -n ai-tools-selinux
+# Load the core module into the RUNNING policy and apply contexts. Core only -- the stable
+# optional groups ship prebuilt alongside it but stay OFF, toggled per host with
+# `ai-tools-admin selinux enable-group <name>` (experimental groups are not shipped).
+#
+# `semodule -i` loads into the RUNNING policy, not just the module store: the entrypoint is
+# labelled by the restorecon below only once the module's types exist in the kernel, and
+# ai-tools-run's preflight refuses to launch (`mislabel`) while it is unlabelled. The default
+# module priority puts this in the same slot selinux/install-selinux.sh and `ai-tools-admin
+# selinux enable-group` address, so one host holds one copy of each module and a package upgrade
+# always supersedes what it replaces.
+if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/null 2>&1; then
+    semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp >/dev/null 2>&1 || :
+    if command -v restorecon >/dev/null 2>&1; then
+        restorecon -R %{ai_sbindir} %{ai_libdir} /opt/ai-tools /var/log/ai-tools >/dev/null 2>&1 || :
+    fi
+fi
+
+%postun -n ai-tools-selinux
+# On final erase only, unload every loaded ai_tools module -- the core, any stable optional group
+# enabled with `ai-tools-admin selinux enable-group`, and any EXPERIMENTAL group compiled from a
+# source checkout. Enumerated rather than named: a .pp is erased with the package, but the
+# compiled module persists in the policy store until removed, and a module built from source was
+# never in the rpm database at all. Leaving one loaded would keep a domain alive for files the
+# package no longer owns.
 if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
     mods=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' || :)
-    [ -n "${mods}" ] && semodule -n $(printf ' -r %s' ${mods}) >/dev/null 2>&1 || :
+    [ -n "${mods}" ] && semodule $(printf ' -r %s' ${mods}) >/dev/null 2>&1 || :
 fi
 
 %post -n ai-tools-integration-nodejs
@@ -591,7 +647,14 @@ fi
 %files
 %doc docs/rpm-packaging.md README.md
 
+%files -n ai-tools-selinux
+%license LICENSES/GPL-2.0-or-later.txt
+%dir %{_datadir}/selinux/packages/ai-tools
+%{_datadir}/selinux/packages/ai-tools/ai_tools.pp
+%{_datadir}/selinux/packages/ai-tools/ai_tools_tmpmap.pp
+
 %files -n ai-tools-base
+%license LICENSE
 %dir %attr(0750, root, root) %{ai_sbindir}
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-chown
 %attr(0750, root, root) %{ai_sbindir}/ai-tools-setgid
@@ -638,9 +701,6 @@ fi
 %dir %attr(0755, root, root) %{_sysconfdir}/ai-tools
 %config(noreplace) %attr(0644, root, root) %{_sysconfdir}/ai-tools/operator.conf
 %{_sysusersdir}/ai-tools.conf
-%dir %{_datadir}/selinux/packages/ai-tools
-%{_datadir}/selinux/packages/ai-tools/ai_tools.pp
-%{_datadir}/selinux/packages/ai-tools/ai_tools_tmpmap.pp
 %dir %attr(2750, root, ai-tools) /var/opt/ai-tools
 %dir %attr(2770, root, ai-tools) /var/opt/ai-tools/sandbox-projects
 %attr(0640, root, ai-tools) /var/opt/ai-tools/README.md

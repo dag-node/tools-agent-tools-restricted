@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # Draft a %changelog block for the current packaging/VERSION from the Conventional-Commit
 # subjects since the last stable release, grouped by impact. Prints to stdout for the author to
 # CURATE before pasting into ai-tools.spec -- a changelog is not a commit log: prune

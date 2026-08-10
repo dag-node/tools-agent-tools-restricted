@@ -31,13 +31,13 @@ Each phase prints its command and a green `PASS` or red `FAIL(<code>)` as it run
 ## Run it by hand
 
 ```bash
-podman build -t ai-tools-rpmbase:el9 -f packaging/RpmBase.Containerfile \
+podman build -t ai-tools-rpmbase:el9 -f packaging/ELBase.Containerfile \
     --build-arg BASE_IMAGE=quay.io/rockylinux/rockylinux:9.7-minimal .
 podman build -t ai-tools-rpmtest:el9 -f packaging/Rocky9.Containerfile .
 podman run --rm -t --systemd=always ai-tools-rpmtest:el9
 ```
 
-`RpmBase.Containerfile` is the shared recipe, parameterized by `BASE_IMAGE`; `Rocky9.Containerfile` is a thin pin (`FROM ai-tools-rpmbase:el9`) where any EL9-only tweak would go. `--systemd=always` tells Podman to run the image's `/sbin/init` as PID 1, which the handback socket and the sandbox account's `systemd --user` manager need. Add `--privileged` if your runtime cannot mount cgroups for that user manager. To poke around instead of running the selftest, start it detached (`podman run -d --systemd=always …`) and `podman exec -it <id> bash`.
+`ELBase.Containerfile` is the shared EL recipe, parameterized by `BASE_IMAGE`; `Rocky9.Containerfile` is a thin pin (`FROM ai-tools-rpmbase:el9`) where any EL9-only tweak would go. `--systemd=always` tells Podman to run the image's `/sbin/init` as PID 1, which the handback socket and the sandbox account's `systemd --user` manager need. Add `--privileged` if your runtime cannot mount cgroups for that user manager. To poke around instead of running the selftest, start it detached (`podman run -d --systemd=always …`) and `podman exec -it <id> bash`.
 
 ## Customize
 
@@ -68,4 +68,4 @@ A container validates packaging and dependency resolution, the install scriptlet
 
 ## Files
 
-`RpmBase.Containerfile` (shared recipe), `Rocky9.Containerfile` / `Rocky10.Containerfile` (per-distro pins), `container-selftest.sh` (the workflow), `ai-tools-selftest.service` (the boot-time runner). The package itself is built by `make rpm` (see the `Makefile`); for the security model and the manual install flow read the repository [`README.md`](../README.md) and [`docs/rpm-packaging.md`](../docs/rpm-packaging.md).
+`ELBase.Containerfile` (shared EL recipe), `Rocky9.Containerfile` / `Rocky10.Containerfile` (per-distro pins), `FedoraLatestBase.Containerfile` (stub base for future Fedora CI), `container-selftest.sh` (the workflow), `ai-tools-selftest.service` (the boot-time runner). The package itself is built by `make rpm` (see the `Makefile`); for the security model and the manual install flow read the repository [`README.md`](../README.md) and [`docs/rpm-packaging.md`](../docs/rpm-packaging.md).

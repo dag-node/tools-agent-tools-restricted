@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/sbin/ai-tools/ai-tools-relabel
 # Apply (or revert) the ai_tools_project_t SELinux label on ONE approved project
 # directory, so the confined agent (ai_tools_t) can read and write it. This is the

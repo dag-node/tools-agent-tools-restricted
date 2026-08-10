@@ -1,1 +1,2 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 ## <summary>Type-enforcement domain for the ai-tools sandbox account that runs Claude Code. Exports no interfaces.</summary>

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/sbin/ai-tools/ai-tools-bootstrap
 # Provision the sandbox account's Node toolchain: create the @SANDBOX_USER@ system account
 # and its /opt/ai-tools home (if absent), then install nvm, Node, and the enabled agents' npm

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/claude-endpoint.sh
 # Unit test for the custom-endpoint resolver (claude-endpoint.lib.sh), the sandbox-side logic the
 # claude-code session-env fragment applies to route a session at a non-default ANTHROPIC_BASE_URL.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/ai-tools-run.sh
 # Integration: the session's confinement properties, the agent's session env, and ai-tools-run's
 # re-validation of its whole wrapper contract -- every guarantee the shim itself makes, in the

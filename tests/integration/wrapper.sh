@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/wrapper.sh
 # Integration: the deployed launch wrapper (/usr/local/bin/claude). Exercises the ai-ops
 # operator gate, the allowlist gate, and the symlink-existence guard against the REAL

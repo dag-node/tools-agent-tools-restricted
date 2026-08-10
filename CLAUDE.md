@@ -49,7 +49,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Area | Source | Rule |
 |---|---|---|
 | Launch, allowlist gating, sudoers, PATH, custom system prompt | `bin/ai-tools-run.sh`, `usr/local/bin/claude.sh`, `lib/ai-tools/claude-prompt.lib.sh`, `allowed-projects`, `sudoers.d/ai-tools`, `lib/ai-tools/path-dedup.sh` | [launch](.claude/rules/launch.rule.md) |
-| Namespaces, SELinux transition, preflight, `/tmp`, optional-group management | `selinux/**`, `bin/ai-tools-run.sh`, `selinux-groups.lib.sh`, `ai-tools-admin.sh` (`selinux` subcommand) | [confinement](.claude/rules/confinement.rule.md) |
+| Namespaces, SELinux transition, preflight, `/tmp`, optional-group management, how the policy ships and why it is separately licensed | `selinux/**`, `bin/ai-tools-run.sh`, `selinux-groups.lib.sh`, `ai-tools-admin.sh` (`selinux` subcommand), `packaging/ai-tools.spec` (`ai-tools-selinux`) | [confinement](.claude/rules/confinement.rule.md) |
 | Root-op socket (daemon/client/units) | `ai-tools-handback*`, `ai-tools-handback-client*` | [handback-bridge](.claude/rules/handback-bridge.rule.md) |
 | Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `opt/ai-tools/agents/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
 | Claude Code settings, Bash deny rules ↔ SELinux policy | `opt/ai-tools/agents/*/settings.json` | [claude-settings](.claude/rules/claude-settings.rule.md) |

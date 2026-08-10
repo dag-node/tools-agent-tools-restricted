@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # commit-msg hook: when the message announces a version bump, remind (do NOT block) if
 # packaging/VERSION and the newest %changelog entry in ai-tools.spec disagree, so the
 # changelog can be completed before the push. The hard gate is tag-only in CI's release job

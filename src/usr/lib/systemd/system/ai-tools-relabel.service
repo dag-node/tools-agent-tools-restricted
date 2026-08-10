@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 [Unit]
 Description=Relabel the enabled agents' sandbox entrypoints to ai_tools_exec_t
 Documentation=man:restorecon(8)

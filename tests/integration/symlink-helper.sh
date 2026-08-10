@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/symlink-helper.sh
 # Integration: the ai-tools-launcher-symlink root helper -- the only writer of the locked
 # /opt/ai-tools/bin. It must repoint a stable launcher symlink ONLY at a path of the versioned

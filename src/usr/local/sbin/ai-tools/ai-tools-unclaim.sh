@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/sbin/ai-tools/ai-tools-unclaim
 # Reverses the filesystem side of a project claim: hands an approved project tree back
 # to a target group and revokes the agent's access. For every eligible path it:

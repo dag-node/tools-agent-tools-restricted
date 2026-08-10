@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/lockdown.sh
 # Hermetic unit tests for the deployed ai-tools-lockdown helper: the PROACTIVE secret sweep.
 # Unlike ai-tools-chown (reactive, agent-owned paths only), lockdown locks down EVERY

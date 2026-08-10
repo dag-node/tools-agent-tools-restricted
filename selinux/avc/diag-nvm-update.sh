@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # selinux/avc/diag-nvm-update.sh -- assert the SELinux posture around the sandbox's Node
 # tree and the SYMLINK handback verb that nvm-update.sh uses to repoint
 # /opt/ai-tools/bin/claude after a Node upgrade. Two invariants:

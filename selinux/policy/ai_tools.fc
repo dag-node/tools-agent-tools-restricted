@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 # File contexts shipped with the ai_tools module (fixed paths only).
 #
 # NO AGENT ENTRYPOINT IS LISTED HERE. The binary whose exec drives the

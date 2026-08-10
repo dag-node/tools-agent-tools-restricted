@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # selinux/avc/avc-testsuite.sh -- exercise the ai_tools_t surface so a PERMISSIVE
 # bring-up logs the full AVC set for audit2allow. RUN AS THE AGENT (claude, the
 # ai-tools UID) from inside an approved project dir -- the kernel only attributes

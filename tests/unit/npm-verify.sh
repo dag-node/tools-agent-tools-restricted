@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/npm-verify.sh
 # Unit test for the npm signature verifier (npm-verify.lib.sh). Drives the PURE decision
 # ai_tools_npm_verdict over a truth table of `npm audit signatures --json` shapes -- the

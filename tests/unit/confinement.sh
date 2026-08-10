@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/confinement.sh
 # Unit test for the SELinux launch-gate decision (confinement.lib.sh): the pure
 # ai_tools_confinement_verdict that ai-tools-run's fail-closed preflight dispatches on. Drives the

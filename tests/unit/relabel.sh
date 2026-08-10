@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/relabel.sh
 # Unit test for the entrypoint file-context predicate (relabel.lib.sh): the pure
 # ai_tools_entrypoint_fcontext_valid that gates every pattern an agent manifest declares before

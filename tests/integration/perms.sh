@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/perms.sh
 # Integration: the single source of truth for deployed-artifact ownership/permissions, plus
 # sudoers syntax. Asserts EVERY installed file and directory matches the security model --

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/hooks.sh
 # Integration: the live ownership-handback hooks end-to-end (PostToolUse, Stop sweep,
 # SessionStart reclaim). Each hook delegates to the handback socket daemon, which execs

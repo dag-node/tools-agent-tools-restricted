@@ -10,8 +10,12 @@ security reasoning in the PR description, not just the mechanism.
 
 ## License
 
-All contributions are made under the project's license, AGPL-3.0-or-later (see
+All contributions are made under the project's license, AGPL-3.0-only (see
 `LICENSE`). By submitting a change, you agree it may be distributed under those terms.
+
+The one exception is the SELinux policy under `selinux/policy/`, which is
+`GPL-2.0-or-later` because it is built against the SELinux reference policy. Each file
+carries an `SPDX-License-Identifier` stating which applies.
 
 ## Development setup
 
@@ -64,6 +68,14 @@ push and pull request.
 
 Commit messages follow `type(scope): summary` (`feat`, `fix`, `docs`, `test`, `chore`,
 `refactor`) — check `git log` for examples. Keep the "why" in the body, not the title.
+
+### AI-assisted commits
+
+Commits in this repository frequently carry a `Co-Authored-By` trailer naming an AI
+model. This records how the change was produced. It asserts no copyright: model output
+is not separately copyrightable and Anthropic claims no rights in it. Every commit is
+authored, reviewed, and signed off by a human contributor, whose CLA covers the
+contribution in full.
 
 ## Documentation
 

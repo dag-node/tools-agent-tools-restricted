@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/run.sh [unit|integration|boundary|all]
 # Test dispatcher. Runs the chosen category's test files and aggregates pass/fail by exit
 # status. On any failure it reprints the failing files' FAIL lines as an end-of-run summary,

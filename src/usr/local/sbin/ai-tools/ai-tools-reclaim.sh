@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/sbin/ai-tools/ai-tools-reclaim
 # Reclaims ownership of agent-written files under a project back to the owning operator, on demand
 # -- the operator-invoked counterpart to the session sweeps. It walks <project> and hands each

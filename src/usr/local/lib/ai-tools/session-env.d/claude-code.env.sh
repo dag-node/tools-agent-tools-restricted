@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 # shellcheck shell=bash
 # /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
 # Session environment for the claude-code agent. ai-tools-run sources this last, after every

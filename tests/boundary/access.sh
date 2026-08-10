@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/boundary/access.sh
 # Boundary: what the sandbox account can and cannot actually reach at runtime, probed AS the
 # agent (runuser -u ai-tools). Each check names the threat its boundary prevents. "can"

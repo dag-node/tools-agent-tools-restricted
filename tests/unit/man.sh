@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/man.sh
 # Hermetic sync test between ai-tools(1) and the CLI's own help: the set of long options
 # named in ai-tools.sh's usage() heredoc must equal the set documented in the man page, in
