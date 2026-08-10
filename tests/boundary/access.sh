@@ -72,9 +72,9 @@ else
     fail "cannot read ${skip_dirs_lib} -- session-hook.sh will fail to source the skip list"
 fi
 
-# /usr/local/sbin/ai-tools (750 root:root) holds the root helpers. Listing it lets the agent
+# /usr/local/libexec/ai-tools (750 root:root) holds the root helpers. Listing it lets the agent
 # enumerate helper names and probe for discrepancies against what sudoers authorises.
-sbindir=/usr/local/sbin/ai-tools
+sbindir=/usr/local/libexec/ai-tools
 if ! runuser -u "${SANDBOX_USER}" -- test -r "${sbindir}" 2>/dev/null; then
     pass "cannot list ${sbindir} (750 root:root): helper names not enumerable by agent"
 else

@@ -14,28 +14,28 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
 section "File permissions"
-check_file /usr/local/sbin/ai-tools/ai-tools-chown            root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-setgid           root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-setfacl          root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-unclaim          root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-safedir          root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-reclaim          root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-launcher-symlink root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-lockdown         root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-chown            root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-setgid           root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-setfacl          root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-unclaim          root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-safedir          root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-reclaim          root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-launcher-symlink root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-lockdown         root              root              750
 # SELinux project-label helper: 750 root:root -- user-run via sudo, never by the agent (no
 # SANDBOX_USER grant); same surface as lockdown.
-check_file /usr/local/sbin/ai-tools/ai-tools-relabel          root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-relabel          root              root              750
 # SELinux agent-relabel helper: 750 root:root -- run AS root automatically by the
 # ai-tools-relabel.path watcher and on demand by `ai-tools --relabel` (the %ai-ops NOPASSWD
 # rule), never by the agent. The grant is pinned to its zero-argument form, so the root rule
 # cannot be parameterized.
-check_file /usr/local/sbin/ai-tools/ai-tools-relabel-agent    root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-relabel-agent    root              root              750
 # Toolchain bootstrap + operator administration: 750 root:root -- run by the operator via sudo,
-# never by the agent (no SANDBOX_USER grant, and /usr/local/sbin/ai-tools is 750 root:root).
-check_file /usr/local/sbin/ai-tools/ai-tools-bootstrap        root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-admin           root              root              750
+# never by the agent (no SANDBOX_USER grant, and /usr/local/libexec/ai-tools is 750 root:root).
+check_file /usr/local/libexec/ai-tools/ai-tools-bootstrap        root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-admin           root              root              750
 # dotnet integration provisioning helper (optional integration): 750 root:root, sudo-invoked.
-check_file /usr/local/sbin/ai-tools/ai-tools-dotnet          root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-dotnet          root              root              750
 # Their sudo-PATH symlinks in /usr/sbin (sudoers secure_path on stock EL excludes
 # /usr/local/sbin, so `sudo ai-tools-bootstrap` resolves here). check_file lstat()s the
 # link itself (777 is a symlink's fixed mode); -e inside it also catches a dangling link.
@@ -215,8 +215,8 @@ check_file /opt/ai-tools/.config/systemd/user/timers.target.wants \
 # connects via the socket. The client is group-executable so SANDBOX_USER (a SANDBOX_GROUP
 # member) runs it from the hooks/updater, but no world bit (no arbitrary user reaches the
 # bridge). The units are read by systemd as root.
-check_file /usr/local/sbin/ai-tools                           root root 750
-check_file /usr/local/sbin/ai-tools/ai-tools-handback         root root 750
+check_file /usr/local/libexec/ai-tools                           root root 750
+check_file /usr/local/libexec/ai-tools/ai-tools-handback         root root 750
 check_file /usr/local/bin/ai-tools-handback-client            root "${SANDBOX_GROUP}" 750
 check_file /usr/lib/systemd/system/ai-tools-handback.socket   root root 644
 check_file /usr/lib/systemd/system/ai-tools-handback@.service root root 644

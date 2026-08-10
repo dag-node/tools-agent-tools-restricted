@@ -65,7 +65,7 @@ not_writable /usr/local/lib/ai-tools/relabel.lib.sh \
 # The root helper that writes the launcher symlinks. It is reachable from a session through the
 # handback SYMLINK verb, so its argument validation and manifest allowlist are the only things
 # bounding what it will link; writable, the agent would rewrite both.
-not_writable /usr/local/sbin/ai-tools/ai-tools-launcher-symlink \
+not_writable /usr/local/libexec/ai-tools/ai-tools-launcher-symlink \
     "rewrite the validation that bounds which launcher symlinks it can write"
 
 # The three provider directories. A group- or other-writable directory is as good as a writable

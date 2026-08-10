@@ -340,7 +340,7 @@ readonly GITCONFIG="/opt/ai-tools/.gitconfig"
 # Root helper that writes the safe.directory entry. .gitconfig is root-owned 644 (readable here
 # for the gap check, writable only by root), so the operator registers through sudo -- the same
 # helper the CLI's reg_safedir uses. See ai-tools-safedir's header for the model.
-readonly SAFEDIR_BIN="/usr/local/sbin/ai-tools/ai-tools-safedir"
+readonly SAFEDIR_BIN="/usr/local/libexec/ai-tools/ai-tools-safedir"
 
 # project_labelled <dir>  -- 0 when SELinux is NOT enforcing (no label needed) or <dir>
 # already carries ai_tools_project_t. Read-only, no privilege; the authoritative relabel

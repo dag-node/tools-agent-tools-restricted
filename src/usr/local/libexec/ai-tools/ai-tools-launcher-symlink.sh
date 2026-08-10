@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# /usr/local/sbin/ai-tools/ai-tools-launcher-symlink
+# /usr/local/libexec/ai-tools/ai-tools-launcher-symlink
 # Atomically repoints an agent's stable launcher symlink -- /opt/ai-tools/bin/<launcher> -- at a
 # versioned binary under the sandbox account's nvm. Idempotent: it skips the repoint (and its log
 # line) when the link already points at the target and that target's entrypoint needs no relabel,
@@ -15,7 +15,7 @@
 # caller is the agent-reachable handback socket (SYMLINK verb) or install.sh, never sudo.
 #
 # Deploy: sudo install -o root -g root -m 750 \
-#             src/usr/local/sbin/ai-tools/ai-tools-launcher-symlink.sh /usr/local/sbin/ai-tools/ai-tools-launcher-symlink
+#             src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh /usr/local/libexec/ai-tools/ai-tools-launcher-symlink
 
 set -euo pipefail
 

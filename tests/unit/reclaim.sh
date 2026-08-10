@@ -10,7 +10,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-readonly HELPER="/usr/local/sbin/ai-tools/ai-tools-reclaim"
+readonly HELPER="/usr/local/libexec/ai-tools/ai-tools-reclaim"
 section "ai-tools-reclaim: on-demand ownership reclaim (unit)"
 
 if [[ ! -x "${HELPER}" ]]; then

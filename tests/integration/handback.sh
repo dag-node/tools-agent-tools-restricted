@@ -52,10 +52,10 @@ fi
 
 # (1a) The handback daemon binary must carry ai_tools_handback_exec_t, or the socket-activated
 # service transitions into unconfined_service_t instead of ai_tools_handback_t -- the exact
-# regression a bulk relabel that skipped /usr/local/sbin/ai-tools caused (connectto then failed,
+# regression a bulk relabel that skipped /usr/local/libexec/ai-tools caused (connectto then failed,
 # CHOWN broke under enforcing). Pin the label on the deployed daemon. Only meaningful when the
 # module is installed (matchpathcon maps the path to the type).
-_hbd="/usr/local/sbin/ai-tools/ai-tools-handback"
+_hbd="/usr/local/libexec/ai-tools/ai-tools-handback"
 if [[ ! -x "${_hbd}" ]]; then
     skip "handback daemon label" "${_hbd} not installed"
 elif ! command -v matchpathcon >/dev/null 2>&1 || [[ "$(matchpathcon -n "${_hbd}" 2>/dev/null)" != *ai_tools_handback_exec_t* ]]; then
@@ -63,7 +63,7 @@ elif ! command -v matchpathcon >/dev/null 2>&1 || [[ "$(matchpathcon -n "${_hbd}
 elif [[ "$(stat -c '%C' "${_hbd}" 2>/dev/null)" == *:ai_tools_handback_exec_t:* ]]; then
     pass "handback daemon labelled ai_tools_handback_exec_t (transitions into ai_tools_handback_t)"
 else
-    fail "handback daemon is '$(stat -c '%C' "${_hbd}" 2>/dev/null)', NOT ai_tools_handback_exec_t -- the daemon runs unconfined and connectto/CHOWN fail. Fix: restorecon -Rv /usr/local/sbin/ai-tools"
+    fail "handback daemon is '$(stat -c '%C' "${_hbd}" 2>/dev/null)', NOT ai_tools_handback_exec_t -- the daemon runs unconfined and connectto/CHOWN fail. Fix: restorecon -Rv /usr/local/libexec/ai-tools"
 fi
 
 # (2) Handback socket is 0660 root:SANDBOX_GROUP and /run/ai-tools is traversable by the

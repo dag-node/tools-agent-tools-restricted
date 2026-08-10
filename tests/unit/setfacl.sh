@@ -11,7 +11,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-readonly HELPER="/usr/local/sbin/ai-tools/ai-tools-setfacl"
+readonly HELPER="/usr/local/libexec/ai-tools/ai-tools-setfacl"
 section "ai-tools-setfacl: project ACL normalization (unit)"
 
 if [[ ! -x "${HELPER}" ]]; then

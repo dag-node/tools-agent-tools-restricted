@@ -22,11 +22,11 @@
 
 [Unit]
 Description=ai-tools handback handler (%i)
-Documentation=file:/usr/local/sbin/ai-tools/ai-tools-handback
+Documentation=file:/usr/local/libexec/ai-tools/ai-tools-handback
 
 [Service]
 Type=simple
-ExecStart=/usr/local/sbin/ai-tools/ai-tools-handback
+ExecStart=/usr/local/libexec/ai-tools/ai-tools-handback
 NoNewPrivileges=yes
 # Drop all capabilities except the narrow set the root helpers actually need.
 # Without this the handler inherits the full root capability set; if a future

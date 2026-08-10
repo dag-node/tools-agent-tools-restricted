@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/usr/local/sbin/ai-tools/ai-tools-handback.py"
+  - "src/usr/local/libexec/ai-tools/ai-tools-handback.py"
   - "src/usr/local/bin/ai-tools-handback-client.py"
   - "src/usr/lib/systemd/system/ai-tools-handback.socket"
   - "src/usr/lib/systemd/system/ai-tools-handback@.service"
@@ -63,7 +63,7 @@ handback. See [logging](logging.rule.md).
 
 ## Files
 
-- daemon `/usr/local/sbin/ai-tools/ai-tools-handback` (750 root:root, Python 3)
+- daemon `/usr/local/libexec/ai-tools/ai-tools-handback` (750 root:root, Python 3)
 - client `/usr/local/bin/ai-tools-handback-client` (750 root:SANDBOX_GROUP, Python 3)
 - socket unit `/usr/lib/systemd/system/ai-tools-handback.socket`
 - service template `/usr/lib/systemd/system/ai-tools-handback@.service`

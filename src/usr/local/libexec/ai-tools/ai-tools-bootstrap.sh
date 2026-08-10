@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# /usr/local/sbin/ai-tools/ai-tools-bootstrap
+# /usr/local/libexec/ai-tools/ai-tools-bootstrap
 # Provision the sandbox account's Node toolchain: create the @SANDBOX_USER@ system account
 # and its /opt/ai-tools home (if absent), then install nvm, Node, and the enabled agents' npm
 # packages AS @SANDBOX_USER@, and point /opt/ai-tools/bin/<launcher> at each freshly installed
@@ -23,7 +23,7 @@
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
-#       src/usr/local/sbin/ai-tools/ai-tools-bootstrap.sh /usr/local/sbin/ai-tools/ai-tools-bootstrap
+#       src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh /usr/local/libexec/ai-tools/ai-tools-bootstrap
 
 set -euo pipefail
 
@@ -328,7 +328,7 @@ fi
 #     idempotent and no-ops when SELinux or the ai_tools module is inactive, so this is safe on a
 #     DAC-only host; best-effort -- a relabel gap degrades to ai-tools-run's refusal, not a failed
 #     bootstrap. See .claude/rules/updater.rule.md.
-_relabel_helper=/usr/local/sbin/ai-tools/ai-tools-relabel-agent
+_relabel_helper=/usr/local/libexec/ai-tools/ai-tools-relabel-agent
 if [[ -x "${_relabel_helper}" ]]; then
     "${_relabel_helper}" \
         || log "warn: entrypoint relabel did not complete -- run 'ai-tools --relabel' before launching claude"

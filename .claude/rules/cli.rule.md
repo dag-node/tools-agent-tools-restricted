@@ -1,11 +1,11 @@
 ---
 paths:
   - "src/usr/local/bin/ai-tools.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-setfacl.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-unclaim.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-safedir.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-reclaim.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-relabel.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-safedir.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-relabel.sh"
   - "src/usr/local/lib/ai-tools/relabel.lib.sh"
 ---
 
@@ -255,7 +255,7 @@ the shared `operator.lib.sh` resolver, but edits a single entry rather than walk
 allowlist/secret/exclusion enforcement and the need for root are that helper's, not its own.
 Repo-local `core.filemode=true` and the allowlist are plain writes the projects user performs
 unprivileged.
-`/usr/local/sbin/ai-tools` is `750 root:root`, so the projects user cannot even stat the
+`/usr/local/libexec/ai-tools` is `750 root:root`, so the projects user cannot even stat the
 helpers — only sudo, as root, reaches them.
 
 ## Secret pre-check on claim/clone

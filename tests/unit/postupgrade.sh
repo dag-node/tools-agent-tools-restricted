@@ -23,7 +23,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-readonly HELPER="/usr/local/sbin/ai-tools/ai-tools-admin"
+readonly HELPER="/usr/local/libexec/ai-tools/ai-tools-admin"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SHIPPED_SETTINGS="${REPO_ROOT}/src/opt/ai-tools/agents/claude-code/settings.json"
 

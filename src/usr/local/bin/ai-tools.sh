@@ -63,43 +63,43 @@ readonly SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
 readonly CLAUDE_LINK="/opt/ai-tools/bin/claude"
 # Root-only secret lockdown helper. Invoked via sudo (NO NOPASSWD grant exists for
 # it -- by design), so sudo prompts for the projects user's password.
-readonly LOCKDOWN_BIN="/usr/local/sbin/ai-tools/ai-tools-lockdown"
+readonly LOCKDOWN_BIN="/usr/local/libexec/ai-tools/ai-tools-lockdown"
 # Root-only SELinux project-label helper, same sudo (no NOPASSWD) model as lockdown.
 # Applies/reverts ai_tools_project_t so the confined agent can access a claimed,
 # in-place tree; the per-project semanage fcontext rule it adds needs root, which
 # this unprivileged CLI lacks. Sandbox clones do NOT use it (static rule + plain
 # restorecon -- see relabel_clone).
-readonly RELABEL_BIN="/usr/local/sbin/ai-tools/ai-tools-relabel"
+readonly RELABEL_BIN="/usr/local/libexec/ai-tools/ai-tools-relabel"
 # Root-only ACL helper, same sudo (no NOPASSWD) model as lockdown/relabel. Applies the
 # project's group-permission ACL (default + access group:SANDBOX_GROUP:rwX, other denied)
 # so files the projects user's git checkout/merge writes under a restrictive umask stay
 # group-accessible to the agent. Needs root (CAP_FOWNER) to ACL files the projects user
 # does not own; this unprivileged CLI lacks that.
-readonly SETFACL_BIN="/usr/local/sbin/ai-tools/ai-tools-setfacl"
+readonly SETFACL_BIN="/usr/local/libexec/ai-tools/ai-tools-setfacl"
 # Root-only setgid helper, same sudo (no NOPASSWD) model. Sets group SANDBOX_GROUP + the setgid
 # bit on a claimed project's directories. The operator is not a SANDBOX_GROUP member
 # (multi-operator), so the group change needs root; the helper carries its own allowlist + owner
 # guard. Also invoked by the handback daemon for the SessionStart normalization pass.
-readonly SETGID_BIN="/usr/local/sbin/ai-tools/ai-tools-setgid"
+readonly SETGID_BIN="/usr/local/libexec/ai-tools/ai-tools-setgid"
 # Root-only unclaim helper, same sudo (no NOPASSWD) model. Reverses the filesystem side
 # of a claim: clears the agent ACL + default ACL, regroups the tree to a target group, and
 # removes group write. Needs root to chgrp to an arbitrary group and to act on files the
 # projects user does not own.
-readonly UNCLAIM_BIN="/usr/local/sbin/ai-tools/ai-tools-unclaim"
+readonly UNCLAIM_BIN="/usr/local/libexec/ai-tools/ai-tools-unclaim"
 # Root-only entrypoint-relabel helper, same sudo (no NOPASSWD) model. Restores
 # ai_tools_exec_t on the claude.exe entrypoint(s) after a Node auto-upgrade leaves them
 # mislabelled; needs root (the projects user runs as unconfined_t, which can relabel, but
 # only via sudo as the helper is 750 root:root). Invoked by --relabel and --postupgrade.
-readonly RELABEL_ENTRYPOINT_BIN="/usr/local/sbin/ai-tools/ai-tools-relabel-agent"
+readonly RELABEL_ENTRYPOINT_BIN="/usr/local/libexec/ai-tools/ai-tools-relabel-agent"
 # Root-only git safe.directory helper, same sudo (no NOPASSWD) model as lockdown/relabel/
 # setfacl/unclaim. /opt/ai-tools/.gitconfig is root-owned 644: world-readable (the agent reads
 # safe.directory on startup) but root-write-only, so neither the operator nor the agent writes it
 # directly -- the operator reaches the validated add/--remove through this helper.
-readonly SAFEDIR_BIN="/usr/local/sbin/ai-tools/ai-tools-safedir"
+readonly SAFEDIR_BIN="/usr/local/libexec/ai-tools/ai-tools-safedir"
 # Root-only ownership-reclaim helper, same sudo (no NOPASSWD) model. Hands agent-written files
 # under a project back to the operator via ai-tools-chown (the per-path trust boundary), needed for
 # the .git tree the per-session sweeps skip; useful before an ACL-unaware backup.
-readonly RECLAIM_BIN="/usr/local/sbin/ai-tools/ai-tools-reclaim"
+readonly RECLAIM_BIN="/usr/local/libexec/ai-tools/ai-tools-reclaim"
 # Sentinel in a guard CLAUDE.md (see drop_lockdown_guard) so the lockdown step can
 # recognise and remove its own placeholder once secrets are secured.
 readonly GUARD_MARKER="ai-tools-lockdown-guard"
@@ -1343,7 +1343,7 @@ cmd_lockdown() {
     done
     d="$(resolve_dir "${d:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
-    # No readable-path pre-check: /usr/local/sbin/ai-tools is 750 root:root, so the
+    # No readable-path pre-check: /usr/local/libexec/ai-tools is 750 root:root, so the
     # projects user cannot even stat the helper -- only sudo (as root) can reach it.
     # If it is genuinely missing, sudo reports it and run_lockdown returns non-zero.
     section "Lock down project secrets"

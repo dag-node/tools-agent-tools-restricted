@@ -1,13 +1,13 @@
 ---
 paths:
   - "src/usr/local/lib/ai-tools/safe-paths.lib.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-chown.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-reclaim.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-setgid.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-setfacl.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-unclaim.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-lockdown.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-relabel.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-chown.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-setgid.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-relabel.sh"
 ---
 
 # Protected-paths backstop
