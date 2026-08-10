@@ -3,7 +3,7 @@ paths:
   - "src/usr/local/lib/ai-tools/session-env.d/dotnet.env.sh"
   - "src/usr/local/lib/ai-tools/filters.d/dotnet.rules"
   - "src/usr/local/lib/ai-tools/integrations.d/dotnet.conf"
-  - "src/usr/local/sbin/ai-tools/ai-tools-dotnet.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-dotnet.sh"
   - "selinux/policy/ai_tools_tmpmap.te"
   - "selinux/policy/ai_tools_apphost.te"
   - "selinux/policy/ai_tools_netcore.te"

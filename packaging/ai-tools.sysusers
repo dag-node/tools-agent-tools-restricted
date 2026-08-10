@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 # Sandbox service account for the ai-tools Claude Code sandbox. Created in %pre (before any
 # packaged file owned by it is unpacked). Home /opt/ai-tools, never /home: /home is nosuid,
 # which would defeat the sudo UID-switch the launch path relies on. No login shell.

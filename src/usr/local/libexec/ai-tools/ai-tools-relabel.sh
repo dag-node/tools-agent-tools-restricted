@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# /usr/local/sbin/ai-tools/ai-tools-relabel
+# SPDX-License-Identifier: AGPL-3.0-only
+# /usr/local/libexec/ai-tools/ai-tools-relabel
 # Apply (or revert) the ai_tools_project_t SELinux label on ONE approved project
 # directory, so the confined agent (ai_tools_t) can read and write it. This is the
 # privileged half of project claiming: `semanage fcontext` needs root, which the
@@ -22,7 +23,7 @@
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
-#     src/usr/local/sbin/ai-tools/ai-tools-relabel.sh /usr/local/sbin/ai-tools/ai-tools-relabel
+#     src/usr/local/libexec/ai-tools/ai-tools-relabel.sh /usr/local/libexec/ai-tools/ai-tools-relabel
 
 set -euo pipefail
 

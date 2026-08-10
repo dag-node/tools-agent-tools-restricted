@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 policy_module(ai_tools_tmpmap, 0.1.0)
 
 ## ai_tools OPTIONAL GROUP: tmpmap  [DEFAULT: DISABLED]

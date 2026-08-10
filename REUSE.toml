@@ -1,0 +1,40 @@
+# REUSE (https://reuse.software) annotations for paths that carry no SPDX header of their own.
+#
+# Every source file states its own licence in a one-line `SPDX-License-Identifier` header. The
+# COPYRIGHT holder is declared here instead of in each file, so it is single-sourced: a file added
+# later inherits it with nothing to remember, and the year is one line to update rather than a
+# tree-wide sweep. `precedence = "aggregate"` means a file's own header wins where it has one and
+# these annotations only fill the gaps.
+#
+# The paths below are those that cannot carry a comment (compiled .pp policy packages), or where a
+# header would be noise rather than information (prose, licence texts, generated data, dotfiles).
+
+version = 1
+SPDX-PackageName = "ai-tools"
+SPDX-PackageDownloadLocation = "https://github.com/dag-node/tools-agent-tools-restricted"
+
+# Catch-all: the maintainer's own work, AGPL-3.0-only. Listed first so the more specific policy
+# entry below can narrow it.
+[[annotations]]
+path = "**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Ondřej Nedomlel <tools@dagnode.com>"
+SPDX-License-Identifier = "AGPL-3.0-only"
+
+# The SELinux policy sources carry their own GPL-2.0-or-later headers; this entry exists for the
+# compiled .pp packages beside them, which are binary and cannot. They are GPL because a compiled
+# module embeds macro expansions from the SELinux reference policy -- the reason the policy ships
+# as its own ai-tools-selinux subpackage rather than inside the AGPL base.
+[[annotations]]
+path = "selinux/policy/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Ondřej Nedomlel <tools@dagnode.com>"
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
+# The root LICENSE is the AGPL text itself, kept at the top level for GitHub's licence detection;
+# LICENSES/ holds the REUSE-standard copies. The text is the FSF's, not the maintainer's.
+[[annotations]]
+path = "LICENSE"
+precedence = "override"
+SPDX-FileCopyrightText = "2007 Free Software Foundation, Inc. <https://fsf.org/>"
+SPDX-License-Identifier = "AGPL-3.0-only"

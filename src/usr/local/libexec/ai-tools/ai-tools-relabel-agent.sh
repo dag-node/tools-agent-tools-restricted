@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# /usr/local/sbin/ai-tools/ai-tools-relabel-agent
+# SPDX-License-Identifier: AGPL-3.0-only
+# /usr/local/libexec/ai-tools/ai-tools-relabel-agent
 # Apply the SELinux file-context rules every enabled agent declares, and restore the labels on
 # what they match: its launcher binary -> ai_tools_exec_t, so its exec fires the -> ai_tools_t
 # domain transition and the session is confined, and its config directory -> ai_tools_home_t, so
@@ -30,8 +31,8 @@
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
-#     src/usr/local/sbin/ai-tools/ai-tools-relabel-agent.sh \
-#     /usr/local/sbin/ai-tools/ai-tools-relabel-agent
+#     src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh \
+#     /usr/local/libexec/ai-tools/ai-tools-relabel-agent
 
 set -euo pipefail
 

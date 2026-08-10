@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/conf.lib.sh
 # The one KEY=value grammar every ai-tools config file is read with, plus the trust predicate
 # that decides whether a file may be read at all. Sourced (never executed) by operator.lib.sh,

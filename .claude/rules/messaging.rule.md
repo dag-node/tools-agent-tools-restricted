@@ -5,7 +5,7 @@ paths:
   - src/usr/local/bin/ai-tools.sh
   - src/opt/ai-tools/bin/ai-tools-run.sh
   - src/opt/ai-tools/agents/*/session-hook.sh
-  - src/usr/local/sbin/ai-tools/ai-tools-bootstrap.sh
+  - src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh
   - install.sh
   - selinux/install-selinux.sh
 ---

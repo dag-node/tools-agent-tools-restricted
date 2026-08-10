@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/settings-merge.sh
 # Unit test for the hook-declaration merge (conf.lib.sh), the step that lets a NEWLY SHIPPED hook
 # reach a host whose settings.json is kept across the upgrade.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/lib/harness.sh
 # Shared harness sourced by every test file. Provides the result counters, a /tmp testdir
 # boundary with automatic teardown, a dummy-allowlist fixture, and the permission helper.

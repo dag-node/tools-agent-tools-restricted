@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/reclaim.sh
 # Hermetic unit tests for the deployed ai-tools-reclaim helper: it hands agent-owned files under a
 # project back to the operator via ai-tools-chown, including the .git tree the sweeps skip, while
@@ -9,7 +10,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-readonly HELPER="/usr/local/sbin/ai-tools/ai-tools-reclaim"
+readonly HELPER="/usr/local/libexec/ai-tools/ai-tools-reclaim"
 section "ai-tools-reclaim: on-demand ownership reclaim (unit)"
 
 if [[ ! -x "${HELPER}" ]]; then

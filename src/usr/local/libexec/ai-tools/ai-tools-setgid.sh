@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# /usr/local/sbin/ai-tools/ai-tools-setgid
+# SPDX-License-Identifier: AGPL-3.0-only
+# /usr/local/libexec/ai-tools/ai-tools-setgid
 # Normalizes group ownership and the setgid bit on the directories of an approved
 # project, so that files EITHER an operator OR the agent creates there are born
 # in group @SANDBOX_GROUP@ -- the shared group both can read/write. setgid carries
@@ -23,7 +24,7 @@
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
-#       src/usr/local/sbin/ai-tools/ai-tools-setgid.sh /usr/local/sbin/ai-tools/ai-tools-setgid
+#       src/usr/local/libexec/ai-tools/ai-tools-setgid.sh /usr/local/libexec/ai-tools/ai-tools-setgid
 
 set -euo pipefail
 

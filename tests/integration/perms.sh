@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/perms.sh
 # Integration: the single source of truth for deployed-artifact ownership/permissions, plus
 # sudoers syntax. Asserts EVERY installed file and directory matches the security model --
@@ -13,28 +14,28 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
 section "File permissions"
-check_file /usr/local/sbin/ai-tools/ai-tools-chown            root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-setgid           root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-setfacl          root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-unclaim          root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-safedir          root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-reclaim          root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-launcher-symlink root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-lockdown         root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-chown            root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-setgid           root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-setfacl          root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-unclaim          root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-safedir          root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-reclaim          root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-launcher-symlink root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-lockdown         root              root              750
 # SELinux project-label helper: 750 root:root -- user-run via sudo, never by the agent (no
 # SANDBOX_USER grant); same surface as lockdown.
-check_file /usr/local/sbin/ai-tools/ai-tools-relabel          root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-relabel          root              root              750
 # SELinux agent-relabel helper: 750 root:root -- run AS root automatically by the
 # ai-tools-relabel.path watcher and on demand by `ai-tools --relabel` (the %ai-ops NOPASSWD
 # rule), never by the agent. The grant is pinned to its zero-argument form, so the root rule
 # cannot be parameterized.
-check_file /usr/local/sbin/ai-tools/ai-tools-relabel-agent    root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-relabel-agent    root              root              750
 # Toolchain bootstrap + operator administration: 750 root:root -- run by the operator via sudo,
-# never by the agent (no SANDBOX_USER grant, and /usr/local/sbin/ai-tools is 750 root:root).
-check_file /usr/local/sbin/ai-tools/ai-tools-bootstrap        root              root              750
-check_file /usr/local/sbin/ai-tools/ai-tools-admin           root              root              750
+# never by the agent (no SANDBOX_USER grant, and /usr/local/libexec/ai-tools is 750 root:root).
+check_file /usr/local/libexec/ai-tools/ai-tools-bootstrap        root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-admin           root              root              750
 # dotnet integration provisioning helper (optional integration): 750 root:root, sudo-invoked.
-check_file /usr/local/sbin/ai-tools/ai-tools-dotnet          root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-dotnet          root              root              750
 # Their sudo-PATH symlinks in /usr/sbin (sudoers secure_path on stock EL excludes
 # /usr/local/sbin, so `sudo ai-tools-bootstrap` resolves here). check_file lstat()s the
 # link itself (777 is a symlink's fixed mode); -e inside it also catches a dangling link.
@@ -112,6 +113,11 @@ check_file /usr/local/lib/ai-tools/filters.d/dotnet.rules       root            
 # sources it last, so these pins outrank an integration's -- and 644 root:root is what makes it
 # trusted enough to source at all.
 check_file /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh root         root              644
+# The claude-code agent's Claude-specific resolvers: the custom system prompt (wrapper-side) and the
+# custom API endpoint (fragment-side). 644 root:root -- sourced by claude.sh / the fragment, so
+# root-owned and non-group-writable is what makes them trusted enough to source. No secrets.
+check_file /usr/local/lib/ai-tools/claude-prompt.lib.sh      root              root              644
+check_file /usr/local/lib/ai-tools/claude-endpoint.lib.sh    root              root              644
 # Secret-pattern config: user-owned 600. ai-tools (not owner/group, cannot enter the 700
 # .config/ai-tools dir) can neither read nor write it; root helpers read it. Optional: it is a
 # per-operator OVERRIDE -- the shared classifier falls back to its built-in defaults when the file
@@ -121,6 +127,17 @@ check_file /etc/sudoers.d/ai-tools                     root              root   
 # Operator identity: 644 root:root -- world-readable (agent hooks + root helpers read it),
 # root-write-only (the agent cannot rewrite the identity root hands files back to).
 check_file /etc/ai-tools/operator.conf                        root              root              644
+# Custom system prompt: an empty, editable default under a dedicated dir. 640 root:ai-tools -- the
+# sandbox account reads it (via etc_t + the group) and the operator edits it with sudo, but a custom
+# prompt is not world-readable (it may carry proprietary instructions). claude.sh only stat()s it as
+# the operator, so no operator read is needed; the dir stays 755 so that stat can traverse it.
+check_file /etc/ai-tools/prompts                              root              root              755
+check_file /etc/ai-tools/prompts/claude-system-prompt.md      root              "${SANDBOX_GROUP}" 640
+# Custom API endpoint: the endpoint file may hold a bearer token, so unlike operator.conf it is
+# 640 root:ai-tools -- readable by root and the sandbox account (which needs the token) but NOT
+# world, and NOT by the operator (not in ai-tools). Its directory is a plain 755 root:root.
+check_file /etc/ai-tools/endpoints                            root              root              755
+check_file /etc/ai-tools/endpoints/custom-claude-endpoint.conf root             "${SANDBOX_GROUP}" 640
 # PATH dedup fragment: 644 root:root -- world-readable, sourced by the operator shells
 # ai-tools-admin wires (never installed into /etc/profile.d; unwired accounts keep their
 # stock PATH).
@@ -198,8 +215,8 @@ check_file /opt/ai-tools/.config/systemd/user/timers.target.wants \
 # connects via the socket. The client is group-executable so SANDBOX_USER (a SANDBOX_GROUP
 # member) runs it from the hooks/updater, but no world bit (no arbitrary user reaches the
 # bridge). The units are read by systemd as root.
-check_file /usr/local/sbin/ai-tools                           root root 750
-check_file /usr/local/sbin/ai-tools/ai-tools-handback         root root 750
+check_file /usr/local/libexec/ai-tools                           root root 750
+check_file /usr/local/libexec/ai-tools/ai-tools-handback         root root 750
 check_file /usr/local/bin/ai-tools-handback-client            root "${SANDBOX_GROUP}" 750
 check_file /usr/lib/systemd/system/ai-tools-handback.socket   root root 644
 check_file /usr/lib/systemd/system/ai-tools-handback@.service root root 644

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# /usr/local/sbin/ai-tools/ai-tools-admin
+# SPDX-License-Identifier: AGPL-3.0-only
+# /usr/local/libexec/ai-tools/ai-tools-admin
 # Host administration for the ai-tools sandbox. A root helper (run via sudo), not an ai-tools
 # CLI verb: it edits host config (the OPERATORS list, the ai-ops group, the sandbox account's
 # linger; the loaded optional SELinux policy groups) while the ai-tools CLI is unprivileged and
@@ -42,7 +43,7 @@
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
-#       src/usr/local/sbin/ai-tools/ai-tools-admin.sh /usr/local/sbin/ai-tools/ai-tools-admin
+#       src/usr/local/libexec/ai-tools/ai-tools-admin.sh /usr/local/libexec/ai-tools/ai-tools-admin
 
 set -euo pipefail
 

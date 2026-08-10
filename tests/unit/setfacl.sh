@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/setfacl.sh
 # Hermetic unit tests for the deployed ai-tools-setfacl helper: the group-permission ACL it
 # applies at project claim, the opt-in --with-git .git normalization (group + setgid + ACL),
@@ -10,7 +11,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-readonly HELPER="/usr/local/sbin/ai-tools/ai-tools-setfacl"
+readonly HELPER="/usr/local/libexec/ai-tools/ai-tools-setfacl"
 section "ai-tools-setfacl: project ACL normalization (unit)"
 
 if [[ ! -x "${HELPER}" ]]; then

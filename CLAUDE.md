@@ -48,8 +48,8 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 
 | Area | Source | Rule |
 |---|---|---|
-| Launch, allowlist gating, sudoers, PATH | `bin/ai-tools-run.sh`, `usr/local/bin/claude.sh`, `allowed-projects`, `sudoers.d/ai-tools`, `lib/ai-tools/path-dedup.sh` | [launch](.claude/rules/launch.rule.md) |
-| Namespaces, SELinux transition, preflight, `/tmp`, optional-group management | `selinux/**`, `bin/ai-tools-run.sh`, `selinux-groups.lib.sh`, `ai-tools-admin.sh` (`selinux` subcommand) | [confinement](.claude/rules/confinement.rule.md) |
+| Launch, allowlist gating, sudoers, PATH, custom system prompt | `bin/ai-tools-run.sh`, `usr/local/bin/claude.sh`, `lib/ai-tools/claude-prompt.lib.sh`, `allowed-projects`, `sudoers.d/ai-tools`, `lib/ai-tools/path-dedup.sh` | [launch](.claude/rules/launch.rule.md) |
+| Namespaces, SELinux transition, preflight, `/tmp`, optional-group management, how the policy ships and why it is separately licensed | `selinux/**`, `bin/ai-tools-run.sh`, `selinux-groups.lib.sh`, `ai-tools-admin.sh` (`selinux` subcommand), `packaging/ai-tools.spec` (`ai-tools-selinux`) | [confinement](.claude/rules/confinement.rule.md) |
 | Root-op socket (daemon/client/units) | `ai-tools-handback*`, `ai-tools-handback-client*` | [handback-bridge](.claude/rules/handback-bridge.rule.md) |
 | Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `opt/ai-tools/agents/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
 | Claude Code settings, Bash deny rules ↔ SELinux policy | `opt/ai-tools/agents/*/settings.json` | [claude-settings](.claude/rules/claude-settings.rule.md) |
@@ -57,7 +57,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Shipped assets: shared skills + per-agent agents, their placement chain and seeding | `usr/share/ai-tools/**`, `lib/ai-tools/managed-assets.lib.sh` | [shipped-assets](.claude/rules/shipped-assets.rule.md) |
 | Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secret-handling.rule.md) |
 | Toolchain provisioning + Node/claude updater, symlink repoint, post-upgrade relabel | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `ai-tools-launcher-symlink.sh`, `ai-tools-relabel-agent.sh`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
-| Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, the `session-env.d` session-env seam, and the dotnet integration | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,session-env}.d/**`, `ai-tools-dotnet.sh`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
+| Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, the `session-env.d` session-env seam, the claude-code custom API endpoint, and the dotnet integration | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,session-env}.d/**`, `lib/ai-tools/claude-endpoint.lib.sh`, `ai-tools-dotnet.sh`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
 | Running .NET (CoreCLR) under confinement: the dotnet integration files ↔ the `tmpmap`/`apphost`/`netcore` SELinux groups, project-type→group map, denial breakdown | `lib/ai-tools/session-env.d/dotnet.env.sh`, `lib/ai-tools/filters.d/dotnet.rules`, `ai-tools-dotnet.sh`, `selinux/policy/ai_tools_{tmpmap,apphost,netcore}.te` | [dotnet](.claude/rules/dotnet.rule.md) |
 | Management CLI, project lifecycle, relabel | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel}.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
 | Protected-paths backstop (refuse system dirs as targets) | `safe-paths.lib.sh` + the wrapper/CLI/elevated helpers | [safe-paths](.claude/rules/safe-paths.rule.md) |
@@ -99,7 +99,7 @@ two NOPASSWD rules:
 
 ```
 %ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/ai-tools-run
-%ai-ops  ALL=(root)                       NOPASSWD: /usr/local/sbin/ai-tools/ai-tools-relabel-agent ""
+%ai-ops  ALL=(root)                       NOPASSWD: /usr/local/libexec/ai-tools/ai-tools-relabel-agent ""
 ```
 
 The first **drops** privilege to `SANDBOX_USER` (launch); the second runs **as root** for
@@ -241,7 +241,7 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   `ai-tools-base`-owned and agent-agnostic; an `ai-tools-agents-*` package ships its wrapper,
   its manifest, and its session-env fragment, and inherits the single `%ai-ops` sudoers grant
   rather than adding one. See [launch](.claude/rules/launch.rule.md).
-- **Root sudo-helpers** live under `/usr/local/sbin/ai-tools/` (`chown`, `setgid`, `setfacl`,
+- **Root sudo-helpers** live under `/usr/local/libexec/ai-tools/` (`chown`, `setgid`, `setfacl`,
   `unclaim`, `safedir`, `reclaim`, `launcher-symlink`, `lockdown`, `relabel`, `bootstrap`,
   `relabel-agent`, `admin`, `dotnet`); shared libraries under `/usr/local/lib/ai-tools/`
   (`conf`, `secret-patterns`, `skip-dirs`, `safe-paths`, `relabel`, `operator`, `control-plane`,

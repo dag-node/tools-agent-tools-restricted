@@ -1,7 +1,7 @@
 ---
 paths:
-  - "src/usr/local/sbin/ai-tools/ai-tools-lockdown.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-chown.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-chown.sh"
   - "src/home/user/.config/ai-tools/secret-patterns"
   - "src/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 ---
@@ -76,7 +76,7 @@ files use a non-matching stem (`secret-handling.rule.md`, not `secrets.rule.md`;
 
 `ai-tools-chown` is reactive — it acts only on `SANDBOX_USER`-owned paths, so it never
 touches a pre-existing user-owned secret the agent could already read.
-`ai-tools-lockdown` (`/usr/local/sbin/ai-tools/ai-tools-lockdown`, run
+`ai-tools-lockdown` (`/usr/local/libexec/ai-tools/ai-tools-lockdown`, run
 `ai-tools --lockdown <project>` or `cd <project> && sudo ai-tools-lockdown`) is the
 proactive counterpart: it walks the current directory and, for every path matching the
 shared secret patterns, sets regular files `600`, directories `700`, and owner
@@ -90,7 +90,7 @@ It is a user tool: there is **no** sudoers grant letting `SANDBOX_USER` run it, 
 refuses to run as `SANDBOX_USER`. The `ai-tools` CLI wraps it as `ai-tools --lockdown
 [path]` (it `cd`s into the project and `sudo`s the helper, so sudo prompts for the
 projects user's password; `-n`/`--dry-run` and `-y`/`--yes` pass through). The CLI never
-pre-checks the helper's path: `/usr/local/sbin/ai-tools` is `750 root:root`, so the
+pre-checks the helper's path: `/usr/local/libexec/ai-tools` is `750 root:root`, so the
 projects user cannot stat the helper — only `sudo`, as root, can reach it.
 
 ### Lockdown on clone

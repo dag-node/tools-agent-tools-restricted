@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/providers.sh
 # Unit test for the provider resolver (providers.lib.sh). Drives the PURE verdict
 # ai_tools_provider_is_enabled over its enablement truth table, then ai_tools_enabled_agents and

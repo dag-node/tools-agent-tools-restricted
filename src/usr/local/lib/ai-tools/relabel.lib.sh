@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/relabel.lib.sh
 # Single source of the SELinux labelling primitives the sandbox applies at runtime, in two
 # families:

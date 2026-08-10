@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# /usr/local/sbin/ai-tools/ai-tools-setfacl
+# SPDX-License-Identifier: AGPL-3.0-only
+# /usr/local/libexec/ai-tools/ai-tools-setfacl
 # Applies the per-project POSIX ACL that lets the owning operator and the sandbox agent co-write
 # an approved tree regardless of either party's umask -- the permission companion to
 # ai-tools-setgid's group-ownership inheritance. An access + inherited-default ACL grants rwX to
@@ -17,7 +18,7 @@
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
-#       src/usr/local/sbin/ai-tools/ai-tools-setfacl.sh /usr/local/sbin/ai-tools/ai-tools-setfacl
+#       src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh /usr/local/libexec/ai-tools/ai-tools-setfacl
 
 set -euo pipefail
 

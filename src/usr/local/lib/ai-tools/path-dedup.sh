@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 # shellcheck shell=bash
 # /usr/local/lib/ai-tools/path-dedup.sh — deduplicates the existing PATH
 # entries of an operator shell and orders them so the root-owned system tiers

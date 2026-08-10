@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # selinux/avc/avc-testsuite.sh -- exercise the ai_tools_t surface so a PERMISSIVE
 # bring-up logs the full AVC set for audit2allow. RUN AS THE AGENT (claude, the
 # ai-tools UID) from inside an approved project dir -- the kernel only attributes
@@ -260,10 +261,10 @@ timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22' 2>/dev/null \
 step "sudo -> ai-tools-chown (explicit PAM path)"
 sudo_test="${SCRATCH}/sudo-chown-test.txt"
 printf 'sudo chown test\n' > "${sudo_test}"
-if sudo /usr/local/sbin/ai-tools/ai-tools-chown "${sudo_test}" 2>/dev/null; then
+if sudo /usr/local/libexec/ai-tools/ai-tools-chown "${sudo_test}" 2>/dev/null; then
     note "ai-tools-chown OK -- sudo+PAM surface exercised (setuid/chown/dac_read_search logged)"
 else
-    note "ai-tools-chown non-zero (path outside allowlist, or helper not at /usr/local/sbin)"
+    note "ai-tools-chown non-zero (path outside allowlist, or helper not at /usr/local/libexec/ai-tools)"
 fi
 
 ########################################

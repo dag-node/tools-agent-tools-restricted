@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 # File contexts shipped with the ai_tools module (fixed paths only).
 #
 # NO AGENT ENTRYPOINT IS LISTED HERE. The binary whose exec drives the
@@ -30,10 +31,10 @@
 # The root helpers grouped under one dir (chown, setgid, launcher-symlink, lockdown).
 # They run IN ai_tools_handback_t (bin_t, execute_no_trans -- no separate domain).
 # Stated explicitly so restorecon labels the dir and all contents consistently.
-/usr/local/sbin/ai-tools(/.*)?  gen_context(system_u:object_r:bin_t,s0)
+/usr/local/libexec/ai-tools(/.*)?  gen_context(system_u:object_r:bin_t,s0)
 # The handback daemon gets its own entrypoint label so init_t transitions into
 # ai_tools_handback_t on exec (more specific than the wildcard above).
-/usr/local/sbin/ai-tools/ai-tools-handback  --  gen_context(system_u:object_r:ai_tools_handback_exec_t,s0)
+/usr/local/libexec/ai-tools/ai-tools-handback  --  gen_context(system_u:object_r:ai_tools_handback_exec_t,s0)
 
 # The handback socket client (called by the agent hooks and nvm-update.sh).
 # Lives in /usr/local/bin -- the default bin_t for that path -- no special label.

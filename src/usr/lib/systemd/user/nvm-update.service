@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 [Unit]
 Description=Update sandbox Node.js (nvm) and global npm tools
 Documentation=https://github.com/nvm-sh/nvm

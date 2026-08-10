@@ -152,14 +152,14 @@ owner/group/mode list is `tests/integration/perms.sh`, which
 |---|---|
 | src/usr/local/lib/ai-tools/path-dedup.sh | /usr/local/lib/ai-tools/path-dedup.sh (root) |
 | src/opt/ai-tools/bin/nvm-update.sh | /opt/ai-tools/bin/nvm-update.sh |
-| src/usr/local/sbin/ai-tools/ai-tools-chown.sh | /usr/local/sbin/ai-tools/ai-tools-chown (root) |
-| src/usr/local/sbin/ai-tools/ai-tools-setgid.sh | /usr/local/sbin/ai-tools/ai-tools-setgid (root) |
-| src/usr/local/sbin/ai-tools/ai-tools-launcher-symlink.sh | /usr/local/sbin/ai-tools/ai-tools-launcher-symlink (root) |
-| src/usr/local/sbin/ai-tools/ai-tools-relabel-agent.sh | /usr/local/sbin/ai-tools/ai-tools-relabel-agent (root) |
-| src/usr/local/sbin/ai-tools/ai-tools-bootstrap.sh | /usr/local/sbin/ai-tools/ai-tools-bootstrap (root) |
-| src/usr/local/sbin/ai-tools/ai-tools-admin.sh | /usr/local/sbin/ai-tools/ai-tools-admin (root) |
-| src/usr/local/sbin/ai-tools/ai-tools-lockdown.sh | /usr/local/sbin/ai-tools/ai-tools-lockdown (root) |
-| src/usr/local/sbin/ai-tools/ai-tools-handback.py | /usr/local/sbin/ai-tools/ai-tools-handback (root) |
+| src/usr/local/libexec/ai-tools/ai-tools-chown.sh | /usr/local/libexec/ai-tools/ai-tools-chown (root) |
+| src/usr/local/libexec/ai-tools/ai-tools-setgid.sh | /usr/local/libexec/ai-tools/ai-tools-setgid (root) |
+| src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh | /usr/local/libexec/ai-tools/ai-tools-launcher-symlink (root) |
+| src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh | /usr/local/libexec/ai-tools/ai-tools-relabel-agent (root) |
+| src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh | /usr/local/libexec/ai-tools/ai-tools-bootstrap (root) |
+| src/usr/local/libexec/ai-tools/ai-tools-admin.sh | /usr/local/libexec/ai-tools/ai-tools-admin (root) |
+| src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh | /usr/local/libexec/ai-tools/ai-tools-lockdown (root) |
+| src/usr/local/libexec/ai-tools/ai-tools-handback.py | /usr/local/libexec/ai-tools/ai-tools-handback (root) |
 | src/usr/local/bin/ai-tools-handback-client.py | /usr/local/bin/ai-tools-handback-client (root:ai-tools) |
 | src/usr/lib/systemd/system/ai-tools-handback.socket | /usr/lib/systemd/system/ai-tools-handback.socket (root) |
 | src/usr/lib/systemd/system/ai-tools-handback@.service | /usr/lib/systemd/system/ai-tools-handback@.service (root) |

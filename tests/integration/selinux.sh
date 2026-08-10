@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/selinux.sh
 # Integration: the SELinux confinement layer is actually ENFORCING, not silently disabled. The
 # whole trust chain past DAC (steps 4-5 in CLAUDE.md) rests on ai_tools_t / ai_tools_handback_t

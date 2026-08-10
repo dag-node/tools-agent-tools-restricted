@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/symlink-helper.sh
 # Integration: the ai-tools-launcher-symlink root helper -- the only writer of the locked
 # /opt/ai-tools/bin. It must repoint a stable launcher symlink ONLY at a path of the versioned
@@ -16,7 +17,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-readonly helper="/usr/local/sbin/ai-tools/ai-tools-launcher-symlink"
+readonly helper="/usr/local/libexec/ai-tools/ai-tools-launcher-symlink"
 readonly bin_dir="/opt/ai-tools/bin"
 section "ai-tools-launcher-symlink: validation + idempotent repoint (integration)"
 

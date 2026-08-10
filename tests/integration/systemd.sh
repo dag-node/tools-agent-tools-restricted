@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/systemd.sh
 # Integration: the shipped systemd units parse cleanly and are enabled in the right instance.
 # `systemd-analyze verify` catches a directive typo that would otherwise ship silently; the

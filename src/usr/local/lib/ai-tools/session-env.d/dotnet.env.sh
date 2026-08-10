@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 # shellcheck shell=bash
 # /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh
 # Session environment for the dotnet integration: a host-managed .NET toolchain, a

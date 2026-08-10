@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/cli.sh
 # Integration: the ai-tools management CLI principal guard. The CLI edits the allowlist as the
 # PROJECTS user (and registers git safe.directory through the ai-tools-safedir root helper); it

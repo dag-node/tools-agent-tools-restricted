@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# /usr/local/sbin/ai-tools/ai-tools-reclaim
+# SPDX-License-Identifier: AGPL-3.0-only
+# /usr/local/libexec/ai-tools/ai-tools-reclaim
 # Reclaims ownership of agent-written files under a project back to the owning operator, on demand
 # -- the operator-invoked counterpart to the session sweeps. It walks <project> and hands each
 # @SANDBOX_USER@-owned path to ai-tools-chown, the SAME per-path trust boundary (allowlist
@@ -20,7 +21,7 @@
 # required to chown files the projects user does not own.
 #
 # Deploy: sudo install -o root -g root -m 750 \
-#     src/usr/local/sbin/ai-tools/ai-tools-reclaim.sh /usr/local/sbin/ai-tools/ai-tools-reclaim
+#     src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh /usr/local/libexec/ai-tools/ai-tools-reclaim
 
 set -euo pipefail
 
@@ -42,7 +43,7 @@ done
 [[ -n "${TARGET}" ]] \
     || { printf 'usage: ai-tools-reclaim [--full] <absolute-project-path>\n' >&2; exit 2; }
 readonly TARGET FULL
-readonly CHOWN_BIN="/usr/local/sbin/ai-tools/ai-tools-chown"
+readonly CHOWN_BIN="/usr/local/libexec/ai-tools/ai-tools-chown"
 readonly SANDBOX_USER="@SANDBOX_USER@"
 
 # Operator-identity resolver: a path no operator's allowlist covers is left untouched (fail-closed);

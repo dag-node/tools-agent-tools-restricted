@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/unclaim.sh
 # Hermetic unit tests for the deployed ai-tools-unclaim helper: the filesystem hand-back it
 # performs at project unclaim -- clear the agent ACL + default ACL, regroup to a target
@@ -10,7 +11,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-readonly HELPER="/usr/local/sbin/ai-tools/ai-tools-unclaim"
+readonly HELPER="/usr/local/libexec/ai-tools/ai-tools-unclaim"
 section "ai-tools-unclaim: filesystem hand-back + revocation (unit)"
 
 if [[ ! -x "${HELPER}" ]]; then

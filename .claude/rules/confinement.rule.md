@@ -2,12 +2,14 @@
 paths:
   - "selinux/policy/*.te"
   - "selinux/policy/*.fc"
+  - "selinux/policy/Makefile"
   - "selinux/install-selinux.sh"
+  - "packaging/ai-tools.spec"
   - "selinux/README.md"
   - "src/opt/ai-tools/bin/ai-tools-run.sh"
   - "src/usr/local/lib/ai-tools/confinement.lib.sh"
   - "src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
-  - "src/usr/local/sbin/ai-tools/ai-tools-admin.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-admin.sh"
 ---
 
 # Session confinement (namespaces, SELinux, `/tmp`)
@@ -148,9 +150,7 @@ and stability from one place — `selinux-groups.lib.sh`, so they cannot disagre
   (`ai_tools_<group>.pp`) alongside the core in `/usr/share/selinux/packages/ai-tools/`, and
   `sudo ai-tools-admin selinux enable-group <name>` `semodule`-loads the prebuilt `.pp` on an
   installed host, needing no source tree or `selinux-policy-devel`. `list-groups`/`disable-group`
-  round it out (`disable-group` works for any loaded group). The package erase (`%postun`)
-  unloads any group a host left loaded, since the `.pp` is removed but the compiled module
-  persists in the store.
+  round it out (`disable-group` works for any loaded group).
 - **Experimental** groups are unaudited drafts and are **not shipped prebuilt**;
   `ai-tools-admin enable-group` refuses one and points at the source workflow rather than
   loading an unaudited module. They are compiled and verified from a source checkout —
@@ -170,3 +170,36 @@ active.
 
 After editing policy source, rebuild and reload the loaded module with
 `sudo selinux/install-selinux.sh rebuild`.
+
+## How the policy ships
+
+The policy is its own subpackage, `ai-tools-selinux`, and `ai-tools-base` **recommends** it. Two
+independent properties meet at that boundary:
+
+- **Licence.** A compiled `.pp` embeds macro expansions from the SELinux reference policy, so it is
+  `GPL-2.0-or-later` while the rest of the stack is `AGPL-3.0-only`. The `.te`/`.if`/`.fc` sources
+  carry the same identifier (they call refpolicy interfaces that expand on compile); the surrounding
+  tooling — `install-selinux.sh`, `selinux/avc/*.sh`, `selinux-groups.lib.sh` — is `AGPL-3.0-only`,
+  holding no refpolicy content. The subpackage conveys the GPL text via `%license`, and the source
+  tarball carries the policy sources and their `Makefile` so the SRPM accompanies each `.pp` with
+  its corresponding source; `make dist` asserts that pairing and refuses to produce a tarball
+  without it.
+- **Degradation.** The weak dependency is what `ai_tools_confinement_verdict` already expects: a
+  host without the subpackage has no module in the store, which is the intentional DAC-only
+  deployment that launches, not the half-installed state that refuses. Dropping the policy costs
+  confinement and nothing else.
+
+The load and unload scriptlets live in the subpackage, with the payload, so no cross-subpackage
+ordering question arises. `%post` runs `semodule -i` — into the running kernel policy, not only the
+module store, since the entrypoint cannot be labelled until the module's types exist in the kernel —
+at the default module priority, the same slot `install-selinux.sh` and `ai-tools-admin` address, so a
+host holds one copy of each module. `%postun` on final erase unloads every loaded `ai_tools*` module,
+enumerated rather than named: a group's `.pp` is erased with the package while the compiled module
+persists in the store, and a group compiled from a source checkout was never in the rpm database at
+all.
+
+The `%selinux_*` rpm macros are not used. `%selinux_requires` records the build host's
+`selinux-policy` version as a `Requires`, which a `noarch` package cannot satisfy across both EL
+targets; `%selinux_modules_install`/`_uninstall` operate at priority 200, splitting the module slot
+against the two source-tree tools, and the uninstall half removes only the modules it names, which
+would strand any group enabled on the host.

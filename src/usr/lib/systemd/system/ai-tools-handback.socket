@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/lib/systemd/system/ai-tools-handback.socket
 # Listening socket for the ai-tools handback privilege bridge.
 #
@@ -37,7 +38,7 @@
 
 [Unit]
 Description=ai-tools handback privilege bridge socket
-Documentation=file:/usr/local/sbin/ai-tools/ai-tools-handback
+Documentation=file:/usr/local/libexec/ai-tools/ai-tools-handback
 
 [Socket]
 ListenStream=/run/ai-tools/handback.sock

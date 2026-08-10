@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/boundary/sudo.sh
 # Boundary: the sandbox account holds NO sudo rights -- the first security-model invariant in
 # CLAUDE.md. The two NOPASSWD rules in sudoers.d/ai-tools both belong to the PROJECTS

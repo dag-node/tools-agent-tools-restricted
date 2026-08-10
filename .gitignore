@@ -1,5 +1,8 @@
 .idea/
 .env/
+# Scratch space for work-in-progress notes, issue drafts, and design docs not yet promoted
+# into the tree (docs/, .claude/rules/) or a tracker.
+wip/
 # Compiled policy packages are build artifacts. Only the STABLE ones ship prebuilt so a
 # normal install and `ai-tools-admin selinux enable-group` need no selinux-policy-devel
 # toolchain -- the core (ai_tools.pp) and each stable optional group (currently tmpmap).

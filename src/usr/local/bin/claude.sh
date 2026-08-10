@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/bin/claude
 # Sandboxed claude wrapper. Ships system-wide (root:root 0755, rpm-owned) and runs as the
 # invoking operator. Refuses a non-operator (not in the ai-ops group) up front with a framed
@@ -9,6 +10,9 @@
 # the session in a systemd transient service before exec'ing the versioned binary.
 # path-dedup.sh (wired into operator dotfiles by ai-tools-admin) ranks /usr/local/bin
 # (Tier 1) above the nvm shims, so this shadows any nvm-managed claude on an operator's PATH.
+# When operator.conf configures a custom system prompt, this also prepends the resolved
+# --append-system-prompt-file / --system-prompt-file arguments (claude-prompt.lib.sh) ahead of the
+# operator's own; a configured-but-unhonourable prompt refuses the launch (fail closed).
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -96,6 +100,23 @@ if ! source "${CONF_LIB}" 2>/dev/null \
         "       Without it the approved-projects list cannot be read, so no project would" \
         "       resolve as allowed. Check that /usr/local/lib/ai-tools is traversable and its" \
         "       libraries are present, then reinstall the package if needed."
+fi
+
+# Custom system prompt resolver (claude-prompt.lib.sh). Resolves the operator-configured
+# --append-system-prompt-file / --system-prompt-file launch arguments from operator.conf. Loaded
+# here; APPLIED just before the final exec below. This input is not confinement, so a host that
+# configures NO custom prompt launches normally even if this lib is missing -- but a host that HAS
+# one configured must not silently fall back to Claude Code's default prompt, so a missing lib fails
+# the launch CLOSED only in that case (handled at the resolution block below, which detects a
+# configured prompt via the already-required conf.lib). The load itself is therefore best-effort and
+# only logged; the fail-closed decision is made where the configuration is known.
+readonly CLAUDE_PROMPT_LIB="/usr/local/lib/ai-tools/claude-prompt.lib.sh"
+# shellcheck source=SCRIPTDIR/../lib/ai-tools/claude-prompt.lib.sh
+if ! source "${CLAUDE_PROMPT_LIB}" 2>/dev/null \
+        || ! declare -F ai_tools_claude_resolve_prompt_args >/dev/null 2>&1; then
+    command -v logger >/dev/null 2>&1 \
+        && logger -t claude -p user.warning \
+            "custom-system-prompt library ${CLAUDE_PROMPT_LIB} unavailable for $(id -un 2>/dev/null)"
 fi
 
 # have_tty: true only when a controlling terminal can actually be opened. `[[ -r /dev/tty ]]`
@@ -319,7 +340,7 @@ readonly GITCONFIG="/opt/ai-tools/.gitconfig"
 # Root helper that writes the safe.directory entry. .gitconfig is root-owned 644 (readable here
 # for the gap check, writable only by root), so the operator registers through sudo -- the same
 # helper the CLI's reg_safedir uses. See ai-tools-safedir's header for the model.
-readonly SAFEDIR_BIN="/usr/local/sbin/ai-tools/ai-tools-safedir"
+readonly SAFEDIR_BIN="/usr/local/libexec/ai-tools/ai-tools-safedir"
 
 # project_labelled <dir>  -- 0 when SELinux is NOT enforcing (no label needed) or <dir>
 # already carries ai_tools_project_t. Read-only, no privilege; the authoritative relabel
@@ -421,6 +442,29 @@ fi
 # can read the toolchain the operator cannot (the 700 package tree), so it reports the
 # agent / Node / ai-tools versions under the umbrella logo.
 
+# Resolve any operator-configured custom system prompt into launch arguments (empty when none is
+# configured or when the operator passed a system-prompt flag for this invocation). This is not
+# confinement, so an UNCONFIGURED host proceeds untouched -- but a CONFIGURED prompt that cannot be
+# honoured refuses the launch (fail closed) rather than run with a prompt the operator did not set.
+readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
+declare -a prompt_args=()
+if declare -F ai_tools_claude_resolve_prompt_args >/dev/null 2>&1; then
+    if ! ai_tools_claude_resolve_prompt_args prompt_args "${OPERATOR_CONF}" "$@"; then
+        die "claude: a custom system prompt is configured but cannot be applied -- refusing to launch" \
+            "       see the warning above; fix CLAUDE_SYSTEM_PROMPT_FILE / CLAUDE_SYSTEM_PROMPT_MODE" \
+            "       in ${OPERATOR_CONF}, or comment the keys out to use Claude Code's default prompt"
+    fi
+else
+    # The resolver lib did not load. An unconfigured host launches normally; a configured one must
+    # not silently drop its prompt, so refuse when CLAUDE_SYSTEM_PROMPT_FILE is set and non-empty.
+    if ai_tools_conf_read "${OPERATOR_CONF}" CLAUDE_SYSTEM_PROMPT_FILE 2>/dev/null \
+            && [[ -n "${_ai_tools_conf_value}" ]]; then
+        die "claude: a custom system prompt is configured but its resolver library is unavailable" \
+            "       ${CLAUDE_PROMPT_LIB}" \
+            "       refusing to launch rather than ignore the configured prompt -- reinstall ai-tools"
+    fi
+fi
+
 # Pass the validated versioned path through sudo's env_keep. ai-tools-run re-validates it, and
 # derives WHICH agent this is from the launcher name in the path, so no agent identity crosses
 # sudo as a separate variable.
@@ -431,4 +475,9 @@ export AI_TOOLS_AGENT_EXEC="${CLAUDE_REAL}"
 # /), so ai-tools-run hands this to systemd-run as the unit's WorkingDirectory. Carried
 # through sudo via env_keep (sudoers.d/ai-tools); ai-tools-run re-validates it.
 export AI_TOOLS_PROJECT_DIR="${cwd}"
-exec sudo -u ai-tools -g ai-tools -- /opt/ai-tools/bin/ai-tools-run "$@"
+# prompt_args (if any) precede "$@": the operator.conf-sourced flag sits before the operator's own
+# arguments. A per-invocation system-prompt flag is detected earlier and suppresses prompt_args, so
+# the two never collide here. The ${arr[@]+"..."} form expands to nothing (not an empty word) when
+# prompt_args is empty, safe under set -u.
+exec sudo -u ai-tools -g ai-tools -- /opt/ai-tools/bin/ai-tools-run \
+    ${prompt_args[@]+"${prompt_args[@]}"} "$@"

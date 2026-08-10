@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/check-version.sh
 # Unit test for packaging/check-version.sh, the release-metadata gate the release job runs
 # at tag time (and `make -C packaging check-version` locally). Pins the tag grammar and the

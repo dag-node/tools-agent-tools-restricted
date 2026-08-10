@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# /usr/local/sbin/ai-tools/ai-tools-safedir
+# SPDX-License-Identifier: AGPL-3.0-only
+# /usr/local/libexec/ai-tools/ai-tools-safedir
 # Registers or removes one project path in git's safe.directory list in the agent's global git
 # config /opt/ai-tools/.gitconfig, so the agent's git trusts an operator-owned project tree.
 #
@@ -17,7 +18,7 @@
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
-#       src/usr/local/sbin/ai-tools/ai-tools-safedir.sh /usr/local/sbin/ai-tools/ai-tools-safedir
+#       src/usr/local/libexec/ai-tools/ai-tools-safedir.sh /usr/local/libexec/ai-tools/ai-tools-safedir
 
 set -euo pipefail
 

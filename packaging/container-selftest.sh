@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/bin/ai-tools-selftest  (test image only)
 # Automated admin/operator/agent smoke test for the ai-tools RPMs, run once on boot by
 # ai-tools-selftest.service after the system instance is up (the handback socket and the
@@ -94,7 +95,7 @@ phase "Core helpers + wrapper installed on PATH" \
     bash -c 'command -v claude && command -v ai-tools && command -v ai-tools-admin && command -v ai-tools-bootstrap'
 
 phase "safedir + reclaim helpers present (the late spec additions)" \
-    bash -c 'test -x /usr/local/sbin/ai-tools/ai-tools-safedir && test -x /usr/local/sbin/ai-tools/ai-tools-reclaim'
+    bash -c 'test -x /usr/local/libexec/ai-tools/ai-tools-safedir && test -x /usr/local/libexec/ai-tools/ai-tools-reclaim'
 
 # ── toolchain provisioning (network) ─────────────────────────────────────────
 # Run at runtime, not build: under a live systemd, bootstrap enables the sandbox account's

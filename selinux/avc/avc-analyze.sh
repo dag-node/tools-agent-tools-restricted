@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # selinux/avc/avc-analyze.sh -- collect the ai_tools_t AVCs logged since the last
 # avc-testsuite.sh run and split them into NEW (candidates to fold into the policy)
 # vs EXPECTED BOUNDARY (the accesses ai_tools.te deliberately dontaudit's -- they

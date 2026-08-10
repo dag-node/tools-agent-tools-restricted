@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # Sign release RPMs with the dag-node org signing key and export the matching public key.
 # Runs INSIDE the matching-EL build container (ai-tools-rpmbase:elN) so the rpm/gnupg
 # toolchain that signs is the same one that built the packages -- see the org playbook in
@@ -107,7 +108,7 @@ Name: ai-tools-sign-selftest
 Version: 0
 Release: 0
 Summary: throwaway package proving the release signing chain end-to-end
-License: AGPL-3.0-or-later
+License: AGPL-3.0-only
 BuildArch: noarch
 %description
 Built and discarded by sign-rpms.sh --selftest to prove that the signing key, its passphrase,

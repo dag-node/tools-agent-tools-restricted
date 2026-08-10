@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/chown.sh
 # Hermetic unit tests for the deployed ai-tools-chown helper: it acts only on agent
 # (SANDBOX_USER)-owned paths, hands ordinary ones back to <projects-user>:SANDBOX_GROUP with
@@ -12,7 +13,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-readonly HELPER="/usr/local/sbin/ai-tools/ai-tools-chown"
+readonly HELPER="/usr/local/libexec/ai-tools/ai-tools-chown"
 section "ai-tools-chown: handback + secret quarantine + guards (unit)"
 
 if [[ ! -x "${HELPER}" ]]; then

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /opt/ai-tools/.claude/filter-hook.sh
 # Claude Code's adapter onto the shared token-saving filters (filters.lib.sh). Two events, one
 # script, dispatched on $1 the way session-hook.sh dispatches its session phases:

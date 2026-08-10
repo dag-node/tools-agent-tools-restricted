@@ -15,6 +15,7 @@ layered by dependency:
 ai-tools.spec  (one source RPM, BuildArch: noarch)
  ├─ ai-tools                    Requires: ai-tools-base; Recommends: both umbrellas
  ├─ ai-tools-base               the provider-agnostic foundation
+ ├─ ai-tools-selinux            the confinement policy  (GPL-2.0-or-later; base Recommends it)
  ├─ ai-tools-integration        Recommends: ai-tools-integration-{nodejs,dotnet}
  │   ├─ ai-tools-integration-nodejs               Requires: ai-tools-base
  │   └─ ai-tools-integration-dotnet               Requires: ai-tools-base  (host dotnet; no dotnet RPM dep)
@@ -24,7 +25,13 @@ ai-tools.spec  (one source RPM, BuildArch: noarch)
 
 `ai-tools-base` carries the sandbox account, the project-management workflow, and
 the ownership/secret machinery — everything independent of which AI tool runs in
-the sandbox. The `ai-tools-integration` umbrella groups the host-toolchain layers the
+the sandbox. `ai-tools-selinux` carries the confinement policy and the scriptlets that
+load and unload it. It is separate for two reasons that coincide: a compiled policy
+module embeds macro expansions from the SELinux reference policy, so it is
+`GPL-2.0-or-later` while the rest of the stack is `AGPL-3.0-only`; and confinement is a
+second boundary rather than the only one, so base only *recommends* it — dropping it
+leaves the documented DAC-only posture rather than a broken install. The
+`ai-tools-integration` umbrella groups the host-toolchain layers the
 agent builds against: `ai-tools-integration-nodejs` adds nvm-managed Node and the
 auto-update timer, `ai-tools-integration-dotnet` adds the session-env glue for a
 host-managed .NET toolchain (inert without one), and further language/runtime
@@ -97,7 +104,8 @@ the *same* version already installed and is not the way to move between versions
 
 | Subpackage | Owns |
 |---|---|
-| `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home ROOT and `bin` (plus its default-deny `.gitignore` git guard and `.gitconfig` identity, both `%post`-seeded-if-missing and not rpm-owned, so an erase preserves them); the mode and label contract every agent's config directory carries, but no such directory itself; the shared skills root `/opt/ai-tools/skills` and the pristine skill copies (skills are agent-agnostic, so every agent symlinks into this one place) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `secret-patterns` template; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `skip-dirs.lib.sh`, `safe-paths.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`, `conf.lib.sh`, `providers.lib.sh`; the agent-agnostic confinement shim `/opt/ai-tools/bin/ai-tools-run` and the `%ai-ops` sudoers grant that reaches it; the `agents.d`, `integrations.d`, and `session-env.d` provider directories (base owns the dirs at `0755 root:root`; each member package drops only its own manifest or fragment into them); the base SELinux domain (`ai_tools_t` and the handback/helper types) |
+| `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home ROOT and `bin` (plus its default-deny `.gitignore` git guard and `.gitconfig` identity, both `%post`-seeded-if-missing and not rpm-owned, so an erase preserves them); the mode and label contract every agent's config directory carries, but no such directory itself; the shared skills root `/opt/ai-tools/skills` and the pristine skill copies (skills are agent-agnostic, so every agent symlinks into this one place) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `secret-patterns` template; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `skip-dirs.lib.sh`, `safe-paths.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`, `conf.lib.sh`, `providers.lib.sh`; the agent-agnostic confinement shim `/opt/ai-tools/bin/ai-tools-run` and the `%ai-ops` sudoers grant that reaches it; the `agents.d`, `integrations.d`, and `session-env.d` provider directories (base owns the dirs at `0755 root:root`; each member package drops only its own manifest or fragment into them) |
+| `ai-tools-selinux` | the prebuilt SELinux policy packages in `/usr/share/selinux/packages/ai-tools/` — the core `ai_tools.pp` (the `ai_tools_t` domain and the handback/helper types) plus each STABLE optional group; the `%post`/`%postun` scriptlets that load the core and unload every loaded `ai_tools*` module on erase; the GPL licence text |
 | `ai-tools-integration-nodejs` | nvm under `/opt/ai-tools/.nvm`; the per-sandbox-user Node-version auto-update service and timer; `ai-tools-bootstrap`; the symlink-repoint helper (`ai-tools-launcher-symlink`) and the post-upgrade entrypoint relabel (`ai-tools-relabel-agent`) |
 | `ai-tools-integration-dotnet` | the dotnet session-env fragment (`session-env.d/dotnet.env.sh`) and manifest (`integrations.d/dotnet.conf`); the `ai-tools-dotnet` provisioning helper (writable NuGet cache + read-only shared tools under its own `/opt/ai-tools/integrations/dotnet` state root, covered by the base's single fcontext rule for that tree). No .NET runtime — the host's dotnet is used |
 | `ai-tools-agents-claude-code-restricted` | the `claude` launch wrapper; `/opt/ai-tools/bin/claude`; the Claude Code hooks (`post-tool-hook.sh`, `session-hook.sh`) and `settings.json`; its agent manifest (`agents.d/claude-code.conf`, naming the npm package, launcher, display name, handback capability, config directory, and the SELinux entrypoint file-context for `claude.exe`); its own config directory `/opt/ai-tools/.claude`, the shipped Claude-format agents seeded into it, and its session-env fragment (`session-env.d/claude-code.env.sh`); the scriptlets that register that file-context on install and drop it on erase. Confinement itself is base-owned, so this package ships no shim and needs no sudoers rule of its own |
@@ -145,7 +153,7 @@ modified after an operator is added.
 
 ## Operator administration
 
-`ai-tools-admin operator add|remove|list` (`/usr/local/sbin/ai-tools/ai-tools-admin`,
+`ai-tools-admin operator add|remove|list` (`/usr/local/libexec/ai-tools/ai-tools-admin`,
 root, run via `sudo`) manages the operators -- the login users (a human or a rootless
 service account) that drive the sandbox through the shared `ai-tools` account. It is a
 root helper rather than an `ai-tools` CLI verb, because it edits host config (the
@@ -178,7 +186,7 @@ ordered `sudo ai-tools-bootstrap` then `sudo ai-tools-admin operator add <user>`
 
 ## Bootstrap
 
-`ai-tools-bootstrap` (`/usr/local/sbin/ai-tools/ai-tools-bootstrap`, root, run via
+`ai-tools-bootstrap` (`/usr/local/libexec/ai-tools/ai-tools-bootstrap`, root, run via
 `sudo`; shipped by `ai-tools-integration-nodejs`) creates the `ai-tools` system account
 and its `/opt/ai-tools` home when absent, then installs nvm, Node, and each **enabled**
 agent's npm package under `/opt/ai-tools` as the sandbox account, and points
@@ -219,15 +227,20 @@ nvm-update timer maintains the tree from then on.
   `systemd-sysusers` from a shipped `sysusers.d` snippet, so both exist before any
   file owned by them is unpacked. `Requires(pre): shadow-utils`. The `ai-ops` group
   ships empty; operators are added to it per host.
-- `%post` runs `%systemd_post ai-tools-handback.socket`; when SELinux is not
-  `Disabled`, installs the prebuilt core policy module and relabels (below); and
+- `%post` runs `%systemd_post ai-tools-handback.socket`, applies the shared-area ACLs, and
   prints the ordered `ai-tools-bootstrap` then `ai-tools-admin operator add`
-  directives. It does not bind an operator or provision the toolchain and its update
+  directives. Loading the SELinux policy is NOT base's job — that scriptlet lives with the
+  payload in `ai-tools-selinux`. It does not bind an operator or provision the toolchain and its update
   timer — those belong to `ai-tools-admin operator add` and `ai-tools-bootstrap`.
 - `%preun` runs `%systemd_preun ai-tools-handback.socket`.
-- `%postun` runs `%systemd_postun_with_restart ai-tools-handback.socket`, and on
-  final erase (`$1 == 0`) removes the SELinux core module and re-applies default
-  contexts.
+- `%postun` runs `%systemd_postun_with_restart ai-tools-handback.socket`.
+
+`ai-tools-selinux`: `%post` loads the prebuilt core module into the running policy with plain
+`semodule -i` and relabels the install paths. `%postun`, on final erase (`$1 == 0`), unloads
+every loaded `ai_tools*` module — enumerated, not named, so a stable group enabled with
+`ai-tools-admin` and an experimental group compiled from a source checkout are both caught.
+Neither scriptlet passes `--noreload`: the store and the running kernel policy must not
+diverge, or an install leaves the entrypoint unlabelled and an erase leaves the domain live.
 
 `ai-tools-integration-nodejs`: `%post`/`%preun`/`%postun` manage the system `ai-tools-relabel.path`
 watcher with the systemd macros. The `nvm-update` service and timer ship in
@@ -245,7 +258,7 @@ copy serves the `ai-tools` instance that runs the timer.
 The core policy module and the **stable** optional groups ship prebuilt (`ai_tools.pp` and
 each stable `ai_tools_<group>.pp`, currently `ai_tools_tmpmap.pp`) under
 `%{_datadir}/selinux/packages/ai-tools/`, so a normal install and enabling a stable group
-both need no policy toolchain. `ai-tools-base` `%post` loads the **core module only** and
+both need no policy toolchain. `ai-tools-selinux` `%post` loads the **core module only** and
 applies file contexts when `getenforce` is not `Disabled`, and is a no-op otherwise. The
 stable groups are shipped but stay **off**, toggled per host by an operator who hits a
 boundary:
@@ -256,7 +269,8 @@ sudo ai-tools-admin selinux enable-group tmpmap
 ```
 
 That helper `semodule`-loads the prebuilt `.pp` from the package directory. The
-**experimental** groups (`systemd`, `pkgmgmt`, `netadmin`, `podman`) are unaudited drafts and
+**experimental** groups (`systemd`, `pkgmgmt`, `netadmin`, `podman`, `apphost`, `netcore`) are
+unaudited drafts and
 are **not** packaged: `ai-tools-admin` refuses them and directs the operator to compile and
 verify one from a source checkout first (`install-selinux.sh enable-group` + the `avc/`
 loop). The shipped set is single-sourced with the stable set in `selinux-groups.lib.sh` and
@@ -328,7 +342,9 @@ below the final release that follows it, and a host that installed an RC
 upgrades cleanly to the final via ordinary `dnf`.
 
 Runtime dependencies: `ai-tools-base` requires `systemd`, `sudo`, `acl`,
-`python3`, `coreutils`, and `policycoreutils` (for `restorecon`/`semodule`);
+`python3`, `coreutils`, and `policycoreutils`, and weakly recommends `ai-tools-selinux`
+(which itself pulls `policycoreutils` for `semodule`/`restorecon` and `libselinux-utils` for
+`getenforce` at scriptlet time);
 `ai-tools-integration-nodejs` adds `curl`, `tar`, and `gzip` for bootstrap. Node is not an RPM
 dependency — it is nvm-managed under `/opt/ai-tools` so the agent can self-update
 it within the policy the SELinux module enforces.

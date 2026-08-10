@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# /usr/local/sbin/ai-tools/ai-tools-chown
+# SPDX-License-Identifier: AGPL-3.0-only
+# /usr/local/libexec/ai-tools/ai-tools-chown
 # Restores operator:ai-tools ownership on files and directories created or
 # overwritten by Claude Code. Invoked as root by the ai-tools-handback daemon
 # (ai_tools_handback_t) when the PostToolUse/Stop/SessionStart hooks send a CHOWN
@@ -19,7 +20,7 @@
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
-#       src/usr/local/sbin/ai-tools/ai-tools-chown.sh /usr/local/sbin/ai-tools/ai-tools-chown
+#       src/usr/local/libexec/ai-tools/ai-tools-chown.sh /usr/local/libexec/ai-tools/ai-tools-chown
 
 set -euo pipefail
 

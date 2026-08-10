@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Ondřej Nedomlel <tools@dagnode.com>
+# SPDX-License-Identifier: MIT
 Name:           ai-tools
 # Single source of truth for the version: packaging/VERSION (the Makefile reads the same
 # file), so a release bump touches one place. Parsing this spec requires _sourcedir to
@@ -12,7 +14,7 @@ Version:        %(cat %{_sourcedir}/VERSION)
 Release:        %{!?rpm_release:1}%{?rpm_release}%{?dist}
 Summary:        Run Claude Code as a sandboxed system user (metapackage)
 
-License:        AGPL-3.0-or-later
+License:        AGPL-3.0-only
 URL:            https://github.com/dag-node/tools-agent-tools-restricted
 Source0:        %{name}-%{version}.tar.gz
 Source1:        %{name}.sysusers
@@ -20,6 +22,12 @@ Source2:        VERSION
 
 BuildArch:      noarch
 BuildRequires:  systemd-rpm-macros
+# Fedora only: the shipped SELinux .pp is compiled from source at build time rather than served
+# from the committed EL-built prebuilt, because Fedora's refpolicy is a newer, moving target and
+# an EL-built .pp may not load against it. EL keeps the committed prebuilt (no devel at build).
+%if 0%{?fedora}
+BuildRequires:  selinux-policy-devel
+%endif
 
 # Shell/Python scripts only: no ELF, so suppress the debuginfo subpackage and the
 # binary build-root policy steps (ldconfig/strip) that do not apply to a noarch package.
@@ -32,7 +40,7 @@ BuildRequires:  systemd-rpm-macros
 # Install paths are LITERAL /usr/local/* (not %%{_sbindir}/%%{_bindir}/%%{_libdir}): the
 # sandbox hardcodes these exact paths in the SELinux file-contexts, the CLI's helper lookups,
 # the hooks' handback-client path, and sudoers, so the package must place files there.
-%global ai_sbindir /usr/local/sbin/ai-tools
+%global ai_libexecdir /usr/local/libexec/ai-tools
 %global ai_bindir  /usr/local/bin
 %global ai_mandir  /usr/local/share/man
 %global ai_libdir  /usr/local/lib/ai-tools
@@ -64,13 +72,49 @@ Requires:       acl
 Requires:       python3
 Requires:       coreutils
 Requires:       policycoreutils
+# Weak, not hard: without the policy the sandbox runs in a documented DAC-only mode rather than
+# failing. ai_tools_confinement_verdict returns "ok" when the module is ABSENT (an intentional
+# DAC-only deployment) and fails closed only when it is present-but-inactive, so dropping this
+# subpackage degrades confinement without bricking a launch. Also a licence boundary: the policy
+# is the one GPL payload in the stack (see its %%description), and a weak dep keeps it separable.
+Recommends:     ai-tools-selinux = %{version}-%{release}
 
 %description -n ai-tools-base
 The provider-agnostic base layer: the ai-tools system account, the ai-ops
 operators group, the ai-tools project-lifecycle CLI, the ai-tools-admin
 operator-administration command, the ownership and secret-handling root helpers,
-the handback privilege-bridge socket, and the base SELinux confinement domain.
-Other AI-tool packages build on this layer.
+and the handback privilege-bridge socket. The SELinux confinement domain itself
+ships in ai-tools-selinux, which this package weakly recommends. Other AI-tool
+packages build on this layer.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The SELinux confinement policy, split out because it is the one payload in the stack the
+# maintainer does not own: a compiled .pp embeds macro expansions from the SELinux reference
+# policy (GPL-2.0-or-later), so it is conveyed under the GPL as its own package rather than
+# relicensing the AGPL base around it. The scriptlets that load and unload the modules live
+# here WITH the payload, which also removes any cross-subpackage ordering question.
+#
+# Scriptlet tools are named explicitly rather than via %%{?selinux_requires}: that macro bakes
+# the BUILD host's selinux-policy version into a Requires (uninstallable on the older EL of a
+# noarch build) and pulls policycoreutils-python-utils, which nothing here uses. semodule and
+# restorecon come from policycoreutils; getenforce from libselinux-utils.
+%package -n ai-tools-selinux
+Summary:        SELinux confinement policy for the ai-tools sandbox
+License:        GPL-2.0-or-later
+Requires:       ai-tools-base = %{version}-%{release}
+Requires(post): policycoreutils
+Requires(post): libselinux-utils
+Requires(postun): policycoreutils
+
+%description -n ai-tools-selinux
+The SELinux targeted-policy module that confines a sandbox session in the
+ai_tools_t domain, plus the prebuilt packages for the stable optional policy
+groups. Built against the SELinux reference policy and therefore licensed
+GPL-2.0-or-later, unlike the rest of the stack.
+
+Without this package the sandbox runs in a documented DAC-only mode: ownership,
+group ACLs, and the no-new-privileges launch confinement all still apply, but
+the kernel-enforced type transition does not.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ai-tools-integration umbrella: the host-toolchain integration layers the sandboxed agent
@@ -183,22 +227,22 @@ grep -rlZ '@AI_TOOLS_VERSION@' src \
 # the launcher through an o+x search bit, so the agent is never the owner of a locked dir.
 
 # ── base: root helpers ───────────────────────────────────────────────────────
-install -d -m 0750 %{buildroot}%{ai_sbindir}
+install -d -m 0750 %{buildroot}%{ai_libexecdir}
 for h in ai-tools-chown ai-tools-setgid ai-tools-setfacl ai-tools-unclaim \
          ai-tools-lockdown ai-tools-relabel ai-tools-safedir ai-tools-reclaim \
          ai-tools-admin; do
-    install -m 0750 src%{ai_sbindir}/${h}.sh %{buildroot}%{ai_sbindir}/${h}
+    install -m 0750 src%{ai_libexecdir}/${h}.sh %{buildroot}%{ai_libexecdir}/${h}
 done
-install -m 0750 src%{ai_sbindir}/ai-tools-handback.py %{buildroot}%{ai_sbindir}/ai-tools-handback
+install -m 0750 src%{ai_libexecdir}/ai-tools-handback.py %{buildroot}%{ai_libexecdir}/ai-tools-handback
 
 # ai-tools-admin is typed by an administrator (documented as a bare command) and is the one
 # base helper that is not daemon- or sudoers-invoked by fixed path, so it gets a symlink in
 # %{_sbindir}: sudo resolves a bare command against the sudoers secure_path, which on stock
 # EL is /sbin:/bin:/usr/sbin:/usr/bin and does NOT include /usr/local/sbin. The target keeps
-# its canonical %{ai_sbindir} path. ai-tools-bootstrap gets the same treatment in the
+# its canonical %{ai_libexecdir} path. ai-tools-bootstrap gets the same treatment in the
 # ai-tools-integration-nodejs subpackage.
 install -d -m 0755 %{buildroot}%{_sbindir}
-ln -s %{ai_sbindir}/ai-tools-admin %{buildroot}%{_sbindir}/ai-tools-admin
+ln -s %{ai_libexecdir}/ai-tools-admin %{buildroot}%{_sbindir}/ai-tools-admin
 
 # ── base: CLI + handback client ──────────────────────────────────────────────
 install -d -m 0755 %{buildroot}%{ai_bindir}
@@ -257,7 +301,8 @@ install -d -m 0755 %{buildroot}%{_sysusersdir}
 install -m 0644 %{SOURCE1} %{buildroot}%{_sysusersdir}/ai-tools.conf
 
 # ── base: static %ai-ops sudoers drop-in (the @SANDBOX_*@ tokens are substituted in %build;
-#    %ai-ops is literal, so the file is host-identical and ships unchanged) ──
+#    %ai-ops is literal, so the file is host-identical and ships unchanged). Packaged %config
+#    (replace, not noreplace) so an upgrade always installs the shipped rule -- see %files. ──
 install -d -m 0750 %{buildroot}%{_sysconfdir}/sudoers.d
 install -m 0440 src%{_sysconfdir}/sudoers.d/ai-tools %{buildroot}%{_sysconfdir}/sudoers.d/ai-tools
 
@@ -270,7 +315,9 @@ sed 's/^OPERATORS=.*/OPERATORS=""/' src%{_sysconfdir}/ai-tools/operator.conf \
     > %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 chmod 0644 %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 
-# ── base: SELinux policy packages (prebuilt) ─────────────────────────────────
+# ── ai-tools-selinux: SELinux policy packages (prebuilt) ─────────────────────
+# Staged here, shipped in the ai-tools-selinux subpackage (which also carries the load/unload
+# scriptlets and the GPL licence text -- see its %%package block).
 # The core (loaded on install) plus each STABLE optional group. Only stable groups ship
 # prebuilt: they are toggled per host with `ai-tools-admin selinux enable-group <name>`,
 # which semodule-loads the prebuilt .pp from this directory (no source tree or
@@ -279,6 +326,14 @@ chmod 0644 %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 # ai-tools-admin points the operator there rather than loading an unaudited module. Keep this
 # list in step with the stable set in selinux-groups.lib.sh.
 install -d -m 0755 %{buildroot}%{_datadir}/selinux/packages/ai-tools
+# On Fedora, compile the .pp from the shipped .te/.fc/.if via the refpolicy Makefile (in the
+# tarball for GPL compliance) so the module targets the host's own refpolicy version; on EL, serve
+# the committed prebuilt. The .fc source -- carrying the /usr/local/libexec/ai-tools helper path --
+# is the single source both consume, so the layout is identical on either build. The %{?dist} tag
+# (.fc44 vs .el10) keeps a Fedora-built .pp from ever reaching an EL host or vice versa.
+%if 0%{?fedora}
+make -C selinux/policy ai_tools.pp ai_tools_tmpmap.pp
+%endif
 for pp in ai_tools ai_tools_tmpmap; do
     install -m 0644 selinux/policy/${pp}.pp \
         %{buildroot}%{_datadir}/selinux/packages/ai-tools/${pp}.pp
@@ -323,12 +378,12 @@ find %{buildroot}%{_datadir}/ai-tools/subagents %{buildroot}%{_datadir}/ai-tools
 
 # ── integration-nodejs: toolchain helpers + updater ──────────────────────────
 for h in ai-tools-launcher-symlink ai-tools-relabel-agent ai-tools-bootstrap; do
-    install -m 0750 src%{ai_sbindir}/${h}.sh %{buildroot}%{ai_sbindir}/${h}
+    install -m 0750 src%{ai_libexecdir}/${h}.sh %{buildroot}%{ai_libexecdir}/${h}
 done
 # ai-tools-bootstrap is administrator-typed (documented as a bare command); symlinked in
 # %{_sbindir} so `sudo ai-tools-bootstrap` resolves via secure_path, mirroring
 # ai-tools-admin in the base subpackage.
-ln -s %{ai_sbindir}/ai-tools-bootstrap %{buildroot}%{_sbindir}/ai-tools-bootstrap
+ln -s %{ai_libexecdir}/ai-tools-bootstrap %{buildroot}%{_sbindir}/ai-tools-bootstrap
 install -m 0550 src/opt/ai-tools/bin/nvm-update.sh %{buildroot}/opt/ai-tools/bin/nvm-update.sh
 
 # ── integration-nodejs: toolchain update units + post-upgrade relabel watcher ─
@@ -350,8 +405,8 @@ install -m 0644 src%{ai_libdir}/integrations.d/dotnet.conf  %{buildroot}%{ai_lib
 # Its command-filter rules (SDK verbosity), which are .NET knowledge and so ship with the .NET
 # package rather than in the base's core.rules.
 install -m 0644 src%{ai_libdir}/filters.d/dotnet.rules      %{buildroot}%{ai_libdir}/filters.d/dotnet.rules
-install -m 0750 src%{ai_sbindir}/ai-tools-dotnet.sh         %{buildroot}%{ai_sbindir}/ai-tools-dotnet
-ln -s %{ai_sbindir}/ai-tools-dotnet %{buildroot}%{_sbindir}/ai-tools-dotnet
+install -m 0750 src%{ai_libexecdir}/ai-tools-dotnet.sh         %{buildroot}%{ai_libexecdir}/ai-tools-dotnet
+ln -s %{ai_libexecdir}/ai-tools-dotnet %{buildroot}%{_sbindir}/ai-tools-dotnet
 # Ghost this helper's operation log alongside the base helpers' (the /var/log/ai-tools dir itself
 # is base-owned), so it carries the package's context and is removed with the package.
 touch %{buildroot}/var/log/ai-tools/dotnet.log
@@ -378,6 +433,23 @@ install -m 0644 src%{ai_libdir}/agents.d/claude-code.conf  %{buildroot}%{ai_libd
 # Its session env (config dir, compile cache, in-session updater), sourced by ai-tools-run last
 # so the agent's own pins are authoritative over an integration's.
 install -m 0644 src%{ai_libdir}/session-env.d/claude-code.env.sh %{buildroot}%{ai_libdir}/session-env.d/claude-code.env.sh
+# Claude Code-specific resolvers (the base owns the lib directory; the agent ships these into it):
+# the custom system prompt (claude.sh, wrapper-side) and the custom API endpoint (the fragment
+# above, sandbox-side). Both split their pure logic out for unit testing.
+install -m 0644 src%{ai_libdir}/claude-prompt.lib.sh   %{buildroot}%{ai_libdir}/claude-prompt.lib.sh
+install -m 0644 src%{ai_libdir}/claude-endpoint.lib.sh %{buildroot}%{ai_libdir}/claude-endpoint.lib.sh
+# The empty default custom system prompt and the endpoints directory with its inert endpoint
+# template; the operator edits each in place, both %config(noreplace) so those edits survive an
+# upgrade. Both files are 0640 root:ai-tools: the sandbox account reads them (the fragment reads the
+# endpoint, and claude.sh hands the prompt path to the confined binary) while neither is world-
+# readable -- the endpoint holds a bearer token, and a custom prompt may be proprietary. The dirs
+# stay 0755 so claude.sh can stat the prompt file as the operator.
+install -d -m 0755 %{buildroot}%{_sysconfdir}/ai-tools/prompts
+install -m 0640 src%{_sysconfdir}/ai-tools/prompts/claude-system-prompt.md \
+    %{buildroot}%{_sysconfdir}/ai-tools/prompts/claude-system-prompt.md
+install -d -m 0755 %{buildroot}%{_sysconfdir}/ai-tools/endpoints
+install -m 0640 src%{_sysconfdir}/ai-tools/endpoints/custom-claude-endpoint.conf \
+    %{buildroot}%{_sysconfdir}/ai-tools/endpoints/custom-claude-endpoint.conf
 
 # ── base: ghost the operation logs so the package owns them with the right context ──
 for f in chown setgid setfacl symlink lockdown relabel handback install; do
@@ -393,15 +465,6 @@ done
 
 %post -n ai-tools-base
 %systemd_post ai-tools-handback.socket
-# Load the prebuilt SELinux core module and apply contexts when SELinux is enabled. Core
-# only -- the stable optional groups ship prebuilt alongside it but stay OFF, toggled per host
-# with `ai-tools-admin selinux enable-group <name>` (experimental groups are not shipped).
-if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/null 2>&1; then
-    semodule -n -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp >/dev/null 2>&1 || :
-    if command -v restorecon >/dev/null 2>&1; then
-        restorecon -R %{ai_sbindir} %{ai_libdir} /opt/ai-tools /var/log/ai-tools >/dev/null 2>&1 || :
-    fi
-fi
 # Grant the ai-ops operators group access to the shared sandbox area through a group ACL, so
 # operators create and work in clones (ai-tools --sandbox-create) without joining the ai-tools
 # group: traverse on the outer dir, rwX on sandbox-projects (a default ACL so clones inherit the
@@ -475,14 +538,79 @@ fi
 
 %postun -n ai-tools-base
 %systemd_postun_with_restart ai-tools-handback.socket
-# On final erase only, unload the SELinux modules: the core plus any optional group a host
-# loaded with `ai-tools-admin selinux enable-group` (its .pp is erased with the package, but the
-# compiled module persists in the policy store until removed). Intentionally preserved (not
-# rpm-owned): the ai-tools account, /opt/ai-tools/.nvm, the control-plane .gitignore/.gitconfig,
-# /var/opt/ai-tools clones, and each operator's ~/.config/ai-tools.
+# Intentionally preserved on erase (not rpm-owned): the ai-tools account, /opt/ai-tools/.nvm, the
+# control-plane .gitignore/.gitconfig, /var/opt/ai-tools clones, and each operator's
+# ~/.config/ai-tools. The SELinux module unload lives with the policy payload, in
+# %postun -n ai-tools-selinux.
+
+%posttrans -n ai-tools-base
+# Helper-layout migration (0.10.0): the root helper tree moved
+# /usr/local/sbin/ai-tools -> /usr/local/libexec/ai-tools so ONE layout serves EL and the
+# Fedora bin/sbin merge. rpm's own file handling completes the move (old helpers leave %files
+# and are deleted; the sudoers drop-in is now plain %config, replaced on an unmodified host).
+# This scriptlet is the fail-safe for a host that reaches 0.10.0 while STILL on the old
+# noreplace sudoers file (its new-path copy parked inert as .rpmnew), plus a guarded sweep of an
+# empty old helper dir. Every step fails closed: it only ever rewrites a validated file or
+# removes an already-empty rpm-orphaned dir, and never touches operator config.
+_su=/etc/sudoers.d/ai-tools
+_old=/usr/local/sbin/ai-tools
+_new=/usr/local/libexec/ai-tools
+# Rewrite a lingering old-path relabel-agent rule to the new path, but only through a
+# visudo-validated temp file swapped in atomically; on any validation failure leave the working
+# file untouched and report, so a malformed rewrite can never disable or widen the guardrail.
+if command -v visudo >/dev/null 2>&1 && [ -f "${_su}" ] && grep -q "${_old}/" "${_su}" 2>/dev/null; then
+    if visudo -cf "${_su}" >/dev/null 2>&1; then
+        _tmp="${_su}.rpmmig.$$"    # dotted suffix: sudo ignores it even if a failure strands it
+        if sed "s#${_old}/#${_new}/#g" "${_su}" > "${_tmp}" 2>/dev/null \
+           && visudo -cf "${_tmp}" >/dev/null 2>&1; then
+            chmod 0440 "${_tmp}" 2>/dev/null || :
+            chown root:root "${_tmp}" 2>/dev/null || :
+            mv -f "${_tmp}" "${_su}"    # atomic same-dir rename
+            command -v restorecon >/dev/null 2>&1 && restorecon "${_su}" >/dev/null 2>&1 || :
+            echo "ai-tools: migrated the sudoers relabel-agent rule to ${_new} (helper layout moved)."
+        else
+            rm -f "${_tmp}" 2>/dev/null || :
+            echo "ai-tools: WARNING could not migrate ${_su} to the new helper path; edit it with visudo and point the relabel-agent rule at ${_new}." >&2
+        fi
+    else
+        echo "ai-tools: WARNING ${_su} does not validate; not migrating the helper path automatically. Run visudo -cf ${_su}." >&2
+    fi
+fi
+# Remove the old helper directory only if it is a real, empty directory (rpm deletes the old
+# helper files as they leave %files, but the %dir may linger on a partial state). Never a symlink
+# (a Fedora host where /usr/local/sbin -> /usr/local/bin) and never recursive/forced.
+if [ -d "${_old}" ] && [ ! -L "${_old}" ]; then
+    rmdir "${_old}" 2>/dev/null || :
+fi
+
+%post -n ai-tools-selinux
+# Load the core module into the RUNNING policy and apply contexts. Core only -- the stable
+# optional groups ship prebuilt alongside it but stay OFF, toggled per host with
+# `ai-tools-admin selinux enable-group <name>` (experimental groups are not shipped).
+#
+# `semodule -i` loads into the RUNNING policy, not just the module store: the entrypoint is
+# labelled by the restorecon below only once the module's types exist in the kernel, and
+# ai-tools-run's preflight refuses to launch (`mislabel`) while it is unlabelled. The default
+# module priority puts this in the same slot selinux/install-selinux.sh and `ai-tools-admin
+# selinux enable-group` address, so one host holds one copy of each module and a package upgrade
+# always supersedes what it replaces.
+if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/null 2>&1; then
+    semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp >/dev/null 2>&1 || :
+    if command -v restorecon >/dev/null 2>&1; then
+        restorecon -R %{ai_libexecdir} %{ai_libdir} /opt/ai-tools /var/log/ai-tools >/dev/null 2>&1 || :
+    fi
+fi
+
+%postun -n ai-tools-selinux
+# On final erase only, unload every loaded ai_tools module -- the core, any stable optional group
+# enabled with `ai-tools-admin selinux enable-group`, and any EXPERIMENTAL group compiled from a
+# source checkout. Enumerated rather than named: a .pp is erased with the package, but the
+# compiled module persists in the policy store until removed, and a module built from source was
+# never in the rpm database at all. Leaving one loaded would keep a domain alive for files the
+# package no longer owns.
 if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
     mods=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' || :)
-    [ -n "${mods}" ] && semodule -n $(printf ' -r %s' ${mods}) >/dev/null 2>&1 || :
+    [ -n "${mods}" ] && semodule $(printf ' -r %s' ${mods}) >/dev/null 2>&1 || :
 fi
 
 %post -n ai-tools-integration-nodejs
@@ -508,8 +636,8 @@ fi
 # /var/log/ai-tools/dotnet.log) and the scriptlet reports the remedy and exits non-zero, so rpm
 # records a scriptlet failure against this package alone -- the transaction still completes, which
 # is what a weakly-pulled optional integration should do to the rest of the stack.
-if [ -x %{ai_sbindir}/ai-tools-dotnet ]; then
-    %{ai_sbindir}/ai-tools-dotnet setup >/dev/null || {
+if [ -x %{ai_libexecdir}/ai-tools-dotnet ]; then
+    %{ai_libexecdir}/ai-tools-dotnet setup >/dev/null || {
         echo "ai-tools-integration-dotnet: provisioning failed; see 'journalctl -t ai-tools-dotnet'" >&2
         echo "ai-tools-integration-dotnet: fix the cause and re-run: sudo ai-tools-dotnet setup" >&2
         exit 1
@@ -527,8 +655,8 @@ fi
 # Not swallowed: an entrypoint that stays mislabelled means ai-tools-run refuses every launch, so
 # the scriptlet reports the remedy and exits non-zero rather than leaving that to be discovered
 # at the first `claude`.
-if [ -x %{ai_sbindir}/ai-tools-relabel-agent ]; then
-    %{ai_sbindir}/ai-tools-relabel-agent >/dev/null || {
+if [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
+    %{ai_libexecdir}/ai-tools-relabel-agent >/dev/null || {
         echo "ai-tools-agents-claude-code-restricted: entrypoint labelling failed; see 'journalctl -t ai-tools-relabel-agent'" >&2
         echo "ai-tools-agents-claude-code-restricted: fix the cause and re-run: sudo ai-tools --relabel" >&2
         exit 1
@@ -564,8 +692,8 @@ fi
 # may erase next, and a local rule naming an undefined type breaks later relabels. Runs in %preun,
 # not %postun, because the pattern is read from this package's manifest, which is still on disk
 # here.
-if [ "$1" -eq 0 ] && [ -x %{ai_sbindir}/ai-tools-relabel-agent ]; then
-    %{ai_sbindir}/ai-tools-relabel-agent --remove claude-code >/dev/null 2>&1 || :
+if [ "$1" -eq 0 ] && [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
+    %{ai_libexecdir}/ai-tools-relabel-agent --remove claude-code >/dev/null 2>&1 || :
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -574,19 +702,26 @@ fi
 %files
 %doc docs/rpm-packaging.md README.md
 
+%files -n ai-tools-selinux
+%license LICENSES/GPL-2.0-or-later.txt
+%dir %{_datadir}/selinux/packages/ai-tools
+%{_datadir}/selinux/packages/ai-tools/ai_tools.pp
+%{_datadir}/selinux/packages/ai-tools/ai_tools_tmpmap.pp
+
 %files -n ai-tools-base
-%dir %attr(0750, root, root) %{ai_sbindir}
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-chown
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-setgid
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-setfacl
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-unclaim
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-lockdown
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-relabel
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-safedir
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-reclaim
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-admin
+%license LICENSE
+%dir %attr(0750, root, root) %{ai_libexecdir}
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-chown
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-setgid
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-setfacl
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-unclaim
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-lockdown
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-relabel
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-safedir
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-reclaim
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-admin
 %{_sbindir}/ai-tools-admin
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-handback
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-handback
 %attr(0755, root, root) %{ai_bindir}/ai-tools
 %{_sbindir}/ai-tools
 %attr(0644, root, root) %{ai_mandir}/man1/ai-tools.1*
@@ -617,13 +752,18 @@ fi
 %attr(0644, root, root) %{ai_libdir}/path-dedup.sh
 %{_unitdir}/ai-tools-handback.socket
 %{_unitdir}/ai-tools-handback@.service
-%config(noreplace) %attr(0440, root, root) %{_sysconfdir}/sudoers.d/ai-tools
+# Plain %config (replace on upgrade), NOT noreplace: the file is host-identical by
+# construction (@SANDBOX_*@ substituted to the constant ai-tools at %build, %ai-ops literal),
+# so it carries no operator config to preserve. Replace guarantees the guardrail -- including
+# the sudoers path of the root relabel-agent rule -- always matches the shipped version instead
+# of drifting under noreplace: on the unmodified host rpm sees on-disk == prior-packaged and
+# replaces silently; on a hand-edited host it parks the old file as .rpmsave (ignored by sudo,
+# which skips dotted names), so no stale-path rule ever stays active. %posttrans is the fail-safe
+# for a host that upgraded while still on the old noreplace file.
+%config %attr(0440, root, root) %{_sysconfdir}/sudoers.d/ai-tools
 %dir %attr(0755, root, root) %{_sysconfdir}/ai-tools
 %config(noreplace) %attr(0644, root, root) %{_sysconfdir}/ai-tools/operator.conf
 %{_sysusersdir}/ai-tools.conf
-%dir %{_datadir}/selinux/packages/ai-tools
-%{_datadir}/selinux/packages/ai-tools/ai_tools.pp
-%{_datadir}/selinux/packages/ai-tools/ai_tools_tmpmap.pp
 %dir %attr(2750, root, ai-tools) /var/opt/ai-tools
 %dir %attr(2770, root, ai-tools) /var/opt/ai-tools/sandbox-projects
 %attr(0640, root, ai-tools) /var/opt/ai-tools/README.md
@@ -665,9 +805,9 @@ fi
 # Umbrella metapackage: no files of its own; weakly pulls the ai-tools-integration-* members.
 
 %files -n ai-tools-integration-nodejs
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-launcher-symlink
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-relabel-agent
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-bootstrap
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-launcher-symlink
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-relabel-agent
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-bootstrap
 %{_sbindir}/ai-tools-bootstrap
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/nvm-update.sh
 %{_userunitdir}/nvm-update.service
@@ -679,7 +819,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/session-env.d/dotnet.env.sh
 %attr(0644, root, root) %{ai_libdir}/integrations.d/dotnet.conf
 %attr(0644, root, root) %{ai_libdir}/filters.d/dotnet.rules
-%attr(0750, root, root) %{ai_sbindir}/ai-tools-dotnet
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-dotnet
 %{_sbindir}/ai-tools-dotnet
 %ghost %attr(0600, root, root) /var/log/ai-tools/dotnet.log
 
@@ -694,13 +834,64 @@ fi
 %dir %attr(3770, root, ai-tools) /opt/ai-tools/.claude
 %attr(0644, root, root) %{ai_libdir}/agents.d/claude-code.conf
 %attr(0644, root, root) %{ai_libdir}/session-env.d/claude-code.env.sh
+%attr(0644, root, root) %{ai_libdir}/claude-prompt.lib.sh
+%attr(0644, root, root) %{ai_libdir}/claude-endpoint.lib.sh
 %attr(0755, root, root) %{ai_bindir}/claude
+# Custom system prompt: an inert, editable default under a dedicated /etc/ai-tools/prompts. The
+# custom API endpoint: a dedicated /etc/ai-tools/endpoints holding the endpoint file, which is
+# 0640 root:ai-tools because it may carry a bearer token (not world-readable, unlike operator.conf).
+%dir %attr(0755, root, root) %{_sysconfdir}/ai-tools/prompts
+%config(noreplace) %attr(0640, root, ai-tools) %{_sysconfdir}/ai-tools/prompts/claude-system-prompt.md
+%dir %attr(0755, root, root) %{_sysconfdir}/ai-tools/endpoints
+%config(noreplace) %attr(0640, root, ai-tools) %{_sysconfdir}/ai-tools/endpoints/custom-claude-endpoint.conf
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/post-tool-hook.sh
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/session-hook.sh
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/filter-hook.sh
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Mon Aug 10 2026 dagnode <tools@dagnode.com> - 0.10.0-1
+- CHANGE: The root helper programs moved from /usr/local/sbin/ai-tools to
+  /usr/local/libexec/ai-tools, so one install layout works on both EL and Fedora (Fedora merges
+  /usr/local/sbin into /usr/local/bin, which collided the helper directory with the ai-tools CLI;
+  /usr/local/libexec is untouched by that merge). The sudoers grant is re-pointed automatically on
+  upgrade with no manual step and the old directory is removed; your operator configuration is
+  untouched. If an upgrade prints a notice, run sudo ai-tools --relabel.
+- NEW: The RPMs now install on Fedora (42+). The EL9/EL10 packages previously refused the
+  transaction there because of the bin/sbin merge the layout change above resolves; a native Fedora
+  build also compiles the SELinux policy against Fedora's own reference policy. EL9/EL10 remain the
+  gated, released targets; Fedora is smoke-tested per commit.
+- LICENSE: The project license identifier is now AGPL-3.0-only. Releases through 0.9.x were
+  published as AGPL-3.0-or-later, and everyone who received them keeps the "or later" option on
+  those versions; this narrowing applies from 0.10.0 forward. No change to what the license permits
+  you to do with the code.
+- NEW: The SELinux confinement policy now ships as its own subpackage, ai-tools-selinux, licensed
+  GPL-2.0-or-later. A compiled policy module embeds macro expansions from the GPL SELinux reference
+  policy, so it is conveyed under the GPL as its own package rather than inside the AGPL base. A
+  default install still pulls it (base recommends it); installing without it leaves the sandbox in
+  the documented DAC-only mode.
+- NEW: Set a custom system prompt for sandboxed sessions by placing it at
+  /etc/ai-tools/prompts/claude-system-prompt.md (root-owned). When the file is configured the
+  launch fails closed rather than silently dropping it.
+- NEW: Route sandboxed sessions at a custom, Anthropic-compatible API endpoint via
+  /etc/ai-tools/endpoints/custom-claude-endpoint.conf (root-owned: a base URL plus the name of the
+  auth-token variable). It fails closed when configured but unusable, so a session never falls back
+  to the default endpoint unnoticed.
+- NEW: Add CLAUDE_CODE_MAX_OUTPUT_TOKENS to the default session configuration.
+- FIX: The SELinux module now reaches the running kernel policy on install and leaves it on erase.
+  Both scriptlets passed semodule --noreload, which commits to the module store without loading, so
+  a fresh install could leave the agent entrypoint unlabelled (the launch preflight then refuses
+  with mislabel until a reload) and dnf remove could leave the ai_tools domain live after the files
+  were gone.
+- FIX: The source tarball and SRPM no longer pick up policy modules built locally from source; a
+  filesystem wildcard was sweeping an experimental group compiled on the build host into the
+  published source artifact.
+- FIX: The source package now carries the SELinux policy sources alongside the compiled modules, so
+  a GPL binary is conveyed with its corresponding source (GPLv2 s.3) on every channel, including the
+  offline release archive.
+- Upgrading from 0.9.x needs no action beyond dnf: the helper-path migration and the sudoers
+  re-point are automatic. If a host prints a relabel notice, run sudo ai-tools --relabel.
+
 * Wed Aug 05 2026 dagnode <tools@dagnode.com> - 0.9.1-1
 - FIX: Strip the stray group-execute bit Claude Code's file writes leave on data files. The
   ownership handback and unclaim now clamp the group class off the owner-execute bit, so a data

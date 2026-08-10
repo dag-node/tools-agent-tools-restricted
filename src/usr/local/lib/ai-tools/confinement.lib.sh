@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/confinement.lib.sh
 # The pure decision behind ai-tools-run's fail-closed SELinux launch preflight: a session that does
 # not transition into ai_tools_t runs UNCONFINED, so ai-tools-run checks the transition's inputs

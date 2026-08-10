@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/safe-paths.sh
 # Unit test for the protected-paths backstop (safe-paths.lib.sh), the shared list and guard
 # the launch wrapper, the claim CLI, and every elevated helper source to refuse acting on a

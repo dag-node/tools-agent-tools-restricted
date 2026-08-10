@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/skip-dirs.lib.sh
 # Single source of truth for the directory NAMES omitted from the recursive walks in the
 # ai-tools helpers, and the per-consumer selector that combines them.

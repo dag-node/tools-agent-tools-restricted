@@ -1,1 +1,2 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 ## <summary>Optional ai_tools policy group: mmap of the sandbox domain's own /tmp files (ai_tools_tmp_t map). Exports no interfaces.</summary>

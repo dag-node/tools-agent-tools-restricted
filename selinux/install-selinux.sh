@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # selinux/install-selinux.sh -- load and label the ai_tools SELinux confinement.
 # Separate from the main install.sh on purpose: this is an extra MAC layer, brought
 # up independently and refined via the audit2allow loop in README.md.
@@ -500,14 +501,14 @@ _relabel_runtime() {
 }
 
 # _relabel_helpers: apply ai_tools_handback_exec_t to the handback daemon entrypoint
-# (/usr/local/sbin/ai-tools/ai-tools-handback, ai_tools.fc). Without this the daemon
+# (/usr/local/libexec/ai-tools/ai-tools-handback, ai_tools.fc). Without this the daemon
 # keeps a generic label, the init_t -> ai_tools_handback_t transition never fires, the
 # per-connection handler runs in unconfined_service_t, and ai_tools_t's connectto
 # (granted only to ai_tools_handback_t) is denied -- every hook handback fails with
 # EACCES. The sibling root helpers and the /usr/local/bin client are bin_t (no special
 # label). restorecon is idempotent and no-ops when handback is not installed.
 # Runs before _relabel_runtime's socket restart, which reads this label (see there).
-_relabel_helpers() { restorecon -FR /usr/local/sbin/ai-tools 2>/dev/null || true; }
+_relabel_helpers() { restorecon -FR /usr/local/libexec/ai-tools 2>/dev/null || true; }
 
 ########################################
 # Actions

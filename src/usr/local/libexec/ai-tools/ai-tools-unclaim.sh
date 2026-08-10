@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# /usr/local/sbin/ai-tools/ai-tools-unclaim
+# SPDX-License-Identifier: AGPL-3.0-only
+# /usr/local/libexec/ai-tools/ai-tools-unclaim
 # Reverses the filesystem side of a project claim: hands an approved project tree back
 # to a target group and revokes the agent's access. For every eligible path it:
 #   1. clears all extended ACL entries and the default ACL (`setfacl -b`), removing the access
@@ -40,7 +41,7 @@
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
-#       src/usr/local/sbin/ai-tools/ai-tools-unclaim.sh /usr/local/sbin/ai-tools/ai-tools-unclaim
+#       src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh /usr/local/libexec/ai-tools/ai-tools-unclaim
 
 set -euo pipefail
 

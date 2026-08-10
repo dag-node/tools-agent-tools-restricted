@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# /usr/local/sbin/ai-tools/ai-tools-dotnet
+# SPDX-License-Identifier: AGPL-3.0-only
+# /usr/local/libexec/ai-tools/ai-tools-dotnet
 # Provision and inspect the dotnet integration for the ai-tools sandbox. Root/sudo helper.
 #
 # The .NET SDK/runtime itself is the HOST's RPM-managed dotnet (this integration adds no runtime
@@ -20,7 +21,7 @@
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
-#       src/usr/local/sbin/ai-tools/ai-tools-dotnet.sh /usr/local/sbin/ai-tools/ai-tools-dotnet
+#       src/usr/local/libexec/ai-tools/ai-tools-dotnet.sh /usr/local/libexec/ai-tools/ai-tools-dotnet
 
 set -euo pipefail
 

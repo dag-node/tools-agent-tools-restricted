@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/conf.sh
 # Unit test for the shared config grammar (conf.lib.sh) -- the one parser behind every key in
 # /etc/ai-tools/operator.conf and every provider manifest. Two contracts are pinned here:

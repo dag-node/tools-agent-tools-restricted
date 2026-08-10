@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/boundary/filters.sh
 # Boundary: the agent cannot decide what its own commands become. Probed AS the agent
 # (runuser -u ai-tools), against the DEPLOYED filter surface.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/boundary/access.sh
 # Boundary: what the sandbox account can and cannot actually reach at runtime, probed AS the
 # agent (runuser -u ai-tools). Each check names the threat its boundary prevents. "can"
@@ -71,9 +72,9 @@ else
     fail "cannot read ${skip_dirs_lib} -- session-hook.sh will fail to source the skip list"
 fi
 
-# /usr/local/sbin/ai-tools (750 root:root) holds the root helpers. Listing it lets the agent
+# /usr/local/libexec/ai-tools (750 root:root) holds the root helpers. Listing it lets the agent
 # enumerate helper names and probe for discrepancies against what sudoers authorises.
-sbindir=/usr/local/sbin/ai-tools
+sbindir=/usr/local/libexec/ai-tools
 if ! runuser -u "${SANDBOX_USER}" -- test -r "${sbindir}" 2>/dev/null; then
     pass "cannot list ${sbindir} (750 root:root): helper names not enumerable by agent"
 else
@@ -102,6 +103,34 @@ if [[ -e "${_decoy}" ]]; then
 else
     fail "sticky .claude FAILED: agent deleted a ${PROJECTS_USER}-owned file -- settings.json and hooks can be replaced"
 fi
+
+# Custom system prompt / custom endpoint: the agent-side half of "the sandbox cannot widen its own
+# surface" (the runtime refusal is unit/claude-prompt.sh + unit/claude-endpoint.sh). The enforced
+# property is PERSISTENCE, not a running session's own environment: the prompt/endpoint config is
+# operator configuration delivered at launch, and a session altering its OWN process env cannot
+# repoint the already-started Claude Code client (it reads ANTHROPIC_BASE_URL at startup; a Bash-tool
+# child's export does not reach the parent) -- and arbitrary egress is a network-policy matter, not
+# this variable. What matters here is that the agent cannot WRITE these root-owned inputs: it cannot
+# change what any session is launched with, cannot plant an untrusted file the resolver would honour,
+# and cannot swap the auth token other sessions use. The resolvers honour these inputs only while
+# root owns them and they are not group/other-writable, so we prove the agent cannot reach that
+# writable state. The endpoint file is group-READABLE (the fragment reads it), so this asserts write
+# specifically. Each is skipped when absent (a partial install).
+for _cc in \
+    /usr/local/lib/ai-tools/claude-prompt.lib.sh \
+    /usr/local/lib/ai-tools/claude-endpoint.lib.sh \
+    /etc/ai-tools/prompts \
+    /etc/ai-tools/prompts/claude-system-prompt.md \
+    /etc/ai-tools/endpoints \
+    /etc/ai-tools/endpoints/custom-claude-endpoint.conf; do
+    if [[ ! -e "${_cc}" ]]; then
+        skip "custom prompt/endpoint write boundary" "${_cc} not installed"
+    elif ! runuser -u "${SANDBOX_USER}" -- test -w "${_cc}" 2>/dev/null; then
+        pass "cannot write ${_cc}: agent cannot change what sessions launch with or swap the token"
+    else
+        fail "can write ${_cc} -- agent could change the launch-time system prompt, endpoint URL, or auth token"
+    fi
+done
 
 # post-tool-hook.sh (750) fires after every Write/Edit. Overwriting it with an empty script
 # would skip handback and secret quarantine for the rest of the session.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/postupgrade.sh
 # Hermetic unit test for `ai-tools-admin postupgrade`: the reconciliation of the .rpmnew copies an
 # upgrade leaves beside the %config(noreplace) files this stack owns.
@@ -22,7 +23,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-readonly HELPER="/usr/local/sbin/ai-tools/ai-tools-admin"
+readonly HELPER="/usr/local/libexec/ai-tools/ai-tools-admin"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SHIPPED_SETTINGS="${REPO_ROOT}/src/opt/ai-tools/agents/claude-code/settings.json"
 

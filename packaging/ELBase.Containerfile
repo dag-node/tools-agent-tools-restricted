@@ -1,9 +1,17 @@
-# Shared base recipe for the ai-tools RPM test image. All the common build/test logic lives
-# here, parameterized by the EL base image; the per-distro files (Rocky9.Containerfile,
+# SPDX-License-Identifier: AGPL-3.0-only
+# Shared base recipe for the EL (Rocky/RHEL) ai-tools RPM test image. All the common build/test
+# logic lives here, parameterized by the EL base image; the per-distro files (Rocky9.Containerfile,
 # Rocky10.Containerfile) are thin pins over the image this builds, so nothing below is repeated.
+# Rocky 9/10 minimal both ship microdnf and the same package names installed below, so this recipe
+# builds unchanged across them.
+#
+# Fedora is not built from THIS recipe, but only because the base images and dnf front-end differ:
+# it has its own FedoraLatestBase.Containerfile. The helper tree lives at ai_libexecdir
+# (/usr/local/libexec/ai-tools), which the Fedora bin/sbin merge leaves untouched, so the earlier
+# /usr/local/sbin-vs-/usr/local/bin file conflict no longer exists -- one layout serves both.
 #
 # Build a distro image (two steps; the Makefile wraps them as `rpmtest-rocky9` / `-rocky10`):
-#   podman build -t ai-tools-rpmbase:el9 -f packaging/RpmBase.Containerfile \
+#   podman build -t ai-tools-rpmbase:el9 -f packaging/ELBase.Containerfile \
 #       --build-arg BASE_IMAGE=quay.io/rockylinux/rockylinux:9.7-minimal .
 #   podman build -t ai-tools-rpmtest:el9 -f packaging/Rocky9.Containerfile .
 #   podman run --rm -t --systemd=always ai-tools-rpmtest:el9
@@ -53,23 +61,43 @@ RUN microdnf -y install \
 # .containerignore at the context root drops .git, packaging/rpmbuild, and tarballs). Only the
 # prebuilt policy packages are needed from selinux/ -- the core ai_tools.pp plus each stable
 # group's ai_tools_<group>.pp, which the Makefile CONTENT and the spec consume; experimental
-# groups ship no .pp. The *.pp glob matches just those files at the policy root, so it stays clear
-# of the root-owned policy/tmp scratch dir an unprivileged build context cannot read (also
-# .containerignore'd). Keep in step with the shipped set in packaging/Makefile and the spec.
-COPY src                      /opt/ai-tools-src/src
-COPY docs                     /opt/ai-tools-src/docs
-COPY selinux/policy/*.pp      /opt/ai-tools-src/selinux/policy/
-COPY tests                    /opt/ai-tools-src/tests
-COPY packaging                /opt/ai-tools-src/packaging
-COPY README.md                /opt/ai-tools-src/README.md
+# groups ship no .pp.
+#
+# The build context is the maintainer's working tree, where locally compiled experimental groups
+# sit beside the shipped ones, so each prebuilt package is named: the image then holds exactly the
+# audited, stable set. That naming is also what the Makefile's POLICY_PP relies on here, since the
+# image has no git index to read. Keep it in step with the shipped set in packaging/Makefile, the
+# spec %install loop, and .gitignore.
+#
+# The policy sources come too, as the corresponding source a GPL .pp is conveyed with (GPLv2 s.3);
+# a glob is exact for them because .gitignore covers only *.pp.
+COPY src                            /opt/ai-tools-src/src
+COPY docs                           /opt/ai-tools-src/docs
+COPY selinux/policy/ai_tools.pp         /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/ai_tools_tmpmap.pp  /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/Makefile            /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/*.te                /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/*.if                /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/*.fc                /opt/ai-tools-src/selinux/policy/
+COPY tests                          /opt/ai-tools-src/tests
+COPY packaging                      /opt/ai-tools-src/packaging
+# The licence set `make dist` bundles: LICENSE, the LICENSES/ SPDX texts, and the REUSE.toml
+# that maps files to them. All three are in the Makefile CONTENT, so all three must be here or
+# `make dist` fails to stat one.
+COPY LICENSE                        /opt/ai-tools-src/LICENSE
+COPY LICENSES                       /opt/ai-tools-src/LICENSES
+COPY REUSE.toml                     /opt/ai-tools-src/REUSE.toml
+COPY README.md                      /opt/ai-tools-src/README.md
 WORKDIR /opt/ai-tools-src
 
 # Build every RPM the spec defines, publish them as a local repo, and install the METAPACKAGE
 # only -- dnf pulls ai-tools-base (hard Requires) plus the ai-tools-agents / ai-tools-integration
-# umbrellas and their members (weak Recommends), proving the dependency graph (the verbose
-# transaction table is the evidence). install_weak_deps is forced on so the pull is deterministic
-# regardless of the base image's dnf config. Then enable the units that must be live at boot for
-# the selftest (preset policy may leave them off in a minimal image).
+# umbrellas and their members (weak Recommends), proving the dependency graph (the transaction
+# table dnf prints is the evidence). install_weak_deps is forced on so the pull is deterministic
+# regardless of the base image's dnf config; it is spelled `=1` (not `=True`) and the command
+# carries no `-v` so the same install line stays portable to dnf5 (dnf5 rejects `-v` and prefers
+# the numeric boolean), which the future FedoraLatestBase recipe reuses. Then enable the units
+# that must be live at boot for the selftest (preset policy may leave them off in a minimal image).
 #
 # The post-install assertion is derived from the BUILT set rather than a hand-kept package list:
 # every subpackage the spec produced must resolve from the metapackage alone, so a subpackage
@@ -83,7 +111,7 @@ RUN set -eux; \
     createrepo_c /tmp/ai-repo; \
     printf '[ai-tools-local]\nname=ai-tools-local\nbaseurl=file:///tmp/ai-repo\nenabled=1\ngpgcheck=0\n' \
         > /etc/yum.repos.d/ai-tools-local.repo; \
-    dnf -y -v --setopt=install_weak_deps=True install ai-tools; \
+    dnf -y --setopt=install_weak_deps=1 install ai-tools; \
     rpm -q $(rpm -qp --qf '%{NAME}\n' /tmp/ai-repo/*.rpm | sort -u); \
     systemctl enable ai-tools-handback.socket
 

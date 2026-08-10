@@ -1,1 +1,2 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 ## <summary>Optional ai_tools policy group: container operations (podman/buildah exec and image storage reads). Exports no interfaces.</summary>
