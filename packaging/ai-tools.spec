@@ -484,11 +484,11 @@ if command -v setfacl >/dev/null 2>&1; then
     setfacl -m g:ai-ops:r-- /var/opt/ai-tools/README.md || :
 fi
 # Re-assert the setgid bit on the sandbox tree -- rpm 4.19+ drops it from these %attr(2xxx) %dir
-# entries on install. Keep this in %post, NOT %posttrans: a %posttrans chmod re-touches the dir as
-# the transaction's LAST metadata write, which the EL9 container-image layer then commits WITHOUT
-# the setgid bit (rpm-selftest's perms check then sees 0750/0770) -- the same layer that drops
-# build-time ACLs (see container-selftest.sh). %post is early enough that the layer preserves it.
-# Idempotent; a no-op where rpm kept the bit.
+# entries on install. Done in %post AND %posttrans because which one survives is rpm-dependent
+# (some rpm re-applies %attr after %post); both are idempotent no-ops on a host that kept the bit.
+# NB the container-image (OCI) layer preserves these two writes inconsistently across distros, so
+# the rpm-selftest RE-ASSERTS setgid at runtime (container-selftest.sh) -- this pair is for real
+# hosts, which have no image layer.
 chmod 2750 /var/opt/ai-tools 2>/dev/null || :
 chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 # Control-plane git guard + identity for the repo ai-tools-bootstrap captures (the RPM
@@ -554,8 +554,10 @@ fi
 # daemon-reload file trigger). Idempotent; guarded so a systemd-less build/image fails soft.
 systemctl start ai-tools-handback.socket 2>/dev/null || :
 
-# NOTE: the sandbox-tree setgid re-assertion is intentionally in %post, not here -- a %posttrans
-# chmod is committed without setgid by the EL9 container-image layer. See the %post comment.
+# Re-assert setgid after all file ops (some rpm re-applies %attr after %post, dropping it). Paired
+# with the %post copy; both idempotent. See the %post comment for the container-image caveat.
+chmod 2750 /var/opt/ai-tools 2>/dev/null || :
+chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 
 # Helper-layout migration (0.10.0): the root helper tree moved
 # /usr/local/sbin/ai-tools -> /usr/local/libexec/ai-tools so ONE layout serves EL and the

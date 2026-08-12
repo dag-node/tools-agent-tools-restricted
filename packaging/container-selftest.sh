@@ -147,11 +147,14 @@ phase "operator claims the project (allowlist + ACL + safedir + label)" \
 phase "project is in the operator's allowlist" \
     bash -c "grep -q '${PROJECT}' /home/${OPERATOR}/.config/ai-tools/allowed-projects"
 
-# OCI image layers do not carry POSIX ACLs, so the sandbox-area ai-ops ACL the base %post applies
-# at image-build time is dropped from the committed layer (a container limitation, like SELinux).
-# On a real host %post applies it at install and it persists; re-assert it at runtime so perms.sh's
-# ACL check exercises the same state a real install has.
-banner "Re-assert sandbox-area ai-ops ACL (OCI layers drop build-time ACLs)"
+# OCI image layers do not carry POSIX ACLs, and they preserve directory setgid inconsistently
+# across the build-time scriptlet writes (per distro): so both the base %post ai-ops ACL and the
+# sandbox-tree setgid bit can be lost from the committed layer. On a real host the scriptlets apply
+# both at install and they persist (no image layer); re-assert both here at runtime so perms.sh
+# exercises the same state a real install has.
+banner "Re-assert sandbox-area ACL + setgid (OCI layers drop build-time dir attrs)"
+chmod 2750 /var/opt/ai-tools 2>/dev/null || :
+chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 setfacl -m  g:ai-ops:r-x /var/opt/ai-tools \
     && setfacl -m  g:ai-ops:rwx /var/opt/ai-tools/sandbox-projects \
     && setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects \
