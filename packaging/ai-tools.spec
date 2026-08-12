@@ -295,8 +295,7 @@ install -m 0644 src%{ai_libdir}/path-dedup.sh %{buildroot}%{ai_libdir}/path-dedu
 install -d -m 0755 %{buildroot}%{_unitdir}
 install -m 0644 src%{_unitdir}/ai-tools-handback.socket    %{buildroot}%{_unitdir}/
 install -m 0644 src%{_unitdir}/ai-tools-handback@.service  %{buildroot}%{_unitdir}/
-# The preset enables the socket on initial install (%systemd_post below); without it the
-# distro default preset leaves the socket disabled and the handback never runs.
+# Preset that enables the socket on install; without it the distro default leaves it disabled.
 install -d -m 0755 %{buildroot}%{_presetdir}
 install -m 0644 src%{_presetdir}/85-ai-tools.preset %{buildroot}%{_presetdir}/
 
@@ -468,10 +467,8 @@ done
 %sysusers_create_compat %{SOURCE1}
 
 %post -n ai-tools-base
-# Applies 85-ai-tools.preset on INITIAL install (enable ai-tools-handback.socket) and is a
-# no-op on upgrade, so a fresh install brings the handback socket up while a later operator
-# `systemctl disable` survives. %systemd_post only ENABLES; %posttrans starts it so the
-# handback is live without waiting for a reboot.
+# Enables the socket on first install per 85-ai-tools.preset (no-op on upgrade, so a later
+# operator disable survives). Only enables; posttrans starts it.
 %systemd_post ai-tools-handback.socket
 # Grant the ai-ops operators group access to the shared sandbox area through a group ACL, so
 # operators create and work in clones (ai-tools --sandbox-create) without joining the ai-tools
@@ -552,12 +549,8 @@ fi
 # %postun -n ai-tools-selinux.
 
 %posttrans -n ai-tools-base
-# Start the handback socket now that the transaction's systemd daemon-reload file trigger has
-# fired (so the newly installed unit is known). %systemd_post only enables it per the preset;
-# starting it here makes the ownership handback live on a fresh install without a reboot.
-# Idempotent -- a no-op when already running -- and guarded so a build chroot or an image build
-# with no live systemd fails soft. Socket-activated (Accept=yes), so starting the .socket is
-# enough; the @.service instances spawn on connect.
+# Start the socket so the handback is live without a reboot (posttrans runs after the systemd
+# daemon-reload file trigger). Idempotent; guarded so a systemd-less build/image fails soft.
 systemctl --no-reload start ai-tools-handback.socket 2>/dev/null || :
 
 # Helper-layout migration (0.10.0): the root helper tree moved
