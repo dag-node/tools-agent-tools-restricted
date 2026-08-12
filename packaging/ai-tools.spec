@@ -866,6 +866,24 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Thu Aug 13 2026 dagnode <tools@dagnode.com> - 0.10.1-1
+- FIX: The package now enables the ownership-handback socket (ai-tools-handback.socket) on install,
+  via a shipped systemd preset. Without it a package install left the socket at the distribution
+  default (disabled): every ownership hand-back then failed silently, so files the agent wrote
+  stayed owned by the sandbox account and git reported "dubious ownership" on the project. The
+  preset applies on initial install only, so a later systemctl disable survives upgrades -- and, by
+  the same rule, upgrading a host that never had the socket enabled does not turn it on. If a host
+  is already affected, run once: sudo systemctl enable --now ai-tools-handback.socket, then
+  ai-tools --reclaim <project>.
+- FIX: A down handback socket is now reported instead of failing silently. The launch warns (naming
+  the fix) and proceeds -- the socket restores ownership but is not a confinement boundary -- while
+  the session sweeps and ai-tools --reclaim count only confirmed hand-backs and, when the socket is
+  down, report the stranded work rather than a reassuring count of calls that changed nothing.
+- DOCS: The claim, unclaim, and reclaim entries in ai-tools --help and the man page now spell out
+  what each does and how they differ: claim grants the agent access to a project, unclaim releases
+  it (revoking that access and returning the tree to your group), and reclaim takes ownership back
+  while the project stays claimed.
+
 * Mon Aug 10 2026 dagnode <tools@dagnode.com> - 0.10.0-1
 - CHANGE: The root helper programs moved from /usr/local/sbin/ai-tools to
   /usr/local/libexec/ai-tools, so one install layout works on both EL and Fedora (Fedora merges
@@ -905,17 +923,6 @@ fi
 - FIX: The source package now carries the SELinux policy sources alongside the compiled modules, so
   a GPL binary is conveyed with its corresponding source (GPLv2 s.3) on every channel, including the
   offline release archive.
-- FIX: The package now enables the ownership-handback socket (ai-tools-handback.socket) on install,
-  via a shipped systemd preset. Without it a package install left the socket at the distribution
-  default (disabled): every ownership hand-back then failed silently, so files the agent wrote
-  stayed owned by the sandbox account and git reported "dubious ownership" on the project. The
-  preset applies on initial install only, so a later systemctl disable survives upgrades. If a host
-  is already affected, run: sudo systemctl enable --now ai-tools-handback.socket, then
-  ai-tools --reclaim <project>.
-- FIX: A down handback socket is now reported instead of failing silently. The launch warns (naming
-  the fix) and proceeds -- the socket restores ownership but is not a confinement boundary -- while
-  the session sweeps and ai-tools --reclaim count only confirmed hand-backs and, when the socket is
-  down, report the stranded work rather than a reassuring count of calls that changed nothing.
 - Upgrading from 0.9.x needs no action beyond dnf: the helper-path migration and the sudoers
   re-point are automatic. If a host prints a relabel notice, run sudo ai-tools --relabel.
 
