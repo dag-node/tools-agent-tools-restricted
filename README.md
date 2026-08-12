@@ -34,6 +34,13 @@ Agent Tools Restricted runs autonomous coding agents under a dedicated, unprivil
   npm package); day-to-day operation and updates run from a systemd timer.
 - Optional: **podman** to run the container test harness (`packaging/README.md`).
 
+> [!WARNING]
+> **Pre-1.0 and fast moving.** Ahead of 1.0, interfaces, package layout, CLI verbs, and on-disk
+> paths may still change. The stack has run stably since its first release and follows
+> [Semantic Versioning](https://semver.org/)—patch releases are compatible fixes, minor bumps may
+> break (always noted in the release notes), and upgrades migrate automatically. Review the notes
+> before a minor upgrade.
+
 ## Package install
 
 Two commands. The first installs the dag-node release package, which brings the signed DNF
@@ -44,8 +51,13 @@ signature-verified.
 
 ```bash
 sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
-sudo dnf install ai-tools          # the metapackage pulls the whole stack
+sudo dnf install ai-tools ai-tools-selinux   # the whole stack + SELinux confinement
 ```
+
+`ai-tools` is a metapackage that pulls the full stack (agents, integrations, toolchain).
+`ai-tools-selinux` — the SELinux confinement policy — is only *recommended*, so it is named
+explicitly to guarantee confinement on every host, including minimal images that install
+without weak dependencies. Drop it only for a deliberate DAC-only deployment.
 
 Then finish setup — steps 1 and 2 here are independent of each other but both run before
 step 3:
@@ -58,16 +70,41 @@ sudo ai-tools-bootstrap
 #    ai-ops membership (the sudo rules and ownership hand-back).
 sudo ai-tools-admin operator add "$(id -un)"
 
-# 3. Register a project and launch. `ai-tools --help` lists every command. Run inside a
-#    project, `claude` (the wrapper) walks you through claiming it; the claim refuses system
-#    paths and home roots.
-ai-tools --project-create ~/myproject
-cd ~/myproject && claude
+# 3. Claim an existing project and launch. `claude` inside an unclaimed project walks you
+#    through claiming it; the claim refuses system paths and home roots. `ai-tools --help`
+#    lists every command.
+cd ~/path/to/your/project     # an existing directory you want the agent to work in
+claude                        # first run here: the wrapper offers to claim it, then launches
 ```
 
-Installing offline from a release archive, and what an upgrade preserves (upgrade in place —
-never `dnf remove` first), are in
-[docs/rpm-packaging.md](docs/rpm-packaging.md#installing-and-upgrading).
+To claim without launching — or to script it — use `ai-tools --project-claim <path>`,
+which claims an existing directory in place.
+
+### Upgrading
+
+Upgrade in place with ordinary DNF — never `dnf remove` first:
+
+```bash
+sudo dnf upgrade --refresh 'ai-tools*'
+```
+
+`--refresh` forces a metadata refresh: root's DNF cache is separate from your user's and can
+predate a just-published release, so a plain `dnf upgrade` may report "Nothing to do" on a
+stale cache even when `dnf list` (a newer cache) already shows the new version. This moves
+every **installed** ai-tools package to the new version, and a host running `dnf-automatic`
+does the same unattended once its cache refreshes on schedule. What it does **not** do is add a package you don't
+already have: DNF never pulls a new weak dependency onto an existing install. So a host first
+installed before 0.10.0 — when the SELinux policy split into its own `ai-tools-selinux`
+package — keeps upgrading *without* confinement until you add it once:
+
+```bash
+rpm -q ai-tools-selinux || sudo dnf install ai-tools-selinux
+```
+
+Installing offline from a release archive, and exactly what an upgrade preserves, are in
+[docs/rpm-packaging.md](docs/rpm-packaging.md#installing-and-upgrading). The
+[Upgrade behaviour](#upgrade-behaviour) section below is about the Node/Claude **toolchain**
+auto-update, a separate mechanism from these DNF package upgrades.
 
 `claude` resolves to the system wrapper `/usr/local/bin/claude`, which runs as you,
 checks your `ai-ops` membership and the project allowlist, then drops to `${SANDBOX_USER}`
