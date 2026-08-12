@@ -220,6 +220,8 @@ check_file /usr/local/libexec/ai-tools/ai-tools-handback         root root 750
 check_file /usr/local/bin/ai-tools-handback-client            root "${SANDBOX_GROUP}" 750
 check_file /usr/lib/systemd/system/ai-tools-handback.socket   root root 644
 check_file /usr/lib/systemd/system/ai-tools-handback@.service root root 644
+# The preset that enables the socket on install (see systemd.sh for its enablement check).
+check_file /usr/lib/systemd/system-preset/85-ai-tools.preset  root root 644
 # Toolchain update units (sandbox account's --user instance) + post-upgrade relabel watcher.
 # 644 root:root -- systemd reads them as root; no world write.
 check_file /usr/lib/systemd/user/nvm-update.service           root root 644

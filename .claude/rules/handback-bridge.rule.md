@@ -16,6 +16,19 @@ The session runs under `PR_SET_NO_NEW_PRIVS` (forced by `RestrictNamespaces=yes`
 served by a systemd `Accept=yes` socket unit started at boot. This is the session's only
 privilege path; `sudo` is never exec'd from inside the session.
 
+The socket unit is **enabled by a shipped preset**, `85-ai-tools.preset`
+(`enable ai-tools-handback.socket`, read before the distro's `90-default.preset`), so a package
+install brings the handback up by itself. A bare `%systemd_post`/`install.sh` without the preset
+would leave the unit at the distro default (`disabled`) — a socket that never listens, whose whole
+effect is silent: every `CHOWN` fails, files stay `SANDBOX_USER`-owned, and the tree rots into
+"dubious ownership". The preset is applied by `%systemd_post` on **initial install only**, so a
+later operator `systemctl disable` survives upgrades. The socket being down is not a security
+failure — DAC, `ai_tools_t`, and the project `user:<operator>` ACL keep the operator's access
+intact — so the consumers **warn and proceed** rather than fail closed: `ai-tools-run` emits a
+launch-time NOTICE naming the fix, and the sweeps/reclaim skip the walk and report the stranded
+work instead of a count of failed calls (see [ownership-and-hooks](ownership-and-hooks.rule.md)
+and [launch](launch.rule.md)).
+
 ## Protocol
 
 One `VERB SP ARG LF` request per connection. The response is zero or more `MSG TEXT LF`
@@ -67,3 +80,4 @@ handback. See [logging](logging.rule.md).
 - client `/usr/local/bin/ai-tools-handback-client` (750 root:SANDBOX_GROUP, Python 3)
 - socket unit `/usr/lib/systemd/system/ai-tools-handback.socket`
 - service template `/usr/lib/systemd/system/ai-tools-handback@.service`
+- preset `/usr/lib/systemd/system-preset/85-ai-tools.preset` (enables the socket on install)

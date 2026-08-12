@@ -130,6 +130,18 @@ shim sweep the project once the session exits, offering each `SANDBOX_USER`-owne
 `ai-tools-chown` through the handback socket. The sweep is installed as an `EXIT` trap before the
 launch, so it also runs on an interrupted shim.
 
+**A handback-socket preflight, warn-not-block.** Every agent's ownership handback — the per-turn
+hooks and this session-end sweep alike — runs over `/run/ai-tools/handback.sock`. If it is down,
+every `CHOWN` fails and the tree silently rots into "dubious ownership". Before launch (when a
+project directory is set — a bare `--version`/`--help` run writes nothing), the shim checks the
+socket and, if absent, emits a framed NOTICE naming the fix (`systemctl enable --now
+ai-tools-handback.socket`, then `ai-tools --reclaim <project>`) and **proceeds**. This is not a
+confinement boundary — DAC, `ai_tools_t`, and the project `user:<operator>` ACL keep the operator's
+access intact regardless — so a down socket warns rather than refusing the launch (refusing would
+trade availability for a non-security convenience). The session-end sweep re-checks the socket and,
+when it is down, skips the walk and records the stranded count rather than a tally of failed calls
+(see [handback-bridge](handback-bridge.rule.md), [ownership-and-hooks](ownership-and-hooks.rule.md)).
+
 **`WorkingDirectory` is the validated project directory.** A transient unit defaults
 its cwd to `/`. The wrapper exports the realpath'd, allowlist- and claim-validated
 project directory as `AI_TOOLS_PROJECT_DIR`, carried through sudo via `env_keep`;

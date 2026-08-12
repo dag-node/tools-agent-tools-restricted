@@ -603,6 +603,7 @@ do_summary() {
     _chk /usr/local/bin/ai-tools-handback-client
     _chk /usr/lib/systemd/system/ai-tools-handback.socket
     _chk /usr/lib/systemd/system/ai-tools-handback@.service
+    _chk /usr/lib/systemd/system-preset/85-ai-tools.preset
     _chk /usr/lib/systemd/user/nvm-update.service
     _chk /usr/lib/systemd/user/nvm-update.timer
     _chk /usr/lib/systemd/system/ai-tools-relabel.path
@@ -1113,6 +1114,14 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/lib/systemd/system/ai-tools-handback@.service" \
         /usr/lib/systemd/system/ai-tools-handback@.service
+    # The systemd preset that enables the socket by default. install.sh enables it explicitly
+    # below, but placing the preset keeps parity with the RPM and hardens against a later
+    # `systemctl preset` (as a package install runs) silently disabling the handback.
+    log "/usr/lib/systemd/system-preset/85-ai-tools.preset"
+    install -d -o root -g root -m 755 /usr/lib/systemd/system-preset
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/lib/systemd/system-preset/85-ai-tools.preset" \
+        /usr/lib/systemd/system-preset/85-ai-tools.preset
 
     # Toolchain update units. The service+timer live in %{_userunitdir} and are enabled in
     # the sandbox account's own systemd --user instance (it owns and writes the shared .nvm
@@ -1718,6 +1727,7 @@ do_uninstall() {
     log "disable ai-tools-handback.socket + ai-tools-relabel.path"
     systemctl disable --now ai-tools-handback.socket 2>/dev/null || true
     systemctl disable --now ai-tools-relabel.path 2>/dev/null || true
+    rm -f /usr/lib/systemd/system-preset/85-ai-tools.preset
     systemctl daemon-reload 2>/dev/null || true
 
     section "Removing files"

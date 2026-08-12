@@ -1,0 +1,13 @@
+# ai-tools systemd preset.
+#
+# The handback privilege-bridge socket is the single root path the ownership handback
+# runs over (the per-turn hooks and the session-end sweep both reach ai-tools-chown
+# through it). Without it every CHOWN fails and files the agent writes stay
+# ai-tools-owned, surfacing later as git "dubious ownership". So it is enabled by
+# default: %systemd_post applies this preset on INITIAL install only, which brings the
+# socket up on a fresh package install yet leaves a later operator `systemctl disable`
+# untouched across upgrades.
+#
+# Numbered 85 so it is read before the distribution's 90-default.preset (which commonly
+# ships `disable *`), giving this enable precedence.
+enable ai-tools-handback.socket

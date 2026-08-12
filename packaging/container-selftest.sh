@@ -88,6 +88,12 @@ phase "Renamed subpackages Provide every name they Obsolete" \
                  done
              done'
 
+# Enabled AND active, asserted separately. is-enabled proves the PACKAGE preset
+# (85-ai-tools.preset) enabled the socket -- the image no longer enables it out-of-band, so a
+# regression that ships it disabled (the class of bug where a source install worked but the RPM
+# left the handback dead) fails here. is-active proves the socket is then actually listening.
+phase "Handback socket enabled by the package preset" \
+    systemctl is-enabled --quiet ai-tools-handback.socket
 phase "Handback socket is active (system instance up)" \
     systemctl is-active --quiet ai-tools-handback.socket
 

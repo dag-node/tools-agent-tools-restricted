@@ -112,8 +112,10 @@ RUN set -eux; \
     printf '[ai-tools-local]\nname=ai-tools-local\nbaseurl=file:///tmp/ai-repo\nenabled=1\ngpgcheck=0\n' \
         > /etc/yum.repos.d/ai-tools-local.repo; \
     dnf -y --setopt=install_weak_deps=1 install ai-tools; \
-    rpm -q $(rpm -qp --qf '%{NAME}\n' /tmp/ai-repo/*.rpm | sort -u); \
-    systemctl enable ai-tools-handback.socket
+    rpm -q $(rpm -qp --qf '%{NAME}\n' /tmp/ai-repo/*.rpm | sort -u)
+# The handback socket is intentionally NOT enabled by hand here: the package's own preset
+# (85-ai-tools.preset, applied by %systemd_post) is what enables it, so container-selftest.sh's
+# is-enabled/is-active checks genuinely exercise the RPM's enablement rather than a manual one.
 
 # A non-root login user to enrol as the operator. The NOPASSWD drop-in is TEST-ONLY: it lets
 # the unattended selftest run the operator's password-prompting sudo helpers (project claim,

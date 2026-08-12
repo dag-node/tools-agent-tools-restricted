@@ -129,11 +129,23 @@ if ! ai_tools_msg_confirm "Hand back all ${#paths[@]} path(s)?" y; then
     exit 0
 fi
 
-declare -i n=0
+# Count CONFIRMED handbacks (ai-tools-chown exit 0), not attempts: a path that stopped being
+# @SANDBOX_USER@-owned between the collect and apply phases is a legitimate skip, and reporting it
+# as handed back would overstate what changed. A non-zero tally is surfaced, not hidden.
+declare -i confirmed=0 failed=0
 for path in "${paths[@]}"; do
-    "${CHOWN_BIN}" --yes "${path}" </dev/null || true
-    n=$((n + 1))
+    if "${CHOWN_BIN}" --yes "${path}" </dev/null; then
+        confirmed+=1
+    else
+        failed+=1
+    fi
 done
-printf 'ai-tools-reclaim: handed back %d path(s) under %s\n' "${n}" "${canonical}" >&2
-ai_tools_log_info "reclaim: handed back ${n} agent-owned path(s) under ${canonical}"
+if (( failed > 0 )); then
+    printf 'ai-tools-reclaim: handed back %d path(s), %d skipped/failed under %s\n' \
+        "${confirmed}" "${failed}" "${canonical}" >&2
+    ai_tools_log_warn "reclaim: handed back ${confirmed} path(s), ${failed} skipped/failed under ${canonical}"
+else
+    printf 'ai-tools-reclaim: handed back %d path(s) under %s\n' "${confirmed}" "${canonical}" >&2
+    ai_tools_log_info "reclaim: handed back ${confirmed} agent-owned path(s) under ${canonical}"
+fi
 exit 0

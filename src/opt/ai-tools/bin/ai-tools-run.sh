@@ -25,6 +25,9 @@
 #     `ai-tools-run` syslog tag.
 #   * A refusal names the fix. The common ones are a stale SELinux label after a Node upgrade
 #     (`ai-tools --relabel`) and a stopped user manager (`loginctl enable-linger`).
+#   * The ownership handback socket is checked before launch: if it is down the session still
+#     starts (it is a data-ownership convenience, not a confinement boundary) but a NOTICE names
+#     the fix, and the session-end sweep skips its walk rather than tallying failed hand-backs.
 #
 # Reference: launch.rule.md (launch mechanics, the wrapper contract, PATH and env pinning),
 # confinement.rule.md (namespaces, SELinux transition, /tmp), providers.rule.md (manifests,
@@ -221,6 +224,24 @@ if command -v semodule >/dev/null 2>&1 \
         "ai-tools-run: the \"podman\" SELinux group is enabled, but RestrictNamespaces=yes blocks the user namespace rootless podman/buildah require -- they will fail with EPERM on clone(CLONE_NEWUSER).  To allow containers, relax RestrictNamespaces in ${0} -- note that permitting the user namespace reopens ESC-001."
 fi
 
+# ── Handback socket preflight (warn, do not block) ───────────────────────────────────────────
+# The ownership handback -- the per-turn hooks (handback=hooks) and this shim's session-end sweep
+# alike -- reaches ai-tools-chown as root over the handback socket. If it is down, every CHOWN
+# fails and files this session writes stay @SANDBOX_USER@-owned, surfacing later as git "dubious
+# ownership". This is NOT a confinement boundary -- DAC, the ai_tools_t type, and the project's
+# user:<operator> ACL keep the operator's access intact regardless -- so a down socket WARNS and
+# proceeds rather than refusing the launch (a refusal would trade availability for a non-security
+# convenience). Skipped for a diagnostic run with no project directory, which writes nothing to
+# hand back. The reconcile commands are printed plain, below the frame, so they stay paste-safe.
+readonly HANDBACK_SOCKET="/run/ai-tools/handback.sock"
+if [[ -n "${session_working_directory}" && ! -S "${HANDBACK_SOCKET}" ]]; then
+    audit warning "handback socket ${HANDBACK_SOCKET} absent at launch -- ownership handback will not run this session"
+    ai_tools_msg_notice \
+        "ai-tools-run: the ownership handback socket is down (${HANDBACK_SOCKET}), so files this session writes stay ai-tools-owned until it is restored -- git may then report \"dubious ownership\".  Bring it up, then reclaim the tree:"
+    printf '  sudo systemctl enable --now ai-tools-handback.socket\n' >&2
+    printf '  ai-tools --reclaim %s\n' "${session_working_directory}" >&2
+fi
+
 # ── Session environment ──────────────────────────────────────────────────────────────────────
 # A service unit is spawned by the user manager with ITS OWN environment, so nothing crosses
 # into the session unless named here. Only terminal-, locale-, and connectivity-shaping
@@ -314,17 +335,31 @@ source "${AI_TOOLS_LIB_DIR}/skip-dirs.lib.sh" 2>/dev/null \
 sweep_project_ownership() {
     [[ -n "${session_working_directory}" && -d "${session_working_directory}" ]] || return 0
     [[ -x "${HANDBACK_CLIENT}" ]] || return 0
+    # A down socket fails every CHOWN, so skip the walk and record that once, rather than logging
+    # a reassuring count of calls that changed nothing (the failure mode this whole change fixes).
+    if [[ ! -S "${HANDBACK_SOCKET}" ]]; then
+        audit warning "session-end sweep skipped: handback socket ${HANDBACK_SOCKET} is down -- files under ${session_working_directory} stay @SANDBOX_USER@-owned (reclaim with: ai-tools --reclaim ${session_working_directory})"
+        return 0
+    fi
     # The "reclaim" consumer omits the heavy dependency/build trees but WALKS .git -- the tree
     # the per-turn hooks skip, and which nothing else on this path would reach.
     ai_tools_skip_find_expr reclaim '' "${session_working_directory}"
-    local swept=0 path
+    # Count CONFIRMED handbacks (client exit 0), not attempts, so the audit line reflects what
+    # actually changed owner; a non-zero exit is either a routine skip (a path the root helper
+    # refused) or a mid-sweep socket loss, both surfaced as a failed tally rather than success.
+    local confirmed=0 failed=0 path
     while IFS= read -r -d '' path; do
-        "${HANDBACK_CLIENT}" CHOWN "${path}" >/dev/null 2>&1 || true
-        swept=$(( swept + 1 ))
+        if "${HANDBACK_CLIENT}" CHOWN "${path}" >/dev/null 2>&1; then
+            confirmed=$(( confirmed + 1 ))
+        else
+            failed=$(( failed + 1 ))
+        fi
     done < <(find "${session_working_directory}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
                   '(' -user '@SANDBOX_USER@' '(' -type f -o -type d ')' -print0 ')' 2>/dev/null)
-    if (( swept > 0 )); then
-        audit info "session-end sweep: handed back ${swept} path(s) under ${session_working_directory} (agent=${agent_name})"
+    if (( failed > 0 )); then
+        audit warning "session-end sweep: handed back ${confirmed} path(s), ${failed} not handed back under ${session_working_directory} (agent=${agent_name}); reclaim with: ai-tools --reclaim ${session_working_directory}"
+    elif (( confirmed > 0 )); then
+        audit info "session-end sweep: handed back ${confirmed} path(s) under ${session_working_directory} (agent=${agent_name})"
     fi
     return 0
 }
