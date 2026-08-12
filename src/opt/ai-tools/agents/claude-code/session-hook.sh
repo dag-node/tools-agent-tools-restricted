@@ -62,6 +62,14 @@
 # Heavy/transient trees are skipped in both sweeping modes (their contents are world-readable
 # anyway, so <you> can already read them) and the scan stays on one filesystem (-xdev).
 #
+# Handback socket down: every CHOWN runs over /run/ai-tools/handback.sock, so a socket that is
+# not listening fails every hand-back. Each pass checks the socket first and, when it is down,
+# skips its walk and records the STRANDED count rather than tallying failed calls -- and the
+# session-start pass emits a distinct NOTICE naming the fix instead of a reassuring "Reclaimed
+# N". Every pass otherwise counts CONFIRMED hand-backs (client exit 0), not attempts. The socket
+# is a data-ownership convenience, not a confinement boundary (the user:<operator> ACL keeps <you>
+# reading agent files regardless), so this warns and proceeds -- it never blocks a session.
+#
 # Deploy: sudo install -o root -g ai-tools -m 750 \
 #             src/opt/ai-tools/agents/claude-code/session-hook.sh /opt/ai-tools/.claude/session-hook.sh
 # Wired to the Stop, SessionStart, and SessionEnd hooks in settings.json (the
@@ -84,6 +92,11 @@ readonly MARKER="${HOOK_DIR}/.sweep-marker"
 # marker as "interrupted"); the sandbox is single-session by design, same caveat
 # as MARKER.
 readonly ACTIVE_MARKER="${HOOK_DIR}/.session-active"
+
+# The handback socket every CHOWN runs over. When it is down the reclaim/sweep can hand nothing
+# back, so each pass checks it first and reports the stranded work rather than a count of failed
+# calls -- the failure mode that let a dead socket report a reassuring "Reclaimed N".
+readonly HANDBACK_SOCKET="/run/ai-tools/handback.sock"
 
 # Mode: "stop" (default, bounded sweep), "session-start" (unbounded reclaim) or
 # "session-end" (clear the clean-exit marker).
@@ -134,10 +147,17 @@ fi
 # emits. No PROJECT/.git -> echo 0. Used by the session-end reclaim and the session-start pass.
 reclaim_git_tree() {
     local proj="$1" n=0 path
+    # Socket down: nothing can be handed back -- report zero, not a count of failed calls.
+    [[ -S "${HANDBACK_SOCKET}" ]] || { printf '0'; return 0; }
     if [[ -n "${proj}" && -d "${proj}/.git" ]]; then
         while IFS= read -r -d '' path; do
-            /usr/local/bin/ai-tools-handback-client CHOWN "${path}" || true
-            n=$((n + 1))
+            # Count CONFIRMED handbacks (client exit 0), not attempts, so the reported total
+            # reflects what actually changed owner. The client writes nothing to stdout, so
+            # using it as the `if` condition cannot corrupt this function's captured count, and
+            # its stderr (MSG relays) still reaches the session.
+            if /usr/local/bin/ai-tools-handback-client CHOWN "${path}"; then
+                n=$((n + 1))
+            fi
         done < <(find "${proj}/.git" -xdev -user @SANDBOX_USER@ \
                      \( -type f -o -type d \) -print0 2>/dev/null)
     fi
@@ -238,10 +258,18 @@ expr+=( '(' -type f -o -type d ')' -print0 ')' )
 # stream and cannot trip set -e / pipefail or skip the marker update.
 ai_tools_log_debug "${MODE} sweep: handing back agent-owned paths under ${dir}$([[ "${unbounded}" -eq 1 ]] && echo ' (unbounded)' || echo ' (since marker)')"
 swept=0
-while IFS= read -r -d '' path; do
-    /usr/local/bin/ai-tools-handback-client CHOWN "${path}" || true
-    swept=$((swept + 1))
-done < <(find "${expr[@]}" 2>/dev/null) || true
+if [[ ! -S "${HANDBACK_SOCKET}" ]]; then
+    # Socket down: every CHOWN would fail, so skip the walk and record it once instead of
+    # counting failed calls (which would also mis-fire the large-batch skip-list hint below).
+    ai_tools_log_warn "${MODE} sweep skipped: handback socket ${HANDBACK_SOCKET} is down -- paths under ${dir} stay @SANDBOX_USER@-owned (reclaim with: ai-tools --reclaim ${dir})"
+else
+    # Count CONFIRMED handbacks (client exit 0), not attempts.
+    while IFS= read -r -d '' path; do
+        if /usr/local/bin/ai-tools-handback-client CHOWN "${path}"; then
+            swept=$((swept + 1))
+        fi
+    done < <(find "${expr[@]}" 2>/dev/null) || true
+fi
 
 # A large sweep is the skip-list signal: hundreds of agent-owned paths per pass usually
 # means a build or dependency tree is handed back over and over. Journald-only (routine,
@@ -261,14 +289,31 @@ mv -f "${newref}" "${MARKER}" 2>/dev/null || rm -f "${newref}" 2>/dev/null || tr
 # additionalContext JSON this script emits on stdout. No PROJECT/.git -> echo 0.
 reclaim_git_tree() {
     local proj="$1" n=0 path
+    # Socket down: nothing can be handed back -- report zero, not a count of failed calls.
+    [[ -S "${HANDBACK_SOCKET}" ]] || { printf '0'; return 0; }
     if [[ -n "${proj}" && -d "${proj}/.git" ]]; then
         while IFS= read -r -d '' path; do
-            /usr/local/bin/ai-tools-handback-client CHOWN "${path}" || true
-            n=$((n + 1))
+            # Count CONFIRMED handbacks (client exit 0), not attempts, so the reported total
+            # reflects what actually changed owner. The client writes nothing to stdout, so
+            # using it as the `if` condition cannot corrupt this function's captured count, and
+            # its stderr (MSG relays) still reaches the session.
+            if /usr/local/bin/ai-tools-handback-client CHOWN "${path}"; then
+                n=$((n + 1))
+            fi
         done < <(find "${proj}/.git" -xdev -user @SANDBOX_USER@ \
                      \( -type f -o -type d \) -print0 2>/dev/null)
     fi
     printf '%s' "${n}"
+}
+
+# count_git_agent_owned PROJECT -- number of @SANDBOX_USER@-owned paths under PROJECT/.git (0 if
+# there is no such tree). Used only when the socket is down, to tell whether there is stranded
+# git work to warn about, so a dead socket surfaces what it could NOT reclaim instead of the
+# reclaim silently doing nothing.
+count_git_agent_owned() {
+    local proj="$1"
+    [[ -n "${proj}" && -d "${proj}/.git" ]] || { printf '0'; return 0; }
+    find "${proj}/.git" -xdev -user @SANDBOX_USER@ \( -type f -o -type d \) -printf '.' 2>/dev/null | wc -c
 }
 
 # .git ownership reclaim, run on every unbounded (session-start) pass. Every sweep
@@ -280,6 +325,7 @@ reclaim_git_tree() {
 # and repacks. The marker does not gate this reclaim; it only selects the cross-project
 # target and the NOTICE wording below.
 if [[ "${unbounded}" -eq 1 ]]; then
+  if [[ -S "${HANDBACK_SOCKET}" ]]; then
     git_found="$(reclaim_git_tree "${dir}")"
 
     # A killed prior session may have been working in a DIFFERENT project; its
@@ -318,5 +364,24 @@ if [[ "${unbounded}" -eq 1 ]]; then
                 2>/dev/null || true
         fi
     fi
+  else
+    # Socket DOWN: the reclaim cannot run. If agent-owned .git objects are stranded, surface
+    # that with the fix, instead of silently reclaiming nothing and reporting a reassuring
+    # count -- the exact condition that produced a misleading "Reclaimed N". Count the strand
+    # under this session's project and, if a prior session was killed elsewhere, that project too.
+    stranded="$(count_git_agent_owned "${dir}")"
+    if [[ "${interrupted}" -eq 1 && -n "${prev_cwd}" && "${prev_cwd}" != "${dir}" ]]; then
+        stranded=$(( stranded + $(count_git_agent_owned "${prev_cwd}") ))
+    fi
+    if [[ "${stranded}" -gt 0 ]]; then
+        ai_tools_log_warn "handback socket ${HANDBACK_SOCKET} is down -- ${stranded} agent-owned .git path(s) under ${dir} not reclaimed; run: ai-tools --reclaim ${dir}"
+        prose="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg NOTICE 1 \
+            "The ownership handback socket is down, so ${stranded} file(s) the agent wrote to git stay ai-tools-owned and git may report \"dubious ownership\". Bring the socket up, then reclaim the tree:")"
+        reconcile="  sudo systemctl enable --now ai-tools-handback.socket"$'\n'"  ai-tools --reclaim \"${dir}\""
+        jq -cn --arg ctx "${prose}"$'\n'"${reconcile}" \
+            '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx}}' \
+            2>/dev/null || true
+    fi
+  fi
 fi
 exit 0

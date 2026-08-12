@@ -74,7 +74,16 @@ fi
 
 section "Enablement in the correct instance"
 
-# (1) Handback socket: active in the system instance (the privilege bridge the hooks reach).
+# (1) Handback socket: enabled AND active in the system instance (the privilege bridge the hooks
+# reach). is-enabled is asserted on its own because the enable comes from the shipped preset
+# (85-ai-tools.preset) -- a package that ships it disabled leaves the handback silently dead (the
+# class of bug where a source install worked but the RPM did not), which this catches even if the
+# socket happens to be started by hand.
+if systemctl is-enabled ai-tools-handback.socket >/dev/null 2>&1; then
+    pass "ai-tools-handback.socket is enabled (system, via preset)"
+else
+    fail "ai-tools-handback.socket is not enabled -- the 85-ai-tools.preset enable did not take; run: systemctl enable --now ai-tools-handback.socket"
+fi
 if systemctl is-active ai-tools-handback.socket >/dev/null 2>&1; then
     pass "ai-tools-handback.socket is active (system)"
 else

@@ -145,6 +145,16 @@ injecting it would force a TUI re-render that clobbers claude's startup banner w
 for the user to act on. The surfaced NOTICE is framed through `msg.lib.sh` (see
 [messaging](messaging.rule.md)).
 
+Every pass checks the handback socket before acting, since a socket that is down fails every
+`CHOWN` and would otherwise report a reassuring count of calls that changed nothing. So the
+sweeps and the reclaim count **confirmed** handbacks (client exit 0), not attempts; a down socket
+makes each pass skip its walk and record the stranded count, and the `session-start` pass — the
+one the operator reads — surfaces a distinct `SessionStart` NOTICE naming the fix (`systemctl
+enable --now ai-tools-handback.socket`, then `ai-tools --reclaim <project>`) whenever agent-owned
+`.git` paths are stranded, instead of the "reclaimed N" wording. `ai-tools-run`'s launch-time
+preflight is the front-line detector for the same condition (see [launch](launch.rule.md),
+[handback-bridge](handback-bridge.rule.md)).
+
 ## Setgid normalization
 
 The same `SessionStart` pass normalizes the project's setgid bit via the root helper

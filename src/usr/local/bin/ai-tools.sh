@@ -15,12 +15,12 @@
 # open to any user.
 #
 # Commands (each confirms before applying and reports the result):
-#   --project-claim   [path]  claim a real project in place (idempotent; default: cwd);
-#                             -y/--yes pre-answers its proceed prompt (delegated claims)
+#   --project-claim   [path]  claim a project in place -- grant the agent access (idempotent;
+#                             default: cwd); -y/--yes pre-answers its proceed prompt (delegated)
 #   --project-create  [path]  alias for --project-claim (kept for back-compat)
-#   --project-unclaim [path]  unclaim a real project: drop the registries, revert the
-#                             label, and hand the files back to a group with the agent's
-#                             write access revoked (directory left on disk)
+#   --project-unclaim [path]  release a project -- revoke the agent's access and hand the tree
+#                             back to your own group (or a named user's), the agent's write
+#                             removed; the directory is left on disk
 #   --project-remove  [path]  alias for --project-unclaim (kept for back-compat)
 #   --sandbox-create [path]   shallow-clone a repo into the sandbox area (private,
 #                             umask 077), lock down tip-commit secrets, then grant
@@ -29,6 +29,10 @@
 #                             again on the clone path to resume securing it
 #   --sandbox-push   [path]   push the sandbox clone's commits to its branch
 #   --sandbox-remove [path]   remove a sandbox clone and unregister it
+#   --lockdown [path]         lock down secret-named files under the project (sudo)
+#   --reclaim [--full] [path] take back ownership of agent-written files -- the project stays
+#                             claimed and the agent keeps access; the on-demand ownership
+#                             handback, e.g. before an ACL-unaware backup (sudo; default: cwd)
 #   --relabel                 relabel the enabled agents' entrypoints after a Node upgrade (sudo)
 #   --providers               report the installed agents/integrations, which are enabled,
 #                             and why (read-only; resolved through providers.lib.sh)
@@ -1613,15 +1617,15 @@ usage() {
     cat <<EOF
 ai-tools -- manage Claude Code sandbox projects (run as the projects user)
 
-  ai-tools --project-claim [-y] [path]  claim a real project in place (idempotent; default: cwd)
+  ai-tools --project-claim [-y] [path]  claim a project in place: grant the agent access (default: cwd)
   ai-tools --project-create  [path]  alias for --project-claim (back-compat)
-  ai-tools --project-unclaim [path]  unclaim a real project (hand files back, revoke agent)
+  ai-tools --project-unclaim [path]  release a project: revoke agent access, return the tree to your group
   ai-tools --project-remove  [path]  alias for --project-unclaim (back-compat)
   ai-tools --sandbox-create [path]   shallow-clone a repo into the sandbox area
   ai-tools --sandbox-push   [path]   push the sandbox clone's commits to its branch
   ai-tools --sandbox-remove [path]   remove a sandbox clone and unregister it
   ai-tools --lockdown [path] [-n|-y] lock down secret files (sudo; default: cwd)
-  ai-tools --reclaim [--full] [path] hand agent-written files back to you (sudo; default: cwd)
+  ai-tools --reclaim [--full] [path] take back ownership of agent files; project stays claimed (sudo; default: cwd)
   ai-tools --relabel                 relabel the agent entrypoints after a Node upgrade (sudo)
   ai-tools --providers               list installed agents/integrations and which are enabled
   ai-tools --list                    list registered projects
