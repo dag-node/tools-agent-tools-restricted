@@ -483,11 +483,10 @@ if command -v setfacl >/dev/null 2>&1; then
     setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects || :
     setfacl -m g:ai-ops:r-- /var/opt/ai-tools/README.md || :
 fi
-# Re-assert the setgid bit on the sandbox tree. EL10's rpm (4.19+) drops the setgid from these
-# %attr(2750/2770) directories on install -- owner and group apply, the setgid is lost -- which
-# breaks the SANDBOX_GROUP inheritance the collaborative-ownership model depends on (clones and
-# agent-created files must be born group ai-tools). Setting it here guarantees the documented mode
-# regardless of how rpm honored the %attr; idempotent, and a no-op where rpm kept it (EL9).
+# Re-assert setgid on the sandbox tree (rpm 4.19+ drops it from the %attr(2xxx) %dir entries on
+# install). Also done in %posttrans: the effective spot is rpm-version-dependent -- on EL9 this
+# %post chmod holds, on newer rpm (EL10/Fedora) file attrs are re-applied after %post so the
+# %posttrans one is the last word. Both are idempotent, a no-op where the bit already stands.
 chmod 2750 /var/opt/ai-tools 2>/dev/null || :
 chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 # Control-plane git guard + identity for the repo ai-tools-bootstrap captures (the RPM
@@ -552,6 +551,12 @@ fi
 # Start the socket so the handback is live without a reboot (posttrans runs after the systemd
 # daemon-reload file trigger). Idempotent; guarded so a systemd-less build/image fails soft.
 systemctl --no-reload start ai-tools-handback.socket 2>/dev/null || :
+
+# Re-assert setgid on the sandbox tree, after every file operation and scriptlet in the
+# transaction -- newer rpm (EL10/Fedora) re-applies %attr after %post and drops the bit, so this
+# is the last word there. The %post copy covers EL9, where the %post chmod holds. Idempotent.
+chmod 2750 /var/opt/ai-tools 2>/dev/null || :
+chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 
 # Helper-layout migration (0.10.0): the root helper tree moved
 # /usr/local/sbin/ai-tools -> /usr/local/libexec/ai-tools so ONE layout serves EL and the
