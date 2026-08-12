@@ -295,6 +295,9 @@ install -m 0644 src%{ai_libdir}/path-dedup.sh %{buildroot}%{ai_libdir}/path-dedu
 install -d -m 0755 %{buildroot}%{_unitdir}
 install -m 0644 src%{_unitdir}/ai-tools-handback.socket    %{buildroot}%{_unitdir}/
 install -m 0644 src%{_unitdir}/ai-tools-handback@.service  %{buildroot}%{_unitdir}/
+# Preset that enables the socket on install; without it the distro default leaves it disabled.
+install -d -m 0755 %{buildroot}%{_presetdir}
+install -m 0644 src%{_presetdir}/85-ai-tools.preset %{buildroot}%{_presetdir}/
 
 # ── base: sysusers ───────────────────────────────────────────────────────────
 install -d -m 0755 %{buildroot}%{_sysusersdir}
@@ -464,6 +467,8 @@ done
 %sysusers_create_compat %{SOURCE1}
 
 %post -n ai-tools-base
+# Enables the socket on first install per 85-ai-tools.preset (no-op on upgrade, so a later
+# operator disable survives). Only enables; posttrans starts it.
 %systemd_post ai-tools-handback.socket
 # Grant the ai-ops operators group access to the shared sandbox area through a group ACL, so
 # operators create and work in clones (ai-tools --sandbox-create) without joining the ai-tools
@@ -478,11 +483,12 @@ if command -v setfacl >/dev/null 2>&1; then
     setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects || :
     setfacl -m g:ai-ops:r-- /var/opt/ai-tools/README.md || :
 fi
-# Re-assert the setgid bit on the sandbox tree. EL10's rpm (4.19+) drops the setgid from these
-# %attr(2750/2770) directories on install -- owner and group apply, the setgid is lost -- which
-# breaks the SANDBOX_GROUP inheritance the collaborative-ownership model depends on (clones and
-# agent-created files must be born group ai-tools). Setting it here guarantees the documented mode
-# regardless of how rpm honored the %attr; idempotent, and a no-op where rpm kept it (EL9).
+# Re-assert the setgid bit on the sandbox tree -- rpm 4.19+ drops it from these %attr(2xxx) %dir
+# entries on install. Done in %post AND %posttrans because which one survives is rpm-dependent
+# (some rpm re-applies %attr after %post); both are idempotent no-ops on a host that kept the bit.
+# NB the container-image (OCI) layer preserves these two writes inconsistently across distros, so
+# the rpm-selftest RE-ASSERTS setgid at runtime (container-selftest.sh) -- this pair is for real
+# hosts, which have no image layer.
 chmod 2750 /var/opt/ai-tools 2>/dev/null || :
 chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 # Control-plane git guard + identity for the repo ai-tools-bootstrap captures (the RPM
@@ -544,6 +550,15 @@ fi
 # %postun -n ai-tools-selinux.
 
 %posttrans -n ai-tools-base
+# Start the socket so the handback is live without a reboot (posttrans runs after the systemd
+# daemon-reload file trigger). Idempotent; guarded so a systemd-less build/image fails soft.
+systemctl start ai-tools-handback.socket 2>/dev/null || :
+
+# Re-assert setgid after all file ops (some rpm re-applies %attr after %post, dropping it). Paired
+# with the %post copy; both idempotent. See the %post comment for the container-image caveat.
+chmod 2750 /var/opt/ai-tools 2>/dev/null || :
+chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
+
 # Helper-layout migration (0.10.0): the root helper tree moved
 # /usr/local/sbin/ai-tools -> /usr/local/libexec/ai-tools so ONE layout serves EL and the
 # Fedora bin/sbin merge. rpm's own file handling completes the move (old helpers leave %files
@@ -752,6 +767,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/path-dedup.sh
 %{_unitdir}/ai-tools-handback.socket
 %{_unitdir}/ai-tools-handback@.service
+%{_presetdir}/85-ai-tools.preset
 # Plain %config (replace on upgrade), NOT noreplace: the file is host-identical by
 # construction (@SANDBOX_*@ substituted to the constant ai-tools at %build, %ai-ops literal),
 # so it carries no operator config to preserve. Replace guarantees the guardrail -- including
@@ -850,6 +866,24 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Thu Aug 13 2026 dagnode <tools@dagnode.com> - 0.10.1-1
+- FIX: The package now enables the ownership-handback socket (ai-tools-handback.socket) on install,
+  via a shipped systemd preset. Without it a package install left the socket at the distribution
+  default (disabled): every ownership hand-back then failed silently, so files the agent wrote
+  stayed owned by the sandbox account and git reported "dubious ownership" on the project. The
+  preset applies on initial install only, so a later systemctl disable survives upgrades -- and, by
+  the same rule, upgrading a host that never had the socket enabled does not turn it on. If a host
+  is already affected, run once: sudo systemctl enable --now ai-tools-handback.socket, then
+  ai-tools --reclaim <project>.
+- FIX: A down handback socket is now reported instead of failing silently. The launch warns (naming
+  the fix) and proceeds -- the socket restores ownership but is not a confinement boundary -- while
+  the session sweeps and ai-tools --reclaim count only confirmed hand-backs and, when the socket is
+  down, report the stranded work rather than a reassuring count of calls that changed nothing.
+- DOCS: The claim, unclaim, and reclaim entries in ai-tools --help and the man page now spell out
+  what each does and how they differ: claim grants the agent access to a project, unclaim releases
+  it (revoking that access and returning the tree to your group), and reclaim takes ownership back
+  while the project stays claimed.
+
 * Mon Aug 10 2026 dagnode <tools@dagnode.com> - 0.10.0-1
 - CHANGE: The root helper programs moved from /usr/local/sbin/ai-tools to
   /usr/local/libexec/ai-tools, so one install layout works on both EL and Fedora (Fedora merges

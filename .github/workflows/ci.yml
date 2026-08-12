@@ -31,9 +31,26 @@ jobs:
       # which reports a different finding set.
       - name: Install ShellCheck 0.10.0
         run: |
-          curl -fsSL https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz \
-            | tar -xJ
-          sudo install shellcheck-v0.10.0/shellcheck /usr/local/bin/shellcheck
+          set -euo pipefail
+          ver=v0.10.0
+          tarball="shellcheck-${ver}.linux.x86_64.tar.xz"
+          url="https://github.com/koalaman/shellcheck/releases/download/${ver}/${tarball}"
+          # Download to a FILE, never straight into tar. Piping curl into tar defeats
+          # curl's --retry: a mid-transfer drop (curl error 56) has already streamed
+          # truncated bytes into xz/tar ("File format not recognized"), and the retry
+          # replays from the top into a stream the extractor has already consumed. To a
+          # file, --retry re-fetches (and -C - resumes) cleanly. -4 sidesteps the runner's
+          # intermittently-broken IPv6 egress to the release CDN, the usual cause of the
+          # repeated connection-died failures here.
+          curl -4 -fL --no-progress-meter --connect-timeout 20 \
+               --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused \
+               -C - -o "${tarball}" "${url}"
+          # Integrity-test the archive before trusting it, so a still-truncated download
+          # fails here with a clear message instead of a cryptic error downstream in tar.
+          # (Pinning a verified sha256 of the release asset is the recommended next step.)
+          xz -t "${tarball}"
+          tar -xJf "${tarball}"
+          sudo install "shellcheck-${ver}/shellcheck" /usr/local/bin/shellcheck
           shellcheck --version
 
       # Scope matches the documented baseline: src/**/*.sh plus install.sh. tests/,

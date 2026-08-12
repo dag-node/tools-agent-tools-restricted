@@ -47,8 +47,9 @@ Alias for
 .TP
 .B \-\-project\-unclaim \fR[\fIpath\fR]
 Reverse a claim: revert the SELinux label, drop both registries, and \(em behind
-its own confirm \(em hand the tree to a chosen group with the agent's write
-access revoked. The directory stays on disk.
+its own confirm \(em revoke the agent's access, handing the tree back to your own
+group (or a named user's group) with the agent's write removed. The directory
+stays on disk.
 .TP
 .B \-\-project\-remove
 Alias for
@@ -77,9 +78,13 @@ owner-only, revoking the agent's read access. Runs via
 .BR sudo .
 .TP
 .B \-\-reclaim \fR[\fB\-\-full\fR] [\fIpath\fR]
-Hand agent-written files under the project back to you (including the
+Take back ownership of the files the agent wrote under the project \(em including
+the
 .B .git
-tree the per-session sweeps skip). Runs via
+tree the per-session sweeps skip \(em without unclaiming it: the project stays
+registered and the agent keeps its access. This is the on-demand form of the
+ownership handback (run it before an ACL-unaware backup, so ownership \(em not the
+ACL alone \(em carries your access into the copy). Runs via
 .BR sudo .
 .TP
 .B \-\-relabel
