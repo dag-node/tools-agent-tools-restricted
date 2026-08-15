@@ -294,7 +294,9 @@ require_sandbox_clone() {
 reg_allow() {
     local dir="$1"
     [[ -f "${ALLOWLIST}" ]] || die "allowlist not found at ${ALLOWLIST} -- run install first"
-    if grep -qxF "${dir}" "${ALLOWLIST}"; then
+    # Match through the shared grammar, not a raw line: a hand-added entry with a comment or
+    # quotes is already listed, and appending would duplicate it (conf.lib.sh).
+    if ai_tools_conf_allowlist_has_entry "${ALLOWLIST}" "${dir}"; then
         say "    allowed-projects: already listed"
     else
         printf '%s\n' "${dir}" >> "${ALLOWLIST}"
@@ -302,16 +304,25 @@ reg_allow() {
     fi
 }
 
-# allow_escape <path>  -- escape a path for use inside a sed `\|...|` address (backslash and
-# the '|' delimiter). Shared by unreg_allow, which runs the anchored-exact line deletion, and
-# cmd_list, which prints the same deletion as a copy-paste remediation command.
-allow_escape() { printf '%s' "$1" | sed 's/[\\|]/\\&/g'; }
+# allow_escape <text>  -- escape <text> so it matches literally inside a sed `\|^...$|` address:
+# the '|' delimiter, backslash, and the BRE metacharacters (`.[]*^$`). Shared by unreg_allow,
+# which runs the anchored-exact line deletion, and cmd_list, which prints the same deletion as a
+# copy-paste remediation command. Both delete a whole RAW allowlist line, which may carry a
+# comment or a dot in a path, so an under-escaped pattern would match a sibling line or none.
+allow_escape() { printf '%s' "$1" | sed 's/[]\.*^$|[]/\\&/g'; }
 
 unreg_allow() {
     local dir="$1"
     [[ -f "${ALLOWLIST}" ]] || return 0
-    if grep -qxF "${dir}" "${ALLOWLIST}"; then
-        sed -i "\|^$(allow_escape "${dir}")$|d" "${ALLOWLIST}"
+    # Delete the RAW line(s) whose grammar entry matches ${dir}, not a line rebuilt from ${dir}:
+    # a hand-added entry may carry a comment or quotes (conf.lib.sh), and anchoring on ${dir}
+    # alone would miss it -- the same blind spot that used to leave the entry (and the agent's
+    # access) behind on unclaim.
+    local -a lines=() raw
+    if ai_tools_conf_allowlist_matching_lines lines "${ALLOWLIST}" "${dir}"; then
+        for raw in "${lines[@]}"; do
+            sed -i "\|^$(allow_escape "${raw}")$|d" "${ALLOWLIST}"
+        done
         say "    allowed-projects: removed"
     else
         say "    allowed-projects: not listed"
@@ -800,7 +811,7 @@ clear_lockdown_guard() {
 # labelling lib; the authoritative semanage/restorecon logic is NOT duplicated here.
 project_state() {
     local dir="$1" listed=false safedir=false filemode=na owngap=true acl=false labelled=na git=false
-    grep -qxF "${dir}" "${ALLOWLIST}" 2>/dev/null && listed=true
+    ai_tools_conf_allowlist_has_entry "${ALLOWLIST}" "${dir}" 2>/dev/null && listed=true
     git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
         | grep -qxF "${dir}" && safedir=true
     if git -C "${dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -1793,7 +1804,7 @@ cmd_status() {
 cmd_list() {
     [[ -f "${ALLOWLIST}" ]] || { say "no allowlist at ${ALLOWLIST}"; return 0; }
     section "Registered projects"
-    local entry kind safe sd shown=0
+    local raw entry kind safe sd shown=0
     local -a cleanup=()
 
     # _is_labelled <dir>  -- 0 when SELinux is active and <dir> carries ai_tools_project_t.
@@ -1802,23 +1813,26 @@ cmd_list() {
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]] || return 1
         ls -Zd "$1" 2>/dev/null | grep -q ':ai_tools_project_t:'
     }
-    # _remove_line_cmd <path>  -- the copy-paste sed command that deletes <path>'s exact line.
+    # _remove_line_cmd <raw-line>  -- the copy-paste sed that deletes the VERBATIM allowlist line
+    # (comment and all), so it matches what is stored even when the entry carries an end-of-line
+    # comment or quotes; allow_escape makes the line a literal BRE.
     _remove_line_cmd() { printf "          sed -i '\\\\|^%s\$|d' %s" "$(allow_escape "$1")" "${ALLOWLIST}"; }
-    # _reconcile <entry> <kind> <safedir-yes>  -- append a remediation block for an inconsistent
-    # entry (stale / protected / listed-but-not-fully-claimed). Nested so it shares `cleanup`.
+    # _reconcile <entry> <kind> <safedir-yes> <raw-line>  -- append a remediation block for an
+    # inconsistent entry (stale / protected / listed-but-not-fully-claimed). Nested so it shares
+    # `cleanup`; <raw-line> is the verbatim source line the removal command deletes.
     _reconcile() {
-        local e="$1" k="$2" sdy="$3"
+        local e="$1" k="$2" sdy="$3" raw="$4"
         if ! realpath -e "${e}" >/dev/null 2>&1; then
             cleanup+=( "  ${e}" \
                 "      ${C_YEL}no longer exists${C_RST} (stale entry); remove it:" \
-                "$(_remove_line_cmd "${e}")" )
+                "$(_remove_line_cmd "${raw}")" )
             ${sdy} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove ${e}" )
             return 0                                    # ${sdy}=false returns 1; don't kill cmd_list's set -e loop
         fi
         if ai_tools_protected_path_match "${e}" >/dev/null 2>&1; then
             cleanup+=( "  ${e}" \
                 "      ${C_YEL}protected system path${C_RST} -- the tools refuse to operate on it; remove it:" \
-                "$(_remove_line_cmd "${e}")" )
+                "$(_remove_line_cmd "${raw}")" )
             ${sdy} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove ${e}" )
             _is_labelled "${e}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove ${e}" )
             return 0                                    # trailing conditionals above return 1; don't kill the loop
@@ -1835,9 +1849,10 @@ cmd_list() {
         fi
     }
 
-    while IFS= read -r entry || [[ -n "${entry}" ]]; do
-        # Same shared grammar the wrapper and the chown helper read this file with.
-        ai_tools_conf_path_entry "${entry}" || continue
+    while IFS= read -r raw || [[ -n "${raw}" ]]; do
+        # Same shared grammar the wrapper and the chown helper read this file with; keep the
+        # verbatim ${raw} line so a stale/protected remediation deletes exactly what is stored.
+        ai_tools_conf_path_entry "${raw}" || continue
         entry="${_ai_tools_conf_value}"
         shown=1
         if [[ "${entry}" == '!'* ]]; then
@@ -1855,7 +1870,7 @@ cmd_list() {
             safe="safe.dir:${C_YEL}NO${C_RST}"; sd=false
         fi
         printf '  %-8s %-50s %s\n' "${kind}" "${entry}" "${safe}"
-        _reconcile "${entry}" "${kind}" "${sd}"
+        _reconcile "${entry}" "${kind}" "${sd}" "${raw}"
     done < "${ALLOWLIST}"
     (( shown )) || say "  (none)"
 

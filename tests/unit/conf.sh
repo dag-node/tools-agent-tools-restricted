@@ -32,6 +32,7 @@ if ! source "${LIB}" \
         || ! declare -F ai_tools_conf_read >/dev/null 2>&1 \
         || ! declare -F ai_tools_conf_split >/dev/null 2>&1 \
         || ! declare -F ai_tools_conf_list >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf_allowlist_has_entry >/dev/null 2>&1 \
         || ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1; then
     fail "could not source ${LIB} or it does not define the parser functions"; finish; exit
 fi
@@ -305,6 +306,74 @@ if ai_tools_conf_new_keys examples "${example_conf}" "${shipped_conf}" \
     pass "an indented example in a header block mentions nothing"
 else
     fail "prose examples were read as mentions (reported '${examples[*]:-}')"
+fi
+
+# --- Allowlist membership: one exact-entry matcher every consumer shares -----------------------
+# The launch wrapper, the CLI (reg/unreg/project_state), and the relabel helper all decide "is
+# this path listed" through these predicates instead of a raw `grep -qxF` against the stored line.
+# The property under test: an entry written in the documented grammar -- an end-of-line comment,
+# quotes, or a spelling reached by a symlink or trailing slash -- MATCHES, where a raw grep would
+# miss it and report the project unlisted (the divergence that duplicated entries on claim, left
+# them on unclaim, and failed the post-claim launch confirm).
+al_root="${TESTDIR}/al"; mkdir -p \
+    "${al_root}/proj" "${al_root}/commented" "${al_root}/quoted dir" \
+    "${al_root}/excluded" "${al_root}/link-target"
+ln -s "${al_root}/link-target" "${al_root}/link-alias"
+al="${TESTDIR}/allowed-projects"
+cat > "${al}" <<EOF
+# a whole-line comment, ignored
+${al_root}/proj
+${al_root}/commented    # main repo
+"${al_root}/quoted dir"
+!${al_root}/excluded
+${al_root}/link-alias
+${al_root}/stale-gone
+EOF
+
+check_member() {
+    local desc="$1" expect="$2" path="$3"   # expect = member | absent
+    local verdict=absent
+    ai_tools_conf_allowlist_has_entry "${al}" "${path}" && verdict=member
+    if [[ "${verdict}" == "${expect}" ]]; then pass "${desc}"
+    else fail "${desc}: got ${verdict}, expected ${expect}"; fi
+}
+check_member "a plain entry matches"                    member "${al_root}/proj"
+check_member "an end-of-line comment does not hide it"  member "${al_root}/commented"
+check_member "a quoted path matches"                    member "${al_root}/quoted dir"
+check_member "a trailing slash is normalized away"      member "${al_root}/proj/"
+check_member "a symlinked spelling matches by realpath" member "${al_root}/link-target"
+check_member "an unlisted path is absent"               absent "${al_root}/not-there"
+check_member "an excluded path is not a member"         absent "${al_root}/excluded"
+
+if ai_tools_conf_allowlist_has_exclusion "${al}" "${al_root}/excluded" \
+        && ! ai_tools_conf_allowlist_has_exclusion "${al}" "${al_root}/proj"; then
+    pass "has_exclusion matches only the '!' line"
+else
+    fail "has_exclusion did not isolate the exclusion entry"
+fi
+
+# The line-identifying variant returns the VERBATIM source line (comment and all), which is what
+# an anchored sed deletes -- reconstructing it from the path would miss a commented/quoted entry
+# and leave it behind. Two-ended with the boundary suite: the agent cannot write the allowlist.
+declare -a matched=()
+if ai_tools_conf_allowlist_matching_lines matched "${al}" "${al_root}/commented" \
+        && [[ "${#matched[@]}" -eq 1 && "${matched[0]}" == "${al_root}/commented    # main repo" ]]; then
+    pass "matching_lines returns the raw commented line verbatim for deletion"
+else
+    fail "matching_lines returned '${matched[*]:-}'"
+fi
+matched=()
+if ai_tools_conf_allowlist_matching_lines matched "${al}" "${al_root}/quoted dir" \
+        && [[ "${matched[0]}" == "\"${al_root}/quoted dir\"" ]]; then
+    pass "matching_lines returns the raw quoted line verbatim"
+else
+    fail "matching_lines did not return the quoted line: '${matched[*]:-}'"
+fi
+matched=()
+if ! ai_tools_conf_allowlist_matching_lines matched "${al}" "${al_root}/excluded"; then
+    pass "matching_lines skips exclusion lines (never deletes an exclusion as a membership)"
+else
+    fail "matching_lines matched an exclusion line: '${matched[*]:-}'"
 fi
 
 # The two forms that ARE defaults stay defaults, hard against the '#' and one space in.

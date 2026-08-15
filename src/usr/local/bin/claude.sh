@@ -308,8 +308,10 @@ if [[ "${approved}" != true ]]; then
             # brand-new path from scratch.
             "${AI_TOOLS_CLI}" --project-claim --yes "${cwd}" || true
             # Confirm the claim registered the path before falling through to the claim guard,
-            # which re-verifies ownership/label (both just applied) and then launches.
-            grep -qxF "${cwd}" "${ALLOWLIST}" 2>/dev/null \
+            # which re-verifies ownership/label (both just applied) and then launches. Match
+            # through the shared grammar so an entry the claim wrote with a comment or quotes is
+            # not read as "claim did not complete" (conf.lib.sh).
+            ai_tools_conf_allowlist_has_entry "${ALLOWLIST}" "${cwd}" 2>/dev/null \
                 || die "claude: ${cwd}: still not accessible -- the claim did not complete"
             ;;
         *)
