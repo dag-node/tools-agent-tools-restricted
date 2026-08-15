@@ -108,12 +108,13 @@ integration is enabled under Enforcing but the
 group that its build needs is not loaded.
 .TP
 .B \-\-status
-Report ai-tools service health: whether the toolchain is provisioned, then each
-managed systemd unit \(em the handback socket and the relabel watcher (system) and
-the toolchain auto-update timer (in the sandbox account's own user instance) \(em as
-OK, DOWN, or not-installed, with the consequence and the exact remedy for anything
-down. Read-only, and the same registry the launch wrapper's pre-launch health
-warning uses.
+Report ai-tools health: the installed version, whether the toolchain is provisioned,
+then each managed systemd unit \(em the handback socket and the relabel watcher
+(system) and the toolchain auto-update timer (in the sandbox account's own user
+instance) \(em as OK, DOWN, or not-installed, with the consequence and the exact
+remedy for anything down, and pointers to the sibling reports (it does not repeat
+their detail). Read-only, and the same registry the launch wrapper's pre-launch
+health warning uses.
 .TP
 .B \-\-list
 List registered projects, real and sandbox.

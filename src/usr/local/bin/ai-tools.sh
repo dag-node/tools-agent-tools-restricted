@@ -1513,14 +1513,16 @@ cmd_providers() {
         source "${groups_lib}" 2>/dev/null \
             && declare -F ai_tools_selinux_group_name >/dev/null 2>&1 || return 0
 
-        section "SELinux policy groups (${enforce})"
+        # Read the loaded module list FIRST. If it is not readable unprivileged (common: the policy
+        # store is root-only on many hosts), omit the whole section rather than print a section that
+        # only says "cannot read" -- the group/dependency reporting below all needs this list, so
+        # without it there is nothing accurate to show. `sudo ai-tools-admin selinux list-groups` is
+        # where an operator inspects policy groups.
         local modules
-        if ! modules="$(semodule -l 2>/dev/null)" || [[ -z "${modules}" ]]; then
-            say "  ${C_DIM}cannot read the loaded module list unprivileged --"
-            say "  run: sudo ai-tools-admin selinux list-groups${C_RST}"
-            return 0
-        fi
+        { modules="$(semodule -l 2>/dev/null)" && [[ -n "${modules}" ]]; } || return 0
         group_loaded() { grep -qxF "ai_tools_$1" <<<"${modules}"; }
+
+        section "SELinux policy groups (${enforce})"
 
         if grep -qxF 'ai_tools' <<<"${modules}"; then
             say "  core module ai_tools: ${C_GRN}loaded${C_RST}"
@@ -1594,6 +1596,12 @@ cmd_providers() {
 # Reuses services.lib.sh -- the SAME registry the launch-time warning reads -- so the status view and
 # the launch warning never disagree. Informational (no operator gate), like --list/--providers.
 cmd_status() {
+    section "Version"
+    say "  ai-tools ${AI_TOOLS_VERSION}"
+    # The agent and Node versions live in the 700 sandbox toolchain the operator cannot read; the
+    # session logs them under the ai-tools-run tag, and `claude --version` prints them directly.
+    say "  ${C_DIM}agent & Node versions: run 'claude --version'${C_RST}"
+
     section "Provisioning"
     # CLAUDE_LINK is bootstrap's last artifact (the gate require_bootstrap keys on), so its presence
     # means the toolchain is installed.
@@ -1629,6 +1637,14 @@ cmd_status() {
             say "      ${C_BOLD}$(ai_tools_service_field "${rec}" 6)${C_RST}"
         fi
     done < <(ai_tools_service_records)
+
+    # Pointers, not duplication: name the sibling read-only reports (which own their own detail) and
+    # where the full command list lives, so --status is a hub without re-implementing --providers or
+    # --help.
+    section "More"
+    say "  ai-tools --providers   installed agents/integrations and which are enabled"
+    say "  ai-tools --list        registered projects (real and sandbox)"
+    say "  ai-tools --help        the full command list"
 }
 
 # cmd_list  -- print each allowlist entry as project, sandbox, or exclude, with its

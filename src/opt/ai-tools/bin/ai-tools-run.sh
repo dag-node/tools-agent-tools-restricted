@@ -19,10 +19,11 @@
 # /usr/local/lib/ai-tools/session-env.d.
 #
 # Operating notes:
-#   * The session appears as @SANDBOX_USER@-<agent>-<pid>.service in `systemctl --user`.
-#     Its journal:  sudo journalctl _SYSTEMD_USER_UNIT=<unit> _UID=<sandbox uid> -xe
-#   * Every launch logs its confinement inputs and the toolchain versions under the
-#     `ai-tools-run` syslog tag.
+#   * The session appears as @SANDBOX_USER@-<agent>-<pid>.service in `systemctl --user`. Its
+#     stdout/stderr go to the terminal (--pty), so the per-unit journal is empty on a clean run.
+#   * Every launch logs its confinement inputs, the toolchain versions, and any refusal under the
+#     `ai-tools-run` syslog tag -- where the useful records are:
+#         sudo journalctl -t ai-tools-run _UID=<sandbox uid> -e
 #   * A refusal names the fix. The common ones are a stale SELinux label after a Node upgrade
 #     (`ai-tools --relabel`) and a stopped user manager (`loginctl enable-linger`).
 #   * The ownership handback socket is checked before launch: if it is down the session still
@@ -406,13 +407,15 @@ declare -a working_directory_option=()
 [[ -n "${session_working_directory}" ]] \
     && working_directory_option=( "--working-directory=${session_working_directory}" )
 
-# The unit runs under @SANDBOX_USER@'s manager, so its records carry _SYSTEMD_USER_UNIT and
-# _UID. They are read as root through those fields: the sandbox account is deliberately not in
-# systemd-journal, which would let it read every system log.
+# The session's own stdout/stderr are the terminal (--pty), so the per-unit journal is empty on a
+# clean run -- filtering by _SYSTEMD_USER_UNIT shows "No entries". The launch diagnostics (versions,
+# confinement inputs, refusals) are logged under the `ai-tools-run` tag as root: the sandbox account
+# is deliberately not in systemd-journal, so an operator reads them via sudo. Point at that tag,
+# where the records actually are, rather than the empty per-unit filter.
 if [[ -t 1 ]]; then
     printf 'Running as unit: %s\n' "${session_unit_name}"
-    printf '%s  logs: sudo journalctl _SYSTEMD_USER_UNIT=%s _UID=%s -xe%s\n\n' \
-        $'\033[2m' "${session_unit_name}" "${EUID}" $'\033[0m'
+    printf '%s  launch log: sudo journalctl -t ai-tools-run _UID=%s -e%s\n\n' \
+        $'\033[2m' "${EUID}" $'\033[0m'
 fi
 
 # An EXIT trap rather than a call after the run, so an interrupted shim (Ctrl-C, SIGTERM) still
