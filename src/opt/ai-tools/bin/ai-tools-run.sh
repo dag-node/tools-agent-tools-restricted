@@ -23,7 +23,7 @@
 #     stdout/stderr go to the terminal (--pty), so the per-unit journal is empty on a clean run.
 #   * Every launch logs its confinement inputs, the toolchain versions, and any refusal under the
 #     `ai-tools-run` syslog tag -- where the useful records are:
-#         sudo journalctl -t ai-tools-run _UID=<sandbox uid> -e
+#         sudo journalctl -t ai-tools-run _UID=<sandbox uid> -n 50 --no-pager
 #   * A refusal names the fix. The common ones are a stale SELinux label after a Node upgrade
 #     (`ai-tools --relabel`) and a stopped user manager (`loginctl enable-linger`).
 #   * The ownership handback socket is checked before launch: if it is down the session still
@@ -411,10 +411,12 @@ declare -a working_directory_option=()
 # clean run -- filtering by _SYSTEMD_USER_UNIT shows "No entries". The launch diagnostics (versions,
 # confinement inputs, refusals) are logged under the `ai-tools-run` tag as root: the sandbox account
 # is deliberately not in systemd-journal, so an operator reads them via sudo. Point at that tag,
-# where the records actually are, rather than the empty per-unit filter.
+# where the records actually are, rather than the empty per-unit filter. `-n 50 --no-pager` shows the
+# recent records plainly -- `-e` (jump to end) leaves the pager padding the screen above short output
+# with `~`, which reads as confusing blank lines.
 if [[ -t 1 ]]; then
     printf 'Running as unit: %s\n' "${session_unit_name}"
-    printf '%s  launch log: sudo journalctl -t ai-tools-run _UID=%s -e%s\n\n' \
+    printf '%s  launch log: sudo journalctl -t ai-tools-run _UID=%s -n 50 --no-pager%s\n\n' \
         $'\033[2m' "${EUID}" $'\033[0m'
 fi
 

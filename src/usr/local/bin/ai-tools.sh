@@ -1632,7 +1632,7 @@ cmd_status() {
                         # authorized -- a plain `sudo -u <user> systemctl --user` gets its own bus
                         # refused even when the manager is healthy (no XDG_RUNTIME_DIR), the exact
                         # reason tests' sandbox_systemctl prefers this form.
-                        printf '  %-28s %s? (check: sudo systemctl --user -M %s@.host is-active %s)%s\n' \
+                        printf '  %-28s %s? (check: sudo systemctl --user -M %s@.host status %s)%s\n' \
                             "${unit}" "${C_DIM}" "${SANDBOX_USER}" "${unit}" "${C_RST}"
                     else
                         printf '  %-28s %s? (systemctl unavailable)%s\n' "${unit}" "${C_DIM}" "${C_RST}"
