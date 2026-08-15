@@ -139,4 +139,23 @@ else
     fi
 fi
 
+# ai-tools --status reports these same units end to end (it sources services.lib.sh, iterates the
+# registry, and queries systemctl). Run as the projects user (the CLI refuses root); --status
+# bypasses the provisioning gate, so it works regardless of bootstrap state. Assert it exits 0 and
+# names the handback socket unit -- the same registry the launch-time warning shares.
+section "ai-tools --status service report"
+readonly CLI="/usr/local/bin/ai-tools"
+if [[ ! -x "${CLI}" ]]; then
+    skip "ai-tools --status" "CLI not installed at ${CLI}"
+elif ! command -v runuser >/dev/null 2>&1; then
+    skip "ai-tools --status" "runuser unavailable"
+else
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" "${CLI}" --status 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -eq 0 ]] && grep -q 'ai-tools-handback.socket' <<<"${out}"; then
+        pass "ai-tools --status reports service health (lists ai-tools-handback.socket)"
+    else
+        fail "ai-tools --status did not report services (rc=${rc}): ${out}"
+    fi
+fi
+
 finish

@@ -142,6 +142,19 @@ trade availability for a non-security convenience). The session-end sweep re-che
 when it is down, skips the walk and records the stranded count rather than a tally of failed calls
 (see [handback-bridge](handback-bridge.rule.md), [ownership-and-hooks](ownership-and-hooks.rule.md)).
 
+**An operator-side pre-launch service warning (`claude.sh`).** Before the final `exec`, the wrapper
+runs one more warn-not-block check, from `services.lib.sh` — the same registry `ai-tools --status`
+reads (see [cli](cli.rule.md)). It warns about a down **system** service the wrapper owns, currently
+the `ai-tools-relabel.path` watcher: while it is down a post-upgrade launch fail-closes on a
+mislabelled entrypoint, so surfacing it *before* the next Node bump is the point. The registry marks
+each service with a `preflight` — `ai-tools-handback.socket` is `shim` (the socket NOTICE above owns
+it, so the wrapper does **not** repeat it), `ai-tools-relabel.path` is `wrapper` — so the two
+preflights partition the units and never double-warn. This is best-effort and non-blocking like the
+socket check: a health warning is not a security gate, so a missing `services.lib.sh` skips the
+warning rather than failing the launch closed (unlike the `safe-paths` load, which does), and a
+healthy host prints nothing. The print-and-exit path exec'd earlier, so a bare `--version`/`--help`
+never triggers it.
+
 **`WorkingDirectory` is the validated project directory.** A transient unit defaults
 its cwd to `/`. The wrapper exports the realpath'd, allowlist- and claim-validated
 project directory as `AI_TOOLS_PROJECT_DIR`, carried through sudo via `env_keep`;

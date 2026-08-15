@@ -36,6 +36,7 @@
 #   --relabel                 relabel the enabled agents' entrypoints after a Node upgrade (sudo)
 #   --providers               report the installed agents/integrations, which are enabled,
 #                             and why (read-only; resolved through providers.lib.sh)
+#   --status                  report ai-tools service health (read-only; services.lib.sh)
 #   --list                    list registered projects (real vs sandbox)
 #   --version                 print the installed ai-tools version
 #   --help
@@ -221,6 +222,14 @@ readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/skip-dirs.lib.sh
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_NAMES=(); AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
+
+# Service-health registry (services.lib.sh): the single source `ai-tools --status` and the launch
+# wrapper's pre-launch health warning share, so the two never disagree on which units matter or how
+# to fix one. Best-effort -- only --status reads it, and it degrades to a "registry unavailable"
+# notice rather than failing any command.
+readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
+# shellcheck source=SCRIPTDIR/../lib/ai-tools/services.lib.sh
+source "${SERVICES_LIB}" 2>/dev/null || true
 
 # confirm <prompt> <y|n>  -- the shared yes/no prompt (ai_tools_msg_confirm; see
 # msg.lib.sh): the explicit default decides the Enter answer and the no-tty answer, so
@@ -1624,14 +1633,16 @@ cmd_providers() {
         source "${groups_lib}" 2>/dev/null \
             && declare -F ai_tools_selinux_group_name >/dev/null 2>&1 || return 0
 
-        section "SELinux policy groups (${enforce})"
+        # Read the loaded module list FIRST. If it is not readable unprivileged (common: the policy
+        # store is root-only on many hosts), omit the whole section rather than print a section that
+        # only says "cannot read" -- the group/dependency reporting below all needs this list, so
+        # without it there is nothing accurate to show. `sudo ai-tools-admin selinux list-groups` is
+        # where an operator inspects policy groups.
         local modules
-        if ! modules="$(semodule -l 2>/dev/null)" || [[ -z "${modules}" ]]; then
-            say "  ${C_DIM}cannot read the loaded module list unprivileged --"
-            say "  run: sudo ai-tools-admin selinux list-groups${C_RST}"
-            return 0
-        fi
+        { modules="$(semodule -l 2>/dev/null)" && [[ -n "${modules}" ]]; } || return 0
         group_loaded() { grep -qxF "ai_tools_$1" <<<"${modules}"; }
+
+        section "SELinux policy groups (${enforce})"
 
         if grep -qxF 'ai_tools' <<<"${modules}"; then
             say "  core module ai_tools: ${C_GRN}loaded${C_RST}"
@@ -1709,6 +1720,68 @@ list_maintenance_note() {
     say "  ai-tools --reclaim [--full] <path>  take back ownership; project stays claimed"
     say "  ai-tools --lockdown <path>          lock down secret-named files"
     say "  ai-tools --relabel                  relabel the agent entrypoints after a Node upgrade"
+}
+
+# cmd_status  -- report the host's ai-tools service health: provisioning state, then each managed
+# systemd unit (OK / DOWN / n/a / ?) and, for anything down, its consequence and the exact remedy.
+# Reuses services.lib.sh -- the SAME registry the launch-time warning reads -- so the status view and
+# the launch warning never disagree. Informational (no operator gate), like --list/--providers.
+cmd_status() {
+    section "Version"
+    say "  ai-tools ${AI_TOOLS_VERSION}"
+    # The agent and Node versions live in the 700 sandbox toolchain the operator cannot read; the
+    # session logs them under the ai-tools-run tag, and `claude --version` prints them directly.
+    say "  ${C_DIM}agent & Node versions: run 'claude --version'${C_RST}"
+
+    section "Provisioning"
+    # CLAUDE_LINK is bootstrap's last artifact (the gate require_bootstrap keys on), so its presence
+    # means the toolchain is installed.
+    if [[ -L "${CLAUDE_LINK}" ]]; then
+        ok "toolchain provisioned"
+    else
+        say "  ${C_YEL}not provisioned${C_RST} -- run: ${C_BOLD}sudo ai-tools-bootstrap${C_RST}"
+    fi
+
+    section "Services"
+    if ! declare -F ai_tools_service_records >/dev/null 2>&1; then
+        warn "service registry unavailable (${SERVICES_LIB}) -- cannot report service health"
+        return 0
+    fi
+    local rec unit scope state
+    while IFS= read -r rec; do
+        unit="$(ai_tools_service_field "${rec}" 1)"
+        scope="$(ai_tools_service_field "${rec}" 2)"
+        state="$(ai_tools_service_state "${unit}" "${scope}")"
+        case "${state}" in
+            active) printf '  %-28s %sOK%s\n'   "${unit}" "${C_GRN}" "${C_RST}" ;;
+            down)   printf '  %-28s %sDOWN%s\n' "${unit}" "${C_YEL}" "${C_RST}" ;;
+            absent) printf '  %-28s %sn/a (not installed)%s\n' "${unit}" "${C_DIM}" "${C_RST}" ;;
+            *)      if [[ "${scope}" == sandbox-user ]]; then
+                        # The sandbox account's --user manager is not reachable from the operator
+                        # unprivileged. Recommend the MACHINE transport (systemctl -M <user>@.host),
+                        # which reaches that manager over the system bus where root (via sudo) is
+                        # authorized -- a plain `sudo -u <user> systemctl --user` gets its own bus
+                        # refused even when the manager is healthy (no XDG_RUNTIME_DIR), the exact
+                        # reason tests' sandbox_systemctl prefers this form.
+                        printf '  %-28s %s? (check: sudo systemctl --user -M %s@.host status %s)%s\n' \
+                            "${unit}" "${C_DIM}" "${SANDBOX_USER}" "${unit}" "${C_RST}"
+                    else
+                        printf '  %-28s %s? (systemctl unavailable)%s\n' "${unit}" "${C_DIM}" "${C_RST}"
+                    fi ;;
+        esac
+        if [[ "${state}" == down ]]; then
+            say "      $(ai_tools_service_field "${rec}" 5)"
+            say "      ${C_BOLD}$(ai_tools_service_field "${rec}" 6)${C_RST}"
+        fi
+    done < <(ai_tools_service_records)
+
+    # Pointers, not duplication: name the sibling read-only reports (which own their own detail) and
+    # where the full command list lives, so --status is a hub without re-implementing --providers or
+    # --help.
+    section "More"
+    say "  ai-tools --providers   installed agents/integrations and which are enabled"
+    say "  ai-tools --list        registered projects (real and sandbox)"
+    say "  ai-tools --help        the full command list"
 }
 
 # cmd_list  -- print each allowlist entry as project, sandbox, or exclude, with its git
@@ -1812,6 +1885,7 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
   ai-tools --reclaim [--full] [path] take back ownership of agent files; project stays claimed (sudo; default: cwd)
   ai-tools --relabel                 relabel the agent entrypoints after a Node upgrade (sudo)
   ai-tools --providers               list installed agents/integrations and which are enabled
+  ai-tools --status                  report service health (handback socket, relabel watcher, timer)
   ai-tools --list                    list registered projects
   ai-tools --version
   ai-tools --help
@@ -1835,7 +1909,10 @@ require_bootstrap() {
     die "the sandbox is not provisioned (no ${CLAUDE_LINK}) -- provision it with:" \
         "       sudo ai-tools-bootstrap"
 }
-require_bootstrap
+# --status is the one diagnostic meant to run WHEN things may be broken, so it bypasses the
+# provisioning gate: cmd_status reports the unprovisioned state (and service health) itself instead
+# of being blocked by it. Every other command stays gated.
+[[ "${1:-}" == --status ]] || require_bootstrap
 
 # require_operator -- refuse a command that acts as an operator unless the invoking user is
 # listed in OPERATORS in operator.conf. The project/sandbox/lockdown/reclaim paths resolve the
@@ -1877,6 +1954,7 @@ case "${1:-}" in
     --reclaim)        shift; cmd_reclaim "$@" ;;
     --relabel)        shift; cmd_relabel "$@" ;;
     --providers)      shift; cmd_providers "$@" ;;
+    --status)         cmd_status ;;
     --list)           cmd_list ;;
     --version|-V)     printf 'ai-tools %s\n' "${AI_TOOLS_VERSION}" ;;
     --help|-h|"")     usage ;;

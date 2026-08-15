@@ -86,6 +86,9 @@ check_file /usr/local/lib/ai-tools/selinux-groups.lib.sh     root              r
 # Command-filter engine: 644 root:root -- world-readable, sourced by an agent's filter hook, which
 # runs AS the agent on every Bash call; read-only data plus pure logic, carries no secrets.
 check_file /usr/local/lib/ai-tools/filters.lib.sh            root              root              644
+# Service-health registry: 644 root:root -- world-readable, sourced by the operator launch wrapper
+# and the CLI (--status); read-only data, no secrets.
+check_file /usr/local/lib/ai-tools/services.lib.sh           root              root              644
 # The three provider directories, owned by ai-tools-base (each member package drops only its own
 # files into them). 0755 root:root is SECURITY-LOAD-BEARING, not housekeeping: these decide which
 # agents get provisioned and what env a session gets, and a group- or other-writable directory

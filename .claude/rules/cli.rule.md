@@ -7,6 +7,7 @@ paths:
   - "src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-relabel.sh"
   - "src/usr/local/lib/ai-tools/relabel.lib.sh"
+  - "src/usr/local/lib/ai-tools/services.lib.sh"
 ---
 
 # Management CLI and project lifecycle (`ai-tools`)
@@ -27,7 +28,9 @@ Node, and the agent package all succeed — so its presence means provisioning f
 its absence fails the CLI fast with the provisioning hint rather than mid-operation in a
 root helper. This is the same symlink the launch wrapper gates on (`claude.sh`'s
 `CLAUDE_LINK`), so both entry points share one definition of "provisioned". Every command
-is behind the gate, `--version` included — an unfinished install reports nothing, fail-closed.
+is behind the gate, `--version` included — an unfinished install reports nothing, fail-closed. The
+one exception is `--status`, the diagnostic: it bypasses the gate and reports the unprovisioned
+state itself, since a health check must run precisely when provisioning may have failed.
 
 ## Operator preflight
 
@@ -114,15 +117,31 @@ and inspect the host.
   The resolvers' refusals, which at launch reach only the terminal and journald, are captured from
   their stderr and reported in a closing block. On a host where SELinux is not `Disabled` it adds a
   **SELinux policy groups** section: the core module's load state and every loaded optional group,
-  read unprivileged via `semodule -l` (degrading to a `sudo ai-tools-admin selinux list-groups`
-  pointer if the store is not readable unprivileged), keyed off the shared
-  `selinux-groups.lib.sh` registry. When the `dotnet` integration is enabled under **Enforcing** it
+  read unprivileged via `semodule -l`, keyed off the shared `selinux-groups.lib.sh` registry. The
+  whole section is **omitted** when that list is not readable unprivileged (common — the policy store
+  is root-only on many hosts): every line it prints needs the module list, so a section that could
+  only say "cannot read" is not shown at all (inspect groups with
+  `sudo ai-tools-admin selinux list-groups`). When the `dotnet` integration is enabled under **Enforcing** it
   warns of the two disjoint policy groups a full .NET workflow wants but that are not loaded:
   `tmpmap` (restore/build mmap of `/tmp`, `EACCES` without it) and `apphost` (executable/host
   projects — `dotnet run`, ASP.NET Core, `xunit.v3` — whose memfd exec is denied without it), each
   with its own enable command: `ai-tools-admin selinux enable-group tmpmap` for the stable one, the
   source `install-selinux.sh enable-group apphost` for the experimental one. These are the
   dependencies [providers](providers.rule.md) documents, surfaced where the operator checks status.
+- `--status` — read-only health report: the installed `ai-tools` version, whether the toolchain is
+  provisioned, then each managed systemd unit (`ai-tools-handback.socket`, `ai-tools-relabel.path`,
+  and the sandbox account's `nvm-update.timer`) as OK / DOWN / not-installed, with the consequence
+  and the exact remedy for anything down, and a closing **More** block that points at the sibling
+  reports (`--providers`, `--list`, `--help`) without repeating their detail — so it reads as a hub. It resolves through `services.lib.sh` — the **same registry** the launch
+  wrapper's pre-launch health warning reads (`claude.sh`, see [launch](launch.rule.md)) — so the
+  status view and the launch warning never disagree on which units matter or how to fix one. The
+  sandbox `--user` timer is not operator-checkable unprivileged, so its live state is reported as `?`
+  with a check hint that uses the **machine transport** (`sudo systemctl --user -M ai-tools@.host
+  status …`) — which reaches that manager over the system bus where root is authorized; a plain
+  `sudo -u ai-tools systemctl --user` gets its own bus refused even when the manager is healthy (the
+  reason the tests' `sandbox_systemctl` prefers it). `--status` is the one command that
+  **bypasses the bootstrap gate** (below): a diagnostic must run when things may be broken, so it
+  reports the unprovisioned state rather than being blocked by it.
 - `--list` — report every allowlist entry (project / sandbox / exclude) with its git
   `safe.directory` status, then a **Suggested cleanup** section flagging inconsistent
   hand-edited entries — a protected system path the tools refuse to touch, a stale path that

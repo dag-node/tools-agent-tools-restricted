@@ -133,7 +133,14 @@ run it after an upgrade, both as root, never `SANDBOX_USER`:
   updater holds no relabel rights and reaches root only through the handback bridge, whose
   domain deliberately holds none either, so a repoint that does not land (handback down in a
   manual run) leaves the relabel to `ai-tools-run`'s fail-closed preflight and the operator's
-  `ai-tools --relabel`.
+  `ai-tools --relabel`. The watcher is **enabled by default** on install through the shipped
+  systemd preset — `%systemd_post ai-tools-relabel.path` applies `85-ai-tools.preset`, which lists
+  it beside the handback socket; without that explicit line the distribution's `disable *` default
+  would leave `%systemd_post` a no-op (the same enablement the socket needs) — and it is restarted
+  across upgrades (`%postun_with_restart`), so it needs no manual bootstrap. Should it be down
+  anyway, `services.lib.sh` surfaces it before the next Node bump would fail-close a launch on a
+  mislabelled entrypoint: proactively at launch (`claude.sh` warns, warn-not-block, from the same
+  registry) and in `ai-tools --status` (see [cli](cli.rule.md)).
 - **On demand**, through `ai-tools --relabel` (see [cli](cli.rule.md)), which runs the
   same helper via the `%ai-ops` NOPASSWD sudo rule (the relabel rule in
   `sudoers.d/ai-tools`; see [launch](launch.rule.md)). `install-selinux.sh relabel`
