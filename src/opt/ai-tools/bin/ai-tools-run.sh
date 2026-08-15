@@ -181,21 +181,39 @@ if command -v getenforce >/dev/null 2>&1; then
     if command -v matchpathcon >/dev/null 2>&1; then
         expected_label="$(matchpathcon -n "${entrypoint_path}" 2>/dev/null | awk -F: '{print $3}' || true)"
         actual_label="$(stat -c '%C' -- "${entrypoint_path}" 2>/dev/null | awk -F: '{print $3}' || true)"
-    fi
-    # Distinguishes a half-installed enforcing host (module staged, file-contexts inactive ->
-    # refuse) from an intentional DAC-only host (module never installed -> launch).
-    if command -v semodule >/dev/null 2>&1 && semodule -l 2>/dev/null | grep -qE '^ai_tools([[:space:]]|$)'; then
-        module_present=yes
+        # Module presence for the verdict, WITHOUT reading the root-only module store: this runs as
+        # @SANDBOX_USER@, so `semodule -l` returns nothing -- a systematic false "no" that, on the
+        # unresolved-label branch, would fail OPEN (launch DAC-only where a half-installed host must
+        # refuse). A CORE-owned path resolves to an ai_tools_* type IFF the core module's
+        # file-contexts are live, and matchpathcon reads the world-readable file-contexts from the
+        # path string, so the probe needs no privilege and the agent cannot influence it. This
+        # distinguishes a half-installed host (module live, entrypoint unlabelled -> refuse) from a
+        # DAC-only host (module absent -> launch), which the store read could not from this account.
+        module_present="$(ai_tools_confinement_module_present \
+            "$(matchpathcon -n /opt/ai-tools/.config 2>/dev/null | awk -F: '{print $3}' || true)")"
     fi
     # The manager is the systemd --user process that execs the entrypoint; same uid, so its
     # domain is readable.
     manager_pid="$(pgrep -u "${UID}" -f 'systemd --user' 2>/dev/null | head -n1 || true)"
     [[ -n "${manager_pid}" ]] && manager_domain="$(tr -d '\000' < "/proc/${manager_pid}/attr/current" 2>/dev/null | awk -F: '{print $3}' || true)"
 
-    audit info "launch: agent=${agent_name} selinux=${selinux_mode} module=${module_present} exec_label=${actual_label:-none} expected=${expected_label:-none} manager_domain=${manager_domain:-unknown}"
+    # AI_TOOLS_REQUIRE_SELINUX: the operator's declaration, from the trusted root-owned operator.conf,
+    # that confinement is mandatory here -- when set it turns the two DAC-only LAUNCH exits into
+    # refusals (require-not-enforcing / require-inactive). The agent cannot set it: operator.conf is
+    # root-owned and this reads it only while ai_tools_conf_is_trusted holds, so an untrusted or
+    # absent file yields "no" (the DAC-capable default), never a dropped requirement.
+    require_selinux=no
+    operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
+    if ai_tools_conf_is_trusted "${operator_conf}" 2>/dev/null \
+            && ai_tools_conf_read "${operator_conf}" AI_TOOLS_REQUIRE_SELINUX 2>/dev/null; then
+        case "${_ai_tools_conf_value,,}" in yes|true|1|on) require_selinux=yes ;; esac
+    fi
+
+    audit info "launch: agent=${agent_name} selinux=${selinux_mode} module=${module_present} exec_label=${actual_label:-none} expected=${expected_label:-none} manager_domain=${manager_domain:-unknown} require=${require_selinux}"
 
     case "$(ai_tools_confinement_verdict "${selinux_mode}" "${module_present}" \
-                                         "${expected_label}" "${actual_label}" "${manager_domain}")" in
+                                         "${expected_label}" "${actual_label}" "${manager_domain}" \
+                                         "${require_selinux}")" in
         mislabel)
             audit warning "REFUSED: entrypoint mislabelled (${actual_label:-none}, want ai_tools_exec_t)"
             refuse "refusing to launch -- ${entrypoint_path} is mislabelled \"${actual_label:-none}\"" \
@@ -212,6 +230,17 @@ if command -v getenforce >/dev/null 2>&1; then
                    "The agent's entrypoint rule comes from its own manifest; register it:  ai-tools --relabel" \
                    "Or bring the whole layer up:  sudo selinux/install-selinux.sh install" \
                    "Or make this a DAC-only host:  sudo semodule -r ai_tools   (or run SELinux permissive)" ;;
+        require-not-enforcing)
+            audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but SELinux is ${selinux_mode}, not Enforcing"
+            refuse "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but SELinux is \"${selinux_mode}\", not Enforcing, so the session would run without the ai_tools_t confinement the operator requires." \
+                   "Enforce it:  sudo setenforce 1   (and check /etc/selinux/config so it survives a reboot)" \
+                   "Or drop the requirement:  unset AI_TOOLS_REQUIRE_SELINUX in /etc/ai-tools/operator.conf" ;;
+        require-inactive)
+            audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but the ai_tools module is not active"
+            refuse "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but the ai_tools SELinux module is not active on this enforcing host, so the session would run without the ai_tools_t confinement the operator requires." \
+                   "Install the confinement policy package (its scriptlet loads the module):  sudo dnf install ai-tools-selinux" \
+                   "On a source checkout instead:  sudo selinux/install-selinux.sh install" \
+                   "Or drop the requirement:  unset AI_TOOLS_REQUIRE_SELINUX in /etc/ai-tools/operator.conf" ;;
     esac
 fi
 

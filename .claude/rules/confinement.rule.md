@@ -76,7 +76,14 @@ floor; `user_u` was rejected because it breaks the `ai-tools`→root sudo). A wr
 cannot observe its successor's post-`exec` domain, so `ai-tools-run` probes the
 transition's inputs *before* launch: the entrypoint's label (`matchpathcon` vs
 `stat -c %C`), the `systemd --user` manager's domain (`/proc/<pid>/attr/current`), and
-whether the `ai_tools` module is in the policy store (`semodule -l`). It logs them on
+whether the core module's **file-contexts are live** — probed with `matchpathcon` on a
+core-owned path (`/opt/ai-tools/.config` resolves to `ai_tools_home_t` only when the module
+is loaded), classified by `ai_tools_confinement_module_present`. It is **not** read from the
+module store with `semodule -l`: `ai-tools-run` runs as the sandbox account, which cannot read
+the root-only store, so that read is a systematic false "no" — which on the unresolved-label
+branch below would fail *open* (launch DAC-only where the module is actually loaded). The
+`matchpathcon` probe reads the world-readable file-contexts, needs no privilege, and the agent
+cannot influence it (file-contexts and the shim are root-owned). It logs the inputs on
 every launch (journald, `ai-tools-run` tag). `ai-tools-run` performs that probing and I/O;
 the launch-vs-refuse decision is the pure `ai_tools_confinement_verdict`
 (`confinement.lib.sh`), so the policy is unit-tested apart from the probing
@@ -88,13 +95,48 @@ and the module's file-contexts are active (`matchpathcon` resolves the entrypoin
 `ai_tools_exec_t` (→ `relabel`) or the manager domain is not one `ai_tools.te` has a
 `domtrans_pattern` for (→ add the rule, `rebuild`; this one is advisory — an unreadable
 domain does not block). When SELinux is enforcing but the label does **not** resolve, the
-verdict splits on the store: **module present** means confinement is installed yet
-inactive — a half-installed host (module staged and not reloaded, or `matchpathcon`
-missing) — so it refuses (`unverifiable`, → `install-selinux.sh install`) rather than
-launch DAC-only and silently drop confinement; **module absent** means the SELinux layer
-was never installed here, so it launches (an intentional DAC-only deployment, cleared for
-a staged host with `semodule -r ai_tools` or permissive mode). The check is a no-op where
-SELinux is not enforcing, so DAC-only and permissive boxes are unaffected.
+verdict splits on module presence: **module present** (the core file-contexts are live but the
+entrypoint carries no `ai_tools_exec_t` rule — the agent's fcontext was never registered) means
+confinement is installed yet the transition is unverifiable, so it refuses (`unverifiable`, →
+`ai-tools --relabel` / `install-selinux.sh install`) rather than launch DAC-only and silently drop
+confinement; **module absent** means the SELinux layer was never installed here, so it launches
+(an intentional DAC-only deployment, cleared for a staged host with `semodule -r ai_tools` or
+permissive mode). The check is a no-op where SELinux is not enforcing, so DAC-only and permissive
+boxes are unaffected.
+
+One residual the `matchpathcon` probe cannot see: a module **staged in the store but with its
+file-contexts never loaded** into the running policy reads as "absent" (the core-owned path resolves
+to its default type), so that narrow half-installed state launches DAC-only rather than refusing.
+Detecting it requires reading the store, which the sandbox account cannot do — no unprivileged probe
+can — and it is vanishingly rare (a normal `semodule -i` loads store and policy together). It is no
+worse than the previous `semodule -l`-as-sandbox read, which reported "absent" for **every** host.
+
+#### `AI_TOOLS_REQUIRE_SELINUX` — operator-declared fail-closed
+
+The preflight launches DAC-only whenever confinement is unverifiable, because a DAC-only deployment
+is explicitly supported (the module is optional; permissive-first bring-up; stock boxes install
+without it). The unprivileged wrapper cannot tell an *intentional* DAC-only host from a *degraded*
+one — permissive drift, module removed or staged-not-active, mislabelled entrypoint — so by default
+it cannot fail closed on that state without breaking supported DAC-only hosts. The gap that leaves
+is a false sense of security: an operator who believes confinement is enforcing can have sessions
+silently run `unconfined_t` (DAC + seccomp `RestrictNamespaces` + `NoNewPrivileges` + the env
+allowlist still hold — only the `ai_tools_t` type layer is lost). It is a lost defence-in-depth
+layer, not a DAC bypass.
+
+`AI_TOOLS_REQUIRE_SELINUX=yes` in `operator.conf` lets the operator **declare** the requirement:
+`ai-tools-run` passes it as the verdict's sixth `require` input, which turns the two DAC-only
+*launch* exits into refusals — `require-not-enforcing` (SELinux not `Enforcing`) and
+`require-inactive` (enforcing but the module's file-contexts are not live). It closes the whole
+"thinks-enforcing" family, the staged-but-not-active residual above included, by having the operator
+assert intent rather than the wrapper guess it — so it adds **no** store-read surface. It is opt-in:
+the default (key absent, or any value but the true set `yes|true|1|on`) is `no`, preserving the
+DAC-capable behaviour, so intentional DAC-only hosts are untouched. `require` only tightens those two
+exits; the `mislabel`/`manager-domain`/`unverifiable` refusals already fail closed and are unchanged,
+and the `manager-domain` advisory (an unreadable `""` domain does not block) stays advisory under
+`require` — it targets the `/proc` read, not a DAC-only launch. The switch is read only while
+`ai_tools_conf_is_trusted` holds for `operator.conf` (root-owned, non-group/other-writable, not a
+symlink), so the agent cannot set or clear it; an untrusted or absent file yields `no`, never a
+dropped requirement. The posture rides in the per-launch audit line (`require=yes|no`).
 
 ## `/tmp` model
 
