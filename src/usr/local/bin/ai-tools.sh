@@ -1804,7 +1804,7 @@ cmd_status() {
 cmd_list() {
     [[ -f "${ALLOWLIST}" ]] || { say "no allowlist at ${ALLOWLIST}"; return 0; }
     section "Registered projects"
-    local raw entry kind safe sd shown=0
+    local raw entry excl kind safe sd shown=0
     local -a cleanup=()
 
     # _is_labelled <dir>  -- 0 when SELinux is active and <dir> carries ai_tools_project_t.
@@ -1813,6 +1813,10 @@ cmd_list() {
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]] || return 1
         ls -Zd "$1" 2>/dev/null | grep -q ':ai_tools_project_t:'
     }
+    # _has_glob <str>  -- 0 when <str> carries a shell glob metacharacter (* ? [). Globs are
+    # honored only in '!' exclusion lines (both the wrapper and ai-tools-chown match them as
+    # globs); an allow line is realpath'd, so a glob there resolves to nothing and is inert.
+    _has_glob() { [[ "$1" == *[*?[]* ]]; }
     # _remove_line_cmd <raw-line>  -- the copy-paste sed that deletes the VERBATIM allowlist line
     # (comment and all), so it matches what is stored even when the entry carries an end-of-line
     # comment or quotes; allow_escape makes the line a literal BRE.
@@ -1856,7 +1860,25 @@ cmd_list() {
         entry="${_ai_tools_conf_value}"
         shown=1
         if [[ "${entry}" == '!'* ]]; then
-            printf '  %-8s %s\n' "exclude" "${entry:1}"
+            excl="${entry:1}"
+            printf '  %-8s %s\n' "exclude" "${excl}"
+            # A stale exclusion excludes nothing. Flag a non-glob '!' path that no longer exists;
+            # a glob exclusion is valid as written (it need not resolve today), so leave it.
+            if ! _has_glob "${excl}" && ! realpath -e "${excl}" >/dev/null 2>&1; then
+                cleanup+=( "  ${entry}" \
+                    "      ${C_YEL}no longer exists${C_RST} (stale exclusion); remove it:" \
+                    "$(_remove_line_cmd "${raw}")" )
+            fi
+            continue
+        fi
+        # A glob in an ALLOW line is silently inert -- the wrapper realpath's allow entries, so
+        # the pattern resolves to nothing and never gates a launch. Flag it rather than letting it
+        # masquerade as a claimable project (globs belong on '!' lines).
+        if _has_glob "${entry}"; then
+            printf '  %-8s %-50s %s\n' "unusable" "${entry}" "${C_YEL}glob in allow line${C_RST}"
+            cleanup+=( "  ${entry}" \
+                "      ${C_YEL}glob in an allow line${C_RST} -- globs work only in '!' exclusion lines; an allow entry must be a literal directory. Remove it:" \
+                "$(_remove_line_cmd "${raw}")" )
             continue
         fi
         case "${entry}/" in
@@ -1873,6 +1895,23 @@ cmd_list() {
         _reconcile "${entry}" "${kind}" "${sd}" "${raw}"
     done < "${ALLOWLIST}"
     (( shown )) || say "  (none)"
+
+    # Reverse reconciliation: a git safe.directory entry with no matching allowlist line is an
+    # ORPHAN -- git still trusts the tree though nothing lists it (the allowlist line was
+    # hand-deleted, or an unclaim was interrupted before the safedir drop). Removing the stale
+    # safedir (and its label) is the cleanup; the entry is not a claimed project, so it is not
+    # offered --project-unclaim, which would refuse an unlisted target. Control-plane entries
+    # (/opt/ai-tools) are registered deliberately and are protected paths, so they are skipped.
+    local sdir
+    while IFS= read -r sdir; do
+        [[ -n "${sdir}" ]] || continue
+        ai_tools_protected_path_match "${sdir}" >/dev/null 2>&1 && continue
+        ai_tools_conf_allowlist_has_entry "${ALLOWLIST}" "${sdir}" && continue
+        cleanup+=( "  ${sdir}" \
+            "      ${C_YEL}git safe.directory with no allowlist entry${C_RST} (orphaned); remove it:" \
+            "          sudo ${SAFEDIR_BIN} --remove ${sdir}" )
+        _is_labelled "${sdir}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove ${sdir}" )
+    done < <(git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null || true)
 
     if (( ${#cleanup[@]} )); then
         section "Suggested cleanup"
