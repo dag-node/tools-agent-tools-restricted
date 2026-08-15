@@ -25,7 +25,8 @@
 # Invoked as root via sudo by the management CLI (ai-tools --project-unclaim), the same
 # no-NOPASSWD model as ai-tools-relabel/-lockdown/-setfacl. Running as root is required to
 # chgrp to an arbitrary group and to act on files the projects user does not own. The
-# project path and target group the CLI passes are re-validated here.
+# project path and target group the CLI passes are re-validated here, and the path must
+# resolve at or under a registered project (allowed-projects) or the helper is a no-op.
 #
 # Owner guard: only the projects user's and the sandbox account's own files are touched;
 # anything owned by a third party (root, another developer) is left untouched, mirroring
@@ -144,11 +145,12 @@ _is_allowed() {
     return 1
 }
 
-# Unclaim is lenient about allowlist membership in one direction: the CLI removes the
-# allowlist entry around the same time, so we accept a path that is no longer listed as
-# long as it is not '!'-excluded. But still refuse to act outside any registered tree
-# unless the path itself is the (now possibly unlisted) target.
+# Refuse a target outside every registered project, or one that is '!'-excluded: unclaim must
+# never modify permissions outside allowed-projects. Same gate as ai-tools-setgid/-setfacl (a
+# silent no-op on a foreign target). The management CLI runs the hand-back BEFORE it drops the
+# allowlist entry, so a legitimate unclaim still resolves its owner above and stays listed here.
 _is_excluded "${canonical}" && exit 0
+_is_allowed  "${canonical}" || exit 0
 
 # _safe_unclaim <path>: clear ACL, regroup, drop group write -- TOCTOU-safe via a pinned
 # fd (see ai-tools-setfacl for the rationale). Owner-guarded on the pinned inode.

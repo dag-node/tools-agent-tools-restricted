@@ -126,4 +126,19 @@ else
     fail ".git not fully reverted: objects/o group $(stat -c '%G' "${proj}/.git/objects/o"), .git $(stat -c '%a %G' "${proj}/.git")"
 fi
 
+# (H) a target NOT in allowed-projects is a no-op: unclaim must never modify permissions
+# outside the allowlist. The dummy allowlist lists only ${proj}, so a sibling tree is
+# unlisted -- resolve_owner and _is_allowed both gate on membership and leave it untouched.
+unlisted="${TESTDIR}/unlisted"
+mkdir -p "${unlisted}"
+: > "${unlisted}/f"; chmod 0660 "${unlisted}/f"
+chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${unlisted}"
+setfacl -m "g:${SANDBOX_GROUP}:rwX" "${unlisted}/f" 2>/dev/null || true
+"${HELPER}" "${unlisted}" "${PROJECTS_GROUP}" < /dev/null > /dev/null 2>&1 || true
+if [[ "$(stat -c '%G' "${unlisted}/f")" == "${SANDBOX_GROUP}" ]] && agentacl "${unlisted}/f"; then
+    pass "a target outside allowed-projects is left untouched (allowlist backstop)"
+else
+    fail "unlisted target was modified: f is $(stat -c '%a %G' "${unlisted}/f") (want ${SANDBOX_GROUP} + agent ACL)"
+fi
+
 finish

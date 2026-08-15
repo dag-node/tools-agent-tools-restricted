@@ -82,6 +82,32 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--help was blocked for a non-operator: ${out}"
     fi
+
+    # (6) --project-unclaim classifies its target against allowed-projects: a directory that is
+    # neither a claimed project nor an ancestor of one is REFUSED, before any registry/filesystem
+    # change. The testdir path is not in the (real) allowlist, so it classifies as "neither".
+    # Runs as an OPERATOR (conf lists the projects user) so classification runs past the operator
+    # gate; under setsid so any prompt takes its non-interactive default rather than blocking.
+    oconf="${TESTDIR}/op-self.conf"
+    printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${oconf}"; chmod 644 "${oconf}"
+    lone="${TESTDIR}/not-a-project"; mkdir -p "${lone}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lone}"
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" setsid "${CLI}" --project-unclaim "${lone}" 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'not a claimed project' <<<"${out}"; then
+        pass "--project-unclaim refuses a directory that is neither a claimed project nor an ancestor of one"
+    else
+        fail "--project-unclaim did not refuse a non-project (rc=${rc}): ${out}"
+    fi
+
+    # (7) --list renders the maintenance/reconciliation view (read-only smoke on the real
+    # allowlist -- like the principal-guard --list runs above, it writes nothing).
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" "${CLI}" --list 2>&1)" || true
+    if grep -qi 'Maintenance' <<<"${out}"; then
+        pass "--list shows the Maintenance section"
+    else
+        fail "--list is missing the Maintenance section: ${out}"
+    fi
 fi
 
 finish

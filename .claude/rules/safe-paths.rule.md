@@ -58,10 +58,13 @@ work without a carve-out.
 Two layers, both fail-closed:
 
 - **Front line** — `claude.sh` refuses to *launch* a session in a protected CWD, and
-  `ai-tools --project-claim` (`cmd_project_claim`) refuses to *claim* a protected directory, so
-  a mis-entered allowlist neither starts a session nor registers a project where the handback
-  would then act. The CLI does not front-line-guard unclaim, so an already-claimed system
-  directory stays recoverable; the helper below still refuses to act on it.
+  `ai-tools --project-claim` (`cmd_project_claim`) and `--project-unclaim`
+  (`cmd_project_unclaim`) both refuse a protected directory as their target, so a mis-entered
+  allowlist neither starts a session nor claims/unclaims a system tree where the handback would
+  act. Unclaim guards each *modification target* (in ancestor mode the search root may be a
+  protected path such as `/home` while the projects nested under it are not), and has no
+  override — a protected path can never legitimately be a claimed project, so the only cleanup a
+  stray hand-edited entry needs is a registry/label edit, which `ai-tools --list` reports.
 - **Last line** — `ai-tools-{chown,reclaim,setgid,setfacl,unclaim,lockdown,relabel}` each call
   the guard right after resolving their canonical target, before any mutation. The walkers
   (`reclaim`, `setgid`, `setfacl`, `unclaim`) refuse the whole pass at the project root, before
