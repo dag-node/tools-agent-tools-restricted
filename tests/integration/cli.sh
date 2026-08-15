@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/cli.sh
-# Integration: the ai-tools management CLI principal guard. The CLI edits the allowlist as the
-# PROJECTS user (and registers git safe.directory through the ai-tools-safedir root helper); it
-# must refuse to run as root (it would write the registries with the wrong owner) and as the
-# sandbox account (the agent must not manage its own allowlist). Asserts both refusals fire, and
-# that the projects user passes the guard. Run as root via sudo.
+# Integration: the ai-tools management CLI. The CLI edits the allowlist as the PROJECTS user (and
+# registers git safe.directory through the ai-tools-safedir root helper); it must refuse to run as
+# root (it would write the registries with the wrong owner) and as the sandbox account (the agent
+# must not manage its own allowlist). Asserts both refusals fire, that the projects user passes the
+# guard, the operator preflight and the per-verb "not a claimed project" refusals, and -- over a
+# FIXTURE allowlist + gitconfig (the AI_TOOLS_ALLOWLIST / AI_TOOLS_GITCONFIG root-only test hooks,
+# so it never reads the operator's real registry) -- the full --list reconciliation render: every
+# entry class, every Suggested-cleanup class, and that the loop reaches its Maintenance footer past
+# an early stale/protected entry. Run as root via sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -60,15 +64,20 @@ if command -v runuser >/dev/null 2>&1; then
     tconf="${TESTDIR}/operator.conf"
     printf 'OPERATORS="nobody-operator"\n' > "${tconf}"; chmod 644 "${tconf}"
     proj="${TESTDIR}/proj"; mkdir -p "${proj}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${proj}"
+    # An empty FIXTURE allowlist (AI_TOOLS_ALLOWLIST test hook) so the mutating-verb refusals
+    # below classify against it, never the operator's real registry -- and a regression that
+    # wrote past a refusal would touch this throwaway file, which the next assertion inspects.
+    emptyal="${TESTDIR}/empty-allowlist"; : > "${emptyal}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${emptyal}"
 
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
-            AI_TOOLS_OPERATOR_CONF="${tconf}" "${CLI}" --project-claim "${proj}" 2>&1)" && rc=0 || rc=$?
+            AI_TOOLS_OPERATOR_CONF="${tconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
+            "${CLI}" --project-claim "${proj}" 2>&1)" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'not a configured ai-tools operator' <<<"${out}"; then
         pass "operator-acting command refused for a non-OPERATORS user, up front"
     else
         fail "non-operator was not cleanly refused (rc=${rc}): ${out}"
     fi
-    if grep -qi 'allowed-projects: added' <<<"${out}"; then
+    if [[ -s "${emptyal}" ]] || grep -qi 'allowed-projects: added' <<<"${out}"; then
         fail "refused claim still wrote to the allowlist: ${out}"
     else
         pass "refused claim wrote no registry state (gate precedes registry writes)"
@@ -92,28 +101,87 @@ if command -v runuser >/dev/null 2>&1; then
     printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${oconf}"; chmod 644 "${oconf}"
     lone="${TESTDIR}/not-a-project"; mkdir -p "${lone}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lone}"
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
-            AI_TOOLS_OPERATOR_CONF="${oconf}" setsid "${CLI}" --project-unclaim "${lone}" 2>&1)" && rc=0 || rc=$?
+            AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
+            setsid "${CLI}" --project-unclaim "${lone}" 2>&1)" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'not a claimed project' <<<"${out}"; then
         pass "--project-unclaim refuses a directory that is neither a claimed project nor an ancestor of one"
     else
         fail "--project-unclaim did not refuse a non-project (rc=${rc}): ${out}"
     fi
 
-    # (7) --list renders the maintenance/reconciliation view (read-only smoke on the real
-    # allowlist -- like the principal-guard --list runs above, it writes nothing).
-    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
-            AI_TOOLS_OPERATOR_CONF="${oconf}" "${CLI}" --list 2>&1)" || true
-    if grep -qi 'Maintenance' <<<"${out}"; then
-        pass "--list shows the Maintenance section"
+    # (7) --list renders the reconciliation view deterministically over a FIXTURE allowlist +
+    # gitconfig (AI_TOOLS_ALLOWLIST / AI_TOOLS_GITCONFIG), so it never reads the operator's real
+    # registry. Every entry class and every Suggested-cleanup class is asserted. The stale and
+    # protected entries sit EARLY, so a passing Maintenance/orphan assertion also proves the
+    # reconcile loop no longer aborts mid-list under set -e when a trailing conditional returns 1.
+    lst="${TESTDIR}/list"; mkdir -p \
+        "${lst}/partial" "${lst}/eol-comment" "${lst}/quoted dir" \
+        "${lst}/glob-parent" "${lst}/excluded-live" "${lst}/orphan"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${lst}"
+    lal="${TESTDIR}/list-allowlist"
+    cat > "${lal}" <<EOF
+# a header comment, ignored
+${lst}/stale-gone
+/etc
+${lst}/partial
+${lst}/eol-comment    # main repo
+"${lst}/quoted dir"
+${lst}/glob-parent/*
+!${lst}/excluded-live
+!${lst}/excluded-stale-gone
+EOF
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lal}"
+    lgc="${TESTDIR}/list-gitconfig"
+    cat > "${lgc}" <<EOF
+[safe]
+	directory = ${lst}/partial
+	directory = ${lst}/orphan
+	directory = /opt/ai-tools
+EOF
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lgc}"
+
+    lout="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${lal}" \
+            AI_TOOLS_GITCONFIG="${lgc}" "${CLI}" --list 2>&1)" || true
+
+    list_has()   { if grep -qF "$1" <<<"${lout}"; then pass "$2"; else fail "$2 -- missing from --list output"; fi; }
+    list_lacks() { if grep -qF "$1" <<<"${lout}"; then fail "$2 -- unexpectedly present in --list output"; else pass "$2"; fi; }
+
+    list_has "Maintenance"            "--list reaches its footer past an early stale+protected entry (no set -e truncation)"
+    list_has "stale entry"            "--list flags a stale allow entry"
+    list_has "protected system path"  "--list flags a protected system path (/etc)"
+    list_has "listed but not fully claimed" "--list flags a listed-but-unclaimed project"
+    list_has "glob in allow line"     "--list flags a glob in an allow line as unusable"
+    list_has "unusable"               "--list renders the 'unusable' kind for a glob allow entry"
+    list_has "safe.dir:yes"           "--list shows safe.dir:yes for an entry present in git safe.directory"
+    list_has "${lst}/eol-comment"     "--list renders an entry carrying an end-of-line comment"
+    list_has "${lst}/quoted dir"      "--list renders a quoted entry"
+    # Only the gone exclusion is reconciled as stale; the live one is left alone.
+    n_stale_excl="$(grep -cF 'stale exclusion' <<<"${lout}" || true)"
+    if [[ "${n_stale_excl}" -eq 1 ]] && grep -qF "!${lst}/excluded-stale-gone" <<<"${lout}"; then
+        pass "--list reconciles only the stale ! exclusion, leaving the live one alone"
     else
-        fail "--list is missing the Maintenance section: ${out}"
+        fail "stale-exclusion count is ${n_stale_excl}, expected exactly 1 (the gone path)"
+    fi
+
+    # Reverse reconciliation: exactly one orphaned safe.directory -- the listed entry (partial)
+    # and the control-plane entry (/opt/ai-tools, a protected path) must NOT be flagged.
+    list_has "git safe.directory with no allowlist entry" "--list flags an orphaned safe.directory"
+    list_has "${lst}/orphan"          "--list names the orphaned safedir path"
+    list_lacks "/opt/ai-tools"        "--list skips the control-plane safe.directory (protected, registered deliberately)"
+    n_orphan="$(grep -cF 'git safe.directory with no allowlist entry' <<<"${lout}" || true)"
+    if [[ "${n_orphan}" -eq 1 ]]; then
+        pass "exactly one orphaned safedir (a listed entry and the control-plane entry are not flagged)"
+    else
+        fail "orphaned-safedir count is ${n_orphan}, expected 1"
     fi
 
     # (8) --reclaim and --lockdown refuse a path outside every claimed project, up front (before
-    # the sudo prompt / any change) -- covered_by_project. ${lone} is not in the allowlist.
+    # the sudo prompt / any change) -- covered_by_project. ${lone} is not in the fixture allowlist.
     for verb in --reclaim --lockdown; do
         out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
-                AI_TOOLS_OPERATOR_CONF="${oconf}" setsid "${CLI}" "${verb}" "${lone}" 2>&1)" && rc=0 || rc=$?
+                AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
+                setsid "${CLI}" "${verb}" "${lone}" 2>&1)" && rc=0 || rc=$?
         if [[ ${rc} -ne 0 ]] && grep -qi 'not a claimed project' <<<"${out}"; then
             pass "${verb} refuses a path outside every claimed project"
         else

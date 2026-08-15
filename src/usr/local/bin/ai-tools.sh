@@ -61,7 +61,12 @@ readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
 AI_TOOLS_VERSION="@AI_TOOLS_VERSION@"
 [[ "${AI_TOOLS_VERSION}" == @*@ ]] && AI_TOOLS_VERSION="dev"
 readonly AI_TOOLS_VERSION
-readonly GITCONFIG="/opt/ai-tools/.gitconfig"
+# AI_TOOLS_GITCONFIG / AI_TOOLS_ALLOWLIST (below): root-only test hooks, the same family the
+# root helpers carry (see tests.rule.md). The CLI runs as the operator, who owns both files
+# anyway, so an override widens nothing it could not already do by editing them directly; sudo
+# strips both (env_reset, not env_keep) before any root helper, which re-resolves the real paths
+# itself, and the sandbox account is refused by the principal guard below before either is read.
+readonly GITCONFIG="${AI_TOOLS_GITCONFIG:-/opt/ai-tools/.gitconfig}"
 readonly SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
 # Bootstrap's last load-bearing artifact -- the require_bootstrap gate keys on it (below).
 # Same symlink the launch wrapper resolves; kept identical to claude.sh's CLAUDE_LINK.
@@ -123,7 +128,10 @@ ME="$(id -un)"
 HOME_DIR="$(getent passwd "${ME}" | cut -d: -f6)"
 [[ -d "${HOME_DIR}" ]] || { echo "ai-tools: cannot resolve home for ${ME}" >&2; exit 1; }
 readonly ME HOME_DIR
-readonly ALLOWLIST="${HOME_DIR}/.config/ai-tools/allowed-projects"
+# One resolution point for readers AND writers (reg_allow/unreg_allow), so a fixture test that
+# sets AI_TOOLS_ALLOWLIST never mutates the operator's real registry. Root-only test hook -- see
+# the GITCONFIG note above for why the override grants the CLI's operator caller nothing new.
+readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-${HOME_DIR}/.config/ai-tools/allowed-projects}"
 
 # ── Output / prompt helpers ──────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
