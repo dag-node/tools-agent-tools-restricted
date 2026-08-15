@@ -1813,7 +1813,7 @@ cmd_list() {
                 "      ${C_YEL}no longer exists${C_RST} (stale entry); remove it:" \
                 "$(_remove_line_cmd "${e}")" )
             ${sdy} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove ${e}" )
-            return
+            return 0                                    # ${sdy}=false returns 1; don't kill cmd_list's set -e loop
         fi
         if ai_tools_protected_path_match "${e}" >/dev/null 2>&1; then
             cleanup+=( "  ${e}" \
@@ -1821,7 +1821,7 @@ cmd_list() {
                 "$(_remove_line_cmd "${e}")" )
             ${sdy} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove ${e}" )
             _is_labelled "${e}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove ${e}" )
-            return
+            return 0                                    # trailing conditionals above return 1; don't kill the loop
         fi
         [[ "${k}" == project ]] || return 0            # sandbox clones are managed by --sandbox-*
         # Not fully claimed: agent has no group access, the ACL is missing, or (SELinux active)
