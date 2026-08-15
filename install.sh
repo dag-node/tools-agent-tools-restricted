@@ -627,6 +627,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/filters.lib.sh
     _chk /usr/local/lib/ai-tools/filters.d/core.rules
     _chk /usr/local/lib/ai-tools/selinux-groups.lib.sh
+    _chk /usr/local/lib/ai-tools/services.lib.sh
     _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
     _chk /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
     _chk /usr/local/lib/ai-tools/claude-prompt.lib.sh
@@ -880,6 +881,13 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/selinux-groups.lib.sh" \
         /usr/local/lib/ai-tools/selinux-groups.lib.sh
+
+    # Service-health registry: 644 root:root -- world-readable, the single source `ai-tools --status`
+    # and the launch wrapper's pre-launch health warning share. Read-only data, no secrets.
+    log "/usr/local/lib/ai-tools/services.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/services.lib.sh" \
+        /usr/local/lib/ai-tools/services.lib.sh
 
     # Agent manifests: the agents.d directory (0755 root:root) plus each agent's <name>.conf
     # (644, parsed data naming its npm package + launcher). This from-source installer deploys the

@@ -245,8 +245,8 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   `unclaim`, `safedir`, `reclaim`, `launcher-symlink`, `lockdown`, `relabel`, `bootstrap`,
   `relabel-agent`, `admin`, `dotnet`); shared libraries under `/usr/local/lib/ai-tools/`
   (`conf`, `secret-patterns`, `skip-dirs`, `safe-paths`, `relabel`, `operator`, `control-plane`,
-  `confinement`, `npm-verify`, `managed-assets`, `providers`, `selinux-groups`, `filters`, `msg`,
-  `log`),
+  `confinement`, `npm-verify`, `managed-assets`, `providers`, `selinux-groups`, `filters`, `services`,
+  `msg`, `log`),
   plus `path-dedup.sh`,
   the PATH-ordering fragment `ai-tools-admin` wires into operator dotfiles (see
   [launch](.claude/rules/launch.rule.md)). That directory is `0751 root:SANDBOX_GROUP` and its

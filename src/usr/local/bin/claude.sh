@@ -465,6 +465,25 @@ else
     fi
 fi
 
+# Pre-launch service health (informational, best-effort). Warn the operator about a down system
+# service the wrapper owns -- currently the relabel watcher. The handback socket has its own
+# dedicated NOTICE in ai-tools-run (services.lib marks it preflight=shim), so it is NOT repeated
+# here. Unlike the safe-paths load above, a health warning is NOT a security gate, so it must never
+# fail the launch closed: a missing lib skips the warning. The print-and-exit path exec'd earlier,
+# so this reaches only a real project launch, and it prints nothing on a healthy host. Each down
+# service names its consequence (framed) and its exact remedy (plain, below the box so the command
+# stays copy-pasteable -- see messaging.rule.md).
+# shellcheck source=SCRIPTDIR/../lib/ai-tools/services.lib.sh
+if source /usr/local/lib/ai-tools/services.lib.sh 2>/dev/null \
+        && declare -F ai_tools_services_scan >/dev/null 2>&1 \
+        && ai_tools_services_scan wrapper; then
+    for _svc in "${AI_TOOLS_SERVICES_DOWN[@]}"; do
+        ai_tools_msg_warn \
+            "claude: $(ai_tools_service_field "${_svc}" 1) is not running -- $(ai_tools_service_field "${_svc}" 5)."
+        printf '       remedy: %s\n' "$(ai_tools_service_field "${_svc}" 6)" >&2
+    done
+fi
+
 # Pass the validated versioned path through sudo's env_keep. ai-tools-run re-validates it, and
 # derives WHICH agent this is from the launcher name in the path, so no agent identity crosses
 # sudo as a separate variable.

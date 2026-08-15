@@ -7,6 +7,7 @@ paths:
   - "src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-relabel.sh"
   - "src/usr/local/lib/ai-tools/relabel.lib.sh"
+  - "src/usr/local/lib/ai-tools/services.lib.sh"
 ---
 
 # Management CLI and project lifecycle (`ai-tools`)
@@ -27,7 +28,9 @@ Node, and the agent package all succeed — so its presence means provisioning f
 its absence fails the CLI fast with the provisioning hint rather than mid-operation in a
 root helper. This is the same symlink the launch wrapper gates on (`claude.sh`'s
 `CLAUDE_LINK`), so both entry points share one definition of "provisioned". Every command
-is behind the gate, `--version` included — an unfinished install reports nothing, fail-closed.
+is behind the gate, `--version` included — an unfinished install reports nothing, fail-closed. The
+one exception is `--status`, the diagnostic: it bypasses the gate and reports the unprovisioned
+state itself, since a health check must run precisely when provisioning may have failed.
 
 ## Operator preflight
 
@@ -108,6 +111,16 @@ and inspect the host.
   with its own enable command: `ai-tools-admin selinux enable-group tmpmap` for the stable one, the
   source `install-selinux.sh enable-group apphost` for the experimental one. These are the
   dependencies [providers](providers.rule.md) documents, surfaced where the operator checks status.
+- `--status` — read-only service-health report: whether the toolchain is provisioned, then each
+  managed systemd unit (`ai-tools-handback.socket`, `ai-tools-relabel.path`, and the sandbox
+  account's `nvm-update.timer`) as OK / DOWN / not-installed, with the consequence and the exact
+  remedy for anything down. It resolves through `services.lib.sh` — the **same registry** the launch
+  wrapper's pre-launch health warning reads (`claude.sh`, see [launch](launch.rule.md)) — so the
+  status view and the launch warning never disagree on which units matter or how to fix one. The
+  sandbox `--user` timer is not operator-checkable unprivileged, so its live state is reported as `?`
+  with a `sudo -u ai-tools systemctl --user` check hint. `--status` is the one command that
+  **bypasses the bootstrap gate** (below): a diagnostic must run when things may be broken, so it
+  reports the unprovisioned state rather than being blocked by it.
 - `--list`, `--version` (the deploy-stamped package version; `dev` from a raw source tree),
   `--help`.
 
