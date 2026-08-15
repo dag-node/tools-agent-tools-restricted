@@ -67,4 +67,22 @@ expect ok 0 unknown    yes ai_tools_exec_t lib_t init_t
 # gated on the module being absent -- asserted, not incidental.
 expect ok 0 Enforcing no "" lib_t init_t
 
+# ── The module-presence probe classifier (ai_tools_confinement_module_present) ──
+# ai-tools-run derives the `module` verdict input from `matchpathcon` on a CORE-owned path, because
+# it runs as the sandbox account and cannot read the root-only module store (semodule -l). A
+# core-owned path resolves to an ai_tools_* type ONLY when the core module's file-contexts are live,
+# so this classifier turns that probed type into the yes/no the verdict consumes. The false "no" this
+# replaces was the fail-open: on the unresolved-label branch it would launch DAC-only where the
+# module is actually loaded.
+mp() {  # <expected> <probed-type>
+    local got; got="$(ai_tools_confinement_module_present "$2")"
+    if [[ "${got}" == "$1" ]]; then pass "module-present(${2:-∅}) -> ${got}"
+    else fail "module-present(${2:-∅}) -> ${got}; expected $1"; fi
+}
+mp yes ai_tools_home_t     # /opt/ai-tools/.config when the core module is loaded
+mp yes ai_tools_run_t      # any core-owned ai_tools_* type confirms live file-contexts
+mp no  user_home_t         # module absent -> the path keeps its default home type
+mp no  bin_t               # any non-ai_tools type -> not present
+mp no  ""                  # matchpathcon unavailable / no match -> not present (stays fail-closed via the verdict)
+
 finish

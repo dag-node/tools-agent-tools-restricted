@@ -181,11 +181,16 @@ if command -v getenforce >/dev/null 2>&1; then
     if command -v matchpathcon >/dev/null 2>&1; then
         expected_label="$(matchpathcon -n "${entrypoint_path}" 2>/dev/null | awk -F: '{print $3}' || true)"
         actual_label="$(stat -c '%C' -- "${entrypoint_path}" 2>/dev/null | awk -F: '{print $3}' || true)"
-    fi
-    # Distinguishes a half-installed enforcing host (module staged, file-contexts inactive ->
-    # refuse) from an intentional DAC-only host (module never installed -> launch).
-    if command -v semodule >/dev/null 2>&1 && semodule -l 2>/dev/null | grep -qE '^ai_tools([[:space:]]|$)'; then
-        module_present=yes
+        # Module presence for the verdict, WITHOUT reading the root-only module store: this runs as
+        # @SANDBOX_USER@, so `semodule -l` returns nothing -- a systematic false "no" that, on the
+        # unresolved-label branch, would fail OPEN (launch DAC-only where a half-installed host must
+        # refuse). A CORE-owned path resolves to an ai_tools_* type IFF the core module's
+        # file-contexts are live, and matchpathcon reads the world-readable file-contexts from the
+        # path string, so the probe needs no privilege and the agent cannot influence it. This
+        # distinguishes a half-installed host (module live, entrypoint unlabelled -> refuse) from a
+        # DAC-only host (module absent -> launch), which the store read could not from this account.
+        module_present="$(ai_tools_confinement_module_present \
+            "$(matchpathcon -n /opt/ai-tools/.config 2>/dev/null | awk -F: '{print $3}' || true)")"
     fi
     # The manager is the systemd --user process that execs the entrypoint; same uid, so its
     # domain is readable.

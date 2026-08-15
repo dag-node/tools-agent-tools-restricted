@@ -21,7 +21,10 @@ _AI_TOOLS_CONFINEMENT_LIB_LOADED=1
 # ai_tools_confinement_verdict <enforce> <module> <want> <have> <mgrdom>
 # Echo a verdict token and return 0 (launch) or 1 (refuse) from five probed inputs:
 #   enforce  getenforce output ("Enforcing" when type enforcement is active)
-#   module   "yes" when the ai_tools module is in the policy store (semodule -l), else "no"
+#   module   "yes" when the core module's file-contexts are live (matchpathcon on a core-owned
+#            path resolves to an ai_tools_* type), else "no" -- ai-tools-run runs as the sandbox
+#            account, which cannot read the root-only module store, so semodule -l is not used
+#            (ai_tools_confinement_module_present classifies the probed type; see below)
 #   want     label matchpathcon maps the entrypoint to -- "ai_tools_exec_t" once the module's
 #            file-contexts are live in the running policy, "" or another type otherwise
 #   have     the entrypoint's live label ("" when unreadable)
@@ -47,6 +50,18 @@ _AI_TOOLS_CONFINEMENT_LIB_LOADED=1
 #     (install-selinux.sh install), or drop to DAC-only (semodule -r ai_tools / permissive).
 # An "ok" launches: confined when the transition is verified (enforcing, correct label, covered
 # manager); DAC-only when the kernel is not enforcing or the module is absent -- nothing to verify.
+# ai_tools_confinement_module_present <matchpathcon-type>
+# Classify the `module` verdict input from a probe of a CORE-module-owned path (e.g.
+# `matchpathcon /opt/ai-tools/.config` -> ai_tools_home_t): print "yes" when <type> is an
+# ai_tools_* type, else "no". A core-owned path resolves to an ai_tools_* type ONLY when the core
+# module's file-contexts are live in the running policy, so this is the sandbox-account-readable
+# stand-in for reading the root-only module store -- matchpathcon reads the world-readable
+# file-contexts and computes from the path string, needing no privilege. An empty or foreign type
+# (module absent, or matchpathcon unavailable) -> "no". Pure, like the verdict, so it is unit-tested.
+ai_tools_confinement_module_present() {
+    if [[ "$1" == ai_tools_* ]]; then printf 'yes'; else printf 'no'; fi
+}
+
 ai_tools_confinement_verdict() {
     local enforce="$1" module="$2" want="$3" have="$4" mgrdom="$5"
 
