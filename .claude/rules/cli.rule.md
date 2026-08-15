@@ -80,15 +80,25 @@ and inspect the host.
   access and register the clone; fail-closed otherwise, resumable by re-running on the
   clone path (see *Sandbox clone* below).
 - `--sandbox-push [path]` / `--sandbox-remove [path]` — push the clone's commits to its
-  branch / remove the clone and unregister it.
+  branch / remove the clone and unregister it. Both gate the target through
+  `require_sandbox_clone`: it must be a **real clone** — a direct child of `SANDBOX_ROOT`
+  (exactly one level deep, so never the shared area root and never a nested or system path)
+  that is a git worktree, and it passes the protected-paths backstop. This scopes
+  `--sandbox-remove`'s `rm -rf` to one recognized clone; a stray non-git directory is refused
+  ("remove it by hand"). `--sandbox-create` scopes its own destination
+  (`<name>` with no `/`, under `SANDBOX_ROOT`), so it needs no such guard.
 - `--lockdown [path]` — wrapper over `ai-tools-lockdown` (see
-  [secret-handling](secret-handling.rule.md)).
+  [secret-handling](secret-handling.rule.md)). Refuses a path outside every claimed project
+  up front (`covered_by_project`, before the sudo prompt), the same front-line the helper's
+  own `_is_allowed` enforces.
 - `--reclaim [--full] [path]` — hand agent-written files under the project back to the
   operator via `ai-tools-reclaim` (which walks the tree and delegates per-path to
-  `ai-tools-chown`, the same boundary the handback uses). Reclaims the `.git` tree the
-  per-session sweeps skip; the ownership companion to the `user:<operator>` ACL, run on
-  demand before an ACL-unaware backup so ownership (not the ACL) carries the operator's access
-  into the copy. `--full` includes the skipped heavy trees (`node_modules`, `.venv`, …). See
+  `ai-tools-chown`, the same boundary the handback uses). Refuses a path outside every claimed
+  project up front (`covered_by_project`), so it never runs a silent no-op; `ai-tools-reclaim`
+  additionally reports "nothing to reclaim" for a direct `sudo` call past the CLI. Reclaims the
+  `.git` tree the per-session sweeps skip; the ownership companion to the `user:<operator>` ACL,
+  run on demand before an ACL-unaware backup so ownership (not the ACL) carries the operator's
+  access into the copy. `--full` includes the skipped heavy trees (`node_modules`, `.venv`, …). See
   [ownership-and-hooks](ownership-and-hooks.rule.md).
 - `--relabel` — restore `ai_tools_exec_t` on the claude entrypoint(s) after a Node upgrade,
   via `ai-tools-relabel-agent`. The manual counterpart to the automatic post-upgrade

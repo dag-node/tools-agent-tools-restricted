@@ -259,12 +259,21 @@ resolve_dir() {
     printf '%s' "${p}"
 }
 
-# require_sandbox <path>  -- die unless <path> lies under SANDBOX_ROOT.
-require_sandbox() {
-    case "$1/" in
-        "${SANDBOX_ROOT}"/*) ;;
-        *) die "not a sandbox project (must be under ${SANDBOX_ROOT}): $1" ;;
-    esac
+# require_sandbox_clone <path>  -- die unless <path> is a real sandbox CLONE: it passes the
+# protected-paths backstop, is a DIRECT child of SANDBOX_ROOT (exactly one component under it --
+# never SANDBOX_ROOT itself, never a nested or system path), and is a git worktree. This scopes the
+# destructive --sandbox-remove (rm -rf) and --sandbox-push to an actual clone, so neither the shared
+# clone area root nor an unrelated path can ever be the target.
+require_sandbox_clone() {
+    local d="$1" rel
+    ai_tools_assert_safe_target "${d}" "sandbox" || exit 3
+    [[ "${d}" == "${SANDBOX_ROOT}/"* ]] \
+        || die "not a sandbox clone (must be a clone under ${SANDBOX_ROOT}): ${d}"
+    rel="${d#"${SANDBOX_ROOT}/"}"
+    [[ -n "${rel}" && "${rel}" != */* ]] \
+        || die "not a sandbox clone (expected ${SANDBOX_ROOT}/<clone>, one level deep): ${d}"
+    git -C "${d}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+        || die "not a git clone: ${d} -- if it is a stray directory, remove it by hand"
 }
 
 # ── Registry helpers (the only mutating filesystem writes besides clones) ─────────
@@ -1113,6 +1122,31 @@ positive_project_entries() {
     done < "${ALLOWLIST}"
 }
 
+# covered_by_project <dir>  -- 0 when <dir> is at or under a positive allowed-projects entry in the
+# invoking operator's own allowlist, honoring '!' exclusions (an exclusion wins). The CLI front-line
+# for the per-project verbs (reclaim, lockdown): a path outside every claimed project is refused up
+# front with a clear message, not a silent helper no-op. Scoped to the operator's own allowlist like
+# every other CLI read; the root helpers re-check coverage (multi-operator) independently. Mirrors
+# operator.lib's ai_tools_allowlist_covers.
+covered_by_project() {
+    local d="$1" entry val dir covered=1
+    [[ -f "${ALLOWLIST}" ]] || return 1
+    while IFS= read -r entry || [[ -n "${entry}" ]]; do
+        ai_tools_conf_path_entry "${entry}" || continue
+        val="${_ai_tools_conf_value}"
+        if [[ "${val}" == '!'* ]]; then
+            val="${val#!}"; val="${val%/}"
+            # SC2053: the unquoted RHS is the operator-owned glob pattern (see shellcheck.rule.md).
+            [[ "${d}" == ${val} ]] && return 1                                  # exclusion wins
+            [[ "${val}" != *'*'* && "${d}" == "${val}/"* ]] && return 1
+        else
+            dir="$(realpath -e "${val}" 2>/dev/null)" || continue
+            [[ "${d}" == "${dir}" || "${d}" == "${dir}/"* ]] && covered=0
+        fi
+    done < "${ALLOWLIST}"
+    return "${covered}"
+}
+
 # unclaim_one <dir> <group|""> <hint>  -- revert one claimed project. Order matters: revert
 # the SELinux label first (keeps the invariant "labelled => allowlisted"), then run the
 # filesystem hand-back WHILE THE ALLOWLIST ENTRY IS STILL PRESENT (ai-tools-unclaim refuses a
@@ -1364,9 +1398,7 @@ cmd_sandbox_create() {
 # branch, after listing them and confirming. No-op when already up to date.
 cmd_sandbox_push() {
     local d; d="$(resolve_dir "${1:-$PWD}")"
-    require_sandbox "${d}"
-    git -C "${d}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-        || die "not a git repository: ${d}"
+    require_sandbox_clone "${d}"
     local up
     up="$(git -C "${d}" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)" \
         || die "no upstream configured for the current branch in ${d}"
@@ -1391,14 +1423,12 @@ cmd_sandbox_push() {
 # first about any unpushed commits. The remote branch is left intact.
 cmd_sandbox_remove() {
     local d; d="$(resolve_dir "${1:-$PWD}")"
-    require_sandbox "${d}"
+    require_sandbox_clone "${d}"
     section "Remove sandbox project"
     say "  ${d}"
 
-    local n=0
-    if git -C "${d}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        n="$(git -C "${d}" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
-    fi
+    # require_sandbox_clone guarantees a git worktree; @{u} may be absent (no upstream) -> 0.
+    local n; n="$(git -C "${d}" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
     if [[ "${n}" != "0" ]]; then
         warn "${n} unpushed commit(s) will be lost (already-pushed work stays on the remote)"
         confirm "Discard ${n} unpushed commit(s) and remove ${d}?" n || die "aborted"
@@ -1429,6 +1459,10 @@ cmd_lockdown() {
     done
     d="$(resolve_dir "${d:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
+    covered_by_project "${d}" \
+        || die "not a claimed project: ${d}" \
+               "it is not at or under any project in your allowed-projects" \
+               "       list your registered projects with: ai-tools --list"
     # No readable-path pre-check: /usr/local/libexec/ai-tools is 750 root:root, so the
     # projects user cannot even stat the helper -- only sudo (as root) can reach it.
     # If it is genuinely missing, sudo reports it and run_lockdown returns non-zero.
@@ -1460,6 +1494,10 @@ cmd_reclaim() {
     done
     d="$(resolve_dir "${d:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
+    covered_by_project "${d}" \
+        || die "not a claimed project: ${d}" \
+               "it is not at or under any project in your allowed-projects" \
+               "       list your registered projects with: ai-tools --list"
     section "Reclaim agent-written files"
     say "  ${d}${C_DIM}$(${full} && printf ' (--full: incl. node_modules, .venv, ...)')${C_RST}"
     say "  ${C_DIM}-> ${ME}:${SANDBOX_GROUP} (secret-named files stay ${ME}:${ME} 600)${C_RST}"

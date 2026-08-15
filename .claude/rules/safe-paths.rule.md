@@ -65,6 +65,10 @@ Two layers, both fail-closed:
   protected path such as `/home` while the projects nested under it are not), and has no
   override — a protected path can never legitimately be a claimed project, so the only cleanup a
   stray hand-edited entry needs is a registry/label edit, which `ai-tools --list` reports.
+  `--sandbox-remove`/`--sandbox-push` add a second front-line for the destructive `rm -rf`:
+  `require_sandbox_clone` calls the backstop **and** requires a direct-child clone of
+  `SANDBOX_ROOT` that is a git worktree, so the shared clone-area root — a *descendant* of the
+  protected `/var`, hence not caught by the backstop alone — is never a removal target.
 - **Last line** — `ai-tools-{chown,reclaim,setgid,setfacl,unclaim,lockdown,relabel}` each call
   the guard right after resolving their canonical target, before any mutation. The walkers
   (`reclaim`, `setgid`, `setfacl`, `unclaim`) refuse the whole pass at the project root, before
