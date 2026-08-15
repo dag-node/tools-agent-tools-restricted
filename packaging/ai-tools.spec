@@ -880,6 +880,58 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Sat Aug 15 2026 dagnode <tools@dagnode.com> - 0.11.0-1
+- NEW: ai-tools --status reports the health of the managed systemd units (the ownership-handback
+  socket, the post-upgrade relabel watcher, and the sandbox account's toolchain-update timer) as
+  OK / DOWN / not-installed, each with what breaks while it is down and the exact command to fix
+  it, and points at the sibling --providers / --list reports. The launch now runs the same check
+  and warns before starting a session when a service it depends on is down, rather than letting
+  the failure surface later as a confusing symptom.
+- NEW: The post-upgrade relabel watcher (ai-tools-relabel.path) is enabled on install, so the
+  agent entrypoint is re-labelled automatically after a Node toolchain upgrade; without it a
+  launch after an upgrade could fail closed on a mislabelled binary until you ran ai-tools
+  --relabel by hand.
+- NEW: ai-tools --list flags more kinds of inconsistent allowlist entry under Suggested cleanup,
+  each with a copy-paste fix: a glob written in an allow line (unusable -- globs work only in '!'
+  exclusion lines, so a glob allow entry silently matches nothing), a stale '!' exclusion whose
+  path no longer exists, and a git safe.directory entry that no allowlist line lists (orphaned,
+  e.g. an allowlist line deleted by hand). The report stays read-only.
+- NEW: AI_TOOLS_REQUIRE_SELINUX=yes in operator.conf lets an operator require SELinux
+  confinement: a session then refuses to launch on a host where the ai-tools policy is not
+  enforcing, instead of falling back to DAC-only. Off by default, so intentional DAC-only hosts
+  are unaffected.
+- FIX: A session could silently run unconfined on a host that in fact had the SELinux policy
+  loaded. The pre-launch confinement probe read module presence from the root-only policy store,
+  which the sandbox account cannot read, so it always saw "absent" and on one path launched
+  DAC-only. It now derives module presence from the world-readable file contexts (matchpathcon),
+  so a loaded policy is detected and an installed-but-unverifiable confinement fails the launch
+  closed rather than open.
+- FIX: ai-tools --project-unclaim could leave the agent with access to the project it was meant
+  to release. It now classifies its target against the allowlist -- refusing a directory that is
+  neither a claimed project nor an ancestor of claimed ones, and refusing a protected system
+  directory up front -- and runs the ownership hand-back before dropping the allowlist entry, so
+  the tree is actually returned to your group and the agent's access is revoked.
+- FIX: Allowlist entries written with an end-of-line comment or quotes (or reached through a
+  symlink) are now recognized everywhere the CLI reads the list. Such an entry was previously
+  invisible to several checks, so claiming it appended a duplicate line, unclaiming it reported
+  "not listed" and left the entry (and the agent's access) behind, and launching after an
+  in-place claim could fail with "the claim did not complete."
+- FIX: ai-tools --list no longer stops early: a single stale or protected entry aborted the
+  listing, hiding every entry after it along with the Suggested cleanup and Maintenance sections.
+- FIX: ai-tools --sandbox-remove and the per-project verbs are scope-guarded -- they refuse a
+  target that is not a recognized sandbox clone or claimed project before making any change, so a
+  mistyped path cannot delete or re-permission the wrong tree.
+- FIX: Upgrading the ai-tools-selinux policy refreshes the running handback socket's SELinux
+  label, so ownership hand-back keeps working immediately after the upgrade instead of silently
+  doing nothing until the next reboot.
+- FIX: sudo ai-tools-admin selinux list-groups prints a clean sectioned report of the optional
+  policy groups and their load state, and several --status / --providers hints were corrected
+  (the update-timer check uses the machine transport that the system bus authorizes, the timer
+  hint points at status, and the session-journal hint points at the ai-tools-run tag without
+  jumping the pager to the end).
+- DOCS: The README gives explicit install and upgrade commands, a working first-launch
+  walkthrough, and a pre-1.0 stability notice.
+
 * Thu Aug 13 2026 dagnode <tools@dagnode.com> - 0.10.1-1
 - FIX: The package now enables the ownership-handback socket (ai-tools-handback.socket) on install,
   via a shipped systemd preset. Without it a package install left the socket at the distribution
