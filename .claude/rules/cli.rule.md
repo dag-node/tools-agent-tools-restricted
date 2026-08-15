@@ -142,15 +142,24 @@ and inspect the host.
   reason the tests' `sandbox_systemctl` prefers it). `--status` is the one command that
   **bypasses the bootstrap gate** (below): a diagnostic must run when things may be broken, so it
   reports the unprovisioned state rather than being blocked by it.
-- `--list` — report every allowlist entry (project / sandbox / exclude) with its git
+- `--list` — report every allowlist entry (project / sandbox / exclude / unusable) with its git
   `safe.directory` status, then a **Suggested cleanup** section flagging inconsistent
-  hand-edited entries — a protected system path the tools refuse to touch, a stale path that
-  no longer exists, or a project listed but not fully claimed — each with copy-paste
-  remediation commands carrying the full absolute path (an anchored `sed` line-deletion, plus
-  `ai-tools-safedir --remove` / `ai-tools-relabel --remove` where they apply, or
-  `ai-tools --project-claim` to finish a partial claim). It reuses existing predicates and
-  verbs only (no recovery machinery), and closes with a compact **Maintenance** pointer to the
-  per-project verbs. Informational, so it stays open to a non-operator.
+  hand-edited entries, each with a copy-paste remediation carrying the full absolute path (an
+  anchored `sed` line-deletion, plus `ai-tools-safedir --remove` / `ai-tools-relabel --remove`
+  where they apply, or `ai-tools --project-claim` to finish a partial claim). It flags, in both
+  directions: a protected system path the tools refuse to touch; a stale allow entry or a stale
+  non-glob `!` exclusion whose path no longer exists; a **glob in an allow line** (unusable —
+  the launch wrapper realpath's allow entries, so a glob there resolves to nothing and is inert;
+  globs belong only on `!` lines); a project listed but not fully claimed; and — the reverse
+  direction — a git `safe.directory` with **no** allowlist entry (orphaned, e.g. a hand-deleted
+  line), skipping the deliberately-registered control-plane paths the protected-paths backstop
+  already covers. Entry membership is decided through the shared grammar matcher in
+  `conf.lib.sh` (`ai_tools_conf_allowlist_has_entry`), realpath-normalized, so an entry carrying
+  an end-of-line comment or quotes — or reached by a symlink — reconciles the same as the launch
+  gate reads it, rather than reading as unlisted. It reuses existing predicates and verbs only
+  (no recovery machinery), stays **read-only** (every fix is an emitted command, never an
+  in-place rewrite), and closes with a compact **Maintenance** pointer to the per-project verbs.
+  Informational, so it stays open to a non-operator.
 - `--version` (the deploy-stamped package version; `dev` from a raw source tree), `--help`.
 
 The CLI ships a man page, `ai-tools(1)`

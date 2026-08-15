@@ -126,11 +126,18 @@ seed_allowlist() {
     log "seeding ${allow}"
     tmp="$(mktemp)"
     printf '%s\n' \
-        "# Approved project directories for Claude Code (ai-tools)." \
-        "# A plain path allows it (and its contents); a '!'-prefixed path excludes it." \
-        "# Manage with the ai-tools CLI rather than by hand:" \
-        "#   ai-tools --project-create <dir>   register a real project" \
+        "# Approved project directories for Claude Code (ai-tools) -- one directory per line." \
+        "# A plain path allows that directory and everything under it; a '!'-prefixed path" \
+        "# excludes one. Exclusions win over allows, and only they may use * ? [ ] globs --" \
+        "# an allow line must be a literal directory (a glob there matches nothing and is inert)." \
+        "#" \
+        "# '#' starts a comment, whole-line or after a path; quote a path that contains a space" \
+        "# or a literal '#', e.g.  \"/home/me/my project\"" \
+        "#" \
+        "# Managed by the ai-tools CLI -- prefer it over editing by hand:" \
+        "#   ai-tools --project-claim  <dir>   register/claim a real project in place" \
         "#   ai-tools --sandbox-create <dir>   shallow-clone a repo into the sandbox area" \
+        "#   ai-tools --list                   review entries; flags stale/unusable/orphaned ones" \
         "" > "${tmp}"
     install -o "${user}" -g "${group}" -m 600 "${tmp}" "${allow}"
     rm -f "${tmp}"

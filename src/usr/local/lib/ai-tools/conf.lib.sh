@@ -415,8 +415,8 @@ ai_tools_conf_new_keys() {
 # The launch allowlist is one path per line rather than KEY=value, but it is read with the SAME
 # rules as everything else: a whole-line or end-of-line `#` comment, and one matched quote layer
 # for a path that must contain a space or a literal `#`. Sharing the grammar is the point --
-# three components parse this file (the launch wrapper, the CLI, and the chown helper), and a
-# rule that lives in each of them separately is a rule that drifts.
+# four components parse this file (the launch wrapper, the CLI, the chown helper, and the relabel
+# helper), and a rule that lives in each of them separately is a rule that drifts.
 #
 #   /home/me/project              a path
 #   /home/me/project   # why      an end-of-line comment: `#` after whitespace ends the entry

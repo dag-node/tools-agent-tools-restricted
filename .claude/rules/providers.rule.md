@@ -129,11 +129,15 @@ sourced**, so a malformed or tampered one yields a bad value, never executed cod
 The **path-list** files share that grammar rather than defining their own.
 `ai_tools_conf_path_entry` reads one `allowed-projects` line — whole-line and end-of-line
 comments, and one quote layer for a path carrying a space or a literal `#`, with a leading `!`
-preserved so an exclusion stays distinguishable after the quotes come off. Three components read
-that file (the launch wrapper, the CLI, and `ai-tools-chown`), which is exactly why the rule lives
-in one place: a parser copied into each is a parser that drifts, and a line the wrapper resolves
-but the chown helper does not is a project the agent can launch in whose files never come back.
-All three require the library rather than falling back to a private parser.
+preserved so an exclusion stays distinguishable after the quotes come off. Four components read
+that file (the launch wrapper, the CLI, `ai-tools-chown`, and `ai-tools-relabel`), which is exactly
+why the rule lives in one place: a parser copied into each is a parser that drifts, and a line the
+wrapper resolves but the chown helper does not is a project the agent can launch in whose files
+never come back. All four require the library rather than falling back to a private parser. The CLI,
+the relabel helper, and the launch wrapper's post-claim confirm additionally decide **membership**
+through `ai_tools_conf_allowlist_has_entry`/`_has_exclusion` (and `_matching_lines` for a delete),
+which parse each line with the same grammar and compare realpath-normalized values, so a commented
+or quoted entry is never mistaken for unlisted (see [cli](cli.rule.md)).
 
 `ai_tools_conf_read` returns present/absent separately from the value, which is what makes
 `KEY=` (an explicit "none") distinguishable from an omitted key — the distinction the gating below
