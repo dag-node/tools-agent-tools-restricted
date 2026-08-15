@@ -259,12 +259,21 @@ resolve_dir() {
     printf '%s' "${p}"
 }
 
-# require_sandbox <path>  -- die unless <path> lies under SANDBOX_ROOT.
-require_sandbox() {
-    case "$1/" in
-        "${SANDBOX_ROOT}"/*) ;;
-        *) die "not a sandbox project (must be under ${SANDBOX_ROOT}): $1" ;;
-    esac
+# require_sandbox_clone <path>  -- die unless <path> is a real sandbox CLONE: it passes the
+# protected-paths backstop, is a DIRECT child of SANDBOX_ROOT (exactly one component under it --
+# never SANDBOX_ROOT itself, never a nested or system path), and is a git worktree. This scopes the
+# destructive --sandbox-remove (rm -rf) and --sandbox-push to an actual clone, so neither the shared
+# clone area root nor an unrelated path can ever be the target.
+require_sandbox_clone() {
+    local d="$1" rel
+    ai_tools_assert_safe_target "${d}" "sandbox" || exit 3
+    [[ "${d}" == "${SANDBOX_ROOT}/"* ]] \
+        || die "not a sandbox clone (must be a clone under ${SANDBOX_ROOT}): ${d}"
+    rel="${d#"${SANDBOX_ROOT}/"}"
+    [[ -n "${rel}" && "${rel}" != */* ]] \
+        || die "not a sandbox clone (expected ${SANDBOX_ROOT}/<clone>, one level deep): ${d}"
+    git -C "${d}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+        || die "not a git clone: ${d} -- if it is a stray directory, remove it by hand"
 }
 
 # ── Registry helpers (the only mutating filesystem writes besides clones) ─────────
@@ -284,12 +293,16 @@ reg_allow() {
     fi
 }
 
+# allow_escape <path>  -- escape a path for use inside a sed `\|...|` address (backslash and
+# the '|' delimiter). Shared by unreg_allow, which runs the anchored-exact line deletion, and
+# cmd_list, which prints the same deletion as a copy-paste remediation command.
+allow_escape() { printf '%s' "$1" | sed 's/[\\|]/\\&/g'; }
+
 unreg_allow() {
-    local dir="$1" esc
+    local dir="$1"
     [[ -f "${ALLOWLIST}" ]] || return 0
     if grep -qxF "${dir}" "${ALLOWLIST}"; then
-        esc="$(printf '%s' "${dir}" | sed 's/[\\|]/\\&/g')"
-        sed -i "\|^${esc}$|d" "${ALLOWLIST}"
+        sed -i "\|^$(allow_escape "${dir}")$|d" "${ALLOWLIST}"
         say "    allowed-projects: removed"
     else
         say "    allowed-projects: not listed"
@@ -1092,55 +1105,158 @@ cmd_project_claim() {
 # idempotent now, so "create" and "claim" are the same operation.
 cmd_project_create() { cmd_project_claim "$@"; }
 
-# cmd_project_unclaim [path]  -- undo an in-place claim (default: cwd): revert the
-# SELinux label, drop both registries, and (default-yes confirm) hand the tree's
-# filesystem back to a target group with the agent's write access revoked. The directory
-# itself is left on disk. The filesystem hand-back (ai-tools-unclaim) clears the agent
-# ACL + default ACL, regroups every eligible file to the target group, and removes group
-# write (660->640, 770->750, 400 stays 400) -- so the agent loses access via both the
-# group owner and the named ACL entry. The target group defaults to the invoking user's
-# own group; any other system user can be named (the tree is handed to that user's group).
-cmd_project_unclaim() {
-    local d; d="$(resolve_dir "${1:-$PWD}")"
-    section "Unclaim project"
-    say "  ${d}"
-    say "  ${C_DIM}(the directory itself is left on disk)${C_RST}"
-    confirm "Unclaim this project?" n || die "aborted"
-    # Revert the SELinux label before dropping the registries. The helper's --remove is
-    # lenient about allowlist membership, but reverting first keeps the invariant
-    # "labelled => allowlisted". Best-effort: warn, never fail the unclaim. Skipped
-    # for sandbox paths (handled by cmd_sandbox_remove) and when SELinux is inactive.
+# positive_project_entries  -- print each allowed-projects entry that names a real,
+# resolvable project directory (canonicalized), one per line, skipping blanks, comments,
+# and '!' exclusions. Read with the shared config grammar so it agrees with cmd_list and
+# the launch wrapper on what a line denotes. Stale (unresolvable) lines are omitted -- they
+# name nothing on disk, so they can neither be nor contain an unclaim target.
+positive_project_entries() {
+    local entry dir
+    [[ -f "${ALLOWLIST}" ]] || return 0
+    while IFS= read -r entry || [[ -n "${entry}" ]]; do
+        ai_tools_conf_path_entry "${entry}" || continue
+        entry="${_ai_tools_conf_value}"
+        [[ "${entry}" == '!'* ]] && continue
+        dir="$(realpath -e "${entry}" 2>/dev/null)" || continue
+        printf '%s\n' "${dir}"
+    done < "${ALLOWLIST}"
+}
+
+# covered_by_project <dir>  -- 0 when <dir> is at or under a positive allowed-projects entry in the
+# invoking operator's own allowlist, honoring '!' exclusions (an exclusion wins). The CLI front-line
+# for the per-project verbs (reclaim, lockdown): a path outside every claimed project is refused up
+# front with a clear message, not a silent helper no-op. Scoped to the operator's own allowlist like
+# every other CLI read; the root helpers re-check coverage (multi-operator) independently. Mirrors
+# operator.lib's ai_tools_allowlist_covers.
+covered_by_project() {
+    local d="$1" entry val dir covered=1
+    [[ -f "${ALLOWLIST}" ]] || return 1
+    while IFS= read -r entry || [[ -n "${entry}" ]]; do
+        ai_tools_conf_path_entry "${entry}" || continue
+        val="${_ai_tools_conf_value}"
+        if [[ "${val}" == '!'* ]]; then
+            val="${val#!}"; val="${val%/}"
+            # SC2053: the unquoted RHS is the operator-owned glob pattern (see shellcheck.rule.md).
+            [[ "${d}" == ${val} ]] && return 1                                  # exclusion wins
+            [[ "${val}" != *'*'* && "${d}" == "${val}/"* ]] && return 1
+        else
+            dir="$(realpath -e "${val}" 2>/dev/null)" || continue
+            [[ "${d}" == "${dir}" || "${d}" == "${dir}/"* ]] && covered=0
+        fi
+    done < "${ALLOWLIST}"
+    return "${covered}"
+}
+
+# unclaim_one <dir> <group|""> <hint>  -- revert one claimed project. Order matters: revert
+# the SELinux label first (keeps the invariant "labelled => allowlisted"), then run the
+# filesystem hand-back WHILE THE ALLOWLIST ENTRY IS STILL PRESENT (ai-tools-unclaim refuses a
+# target not in allowed-projects), and only then drop the two registries. <group> empty means
+# "unregister only, leave permissions"; <hint> non-empty prints the manual hand-back command
+# (used when the hand-back was wanted but could not run). Best-effort throughout: a step warns
+# with its manual command and never aborts the pass.
+unclaim_one() {
+    local d="$1" group="$2" hint="$3"
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
         run_relabel "${d}" --remove \
             || warn "could not revert SELinux label -- run: sudo ${RELABEL_BIN} --remove ${d}"
     fi
-    unreg_allow "${d}"
-    unreg_safedir "${d}"
-
-    # Filesystem hand-back: revoke the agent and return the tree to a real group. Default
-    # YES (it is the natural completion of an unclaim) but confirmed, since it rewrites
-    # ownership/permissions across the tree.
-    if confirm "Hand the files back to a group and remove the agent's write access?" y; then
-        local target_user target_group
-        target_user="$(ask "  Hand the files to which user's group?" "${ME}")"
-        if ! target_group="$(id -gn "${target_user}" 2>/dev/null)"; then
-            warn "no such user '${target_user}' -- skipping the filesystem hand-back"
-            say  "      run it later with: ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} <group>${C_RST}"
-        elif ! command -v sudo >/dev/null 2>&1; then
-            warn "sudo not found -- cannot hand the files back automatically"
-            say  "      ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} ${target_group}${C_RST}"
-        elif run_unclaim "${d}" "${target_group}"; then
-            ok "handed ${d} back to group ${target_group}, agent write access removed"
+    if [[ -n "${group}" ]]; then
+        if run_unclaim "${d}" "${group}"; then
+            ok "handed ${d} back to group ${group}, agent write access removed"
         else
             warn "could not hand the files back -- run it by hand:"
-            say  "      ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} ${target_group}${C_RST}"
+            say  "      ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} ${group}${C_RST}"
+        fi
+    elif [[ -n "${hint}" ]]; then
+        say  "      run it later with: ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} <group>${C_RST}"
+    fi
+    unreg_safedir "${d}"
+    unreg_allow "${d}"
+    ok "unclaimed ${d}"
+    ai_tools_log_info "unclaimed project ${d}"
+}
+
+# cmd_project_unclaim [path]  -- undo an in-place claim (default: cwd): revert the SELinux
+# label, drop both registries, and (default-yes confirm) hand the tree's filesystem back to a
+# target group with the agent's write access revoked. The directory itself is left on disk. The
+# filesystem hand-back (ai-tools-unclaim) clears the agent ACL + default ACL, regroups every
+# eligible file to the target group, and removes group write (660->640, 770->750, 400 stays 400).
+# The target group defaults to the invoking user's own group; any other system user can be named.
+#
+# The path is classified against allowed-projects so unclaim only ever modifies permissions
+# inside a registered project: EXACT (path is itself a claimed project) unclaims it; ANCESTOR
+# (path is not listed but claimed projects are nested under it) lists those and, behind a single
+# default-NO warning, unclaims each; NEITHER refuses. A protected system path is refused up front
+# -- claim/setgid/setfacl never let one become a claimed project, so this only guards a
+# hand-edited allowlist, whose cleanup ai-tools --list reports.
+cmd_project_unclaim() {
+    local d; d="$(resolve_dir "${1:-$PWD}")"
+
+    # Classify d: exact entry, ancestor of one or more entries, or neither.
+    local -a entries=() targets=()
+    local e
+    while IFS= read -r e; do [[ -n "${e}" ]] && entries+=("${e}"); done \
+        < <(positive_project_entries)
+    local mode=neither
+    for e in "${entries[@]:-}"; do
+        [[ "${e}" == "${d}" ]] && { mode=exact; targets=("${d}"); break; }
+    done
+    if [[ "${mode}" == neither ]]; then
+        for e in "${entries[@]:-}"; do
+            [[ "${e}" == "${d}/"* ]] && targets+=("${e}")
+        done
+        (( ${#targets[@]} )) && mode=ancestor
+    fi
+    if [[ "${mode}" == neither ]]; then
+        die "not a claimed project: ${d}" \
+            "it is not in allowed-projects and no claimed project is nested under it" \
+            "       list your registered projects with: ai-tools --list"
+    fi
+
+    # Protected-path front line: never modify permissions on a protected system path. Guard
+    # each MODIFICATION target (in ancestor mode the search root may be protected, e.g. /home,
+    # while the projects nested under it are not).
+    local t
+    for t in "${targets[@]}"; do
+        ai_tools_assert_safe_target "${t}" "project unclaim" || exit 3
+    done
+
+    if [[ "${mode}" == exact ]]; then
+        section "Unclaim project"
+        say "  ${d}"
+        say "  ${C_DIM}(the directory itself is left on disk)${C_RST}"
+        confirm "Unclaim this project?" n || die "aborted"
+    else
+        headline_warn "WARNING: unclaim multiple projects" \
+            "${d} is not itself a claimed project, but ${#targets[@]} claimed project(s) are nested under it." \
+            "Unclaiming MODIFIES FILE PERMISSIONS AND OWNERSHIP in ALL of the projects listed below." \
+            "The directories themselves are left on disk."
+        for t in "${targets[@]}"; do printf '    %s\n' "${t}"; done
+        say ""
+        confirm "Unclaim ALL ${#targets[@]} projects listed above?" n || die "aborted"
+    fi
+
+    # Filesystem hand-back: decided ONCE for the whole batch. Default YES (the natural
+    # completion of an unclaim) but confirmed, since it rewrites ownership/permissions across
+    # each tree. Empty group => unregister only; hint => print the manual command per target.
+    local hb_group="" hb_hint=""
+    if confirm "Hand the files back to a group and remove the agent's write access?" y; then
+        local hb_user
+        hb_user="$(ask "  Hand the files to which user's group?" "${ME}")"
+        if ! hb_group="$(id -gn "${hb_user}" 2>/dev/null)"; then
+            warn "no such user '${hb_user}' -- skipping the filesystem hand-back"
+            hb_group=""; hb_hint=1
+        elif ! command -v sudo >/dev/null 2>&1; then
+            warn "sudo not found -- cannot hand the files back automatically"
+            hb_group=""; hb_hint=1
         fi
     fi
 
-    ok "unclaimed ${d}"
-    ai_tools_log_info "unclaimed project ${d}"
+    for t in "${targets[@]}"; do
+        unclaim_one "${t}" "${hb_group}" "${hb_hint}"
+    done
 }
 
 # sandbox_finalize <dst>  -- the access-granting tail of every sandbox create, run only
@@ -1282,9 +1398,7 @@ cmd_sandbox_create() {
 # branch, after listing them and confirming. No-op when already up to date.
 cmd_sandbox_push() {
     local d; d="$(resolve_dir "${1:-$PWD}")"
-    require_sandbox "${d}"
-    git -C "${d}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-        || die "not a git repository: ${d}"
+    require_sandbox_clone "${d}"
     local up
     up="$(git -C "${d}" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)" \
         || die "no upstream configured for the current branch in ${d}"
@@ -1309,14 +1423,12 @@ cmd_sandbox_push() {
 # first about any unpushed commits. The remote branch is left intact.
 cmd_sandbox_remove() {
     local d; d="$(resolve_dir "${1:-$PWD}")"
-    require_sandbox "${d}"
+    require_sandbox_clone "${d}"
     section "Remove sandbox project"
     say "  ${d}"
 
-    local n=0
-    if git -C "${d}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        n="$(git -C "${d}" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
-    fi
+    # require_sandbox_clone guarantees a git worktree; @{u} may be absent (no upstream) -> 0.
+    local n; n="$(git -C "${d}" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
     if [[ "${n}" != "0" ]]; then
         warn "${n} unpushed commit(s) will be lost (already-pushed work stays on the remote)"
         confirm "Discard ${n} unpushed commit(s) and remove ${d}?" n || die "aborted"
@@ -1347,6 +1459,10 @@ cmd_lockdown() {
     done
     d="$(resolve_dir "${d:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
+    covered_by_project "${d}" \
+        || die "not a claimed project: ${d}" \
+               "it is not at or under any project in your allowed-projects" \
+               "       list your registered projects with: ai-tools --list"
     # No readable-path pre-check: /usr/local/libexec/ai-tools is 750 root:root, so the
     # projects user cannot even stat the helper -- only sudo (as root) can reach it.
     # If it is genuinely missing, sudo reports it and run_lockdown returns non-zero.
@@ -1378,6 +1494,10 @@ cmd_reclaim() {
     done
     d="$(resolve_dir "${d:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
+    covered_by_project "${d}" \
+        || die "not a claimed project: ${d}" \
+               "it is not at or under any project in your allowed-projects" \
+               "       list your registered projects with: ai-tools --list"
     section "Reclaim agent-written files"
     say "  ${d}${C_DIM}$(${full} && printf ' (--full: incl. node_modules, .venv, ...)')${C_RST}"
     say "  ${C_DIM}-> ${ME}:${SANDBOX_GROUP} (secret-named files stay ${ME}:${ME} 600)${C_RST}"
@@ -1580,12 +1700,68 @@ cmd_providers() {
     say "  ${C_DIM}providers are enabled by name in ${AI_TOOLS_OPERATOR_CONF} (root-owned, root-edited)${C_RST}"
 }
 
-# cmd_list  -- print each allowlist entry as project, sandbox, or exclude, with its
-# git safe.directory status.
+# list_maintenance_note  -- the compact pointer to the existing per-project verbs, printed
+# below the listing so --list doubles as a reconciliation/maintenance view.
+list_maintenance_note() {
+    section "Maintenance"
+    say "  ai-tools --project-claim <path>     claim a project / finish claiming one"
+    say "  ai-tools --project-unclaim <path>   release a project (revoke agent access)"
+    say "  ai-tools --reclaim [--full] <path>  take back ownership; project stays claimed"
+    say "  ai-tools --lockdown <path>          lock down secret-named files"
+    say "  ai-tools --relabel                  relabel the agent entrypoints after a Node upgrade"
+}
+
+# cmd_list  -- print each allowlist entry as project, sandbox, or exclude, with its git
+# safe.directory status, then flag inconsistent hand-edited entries under "Suggested cleanup"
+# with copy-paste remediation commands (the allowlist is operator-owned and hand-editable, so a
+# line can name a protected system path the tools refuse to touch, a stale path that no longer
+# exists, or a project listed but never fully claimed). All read-only, reusing existing predicates
+# and verbs -- no recovery machinery of its own.
 cmd_list() {
     [[ -f "${ALLOWLIST}" ]] || { say "no allowlist at ${ALLOWLIST}"; return 0; }
     section "Registered projects"
-    local entry kind safe shown=0
+    local entry kind safe sd shown=0
+    local -a cleanup=()
+
+    # _is_labelled <dir>  -- 0 when SELinux is active and <dir> carries ai_tools_project_t.
+    _is_labelled() {
+        command -v getenforce >/dev/null 2>&1 \
+            && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]] || return 1
+        ls -Zd "$1" 2>/dev/null | grep -q ':ai_tools_project_t:'
+    }
+    # _remove_line_cmd <path>  -- the copy-paste sed command that deletes <path>'s exact line.
+    _remove_line_cmd() { printf "          sed -i '\\\\|^%s\$|d' %s" "$(allow_escape "$1")" "${ALLOWLIST}"; }
+    # _reconcile <entry> <kind> <safedir-yes>  -- append a remediation block for an inconsistent
+    # entry (stale / protected / listed-but-not-fully-claimed). Nested so it shares `cleanup`.
+    _reconcile() {
+        local e="$1" k="$2" sdy="$3"
+        if ! realpath -e "${e}" >/dev/null 2>&1; then
+            cleanup+=( "  ${e}" \
+                "      ${C_YEL}no longer exists${C_RST} (stale entry); remove it:" \
+                "$(_remove_line_cmd "${e}")" )
+            ${sdy} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove ${e}" )
+            return
+        fi
+        if ai_tools_protected_path_match "${e}" >/dev/null 2>&1; then
+            cleanup+=( "  ${e}" \
+                "      ${C_YEL}protected system path${C_RST} -- the tools refuse to operate on it; remove it:" \
+                "$(_remove_line_cmd "${e}")" )
+            ${sdy} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove ${e}" )
+            _is_labelled "${e}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove ${e}" )
+            return
+        fi
+        [[ "${k}" == project ]] || return 0            # sandbox clones are managed by --sandbox-*
+        # Not fully claimed: agent has no group access, the ACL is missing, or (SELinux active)
+        # the tree is unlabelled. Read from the same project_state tokens the claim flow uses.
+        local listed safedir filemode owngap acl labelled git
+        IFS=' ' read -r listed safedir filemode owngap acl labelled git < <(project_state "${e}")
+        if [[ "${owngap}" == true || "${acl}" == true || "${labelled}" == false ]]; then
+            cleanup+=( "  ${e}" \
+                "      ${C_YEL}listed but not fully claimed${C_RST}; finish claiming it:" \
+                "          ai-tools --project-claim ${e}" )
+        fi
+    }
+
     while IFS= read -r entry || [[ -n "${entry}" ]]; do
         # Same shared grammar the wrapper and the chown helper read this file with.
         ai_tools_conf_path_entry "${entry}" || continue
@@ -1601,13 +1777,21 @@ cmd_list() {
         esac
         if git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
                 | grep -qxF "${entry}"; then
-            safe="safe.dir:yes"
+            safe="safe.dir:yes"; sd=true
         else
-            safe="safe.dir:${C_YEL}NO${C_RST}"
+            safe="safe.dir:${C_YEL}NO${C_RST}"; sd=false
         fi
         printf '  %-8s %-50s %s\n' "${kind}" "${entry}" "${safe}"
+        _reconcile "${entry}" "${kind}" "${sd}"
     done < "${ALLOWLIST}"
     (( shown )) || say "  (none)"
+
+    if (( ${#cleanup[@]} )); then
+        section "Suggested cleanup"
+        printf '%s\n' "${cleanup[@]}"
+        say "  ${C_DIM}review each path before running the command; the allowlist is yours to edit${C_RST}"
+    fi
+    list_maintenance_note
 }
 
 # usage() is paired with the ai-tools(1) man page (src/usr/local/share/man/man1/

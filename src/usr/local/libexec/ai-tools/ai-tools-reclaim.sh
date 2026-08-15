@@ -89,7 +89,14 @@ canonical="$(realpath -e -- "${TARGET}" 2>/dev/null)" || exit 0
 [[ -d "${canonical}" ]] || exit 0
 # Refuse the whole walk if the project root is a protected system directory, before find.
 ai_tools_assert_safe_target "${canonical}" "reclaim" || exit 3
-ai_tools_resolve_owner "${canonical}" || exit 0
+# Not under any operator's allowed-projects -> nothing legitimately to reclaim. Say so rather than
+# exiting silently, so a direct `sudo ai-tools-reclaim` (past the CLI's own front-line check) still
+# reports why it did nothing. The path is operator-supplied, so it prints without log_sanitize.
+ai_tools_resolve_owner "${canonical}" || {
+    printf 'ai-tools-reclaim: %s is not under any claimed project -- nothing to reclaim\n' "${canonical}" >&2
+    ai_tools_log_info "reclaim: ${canonical} not under any claimed project"
+    exit 0
+}
 
 # Default reclaim walks .git but skips the heavy trees; --full skips nothing. The lib owns
 # both defaults -- the helper only names the consumer.

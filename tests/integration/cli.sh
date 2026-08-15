@@ -82,6 +82,65 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--help was blocked for a non-operator: ${out}"
     fi
+
+    # (6) --project-unclaim classifies its target against allowed-projects: a directory that is
+    # neither a claimed project nor an ancestor of one is REFUSED, before any registry/filesystem
+    # change. The testdir path is not in the (real) allowlist, so it classifies as "neither".
+    # Runs as an OPERATOR (conf lists the projects user) so classification runs past the operator
+    # gate; under setsid so any prompt takes its non-interactive default rather than blocking.
+    oconf="${TESTDIR}/op-self.conf"
+    printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${oconf}"; chmod 644 "${oconf}"
+    lone="${TESTDIR}/not-a-project"; mkdir -p "${lone}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lone}"
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" setsid "${CLI}" --project-unclaim "${lone}" 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'not a claimed project' <<<"${out}"; then
+        pass "--project-unclaim refuses a directory that is neither a claimed project nor an ancestor of one"
+    else
+        fail "--project-unclaim did not refuse a non-project (rc=${rc}): ${out}"
+    fi
+
+    # (7) --list renders the maintenance/reconciliation view (read-only smoke on the real
+    # allowlist -- like the principal-guard --list runs above, it writes nothing).
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" "${CLI}" --list 2>&1)" || true
+    if grep -qi 'Maintenance' <<<"${out}"; then
+        pass "--list shows the Maintenance section"
+    else
+        fail "--list is missing the Maintenance section: ${out}"
+    fi
+
+    # (8) --reclaim and --lockdown refuse a path outside every claimed project, up front (before
+    # the sudo prompt / any change) -- covered_by_project. ${lone} is not in the allowlist.
+    for verb in --reclaim --lockdown; do
+        out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+                AI_TOOLS_OPERATOR_CONF="${oconf}" setsid "${CLI}" "${verb}" "${lone}" 2>&1)" && rc=0 || rc=$?
+        if [[ ${rc} -ne 0 ]] && grep -qi 'not a claimed project' <<<"${out}"; then
+            pass "${verb} refuses a path outside every claimed project"
+        else
+            fail "${verb} did not refuse a non-project (rc=${rc}): ${out}"
+        fi
+    done
+
+    # (9) --sandbox-remove refuses a target that is not a real clone, BEFORE any rm -rf:
+    # the shared clone-area root itself (require_sandbox_clone: not a direct-child clone) and a
+    # path outside SANDBOX_ROOT. The refusal precedes the removal, so nothing is deleted.
+    sroot="/var/opt/ai-tools/sandbox-projects"
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" setsid "${CLI}" --sandbox-remove "${sroot}" 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'not a sandbox clone' <<<"${out}" && [[ -d "${sroot}" ]]; then
+        pass "--sandbox-remove refuses the shared clone-area root (not a direct-child clone)"
+    elif [[ ! -d "${sroot}" ]]; then
+        skip "--sandbox-remove root guard" "sandbox area ${sroot} not present"
+    else
+        fail "--sandbox-remove did not refuse the clone-area root (rc=${rc}): ${out}"
+    fi
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" setsid "${CLI}" --sandbox-remove "${lone}" 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'not a sandbox clone' <<<"${out}"; then
+        pass "--sandbox-remove refuses a path outside SANDBOX_ROOT"
+    else
+        fail "--sandbox-remove did not refuse a non-sandbox path (rc=${rc}): ${out}"
+    fi
 fi
 
 finish

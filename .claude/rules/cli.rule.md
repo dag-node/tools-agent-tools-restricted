@@ -69,21 +69,36 @@ and inspect the host.
 - `--project-unclaim [path]` (alias `--project-remove`) — unclaim a real project
   (directory left on disk): revert the label, drop both registries, and (default-yes
   confirm) hand the tree's files back to a target group with the agent's write access
-  revoked, via `ai-tools-unclaim`.
+  revoked, via `ai-tools-unclaim`. The path is classified against `allowed-projects` so it
+  only ever modifies permissions inside a registered project — **exact** (the path is
+  itself a claimed project) unclaims it; **ancestor** (the path is not listed but claimed
+  projects are nested under it) lists those and, behind a single default-NO warning,
+  unclaims each; **neither** refuses. A protected system directory is refused up front (see
+  *Unclaim* below).
 - `--sandbox-create [path]` — shallow-clone a repo into the sandbox area **privately**
   (`umask 077`), lock down tip-commit secrets, and only past that gate grant the agent
   access and register the clone; fail-closed otherwise, resumable by re-running on the
   clone path (see *Sandbox clone* below).
 - `--sandbox-push [path]` / `--sandbox-remove [path]` — push the clone's commits to its
-  branch / remove the clone and unregister it.
+  branch / remove the clone and unregister it. Both gate the target through
+  `require_sandbox_clone`: it must be a **real clone** — a direct child of `SANDBOX_ROOT`
+  (exactly one level deep, so never the shared area root and never a nested or system path)
+  that is a git worktree, and it passes the protected-paths backstop. This scopes
+  `--sandbox-remove`'s `rm -rf` to one recognized clone; a stray non-git directory is refused
+  ("remove it by hand"). `--sandbox-create` scopes its own destination
+  (`<name>` with no `/`, under `SANDBOX_ROOT`), so it needs no such guard.
 - `--lockdown [path]` — wrapper over `ai-tools-lockdown` (see
-  [secret-handling](secret-handling.rule.md)).
+  [secret-handling](secret-handling.rule.md)). Refuses a path outside every claimed project
+  up front (`covered_by_project`, before the sudo prompt), the same front-line the helper's
+  own `_is_allowed` enforces.
 - `--reclaim [--full] [path]` — hand agent-written files under the project back to the
   operator via `ai-tools-reclaim` (which walks the tree and delegates per-path to
-  `ai-tools-chown`, the same boundary the handback uses). Reclaims the `.git` tree the
-  per-session sweeps skip; the ownership companion to the `user:<operator>` ACL, run on
-  demand before an ACL-unaware backup so ownership (not the ACL) carries the operator's access
-  into the copy. `--full` includes the skipped heavy trees (`node_modules`, `.venv`, …). See
+  `ai-tools-chown`, the same boundary the handback uses). Refuses a path outside every claimed
+  project up front (`covered_by_project`), so it never runs a silent no-op; `ai-tools-reclaim`
+  additionally reports "nothing to reclaim" for a direct `sudo` call past the CLI. Reclaims the
+  `.git` tree the per-session sweeps skip; the ownership companion to the `user:<operator>` ACL,
+  run on demand before an ACL-unaware backup so ownership (not the ACL) carries the operator's
+  access into the copy. `--full` includes the skipped heavy trees (`node_modules`, `.venv`, …). See
   [ownership-and-hooks](ownership-and-hooks.rule.md).
 - `--relabel` — restore `ai_tools_exec_t` on the claude entrypoint(s) after a Node upgrade,
   via `ai-tools-relabel-agent`. The manual counterpart to the automatic post-upgrade
@@ -108,8 +123,16 @@ and inspect the host.
   with its own enable command: `ai-tools-admin selinux enable-group tmpmap` for the stable one, the
   source `install-selinux.sh enable-group apphost` for the experimental one. These are the
   dependencies [providers](providers.rule.md) documents, surfaced where the operator checks status.
-- `--list`, `--version` (the deploy-stamped package version; `dev` from a raw source tree),
-  `--help`.
+- `--list` — report every allowlist entry (project / sandbox / exclude) with its git
+  `safe.directory` status, then a **Suggested cleanup** section flagging inconsistent
+  hand-edited entries — a protected system path the tools refuse to touch, a stale path that
+  no longer exists, or a project listed but not fully claimed — each with copy-paste
+  remediation commands carrying the full absolute path (an anchored `sed` line-deletion, plus
+  `ai-tools-safedir --remove` / `ai-tools-relabel --remove` where they apply, or
+  `ai-tools --project-claim` to finish a partial claim). It reuses existing predicates and
+  verbs only (no recovery machinery), and closes with a compact **Maintenance** pointer to the
+  per-project verbs. Informational, so it stays open to a non-operator.
+- `--version` (the deploy-stamped package version; `dev` from a raw source tree), `--help`.
 
 The CLI ships a man page, `ai-tools(1)`
 (`src/usr/local/share/man/man1/ai-tools.1` → `/usr/local/share/man/man1/`, deployed by
@@ -188,8 +211,21 @@ Detection (`reach_scan`) runs up front so the Review overview announces the opt-
 block runs on the fully-claimed no-op path too — a claimed project can still lose
 reachability to a later `chmod 700` above it.
 
-**Unclaim** (`--project-unclaim`) reverts that: it removes the SELinux label and both
-registries, then (default-yes confirm) runs `ai-tools-unclaim` to hand the filesystem back.
+**Unclaim** (`--project-unclaim`) reverts that. It first **classifies the target against
+`allowed-projects`** so it can never modify permissions outside a registered project: an
+**exact** entry unclaims that project; a target that is not itself listed but has claimed
+projects **nested under it** (an ancestor, e.g. running in `~` or `/home`) lists them and,
+behind one default-NO `WARNING` confirm stating it modifies permissions in **all** of them,
+unclaims each; a target that is neither is **refused** (pointing at `ai-tools --list`). A
+**protected system directory** among the modification targets is refused up front by the
+`safe-paths` backstop — claim/`setgid`/`setfacl` never let a protected path become a claimed
+project, so this only guards a hand-edited allowlist, whose cleanup `ai-tools --list` reports;
+there is no `--force` override (an escape hatch for a state the tools already prevent would only
+add surface). The hand-back decision and target group are taken **once** for the whole batch.
+For each selected project it removes the SELinux label and both registries and (default-yes
+confirm) runs `ai-tools-unclaim` to hand the filesystem back — the hand-back running **before**
+the allowlist entry is dropped, so the helper still sees the target listed (see the owner/allowlist
+guard below).
 For every eligible path that helper clears the agent ACL **and** the default ACL
 (`setfacl -b`), changes the group owner to a target group (the invoking user's own group by
 default; any other user can be named, handing the tree to that user's group), and removes
@@ -203,7 +239,12 @@ parties write it) — so the unclaim fully revokes git-history access too.
 **Owner guard (claim and unclaim).** The root helpers `ai-tools-setgid`, `ai-tools-setfacl`,
 and `ai-tools-unclaim` act **only** on paths owned by the projects user or the sandbox
 account; a path owned by any third party (root, another developer) is left untouched, on top
-of the secret-name and `!`-exclusion skips. This is the claim-side partner to
+of the secret-name and `!`-exclusion skips. `ai-tools-unclaim` additionally refuses a target
+that does not resolve **at or under a registered project** (`allowed-projects`) — a silent
+no-op, matching `ai-tools-setgid`/`-setfacl` — so it never rewrites a tree outside the
+allowlist. This is why the CLI runs the hand-back before dropping the entry: the helper is the
+last-line backstop for "unclaim never modifies permissions on an unlisted directory", and the
+CLI's classification is the front-line gate. This is the claim-side partner to
 `ai-tools-chown`'s "act only on `SANDBOX_USER`-owned paths" rule
 ([ownership-and-hooks](ownership-and-hooks.rule.md)): claim never pulls a foreign-owned file
 into the agent's group, and unclaim never regroups one out.
