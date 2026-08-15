@@ -121,7 +121,10 @@ and inspect the host.
   wrapper's pre-launch health warning reads (`claude.sh`, see [launch](launch.rule.md)) — so the
   status view and the launch warning never disagree on which units matter or how to fix one. The
   sandbox `--user` timer is not operator-checkable unprivileged, so its live state is reported as `?`
-  with a `sudo -u ai-tools systemctl --user` check hint. `--status` is the one command that
+  with a check hint that uses the **machine transport** (`sudo systemctl --user -M ai-tools@.host
+  is-active …`) — which reaches that manager over the system bus where root is authorized; a plain
+  `sudo -u ai-tools systemctl --user` gets its own bus refused even when the manager is healthy (the
+  reason the tests' `sandbox_systemctl` prefers it). `--status` is the one command that
   **bypasses the bootstrap gate** (below): a diagnostic must run when things may be broken, so it
   reports the unprovisioned state rather than being blocked by it.
 - `--list`, `--version` (the deploy-stamped package version; `dev` from a raw source tree),
