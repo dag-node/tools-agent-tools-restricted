@@ -193,7 +193,16 @@ The load and unload scriptlets live in the subpackage, with the payload, so no c
 ordering question arises. `%post` runs `semodule -i` — into the running kernel policy, not only the
 module store, since the entrypoint cannot be labelled until the module's types exist in the kernel —
 at the default module priority, the same slot `install-selinux.sh` and `ai-tools-admin` address, so a
-host holds one copy of each module. `%postun` on final erase unloads every loaded `ai_tools*` module,
+host holds one copy of each module. After the module load, `%post` also `restorecon`s the trees
+that carry `ai_tools*` types (the handback daemon among them) and, when the handback socket is
+already active — an upgrade — refreshes the live listener: `restorecon` fixes the daemon binary's
+on-disk label, but the socket bound on tmpfs `/run/ai-tools` keeps its stale context and its
+per-connection handler keeps running `unconfined_service_t`, so `daemon-reexec` + a socket restart
+re-derive the listener context from the now-correct binary label (the same sequence
+`install-selinux.sh` `_relabel_runtime` runs; see [handback-bridge](handback-bridge.rule.md)).
+Without it a session's `connectto` to the handback socket is denied under enforcing and every hook
+handback silently no-ops. On a fresh install the socket is not up yet — `ai-tools-base` `%posttrans`
+starts it later, already correctly labelled — so the refresh no-ops there. `%postun` on final erase unloads every loaded `ai_tools*` module,
 enumerated rather than named: a group's `.pp` is erased with the package while the compiled module
 persists in the store, and a group compiled from a source checkout was never in the rpm database at
 all.

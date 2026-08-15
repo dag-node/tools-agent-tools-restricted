@@ -609,10 +609,23 @@ fi
 # module priority puts this in the same slot selinux/install-selinux.sh and `ai-tools-admin
 # selinux enable-group` address, so one host holds one copy of each module and a package upgrade
 # always supersedes what it replaces.
+#
+# After relabelling the daemon binary, refresh an already-active handback socket (an upgrade): the
+# listener bound on tmpfs /run/ai-tools keeps its stale context and its handler runs
+# unconfined_service_t, so ai_tools_t's connectto is denied and every hook handback silently no-ops.
+# daemon-reexec + socket restart re-derive the listener context from the now-correct binary label.
+# Guarded on is-active, so a fresh install (base %posttrans starts it later, already correct) no-ops.
+# Same sequence as install-selinux.sh _relabel_runtime; rationale in confinement.rule.md.
 if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/null 2>&1; then
     semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp >/dev/null 2>&1 || :
     if command -v restorecon >/dev/null 2>&1; then
         restorecon -R %{ai_libexecdir} %{ai_libdir} /opt/ai-tools /var/log/ai-tools >/dev/null 2>&1 || :
+    fi
+    if command -v systemctl >/dev/null 2>&1 \
+       && systemctl is-active --quiet ai-tools-handback.socket 2>/dev/null; then
+        systemctl daemon-reexec >/dev/null 2>&1 || :
+        systemctl restart ai-tools-handback.socket >/dev/null 2>&1 || :
+        command -v restorecon >/dev/null 2>&1 && restorecon -R /run/ai-tools >/dev/null 2>&1 || :
     fi
 fi
 
