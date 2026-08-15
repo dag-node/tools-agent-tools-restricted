@@ -23,13 +23,18 @@ if ! source "${LIB}" || ! declare -F ai_tools_confinement_verdict >/dev/null 2>&
     fail "could not source ${LIB} or it does not define ai_tools_confinement_verdict"; finish; exit
 fi
 
-# expect <token> <rc> <enforce> <module> <want> <have> <mgrdom>: drive the verdict and assert
-# BOTH the echoed token and the 0=launch/1=refuse return. The '|| rc=$?' keeps a refusal (rc 1)
-# non-fatal under set -e and captures the status.
+# expect <token> <rc> <enforce> <module> <want> <have> <mgrdom> [require]: drive the verdict and
+# assert BOTH the echoed token and the 0=launch/1=refuse return. The '|| rc=$?' keeps a refusal
+# (rc 1) non-fatal under set -e and captures the status. `require` defaults to unset (5-arg call),
+# exercising that a 5-arg caller keeps today's DAC-capable behaviour.
 expect() {
-    local exp_tok="$1" exp_rc="$2" enf="$3" mod="$4" want="$5" have="$6" mgr="$7" tok rc
-    tok="$(ai_tools_confinement_verdict "${enf}" "${mod}" "${want}" "${have}" "${mgr}")" && rc=0 || rc=$?
-    local desc="enf=${enf} mod=${mod} want=${want:-∅} have=${have:-∅} mgr=${mgr:-∅}"
+    local exp_tok="$1" exp_rc="$2" enf="$3" mod="$4" want="$5" have="$6" mgr="$7" req="${8:-}" tok rc
+    if [[ -n "${req}" ]]; then
+        tok="$(ai_tools_confinement_verdict "${enf}" "${mod}" "${want}" "${have}" "${mgr}" "${req}")" && rc=0 || rc=$?
+    else
+        tok="$(ai_tools_confinement_verdict "${enf}" "${mod}" "${want}" "${have}" "${mgr}")" && rc=0 || rc=$?
+    fi
+    local desc="enf=${enf} mod=${mod} want=${want:-∅} have=${have:-∅} mgr=${mgr:-∅} req=${req:-unset}"
     if [[ "${tok}" == "${exp_tok}" && "${rc}" -eq "${exp_rc}" ]]; then
         pass "${desc} -> ${tok} (rc ${rc})"
     else
@@ -84,5 +89,24 @@ mp yes ai_tools_run_t      # any core-owned ai_tools_* type confirms live file-c
 mp no  user_home_t         # module absent -> the path keeps its default home type
 mp no  bin_t               # any non-ai_tools type -> not present
 mp no  ""                  # matchpathcon unavailable / no match -> not present (stays fail-closed via the verdict)
+
+# ── AI_TOOLS_REQUIRE_SELINUX: the operator's opt-in that turns the two DAC-only LAUNCH exits into ──
+# ── refusals. It ONLY tightens those two; every other verdict is identical to the require=no path. ──
+section "confinement: AI_TOOLS_REQUIRE_SELINUX opt-in fail-closed (unit)"
+# require=no reproduces the DAC-capable behaviour exactly (the explicit default is a no-op).
+expect ok 0 Permissive yes ai_tools_exec_t lib_t init_t no
+expect ok 0 Enforcing no "" lib_t init_t no
+# The two DAC-only launches become refusals under require=yes.
+expect require-not-enforcing 1 Permissive yes ai_tools_exec_t lib_t init_t yes  # not enforcing
+expect require-not-enforcing 1 Disabled   yes ai_tools_exec_t lib_t init_t yes  # SELinux off
+expect require-inactive      1 Enforcing  no  ""              lib_t init_t yes  # module absent on an enforcing host
+# require does NOT loosen or alter any already-fail-closed refusal, and does not force a confined
+# launch to refuse: a verified transition still launches, a mislabel/unverifiable still refuses.
+expect ok           0 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes
+expect mislabel     1 Enforcing yes ai_tools_exec_t lib_t           init_t yes
+expect unverifiable 1 Enforcing yes ""              lib_t           init_t yes
+# The manager-domain advisory stays advisory under require (it targets the /proc read, not the
+# DAC-only launch exits): an unreadable ("") manager domain still launches.
+expect ok 0 Enforcing yes ai_tools_exec_t ai_tools_exec_t "" yes
 
 finish

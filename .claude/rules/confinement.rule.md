@@ -111,6 +111,33 @@ Detecting it requires reading the store, which the sandbox account cannot do —
 can — and it is vanishingly rare (a normal `semodule -i` loads store and policy together). It is no
 worse than the previous `semodule -l`-as-sandbox read, which reported "absent" for **every** host.
 
+#### `AI_TOOLS_REQUIRE_SELINUX` — operator-declared fail-closed
+
+The preflight launches DAC-only whenever confinement is unverifiable, because a DAC-only deployment
+is explicitly supported (the module is optional; permissive-first bring-up; stock boxes install
+without it). The unprivileged wrapper cannot tell an *intentional* DAC-only host from a *degraded*
+one — permissive drift, module removed or staged-not-active, mislabelled entrypoint — so by default
+it cannot fail closed on that state without breaking supported DAC-only hosts. The gap that leaves
+is a false sense of security: an operator who believes confinement is enforcing can have sessions
+silently run `unconfined_t` (DAC + seccomp `RestrictNamespaces` + `NoNewPrivileges` + the env
+allowlist still hold — only the `ai_tools_t` type layer is lost). It is a lost defence-in-depth
+layer, not a DAC bypass.
+
+`AI_TOOLS_REQUIRE_SELINUX=yes` in `operator.conf` lets the operator **declare** the requirement:
+`ai-tools-run` passes it as the verdict's sixth `require` input, which turns the two DAC-only
+*launch* exits into refusals — `require-not-enforcing` (SELinux not `Enforcing`) and
+`require-inactive` (enforcing but the module's file-contexts are not live). It closes the whole
+"thinks-enforcing" family, the staged-but-not-active residual above included, by having the operator
+assert intent rather than the wrapper guess it — so it adds **no** store-read surface. It is opt-in:
+the default (key absent, or any value but the true set `yes|true|1|on`) is `no`, preserving the
+DAC-capable behaviour, so intentional DAC-only hosts are untouched. `require` only tightens those two
+exits; the `mislabel`/`manager-domain`/`unverifiable` refusals already fail closed and are unchanged,
+and the `manager-domain` advisory (an unreadable `""` domain does not block) stays advisory under
+`require` — it targets the `/proc` read, not a DAC-only launch. The switch is read only while
+`ai_tools_conf_is_trusted` holds for `operator.conf` (root-owned, non-group/other-writable, not a
+symlink), so the agent cannot set or clear it; an untrusted or absent file yields `no`, never a
+dropped requirement. The posture rides in the per-launch audit line (`require=yes|no`).
+
 ## `/tmp` model
 
 `PrivateTmp` is not used; the session shares the host `/tmp`. systemd `PrivateTmp` is a
