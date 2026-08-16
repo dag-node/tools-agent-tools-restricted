@@ -5,8 +5,12 @@
 # project. Walks the current working directory and, for every path whose basename
 # matches a secret pattern -- the SAME set ai-tools-chown uses, from the shared
 # library and config file -- applies:
-#       regular file -> 600        directory -> 700        owner -> <you>:ai-tools
-# so ai-tools, neither owner nor a permitted group member, cannot read it.
+#       regular file -> 600        directory -> 700        owner -> <you>:<you>
+# so ai-tools, neither owner nor a permitted group member, cannot read it. The owner's own
+# private group is the target, matching ai-tools-chown's handling of an agent-written secret:
+# leaving the group as @SANDBOX_GROUP@ would re-expose the file the moment its mode is widened.
+# Each locked path also has its sandbox residue stripped (owner-only.lib.sh), for the same
+# reason -- the mode alone does not hold.
 #
 # Unlike ai-tools-chown (reactive: fires per agent-written path and acts only on
 # ai-tools-owned paths), this is a USER-run pre-flight sweep -- it also locks down
@@ -58,6 +62,17 @@ log()  { printf 'ai-tools-lockdown: %s\n' "$*"; }
 warn() { printf 'ai-tools-lockdown: warn: %s\n' "$*" >&2; }
 die()  { printf 'ai-tools-lockdown: error: %s\n' "$*" >&2; exit 1; }
 
+# Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the
+# reference for both). Required and fail-closed like safe-paths.lib.sh: an unusable library
+# must not leave a locked path carrying the residue that would re-expose it.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/owner-only.lib.sh
+source /usr/local/lib/ai-tools/owner-only.lib.sh
+if ! declare -F ai_tools_is_owner_only >/dev/null 2>&1 \
+        || ! declare -F ai_tools_strip_sandbox_residue >/dev/null 2>&1; then
+    printf 'ai-tools-lockdown: FATAL: owner-only.lib.sh defines no owner-only guard\n' >&2
+    exit 3
+fi
+
 # Protected-paths backstop (safe-paths.lib.sh): refuse to act on a system directory even
 # when the allowlist includes it. See safe-paths.rule.md.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
@@ -82,7 +97,7 @@ usage: cd <project> && sudo ai-tools-lockdown [options]
   -h, --help      show this help
 
 Locks down secret-matching paths under the current directory:
-  files -> 600, directories -> 700, owner <you>:ai-tools.
+  files -> 600, directories -> 700, owner <you>:<you>.
 Runs only when the current directory is an allowed project.
 EOF
 }
@@ -119,7 +134,10 @@ ai_tools_assert_safe_target "${target}" "lockdown" || exit 3
 ai_tools_resolve_owner "${target}" \
     || die "this directory is not in allowed projects for current operator: ${target}"
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}"
-readonly OWNER="${PROJECTS_USER}:@SANDBOX_GROUP@"
+# The owner's own private group, spelled per docs/naming-conventions.md -- the same target
+# ai-tools-chown gives an agent-written secret, so a secret ends up identically owned whether it
+# was locked down proactively or quarantined on write.
+readonly OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"
 
 # ── Allowlist (allow + ! exclude), same parse as ai-tools-chown ──────────────
 declare -a allowed=()
@@ -259,6 +277,15 @@ _safe_apply() {
     fi
     /usr/bin/chown -- "${OWNER}" "/proc/self/fd/${fd}"
     /usr/bin/chmod -- "${mode}"  "/proc/self/fd/${fd}"
+    # The path is owner-only now, so strip the residue the mode merely masks -- the inherited
+    # ACL entries and, on a directory, the setgid bit the numeric chmod above leaves standing.
+    # Re-read both from the pinned inode: they are what the chown/chmod just made them.
+    local now_grp now_mode
+    if read -r now_grp now_mode \
+            < <(stat -L -c '%G %a' "/proc/self/fd/${fd}" 2>/dev/null); then
+        ai_tools_strip_sandbox_residue "${fd}" "${got_ftype}" "${now_grp}" "${now_mode}" \
+            "${PROJECTS_GROUP}" || true
+    fi
     exec {fd}<&-
     ai_tools_log_info "locked ${path} -> ${OWNER} ${mode}"
     printf '  locked %s  ->  %s %s\n' "$(ai_tools_log_sanitize "${path}")" "${OWNER}" "${mode}" >&2

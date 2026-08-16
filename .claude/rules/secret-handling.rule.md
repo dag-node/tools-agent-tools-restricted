@@ -36,7 +36,7 @@ operator's own secrets, place them in a dir the agent cannot write (`700 <you>:<
 `!`-exclude it — the allowlist is not a read boundary.
 
 `ai-tools-setfacl` makes that recipe hold: a path whose mode carries no group and no other
-bits (`0600`, `0700`) is left exactly as found — no `group:SANDBOX_GROUP:rwX` entry, no
+bits (`0600`, `0700`) is never granted — no `group:SANDBOX_GROUP:rwX` entry, no
 `user:<operator>:rwX` entry, no default ACL on a directory, no mask recalculation, mode bits
 untouched — and a skipped directory takes its subtree with it. Widening the mode and
 re-claiming is how a path opts in; the skip count is reported, since on a project root it
@@ -47,14 +47,24 @@ the mask to cover the entries it adds, so granting such a directory would return
 write on the directory, and with it the ability to unlink the secrets inside, which is the very
 thing the `700` is there to stop.
 
-**The directory's mode is the whole boundary.** A directory created inside a claimed tree
-inherits the project's default ACL at `mkdir` time, so `chmod 700` afterwards leaves the
-inherited `group:SANDBOX_GROUP:rwX` entry in place and merely holds the mask at `---`; files
-created inside it are born `0660` with that entry **effective**. Nothing is reachable while the
-`700` stands, because traversal is denied at the directory — but relaxing that one mode later
-exposes everything already inside it, including files written while it looked private. This is
-why the recipe pairs the mode with a `!`-exclusion: an excluded subtree is skipped by every walk,
-so it does not depend on a single mode bit staying put.
+**The mode is not the whole boundary, so sealing also strips.** Setgid and default-ACL
+inheritance act at create time, so a path created inside a claimed tree is *already* group
+`SANDBOX_GROUP`, setgid, and carrying the project's default ACL. A later `chmod 700` holds the
+ACL mask at `---` but removes none of that, and a numeric `chmod` does not clear a directory's
+setgid at all; files created inside are born `0660` with the inherited entry **effective**.
+Nothing is reachable while the `700` stands — traversal is denied at the directory — but the
+grant is dormant, not gone: widening that one mode later re-activates it over everything already
+inside, including files written while the directory looked private.
+
+Every walk over a claimed tree therefore **strips** that residue from an owner-only path rather
+than merely skipping it — the `group:SANDBOX_GROUP` access and default ACL entries, the setgid
+bit, and the sandbox group owner — so the seal does not rest on a single mode bit staying put.
+Predicate and strip are single-sourced in `owner-only.lib.sh`, shared by `ai-tools-setgid`,
+`ai-tools-setfacl`, `ai-tools-lockdown` and `ai-tools-chown`; it removes only what the sandbox
+put there and leaves mode bits, ownership and every other ACL entry as found. A setgid bit whose
+group is neither the sandbox account's nor the operator's is kept and reported, not removed. A
+`!`-exclusion remains the stronger form, since an excluded subtree is skipped by every walk
+whatever its mode.
 
 ## Shared secret-pattern set (one source, two consumers)
 
@@ -101,8 +111,12 @@ touches a pre-existing user-owned secret the agent could already read.
 `ai-tools-lockdown` (`/usr/local/libexec/ai-tools/ai-tools-lockdown`, run
 `ai-tools --lockdown <project>` or `cd <project> && sudo ai-tools-lockdown`) is the
 proactive counterpart: it walks the current directory and, for every path matching the
-shared secret patterns, sets regular files `600`, directories `700`, and owner
-`<you>:SANDBOX_GROUP` — revoking `SANDBOX_USER`'s read regardless of who created the path.
+shared secret patterns, sets regular files `600`, directories `700`, and owner `<you>:<you>` —
+revoking `SANDBOX_USER`'s read regardless of who created the path. The owner's own private group
+is the target, the same one `ai-tools-chown` gives an agent-written secret, so a secret ends up
+identically owned whether it was locked down proactively or quarantined on write; leaving the
+group as `SANDBOX_GROUP` would re-expose it the moment the mode was widened. Each locked path
+also has its sandbox residue stripped (see above).
 It runs only when the CWD is an allowed project and skips `!`-excluded paths, reusing the
 same allowlist parse, and applies each change through a pinned fd (re-verifying inode and
 type) so a `SANDBOX_USER` path swap cannot redirect root's chmod/chown. `--dry-run`
