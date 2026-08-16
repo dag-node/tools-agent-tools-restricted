@@ -92,9 +92,11 @@ if command -v runuser >/dev/null 2>&1; then
         fail "--help was blocked for a non-operator: ${out}"
     fi
 
-    # (6) --project-unclaim classifies its target against allowed-projects: a directory that is
-    # neither a claimed project nor an ancestor of one is REFUSED, before any registry/filesystem
-    # change. The testdir path is not in the (real) allowlist, so it classifies as "neither".
+    # (6) --project-unclaim classifies its target against allowed-projects: a directory that no
+    # entry covers AND that carries no ai-tools ownership or group is REFUSED, before any
+    # registry/filesystem change. The testdir path is not in the (real) allowlist and is freshly
+    # created, so it classifies as unrelated-and-clean -- the one outcome with nothing to offer
+    # (a tree carrying the fingerprint is instead pointed at --force).
     # Runs as an OPERATOR (conf lists the projects user) so classification runs past the operator
     # gate; under setsid so any prompt takes its non-interactive default rather than blocking.
     oconf="${TESTDIR}/op-self.conf"
@@ -103,7 +105,7 @@ if command -v runuser >/dev/null 2>&1; then
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
             setsid "${CLI}" --project-unclaim "${lone}" 2>&1)" && rc=0 || rc=$?
-    if [[ ${rc} -ne 0 ]] && grep -qi 'not a claimed project' <<<"${out}"; then
+    if [[ ${rc} -ne 0 ]] && grep -qi 'nothing to unclaim here' <<<"${out}"; then
         pass "--project-unclaim refuses a directory that is neither a claimed project nor an ancestor of one"
     else
         fail "--project-unclaim did not refuse a non-project (rc=${rc}): ${out}"

@@ -141,4 +141,125 @@ else
     fail "unlisted target was modified: f is $(stat -c '%a %G' "${unlisted}/f") (want ${SANDBOX_GROUP} + agent ACL)"
 fi
 
+# ── --unlisted: the residue gate replaces the allowlist gate ─────────────────────────────
+# The mode exists for a claimed project copied or moved out of the allowlist. What makes it
+# safe on a mistyped path is not caution about which bits it writes -- those are identical to
+# a listed unclaim -- but that it writes them ONLY to a path still carrying the ai-tools
+# fingerprint. Every assertion below is a form of that one property.
+
+# The mode resolves its owner from the invoking operator, so it needs one configured.
+operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
+if [[ -r "${operator_conf}" ]] && grep -qE "^[[:space:]]*OPERATORS=.*\b${PROJECTS_USER}\b" "${operator_conf}"; then
+    copy="${TESTDIR}/copy"
+    mkdir -p "${copy}/sub" "${copy}/node_modules"
+    # Residue: what a `cp -a` of a claimed tree carries out of the allowlist.
+    : > "${copy}/res";  chmod 0660 "${copy}/res"
+    : > "${copy}/owned"; chmod 0660 "${copy}/owned"
+    chmod 2770 "${copy}/sub"
+    : > "${copy}/node_modules/dep"; chmod 0660 "${copy}/node_modules/dep"
+    # Not residue: a file of the operator's own that was never part of any claim. The whole
+    # point of the mode is that this one is not touched.
+    : > "${copy}/mine"; chmod 0664 "${copy}/mine"
+    chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${copy}"
+    chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${copy}/mine"
+    chown "${SANDBOX_USER}:${PROJECTS_GROUP}" "${copy}/owned" 2>/dev/null || true
+
+    setsid "${HELPER}" "${copy}" "${PROJECTS_GROUP}" --unlisted < /dev/null > /dev/null 2>&1 || true
+
+    # (I) a residue path is reverted exactly as a listed unclaim reverts it.
+    if [[ "$(perm "${copy}/res")" == 640 && "$(stat -c '%G' "${copy}/res")" == "${PROJECTS_GROUP}" ]]; then
+        pass "--unlisted reverts a residue file (660 -> 640, regrouped)"
+    else
+        fail "--unlisted left res at $(stat -c '%a %G' "${copy}/res") (want 640 ${PROJECTS_GROUP})"
+    fi
+
+    # (J) THE property: a path with no ai-tools fingerprint is not touched at all. This is what
+    # makes running the mode on the wrong directory a no-op rather than a mass permission edit.
+    if [[ "$(perm "${copy}/mine")" == 664 ]]; then
+        pass "--unlisted leaves a non-residue file byte-for-byte (residue gate)"
+    else
+        fail "--unlisted modified a non-residue file: mine is $(stat -c '%a' "${copy}/mine") (want 664)"
+    fi
+
+    # (K) a sandbox-OWNED inode is handed back to the operator: regrouping alone would leave
+    # the agent its access through the user bits, and ai-tools-reclaim refuses an unlisted path.
+    if id "${SANDBOX_USER}" >/dev/null 2>&1; then
+        if [[ "$(stat -c '%U' "${copy}/owned")" == "${PROJECTS_USER}" ]]; then
+            pass "--unlisted chowns a sandbox-owned file back to the operator"
+        else
+            fail "owned is still $(stat -c '%U' "${copy}/owned") (want ${PROJECTS_USER})"
+        fi
+    else
+        skip "--unlisted chown" "sandbox account not present"
+    fi
+
+    # (L) the skip list still applies without --full, so residue in a heavy tree survives --
+    # the reason the CLI reports it and offers --full rather than silently under-reverting.
+    if [[ "$(stat -c '%G' "${copy}/node_modules/dep")" == "${SANDBOX_GROUP}" ]]; then
+        pass "--unlisted honors the skip list (node_modules residue left for --full)"
+    else
+        fail "node_modules was walked without --full"
+    fi
+
+    # (M) --full reaches it.
+    setsid "${HELPER}" "${copy}" "${PROJECTS_GROUP}" --unlisted --full < /dev/null > /dev/null 2>&1 || true
+    if [[ "$(stat -c '%G' "${copy}/node_modules/dep")" == "${PROJECTS_GROUP}" ]]; then
+        pass "--unlisted --full reverts residue under a skip-listed directory"
+    else
+        fail "--full did not reach node_modules/dep"
+    fi
+
+    # (N) --unlisted is refused on a REGISTERED project: the caller picked the wrong mode, and
+    # running the narrower per-path gate over a real project would silently under-revert it.
+    if ! setsid "${HELPER}" "${proj}" "${PROJECTS_GROUP}" --unlisted < /dev/null > /dev/null 2>&1; then
+        pass "--unlisted is refused on a registered project"
+    else
+        fail "--unlisted accepted a registered project"
+    fi
+
+    # (O) fails closed with no invoking operator: the identity that bounds the walk cannot be
+    # resolved, so nothing is touched. env -u SUDO_UID reproduces a direct root call.
+    noop="${TESTDIR}/noop"
+    mkdir -p "${noop}"; : > "${noop}/f"; chmod 0660 "${noop}/f"
+    chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${noop}"
+    if ! env -u SUDO_UID setsid "${HELPER}" "${noop}" "${PROJECTS_GROUP}" --unlisted \
+            < /dev/null > /dev/null 2>&1 \
+            && [[ "$(stat -c '%G' "${noop}/f")" == "${SANDBOX_GROUP}" ]]; then
+        pass "--unlisted fails closed with no invoking operator (nothing changed)"
+    else
+        fail "--unlisted acted without an invoking operator: f is $(stat -c '%a %G' "${noop}/f")"
+    fi
+else
+    skip "--unlisted residue gate" "${PROJECTS_USER} is not a configured operator in ${operator_conf}"
+fi
+
+# ── Hardlink guard (both modes) ──────────────────────────────────────────────────────────
+# chgrp and chmod act on the INODE, which a second name reaches from outside the tree, so a
+# multiply-linked regular file is refused rather than changed through. Same boundary
+# ai-tools-chown enforces; asserted here in the LISTED mode, where the tree is fully authorized
+# and the guard is therefore the only thing standing between the walk and the outside name.
+hl_proj="${TESTDIR}/hlproj"
+mkdir -p "${hl_proj}"
+outside="${TESTDIR}/outside-target"
+: > "${outside}"; chmod 0660 "${outside}"
+chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${outside}"
+if ln "${outside}" "${hl_proj}/linked" 2>/dev/null; then
+    : > "${hl_proj}/plain"; chmod 0660 "${hl_proj}/plain"
+    chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${hl_proj}"
+    mk_allowlist "${hl_proj}"
+    setsid "${HELPER}" "${hl_proj}" "${PROJECTS_GROUP}" < /dev/null > /dev/null 2>&1 || true
+    if [[ "$(stat -c '%G' "${outside}")" == "${SANDBOX_GROUP}" && "$(perm "${outside}")" == 660 ]]; then
+        pass "a hardlinked file is refused, so the outside name is unchanged"
+    else
+        fail "hardlink guard breached: outside target is now $(stat -c '%a %G' "${outside}")"
+    fi
+    if [[ "$(perm "${hl_proj}/plain")" == 640 ]]; then
+        pass "the hardlink refusal is per-path (a singly-linked sibling still reverts)"
+    else
+        fail "plain is $(stat -c '%a' "${hl_proj}/plain") (want 640)"
+    fi
+else
+    skip "hardlink guard" "could not create a hardlink in ${TESTDIR}"
+fi
+
 finish

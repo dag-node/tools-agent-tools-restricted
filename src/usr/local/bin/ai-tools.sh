@@ -680,12 +680,13 @@ run_setfacl() {
     fi
 }
 
-# run_unclaim <dir> <target-group>  -- clear the agent ACL, regroup <dir> to
+# run_unclaim <dir> <target-group> [helper-flag...]  -- clear the agent ACL, regroup <dir> to
 # <target-group>, and remove group write, via the root helper (sudo, password); returns
-# its status.
+# its status. Trailing flags (--unlisted, --full) pass straight through: the helper re-derives
+# every gate from them itself rather than trusting this caller's classification.
 run_unclaim() {
-    local d="$1" g="$2"
-    sudo "${UNCLAIM_BIN}" "${d}" "${g}"
+    local d="$1" g="$2"; shift 2
+    sudo "${UNCLAIM_BIN}" "${d}" "${g}" "$@"
 }
 
 # secret_gate <dir>  -- the secret-lockdown block: before ANY step grants the agent
@@ -902,6 +903,56 @@ claim_setfacl() {
 # shared-looking paths brought into the tree without inheriting the group/ACL) and folds
 # the group+ACL re-apply into the proceed confirm and secret gate -- repair never runs
 # unconfirmed. A first claim skips the report: its normal walk repairs the whole tree.
+# path_detail_lines <path...>  -- print each path prefixed with its owner:group and mode, the
+# columns that show at a glance why a path is flagged (the foreign or agent group) and whether
+# its mode is what the operator expects. Shared by the claim's drift report and the unclaim's
+# residue report: both answer the same question about a path, so both show the same columns.
+path_detail_lines() {
+    local _p _og _m
+    for _p in "$@"; do
+        IFS=' ' read -r _og _m < <(stat -c '%U:%G %a' "${_p}" 2>/dev/null) \
+            || { _og='?'; _m='?'; }
+        printf '        %s%-18s %-4s %s%s\n' "${C_DIM}" "${_og}" "${_m}" "${_p}" "${C_RST}"
+    done
+}
+
+# offer_full_listing <label> <path...>  -- after a truncated sample, offer the full list with
+# ownership and mode. Default yes: it is read-only and the point of asking is that the list is
+# long, so Enter shows it and a piped/delegated run prints it too (grep-able).
+offer_full_listing() {
+    local _label="$1"; shift
+    confirm "      List all $# ${_label} with ownership and mode?" y || return 0
+    path_detail_lines "$@"
+}
+
+# under_skip_listed_name <base> <path>  -- 0 when <path> sits under a skip-listed directory NAME
+# (build output, dependencies, caches) relative to <base>, honoring the relative artifact
+# exclusions that re-open a subtree to the walks. The single predicate behind both the claim's
+# "drift I cannot repair" split and the unclaim's "residue the default walk will not reach"
+# split, so one skip contract decides both. Returns 1 when the skip list is unavailable, which
+# treats every hit as reachable -- the fail-soft direction for a walk-cost optimization.
+under_skip_listed_name() {
+    local _base="$1" _path="$2" _rel _seg _name _s _x
+    [[ "${#AI_TOOLS_SKIP_NAMES[@]}" -gt 0 ]] || return 1
+    _rel="${_path#"${_base}"/}"
+    IFS=/ read -ra _seg <<< "${_rel}"
+    for _name in "${AI_TOOLS_SKIP_NAMES[@]}"; do
+        for _s in "${_seg[@]}"; do
+            if [[ "${_s}" == "${_name}" ]]; then
+                # A relative artifact exclusion re-opens its subtree to the walks, so a hit
+                # under one is reachable, not skip-listed.
+                for _x in "${AI_TOOLS_SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE[@]:-}"; do
+                    [[ -z "${_x}" ]] && continue
+                    _x="${_x%/}"
+                    [[ "${_rel}" == "${_x}" || "${_rel}" == "${_x}"/* ]] && return 1
+                done
+                return 0
+            fi
+        done
+    done
+    return 1
+}
+
 cmd_project_claim() {
     # -y/--yes pre-answers the claim's own proceed prompt ("Apply the pending steps IN
     # PLACE?", default NO) -- an explicit per-invocation flag, passed by a caller that
@@ -952,50 +1003,16 @@ cmd_project_claim() {
     local -a drift_skipped=()
     if ai_tools_skip_find_expr sweep 2>/dev/null && (( ${#AI_TOOLS_SKIP_NAMES[@]} )); then
         local -a _keep=()
-        local _hit _rel _seg _name _under _s _x
+        local _hit
         for _hit in "${drift[@]}"; do
-            _under=false
-            _rel="${_hit#"${d}"/}"
-            IFS=/ read -ra _seg <<< "${_rel}"
-            for _name in "${AI_TOOLS_SKIP_NAMES[@]}"; do
-                for _s in "${_seg[@]}"; do
-                    [[ "${_s}" == "${_name}" ]] && { _under=true; break 2; }
-                done
-            done
-            # A relative artifact exclusion re-opens its subtree to the walks, so a hit
-            # under one is repairable, not skip-listed.
-            if ${_under}; then
-                for _x in "${AI_TOOLS_SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE[@]:-}"; do
-                    [[ -z "${_x}" ]] && continue
-                    _x="${_x%/}"
-                    [[ "${_rel}" == "${_x}" || "${_rel}" == "${_x}"/* ]] && { _under=false; break; }
-                done
+            if under_skip_listed_name "${d}" "${_hit}"; then
+                drift_skipped+=("${_hit}")
+            else
+                _keep+=("${_hit}")
             fi
-            if ${_under}; then drift_skipped+=("${_hit}"); else _keep+=("${_hit}"); fi
         done
         drift=("${_keep[@]}")
     fi
-
-    # _drift_lines <path...>: print each path prefixed with its owner:group and mode --
-    # the columns that show at a glance why the path is flagged (the foreign group) and
-    # whether the mode is what the operator expects.
-    _drift_lines() {
-        local _p _og _m
-        for _p in "$@"; do
-            IFS=' ' read -r _og _m < <(stat -c '%U:%G %a' "${_p}" 2>/dev/null) \
-                || { _og='?'; _m='?'; }
-            printf '        %s%-18s %-4s %s%s\n' "${C_DIM}" "${_og}" "${_m}" "${_p}" "${C_RST}"
-        done
-    }
-
-    # _drift_list_all <label> <path...>: after a truncated sample, offer the full list
-    # (owner/group/mode columns). Default yes: it is read-only and the point of asking is
-    # a long list, so Enter shows it; a piped/delegated run prints it too (grep-able).
-    _drift_list_all() {
-        local _label="$1"; shift
-        confirm "      List all $# ${_label} with ownership and mode?" y || return 0
-        _drift_lines "$@"
-    }
 
     # skip_listed_note: the skip-listed hits are informational either way -- shown both on
     # the fully-claimed early return and in the pending flow.
@@ -1003,10 +1020,10 @@ cmd_project_claim() {
         (( ${#drift_skipped[@]} )) || return 0
         headline_warn "NOTICE: drift under skip-listed directories" \
             "${#drift_skipped[@]} path(s) with a foreign group sit under skip-listed directory names (build output, dependencies, caches); claim leaves those trees untouched."
-        _drift_lines "${drift_skipped[@]:0:3}"
+        path_detail_lines "${drift_skipped[@]:0:3}"
         if (( ${#drift_skipped[@]} > 3 )); then
             say "        ${C_DIM}... and $(( ${#drift_skipped[@]} - 3 )) more${C_RST}"
-            _drift_list_all "path(s)" "${drift_skipped[@]}"
+            offer_full_listing "path(s)" "${drift_skipped[@]}"
         fi
         say "      ${C_DIM}if one is source in this project, exempt it in /etc/ai-tools/operator.conf --${C_RST}"
         say "      ${C_DIM}narrow the category (SKIP_ARTIFACT_DIRS=...) or list the path relative to the${C_RST}"
@@ -1022,10 +1039,27 @@ cmd_project_claim() {
     if [[ "${owngap}" == true ]] || ${need_acl} || ${need_label} || (( ${#drift[@]} )); then
         heavy=true
         head+=("claiming in place grants the agent group access to this whole tree")
+        # Said plainly, before the confirm that authorizes it: the steps below rewrite metadata
+        # across the tree, and unclaim NORMALIZES rather than restores (setfacl -b clears ACLs
+        # that predate the claim; the result is 640/750). No prior state is recorded anywhere,
+        # so no command can put it back -- which makes "back up first" the only real safeguard.
+        head+=("It MODIFIES group, permissions and ACLs throughout this tree, sets setgid on its directories, and removes world access. Files and directories that are owner-only (0600/0700) are left alone, out of the agent's reach. The previous permissions are NOT recorded anywhere, so this is NOT reversible -- unclaiming later normalizes the tree rather than restoring it. Back up first. See: man ai-tools")
     fi
     headline "Claim project (in place)" "${head[@]}"
 
     reach_scan "${d}"
+
+    # The project root being owner-only is reach_scan's problem one level down: ai-tools-setfacl
+    # honours a 0600/0700 mode and skips the path, so every later step still succeeds and the
+    # claim closes with its ✓ while the sandbox account cannot enter the tree at all. Stated
+    # here, before the confirm, rather than left to the helper's skip count afterwards.
+    local root_mode
+    root_mode="$(stat -c '%a' "${d}" 2>/dev/null || echo 755)"
+    if (( ( 8#${root_mode} & 077 ) == 0 )); then
+        headline_warn "NOTICE: this project directory is owner-only" \
+            "${d} is mode ${root_mode}, which keeps it out of the sandbox account's reach: the claim honours that mode and grants nothing on it."
+        say ""
+    fi
 
     if [[ "${listed}" == true && "${safedir}" == true && "${owngap}" == false ]] \
             && ! ${need_filemode} && ! ${need_acl} && ! ${need_label} && ! ${need_git} \
@@ -1064,10 +1098,10 @@ cmd_project_claim() {
     if (( ${#drift[@]} )); then
         headline_warn "WARNING: interior permission drift" \
             "${#drift[@]} path(s) inside the tree carry a foreign group yet stay group-accessible (they arrived without inheriting the project group or ACL)."
-        _drift_lines "${drift[@]:0:3}"
+        path_detail_lines "${drift[@]:0:3}"
         if (( ${#drift[@]} > 3 )); then
             say "        ${C_DIM}... and $(( ${#drift[@]} - 3 )) more$( (( ${#drift[@]} >= 200 )) && printf ' (list capped at 200)' )${C_RST}"
-            _drift_list_all "path(s)" "${drift[@]}"
+            offer_full_listing "path(s)" "${drift[@]}"
         fi
     fi
     skip_listed_note
@@ -1175,7 +1209,8 @@ covered_by_project() {
     return "${covered}"
 }
 
-# unclaim_one <dir> <group|""> <hint>  -- revert one claimed project. Order matters: revert
+# unclaim_one <dir> <group|""> <hint> [helper-flag...]  -- revert one claimed project. Order
+# matters: revert
 # the SELinux label first (keeps the invariant "labelled => allowlisted"), then run the
 # filesystem hand-back WHILE THE ALLOWLIST ENTRY IS STILL PRESENT (ai-tools-unclaim refuses a
 # target not in allowed-projects), and only then drop the two registries. <group> empty means
@@ -1183,7 +1218,8 @@ covered_by_project() {
 # (used when the hand-back was wanted but could not run). Best-effort throughout: a step warns
 # with its manual command and never aborts the pass.
 unclaim_one() {
-    local d="$1" group="$2" hint="$3"
+    local d="$1" group="$2" hint="$3"; shift 3
+    local flags=""; (( $# )) && flags=" $*"
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
@@ -1191,19 +1227,199 @@ unclaim_one() {
             || warn "could not revert SELinux label -- run: sudo ${RELABEL_BIN} --remove ${d}"
     fi
     if [[ -n "${group}" ]]; then
-        if run_unclaim "${d}" "${group}"; then
+        if run_unclaim "${d}" "${group}" "$@"; then
             ok "handed ${d} back to group ${group}, agent write access removed"
         else
             warn "could not hand the files back -- run it by hand:"
-            say  "      ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} ${group}${C_RST}"
+            say  "      ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} ${group}${flags}${C_RST}"
         fi
     elif [[ -n "${hint}" ]]; then
-        say  "      run it later with: ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} <group>${C_RST}"
+        say  "      run it later with: ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} <group>${flags}${C_RST}"
     fi
     unreg_safedir "${d}"
     unreg_allow "${d}"
     ok "unclaimed ${d}"
     ai_tools_log_info "unclaimed project ${d}"
+}
+
+# residue_scan <dir>  -- fill RESIDUE and RESIDUE_SKIPPED with every path under <dir> that still
+# carries ai-tools ownership or group: the on-disk fingerprint of a claim. RESIDUE holds what the
+# default helper walk reaches, RESIDUE_SKIPPED what only --full does; .git counts as reachable
+# because the helper reverts it in a dedicated pass regardless of the skip list. Read-only and
+# unprivileged, so it is a PREVIEW: the helper re-derives the same predicate as root, where it
+# also sees the ACL-only paths this scan cannot cheaply detect and the paths this operator cannot
+# traverse. Under-reporting is the safe direction -- the gate it feeds only ever decides whether
+# there is anything to offer, never what may be touched.
+residue_scan() {
+    local d="$1" hit
+    RESIDUE=(); RESIDUE_SKIPPED=()
+    ai_tools_skip_find_expr sweep 2>/dev/null || true
+    while IFS= read -r hit; do
+        [[ -n "${hit}" ]] || continue
+        if [[ "${hit}" != "${d}/.git/"* && "${hit}" != "${d}/.git" ]] \
+                && under_skip_listed_name "${d}" "${hit}"; then
+            RESIDUE_SKIPPED+=("${hit}")
+        else
+            RESIDUE+=("${hit}")
+        fi
+    done < <(find "${d}" -xdev \
+                  '(' -user "${SANDBOX_USER}" -o -group "${SANDBOX_GROUP}" ')' \
+                  '(' -type d -o -type f ')' -print 2>/dev/null)
+}
+
+# resolve_handback_group <group-opt>  -- decide the filesystem hand-back's target group and echo
+# it; empty means "unregister only, leave permissions alone". --group answers BOTH questions at
+# once (whether to hand back, and to which group), so an automated run never depends on the
+# prompt's no-terminal fallback quietly picking the invoking user's group. Without it the
+# default-YES confirm and the user->group prompt run as before. Sets HANDBACK_HINT non-empty when
+# a hand-back was wanted but cannot run, so the caller prints the manual command instead.
+# Prompts draw on /dev/tty and warnings on stderr, so only the group name reaches stdout.
+resolve_handback_group() {
+    local group_opt="$1" hb_user hb_group=""
+    HANDBACK_HINT=""
+    if [[ -n "${group_opt}" ]]; then
+        if command -v sudo >/dev/null 2>&1; then
+            printf '%s' "${group_opt}"
+        else
+            warn "sudo not found -- cannot hand the files back automatically"
+            HANDBACK_HINT=1
+        fi
+        return 0
+    fi
+    # Default YES: the natural completion of an unclaim. Still confirmed, because it rewrites
+    # ownership and permissions across the tree.
+    if confirm "Hand the files back to a group and remove the agent's write access?" y; then
+        hb_user="$(ask "  Hand the files to which user's group?" "${ME}")"
+        if ! hb_group="$(id -gn "${hb_user}" 2>/dev/null)"; then
+            warn "no such user '${hb_user}' -- skipping the filesystem hand-back"
+            hb_group=""; HANDBACK_HINT=1
+        elif ! command -v sudo >/dev/null 2>&1; then
+            warn "sudo not found -- cannot hand the files back automatically"
+            hb_group=""; HANDBACK_HINT=1
+        fi
+        printf '%s' "${hb_group}"
+    fi
+}
+
+# cmd_unclaim_unlisted <dir> <force> <full> <dry> <assume-yes> <group-opt>  -- the UNRELATED
+# branch: no allowlist entry covers <dir>. Detection guides; only --force acts, and even then the
+# helper touches a path solely while it still carries the ai-tools fingerprint, so running this on
+# a directory that was never claimed changes nothing at all. That per-path gate -- not any
+# conservatism about which bits to write -- is what makes the mode safe on a mistyped path: what
+# it DOES to a path it accepts is identical to a registered unclaim.
+cmd_unclaim_unlisted() {
+    local d="$1" force="$2" full="$3" dry="$4" assume_yes="$5" group_opt="$6"
+
+    ai_tools_assert_safe_target "${d}" "project unclaim" || exit 3
+    # A sandbox clone has its own lifecycle verb, which also removes the clone itself.
+    if [[ "${d}" == "${SANDBOX_ROOT}/"* ]]; then
+        die "that is a sandbox clone: ${d}" \
+            "       remove it with: ai-tools --sandbox-remove ${d}"
+    fi
+
+    residue_scan "${d}"
+    local n_res="${#RESIDUE[@]}" n_skip="${#RESIDUE_SKIPPED[@]}"
+    if (( n_res == 0 && n_skip == 0 )); then
+        die "nothing to unclaim here: ${d}" \
+            "       it is not a registered project, and nothing in it carries ai-tools ownership or group" \
+            "       list your registered projects with: ai-tools --list"
+    fi
+
+    local extra=""
+    (( n_skip )) && extra=", plus ${n_skip} more under skip-listed directories (--full reaches those)"
+
+    # Detection GUIDES but never lowers the gate: the fingerprint improves the message, --force
+    # still authorizes, and the confirm below still executes.
+    if [[ "${force}" != true ]]; then
+        ai_tools_msg_notice \
+            "ai-tools: not a registered project, but it carries ai-tools permissions:" \
+            "${d}" \
+            "${n_res} path(s) owned by or grouped to ${SANDBOX_USER}${extra}." \
+            "This looks like a claimed project copied or moved here without unclaiming. To normalize its permissions without registering it, re-run with --force:"
+        say ""
+        say "   preview:  ${C_BOLD}ai-tools --project-unclaim --force --dry-run ${d}${C_RST}"
+        say "   apply:    ${C_BOLD}ai-tools --project-unclaim --force ${d}${C_RST}"
+        say "   see:      ${C_BOLD}man ai-tools${C_RST}"
+        exit 0
+    fi
+
+    if [[ "${dry}" == true ]]; then
+        section "Dry run -- nothing is changed"
+        say "  ${d}"
+        say ""
+        say "  ${n_res} path(s) the default walk reaches:"
+        path_detail_lines "${RESIDUE[@]}"
+        if (( n_skip )); then
+            say ""
+            say "  ${n_skip} path(s) under skip-listed directories, reached only with --full:"
+            path_detail_lines "${RESIDUE_SKIPPED[@]}"
+        fi
+        say ""
+        say "  ${C_DIM}the helper re-derives this as root, where it also sees ACL-only paths${C_RST}"
+        say "  ${C_DIM}and any path this account cannot traverse${C_RST}"
+        exit 0
+    fi
+
+    headline_warn "WARNING: unclaim an unregistered tree" \
+        "${d} is NOT a registered project. Only paths still carrying ai-tools ownership, group, or ACL are changed; every other path is left untouched." \
+        "On each matching path it clears the ACLs, regroups to the target group and removes group write -- landing on 640, or 750 where the owner has execute -- clears the setgid bit and resets the SELinux label. World access, which the claim removed, is NOT restored. The previous permissions are recorded nowhere, so this is IRREVERSIBLE. Back up first. See: man ai-tools"
+    say ""
+    say "    ${n_res} path(s)${extra}"
+    path_detail_lines "${RESIDUE[@]:0:3}"
+    if (( n_res > 3 )); then
+        say "        ${C_DIM}... and $(( n_res - 3 )) more${C_RST}"
+        offer_full_listing "path(s)" "${RESIDUE[@]}"
+    fi
+    say ""
+
+    # Heavy trees: informational unless --full was asked for. With --full the operator has already
+    # recorded the intent on the command line, so the confirm defaults YES -- an automated run
+    # carries through on that default while an interactive one still sees and answers it.
+    local -a helper_flags=(--unlisted)
+    if (( n_skip )); then
+        if [[ "${full}" == true ]]; then
+            headline_warn "Skip-listed directories (--full)" \
+                "${n_skip} path(s) carrying ai-tools ownership or group sit under skip-listed directory names (build output, dependencies, caches). --full includes them in this pass."
+            path_detail_lines "${RESIDUE_SKIPPED[@]:0:3}"
+            if (( n_skip > 3 )); then
+                say "        ${C_DIM}... and $(( n_skip - 3 )) more${C_RST}"
+                offer_full_listing "path(s)" "${RESIDUE_SKIPPED[@]}"
+            fi
+            say ""
+            confirm "Include these ${n_skip} path(s) under skip-listed directories?" y \
+                && helper_flags+=(--full)
+        else
+            headline_warn "NOTICE: residue under skip-listed directories" \
+                "${n_skip} path(s) carrying ai-tools ownership or group sit under skip-listed directory names (build output, dependencies, caches). This pass leaves them untouched; add --full to include them."
+            path_detail_lines "${RESIDUE_SKIPPED[@]:0:3}"
+            (( n_skip > 3 )) && say "        ${C_DIM}... and $(( n_skip - 3 )) more${C_RST}"
+            say ""
+        fi
+    fi
+
+    # The one decision --force does not make for you. -y pre-answers it, the same explicit
+    # per-invocation convention as --project-claim -y.
+    if [[ "${assume_yes}" != true ]]; then
+        confirm "Unclaim this unregistered tree?" n || die "aborted"
+    fi
+
+    local hb_group hb_hint
+    hb_group="$(resolve_handback_group "${group_opt}")"
+    hb_hint="${HANDBACK_HINT}"
+    if [[ -z "${hb_group}" ]]; then
+        [[ -n "${hb_hint}" ]] \
+            && say "      run it later with: ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} <group> ${helper_flags[*]}${C_RST}"
+        die "nothing to do without a hand-back group -- there are no registries to drop for an unregistered tree"
+    fi
+
+    if run_unclaim "${d}" "${hb_group}" "${helper_flags[@]}"; then
+        ok "normalized ${d} to group ${hb_group}, ai-tools access removed"
+        ai_tools_log_info "unclaimed unregistered tree ${d} (group -> ${hb_group})"
+    else
+        warn "could not normalize the tree -- run it by hand:"
+        say  "      ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} ${hb_group} ${helper_flags[*]}${C_RST}"
+        exit 1
+    fi
 }
 
 # cmd_project_unclaim [path]  -- undo an in-place claim (default: cwd): revert the SELinux
@@ -1213,34 +1429,94 @@ unclaim_one() {
 # eligible file to the target group, and removes group write (660->640, 770->750, 400 stays 400).
 # The target group defaults to the invoking user's own group; any other system user can be named.
 #
-# The path is classified against allowed-projects so unclaim only ever modifies permissions
-# inside a registered project: EXACT (path is itself a claimed project) unclaims it; ANCESTOR
-# (path is not listed but claimed projects are nested under it) lists those and, behind a single
-# default-NO warning, unclaims each; NEITHER refuses. A protected system path is refused up front
-# -- claim/setgid/setfacl never let one become a claimed project, so this only guards a
-# hand-edited allowlist, whose cleanup ai-tools --list reports.
+# The path is classified against allowed-projects into five outcomes, so unclaim only ever
+# modifies permissions where something authorizes it:
+#   EXACT       the path is itself a claimed project -- unclaim it.
+#   ANCESTOR    claimed projects are nested under it -- list them and, behind a single default-NO
+#               warning, unclaim each, outermost first.
+#   DESCENDANT  the path sits INSIDE a claimed project -- refuse, naming the nearest claimed
+#               parent (the longest matching entry) and the command that does work.
+#   UNRELATED + residue   no allowlist entry covers it, but it still carries the ai-tools
+#               fingerprint: a claimed project copied or moved here and never unclaimed. Detection
+#               only GUIDES; acting needs an explicit --force, which swaps the allowlist gate for
+#               a per-path residue gate in the helper.
+#   UNRELATED, clean      refuse -- nothing here was ever claimed, so there is nothing to undo.
+# A protected system path is refused up front. For a registered project this only guards a
+# hand-edited allowlist (claim/setgid/setfacl never let one become a claimed project), whose
+# cleanup ai-tools --list reports; --force never relaxes it.
 cmd_project_unclaim() {
-    local d; d="$(resolve_dir "${1:-$PWD}")"
+    # --force gates on the on-disk fingerprint instead of allowlist membership; it never relaxes
+    # the protected-paths backstop, the owner guard, or the secret/'!' skips. -y/--yes pre-answers
+    # the default-NO confirm, the same explicit-flag convention as --project-claim -y. --group
+    # names the hand-back group outright, so a script never depends on the prompt's no-tty
+    # fallback -- and it works in both modes.
+    local a path="" force=false full=false dry=false assume_yes=false group_opt="" want_group=false
+    for a in "$@"; do
+        if ${want_group}; then group_opt="${a}"; want_group=false; continue; fi
+        case "${a}" in
+            --force)      force=true ;;
+            --full)       full=true ;;
+            -n|--dry-run) dry=true ;;
+            -y|--yes)     assume_yes=true ;;
+            --group)      want_group=true ;;
+            --group=*)    group_opt="${a#--group=}" ;;
+            -*) die "unknown --project-unclaim option: ${a}" \
+                    "       allowed: --force, --full, -n/--dry-run, -y/--yes, --group <group>" ;;
+            *)  if [[ -z "${path}" ]]; then path="${a}"
+                else die "--project-unclaim takes a single path"; fi ;;
+        esac
+    done
+    ${want_group} && die "--group needs a group name"
+    if [[ -n "${group_opt}" ]] && ! getent group "${group_opt}" >/dev/null 2>&1; then
+        die "no such group: ${group_opt}"
+    fi
+    if ${dry} && ! ${force}; then
+        die "-n/--dry-run applies to --force only" \
+            "       a registered project's unclaim previews itself: it lists what it will do and asks before acting"
+    fi
 
-    # Classify d: exact entry, ancestor of one or more entries, or neither.
+    local d; d="$(resolve_dir "${path:-$PWD}")"
+    [[ -d "${d}" ]] || die "not a directory: ${d}"
+
+    # Classify d: exact entry, ancestor of entries, descendant of one, or unrelated.
     local -a entries=() targets=()
     local e
     while IFS= read -r e; do [[ -n "${e}" ]] && entries+=("${e}"); done \
         < <(positive_project_entries)
-    local mode=neither
+    local mode=unrelated nearest=""
     for e in "${entries[@]:-}"; do
         [[ "${e}" == "${d}" ]] && { mode=exact; targets=("${d}"); break; }
     done
-    if [[ "${mode}" == neither ]]; then
+    if [[ "${mode}" == unrelated ]]; then
         for e in "${entries[@]:-}"; do
             [[ "${e}" == "${d}/"* ]] && targets+=("${e}")
         done
-        (( ${#targets[@]} )) && mode=ancestor
+        if (( ${#targets[@]} )); then
+            mode=ancestor
+            # Outermost first: a parent path sorts before every path nested in it (it is their
+            # prefix), so a containing project is handed back before one inside it. Each still
+            # needs its own registry and label drop, so a nested entry is never skipped.
+            mapfile -t targets < <(printf '%s\n' "${targets[@]}" | sort)
+        fi
     fi
-    if [[ "${mode}" == neither ]]; then
-        die "not a claimed project: ${d}" \
-            "it is not in allowed-projects and no claimed project is nested under it" \
-            "       list your registered projects with: ai-tools --list"
+    if [[ "${mode}" == unrelated ]]; then
+        # Nearest claimed parent: the LONGEST entry that is a prefix of d. With both /a and /a/b
+        # claimed, /a/b/c belongs to /a/b. One length comparison -- no tree, no traversal.
+        for e in "${entries[@]:-}"; do
+            if [[ "${d}" == "${e}/"* ]] && (( ${#e} > ${#nearest} )); then nearest="${e}"; fi
+        done
+        [[ -n "${nearest}" ]] && mode=descendant
+    fi
+
+    if [[ "${mode}" == descendant ]]; then
+        die "this path is inside a claimed project, not a project itself: ${d}" \
+            "       the claimed project is: ${nearest}" \
+            "       unclaim that instead: ai-tools --project-unclaim ${nearest}"
+    fi
+
+    if [[ "${mode}" == unrelated ]]; then
+        cmd_unclaim_unlisted "${d}" "${force}" "${full}" "${dry}" "${assume_yes}" "${group_opt}"
+        return
     fi
 
     # Protected-path front line: never modify permissions on a protected system path. Guard
@@ -1250,6 +1526,15 @@ cmd_project_unclaim() {
     for t in "${targets[@]}"; do
         ai_tools_assert_safe_target "${t}" "project unclaim" || exit 3
     done
+
+    # --force is about reaching a tree the allowlist does not cover; here one does. Say so
+    # rather than silently ignoring the flag, and name the project that made it unnecessary.
+    if ${force}; then
+        ai_tools_msg_notice \
+            "ai-tools: --force is not needed here -- this path is covered by the allowlist:" \
+            "${targets[0]}" \
+            "unclaiming it the normal way, which reverts the whole registered tree."
+    fi
 
     if [[ "${mode}" == exact ]]; then
         section "Unclaim project"
@@ -1266,25 +1551,35 @@ cmd_project_unclaim() {
         confirm "Unclaim ALL ${#targets[@]} projects listed above?" n || die "aborted"
     fi
 
-    # Filesystem hand-back: decided ONCE for the whole batch. Default YES (the natural
-    # completion of an unclaim) but confirmed, since it rewrites ownership/permissions across
-    # each tree. Empty group => unregister only; hint => print the manual command per target.
-    local hb_group="" hb_hint=""
-    if confirm "Hand the files back to a group and remove the agent's write access?" y; then
-        local hb_user
-        hb_user="$(ask "  Hand the files to which user's group?" "${ME}")"
-        if ! hb_group="$(id -gn "${hb_user}" 2>/dev/null)"; then
-            warn "no such user '${hb_user}' -- skipping the filesystem hand-back"
-            hb_group=""; hb_hint=1
-        elif ! command -v sudo >/dev/null 2>&1; then
-            warn "sudo not found -- cannot hand the files back automatically"
-            hb_group=""; hb_hint=1
-        fi
-    fi
+    # Filesystem hand-back: decided ONCE for the whole batch.
+    local hb_group hb_hint
+    hb_group="$(resolve_handback_group "${group_opt}")"
+    hb_hint="${HANDBACK_HINT}"
+
+    local -a helper_flags=()
+    ${full} && helper_flags=(--full)
 
     for t in "${targets[@]}"; do
-        unclaim_one "${t}" "${hb_group}" "${hb_hint}"
+        unclaim_one "${t}" "${hb_group}" "${hb_hint}" "${helper_flags[@]}"
     done
+
+    # Mixed tree: the registered projects are done, but ai-tools residue can still sit elsewhere
+    # under this path (another copy, a leftover from a tree that was never registered). Reported
+    # only when --force asked about residue in the first place, so the common path pays no scan.
+    # The projects just unclaimed are no longer registered, so a re-run now classifies the whole
+    # path as unrelated and the one command finishes the job.
+    if ${force} && [[ "${mode}" == ancestor ]]; then
+        residue_scan "${d}"
+        local left=$(( ${#RESIDUE[@]} + ${#RESIDUE_SKIPPED[@]} ))
+        if (( left )); then
+            say ""
+            ai_tools_msg_notice \
+                "ai-tools: ${left} path(s) under this directory still carry ai-tools ownership or group, outside the projects just unclaimed." \
+                "Re-run to normalize them now that nothing here is registered:"
+            say ""
+            say "   ${C_BOLD}ai-tools --project-unclaim --force --dry-run ${d}${C_RST}"
+        fi
+    fi
 }
 
 # sandbox_finalize <dst>  -- the access-granting tail of every sandbox create, run only
@@ -1954,6 +2249,11 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
 
   --project-claim options: -y/--yes (pre-answer the proceed prompt; the secret-lockdown,
                       .git-history, and ancestor-traversal questions still ask)
+  --project-unclaim options: --group <group> (hand back to <group> without prompting),
+                      --full (also cover node_modules, .venv, ...), -y/--yes (pre-answer
+                      the confirm), --force (normalize a COPY of a claimed project that is
+                      not registered; acts only on paths still carrying ai-tools ownership,
+                      group, or ACL), -n/--dry-run (with --force: list, change nothing)
   --lockdown options: -n/--dry-run (preview only), -y/--yes (skip confirmation)
   --reclaim options:  --full (also reclaim node_modules, .venv, ... not just the work tree + .git)
 
@@ -2007,8 +2307,8 @@ esac
 case "${1:-}" in
     --project-claim)   shift; cmd_project_claim   "$@" ;;
     --project-create)  shift; cmd_project_create  "$@" ;;
-    --project-unclaim) shift; cmd_project_unclaim "${1:-}" ;;
-    --project-remove)  shift; cmd_project_unclaim "${1:-}" ;;
+    --project-unclaim) shift; cmd_project_unclaim "$@" ;;
+    --project-remove)  shift; cmd_project_unclaim "$@" ;;
     --sandbox-create) shift; cmd_sandbox_create "${1:-}" ;;
     --sandbox-push)   shift; cmd_sandbox_push   "${1:-}" ;;
     --sandbox-remove) shift; cmd_sandbox_remove "${1:-}" ;;
