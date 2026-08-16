@@ -900,6 +900,12 @@ fi
   confinement: a session then refuses to launch on a host where the ai-tools policy is not
   enforcing, instead of falling back to DAC-only. Off by default, so intentional DAC-only hosts
   are unaffected.
+- NEW: ai-tools --project-unclaim --force releases a copy of a claimed project -- one moved or
+  copied elsewhere that still carries the ai-tools group and ACLs but that no allowlist names.
+  It changes only paths that still carry ai-tools access; --dry-run, --full and --group support
+  scripted use.
+- FIX: Claiming a project no longer opens files and directories you had made owner-only (0600,
+  0700) to the agent. They are left as they are, and the claim reports how many it skipped.
 - FIX: A session could silently run unconfined on a host that in fact had the SELinux policy
   loaded. The pre-launch confinement probe read module presence from the root-only policy store,
   which the sandbox account cannot read, so it always saw "absent" and on one path launched
