@@ -137,31 +137,61 @@ else
 fi
 
 # (6) The label/RELABEL primitives applied end-to-end, with the achieved label VERIFIED rather than
-# restorecon's exit status trusted. relabel.lib.sh's ai_tools_label_project labels a path and
-# self-verifies (a mislabel is a hard failure -- the regression that let a usr_t clone report
-# success); ai_tools_unlabel_project reverts it. Round-trips a throwaway dir under the sandbox root
-# (the one place the static rule applies), self-cleaning; created and removed here, not in a /tmp
-# testdir, because the label is only reachable under that root.
+# restorecon's exit status trusted: ai_tools_label_project self-verifies, so a mislabel is a hard
+# failure (the regression that let a usr_t clone report success).
+#
+# relabel.lib.sh splits on _ai_tools_is_sandbox, and the two branches are asserted separately
+# because only one of them can revert. This is the CLAIMED-PROJECT branch, the one
+# --project-claim/--project-unclaim drive: a per-path `semanage fcontext` rule is added, restorecon
+# applies it, and the unlabel removes both -- so it round-trips. It runs in the /tmp testdir
+# precisely because that is OUTSIDE the sandbox root; the label is reachable there through the
+# per-path rule the helper adds, not through any static rule.
 RELABEL_LIB=/usr/local/lib/ai-tools/relabel.lib.sh
-if [[ ! -d "${SANDBOX_ROOT}" ]]; then
-    skip "label/relabel round-trip" "sandbox area ${SANDBOX_ROOT} not present"
-elif [[ ! -r "${RELABEL_LIB}" ]] || ! source "${RELABEL_LIB}" 2>/dev/null \
+if [[ ! -r "${RELABEL_LIB}" ]] || ! source "${RELABEL_LIB}" 2>/dev/null \
         || ! declare -F ai_tools_label_project >/dev/null 2>&1; then
     skip "label/relabel round-trip" "relabel.lib.sh not available at ${RELABEL_LIB}"
 else
-    probe="${SANDBOX_ROOT}/_selftest-relabel-$$"
+    mktestdir
+    probe="${TESTDIR}/claimed"
     mkdir -p "${probe}"
     if ai_tools_label_project "${probe}" && ai_tools_project_labelled "${probe}"; then
-        pass "ai_tools_label_project applies AND verifies ai_tools_project_t on a sandbox path"
+        pass "ai_tools_label_project applies AND verifies ai_tools_project_t on a claimed path"
     else
         fail "ai_tools_label_project did not leave ${probe} on ai_tools_project_t ($(ls -Zd "${probe}" 2>/dev/null))"
     fi
+    # Remove the per-path rule whatever the assertion above did, so a failed run leaves no
+    # semanage entry behind for a /tmp path that is about to be deleted.
     if ai_tools_unlabel_project "${probe}" && ! ai_tools_project_labelled "${probe}"; then
-        pass "ai_tools_unlabel_project reverts a sandbox path off ai_tools_project_t"
+        pass "ai_tools_unlabel_project reverts a claimed path off ai_tools_project_t"
     else
         fail "ai_tools_unlabel_project left ${probe} on ai_tools_project_t ($(ls -Zd "${probe}" 2>/dev/null))"
     fi
-    rmdir "${probe}" 2>/dev/null || true
+fi
+
+# (7) The SANDBOX-CLONE branch of that same split. A clone is covered by the STATIC ai_tools.fc
+# rule, so the helper adds no per-path rule -- and therefore cannot remove one: after an unlabel a
+# clone is still ai_tools_project_t, which is what keeps it reachable by the confined agent. This
+# is the designed asymmetry, so assert it rather than leave it to be rediscovered as a bug: the
+# way to un-label a clone is to delete it (`ai-tools --sandbox-remove`), not to relabel it.
+if [[ ! -d "${SANDBOX_ROOT}" ]]; then
+    skip "sandbox clone label is static" "sandbox area ${SANDBOX_ROOT} not present"
+elif ! declare -F ai_tools_unlabel_project >/dev/null 2>&1; then
+    skip "sandbox clone label is static" "relabel.lib.sh not available at ${RELABEL_LIB}"
+else
+    sprobe="${SANDBOX_ROOT}/_selftest-relabel-$$"
+    mkdir -p "${sprobe}"
+    if ai_tools_label_project "${sprobe}" && ai_tools_project_labelled "${sprobe}"; then
+        pass "a sandbox clone labels ai_tools_project_t from the static rule"
+    else
+        fail "sandbox clone ${sprobe} is not ai_tools_project_t ($(ls -Zd "${sprobe}" 2>/dev/null))"
+    fi
+    ai_tools_unlabel_project "${sprobe}" >/dev/null 2>&1 || true
+    if ai_tools_project_labelled "${sprobe}"; then
+        pass "an unlabel leaves a sandbox clone labelled (the static rule is authoritative)"
+    else
+        fail "unlabel stripped ai_tools_project_t from a sandbox clone -- the agent loses access to every clone"
+    fi
+    rmdir "${sprobe}" 2>/dev/null || true
 fi
 
 finish

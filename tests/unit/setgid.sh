@@ -77,14 +77,17 @@ chmod 0770 "${p2}" "${p2}/plain" "${p2}/sealed/inside"
 chmod 0700 "${p2}/sealed"
 # The inherited-then-sealed case: born group SANDBOX_GROUP + setgid + the project's ACL inside a
 # claimed tree, then sealed by the operator. That residue is what a later chmod re-activates.
+# Build it in that ORDER -- ACL first, the operator's chmod last. `setfacl -m` recalculates the
+# mask, so seeding the ACL after the chmod would raise the group bits back to rwx and leave a
+# 2770 dir that is not owner-only at all, testing the opposite of what this case is for.
 chgrp "${SANDBOX_GROUP}" "${p2}/inherited"
-chmod 2700 "${p2}/inherited"
 have_acl=false
 if command -v setfacl >/dev/null 2>&1 \
         && setfacl -m "group:${SANDBOX_GROUP}:rwX" "${p2}/inherited" 2>/dev/null; then
     setfacl -d -m "group:${SANDBOX_GROUP}:rwX" "${p2}/inherited" 2>/dev/null || true
     have_acl=true
 fi
+chmod 2700 "${p2}/inherited"
 mk_allowlist "${p2}"
 setsid "${HELPER}" "${p2}" < /dev/null > /dev/null 2>&1 || true
 
