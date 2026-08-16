@@ -94,8 +94,15 @@ the real, token-substituted artifact) against a `/tmp` testdir and a dummy allow
 asserting the algorithm: allowlist gating, the owner guard (acts only on projects-user- or
 sandbox-account-owned paths) where it applies, ACL/setgid/permission transforms, the
 secret/exclusion/skip-list skips, and -- for `-lockdown` -- the proactive sweep that locks
-**pre-existing user-owned** secrets (files `600`, dirs `700`, `<you>:SANDBOX_GROUP`) which
-the reactive `-chown` never reaches, plus its refusal to run as the sandbox account. No live
+**pre-existing user-owned** secrets (files `600`, dirs `700`, `<you>:<you>`) which
+the reactive `-chown` never reaches, plus its seal pass over the paths sealed by *mode* rather
+than by name, and its refusal to run as the sandbox account.
+The seal cases run across three files, because the same guarantee has three consumers:
+`owner-only.sh` pins the primitives, while `setgid.sh` and `lockdown.sh` assert the deployed
+helpers actually apply them. What each asserts is that a sealed path is never pulled into the
+agent's group and that the residue behind its mode is removed without the mode widening -- a
+strip that raised the ACL mask would leave the residue "gone" and the path more open than
+before. No live
 daemon, no SELinux dependency, no wrapper. Run as root (needed to set arbitrary ownership
 and create third-party-owned fixtures). A fixture tree is `chown`ed to the projects user
 before the run, or the owner guard skips it. `secret-patterns.sh` is the odd one out: it

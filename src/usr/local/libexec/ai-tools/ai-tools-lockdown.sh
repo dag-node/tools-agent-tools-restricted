@@ -12,6 +12,11 @@
 # Each locked path also has its sandbox residue stripped (owner-only.lib.sh), for the same
 # reason -- the mode alone does not hold.
 #
+# A second pass then seals the paths the operator sealed by MODE rather than by name: every path
+# already owner-only gets the same residue stripped, so a directory or file sealed after the
+# claim does not wait for the next claim to be cleaned up. That pass only ever removes the
+# sandbox's reach, so unlike the lock it runs without a confirmation.
+#
 # Unlike ai-tools-chown (reactive: fires per agent-written path and acts only on
 # ai-tools-owned paths), this is a USER-run pre-flight sweep -- it also locks down
 # pre-existing, user-owned secrets the agent could otherwise read (e.g. an
@@ -138,6 +143,11 @@ readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}"
 # ai-tools-chown gives an agent-written secret, so a secret ends up identically owned whether it
 # was locked down proactively or quarantined on write.
 readonly OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"
+# Two identities may legitimately hold a path in a claimed tree: the resolved operator and the
+# sandbox account. The seal pass acts on those only, as every other walk does -- a path held by a
+# third party (root, another developer) is left untouched.
+SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
+readonly SANDBOX_UID
 
 # ── Allowlist (allow + ! exclude), same parse as ai-tools-chown ──────────────
 declare -a allowed=()
@@ -198,13 +208,33 @@ while IFS= read -r -d '' path; do
     hits+=("${path}")
 done < <(find "${expr[@]}" 2>/dev/null)
 
+# ── Enumerate owner-only paths to seal ───────────────────────────────────────
+# The pass above finds paths by NAME. This one finds the paths sealed by MODE -- anything
+# already owner-only that still carries the group, setgid bit or ACL entries it inherited when
+# it was created inside the claimed tree. Stripping those is what makes such a seal survive a
+# later chmod; owner-only.lib.sh is the reference for what comes off.
+#
+# `! -perm /077` selects "no group and no other bit set", the owner-only predicate, in the
+# kernel -- so the filter costs no stat per path. A sealed DIRECTORY is printed and then pruned,
+# taking its subtree with it exactly as ai-tools-setgid/-setfacl do: the sandbox account cannot
+# enter it, so nothing inside is reachable through it. Secret-named paths are left to the lock
+# pass above, which seals them itself.
+declare -a sealed=()
+while IFS= read -r -d '' path; do
+    _is_excluded "${path}" && continue
+    ai_tools_is_secret_basename "$(basename "${path}")" && continue
+    sealed+=("${path}")
+done < <(find "${target}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
+              '(' -type d ! -perm /077 -print0 -prune ')' -o \
+              '(' -type f ! -perm /077 -print0 ')' 2>/dev/null)
+
 # Label for log lines: DRY_RUN holds the string "true"/"false" (both non-empty), so
 # select on its value, not with ${DRY_RUN:+...} which would always expand.
 if ${DRY_RUN}; then scan_mode=" (dry-run)"; else scan_mode=""; fi
 
-if [[ "${#hits[@]}" -eq 0 ]]; then
-    log "no secret-matching paths under ${target}"
-    ai_tools_log_info "scan${scan_mode}: no secret-matching paths under ${target}"
+if [[ "${#hits[@]}" -eq 0 && "${#sealed[@]}" -eq 0 ]]; then
+    log "no secret-matching paths, and no owner-only paths to seal, under ${target}"
+    ai_tools_log_info "scan${scan_mode}: nothing to do under ${target}"
     exit 0
 fi
 
@@ -212,17 +242,22 @@ fi
 # Log the detection (count + each path) regardless of dry-run vs apply: this is the
 # audit record of what the scan SAW. The later per-path "locked" entries from
 # _safe_apply record what was DONE -- distinct events, intentionally both logged.
-printf 'ai-tools-lockdown: %d secret-matching path(s) under %s:\n' \
-    "${#hits[@]}" "${target}" >&2
-ai_tools_log_info "scan${scan_mode}: ${#hits[@]} secret-matching path(s) under ${target}"
-for path in "${hits[@]}"; do
-    if [[ -d "${path}" ]]; then
-        printf '  [dir]  %s\n' "$(ai_tools_log_sanitize "${path}")" >&2
-    else
-        printf '  [file] %s\n' "$(ai_tools_log_sanitize "${path}")" >&2
-    fi
-    ai_tools_log_info "scan: secret-matching ${path}"
-done
+if (( ${#hits[@]} )); then
+    printf 'ai-tools-lockdown: %d secret-matching path(s) under %s:\n' \
+        "${#hits[@]}" "${target}" >&2
+    ai_tools_log_info "scan${scan_mode}: ${#hits[@]} secret-matching path(s) under ${target}"
+    for path in "${hits[@]}"; do
+        if [[ -d "${path}" ]]; then
+            printf '  [dir]  %s\n' "$(ai_tools_log_sanitize "${path}")" >&2
+        else
+            printf '  [file] %s\n' "$(ai_tools_log_sanitize "${path}")" >&2
+        fi
+        ai_tools_log_info "scan: secret-matching ${path}"
+    done
+fi
+if (( ${#sealed[@]} )); then
+    ai_tools_log_info "scan${scan_mode}: ${#sealed[@]} owner-only path(s) under ${target}"
+fi
 
 if ${DRY_RUN}; then
     log "dry-run: no changes made"
@@ -230,7 +265,10 @@ if ${DRY_RUN}; then
     exit 0
 fi
 
-if ! ${ASSUME_YES}; then
+# Only the secret lock asks. It changes ownership and modes the operator did not choose,
+# whereas the seal pass below only ever REMOVES the sandbox's reach from a path the operator
+# already sealed -- the same terms on which the claim walks strip, so it runs unprompted.
+if (( ${#hits[@]} )) && ! ${ASSUME_YES}; then
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
         ai_tools_msg_confirm \
             "Set files 600 / dirs 700, chown ${OWNER}, revoking ai-tools access?" n \
@@ -292,6 +330,43 @@ _safe_apply() {
     return 0
 }
 
+# _safe_seal <path>: strip the sandbox residue from an already-owner-only path, through a pinned
+# fd like _safe_apply. Changes no mode bits and no ownership -- it removes only what the sandbox
+# put there (owner-only.lib.sh) -- so unlike _safe_apply it needs no confirmation.
+# Returns 0 when something was stripped, 1 when there was nothing to strip or the path is out of
+# scope. Sets AI_TOOLS_RESIDUE_SURFACE for the caller (a third-party setgid it declined to clear).
+_safe_seal() {
+    local path="$1" expect_ident fd got_ident got_uid got_grp got_mode got_ftype rc
+    # Clear it here, not only in the strip: every return below the strip is an early one, and a
+    # stale value from the previous path would be counted against this one.
+    AI_TOOLS_RESIDUE_SURFACE=0
+    expect_ident="$(stat -c '%d:%i' "${path}" 2>/dev/null)" || return 1
+    { exec {fd}< "${path}"; } 2>/dev/null || return 1
+    # %F ("regular empty file") is multi-word, so it stays the last field.
+    read -r got_ident got_uid got_grp got_mode got_ftype \
+        < <(stat -L -c '%d:%i %u %G %a %F' "/proc/self/fd/${fd}" 2>/dev/null) \
+        || { exec {fd}<&-; return 1; }
+    if [[ "${got_ident}" != "${expect_ident}" ]]; then exec {fd}<&-; return 1; fi
+    # Owner guard, on the pinned inode: only the operator's own or the sandbox account's paths.
+    if [[ "${got_uid}" != "${PROJECTS_UID}" && "${got_uid}" != "${SANDBOX_UID}" ]]; then
+        exec {fd}<&-; return 1
+    fi
+    case "${got_ftype}" in
+        directory|"regular file"|"regular empty file") ;;
+        *) exec {fd}<&-; return 1 ;;            # never touch symlinks/fifos/devices
+    esac
+    # Re-check the mode on the pinned inode: find matched the path, this matches the inode.
+    if ! ai_tools_is_owner_only "${got_mode}"; then exec {fd}<&-; return 1; fi
+    rc=1
+    ai_tools_strip_sandbox_residue "${fd}" "${got_ftype}" "${got_grp}" "${got_mode}" \
+        "${PROJECTS_GROUP}" && rc=0
+    exec {fd}<&-
+    if (( rc == 0 )); then
+        ai_tools_log_info "sealed ${path} (owner-only; stripped ${AI_TOOLS_RESIDUE_ACTIONS[*]})"
+    fi
+    return "${rc}"
+}
+
 declare -i done_count=0 skip_count=0
 for path in "${hits[@]}"; do
     if _safe_apply "${path}"; then
@@ -301,10 +376,35 @@ for path in "${hits[@]}"; do
     fi
 done
 
-if (( skip_count > 0 )); then
-    ai_tools_log_warn "lockdown of ${target}: locked ${done_count} path(s), skipped ${skip_count}"
-    log "locked ${done_count} path(s); skipped ${skip_count} (see warnings above)"
-else
-    ai_tools_log_info "lockdown of ${target}: locked ${done_count} path(s)"
-    log "locked ${done_count} path(s)"
+if (( ${#hits[@]} )); then
+    if (( skip_count > 0 )); then
+        ai_tools_log_warn "lockdown of ${target}: locked ${done_count} path(s), skipped ${skip_count}"
+        log "locked ${done_count} path(s); skipped ${skip_count} (see warnings above)"
+    else
+        ai_tools_log_info "lockdown of ${target}: locked ${done_count} path(s)"
+        log "locked ${done_count} path(s)"
+    fi
+fi
+
+# ── Seal pass ────────────────────────────────────────────────────────────────
+# Strip the residue from the paths the operator sealed by mode. Reported only when it actually
+# changed something: on a settled tree this is a silent no-op, run after run.
+declare -i seal_count=0 foreign=0
+for path in "${sealed[@]}"; do
+    if _safe_seal "${path}"; then
+        seal_count=$(( seal_count + 1 ))
+    fi
+    if (( ${AI_TOOLS_RESIDUE_SURFACE:-0} )); then foreign=$(( foreign + 1 )); fi
+done
+
+if (( seal_count > 0 )); then
+    ai_tools_log_info "sealed ${seal_count} owner-only path(s) under ${target}"
+    log "sealed ${seal_count} owner-only path(s) (sandbox group, setgid and ACL entries removed)"
+fi
+# Surfaced, never silent: the one piece of residue the pass declines to remove, since it cannot
+# ask whether the operator meant it.
+if (( foreign > 0 )); then
+    ai_tools_log_warn "left a third-party setgid bit on ${foreign} owner-only path(s) under ${target}"
+    printf 'ai-tools-lockdown: kept the setgid bit on %d owner-only director(ies) grouped to a third party -- clear it yourself with: chmod g-s <dir>\n' \
+        "${foreign}" >&2
 fi
