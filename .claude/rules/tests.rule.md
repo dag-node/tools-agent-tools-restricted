@@ -40,6 +40,14 @@ reads or writes the operator's real files (notably the real
 harness `EXIT` trap). A test never relies on arbitrary pre-existing state, and never
 touches a path outside its testdir boundary.
 
+Nor does a test mutate **global system state** to exercise a helper — the host's local SELinux
+policy (`semanage fcontext`) above all. A helper whose real work *is* to add and then remove a
+policy entry is therefore covered only on the branch where it mutates nothing: the alternative is
+a teardown that can strand an entry in the policy store on a failed run, which costs more than
+the coverage buys. Where that trades away an assertion, the gap is named at the point it is
+declined — `integration/selinux.sh` does this for `ai_tools_unlabel_project`'s revert path — so a
+reader meets it as a decision rather than as an absence.
+
 The deployed root helpers read a fixed allowlist path; a test points them at its own dummy
 allowlist via the `AI_TOOLS_ALLOWLIST` environment override (`mk_allowlist` writes the
 dummy and exports it). This override is a **root-only test hook**: `sudo` strips it
