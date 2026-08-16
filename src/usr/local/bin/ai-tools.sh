@@ -1617,14 +1617,62 @@ sandbox_finalize() {
     say "  ${C_YEL}shallow${C_RST}        : push-only -- never git pull/fetch here, or you pull the full history"
 }
 
-# cmd_sandbox_create [path]  -- create or reuse the per-repo branch
-# ai-tools/sandbox-<user>/<leaf>, shallow-clone it PRIVATELY (umask 077) into
-# SANDBOX_ROOT, then hand off to sandbox_finalize: secret lockdown first, and only past
-# that gate normalize + relabel + register (fail-closed otherwise). Pointed at an
-# EXISTING clone under SANDBOX_ROOT, it resumes sandbox_finalize on it -- the recovery
-# path for a create whose gate was declined or failed.
+# sandbox_default_branch <from>  -- echo the DEFAULT sandbox branch name for a fork of <from>:
+# "sandbox/<leaf>", where <leaf> is <from>'s last path component (so a fork of develop defaults to
+# sandbox/develop, and origin/feature/x to sandbox/x). The literal "sandbox" carries NO host,
+# machine, or operator identity by design -- the branch is pushed to a shared remote, so the default
+# must leak nothing about who or where created it. It is only a DEFAULT: the operator overrides the
+# whole name with --branch (or the prompt), and any valid git ref is accepted, so the sandbox
+# workflow is not tied to this shape. Pure; unit-tested (tests/unit/sandbox.sh).
+sandbox_default_branch() {
+    printf 'sandbox/%s' "${1##*/}"
+}
+
+# sandbox_resolve_base <top> <remote> <base>  -- echo a ref naming <base>'s tip in the source
+# repo, or return 1 if none does. Tries <base> as a local branch first, then the remote-tracking
+# form <remote>/<base> (so a base that lives only on the remote -- e.g. master while you are on
+# develop -- resolves without a local checkout), then any other commit-ish (a tag or SHA). This is
+# what lets the sandbox branch be forked from a base OTHER than the current HEAD. Read-only (no
+# ref is created here); unit-tested against a fixture repo (tests/unit/sandbox.sh).
+sandbox_resolve_base() {
+    local top="$1" remote="$2" base="$3"
+    git -C "${top}" rev-parse --verify --quiet "refs/heads/${base}" >/dev/null 2>&1 \
+        && { printf '%s' "${base}"; return 0; }
+    git -C "${top}" rev-parse --verify --quiet "refs/remotes/${remote}/${base}" >/dev/null 2>&1 \
+        && { printf 'refs/remotes/%s/%s' "${remote}" "${base}"; return 0; }
+    git -C "${top}" rev-parse --verify --quiet "${base}^{commit}" >/dev/null 2>&1 \
+        && { printf '%s' "${base}"; return 0; }
+    return 1
+}
+
+# cmd_sandbox_create [path] [--from <ref>] [--branch <name>] [--dir <name>] [-y|--yes]
+#   -- create or reuse a sandbox branch, shallow-clone it PRIVATELY (umask 077) into SANDBOX_ROOT,
+#   then hand off to sandbox_finalize: secret lockdown first, and only past that gate normalize +
+#   relabel + register (fail-closed otherwise). Pointed at an EXISTING clone under SANDBOX_ROOT, it
+#   resumes sandbox_finalize on it (flags are then irrelevant) -- the recovery path for a create
+#   whose gate was declined or failed.
+#
+#   Every input has a default and an optional flag, so the command is fully scriptable and the
+#   prompts are only the interactive fallback (a flag skips its prompt; no flag + no tty takes the
+#   default). The branch is a FULL git ref of any shape -- the "sandbox/<leaf>" default is a
+#   convention, not a required structure (see sandbox_default_branch); it is validated with
+#   git check-ref-format, never silently rewritten. -y/--yes pre-answers the create confirm only;
+#   the secret-lockdown and .git gates in sandbox_finalize still apply (messaging.rule.md doctrine).
 cmd_sandbox_create() {
-    local src; src="$(resolve_dir "${1:-$PWD}")"
+    local o_path="" o_from="" o_branch="" o_dir="" o_yes=false
+    local have_from=false have_branch=false have_dir=false
+    while (( $# )); do
+        case "$1" in
+            --from)   [[ $# -ge 2 ]] || die "--from needs a value";   o_from="$2";   have_from=true;   shift 2 ;;
+            --branch) [[ $# -ge 2 ]] || die "--branch needs a value"; o_branch="$2"; have_branch=true; shift 2 ;;
+            --dir)    [[ $# -ge 2 ]] || die "--dir needs a value";    o_dir="$2";    have_dir=true;    shift 2 ;;
+            -y|--yes) o_yes=true; shift ;;
+            --)       shift ;;
+            -*)       die "unknown option: $1 (see: ai-tools --help)" ;;
+            *)        [[ -z "${o_path}" ]] || die "unexpected extra argument: $1"; o_path="$1"; shift ;;
+        esac
+    done
+    local src; src="$(resolve_dir "${o_path:-$PWD}")"
 
     case "${src}/" in
         "${SANDBOX_ROOT}"/*)
@@ -1657,12 +1705,32 @@ cmd_sandbox_create() {
     say "  current branch : ${cur}"
     say "  remote         : ${remote}  ${C_DIM}${remote_url}${C_RST}"
 
-    local leaf; leaf="$(ask "Branch leaf under ai-tools/sandbox-${ME}/" "main")"
-    leaf="${leaf#/}"; leaf="${leaf%/}"
-    [[ -n "${leaf}" ]] || die "branch leaf cannot be empty"
-    local br="ai-tools/sandbox-${ME}/${leaf}"
+    # Resolve every input BEFORE any push or checkout: a flag wins, else the prompt (interactive) or
+    # the default (no tty). So an Enter-through reproduces the previous shape and a fully-flagged run
+    # needs no terminal, while a bad value stops here rather than after the push.
 
-    local name; name="$(ask "Sandbox directory name under ${SANDBOX_ROOT}" "$(basename "${top}")")"
+    # Base to fork from -- defaults to the current branch, but can be any base (e.g. main for a
+    # hotfix while you sit on develop): a local branch, a <remote>/<base>, or any ref.
+    local base
+    if ${have_from}; then base="${o_from}"; else base="$(ask "Base branch to fork from" "${cur}")"; fi
+    [[ -n "${base}" ]] || die "base branch cannot be empty"
+    local base_ref
+    base_ref="$(sandbox_resolve_base "${top}" "${remote}" "${base}")" \
+        || die "base not found: ${base} (not a local branch, ${remote}/${base}, or a known ref)"
+
+    # Sandbox branch -- a FULL git ref of any shape. Defaults to the convention sandbox/<leaf-of-base>
+    # but the operator may enter anything (a flat name, a hotfix/x, or the old ai-tools/... form).
+    # Validated with git check-ref-format and refused if invalid -- never silently rewritten.
+    local br
+    if ${have_branch}; then br="${o_branch}"
+    else br="$(ask "Sandbox branch to create/track" "$(sandbox_default_branch "${base}")")"; fi
+    [[ -n "${br}" ]] || die "sandbox branch cannot be empty"
+    git check-ref-format "refs/heads/${br}" 2>/dev/null \
+        || die "invalid branch name: ${br} (must be a valid git ref -- see git-check-ref-format(1))"
+
+    local name
+    if ${have_dir}; then name="${o_dir}"
+    else name="$(ask "Sandbox directory name under ${SANDBOX_ROOT}" "$(basename "${top}")")"; fi
     [[ -n "${name}" && "${name}" != */* ]] || die "invalid directory name: ${name}"
     local dst="${SANDBOX_ROOT}/${name}"
     if [[ -e "${dst}" ]]; then
@@ -1672,47 +1740,54 @@ cmd_sandbox_create() {
     fi
     [[ -d "${SANDBOX_ROOT}" ]] || die "sandbox area missing: ${SANDBOX_ROOT} -- run install first"
 
-    # If the branch already exists on the remote (a prior sandbox of this repo),
-    # reuse it rather than force-pushing over it -- this resumes earlier work and
-    # never discards commits. To reset it, delete the remote branch or pick a new leaf.
-    local br_exists=false
-    [[ -n "$(git -C "${top}" ls-remote --heads "${remote}" "${br}" 2>/dev/null)" ]] \
-        && br_exists=true
-
-    say ""
-    say "  will:"
-    if ${br_exists}; then
-        say "    1. ${C_YEL}reuse existing remote branch${C_RST} ${C_BOLD}${br}${C_RST} (your current ${cur} is NOT pushed over it)"
-    else
-        say "    1. create branch ${C_BOLD}${br}${C_RST} from ${cur} and push it to ${remote}"
-    fi
-    say "    2. shallow-clone that branch into ${C_BOLD}${dst}${C_RST}, private to you"
-    say "    3. lock down tip-commit secrets, then grant the agent access and register the clone"
-    confirm "Create the sandbox clone?" y || die "aborted"
-
-    if ${br_exists}; then
-        ok "reusing existing remote branch ${br}"
-    else
-        git -C "${top}" branch -f "${br}" HEAD
-        git -C "${top}" push "${remote}" "${br}"
-        ok "pushed ${br} to ${remote}"
-    fi
-
-    # git silently ignores --depth for a clone from a local path, which would copy
-    # the FULL history into the sandbox and defeat the isolation. Force the file://
-    # transport for local-path remotes so depth=1 is honored; network remotes
-    # (ssh/https) honor it natively and keep their original URL.
+    # git silently ignores --depth for a clone from a local path, which would copy the FULL history
+    # into the sandbox and defeat the isolation. Force the file:// transport for local-path remotes
+    # so depth=1 is honored; network remotes (ssh/https) honor it natively and keep their URL.
+    # Computed here (not after the confirm) so the preview shows the exact clone command.
     local clone_url="${remote_url}"
     case "${remote_url}" in
         /*|./*|../*) clone_url="file://$(realpath -m "${remote_url}")" ;;
     esac
-    # umask 077: the clone is born OWNER-ONLY, so the tip commit's files -- possibly
-    # checked-in credentials -- are unreadable to the sandbox account (the setgid
-    # SANDBOX_ROOT already puts them in group SANDBOX_GROUP) until the secret gate has
-    # run and normalize_clone deliberately opens the non-secret paths.
+
+    # If the branch already exists on the remote (a prior sandbox of this repo), reuse it rather
+    # than force-pushing over it -- this resumes earlier work and never discards commits. To reset
+    # it, delete the remote branch or pick a new leaf.
+    local br_exists=false
+    [[ -n "$(git -C "${top}" ls-remote --heads "${remote}" "${br}" 2>/dev/null)" ]] \
+        && br_exists=true
+
+    # Preview the ACTUAL commands, verbatim on their own lines (a long clone line overflows the
+    # frame intact rather than wrapping -- see messaging.rule.md / console-command-formatting).
+    say ""
+    if ${br_exists}; then
+        say "  will run (reusing existing remote branch ${br}; ${base} is NOT pushed over it):"
+    else
+        say "  will run:"
+        say "    git branch -f ${br} ${base_ref}"
+        say "    git push ${remote} ${br}"
+    fi
+    say "    git clone --depth=1 -b ${br} ${clone_url} ${dst}"
+    say ""
+    say "  then: lock down tip-commit secrets, grant the agent access, register the clone"
+    # -y/--yes pre-answers this create confirm only (an auditable per-invocation flag, as elsewhere);
+    # the secret-lockdown and .git gates in sandbox_finalize still prompt on their own terms.
+    ${o_yes} || confirm "Create the sandbox clone?" y || die "aborted"
+
+    if ${br_exists}; then
+        ok "reusing existing remote branch ${br}"
+    else
+        git -C "${top}" branch -f "${br}" "${base_ref}"
+        git -C "${top}" push "${remote}" "${br}"
+        ok "pushed ${br} to ${remote}"
+    fi
+
+    # umask 077: the clone is born OWNER-ONLY, so the tip commit's files -- possibly checked-in
+    # credentials -- are unreadable to the sandbox account (the setgid SANDBOX_ROOT already puts
+    # them in group SANDBOX_GROUP) until the secret gate has run and normalize_clone deliberately
+    # opens the non-secret paths.
     ( umask 077 && git clone --depth=1 -b "${br}" "${clone_url}" "${dst}" )
     ok "shallow-cloned into ${dst} (private until secured)"
-    ai_tools_log_info "created sandbox clone ${dst} (branch ${br}, remote ${remote})"
+    ai_tools_log_info "created sandbox clone ${dst} (branch ${br}, base ${base_ref}, remote ${remote})"
 
     sandbox_finalize "${dst}"
 }
@@ -2254,6 +2329,10 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
                       the confirm), --force (normalize a COPY of a claimed project that is
                       not registered; acts only on paths still carrying ai-tools ownership,
                       group, or ACL), -n/--dry-run (with --force: list, change nothing)
+  --sandbox-create options: --from <ref> (branch/ref to fork from; default: current branch),
+                      --branch <name> (full sandbox branch to create/track; default:
+                      sandbox/<leaf of --from>; any valid git ref), --dir <name> (sandbox
+                      directory name; default: repo basename), -y/--yes (skip the create confirm)
   --lockdown options: -n/--dry-run (preview only), -y/--yes (skip confirmation)
   --reclaim options:  --full (also reclaim node_modules, .venv, ... not just the work tree + .git)
 
@@ -2271,6 +2350,12 @@ require_bootstrap() {
     die "the sandbox is not provisioned (no ${CLAUDE_LINK}) -- provision it with:" \
         "       sudo ai-tools-bootstrap"
 }
+
+# When this file is SOURCED rather than executed (tests/unit/sandbox.sh loads it to exercise the
+# pure sandbox_* helpers above), stop here: expose the functions, run none of the gates or
+# dispatch below. On execution BASH_SOURCE[0] equals $0, so this is a no-op and the CLI proceeds.
+[[ "${BASH_SOURCE[0]}" == "${0}" ]] || return 0
+
 # --status is the one diagnostic meant to run WHEN things may be broken, so it bypasses the
 # provisioning gate: cmd_status reports the unprovisioned state (and service health) itself instead
 # of being blocked by it. Every other command stays gated.
@@ -2309,7 +2394,7 @@ case "${1:-}" in
     --project-create)  shift; cmd_project_create  "$@" ;;
     --project-unclaim) shift; cmd_project_unclaim "$@" ;;
     --project-remove)  shift; cmd_project_unclaim "$@" ;;
-    --sandbox-create) shift; cmd_sandbox_create "${1:-}" ;;
+    --sandbox-create) shift; cmd_sandbox_create "$@" ;;
     --sandbox-push)   shift; cmd_sandbox_push   "${1:-}" ;;
     --sandbox-remove) shift; cmd_sandbox_remove "${1:-}" ;;
     --lockdown)       shift; cmd_lockdown "$@" ;;
