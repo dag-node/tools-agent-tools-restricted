@@ -454,6 +454,32 @@ _label_one()   { if ai_tools_label_project "$1"; then ok "labelled project ai_to
                  else warn "could not label $1 -- is the ai_tools module loaded?"; fi; }
 _unlabel_one() { ai_tools_unlabel_project "$1" || warn "could not unlabel $1"; }
 _restore_one() { restorecon -FR "$1" 2>/dev/null || true; }
+# _label_sandbox_clones: apply the static ai_tools_project_t label (ai_tools.fc) to every existing
+# sandbox clone, then REPORT and VERIFY each one. The per-project loop below skips sandbox paths
+# (they carry no dynamic semanage rule -- the static rule covers them), so without this an operator
+# sees no evidence the clones were relabelled even though they are the trees the agent runs in.
+# The label is verified, not assumed: restorecon exits 0 even when it writes the WRONG type -- e.g.
+# an fcontext rule made unreachable because libselinux aliases its path prefix away
+# (file_contexts.subs_dist `/var/opt /opt`) -- so each clone's achieved label is checked and a
+# mismatch warns rather than passing silently. Best-effort and SELinux-gated like the rest of the
+# sweep: on a host without SELinux the restorecon no-ops and the verify/report is skipped.
+_label_sandbox_clones() {
+    [[ -d "${SANDBOX_PROJECTS}" ]] || return 0
+    restorecon -FR "${SANDBOX_PROJECTS}" 2>/dev/null || true
+    ai_tools_relabel_available || return 0
+    local clone
+    for clone in "${SANDBOX_PROJECTS}"/*/; do
+        [[ -d "${clone}" ]] || continue           # no clones: the glob stays literal, -d fails
+        clone="${clone%/}"
+        if ai_tools_project_labelled "${clone}"; then
+            ok "labelled sandbox clone ai_tools_project_t: ${clone}"
+        else
+            warn "sandbox clone NOT labelled ai_tools_project_t: ${clone}"
+            warn "    is the ai_tools module loaded, and the clone fcontext rule under /opt"
+            warn "    (base file_contexts.subs_dist aliases /var/opt -> /opt before matching)?"
+        fi
+    done
+}
 # Label / unlabel ~/.config/ai-tools as ai_tools_conf_t (see CONF_DIR comment).
 _label_conf()   { [[ -d "${CONF_DIR}" ]] || { log "config dir absent, skip label: ${CONF_DIR}"; return 0; }
                   # ai_tools_conf_t must already exist in the LOADED policy for
@@ -541,8 +567,8 @@ case "${ACTION}" in
 
     section "Labelling"
     restorecon -FR "${NVM_DIR}"  2>/dev/null || true
-    # Apply the static sandbox-clone label (ai_tools.fc) to any existing clones.
-    [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -FR "${SANDBOX_PROJECTS}" 2>/dev/null || true
+    # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
+    _label_sandbox_clones
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
     [[ -d "${LOG_DIR}" ]] && restorecon -FR "${LOG_DIR}" 2>/dev/null || true
     # Label the handback daemon first: the socket restart in _relabel_runtime derives
@@ -618,8 +644,8 @@ case "${ACTION}" in
   relabel)
     section "Re-applying labels"
     restorecon -FR "${NVM_DIR}"  2>/dev/null || true
-    # Apply the static sandbox-clone label (ai_tools.fc) to any existing clones.
-    [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -FR "${SANDBOX_PROJECTS}" 2>/dev/null || true
+    # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
+    _label_sandbox_clones
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
     [[ -d "${LOG_DIR}" ]] && restorecon -FR "${LOG_DIR}" 2>/dev/null || true
     # Label the handback daemon first: the socket restart in _relabel_runtime derives
@@ -649,7 +675,8 @@ case "${ACTION}" in
 
     section "Re-applying labels"
     restorecon -FR "${NVM_DIR}"  2>/dev/null || true
-    [[ -d "${SANDBOX_PROJECTS}" ]] && restorecon -FR "${SANDBOX_PROJECTS}" 2>/dev/null || true
+    # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
+    _label_sandbox_clones
     [[ -d "${LOG_DIR}" ]] && restorecon -FR "${LOG_DIR}" 2>/dev/null || true
     # Label the handback daemon first: the socket restart in _relabel_runtime derives
     # the listener's context from the daemon binary's on-disk label at bind time.
