@@ -905,6 +905,24 @@ fi
   copied elsewhere that still carries the ai-tools group and ACLs but that no allowlist names.
   It changes only paths that still carry ai-tools access; --dry-run, --full and --group support
   scripted use.
+- NEW: ai-tools --lockdown also seals the paths you sealed by mode rather than by name, so a
+  file or directory made owner-only after the claim is cleaned up without waiting for the next
+  one.
+- NEW: ai-tools --project-claim reports, in its Review block, a sealed directory whose setgid
+  bit belongs to a third group -- the one piece of residue the claim keeps, since it cannot tell
+  a deliberate choice from a leftover -- with the chmod g-s that clears it.
+- FIX: A directory you sealed with chmod 700 is no longer pulled into the sandbox group.
+  ai-tools-setgid normalized every directory you owned, owner-only ones included, at claim and
+  again on every session start, while ai-tools-setfacl skipped them; both now honour the seal.
+  Re-claim an existing project to repair the directories already regrouped.
+- FIX: A locked secret is owned <you>:<you>, not <you>:ai-tools. The proactive lockdown and the
+  on-write quarantine gave the same secret two different owners, and the sandbox group would
+  have re-exposed it the moment its mode was widened.
+- FIX: Sealing a path now removes the sandbox residue behind the mode. A path created inside a
+  claimed tree inherits the group, the setgid bit and the project ACL at create time, and a
+  later chmod only masks them -- so widening the mode once re-activated the lot. The claim
+  walks, the lockdown and the ownership handback all strip it now, removing only what the
+  sandbox put there and leaving your mode bits, ownership and other ACL entries alone.
 - FIX: Claiming a project no longer opens files and directories you had made owner-only (0600,
   0700) to the agent. They are left as they are, and the claim reports how many it skipped.
 - FIX: A session could silently run unconfined on a host that in fact had the SELinux policy
