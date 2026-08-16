@@ -9,11 +9,13 @@
 # what lets the operator co-write the tree -- work tree, and .git under --with-git -- without
 # joining @SANDBOX_GROUP@ and without waiting on the ownership handback.
 #
-# Owner-only paths are left exactly as found. When a path's mode carries no group and no other
-# bits (0600, 0700), no setfacl runs on it: it gets neither grant -- not group:@SANDBOX_GROUP@:rwX
-# (the agent's) nor user:<operator>:rwX (the operator's) -- a directory gets no default ACL, the
-# mask is not recalculated, and the mode bits are untouched. That mode is the operator's standing
-# decision to keep the path out of the sandbox account's reach, and a claim does not overrule it.
+# Owner-only paths are never granted. When a path's mode carries no group and no other bits
+# (0600, 0700), no grant is applied to it -- not group:@SANDBOX_GROUP@:rwX (the agent's) nor
+# user:<operator>:rwX (the operator's) -- a directory gets no default ACL, the mask is not
+# recalculated, and the mode bits are untouched. That mode is the operator's standing decision to
+# keep the path out of the sandbox account's reach, and a claim does not overrule it. What the
+# walk does instead is STRIP the sandbox residue such a path still carries (owner-only.lib.sh),
+# so the seal does not rest on the mode alone staying put.
 # It holds on the main walk and in the --with-git pass alike; a skipped directory takes its
 # subtree with it, since the sandbox account cannot enter the directory to use a grant inside it.
 # To opt a path in, widen its mode and re-claim -- a manual step rather than a prompt, because a
@@ -118,6 +120,17 @@ _is_secret_name() {
 command -v setfacl >/dev/null 2>&1 \
     || { ai_tools_log_warn "setfacl not found -- skipping ACL normalization for ${TARGET}"; exit 0; }
 
+# Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the
+# reference for both). Required and fail-closed like safe-paths.lib.sh: an unusable library must
+# not leave this walk unable to recognize a sealed path.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/owner-only.lib.sh
+source /usr/local/lib/ai-tools/owner-only.lib.sh
+if ! declare -F ai_tools_is_owner_only >/dev/null 2>&1 \
+        || ! declare -F ai_tools_strip_sandbox_residue >/dev/null 2>&1; then
+    printf 'ai-tools-setfacl: FATAL: owner-only.lib.sh defines no owner-only guard\n' >&2
+    exit 3
+fi
+
 # Protected-paths backstop (safe-paths.lib.sh): refuse to act on a system directory even
 # when the allowlist includes it. See safe-paths.rule.md.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
@@ -202,17 +215,16 @@ _safe_setfacl() {
         exec {fd}<&-
         return 1
     fi
-    # Owner-only guard: a path with no group or other bits (0600, 0700, and the setgid/setuid
-    # forms of them) is the operator's "keep this private" signal, and the claim honours it.
-    # This is not merely a courtesy: `setfacl -m` RECALCULATES the ACL mask, so applying the
-    # grant to a 0600 file raises its mask from --- to rw- and gives the agent EFFECTIVE
-    # read/write -- while `ls -l` still shows `-rw-------` and only the trailing `+` hints that
-    # anything changed. An access grant the operator cannot see in the usual listing is the
-    # worst kind, so the path is skipped outright rather than written with a suppressed mask
-    # (`setfacl -n`): no entry is left behind to activate silently if the mode is widened later.
-    # Reported by the caller, never silent -- an owner-only .git under `--with-git` is a
-    # deliberate no-op the operator has to be told about, not a share that quietly did nothing.
-    if (( ( 8#${got_mode} & 077 ) == 0 )); then
+    # Owner-only guard: the operator sealed this path and the claim honours it. Granting it would
+    # be worse than a no-op -- `setfacl -m` RECALCULATES the mask, so the grant on a 0600 file
+    # raises its mask from --- to rw- and hands the agent EFFECTIVE read/write while `ls -l` still
+    # shows `-rw-------` and only the trailing `+` hints anything changed. Strip the residue the
+    # path carries instead (owner-only.lib.sh), and report it: an owner-only .git under
+    # --with-git is a deliberate no-op the operator has to be told about, not a share that
+    # quietly did nothing.
+    if ai_tools_is_owner_only "${got_mode}"; then
+        ai_tools_strip_sandbox_residue "${fd}" "${got_ftype}" "${got_grp}" "${got_mode}" \
+            "${PROJECTS_GROUP:-}" || true
         exec {fd}<&-
         return 2
     fi

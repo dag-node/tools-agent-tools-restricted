@@ -77,6 +77,16 @@ if ! source "${SECRET_PATTERNS_LIB}"; then
     exit 1
 fi
 
+# Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the
+# reference for both). Required and fail-closed like safe-paths.lib.sh: an unusable library
+# must not leave a quarantined secret carrying the residue that would re-expose it.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/owner-only.lib.sh
+source /usr/local/lib/ai-tools/owner-only.lib.sh
+if ! declare -F ai_tools_strip_sandbox_residue >/dev/null 2>&1; then
+    printf 'ai-tools-chown: FATAL: owner-only.lib.sh defines no residue strip\n' >&2
+    exit 3
+fi
+
 # Protected-paths backstop (safe-paths.lib.sh): refuse to act on a system directory even
 # when the allowlist includes it. See safe-paths.rule.md.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
@@ -307,6 +317,16 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             # stripped (g-x,o=), and a secret loses both group and world (go=).
             /usr/bin/chown -- "${target_owner}" "/proc/self/fd/${fd}"
             /usr/bin/chmod -- "${chmod_arg}"    "/proc/self/fd/${fd}"
+            # A quarantined secret is owner-only now, so strip the residue the mode only masks:
+            # a file born in a claimed tree carries the project's inherited group ACL entry, and
+            # `go=` leaves it in place, dormant (owner-only.lib.sh). Ordinary files keep theirs --
+            # the agent is meant to go on co-writing those.
+            if ${is_secret} \
+                    && read -r sec_grp sec_mode \
+                        < <(stat -L -c '%G %a' "/proc/self/fd/${fd}" 2>/dev/null); then
+                ai_tools_strip_sandbox_residue "${fd}" "${ftype}" "${sec_grp}" "${sec_mode}" \
+                    "${PROJECTS_GROUP}" || true
+            fi
             # Record the privileged mutation. A secret is the alarming case (WARNING,
             # via _notify_secret); an ordinary file or directory handback is routine
             # bookkeeping (INFO). Both name the path, owner change and mode change.

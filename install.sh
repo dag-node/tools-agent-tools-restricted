@@ -616,6 +616,7 @@ do_summary() {
     _chk /var/opt/ai-tools/README.md
     _chk /usr/local/lib/ai-tools/secret-patterns.lib.sh
     _chk /usr/local/lib/ai-tools/skip-dirs.lib.sh
+    _chk /usr/local/lib/ai-tools/owner-only.lib.sh
     _chk /usr/local/lib/ai-tools/log.lib.sh
     _chk /usr/local/lib/ai-tools/msg.lib.sh
     _chk /usr/local/lib/ai-tools/operator.lib.sh
@@ -825,6 +826,14 @@ do_install() {
     install_subst 640 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/secret-patterns.lib.sh" \
         /usr/local/lib/ai-tools/secret-patterns.lib.sh
+
+    # Seal primitives (owner-only predicate + residue strip): read only by the root helpers
+    # that walk a claimed tree, but carries no secrets -- 644 root:root, like msg/log/
+    # safe-paths. Substituted: the strip is keyed on the sandbox group's name.
+    log "/usr/local/lib/ai-tools/owner-only.lib.sh"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/owner-only.lib.sh" \
+        /usr/local/lib/ai-tools/owner-only.lib.sh
 
     # Skip-dir list/selector: sourced by the root helpers, by session-hook.sh (as the
     # agent), and by the operator-run CLI (the claim drift scan) -- 644 root:root, like

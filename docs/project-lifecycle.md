@@ -96,28 +96,39 @@ it left alone.
 
 ### Sealing a path created after the claim
 
-`chmod 700` is not enough on its own for something created *inside* an already-claimed
-tree. A new directory inherits the project's default ACL at `mkdir`, and a new file is born
-`660` in group `ai-tools` by setgid inheritance, so two grants exist independently of the
-mode you just set: the inherited ACL entries, and plain group ownership. Remove both:
+`chmod 700` (or `600` for a file) is all you need to do:
 
 ```bash
-# For a whole subtree
-setfacl -R -b path/to/dir && chmod -R go-rwx path/to/dir
-
-# For a single file
-setfacl -b path/to/file && chmod go-rwx path/to/file
+chmod -R go-rwx path/to/dir
 ```
 
-`setfacl -b` removes the inherited ACL entries, including a directory's default ACL;
-`chmod … go-rwx` removes the group and other mode bits. Both are needed — either one alone
-leaves the other grant in place.
+The mode by itself would not be enough, which is why the tooling does the rest. A directory
+created inside a claimed tree inherits the project's default ACL at `mkdir`, and a file is born
+`660` in group `ai-tools` by setgid inheritance — grants your `chmod` *masks* but does not
+remove, and a numeric `chmod` does not clear a directory's setgid bit at all. Left alone they
+are dormant rather than gone, and widening the mode later would bring them back over everything
+inside. So every pass over a claimed tree strips that residue from an owner-only path instead of
+merely skipping it: the `group:ai-tools` ACL entries, the setgid bit, and the `ai-tools` group
+owner. Nothing else is touched — your mode bits, ownership and any other ACL entry are left as
+they are.
 
-Check the result with `getfacl -e`, which shows effective permissions; `ls -l` reports the
-ACL mask in the group column, so it can read as more open than the path is. The group owner
-stays `ai-tools` afterwards — harmless with no group bits set, but it re-exposes the path if
-the mode is ever relaxed, so `chgrp -R "$(id -gn)" path/to/dir` removes that too. A re-claim
-leaves a sealed path alone, since the claim skips owner-only paths.
+The setgid pass runs at every session start and the ACL pass at every claim, so a path you seal
+is cleaned up at the next of either. To do it immediately:
+
+```bash
+ai-tools --lockdown path/to/project
+```
+
+Check the result with `getfacl -e`, which shows effective permissions; `ls -l` reports the ACL
+mask in the group column, so it can read as more open than the path is.
+
+A setgid bit set to a group that is neither `ai-tools` nor your own is taken as deliberate and
+kept — the claim reports it rather than clearing it, so clear it yourself with `chmod g-s` if it
+was not intended.
+
+For a seal that does not depend on a mode at all, add a `!` exclusion for the path to
+`~/.config/ai-tools/allowed-projects`: an excluded subtree is skipped by every walk whatever its
+mode.
 
 ## Sandbox clones are secured before they open
 
@@ -162,13 +173,15 @@ either half:
 
 | before claim | while claimed | after unclaim |
 |---|---|---|
-| `600`, `700` | *unchanged* — skipped | *unchanged* |
+| `600`, `700` | *never opened* — sealed | *unchanged* |
 | `640`, `644`, `660`, `664` | `660` | `640` |
 | `750`, `755`, `775` | `770` | `750` |
 
 Two things stand out. **Owner-only paths are never opened.** A file or directory with no
 group or other bits (`600`, `700`) is your standing "keep this private" signal, and the
-claim skips it — a skipped directory takes its whole subtree with it. This is what makes
+claim never grants it — a sealed directory takes its whole subtree with it — and strips the
+sandbox residue it inherited, so the seal holds even if the mode is widened later
+(*Sealing a path created after the claim*, above). This is what makes
 the advice in *Recovery* below work: a `700 <you>:<you>` directory keeps the agent out,
 because if the claim granted it, the raised ACL mask would give the agent write on that
 directory and with it the ability to unlink what is inside. The claim reports how many

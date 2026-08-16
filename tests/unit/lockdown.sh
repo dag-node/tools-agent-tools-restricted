@@ -4,7 +4,7 @@
 # Hermetic unit tests for the deployed ai-tools-lockdown helper: the PROACTIVE secret sweep.
 # Unlike ai-tools-chown (reactive, agent-owned paths only), lockdown locks down EVERY
 # secret-named path under an allowed project -- including pre-existing user-owned ones the
-# agent could otherwise read -- setting files 600, directories 700, owner <you>:SANDBOX_GROUP.
+# agent could otherwise read -- setting files 600, directories 700, owner <you>:<you>.
 # It operates on the CWD (not a path arg), honours the same allowlist + '!'-exclusions + skip
 # list, refuses to run as the sandbox account, and applies through a pinned fd. Run against a
 # /tmp testdir with a dummy allowlist (AI_TOOLS_ALLOWLIST override) as root.
@@ -35,6 +35,33 @@ chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj}/secrets"; chmod 0755 "${proj
 mk_secret "${proj}/README.md" && chmod 0644 "${proj}/README.md"     # ordinary (non-secret name)
 mk_secret "${proj}/vendor/.npmrc"                                   # secret under '!'-excluded
 mk_secret "${proj}/.git/id_rsa"                                     # secret under skipped .git
+# A secret carrying the residue a file born inside a claimed tree would have: the project's
+# inherited group ACL entry. chmod alone only masks it, so the lock has to remove it. Kept on its
+# own fixture because `setfacl -m` recalculates the mask, which moves the visible mode bits.
+residue_acl=false
+if command -v setfacl >/dev/null 2>&1; then
+    mk_secret "${proj}/residue.key"
+    if setfacl -m "group:${SANDBOX_GROUP}:rwX" "${proj}/residue.key" 2>/dev/null; then
+        residue_acl=true
+    fi
+fi
+# Owner-only, NON-secret fixtures: the paths an operator seals by MODE rather than by name, which
+# no pattern reaches. Built in the real order -- the ACL arrives by inheritance first, the
+# operator's chmod comes after -- so the entry is present but masked, as on a path created inside
+# a claimed tree.
+seal_fx=false
+if command -v setfacl >/dev/null 2>&1; then
+    mkdir -p "${proj}/privatedir"
+    : > "${proj}/notes.txt"
+    chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${proj}/privatedir" "${proj}/notes.txt"
+    if setfacl -m "group:${SANDBOX_GROUP}:rwX" \
+            "${proj}/privatedir" "${proj}/notes.txt" 2>/dev/null; then
+        setfacl -d -m "group:${SANDBOX_GROUP}:rwX" "${proj}/privatedir" 2>/dev/null || true
+        seal_fx=true
+    fi
+    chmod 2700 "${proj}/privatedir"
+    chmod 0600 "${proj}/notes.txt"
+fi
 mk_allowlist "${proj}" "!${proj}/vendor"
 
 # Run the deployed helper in <cwd> (it acts on pwd), non-interactive (--yes), never aborting
@@ -60,18 +87,37 @@ if [[ "${LD_RC}" -ne 0 ]]; then
     fail "lockdown --yes exited ${LD_RC}: $(cat "${TESTDIR}/apply")"
 fi
 
-# (2a) Secret file -> <you>:SANDBOX_GROUP 600 (agent, mode 600, loses read).
-if [[ "$(stat -c '%U:%G' "${proj}/.env")" == "${PROJECTS_USER}:${SANDBOX_GROUP}" && "$(perm "${proj}/.env")" == 600 ]]; then
-    pass "secret file -> ${PROJECTS_USER}:${SANDBOX_GROUP} 600 (agent read revoked)"
+# (2a) Secret file -> <you>:<you> 600. The owner's OWN group, not the sandbox group: at 600 the
+#      group grants nothing either way, but leaving it as SANDBOX_GROUP would hand the file back
+#      to the agent the moment the mode was widened. Same target ai-tools-chown uses on write.
+if [[ "$(stat -c '%U:%G' "${proj}/.env")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" && "$(perm "${proj}/.env")" == 600 ]]; then
+    pass "secret file -> ${PROJECTS_USER}:${PROJECTS_GROUP} 600 (agent read revoked)"
 else
     fail "secret file ended $(stat -c '%U:%G' "${proj}/.env") $(perm "${proj}/.env")"
 fi
 
-# (2b) Secret directory -> <you>:SANDBOX_GROUP 700.
-if [[ "$(stat -c '%U:%G' "${proj}/secrets")" == "${PROJECTS_USER}:${SANDBOX_GROUP}" && "$(perm "${proj}/secrets")" == 700 ]]; then
-    pass "secret dir -> ${PROJECTS_USER}:${SANDBOX_GROUP} 700"
+# (2b) Secret directory -> <you>:<you> 700.
+if [[ "$(stat -c '%U:%G' "${proj}/secrets")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" && "$(perm "${proj}/secrets")" == 700 ]]; then
+    pass "secret dir -> ${PROJECTS_USER}:${PROJECTS_GROUP} 700"
 else
     fail "secret dir ended $(stat -c '%U:%G' "${proj}/secrets") $(perm "${proj}/secrets")"
+fi
+
+# (2c) A locked secret keeps no sandbox ACL entry: chmod 600 masks the inherited entry but does
+#      not remove it, so widening the mode later would re-expose the secret.
+if ${residue_acl}; then
+    if getfacl -c -- "${proj}/residue.key" 2>/dev/null | grep -q "^group:${SANDBOX_GROUP}:"; then
+        fail "a locked secret still carries a group:${SANDBOX_GROUP} ACL entry"
+    else
+        pass "a locked secret's inherited group:${SANDBOX_GROUP} ACL entry is removed"
+    fi
+    if [[ "$(perm "${proj}/residue.key")" == 600 ]]; then
+        pass "stripping the entry leaves the locked secret at 600 (mask not recalculated)"
+    else
+        fail "locked secret ended $(perm "${proj}/residue.key"), expected 600"
+    fi
+else
+    skip "locked-secret ACL strip" "setfacl unavailable"
 fi
 
 # (2c) Ordinary file is left untouched.
@@ -110,11 +156,46 @@ fi
 mk_secret "${proj}/fresh.key"
 ( cd "${proj}" && SUDO_USER="${SANDBOX_USER}" "${HELPER}" --yes ) < /dev/null > "${TESTDIR}/asagent" 2>&1 \
     && agent_rc=0 || agent_rc=$?
+# The mode is what distinguishes "refused" from "locked" here: a locked secret is now owned
+# <you>:<you> too, so ownership alone no longer tells the two apart.
 if [[ "${agent_rc}" -ne 0 ]] && grep -qi 'must be run by you, not' "${TESTDIR}/asagent" \
+        && [[ "$(perm "${proj}/fresh.key")" == 644 ]] \
         && [[ "$(stat -c '%U:%G' "${proj}/fresh.key")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" ]]; then
     pass "refuses to run as the sandbox account (no changes made)"
 else
     fail "did not refuse the sandbox account (rc=${agent_rc}) or fresh.key changed: $(cat "${TESTDIR}/asagent")"
+fi
+
+# (5) The seal pass: a NON-secret path the operator sealed by mode has its residue stripped even
+#     though no pattern matches its name, so a path sealed after the claim is cleaned up here
+#     rather than waiting for the next claim. Asserted on the run from (2).
+if ${seal_fx}; then
+    dm="$(stat -c '%a' "${proj}/privatedir")"
+    if (( (8#${dm} & 8#2000) == 0 )) && [[ "$(perm "${proj}/privatedir")" == 700 ]]; then
+        pass "a sealed non-secret dir loses its setgid bit and keeps mode 700"
+    else
+        fail "sealed dir ended mode ${dm}, expected setgid cleared and 700"
+    fi
+    if [[ "$(stat -c '%G' "${proj}/privatedir")" != "${SANDBOX_GROUP}" ]]; then
+        pass "a sealed non-secret dir is moved off group ${SANDBOX_GROUP}"
+    else
+        fail "a sealed dir is still group ${SANDBOX_GROUP}"
+    fi
+    if getfacl -c -- "${proj}/privatedir" 2>/dev/null \
+            | grep -q "^\(default:\)\?group:${SANDBOX_GROUP}:"; then
+        fail "a sealed dir kept its sandbox ACL entries"
+    else
+        pass "a sealed dir's access and default sandbox ACL entries are removed"
+    fi
+    if [[ "$(perm "${proj}/notes.txt")" == 600 ]] \
+            && ! getfacl -c -- "${proj}/notes.txt" 2>/dev/null \
+                 | grep -q "^group:${SANDBOX_GROUP}:"; then
+        pass "a sealed non-secret file is stripped and stays 600"
+    else
+        fail "sealed file ended $(perm "${proj}/notes.txt") $(stat -c '%U:%G' "${proj}/notes.txt")"
+    fi
+else
+    skip "owner-only seal pass" "setfacl unavailable"
 fi
 
 finish
