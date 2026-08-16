@@ -119,6 +119,7 @@ readonly GUARD_MARKER="ai-tools-lockdown-guard"
 # write the registries with the wrong owner) and never as the sandbox account
 # (the agent must not manage its own allowlist).
 ME="$(id -un)"
+MY_GROUP="$(id -gn)"
 [[ "${ME}" == "root" ]] \
     && { echo "ai-tools: do not run as root -- run as the projects user, without sudo" >&2
          echo "          (the CLI invokes sudo itself for the steps that need it)" >&2; exit 1; }
@@ -483,6 +484,25 @@ acl_drift_scan() {
     find "${dir}" -xdev \( "${skip[@]}" \) -o \
         \( -user "${ME}" -o -user "${SANDBOX_USER}" \) \
         ! -group "${SANDBOX_GROUP}" -perm /077 -print 2>/dev/null
+}
+
+# sealed_setgid_scan <dir>  -- list owner-only directories inside a claimed tree whose setgid bit
+# carries a THIRD-party group: neither SANDBOX_GROUP nor the operator's own. When the claim walks
+# seal a path they clear a setgid bit belonging to one of those two, since a claimed tree carries
+# no other legitimately; any further group reads as a deliberate operator choice and is kept
+# (owner-only.lib.sh). That leaves the operator the one who decides, so the claim has to say so
+# rather than act. Read-only and unprivileged, detection only -- a path reported here is one the
+# claim did NOT touch, so reporting it never widens access.
+sealed_setgid_scan() {
+    local dir="$1" excl
+    local -a skip=( -name .git -prune )
+    while IFS= read -r excl; do
+        excl="${excl#!}"
+        [[ "${excl}" == "${dir}"/* ]] && skip+=( -o -path "${excl}" -prune )
+    done < <(grep '^!' "${ALLOWLIST}" 2>/dev/null || true)
+    find "${dir}" -xdev \( "${skip[@]}" \) -o \
+        -type d ! -perm /077 -perm -2000 \
+        ! -group "${SANDBOX_GROUP}" ! -group "${MY_GROUP}" -print 2>/dev/null
 }
 
 # reg_ownership <dir>  -- make <dir> usable by the sandbox account: group SANDBOX_GROUP + the
@@ -1014,6 +1034,24 @@ cmd_project_claim() {
         drift=("${_keep[@]}")
     fi
 
+    # A setgid bit on a sealed dir that belongs to some third group is the one piece of residue
+    # the claim walks decline to remove, so it is surfaced here rather than left to the helper's
+    # stderr, where it scrolls past under the Apply step.
+    local -a sealed_setgid=()
+    mapfile -t sealed_setgid < <(sealed_setgid_scan "${d}" | head -n 200)
+
+    sealed_setgid_note() {
+        (( ${#sealed_setgid[@]} )) || return 0
+        headline_warn "NOTICE: setgid on an owner-only directory" \
+            "${#sealed_setgid[@]} sealed director(ies) carry a setgid bit set to a group that is neither ${SANDBOX_GROUP} nor yours. The claim keeps it -- it cannot tell a deliberate choice from a leftover -- so new files there are still born in that group."
+        path_detail_lines "${sealed_setgid[@]:0:3}"
+        if (( ${#sealed_setgid[@]} > 3 )); then
+            say "        ${C_DIM}... and $(( ${#sealed_setgid[@]} - 3 )) more${C_RST}"
+            offer_full_listing "director(ies)" "${sealed_setgid[@]}"
+        fi
+        say "      ${C_DIM}if it was not intended, clear it yourself:  chmod g-s <dir>${C_RST}"
+    }
+
     # skip_listed_note: the skip-listed hits are informational either way -- shown both on
     # the fully-claimed early return and in the pending flow.
     skip_listed_note() {
@@ -1065,6 +1103,7 @@ cmd_project_claim() {
             && ! ${need_filemode} && ! ${need_acl} && ! ${need_label} && ! ${need_git} \
             && (( ${#drift[@]} == 0 )); then
         skip_listed_note
+        sealed_setgid_note
         # A claimed project can still sit under a non-traversable parent (a later
         # chmod 700 above it), so the reachability block runs on the no-op path too.
         reg_reach "${d}"
@@ -1105,6 +1144,7 @@ cmd_project_claim() {
         fi
     fi
     skip_listed_note
+    sealed_setgid_note
 
     # Heavy steps (recursive chgrp; sudo relabel/ACL; drift repair) close the Review
     # block behind the proceed confirm; pure registry additions do not. --yes pre-answers
