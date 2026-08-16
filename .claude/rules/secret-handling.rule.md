@@ -4,6 +4,7 @@ paths:
   - "src/usr/local/libexec/ai-tools/ai-tools-chown.sh"
   - "src/home/user/.config/ai-tools/secret-patterns"
   - "src/usr/local/lib/ai-tools/secret-patterns.lib.sh"
+  - "src/usr/local/lib/ai-tools/owner-only.lib.sh"
 ---
 
 # Secret-named file handling
