@@ -17,11 +17,27 @@ claude                             # agent edits and commits here
 ai-tools --sandbox-push            # send the agent's commits to the remote branch
 ```
 
-`ai-tools --sandbox-create` does three things: creates the branch
-`ai-tools/sandbox-<operator>/main` from the repo's current branch and pushes
-it to the repo's remote, shallow-clones that branch into
+`ai-tools --sandbox-create` does three things: creates a branch (default
+`sandbox/<leaf>`, where `<leaf>` is the fork point — e.g. `sandbox/main`) from the
+chosen base and pushes it to the repo's remote, shallow-clones that branch into
 `/var/opt/ai-tools/sandbox-projects/<name>` (depth 1 — no historical objects), and
 registers the clone so Claude Code may run there.
+
+Every input has a default and an optional flag, so the command is scriptable:
+
+```
+ai-tools --sandbox-create [path] \
+    --from <ref>      # branch/ref to fork from   (default: current branch)
+    --branch <name>   # full sandbox branch name   (default: sandbox/<leaf of --from>)
+    --dir <name>      # clone directory name       (default: repo basename)
+    -y                # skip the create confirmation
+```
+
+`--branch` takes any valid git ref, so the `sandbox/<leaf>` default is only a
+convention — use `--branch hotfix/urgent`, a flat `--branch mywork`, or any other
+shape. Nothing downstream depends on the name (`--sandbox-push` tracks the clone's
+upstream, not a naming pattern). The default deliberately carries no host or operator
+identity; on a shared remote, pass `--branch` to disambiguate concurrent sandboxes.
 
 ## Why this is the boundary
 
@@ -81,15 +97,23 @@ Only the **operator** can push. The sandbox account (`ai-tools`) has no SSH key
 or git credential, so it physically cannot reach the remote — `ai-tools
 --sandbox-push` runs as the operator and uses the operator's credentials.
 
-The push target is a per-repository branch:
+The operator supplies only the **transport** (network) credentials. The commits
+themselves keep the author/committer identity from `/opt/ai-tools/.gitconfig` — the
+sandbox account's git identity, set at install by `ai-tools-bootstrap` (which offers
+to adopt your identity, keep a default, or edit it) — **not** the pushing operator's.
+So attribution on the pushed work reflects that configured identity regardless of who
+pushes; set it at install if you care what name lands on the commits.
+
+The push target is the sandbox branch chosen at create time — by default a
+per-repository branch:
 
 ```
-ai-tools/sandbox-<operator>/main
+sandbox/<leaf>          # e.g. sandbox/main
 ```
 
-`main` is the default leaf; `ai-tools --sandbox-create` accepts a custom leaf
-(e.g. `ai-tools/sandbox-<operator>/feature-x`). Each repository has its own
-remote, so the same branch name across projects never collides.
+`--branch` overrides it with any name (`ai-tools --sandbox-push` just tracks the
+clone's upstream, whatever it is). Each repository has its own remote, so the same
+branch name across projects never collides.
 
 ## Merging the agent's work
 
@@ -97,8 +121,8 @@ Anyone with access to the repository reviews and merges the branch:
 
 ```
 git fetch origin
-git log origin/main..origin/ai-tools/sandbox-<operator>/main   # review
-git merge origin/ai-tools/sandbox-<operator>/main              # or rebase
+git log origin/main..origin/sandbox/main   # review (use your sandbox branch name)
+git merge origin/sandbox/main              # or rebase
 ```
 
 Use a regular merge or rebase to keep every agent commit. A **squash** merge

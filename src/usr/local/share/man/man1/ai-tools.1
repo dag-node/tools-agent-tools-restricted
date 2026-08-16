@@ -75,14 +75,51 @@ Back up first.
 Alias for
 .BR \-\-project\-unclaim .
 .TP
-.B \-\-sandbox\-create \fR[\fIpath\fR]
+.B \-\-sandbox\-create \fR[\fIpath\fR] [\fB\-\-from\fR \fIref\fR] [\fB\-\-branch\fR \fIname\fR] [\fB\-\-dir\fR \fIname\fR] [\fB\-y\fR|\fB\-\-yes\fR]
 Shallow-clone the repository at
 .I path
 into the sandbox area so the agent never reads the origin's full git history.
-The clone is born owner-only; tip-commit secrets are locked down first, and
-only past that gate is the clone opened to the agent and registered. A declined
-or failed lockdown stops fail-closed \(em the clone stays private and
-unregistered; re-run this command on the clone path to resume securing it.
+Each input has a default and a flag, so the command is scriptable; omit a flag and
+it is prompted interactively (or takes its default with no terminal). The exact
+.BR "git branch" ", " "git push" ", and " "git clone"
+commands are shown for confirmation before any of them run.
+.RS
+.TP
+.B \-\-from \fIref\fR
+Branch or ref to fork the sandbox branch from (default: the current branch). May be a
+local branch, a
+.IR <remote>/<ref> ,
+or any commit-ish, so a hotfix can be based on
+.I main
+while you sit on another branch without checking it out.
+.TP
+.B \-\-branch \fIname\fR
+The full sandbox branch to create and track. Any valid git ref is accepted (a flat
+name, a
+.IR hotfix/x ,
+the old
+.I ai\-tools/sandbox\-<label>/<leaf>
+form, etc.); it is validated with
+.BR git\-check\-ref\-format (1),
+never rewritten. Default:
+.IR sandbox/ <leaf>,
+where <leaf> is the last component of
+.BR \-\-from .
+The default carries no host, machine, or operator identity.
+.TP
+.B \-\-dir \fIname\fR
+Directory name for the clone under the sandbox area (default: the repository's base name).
+.TP
+.BR \-y ", " \-\-yes
+Skip the final \(lqCreate the sandbox clone?\(rq confirmation. The secret-lockdown and
+.I .git
+gates still apply.
+.RE
+.IP
+The clone is born owner-only; tip-commit secrets are locked down first, and only past
+that gate is the clone opened to the agent and registered. A declined or failed lockdown
+stops fail-closed \(em the clone stays private and unregistered; re-run this command on
+the clone path to resume securing it.
 .TP
 .B \-\-sandbox\-push \fR[\fIpath\fR]
 Push the sandbox clone's commits to its dedicated remote branch
