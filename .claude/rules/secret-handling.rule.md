@@ -34,6 +34,27 @@ so it would block the agent's atomic-rename re-edits. To prevent unlink/replace 
 operator's own secrets, place them in a dir the agent cannot write (`700 <you>:<you>`) and
 `!`-exclude it — the allowlist is not a read boundary.
 
+`ai-tools-setfacl` makes that recipe hold: a path whose mode carries no group and no other
+bits (`0600`, `0700`) is left exactly as found — no `group:SANDBOX_GROUP:rwX` entry, no
+`user:<operator>:rwX` entry, no default ACL on a directory, no mask recalculation, mode bits
+untouched — and a skipped directory takes its subtree with it. Widening the mode and
+re-claiming is how a path opts in; the skip count is reported, since on a project root it
+means the sandbox account cannot enter the tree at all.
+
+This is what keeps the `700 <you>:<you>` directory above protective. `setfacl -m` recalculates
+the mask to cover the entries it adds, so granting such a directory would return it as `0770` —
+write on the directory, and with it the ability to unlink the secrets inside, which is the very
+thing the `700` is there to stop.
+
+**The directory's mode is the whole boundary.** A directory created inside a claimed tree
+inherits the project's default ACL at `mkdir` time, so `chmod 700` afterwards leaves the
+inherited `group:SANDBOX_GROUP:rwX` entry in place and merely holds the mask at `---`; files
+created inside it are born `0660` with that entry **effective**. Nothing is reachable while the
+`700` stands, because traversal is denied at the directory — but relaxing that one mode later
+exposes everything already inside it, including files written while it looked private. This is
+why the recipe pairs the mode with a `!`-exclusion: an excluded subtree is skipped by every walk,
+so it does not depend on a single mode bit staying put.
+
 ## Shared secret-pattern set (one source, two consumers)
 
 The secret basename patterns live in a single user-owned config file,

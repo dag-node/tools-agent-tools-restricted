@@ -1027,6 +1027,18 @@ cmd_project_claim() {
 
     reach_scan "${d}"
 
+    # The project root being owner-only is reach_scan's problem one level down: ai-tools-setfacl
+    # honours a 0600/0700 mode and skips the path, so every later step still succeeds and the
+    # claim closes with its ✓ while the sandbox account cannot enter the tree at all. Stated
+    # here, before the confirm, rather than left to the helper's skip count afterwards.
+    local root_mode
+    root_mode="$(stat -c '%a' "${d}" 2>/dev/null || echo 755)"
+    if (( ( 8#${root_mode} & 077 ) == 0 )); then
+        headline_warn "NOTICE: this project directory is owner-only" \
+            "${d} is mode ${root_mode}, which keeps it out of the sandbox account's reach: the claim honours that mode and grants nothing on it."
+        say ""
+    fi
+
     if [[ "${listed}" == true && "${safedir}" == true && "${owngap}" == false ]] \
             && ! ${need_filemode} && ! ${need_acl} && ! ${need_label} && ! ${need_git} \
             && (( ${#drift[@]} == 0 )); then
