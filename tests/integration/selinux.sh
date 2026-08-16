@@ -117,4 +117,51 @@ else
     fi
 fi
 
+# (5) Sandbox clones must LABEL as ai_tools_project_t. Their on-disk path is under
+# /var/opt/ai-tools/sandbox-projects, which the base file_contexts.subs_dist alias `/var/opt /opt`
+# canonicalizes to /opt/... BEFORE file-context matching, so the clone rule is authored under /opt
+# (ai_tools.fc). This asserts the rule is actually REACHABLE through that alias: a synthetic clone
+# path resolves to ai_tools_project_t. A rule keyed on the aliased /var/opt prefix resolves to
+# usr_t here instead -- the exact regression this catches. matchpathcon reads the loaded policy,
+# so the path need not exist.
+readonly SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
+if ! command -v matchpathcon >/dev/null 2>&1; then
+    skip "sandbox clone label" "matchpathcon not available"
+else
+    sbx_type="$(matchpathcon -n "${SANDBOX_ROOT}/_probe-$$" 2>/dev/null | awk -F: '{print $3}' || true)"
+    if [[ "${sbx_type}" == "ai_tools_project_t" ]]; then
+        pass "sandbox clone path resolves to ai_tools_project_t (subs_dist /var/opt->/opt alias honoured)"
+    else
+        fail "sandbox clone path -> ${sbx_type:-none}, not ai_tools_project_t -- the clone fcontext rule is unreachable (authored on the aliased /var/opt prefix instead of /opt?)"
+    fi
+fi
+
+# (6) The label/RELABEL primitives applied end-to-end, with the achieved label VERIFIED rather than
+# restorecon's exit status trusted. relabel.lib.sh's ai_tools_label_project labels a path and
+# self-verifies (a mislabel is a hard failure -- the regression that let a usr_t clone report
+# success); ai_tools_unlabel_project reverts it. Round-trips a throwaway dir under the sandbox root
+# (the one place the static rule applies), self-cleaning; created and removed here, not in a /tmp
+# testdir, because the label is only reachable under that root.
+RELABEL_LIB=/usr/local/lib/ai-tools/relabel.lib.sh
+if [[ ! -d "${SANDBOX_ROOT}" ]]; then
+    skip "label/relabel round-trip" "sandbox area ${SANDBOX_ROOT} not present"
+elif [[ ! -r "${RELABEL_LIB}" ]] || ! source "${RELABEL_LIB}" 2>/dev/null \
+        || ! declare -F ai_tools_label_project >/dev/null 2>&1; then
+    skip "label/relabel round-trip" "relabel.lib.sh not available at ${RELABEL_LIB}"
+else
+    probe="${SANDBOX_ROOT}/_selftest-relabel-$$"
+    mkdir -p "${probe}"
+    if ai_tools_label_project "${probe}" && ai_tools_project_labelled "${probe}"; then
+        pass "ai_tools_label_project applies AND verifies ai_tools_project_t on a sandbox path"
+    else
+        fail "ai_tools_label_project did not leave ${probe} on ai_tools_project_t ($(ls -Zd "${probe}" 2>/dev/null))"
+    fi
+    if ai_tools_unlabel_project "${probe}" && ! ai_tools_project_labelled "${probe}"; then
+        pass "ai_tools_unlabel_project reverts a sandbox path off ai_tools_project_t"
+    else
+        fail "ai_tools_unlabel_project left ${probe} on ai_tools_project_t ($(ls -Zd "${probe}" 2>/dev/null))"
+    fi
+    rmdir "${probe}" 2>/dev/null || true
+fi
+
 finish

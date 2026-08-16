@@ -235,10 +235,13 @@ allow ai_tools_t user_home_t:dir { getattr search open };
 
 # Reach SANDBOX project clones: their path is /var -> /var/opt -> /var/opt/ai-tools
 # -> sandbox-projects -> the labelled clone (ai_tools_project_t, set statically in
-# ai_tools.fc). Every parent is var_t, so the agent needs SEARCH (traverse) on var_t
-# for path resolution -- search_dir_perms only, never read/list, so it cannot
-# enumerate other var_t content. The clone itself is reached via the project rules
-# above. Projects under /home use the user_home_t traversal; this is its var_t peer.
+# ai_tools.fc). /var is var_t, covered by files_search_var below. From /var/opt down the
+# path is usr_t, NOT var_t: the base file_contexts.subs_dist alias `/var/opt /opt` makes
+# /var/opt/ai-tools resolve as /opt/ai-tools (usr_t) -- the same reason the clone rule in
+# ai_tools.fc is keyed under /opt. The agent already searches usr_t dirs via the
+# files_read_usr_files grant below (it reads the nvm/node tree there), so those hops need
+# no extra rule; files_search_var covers only the /var hop. The clone itself is reached via
+# the project rules above. Projects under /home use the user_home_t traversal instead.
 files_search_var(ai_tools_t)
 
 # Reach + read the ai-tools config subtree (~/.config/ai-tools, ai_tools_conf_t):
