@@ -62,9 +62,12 @@ Two layers, both fail-closed:
   (`cmd_project_unclaim`) both refuse a protected directory as their target, so a mis-entered
   allowlist neither starts a session nor claims/unclaims a system tree where the handback would
   act. Unclaim guards each *modification target* (in ancestor mode the search root may be a
-  protected path such as `/home` while the projects nested under it are not), and has no
-  override — a protected path can never legitimately be a claimed project, so the only cleanup a
-  stray hand-edited entry needs is a registry/label edit, which `ai-tools --list` reports.
+  protected path such as `/home` while the projects nested under it are not). Its `--force`
+  flag does **not** reach this guard: `--force` overrides *allowlist membership only*, and is
+  itself gated on the target carrying the on-disk ai-tools fingerprint, so a protected system
+  directory is refused in both modes. A protected path can never legitimately be a claimed
+  project, so the only cleanup a stray hand-edited entry needs is a registry/label edit, which
+  `ai-tools --list` reports.
   `--sandbox-remove`/`--sandbox-push` add a second front-line for the destructive `rm -rf`:
   `require_sandbox_clone` calls the backstop **and** requires a direct-child clone of
   `SANDBOX_ROOT` that is a git worktree, so the shared clone-area root — a *descendant* of the

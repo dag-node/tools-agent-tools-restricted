@@ -72,12 +72,9 @@ and inspect the host.
 - `--project-unclaim [path]` (alias `--project-remove`) — unclaim a real project
   (directory left on disk): revert the label, drop both registries, and (default-yes
   confirm) hand the tree's files back to a target group with the agent's write access
-  revoked, via `ai-tools-unclaim`. The path is classified against `allowed-projects` so it
-  only ever modifies permissions inside a registered project — **exact** (the path is
-  itself a claimed project) unclaims it; **ancestor** (the path is not listed but claimed
-  projects are nested under it) lists those and, behind a single default-NO warning,
-  unclaims each; **neither** refuses. A protected system directory is refused up front (see
-  *Unclaim* below).
+  revoked, via `ai-tools-unclaim`. The target is classified against `allowed-projects`
+  first, and a protected system directory is refused up front — see *Unclaim* below for
+  the classification and the `--force` gate. Options are in `ai-tools(1)`.
 - `--sandbox-create [path]` — shallow-clone a repo into the sandbox area **privately**
   (`umask 077`), lock down tip-commit secrets, and only past that gate grant the agent
   access and register the clone; fail-closed otherwise, resumable by re-running on the
@@ -207,7 +204,9 @@ creation under the setgid + default-ACL parents inherits both), or sitting under
 skip-listed directory name the claim walks leave alone. A **re-claim whose ownership is
 already in place** therefore scans the tree (`acl_drift_scan`, read-only and unprivileged)
 for shared-looking paths with a foreign group — owner-only paths (`600`/`700`, e.g.
-locked-down secrets) and `!`-excluded subtrees stay unreported as out-of-reach by intent.
+locked-down secrets) and `!`-excluded subtrees stay unreported as out-of-reach by intent,
+the same predicate `ai-tools-setfacl` skips on, so the scan never reports a path the repair
+would decline to touch (see [secret-handling](secret-handling.rule.md)).
 A first claim (or one with the setgid step still pending) skips the report: its normal
 walk repairs the whole tree, and every path would trivially match the predicate. The scan
 splits the hits on the shared skip list
@@ -239,17 +238,26 @@ Detection (`reach_scan`) runs up front so the Review overview announces the opt-
 block runs on the fully-claimed no-op path too — a claimed project can still lose
 reachability to a later `chmod 700` above it.
 
-**Unclaim** (`--project-unclaim`) reverts that. It first **classifies the target against
-`allowed-projects`** so it can never modify permissions outside a registered project: an
-**exact** entry unclaims that project; a target that is not itself listed but has claimed
-projects **nested under it** (an ancestor, e.g. running in `~` or `/home`) lists them and,
-behind one default-NO `WARNING` confirm stating it modifies permissions in **all** of them,
-unclaims each; a target that is neither is **refused** (pointing at `ai-tools --list`). A
-**protected system directory** among the modification targets is refused up front by the
-`safe-paths` backstop — claim/`setgid`/`setfacl` never let a protected path become a claimed
-project, so this only guards a hand-edited allowlist, whose cleanup `ai-tools --list` reports;
-there is no `--force` override (an escape hatch for a state the tools already prevent would only
-add surface). The hand-back decision and target group are taken **once** for the whole batch.
+**Unclaim** (`--project-unclaim`) reverts that. The CLI classifies the target against
+`allowed-projects` and acts only where something authorizes it:
+
+| target | outcome |
+|---|---|
+| a listed project | unclaimed |
+| an ancestor of listed projects | all of them, outermost-first, behind one default-NO confirm |
+| inside a listed project | refused, naming the nearest claimed parent |
+| unlisted, carrying the ai-tools fingerprint | reported; acting needs `--force` |
+| unlisted, no fingerprint | refused |
+
+`--force` **swaps one gate for another, never removes one**: the helper's allowlist-membership
+check is replaced by a per-path residue predicate, so on a tree that was never claimed it changes
+nothing, and what it does to a path it *accepts* is identical to a registered unclaim — the
+reversal is specified and tested once. It relaxes nothing else (protected paths, owner guard,
+hardlink guard, secret/`!` skips), and is refused on a registered project. The CLI's
+classification is the front line; `ai-tools-unclaim`'s own gate is the last line, the same
+two-layer split as the rest of this section — so the CLI may never be the only thing standing
+between a caller and a tree. Mechanism, and why an unlisted tree resolves its owner
+differently, live in that helper's header.
 For each selected project it removes the SELinux label and both registries and (default-yes
 confirm) runs `ai-tools-unclaim` to hand the filesystem back — the hand-back running **before**
 the allowlist entry is dropped, so the helper still sees the target listed (see the owner/allowlist

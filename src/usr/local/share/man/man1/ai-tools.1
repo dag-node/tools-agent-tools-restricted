@@ -45,11 +45,31 @@ is a separate opt-in prompt.
 Alias for
 .BR \-\-project\-claim .
 .TP
-.B \-\-project\-unclaim \fR[\fIpath\fR]
+.B \-\-project\-unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-n\fR] [\fB\-y\fR] [\fB\-\-group\fI g\fR] [\fIpath\fR]
 Reverse a claim: revert the SELinux label, drop both registries, and \(em behind
 its own confirm \(em revoke the agent's access, handing the tree back to your own
 group (or a named user's group) with the agent's write removed. The directory
 stays on disk.
+.IP
+The path is classified against the allowlist. A claimed project is unclaimed; a
+directory with claimed projects nested under it lists them and, behind one
+confirm, unclaims each outermost-first; a path
+.I inside
+a claimed project is refused, naming the nearest claimed parent; a path the
+allowlist does not cover at all needs
+.BR \-\-force .
+.IP
+This normalizes rather than restores.
+.B Every
+extended ACL is cleared (including any predating the claim), the group owner
+changes, group write is removed, and directory setgid is cleared \(em so a path the
+claim opened lands on 640, or 750 where the owner has execute. World access, which
+the claim removed, is not restored: a 644 or 664 file was already 660 while claimed
+and ends 640. An owner-only path (0600 or 0700) is untouched at both ends, since the
+claim leaves it out of the agent's reach to begin with. The previous permissions are
+recorded nowhere, so the operation is
+.BR "not reversible" .
+Back up first.
 .TP
 .B \-\-project\-remove
 Alias for
@@ -133,11 +153,19 @@ pre-answer only the proceed prompt; the secret-lockdown, git-history, and
 ancestor-traversal questions still ask. For
 .BR \-\-lockdown :
 skip the confirmation.
+For
+.BR \-\-project\-unclaim :
+pre-answer the confirm. It never answers the hand-back or skip-listed questions.
 .TP
 .BR \-n ", " \-\-dry\-run
 For
 .BR \-\-lockdown :
-report what would be locked without changing anything.
+report what would be locked without changing anything. For
+.BR "\-\-project\-unclaim \-\-force" :
+list every path that would change, with ownership and mode, and change nothing.
+A registered project's unclaim previews itself, so this pairs with
+.B \-\-force
+only.
 .TP
 .B \-\-full
 For
@@ -146,6 +174,34 @@ also reclaim the heavy skipped trees
 .RB ( node_modules ", " .venv ,
 \&...), not just the work tree and
 .BR .git .
+For
+.BR \-\-project\-unclaim :
+the same trees, where ai-tools ownership survives a copy exactly as it does
+elsewhere. The pass reports what it finds there and confirms before including it.
+.TP
+.B \-\-force
+For
+.BR \-\-project\-unclaim :
+act on a tree the allowlist does
+.B not
+cover \(em a claimed project copied or moved elsewhere and never unclaimed. It
+replaces the allowlist gate with a per-path one: a path is touched only while it
+still carries ai-tools ownership, group, or an ai-tools ACL entry, so running it
+on a directory that was never claimed changes nothing. It does
+.B not
+relax the protected-paths backstop, the owner guard, the hardlink guard, or the
+secret and exclusion skips, and it is refused on a registered project.
+.TP
+.BI \-\-group " group"
+For
+.BR \-\-project\-unclaim :
+hand the tree to
+.I group
+without prompting, in both the normal and
+.B \-\-force
+modes. Without it the command asks whether to hand back and whose group to use,
+and a run with no terminal takes the invoking user's group by default \(em so a
+script should name the group outright.
 .SH FILES
 .TP
 .I ~/.config/ai-tools/allowed-projects

@@ -81,6 +81,19 @@ else
     fail "can list ${sbindir} -- agent can enumerate root helper names"
 fi
 
+# The boundary half of ai-tools-unclaim --unlisted (see unit/unclaim.sh for the runtime half).
+# That mode acts outside the allowlist, bounded instead by the operator identity it resolves from
+# SUDO_UID plus OPERATORS. Both inputs must be out of the agent's reach, or it could aim a root
+# permission rewrite at a tree of its choosing: the helper itself is unreadable (above), and the
+# operator roster is not agent-writable. The third input, sudo, the agent does not hold at all
+# (boundary/sudo.sh).
+opconf=/etc/ai-tools/operator.conf
+if ! runuser -u "${SANDBOX_USER}" -- test -w "${opconf}" 2>/dev/null; then
+    pass "cannot write ${opconf}: agent cannot enroll an identity for ai-tools-unclaim --unlisted"
+else
+    fail "can write ${opconf} -- agent could add itself to OPERATORS"
+fi
+
 # settings.json (640) declares the hooks and the permissions allow/deny lists. Write access
 # would let the agent expand its tool scope, drop deny rules, or remove hooks -- no signal.
 sf=/opt/ai-tools/.claude/settings.json

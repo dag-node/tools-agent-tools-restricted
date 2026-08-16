@@ -728,7 +728,7 @@ fi
 # File lists
 # ─────────────────────────────────────────────────────────────────────────────
 %files
-%doc docs/rpm-packaging.md README.md
+%doc docs/rpm-packaging.md docs/project-lifecycle.md README.md
 
 %files -n ai-tools-selinux
 %license LICENSES/GPL-2.0-or-later.txt
