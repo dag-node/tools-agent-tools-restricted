@@ -963,6 +963,25 @@ offer_full_listing() {
     path_detail_lines "$@"
 }
 
+# path_listing <label> <path...>  -- report a set of paths: in FULL when there are few enough that
+# the whole list is shorter than a sample plus the question about it, otherwise a three-path sample
+# and an offer to see the rest. One decision in one place, because getting it wrong is invisible in
+# the code and glaring on screen: sampling four paths prints three, says "... and 1 more", asks a
+# question, and then prints all four again -- seven lines and a prompt to show four paths.
+# SAMPLE is the sample size; the full-list cut-off is twice it, the point past which the sample is
+# genuinely saving the reader something.
+readonly PATH_LISTING_SAMPLE=3
+path_listing() {
+    local _label="$1"; shift
+    if (( $# <= 2 * PATH_LISTING_SAMPLE )); then
+        path_detail_lines "$@"
+        return 0
+    fi
+    path_detail_lines "${@:1:PATH_LISTING_SAMPLE}"
+    say "        ${C_DIM}... and $(( $# - PATH_LISTING_SAMPLE )) more${C_RST}"
+    offer_full_listing "${_label}" "$@"
+}
+
 # under_skip_listed_name <base> <path>  -- 0 when <path> sits under a skip-listed directory NAME
 # (build output, dependencies, caches) relative to <base>, honoring the relative artifact
 # exclusions that re-open a subtree to the walks. The single predicate behind both the claim's
@@ -1062,11 +1081,7 @@ cmd_project_claim() {
         (( ${#sealed_setgid[@]} )) || return 0
         headline_warn "NOTICE: setgid on an owner-only directory" \
             "${#sealed_setgid[@]} sealed director(ies) carry a setgid bit set to a group that is neither ${SANDBOX_GROUP} nor yours. The claim keeps it -- it cannot tell a deliberate choice from a leftover -- so new files there are still born in that group."
-        path_detail_lines "${sealed_setgid[@]:0:3}"
-        if (( ${#sealed_setgid[@]} > 3 )); then
-            say "        ${C_DIM}... and $(( ${#sealed_setgid[@]} - 3 )) more${C_RST}"
-            offer_full_listing "director(ies)" "${sealed_setgid[@]}"
-        fi
+        path_listing "director(ies)" "${sealed_setgid[@]}"
         say "      ${C_DIM}if it was not intended, clear it yourself:  chmod g-s <dir>${C_RST}"
     }
 
@@ -1076,11 +1091,7 @@ cmd_project_claim() {
         (( ${#drift_skipped[@]} )) || return 0
         headline_warn "NOTICE: drift under skip-listed directories" \
             "${#drift_skipped[@]} path(s) with a foreign group sit under skip-listed directory names (build output, dependencies, caches); claim leaves those trees untouched."
-        path_detail_lines "${drift_skipped[@]:0:3}"
-        if (( ${#drift_skipped[@]} > 3 )); then
-            say "        ${C_DIM}... and $(( ${#drift_skipped[@]} - 3 )) more${C_RST}"
-            offer_full_listing "path(s)" "${drift_skipped[@]}"
-        fi
+        path_listing "path(s)" "${drift_skipped[@]}"
         say "      ${C_DIM}if one is source in this project, exempt it in /etc/ai-tools/operator.conf --${C_RST}"
         say "      ${C_DIM}narrow the category (SKIP_ARTIFACT_DIRS=...) or list the path relative to the${C_RST}"
         say "      ${C_DIM}project root in SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE -- then re-claim;${C_RST}"
@@ -1155,10 +1166,11 @@ cmd_project_claim() {
     if (( ${#drift[@]} )); then
         headline_warn "WARNING: interior permission drift" \
             "${#drift[@]} path(s) inside the tree carry a foreign group yet stay group-accessible (they arrived without inheriting the project group or ACL)."
-        path_detail_lines "${drift[@]:0:3}"
-        if (( ${#drift[@]} > 3 )); then
-            say "        ${C_DIM}... and $(( ${#drift[@]} - 3 )) more$( (( ${#drift[@]} >= 200 )) && printf ' (list capped at 200)' )${C_RST}"
-            offer_full_listing "path(s)" "${drift[@]}"
+        path_listing "path(s)" "${drift[@]}"
+        # The cap is a property of the SCAN, not of this listing, so it is said whether the paths
+        # were sampled or shown in full.
+        if (( ${#drift[@]} >= 200 )); then
+            say "        ${C_DIM}(scan capped at 200 paths)${C_RST}"
         fi
     fi
     skip_listed_note
@@ -1431,11 +1443,7 @@ cmd_unclaim_unlisted() {
         "On each matching path it clears the ACLs, regroups to the target group and removes group write -- landing on 640, or 750 where the owner has execute -- clears the setgid bit and resets the SELinux label. World access, which the claim removed, is NOT restored. The previous permissions are recorded nowhere, so this is IRREVERSIBLE. Back up first. See: man ai-tools"
     say ""
     say "    ${n_res} path(s)${extra}"
-    path_detail_lines "${RESIDUE[@]:0:3}"
-    if (( n_res > 3 )); then
-        say "        ${C_DIM}... and $(( n_res - 3 )) more${C_RST}"
-        offer_full_listing "path(s)" "${RESIDUE[@]}"
-    fi
+    path_listing "path(s)" "${RESIDUE[@]}"
     say ""
 
     # Heavy trees: informational unless --full was asked for. With --full the operator has already
@@ -1446,11 +1454,7 @@ cmd_unclaim_unlisted() {
         if [[ "${full}" == true ]]; then
             headline_warn "Skip-listed directories (--full)" \
                 "${n_skip} path(s) carrying ai-tools ownership or group sit under skip-listed directory names (build output, dependencies, caches). --full includes them in this pass."
-            path_detail_lines "${RESIDUE_SKIPPED[@]:0:3}"
-            if (( n_skip > 3 )); then
-                say "        ${C_DIM}... and $(( n_skip - 3 )) more${C_RST}"
-                offer_full_listing "path(s)" "${RESIDUE_SKIPPED[@]}"
-            fi
+            path_listing "path(s)" "${RESIDUE_SKIPPED[@]}"
             say ""
             confirm "Include these ${n_skip} path(s) under skip-listed directories?" y \
                 && helper_flags+=(--full)

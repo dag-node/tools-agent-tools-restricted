@@ -960,6 +960,11 @@ fi
 - FIX: A locked secret is owned <you>:<you>, not <you>:ai-tools. The proactive lockdown and the
   on-write quarantine gave the same secret two different owners, and the sandbox group would
   have re-exposed it the moment its mode was widened.
+- FIX: A short list of paths is printed once, whole. Reports that flag paths (the claim's drift
+  and its skip-listed and sealed-directory notices) showed three, said "... and N more", asked
+  whether to list them all, and printed the lot again -- for four paths, seven lines and a
+  question to show four. Beyond twice the sample size the sample and the offer return, which is
+  where they earn their keep.
 - FIX: Sealing a path now removes the sandbox residue behind the mode. A path created inside a
   claimed tree inherits the group, the setgid bit and the project ACL at create time, and a
   later chmod only masks them -- so widening the mode once re-activated the lot. The claim
