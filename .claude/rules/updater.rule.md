@@ -184,7 +184,12 @@ directly; `ai-tools-bootstrap` runs it inside a `sudo -u` sandbox-account step; 
 entry `ai_tools_verify_npm_signatures` refuses to run as root as a fail-closed backstop. The
 pure decision `ai_tools_npm_verdict` — no npm, no filesystem, no privilege — is split out and
 unit-tested over the audit-output truth table (`tests/unit/npm-verify.sh`), mirroring
-`confinement.lib.sh`'s pure verdict.
+`confinement.lib.sh`'s pure verdict. That verdict parses its JSON with `node`, which exists only
+in the sandbox toolchain and never on root's `PATH`, so the root-run test resolves it the way the
+launch wrapper resolves the agent binary — one `readlink` hop through a stable launcher symlink to
+the active version's `bin` — and exposes **that one binary** under the name the library calls
+rather than putting the sandbox-owned toolchain directory on root's `PATH`. Resolving from `PATH`
+alone would skip the file on a fully provisioned host, which strict mode reports as no coverage.
 
 The verdict gates activation fail-closed. An **invalid** signature (tamper) aborts before the
 prune and the launcher-symlink repoint, so the previous, trusted version stays active and the
