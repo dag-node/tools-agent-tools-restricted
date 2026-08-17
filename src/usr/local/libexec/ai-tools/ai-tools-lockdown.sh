@@ -391,8 +391,8 @@ _seal_pass() {
     fi
 }
 
-# A dry run stops here -- but only after the seal preview above has run, since a preview that
-# omits half the pass is what it exists to prevent.
+# A dry run stops here -- but not before previewing the seal pass, which an apply would run too.
+# A preview that covers half of what follows it is the thing a preview exists to prevent.
 if ${DRY_RUN}; then
     if (( ${#sealed[@]} )); then
         printf 'ai-tools-lockdown: %d owner-only path(s) under %s, checked for sandbox residue:\n' \
