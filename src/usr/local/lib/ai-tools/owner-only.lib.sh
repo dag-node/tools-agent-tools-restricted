@@ -55,11 +55,20 @@ ai_tools_is_owner_only() {
 #   AI_TOOLS_RESIDUE_ACTIONS   what changed, as an array of acl / setgid / group
 #   AI_TOOLS_RESIDUE_SURFACE   1 when a third-party group's setgid was left for the caller
 #                              to report
+#
+# AI_TOOLS_RESIDUE_DRY_RUN=1 makes it report without acting: the same arms decide, and each one
+# that would fire names itself in AI_TOOLS_RESIDUE_ACTIONS, but no setfacl, chmod, or chgrp runs.
+# A preview belongs HERE rather than in a caller's own read-only re-implementation, because the
+# question "what is sandbox residue" must have exactly one answer -- a second copy of these three
+# arms would eventually promise a strip that no longer matches the one performed.
+# The one difference between the modes is what the action list means: what WOULD be attempted in
+# a dry run, and what actually succeeded in a real one.
 # shellcheck disable=SC2034  # both are outputs, read by the walkers and ai-tools-lockdown
 ai_tools_strip_sandbox_residue() {
     local fd="$1" ftype="$2" grp="$3" mode="$4" opgrp="${5:-}"
     local path="/proc/self/fd/${fd}"
-    local changed=1
+    local changed=1 dry=false
+    [[ "${AI_TOOLS_RESIDUE_DRY_RUN:-0}" == 1 ]] && dry=true
     AI_TOOLS_RESIDUE_ACTIONS=()
     AI_TOOLS_RESIDUE_SURFACE=0
 
@@ -75,7 +84,8 @@ ai_tools_strip_sandbox_residue() {
         if grep -q "^default:group:${AI_TOOLS_SANDBOX_GROUP}:" <<<"${acl}"; then
             rm+=( -x "default:group:${AI_TOOLS_SANDBOX_GROUP}" )
         fi
-        if [[ "${#rm[@]}" -gt 0 ]] && setfacl -n "${rm[@]}" "${path}" 2>/dev/null; then
+        if [[ "${#rm[@]}" -gt 0 ]] \
+                && { ${dry} || setfacl -n "${rm[@]}" "${path}" 2>/dev/null; }; then
             AI_TOOLS_RESIDUE_ACTIONS+=("acl")
             changed=0
         fi
@@ -85,7 +95,7 @@ ai_tools_strip_sandbox_residue() {
             && (( ( 8#${mode} & 8#2000 ) != 0 )); then
         if [[ "${grp}" == "${AI_TOOLS_SANDBOX_GROUP}" ]] \
                 || { [[ -n "${opgrp}" ]] && [[ "${grp}" == "${opgrp}" ]]; }; then
-            if chmod g-s "${path}" 2>/dev/null; then
+            if ${dry} || chmod g-s "${path}" 2>/dev/null; then
                 AI_TOOLS_RESIDUE_ACTIONS+=("setgid")
                 changed=0
             fi
@@ -98,7 +108,7 @@ ai_tools_strip_sandbox_residue() {
     # rather than guessed at.
     if [[ "${grp}" == "${AI_TOOLS_SANDBOX_GROUP}" && -n "${opgrp}" ]] \
             && [[ "${opgrp}" != "${AI_TOOLS_SANDBOX_GROUP}" ]]; then
-        if chgrp -- "${opgrp}" "${path}" 2>/dev/null; then
+        if ${dry} || chgrp -- "${opgrp}" "${path}" 2>/dev/null; then
             AI_TOOLS_RESIDUE_ACTIONS+=("group")
             changed=0
         fi
