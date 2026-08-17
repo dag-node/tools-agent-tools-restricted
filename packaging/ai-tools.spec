@@ -998,11 +998,8 @@ fi
   run proves it fired -- in place of the "?" it could otherwise only show, and a failing update no
   longer condemns the schedule that started it. Times read as "3 days ago" rather than as a
   timestamp to subtract from now.
-- NEW: ai-tools --status reports whether each agent entrypoint still carries its SELinux label --
-  the check a session fail-closes on, and the thing a Node upgrade routinely breaks -- so a
-  refused launch is visible before you hit it, with the ai-tools --relabel that fixes it. Shown
-  only where it can be answered. The report also names the active Node version, so the common
-  case no longer needs a second command.
+- NEW: ai-tools --status names the active Node version, so the common case no longer needs a
+  second command.
 - NEW: ai-tools --status exits non-zero when anything is reported broken, so it can be run from a
   monitor or a cron job without parsing its output. A unit this host cannot query is not counted
   as a fault.

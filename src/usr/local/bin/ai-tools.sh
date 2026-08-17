@@ -68,13 +68,9 @@ readonly AI_TOOLS_VERSION
 # itself, and the sandbox account is refused by the principal guard below before either is read.
 readonly GITCONFIG="${AI_TOOLS_GITCONFIG:-/opt/ai-tools/.gitconfig}"
 readonly SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
-# The sandbox account's home. Its bin/ holds one stable launcher symlink per enabled agent -- the
-# set --status inspects for entrypoint label drift; 0551, so an operator resolves a link without
-# reading the directory.
-readonly SANDBOX_HOME="/opt/ai-tools"
 # Bootstrap's last load-bearing artifact -- the require_bootstrap gate keys on it (below).
 # Same symlink the launch wrapper resolves; kept identical to claude.sh's CLAUDE_LINK.
-readonly CLAUDE_LINK="${SANDBOX_HOME}/bin/claude"
+readonly CLAUDE_LINK="/opt/ai-tools/bin/claude"
 # Root-only secret lockdown helper. Invoked via sudo (NO NOPASSWD grant exists for
 # it -- by design), so sudo prompts for the projects user's password.
 readonly LOCKDOWN_BIN="/usr/local/libexec/ai-tools/ai-tools-lockdown"
@@ -2169,55 +2165,6 @@ status_fmt_age() {
     fi
 }
 
-# status_entrypoint_labels  -- report whether each agent entrypoint still carries the SELinux label
-# its domain transition needs. This is the precondition ai-tools-run fail-closes on, and a Node
-# upgrade reminting the binary is the routine way to lose it, so reporting it here turns a
-# confusing "refused to launch" into something the operator saw coming.
-#
-# The check names no type: it compares each entrypoint's LIVE context against the one
-# matchpathcon computes for that path, so drift is drift whatever the policy declares. matchpathcon
-# reads the world-readable file-contexts and needs no privilege -- the same unprivileged probe
-# confinement.lib.sh uses. The section is OMITTED whenever it cannot answer (SELinux off, no
-# matchpathcon, or a toolchain path this operator cannot traverse): every line it prints depends on
-# that read, so a section that could only say "cannot tell" is not shown at all -- the rule
-# --providers already follows for the policy-group list.
-status_entrypoint_labels() {
-    command -v matchpathcon >/dev/null 2>&1 || return 0
-    command -v getenforce   >/dev/null 2>&1 || return 0
-    [[ "$(getenforce 2>/dev/null || true)" != Disabled ]] || return 0
-
-    # _type <context>: the TYPE field of a user:role:type:level context. Comparing types (not whole
-    # contexts) is deliberate -- user and range legitimately differ between a file's live context
-    # and the file-contexts default, while the type is what the domain transition keys on.
-    local _t
-    _type() { _t="${1#*:}"; _t="${_t#*:}"; printf '%s' "${_t%%:*}"; }
-
-    local link target want have shown=0 mislabelled=0
-    for link in "${SANDBOX_HOME}"/bin/*; do
-        [[ -L "${link}" ]] || continue
-        target="$(readlink -f -- "${link}" 2>/dev/null)" || continue
-        [[ -n "${target}" && -e "${target}" ]] || continue
-        have="$(stat -c '%C' -- "${target}" 2>/dev/null)" || continue
-        want="$(matchpathcon -n -- "${target}" 2>/dev/null)" || continue
-        [[ -n "${have}" && -n "${want}" && "${have}" != '?' ]] || continue
-        if [[ "${shown}" -eq 0 ]]; then section "Agent entrypoints"; shown=1; fi
-        if [[ "$(_type "${have}")" == "$(_type "${want}")" ]]; then
-            printf '  %-28s %sOK%s %s(%s)%s\n' "${link##*/}" "${C_GRN}" "${C_RST}" \
-                "${C_DIM}" "$(_type "${have}")" "${C_RST}"
-        else
-            mislabelled=1
-            printf '  %-28s %sMISLABELLED%s\n' "${link##*/}" "${C_RED}" "${C_RST}"
-            say "      ${C_DIM}${target}${C_RST}"
-            say "      has $(_type "${have}"), needs $(_type "${want}")"
-        fi
-    done
-    if [[ "${mislabelled}" -eq 1 ]]; then
-        say "      a session will refuse to launch on this entrypoint rather than run unconfined"
-        say "      ${C_BOLD}ai-tools --relabel${C_RST}"
-    fi
-    return "${mislabelled}"
-}
-
 # status_sandbox_unit_commands <unit>  -- print the three commands that inspect and re-run a unit
 # living in the SANDBOX account's own `systemd --user` manager. That manager is unreachable from
 # the operator's session, so every one of them goes through root:
@@ -2342,8 +2289,6 @@ cmd_status() {
             fi
         fi
     done < <(ai_tools_service_records)
-
-    status_entrypoint_labels || problems=$(( problems + 1 ))
 
     # Pointers, not duplication: name the sibling read-only reports (which own their own detail) and
     # where the full command list lives, so --status is a hub without re-implementing --providers or

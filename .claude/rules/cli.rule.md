@@ -158,23 +158,23 @@ and inspect the host.
   no `max_age`, an unparseable date, or a stamp dated in the future all decline the judgment.
 
   Times render **relative first** (`last run 3 days ago`), coarsening with distance, because the
-  age is what the operator acts on. The entrypoint section (below) and every unit line feed one
-  predicate, `ai_tools_service_needs_attention` (`down`/`failed`/`stale`, never `unknown`), which is
+  age is what the operator acts on. Every unit line feeds one predicate,
+  `ai_tools_service_needs_attention` (`down`/`failed`/`stale`, never `unknown`), which is
   both what the scanner collects and what `--status`'s **exit status** reports — non-zero when
   anything is broken, so the command is usable from a monitor or cron without parsing its output.
   An unqueryable unit is not a fault and does not alarm.
 
-- **Agent entrypoints** — `--status` additionally reports whether each stable launcher's target
-  still carries the SELinux label its domain transition needs, the precondition `ai-tools-run`
-  fail-closes on and the one a Node upgrade routinely breaks (see [updater](updater.rule.md)), so a
-  refused launch is seen coming rather than met head-on. The check **names no type**: it compares
-  each entrypoint's live context against the one `matchpathcon` computes for that path, so drift is
-  drift whatever the policy declares, and it needs no privilege — the same world-readable
-  file-contexts probe `confinement.lib.sh` uses. Only the type is compared (user and range
-  legitimately differ). The whole section is **omitted** when it cannot answer — SELinux off, no
-  `matchpathcon`, or a toolchain path this operator cannot traverse — on the same rule as the
-  policy-group section: every line depends on that read, so a section that could only say "cannot
-  tell" is not shown.
+  **Entrypoint label drift is not reported here**, though it is the precondition `ai-tools-run`
+  fail-closes on. Reading an entrypoint's live context means `stat`ing a file under
+  `/opt/ai-tools/.nvm`, which `ai-tools-bootstrap` creates `0750 SANDBOX_USER:SANDBOX_GROUP` — the
+  operator is not in that group and cannot traverse it, and `matchpathcon` computes only what the
+  label *should* be, never what it is. No unprivileged check is possible from this vantage point.
+  Little is lost, because the drift is already handled where it arises rather than observed after
+  the fact: `ai-tools-relabel.path` relabels the entrypoint whenever a Node upgrade repoints its
+  launcher (see [updater](updater.rule.md)), and that watcher **is** one of the registry entries
+  reported above — so the mechanism that keeps entrypoints labelled is what `--status` covers. A
+  mislabel that survives it stops the next launch with the fault and the `ai-tools --relabel` that
+  clears it.
 
   Every command for such a unit goes through root, and the CLI composes them rather than the
   registry storing them: each names the sandbox **account**, and `services.lib.sh` is deployed with
