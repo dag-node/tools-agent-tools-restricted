@@ -1508,9 +1508,11 @@ cmd_unclaim_unlisted() {
 cmd_project_unclaim() {
     # --force gates on the on-disk fingerprint instead of allowlist membership; it never relaxes
     # the protected-paths backstop, the owner guard, or the secret/'!' skips. -y/--yes pre-answers
-    # the default-NO confirm, the same explicit-flag convention as --project-claim -y. --group
-    # names the hand-back group outright, so a script never depends on the prompt's no-tty
-    # fallback -- and it works in both modes.
+    # the default-NO confirm in EVERY mode -- the registered project's, the ancestor batch's, and
+    # --force's -- the same explicit-flag convention as --project-claim -y; it never answers the
+    # hand-back or skip-listed questions, which ask on their own terms. --group names the hand-back
+    # group outright, so a script never depends on the prompt's no-tty fallback -- and it works in
+    # both modes.
     local a path="" force=false full=false dry=false assume_yes=false group_opt="" want_group=false
     for a in "$@"; do
         if ${want_group}; then group_opt="${a}"; want_group=false; continue; fi
@@ -1601,7 +1603,7 @@ cmd_project_unclaim() {
         section "Unclaim project"
         say "  ${d}"
         say "  ${C_DIM}(the directory itself is left on disk)${C_RST}"
-        confirm "Unclaim this project?" n || die "aborted"
+        ${assume_yes} || confirm "Unclaim this project?" n || die "aborted"
     else
         headline_warn "WARNING: unclaim multiple projects" \
             "${d} is not itself a claimed project, but ${#targets[@]} claimed project(s) are nested under it." \
@@ -1609,7 +1611,7 @@ cmd_project_unclaim() {
             "The directories themselves are left on disk."
         for t in "${targets[@]}"; do printf '    %s\n' "${t}"; done
         say ""
-        confirm "Unclaim ALL ${#targets[@]} projects listed above?" n || die "aborted"
+        ${assume_yes} || confirm "Unclaim ALL ${#targets[@]} projects listed above?" n || die "aborted"
     fi
 
     # Filesystem hand-back: decided ONCE for the whole batch.
