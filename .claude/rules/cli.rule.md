@@ -140,7 +140,12 @@ and inspect the host.
   A unit in the sandbox account's own `systemd --user` manager is not queryable from the operator's
   session at all, so its state comes from a **last-run stamp** it publishes where the operator can
   read it (`nvm-update.service`, see [updater](updater.rule.md)) and stays `?` where it publishes
-  none. A stamped unit's OK carries the time of that run rather than implying it is running now,
+  none. One live fact about that manager *is* readable — whether the unit **file** is installed —
+  and it is checked first, so a unit an optional package never shipped (the `nvm-update` pair
+  without the nodejs integration) reads as not-installed rather than as one this host cannot see,
+  and a stamp an uninstall left behind cannot make a gone unit look present. The account's own
+  `~/.config/systemd/user` is not searched: it sits inside a home the operator cannot traverse, and
+  every unit the registry names ships to the system-wide user-unit directory. A stamped unit's OK carries the time of that run rather than implying it is running now,
   and a `FAILED` carries the run's exit code. The `?` line is not a problem report — it says only
   that this vantage point cannot tell — so it stays a single line naming the one command that can,
   and the multi-command diagnostic block is reserved for a unit actually reported broken.

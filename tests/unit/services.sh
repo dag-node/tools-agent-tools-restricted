@@ -6,7 +6,9 @@
 #   * the '|'-delimited record accessor and the registry shape;
 #   * ai_tools_service_state's active/down/failed/stale/absent/unknown mapping, including that a
 #     sandbox-user unit is never queried through systemctl -- it reports from its last-run stamp,
-#     or 'unknown' when it publishes none;
+#     or 'unknown' when it publishes none, and 'absent' when its unit file is not installed at all
+#     (the one live fact about that account's manager this vantage point can read, and the
+#     difference between a unit no optional package shipped and one this host merely cannot see);
 #   * the FRESHNESS half of that mapping, which exists for a failure a RESULT cannot express: every
 #     recorded run succeeds while the schedule driving them has stopped. So a successful run goes
 #     stale past max_age, a failed one stays failed at any age, an unknown age never manufactures
@@ -47,6 +49,16 @@ if ! source "${LIB}" \
     fail "could not source ${LIB} or it does not define its functions"; finish; exit
 fi
 mktestdir
+
+# A sandbox-user unit's PRESENCE is read from its unit file -- the one live fact the operator's
+# session can see about that account's manager -- so the whole file points the lookup at a fixture
+# directory. Without it every case below would depend on which optional packages this host
+# installed, which is exactly the environment coupling a unit test must not have.
+mkdir -p "${TESTDIR}/user-units"
+: > "${TESTDIR}/user-units/nvm-update.timer"
+: > "${TESTDIR}/user-units/nvm-update.service"
+: > "${TESTDIR}/user-units/u"                    # the synthetic unit the freshness cases drive
+export AI_TOOLS_USER_UNIT_DIRS="${TESTDIR}/user-units"
 
 # --- (A) the accessor splits a record on '|' ---
 rec="unit-x|system|critical|wrapper|because reasons|sudo fix it|/var/tmp/stamp"
@@ -127,6 +139,18 @@ fi
 # --- (B2) the stamp decides a sandbox-user unit's state ---
 STAMP="${TESTDIR}/nvm-update.status"
 mk_stamp() { printf '%s\n' "$@" > "${STAMP}"; }
+
+# An uninstalled sandbox-user unit is 'absent', not 'unknown': every unit in the registry ships
+# with an OPTIONAL package, and "this host cannot query it" would send the operator after a unit
+# no package installed. Asserted against a FRESH stamp, because absence has to beat one an
+# uninstall left behind -- the unit is gone whatever the file still says about its last run.
+mk_stamp 'RESULT=ok' "FINISHED=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+if [[ "$(ai_tools_service_state not-installed.timer sandbox-user "${STAMP}" fired 172800)" == absent \
+   && "$(ai_tools_service_state not-installed.service sandbox-user "${STAMP}" result 172800)" == absent ]]; then
+    pass "an uninstalled sandbox-user unit is 'absent' in both stamp modes, even with a fresh stamp"
+else
+    fail "an uninstalled sandbox-user unit did not report absent"
+fi
 
 mk_stamp '# comment' 'RESULT=ok' 'EXIT_CODE=0' 'FINISHED=2026-08-17T05:50:59Z' 'NODE=v22.20.0'
 st_ok="$(ai_tools_service_state nvm-update.service sandbox-user "${STAMP}")"
