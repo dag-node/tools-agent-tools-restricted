@@ -119,7 +119,6 @@ readonly GUARD_MARKER="ai-tools-lockdown-guard"
 # write the registries with the wrong owner) and never as the sandbox account
 # (the agent must not manage its own allowlist).
 ME="$(id -un)"
-MY_GROUP="$(id -gn)"
 [[ "${ME}" == "root" ]] \
     && { echo "ai-tools: do not run as root -- run as the projects user, without sudo" >&2
          echo "          (the CLI invokes sudo itself for the steps that need it)" >&2; exit 1; }
@@ -487,12 +486,18 @@ acl_drift_scan() {
 }
 
 # sealed_setgid_scan <dir>  -- list owner-only directories inside a claimed tree whose setgid bit
-# carries a THIRD-party group: neither SANDBOX_GROUP nor the operator's own. When the claim walks
-# seal a path they clear a setgid bit belonging to one of those two, since a claimed tree carries
-# no other legitimately; any further group reads as a deliberate operator choice and is kept
-# (owner-only.lib.sh). That leaves the operator the one who decides, so the claim has to say so
-# rather than act. Read-only and unprivileged, detection only -- a path reported here is one the
-# claim did NOT touch, so reporting it never widens access.
+# carries a THIRD-party group: neither SANDBOX_GROUP nor the group of the directory's own owner.
+# When the claim walks seal a path they clear a setgid bit belonging to one of those two, since a
+# claimed tree carries no other legitimately; any further group reads as a deliberate operator
+# choice and is kept (owner-only.lib.sh). That leaves the operator the one who decides, so the
+# claim has to say so rather than act. Read-only and unprivileged, detection only -- a path
+# reported here is one the claim did NOT touch, so reporting it never widens access.
+#
+# "Third party" is decided per path, against the OWNER's primary group -- not against the invoking
+# user's. The two differ on a multi-operator host, where the group the claim walks treat as
+# legitimate is the resolved project owner's (they act only on paths that owner or the sandbox
+# account holds, so the owner's group is exactly what their check comes to), and reporting against
+# the invoker's would flag a bit the claim goes on to strip, or stay silent about one it keeps.
 sealed_setgid_scan() {
     local dir="$1" excl
     local -a skip=( -name .git -prune )
@@ -500,9 +505,17 @@ sealed_setgid_scan() {
         excl="${excl#!}"
         [[ "${excl}" == "${dir}"/* ]] && skip+=( -o -path "${excl}" -prune )
     done < <(grep '^!' "${ALLOWLIST}" 2>/dev/null || true)
+    # find cannot compare a path's group to its own owner's, so it narrows to the candidates
+    # (owner-only, setgid, not the sandbox group) and the owner comparison is made per path here.
+    # An owner with no passwd entry resolves to no group and is therefore reported, which is the
+    # right way round: a setgid whose group cannot be tied to the owner is one to look at.
     find "${dir}" -xdev \( "${skip[@]}" \) -o \
-        -type d ! -perm /077 -perm -2000 \
-        ! -group "${SANDBOX_GROUP}" ! -group "${MY_GROUP}" -print 2>/dev/null
+        -type d ! -perm /077 -perm -2000 ! -group "${SANDBOX_GROUP}" \
+        -printf '%U\t%G\t%p\n' 2>/dev/null \
+    | while IFS=$'\t' read -r _uid _grp _path; do
+          [[ "${_grp}" == "$(id -gn "${_uid}" 2>/dev/null || true)" ]] && continue
+          printf '%s\n' "${_path}"
+      done
 }
 
 # reg_ownership <dir>  -- make <dir> usable by the sandbox account: group SANDBOX_GROUP + the

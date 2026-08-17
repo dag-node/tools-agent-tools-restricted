@@ -278,6 +278,19 @@ build-output name), then re-claim; or `ai-tools --reclaim --full` for ownership 
 Declining plus a `!` exclusion (or `chmod 700`) records an intentional carve-out so it is
 not re-reported.
 
+**Sealed directories with a third-party setgid.** A second read-only scan
+(`sealed_setgid_scan`) reports the one piece of residue the claim walks decline to remove: a
+setgid bit on an owner-only directory whose group is neither `SANDBOX_GROUP` nor the group of
+that directory's own owner (see [ownership-and-hooks](ownership-and-hooks.rule.md) for the strip
+those walks do perform). The walks cannot ask whether such a bit was deliberate, so they keep it
+and the operator decides — which means the claim has to *say* it kept it, in the Review block
+before the confirm rather than from a helper's stderr under Apply, where it scrolls past the
+decision it informs. The comparison is made **per path against the owner's primary group**, not
+against the invoking user's: on a multi-operator host the group the walks treat as legitimate is
+the resolved project owner's, so comparing against the invoker's would report a bit the claim goes
+on to strip, or stay silent about one it keeps. New files in such a directory are still born in
+that third group, so the block names the paths and the `chmod g-s` that clears one.
+
 **Reachability.** The confined session runs *as* the sandbox account, so it must be able to
 **traverse** the path to the project; a project nested under a directory the account cannot enter
 (a private home, `700`) is unreachable, and `ai-tools-run` — which re-checks the project directory as
