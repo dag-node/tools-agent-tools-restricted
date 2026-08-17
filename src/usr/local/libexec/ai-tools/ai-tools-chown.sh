@@ -321,10 +321,15 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             # a file born in a claimed tree carries the project's inherited group ACL entry, and
             # `go=` leaves it in place, dormant (owner-only.lib.sh). Ordinary files keep theirs --
             # the agent is meant to go on co-writing those.
+            # Every value handed to the strip is read from the PINNED inode, ${got_ftype} included:
+            # the strip's contract is that it describes the same descriptor it acts through, and
+            # the pre-open ${ftype} is a different read of a path that may since have been swapped.
+            # The type check above makes the two agree today, so this is not a live bug -- it is
+            # the one place the discipline is stated, and it should not read as an exception to it.
             if ${is_secret} \
                     && read -r sec_grp sec_mode \
                         < <(stat -L -c '%G %a' "/proc/self/fd/${fd}" 2>/dev/null); then
-                ai_tools_strip_sandbox_residue "${fd}" "${ftype}" "${sec_grp}" "${sec_mode}" \
+                ai_tools_strip_sandbox_residue "${fd}" "${got_ftype}" "${sec_grp}" "${sec_mode}" \
                     "${PROJECTS_GROUP}" || true
             fi
             # Record the privileged mutation. A secret is the alarming case (WARNING,
