@@ -32,7 +32,20 @@ tests/
   unit/            hermetic helper-logic tests
   integration/     full-install checks (needs a deployed, running system)
   boundary/        confinement checks run as the agent (SANDBOX_USER)
+  manual/          operator-run live flow verification (NOT dispatched by run.sh)
 ```
+
+`manual/` is not dispatched by `run.sh`, because its contents cannot be run the way the suite
+is: `verify-live-flows.sh` drives the CLI **as the operator**, which prompts on
+`/dev/tty`, `sudo`s for each root step, and writes the operator's own registries — none of which a
+root-run hermetic suite reproduces. It exists for what only a live run shows (a claim, lockdown
+and unclaim completing end to end, and `ai-tools --status` read from the vantage point that has to
+read it), and it is bounded by two rules that keep a convenience script from becoming a hazard:
+it works only inside a workspace `mktemp -d` created for that run — never adopting an existing
+path, and refusing to remove one outside it — and it **modifies nothing installed**, so a check
+that would need to write shared runtime state (the updater's last-run stamp) reads it and asserts
+agreement instead. A state the host is not already in is skipped rather than manufactured; the
+unit suites drive those against fixtures they own.
 
 The SELinux AVC bring-up tooling is **not** part of this suite: it lives with the policy it
 supports, under `selinux/avc/` (`run.sh` does not dispatch it).
