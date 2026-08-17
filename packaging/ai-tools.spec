@@ -944,7 +944,12 @@ fi
   scripted use.
 - NEW: ai-tools --lockdown also seals the paths you sealed by mode rather than by name, so a
   file or directory made owner-only after the claim is cleaned up without waiting for the next
-  one.
+  one. --dry-run previews that pass as well, naming each path and what would come off it.
+- CHANGE: ai-tools --project-unclaim now leaves a hardlinked file alone, in both modes. Changing
+  it would change every other name for the same inode, including names outside the project --
+  which is what a locally cloned repo has, since git hardlinks .git/objects to the repo it was
+  cloned from. Those files keep the group they have, so the agent is not off them: the count is
+  reported at the end of the run with the find command that lists them, and you decide.
 - NEW: ai-tools --project-claim reports, in its Review block, a sealed directory whose setgid
   bit belongs to a third group -- the one piece of residue the claim keeps, since it cannot tell
   a deliberate choice from a leftover -- with the chmod g-s that clears it.

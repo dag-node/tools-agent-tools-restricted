@@ -341,6 +341,17 @@ while the new group owner keeps read/traverse. `.git`, skipped by the main walk 
 heavy trees, is reverted by its own pass — for the same reason claim normalizes it (both
 parties write it) — so the unclaim fully revokes git-history access too.
 
+**Hardlinked files are refused, in both modes.** A regular file with more than one name is left
+untouched: `chgrp`/`chmod` act on the *inode*, which the second name reaches from outside the
+tree, so acting would change a path the pass never authorized — and for the common case,
+`git clone --local` (which hardlinks `.git/objects` to the source repo), it would rewrite the
+**origin's** objects. This is the one refusal in the project that leaves *more* access than acting
+would, since the inode keeps its group and the agent therefore keeps those files after the project
+is deregistered. It is accepted rather than resolved — the alternative reaches outside the
+authorized tree — and paid for in disclosure: the count is reported to the terminal with what it
+leaves behind and the `find … -links +1 -group SANDBOX_GROUP` that lists the files, so the
+operator can decide about them deliberately instead of inferring the gap from two counts.
+
 **Owner guard (claim and unclaim).** The root helpers `ai-tools-setgid`, `ai-tools-setfacl`,
 and `ai-tools-unclaim` act **only** on paths owned by the projects user or the sandbox
 account; a path owned by any third party (root, another developer) is left untouched, on top

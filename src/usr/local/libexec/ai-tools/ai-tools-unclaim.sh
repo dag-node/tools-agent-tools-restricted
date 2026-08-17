@@ -52,7 +52,15 @@
 # Hardlink guard: a regular file with more than one name is refused in BOTH modes, the same
 # boundary ai-tools-chown enforces -- chgrp and chmod act on the inode, which a second name
 # can reach from outside the tree, so acting would change a path the walk never authorized.
-# Refusals are counted and reported, never silently folded into the skip count.
+#
+# This is the one refusal here that leaves MORE access than acting would: the inode keeps its
+# group, so after the project is deregistered the agent still holds those files through it. That
+# is accepted rather than resolved, because the alternative is worse -- the second name is outside
+# the tree and this pass authorizes nothing out there, and for the common case (`git clone
+# --local`, which hardlinks .git/objects to the source repo) acting would silently rewrite the
+# ORIGIN's objects. What the guard owes the operator instead is disclosure: refusals are counted,
+# reported to the terminal with what they leave behind, and handed the `find -links +1` that lists
+# them, never folded into a silent skip count.
 # Secret-named and '!'-excluded paths are skipped (a locked secret
 # stays where it is), and heavy/transient trees are skipped -- the same rules as setgid/
 # setfacl, via the shared libraries. .git is the exception: the main walk skips it like the
@@ -379,13 +387,16 @@ find "${expr[@]}" 2>/dev/null \
             esac
         done
         ai_tools_log_info "unclaimed ${changed} path(s) under ${canonical} (group -> ${TARGET_GROUP}, group write removed)"
-        # Surfaced, never silent: a refused hardlink is a path the operator asked to change and
-        # that stays as it is, so it reaches the terminal (stderr, which sudo passes through)
-        # as well as the log, rather than vanishing into the difference between two counts.
+        # Surfaced, never silent, and with its CONSEQUENCE: a refused hardlink is a path the
+        # operator asked to change that keeps the group it has -- so after the project is
+        # deregistered those inodes still carry the agent's group, which is the one thing an
+        # unclaim is for. The refusal is still right (the inode is reachable from outside the tree,
+        # and this pass authorizes nothing out there), so what the operator needs is to be told
+        # plainly and handed the command that lists them, not a silent difference between counts.
         if (( hardlinked )); then
-            ai_tools_log_warn "left ${hardlinked} hardlinked file(s) under ${canonical} untouched"
-            printf 'ai-tools-unclaim: left %d hardlinked file(s) untouched -- an inode with more than one name can be reached from outside this tree\n' \
-                "${hardlinked}" >&2
+            ai_tools_log_warn "left ${hardlinked} hardlinked file(s) under ${canonical} untouched -- they keep group @SANDBOX_GROUP@"
+            printf 'ai-tools-unclaim: left %d hardlinked file(s) untouched -- an inode with more than one name can be reached from outside this tree, so changing it here would change a path this pass never authorized. They KEEP the group they have, so the agent is not off them: list them with\n  find %s -xdev -type f -links +1 -group @SANDBOX_GROUP@\n' \
+                "${hardlinked}" "${canonical}" >&2
         fi
       } || true
 
@@ -421,9 +432,9 @@ if [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
     # those inodes are shared with the origin, and changing one changes the origin's copy --
     # but it has to be said out loud, or the operator reads a partial revert as a complete one.
     if (( git_hardlinked )); then
-        ai_tools_log_warn "left ${git_hardlinked} hardlinked file(s) under ${gitdir} untouched"
-        printf 'ai-tools-unclaim: left %d hardlinked file(s) in .git untouched -- a local git clone shares object files with the source repo, so changing them would change the origin\n' \
-            "${git_hardlinked}" >&2
+        ai_tools_log_warn "left ${git_hardlinked} hardlinked file(s) under ${gitdir} untouched -- they keep group @SANDBOX_GROUP@"
+        printf 'ai-tools-unclaim: left %d hardlinked file(s) in .git untouched -- a local git clone shares object files with the source repo, so changing them would change the origin. They KEEP the group they have: list them with\n  find %s -xdev -type f -links +1 -group @SANDBOX_GROUP@\n' \
+            "${git_hardlinked}" "${gitdir}" >&2
     fi
 fi
 
