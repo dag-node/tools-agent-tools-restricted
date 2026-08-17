@@ -56,10 +56,15 @@ mktestdir
 # directory. Without it every case below would depend on which optional packages this host
 # installed, which is exactly the environment coupling a unit test must not have.
 mkdir -p "${TESTDIR}/user-units"
-: > "${TESTDIR}/user-units/nvm-update.timer"
-: > "${TESTDIR}/user-units/nvm-update.service"
-: > "${TESTDIR}/user-units/u"                    # the synthetic unit the freshness cases drive
 export AI_TOOLS_USER_UNIT_DIRS="${TESTDIR}/user-units"
+
+# user_unit <name> : make a sandbox-user unit look INSTALLED. Presence is checked before the stamp
+# is read, so every unit name this file drives as sandbox-user needs one -- without it the state
+# resolves to 'absent' and the case under test never runs. Called where each name is introduced,
+# rather than from one list up here, so a name added later cannot quietly miss it.
+user_unit() { : > "${TESTDIR}/user-units/$1"; }
+user_unit nvm-update.timer
+user_unit nvm-update.service
 
 # --- (A) the accessor splits a record on '|' ---
 rec="unit-x|system|critical|wrapper|because reasons|sudo fix it|/var/tmp/stamp"
@@ -204,6 +209,7 @@ fi
 # fixed date.
 at_age() { date -u -d "@$(( $(date -u +%s) - $1 ))" +%Y-%m-%dT%H:%M:%SZ; }
 readonly DAY=86400 GRACE=172800   # GRACE mirrors the registry's 48h max_age
+user_unit u                       # the synthetic unit these cases drive
 
 mk_stamp "RESULT=ok" "FINISHED=$(at_age 3600)"
 st_fresh="$(ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
@@ -363,6 +369,7 @@ fi
 # reads the registry. The wrapper/system filters must stay clean: only a sandbox-user unit can be
 # 'failed', so the launch wrapper's warning still speaks only of units that are not running.
 mk_stamp 'RESULT=failed' 'EXIT_CODE=1' 'FINISHED=2026-08-17T05:50:59Z'
+user_unit fixture-user.service
 _AI_TOOLS_SERVICES=(
   "fixture-sys.path|system|critical|wrapper|a system unit|sudo fix it|"
   "fixture-user.service|sandbox-user|maintenance|none|a sandbox --user unit||${STAMP}"
