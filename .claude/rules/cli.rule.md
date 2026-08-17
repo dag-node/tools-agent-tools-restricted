@@ -157,10 +157,14 @@ and inspect the host.
   `max_age` (48h for `nvm-update`, twice its daily `OnCalendar`) the unit reports **`STALE`**. The
   registry's `stamp_mode` field selects which property a record reads: `result` for the unit that
   ran, `fired` for the one that triggered it — so `nvm-update.timer` derives a verdict of its own
-  from the *same* stamp on recency alone (a recorded run, successful or not, proves the timer
-  fired), instead of the `?` it could otherwise only report. A failing service therefore does not
-  also condemn the working schedule that started it. An unknown age never manufactures staleness:
-  no `max_age`, an unparseable date, or a stamp dated in the future all decline the judgment.
+  from the *same* stamp on recency alone (a systemd-started run, successful or not, proves the
+  timer fired), instead of the `?` it could otherwise only report. A failing service therefore does
+  not also condemn the working schedule that started it. Only a systemd-started run counts, read
+  from the stamp's `TRIGGER` (see [updater](updater.rule.md)): a run the operator did by hand is no
+  evidence about a schedule, and counting one would both report a dead timer as healthy and
+  suppress the staleness that is the only way a stopped schedule shows up. An unknown age never
+  manufactures staleness either: no `max_age`, an unparseable date, or a stamp dated in the future
+  all decline the judgment.
 
   Times render **relative first** (`last run 3 days ago`), coarsening with distance, because the
   age is what the operator acts on. Every unit line feeds one predicate,

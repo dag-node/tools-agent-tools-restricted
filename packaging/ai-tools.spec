@@ -994,10 +994,12 @@ fi
 - NEW: ai-tools --status distinguishes "the last run worked" from "runs are still happening". A
   toolchain update that succeeds but stops being triggered leaves every recorded run green while
   Node and the agent packages quietly fall behind, so a stamp older than 48 hours now reports
-  STALE rather than OK. The same recency gives nvm-update.timer a verdict of its own -- a recorded
-  run proves it fired -- in place of the "?" it could otherwise only show, and a failing update no
-  longer condemns the schedule that started it. Times read as "3 days ago" rather than as a
-  timestamp to subtract from now.
+  STALE rather than OK. The same recency gives nvm-update.timer a verdict of its own -- a run
+  systemd started proves it fired -- in place of the "?" it could otherwise only show, and a
+  failing update no longer condemns the schedule that started it. An update you run by hand is not
+  counted: it says nothing about whether the schedule is still firing, and counting it would report
+  a dead timer as healthy for two days. Times read as "3 days ago" rather than as a timestamp to
+  subtract from now.
 - NEW: ai-tools --status names the active Node version, so the common case no longer needs a
   second command.
 - NEW: ai-tools --status exits non-zero when anything is reported broken, so it can be run from a

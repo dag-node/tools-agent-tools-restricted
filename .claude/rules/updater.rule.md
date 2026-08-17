@@ -92,14 +92,21 @@ naming the reinstall that restores it, while the report states the unit as unkno
 guessing. The whole text goes out in a single write, so the window in which a reader could see a
 partial stamp is negligible; one that lands there anyway carries no parseable `RESULT` and reads as
 unknown, never as a wrong verdict. The content is the shared `KEY=value` grammar:
-`RESULT=ok|failed`, `EXIT_CODE`, `FINISHED` (UTC, ISO-8601), and `NODE`.
+`RESULT=ok|failed`, `EXIT_CODE`, `FINISHED` (UTC, ISO-8601), `TRIGGER=unit|manual`, and `NODE`.
 
 Each field has a distinct reader. `RESULT` and `EXIT_CODE` are the service's verdict. `FINISHED`
 carries two: it dates that verdict, and its **age** is what `nvm-update.timer` — which can
-otherwise report nothing at all — infers its own health from, since a recorded run proves the timer
-fired (see [cli](cli.rule.md) for the `stamp_mode`/`max_age` fields that express this). `NODE` lets
-`ai-tools --status` report the active Node version without reading the `700` toolchain, which the
-operator cannot.
+otherwise report nothing at all — infers its own health from, since a run systemd started proves
+the timer fired (see [cli](cli.rule.md) for the `stamp_mode`/`max_age` fields that express this).
+`TRIGGER` is what makes that inference sound: only a systemd-started run is evidence about a
+*schedule*, so it records whether `INVOCATION_ID` — set by systemd for every unit it starts — was
+present, and the timer's verdict is declined for anything else. Without it a run the operator did
+by hand would report a dead timer as healthy for the whole grace window and, worse, suppress the
+staleness that is the only way a stopped schedule surfaces at all. A run started by hand *through*
+the manager (`systemctl --user start nvm-update.service`) is indistinguishable from a triggered one
+and counts as `unit`: the inference is bounded to systemd-started runs, not to scheduled ones.
+`NODE` lets `ai-tools --status` report the active Node version without reading the `700` toolchain,
+which the operator cannot.
 
 ### What the stamp is trusted for
 

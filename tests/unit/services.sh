@@ -12,8 +12,9 @@
 #   * the FRESHNESS half of that mapping, which exists for a failure a RESULT cannot express: every
 #     recorded run succeeds while the schedule driving them has stopped. So a successful run goes
 #     stale past max_age, a failed one stays failed at any age, an unknown age never manufactures
-#     staleness, and 'fired' mode reads recency ALONE -- letting one stamp yield two verdicts, a
-#     healthy trigger beside the failed run it started;
+#     staleness, and 'fired' mode reads the recency of a SYSTEMD-STARTED run alone -- letting one
+#     stamp yield two verdicts, a healthy trigger beside the failed run it started, while a run the
+#     operator did by hand (which proves nothing about a schedule) is declined in both directions;
 #   * ai_tools_service_stamp_field's defensive read of that stamp. It is the one input here a
 #     non-root writer controls (the sandbox account writes it) and it is rendered to the operator's
 #     terminal, so each way a hostile or corrupt value could reach that terminal -- a symlinked
@@ -222,10 +223,11 @@ else
     fail "an old failed run was reported stale"
 fi
 
-# 'fired' mode: the trigger's verdict is recency ALONE. A RECENT run that failed still proves the
-# timer fired, so the timer is healthy while the service it started is not -- the two must not
-# collapse into one verdict, or a failing service would also condemn a working schedule.
-mk_stamp "RESULT=failed" "EXIT_CODE=1" "FINISHED=$(at_age 3600)"
+# 'fired' mode: the trigger's verdict is the recency of a SYSTEMD-STARTED run, and nothing else. A
+# RECENT run that failed still proves the timer fired, so the timer is healthy while the service it
+# started is not -- the two must not collapse into one verdict, or a failing service would also
+# condemn a working schedule.
+mk_stamp "RESULT=failed" "EXIT_CODE=1" "FINISHED=$(at_age 3600)" "TRIGGER=unit"
 st_fired="$(ai_tools_service_state u sandbox-user "${STAMP}" fired  "${GRACE}")"
 st_ran="$(  ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
 if [[ "${st_fired}" == active && "${st_ran}" == failed ]]; then
@@ -233,11 +235,30 @@ if [[ "${st_fired}" == active && "${st_ran}" == failed ]]; then
 else
     fail "'fired' mode was swayed by RESULT: trigger=${st_fired} run=${st_ran}"
 fi
-mk_stamp "RESULT=ok" "FINISHED=$(at_age $(( 13 * DAY )))"
+mk_stamp "RESULT=ok" "FINISHED=$(at_age $(( 13 * DAY )))" "TRIGGER=unit"
 if [[ "$(ai_tools_service_state u sandbox-user "${STAMP}" fired "${GRACE}")" == stale ]]; then
     pass "'fired' mode reports stale when no run has been recorded in a long time"
 else
     fail "'fired' mode did not go stale on an old stamp"
+fi
+
+# A run the OPERATOR started is not evidence about a schedule. Counting it would report a dead
+# timer as healthy for the whole grace window -- and suppress the staleness that is the only way a
+# stopped schedule ever surfaces -- so a hand run (and a stamp predating the field) declines the
+# judgment in BOTH directions: fresh does not mean OK, old does not mean stale. The run itself is
+# still the service's own verdict, which is what keeps this from losing information.
+mk_stamp "RESULT=ok" "FINISHED=$(at_age 3600)" "TRIGGER=manual"
+st_fired="$(ai_tools_service_state u sandbox-user "${STAMP}" fired "${GRACE}")"
+st_ran="$(  ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
+mk_stamp "RESULT=ok" "FINISHED=$(at_age $(( 13 * DAY )))" "TRIGGER=manual"
+st_old="$(ai_tools_service_state u sandbox-user "${STAMP}" fired "${GRACE}")"
+mk_stamp "RESULT=ok" "FINISHED=$(at_age 3600)"
+st_nofield="$(ai_tools_service_state u sandbox-user "${STAMP}" fired "${GRACE}")"
+if [[ "${st_fired}" == unknown && "${st_old}" == unknown && "${st_nofield}" == unknown \
+   && "${st_ran}" == active ]]; then
+    pass "'fired' mode declines a hand-started run (and a stamp with no TRIGGER), fresh or old"
+else
+    fail "'fired' mode judged a non-systemd run: fresh=${st_fired} old=${st_old} none=${st_nofield} run=${st_ran}"
 fi
 
 # No max_age means no freshness judgment, and an UNPARSEABLE date must not manufacture staleness

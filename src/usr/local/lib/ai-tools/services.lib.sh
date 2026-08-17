@@ -55,8 +55,10 @@ readonly _AI_TOOLS_SERVICES_LIB_LOADED=1
 #   stamp_mode = what that stamp says ABOUT THIS UNIT -- two units can share one stamp and read
 #               different things from it, which is how the timer gets a verdict of its own:
 #               result   -- the run's RESULT is this unit's verdict (it IS the unit that ran).
-#               fired    -- only the run's RECENCY matters: a recorded run, successful or not, is
-#                           proof this unit triggered it. A failed run leaves the trigger healthy.
+#               fired    -- only the RECENCY of a SYSTEMD-STARTED run matters: such a run,
+#                           successful or not, is proof this unit triggered it, so a failed run
+#                           leaves the trigger healthy. A run the operator started by hand is not
+#                           evidence about a schedule and is declined (stamp field TRIGGER).
 #   max_age   = seconds after which a stamp stops being evidence of a HEALTHY unit, or empty for
 #               no freshness judgment. This is what separates "the last run succeeded" from "runs
 #               are still happening": every individual run can succeed while the schedule that
@@ -178,7 +180,15 @@ ai_tools_service_state() {
         age="$(ai_tools_service_stamp_age "${stamp}")"
         # 'fired' reads recency alone: a run happened, so whatever triggers it is working, and its
         # outcome belongs to the unit that ran (reported separately, in 'result' mode).
+        # Only a run SYSTEMD started is evidence about the trigger. A run the operator did by hand
+        # says nothing about the schedule, and counting it would report a dead timer as healthy for
+        # the whole grace window -- and, worse, suppress the staleness that is the only way a
+        # stopped schedule shows up at all. A stamp whose TRIGGER is anything else (a hand run, or
+        # one written before this field existed) declines the judgment rather than guessing either
+        # way, the same posture as an unparseable age.
         if [[ "${stamp_mode}" == fired ]]; then
+            [[ "$(ai_tools_service_stamp_field "${stamp}" TRIGGER)" == unit ]] \
+                || { printf 'unknown'; return 0; }
             [[ -n "${age}" ]] || { printf 'unknown'; return 0; }
         else
             case "${result}" in
