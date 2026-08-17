@@ -119,8 +119,18 @@ group as `SANDBOX_GROUP` would re-expose it the moment the mode was widened. Eac
 also has its sandbox residue stripped (see above).
 It runs only when the CWD is an allowed project and skips `!`-excluded paths, reusing the
 same allowlist parse, and applies each change through a pinned fd (re-verifying inode and
-type) so a `SANDBOX_USER` path swap cannot redirect root's chmod/chown. `--dry-run`
-previews; `--yes` skips the TTY confirmation.
+type) so a `SANDBOX_USER` path swap cannot redirect root's chmod/chown. `--yes` skips the TTY
+confirmation.
+
+`--dry-run` previews **both** passes — the secret lock and the seal — naming each path and, for
+a seal, what would come off it. The seal half is the one that acts on paths the operator did not
+name, so a preview that showed only the secret half would understate what an apply does. The
+preview runs the seal pass itself with the strip in report-only mode
+(`AI_TOOLS_RESIDUE_DRY_RUN`), rather than a read-only re-implementation beside it: "what is
+sandbox residue" has one answer, in `owner-only.lib.sh`, so the preview cannot come to describe a
+pass other than the one that follows it. Only the mutations are skipped — every gate, guard and
+pinned-fd re-check still runs — and the apply confirm is never reached, since a preview must not
+ask to apply.
 
 It is a user tool: there is **no** sudoers grant letting `SANDBOX_USER` run it, and it
 refuses to run as `SANDBOX_USER`. The `ai-tools` CLI wraps it as `ai-tools --lockdown

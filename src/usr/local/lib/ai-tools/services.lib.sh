@@ -13,7 +13,10 @@
 # any user may read). A unit in the sandbox account's own `systemd --user` manager is not reachable
 # from the operator's session at all -- the machine transport needs root and no NOPASSWD rule grants
 # it -- so its state comes from a LAST-RUN STAMP the unit writes to a path the operator can read
-# (/var/opt/ai-tools/state).
+# (/var/opt/ai-tools/state), and from the one live fact that IS readable: whether its unit file is
+# installed. Both scopes therefore distinguish a unit that is absent from one that is present and
+# in some state, so a unit an optional package never installed is reported as such rather than as
+# something this host merely cannot see.
 #
 # A STAMP IS NOT TRUSTED INPUT, and nothing here pretends otherwise. Its writer is the sandbox
 # account, so that account can state any outcome it likes; the mode on the file and its directory
@@ -52,8 +55,10 @@ readonly _AI_TOOLS_SERVICES_LIB_LOADED=1
 #   stamp_mode = what that stamp says ABOUT THIS UNIT -- two units can share one stamp and read
 #               different things from it, which is how the timer gets a verdict of its own:
 #               result   -- the run's RESULT is this unit's verdict (it IS the unit that ran).
-#               fired    -- only the run's RECENCY matters: a recorded run, successful or not, is
-#                           proof this unit triggered it. A failed run leaves the trigger healthy.
+#               fired    -- only the RECENCY of a SYSTEMD-STARTED run matters: such a run,
+#                           successful or not, is proof this unit triggered it, so a failed run
+#                           leaves the trigger healthy. A run the operator started by hand is not
+#                           evidence about a schedule and is declined (stamp field TRIGGER).
 #   max_age   = seconds after which a stamp stops being evidence of a HEALTHY unit, or empty for
 #               no freshness judgment. This is what separates "the last run succeeded" from "runs
 #               are still happening": every individual run can succeed while the schedule that
@@ -119,6 +124,28 @@ ai_tools_service_stamp_age() {
     return 0
 }
 
+# _ai_tools_user_unit_installed <unit>  -- 0 when a system-wide `systemd --user` unit FILE of that
+# name exists. This is the one question about a sandbox-user unit the operator's session CAN
+# answer: the unit files are world-readable even though the manager that runs them is unreachable.
+# It separates "installed but unqueryable" from "not installed at all" -- every unit in the
+# registry ships with an OPTIONAL package, so absence is a normal state, not a fault to chase.
+# The account's own ~/.config/systemd/user is deliberately NOT searched: it sits in a home the
+# operator cannot traverse. Every unit named here is shipped to the system-wide directory, so the
+# omission costs nothing.
+# AI_TOOLS_USER_UNIT_DIRS overrides the ':'-separated search path, so a test does not depend on
+# which optional packages the host has. It widens nothing -- the value decides only what a
+# read-only report says, and its reader already runs as the operator, who can read these paths
+# anyway. IFS is pinned for the split: this library is sourced into scripts that set their own.
+_ai_tools_user_unit_installed() {
+    local unit="$1" dir
+    local -a dirs=()
+    IFS=: read -ra dirs <<<"${AI_TOOLS_USER_UNIT_DIRS:-/etc/systemd/user:/run/systemd/user:/usr/local/lib/systemd/user:/usr/lib/systemd/user}"
+    for dir in "${dirs[@]}"; do
+        [[ -n "${dir}" && -e "${dir}/${unit}" ]] && return 0
+    done
+    return 1
+}
+
 # ai_tools_service_state <unit> <scope> [stamp] [stamp_mode] [max_age]  -- PRINT one of
 # active|down|failed|stale|absent|unknown; the state is the stdout value and the function ALWAYS
 # returns 0 (so a `state="$(...)"` capture is safe under `set -e` -- no consumer reads the exit
@@ -131,10 +158,10 @@ ai_tools_service_stamp_age() {
 #   stale   -- the stamp is older than max_age. The unit is not reporting a fault -- which is the
 #              point: a schedule that quietly stops firing leaves every recorded run successful and
 #              would otherwise read as a permanent, and increasingly wrong, OK.
-#   absent  -- the unit is not installed on this host (e.g. relabel.path on a base-only install) --
-#              nothing to warn about.
-#   unknown -- not checkable here: systemctl missing, or a sandbox-user unit with no stamp (or one
-#              that has not run since the stamp was introduced).
+#   absent  -- the unit is not installed on this host (e.g. relabel.path on a base-only install,
+#              or the nvm-update pair without the nodejs integration) -- nothing to warn about.
+#   unknown -- not checkable here: systemctl missing, or a sandbox-user unit that is installed but
+#              publishes no stamp (or has not run since the stamp was introduced).
 ai_tools_service_state() {
     local unit="$1" scope="$2" stamp="${3:-}" stamp_mode="${4:-result}" max_age="${5:-}"
     # A sandbox-user unit's live state needs that account's own bus, which the operator cannot
@@ -142,11 +169,26 @@ ai_tools_service_state() {
     # is reported from it and one that does not stays 'unknown' rather than guessed.
     if [[ "${scope}" != system ]]; then
         local result age
+        # Installed at all? A unit shipped by an OPTIONAL package is legitimately absent (the
+        # nvm-update pair without the nodejs integration), and "this host cannot query it" is the
+        # wrong thing to say about a unit that is not there -- it invites the operator to chase a
+        # unit no package installed. The unit FILE is readable even though the manager is not, so
+        # this one question is answerable from here; asked first, so it beats any stale stamp an
+        # uninstall left behind.
+        if ! _ai_tools_user_unit_installed "${unit}"; then printf 'absent'; return 0; fi
         result="$(ai_tools_service_stamp_field "${stamp}" RESULT)"
         age="$(ai_tools_service_stamp_age "${stamp}")"
         # 'fired' reads recency alone: a run happened, so whatever triggers it is working, and its
         # outcome belongs to the unit that ran (reported separately, in 'result' mode).
+        # Only a run SYSTEMD started is evidence about the trigger. A run the operator did by hand
+        # says nothing about the schedule, and counting it would report a dead timer as healthy for
+        # the whole grace window -- and, worse, suppress the staleness that is the only way a
+        # stopped schedule shows up at all. A stamp whose TRIGGER is anything else (a hand run, or
+        # one written before this field existed) declines the judgment rather than guessing either
+        # way, the same posture as an unparseable age.
         if [[ "${stamp_mode}" == fired ]]; then
+            [[ "$(ai_tools_service_stamp_field "${stamp}" TRIGGER)" == unit ]] \
+                || { printf 'unknown'; return 0; }
             [[ -n "${age}" ]] || { printf 'unknown'; return 0; }
         else
             case "${result}" in

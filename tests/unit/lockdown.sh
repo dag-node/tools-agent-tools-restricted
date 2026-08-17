@@ -81,6 +81,23 @@ else
     fail "dry-run altered .env or did not report it: $(stat -c '%U:%G' "${proj}/.env") $(perm "${proj}/.env")"
 fi
 
+# (1b) The dry run covers the SEAL pass too, not just the secret lock. An apply strips residue
+#      from paths sealed by MODE, so a preview that showed only the secret half would understate
+#      what the operator is about to authorize -- and the seal half is the one that touches paths
+#      they never named. Each hit says what it carries, and the tree is byte-for-byte untouched:
+#      setgid still set, group still the sandbox's, ACL entry still there.
+if ${seal_fx}; then
+    if grep -q 'privatedir' "${out}" \
+            && [[ "$(stat -c '%a %G' "${proj}/privatedir")" == "2700 ${SANDBOX_GROUP}" ]] \
+            && getfacl -c -- "${proj}/privatedir" 2>/dev/null | grep -q "^group:${SANDBOX_GROUP}:"; then
+        pass "dry-run reports the seal pass and strips nothing (privatedir keeps setgid, group and ACL)"
+    else
+        fail "dry-run seal preview missing or it mutated privatedir: $(stat -c '%a %G' "${proj}/privatedir")"
+    fi
+else
+    skip "dry-run seal preview" "ACL fixture unavailable"
+fi
+
 # (2) Apply: lock down the tree.
 run_ld "${proj}" "${TESTDIR}/apply" --yes
 if [[ "${LD_RC}" -ne 0 ]]; then

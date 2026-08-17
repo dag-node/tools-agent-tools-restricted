@@ -10,6 +10,10 @@
 # -- a strip that silently raised the ACL mask would leave the residue "removed" and the path
 # more open than before, which is the exact failure the -n flag exists to prevent.
 #
+# The strip also answers ai-tools-lockdown's --dry-run, so one section pins the two properties
+# that makes it worth doing here rather than in a caller: the preview names exactly what the
+# apply removes, and it touches nothing.
+#
 # It also pins the three platform behaviours the design rests on (see "platform assumptions"),
 # so a change in coreutils/acl semantics fails here rather than silently unsealing trees.
 # Run as root via sudo (the suite contract); root is needed to chgrp fixtures to a third party.
@@ -202,6 +206,33 @@ strip "${TESTDIR}/d" directory "${PROJECTS_GROUP}" "${PROJECTS_GROUP}"
 [[ "${STRIP_RC}" -eq 1 ]] \
     && pass "a already-stripped path reports nothing to do (idempotent, silent on re-runs)" \
     || fail "a second strip claimed another change"
+
+# ── dry run: report the same arms, act on none of them ────────────────────────────────────
+# ai-tools-lockdown's --dry-run previews the seal pass through this same function rather than
+# through a read-only re-implementation, so the two must agree by construction. What is pinned is
+# both halves of that: the preview names exactly what the apply then removes, and it leaves the
+# path byte-for-byte as found -- a preview that mutated would be the worst possible bug in a flag
+# whose entire promise is that it does not.
+mkdir "${TESTDIR}/dry"
+chown "${PROJECTS_USER}:${SBX}" "${TESTDIR}/dry"
+setfacl -m "g:${SBX}:rwX" -m "d:g:${SBX}:rwX" "${TESTDIR}/dry" 2>/dev/null || true
+chmod 2700 "${TESTDIR}/dry"
+before="$(stat -c '%a %U:%G' "${TESTDIR}/dry")|$(getfacl -c -- "${TESTDIR}/dry" 2>/dev/null | tr '\n' ',')"
+
+AI_TOOLS_RESIDUE_DRY_RUN=1
+strip "${TESTDIR}/dry" directory "${SBX}" "${PROJECTS_GROUP}"
+dry_rc="${STRIP_RC}"; dry_actions="${AI_TOOLS_RESIDUE_ACTIONS[*]}"
+after_dry="$(stat -c '%a %U:%G' "${TESTDIR}/dry")|$(getfacl -c -- "${TESTDIR}/dry" 2>/dev/null | tr '\n' ',')"
+AI_TOOLS_RESIDUE_DRY_RUN=0
+
+[[ "${after_dry}" == "${before}" ]] \
+    && pass "a dry-run strip changes nothing at all (mode, owner, group, every ACL entry)" \
+    || fail "a dry-run strip mutated the path: ${before} -> ${after_dry}"
+
+strip "${TESTDIR}/dry" directory "${SBX}" "${PROJECTS_GROUP}"
+[[ "${dry_rc}" -eq "${STRIP_RC}" && "${dry_actions}" == "${AI_TOOLS_RESIDUE_ACTIONS[*]}" ]] \
+    && pass "the dry run reports exactly what the apply then removes (one set of arms decides)" \
+    || fail "preview drift: dry rc=${dry_rc} [${dry_actions}] vs apply rc=${STRIP_RC} [${AI_TOOLS_RESIDUE_ACTIONS[*]}]"
 
 # ── a tree that never met a claim is left byte-for-byte alone ─────────────────────────────
 mkdir "${TESTDIR}/virgin"

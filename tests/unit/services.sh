@@ -6,12 +6,15 @@
 #   * the '|'-delimited record accessor and the registry shape;
 #   * ai_tools_service_state's active/down/failed/stale/absent/unknown mapping, including that a
 #     sandbox-user unit is never queried through systemctl -- it reports from its last-run stamp,
-#     or 'unknown' when it publishes none;
+#     or 'unknown' when it publishes none, and 'absent' when its unit file is not installed at all
+#     (the one live fact about that account's manager this vantage point can read, and the
+#     difference between a unit no optional package shipped and one this host merely cannot see);
 #   * the FRESHNESS half of that mapping, which exists for a failure a RESULT cannot express: every
 #     recorded run succeeds while the schedule driving them has stopped. So a successful run goes
 #     stale past max_age, a failed one stays failed at any age, an unknown age never manufactures
-#     staleness, and 'fired' mode reads recency ALONE -- letting one stamp yield two verdicts, a
-#     healthy trigger beside the failed run it started;
+#     staleness, and 'fired' mode reads the recency of a SYSTEMD-STARTED run alone -- letting one
+#     stamp yield two verdicts, a healthy trigger beside the failed run it started, while a run the
+#     operator did by hand (which proves nothing about a schedule) is declined in both directions;
 #   * ai_tools_service_stamp_field's defensive read of that stamp. It is the one input here a
 #     non-root writer controls (the sandbox account writes it) and it is rendered to the operator's
 #     terminal, so each way a hostile or corrupt value could reach that terminal -- a symlinked
@@ -47,6 +50,21 @@ if ! source "${LIB}" \
     fail "could not source ${LIB} or it does not define its functions"; finish; exit
 fi
 mktestdir
+
+# A sandbox-user unit's PRESENCE is read from its unit file -- the one live fact the operator's
+# session can see about that account's manager -- so the whole file points the lookup at a fixture
+# directory. Without it every case below would depend on which optional packages this host
+# installed, which is exactly the environment coupling a unit test must not have.
+mkdir -p "${TESTDIR}/user-units"
+export AI_TOOLS_USER_UNIT_DIRS="${TESTDIR}/user-units"
+
+# user_unit <name> : make a sandbox-user unit look INSTALLED. Presence is checked before the stamp
+# is read, so every unit name this file drives as sandbox-user needs one -- without it the state
+# resolves to 'absent' and the case under test never runs. Called where each name is introduced,
+# rather than from one list up here, so a name added later cannot quietly miss it.
+user_unit() { : > "${TESTDIR}/user-units/$1"; }
+user_unit nvm-update.timer
+user_unit nvm-update.service
 
 # --- (A) the accessor splits a record on '|' ---
 rec="unit-x|system|critical|wrapper|because reasons|sudo fix it|/var/tmp/stamp"
@@ -128,6 +146,18 @@ fi
 STAMP="${TESTDIR}/nvm-update.status"
 mk_stamp() { printf '%s\n' "$@" > "${STAMP}"; }
 
+# An uninstalled sandbox-user unit is 'absent', not 'unknown': every unit in the registry ships
+# with an OPTIONAL package, and "this host cannot query it" would send the operator after a unit
+# no package installed. Asserted against a FRESH stamp, because absence has to beat one an
+# uninstall left behind -- the unit is gone whatever the file still says about its last run.
+mk_stamp 'RESULT=ok' "FINISHED=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+if [[ "$(ai_tools_service_state not-installed.timer sandbox-user "${STAMP}" fired 172800)" == absent \
+   && "$(ai_tools_service_state not-installed.service sandbox-user "${STAMP}" result 172800)" == absent ]]; then
+    pass "an uninstalled sandbox-user unit is 'absent' in both stamp modes, even with a fresh stamp"
+else
+    fail "an uninstalled sandbox-user unit did not report absent"
+fi
+
 mk_stamp '# comment' 'RESULT=ok' 'EXIT_CODE=0' 'FINISHED=2026-08-17T05:50:59Z' 'NODE=v22.20.0'
 st_ok="$(ai_tools_service_state nvm-update.service sandbox-user "${STAMP}")"
 got_finished="$(ai_tools_service_stamp_field "${STAMP}" FINISHED)"
@@ -179,6 +209,7 @@ fi
 # fixed date.
 at_age() { date -u -d "@$(( $(date -u +%s) - $1 ))" +%Y-%m-%dT%H:%M:%SZ; }
 readonly DAY=86400 GRACE=172800   # GRACE mirrors the registry's 48h max_age
+user_unit u                       # the synthetic unit these cases drive
 
 mk_stamp "RESULT=ok" "FINISHED=$(at_age 3600)"
 st_fresh="$(ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
@@ -198,10 +229,11 @@ else
     fail "an old failed run was reported stale"
 fi
 
-# 'fired' mode: the trigger's verdict is recency ALONE. A RECENT run that failed still proves the
-# timer fired, so the timer is healthy while the service it started is not -- the two must not
-# collapse into one verdict, or a failing service would also condemn a working schedule.
-mk_stamp "RESULT=failed" "EXIT_CODE=1" "FINISHED=$(at_age 3600)"
+# 'fired' mode: the trigger's verdict is the recency of a SYSTEMD-STARTED run, and nothing else. A
+# RECENT run that failed still proves the timer fired, so the timer is healthy while the service it
+# started is not -- the two must not collapse into one verdict, or a failing service would also
+# condemn a working schedule.
+mk_stamp "RESULT=failed" "EXIT_CODE=1" "FINISHED=$(at_age 3600)" "TRIGGER=unit"
 st_fired="$(ai_tools_service_state u sandbox-user "${STAMP}" fired  "${GRACE}")"
 st_ran="$(  ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
 if [[ "${st_fired}" == active && "${st_ran}" == failed ]]; then
@@ -209,11 +241,30 @@ if [[ "${st_fired}" == active && "${st_ran}" == failed ]]; then
 else
     fail "'fired' mode was swayed by RESULT: trigger=${st_fired} run=${st_ran}"
 fi
-mk_stamp "RESULT=ok" "FINISHED=$(at_age $(( 13 * DAY )))"
+mk_stamp "RESULT=ok" "FINISHED=$(at_age $(( 13 * DAY )))" "TRIGGER=unit"
 if [[ "$(ai_tools_service_state u sandbox-user "${STAMP}" fired "${GRACE}")" == stale ]]; then
     pass "'fired' mode reports stale when no run has been recorded in a long time"
 else
     fail "'fired' mode did not go stale on an old stamp"
+fi
+
+# A run the OPERATOR started is not evidence about a schedule. Counting it would report a dead
+# timer as healthy for the whole grace window -- and suppress the staleness that is the only way a
+# stopped schedule ever surfaces -- so a hand run (and a stamp predating the field) declines the
+# judgment in BOTH directions: fresh does not mean OK, old does not mean stale. The run itself is
+# still the service's own verdict, which is what keeps this from losing information.
+mk_stamp "RESULT=ok" "FINISHED=$(at_age 3600)" "TRIGGER=manual"
+st_fired="$(ai_tools_service_state u sandbox-user "${STAMP}" fired "${GRACE}")"
+st_ran="$(  ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
+mk_stamp "RESULT=ok" "FINISHED=$(at_age $(( 13 * DAY )))" "TRIGGER=manual"
+st_old="$(ai_tools_service_state u sandbox-user "${STAMP}" fired "${GRACE}")"
+mk_stamp "RESULT=ok" "FINISHED=$(at_age 3600)"
+st_nofield="$(ai_tools_service_state u sandbox-user "${STAMP}" fired "${GRACE}")"
+if [[ "${st_fired}" == unknown && "${st_old}" == unknown && "${st_nofield}" == unknown \
+   && "${st_ran}" == active ]]; then
+    pass "'fired' mode declines a hand-started run (and a stamp with no TRIGGER), fresh or old"
+else
+    fail "'fired' mode judged a non-systemd run: fresh=${st_fired} old=${st_old} none=${st_nofield} run=${st_ran}"
 fi
 
 # No max_age means no freshness judgment, and an UNPARSEABLE date must not manufacture staleness
@@ -318,6 +369,7 @@ fi
 # reads the registry. The wrapper/system filters must stay clean: only a sandbox-user unit can be
 # 'failed', so the launch wrapper's warning still speaks only of units that are not running.
 mk_stamp 'RESULT=failed' 'EXIT_CODE=1' 'FINISHED=2026-08-17T05:50:59Z'
+user_unit fixture-user.service
 _AI_TOOLS_SERVICES=(
   "fixture-sys.path|system|critical|wrapper|a system unit|sudo fix it|"
   "fixture-user.service|sandbox-user|maintenance|none|a sandbox --user unit||${STAMP}"

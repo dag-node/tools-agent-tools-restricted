@@ -140,7 +140,12 @@ and inspect the host.
   A unit in the sandbox account's own `systemd --user` manager is not queryable from the operator's
   session at all, so its state comes from a **last-run stamp** it publishes where the operator can
   read it (`nvm-update.service`, see [updater](updater.rule.md)) and stays `?` where it publishes
-  none. A stamped unit's OK carries the time of that run rather than implying it is running now,
+  none. One live fact about that manager *is* readable — whether the unit **file** is installed —
+  and it is checked first, so a unit an optional package never shipped (the `nvm-update` pair
+  without the nodejs integration) reads as not-installed rather than as one this host cannot see,
+  and a stamp an uninstall left behind cannot make a gone unit look present. The account's own
+  `~/.config/systemd/user` is not searched: it sits inside a home the operator cannot traverse, and
+  every unit the registry names ships to the system-wide user-unit directory. A stamped unit's OK carries the time of that run rather than implying it is running now,
   and a `FAILED` carries the run's exit code. The `?` line is not a problem report — it says only
   that this vantage point cannot tell — so it stays a single line naming the one command that can,
   and the multi-command diagnostic block is reserved for a unit actually reported broken.
@@ -152,10 +157,14 @@ and inspect the host.
   `max_age` (48h for `nvm-update`, twice its daily `OnCalendar`) the unit reports **`STALE`**. The
   registry's `stamp_mode` field selects which property a record reads: `result` for the unit that
   ran, `fired` for the one that triggered it — so `nvm-update.timer` derives a verdict of its own
-  from the *same* stamp on recency alone (a recorded run, successful or not, proves the timer
-  fired), instead of the `?` it could otherwise only report. A failing service therefore does not
-  also condemn the working schedule that started it. An unknown age never manufactures staleness:
-  no `max_age`, an unparseable date, or a stamp dated in the future all decline the judgment.
+  from the *same* stamp on recency alone (a systemd-started run, successful or not, proves the
+  timer fired), instead of the `?` it could otherwise only report. A failing service therefore does
+  not also condemn the working schedule that started it. Only a systemd-started run counts, read
+  from the stamp's `TRIGGER` (see [updater](updater.rule.md)): a run the operator did by hand is no
+  evidence about a schedule, and counting one would both report a dead timer as healthy and
+  suppress the staleness that is the only way a stopped schedule shows up. An unknown age never
+  manufactures staleness either: no `max_age`, an unparseable date, or a stamp dated in the future
+  all decline the judgment.
 
   Times render **relative first** (`last run 3 days ago`), coarsening with distance, because the
   age is what the operator acts on. Every unit line feeds one predicate,
@@ -269,6 +278,19 @@ build-output name), then re-claim; or `ai-tools --reclaim --full` for ownership 
 Declining plus a `!` exclusion (or `chmod 700`) records an intentional carve-out so it is
 not re-reported.
 
+**Sealed directories with a third-party setgid.** A second read-only scan
+(`sealed_setgid_scan`) reports the one piece of residue the claim walks decline to remove: a
+setgid bit on an owner-only directory whose group is neither `SANDBOX_GROUP` nor the group of
+that directory's own owner (see [ownership-and-hooks](ownership-and-hooks.rule.md) for the strip
+those walks do perform). The walks cannot ask whether such a bit was deliberate, so they keep it
+and the operator decides — which means the claim has to *say* it kept it, in the Review block
+before the confirm rather than from a helper's stderr under Apply, where it scrolls past the
+decision it informs. The comparison is made **per path against the owner's primary group**, not
+against the invoking user's: on a multi-operator host the group the walks treat as legitimate is
+the resolved project owner's, so comparing against the invoker's would report a bit the claim goes
+on to strip, or stay silent about one it keeps. New files in such a directory are still born in
+that third group, so the block names the paths and the `chmod g-s` that clears one.
+
 **Reachability.** The confined session runs *as* the sandbox account, so it must be able to
 **traverse** the path to the project; a project nested under a directory the account cannot enter
 (a private home, `700`) is unreachable, and `ai-tools-run` — which re-checks the project directory as
@@ -318,6 +340,17 @@ them to plain perms. The agent loses access via both the group owner and the nam
 while the new group owner keeps read/traverse. `.git`, skipped by the main walk like the other
 heavy trees, is reverted by its own pass — for the same reason claim normalizes it (both
 parties write it) — so the unclaim fully revokes git-history access too.
+
+**Hardlinked files are refused, in both modes.** A regular file with more than one name is left
+untouched: `chgrp`/`chmod` act on the *inode*, which the second name reaches from outside the
+tree, so acting would change a path the pass never authorized — and for the common case,
+`git clone --local` (which hardlinks `.git/objects` to the source repo), it would rewrite the
+**origin's** objects. This is the one refusal in the project that leaves *more* access than acting
+would, since the inode keeps its group and the agent therefore keeps those files after the project
+is deregistered. It is accepted rather than resolved — the alternative reaches outside the
+authorized tree — and paid for in disclosure: the count is reported to the terminal with what it
+leaves behind and the `find … -links +1 -group SANDBOX_GROUP` that lists the files, so the
+operator can decide about them deliberately instead of inferring the gap from two counts.
 
 **Owner guard (claim and unclaim).** The root helpers `ai-tools-setgid`, `ai-tools-setfacl`,
 and `ai-tools-unclaim` act **only** on paths owned by the projects user or the sandbox

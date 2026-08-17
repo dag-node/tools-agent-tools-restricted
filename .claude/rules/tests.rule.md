@@ -6,8 +6,14 @@ paths:
 # Test organization and invariants
 
 Tests live under `tests/`, split by category, with one shared harness. `tests/run.sh
-[unit|integration|boundary|all]` dispatches; every category needs root, so it is invoked
-via `sudo` (the harness derives the unprivileged project user from `SUDO_USER`). It streams
+[unit|integration|boundary|all]` dispatches; the suite as a whole needs root, so it is invoked
+via `sudo` (the harness derives the unprivileged project user from `SUDO_USER`). A file that
+needs root says so itself with `require_root`, and the pure library suites — the ones that stub
+what they drive and build fixtures they own — deliberately do not, so they can also be run
+**directly as an unprivileged user** during development; the harness then takes the invoker as
+the project user. Run as root with **no** sudo context it refuses: there is no unprivileged
+identity to derive, and fixtures built root-owned would be skipped by every owner guard under
+test — a suite that passes while proving nothing. It streams
 each file's output live, then — on any failure — reprints the failing files and their `FAIL`
 lines as an end-of-run summary, so a long run needs no scrolling; an all-green run prints no
 summary and exits zero. A green file that recorded no `PASS` (every check skipped, or no
@@ -26,7 +32,20 @@ tests/
   unit/            hermetic helper-logic tests
   integration/     full-install checks (needs a deployed, running system)
   boundary/        confinement checks run as the agent (SANDBOX_USER)
+  manual/          operator-run live flow verification (NOT dispatched by run.sh)
 ```
+
+`manual/` is not dispatched by `run.sh`, because its contents cannot be run the way the suite
+is: `verify-live-flows.sh` drives the CLI **as the operator**, which prompts on
+`/dev/tty`, `sudo`s for each root step, and writes the operator's own registries — none of which a
+root-run hermetic suite reproduces. It exists for what only a live run shows (a claim, lockdown
+and unclaim completing end to end, and `ai-tools --status` read from the vantage point that has to
+read it), and it is bounded by two rules that keep a convenience script from becoming a hazard:
+it works only inside a workspace `mktemp -d` created for that run — never adopting an existing
+path, and refusing to remove one outside it — and it **modifies nothing installed**, so a check
+that would need to write shared runtime state (the updater's last-run stamp) reads it and asserts
+agreement instead. A state the host is not already in is skipped rather than manufactured; the
+unit suites drive those against fixtures they own.
 
 The SELinux AVC bring-up tooling is **not** part of this suite: it lives with the policy it
 supports, under `selinux/avc/` (`run.sh` does not dispatch it).
@@ -110,7 +129,11 @@ The seal cases run across three files, because the same guarantee has three cons
 helpers actually apply them. What each asserts is that a sealed path is never pulled into the
 agent's group and that the residue behind its mode is removed without the mode widening -- a
 strip that raised the ACL mask would leave the residue "gone" and the path more open than
-before. No live
+before. `unclaim.sh` closes with the CLI-side decision that feeds the helper — the hand-back
+group — because it publishes **two** results (the group, and the hint that no hand-back can run)
+as globals in its caller's shell rather than on stdout, which a `$(...)`-capturing test cannot
+observe: the assertion is made from a real caller, under `set -u`, so a result the function fails
+to publish aborts the test the same way it would abort an unclaim. No live
 daemon, no SELinux dependency, no wrapper. Run as root (needed to set arbitrary ownership
 and create third-party-owned fixtures). A fixture tree is `chown`ed to the projects user
 before the run, or the owner guard skips it. `secret-patterns.sh` is the odd one out: it

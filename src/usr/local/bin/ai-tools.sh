@@ -119,6 +119,10 @@ readonly GUARD_MARKER="ai-tools-lockdown-guard"
 # write the registries with the wrong owner) and never as the sandbox account
 # (the agent must not manage its own allowlist).
 ME="$(id -un)"
+# The invoking operator's own primary group, for the one message that must name it: the lockdown
+# preamble, which states the owner a locked secret ends up with (<you>:<you>). Not a decision
+# input anywhere -- what a walk treats as "the operator's group" is resolved per path from the
+# path's owner, never from who happens to be running the CLI.
 MY_GROUP="$(id -gn)"
 [[ "${ME}" == "root" ]] \
     && { echo "ai-tools: do not run as root -- run as the projects user, without sudo" >&2
@@ -487,12 +491,18 @@ acl_drift_scan() {
 }
 
 # sealed_setgid_scan <dir>  -- list owner-only directories inside a claimed tree whose setgid bit
-# carries a THIRD-party group: neither SANDBOX_GROUP nor the operator's own. When the claim walks
-# seal a path they clear a setgid bit belonging to one of those two, since a claimed tree carries
-# no other legitimately; any further group reads as a deliberate operator choice and is kept
-# (owner-only.lib.sh). That leaves the operator the one who decides, so the claim has to say so
-# rather than act. Read-only and unprivileged, detection only -- a path reported here is one the
-# claim did NOT touch, so reporting it never widens access.
+# carries a THIRD-party group: neither SANDBOX_GROUP nor the group of the directory's own owner.
+# When the claim walks seal a path they clear a setgid bit belonging to one of those two, since a
+# claimed tree carries no other legitimately; any further group reads as a deliberate operator
+# choice and is kept (owner-only.lib.sh). That leaves the operator the one who decides, so the
+# claim has to say so rather than act. Read-only and unprivileged, detection only -- a path
+# reported here is one the claim did NOT touch, so reporting it never widens access.
+#
+# "Third party" is decided per path, against the OWNER's primary group -- not against the invoking
+# user's. The two differ on a multi-operator host, where the group the claim walks treat as
+# legitimate is the resolved project owner's (they act only on paths that owner or the sandbox
+# account holds, so the owner's group is exactly what their check comes to), and reporting against
+# the invoker's would flag a bit the claim goes on to strip, or stay silent about one it keeps.
 sealed_setgid_scan() {
     local dir="$1" excl
     local -a skip=( -name .git -prune )
@@ -500,9 +510,17 @@ sealed_setgid_scan() {
         excl="${excl#!}"
         [[ "${excl}" == "${dir}"/* ]] && skip+=( -o -path "${excl}" -prune )
     done < <(grep '^!' "${ALLOWLIST}" 2>/dev/null || true)
+    # find cannot compare a path's group to its own owner's, so it narrows to the candidates
+    # (owner-only, setgid, not the sandbox group) and the owner comparison is made per path here.
+    # An owner with no passwd entry resolves to no group and is therefore reported, which is the
+    # right way round: a setgid whose group cannot be tied to the owner is one to look at.
     find "${dir}" -xdev \( "${skip[@]}" \) -o \
-        -type d ! -perm /077 -perm -2000 \
-        ! -group "${SANDBOX_GROUP}" ! -group "${MY_GROUP}" -print 2>/dev/null
+        -type d ! -perm /077 -perm -2000 ! -group "${SANDBOX_GROUP}" \
+        -printf '%U\t%G\t%p\n' 2>/dev/null \
+    | while IFS=$'\t' read -r _uid _grp _path; do
+          [[ "${_grp}" == "$(id -gn "${_uid}" 2>/dev/null || true)" ]] && continue
+          printf '%s\n' "${_path}"
+      done
 }
 
 # reg_ownership <dir>  -- make <dir> usable by the sandbox account: group SANDBOX_GROUP + the
@@ -945,6 +963,25 @@ offer_full_listing() {
     path_detail_lines "$@"
 }
 
+# path_listing <label> <path...>  -- report a set of paths: in FULL when there are few enough that
+# the whole list is shorter than a sample plus the question about it, otherwise a three-path sample
+# and an offer to see the rest. One decision in one place, because getting it wrong is invisible in
+# the code and glaring on screen: sampling four paths prints three, says "... and 1 more", asks a
+# question, and then prints all four again -- seven lines and a prompt to show four paths.
+# SAMPLE is the sample size; the full-list cut-off is twice it, the point past which the sample is
+# genuinely saving the reader something.
+readonly PATH_LISTING_SAMPLE=3
+path_listing() {
+    local _label="$1"; shift
+    if (( $# <= 2 * PATH_LISTING_SAMPLE )); then
+        path_detail_lines "$@"
+        return 0
+    fi
+    path_detail_lines "${@:1:PATH_LISTING_SAMPLE}"
+    say "        ${C_DIM}... and $(( $# - PATH_LISTING_SAMPLE )) more${C_RST}"
+    offer_full_listing "${_label}" "$@"
+}
+
 # under_skip_listed_name <base> <path>  -- 0 when <path> sits under a skip-listed directory NAME
 # (build output, dependencies, caches) relative to <base>, honoring the relative artifact
 # exclusions that re-open a subtree to the walks. The single predicate behind both the claim's
@@ -1044,11 +1081,7 @@ cmd_project_claim() {
         (( ${#sealed_setgid[@]} )) || return 0
         headline_warn "NOTICE: setgid on an owner-only directory" \
             "${#sealed_setgid[@]} sealed director(ies) carry a setgid bit set to a group that is neither ${SANDBOX_GROUP} nor yours. The claim keeps it -- it cannot tell a deliberate choice from a leftover -- so new files there are still born in that group."
-        path_detail_lines "${sealed_setgid[@]:0:3}"
-        if (( ${#sealed_setgid[@]} > 3 )); then
-            say "        ${C_DIM}... and $(( ${#sealed_setgid[@]} - 3 )) more${C_RST}"
-            offer_full_listing "director(ies)" "${sealed_setgid[@]}"
-        fi
+        path_listing "director(ies)" "${sealed_setgid[@]}"
         say "      ${C_DIM}if it was not intended, clear it yourself:  chmod g-s <dir>${C_RST}"
     }
 
@@ -1058,11 +1091,7 @@ cmd_project_claim() {
         (( ${#drift_skipped[@]} )) || return 0
         headline_warn "NOTICE: drift under skip-listed directories" \
             "${#drift_skipped[@]} path(s) with a foreign group sit under skip-listed directory names (build output, dependencies, caches); claim leaves those trees untouched."
-        path_detail_lines "${drift_skipped[@]:0:3}"
-        if (( ${#drift_skipped[@]} > 3 )); then
-            say "        ${C_DIM}... and $(( ${#drift_skipped[@]} - 3 )) more${C_RST}"
-            offer_full_listing "path(s)" "${drift_skipped[@]}"
-        fi
+        path_listing "path(s)" "${drift_skipped[@]}"
         say "      ${C_DIM}if one is source in this project, exempt it in /etc/ai-tools/operator.conf --${C_RST}"
         say "      ${C_DIM}narrow the category (SKIP_ARTIFACT_DIRS=...) or list the path relative to the${C_RST}"
         say "      ${C_DIM}project root in SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE -- then re-claim;${C_RST}"
@@ -1137,10 +1166,11 @@ cmd_project_claim() {
     if (( ${#drift[@]} )); then
         headline_warn "WARNING: interior permission drift" \
             "${#drift[@]} path(s) inside the tree carry a foreign group yet stay group-accessible (they arrived without inheriting the project group or ACL)."
-        path_detail_lines "${drift[@]:0:3}"
-        if (( ${#drift[@]} > 3 )); then
-            say "        ${C_DIM}... and $(( ${#drift[@]} - 3 )) more$( (( ${#drift[@]} >= 200 )) && printf ' (list capped at 200)' )${C_RST}"
-            offer_full_listing "path(s)" "${drift[@]}"
+        path_listing "path(s)" "${drift[@]}"
+        # The cap is a property of the SCAN, not of this listing, so it is said whether the paths
+        # were sampled or shown in full.
+        if (( ${#drift[@]} >= 200 )); then
+            say "        ${C_DIM}(scan capped at 200 paths)${C_RST}"
         fi
     fi
     skip_listed_note
@@ -1307,19 +1337,27 @@ residue_scan() {
                   '(' -type d -o -type f ')' -print 2>/dev/null)
 }
 
-# resolve_handback_group <group-opt>  -- decide the filesystem hand-back's target group and echo
-# it; empty means "unregister only, leave permissions alone". --group answers BOTH questions at
-# once (whether to hand back, and to which group), so an automated run never depends on the
-# prompt's no-terminal fallback quietly picking the invoking user's group. Without it the
-# default-YES confirm and the user->group prompt run as before. Sets HANDBACK_HINT non-empty when
-# a hand-back was wanted but cannot run, so the caller prints the manual command instead.
-# Prompts draw on /dev/tty and warnings on stderr, so only the group name reaches stdout.
+# resolve_handback_group <group-opt>  -- decide the filesystem hand-back's target group. It has
+# TWO results and sets both as globals in the CALLER's shell:
+#   HANDBACK_GROUP  the target group; empty means "unregister only, leave permissions alone".
+#   HANDBACK_HINT   non-empty when a hand-back was wanted but cannot run, so the caller prints
+#                   the manual command instead of silently doing nothing.
+# Globals, not stdout, precisely BECAUSE there are two: a `$(...)` capture runs the function in a
+# subshell, where the second result is lost -- and reading it back under `set -u` aborts the whole
+# unclaim before it touches anything. Prompts draw on /dev/tty and warnings on stderr, so a caller
+# needs neither redirection nor a capture.
+# --group answers both questions at once (whether to hand back, and to which group), so an
+# automated run never depends on the prompt's no-terminal fallback quietly picking the invoking
+# user's group. Without it the default-YES confirm and the user->group prompt run as before.
+HANDBACK_GROUP=""
+HANDBACK_HINT=""
 resolve_handback_group() {
-    local group_opt="$1" hb_user hb_group=""
+    local group_opt="$1" hb_user
+    HANDBACK_GROUP=""
     HANDBACK_HINT=""
     if [[ -n "${group_opt}" ]]; then
         if command -v sudo >/dev/null 2>&1; then
-            printf '%s' "${group_opt}"
+            HANDBACK_GROUP="${group_opt}"
         else
             warn "sudo not found -- cannot hand the files back automatically"
             HANDBACK_HINT=1
@@ -1330,15 +1368,15 @@ resolve_handback_group() {
     # ownership and permissions across the tree.
     if confirm "Hand the files back to a group and remove the agent's write access?" y; then
         hb_user="$(ask "  Hand the files to which user's group?" "${ME}")"
-        if ! hb_group="$(id -gn "${hb_user}" 2>/dev/null)"; then
+        if ! HANDBACK_GROUP="$(id -gn "${hb_user}" 2>/dev/null)"; then
             warn "no such user '${hb_user}' -- skipping the filesystem hand-back"
-            hb_group=""; HANDBACK_HINT=1
+            HANDBACK_GROUP=""; HANDBACK_HINT=1
         elif ! command -v sudo >/dev/null 2>&1; then
             warn "sudo not found -- cannot hand the files back automatically"
-            hb_group=""; HANDBACK_HINT=1
+            HANDBACK_GROUP=""; HANDBACK_HINT=1
         fi
-        printf '%s' "${hb_group}"
     fi
+    return 0
 }
 
 # cmd_unclaim_unlisted <dir> <force> <full> <dry> <assume-yes> <group-opt>  -- the UNRELATED
@@ -1405,11 +1443,7 @@ cmd_unclaim_unlisted() {
         "On each matching path it clears the ACLs, regroups to the target group and removes group write -- landing on 640, or 750 where the owner has execute -- clears the setgid bit and resets the SELinux label. World access, which the claim removed, is NOT restored. The previous permissions are recorded nowhere, so this is IRREVERSIBLE. Back up first. See: man ai-tools"
     say ""
     say "    ${n_res} path(s)${extra}"
-    path_detail_lines "${RESIDUE[@]:0:3}"
-    if (( n_res > 3 )); then
-        say "        ${C_DIM}... and $(( n_res - 3 )) more${C_RST}"
-        offer_full_listing "path(s)" "${RESIDUE[@]}"
-    fi
+    path_listing "path(s)" "${RESIDUE[@]}"
     say ""
 
     # Heavy trees: informational unless --full was asked for. With --full the operator has already
@@ -1420,11 +1454,7 @@ cmd_unclaim_unlisted() {
         if [[ "${full}" == true ]]; then
             headline_warn "Skip-listed directories (--full)" \
                 "${n_skip} path(s) carrying ai-tools ownership or group sit under skip-listed directory names (build output, dependencies, caches). --full includes them in this pass."
-            path_detail_lines "${RESIDUE_SKIPPED[@]:0:3}"
-            if (( n_skip > 3 )); then
-                say "        ${C_DIM}... and $(( n_skip - 3 )) more${C_RST}"
-                offer_full_listing "path(s)" "${RESIDUE_SKIPPED[@]}"
-            fi
+            path_listing "path(s)" "${RESIDUE_SKIPPED[@]}"
             say ""
             confirm "Include these ${n_skip} path(s) under skip-listed directories?" y \
                 && helper_flags+=(--full)
@@ -1444,8 +1474,8 @@ cmd_unclaim_unlisted() {
     fi
 
     local hb_group hb_hint
-    hb_group="$(resolve_handback_group "${group_opt}")"
-    hb_hint="${HANDBACK_HINT}"
+    resolve_handback_group "${group_opt}"
+    hb_group="${HANDBACK_GROUP}"; hb_hint="${HANDBACK_HINT}"
     if [[ -z "${hb_group}" ]]; then
         [[ -n "${hb_hint}" ]] \
             && say "      run it later with: ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} <group> ${helper_flags[*]}${C_RST}"
@@ -1487,9 +1517,11 @@ cmd_unclaim_unlisted() {
 cmd_project_unclaim() {
     # --force gates on the on-disk fingerprint instead of allowlist membership; it never relaxes
     # the protected-paths backstop, the owner guard, or the secret/'!' skips. -y/--yes pre-answers
-    # the default-NO confirm, the same explicit-flag convention as --project-claim -y. --group
-    # names the hand-back group outright, so a script never depends on the prompt's no-tty
-    # fallback -- and it works in both modes.
+    # the default-NO confirm in EVERY mode -- the registered project's, the ancestor batch's, and
+    # --force's -- the same explicit-flag convention as --project-claim -y; it never answers the
+    # hand-back or skip-listed questions, which ask on their own terms. --group names the hand-back
+    # group outright, so a script never depends on the prompt's no-tty fallback -- and it works in
+    # both modes.
     local a path="" force=false full=false dry=false assume_yes=false group_opt="" want_group=false
     for a in "$@"; do
         if ${want_group}; then group_opt="${a}"; want_group=false; continue; fi
@@ -1580,7 +1612,7 @@ cmd_project_unclaim() {
         section "Unclaim project"
         say "  ${d}"
         say "  ${C_DIM}(the directory itself is left on disk)${C_RST}"
-        confirm "Unclaim this project?" n || die "aborted"
+        ${assume_yes} || confirm "Unclaim this project?" n || die "aborted"
     else
         headline_warn "WARNING: unclaim multiple projects" \
             "${d} is not itself a claimed project, but ${#targets[@]} claimed project(s) are nested under it." \
@@ -1588,13 +1620,13 @@ cmd_project_unclaim() {
             "The directories themselves are left on disk."
         for t in "${targets[@]}"; do printf '    %s\n' "${t}"; done
         say ""
-        confirm "Unclaim ALL ${#targets[@]} projects listed above?" n || die "aborted"
+        ${assume_yes} || confirm "Unclaim ALL ${#targets[@]} projects listed above?" n || die "aborted"
     fi
 
     # Filesystem hand-back: decided ONCE for the whole batch.
     local hb_group hb_hint
-    hb_group="$(resolve_handback_group "${group_opt}")"
-    hb_hint="${HANDBACK_HINT}"
+    resolve_handback_group "${group_opt}"
+    hb_group="${HANDBACK_GROUP}"; hb_hint="${HANDBACK_HINT}"
 
     local -a helper_flags=()
     ${full} && helper_flags=(--full)
@@ -1701,11 +1733,21 @@ sandbox_resolve_base() {
 cmd_sandbox_create() {
     local o_path="" o_from="" o_branch="" o_dir="" o_yes=false
     local have_from=false have_branch=false have_dir=false
+    # _need_value <flag> [remaining args...]: die unless a value follows the flag AND that value is
+    # not itself option-shaped. A leading '-' is a mistyped flag far more often than a real ref or
+    # directory name, and taking it at face value hands it to git as an option -- so the run would
+    # fail with git's own parse error, which names neither this flag nor the value. Refused here,
+    # where the message can name both, and before the push.
+    _need_value() {
+        local flag="$1"; shift
+        (( $# )) || die "${flag} needs a value"
+        [[ "$1" != -* ]] || die "${flag} needs a value, not another option: $1"
+    }
     while (( $# )); do
         case "$1" in
-            --from)   [[ $# -ge 2 ]] || die "--from needs a value";   o_from="$2";   have_from=true;   shift 2 ;;
-            --branch) [[ $# -ge 2 ]] || die "--branch needs a value"; o_branch="$2"; have_branch=true; shift 2 ;;
-            --dir)    [[ $# -ge 2 ]] || die "--dir needs a value";    o_dir="$2";    have_dir=true;    shift 2 ;;
+            --from)   _need_value --from   "${@:2}"; o_from="$2";   have_from=true;   shift 2 ;;
+            --branch) _need_value --branch "${@:2}"; o_branch="$2"; have_branch=true; shift 2 ;;
+            --dir)    _need_value --dir    "${@:2}"; o_dir="$2";    have_dir=true;    shift 2 ;;
             -y|--yes) o_yes=true; shift ;;
             --)       shift ;;
             -*)       die "unknown option: $1 (see: ai-tools --help)" ;;
@@ -1771,7 +1813,11 @@ cmd_sandbox_create() {
     local name
     if ${have_dir}; then name="${o_dir}"
     else name="$(ask "Sandbox directory name under ${SANDBOX_ROOT}" "$(basename "${top}")")"; fi
-    [[ -n "${name}" && "${name}" != */* ]] || die "invalid directory name: ${name}"
+    # One component, and a real one: '.' and '..' pass the no-slash test but name the clone area
+    # itself or its parent, where the next check would refuse them as "already exists" -- true, but
+    # not what went wrong.
+    [[ -n "${name}" && "${name}" != */* && "${name}" != . && "${name}" != .. ]] \
+        || die "invalid directory name: ${name} (one path component, under ${SANDBOX_ROOT})"
     local dst="${SANDBOX_ROOT}/${name}"
     if [[ -e "${dst}" ]]; then
         say "    to finish securing/registering an earlier clone of this name:"
@@ -1906,7 +1952,7 @@ cmd_lockdown() {
     # If it is genuinely missing, sudo reports it and run_lockdown returns non-zero.
     section "Lock down project secrets"
     say "  ${d}"
-    say "  ${C_DIM}secret-matching files -> 600, dirs -> 700, owner ${ME}:${SANDBOX_GROUP}${C_RST}"
+    say "  ${C_DIM}secret-matching files -> 600, dirs -> 700, owner ${ME}:${MY_GROUP}${C_RST}"
     if run_lockdown "${d}" "${passthru[@]}"; then
         ${dry} || clear_lockdown_guard "${d}"
         ok "lockdown done: ${d}"

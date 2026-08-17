@@ -944,7 +944,12 @@ fi
   scripted use.
 - NEW: ai-tools --lockdown also seals the paths you sealed by mode rather than by name, so a
   file or directory made owner-only after the claim is cleaned up without waiting for the next
-  one.
+  one. --dry-run previews that pass as well, naming each path and what would come off it.
+- CHANGE: ai-tools --project-unclaim now leaves a hardlinked file alone, in both modes. Changing
+  it would change every other name for the same inode, including names outside the project --
+  which is what a locally cloned repo has, since git hardlinks .git/objects to the repo it was
+  cloned from. Those files keep the group they have, so the agent is not off them: the count is
+  reported at the end of the run with the find command that lists them, and you decide.
 - NEW: ai-tools --project-claim reports, in its Review block, a sealed directory whose setgid
   bit belongs to a third group -- the one piece of residue the claim keeps, since it cannot tell
   a deliberate choice from a leftover -- with the chmod g-s that clears it.
@@ -955,6 +960,11 @@ fi
 - FIX: A locked secret is owned <you>:<you>, not <you>:ai-tools. The proactive lockdown and the
   on-write quarantine gave the same secret two different owners, and the sandbox group would
   have re-exposed it the moment its mode was widened.
+- FIX: A short list of paths is printed once, whole. Reports that flag paths (the claim's drift
+  and its skip-listed and sealed-directory notices) showed three, said "... and N more", asked
+  whether to list them all, and printed the lot again -- for four paths, seven lines and a
+  question to show four. Beyond twice the sample size the sample and the offer return, which is
+  where they earn their keep.
 - FIX: Sealing a path now removes the sandbox residue behind the mode. A path created inside a
   claimed tree inherits the group, the setgid bit and the project ACL at create time, and a
   later chmod only masks them -- so widening the mode once re-activated the lot. The claim
@@ -994,10 +1004,12 @@ fi
 - NEW: ai-tools --status distinguishes "the last run worked" from "runs are still happening". A
   toolchain update that succeeds but stops being triggered leaves every recorded run green while
   Node and the agent packages quietly fall behind, so a stamp older than 48 hours now reports
-  STALE rather than OK. The same recency gives nvm-update.timer a verdict of its own -- a recorded
-  run proves it fired -- in place of the "?" it could otherwise only show, and a failing update no
-  longer condemns the schedule that started it. Times read as "3 days ago" rather than as a
-  timestamp to subtract from now.
+  STALE rather than OK. The same recency gives nvm-update.timer a verdict of its own -- a run
+  systemd started proves it fired -- in place of the "?" it could otherwise only show, and a
+  failing update no longer condemns the schedule that started it. An update you run by hand is not
+  counted: it says nothing about whether the schedule is still firing, and counting it would report
+  a dead timer as healthy for two days. Times read as "3 days ago" rather than as a timestamp to
+  subtract from now.
 - NEW: ai-tools --status names the active Node version, so the common case no longer needs a
   second command.
 - NEW: ai-tools --status exits non-zero when anything is reported broken, so it can be run from a

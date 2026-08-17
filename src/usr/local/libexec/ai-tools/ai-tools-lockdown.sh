@@ -259,25 +259,8 @@ if (( ${#sealed[@]} )); then
     ai_tools_log_info "scan${scan_mode}: ${#sealed[@]} owner-only path(s) under ${target}"
 fi
 
-if ${DRY_RUN}; then
-    log "dry-run: no changes made"
-    ai_tools_log_info "dry-run: detection only, no changes under ${target}"
-    exit 0
-fi
-
-# Only the secret lock asks. It changes ownership and modes the operator did not choose,
-# whereas the seal pass below only ever REMOVES the sandbox's reach from a path the operator
-# already sealed -- the same terms on which the claim walks strip, so it runs unprompted.
-if (( ${#hits[@]} )) && ! ${ASSUME_YES}; then
-    if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
-        ai_tools_msg_confirm \
-            "Set files 600 / dirs 700, chown ${OWNER}, revoking ai-tools access?" n \
-            || { log "aborted; no changes made"; exit 0; }
-    else
-        die "no TTY for confirmation; re-run with --yes to apply non-interactively"
-    fi
-fi
-
+# The confirm comes after the dry-run branch below, not here: a preview must never ask to apply.
+#
 # _safe_apply <path>: chmod (file 600 / dir 700) and chown to OWNER through a
 # pinned fd, so a symlink/path swap by ai-tools (a group-writer on the project
 # dir) cannot redirect root's chmod/chown onto an arbitrary file. lstat the path,
@@ -334,7 +317,11 @@ _safe_apply() {
 # fd like _safe_apply. Changes no mode bits and no ownership -- it removes only what the sandbox
 # put there (owner-only.lib.sh) -- so unlike _safe_apply it needs no confirmation.
 # Returns 0 when something was stripped, 1 when there was nothing to strip or the path is out of
-# scope. Sets AI_TOOLS_RESIDUE_SURFACE for the caller (a third-party setgid it declined to clear).
+# scope. Sets AI_TOOLS_RESIDUE_SURFACE for the caller (a third-party setgid it declined to clear),
+# and AI_TOOLS_RESIDUE_ACTIONS to what came off.
+# Under --dry-run every gate above still runs and the strip itself reports instead of acting
+# (AI_TOOLS_RESIDUE_DRY_RUN), so the preview is produced by the code that does the work rather
+# than by a second opinion about it.
 _safe_seal() {
     local path="$1" expect_ident fd got_ident got_uid got_grp got_mode got_ftype rc
     # Clear it here, not only in the strip: every return below the strip is an early one, and a
@@ -361,11 +348,75 @@ _safe_seal() {
     ai_tools_strip_sandbox_residue "${fd}" "${got_ftype}" "${got_grp}" "${got_mode}" \
         "${PROJECTS_GROUP}" && rc=0
     exec {fd}<&-
-    if (( rc == 0 )); then
+    if (( rc == 0 )) && ! ${DRY_RUN}; then
         ai_tools_log_info "sealed ${path} (owner-only; stripped ${AI_TOOLS_RESIDUE_ACTIONS[*]})"
     fi
     return "${rc}"
 }
+
+# _seal_pass: run _safe_seal over every enumerated owner-only path and report. One pass serves
+# both modes -- a dry run reports what would come off and changes nothing, an apply reports what
+# did -- so the preview cannot describe a pass other than the one that follows it. Under --dry-run
+# each hit names its path AND what it carries, since "3 paths would change" is not something an
+# operator can check before answering.
+_seal_pass() {
+    declare -i seal_count=0 foreign=0
+    local path
+    for path in "${sealed[@]}"; do
+        if _safe_seal "${path}"; then
+            seal_count=$(( seal_count + 1 ))
+            ${DRY_RUN} && printf '  [seal] %s  ->  drop %s\n' \
+                "$(ai_tools_log_sanitize "${path}")" "${AI_TOOLS_RESIDUE_ACTIONS[*]}" >&2
+        fi
+        if (( ${AI_TOOLS_RESIDUE_SURFACE:-0} )); then foreign=$(( foreign + 1 )); fi
+    done
+
+    if (( seal_count > 0 )); then
+        if ${DRY_RUN}; then
+            ai_tools_log_info "dry-run: ${seal_count} owner-only path(s) under ${target} carry sandbox residue"
+            log "${seal_count} of ${#sealed[@]} owner-only path(s) carry sandbox residue (listed above)"
+        else
+            ai_tools_log_info "sealed ${seal_count} owner-only path(s) under ${target}"
+            log "sealed ${seal_count} owner-only path(s) (sandbox group, setgid and ACL entries removed)"
+        fi
+    elif (( ${#sealed[@]} )) && ${DRY_RUN}; then
+        log "${#sealed[@]} owner-only path(s) checked; none carries sandbox residue"
+    fi
+    # Surfaced, never silent: the one piece of residue the pass declines to remove, since it cannot
+    # ask whether the operator meant it.
+    if (( foreign > 0 )); then
+        ai_tools_log_warn "left a third-party setgid bit on ${foreign} owner-only path(s) under ${target}"
+        printf 'ai-tools-lockdown: kept the setgid bit on %d owner-only director(ies) grouped to a third party -- clear it yourself with: chmod g-s <dir>\n' \
+            "${foreign}" >&2
+    fi
+}
+
+# A dry run stops here -- but not before previewing the seal pass, which an apply would run too.
+# A preview that covers half of what follows it is the thing a preview exists to prevent.
+if ${DRY_RUN}; then
+    if (( ${#sealed[@]} )); then
+        printf 'ai-tools-lockdown: %d owner-only path(s) under %s, checked for sandbox residue:\n' \
+            "${#sealed[@]}" "${target}" >&2
+        AI_TOOLS_RESIDUE_DRY_RUN=1
+        _seal_pass
+    fi
+    log "dry-run: no changes made"
+    ai_tools_log_info "dry-run: detection only, no changes under ${target}"
+    exit 0
+fi
+
+# Only the secret lock asks. It changes ownership and modes the operator did not choose, whereas
+# the seal pass only ever REMOVES the sandbox's reach from a path the operator already sealed --
+# the same terms on which the claim walks strip, so it runs unprompted.
+if (( ${#hits[@]} )) && ! ${ASSUME_YES}; then
+    if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
+        ai_tools_msg_confirm \
+            "Set files 600 / dirs 700, chown ${OWNER}, revoking ai-tools access?" n \
+            || { log "aborted; no changes made"; exit 0; }
+    else
+        die "no TTY for confirmation; re-run with --yes to apply non-interactively"
+    fi
+fi
 
 declare -i done_count=0 skip_count=0
 for path in "${hits[@]}"; do
@@ -389,22 +440,4 @@ fi
 # ── Seal pass ────────────────────────────────────────────────────────────────
 # Strip the residue from the paths the operator sealed by mode. Reported only when it actually
 # changed something: on a settled tree this is a silent no-op, run after run.
-declare -i seal_count=0 foreign=0
-for path in "${sealed[@]}"; do
-    if _safe_seal "${path}"; then
-        seal_count=$(( seal_count + 1 ))
-    fi
-    if (( ${AI_TOOLS_RESIDUE_SURFACE:-0} )); then foreign=$(( foreign + 1 )); fi
-done
-
-if (( seal_count > 0 )); then
-    ai_tools_log_info "sealed ${seal_count} owner-only path(s) under ${target}"
-    log "sealed ${seal_count} owner-only path(s) (sandbox group, setgid and ACL entries removed)"
-fi
-# Surfaced, never silent: the one piece of residue the pass declines to remove, since it cannot
-# ask whether the operator meant it.
-if (( foreign > 0 )); then
-    ai_tools_log_warn "left a third-party setgid bit on ${foreign} owner-only path(s) under ${target}"
-    printf 'ai-tools-lockdown: kept the setgid bit on %d owner-only director(ies) grouped to a third party -- clear it yourself with: chmod g-s <dir>\n' \
-        "${foreign}" >&2
-fi
+_seal_pass
