@@ -6,8 +6,14 @@ paths:
 # Test organization and invariants
 
 Tests live under `tests/`, split by category, with one shared harness. `tests/run.sh
-[unit|integration|boundary|all]` dispatches; every category needs root, so it is invoked
-via `sudo` (the harness derives the unprivileged project user from `SUDO_USER`). It streams
+[unit|integration|boundary|all]` dispatches; the suite as a whole needs root, so it is invoked
+via `sudo` (the harness derives the unprivileged project user from `SUDO_USER`). A file that
+needs root says so itself with `require_root`, and the pure library suites — the ones that stub
+what they drive and build fixtures they own — deliberately do not, so they can also be run
+**directly as an unprivileged user** during development; the harness then takes the invoker as
+the project user. Run as root with **no** sudo context it refuses: there is no unprivileged
+identity to derive, and fixtures built root-owned would be skipped by every owner guard under
+test — a suite that passes while proving nothing. It streams
 each file's output live, then — on any failure — reprints the failing files and their `FAIL`
 lines as an end-of-run summary, so a long run needs no scrolling; an all-green run prints no
 summary and exits zero. A green file that recorded no `PASS` (every check skipped, or no
