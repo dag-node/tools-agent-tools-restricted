@@ -911,122 +911,110 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
-* Sat Aug 15 2026 dagnode <tools@dagnode.com> - 0.11.0-1
-- NEW: ai-tools --status reports the health of the managed systemd units (the ownership-handback
-  socket, the post-upgrade relabel watcher, and the sandbox account's toolchain-update timer) as
-  OK / DOWN / not-installed, each with what breaks while it is down and the exact command to fix
-  it, and points at the sibling --providers / --list reports. The launch now runs the same check
-  and warns before starting a session when a service it depends on is down, rather than letting
-  the failure surface later as a confusing symptom.
-- NEW: ai-tools --status also reports the toolchain updater itself (nvm-update.service) as OK or
-  FAILED, with the time and exit code of its last run. That unit runs in the sandbox account's
-  own systemd user instance, which your session cannot query, so until now a repeatedly failing
-  update was invisible and the toolchain just stopped advancing; the updater now records each
-  run's outcome where the report can read it. Anything reported broken there prints the exact
-  commands to read its journal, restart it, and check it -- all of which differ from the usual
-  ones, because the unit belongs to the ai-tools account's user instance.
-- NEW: The post-upgrade relabel watcher (ai-tools-relabel.path) is enabled on install, so the
-  agent entrypoint is re-labelled automatically after a Node toolchain upgrade; without it a
-  launch after an upgrade could fail closed on a mislabelled binary until you ran ai-tools
-  --relabel by hand.
-- NEW: ai-tools --list flags more kinds of inconsistent allowlist entry under Suggested cleanup,
-  each with a copy-paste fix: a glob written in an allow line (unusable -- globs work only in '!'
-  exclusion lines, so a glob allow entry silently matches nothing), a stale '!' exclusion whose
-  path no longer exists, and a git safe.directory entry that no allowlist line lists (orphaned,
-  e.g. an allowlist line deleted by hand). The report stays read-only.
-- NEW: AI_TOOLS_REQUIRE_SELINUX=yes in operator.conf lets an operator require SELinux
-  confinement: a session then refuses to launch on a host where the ai-tools policy is not
-  enforcing, instead of falling back to DAC-only. Off by default, so intentional DAC-only hosts
-  are unaffected.
+* Tue Aug 18 2026 dagnode <tools@dagnode.com> - 0.11.0-1
+- NEW: ai-tools --status is a single health report for the pieces a session depends on: the
+  ownership-handback socket, the post-upgrade relabel watcher, and the sandbox account's toolchain
+  updater and its timer. Each reads OK, STALE, DOWN, FAILED or not-installed, with what breaks
+  while it is down and the exact command that fixes it. It also names the active Node version, and
+  exits non-zero when anything is broken, so it can be run from cron or a monitor without parsing
+  its output. A unit this host cannot query is not counted as a fault.
+- NEW: The report covers the toolchain updater even though it runs in the sandbox account's own
+  systemd user instance, which your session cannot query. Until now a repeatedly failing update was
+  invisible and the toolchain simply stopped advancing; each run's time and exit code are now
+  recorded where the report can read them, and a successful run older than 48 hours reads STALE
+  rather than OK -- an update that stops being triggered leaves Node and the agent packages quietly
+  falling behind while every recorded run stays green. Anything reported broken prints the commands
+  to read its journal and restart it, which differ from the usual ones because the unit belongs to
+  that account's user instance.
+- NEW: Launching a session runs the same health check first and warns when a service it depends on
+  is down, instead of letting the failure surface later as a confusing symptom.
+- NEW: ai-tools --sandbox-create is scriptable: --from, --branch, --dir and -y give every input a
+  flag and a default, with the prompts kept as the interactive fallback, and the confirm previews
+  the exact git commands. The branch may be any valid git ref and now defaults to
+  sandbox/<name-of-source> (previously ai-tools/sandbox-<owner>/<leaf>); the name is convention
+  only -- nothing parses it -- so no behaviour depends on the change.
 - NEW: ai-tools --project-unclaim --force releases a copy of a claimed project -- one moved or
-  copied elsewhere that still carries the ai-tools group and ACLs but that no allowlist names.
-  It changes only paths that still carry ai-tools access; --dry-run, --full and --group support
+  copied elsewhere that still carries the ai-tools group and ACLs but that no allowlist names. It
+  changes only paths that still carry ai-tools access; --dry-run, --full and --group support
   scripted use.
-- NEW: ai-tools --lockdown also seals the paths you sealed by mode rather than by name, so a
-  file or directory made owner-only after the claim is cleaned up without waiting for the next
-  one. --dry-run previews that pass as well, naming each path and what would come off it.
-- CHANGE: ai-tools --project-unclaim now leaves a hardlinked file alone, in both modes. Changing
-  it would change every other name for the same inode, including names outside the project --
-  which is what a locally cloned repo has, since git hardlinks .git/objects to the repo it was
-  cloned from. Those files keep the group they have, so the agent is not off them: the count is
-  reported at the end of the run with the find command that lists them, and you decide.
-- NEW: ai-tools --project-claim reports, in its Review block, a sealed directory whose setgid
-  bit belongs to a third group -- the one piece of residue the claim keeps, since it cannot tell
-  a deliberate choice from a leftover -- with the chmod g-s that clears it.
-- FIX: A directory you sealed with chmod 700 is no longer pulled into the sandbox group.
-  ai-tools-setgid normalized every directory you owned, owner-only ones included, at claim and
-  again on every session start, while ai-tools-setfacl skipped them; both now honour the seal.
-  Re-claim an existing project to repair the directories already regrouped.
-- FIX: A locked secret is owned <you>:<you>, not <you>:ai-tools. The proactive lockdown and the
-  on-write quarantine gave the same secret two different owners, and the sandbox group would
-  have re-exposed it the moment its mode was widened.
-- FIX: A short list of paths is printed once, whole. Reports that flag paths (the claim's drift
-  and its skip-listed and sealed-directory notices) showed three, said "... and N more", asked
-  whether to list them all, and printed the lot again -- for four paths, seven lines and a
-  question to show four. Beyond twice the sample size the sample and the offer return, which is
-  where they earn their keep.
-- FIX: Sealing a path now removes the sandbox residue behind the mode. A path created inside a
-  claimed tree inherits the group, the setgid bit and the project ACL at create time, and a
-  later chmod only masks them -- so widening the mode once re-activated the lot. The claim
-  walks, the lockdown and the ownership handback all strip it now, removing only what the
-  sandbox put there and leaving your mode bits, ownership and other ACL entries alone.
+- NEW: ai-tools --lockdown also seals the paths you sealed by mode rather than by name, so a file
+  or directory made owner-only after the claim is cleaned up without waiting for the next one.
+  --dry-run previews that pass as well, naming each path and what would come off it.
+- NEW: ai-tools --project-claim reports, in its Review block, a sealed directory whose setgid bit
+  belongs to a third group -- the one piece of residue a claim leaves, since it cannot tell a
+  deliberate choice from a leftover -- with the chmod g-s that clears it.
+- NEW: ai-tools --list flags more kinds of inconsistent allowlist entry under Suggested cleanup,
+  each with a copy-paste fix: a glob written in an allow line (globs work only in '!' exclusion
+  lines, so a glob allow entry silently matches nothing), a stale '!' exclusion whose path no
+  longer exists, and a git safe.directory entry that no allowlist line lists. The report stays
+  read-only.
+- NEW: AI_TOOLS_REQUIRE_SELINUX=yes in operator.conf lets an operator require SELinux confinement:
+  a session then refuses to launch on a host where the ai-tools policy is not enforcing, instead of
+  falling back to DAC-only. Off by default, so intentional DAC-only hosts are unaffected.
+- CHANGE: ai-tools --project-unclaim now leaves a hardlinked file alone, in both modes. Changing it
+  would change every other name for the same inode, including names outside the project -- which is
+  what a locally cloned repo has, since git hardlinks .git/objects to the repo it was cloned from.
+  Those files keep the group they have, so the agent is not off them: the count is reported at the
+  end of the run, with the find command that lists them, and you decide.
 - FIX: Claiming a project no longer opens files and directories you had made owner-only (0600,
-  0700) to the agent. They are left as they are, and the claim reports how many it skipped.
-- FIX: A session could silently run unconfined on a host that in fact had the SELinux policy
-  loaded. The pre-launch confinement probe read module presence from the root-only policy store,
-  which the sandbox account cannot read, so it always saw "absent" and on one path launched
-  DAC-only. It now derives module presence from the world-readable file contexts (matchpathcon),
-  so a loaded policy is detected and an installed-but-unverifiable confinement fails the launch
-  closed rather than open.
-- FIX: ai-tools --project-unclaim could leave the agent with access to the project it was meant
-  to release. It now classifies its target against the allowlist -- refusing a directory that is
-  neither a claimed project nor an ancestor of claimed ones, and refusing a protected system
-  directory up front -- and runs the ownership hand-back before dropping the allowlist entry, so
-  the tree is actually returned to your group and the agent's access is revoked.
-- FIX: Allowlist entries written with an end-of-line comment or quotes (or reached through a
-  symlink) are now recognized everywhere the CLI reads the list. Such an entry was previously
-  invisible to several checks, so claiming it appended a duplicate line, unclaiming it reported
-  "not listed" and left the entry (and the agent's access) behind, and launching after an
-  in-place claim could fail with "the claim did not complete."
-- FIX: ai-tools --list no longer stops early: a single stale or protected entry aborted the
-  listing, hiding every entry after it along with the Suggested cleanup and Maintenance sections.
-- FIX: ai-tools --sandbox-remove and the per-project verbs are scope-guarded -- they refuse a
-  target that is not a recognized sandbox clone or claimed project before making any change, so a
-  mistyped path cannot delete or re-permission the wrong tree.
-- FIX: Upgrading the ai-tools-selinux policy refreshes the running handback socket's SELinux
-  label, so ownership hand-back keeps working immediately after the upgrade instead of silently
-  doing nothing until the next reboot.
-- FIX: sudo ai-tools-admin selinux list-groups prints a clean sectioned report of the optional
-  policy groups and their load state, and several --status / --providers hints were corrected
-  (the update-timer check uses the machine transport that the system bus authorizes, the timer
-  hint points at status, and the session-journal hint points at the ai-tools-run tag without
-  jumping the pager to the end).
-- NEW: ai-tools --status distinguishes "the last run worked" from "runs are still happening". A
-  toolchain update that succeeds but stops being triggered leaves every recorded run green while
-  Node and the agent packages quietly fall behind, so a stamp older than 48 hours now reports
-  STALE rather than OK. The same recency gives nvm-update.timer a verdict of its own -- a run
-  systemd started proves it fired -- in place of the "?" it could otherwise only show, and a
-  failing update no longer condemns the schedule that started it. An update you run by hand is not
-  counted: it says nothing about whether the schedule is still firing, and counting it would report
-  a dead timer as healthy for two days. Times read as "3 days ago" rather than as a timestamp to
-  subtract from now.
-- NEW: ai-tools --status names the active Node version, so the common case no longer needs a
-  second command.
-- NEW: ai-tools --status exits non-zero when anything is reported broken, so it can be run from a
-  monitor or a cron job without parsing its output. A unit this host cannot query is not counted
-  as a fault.
-- FIX: The toolchain updater could abort silently, leaving nvm-update.service failed with an
-  empty journal and Node and the agent packages quietly frozen at their installed versions. Its
-  log helpers piped into systemd-cat as a bare pipeline under set -e with pipefail, so a
-  systemd-cat that failed for any reason killed the run -- before the line explaining why was
-  written, since that came after it. Logging can no longer fail the run, and the message now
-  reaches the unit's journal first.
-- FIX: The verification suite no longer silently skips the npm signature-verification checks on
-  a fully provisioned host. They need node, which lives in the sandbox toolchain and not on
-  root's PATH, so the whole file was skipped -- reported as no coverage under
-  AI_TOOLS_TEST_STRICT=1. It now resolves node from the toolchain.
-- DOCS: The README gives explicit install and upgrade commands, a working first-launch
-  walkthrough, and a pre-1.0 stability notice.
+  0700) to the agent. The setgid pass regrouped every directory you owned -- at claim and again on
+  every session start -- while the ACL pass skipped them; both now honour the seal, and the claim
+  reports how many paths it skipped. Re-claim an existing project to repair directories already
+  regrouped.
+- FIX: Sealing a path now removes the sandbox residue behind the mode. A path created inside a
+  claimed tree inherits the group, the setgid bit and the project ACL at create time, and a later
+  chmod only masks them -- so widening the mode once re-activated the lot. The claim walk, the
+  lockdown and the ownership handback all strip it now, removing only what the sandbox put there
+  and leaving your mode bits, ownership and other ACL entries alone.
+- FIX: A locked secret is owned <you>:<you>, not <you>:ai-tools. The proactive lockdown and the
+  on-write quarantine gave the same secret two different owners, and the sandbox group would have
+  re-exposed it the moment its mode was widened.
+- FIX: A session could silently run unconfined on a host that did have the SELinux policy loaded.
+  The pre-launch confinement probe read module presence from the root-only policy store, which the
+  sandbox account cannot read, so it always saw "absent" and on one path launched DAC-only. It now
+  derives module presence from the world-readable file contexts, so a loaded policy is detected and
+  an installed-but-unverifiable confinement fails the launch closed rather than open.
+- FIX: A sandbox clone gets the project SELinux label it needs. Clones under
+  /var/opt/ai-tools/sandbox-projects were left unlabelled because EL and Fedora alias /var/opt to
+  /opt before matching file contexts, so the clone-area rule was never reached -- and a launch
+  refused with "SELinux label still missing" right after the claim had reported success. Labelling
+  now also verifies the type it applied, so a mislabel surfaces at claim or relabel time instead of
+  at the next launch.
+- FIX: The project and sandbox verbs check their target before changing anything. --project-unclaim
+  refuses a directory that is neither a claimed project nor an ancestor of claimed ones, refuses a
+  protected system directory up front, and hands ownership back before dropping the allowlist entry
+  -- previously it could drop the entry first and leave the tree in the agent's group, releasing
+  nothing. --sandbox-remove and the per-project verbs likewise refuse a target that is not a
+  recognized sandbox clone or claimed project, so a mistyped path cannot delete or re-permission
+  the wrong tree.
+- FIX: ai-tools --list is reliable on a hand-edited allowlist. An entry written with an end-of-line
+  comment or quotes, or reached through a symlink, is now recognized everywhere the CLI reads the
+  list -- such an entry was invisible to several checks, so claiming it appended a duplicate line,
+  unclaiming it reported "not listed" and left the agent's access behind, and launching after an
+  in-place claim could fail with "the claim did not complete." A stale or protected entry no longer
+  aborts the listing either, which used to hide every entry after it along with the Suggested
+  cleanup and Maintenance sections.
+- FIX: The post-upgrade relabel watcher (ai-tools-relabel.path) is enabled on install, so the agent
+  entrypoint is re-labelled automatically after a Node toolchain upgrade. Without it a launch after
+  an upgrade could fail closed on a mislabelled binary until you ran ai-tools --relabel by hand.
+- FIX: Upgrading the ai-tools-selinux policy refreshes the running handback socket's SELinux label,
+  so ownership hand-back keeps working immediately after the upgrade instead of silently doing
+  nothing until the next reboot.
+- FIX: The toolchain updater could abort silently, leaving nvm-update.service failed with an empty
+  journal and Node and the agent packages frozen at their installed versions: its logging ran as a
+  bare pipeline that killed the run it was reporting, before the line explaining why was written.
+  Logging can no longer fail the run, and the message reaches the unit's journal first.
+- FIX: Reports read as intended: sudo ai-tools-admin selinux list-groups prints a clean sectioned
+  report of the optional policy groups and their load state; a short list of flagged paths is
+  printed once, whole, rather than sampled, counted and offered for re-listing (four paths took
+  seven lines and a question); and several --status and --providers hints now name commands that
+  work as printed.
+- DOCS: The README gives explicit install and upgrade commands, a working first-launch walkthrough,
+  and a pre-1.0 stability notice, and the project-lifecycle documentation spells out what a claim
+  and an unclaim each do to a project's permissions.
+- Upgrading from 0.10.x needs no action beyond dnf. If you had sealed directories (0700) inside a
+  project claimed by an earlier release, re-claim it once -- ai-tools --project-claim <project> --
+  to return them to your own group.
 
 * Thu Aug 13 2026 dagnode <tools@dagnode.com> - 0.10.1-1
 - FIX: The package now enables the ownership-handback socket (ai-tools-handback.socket) on install,
