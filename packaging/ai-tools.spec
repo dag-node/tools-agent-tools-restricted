@@ -345,6 +345,7 @@ done
 # ── base: sandbox project workflow tree + operation-log dir ──────────────────
 install -d -m 2750 %{buildroot}/var/opt/ai-tools
 install -d -m 2770 %{buildroot}/var/opt/ai-tools/sandbox-projects
+install -d -m 0750 %{buildroot}/var/opt/ai-tools/state
 install -m 0640 src/var/opt/ai-tools/README.md %{buildroot}/var/opt/ai-tools/README.md
 install -d -m 0700 %{buildroot}/var/log/ai-tools
 
@@ -482,6 +483,10 @@ if command -v setfacl >/dev/null 2>&1; then
     setfacl -m g:ai-ops:rwx /var/opt/ai-tools/sandbox-projects || :
     setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects || :
     setfacl -m g:ai-ops:r-- /var/opt/ai-tools/README.md || :
+    # Traverse only on the state dir: operators read the stamps inside (whose own group is
+    # ai-ops), never write there. What the mode buys is scope, not integrity -- a stamp's CONTENT
+    # is written by the sandbox account and trusted accordingly (see services.lib.sh).
+    setfacl -m g:ai-ops:r-x /var/opt/ai-tools/state || :
 fi
 # Re-assert the setgid bit on the sandbox tree -- rpm 4.19+ drops it from these %attr(2xxx) %dir
 # entries on install. Done in %post AND %posttrans because which one survives is rpm-dependent
@@ -646,6 +651,17 @@ fi
 # enabled in the sandbox account's own instance by ai-tools-bootstrap, which is where that
 # instance is brought up with linger -- a scriptlet cannot reliably reach it.
 %systemd_post ai-tools-relabel.path
+# Create the updater's last-run stamp (%ghost, so rpm owns the path but ships no content). The
+# state directory is root-owned and not group-writable on purpose, so nvm-update.sh can only
+# REWRITE this inode, never create it -- which is exactly what keeps the surface to one file. Owned
+# by the sandbox account (the writer) with group ai-ops (the readers). Idempotent; an existing
+# stamp keeps its content, and a %ghost path is not removed on upgrade.
+if [ -d /var/opt/ai-tools/state ]; then
+    [ -e /var/opt/ai-tools/state/nvm-update.status ] \
+        || : > /var/opt/ai-tools/state/nvm-update.status
+    chown ai-tools:ai-ops /var/opt/ai-tools/state/nvm-update.status 2>/dev/null || :
+    chmod 0640 /var/opt/ai-tools/state/nvm-update.status 2>/dev/null || :
+fi
 
 %preun -n ai-tools-integration-nodejs
 %systemd_preun ai-tools-relabel.path
@@ -798,6 +814,14 @@ fi
 %dir %attr(2750, root, ai-tools) /var/opt/ai-tools
 %dir %attr(2770, root, ai-tools) /var/opt/ai-tools/sandbox-projects
 %attr(0640, root, ai-tools) /var/opt/ai-tools/README.md
+# Operator-readable state written BY the sandbox account: the last-run stamps of the units that
+# live in that account's own systemd --user manager, which `ai-tools --status` cannot query from
+# the operator's session (services.lib.sh reads them). root owns the directory and it is NOT
+# group-writable -- the account gets traverse only, so it cannot add, unlink, rename, or
+# symlink-swap anything here. Each stamp is created by the owning package's %post and rewritten in
+# place by its writer, which confines the added surface to that one file's contents. Readers reach
+# it through the g:ai-ops:r-x ACL %post applies (%files cannot express an ACL).
+%dir %attr(0750, root, ai-tools) /var/opt/ai-tools/state
 %dir %attr(0700, root, root) /var/log/ai-tools
 %ghost %attr(0600, root, root) /var/log/ai-tools/chown.log
 %ghost %attr(0600, root, root) /var/log/ai-tools/setgid.log
@@ -841,6 +865,12 @@ fi
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-bootstrap
 %{_sbindir}/ai-tools-bootstrap
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/nvm-update.sh
+# The updater's last-run stamp: rewritten by nvm-update.sh on every exit, read by
+# `ai-tools --status` (the base's state directory above owns the placement). Owned by the sandbox
+# account so it may rewrite the contents, group ai-ops so operators read it without joining the
+# sandbox group, and no world bits. %ghost with %post creating it: the content is runtime evidence,
+# but the inode must exist for the account to write it -- the directory is not group-writable.
+%ghost %attr(0640, ai-tools, ai-ops) /var/opt/ai-tools/state/nvm-update.status
 %{_userunitdir}/nvm-update.service
 %{_userunitdir}/nvm-update.timer
 %{_unitdir}/ai-tools-relabel.path

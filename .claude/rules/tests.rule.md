@@ -188,6 +188,19 @@ the pair is already deployed: `boundary/access.sh` covers `settings.json` and th
 directory, `boundary/providers.sh` and `boundary/filters.sh` cover `operator.conf`, and
 `boundary/sudo.sh` covers the grant, so no input this command reads is agent-writable.
 
+`services.sh` pins the service-health registry (`services.lib.sh`) that `ai-tools --status` and
+the launch wrapper's pre-launch warning share. Two properties carry weight beyond the accessors.
+The **last-run stamp** is the one input here a non-root writer controls and it is rendered to the
+operator's terminal, so every way a hostile or corrupt value could reach that terminal — a
+symlinked stamp, a control byte or escape sequence, an over-long or unanchored line — is driven
+and must read as *no value*, degrading the unit to `unknown` rather than to a wrong verdict. And
+the **freshness** mapping exists for a failure a `RESULT` cannot express — every recorded run
+succeeds while the schedule driving them has stopped — so the file asserts that a successful run
+goes `stale` past `max_age`, that a failed one stays `failed` at any age, that an unknown or
+future-dated age never manufactures staleness out of an absence, and that `fired` mode reads
+recency alone, letting one stamp yield two verdicts (a healthy trigger beside the failed run it
+started). `systemctl` is stubbed as a shell function, so no real unit is touched.
+
 `relabel.sh` pins the other manifest-supplied decision with a security consequence: the
 entrypoint file-context predicate (`relabel.lib.sh`). A declared pattern becomes a `semanage`
 rule granting `ai_tools_exec_t`, the confined domain's exec entrypoint, so the test drives every

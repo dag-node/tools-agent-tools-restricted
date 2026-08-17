@@ -68,9 +68,13 @@ readonly AI_TOOLS_VERSION
 # itself, and the sandbox account is refused by the principal guard below before either is read.
 readonly GITCONFIG="${AI_TOOLS_GITCONFIG:-/opt/ai-tools/.gitconfig}"
 readonly SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
+# The sandbox account's home. Its bin/ holds one stable launcher symlink per enabled agent -- the
+# set --status inspects for entrypoint label drift; 0551, so an operator resolves a link without
+# reading the directory.
+readonly SANDBOX_HOME="/opt/ai-tools"
 # Bootstrap's last load-bearing artifact -- the require_bootstrap gate keys on it (below).
 # Same symlink the launch wrapper resolves; kept identical to claude.sh's CLAUDE_LINK.
-readonly CLAUDE_LINK="/opt/ai-tools/bin/claude"
+readonly CLAUDE_LINK="${SANDBOX_HOME}/bin/claude"
 # Root-only secret lockdown helper. Invoked via sudo (NO NOPASSWD grant exists for
 # it -- by design), so sudo prompts for the projects user's password.
 readonly LOCKDOWN_BIN="/usr/local/libexec/ai-tools/ai-tools-lockdown"
@@ -136,9 +140,9 @@ readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-${HOME_DIR}/.config/ai-tools/allowed-p
 
 # ── Output / prompt helpers ──────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
-    readonly C_BOLD=$'\033[1m' C_DIM=$'\033[2m' C_GRN=$'\033[32m' C_YEL=$'\033[33m' C_RST=$'\033[0m'
+    readonly C_BOLD=$'\033[1m' C_DIM=$'\033[2m' C_GRN=$'\033[32m' C_YEL=$'\033[33m' C_RED=$'\033[31m' C_RST=$'\033[0m'
 else
-    readonly C_BOLD='' C_DIM='' C_GRN='' C_YEL='' C_RST=''
+    readonly C_BOLD='' C_DIM='' C_GRN='' C_YEL='' C_RED='' C_RST=''
 fi
 
 say()     { printf '%s\n' "$*"; }
@@ -2151,16 +2155,117 @@ list_maintenance_note() {
     say "  ai-tools --relabel                  relabel the agent entrypoints after a Node upgrade"
 }
 
+# status_fmt_age <seconds>  -- render an age the way an operator reads it ("3 days ago"), not as a
+# duration to be mentally subtracted from now. Coarsens with distance: the exact minute matters for
+# a run that just happened and not at all for one from last week. Empty input prints nothing, so a
+# caller can drop the clause entirely when the age is unknown.
+status_fmt_age() {
+    local s="${1:-}"
+    [[ "${s}" =~ ^[0-9]+$ ]] || return 0
+    if   [[ "${s}" -lt 90      ]]; then printf 'just now'
+    elif [[ "${s}" -lt 5400    ]]; then printf '%d min ago'  "$(( s / 60 ))"
+    elif [[ "${s}" -lt 172800  ]]; then printf '%d hours ago' "$(( s / 3600 ))"
+    else                                printf '%d days ago'  "$(( s / 86400 ))"
+    fi
+}
+
+# status_entrypoint_labels  -- report whether each agent entrypoint still carries the SELinux label
+# its domain transition needs. This is the precondition ai-tools-run fail-closes on, and a Node
+# upgrade reminting the binary is the routine way to lose it, so reporting it here turns a
+# confusing "refused to launch" into something the operator saw coming.
+#
+# The check names no type: it compares each entrypoint's LIVE context against the one
+# matchpathcon computes for that path, so drift is drift whatever the policy declares. matchpathcon
+# reads the world-readable file-contexts and needs no privilege -- the same unprivileged probe
+# confinement.lib.sh uses. The section is OMITTED whenever it cannot answer (SELinux off, no
+# matchpathcon, or a toolchain path this operator cannot traverse): every line it prints depends on
+# that read, so a section that could only say "cannot tell" is not shown at all -- the rule
+# --providers already follows for the policy-group list.
+status_entrypoint_labels() {
+    command -v matchpathcon >/dev/null 2>&1 || return 0
+    command -v getenforce   >/dev/null 2>&1 || return 0
+    [[ "$(getenforce 2>/dev/null || true)" != Disabled ]] || return 0
+
+    # _type <context>: the TYPE field of a user:role:type:level context. Comparing types (not whole
+    # contexts) is deliberate -- user and range legitimately differ between a file's live context
+    # and the file-contexts default, while the type is what the domain transition keys on.
+    local _t
+    _type() { _t="${1#*:}"; _t="${_t#*:}"; printf '%s' "${_t%%:*}"; }
+
+    local link target want have shown=0 mislabelled=0
+    for link in "${SANDBOX_HOME}"/bin/*; do
+        [[ -L "${link}" ]] || continue
+        target="$(readlink -f -- "${link}" 2>/dev/null)" || continue
+        [[ -n "${target}" && -e "${target}" ]] || continue
+        have="$(stat -c '%C' -- "${target}" 2>/dev/null)" || continue
+        want="$(matchpathcon -n -- "${target}" 2>/dev/null)" || continue
+        [[ -n "${have}" && -n "${want}" && "${have}" != '?' ]] || continue
+        if [[ "${shown}" -eq 0 ]]; then section "Agent entrypoints"; shown=1; fi
+        if [[ "$(_type "${have}")" == "$(_type "${want}")" ]]; then
+            printf '  %-28s %sOK%s %s(%s)%s\n' "${link##*/}" "${C_GRN}" "${C_RST}" \
+                "${C_DIM}" "$(_type "${have}")" "${C_RST}"
+        else
+            mislabelled=1
+            printf '  %-28s %sMISLABELLED%s\n' "${link##*/}" "${C_RED}" "${C_RST}"
+            say "      ${C_DIM}${target}${C_RST}"
+            say "      has $(_type "${have}"), needs $(_type "${want}")"
+        fi
+    done
+    if [[ "${mislabelled}" -eq 1 ]]; then
+        say "      a session will refuse to launch on this entrypoint rather than run unconfined"
+        say "      ${C_BOLD}ai-tools --relabel${C_RST}"
+    fi
+    return "${mislabelled}"
+}
+
+# status_sandbox_unit_commands <unit>  -- print the three commands that inspect and re-run a unit
+# living in the SANDBOX account's own `systemd --user` manager. That manager is unreachable from
+# the operator's session, so every one of them goes through root:
+#   * status/restart use the MACHINE transport (systemctl --user -M <account>@.host), which reaches
+#     that manager over the system bus where root is already authorized. A plain
+#     `sudo -u <account> systemctl --user` gets that account's own bus refused even when the manager
+#     is healthy (no XDG_RUNTIME_DIR) -- the same reason tests' sandbox_systemctl prefers this form.
+#   * the journal query matches on the JOURNAL FIELDS instead: `journalctl --user-unit` as root
+#     reads ROOT's user units, never another account's, so the unit is selected by
+#     _SYSTEMD_USER_UNIT and narrowed to the sandbox account by _UID (different field names AND
+#     together). This catches the unit's own output and the `systemd-cat` lines its script emits,
+#     since both are logged from the same cgroup.
+# Composed here rather than stored in services.lib.sh because each names the sandbox account, and
+# that library is deployed with no @SANDBOX_USER@ substitution.
+status_sandbox_unit_commands() {
+    local unit="$1" uid
+    uid="$(id -u "${SANDBOX_USER}" 2>/dev/null || true)"
+    say "      ${C_BOLD}sudo systemctl --user -M ${SANDBOX_USER}@.host status ${unit}${C_RST}"
+    if [[ -n "${uid}" ]]; then
+        say "      ${C_BOLD}sudo journalctl _SYSTEMD_USER_UNIT=${unit} _UID=${uid} -n 50 --no-pager${C_RST}"
+    fi
+    say "      ${C_BOLD}sudo systemctl --user -M ${SANDBOX_USER}@.host restart ${unit}${C_RST}"
+}
+
 # cmd_status  -- report the host's ai-tools service health: provisioning state, then each managed
-# systemd unit (OK / DOWN / n/a / ?) and, for anything down, its consequence and the exact remedy.
+# systemd unit (OK / DOWN / FAILED / n/a / ?) and, for anything not plainly healthy, its
+# consequence and the exact commands that inspect and fix it.
 # Reuses services.lib.sh -- the SAME registry the launch-time warning reads -- so the status view and
 # the launch warning never disagree. Informational (no operator gate), like --list/--providers.
 cmd_status() {
+    local problems=0
+
     section "Version"
     say "  ai-tools ${AI_TOOLS_VERSION}"
-    # The agent and Node versions live in the 700 sandbox toolchain the operator cannot read; the
-    # session logs them under the ai-tools-run tag, and `claude --version` prints them directly.
-    say "  ${C_DIM}agent & Node versions: run 'claude --version'${C_RST}"
+    # The agent version lives in the sandbox toolchain the operator cannot read, so it stays a
+    # pointer. Node does not have to: the updater records the version it left active in its stamp,
+    # so read it from whichever registry record publishes one -- no unit is named here, and a host
+    # whose updater has not run yet simply keeps the pointer.
+    local rec node_ver=""
+    if declare -F ai_tools_service_stamp_field >/dev/null 2>&1; then
+        while IFS= read -r rec; do
+            node_ver="$(ai_tools_service_stamp_field "$(ai_tools_service_field "${rec}" 7)" NODE)"
+            [[ -n "${node_ver}" && "${node_ver}" != unknown ]] && break
+            node_ver=""
+        done < <(ai_tools_service_records)
+    fi
+    [[ -n "${node_ver}" ]] && say "  node ${node_ver} ${C_DIM}(as of the last toolchain update)${C_RST}"
+    say "  ${C_DIM}agent version: run 'claude --version'${C_RST}"
 
     section "Provisioning"
     # CLAUDE_LINK is bootstrap's last artifact (the gate require_bootstrap keys on), so its presence
@@ -2172,37 +2277,73 @@ cmd_status() {
     fi
 
     section "Services"
-    if ! declare -F ai_tools_service_records >/dev/null 2>&1; then
+    # A missing registry is a broken install, not an unknowable state, so this is one of the
+    # conditions --status exits non-zero on rather than reporting a clean bill it cannot support.
+    if ! declare -F ai_tools_service_records >/dev/null 2>&1 \
+            || ! declare -F ai_tools_service_state_of >/dev/null 2>&1 \
+            || ! declare -F ai_tools_service_stamp_field >/dev/null 2>&1; then
         warn "service registry unavailable (${SERVICES_LIB}) -- cannot report service health"
-        return 0
+        return 1
     fi
-    local rec unit scope state
+    local unit scope stamp mode state age when exit_code remedy
     while IFS= read -r rec; do
         unit="$(ai_tools_service_field "${rec}" 1)"
         scope="$(ai_tools_service_field "${rec}" 2)"
-        state="$(ai_tools_service_state "${unit}" "${scope}")"
+        stamp="$(ai_tools_service_field "${rec}" 7)"
+        mode="$(ai_tools_service_field "${rec}" 8)"
+        state="$(ai_tools_service_state_of "${rec}")"
+        # A stamped unit is reported from its LAST RUN, not live, so every line says WHEN -- relative
+        # first, since "3 days ago" is the part an operator acts on. An unknown age prints nothing
+        # rather than a placeholder.
+        age=""; when=""
+        if [[ -n "${stamp}" ]]; then
+            age="$(status_fmt_age "$(ai_tools_service_stamp_age "${stamp}")")"
+            [[ -n "${age}" ]] && when=" ${C_DIM}(last run ${age})${C_RST}"
+        fi
         case "${state}" in
-            active) printf '  %-28s %sOK%s\n'   "${unit}" "${C_GRN}" "${C_RST}" ;;
+            # In 'fired' mode the stamp belongs to another unit; this one is only inferred from the
+            # fact that a run happened at all, so the line says so rather than claiming a live check.
+            active) if [[ "${mode}" == fired && -n "${age}" ]]; then
+                        printf '  %-28s %sOK%s %s(inferred -- a run completed %s)%s\n' \
+                            "${unit}" "${C_GRN}" "${C_RST}" "${C_DIM}" "${age}" "${C_RST}"
+                    else
+                        printf '  %-28s %sOK%s%s\n' "${unit}" "${C_GRN}" "${C_RST}" "${when}"
+                    fi ;;
             down)   printf '  %-28s %sDOWN%s\n' "${unit}" "${C_YEL}" "${C_RST}" ;;
+            failed) exit_code="$(ai_tools_service_stamp_field "${stamp}" EXIT_CODE)"
+                    printf '  %-28s %sFAILED%s %s(last run %s, exit %s)%s\n' "${unit}" \
+                        "${C_RED}" "${C_RST}" "${C_DIM}" "${age:-at an unknown time}" \
+                        "${exit_code:-?}" "${C_RST}" ;;
+            stale)  printf '  %-28s %sSTALE%s %s(last run %s)%s\n' \
+                        "${unit}" "${C_YEL}" "${C_RST}" "${C_DIM}" "${age:-long ago}" "${C_RST}" ;;
             absent) printf '  %-28s %sn/a (not installed)%s\n' "${unit}" "${C_DIM}" "${C_RST}" ;;
+            # 'unknown' is not a problem report -- it says only that this vantage point cannot tell.
+            # It stays a single line carrying the one command that CAN tell, so a healthy host's
+            # report does not grow a diagnostic block per unit it simply cannot query.
             *)      if [[ "${scope}" == sandbox-user ]]; then
-                        # The sandbox account's --user manager is not reachable from the operator
-                        # unprivileged. Recommend the MACHINE transport (systemctl -M <user>@.host),
-                        # which reaches that manager over the system bus where root (via sudo) is
-                        # authorized -- a plain `sudo -u <user> systemctl --user` gets its own bus
-                        # refused even when the manager is healthy (no XDG_RUNTIME_DIR), the exact
-                        # reason tests' sandbox_systemctl prefers this form.
-                        printf '  %-28s %s? (check: sudo systemctl --user -M %s@.host status %s)%s\n' \
+                        printf '  %-28s %s? (sandbox --user unit -- check: sudo systemctl --user -M %s@.host status %s)%s\n' \
                             "${unit}" "${C_DIM}" "${SANDBOX_USER}" "${unit}" "${C_RST}"
                     else
                         printf '  %-28s %s? (systemctl unavailable)%s\n' "${unit}" "${C_DIM}" "${C_RST}"
                     fi ;;
         esac
-        if [[ "${state}" == down ]]; then
+        # A unit that IS reported broken names its consequence, then every command that inspects and
+        # fixes it. A sandbox-user unit's are composed here rather than stored in the registry: they
+        # name the sandbox ACCOUNT, and services.lib.sh is deployed with no @SANDBOX_USER@ pass.
+        if ai_tools_service_needs_attention "${state}"; then
+            problems=$(( problems + 1 ))
             say "      $(ai_tools_service_field "${rec}" 5)"
-            say "      ${C_BOLD}$(ai_tools_service_field "${rec}" 6)${C_RST}"
+            if [[ "${scope}" == sandbox-user ]]; then
+                status_sandbox_unit_commands "${unit}"
+            fi
+            remedy="$(ai_tools_service_field "${rec}" 6)"
+            if [[ -n "${remedy}" ]]; then
+                say "      ${C_BOLD}${remedy}${C_RST}"
+            fi
         fi
     done < <(ai_tools_service_records)
+
+    status_entrypoint_labels || problems=$(( problems + 1 ))
 
     # Pointers, not duplication: name the sibling read-only reports (which own their own detail) and
     # where the full command list lives, so --status is a hub without re-implementing --providers or
@@ -2211,6 +2352,11 @@ cmd_status() {
     say "  ai-tools --providers   installed agents/integrations and which are enabled"
     say "  ai-tools --list        registered projects (real and sandbox)"
     say "  ai-tools --help        the full command list"
+
+    # Exit non-zero when anything is actually broken, so --status is usable unattended (a cron
+    # check, a monitor) without parsing this output. 'unknown' and 'n/a' are not faults and do not
+    # count -- an unqueryable unit must not make a healthy host alarm every night.
+    [[ "${problems}" -eq 0 ]]
 }
 
 # cmd_list  -- print each allowlist entry as project, sandbox, or exclude, with its git
@@ -2357,7 +2503,7 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
   ai-tools --reclaim [--full] [path] take back ownership of agent files; project stays claimed (sudo; default: cwd)
   ai-tools --relabel                 relabel the agent entrypoints after a Node upgrade (sudo)
   ai-tools --providers               list installed agents/integrations and which are enabled
-  ai-tools --status                  report service health (handback socket, relabel watcher, timer)
+  ai-tools --status                  report service health (handback socket, relabel watcher, updater)
   ai-tools --list                    list registered projects
   ai-tools --version
   ai-tools --help

@@ -1215,6 +1215,25 @@ do_install() {
     chown "root:${SANDBOX_GROUP}" /var/opt/ai-tools/sandbox-projects
     chmod 2770 /var/opt/ai-tools/sandbox-projects
 
+    # Operator-readable state written BY the sandbox account: the last-run stamps of the units in
+    # that account's own systemd --user manager (nvm-update), which `ai-tools --status` cannot
+    # query from the operator's session. The directory is root-owned and deliberately NOT
+    # group-writable -- the account gets traverse only -- so the surface the stamps add is the
+    # contents of the individual files created here, never the directory: the account cannot add,
+    # unlink, rename, or symlink-swap anything in it. Each stamp is therefore created HERE, owned
+    # by the account (which rewrites it in place) with group ai-ops so operators read it directly.
+    # setgid is stripped symbolically: the parent is setgid and neither `install -d -m` nor a
+    # numeric chmod clears an inherited setgid bit on a directory (see tests.rule.md).
+    log "/var/opt/ai-tools/state/"
+    ensure_dir 0750 root "${SANDBOX_GROUP}" /var/opt/ai-tools/state
+    chown "root:${SANDBOX_GROUP}" /var/opt/ai-tools/state
+    chmod 0750 /var/opt/ai-tools/state
+    chmod g-s /var/opt/ai-tools/state
+    getent group ai-ops >/dev/null 2>&1 || groupadd -r ai-ops
+    touch /var/opt/ai-tools/state/nvm-update.status
+    chown "${SANDBOX_USER}:ai-ops" /var/opt/ai-tools/state/nvm-update.status
+    chmod 0640 /var/opt/ai-tools/state/nvm-update.status
+
     # Sandbox workflow doc. Shipped documentation (not user-edited config), so it is
     # refreshed on every re-install. 640 root:SANDBOX_GROUP.
     log "/var/opt/ai-tools/README.md"
@@ -1235,6 +1254,10 @@ do_install() {
         setfacl -m g:ai-ops:rwx /var/opt/ai-tools/sandbox-projects
         setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects
         setfacl -m g:ai-ops:r-- /var/opt/ai-tools/README.md
+        # Traverse only on the state dir: operators read the stamps inside (whose own group is
+        # ai-ops), never write there. What the mode buys is scope, not integrity -- a stamp's
+        # CONTENT is written by the sandbox account and trusted accordingly (services.lib.sh).
+        setfacl -m g:ai-ops:r-x /var/opt/ai-tools/state
     else
         warn "setfacl unavailable -- operators need ${SANDBOX_GROUP} membership for sandbox-create"
     fi
