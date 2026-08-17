@@ -1722,11 +1722,21 @@ sandbox_resolve_base() {
 cmd_sandbox_create() {
     local o_path="" o_from="" o_branch="" o_dir="" o_yes=false
     local have_from=false have_branch=false have_dir=false
+    # _need_value <flag> [remaining args...]: die unless a value follows the flag AND that value is
+    # not itself option-shaped. A leading '-' is a mistyped flag far more often than a real ref or
+    # directory name, and taking it at face value hands it to git as an option -- so the run would
+    # fail with git's own parse error, which names neither this flag nor the value. Refused here,
+    # where the message can name both, and before the push.
+    _need_value() {
+        local flag="$1"; shift
+        (( $# )) || die "${flag} needs a value"
+        [[ "$1" != -* ]] || die "${flag} needs a value, not another option: $1"
+    }
     while (( $# )); do
         case "$1" in
-            --from)   [[ $# -ge 2 ]] || die "--from needs a value";   o_from="$2";   have_from=true;   shift 2 ;;
-            --branch) [[ $# -ge 2 ]] || die "--branch needs a value"; o_branch="$2"; have_branch=true; shift 2 ;;
-            --dir)    [[ $# -ge 2 ]] || die "--dir needs a value";    o_dir="$2";    have_dir=true;    shift 2 ;;
+            --from)   _need_value --from   "${@:2}"; o_from="$2";   have_from=true;   shift 2 ;;
+            --branch) _need_value --branch "${@:2}"; o_branch="$2"; have_branch=true; shift 2 ;;
+            --dir)    _need_value --dir    "${@:2}"; o_dir="$2";    have_dir=true;    shift 2 ;;
             -y|--yes) o_yes=true; shift ;;
             --)       shift ;;
             -*)       die "unknown option: $1 (see: ai-tools --help)" ;;
@@ -1792,7 +1802,11 @@ cmd_sandbox_create() {
     local name
     if ${have_dir}; then name="${o_dir}"
     else name="$(ask "Sandbox directory name under ${SANDBOX_ROOT}" "$(basename "${top}")")"; fi
-    [[ -n "${name}" && "${name}" != */* ]] || die "invalid directory name: ${name}"
+    # One component, and a real one: '.' and '..' pass the no-slash test but name the clone area
+    # itself or its parent, where the next check would refuse them as "already exists" -- true, but
+    # not what went wrong.
+    [[ -n "${name}" && "${name}" != */* && "${name}" != . && "${name}" != .. ]] \
+        || die "invalid directory name: ${name} (one path component, under ${SANDBOX_ROOT})"
     local dst="${SANDBOX_ROOT}/${name}"
     if [[ -e "${dst}" ]]; then
         say "    to finish securing/registering an earlier clone of this name:"
