@@ -68,6 +68,65 @@ instance maintains the toolchain the whole team shares. `ai-tools-bootstrap` ena
 timer once it has provisioned the toolchain and `SANDBOX_USER`'s linger; `install.sh`
 enables it for the dev flow.
 
+## Last-run stamp
+
+Running there puts the updater's health out of the operator's reach: querying a `--user` manager
+needs that account's own bus, the machine transport (`systemctl --user -M`) needs root, and no
+sudo rule grants either — so a failing update is invisible from an operator session while the
+toolchain silently stops advancing. `nvm-update.sh` closes that by recording every run's outcome
+in a **last-run stamp**, `/var/opt/ai-tools/state/nvm-update.status`, which
+`ai-tools --status` reads through `services.lib.sh` (see [cli](cli.rule.md)).
+
+The stamp is the second of two independent records, and deliberately so: the first is what the run
+*says* (its `log`/`warn`/`die` output, which the unit routes to the journal), and a run can fail in
+a way that says nothing at all. `nvm-update.sh`'s emitters therefore write to stdout/stderr **before**
+their best-effort `systemd-cat` copy, and guard that copy — under `set -e` with `pipefail` a bare
+`printf | systemd-cat` pipeline whose `systemd-cat` fails aborts the updater, and aborts it silently,
+because the line explaining why comes after the statement that failed. A logger never decides the
+fate of the operation it reports on, here as in `log.lib.sh` (see [logging](logging.rule.md)).
+
+`write_stamp` is installed as the script's `EXIT` trap, so the record covers every exit path — a
+`die`, an uncaught `set -e` failure, and a clean run alike — and it is best-effort throughout: it
+never turns a successful update into a failed unit, and a host whose stamp is absent gets a warning
+naming the reinstall that restores it, while the report states the unit as unknown rather than
+guessing. The whole text goes out in a single write, so the window in which a reader could see a
+partial stamp is negligible; one that lands there anyway carries no parseable `RESULT` and reads as
+unknown, never as a wrong verdict. The content is the shared `KEY=value` grammar:
+`RESULT=ok|failed`, `EXIT_CODE`, `FINISHED` (UTC, ISO-8601), and `NODE`.
+
+Each field has a distinct reader. `RESULT` and `EXIT_CODE` are the service's verdict. `FINISHED`
+carries two: it dates that verdict, and its **age** is what `nvm-update.timer` — which can
+otherwise report nothing at all — infers its own health from, since a recorded run proves the timer
+fired (see [cli](cli.rule.md) for the `stamp_mode`/`max_age` fields that express this). `NODE` lets
+`ai-tools --status` report the active Node version without reading the `700` toolchain, which the
+operator cannot.
+
+### What the stamp is trusted for
+
+Nothing. Its writer is `SANDBOX_USER`, so that account can state any outcome it likes, and the
+permissions around it bound **what it can touch**, never whether the contents are true:
+
+- `/var/opt/ai-tools/state` is `0750 root:SANDBOX_GROUP` — root-owned and **not** group-writable,
+  so the account has traverse only and cannot create, unlink, rename, or symlink-swap anything
+  there. Operators reach it through a `g:ai-ops:r-x` ACL, the same grant pattern as the rest of
+  the sandbox area. The setgid bit inherited from the `2750` parent is stripped **symbolically**
+  (`chmod g-s`): neither `install -d -m` nor a numeric `chmod` clears setgid on a directory.
+- The stamp itself is `0640 SANDBOX_USER:ai-ops`, created by the package (`%post`, and
+  `install.sh` for the dev flow) and only ever **rewritten in place** by the updater. The added
+  surface is therefore exactly one inode's contents.
+
+That the contents are forgeable is accepted, on two grounds. The stamp **gates nothing** — it is
+rendered in one status report, is never evaluated, and every value is read defensively
+(`ai_tools_service_stamp_field`: a symlink is refused, only the first 4 KiB is examined, and a
+value must be a short `[A-Za-z0-9:+._-]` token or it reads as no value at all), so no control byte
+or escape sequence can reach the operator's terminal through it and a corrupt stamp degrades the
+unit to *unknown* rather than to a wrong verdict. And it is **never the weakest link**: an account
+able to write the stamp can already write the toolchain the stamp reports on, which is by far the
+more valuable target. On an enforcing host it can write neither — both resolve to `usr_t` (the
+`/var/opt` → `/opt` base alias, see the `sandbox-projects` note in `ai_tools.fc`), which
+`ai_tools_t` may only read, while `nvm-update.service` runs outside that domain and writes
+normally.
+
 ## Version resolution
 
 `nvm-update.sh` resolves the latest LTS in the `NVM_NODE_MAJOR` series itself
@@ -184,7 +243,12 @@ directly; `ai-tools-bootstrap` runs it inside a `sudo -u` sandbox-account step; 
 entry `ai_tools_verify_npm_signatures` refuses to run as root as a fail-closed backstop. The
 pure decision `ai_tools_npm_verdict` — no npm, no filesystem, no privilege — is split out and
 unit-tested over the audit-output truth table (`tests/unit/npm-verify.sh`), mirroring
-`confinement.lib.sh`'s pure verdict.
+`confinement.lib.sh`'s pure verdict. That verdict parses its JSON with `node`, which exists only
+in the sandbox toolchain and never on root's `PATH`, so the root-run test resolves it the way the
+launch wrapper resolves the agent binary — one `readlink` hop through a stable launcher symlink to
+the active version's `bin` — and exposes **that one binary** under the name the library calls
+rather than putting the sandbox-owned toolchain directory on root's `PATH`. Resolving from `PATH`
+alone would skip the file on a fully provisioned host, which strict mode reports as no coverage.
 
 The verdict gates activation fail-closed. An **invalid** signature (tamper) aborts before the
 prune and the launcher-symlink repoint, so the previous, trusted version stays active and the

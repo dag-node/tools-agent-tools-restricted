@@ -127,18 +127,65 @@ and inspect the host.
   dependencies [providers](providers.rule.md) documents, surfaced where the operator checks status.
 - `--status` — read-only health report: the installed `ai-tools` version, whether the toolchain is
   provisioned, then each managed systemd unit (`ai-tools-handback.socket`, `ai-tools-relabel.path`,
-  and the sandbox account's `nvm-update.timer`) as OK / DOWN / not-installed, with the consequence
-  and the exact remedy for anything down, and a closing **More** block that points at the sibling
+  and the sandbox account's `nvm-update.timer` and `nvm-update.service`) as OK / DOWN / FAILED /
+  not-installed, with the consequence and the exact remedy for anything broken, and a closing
+  **More** block that points at the sibling
   reports (`--providers`, `--list`, `--help`) without repeating their detail — so it reads as a hub. It resolves through `services.lib.sh` — the **same registry** the launch
   wrapper's pre-launch health warning reads (`claude.sh`, see [launch](launch.rule.md)) — so the
-  status view and the launch warning never disagree on which units matter or how to fix one. The
-  sandbox `--user` timer is not operator-checkable unprivileged, so its live state is reported as `?`
-  with a check hint that uses the **machine transport** (`sudo systemctl --user -M ai-tools@.host
-  status …`) — which reaches that manager over the system bus where root is authorized; a plain
-  `sudo -u ai-tools systemctl --user` gets its own bus refused even when the manager is healthy (the
-  reason the tests' `sandbox_systemctl` prefers it). `--status` is the one command that
+  status view and the launch warning never disagree on which units matter or how to fix one.
+  `--status` is the one command that
   **bypasses the bootstrap gate** (below): a diagnostic must run when things may be broken, so it
   reports the unprovisioned state rather than being blocked by it.
+
+  A unit in the sandbox account's own `systemd --user` manager is not queryable from the operator's
+  session at all, so its state comes from a **last-run stamp** it publishes where the operator can
+  read it (`nvm-update.service`, see [updater](updater.rule.md)) and stays `?` where it publishes
+  none. A stamped unit's OK carries the time of that run rather than implying it is running now,
+  and a `FAILED` carries the run's exit code. The `?` line is not a problem report — it says only
+  that this vantage point cannot tell — so it stays a single line naming the one command that can,
+  and the multi-command diagnostic block is reserved for a unit actually reported broken.
+
+  **A stamp is read for two properties, and one stamp can serve two units.** `RESULT` answers *did
+  the last run succeed*; its **age** answers *are runs still happening* — a distinct question a
+  `RESULT` cannot express, since a schedule that quietly stops firing leaves every recorded run
+  successful and would otherwise read as a permanent, increasingly wrong OK. Past the record's
+  `max_age` (48h for `nvm-update`, twice its daily `OnCalendar`) the unit reports **`STALE`**. The
+  registry's `stamp_mode` field selects which property a record reads: `result` for the unit that
+  ran, `fired` for the one that triggered it — so `nvm-update.timer` derives a verdict of its own
+  from the *same* stamp on recency alone (a recorded run, successful or not, proves the timer
+  fired), instead of the `?` it could otherwise only report. A failing service therefore does not
+  also condemn the working schedule that started it. An unknown age never manufactures staleness:
+  no `max_age`, an unparseable date, or a stamp dated in the future all decline the judgment.
+
+  Times render **relative first** (`last run 3 days ago`), coarsening with distance, because the
+  age is what the operator acts on. The entrypoint section (below) and every unit line feed one
+  predicate, `ai_tools_service_needs_attention` (`down`/`failed`/`stale`, never `unknown`), which is
+  both what the scanner collects and what `--status`'s **exit status** reports — non-zero when
+  anything is broken, so the command is usable from a monitor or cron without parsing its output.
+  An unqueryable unit is not a fault and does not alarm.
+
+- **Agent entrypoints** — `--status` additionally reports whether each stable launcher's target
+  still carries the SELinux label its domain transition needs, the precondition `ai-tools-run`
+  fail-closes on and the one a Node upgrade routinely breaks (see [updater](updater.rule.md)), so a
+  refused launch is seen coming rather than met head-on. The check **names no type**: it compares
+  each entrypoint's live context against the one `matchpathcon` computes for that path, so drift is
+  drift whatever the policy declares, and it needs no privilege — the same world-readable
+  file-contexts probe `confinement.lib.sh` uses. Only the type is compared (user and range
+  legitimately differ). The whole section is **omitted** when it cannot answer — SELinux off, no
+  `matchpathcon`, or a toolchain path this operator cannot traverse — on the same rule as the
+  policy-group section: every line depends on that read, so a section that could only say "cannot
+  tell" is not shown.
+
+  Every command for such a unit goes through root, and the CLI composes them rather than the
+  registry storing them: each names the sandbox **account**, and `services.lib.sh` is deployed with
+  no `@SANDBOX_USER@` substitution. Status and restart use the **machine transport**
+  (`sudo systemctl --user -M ai-tools@.host …`), which reaches that manager over the system bus
+  where root is authorized — a plain `sudo -u ai-tools systemctl --user` gets its own bus refused
+  even when the manager is healthy (the reason the tests' `sandbox_systemctl` prefers it). The
+  journal query cannot use either: `journalctl --user-unit` as root reads **root's** user units, so
+  the unit is selected by the journal fields instead
+  (`sudo journalctl _SYSTEMD_USER_UNIT=<unit> _UID=<sandbox uid>`), which ANDs across the two field
+  names and catches both the unit's own output and the `systemd-cat` lines its script emits.
 - `--list` — report every allowlist entry (project / sandbox / exclude / unusable) with its git
   `safe.directory` status, then a **Suggested cleanup** section flagging inconsistent
   hand-edited entries, each with a copy-paste remediation carrying the full absolute path (an

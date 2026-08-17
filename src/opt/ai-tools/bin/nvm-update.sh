@@ -12,15 +12,71 @@
 #   AI_TOOLS_GLOBAL_TOOLS    space-separated sandbox packages; overrides the default set
 #                            (npm plus each enabled agent's npm package, resolved from the
 #                            agent manifests via providers.lib.sh -- see main)
+#
+# Every run records its outcome in a last-run stamp (see write_stamp), the only evidence an
+# operator has of this unit's health: it lives in the sandbox account's own systemd --user
+# manager, which `ai-tools --status` cannot query from the operator's session.
 
 set -euo pipefail
 IFS=$'\n\t'
 
 readonly AI_TOOLS_BIN="/opt/ai-tools/bin"
+# The last-run stamp `ai-tools --status` reads. The install creates it; this script only ever
+# rewrites that one existing inode. Its directory is root-owned and NOT group-writable, so this
+# account -- and so the agent, which runs as it -- cannot create, unlink, rename, or symlink-swap
+# anything there: the whole surface the stamp adds is the contents of this single file.
+readonly NVM_UPDATE_STAMP="/var/opt/ai-tools/state/nvm-update.status"
 
-log()  { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p info;    echo "INFO : $*"; }
-warn() { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p warning; echo "WARN : $*" >&2; }
-die()  { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p err;     echo "ERROR: $*" >&2; exit 1; }
+# Each emitter writes to stdout/stderr FIRST -- the unit routes both to the journal
+# (StandardOutput/StandardError), so that copy always lands -- and only then makes the best-effort
+# systemd-cat copy, which carries the nvm-update-ai tag for a MANUAL run outside the unit.
+#
+# The order and the `|| true` are load-bearing, not tidiness. This script runs under
+# `set -e -o pipefail`, so a bare `printf | systemd-cat` pipeline whose systemd-cat fails aborts the
+# whole updater -- and aborts it SILENTLY, because the echo that would have said why came after the
+# statement that failed. That is a logger deciding the fate of the operation it reports on, which is
+# exactly what every other component here refuses to allow (log.lib.sh, ai-tools-run). A failed run
+# must always be able to say what failed.
+log()  { echo "INFO : $*";     printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p info    2>/dev/null || true; }
+warn() { echo "WARN : $*" >&2; printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p warning 2>/dev/null || true; }
+die()  { echo "ERROR: $*" >&2; printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p err     2>/dev/null || true; exit 1; }
+
+# write_stamp <exit-code>: record this run's outcome where the operator can read it, in the
+# KEY=value grammar services.lib.sh parses (RESULT, EXIT_CODE, FINISHED, NODE). Installed as the
+# EXIT trap, so it records EVERY exit path -- a die, an uncaught set -e failure, and a clean run
+# alike; without it a failed run is visible only in the sandbox account's journal, which the
+# operator cannot reach either. Best-effort by construction: it must never turn a successful update
+# into a failed unit, so every step tolerates failure and the function always returns 0.
+#
+# It REWRITES the existing file rather than creating one: the stamp is owned by this account inside
+# a directory that is not, which is what confines the added surface to one inode (see the constant
+# above) -- but it also means the file must already exist, so an absent one is a broken/partial
+# install and is reported as such rather than silently skipped. A single write of the whole text
+# keeps the window in which a reader sees a partial stamp negligible; should one land there anyway,
+# the reader finds no parseable RESULT and reports the unit unknown, never a wrong verdict.
+write_stamp() {
+    local rc="$1" result=failed node_version=unknown
+    [[ "${rc}" -eq 0 ]] && result=ok
+
+    if [[ ! -f "${NVM_UPDATE_STAMP}" || ! -w "${NVM_UPDATE_STAMP}" ]]; then
+        warn "no writable last-run stamp at ${NVM_UPDATE_STAMP} -- 'ai-tools --status' cannot report this unit; reinstall ai-tools-integration-nodejs to restore it"
+        return 0
+    fi
+
+    # nvm is a shell function from the sourced nvm.sh, so it exists only once main got that far;
+    # an early failure stamps NODE=unknown rather than aborting the trap.
+    if declare -F nvm >/dev/null 2>&1; then
+        node_version="$(nvm version "${NVM_NODE_ALIAS:-default}" 2>/dev/null || true)"
+        [[ "${node_version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || node_version=unknown
+    fi
+
+    printf '# nvm-update last-run stamp -- written by %s, read by "ai-tools --status".\nRESULT=%s\nEXIT_CODE=%d\nFINISHED=%s\nNODE=%s\n' \
+        "${AI_TOOLS_BIN}/nvm-update.sh" "${result}" "${rc}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${node_version}" \
+        >"${NVM_UPDATE_STAMP}" 2>/dev/null \
+        || warn "could not write the last-run stamp at ${NVM_UPDATE_STAMP}"
+    return 0
+}
+trap 'write_stamp "$?"' EXIT
 
 # npm signature verifier (npm-verify.lib.sh). Best-effort source: the lib is root-owned, so a
 # missing one is a broken install, not agent action -- degrade to "unable to verify" (a warn,

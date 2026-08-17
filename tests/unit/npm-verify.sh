@@ -13,7 +13,8 @@
 # the sandbox account, never root -- and this suite runs as root. Instead it asserts the
 # function's fail-closed root-refusal backstop (as root it returns "unable to verify" and
 # touches nothing). The real end-to-end audit is covered as the sandbox account, out of this
-# root-run unit suite. `node` (the pure verdict's JSON parser) is real. Run as root via sudo.
+# root-run unit suite. `node` (the pure verdict's JSON parser) is real, resolved from the sandbox
+# toolchain rather than from PATH -- see toolchain_node. Run as root via sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -21,12 +22,41 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 readonly LIB="/usr/local/lib/ai-tools/npm-verify.lib.sh"
 section "npm-verify: signature-verification verdict truth table (unit)"
 
+# toolchain_node: PRINT the path to the sandbox toolchain's node, or nothing. node is the pure
+# verdict's JSON parser but it lives ONLY in the sandbox account's nvm tree, never on root's PATH --
+# and this suite runs as root, so resolving it from PATH alone skips the whole file on a fully
+# provisioned host and strict mode then flags it as no coverage. Resolve it the way the launch
+# wrapper resolves the agent binary: one readlink hop through a stable launcher symlink, whose
+# target's bin directory belongs to the ACTIVE Node version. Falls back to the highest installed
+# version (the same `sort -V | tail -1` selection nvm-update.sh makes), then to PATH.
+toolchain_node() {
+    local link target cand
+    for link in /opt/ai-tools/bin/*; do
+        [[ -L "${link}" ]] || continue
+        target="$(readlink -f -- "${link}" 2>/dev/null)" || continue
+        cand="$(dirname -- "${target}")/node"
+        [[ -x "${cand}" ]] && { printf '%s' "${cand}"; return 0; }
+    done
+    cand="$(printf '%s\n' /opt/ai-tools/.nvm/versions/node/v*/bin/node | sort -V | tail -1)"
+    [[ -x "${cand}" ]] && { printf '%s' "${cand}"; return 0; }
+    command -v node 2>/dev/null || return 0
+}
+
 if [[ ! -r "${LIB}" ]]; then
     skip "npm-verify" "library not readable at ${LIB}"; finish; exit
 fi
-if ! command -v node >/dev/null 2>&1; then
+NODE_BIN="$(toolchain_node)"
+if [[ -z "${NODE_BIN}" ]]; then
     skip "npm-verify" "node not available (the pure verdict's JSON parser)"; finish; exit
 fi
+# Expose that ONE binary under the name the library calls, rather than putting the whole toolchain
+# bin directory on root's PATH: the nvm tree is sandbox-account-owned, so prepending it would make
+# every name in it (npm, npx, each agent launcher) resolvable as root for the rest of the run. A
+# symlink is enough even where /tmp is noexec -- the exec check applies to the resolved target.
+mktestdir
+mkdir -p "${TESTDIR}/bin"
+ln -s "${NODE_BIN}" "${TESTDIR}/bin/node"
+PATH="${TESTDIR}/bin:${PATH}"
 # shellcheck source=/dev/null
 if ! source "${LIB}" \
         || ! declare -F ai_tools_npm_verdict >/dev/null 2>&1 \
