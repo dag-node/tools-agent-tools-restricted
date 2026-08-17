@@ -66,4 +66,84 @@ else
     fail "non-allowlisted ${out}/sub gained setgid"
 fi
 
+# ── Owner-only (sealed) paths ────────────────────────────────────────────────
+# A second project, so the cases above keep their fixture. These are what make `chmod 700` a
+# boundary rather than a mask: the pass must not pull a sealed dir into the agent's group, and
+# must strip the residue such a dir carries from having been created inside a claimed tree.
+p2="${TESTDIR}/proj2"
+mkdir -p "${p2}/plain" "${p2}/sealed/inside" "${p2}/inherited"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${p2}"
+chmod 0770 "${p2}" "${p2}/plain" "${p2}/sealed/inside"
+chmod 0700 "${p2}/sealed"
+# The inherited-then-sealed case: born group SANDBOX_GROUP + setgid + the project's ACL inside a
+# claimed tree, then sealed by the operator. That residue is what a later chmod re-activates.
+# Build it in that ORDER -- ACL first, the operator's chmod last. `setfacl -m` recalculates the
+# mask, so seeding the ACL after the chmod would raise the group bits back to rwx and leave a
+# 2770 dir that is not owner-only at all, testing the opposite of what this case is for.
+chgrp "${SANDBOX_GROUP}" "${p2}/inherited"
+have_acl=false
+if command -v setfacl >/dev/null 2>&1 \
+        && setfacl -m "group:${SANDBOX_GROUP}:rwX" "${p2}/inherited" 2>/dev/null; then
+    setfacl -d -m "group:${SANDBOX_GROUP}:rwX" "${p2}/inherited" 2>/dev/null || true
+    have_acl=true
+fi
+chmod 2700 "${p2}/inherited"
+mk_allowlist "${p2}"
+setsid "${HELPER}" "${p2}" < /dev/null > /dev/null 2>&1 || true
+
+# (C) a sealed dir is not normalized into the agent's group, and keeps its mode.
+sg="$(stat -c '%G' "${p2}/sealed")"; sm="$(stat -c '%a' "${p2}/sealed")"
+if [[ "${sg}" != "${SANDBOX_GROUP}" ]] && (( (8#${sm} & 8#2000) == 0 )); then
+    pass "an owner-only dir is not regrouped to ${SANDBOX_GROUP} and gains no setgid"
+else
+    fail "sealed dir became group ${sg} mode ${sm}"
+fi
+if [[ "$(perm "${p2}/sealed")" == "700" ]]; then
+    pass "an owner-only dir keeps its mode"
+else
+    fail "sealed dir mode is now $(perm "${p2}/sealed")"
+fi
+
+# (C2) a sealed dir takes its subtree with it -- nothing under it is normalized either.
+if [[ "$(stat -c '%G' "${p2}/sealed/inside")" != "${SANDBOX_GROUP}" ]]; then
+    pass "the subtree of a sealed dir is skipped with it"
+else
+    fail "a dir under a sealed dir was pulled into ${SANDBOX_GROUP}"
+fi
+
+# (C3) the seal is not a blanket opt-out: an ordinary sibling is still normalized.
+if [[ "$(stat -c '%G' "${p2}/plain")" == "${SANDBOX_GROUP}" ]]; then
+    pass "an ordinary dir alongside a sealed one is still normalized"
+else
+    fail "an ordinary dir was not normalized ($(stat -c '%G' "${p2}/plain"))"
+fi
+
+# (D) the inherited-then-sealed dir has its residue stripped, without widening the mode.
+im="$(stat -c '%a' "${p2}/inherited")"
+if (( (8#${im} & 8#2000) == 0 )); then
+    pass "a sealed dir's inherited setgid bit is cleared"
+else
+    fail "an inherited setgid bit survived on a sealed dir (${im})"
+fi
+if [[ "$(stat -c '%G' "${p2}/inherited")" != "${SANDBOX_GROUP}" ]]; then
+    pass "a sealed dir's group owner is moved off ${SANDBOX_GROUP}"
+else
+    fail "a sealed dir is still group ${SANDBOX_GROUP}"
+fi
+if [[ "$(perm "${p2}/inherited")" == "700" ]]; then
+    pass "stripping a sealed dir's residue does not widen its mode"
+else
+    fail "a sealed dir's mode widened to $(perm "${p2}/inherited")"
+fi
+if ${have_acl}; then
+    if getfacl -c -- "${p2}/inherited" 2>/dev/null \
+            | grep -q "^\(default:\)\?group:${SANDBOX_GROUP}:"; then
+        fail "the inherited sandbox ACL entry survived on a sealed dir"
+    else
+        pass "the inherited sandbox ACL entries are removed from a sealed dir"
+    fi
+else
+    skip "sealed dir ACL strip" "setfacl unavailable"
+fi
+
 finish

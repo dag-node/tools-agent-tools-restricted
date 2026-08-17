@@ -61,16 +61,26 @@ readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/safe-paths.lib.sh
 source "${SAFE_PATHS_LIB}"
 
+# Shared allowlist grammar + membership predicate (conf.lib.sh): allowlisted() reads the file
+# through the same parser as the launch wrapper and the CLI, so an entry written with an
+# end-of-line comment or quotes is honored here too. Required, bare-sourced under set -e: a
+# missing lib aborts the helper (no label granted -- fail closed), never a raw-line fallback that
+# would silently refuse to (un)label a validly-listed project.
+readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
+source "${CONF_LIB}"
+
 [[ "${EUID}" -eq 0 ]] || die "must run as root (via sudo)"
 
 # allowlisted <dir>: 0 when <dir> is an exact, non-excluded entry in the operator's
-# allowed-projects allowlist. Mirrors selinux/install-selinux.sh for_each_project:
-# an absolute path per line, '!'-prefixed lines exclude.
+# allowed-projects allowlist. Reads through the shared grammar (conf.lib.sh), realpath-normalized,
+# so a listed project with a comment or quotes -- or reached by a symlink -- is recognized;
+# an explicit `!<dir>` exclusion still wins.
 allowlisted() {
     local dir="$1"
     [[ -f "${ALLOWLIST}" ]] || return 1
-    grep -qxF "!${dir}" "${ALLOWLIST}" && return 1     # explicit exclusion wins
-    grep -qxF "${dir}" "${ALLOWLIST}"
+    ai_tools_conf_allowlist_has_exclusion "${ALLOWLIST}" "${dir}" && return 1   # explicit exclusion wins
+    ai_tools_conf_allowlist_has_entry "${ALLOWLIST}" "${dir}"
 }
 
 # ── Parse args ─────────────────────────────────────────────────────────────────

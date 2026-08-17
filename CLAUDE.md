@@ -51,7 +51,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Launch, allowlist gating, sudoers, PATH, custom system prompt | `bin/ai-tools-run.sh`, `usr/local/bin/claude.sh`, `lib/ai-tools/claude-prompt.lib.sh`, `allowed-projects`, `sudoers.d/ai-tools`, `lib/ai-tools/path-dedup.sh` | [launch](.claude/rules/launch.rule.md) |
 | Namespaces, SELinux transition, preflight, `/tmp`, optional-group management, how the policy ships and why it is separately licensed | `selinux/**`, `bin/ai-tools-run.sh`, `selinux-groups.lib.sh`, `ai-tools-admin.sh` (`selinux` subcommand), `packaging/ai-tools.spec` (`ai-tools-selinux`) | [confinement](.claude/rules/confinement.rule.md) |
 | Root-op socket (daemon/client/units) | `ai-tools-handback*`, `ai-tools-handback-client*` | [handback-bridge](.claude/rules/handback-bridge.rule.md) |
-| Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `opt/ai-tools/agents/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
+| Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `opt/ai-tools/agents/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh`, `owner-only.lib.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
 | Claude Code settings, Bash deny rules ↔ SELinux policy | `opt/ai-tools/agents/*/settings.json` | [claude-settings](.claude/rules/claude-settings.rule.md) |
 | Token-saving command filters: rewrite rules + output noise stripping | `filters.lib.sh`, `lib/ai-tools/filters.d/**`, `agents/*/filter-hook.sh` | [filters](.claude/rules/filters.rule.md) |
 | Shipped assets: shared skills + per-agent agents, their placement chain and seeding | `usr/share/ai-tools/**`, `lib/ai-tools/managed-assets.lib.sh` | [shipped-assets](.claude/rules/shipped-assets.rule.md) |
@@ -125,7 +125,7 @@ sandbox cannot improve its own position by breaking something.
 |---|---|---|
 | where a session may start | the canonicalized allowlist + the protected-paths backstop | no launch |
 | which executable may start it | a launcher an enabled manifest claims, at a semver path in the toolchain | no launch |
-| whether it will be confined | the pre-launch SELinux transition probe | no launch |
+| whether it will be confined | the pre-launch SELinux transition probe (fail-closed once confinement is expected; an operator can require it outright via `AI_TOOLS_REQUIRE_SELINUX`) | no launch |
 | which providers it gets | `ai_tools_conf_is_trusted` on every manifest, directory, and fragment | the default-enabled baseline, never "enable all" |
 | which paths handback may touch | born-`SANDBOX_USER` ownership, re-checked race-safely as root | the path is left alone |
 | which toolchain may be activated | npm registry signature verification | the previous, trusted version stays |
@@ -244,9 +244,9 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
 - **Root sudo-helpers** live under `/usr/local/libexec/ai-tools/` (`chown`, `setgid`, `setfacl`,
   `unclaim`, `safedir`, `reclaim`, `launcher-symlink`, `lockdown`, `relabel`, `bootstrap`,
   `relabel-agent`, `admin`, `dotnet`); shared libraries under `/usr/local/lib/ai-tools/`
-  (`conf`, `secret-patterns`, `skip-dirs`, `safe-paths`, `relabel`, `operator`, `control-plane`,
-  `confinement`, `npm-verify`, `managed-assets`, `providers`, `selinux-groups`, `filters`, `msg`,
-  `log`),
+  (`conf`, `secret-patterns`, `skip-dirs`, `owner-only`, `safe-paths`, `relabel`, `operator`, `control-plane`,
+  `confinement`, `npm-verify`, `managed-assets`, `providers`, `selinux-groups`, `filters`, `services`,
+  `msg`, `log`),
   plus `path-dedup.sh`,
   the PATH-ordering fragment `ai-tools-admin` wires into operator dotfiles (see
   [launch](.claude/rules/launch.rule.md)). That directory is `0751 root:SANDBOX_GROUP` and its

@@ -90,4 +90,86 @@ else
     fi
 fi
 
+# (4) The module-presence probe ai-tools-run relies on. The shim runs as the SANDBOX account, which
+# cannot read the root-only module store, so it derives the `module` verdict input from matchpathcon
+# on a CORE-owned path. With the module loaded here, that path MUST resolve to an ai_tools_* type --
+# otherwise the probe would read module=no and the fail-closed "unverifiable" refusal would silently
+# downgrade to a DAC-only launch (the fail-open this fix closes). This is the runtime end of that
+# guarantee; the agent cannot forge it (file-contexts + the shim are root-owned -- boundary/access.sh).
+if ! command -v matchpathcon >/dev/null 2>&1; then
+    skip "module-presence probe" "matchpathcon not available"
+else
+    probe_type="$(matchpathcon -n /opt/ai-tools/.config 2>/dev/null | awk -F: '{print $3}' || true)"
+    if [[ "${probe_type}" == ai_tools_* ]]; then
+        pass "module-presence probe: matchpathcon /opt/ai-tools/.config -> ${probe_type} (module seen without the root-only store)"
+        # Tie the real input to the deployed classifier, when it is present (skips on a pre-fix install).
+        lib=/usr/local/lib/ai-tools/confinement.lib.sh
+        if [[ -r "${lib}" ]] && source "${lib}" 2>/dev/null \
+                && declare -F ai_tools_confinement_module_present >/dev/null 2>&1; then
+            if [[ "$(ai_tools_confinement_module_present "${probe_type}")" == yes ]]; then
+                pass "ai_tools_confinement_module_present(${probe_type}) -> yes"
+            else
+                fail "classifier rejected a live core type ${probe_type}"
+            fi
+        fi
+    else
+        fail "module loaded but matchpathcon /opt/ai-tools/.config -> ${probe_type:-none} (not ai_tools_*) -- the sandbox-side probe would read module=no and fail OPEN"
+    fi
+fi
+
+# (5) Sandbox clones must LABEL as ai_tools_project_t. Their on-disk path is under
+# /var/opt/ai-tools/sandbox-projects, which the base file_contexts.subs_dist alias `/var/opt /opt`
+# canonicalizes to /opt/... BEFORE file-context matching, so the clone rule is authored under /opt
+# (ai_tools.fc). This asserts the rule is actually REACHABLE through that alias: a synthetic clone
+# path resolves to ai_tools_project_t. A rule keyed on the aliased /var/opt prefix resolves to
+# usr_t here instead -- the exact regression this catches. matchpathcon reads the loaded policy,
+# so the path need not exist.
+readonly SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
+if ! command -v matchpathcon >/dev/null 2>&1; then
+    skip "sandbox clone label" "matchpathcon not available"
+else
+    sbx_type="$(matchpathcon -n "${SANDBOX_ROOT}/_probe-$$" 2>/dev/null | awk -F: '{print $3}' || true)"
+    if [[ "${sbx_type}" == "ai_tools_project_t" ]]; then
+        pass "sandbox clone path resolves to ai_tools_project_t (subs_dist /var/opt->/opt alias honoured)"
+    else
+        fail "sandbox clone path -> ${sbx_type:-none}, not ai_tools_project_t -- the clone fcontext rule is unreachable (authored on the aliased /var/opt prefix instead of /opt?)"
+    fi
+fi
+
+# (6) The label primitives on a sandbox clone, the branch that mutates no policy.
+# relabel.lib.sh splits on _ai_tools_is_sandbox: a clone is covered by the STATIC ai_tools.fc
+# rule, so the helper adds no per-path `semanage fcontext` entry and has none to remove.
+# ai_tools_label_project still verifies the achieved label rather than trusting restorecon's exit
+# status, so a mislabel is a hard failure -- the regression that let a usr_t clone report success.
+# After an unlabel a clone is still labelled, which is what keeps it reachable by the confined
+# agent: the way to un-label a clone is to delete it (`ai-tools --sandbox-remove`).
+#
+# The other branch -- a claimed project, where the helper adds and then removes a per-path
+# fcontext rule -- is deliberately NOT exercised. Driving it would mutate the host's local SELinux
+# policy to test a helper, which no test here does, and a teardown that can leave a policy entry
+# behind is worse than the coverage it buys. That leaves ai_tools_unlabel_project's revert path
+# (the one --project-unclaim drives) uncovered: a known gap, recorded rather than papered over.
+RELABEL_LIB=/usr/local/lib/ai-tools/relabel.lib.sh
+if [[ ! -d "${SANDBOX_ROOT}" ]]; then
+    skip "sandbox clone label" "sandbox area ${SANDBOX_ROOT} not present"
+elif [[ ! -r "${RELABEL_LIB}" ]] || ! source "${RELABEL_LIB}" 2>/dev/null \
+        || ! declare -F ai_tools_label_project >/dev/null 2>&1; then
+    skip "sandbox clone label" "relabel.lib.sh not available at ${RELABEL_LIB}"
+else
+    sprobe="${SANDBOX_ROOT}/_selftest-relabel-$$"
+    mkdir -p "${sprobe}"
+    if ai_tools_label_project "${sprobe}" && ai_tools_project_labelled "${sprobe}"; then
+        pass "ai_tools_label_project applies AND verifies ai_tools_project_t on a sandbox clone"
+    else
+        fail "sandbox clone ${sprobe} is not ai_tools_project_t ($(ls -Zd "${sprobe}" 2>/dev/null))"
+    fi
+    ai_tools_unlabel_project "${sprobe}" >/dev/null 2>&1 || true
+    if ai_tools_project_labelled "${sprobe}"; then
+        pass "an unlabel leaves a sandbox clone labelled (the static rule is authoritative)"
+    else
+        fail "unlabel stripped ai_tools_project_t from a sandbox clone -- the agent loses access to every clone"
+    fi
+    rmdir "${sprobe}" 2>/dev/null || true
+fi
+
 finish

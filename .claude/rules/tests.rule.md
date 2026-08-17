@@ -6,8 +6,14 @@ paths:
 # Test organization and invariants
 
 Tests live under `tests/`, split by category, with one shared harness. `tests/run.sh
-[unit|integration|boundary|all]` dispatches; every category needs root, so it is invoked
-via `sudo` (the harness derives the unprivileged project user from `SUDO_USER`). It streams
+[unit|integration|boundary|all]` dispatches; the suite as a whole needs root, so it is invoked
+via `sudo` (the harness derives the unprivileged project user from `SUDO_USER`). A file that
+needs root says so itself with `require_root`, and the pure library suites — the ones that stub
+what they drive and build fixtures they own — deliberately do not, so they can also be run
+**directly as an unprivileged user** during development; the harness then takes the invoker as
+the project user. Run as root with **no** sudo context it refuses: there is no unprivileged
+identity to derive, and fixtures built root-owned would be skipped by every owner guard under
+test — a suite that passes while proving nothing. It streams
 each file's output live, then — on any failure — reprints the failing files and their `FAIL`
 lines as an end-of-run summary, so a long run needs no scrolling; an all-green run prints no
 summary and exits zero. A green file that recorded no `PASS` (every check skipped, or no
@@ -26,7 +32,20 @@ tests/
   unit/            hermetic helper-logic tests
   integration/     full-install checks (needs a deployed, running system)
   boundary/        confinement checks run as the agent (SANDBOX_USER)
+  manual/          operator-run live flow verification (NOT dispatched by run.sh)
 ```
+
+`manual/` is not dispatched by `run.sh`, because its contents cannot be run the way the suite
+is: `verify-live-flows.sh` drives the CLI **as the operator**, which prompts on
+`/dev/tty`, `sudo`s for each root step, and writes the operator's own registries — none of which a
+root-run hermetic suite reproduces. It exists for what only a live run shows (a claim, lockdown
+and unclaim completing end to end, and `ai-tools --status` read from the vantage point that has to
+read it), and it is bounded by two rules that keep a convenience script from becoming a hazard:
+it works only inside a workspace `mktemp -d` created for that run — never adopting an existing
+path, and refusing to remove one outside it — and it **modifies nothing installed**, so a check
+that would need to write shared runtime state (the updater's last-run stamp) reads it and asserts
+agreement instead. A state the host is not already in is skipped rather than manufactured; the
+unit suites drive those against fixtures they own.
 
 The SELinux AVC bring-up tooling is **not** part of this suite: it lives with the policy it
 supports, under `selinux/avc/` (`run.sh` does not dispatch it).
@@ -39,6 +58,14 @@ reads or writes the operator's real files (notably the real
 `~/.config/ai-tools/allowed-projects`), and removes everything it created on exit (the
 harness `EXIT` trap). A test never relies on arbitrary pre-existing state, and never
 touches a path outside its testdir boundary.
+
+Nor does a test mutate **global system state** to exercise a helper — the host's local SELinux
+policy (`semanage fcontext`) above all. A helper whose real work *is* to add and then remove a
+policy entry is therefore covered only on the branch where it mutates nothing: the alternative is
+a teardown that can strand an entry in the policy store on a failed run, which costs more than
+the coverage buys. Where that trades away an assertion, the gap is named at the point it is
+declined — `integration/selinux.sh` does this for `ai_tools_unlabel_project`'s revert path — so a
+reader meets it as a decision rather than as an absence.
 
 The deployed root helpers read a fixed allowlist path; a test points them at its own dummy
 allowlist via the `AI_TOOLS_ALLOWLIST` environment override (`mk_allowlist` writes the
@@ -94,8 +121,19 @@ the real, token-substituted artifact) against a `/tmp` testdir and a dummy allow
 asserting the algorithm: allowlist gating, the owner guard (acts only on projects-user- or
 sandbox-account-owned paths) where it applies, ACL/setgid/permission transforms, the
 secret/exclusion/skip-list skips, and -- for `-lockdown` -- the proactive sweep that locks
-**pre-existing user-owned** secrets (files `600`, dirs `700`, `<you>:SANDBOX_GROUP`) which
-the reactive `-chown` never reaches, plus its refusal to run as the sandbox account. No live
+**pre-existing user-owned** secrets (files `600`, dirs `700`, `<you>:<you>`) which
+the reactive `-chown` never reaches, plus its seal pass over the paths sealed by *mode* rather
+than by name, and its refusal to run as the sandbox account.
+The seal cases run across three files, because the same guarantee has three consumers:
+`owner-only.sh` pins the primitives, while `setgid.sh` and `lockdown.sh` assert the deployed
+helpers actually apply them. What each asserts is that a sealed path is never pulled into the
+agent's group and that the residue behind its mode is removed without the mode widening -- a
+strip that raised the ACL mask would leave the residue "gone" and the path more open than
+before. `unclaim.sh` closes with the CLI-side decision that feeds the helper — the hand-back
+group — because it publishes **two** results (the group, and the hint that no hand-back can run)
+as globals in its caller's shell rather than on stdout, which a `$(...)`-capturing test cannot
+observe: the assertion is made from a real caller, under `set -u`, so a result the function fails
+to publish aborts the test the same way it would abort an unclaim. No live
 daemon, no SELinux dependency, no wrapper. Run as root (needed to set arbitrary ownership
 and create third-party-owned fixtures). A fixture tree is `chown`ed to the projects user
 before the run, or the owner guard skips it. `secret-patterns.sh` is the odd one out: it
@@ -172,6 +210,19 @@ unattended behaviour and what makes an interactive command reproducible. The age
 the pair is already deployed: `boundary/access.sh` covers `settings.json` and the helper
 directory, `boundary/providers.sh` and `boundary/filters.sh` cover `operator.conf`, and
 `boundary/sudo.sh` covers the grant, so no input this command reads is agent-writable.
+
+`services.sh` pins the service-health registry (`services.lib.sh`) that `ai-tools --status` and
+the launch wrapper's pre-launch warning share. Two properties carry weight beyond the accessors.
+The **last-run stamp** is the one input here a non-root writer controls and it is rendered to the
+operator's terminal, so every way a hostile or corrupt value could reach that terminal — a
+symlinked stamp, a control byte or escape sequence, an over-long or unanchored line — is driven
+and must read as *no value*, degrading the unit to `unknown` rather than to a wrong verdict. And
+the **freshness** mapping exists for a failure a `RESULT` cannot express — every recorded run
+succeeds while the schedule driving them has stopped — so the file asserts that a successful run
+goes `stale` past `max_age`, that a failed one stays `failed` at any age, that an unknown or
+future-dated age never manufactures staleness out of an absence, and that `fired` mode reads
+recency alone, letting one stamp yield two verdicts (a healthy trigger beside the failed run it
+started). `systemctl` is stubbed as a shell function, so no real unit is touched.
 
 `relabel.sh` pins the other manifest-supplied decision with a security consequence: the
 entrypoint file-context predicate (`relabel.lib.sh`). A declared pattern becomes a `semanage`

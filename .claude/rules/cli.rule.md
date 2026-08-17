@@ -7,6 +7,7 @@ paths:
   - "src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-relabel.sh"
   - "src/usr/local/lib/ai-tools/relabel.lib.sh"
+  - "src/usr/local/lib/ai-tools/services.lib.sh"
 ---
 
 # Management CLI and project lifecycle (`ai-tools`)
@@ -27,7 +28,9 @@ Node, and the agent package all succeed — so its presence means provisioning f
 its absence fails the CLI fast with the provisioning hint rather than mid-operation in a
 root helper. This is the same symlink the launch wrapper gates on (`claude.sh`'s
 `CLAUDE_LINK`), so both entry points share one definition of "provisioned". Every command
-is behind the gate, `--version` included — an unfinished install reports nothing, fail-closed.
+is behind the gate, `--version` included — an unfinished install reports nothing, fail-closed. The
+one exception is `--status`, the diagnostic: it bypasses the gate and reports the unprovisioned
+state itself, since a health check must run precisely when provisioning may have failed.
 
 ## Operator preflight
 
@@ -69,21 +72,33 @@ and inspect the host.
 - `--project-unclaim [path]` (alias `--project-remove`) — unclaim a real project
   (directory left on disk): revert the label, drop both registries, and (default-yes
   confirm) hand the tree's files back to a target group with the agent's write access
-  revoked, via `ai-tools-unclaim`.
+  revoked, via `ai-tools-unclaim`. The target is classified against `allowed-projects`
+  first, and a protected system directory is refused up front — see *Unclaim* below for
+  the classification and the `--force` gate. Options are in `ai-tools(1)`.
 - `--sandbox-create [path]` — shallow-clone a repo into the sandbox area **privately**
   (`umask 077`), lock down tip-commit secrets, and only past that gate grant the agent
   access and register the clone; fail-closed otherwise, resumable by re-running on the
   clone path (see *Sandbox clone* below).
 - `--sandbox-push [path]` / `--sandbox-remove [path]` — push the clone's commits to its
-  branch / remove the clone and unregister it.
+  branch / remove the clone and unregister it. Both gate the target through
+  `require_sandbox_clone`: it must be a **real clone** — a direct child of `SANDBOX_ROOT`
+  (exactly one level deep, so never the shared area root and never a nested or system path)
+  that is a git worktree, and it passes the protected-paths backstop. This scopes
+  `--sandbox-remove`'s `rm -rf` to one recognized clone; a stray non-git directory is refused
+  ("remove it by hand"). `--sandbox-create` scopes its own destination
+  (`<name>` with no `/`, under `SANDBOX_ROOT`), so it needs no such guard.
 - `--lockdown [path]` — wrapper over `ai-tools-lockdown` (see
-  [secret-handling](secret-handling.rule.md)).
+  [secret-handling](secret-handling.rule.md)). Refuses a path outside every claimed project
+  up front (`covered_by_project`, before the sudo prompt), the same front-line the helper's
+  own `_is_allowed` enforces.
 - `--reclaim [--full] [path]` — hand agent-written files under the project back to the
   operator via `ai-tools-reclaim` (which walks the tree and delegates per-path to
-  `ai-tools-chown`, the same boundary the handback uses). Reclaims the `.git` tree the
-  per-session sweeps skip; the ownership companion to the `user:<operator>` ACL, run on
-  demand before an ACL-unaware backup so ownership (not the ACL) carries the operator's access
-  into the copy. `--full` includes the skipped heavy trees (`node_modules`, `.venv`, …). See
+  `ai-tools-chown`, the same boundary the handback uses). Refuses a path outside every claimed
+  project up front (`covered_by_project`), so it never runs a silent no-op; `ai-tools-reclaim`
+  additionally reports "nothing to reclaim" for a direct `sudo` call past the CLI. Reclaims the
+  `.git` tree the per-session sweeps skip; the ownership companion to the `user:<operator>` ACL,
+  run on demand before an ACL-unaware backup so ownership (not the ACL) carries the operator's
+  access into the copy. `--full` includes the skipped heavy trees (`node_modules`, `.venv`, …). See
   [ownership-and-hooks](ownership-and-hooks.rule.md).
 - `--relabel` — restore `ai_tools_exec_t` on the claude entrypoint(s) after a Node upgrade,
   via `ai-tools-relabel-agent`. The manual counterpart to the automatic post-upgrade
@@ -99,17 +114,106 @@ and inspect the host.
   The resolvers' refusals, which at launch reach only the terminal and journald, are captured from
   their stderr and reported in a closing block. On a host where SELinux is not `Disabled` it adds a
   **SELinux policy groups** section: the core module's load state and every loaded optional group,
-  read unprivileged via `semodule -l` (degrading to a `sudo ai-tools-admin selinux list-groups`
-  pointer if the store is not readable unprivileged), keyed off the shared
-  `selinux-groups.lib.sh` registry. When the `dotnet` integration is enabled under **Enforcing** it
+  read unprivileged via `semodule -l`, keyed off the shared `selinux-groups.lib.sh` registry. The
+  whole section is **omitted** when that list is not readable unprivileged (common — the policy store
+  is root-only on many hosts): every line it prints needs the module list, so a section that could
+  only say "cannot read" is not shown at all (inspect groups with
+  `sudo ai-tools-admin selinux list-groups`). When the `dotnet` integration is enabled under **Enforcing** it
   warns of the two disjoint policy groups a full .NET workflow wants but that are not loaded:
   `tmpmap` (restore/build mmap of `/tmp`, `EACCES` without it) and `apphost` (executable/host
   projects — `dotnet run`, ASP.NET Core, `xunit.v3` — whose memfd exec is denied without it), each
   with its own enable command: `ai-tools-admin selinux enable-group tmpmap` for the stable one, the
   source `install-selinux.sh enable-group apphost` for the experimental one. These are the
   dependencies [providers](providers.rule.md) documents, surfaced where the operator checks status.
-- `--list`, `--version` (the deploy-stamped package version; `dev` from a raw source tree),
-  `--help`.
+- `--status` — read-only health report: the installed `ai-tools` version, whether the toolchain is
+  provisioned, then each managed systemd unit (`ai-tools-handback.socket`, `ai-tools-relabel.path`,
+  and the sandbox account's `nvm-update.timer` and `nvm-update.service`) as OK / DOWN / FAILED /
+  not-installed, with the consequence and the exact remedy for anything broken, and a closing
+  **More** block that points at the sibling
+  reports (`--providers`, `--list`, `--help`) without repeating their detail — so it reads as a hub. It resolves through `services.lib.sh` — the **same registry** the launch
+  wrapper's pre-launch health warning reads (`claude.sh`, see [launch](launch.rule.md)) — so the
+  status view and the launch warning never disagree on which units matter or how to fix one.
+  `--status` is the one command that
+  **bypasses the bootstrap gate** (below): a diagnostic must run when things may be broken, so it
+  reports the unprovisioned state rather than being blocked by it.
+
+  A unit in the sandbox account's own `systemd --user` manager is not queryable from the operator's
+  session at all, so its state comes from a **last-run stamp** it publishes where the operator can
+  read it (`nvm-update.service`, see [updater](updater.rule.md)) and stays `?` where it publishes
+  none. One live fact about that manager *is* readable — whether the unit **file** is installed —
+  and it is checked first, so a unit an optional package never shipped (the `nvm-update` pair
+  without the nodejs integration) reads as not-installed rather than as one this host cannot see,
+  and a stamp an uninstall left behind cannot make a gone unit look present. The account's own
+  `~/.config/systemd/user` is not searched: it sits inside a home the operator cannot traverse, and
+  every unit the registry names ships to the system-wide user-unit directory. A stamped unit's OK carries the time of that run rather than implying it is running now,
+  and a `FAILED` carries the run's exit code. The `?` line is not a problem report — it says only
+  that this vantage point cannot tell — so it stays a single line naming the one command that can,
+  and the multi-command diagnostic block is reserved for a unit actually reported broken.
+
+  **A stamp is read for two properties, and one stamp can serve two units.** `RESULT` answers *did
+  the last run succeed*; its **age** answers *are runs still happening* — a distinct question a
+  `RESULT` cannot express, since a schedule that quietly stops firing leaves every recorded run
+  successful and would otherwise read as a permanent, increasingly wrong OK. Past the record's
+  `max_age` (48h for `nvm-update`, twice its daily `OnCalendar`) the unit reports **`STALE`**. The
+  registry's `stamp_mode` field selects which property a record reads: `result` for the unit that
+  ran, `fired` for the one that triggered it — so `nvm-update.timer` derives a verdict of its own
+  from the *same* stamp on recency alone (a systemd-started run, successful or not, proves the
+  timer fired), instead of the `?` it could otherwise only report. A failing service therefore does
+  not also condemn the working schedule that started it. Only a systemd-started run counts, read
+  from the stamp's `TRIGGER` (see [updater](updater.rule.md)): a run the operator did by hand is no
+  evidence about a schedule, and counting one would both report a dead timer as healthy and
+  suppress the staleness that is the only way a stopped schedule shows up. An unknown age never
+  manufactures staleness either: no `max_age`, an unparseable date, or a stamp dated in the future
+  all decline the judgment.
+
+  Times render **relative first** (`last run 3 days ago`), coarsening with distance, because the
+  age is what the operator acts on. Every unit line feeds one predicate,
+  `ai_tools_service_needs_attention` (`down`/`failed`/`stale`, never `unknown`), which is
+  both what the scanner collects and what `--status`'s **exit status** reports — non-zero when
+  anything is broken, so the command is usable from a monitor or cron without parsing its output.
+  An unqueryable unit is not a fault and does not alarm.
+
+  **Entrypoint label drift is not reported here**, though it is the precondition `ai-tools-run`
+  fail-closes on. Reading an entrypoint's live context means `stat`ing a file under
+  `/opt/ai-tools/.nvm`, which `ai-tools-bootstrap` creates `0750 SANDBOX_USER:SANDBOX_GROUP` — the
+  operator is not in that group and cannot traverse it, and `matchpathcon` computes only what the
+  label *should* be, never what it is. No unprivileged check is possible from this vantage point.
+  Little is lost, because the drift is already handled where it arises rather than observed after
+  the fact: `ai-tools-relabel.path` relabels the entrypoint whenever a Node upgrade repoints its
+  launcher (see [updater](updater.rule.md)), and that watcher **is** one of the registry entries
+  reported above — so the mechanism that keeps entrypoints labelled is what `--status` covers. A
+  mislabel that survives it stops the next launch with the fault and the `ai-tools --relabel` that
+  clears it.
+
+  Every command for such a unit goes through root, and the CLI composes them rather than the
+  registry storing them: each names the sandbox **account**, and `services.lib.sh` is deployed with
+  no `@SANDBOX_USER@` substitution. Status and restart use the **machine transport**
+  (`sudo systemctl --user -M ai-tools@.host …`), which reaches that manager over the system bus
+  where root is authorized — a plain `sudo -u ai-tools systemctl --user` gets its own bus refused
+  even when the manager is healthy (the reason the tests' `sandbox_systemctl` prefers it). The
+  journal query cannot use either: `journalctl --user-unit` as root reads **root's** user units, so
+  the unit is selected by the journal fields instead
+  (`sudo journalctl _SYSTEMD_USER_UNIT=<unit> _UID=<sandbox uid>`), which ANDs across the two field
+  names and catches both the unit's own output and the `systemd-cat` lines its script emits.
+- `--list` — report every allowlist entry (project / sandbox / exclude / unusable) with its git
+  `safe.directory` status, then a **Suggested cleanup** section flagging inconsistent
+  hand-edited entries, each with a copy-paste remediation carrying the full absolute path (an
+  anchored `sed` line-deletion, plus `ai-tools-safedir --remove` / `ai-tools-relabel --remove`
+  where they apply, or `ai-tools --project-claim` to finish a partial claim). It flags, in both
+  directions: a protected system path the tools refuse to touch; a stale allow entry or a stale
+  non-glob `!` exclusion whose path no longer exists; a **glob in an allow line** (unusable —
+  the launch wrapper realpath's allow entries, so a glob there resolves to nothing and is inert;
+  globs belong only on `!` lines); a project listed but not fully claimed; and — the reverse
+  direction — a git `safe.directory` with **no** allowlist entry (orphaned, e.g. a hand-deleted
+  line), skipping the deliberately-registered control-plane paths the protected-paths backstop
+  already covers. Entry membership is decided through the shared grammar matcher in
+  `conf.lib.sh` (`ai_tools_conf_allowlist_has_entry`), realpath-normalized, so an entry carrying
+  an end-of-line comment or quotes — or reached by a symlink — reconciles the same as the launch
+  gate reads it, rather than reading as unlisted. It reuses existing predicates and verbs only
+  (no recovery machinery), stays **read-only** (every fix is an emitted command, never an
+  in-place rewrite), and closes with a compact **Maintenance** pointer to the per-project verbs.
+  Informational, so it stays open to a non-operator.
+- `--version` (the deploy-stamped package version; `dev` from a raw source tree), `--help`.
 
 The CLI ships a man page, `ai-tools(1)`
 (`src/usr/local/share/man/man1/ai-tools.1` → `/usr/local/share/man/man1/`, deployed by
@@ -156,7 +260,9 @@ creation under the setgid + default-ACL parents inherits both), or sitting under
 skip-listed directory name the claim walks leave alone. A **re-claim whose ownership is
 already in place** therefore scans the tree (`acl_drift_scan`, read-only and unprivileged)
 for shared-looking paths with a foreign group — owner-only paths (`600`/`700`, e.g.
-locked-down secrets) and `!`-excluded subtrees stay unreported as out-of-reach by intent.
+locked-down secrets) and `!`-excluded subtrees stay unreported as out-of-reach by intent,
+the same predicate `ai-tools-setfacl` skips on, so the scan never reports a path the repair
+would decline to touch (see [secret-handling](secret-handling.rule.md)).
 A first claim (or one with the setgid step still pending) skips the report: its normal
 walk repairs the whole tree, and every path would trivially match the predicate. The scan
 splits the hits on the shared skip list
@@ -171,6 +277,19 @@ path in `SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE` (a source dir sharing a ski
 build-output name), then re-claim; or `ai-tools --reclaim --full` for ownership alone.
 Declining plus a `!` exclusion (or `chmod 700`) records an intentional carve-out so it is
 not re-reported.
+
+**Sealed directories with a third-party setgid.** A second read-only scan
+(`sealed_setgid_scan`) reports the one piece of residue the claim walks decline to remove: a
+setgid bit on an owner-only directory whose group is neither `SANDBOX_GROUP` nor the group of
+that directory's own owner (see [ownership-and-hooks](ownership-and-hooks.rule.md) for the strip
+those walks do perform). The walks cannot ask whether such a bit was deliberate, so they keep it
+and the operator decides — which means the claim has to *say* it kept it, in the Review block
+before the confirm rather than from a helper's stderr under Apply, where it scrolls past the
+decision it informs. The comparison is made **per path against the owner's primary group**, not
+against the invoking user's: on a multi-operator host the group the walks treat as legitimate is
+the resolved project owner's, so comparing against the invoker's would report a bit the claim goes
+on to strip, or stay silent about one it keeps. New files in such a directory are still born in
+that third group, so the block names the paths and the `chmod g-s` that clears one.
 
 **Reachability.** The confined session runs *as* the sandbox account, so it must be able to
 **traverse** the path to the project; a project nested under a directory the account cannot enter
@@ -188,8 +307,30 @@ Detection (`reach_scan`) runs up front so the Review overview announces the opt-
 block runs on the fully-claimed no-op path too — a claimed project can still lose
 reachability to a later `chmod 700` above it.
 
-**Unclaim** (`--project-unclaim`) reverts that: it removes the SELinux label and both
-registries, then (default-yes confirm) runs `ai-tools-unclaim` to hand the filesystem back.
+**Unclaim** (`--project-unclaim`) reverts that. The CLI classifies the target against
+`allowed-projects` and acts only where something authorizes it:
+
+| target | outcome |
+|---|---|
+| a listed project | unclaimed |
+| an ancestor of listed projects | all of them, outermost-first, behind one default-NO confirm |
+| inside a listed project | refused, naming the nearest claimed parent |
+| unlisted, carrying the ai-tools fingerprint | reported; acting needs `--force` |
+| unlisted, no fingerprint | refused |
+
+`--force` **swaps one gate for another, never removes one**: the helper's allowlist-membership
+check is replaced by a per-path residue predicate, so on a tree that was never claimed it changes
+nothing, and what it does to a path it *accepts* is identical to a registered unclaim — the
+reversal is specified and tested once. It relaxes nothing else (protected paths, owner guard,
+hardlink guard, secret/`!` skips), and is refused on a registered project. The CLI's
+classification is the front line; `ai-tools-unclaim`'s own gate is the last line, the same
+two-layer split as the rest of this section — so the CLI may never be the only thing standing
+between a caller and a tree. Mechanism, and why an unlisted tree resolves its owner
+differently, live in that helper's header.
+For each selected project it removes the SELinux label and both registries and (default-yes
+confirm) runs `ai-tools-unclaim` to hand the filesystem back — the hand-back running **before**
+the allowlist entry is dropped, so the helper still sees the target listed (see the owner/allowlist
+guard below).
 For every eligible path that helper clears the agent ACL **and** the default ACL
 (`setfacl -b`), changes the group owner to a target group (the invoking user's own group by
 default; any other user can be named, handing the tree to that user's group), and removes
@@ -200,10 +341,26 @@ while the new group owner keeps read/traverse. `.git`, skipped by the main walk 
 heavy trees, is reverted by its own pass — for the same reason claim normalizes it (both
 parties write it) — so the unclaim fully revokes git-history access too.
 
+**Hardlinked files are refused, in both modes.** A regular file with more than one name is left
+untouched: `chgrp`/`chmod` act on the *inode*, which the second name reaches from outside the
+tree, so acting would change a path the pass never authorized — and for the common case,
+`git clone --local` (which hardlinks `.git/objects` to the source repo), it would rewrite the
+**origin's** objects. This is the one refusal in the project that leaves *more* access than acting
+would, since the inode keeps its group and the agent therefore keeps those files after the project
+is deregistered. It is accepted rather than resolved — the alternative reaches outside the
+authorized tree — and paid for in disclosure: the count is reported to the terminal with what it
+leaves behind and the `find … -links +1 -group SANDBOX_GROUP` that lists the files, so the
+operator can decide about them deliberately instead of inferring the gap from two counts.
+
 **Owner guard (claim and unclaim).** The root helpers `ai-tools-setgid`, `ai-tools-setfacl`,
 and `ai-tools-unclaim` act **only** on paths owned by the projects user or the sandbox
 account; a path owned by any third party (root, another developer) is left untouched, on top
-of the secret-name and `!`-exclusion skips. This is the claim-side partner to
+of the secret-name and `!`-exclusion skips. `ai-tools-unclaim` additionally refuses a target
+that does not resolve **at or under a registered project** (`allowed-projects`) — a silent
+no-op, matching `ai-tools-setgid`/`-setfacl` — so it never rewrites a tree outside the
+allowlist. This is why the CLI runs the hand-back before dropping the entry: the helper is the
+last-line backstop for "unclaim never modifies permissions on an unlisted directory", and the
+CLI's classification is the front-line gate. This is the claim-side partner to
 `ai-tools-chown`'s "act only on `SANDBOX_USER`-owned paths" rule
 ([ownership-and-hooks](ownership-and-hooks.rule.md)): claim never pulls a foreign-owned file
 into the agent's group, and unclaim never regroups one out.

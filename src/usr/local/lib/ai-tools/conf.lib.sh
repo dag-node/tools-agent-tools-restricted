@@ -415,8 +415,8 @@ ai_tools_conf_new_keys() {
 # The launch allowlist is one path per line rather than KEY=value, but it is read with the SAME
 # rules as everything else: a whole-line or end-of-line `#` comment, and one matched quote layer
 # for a path that must contain a space or a literal `#`. Sharing the grammar is the point --
-# three components parse this file (the launch wrapper, the CLI, and the chown helper), and a
-# rule that lives in each of them separately is a rule that drifts.
+# four components parse this file (the launch wrapper, the CLI, the chown helper, and the relabel
+# helper), and a rule that lives in each of them separately is a rule that drifts.
 #
 #   /home/me/project              a path
 #   /home/me/project   # why      an end-of-line comment: `#` after whitespace ends the entry
@@ -443,4 +443,68 @@ ai_tools_conf_path_entry() {
     [[ -n "${_ai_tools_conf_value}" ]] || return 1
     _ai_tools_conf_value="${negate}${_ai_tools_conf_value}"
     return 0
+}
+
+# ── Allowlist membership (exact-entry matching) ──────────────────────────────────────────────
+# One predicate for "is this path an entry of allowed-projects", shared by every component that
+# asks: the launch wrapper's post-claim confirm, the claim/unclaim CLI (reg/unreg, project_state),
+# and the relabel helper. They read the file through the grammar above, so an entry written in
+# that grammar -- an end-of-line comment (`/p   # why`), a quoted path (`"/p with space"`), or a
+# spelling reached by a symlink or trailing slash -- is a MATCH here, where a raw `grep -qxF`
+# against the stored line would miss it and report the project unlisted. Comparison is on
+# realpath-normalized values, the same canonicalization the launch gate applies, so the confirm
+# and the gate agree. A stored entry that no longer resolves cannot equal an existing target and
+# is skipped (the launch wrapper drops unresolvable entries the same way). Callers pass an
+# existing path (a realpath'd project dir); membership of a non-existent path is never asserted.
+
+# _ai_tools_conf_allowlist_norm <path> : print <path> realpath-normalized, or <path> itself when
+#   it does not resolve, so the two membership predicates canonicalize target and entry identically.
+_ai_tools_conf_allowlist_norm() { realpath -e "$1" 2>/dev/null || printf '%s' "$1"; }
+
+# ai_tools_conf_allowlist_has_entry <allowlist-file> <path> : return 0 when <path> matches an
+#   ALLOW entry (a non-`!` line) of <allowlist-file>. Exclusion lines never count as membership.
+ai_tools_conf_allowlist_has_entry() {
+    local file="$1" want line entry
+    want="$(_ai_tools_conf_allowlist_norm "$2")"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        ai_tools_conf_path_entry "${line}" || continue
+        entry="${_ai_tools_conf_value}"
+        [[ "${entry}" == '!'* ]] && continue
+        [[ "$(_ai_tools_conf_allowlist_norm "${entry}")" == "${want}" ]] && return 0
+    done < "${file}"
+    return 1
+}
+
+# ai_tools_conf_allowlist_has_exclusion <allowlist-file> <path> : return 0 when <path> matches a
+#   `!` EXCLUSION entry exactly (compared without the `!`). This is exact-path, not glob: it is the
+#   relabel helper's "is this dir explicitly excluded" check, which never expanded globs.
+ai_tools_conf_allowlist_has_exclusion() {
+    local file="$1" want line entry
+    want="$(_ai_tools_conf_allowlist_norm "$2")"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        ai_tools_conf_path_entry "${line}" || continue
+        entry="${_ai_tools_conf_value}"
+        [[ "${entry}" == '!'* ]] || continue
+        [[ "$(_ai_tools_conf_allowlist_norm "${entry#\!}")" == "${want}" ]] && return 0
+    done < "${file}"
+    return 1
+}
+
+# ai_tools_conf_allowlist_matching_lines <array-name> <allowlist-file> <path> : set the named array
+#   to every RAW line of <allowlist-file> whose ALLOW entry matches <path>, and return 0 when at
+#   least one did. For a caller that must DELETE the line (unclaim, the --list remediation): the raw
+#   text is what a line-anchored `sed` removes, and it can differ from <path> -- a comment, quotes,
+#   or a symlinked spelling -- so reconstructing the line from <path> would fail to match.
+ai_tools_conf_allowlist_matching_lines() {
+    local -n _ai_tools_conf_matched="$1"
+    local file="$2" want line entry
+    want="$(_ai_tools_conf_allowlist_norm "$3")"
+    _ai_tools_conf_matched=()
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        ai_tools_conf_path_entry "${line}" || continue
+        entry="${_ai_tools_conf_value}"
+        [[ "${entry}" == '!'* ]] && continue
+        [[ "$(_ai_tools_conf_allowlist_norm "${entry}")" == "${want}" ]] && _ai_tools_conf_matched+=("${line}")
+    done < "${file}"
+    (( ${#_ai_tools_conf_matched[@]} > 0 ))
 }

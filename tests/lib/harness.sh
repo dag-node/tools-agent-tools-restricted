@@ -72,8 +72,20 @@ require_root() {
 }
 
 # The unprivileged project user (and the sandbox account) the helpers collaborate with,
-# derived from the sudo invocation -- never hard-coded.
-PROJECTS_USER="${SUDO_USER:?error: invoke via sudo, not as root directly}"
+# derived from the invocation -- never hard-coded. Three cases, because not every suite needs
+# root: under sudo it is the operator who invoked it; run DIRECTLY as an unprivileged user (which
+# the pure library suites support -- they stub what they drive and build fixtures they own) the
+# invoker is that user; run as root with no sudo context there is no unprivileged identity to
+# derive and nothing to guess from, so refuse -- fixtures would be built root-owned and every
+# owner guard under test would skip them, passing the suite while proving nothing.
+if [[ -n "${SUDO_USER:-}" ]]; then
+    PROJECTS_USER="${SUDO_USER}"
+elif [[ "${EUID}" -ne 0 ]]; then
+    PROJECTS_USER="$(id -un)"
+else
+    echo "error: invoke via sudo, not as root directly" >&2
+    exit 1
+fi
 PROJECTS_GROUP="$(id -gn "${PROJECTS_USER}")"
 PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"
 PROJECTS_UID="$(id -u "${PROJECTS_USER}")"

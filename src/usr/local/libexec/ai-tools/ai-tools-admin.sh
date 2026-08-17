@@ -126,11 +126,18 @@ seed_allowlist() {
     log "seeding ${allow}"
     tmp="$(mktemp)"
     printf '%s\n' \
-        "# Approved project directories for Claude Code (ai-tools)." \
-        "# A plain path allows it (and its contents); a '!'-prefixed path excludes it." \
-        "# Manage with the ai-tools CLI rather than by hand:" \
-        "#   ai-tools --project-create <dir>   register a real project" \
+        "# Approved project directories for Claude Code (ai-tools) -- one directory per line." \
+        "# A plain path allows that directory and everything under it; a '!'-prefixed path" \
+        "# excludes one. Exclusions win over allows, and only they may use * ? [ ] globs --" \
+        "# an allow line must be a literal directory (a glob there matches nothing and is inert)." \
+        "#" \
+        "# '#' starts a comment, whole-line or after a path; quote a path that contains a space" \
+        "# or a literal '#', e.g.  \"/home/me/my project\"" \
+        "#" \
+        "# Managed by the ai-tools CLI -- prefer it over editing by hand:" \
+        "#   ai-tools --project-claim  <dir>   register/claim a real project in place" \
         "#   ai-tools --sandbox-create <dir>   shallow-clone a repo into the sandbox area" \
+        "#   ai-tools --list                   review entries; flags stale/unusable/orphaned ones" \
         "" > "${tmp}"
     install -o "${user}" -g "${group}" -m 600 "${tmp}" "${allow}"
     rm -f "${tmp}"
@@ -326,23 +333,27 @@ sel_disable() {
     fi
 }
 
+# sel_list is a read-only REPORT, not operational output, so it renders as a plain section (like
+# the CLI's --providers/--list) instead of `log`'s per-line `ai-tools-admin:` prefix. The core
+# module uses the same bracketed [LOADED]/[disabled] state column as the group rows for one legend.
 sel_list() {
     require_selinux || return 0
-    local core_state="NOT loaded"
-    semodule -l 2>/dev/null | grep -qx 'ai_tools' && core_state="loaded"
-    log "core module (ai_tools): ${core_state}"
-    log "optional policy groups (all default: disabled):"
+    local core_state='[disabled]'
+    semodule -l 2>/dev/null | grep -qx 'ai_tools' && core_state='[LOADED]  '
+    printf '\nSELinux policy groups\n\n'
+    printf '  %s core module (ai_tools) -- the confinement domain; DAC-only when disabled\n\n' "${core_state}"
+    printf '  optional groups (all default: disabled)\n'
     local entry name desc stability state
     for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
         name="$(ai_tools_selinux_group_name "${entry}")"
         desc="$(ai_tools_selinux_group_desc "${entry}")"
         stability="$(ai_tools_selinux_group_stability "${entry}")"
-        if ai_tools_selinux_group_loaded "${name}"; then state="[LOADED]  "; else state="[disabled]"; fi
-        printf '    %s %-10s %-13s %s\n' "${state}" "${name}" "(${stability})" "${desc}"
+        if ai_tools_selinux_group_loaded "${name}"; then state='[LOADED]  '; else state='[disabled]'; fi
+        printf '    %s %-9s %-15s %s\n' "${state}" "${name}" "(${stability})" "${desc}"
     done
-    log "toggle: sudo ai-tools-admin selinux enable-group <name> | disable-group <name>"
-    log "only stable groups ship prebuilt; an experimental group is enabled from a source"
-    log "checkout after verification (sudo selinux/install-selinux.sh enable-group <name>)"
+    printf '\n  toggle       : sudo ai-tools-admin selinux enable-group <name> | disable-group <name>\n'
+    printf '  experimental : not shipped prebuilt -- enable from a source checkout with\n'
+    printf '                 sudo selinux/install-selinux.sh enable-group <name>\n'
 }
 
 # ── postupgrade: reconcile the .rpmnew files an upgrade leaves ───────────────────────────────

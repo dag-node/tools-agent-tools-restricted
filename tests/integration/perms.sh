@@ -86,6 +86,9 @@ check_file /usr/local/lib/ai-tools/selinux-groups.lib.sh     root              r
 # Command-filter engine: 644 root:root -- world-readable, sourced by an agent's filter hook, which
 # runs AS the agent on every Bash call; read-only data plus pure logic, carries no secrets.
 check_file /usr/local/lib/ai-tools/filters.lib.sh            root              root              644
+# Service-health registry: 644 root:root -- world-readable, sourced by the operator launch wrapper
+# and the CLI (--status); read-only data, no secrets.
+check_file /usr/local/lib/ai-tools/services.lib.sh           root              root              644
 # The three provider directories, owned by ai-tools-base (each member package drops only its own
 # files into them). 0755 root:root is SECURITY-LOAD-BEARING, not housekeeping: these decide which
 # agents get provisioned and what env a session gets, and a group- or other-writable directory
@@ -258,14 +261,26 @@ check_file /usr/local/lib/ai-tools/msg.lib.sh                 root root 644
 check_file /var/opt/ai-tools                                  root              "${SANDBOX_GROUP}" 2750
 check_file /var/opt/ai-tools/sandbox-projects                 root              "${SANDBOX_GROUP}" 2770
 check_file /var/opt/ai-tools/README.md                        root              "${SANDBOX_GROUP}" 640
+# Last-run state the sandbox account publishes for `ai-tools --status` to read (its --user units
+# are not queryable from the operator's session). The mode is what bounds the surface a
+# sandbox-written stamp adds, so both halves are asserted: the directory 0750 root:SANDBOX_GROUP --
+# root-owned and NOT group-writable, so the account has traverse only and can neither add, unlink,
+# rename, nor symlink-swap anything here (no setgid: the bit inherited from the 2750 parent must be
+# stripped symbolically, since neither `install -d -m` nor a numeric chmod clears it) -- and each
+# stamp 0640 SANDBOX_USER:ai-ops, the one inode the account rewrites in place, group-readable to
+# operators and closed to everyone else. The stamp ships with the nodejs integration, so a
+# base-only install legitimately lacks it.
+check_file /var/opt/ai-tools/state                            root              "${SANDBOX_GROUP}" 750
+check_file_optional /var/opt/ai-tools/state/nvm-update.status "${SANDBOX_USER}" ai-ops            640
 # Sandbox-area operator ACL: ai-ops reaches the area without SANDBOX_GROUP membership -- traverse
 # on the outer dir, rwX + default on sandbox-projects. The agent (not in ai-ops) gains nothing.
 if ! command -v getfacl >/dev/null 2>&1; then
     skip "sandbox-area ai-ops ACL" "getfacl not available"
 elif getfacl -p /var/opt/ai-tools 2>/dev/null | grep -qE '^group:ai-ops:r-x' \
      && getfacl -p /var/opt/ai-tools/sandbox-projects 2>/dev/null | grep -qE '^group:ai-ops:rwx' \
-     && getfacl -p /var/opt/ai-tools/sandbox-projects 2>/dev/null | grep -qE '^default:group:ai-ops:rwx'; then
-    pass "sandbox area carries the ai-ops operator ACL (traverse + rwX + default)"
+     && getfacl -p /var/opt/ai-tools/sandbox-projects 2>/dev/null | grep -qE '^default:group:ai-ops:rwx' \
+     && getfacl -p /var/opt/ai-tools/state 2>/dev/null | grep -qE '^group:ai-ops:r-x'; then
+    pass "sandbox area carries the ai-ops operator ACL (traverse + rwX + default + state read)"
 else
     fail "sandbox-area ai-ops ACL missing: $(getfacl -p /var/opt/ai-tools/sandbox-projects 2>/dev/null | grep ai-ops | tr '\n' ' ')"
 fi

@@ -64,7 +64,8 @@ _ai_tools_is_sandbox() { [[ "$1/" == "${AI_TOOLS_SANDBOX_ROOT}/"* ]]; }
 # Adds (or refreshes) the per-project fcontext rule -- skipped for sandbox clones, which the
 # static rule already covers -- then forces the label with `restorecon -FR`.
 # Returns 2 if SELinux is unavailable, 1 on a hard failure (e.g. the type is not in the loaded
-# policy because the module is not installed), 0 on success.
+# policy because the module is not installed, or restorecon left the tree on the wrong type
+# because no fcontext rule matched the path), 0 on success.
 #
 # The relabel is FORCED (`-F`), and that is load-bearing, not a tuning choice. A file created
 # inside a labelled directory inherits ai_tools_project_t on its own, so an ordinary edit never
@@ -91,6 +92,13 @@ ai_tools_label_project() {
             || return 1
     fi
     restorecon -FR "${dir}" 2>/dev/null || return 1
+    # Post-condition: verify the achieved label, do not trust restorecon's exit code. restorecon
+    # exits 0 whenever it could WRITE a context -- including when the context it wrote is the wrong
+    # type because no fcontext rule matched the path (a rule keyed on a prefix that libselinux
+    # aliases away, e.g. `/var/opt` -> `/opt` via file_contexts.subs_dist, matches nothing and
+    # leaves the tree on its default type). Left unchecked that is a silent mislabel the confined
+    # agent cannot use; treat it as a hard failure the caller reports rather than a false success.
+    ai_tools_project_labelled "${dir}" || return 1
 }
 
 # ai_tools_unlabel_project <dir>: drop any per-project fcontext rule for <dir> and

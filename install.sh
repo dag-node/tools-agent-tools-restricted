@@ -616,6 +616,7 @@ do_summary() {
     _chk /var/opt/ai-tools/README.md
     _chk /usr/local/lib/ai-tools/secret-patterns.lib.sh
     _chk /usr/local/lib/ai-tools/skip-dirs.lib.sh
+    _chk /usr/local/lib/ai-tools/owner-only.lib.sh
     _chk /usr/local/lib/ai-tools/log.lib.sh
     _chk /usr/local/lib/ai-tools/msg.lib.sh
     _chk /usr/local/lib/ai-tools/operator.lib.sh
@@ -627,6 +628,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/filters.lib.sh
     _chk /usr/local/lib/ai-tools/filters.d/core.rules
     _chk /usr/local/lib/ai-tools/selinux-groups.lib.sh
+    _chk /usr/local/lib/ai-tools/services.lib.sh
     _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
     _chk /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
     _chk /usr/local/lib/ai-tools/claude-prompt.lib.sh
@@ -825,6 +827,14 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/secret-patterns.lib.sh" \
         /usr/local/lib/ai-tools/secret-patterns.lib.sh
 
+    # Seal primitives (owner-only predicate + residue strip): read only by the root helpers
+    # that walk a claimed tree, but carries no secrets -- 644 root:root, like msg/log/
+    # safe-paths. Substituted: the strip is keyed on the sandbox group's name.
+    log "/usr/local/lib/ai-tools/owner-only.lib.sh"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/owner-only.lib.sh" \
+        /usr/local/lib/ai-tools/owner-only.lib.sh
+
     # Skip-dir list/selector: sourced by the root helpers, by session-hook.sh (as the
     # agent), and by the operator-run CLI (the claim drift scan) -- 644 root:root, like
     # msg/log/safe-paths. It carries no secrets: the names are documented. No tokens to
@@ -880,6 +890,13 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/selinux-groups.lib.sh" \
         /usr/local/lib/ai-tools/selinux-groups.lib.sh
+
+    # Service-health registry: 644 root:root -- world-readable, the single source `ai-tools --status`
+    # and the launch wrapper's pre-launch health warning share. Read-only data, no secrets.
+    log "/usr/local/lib/ai-tools/services.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/services.lib.sh" \
+        /usr/local/lib/ai-tools/services.lib.sh
 
     # Agent manifests: the agents.d directory (0755 root:root) plus each agent's <name>.conf
     # (644, parsed data naming its npm package + launcher). This from-source installer deploys the
@@ -1198,6 +1215,25 @@ do_install() {
     chown "root:${SANDBOX_GROUP}" /var/opt/ai-tools/sandbox-projects
     chmod 2770 /var/opt/ai-tools/sandbox-projects
 
+    # Operator-readable state written BY the sandbox account: the last-run stamps of the units in
+    # that account's own systemd --user manager (nvm-update), which `ai-tools --status` cannot
+    # query from the operator's session. The directory is root-owned and deliberately NOT
+    # group-writable -- the account gets traverse only -- so the surface the stamps add is the
+    # contents of the individual files created here, never the directory: the account cannot add,
+    # unlink, rename, or symlink-swap anything in it. Each stamp is therefore created HERE, owned
+    # by the account (which rewrites it in place) with group ai-ops so operators read it directly.
+    # setgid is stripped symbolically: the parent is setgid and neither `install -d -m` nor a
+    # numeric chmod clears an inherited setgid bit on a directory (see tests.rule.md).
+    log "/var/opt/ai-tools/state/"
+    ensure_dir 0750 root "${SANDBOX_GROUP}" /var/opt/ai-tools/state
+    chown "root:${SANDBOX_GROUP}" /var/opt/ai-tools/state
+    chmod 0750 /var/opt/ai-tools/state
+    chmod g-s /var/opt/ai-tools/state
+    getent group ai-ops >/dev/null 2>&1 || groupadd -r ai-ops
+    touch /var/opt/ai-tools/state/nvm-update.status
+    chown "${SANDBOX_USER}:ai-ops" /var/opt/ai-tools/state/nvm-update.status
+    chmod 0640 /var/opt/ai-tools/state/nvm-update.status
+
     # Sandbox workflow doc. Shipped documentation (not user-edited config), so it is
     # refreshed on every re-install. 640 root:SANDBOX_GROUP.
     log "/var/opt/ai-tools/README.md"
@@ -1218,6 +1254,10 @@ do_install() {
         setfacl -m g:ai-ops:rwx /var/opt/ai-tools/sandbox-projects
         setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects
         setfacl -m g:ai-ops:r-- /var/opt/ai-tools/README.md
+        # Traverse only on the state dir: operators read the stamps inside (whose own group is
+        # ai-ops), never write there. What the mode buys is scope, not integrity -- a stamp's
+        # CONTENT is written by the sandbox account and trusted accordingly (services.lib.sh).
+        setfacl -m g:ai-ops:r-x /var/opt/ai-tools/state
     else
         warn "setfacl unavailable -- operators need ${SANDBOX_GROUP} membership for sandbox-create"
     fi

@@ -9,6 +9,29 @@
 # what lets the operator co-write the tree -- work tree, and .git under --with-git -- without
 # joining @SANDBOX_GROUP@ and without waiting on the ownership handback.
 #
+# Owner-only paths are never granted. When a path's mode carries no group and no other bits
+# (0600, 0700), no grant is applied to it -- not group:@SANDBOX_GROUP@:rwX (the agent's) nor
+# user:<operator>:rwX (the operator's) -- a directory gets no default ACL, the mask is not
+# recalculated, and the mode bits are untouched. That mode is the operator's standing decision to
+# keep the path out of the sandbox account's reach, and a claim does not overrule it. What the
+# walk does instead is STRIP the sandbox residue such a path still carries (owner-only.lib.sh),
+# so the seal does not rest on the mode alone staying put.
+# It holds on the main walk and in the --with-git pass alike; a skipped directory takes its
+# subtree with it, since the sandbox account cannot enter the directory to use a grant inside it.
+# To opt a path in, widen its mode and re-claim -- a manual step rather than a prompt, because a
+# standing denial should not fall to a single keypress.
+#
+# Every skip is counted and reported. On a project ROOT it means the sandbox account cannot enter
+# the tree at all; under --with-git it means the git history the operator asked to share was not
+# shared. Both are outcomes the operator has to be told, not left to infer from later behaviour.
+#
+# What this prevents: setfacl -m recalculates the mask to cover the entries it adds, so granting
+# an owner-only path returns a 0600 file as 0660 with @SANDBOX_GROUP@ holding effective rw, and a
+# 0700 directory as 0770 -- write on the directory, hence the power to unlink what it holds.
+# secret-handling.rule.md's "keep it in a 700 <you>:<you> dir" advice rests on that directory
+# case. setfacl -n (add the entry, leave the mask alone) is not used either: it would leave a
+# dormant grant that any later chmod widening the group bits activates.
+#
 # Runs as root via sudo under ai-tools --project-claim (no-NOPASSWD, like ai-tools-lockdown);
 # CAP_FOWNER lets it ACL files the operator does not own. The walk skips secret-named,
 # '!'-excluded, skip-list, and foreign-owned paths. Alongside the ACL, the walk normalizes
@@ -97,6 +120,17 @@ _is_secret_name() {
 command -v setfacl >/dev/null 2>&1 \
     || { ai_tools_log_warn "setfacl not found -- skipping ACL normalization for ${TARGET}"; exit 0; }
 
+# Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the
+# reference for both). Required and fail-closed like safe-paths.lib.sh: an unusable library must
+# not leave this walk unable to recognize a sealed path.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/owner-only.lib.sh
+source /usr/local/lib/ai-tools/owner-only.lib.sh
+if ! declare -F ai_tools_is_owner_only >/dev/null 2>&1 \
+        || ! declare -F ai_tools_strip_sandbox_residue >/dev/null 2>&1; then
+    printf 'ai-tools-setfacl: FATAL: owner-only.lib.sh defines no owner-only guard\n' >&2
+    exit 3
+fi
+
 # Protected-paths backstop (safe-paths.lib.sh): refuse to act on a system directory even
 # when the allowlist includes it. See safe-paths.rule.md.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
@@ -181,6 +215,19 @@ _safe_setfacl() {
         exec {fd}<&-
         return 1
     fi
+    # Owner-only guard: the operator sealed this path and the claim honours it. Granting it would
+    # be worse than a no-op -- `setfacl -m` RECALCULATES the mask, so the grant on a 0600 file
+    # raises its mask from --- to rw- and hands the agent EFFECTIVE read/write while `ls -l` still
+    # shows `-rw-------` and only the trailing `+` hints anything changed. Strip the residue the
+    # path carries instead (owner-only.lib.sh), and report it: an owner-only .git under
+    # --with-git is a deliberate no-op the operator has to be told about, not a share that
+    # quietly did nothing.
+    if ai_tools_is_owner_only "${got_mode}"; then
+        ai_tools_strip_sandbox_residue "${fd}" "${got_ftype}" "${got_grp}" "${got_mode}" \
+            "${PROJECTS_GROUP:-}" || true
+        exec {fd}<&-
+        return 2
+    fi
     local rc=0
     # Group ownership (plus setgid on dirs) so future entries inherit group GROUP -- the
     # ownership inheritance ai-tools-setgid gives the work tree's directories. Applied
@@ -229,6 +276,7 @@ declare -a expr=( "${canonical}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
 declare -i applied=0
 find "${expr[@]}" 2>/dev/null \
     | { declare -a skip=()
+        declare -i owneronly=0 rc=0
         _under_skip() { local p; for p in "${skip[@]:-}"; do
             [[ -n "${p}" && ( "$1" == "${p}" || "$1" == "${p}/"* ) ]] && return 0; done; return 1; }
         while IFS= read -r -d '' p; do
@@ -237,10 +285,23 @@ find "${expr[@]}" 2>/dev/null \
                 [[ -d "${p}" ]] && skip+=("${p}")     # skip the whole subtree of a dir
                 continue
             fi
-            _safe_setfacl "${p}" && applied=$(( applied + 1 )) || true
+            rc=0; _safe_setfacl "${p}" || rc=$?
+            case "${rc}" in
+                0) applied=$(( applied + 1 )) ;;
+                2) owneronly=$(( owneronly + 1 ))
+                   # A skipped DIRECTORY keeps its whole subtree out of the walk: an
+                   # unreachable directory's contents cannot be granted through it, and
+                   # descending would grant paths the operator sealed off at the parent.
+                   [[ -d "${p}" ]] && skip+=("${p}") ;;
+            esac
         done
-        # The count is local to this subshell (pipe); log it here.
+        # The counts are local to this subshell (pipe); log them here.
         ai_tools_log_info "ACL-normalized ${applied} path(s) under ${canonical}"
+        if (( owneronly )); then
+            ai_tools_log_info "left ${owneronly} owner-only path(s) under ${canonical} out of the agent's reach"
+            printf 'ai-tools-setfacl: left %d owner-only path(s) (0600/0700) out of the sandbox account'"'"'s reach\n' \
+                "${owneronly}" >&2
+        fi
       } || true
 
 # .git normalization (opt-in via --with-git): the main walk skips .git, but when the
@@ -256,15 +317,28 @@ if ${WITH_GIT} && [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
     declare -a gskip=()
     _under_gskip() { local q; for q in "${gskip[@]:-}"; do
         [[ -n "${q}" && ( "$1" == "${q}" || "$1" == "${q}/"* ) ]] && return 0; done; return 1; }
+    declare -i git_owneronly=0 grc=0
     while IFS= read -r -d '' p; do
         _under_gskip "${p}" && continue
         if _is_excluded "${p}" || _is_secret_name "${p}"; then
             [[ -d "${p}" ]] && gskip+=("${p}")        # skip a secret/excluded subtree whole
             continue
         fi
-        if _safe_setfacl "${p}" normalize; then git_applied=$(( git_applied + 1 )); fi
+        grc=0; _safe_setfacl "${p}" normalize || grc=$?
+        case "${grc}" in
+            0) git_applied=$(( git_applied + 1 )) ;;
+            2) git_owneronly=$(( git_owneronly + 1 ))
+               [[ -d "${p}" ]] && gskip+=("${p}") ;;
+        esac
     done < <(find "${gitdir}" -xdev '(' -type d -o -type f ')' -print0 2>/dev/null)
     ai_tools_log_info "normalized ${git_applied} path(s) under ${gitdir} (group ${GROUP}, setgid dirs, ACL)"
+    # --with-git is an explicit opt-in, so a .git the owner-only guard seals off is a share
+    # that did NOT happen. Silence here would leave the operator believing history is shared.
+    if (( git_owneronly )); then
+        ai_tools_log_info "left ${git_owneronly} owner-only path(s) under ${gitdir} out of the agent's reach"
+        printf 'ai-tools-setfacl: %d owner-only path(s) under .git were NOT shared (0600/0700) -- git history stays out of the sandbox account'"'"'s reach\n' \
+            "${git_owneronly}" >&2
+    fi
 fi
 
 exit 0

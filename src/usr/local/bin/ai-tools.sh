@@ -36,6 +36,7 @@
 #   --relabel                 relabel the enabled agents' entrypoints after a Node upgrade (sudo)
 #   --providers               report the installed agents/integrations, which are enabled,
 #                             and why (read-only; resolved through providers.lib.sh)
+#   --status                  report ai-tools service health (read-only; services.lib.sh)
 #   --list                    list registered projects (real vs sandbox)
 #   --version                 print the installed ai-tools version
 #   --help
@@ -60,7 +61,12 @@ readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
 AI_TOOLS_VERSION="@AI_TOOLS_VERSION@"
 [[ "${AI_TOOLS_VERSION}" == @*@ ]] && AI_TOOLS_VERSION="dev"
 readonly AI_TOOLS_VERSION
-readonly GITCONFIG="/opt/ai-tools/.gitconfig"
+# AI_TOOLS_GITCONFIG / AI_TOOLS_ALLOWLIST (below): root-only test hooks, the same family the
+# root helpers carry (see tests.rule.md). The CLI runs as the operator, who owns both files
+# anyway, so an override widens nothing it could not already do by editing them directly; sudo
+# strips both (env_reset, not env_keep) before any root helper, which re-resolves the real paths
+# itself, and the sandbox account is refused by the principal guard below before either is read.
+readonly GITCONFIG="${AI_TOOLS_GITCONFIG:-/opt/ai-tools/.gitconfig}"
 readonly SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
 # Bootstrap's last load-bearing artifact -- the require_bootstrap gate keys on it (below).
 # Same symlink the launch wrapper resolves; kept identical to claude.sh's CLAUDE_LINK.
@@ -113,6 +119,11 @@ readonly GUARD_MARKER="ai-tools-lockdown-guard"
 # write the registries with the wrong owner) and never as the sandbox account
 # (the agent must not manage its own allowlist).
 ME="$(id -un)"
+# The invoking operator's own primary group, for the one message that must name it: the lockdown
+# preamble, which states the owner a locked secret ends up with (<you>:<you>). Not a decision
+# input anywhere -- what a walk treats as "the operator's group" is resolved per path from the
+# path's owner, never from who happens to be running the CLI.
+MY_GROUP="$(id -gn)"
 [[ "${ME}" == "root" ]] \
     && { echo "ai-tools: do not run as root -- run as the projects user, without sudo" >&2
          echo "          (the CLI invokes sudo itself for the steps that need it)" >&2; exit 1; }
@@ -122,13 +133,16 @@ ME="$(id -un)"
 HOME_DIR="$(getent passwd "${ME}" | cut -d: -f6)"
 [[ -d "${HOME_DIR}" ]] || { echo "ai-tools: cannot resolve home for ${ME}" >&2; exit 1; }
 readonly ME HOME_DIR
-readonly ALLOWLIST="${HOME_DIR}/.config/ai-tools/allowed-projects"
+# One resolution point for readers AND writers (reg_allow/unreg_allow), so a fixture test that
+# sets AI_TOOLS_ALLOWLIST never mutates the operator's real registry. Root-only test hook -- see
+# the GITCONFIG note above for why the override grants the CLI's operator caller nothing new.
+readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-${HOME_DIR}/.config/ai-tools/allowed-projects}"
 
 # ── Output / prompt helpers ──────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
-    readonly C_BOLD=$'\033[1m' C_DIM=$'\033[2m' C_GRN=$'\033[32m' C_YEL=$'\033[33m' C_RST=$'\033[0m'
+    readonly C_BOLD=$'\033[1m' C_DIM=$'\033[2m' C_GRN=$'\033[32m' C_YEL=$'\033[33m' C_RED=$'\033[31m' C_RST=$'\033[0m'
 else
-    readonly C_BOLD='' C_DIM='' C_GRN='' C_YEL='' C_RST=''
+    readonly C_BOLD='' C_DIM='' C_GRN='' C_YEL='' C_RED='' C_RST=''
 fi
 
 say()     { printf '%s\n' "$*"; }
@@ -222,6 +236,14 @@ readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_NAMES=(); AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
+# Service-health registry (services.lib.sh): the single source `ai-tools --status` and the launch
+# wrapper's pre-launch health warning share, so the two never disagree on which units matter or how
+# to fix one. Best-effort -- only --status reads it, and it degrades to a "registry unavailable"
+# notice rather than failing any command.
+readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
+# shellcheck source=SCRIPTDIR/../lib/ai-tools/services.lib.sh
+source "${SERVICES_LIB}" 2>/dev/null || true
+
 # confirm <prompt> <y|n>  -- the shared yes/no prompt (ai_tools_msg_confirm; see
 # msg.lib.sh): the explicit default decides the Enter answer and the no-tty answer, so
 # each caller states the default whose unattended answer is the safe outcome for its
@@ -259,12 +281,21 @@ resolve_dir() {
     printf '%s' "${p}"
 }
 
-# require_sandbox <path>  -- die unless <path> lies under SANDBOX_ROOT.
-require_sandbox() {
-    case "$1/" in
-        "${SANDBOX_ROOT}"/*) ;;
-        *) die "not a sandbox project (must be under ${SANDBOX_ROOT}): $1" ;;
-    esac
+# require_sandbox_clone <path>  -- die unless <path> is a real sandbox CLONE: it passes the
+# protected-paths backstop, is a DIRECT child of SANDBOX_ROOT (exactly one component under it --
+# never SANDBOX_ROOT itself, never a nested or system path), and is a git worktree. This scopes the
+# destructive --sandbox-remove (rm -rf) and --sandbox-push to an actual clone, so neither the shared
+# clone area root nor an unrelated path can ever be the target.
+require_sandbox_clone() {
+    local d="$1" rel
+    ai_tools_assert_safe_target "${d}" "sandbox" || exit 3
+    [[ "${d}" == "${SANDBOX_ROOT}/"* ]] \
+        || die "not a sandbox clone (must be a clone under ${SANDBOX_ROOT}): ${d}"
+    rel="${d#"${SANDBOX_ROOT}/"}"
+    [[ -n "${rel}" && "${rel}" != */* ]] \
+        || die "not a sandbox clone (expected ${SANDBOX_ROOT}/<clone>, one level deep): ${d}"
+    git -C "${d}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+        || die "not a git clone: ${d} -- if it is a stray directory, remove it by hand"
 }
 
 # ── Registry helpers (the only mutating filesystem writes besides clones) ─────────
@@ -276,7 +307,9 @@ require_sandbox() {
 reg_allow() {
     local dir="$1"
     [[ -f "${ALLOWLIST}" ]] || die "allowlist not found at ${ALLOWLIST} -- run install first"
-    if grep -qxF "${dir}" "${ALLOWLIST}"; then
+    # Match through the shared grammar, not a raw line: a hand-added entry with a comment or
+    # quotes is already listed, and appending would duplicate it (conf.lib.sh).
+    if ai_tools_conf_allowlist_has_entry "${ALLOWLIST}" "${dir}"; then
         say "    allowed-projects: already listed"
     else
         printf '%s\n' "${dir}" >> "${ALLOWLIST}"
@@ -284,12 +317,25 @@ reg_allow() {
     fi
 }
 
+# allow_escape <text>  -- escape <text> so it matches literally inside a sed `\|^...$|` address:
+# the '|' delimiter, backslash, and the BRE metacharacters (`.[]*^$`). Shared by unreg_allow,
+# which runs the anchored-exact line deletion, and cmd_list, which prints the same deletion as a
+# copy-paste remediation command. Both delete a whole RAW allowlist line, which may carry a
+# comment or a dot in a path, so an under-escaped pattern would match a sibling line or none.
+allow_escape() { printf '%s' "$1" | sed 's/[]\.*^$|[]/\\&/g'; }
+
 unreg_allow() {
-    local dir="$1" esc
+    local dir="$1"
     [[ -f "${ALLOWLIST}" ]] || return 0
-    if grep -qxF "${dir}" "${ALLOWLIST}"; then
-        esc="$(printf '%s' "${dir}" | sed 's/[\\|]/\\&/g')"
-        sed -i "\|^${esc}$|d" "${ALLOWLIST}"
+    # Delete the RAW line(s) whose grammar entry matches ${dir}, not a line rebuilt from ${dir}:
+    # a hand-added entry may carry a comment or quotes (conf.lib.sh), and anchoring on ${dir}
+    # alone would miss it -- the same blind spot that used to leave the entry (and the agent's
+    # access) behind on unclaim.
+    local -a lines=() raw
+    if ai_tools_conf_allowlist_matching_lines lines "${ALLOWLIST}" "${dir}"; then
+        for raw in "${lines[@]}"; do
+            sed -i "\|^$(allow_escape "${raw}")$|d" "${ALLOWLIST}"
+        done
         say "    allowed-projects: removed"
     else
         say "    allowed-projects: not listed"
@@ -442,6 +488,39 @@ acl_drift_scan() {
     find "${dir}" -xdev \( "${skip[@]}" \) -o \
         \( -user "${ME}" -o -user "${SANDBOX_USER}" \) \
         ! -group "${SANDBOX_GROUP}" -perm /077 -print 2>/dev/null
+}
+
+# sealed_setgid_scan <dir>  -- list owner-only directories inside a claimed tree whose setgid bit
+# carries a THIRD-party group: neither SANDBOX_GROUP nor the group of the directory's own owner.
+# When the claim walks seal a path they clear a setgid bit belonging to one of those two, since a
+# claimed tree carries no other legitimately; any further group reads as a deliberate operator
+# choice and is kept (owner-only.lib.sh). That leaves the operator the one who decides, so the
+# claim has to say so rather than act. Read-only and unprivileged, detection only -- a path
+# reported here is one the claim did NOT touch, so reporting it never widens access.
+#
+# "Third party" is decided per path, against the OWNER's primary group -- not against the invoking
+# user's. The two differ on a multi-operator host, where the group the claim walks treat as
+# legitimate is the resolved project owner's (they act only on paths that owner or the sandbox
+# account holds, so the owner's group is exactly what their check comes to), and reporting against
+# the invoker's would flag a bit the claim goes on to strip, or stay silent about one it keeps.
+sealed_setgid_scan() {
+    local dir="$1" excl
+    local -a skip=( -name .git -prune )
+    while IFS= read -r excl; do
+        excl="${excl#!}"
+        [[ "${excl}" == "${dir}"/* ]] && skip+=( -o -path "${excl}" -prune )
+    done < <(grep '^!' "${ALLOWLIST}" 2>/dev/null || true)
+    # find cannot compare a path's group to its own owner's, so it narrows to the candidates
+    # (owner-only, setgid, not the sandbox group) and the owner comparison is made per path here.
+    # An owner with no passwd entry resolves to no group and is therefore reported, which is the
+    # right way round: a setgid whose group cannot be tied to the owner is one to look at.
+    find "${dir}" -xdev \( "${skip[@]}" \) -o \
+        -type d ! -perm /077 -perm -2000 ! -group "${SANDBOX_GROUP}" \
+        -printf '%U\t%G\t%p\n' 2>/dev/null \
+    | while IFS=$'\t' read -r _uid _grp _path; do
+          [[ "${_grp}" == "$(id -gn "${_uid}" 2>/dev/null || true)" ]] && continue
+          printf '%s\n' "${_path}"
+      done
 }
 
 # reg_ownership <dir>  -- make <dir> usable by the sandbox account: group SANDBOX_GROUP + the
@@ -639,12 +718,13 @@ run_setfacl() {
     fi
 }
 
-# run_unclaim <dir> <target-group>  -- clear the agent ACL, regroup <dir> to
+# run_unclaim <dir> <target-group> [helper-flag...]  -- clear the agent ACL, regroup <dir> to
 # <target-group>, and remove group write, via the root helper (sudo, password); returns
-# its status.
+# its status. Trailing flags (--unlisted, --full) pass straight through: the helper re-derives
+# every gate from them itself rather than trusting this caller's classification.
 run_unclaim() {
-    local d="$1" g="$2"
-    sudo "${UNCLAIM_BIN}" "${d}" "${g}"
+    local d="$1" g="$2"; shift 2
+    sudo "${UNCLAIM_BIN}" "${d}" "${g}" "$@"
 }
 
 # secret_gate <dir>  -- the secret-lockdown block: before ANY step grants the agent
@@ -778,7 +858,7 @@ clear_lockdown_guard() {
 # labelling lib; the authoritative semanage/restorecon logic is NOT duplicated here.
 project_state() {
     local dir="$1" listed=false safedir=false filemode=na owngap=true acl=false labelled=na git=false
-    grep -qxF "${dir}" "${ALLOWLIST}" 2>/dev/null && listed=true
+    ai_tools_conf_allowlist_has_entry "${ALLOWLIST}" "${dir}" 2>/dev/null && listed=true
     git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
         | grep -qxF "${dir}" && safedir=true
     if git -C "${dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -861,6 +941,75 @@ claim_setfacl() {
 # shared-looking paths brought into the tree without inheriting the group/ACL) and folds
 # the group+ACL re-apply into the proceed confirm and secret gate -- repair never runs
 # unconfirmed. A first claim skips the report: its normal walk repairs the whole tree.
+# path_detail_lines <path...>  -- print each path prefixed with its owner:group and mode, the
+# columns that show at a glance why a path is flagged (the foreign or agent group) and whether
+# its mode is what the operator expects. Shared by the claim's drift report and the unclaim's
+# residue report: both answer the same question about a path, so both show the same columns.
+path_detail_lines() {
+    local _p _og _m
+    for _p in "$@"; do
+        IFS=' ' read -r _og _m < <(stat -c '%U:%G %a' "${_p}" 2>/dev/null) \
+            || { _og='?'; _m='?'; }
+        printf '        %s%-18s %-4s %s%s\n' "${C_DIM}" "${_og}" "${_m}" "${_p}" "${C_RST}"
+    done
+}
+
+# offer_full_listing <label> <path...>  -- after a truncated sample, offer the full list with
+# ownership and mode. Default yes: it is read-only and the point of asking is that the list is
+# long, so Enter shows it and a piped/delegated run prints it too (grep-able).
+offer_full_listing() {
+    local _label="$1"; shift
+    confirm "      List all $# ${_label} with ownership and mode?" y || return 0
+    path_detail_lines "$@"
+}
+
+# path_listing <label> <path...>  -- report a set of paths: in FULL when there are few enough that
+# the whole list is shorter than a sample plus the question about it, otherwise a three-path sample
+# and an offer to see the rest. One decision in one place, because getting it wrong is invisible in
+# the code and glaring on screen: sampling four paths prints three, says "... and 1 more", asks a
+# question, and then prints all four again -- seven lines and a prompt to show four paths.
+# SAMPLE is the sample size; the full-list cut-off is twice it, the point past which the sample is
+# genuinely saving the reader something.
+readonly PATH_LISTING_SAMPLE=3
+path_listing() {
+    local _label="$1"; shift
+    if (( $# <= 2 * PATH_LISTING_SAMPLE )); then
+        path_detail_lines "$@"
+        return 0
+    fi
+    path_detail_lines "${@:1:PATH_LISTING_SAMPLE}"
+    say "        ${C_DIM}... and $(( $# - PATH_LISTING_SAMPLE )) more${C_RST}"
+    offer_full_listing "${_label}" "$@"
+}
+
+# under_skip_listed_name <base> <path>  -- 0 when <path> sits under a skip-listed directory NAME
+# (build output, dependencies, caches) relative to <base>, honoring the relative artifact
+# exclusions that re-open a subtree to the walks. The single predicate behind both the claim's
+# "drift I cannot repair" split and the unclaim's "residue the default walk will not reach"
+# split, so one skip contract decides both. Returns 1 when the skip list is unavailable, which
+# treats every hit as reachable -- the fail-soft direction for a walk-cost optimization.
+under_skip_listed_name() {
+    local _base="$1" _path="$2" _rel _seg _name _s _x
+    [[ "${#AI_TOOLS_SKIP_NAMES[@]}" -gt 0 ]] || return 1
+    _rel="${_path#"${_base}"/}"
+    IFS=/ read -ra _seg <<< "${_rel}"
+    for _name in "${AI_TOOLS_SKIP_NAMES[@]}"; do
+        for _s in "${_seg[@]}"; do
+            if [[ "${_s}" == "${_name}" ]]; then
+                # A relative artifact exclusion re-opens its subtree to the walks, so a hit
+                # under one is reachable, not skip-listed.
+                for _x in "${AI_TOOLS_SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE[@]:-}"; do
+                    [[ -z "${_x}" ]] && continue
+                    _x="${_x%/}"
+                    [[ "${_rel}" == "${_x}" || "${_rel}" == "${_x}"/* ]] && return 1
+                done
+                return 0
+            fi
+        done
+    done
+    return 1
+}
+
 cmd_project_claim() {
     # -y/--yes pre-answers the claim's own proceed prompt ("Apply the pending steps IN
     # PLACE?", default NO) -- an explicit per-invocation flag, passed by a caller that
@@ -911,49 +1060,29 @@ cmd_project_claim() {
     local -a drift_skipped=()
     if ai_tools_skip_find_expr sweep 2>/dev/null && (( ${#AI_TOOLS_SKIP_NAMES[@]} )); then
         local -a _keep=()
-        local _hit _rel _seg _name _under _s _x
+        local _hit
         for _hit in "${drift[@]}"; do
-            _under=false
-            _rel="${_hit#"${d}"/}"
-            IFS=/ read -ra _seg <<< "${_rel}"
-            for _name in "${AI_TOOLS_SKIP_NAMES[@]}"; do
-                for _s in "${_seg[@]}"; do
-                    [[ "${_s}" == "${_name}" ]] && { _under=true; break 2; }
-                done
-            done
-            # A relative artifact exclusion re-opens its subtree to the walks, so a hit
-            # under one is repairable, not skip-listed.
-            if ${_under}; then
-                for _x in "${AI_TOOLS_SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE[@]:-}"; do
-                    [[ -z "${_x}" ]] && continue
-                    _x="${_x%/}"
-                    [[ "${_rel}" == "${_x}" || "${_rel}" == "${_x}"/* ]] && { _under=false; break; }
-                done
+            if under_skip_listed_name "${d}" "${_hit}"; then
+                drift_skipped+=("${_hit}")
+            else
+                _keep+=("${_hit}")
             fi
-            if ${_under}; then drift_skipped+=("${_hit}"); else _keep+=("${_hit}"); fi
         done
         drift=("${_keep[@]}")
     fi
 
-    # _drift_lines <path...>: print each path prefixed with its owner:group and mode --
-    # the columns that show at a glance why the path is flagged (the foreign group) and
-    # whether the mode is what the operator expects.
-    _drift_lines() {
-        local _p _og _m
-        for _p in "$@"; do
-            IFS=' ' read -r _og _m < <(stat -c '%U:%G %a' "${_p}" 2>/dev/null) \
-                || { _og='?'; _m='?'; }
-            printf '        %s%-18s %-4s %s%s\n' "${C_DIM}" "${_og}" "${_m}" "${_p}" "${C_RST}"
-        done
-    }
+    # A setgid bit on a sealed dir that belongs to some third group is the one piece of residue
+    # the claim walks decline to remove, so it is surfaced here rather than left to the helper's
+    # stderr, where it scrolls past under the Apply step.
+    local -a sealed_setgid=()
+    mapfile -t sealed_setgid < <(sealed_setgid_scan "${d}" | head -n 200)
 
-    # _drift_list_all <label> <path...>: after a truncated sample, offer the full list
-    # (owner/group/mode columns). Default yes: it is read-only and the point of asking is
-    # a long list, so Enter shows it; a piped/delegated run prints it too (grep-able).
-    _drift_list_all() {
-        local _label="$1"; shift
-        confirm "      List all $# ${_label} with ownership and mode?" y || return 0
-        _drift_lines "$@"
+    sealed_setgid_note() {
+        (( ${#sealed_setgid[@]} )) || return 0
+        headline_warn "NOTICE: setgid on an owner-only directory" \
+            "${#sealed_setgid[@]} sealed director(ies) carry a setgid bit set to a group that is neither ${SANDBOX_GROUP} nor yours. The claim keeps it -- it cannot tell a deliberate choice from a leftover -- so new files there are still born in that group."
+        path_listing "director(ies)" "${sealed_setgid[@]}"
+        say "      ${C_DIM}if it was not intended, clear it yourself:  chmod g-s <dir>${C_RST}"
     }
 
     # skip_listed_note: the skip-listed hits are informational either way -- shown both on
@@ -962,11 +1091,7 @@ cmd_project_claim() {
         (( ${#drift_skipped[@]} )) || return 0
         headline_warn "NOTICE: drift under skip-listed directories" \
             "${#drift_skipped[@]} path(s) with a foreign group sit under skip-listed directory names (build output, dependencies, caches); claim leaves those trees untouched."
-        _drift_lines "${drift_skipped[@]:0:3}"
-        if (( ${#drift_skipped[@]} > 3 )); then
-            say "        ${C_DIM}... and $(( ${#drift_skipped[@]} - 3 )) more${C_RST}"
-            _drift_list_all "path(s)" "${drift_skipped[@]}"
-        fi
+        path_listing "path(s)" "${drift_skipped[@]}"
         say "      ${C_DIM}if one is source in this project, exempt it in /etc/ai-tools/operator.conf --${C_RST}"
         say "      ${C_DIM}narrow the category (SKIP_ARTIFACT_DIRS=...) or list the path relative to the${C_RST}"
         say "      ${C_DIM}project root in SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE -- then re-claim;${C_RST}"
@@ -981,15 +1106,33 @@ cmd_project_claim() {
     if [[ "${owngap}" == true ]] || ${need_acl} || ${need_label} || (( ${#drift[@]} )); then
         heavy=true
         head+=("claiming in place grants the agent group access to this whole tree")
+        # Said plainly, before the confirm that authorizes it: the steps below rewrite metadata
+        # across the tree, and unclaim NORMALIZES rather than restores (setfacl -b clears ACLs
+        # that predate the claim; the result is 640/750). No prior state is recorded anywhere,
+        # so no command can put it back -- which makes "back up first" the only real safeguard.
+        head+=("It MODIFIES group, permissions and ACLs throughout this tree, sets setgid on its directories, and removes world access. Files and directories that are owner-only (0600/0700) are left alone, out of the agent's reach. The previous permissions are NOT recorded anywhere, so this is NOT reversible -- unclaiming later normalizes the tree rather than restoring it. Back up first. See: man ai-tools")
     fi
     headline "Claim project (in place)" "${head[@]}"
 
     reach_scan "${d}"
 
+    # The project root being owner-only is reach_scan's problem one level down: ai-tools-setfacl
+    # honours a 0600/0700 mode and skips the path, so every later step still succeeds and the
+    # claim closes with its ✓ while the sandbox account cannot enter the tree at all. Stated
+    # here, before the confirm, rather than left to the helper's skip count afterwards.
+    local root_mode
+    root_mode="$(stat -c '%a' "${d}" 2>/dev/null || echo 755)"
+    if (( ( 8#${root_mode} & 077 ) == 0 )); then
+        headline_warn "NOTICE: this project directory is owner-only" \
+            "${d} is mode ${root_mode}, which keeps it out of the sandbox account's reach: the claim honours that mode and grants nothing on it."
+        say ""
+    fi
+
     if [[ "${listed}" == true && "${safedir}" == true && "${owngap}" == false ]] \
             && ! ${need_filemode} && ! ${need_acl} && ! ${need_label} && ! ${need_git} \
             && (( ${#drift[@]} == 0 )); then
         skip_listed_note
+        sealed_setgid_note
         # A claimed project can still sit under a non-traversable parent (a later
         # chmod 700 above it), so the reachability block runs on the no-op path too.
         reg_reach "${d}"
@@ -1023,13 +1166,15 @@ cmd_project_claim() {
     if (( ${#drift[@]} )); then
         headline_warn "WARNING: interior permission drift" \
             "${#drift[@]} path(s) inside the tree carry a foreign group yet stay group-accessible (they arrived without inheriting the project group or ACL)."
-        _drift_lines "${drift[@]:0:3}"
-        if (( ${#drift[@]} > 3 )); then
-            say "        ${C_DIM}... and $(( ${#drift[@]} - 3 )) more$( (( ${#drift[@]} >= 200 )) && printf ' (list capped at 200)' )${C_RST}"
-            _drift_list_all "path(s)" "${drift[@]}"
+        path_listing "path(s)" "${drift[@]}"
+        # The cap is a property of the SCAN, not of this listing, so it is said whether the paths
+        # were sampled or shown in full.
+        if (( ${#drift[@]} >= 200 )); then
+            say "        ${C_DIM}(scan capped at 200 paths)${C_RST}"
         fi
     fi
     skip_listed_note
+    sealed_setgid_note
 
     # Heavy steps (recursive chgrp; sudo relabel/ACL; drift repair) close the Review
     # block behind the proceed confirm; pure registry additions do not. --yes pre-answers
@@ -1092,55 +1237,421 @@ cmd_project_claim() {
 # idempotent now, so "create" and "claim" are the same operation.
 cmd_project_create() { cmd_project_claim "$@"; }
 
-# cmd_project_unclaim [path]  -- undo an in-place claim (default: cwd): revert the
-# SELinux label, drop both registries, and (default-yes confirm) hand the tree's
-# filesystem back to a target group with the agent's write access revoked. The directory
-# itself is left on disk. The filesystem hand-back (ai-tools-unclaim) clears the agent
-# ACL + default ACL, regroups every eligible file to the target group, and removes group
-# write (660->640, 770->750, 400 stays 400) -- so the agent loses access via both the
-# group owner and the named ACL entry. The target group defaults to the invoking user's
-# own group; any other system user can be named (the tree is handed to that user's group).
-cmd_project_unclaim() {
-    local d; d="$(resolve_dir "${1:-$PWD}")"
-    section "Unclaim project"
-    say "  ${d}"
-    say "  ${C_DIM}(the directory itself is left on disk)${C_RST}"
-    confirm "Unclaim this project?" n || die "aborted"
-    # Revert the SELinux label before dropping the registries. The helper's --remove is
-    # lenient about allowlist membership, but reverting first keeps the invariant
-    # "labelled => allowlisted". Best-effort: warn, never fail the unclaim. Skipped
-    # for sandbox paths (handled by cmd_sandbox_remove) and when SELinux is inactive.
+# positive_project_entries  -- print each allowed-projects entry that names a real,
+# resolvable project directory (canonicalized), one per line, skipping blanks, comments,
+# and '!' exclusions. Read with the shared config grammar so it agrees with cmd_list and
+# the launch wrapper on what a line denotes. Stale (unresolvable) lines are omitted -- they
+# name nothing on disk, so they can neither be nor contain an unclaim target.
+positive_project_entries() {
+    local entry dir
+    [[ -f "${ALLOWLIST}" ]] || return 0
+    while IFS= read -r entry || [[ -n "${entry}" ]]; do
+        ai_tools_conf_path_entry "${entry}" || continue
+        entry="${_ai_tools_conf_value}"
+        [[ "${entry}" == '!'* ]] && continue
+        dir="$(realpath -e "${entry}" 2>/dev/null)" || continue
+        printf '%s\n' "${dir}"
+    done < "${ALLOWLIST}"
+}
+
+# covered_by_project <dir>  -- 0 when <dir> is at or under a positive allowed-projects entry in the
+# invoking operator's own allowlist, honoring '!' exclusions (an exclusion wins). The CLI front-line
+# for the per-project verbs (reclaim, lockdown): a path outside every claimed project is refused up
+# front with a clear message, not a silent helper no-op. Scoped to the operator's own allowlist like
+# every other CLI read; the root helpers re-check coverage (multi-operator) independently. Mirrors
+# operator.lib's ai_tools_allowlist_covers.
+covered_by_project() {
+    local d="$1" entry val dir covered=1
+    [[ -f "${ALLOWLIST}" ]] || return 1
+    while IFS= read -r entry || [[ -n "${entry}" ]]; do
+        ai_tools_conf_path_entry "${entry}" || continue
+        val="${_ai_tools_conf_value}"
+        if [[ "${val}" == '!'* ]]; then
+            val="${val#!}"; val="${val%/}"
+            # SC2053: the unquoted RHS is the operator-owned glob pattern (see shellcheck.rule.md).
+            [[ "${d}" == ${val} ]] && return 1                                  # exclusion wins
+            [[ "${val}" != *'*'* && "${d}" == "${val}/"* ]] && return 1
+        else
+            dir="$(realpath -e "${val}" 2>/dev/null)" || continue
+            [[ "${d}" == "${dir}" || "${d}" == "${dir}/"* ]] && covered=0
+        fi
+    done < "${ALLOWLIST}"
+    return "${covered}"
+}
+
+# unclaim_one <dir> <group|""> <hint> [helper-flag...]  -- revert one claimed project. Order
+# matters: revert
+# the SELinux label first (keeps the invariant "labelled => allowlisted"), then run the
+# filesystem hand-back WHILE THE ALLOWLIST ENTRY IS STILL PRESENT (ai-tools-unclaim refuses a
+# target not in allowed-projects), and only then drop the two registries. <group> empty means
+# "unregister only, leave permissions"; <hint> non-empty prints the manual hand-back command
+# (used when the hand-back was wanted but could not run). Best-effort throughout: a step warns
+# with its manual command and never aborts the pass.
+unclaim_one() {
+    local d="$1" group="$2" hint="$3"; shift 3
+    local flags=""; (( $# )) && flags=" $*"
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
         run_relabel "${d}" --remove \
             || warn "could not revert SELinux label -- run: sudo ${RELABEL_BIN} --remove ${d}"
     fi
-    unreg_allow "${d}"
-    unreg_safedir "${d}"
-
-    # Filesystem hand-back: revoke the agent and return the tree to a real group. Default
-    # YES (it is the natural completion of an unclaim) but confirmed, since it rewrites
-    # ownership/permissions across the tree.
-    if confirm "Hand the files back to a group and remove the agent's write access?" y; then
-        local target_user target_group
-        target_user="$(ask "  Hand the files to which user's group?" "${ME}")"
-        if ! target_group="$(id -gn "${target_user}" 2>/dev/null)"; then
-            warn "no such user '${target_user}' -- skipping the filesystem hand-back"
-            say  "      run it later with: ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} <group>${C_RST}"
-        elif ! command -v sudo >/dev/null 2>&1; then
-            warn "sudo not found -- cannot hand the files back automatically"
-            say  "      ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} ${target_group}${C_RST}"
-        elif run_unclaim "${d}" "${target_group}"; then
-            ok "handed ${d} back to group ${target_group}, agent write access removed"
+    if [[ -n "${group}" ]]; then
+        if run_unclaim "${d}" "${group}" "$@"; then
+            ok "handed ${d} back to group ${group}, agent write access removed"
         else
             warn "could not hand the files back -- run it by hand:"
-            say  "      ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} ${target_group}${C_RST}"
+            say  "      ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} ${group}${flags}${C_RST}"
+        fi
+    elif [[ -n "${hint}" ]]; then
+        say  "      run it later with: ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} <group>${flags}${C_RST}"
+    fi
+    unreg_safedir "${d}"
+    unreg_allow "${d}"
+    ok "unclaimed ${d}"
+    ai_tools_log_info "unclaimed project ${d}"
+}
+
+# residue_scan <dir>  -- fill RESIDUE and RESIDUE_SKIPPED with every path under <dir> that still
+# carries ai-tools ownership or group: the on-disk fingerprint of a claim. RESIDUE holds what the
+# default helper walk reaches, RESIDUE_SKIPPED what only --full does; .git counts as reachable
+# because the helper reverts it in a dedicated pass regardless of the skip list. Read-only and
+# unprivileged, so it is a PREVIEW: the helper re-derives the same predicate as root, where it
+# also sees the ACL-only paths this scan cannot cheaply detect and the paths this operator cannot
+# traverse. Under-reporting is the safe direction -- the gate it feeds only ever decides whether
+# there is anything to offer, never what may be touched.
+residue_scan() {
+    local d="$1" hit
+    RESIDUE=(); RESIDUE_SKIPPED=()
+    ai_tools_skip_find_expr sweep 2>/dev/null || true
+    while IFS= read -r hit; do
+        [[ -n "${hit}" ]] || continue
+        if [[ "${hit}" != "${d}/.git/"* && "${hit}" != "${d}/.git" ]] \
+                && under_skip_listed_name "${d}" "${hit}"; then
+            RESIDUE_SKIPPED+=("${hit}")
+        else
+            RESIDUE+=("${hit}")
+        fi
+    done < <(find "${d}" -xdev \
+                  '(' -user "${SANDBOX_USER}" -o -group "${SANDBOX_GROUP}" ')' \
+                  '(' -type d -o -type f ')' -print 2>/dev/null)
+}
+
+# resolve_handback_group <group-opt>  -- decide the filesystem hand-back's target group. It has
+# TWO results and sets both as globals in the CALLER's shell:
+#   HANDBACK_GROUP  the target group; empty means "unregister only, leave permissions alone".
+#   HANDBACK_HINT   non-empty when a hand-back was wanted but cannot run, so the caller prints
+#                   the manual command instead of silently doing nothing.
+# Globals, not stdout, precisely BECAUSE there are two: a `$(...)` capture runs the function in a
+# subshell, where the second result is lost -- and reading it back under `set -u` aborts the whole
+# unclaim before it touches anything. Prompts draw on /dev/tty and warnings on stderr, so a caller
+# needs neither redirection nor a capture.
+# --group answers both questions at once (whether to hand back, and to which group), so an
+# automated run never depends on the prompt's no-terminal fallback quietly picking the invoking
+# user's group. Without it the default-YES confirm and the user->group prompt run as before.
+HANDBACK_GROUP=""
+HANDBACK_HINT=""
+resolve_handback_group() {
+    local group_opt="$1" hb_user
+    HANDBACK_GROUP=""
+    HANDBACK_HINT=""
+    if [[ -n "${group_opt}" ]]; then
+        if command -v sudo >/dev/null 2>&1; then
+            HANDBACK_GROUP="${group_opt}"
+        else
+            warn "sudo not found -- cannot hand the files back automatically"
+            HANDBACK_HINT=1
+        fi
+        return 0
+    fi
+    # Default YES: the natural completion of an unclaim. Still confirmed, because it rewrites
+    # ownership and permissions across the tree.
+    if confirm "Hand the files back to a group and remove the agent's write access?" y; then
+        hb_user="$(ask "  Hand the files to which user's group?" "${ME}")"
+        if ! HANDBACK_GROUP="$(id -gn "${hb_user}" 2>/dev/null)"; then
+            warn "no such user '${hb_user}' -- skipping the filesystem hand-back"
+            HANDBACK_GROUP=""; HANDBACK_HINT=1
+        elif ! command -v sudo >/dev/null 2>&1; then
+            warn "sudo not found -- cannot hand the files back automatically"
+            HANDBACK_GROUP=""; HANDBACK_HINT=1
+        fi
+    fi
+    return 0
+}
+
+# cmd_unclaim_unlisted <dir> <force> <full> <dry> <assume-yes> <group-opt>  -- the UNRELATED
+# branch: no allowlist entry covers <dir>. Detection guides; only --force acts, and even then the
+# helper touches a path solely while it still carries the ai-tools fingerprint, so running this on
+# a directory that was never claimed changes nothing at all. That per-path gate -- not any
+# conservatism about which bits to write -- is what makes the mode safe on a mistyped path: what
+# it DOES to a path it accepts is identical to a registered unclaim.
+cmd_unclaim_unlisted() {
+    local d="$1" force="$2" full="$3" dry="$4" assume_yes="$5" group_opt="$6"
+
+    ai_tools_assert_safe_target "${d}" "project unclaim" || exit 3
+    # A sandbox clone has its own lifecycle verb, which also removes the clone itself.
+    if [[ "${d}" == "${SANDBOX_ROOT}/"* ]]; then
+        die "that is a sandbox clone: ${d}" \
+            "       remove it with: ai-tools --sandbox-remove ${d}"
+    fi
+
+    residue_scan "${d}"
+    local n_res="${#RESIDUE[@]}" n_skip="${#RESIDUE_SKIPPED[@]}"
+    if (( n_res == 0 && n_skip == 0 )); then
+        die "nothing to unclaim here: ${d}" \
+            "       it is not a registered project, and nothing in it carries ai-tools ownership or group" \
+            "       list your registered projects with: ai-tools --list"
+    fi
+
+    local extra=""
+    (( n_skip )) && extra=", plus ${n_skip} more under skip-listed directories (--full reaches those)"
+
+    # Detection GUIDES but never lowers the gate: the fingerprint improves the message, --force
+    # still authorizes, and the confirm below still executes.
+    if [[ "${force}" != true ]]; then
+        ai_tools_msg_notice \
+            "ai-tools: not a registered project, but it carries ai-tools permissions:" \
+            "${d}" \
+            "${n_res} path(s) owned by or grouped to ${SANDBOX_USER}${extra}." \
+            "This looks like a claimed project copied or moved here without unclaiming. To normalize its permissions without registering it, re-run with --force:"
+        say ""
+        say "   preview:  ${C_BOLD}ai-tools --project-unclaim --force --dry-run ${d}${C_RST}"
+        say "   apply:    ${C_BOLD}ai-tools --project-unclaim --force ${d}${C_RST}"
+        say "   see:      ${C_BOLD}man ai-tools${C_RST}"
+        exit 0
+    fi
+
+    if [[ "${dry}" == true ]]; then
+        section "Dry run -- nothing is changed"
+        say "  ${d}"
+        say ""
+        say "  ${n_res} path(s) the default walk reaches:"
+        path_detail_lines "${RESIDUE[@]}"
+        if (( n_skip )); then
+            say ""
+            say "  ${n_skip} path(s) under skip-listed directories, reached only with --full:"
+            path_detail_lines "${RESIDUE_SKIPPED[@]}"
+        fi
+        say ""
+        say "  ${C_DIM}the helper re-derives this as root, where it also sees ACL-only paths${C_RST}"
+        say "  ${C_DIM}and any path this account cannot traverse${C_RST}"
+        exit 0
+    fi
+
+    headline_warn "WARNING: unclaim an unregistered tree" \
+        "${d} is NOT a registered project. Only paths still carrying ai-tools ownership, group, or ACL are changed; every other path is left untouched." \
+        "On each matching path it clears the ACLs, regroups to the target group and removes group write -- landing on 640, or 750 where the owner has execute -- clears the setgid bit and resets the SELinux label. World access, which the claim removed, is NOT restored. The previous permissions are recorded nowhere, so this is IRREVERSIBLE. Back up first. See: man ai-tools"
+    say ""
+    say "    ${n_res} path(s)${extra}"
+    path_listing "path(s)" "${RESIDUE[@]}"
+    say ""
+
+    # Heavy trees: informational unless --full was asked for. With --full the operator has already
+    # recorded the intent on the command line, so the confirm defaults YES -- an automated run
+    # carries through on that default while an interactive one still sees and answers it.
+    local -a helper_flags=(--unlisted)
+    if (( n_skip )); then
+        if [[ "${full}" == true ]]; then
+            headline_warn "Skip-listed directories (--full)" \
+                "${n_skip} path(s) carrying ai-tools ownership or group sit under skip-listed directory names (build output, dependencies, caches). --full includes them in this pass."
+            path_listing "path(s)" "${RESIDUE_SKIPPED[@]}"
+            say ""
+            confirm "Include these ${n_skip} path(s) under skip-listed directories?" y \
+                && helper_flags+=(--full)
+        else
+            headline_warn "NOTICE: residue under skip-listed directories" \
+                "${n_skip} path(s) carrying ai-tools ownership or group sit under skip-listed directory names (build output, dependencies, caches). This pass leaves them untouched; add --full to include them."
+            path_detail_lines "${RESIDUE_SKIPPED[@]:0:3}"
+            (( n_skip > 3 )) && say "        ${C_DIM}... and $(( n_skip - 3 )) more${C_RST}"
+            say ""
         fi
     fi
 
-    ok "unclaimed ${d}"
-    ai_tools_log_info "unclaimed project ${d}"
+    # The one decision --force does not make for you. -y pre-answers it, the same explicit
+    # per-invocation convention as --project-claim -y.
+    if [[ "${assume_yes}" != true ]]; then
+        confirm "Unclaim this unregistered tree?" n || die "aborted"
+    fi
+
+    local hb_group hb_hint
+    resolve_handback_group "${group_opt}"
+    hb_group="${HANDBACK_GROUP}"; hb_hint="${HANDBACK_HINT}"
+    if [[ -z "${hb_group}" ]]; then
+        [[ -n "${hb_hint}" ]] \
+            && say "      run it later with: ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} <group> ${helper_flags[*]}${C_RST}"
+        die "nothing to do without a hand-back group -- there are no registries to drop for an unregistered tree"
+    fi
+
+    if run_unclaim "${d}" "${hb_group}" "${helper_flags[@]}"; then
+        ok "normalized ${d} to group ${hb_group}, ai-tools access removed"
+        ai_tools_log_info "unclaimed unregistered tree ${d} (group -> ${hb_group})"
+    else
+        warn "could not normalize the tree -- run it by hand:"
+        say  "      ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} ${hb_group} ${helper_flags[*]}${C_RST}"
+        exit 1
+    fi
+}
+
+# cmd_project_unclaim [path]  -- undo an in-place claim (default: cwd): revert the SELinux
+# label, drop both registries, and (default-yes confirm) hand the tree's filesystem back to a
+# target group with the agent's write access revoked. The directory itself is left on disk. The
+# filesystem hand-back (ai-tools-unclaim) clears the agent ACL + default ACL, regroups every
+# eligible file to the target group, and removes group write (660->640, 770->750, 400 stays 400).
+# The target group defaults to the invoking user's own group; any other system user can be named.
+#
+# The path is classified against allowed-projects into five outcomes, so unclaim only ever
+# modifies permissions where something authorizes it:
+#   EXACT       the path is itself a claimed project -- unclaim it.
+#   ANCESTOR    claimed projects are nested under it -- list them and, behind a single default-NO
+#               warning, unclaim each, outermost first.
+#   DESCENDANT  the path sits INSIDE a claimed project -- refuse, naming the nearest claimed
+#               parent (the longest matching entry) and the command that does work.
+#   UNRELATED + residue   no allowlist entry covers it, but it still carries the ai-tools
+#               fingerprint: a claimed project copied or moved here and never unclaimed. Detection
+#               only GUIDES; acting needs an explicit --force, which swaps the allowlist gate for
+#               a per-path residue gate in the helper.
+#   UNRELATED, clean      refuse -- nothing here was ever claimed, so there is nothing to undo.
+# A protected system path is refused up front. For a registered project this only guards a
+# hand-edited allowlist (claim/setgid/setfacl never let one become a claimed project), whose
+# cleanup ai-tools --list reports; --force never relaxes it.
+cmd_project_unclaim() {
+    # --force gates on the on-disk fingerprint instead of allowlist membership; it never relaxes
+    # the protected-paths backstop, the owner guard, or the secret/'!' skips. -y/--yes pre-answers
+    # the default-NO confirm in EVERY mode -- the registered project's, the ancestor batch's, and
+    # --force's -- the same explicit-flag convention as --project-claim -y; it never answers the
+    # hand-back or skip-listed questions, which ask on their own terms. --group names the hand-back
+    # group outright, so a script never depends on the prompt's no-tty fallback -- and it works in
+    # both modes.
+    local a path="" force=false full=false dry=false assume_yes=false group_opt="" want_group=false
+    for a in "$@"; do
+        if ${want_group}; then group_opt="${a}"; want_group=false; continue; fi
+        case "${a}" in
+            --force)      force=true ;;
+            --full)       full=true ;;
+            -n|--dry-run) dry=true ;;
+            -y|--yes)     assume_yes=true ;;
+            --group)      want_group=true ;;
+            --group=*)    group_opt="${a#--group=}" ;;
+            -*) die "unknown --project-unclaim option: ${a}" \
+                    "       allowed: --force, --full, -n/--dry-run, -y/--yes, --group <group>" ;;
+            *)  if [[ -z "${path}" ]]; then path="${a}"
+                else die "--project-unclaim takes a single path"; fi ;;
+        esac
+    done
+    ${want_group} && die "--group needs a group name"
+    if [[ -n "${group_opt}" ]] && ! getent group "${group_opt}" >/dev/null 2>&1; then
+        die "no such group: ${group_opt}"
+    fi
+    if ${dry} && ! ${force}; then
+        die "-n/--dry-run applies to --force only" \
+            "       a registered project's unclaim previews itself: it lists what it will do and asks before acting"
+    fi
+
+    local d; d="$(resolve_dir "${path:-$PWD}")"
+    [[ -d "${d}" ]] || die "not a directory: ${d}"
+
+    # Classify d: exact entry, ancestor of entries, descendant of one, or unrelated.
+    local -a entries=() targets=()
+    local e
+    while IFS= read -r e; do [[ -n "${e}" ]] && entries+=("${e}"); done \
+        < <(positive_project_entries)
+    local mode=unrelated nearest=""
+    for e in "${entries[@]:-}"; do
+        [[ "${e}" == "${d}" ]] && { mode=exact; targets=("${d}"); break; }
+    done
+    if [[ "${mode}" == unrelated ]]; then
+        for e in "${entries[@]:-}"; do
+            [[ "${e}" == "${d}/"* ]] && targets+=("${e}")
+        done
+        if (( ${#targets[@]} )); then
+            mode=ancestor
+            # Outermost first: a parent path sorts before every path nested in it (it is their
+            # prefix), so a containing project is handed back before one inside it. Each still
+            # needs its own registry and label drop, so a nested entry is never skipped.
+            mapfile -t targets < <(printf '%s\n' "${targets[@]}" | sort)
+        fi
+    fi
+    if [[ "${mode}" == unrelated ]]; then
+        # Nearest claimed parent: the LONGEST entry that is a prefix of d. With both /a and /a/b
+        # claimed, /a/b/c belongs to /a/b. One length comparison -- no tree, no traversal.
+        for e in "${entries[@]:-}"; do
+            if [[ "${d}" == "${e}/"* ]] && (( ${#e} > ${#nearest} )); then nearest="${e}"; fi
+        done
+        [[ -n "${nearest}" ]] && mode=descendant
+    fi
+
+    if [[ "${mode}" == descendant ]]; then
+        die "this path is inside a claimed project, not a project itself: ${d}" \
+            "       the claimed project is: ${nearest}" \
+            "       unclaim that instead: ai-tools --project-unclaim ${nearest}"
+    fi
+
+    if [[ "${mode}" == unrelated ]]; then
+        cmd_unclaim_unlisted "${d}" "${force}" "${full}" "${dry}" "${assume_yes}" "${group_opt}"
+        return
+    fi
+
+    # Protected-path front line: never modify permissions on a protected system path. Guard
+    # each MODIFICATION target (in ancestor mode the search root may be protected, e.g. /home,
+    # while the projects nested under it are not).
+    local t
+    for t in "${targets[@]}"; do
+        ai_tools_assert_safe_target "${t}" "project unclaim" || exit 3
+    done
+
+    # --force is about reaching a tree the allowlist does not cover; here one does. Say so
+    # rather than silently ignoring the flag, and name the project that made it unnecessary.
+    if ${force}; then
+        ai_tools_msg_notice \
+            "ai-tools: --force is not needed here -- this path is covered by the allowlist:" \
+            "${targets[0]}" \
+            "unclaiming it the normal way, which reverts the whole registered tree."
+    fi
+
+    if [[ "${mode}" == exact ]]; then
+        section "Unclaim project"
+        say "  ${d}"
+        say "  ${C_DIM}(the directory itself is left on disk)${C_RST}"
+        ${assume_yes} || confirm "Unclaim this project?" n || die "aborted"
+    else
+        headline_warn "WARNING: unclaim multiple projects" \
+            "${d} is not itself a claimed project, but ${#targets[@]} claimed project(s) are nested under it." \
+            "Unclaiming MODIFIES FILE PERMISSIONS AND OWNERSHIP in ALL of the projects listed below." \
+            "The directories themselves are left on disk."
+        for t in "${targets[@]}"; do printf '    %s\n' "${t}"; done
+        say ""
+        ${assume_yes} || confirm "Unclaim ALL ${#targets[@]} projects listed above?" n || die "aborted"
+    fi
+
+    # Filesystem hand-back: decided ONCE for the whole batch.
+    local hb_group hb_hint
+    resolve_handback_group "${group_opt}"
+    hb_group="${HANDBACK_GROUP}"; hb_hint="${HANDBACK_HINT}"
+
+    local -a helper_flags=()
+    ${full} && helper_flags=(--full)
+
+    for t in "${targets[@]}"; do
+        unclaim_one "${t}" "${hb_group}" "${hb_hint}" "${helper_flags[@]}"
+    done
+
+    # Mixed tree: the registered projects are done, but ai-tools residue can still sit elsewhere
+    # under this path (another copy, a leftover from a tree that was never registered). Reported
+    # only when --force asked about residue in the first place, so the common path pays no scan.
+    # The projects just unclaimed are no longer registered, so a re-run now classifies the whole
+    # path as unrelated and the one command finishes the job.
+    if ${force} && [[ "${mode}" == ancestor ]]; then
+        residue_scan "${d}"
+        local left=$(( ${#RESIDUE[@]} + ${#RESIDUE_SKIPPED[@]} ))
+        if (( left )); then
+            say ""
+            ai_tools_msg_notice \
+                "ai-tools: ${left} path(s) under this directory still carry ai-tools ownership or group, outside the projects just unclaimed." \
+                "Re-run to normalize them now that nothing here is registered:"
+            say ""
+            say "   ${C_BOLD}ai-tools --project-unclaim --force --dry-run ${d}${C_RST}"
+        fi
+    fi
 }
 
 # sandbox_finalize <dst>  -- the access-granting tail of every sandbox create, run only
@@ -1178,14 +1689,72 @@ sandbox_finalize() {
     say "  ${C_YEL}shallow${C_RST}        : push-only -- never git pull/fetch here, or you pull the full history"
 }
 
-# cmd_sandbox_create [path]  -- create or reuse the per-repo branch
-# ai-tools/sandbox-<user>/<leaf>, shallow-clone it PRIVATELY (umask 077) into
-# SANDBOX_ROOT, then hand off to sandbox_finalize: secret lockdown first, and only past
-# that gate normalize + relabel + register (fail-closed otherwise). Pointed at an
-# EXISTING clone under SANDBOX_ROOT, it resumes sandbox_finalize on it -- the recovery
-# path for a create whose gate was declined or failed.
+# sandbox_default_branch <from>  -- echo the DEFAULT sandbox branch name for a fork of <from>:
+# "sandbox/<leaf>", where <leaf> is <from>'s last path component (so a fork of develop defaults to
+# sandbox/develop, and origin/feature/x to sandbox/x). The literal "sandbox" carries NO host,
+# machine, or operator identity by design -- the branch is pushed to a shared remote, so the default
+# must leak nothing about who or where created it. It is only a DEFAULT: the operator overrides the
+# whole name with --branch (or the prompt), and any valid git ref is accepted, so the sandbox
+# workflow is not tied to this shape. Pure; unit-tested (tests/unit/sandbox.sh).
+sandbox_default_branch() {
+    printf 'sandbox/%s' "${1##*/}"
+}
+
+# sandbox_resolve_base <top> <remote> <base>  -- echo a ref naming <base>'s tip in the source
+# repo, or return 1 if none does. Tries <base> as a local branch first, then the remote-tracking
+# form <remote>/<base> (so a base that lives only on the remote -- e.g. master while you are on
+# develop -- resolves without a local checkout), then any other commit-ish (a tag or SHA). This is
+# what lets the sandbox branch be forked from a base OTHER than the current HEAD. Read-only (no
+# ref is created here); unit-tested against a fixture repo (tests/unit/sandbox.sh).
+sandbox_resolve_base() {
+    local top="$1" remote="$2" base="$3"
+    git -C "${top}" rev-parse --verify --quiet "refs/heads/${base}" >/dev/null 2>&1 \
+        && { printf '%s' "${base}"; return 0; }
+    git -C "${top}" rev-parse --verify --quiet "refs/remotes/${remote}/${base}" >/dev/null 2>&1 \
+        && { printf 'refs/remotes/%s/%s' "${remote}" "${base}"; return 0; }
+    git -C "${top}" rev-parse --verify --quiet "${base}^{commit}" >/dev/null 2>&1 \
+        && { printf '%s' "${base}"; return 0; }
+    return 1
+}
+
+# cmd_sandbox_create [path] [--from <ref>] [--branch <name>] [--dir <name>] [-y|--yes]
+#   -- create or reuse a sandbox branch, shallow-clone it PRIVATELY (umask 077) into SANDBOX_ROOT,
+#   then hand off to sandbox_finalize: secret lockdown first, and only past that gate normalize +
+#   relabel + register (fail-closed otherwise). Pointed at an EXISTING clone under SANDBOX_ROOT, it
+#   resumes sandbox_finalize on it (flags are then irrelevant) -- the recovery path for a create
+#   whose gate was declined or failed.
+#
+#   Every input has a default and an optional flag, so the command is fully scriptable and the
+#   prompts are only the interactive fallback (a flag skips its prompt; no flag + no tty takes the
+#   default). The branch is a FULL git ref of any shape -- the "sandbox/<leaf>" default is a
+#   convention, not a required structure (see sandbox_default_branch); it is validated with
+#   git check-ref-format, never silently rewritten. -y/--yes pre-answers the create confirm only;
+#   the secret-lockdown and .git gates in sandbox_finalize still apply (messaging.rule.md doctrine).
 cmd_sandbox_create() {
-    local src; src="$(resolve_dir "${1:-$PWD}")"
+    local o_path="" o_from="" o_branch="" o_dir="" o_yes=false
+    local have_from=false have_branch=false have_dir=false
+    # _need_value <flag> [remaining args...]: die unless a value follows the flag AND that value is
+    # not itself option-shaped. A leading '-' is a mistyped flag far more often than a real ref or
+    # directory name, and taking it at face value hands it to git as an option -- so the run would
+    # fail with git's own parse error, which names neither this flag nor the value. Refused here,
+    # where the message can name both, and before the push.
+    _need_value() {
+        local flag="$1"; shift
+        (( $# )) || die "${flag} needs a value"
+        [[ "$1" != -* ]] || die "${flag} needs a value, not another option: $1"
+    }
+    while (( $# )); do
+        case "$1" in
+            --from)   _need_value --from   "${@:2}"; o_from="$2";   have_from=true;   shift 2 ;;
+            --branch) _need_value --branch "${@:2}"; o_branch="$2"; have_branch=true; shift 2 ;;
+            --dir)    _need_value --dir    "${@:2}"; o_dir="$2";    have_dir=true;    shift 2 ;;
+            -y|--yes) o_yes=true; shift ;;
+            --)       shift ;;
+            -*)       die "unknown option: $1 (see: ai-tools --help)" ;;
+            *)        [[ -z "${o_path}" ]] || die "unexpected extra argument: $1"; o_path="$1"; shift ;;
+        esac
+    done
+    local src; src="$(resolve_dir "${o_path:-$PWD}")"
 
     case "${src}/" in
         "${SANDBOX_ROOT}"/*)
@@ -1218,13 +1787,37 @@ cmd_sandbox_create() {
     say "  current branch : ${cur}"
     say "  remote         : ${remote}  ${C_DIM}${remote_url}${C_RST}"
 
-    local leaf; leaf="$(ask "Branch leaf under ai-tools/sandbox-${ME}/" "main")"
-    leaf="${leaf#/}"; leaf="${leaf%/}"
-    [[ -n "${leaf}" ]] || die "branch leaf cannot be empty"
-    local br="ai-tools/sandbox-${ME}/${leaf}"
+    # Resolve every input BEFORE any push or checkout: a flag wins, else the prompt (interactive) or
+    # the default (no tty). So an Enter-through reproduces the previous shape and a fully-flagged run
+    # needs no terminal, while a bad value stops here rather than after the push.
 
-    local name; name="$(ask "Sandbox directory name under ${SANDBOX_ROOT}" "$(basename "${top}")")"
-    [[ -n "${name}" && "${name}" != */* ]] || die "invalid directory name: ${name}"
+    # Base to fork from -- defaults to the current branch, but can be any base (e.g. main for a
+    # hotfix while you sit on develop): a local branch, a <remote>/<base>, or any ref.
+    local base
+    if ${have_from}; then base="${o_from}"; else base="$(ask "Base branch to fork from" "${cur}")"; fi
+    [[ -n "${base}" ]] || die "base branch cannot be empty"
+    local base_ref
+    base_ref="$(sandbox_resolve_base "${top}" "${remote}" "${base}")" \
+        || die "base not found: ${base} (not a local branch, ${remote}/${base}, or a known ref)"
+
+    # Sandbox branch -- a FULL git ref of any shape. Defaults to the convention sandbox/<leaf-of-base>
+    # but the operator may enter anything (a flat name, a hotfix/x, or the old ai-tools/... form).
+    # Validated with git check-ref-format and refused if invalid -- never silently rewritten.
+    local br
+    if ${have_branch}; then br="${o_branch}"
+    else br="$(ask "Sandbox branch to create/track" "$(sandbox_default_branch "${base}")")"; fi
+    [[ -n "${br}" ]] || die "sandbox branch cannot be empty"
+    git check-ref-format "refs/heads/${br}" 2>/dev/null \
+        || die "invalid branch name: ${br} (must be a valid git ref -- see git-check-ref-format(1))"
+
+    local name
+    if ${have_dir}; then name="${o_dir}"
+    else name="$(ask "Sandbox directory name under ${SANDBOX_ROOT}" "$(basename "${top}")")"; fi
+    # One component, and a real one: '.' and '..' pass the no-slash test but name the clone area
+    # itself or its parent, where the next check would refuse them as "already exists" -- true, but
+    # not what went wrong.
+    [[ -n "${name}" && "${name}" != */* && "${name}" != . && "${name}" != .. ]] \
+        || die "invalid directory name: ${name} (one path component, under ${SANDBOX_ROOT})"
     local dst="${SANDBOX_ROOT}/${name}"
     if [[ -e "${dst}" ]]; then
         say "    to finish securing/registering an earlier clone of this name:"
@@ -1233,47 +1826,54 @@ cmd_sandbox_create() {
     fi
     [[ -d "${SANDBOX_ROOT}" ]] || die "sandbox area missing: ${SANDBOX_ROOT} -- run install first"
 
-    # If the branch already exists on the remote (a prior sandbox of this repo),
-    # reuse it rather than force-pushing over it -- this resumes earlier work and
-    # never discards commits. To reset it, delete the remote branch or pick a new leaf.
-    local br_exists=false
-    [[ -n "$(git -C "${top}" ls-remote --heads "${remote}" "${br}" 2>/dev/null)" ]] \
-        && br_exists=true
-
-    say ""
-    say "  will:"
-    if ${br_exists}; then
-        say "    1. ${C_YEL}reuse existing remote branch${C_RST} ${C_BOLD}${br}${C_RST} (your current ${cur} is NOT pushed over it)"
-    else
-        say "    1. create branch ${C_BOLD}${br}${C_RST} from ${cur} and push it to ${remote}"
-    fi
-    say "    2. shallow-clone that branch into ${C_BOLD}${dst}${C_RST}, private to you"
-    say "    3. lock down tip-commit secrets, then grant the agent access and register the clone"
-    confirm "Create the sandbox clone?" y || die "aborted"
-
-    if ${br_exists}; then
-        ok "reusing existing remote branch ${br}"
-    else
-        git -C "${top}" branch -f "${br}" HEAD
-        git -C "${top}" push "${remote}" "${br}"
-        ok "pushed ${br} to ${remote}"
-    fi
-
-    # git silently ignores --depth for a clone from a local path, which would copy
-    # the FULL history into the sandbox and defeat the isolation. Force the file://
-    # transport for local-path remotes so depth=1 is honored; network remotes
-    # (ssh/https) honor it natively and keep their original URL.
+    # git silently ignores --depth for a clone from a local path, which would copy the FULL history
+    # into the sandbox and defeat the isolation. Force the file:// transport for local-path remotes
+    # so depth=1 is honored; network remotes (ssh/https) honor it natively and keep their URL.
+    # Computed here (not after the confirm) so the preview shows the exact clone command.
     local clone_url="${remote_url}"
     case "${remote_url}" in
         /*|./*|../*) clone_url="file://$(realpath -m "${remote_url}")" ;;
     esac
-    # umask 077: the clone is born OWNER-ONLY, so the tip commit's files -- possibly
-    # checked-in credentials -- are unreadable to the sandbox account (the setgid
-    # SANDBOX_ROOT already puts them in group SANDBOX_GROUP) until the secret gate has
-    # run and normalize_clone deliberately opens the non-secret paths.
+
+    # If the branch already exists on the remote (a prior sandbox of this repo), reuse it rather
+    # than force-pushing over it -- this resumes earlier work and never discards commits. To reset
+    # it, delete the remote branch or pick a new leaf.
+    local br_exists=false
+    [[ -n "$(git -C "${top}" ls-remote --heads "${remote}" "${br}" 2>/dev/null)" ]] \
+        && br_exists=true
+
+    # Preview the ACTUAL commands, verbatim on their own lines (a long clone line overflows the
+    # frame intact rather than wrapping -- see messaging.rule.md / console-command-formatting).
+    say ""
+    if ${br_exists}; then
+        say "  will run (reusing existing remote branch ${br}; ${base} is NOT pushed over it):"
+    else
+        say "  will run:"
+        say "    git branch -f ${br} ${base_ref}"
+        say "    git push ${remote} ${br}"
+    fi
+    say "    git clone --depth=1 -b ${br} ${clone_url} ${dst}"
+    say ""
+    say "  then: lock down tip-commit secrets, grant the agent access, register the clone"
+    # -y/--yes pre-answers this create confirm only (an auditable per-invocation flag, as elsewhere);
+    # the secret-lockdown and .git gates in sandbox_finalize still prompt on their own terms.
+    ${o_yes} || confirm "Create the sandbox clone?" y || die "aborted"
+
+    if ${br_exists}; then
+        ok "reusing existing remote branch ${br}"
+    else
+        git -C "${top}" branch -f "${br}" "${base_ref}"
+        git -C "${top}" push "${remote}" "${br}"
+        ok "pushed ${br} to ${remote}"
+    fi
+
+    # umask 077: the clone is born OWNER-ONLY, so the tip commit's files -- possibly checked-in
+    # credentials -- are unreadable to the sandbox account (the setgid SANDBOX_ROOT already puts
+    # them in group SANDBOX_GROUP) until the secret gate has run and normalize_clone deliberately
+    # opens the non-secret paths.
     ( umask 077 && git clone --depth=1 -b "${br}" "${clone_url}" "${dst}" )
     ok "shallow-cloned into ${dst} (private until secured)"
-    ai_tools_log_info "created sandbox clone ${dst} (branch ${br}, remote ${remote})"
+    ai_tools_log_info "created sandbox clone ${dst} (branch ${br}, base ${base_ref}, remote ${remote})"
 
     sandbox_finalize "${dst}"
 }
@@ -1282,9 +1882,7 @@ cmd_sandbox_create() {
 # branch, after listing them and confirming. No-op when already up to date.
 cmd_sandbox_push() {
     local d; d="$(resolve_dir "${1:-$PWD}")"
-    require_sandbox "${d}"
-    git -C "${d}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-        || die "not a git repository: ${d}"
+    require_sandbox_clone "${d}"
     local up
     up="$(git -C "${d}" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)" \
         || die "no upstream configured for the current branch in ${d}"
@@ -1309,14 +1907,12 @@ cmd_sandbox_push() {
 # first about any unpushed commits. The remote branch is left intact.
 cmd_sandbox_remove() {
     local d; d="$(resolve_dir "${1:-$PWD}")"
-    require_sandbox "${d}"
+    require_sandbox_clone "${d}"
     section "Remove sandbox project"
     say "  ${d}"
 
-    local n=0
-    if git -C "${d}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        n="$(git -C "${d}" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
-    fi
+    # require_sandbox_clone guarantees a git worktree; @{u} may be absent (no upstream) -> 0.
+    local n; n="$(git -C "${d}" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
     if [[ "${n}" != "0" ]]; then
         warn "${n} unpushed commit(s) will be lost (already-pushed work stays on the remote)"
         confirm "Discard ${n} unpushed commit(s) and remove ${d}?" n || die "aborted"
@@ -1347,12 +1943,16 @@ cmd_lockdown() {
     done
     d="$(resolve_dir "${d:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
+    covered_by_project "${d}" \
+        || die "not a claimed project: ${d}" \
+               "it is not at or under any project in your allowed-projects" \
+               "       list your registered projects with: ai-tools --list"
     # No readable-path pre-check: /usr/local/libexec/ai-tools is 750 root:root, so the
     # projects user cannot even stat the helper -- only sudo (as root) can reach it.
     # If it is genuinely missing, sudo reports it and run_lockdown returns non-zero.
     section "Lock down project secrets"
     say "  ${d}"
-    say "  ${C_DIM}secret-matching files -> 600, dirs -> 700, owner ${ME}:${SANDBOX_GROUP}${C_RST}"
+    say "  ${C_DIM}secret-matching files -> 600, dirs -> 700, owner ${ME}:${MY_GROUP}${C_RST}"
     if run_lockdown "${d}" "${passthru[@]}"; then
         ${dry} || clear_lockdown_guard "${d}"
         ok "lockdown done: ${d}"
@@ -1378,6 +1978,10 @@ cmd_reclaim() {
     done
     d="$(resolve_dir "${d:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
+    covered_by_project "${d}" \
+        || die "not a claimed project: ${d}" \
+               "it is not at or under any project in your allowed-projects" \
+               "       list your registered projects with: ai-tools --list"
     section "Reclaim agent-written files"
     say "  ${d}${C_DIM}$(${full} && printf ' (--full: incl. node_modules, .venv, ...)')${C_RST}"
     say "  ${C_DIM}-> ${ME}:${SANDBOX_GROUP} (secret-named files stay ${ME}:${ME} 600)${C_RST}"
@@ -1504,14 +2108,16 @@ cmd_providers() {
         source "${groups_lib}" 2>/dev/null \
             && declare -F ai_tools_selinux_group_name >/dev/null 2>&1 || return 0
 
-        section "SELinux policy groups (${enforce})"
+        # Read the loaded module list FIRST. If it is not readable unprivileged (common: the policy
+        # store is root-only on many hosts), omit the whole section rather than print a section that
+        # only says "cannot read" -- the group/dependency reporting below all needs this list, so
+        # without it there is nothing accurate to show. `sudo ai-tools-admin selinux list-groups` is
+        # where an operator inspects policy groups.
         local modules
-        if ! modules="$(semodule -l 2>/dev/null)" || [[ -z "${modules}" ]]; then
-            say "  ${C_DIM}cannot read the loaded module list unprivileged --"
-            say "  run: sudo ai-tools-admin selinux list-groups${C_RST}"
-            return 0
-        fi
+        { modules="$(semodule -l 2>/dev/null)" && [[ -n "${modules}" ]]; } || return 0
         group_loaded() { grep -qxF "ai_tools_$1" <<<"${modules}"; }
+
+        section "SELinux policy groups (${enforce})"
 
         if grep -qxF 'ai_tools' <<<"${modules}"; then
             say "  core module ai_tools: ${C_GRN}loaded${C_RST}"
@@ -1580,19 +2186,254 @@ cmd_providers() {
     say "  ${C_DIM}providers are enabled by name in ${AI_TOOLS_OPERATOR_CONF} (root-owned, root-edited)${C_RST}"
 }
 
-# cmd_list  -- print each allowlist entry as project, sandbox, or exclude, with its
-# git safe.directory status.
+# list_maintenance_note  -- the compact pointer to the existing per-project verbs, printed
+# below the listing so --list doubles as a reconciliation/maintenance view.
+list_maintenance_note() {
+    section "Maintenance"
+    say "  ai-tools --project-claim <path>     claim a project / finish claiming one"
+    say "  ai-tools --project-unclaim <path>   release a project (revoke agent access)"
+    say "  ai-tools --reclaim [--full] <path>  take back ownership; project stays claimed"
+    say "  ai-tools --lockdown <path>          lock down secret-named files"
+    say "  ai-tools --relabel                  relabel the agent entrypoints after a Node upgrade"
+}
+
+# status_fmt_age <seconds>  -- render an age the way an operator reads it ("3 days ago"), not as a
+# duration to be mentally subtracted from now. Coarsens with distance: the exact minute matters for
+# a run that just happened and not at all for one from last week. Empty input prints nothing, so a
+# caller can drop the clause entirely when the age is unknown.
+status_fmt_age() {
+    local s="${1:-}"
+    [[ "${s}" =~ ^[0-9]+$ ]] || return 0
+    if   [[ "${s}" -lt 90      ]]; then printf 'just now'
+    elif [[ "${s}" -lt 5400    ]]; then printf '%d min ago'  "$(( s / 60 ))"
+    elif [[ "${s}" -lt 172800  ]]; then printf '%d hours ago' "$(( s / 3600 ))"
+    else                                printf '%d days ago'  "$(( s / 86400 ))"
+    fi
+}
+
+# status_sandbox_unit_commands <unit>  -- print the three commands that inspect and re-run a unit
+# living in the SANDBOX account's own `systemd --user` manager. That manager is unreachable from
+# the operator's session, so every one of them goes through root:
+#   * status/restart use the MACHINE transport (systemctl --user -M <account>@.host), which reaches
+#     that manager over the system bus where root is already authorized. A plain
+#     `sudo -u <account> systemctl --user` gets that account's own bus refused even when the manager
+#     is healthy (no XDG_RUNTIME_DIR) -- the same reason tests' sandbox_systemctl prefers this form.
+#   * the journal query matches on the JOURNAL FIELDS instead: `journalctl --user-unit` as root
+#     reads ROOT's user units, never another account's, so the unit is selected by
+#     _SYSTEMD_USER_UNIT and narrowed to the sandbox account by _UID (different field names AND
+#     together). This catches the unit's own output and the `systemd-cat` lines its script emits,
+#     since both are logged from the same cgroup.
+# Composed here rather than stored in services.lib.sh because each names the sandbox account, and
+# that library is deployed with no @SANDBOX_USER@ substitution.
+status_sandbox_unit_commands() {
+    local unit="$1" uid
+    uid="$(id -u "${SANDBOX_USER}" 2>/dev/null || true)"
+    say "      ${C_BOLD}sudo systemctl --user -M ${SANDBOX_USER}@.host status ${unit}${C_RST}"
+    if [[ -n "${uid}" ]]; then
+        say "      ${C_BOLD}sudo journalctl _SYSTEMD_USER_UNIT=${unit} _UID=${uid} -n 50 --no-pager${C_RST}"
+    fi
+    say "      ${C_BOLD}sudo systemctl --user -M ${SANDBOX_USER}@.host restart ${unit}${C_RST}"
+}
+
+# cmd_status  -- report the host's ai-tools service health: provisioning state, then each managed
+# systemd unit (OK / DOWN / FAILED / n/a / ?) and, for anything not plainly healthy, its
+# consequence and the exact commands that inspect and fix it.
+# Reuses services.lib.sh -- the SAME registry the launch-time warning reads -- so the status view and
+# the launch warning never disagree. Informational (no operator gate), like --list/--providers.
+cmd_status() {
+    local problems=0
+
+    section "Version"
+    say "  ai-tools ${AI_TOOLS_VERSION}"
+    # The agent version lives in the sandbox toolchain the operator cannot read, so it stays a
+    # pointer. Node does not have to: the updater records the version it left active in its stamp,
+    # so read it from whichever registry record publishes one -- no unit is named here, and a host
+    # whose updater has not run yet simply keeps the pointer.
+    local rec node_ver=""
+    if declare -F ai_tools_service_stamp_field >/dev/null 2>&1; then
+        while IFS= read -r rec; do
+            node_ver="$(ai_tools_service_stamp_field "$(ai_tools_service_field "${rec}" 7)" NODE)"
+            [[ -n "${node_ver}" && "${node_ver}" != unknown ]] && break
+            node_ver=""
+        done < <(ai_tools_service_records)
+    fi
+    [[ -n "${node_ver}" ]] && say "  node ${node_ver} ${C_DIM}(as of the last toolchain update)${C_RST}"
+    say "  ${C_DIM}agent version: run 'claude --version'${C_RST}"
+
+    section "Provisioning"
+    # CLAUDE_LINK is bootstrap's last artifact (the gate require_bootstrap keys on), so its presence
+    # means the toolchain is installed.
+    if [[ -L "${CLAUDE_LINK}" ]]; then
+        ok "toolchain provisioned"
+    else
+        say "  ${C_YEL}not provisioned${C_RST} -- run: ${C_BOLD}sudo ai-tools-bootstrap${C_RST}"
+    fi
+
+    section "Services"
+    # A missing registry is a broken install, not an unknowable state, so this is one of the
+    # conditions --status exits non-zero on rather than reporting a clean bill it cannot support.
+    if ! declare -F ai_tools_service_records >/dev/null 2>&1 \
+            || ! declare -F ai_tools_service_state_of >/dev/null 2>&1 \
+            || ! declare -F ai_tools_service_stamp_field >/dev/null 2>&1; then
+        warn "service registry unavailable (${SERVICES_LIB}) -- cannot report service health"
+        return 1
+    fi
+    local unit scope stamp mode state age when exit_code remedy
+    while IFS= read -r rec; do
+        unit="$(ai_tools_service_field "${rec}" 1)"
+        scope="$(ai_tools_service_field "${rec}" 2)"
+        stamp="$(ai_tools_service_field "${rec}" 7)"
+        mode="$(ai_tools_service_field "${rec}" 8)"
+        state="$(ai_tools_service_state_of "${rec}")"
+        # A stamped unit is reported from its LAST RUN, not live, so every line says WHEN -- relative
+        # first, since "3 days ago" is the part an operator acts on. An unknown age prints nothing
+        # rather than a placeholder.
+        age=""; when=""
+        if [[ -n "${stamp}" ]]; then
+            age="$(status_fmt_age "$(ai_tools_service_stamp_age "${stamp}")")"
+            [[ -n "${age}" ]] && when=" ${C_DIM}(last run ${age})${C_RST}"
+        fi
+        case "${state}" in
+            # In 'fired' mode the stamp belongs to another unit; this one is only inferred from the
+            # fact that a run happened at all, so the line says so rather than claiming a live check.
+            active) if [[ "${mode}" == fired && -n "${age}" ]]; then
+                        printf '  %-28s %sOK%s %s(inferred -- a run completed %s)%s\n' \
+                            "${unit}" "${C_GRN}" "${C_RST}" "${C_DIM}" "${age}" "${C_RST}"
+                    else
+                        printf '  %-28s %sOK%s%s\n' "${unit}" "${C_GRN}" "${C_RST}" "${when}"
+                    fi ;;
+            down)   printf '  %-28s %sDOWN%s\n' "${unit}" "${C_YEL}" "${C_RST}" ;;
+            failed) exit_code="$(ai_tools_service_stamp_field "${stamp}" EXIT_CODE)"
+                    printf '  %-28s %sFAILED%s %s(last run %s, exit %s)%s\n' "${unit}" \
+                        "${C_RED}" "${C_RST}" "${C_DIM}" "${age:-at an unknown time}" \
+                        "${exit_code:-?}" "${C_RST}" ;;
+            stale)  printf '  %-28s %sSTALE%s %s(last run %s)%s\n' \
+                        "${unit}" "${C_YEL}" "${C_RST}" "${C_DIM}" "${age:-long ago}" "${C_RST}" ;;
+            absent) printf '  %-28s %sn/a (not installed)%s\n' "${unit}" "${C_DIM}" "${C_RST}" ;;
+            # 'unknown' is not a problem report -- it says only that this vantage point cannot tell.
+            # It stays a single line carrying the one command that CAN tell, so a healthy host's
+            # report does not grow a diagnostic block per unit it simply cannot query.
+            *)      if [[ "${scope}" == sandbox-user ]]; then
+                        printf '  %-28s %s? (sandbox --user unit -- check: sudo systemctl --user -M %s@.host status %s)%s\n' \
+                            "${unit}" "${C_DIM}" "${SANDBOX_USER}" "${unit}" "${C_RST}"
+                    else
+                        printf '  %-28s %s? (systemctl unavailable)%s\n' "${unit}" "${C_DIM}" "${C_RST}"
+                    fi ;;
+        esac
+        # A unit that IS reported broken names its consequence, then every command that inspects and
+        # fixes it. A sandbox-user unit's are composed here rather than stored in the registry: they
+        # name the sandbox ACCOUNT, and services.lib.sh is deployed with no @SANDBOX_USER@ pass.
+        if ai_tools_service_needs_attention "${state}"; then
+            problems=$(( problems + 1 ))
+            say "      $(ai_tools_service_field "${rec}" 5)"
+            if [[ "${scope}" == sandbox-user ]]; then
+                status_sandbox_unit_commands "${unit}"
+            fi
+            remedy="$(ai_tools_service_field "${rec}" 6)"
+            if [[ -n "${remedy}" ]]; then
+                say "      ${C_BOLD}${remedy}${C_RST}"
+            fi
+        fi
+    done < <(ai_tools_service_records)
+
+    # Pointers, not duplication: name the sibling read-only reports (which own their own detail) and
+    # where the full command list lives, so --status is a hub without re-implementing --providers or
+    # --help.
+    section "More"
+    say "  ai-tools --providers   installed agents/integrations and which are enabled"
+    say "  ai-tools --list        registered projects (real and sandbox)"
+    say "  ai-tools --help        the full command list"
+
+    # Exit non-zero when anything is actually broken, so --status is usable unattended (a cron
+    # check, a monitor) without parsing this output. 'unknown' and 'n/a' are not faults and do not
+    # count -- an unqueryable unit must not make a healthy host alarm every night.
+    [[ "${problems}" -eq 0 ]]
+}
+
+# cmd_list  -- print each allowlist entry as project, sandbox, or exclude, with its git
+# safe.directory status, then flag inconsistent hand-edited entries under "Suggested cleanup"
+# with copy-paste remediation commands (the allowlist is operator-owned and hand-editable, so a
+# line can name a protected system path the tools refuse to touch, a stale path that no longer
+# exists, or a project listed but never fully claimed). All read-only, reusing existing predicates
+# and verbs -- no recovery machinery of its own.
 cmd_list() {
     [[ -f "${ALLOWLIST}" ]] || { say "no allowlist at ${ALLOWLIST}"; return 0; }
     section "Registered projects"
-    local entry kind safe shown=0
-    while IFS= read -r entry || [[ -n "${entry}" ]]; do
-        # Same shared grammar the wrapper and the chown helper read this file with.
-        ai_tools_conf_path_entry "${entry}" || continue
+    local raw entry excl kind safe sd shown=0
+    local -a cleanup=()
+
+    # _is_labelled <dir>  -- 0 when SELinux is active and <dir> carries ai_tools_project_t.
+    _is_labelled() {
+        command -v getenforce >/dev/null 2>&1 \
+            && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]] || return 1
+        ls -Zd "$1" 2>/dev/null | grep -q ':ai_tools_project_t:'
+    }
+    # _has_glob <str>  -- 0 when <str> carries a shell glob metacharacter (* ? [). Globs are
+    # honored only in '!' exclusion lines (both the wrapper and ai-tools-chown match them as
+    # globs); an allow line is realpath'd, so a glob there resolves to nothing and is inert.
+    _has_glob() { [[ "$1" == *[*?[]* ]]; }
+    # _remove_line_cmd <raw-line>  -- the copy-paste sed that deletes the VERBATIM allowlist line
+    # (comment and all), so it matches what is stored even when the entry carries an end-of-line
+    # comment or quotes; allow_escape makes the line a literal BRE.
+    _remove_line_cmd() { printf "          sed -i '\\\\|^%s\$|d' %s" "$(allow_escape "$1")" "${ALLOWLIST}"; }
+    # _reconcile <entry> <kind> <safedir-yes> <raw-line>  -- append a remediation block for an
+    # inconsistent entry (stale / protected / listed-but-not-fully-claimed). Nested so it shares
+    # `cleanup`; <raw-line> is the verbatim source line the removal command deletes.
+    _reconcile() {
+        local e="$1" k="$2" sdy="$3" raw="$4"
+        if ! realpath -e "${e}" >/dev/null 2>&1; then
+            cleanup+=( "  ${e}" \
+                "      ${C_YEL}no longer exists${C_RST} (stale entry); remove it:" \
+                "$(_remove_line_cmd "${raw}")" )
+            ${sdy} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove ${e}" )
+            return 0                                    # ${sdy}=false returns 1; don't kill cmd_list's set -e loop
+        fi
+        if ai_tools_protected_path_match "${e}" >/dev/null 2>&1; then
+            cleanup+=( "  ${e}" \
+                "      ${C_YEL}protected system path${C_RST} -- the tools refuse to operate on it; remove it:" \
+                "$(_remove_line_cmd "${raw}")" )
+            ${sdy} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove ${e}" )
+            _is_labelled "${e}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove ${e}" )
+            return 0                                    # trailing conditionals above return 1; don't kill the loop
+        fi
+        [[ "${k}" == project ]] || return 0            # sandbox clones are managed by --sandbox-*
+        # Not fully claimed: agent has no group access, the ACL is missing, or (SELinux active)
+        # the tree is unlabelled. Read from the same project_state tokens the claim flow uses.
+        local listed safedir filemode owngap acl labelled git
+        IFS=' ' read -r listed safedir filemode owngap acl labelled git < <(project_state "${e}")
+        if [[ "${owngap}" == true || "${acl}" == true || "${labelled}" == false ]]; then
+            cleanup+=( "  ${e}" \
+                "      ${C_YEL}listed but not fully claimed${C_RST}; finish claiming it:" \
+                "          ai-tools --project-claim ${e}" )
+        fi
+    }
+
+    while IFS= read -r raw || [[ -n "${raw}" ]]; do
+        # Same shared grammar the wrapper and the chown helper read this file with; keep the
+        # verbatim ${raw} line so a stale/protected remediation deletes exactly what is stored.
+        ai_tools_conf_path_entry "${raw}" || continue
         entry="${_ai_tools_conf_value}"
         shown=1
         if [[ "${entry}" == '!'* ]]; then
-            printf '  %-8s %s\n' "exclude" "${entry:1}"
+            excl="${entry:1}"
+            printf '  %-8s %s\n' "exclude" "${excl}"
+            # A stale exclusion excludes nothing. Flag a non-glob '!' path that no longer exists;
+            # a glob exclusion is valid as written (it need not resolve today), so leave it.
+            if ! _has_glob "${excl}" && ! realpath -e "${excl}" >/dev/null 2>&1; then
+                cleanup+=( "  ${entry}" \
+                    "      ${C_YEL}no longer exists${C_RST} (stale exclusion); remove it:" \
+                    "$(_remove_line_cmd "${raw}")" )
+            fi
+            continue
+        fi
+        # A glob in an ALLOW line is silently inert -- the wrapper realpath's allow entries, so
+        # the pattern resolves to nothing and never gates a launch. Flag it rather than letting it
+        # masquerade as a claimable project (globs belong on '!' lines).
+        if _has_glob "${entry}"; then
+            printf '  %-8s %-50s %s\n' "unusable" "${entry}" "${C_YEL}glob in allow line${C_RST}"
+            cleanup+=( "  ${entry}" \
+                "      ${C_YEL}glob in an allow line${C_RST} -- globs work only in '!' exclusion lines; an allow entry must be a literal directory. Remove it:" \
+                "$(_remove_line_cmd "${raw}")" )
             continue
         fi
         case "${entry}/" in
@@ -1601,13 +2442,38 @@ cmd_list() {
         esac
         if git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
                 | grep -qxF "${entry}"; then
-            safe="safe.dir:yes"
+            safe="safe.dir:yes"; sd=true
         else
-            safe="safe.dir:${C_YEL}NO${C_RST}"
+            safe="safe.dir:${C_YEL}NO${C_RST}"; sd=false
         fi
         printf '  %-8s %-50s %s\n' "${kind}" "${entry}" "${safe}"
+        _reconcile "${entry}" "${kind}" "${sd}" "${raw}"
     done < "${ALLOWLIST}"
     (( shown )) || say "  (none)"
+
+    # Reverse reconciliation: a git safe.directory entry with no matching allowlist line is an
+    # ORPHAN -- git still trusts the tree though nothing lists it (the allowlist line was
+    # hand-deleted, or an unclaim was interrupted before the safedir drop). Removing the stale
+    # safedir (and its label) is the cleanup; the entry is not a claimed project, so it is not
+    # offered --project-unclaim, which would refuse an unlisted target. Control-plane entries
+    # (/opt/ai-tools) are registered deliberately and are protected paths, so they are skipped.
+    local sdir
+    while IFS= read -r sdir; do
+        [[ -n "${sdir}" ]] || continue
+        ai_tools_protected_path_match "${sdir}" >/dev/null 2>&1 && continue
+        ai_tools_conf_allowlist_has_entry "${ALLOWLIST}" "${sdir}" && continue
+        cleanup+=( "  ${sdir}" \
+            "      ${C_YEL}git safe.directory with no allowlist entry${C_RST} (orphaned); remove it:" \
+            "          sudo ${SAFEDIR_BIN} --remove ${sdir}" )
+        _is_labelled "${sdir}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove ${sdir}" )
+    done < <(git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null || true)
+
+    if (( ${#cleanup[@]} )); then
+        section "Suggested cleanup"
+        printf '%s\n' "${cleanup[@]}"
+        say "  ${C_DIM}review each path before running the command; the allowlist is yours to edit${C_RST}"
+    fi
+    list_maintenance_note
 }
 
 # usage() is paired with the ai-tools(1) man page (src/usr/local/share/man/man1/
@@ -1628,12 +2494,22 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
   ai-tools --reclaim [--full] [path] take back ownership of agent files; project stays claimed (sudo; default: cwd)
   ai-tools --relabel                 relabel the agent entrypoints after a Node upgrade (sudo)
   ai-tools --providers               list installed agents/integrations and which are enabled
+  ai-tools --status                  report service health (handback socket, relabel watcher, updater)
   ai-tools --list                    list registered projects
   ai-tools --version
   ai-tools --help
 
   --project-claim options: -y/--yes (pre-answer the proceed prompt; the secret-lockdown,
                       .git-history, and ancestor-traversal questions still ask)
+  --project-unclaim options: --group <group> (hand back to <group> without prompting),
+                      --full (also cover node_modules, .venv, ...), -y/--yes (pre-answer
+                      the confirm), --force (normalize a COPY of a claimed project that is
+                      not registered; acts only on paths still carrying ai-tools ownership,
+                      group, or ACL), -n/--dry-run (with --force: list, change nothing)
+  --sandbox-create options: --from <ref> (branch/ref to fork from; default: current branch),
+                      --branch <name> (full sandbox branch to create/track; default:
+                      sandbox/<leaf of --from>; any valid git ref), --dir <name> (sandbox
+                      directory name; default: repo basename), -y/--yes (skip the create confirm)
   --lockdown options: -n/--dry-run (preview only), -y/--yes (skip confirmation)
   --reclaim options:  --full (also reclaim node_modules, .venv, ... not just the work tree + .git)
 
@@ -1651,7 +2527,16 @@ require_bootstrap() {
     die "the sandbox is not provisioned (no ${CLAUDE_LINK}) -- provision it with:" \
         "       sudo ai-tools-bootstrap"
 }
-require_bootstrap
+
+# When this file is SOURCED rather than executed (tests/unit/sandbox.sh loads it to exercise the
+# pure sandbox_* helpers above), stop here: expose the functions, run none of the gates or
+# dispatch below. On execution BASH_SOURCE[0] equals $0, so this is a no-op and the CLI proceeds.
+[[ "${BASH_SOURCE[0]}" == "${0}" ]] || return 0
+
+# --status is the one diagnostic meant to run WHEN things may be broken, so it bypasses the
+# provisioning gate: cmd_status reports the unprovisioned state (and service health) itself instead
+# of being blocked by it. Every other command stays gated.
+[[ "${1:-}" == --status ]] || require_bootstrap
 
 # require_operator -- refuse a command that acts as an operator unless the invoking user is
 # listed in OPERATORS in operator.conf. The project/sandbox/lockdown/reclaim paths resolve the
@@ -1684,15 +2569,16 @@ esac
 case "${1:-}" in
     --project-claim)   shift; cmd_project_claim   "$@" ;;
     --project-create)  shift; cmd_project_create  "$@" ;;
-    --project-unclaim) shift; cmd_project_unclaim "${1:-}" ;;
-    --project-remove)  shift; cmd_project_unclaim "${1:-}" ;;
-    --sandbox-create) shift; cmd_sandbox_create "${1:-}" ;;
+    --project-unclaim) shift; cmd_project_unclaim "$@" ;;
+    --project-remove)  shift; cmd_project_unclaim "$@" ;;
+    --sandbox-create) shift; cmd_sandbox_create "$@" ;;
     --sandbox-push)   shift; cmd_sandbox_push   "${1:-}" ;;
     --sandbox-remove) shift; cmd_sandbox_remove "${1:-}" ;;
     --lockdown)       shift; cmd_lockdown "$@" ;;
     --reclaim)        shift; cmd_reclaim "$@" ;;
     --relabel)        shift; cmd_relabel "$@" ;;
     --providers)      shift; cmd_providers "$@" ;;
+    --status)         cmd_status ;;
     --list)           cmd_list ;;
     --version|-V)     printf 'ai-tools %s\n' "${AI_TOOLS_VERSION}" ;;
     --help|-h|"")     usage ;;

@@ -159,6 +159,7 @@ setfacl -m  g:ai-ops:r-x /var/opt/ai-tools \
     && setfacl -m  g:ai-ops:rwx /var/opt/ai-tools/sandbox-projects \
     && setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects \
     && setfacl -m  g:ai-ops:r-- /var/opt/ai-tools/README.md \
+    && setfacl -m  g:ai-ops:r-x /var/opt/ai-tools/state \
     && note "sandbox ACL re-applied" || note "sandbox ACL re-apply failed (continuing)"
 
 # ── the project test suite (DAC + systemd parts; SELinux parts no-op/skip) ────

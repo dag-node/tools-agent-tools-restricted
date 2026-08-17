@@ -17,6 +17,10 @@
 # The agent that triggers it cannot read the allowlist, so the project path it
 # passes is UNTRUSTED and re-validated here against the same allow/exclude rules.
 #
+# Owner-only directories are the exception: the operator sealed them, so they are left out of
+# the agent's group, the sandbox residue they carry is stripped, and their subtree is skipped
+# with them -- see owner-only.lib.sh, which ai-tools-setfacl/-lockdown/-chown share.
+#
 # Idempotent: applies only the dirs that need it, safe to run every session start.
 #
 # Invocation: the handback socket's SETGID verb (ai-tools-handback daemon, root).
@@ -77,6 +81,17 @@ _is_secret_name() {
     ${_secret_loaded} || return 1
     ai_tools_is_secret_basename "$(basename -- "$1")"
 }
+
+# Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the
+# reference for both). Required and fail-closed like safe-paths.lib.sh: an unusable library
+# must not leave this walk unable to recognize a sealed directory.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/owner-only.lib.sh
+source /usr/local/lib/ai-tools/owner-only.lib.sh
+if ! declare -F ai_tools_is_owner_only >/dev/null 2>&1 \
+        || ! declare -F ai_tools_strip_sandbox_residue >/dev/null 2>&1; then
+    printf 'ai-tools-setgid: FATAL: owner-only.lib.sh defines no owner-only guard\n' >&2
+    exit 3
+fi
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to act on a system directory even
 # when the allowlist includes it. See safe-paths.rule.md.
@@ -147,8 +162,12 @@ _safe_setgid() {
     # Owner guard: only the projects user's or the sandbox account's own dirs are
     # eligible (re-verified TOCTOU-safe on the pinned inode below); skip anything else.
     [[ "${owner_uid}" == "${PROJECTS_UID}" || "${owner_uid}" == "${SANDBOX_UID}" ]] || return 1
-    # Nothing to do when already group GROUP and already setgid.
-    [[ "${grp}" == "${GROUP}" ]] && (( (0${mode} & 02000) != 0 )) && return 0
+    # Nothing to do when already group GROUP and already setgid -- unless the dir is owner-only,
+    # where that state is inherited residue the pinned-fd path below strips.
+    if [[ "${grp}" == "${GROUP}" ]] && (( (0${mode} & 02000) != 0 )) \
+            && ! ai_tools_is_owner_only "${mode}"; then
+        return 0
+    fi
 
     { exec {fd}< "${dir}"; } 2>/dev/null || return 1
     # %u BEFORE %F so the multi-word %F ("directory") stays the last field.
@@ -164,6 +183,21 @@ _safe_setgid() {
     if [[ "${got_uid}" != "${PROJECTS_UID}" && "${got_uid}" != "${SANDBOX_UID}" ]]; then
         exec {fd}<&-
         return 1
+    fi
+    # Group and mode come from the pinned inode, so the seal decision and the strip act on the
+    # same directory the mutation would. A sealed dir is left out of the agent's group and its
+    # residue stripped (owner-only.lib.sh); returning 2 tells the walk to skip its subtree too.
+    local got_grp got_mode
+    read -r got_grp got_mode \
+        < <(stat -L -c '%G %a' "/proc/self/fd/${fd}" 2>/dev/null) \
+        || { exec {fd}<&-; return 1; }
+    if ai_tools_is_owner_only "${got_mode}"; then
+        if ai_tools_strip_sandbox_residue "${fd}" directory "${got_grp}" "${got_mode}" \
+                "${PROJECTS_GROUP:-}"; then
+            ai_tools_log_info "sealed ${dir} (owner-only; stripped ${AI_TOOLS_RESIDUE_ACTIONS[*]})"
+        fi
+        exec {fd}<&-
+        return 2
     fi
     local regrouped=0
     [[ "${grp}" != "${GROUP}" ]] && { chgrp -- "${GROUP}" "/proc/self/fd/${fd}"; regrouped=1; }
@@ -189,13 +223,30 @@ find "${expr[@]}" 2>/dev/null \
     | { declare -a skip=()
         _under_skip() { local p; for p in "${skip[@]:-}"; do
             [[ -n "${p}" && ( "$1" == "${p}" || "$1" == "${p}/"* ) ]] && return 0; done; return 1; }
+        declare -i sealed=0 foreign=0 rc=0
         while IFS= read -r -d '' d; do
             _under_skip "${d}" && continue
             if _is_excluded "${d}" || _is_secret_name "${d}"; then
                 skip+=("${d}"); continue
             fi
-            _safe_setgid "${d}" || true
+            rc=0; _safe_setgid "${d}" || rc=$?
+            if (( rc == 2 )); then
+                sealed=$(( sealed + 1 ))
+                skip+=("${d}")          # a sealed dir takes its subtree with it
+                if (( ${AI_TOOLS_RESIDUE_SURFACE:-0} )); then foreign=$(( foreign + 1 )); fi
+            fi
         done
+        # The counts are local to this subshell (pipe); report them here.
+        if (( sealed )); then
+            ai_tools_log_info "left ${sealed} owner-only path(s) under ${canonical} out of the agent's reach"
+        fi
+        # Surfaced, never silent: a setgid the operator may have set on purpose is the one piece
+        # of residue this walk declines to remove, so the operator has to hear that it stayed.
+        if (( foreign )); then
+            ai_tools_log_warn "left a third-party setgid bit on ${foreign} owner-only path(s) under ${canonical}"
+            printf 'ai-tools-setgid: kept the setgid bit on %d owner-only director(ies) grouped to a third party -- clear it yourself with: chmod g-s <dir>\n' \
+                "${foreign}" >&2
+        fi
       } || true
 
 exit 0

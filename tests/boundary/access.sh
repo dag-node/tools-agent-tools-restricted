@@ -81,6 +81,19 @@ else
     fail "can list ${sbindir} -- agent can enumerate root helper names"
 fi
 
+# The boundary half of ai-tools-unclaim --unlisted (see unit/unclaim.sh for the runtime half).
+# That mode acts outside the allowlist, bounded instead by the operator identity it resolves from
+# SUDO_UID plus OPERATORS. Both inputs must be out of the agent's reach, or it could aim a root
+# permission rewrite at a tree of its choosing: the helper itself is unreadable (above), and the
+# operator roster is not agent-writable. The third input, sudo, the agent does not hold at all
+# (boundary/sudo.sh).
+opconf=/etc/ai-tools/operator.conf
+if ! runuser -u "${SANDBOX_USER}" -- test -w "${opconf}" 2>/dev/null; then
+    pass "cannot write ${opconf}: agent cannot enroll an identity for ai-tools-unclaim --unlisted"
+else
+    fail "can write ${opconf} -- agent could add itself to OPERATORS"
+fi
+
 # settings.json (640) declares the hooks and the permissions allow/deny lists. Write access
 # would let the agent expand its tool scope, drop deny rules, or remove hooks -- no signal.
 sf=/opt/ai-tools/.claude/settings.json
@@ -244,6 +257,44 @@ if [[ -z "${suid_hits//[$'\n\t ']/}" ]]; then
     pass "no suid/sgid files under the agent-owned toolchain trees (.nvm/.cache on a non-nosuid mount)"
 else
     fail "suid/sgid file(s) under agent-owned trees -- escalation primitive on /opt (non-nosuid): ${suid_hits//$'\n'/ }"
+fi
+
+# ── The seal, from the agent's side ──────────────────────────────────────────────────────────
+# The boundary half of the owner-only guarantee (unit/owner-only.sh and unit/{setgid,lockdown}.sh
+# are the runtime half). Two things have to hold, and neither follows from the other.
+#
+# First, the agent cannot reach a sealed path. A stripped 0700 directory is what an operator is
+# left with after `chmod 700` inside a claimed tree, and the point of removing the inherited
+# group/setgid/ACL is that the mode is then the only thing standing -- so assert it stands, from
+# the account it exists to stop. The parent is deliberately traversable, or it would be what
+# denies access and the assertion would prove nothing.
+mktestdir
+sealed="${TESTDIR}/sealed"
+mkdir -p "${sealed}"
+: > "${sealed}/inside"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${sealed}"
+chmod 700 "${sealed}"
+chmod 600 "${sealed}/inside"
+chmod 755 "${TESTDIR}"
+if runuser -u "${SANDBOX_USER}" -- test -x "${sealed}" 2>/dev/null; then
+    fail "the agent can traverse a sealed 0700 directory -- the seal is not a boundary"
+elif runuser -u "${SANDBOX_USER}" -- test -r "${sealed}/inside" 2>/dev/null; then
+    fail "the agent can read a file inside a sealed 0700 directory"
+else
+    pass "the agent cannot enter a sealed 0700 directory or read what is inside it"
+fi
+
+# Second, the agent cannot reach the code that decides what sealing means. owner-only.lib.sh
+# carries the predicate every claim walk gates on and the strip that removes the sandbox's own
+# residue; were it agent-writable, the agent could make its own group read as "not residue" and
+# have the next claim leave the grant standing. Same standing as secret-patterns.lib.sh above.
+oolib=/usr/local/lib/ai-tools/owner-only.lib.sh
+if [[ ! -e "${oolib}" ]]; then
+    skip "owner-only library not agent-writable" "not installed at ${oolib}"
+elif runuser -u "${SANDBOX_USER}" -- test -w "${oolib}" 2>/dev/null; then
+    fail "the agent can write ${oolib} -- it could redefine which paths count as sealed"
+else
+    pass "the agent cannot write owner-only.lib.sh (the seal predicate and residue strip)"
 fi
 
 finish

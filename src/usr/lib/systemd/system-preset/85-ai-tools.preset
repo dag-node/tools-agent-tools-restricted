@@ -1,13 +1,21 @@
 # ai-tools systemd preset.
 #
-# The handback privilege-bridge socket is the single root path the ownership handback
-# runs over (the per-turn hooks and the session-end sweep both reach ai-tools-chown
-# through it). Without it every CHOWN fails and files the agent writes stay
-# ai-tools-owned, surfacing later as git "dubious ownership". So it is enabled by
-# default: %systemd_post applies this preset on INITIAL install only, which brings the
-# socket up on a fresh package install yet leaves a later operator `systemctl disable`
-# untouched across upgrades.
+# The system units the stack must have enabled by default. %systemd_post applies this preset
+# on INITIAL install only, so a fresh package install brings each unit up while a later operator
+# `systemctl disable` survives upgrades. Numbered 85 so it is read before the distribution's
+# 90-default.preset (which commonly ships `disable *`), giving these enables precedence -- an
+# explicit line here is REQUIRED, because %systemd_post on a unit this file omits falls to that
+# `disable *` default.
 #
-# Numbered 85 so it is read before the distribution's 90-default.preset (which commonly
-# ships `disable *`), giving this enable precedence.
+# ai-tools-handback.socket (ai-tools-base) -- the single root path the ownership handback runs
+# over (the per-turn hooks and the session-end sweep both reach ai-tools-chown through it).
+# Without it every CHOWN fails and files the agent writes stay ai-tools-owned, surfacing later
+# as git "dubious ownership".
 enable ai-tools-handback.socket
+# ai-tools-relabel.path (ai-tools-integration-nodejs) -- the watcher that re-labels the agent
+# entrypoint after a Node auto-upgrade repoints its symlink. Without it a post-upgrade launch
+# fail-closes on a bin_t-labelled binary. Listed here (in the base's preset) rather than a
+# separate nodejs preset because base is a hard dependency installed first, so this file is
+# present when the nodejs %post runs `%systemd_post ai-tools-relabel.path`; the line is inert
+# on a base-only host where that unit is not installed.
+enable ai-tools-relabel.path

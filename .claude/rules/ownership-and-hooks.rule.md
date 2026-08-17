@@ -4,6 +4,7 @@ paths:
   - "src/usr/local/libexec/ai-tools/ai-tools-chown.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-setgid.sh"
   - "src/usr/local/lib/ai-tools/skip-dirs.lib.sh"
+  - "src/usr/local/lib/ai-tools/owner-only.lib.sh"
   - "src/usr/local/lib/ai-tools/control-plane.lib.sh"
 ---
 
@@ -167,7 +168,14 @@ collaboration works. Like the claim-side ACL and unclaim helpers, it resolves th
 owning operator (`ai_tools_resolve_owner`) and acts **only** on dirs that operator or the
 sandbox account holds — a dir held by any third party (root, another developer) is left
 untouched, so normalization never pulls a foreign-held dir into the agent's group. This is the claim-side partner to `ai-tools-chown`'s "act only on
-`SANDBOX_USER`-owned paths" rule. Heavy/transient trees (`.git`, `node_modules`, `.venv`,
+`SANDBOX_USER`-owned paths" rule. An **owner-only** directory (`0600`/`0700`) is left out of
+the normalization too, and its subtree with it: that mode is the operator's standing seal, and
+this pass honours it exactly as `ai-tools-setfacl` does. Rather than normalize such a directory
+it *strips* the sandbox residue the directory still carries — the inherited
+`group:SANDBOX_GROUP` ACL entries, the setgid bit, and the sandbox group owner — since setgid
+and default-ACL inheritance act at create time and a later `chmod` only masks them. Predicate
+and strip are single-sourced in `owner-only.lib.sh`, shared with `ai-tools-setfacl`,
+`ai-tools-lockdown` and `ai-tools-chown`; see [secrets](secret-handling.rule.md). Heavy/transient trees (`.git`, `node_modules`, `.venv`,
 `__pycache__`, `packages`) are skipped; that skip list is shared with the sweep and
 `ai-tools-lockdown` via `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (the authoritative
 reference), which groups the names into categories (VCS, package, artifact, cache) an

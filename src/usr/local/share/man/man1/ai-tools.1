@@ -45,24 +45,81 @@ is a separate opt-in prompt.
 Alias for
 .BR \-\-project\-claim .
 .TP
-.B \-\-project\-unclaim \fR[\fIpath\fR]
+.B \-\-project\-unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-n\fR] [\fB\-y\fR] [\fB\-\-group\fI g\fR] [\fIpath\fR]
 Reverse a claim: revert the SELinux label, drop both registries, and \(em behind
 its own confirm \(em revoke the agent's access, handing the tree back to your own
 group (or a named user's group) with the agent's write removed. The directory
 stays on disk.
+.IP
+The path is classified against the allowlist. A claimed project is unclaimed; a
+directory with claimed projects nested under it lists them and, behind one
+confirm, unclaims each outermost-first; a path
+.I inside
+a claimed project is refused, naming the nearest claimed parent; a path the
+allowlist does not cover at all needs
+.BR \-\-force .
+.IP
+This normalizes rather than restores.
+.B Every
+extended ACL is cleared (including any predating the claim), the group owner
+changes, group write is removed, and directory setgid is cleared \(em so a path the
+claim opened lands on 640, or 750 where the owner has execute. World access, which
+the claim removed, is not restored: a 644 or 664 file was already 660 while claimed
+and ends 640. An owner-only path (0600 or 0700) is untouched at both ends, since the
+claim leaves it out of the agent's reach to begin with. The previous permissions are
+recorded nowhere, so the operation is
+.BR "not reversible" .
+Back up first.
 .TP
 .B \-\-project\-remove
 Alias for
 .BR \-\-project\-unclaim .
 .TP
-.B \-\-sandbox\-create \fR[\fIpath\fR]
+.B \-\-sandbox\-create \fR[\fIpath\fR] [\fB\-\-from\fR \fIref\fR] [\fB\-\-branch\fR \fIname\fR] [\fB\-\-dir\fR \fIname\fR] [\fB\-y\fR|\fB\-\-yes\fR]
 Shallow-clone the repository at
 .I path
 into the sandbox area so the agent never reads the origin's full git history.
-The clone is born owner-only; tip-commit secrets are locked down first, and
-only past that gate is the clone opened to the agent and registered. A declined
-or failed lockdown stops fail-closed \(em the clone stays private and
-unregistered; re-run this command on the clone path to resume securing it.
+Each input has a default and a flag, so the command is scriptable; omit a flag and
+it is prompted interactively (or takes its default with no terminal). The exact
+.BR "git branch" ", " "git push" ", and " "git clone"
+commands are shown for confirmation before any of them run.
+.RS
+.TP
+.B \-\-from \fIref\fR
+Branch or ref to fork the sandbox branch from (default: the current branch). May be a
+local branch, a
+.IR <remote>/<ref> ,
+or any commit-ish, so a hotfix can be based on
+.I main
+while you sit on another branch without checking it out.
+.TP
+.B \-\-branch \fIname\fR
+The full sandbox branch to create and track. Any valid git ref is accepted (a flat
+name, a
+.IR hotfix/x ,
+the old
+.I ai\-tools/sandbox\-<label>/<leaf>
+form, etc.); it is validated with
+.BR git\-check\-ref\-format (1),
+never rewritten. Default:
+.IR sandbox/ <leaf>,
+where <leaf> is the last component of
+.BR \-\-from .
+The default carries no host, machine, or operator identity.
+.TP
+.B \-\-dir \fIname\fR
+Directory name for the clone under the sandbox area (default: the repository's base name).
+.TP
+.BR \-y ", " \-\-yes
+Skip the final \(lqCreate the sandbox clone?\(rq confirmation. The secret-lockdown and
+.I .git
+gates still apply.
+.RE
+.IP
+The clone is born owner-only; tip-commit secrets are locked down first, and only past
+that gate is the clone opened to the agent and registered. A declined or failed lockdown
+stops fail-closed \(em the clone stays private and unregistered; re-run this command on
+the clone path to resume securing it.
 .TP
 .B \-\-sandbox\-push \fR[\fIpath\fR]
 Push the sandbox clone's commits to its dedicated remote branch
@@ -107,6 +164,13 @@ integration is enabled under Enforcing but the
 .B tmpmap
 group that its build needs is not loaded.
 .TP
+.B \-\-status
+Report ai-tools health: the installed version, whether the toolchain is provisioned,
+each managed systemd unit \(em the handback socket, the relabel watcher, and the
+toolchain auto-update timer and update service \(em as OK, DOWN, FAILED, STALE, or
+not-installed. Read-only. Exits non-zero when anything is reported broken, so it
+can be run unattended from a monitor or a cron job.
+.TP
 .B \-\-list
 List registered projects, real and sandbox.
 .TP
@@ -124,11 +188,20 @@ pre-answer only the proceed prompt; the secret-lockdown, git-history, and
 ancestor-traversal questions still ask. For
 .BR \-\-lockdown :
 skip the confirmation.
+For
+.BR \-\-project\-unclaim :
+pre-answer the confirm. It never answers the hand-back or skip-listed questions.
 .TP
 .BR \-n ", " \-\-dry\-run
 For
 .BR \-\-lockdown :
-report what would be locked without changing anything.
+report what would be locked, and what would be stripped from the paths you have
+already sealed by mode, without changing anything. For
+.BR "\-\-project\-unclaim \-\-force" :
+list every path that would change, with ownership and mode, and change nothing.
+A registered project's unclaim previews itself, so this pairs with
+.B \-\-force
+only.
 .TP
 .B \-\-full
 For
@@ -137,6 +210,34 @@ also reclaim the heavy skipped trees
 .RB ( node_modules ", " .venv ,
 \&...), not just the work tree and
 .BR .git .
+For
+.BR \-\-project\-unclaim :
+the same trees, where ai-tools ownership survives a copy exactly as it does
+elsewhere. The pass reports what it finds there and confirms before including it.
+.TP
+.B \-\-force
+For
+.BR \-\-project\-unclaim :
+act on a tree the allowlist does
+.B not
+cover \(em a claimed project copied or moved elsewhere and never unclaimed. It
+replaces the allowlist gate with a per-path one: a path is touched only while it
+still carries ai-tools ownership, group, or an ai-tools ACL entry, so running it
+on a directory that was never claimed changes nothing. It does
+.B not
+relax the protected-paths backstop, the owner guard, the hardlink guard, or the
+secret and exclusion skips, and it is refused on a registered project.
+.TP
+.BI \-\-group " group"
+For
+.BR \-\-project\-unclaim :
+hand the tree to
+.I group
+without prompting, in both the normal and
+.B \-\-force
+modes. Without it the command asks whether to hand back and whose group to use,
+and a run with no terminal takes the invoking user's group by default \(em so a
+script should name the group outright.
 .SH FILES
 .TP
 .I ~/.config/ai-tools/allowed-projects
