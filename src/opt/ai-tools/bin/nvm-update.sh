@@ -18,9 +18,19 @@ IFS=$'\n\t'
 
 readonly AI_TOOLS_BIN="/opt/ai-tools/bin"
 
-log()  { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p info;    echo "INFO : $*"; }
-warn() { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p warning; echo "WARN : $*" >&2; }
-die()  { printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p err;     echo "ERROR: $*" >&2; exit 1; }
+# Each emitter writes to stdout/stderr FIRST -- the unit routes both to the journal
+# (StandardOutput/StandardError), so that copy always lands -- and only then makes the best-effort
+# systemd-cat copy, which carries the nvm-update-ai tag for a MANUAL run outside the unit.
+#
+# The order and the `|| true` are load-bearing, not tidiness. This script runs under
+# `set -e -o pipefail`, so a bare `printf | systemd-cat` pipeline whose systemd-cat fails aborts the
+# whole updater -- and aborts it SILENTLY, because the echo that would have said why came after the
+# statement that failed. That is a logger deciding the fate of the operation it reports on, which is
+# exactly what every other component here refuses to allow (log.lib.sh, ai-tools-run). A failed run
+# must always be able to say what failed.
+log()  { echo "INFO : $*";     printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p info    2>/dev/null || true; }
+warn() { echo "WARN : $*" >&2; printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p warning 2>/dev/null || true; }
+die()  { echo "ERROR: $*" >&2; printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p err     2>/dev/null || true; exit 1; }
 
 # npm signature verifier (npm-verify.lib.sh). Best-effort source: the lib is root-owned, so a
 # missing one is a broken install, not agent action -- degrade to "unable to verify" (a warn,
