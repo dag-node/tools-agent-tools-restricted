@@ -918,6 +918,13 @@ fi
   it, and points at the sibling --providers / --list reports. The launch now runs the same check
   and warns before starting a session when a service it depends on is down, rather than letting
   the failure surface later as a confusing symptom.
+- NEW: ai-tools --status also reports the toolchain updater itself (nvm-update.service) as OK or
+  FAILED, with the time and exit code of its last run. That unit runs in the sandbox account's
+  own systemd user instance, which your session cannot query, so until now a repeatedly failing
+  update was invisible and the toolchain just stopped advancing; the updater now records each
+  run's outcome where the report can read it. Anything reported broken there prints the exact
+  commands to read its journal, restart it, and check it -- all of which differ from the usual
+  ones, because the unit belongs to the ai-tools account's user instance.
 - NEW: The post-upgrade relabel watcher (ai-tools-relabel.path) is enabled on install, so the
   agent entrypoint is re-labelled automatically after a Node toolchain upgrade; without it a
   launch after an upgrade could fail closed on a mislabelled binary until you ran ai-tools
@@ -984,6 +991,31 @@ fi
   (the update-timer check uses the machine transport that the system bus authorizes, the timer
   hint points at status, and the session-journal hint points at the ai-tools-run tag without
   jumping the pager to the end).
+- NEW: ai-tools --status distinguishes "the last run worked" from "runs are still happening". A
+  toolchain update that succeeds but stops being triggered leaves every recorded run green while
+  Node and the agent packages quietly fall behind, so a stamp older than 48 hours now reports
+  STALE rather than OK. The same recency gives nvm-update.timer a verdict of its own -- a recorded
+  run proves it fired -- in place of the "?" it could otherwise only show, and a failing update no
+  longer condemns the schedule that started it. Times read as "3 days ago" rather than as a
+  timestamp to subtract from now.
+- NEW: ai-tools --status reports whether each agent entrypoint still carries its SELinux label --
+  the check a session fail-closes on, and the thing a Node upgrade routinely breaks -- so a
+  refused launch is visible before you hit it, with the ai-tools --relabel that fixes it. Shown
+  only where it can be answered. The report also names the active Node version, so the common
+  case no longer needs a second command.
+- NEW: ai-tools --status exits non-zero when anything is reported broken, so it can be run from a
+  monitor or a cron job without parsing its output. A unit this host cannot query is not counted
+  as a fault.
+- FIX: The toolchain updater could abort silently, leaving nvm-update.service failed with an
+  empty journal and Node and the agent packages quietly frozen at their installed versions. Its
+  log helpers piped into systemd-cat as a bare pipeline under set -e with pipefail, so a
+  systemd-cat that failed for any reason killed the run -- before the line explaining why was
+  written, since that came after it. Logging can no longer fail the run, and the message now
+  reaches the unit's journal first.
+- FIX: The verification suite no longer silently skips the npm signature-verification checks on
+  a fully provisioned host. They need node, which lives in the sandbox toolchain and not on
+  root's PATH, so the whole file was skipped -- reported as no coverage under
+  AI_TOOLS_TEST_STRICT=1. It now resolves node from the toolchain.
 - DOCS: The README gives explicit install and upgrade commands, a working first-launch
   walkthrough, and a pre-1.0 stability notice.
 
