@@ -110,7 +110,11 @@ The seal cases run across three files, because the same guarantee has three cons
 helpers actually apply them. What each asserts is that a sealed path is never pulled into the
 agent's group and that the residue behind its mode is removed without the mode widening -- a
 strip that raised the ACL mask would leave the residue "gone" and the path more open than
-before. No live
+before. `unclaim.sh` closes with the CLI-side decision that feeds the helper — the hand-back
+group — because it publishes **two** results (the group, and the hint that no hand-back can run)
+as globals in its caller's shell rather than on stdout, which a `$(...)`-capturing test cannot
+observe: the assertion is made from a real caller, under `set -u`, so a result the function fails
+to publish aborts the test the same way it would abort an unclaim. No live
 daemon, no SELinux dependency, no wrapper. Run as root (needed to set arbitrary ownership
 and create third-party-owned fixtures). A fixture tree is `chown`ed to the projects user
 before the run, or the owner guard skips it. `secret-patterns.sh` is the odd one out: it

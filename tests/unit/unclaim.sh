@@ -6,6 +6,13 @@
 # group, drop group write, and clear the setgid bit on directories -- plus the dedicated
 # .git reversal pass, its owner guard, secret skip, and target-group validation. Installed
 # helper against a /tmp testdir.
+#
+# A closing section covers the CLI-side decision that feeds this helper,
+# ai-tools.sh's resolve_handback_group, because it has TWO results (the group, and the hint that
+# no hand-back can run) and therefore returns both as globals in its caller's shell rather than on
+# stdout. Nothing about that is visible from a `$(...)` capture -- which is how it regressed: the
+# capture's subshell dropped the second result, and reading it back under `set -u` aborted every
+# unclaim before it touched anything. So the assertion is made from a real caller.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -260,6 +267,51 @@ if ln "${outside}" "${hl_proj}/linked" 2>/dev/null; then
     fi
 else
     skip "hardlink guard" "could not create a hardlink in ${TESTDIR}"
+fi
+
+# ── CLI: the hand-back group decision (ai-tools.sh resolve_handback_group) ────────────────────
+# Driven from a REAL caller: source the CLI (its sourced-guard skips the gates and dispatch), call
+# the function, then read both results back the way cmd_project_unclaim does. Run as the projects
+# user, since ai-tools refuses to be sourced as root or the sandbox account, and under setsid so
+# the no-terminal path takes its default instead of prompting. `set -u` is on inside, so a result
+# the function failed to publish to its caller is an abort here -- exactly the failure being
+# pinned, and one no stdout-capturing test can see.
+section "ai-tools --project-unclaim: hand-back group resolution (unit)"
+readonly CLI="/usr/local/bin/ai-tools"
+if [[ ! -x "${CLI}" ]]; then
+    skip "resolve_handback_group" "CLI not installed at ${CLI}"
+elif ! command -v runuser >/dev/null 2>&1; then
+    skip "resolve_handback_group" "runuser unavailable"
+else
+    # resolve_hb <group-opt> : echo "<group>|<hint>" as the caller sees them, or fail non-zero.
+    resolve_hb() {
+        # shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell
+        setsid runuser -u "${PROJECTS_USER}" -- bash -c '
+            set -euo pipefail
+            source "$1" >/dev/null 2>&1 || exit 99
+            declare -F resolve_handback_group >/dev/null 2>&1 || exit 98
+            resolve_handback_group "$2" >/dev/null 2>&1
+            printf "%s|%s\n" "${HANDBACK_GROUP}" "${HANDBACK_HINT}"
+        ' _ "${CLI}" "$1" < /dev/null 2>/dev/null
+    }
+    if ! out="$(resolve_hb "${PROJECTS_GROUP}")"; then
+        skip "resolve_handback_group" "CLI not sourceable or helper absent (partial install?)"
+    else
+        # --group names the group outright: it is published as-is, with no hint (nothing is wrong).
+        if [[ "${out}" == "${PROJECTS_GROUP}|" ]]; then
+            pass "an explicit --group reaches the caller as the hand-back group, with no hint"
+        else
+            fail "resolve_handback_group '${PROJECTS_GROUP}' -> '${out}', expected '${PROJECTS_GROUP}|'"
+        fi
+        # No --group and no terminal: both prompts take their defaults (hand back: yes; to the
+        # invoking user's group), so the caller still gets a usable group and no hint.
+        out="$(resolve_hb "")" || out="<abort>"
+        if [[ "${out}" == "${PROJECTS_GROUP}|" ]]; then
+            pass "with no --group and no terminal the defaults resolve to the invoker's own group"
+        else
+            fail "resolve_handback_group '' -> '${out}', expected '${PROJECTS_GROUP}|'"
+        fi
+    fi
 fi
 
 finish

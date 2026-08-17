@@ -1307,19 +1307,27 @@ residue_scan() {
                   '(' -type d -o -type f ')' -print 2>/dev/null)
 }
 
-# resolve_handback_group <group-opt>  -- decide the filesystem hand-back's target group and echo
-# it; empty means "unregister only, leave permissions alone". --group answers BOTH questions at
-# once (whether to hand back, and to which group), so an automated run never depends on the
-# prompt's no-terminal fallback quietly picking the invoking user's group. Without it the
-# default-YES confirm and the user->group prompt run as before. Sets HANDBACK_HINT non-empty when
-# a hand-back was wanted but cannot run, so the caller prints the manual command instead.
-# Prompts draw on /dev/tty and warnings on stderr, so only the group name reaches stdout.
+# resolve_handback_group <group-opt>  -- decide the filesystem hand-back's target group. It has
+# TWO results and sets both as globals in the CALLER's shell:
+#   HANDBACK_GROUP  the target group; empty means "unregister only, leave permissions alone".
+#   HANDBACK_HINT   non-empty when a hand-back was wanted but cannot run, so the caller prints
+#                   the manual command instead of silently doing nothing.
+# Globals, not stdout, precisely BECAUSE there are two: a `$(...)` capture runs the function in a
+# subshell, where the second result is lost -- and reading it back under `set -u` aborts the whole
+# unclaim before it touches anything. Prompts draw on /dev/tty and warnings on stderr, so a caller
+# needs neither redirection nor a capture.
+# --group answers both questions at once (whether to hand back, and to which group), so an
+# automated run never depends on the prompt's no-terminal fallback quietly picking the invoking
+# user's group. Without it the default-YES confirm and the user->group prompt run as before.
+HANDBACK_GROUP=""
+HANDBACK_HINT=""
 resolve_handback_group() {
-    local group_opt="$1" hb_user hb_group=""
+    local group_opt="$1" hb_user
+    HANDBACK_GROUP=""
     HANDBACK_HINT=""
     if [[ -n "${group_opt}" ]]; then
         if command -v sudo >/dev/null 2>&1; then
-            printf '%s' "${group_opt}"
+            HANDBACK_GROUP="${group_opt}"
         else
             warn "sudo not found -- cannot hand the files back automatically"
             HANDBACK_HINT=1
@@ -1330,15 +1338,15 @@ resolve_handback_group() {
     # ownership and permissions across the tree.
     if confirm "Hand the files back to a group and remove the agent's write access?" y; then
         hb_user="$(ask "  Hand the files to which user's group?" "${ME}")"
-        if ! hb_group="$(id -gn "${hb_user}" 2>/dev/null)"; then
+        if ! HANDBACK_GROUP="$(id -gn "${hb_user}" 2>/dev/null)"; then
             warn "no such user '${hb_user}' -- skipping the filesystem hand-back"
-            hb_group=""; HANDBACK_HINT=1
+            HANDBACK_GROUP=""; HANDBACK_HINT=1
         elif ! command -v sudo >/dev/null 2>&1; then
             warn "sudo not found -- cannot hand the files back automatically"
-            hb_group=""; HANDBACK_HINT=1
+            HANDBACK_GROUP=""; HANDBACK_HINT=1
         fi
-        printf '%s' "${hb_group}"
     fi
+    return 0
 }
 
 # cmd_unclaim_unlisted <dir> <force> <full> <dry> <assume-yes> <group-opt>  -- the UNRELATED
@@ -1444,8 +1452,8 @@ cmd_unclaim_unlisted() {
     fi
 
     local hb_group hb_hint
-    hb_group="$(resolve_handback_group "${group_opt}")"
-    hb_hint="${HANDBACK_HINT}"
+    resolve_handback_group "${group_opt}"
+    hb_group="${HANDBACK_GROUP}"; hb_hint="${HANDBACK_HINT}"
     if [[ -z "${hb_group}" ]]; then
         [[ -n "${hb_hint}" ]] \
             && say "      run it later with: ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} <group> ${helper_flags[*]}${C_RST}"
@@ -1593,8 +1601,8 @@ cmd_project_unclaim() {
 
     # Filesystem hand-back: decided ONCE for the whole batch.
     local hb_group hb_hint
-    hb_group="$(resolve_handback_group "${group_opt}")"
-    hb_hint="${HANDBACK_HINT}"
+    resolve_handback_group "${group_opt}"
+    hb_group="${HANDBACK_GROUP}"; hb_hint="${HANDBACK_HINT}"
 
     local -a helper_flags=()
     ${full} && helper_flags=(--full)
