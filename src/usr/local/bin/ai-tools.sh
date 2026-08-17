@@ -119,6 +119,11 @@ readonly GUARD_MARKER="ai-tools-lockdown-guard"
 # write the registries with the wrong owner) and never as the sandbox account
 # (the agent must not manage its own allowlist).
 ME="$(id -un)"
+# The invoking operator's own primary group, for the one message that must name it: the lockdown
+# preamble, which states the owner a locked secret ends up with (<you>:<you>). Not a decision
+# input anywhere -- what a walk treats as "the operator's group" is resolved per path from the
+# path's owner, never from who happens to be running the CLI.
+MY_GROUP="$(id -gn)"
 [[ "${ME}" == "root" ]] \
     && { echo "ai-tools: do not run as root -- run as the projects user, without sudo" >&2
          echo "          (the CLI invokes sudo itself for the steps that need it)" >&2; exit 1; }
@@ -1943,7 +1948,7 @@ cmd_lockdown() {
     # If it is genuinely missing, sudo reports it and run_lockdown returns non-zero.
     section "Lock down project secrets"
     say "  ${d}"
-    say "  ${C_DIM}secret-matching files -> 600, dirs -> 700, owner ${ME}:${SANDBOX_GROUP}${C_RST}"
+    say "  ${C_DIM}secret-matching files -> 600, dirs -> 700, owner ${ME}:${MY_GROUP}${C_RST}"
     if run_lockdown "${d}" "${passthru[@]}"; then
         ${dry} || clear_lockdown_guard "${d}"
         ok "lockdown done: ${d}"
