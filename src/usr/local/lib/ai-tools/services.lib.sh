@@ -54,7 +54,8 @@ readonly _AI_TOOLS_SERVICES_LIB_LOADED=1
 #               a sandbox-user unit needs one: a system unit's live state is already readable.
 #   stamp_mode = what that stamp says ABOUT THIS UNIT -- two units can share one stamp and read
 #               different things from it, which is how the timer gets a verdict of its own:
-#               result   -- the run's RESULT is this unit's verdict (it IS the unit that ran).
+#               result   -- the run's RESULT is this unit's verdict (it IS the unit that ran),
+#                           including a run that correctly did nothing (RESULT=skipped).
 #               fired    -- only the RECENCY of a SYSTEMD-STARTED run matters: such a run,
 #                           successful or not, is proof this unit triggered it, so a failed run
 #                           leaves the trigger healthy. A run the operator started by hand is not
@@ -147,10 +148,16 @@ _ai_tools_user_unit_installed() {
 }
 
 # ai_tools_service_state <unit> <scope> [stamp] [stamp_mode] [max_age]  -- PRINT one of
-# active|down|failed|stale|absent|unknown; the state is the stdout value and the function ALWAYS
-# returns 0 (so a `state="$(...)"` capture is safe under `set -e` -- no consumer reads the exit
-# status). ai_tools_service_state_of below takes a whole record and is what consumers call.
+# active|skipped|down|failed|stale|absent|unknown; the state is the stdout value and the function
+# ALWAYS returns 0 (so a `state="$(...)"` capture is safe under `set -e` -- no consumer reads the
+# exit status). ai_tools_service_state_of below takes a whole record and is what consumers call.
 #   active  -- the unit is running (is-active), or its stamp records a recent healthy run.
+#   skipped -- the last run ended in a transient condition it did not cause and could not fix (the
+#              updater offline: the registry was unreachable, so nothing changed and the previous
+#              toolchain stays). Not a fault -- there is nothing for an operator to do, and calling
+#              it FAILED spends attention a real fault then competes with -- but not a claim of
+#              health either, so it stays distinct from 'active' and keeps AGEING: a host that is
+#              offline once reads skipped, one that has been offline for days reads 'stale'.
 #   down    -- installed but not active (disabled or stopped) -- the state a remedy addresses.
 #   failed  -- the unit's last stamped run ended non-zero. Only a stamped sandbox-user unit reaches
 #              this: a system unit that failed reads as 'down' from is-active, which carries the
@@ -192,13 +199,19 @@ ai_tools_service_state() {
             [[ -n "${age}" ]] || { printf 'unknown'; return 0; }
         else
             case "${result}" in
-                ok)     ;;
-                failed) printf 'failed'; return 0 ;;
-                *)      printf 'unknown'; return 0 ;;
+                ok|skipped) ;;
+                failed)     printf 'failed'; return 0 ;;
+                *)          printf 'unknown'; return 0 ;;
             esac
         fi
+        # Staleness is judged FIRST, and for a skipped run as much as a successful one: "the
+        # registry was unreachable" is a fine answer once and a stopped toolchain after a week, so
+        # the grace window is what separates them. 'fired' mode never reads RESULT (a run of any
+        # outcome proves its trigger fired), so a skipped run leaves the timer's verdict untouched.
         if [[ -n "${max_age}" && -n "${age}" && "${age}" -gt "${max_age}" ]]; then
             printf 'stale'
+        elif [[ "${stamp_mode}" != fired && "${result}" == skipped ]]; then
+            printf 'skipped'
         else
             printf 'active'
         fi
@@ -229,7 +242,9 @@ ai_tools_service_state_of() {
 # ai_tools_service_needs_attention <state>  -- 0 when the state is one a consumer should report as
 # a problem (down, failed, stale). The single definition of "broken", so the scanner's set and the
 # CLI's report cannot drift apart. 'unknown' is deliberately NOT one: it says the vantage point
-# cannot tell, which is not the same as a fault.
+# cannot tell, which is not the same as a fault. Nor is 'skipped': it reports a run that correctly
+# did nothing, and it becomes 'stale' on its own if the condition persists -- so the escalation is
+# the grace window's job, not this predicate's.
 ai_tools_service_needs_attention() {
     case "$1" in down|failed|stale) return 0 ;; *) return 1 ;; esac
 }

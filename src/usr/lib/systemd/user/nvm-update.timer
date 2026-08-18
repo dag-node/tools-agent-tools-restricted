@@ -1,13 +1,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 [Unit]
 Description=Daily sandbox Node.js and npm tools update (nvm)
+Documentation=man:systemd.timer(5) man:systemd.time(7)
 
 [Timer]
-# Fires daily in the sandbox account's --user instance.
-OnCalendar=*-*-* 07:50:00
-# If the machine was off at the scheduled time, run within 15 min of the next boot.
+# Daily, in the host's local time. To move the window:
+#   sudo systemctl --user -M ai-tools@.host edit nvm-update.timer
+OnCalendar=*-*-* 07:55:00
+# Catch up a window missed while this manager was not running. A run that FAILED is not a missed
+# window -- nvm-update.service retries that itself.
 Persistent=true
-# Randomize a little to avoid a thundering herd against the registry.
+# Spread load across hosts hitting the registry.
 RandomizedDelaySec=3min
 
 [Install]

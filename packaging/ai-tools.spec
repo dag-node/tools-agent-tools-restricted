@@ -911,6 +911,13 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Tue Aug 18 2026 dagnode <tools@dagnode.com> - 0.11.1-1
+- FIX: A toolchain update that could not reach the npm registry failed with an empty journal and
+  left ai-tools --status reporting FAILED until the next day's window. It now says what it could
+  not reach, reads SKIPPED instead (nothing changed; STALE after 48 hours if it persists), and
+  retries every 30 minutes for up to 6 hours. The daily window moved to 07:55 local time, and it
+  and the tracked Node LTS series are overridable with 'systemctl --user -M ai-tools@.host edit'.
+
 * Tue Aug 18 2026 dagnode <tools@dagnode.com> - 0.11.0-1
 - NEW: ai-tools --status is a single health report for the pieces a session depends on: the
   ownership-handback socket, the post-upgrade relabel watcher, and the sandbox account's toolchain

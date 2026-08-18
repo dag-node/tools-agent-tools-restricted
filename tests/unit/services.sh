@@ -15,6 +15,11 @@
 #     staleness, and 'fired' mode reads the recency of a SYSTEMD-STARTED run alone -- letting one
 #     stamp yield two verdicts, a healthy trigger beside the failed run it started, while a run the
 #     operator did by hand (which proves nothing about a schedule) is declined in both directions;
+#   * the 'skipped' verdict for a run that correctly did NOTHING -- the updater finding the
+#     registry unreachable, where the previous toolchain stays and there is nothing to fix. It must
+#     not alarm (needs_attention says no, so --status stays green and exits zero) and must not
+#     claim health either, so it stays distinct from active, still ages into 'stale' when the
+#     condition persists, and leaves the TRIGGER's own verdict untouched in 'fired' mode;
 #   * ai_tools_service_stamp_field's defensive read of that stamp. It is the one input here a
 #     non-root writer controls (the sandbox account writes it) and it is rendered to the operator's
 #     terminal, so each way a hostile or corrupt value could reach that terminal -- a symlinked
@@ -229,6 +234,31 @@ else
     fail "an old failed run was reported stale"
 fi
 
+# A run that did nothing because it COULD not (the updater with an unreachable registry) is its own
+# verdict, between success and fault. Reporting it as FAILED would send an operator after a host
+# that is fine; reporting it as OK would claim an update that never happened. So it must read
+# 'skipped', must not count as needing attention -- or a disconnected laptop makes --status exit
+# non-zero every night, training its reader to ignore it -- and must still carry its REASON.
+mk_stamp "RESULT=skipped" "EXIT_CODE=3" "FINISHED=$(at_age 3600)" "REASON=offline"
+st_skipped="$(ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
+got_reason="$(ai_tools_service_stamp_field "${STAMP}" REASON)"
+if [[ "${st_skipped}" == skipped && "${got_reason}" == offline ]] \
+   && ! ai_tools_service_needs_attention skipped; then
+    pass "a transient no-op run reports 'skipped' with its reason, and is not a fault"
+else
+    fail "skipped mapping wrong: state=${st_skipped} reason=${got_reason} (attention: $(
+        ai_tools_service_needs_attention skipped && echo yes || echo no))"
+fi
+
+# The escalation is the grace window's job: offline once is nothing to act on, offline for a week
+# is a toolchain that has stopped advancing, and only the age can tell those apart.
+mk_stamp "RESULT=skipped" "EXIT_CODE=3" "FINISHED=$(at_age $(( 13 * DAY )))" "REASON=offline"
+if [[ "$(ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")" == stale ]]; then
+    pass "a skipped run that keeps repeating ages into stale"
+else
+    fail "an old skipped run did not go stale"
+fi
+
 # 'fired' mode: the trigger's verdict is the recency of a SYSTEMD-STARTED run, and nothing else. A
 # RECENT run that failed still proves the timer fired, so the timer is healthy while the service it
 # started is not -- the two must not collapse into one verdict, or a failing service would also
@@ -240,6 +270,18 @@ if [[ "${st_fired}" == active && "${st_ran}" == failed ]]; then
     pass "one stamp, two verdicts: the trigger is OK while the run it started failed"
 else
     fail "'fired' mode was swayed by RESULT: trigger=${st_fired} run=${st_ran}"
+fi
+
+# The same separation for a skipped run: 'fired' mode must not read RESULT at all. A run that found
+# the registry unreachable still proves the timer started it, so the trigger stays healthy -- and
+# the skipped verdict must not leak onto the unit that did not skip anything.
+mk_stamp "RESULT=skipped" "EXIT_CODE=3" "FINISHED=$(at_age 3600)" "TRIGGER=unit" "REASON=offline"
+st_fired="$(ai_tools_service_state u sandbox-user "${STAMP}" fired  "${GRACE}")"
+st_ran="$(  ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
+if [[ "${st_fired}" == active && "${st_ran}" == skipped ]]; then
+    pass "a skipped run leaves the trigger that started it reporting healthy"
+else
+    fail "'fired' mode was swayed by a skipped RESULT: trigger=${st_fired} run=${st_ran}"
 fi
 mk_stamp "RESULT=ok" "FINISHED=$(at_age $(( 13 * DAY )))" "TRIGGER=unit"
 if [[ "$(ai_tools_service_state u sandbox-user "${STAMP}" fired "${GRACE}")" == stale ]]; then

@@ -2,8 +2,14 @@
 [Unit]
 Description=Update sandbox Node.js (nvm) and global npm tools
 Documentation=https://github.com/nvm-sh/nvm
-Wants=network-online.target
-After=network-online.target
+Documentation=man:systemd.service(5)
+# No network-online.target ordering: this is started by a daily timer on a long-running machine, so
+# connectivity is a runtime condition, not a startup one. The updater treats an unreachable registry
+# as transient (exit 3, stamped "skipped") and Restart= below retries it.
+# The retry is bounded: 6 starts per 6h at the interval below covers a ~2.5h outage, after which the
+# unit stops trying and `ai-tools --status` reports the run as stale.
+StartLimitIntervalSec=6h
+StartLimitBurst=6
 
 [Service]
 Type=oneshot
@@ -19,10 +25,22 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin
 Environment=HOME=%h
 Environment=NVM_DIR=%h/.nvm
 Environment=NVM_NODE_ALIAS=default
+# The Node LTS series the updater tracks. To follow a different one on this host:
+#   sudo systemctl --user -M ai-tools@.host edit nvm-update.service
 Environment=NVM_NODE_MAJOR=22
 # AI_TOOLS_GLOBAL_TOOLS is intentionally unset: the managed tool set defaults to npm plus each
 # enabled agent's npm package, resolved from the agent manifests (providers.lib.sh), so the unit
 # carries no hardcoded agent. Set it here only to override that set for a bespoke deployment.
+
+# Retry a TRANSIENT failure (exit 3: the registry was unreachable, nothing was changed), so a host
+# that reconnects within the window updates itself instead of waiting for tomorrow's timer.
+# RestartPreventExitStatus=1 is what keeps that from being a retry loop over a real fault: exit 1 is
+# the updater's "this host is broken and will still be broken on a retry" -- no nvm, no curl, an
+# unset alias, a FAILED SIGNATURE CHECK -- and none of those should churn against the registry. An
+# unclassified status still retries, bounded by the start limit above.
+Restart=on-failure
+RestartPreventExitStatus=1
+RestartSec=30min
 
 # The updater writes its own .nvm tree as ai-tools and reaches the locked bin/ through
 # the handback socket, so the session runs with no privilege escalation.

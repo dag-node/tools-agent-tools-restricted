@@ -92,7 +92,46 @@ naming the reinstall that restores it, while the report states the unit as unkno
 guessing. The whole text goes out in a single write, so the window in which a reader could see a
 partial stamp is negligible; one that lands there anyway carries no parseable `RESULT` and reads as
 unknown, never as a wrong verdict. The content is the shared `KEY=value` grammar:
-`RESULT=ok|failed`, `EXIT_CODE`, `FINISHED` (UTC, ISO-8601), `TRIGGER=unit|manual`, and `NODE`.
+`RESULT=ok|skipped|failed`, `EXIT_CODE`, `FINISHED` (UTC, ISO-8601), `TRIGGER=unit|manual`, `NODE`,
+and `REASON` on a skip.
+
+### The run classifies itself: ok, skipped, or failed
+
+`RESULT` is the run's exit status classified for a reader, and the classification is the updater's
+own (`nvm-update.sh`'s exit codes: `0` current, `1` a fault on this host, `3` transient). The third
+exists because the most common way this job does not update anything is not a fault at all: the
+host was offline at the timer's daily window, so the registry could not be reached, nothing was
+changed, and the previous trusted toolchain stays active. That run exits `3`, records
+`RESULT=skipped` with a `REASON` token, and reports as `SKIPPED` rather than `FAILED` — there is
+nothing for an operator to fix, and a red line that means "your laptop was disconnected" spends
+attention that a real fault then has to compete with.
+
+The split is coarse by intent. It does not diagnose *why* the registry was unreachable — a
+disconnected machine and a registry outage are one state from inside a confined `--user` job — only
+whether a retry is the right response (the unit retries `3` and not `1`; see
+[the retry policy](#retrying-a-transient-failure) below) and whether an operator should be alarmed
+now. What keeps `skipped` from becoming a way to hide a real problem is that it does not stop the
+clock: the stamp still ages, and a condition that persists past the record's 48h grace reports
+`STALE`, the same escalation a schedule that stopped firing gets. Offline once is nothing to act
+on; offline for a week is a toolchain that has stopped advancing.
+
+### Retrying a transient failure
+
+`nvm-update.service` carries `Restart=on-failure` with `RestartPreventExitStatus=1`, so the
+transient class retries and the fault class does not: a broken toolchain or a failed signature check
+will fail the same way on a retry, and neither should churn against the registry. Retries are
+bounded by the unit's start limit — 6 starts per 6h, 30 minutes apart — which recovers an outage of
+a couple of hours and then stops, leaving the stamp to age into `STALE` for one that lasts longer.
+
+This is the only recovery path a *failed* run has. The timer's `Persistent=true` covers a window
+missed while the manager was not running; a window taken by a run that then failed is spent, because
+systemd stamps a timer when it elapses and not when the service succeeds. Ordering on
+`network-online.target` is not a path either — it gates unit startup, while this unit is started by a
+daily timer on a machine that has typically been up for days — so the unit is not ordered against it
+and connectivity is handled where it actually arises, in the run's own exit status.
+
+The daily window is the host's local time; an operator moves it with `sudo systemctl --user -M
+ai-tools@.host edit nvm-update.timer`.
 
 Each field has a distinct reader. `RESULT` and `EXIT_CODE` are the service's verdict. `FINISHED`
 carries two: it dates that verdict, and its **age** is what `nvm-update.timer` — which can
@@ -106,7 +145,9 @@ staleness that is the only way a stopped schedule surfaces at all. A run started
 the manager (`systemctl --user start nvm-update.service`) is indistinguishable from a triggered one
 and counts as `unit`: the inference is bounded to systemd-started runs, not to scheduled ones.
 `NODE` lets `ai-tools --status` report the active Node version without reading the `700` toolchain,
-which the operator cannot.
+which the operator cannot. `REASON` is written only on a skip and says which transient condition
+ended the run (`offline`), so the report can state why a run did nothing instead of leaving the
+operator to infer it.
 
 ### What the stamp is trusted for
 

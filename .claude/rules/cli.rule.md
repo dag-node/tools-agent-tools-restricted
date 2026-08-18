@@ -127,7 +127,8 @@ and inspect the host.
   dependencies [providers](providers.rule.md) documents, surfaced where the operator checks status.
 - `--status` — read-only health report: the installed `ai-tools` version, whether the toolchain is
   provisioned, then each managed systemd unit (`ai-tools-handback.socket`, `ai-tools-relabel.path`,
-  and the sandbox account's `nvm-update.timer` and `nvm-update.service`) as OK / DOWN / FAILED /
+  and the sandbox account's `nvm-update.timer` and `nvm-update.service`) as OK / SKIPPED / STALE /
+  DOWN / FAILED /
   not-installed, with the consequence and the exact remedy for anything broken, and a closing
   **More** block that points at the sibling
   reports (`--providers`, `--list`, `--help`) without repeating their detail — so it reads as a hub. It resolves through `services.lib.sh` — the **same registry** the launch
@@ -143,7 +144,12 @@ and inspect the host.
   none. One live fact about that manager *is* readable — whether the unit **file** is installed —
   and it is checked first, so a unit an optional package never shipped (the `nvm-update` pair
   without the nodejs integration) reads as not-installed rather than as one this host cannot see,
-  and a stamp an uninstall left behind cannot make a gone unit look present. The account's own
+  and a stamp an uninstall left behind cannot make a gone unit look present. A run that **correctly
+did nothing** reads `SKIPPED` with its reason (the updater against an unreachable registry, see
+[updater](updater.rule.md)): it is dim rather than yellow and does not count as a fault, so a
+disconnected laptop does not make `--status` exit non-zero every night — while the same stamp still
+ages into `STALE` if the condition persists, which is where a toolchain that has genuinely stopped
+advancing surfaces. The account's own
   `~/.config/systemd/user` is not searched: it sits inside a home the operator cannot traverse, and
   every unit the registry names ships to the system-wide user-unit directory. A stamped unit's OK carries the time of that run rather than implying it is running now,
   and a `FAILED` carries the run's exit code. The `?` line is not a problem report — it says only
