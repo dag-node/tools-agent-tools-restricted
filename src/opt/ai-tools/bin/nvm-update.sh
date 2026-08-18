@@ -16,6 +16,19 @@
 # Every run records its outcome in a last-run stamp (see write_stamp), the only evidence an
 # operator has of this unit's health: it lives in the sandbox account's own systemd --user
 # manager, which `ai-tools --status` cannot query from the operator's session.
+#
+# The exit status classifies the run for the two readers that act on it -- that stamp, and the
+# unit's Restart= policy:
+#   0  the toolchain is current.
+#   1  a fault on this host: something is broken or untrustworthy and it will still be broken on a
+#      retry (no nvm, no curl, an unset alias, a failed signature check).
+#   3  transient: the registry could not be reached, so NOTHING was changed and the previous,
+#      trusted toolchain stays active and installed. The unit retries this one; the stamp records
+#      it as `skipped` rather than a failure, because an offline host has nothing to fix.
+# The split is deliberately coarse. It is not a diagnosis of why the registry was unreachable -- a
+# disconnected laptop and a registry outage are one state from here -- only of whether a retry is
+# the right response and whether an operator should be alarmed now. A transient condition that
+# PERSISTS still surfaces: the stamp ages, and `ai-tools --status` reports it stale past its grace.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -26,6 +39,12 @@ readonly AI_TOOLS_BIN="/opt/ai-tools/bin"
 # account -- and so the agent, which runs as it -- cannot create, unlink, rename, or symlink-swap
 # anything there: the whole surface the stamp adds is the contents of this single file.
 readonly NVM_UPDATE_STAMP="/var/opt/ai-tools/state/nvm-update.status"
+# The transient exit status (see the header). Its own code, not a reuse of 1: the unit retries only
+# this one, so a fault that a retry cannot fix does not churn against the registry.
+readonly EXIT_TRANSIENT=3
+# Set by skip() and read by the EXIT trap, which receives only a status. A one-word token, since it
+# reaches the stamp and the stamp's reader clamps to a short safe charset.
+_run_skip_reason=""
 
 # Each emitter writes to stdout/stderr FIRST -- the unit routes both to the journal
 # (StandardOutput/StandardError), so that copy always lands -- and only then makes the best-effort
@@ -41,8 +60,21 @@ log()  { echo "INFO : $*";     printf '%s\n' "$*" | systemd-cat -t "nvm-update-a
 warn() { echo "WARN : $*" >&2; printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p warning 2>/dev/null || true; }
 die()  { echo "ERROR: $*" >&2; printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p err     2>/dev/null || true; exit 1; }
 
+# skip <reason-token> <message> : end the run as TRANSIENT (see the header) -- the counterpart to
+# die for a condition this host did not cause and cannot fix, where the correct outcome is that
+# nothing changed. It is a notice, not an error: it exits EXIT_TRANSIENT, so the unit retries it,
+# and records <reason-token> in the stamp, so `ai-tools --status` can say WHY a run did nothing
+# instead of reporting a failure the operator would go looking for.
+skip() { _run_skip_reason="$1"; shift
+         echo "SKIP : $*" >&2; printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p notice 2>/dev/null || true
+         exit "${EXIT_TRANSIENT}"; }
+
 # write_stamp <exit-code>: record this run's outcome where the operator can read it, in the
-# KEY=value grammar services.lib.sh parses (RESULT, EXIT_CODE, FINISHED, TRIGGER, NODE). Installed
+# KEY=value grammar services.lib.sh parses (RESULT, EXIT_CODE, FINISHED, TRIGGER, NODE, and REASON
+# on a skip). RESULT is the exit status classified for a reader: ok / failed / `skipped` for the
+# transient case, which is reported as a run that correctly did nothing rather than as a fault --
+# an offline host has nothing for an operator to fix, and calling it FAILED spends attention that
+# a real fault then has to compete with. Installed
 # as the EXIT trap, so it records EVERY exit path -- a die, an uncaught set -e failure, and a clean
 # run alike; without it a failed run is visible only in the sandbox account's journal, which the
 # operator cannot reach either. Best-effort by construction: it must never turn a successful update
@@ -63,8 +95,11 @@ die()  { echo "ERROR: $*" >&2; printf '%s\n' "$*" | systemd-cat -t "nvm-update-a
 # keeps the window in which a reader sees a partial stamp negligible; should one land there anyway,
 # the reader finds no parseable RESULT and reports the unit unknown, never a wrong verdict.
 write_stamp() {
-    local rc="$1" result=failed node_version=unknown trigger=manual
-    [[ "${rc}" -eq 0 ]] && result=ok
+    local rc="$1" result=failed node_version=unknown trigger=manual reason="" text
+    case "${rc}" in
+        0)                   result=ok ;;
+        "${EXIT_TRANSIENT}") result=skipped; reason="${_run_skip_reason:-transient}" ;;
+    esac
     [[ -n "${INVOCATION_ID:-}" ]] && trigger=unit
 
     if [[ ! -f "${NVM_UPDATE_STAMP}" || ! -w "${NVM_UPDATE_STAMP}" ]]; then
@@ -79,10 +114,14 @@ write_stamp() {
         [[ "${node_version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || node_version=unknown
     fi
 
-    printf '# nvm-update last-run stamp -- written by %s, read by "ai-tools --status".\nRESULT=%s\nEXIT_CODE=%d\nFINISHED=%s\nTRIGGER=%s\nNODE=%s\n' \
+    # Composed whole, then written in ONE call: REASON is present only on a skip, and building the
+    # text first keeps that conditional line from splitting the write into two -- the single write
+    # is what keeps the window in which a reader could see a partial stamp negligible.
+    printf -v text '# nvm-update last-run stamp -- written by %s, read by "ai-tools --status".\nRESULT=%s\nEXIT_CODE=%d\nFINISHED=%s\nTRIGGER=%s\nNODE=%s\n' \
         "${AI_TOOLS_BIN}/nvm-update.sh" "${result}" "${rc}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        "${trigger}" "${node_version}" \
-        >"${NVM_UPDATE_STAMP}" 2>/dev/null \
+        "${trigger}" "${node_version}"
+    [[ -n "${reason}" ]] && text+="REASON=${reason}"$'\n'
+    printf '%s' "${text}" >"${NVM_UPDATE_STAMP}" 2>/dev/null \
         || warn "could not write the last-run stamp at ${NVM_UPDATE_STAMP}"
     return 0
 }
@@ -239,8 +278,10 @@ main() {
                 | grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+' \
                 | sort -V | tail -1
         )" || true
+        # Transient, not a fault: nothing here is broken, the registry simply was not reachable, and
+        # the host keeps the toolchain it already has. See the header's exit-status contract.
         [[ -n "${target_version}" ]] \
-            || die "could not resolve latest v${major} from nvm ls-remote"
+            || skip offline "could not resolve the latest v${major} from nvm ls-remote (registry unreachable) -- keeping ${current_version}; nothing was changed"
     fi
 
     log "Current: ${current_version}  ->  target: ${target_version}"

@@ -2236,8 +2236,8 @@ status_sandbox_unit_commands() {
 }
 
 # cmd_status  -- report the host's ai-tools service health: provisioning state, then each managed
-# systemd unit (OK / DOWN / FAILED / n/a / ?) and, for anything not plainly healthy, its
-# consequence and the exact commands that inspect and fix it.
+# systemd unit (OK / SKIPPED / STALE / DOWN / FAILED / n/a / ?) and, for anything not plainly
+# healthy, its consequence and the exact commands that inspect and fix it.
 # Reuses services.lib.sh -- the SAME registry the launch-time warning reads -- so the status view and
 # the launch warning never disagree. Informational (no operator gate), like --list/--providers.
 cmd_status() {
@@ -2278,7 +2278,7 @@ cmd_status() {
         warn "service registry unavailable (${SERVICES_LIB}) -- cannot report service health"
         return 1
     fi
-    local unit scope stamp mode state age when exit_code remedy
+    local unit scope stamp mode state age when exit_code reason remedy
     while IFS= read -r rec; do
         unit="$(ai_tools_service_field "${rec}" 1)"
         scope="$(ai_tools_service_field "${rec}" 2)"
@@ -2303,6 +2303,15 @@ cmd_status() {
                         printf '  %-28s %sOK%s%s\n' "${unit}" "${C_GRN}" "${C_RST}" "${when}"
                     fi ;;
             down)   printf '  %-28s %sDOWN%s\n' "${unit}" "${C_YEL}" "${C_RST}" ;;
+            # A run that correctly did nothing (the updater with an unreachable registry) is dim,
+            # not yellow: yellow is this report's attention colour, and there is nothing to attend
+            # to -- the previous toolchain is intact and the next run will try again. If the
+            # condition persists the line turns STALE on its own once the stamp ages past its
+            # grace, which is where the operator is meant to look.
+            skipped) reason="$(ai_tools_service_stamp_field "${stamp}" REASON)"
+                    printf '  %-28s %sSKIPPED%s %s(last run %s%s -- nothing was changed)%s\n' \
+                        "${unit}" "${C_DIM}" "${C_RST}" "${C_DIM}" "${age:-at an unknown time}" \
+                        "${reason:+, ${reason}}" "${C_RST}" ;;
             failed) exit_code="$(ai_tools_service_stamp_field "${stamp}" EXIT_CODE)"
                     printf '  %-28s %sFAILED%s %s(last run %s, exit %s)%s\n' "${unit}" \
                         "${C_RED}" "${C_RST}" "${C_DIM}" "${age:-at an unknown time}" \
