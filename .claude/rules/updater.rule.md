@@ -115,6 +115,24 @@ clock: the stamp still ages, and a condition that persists past the record's 48h
 `STALE`, the same escalation a schedule that stopped firing gets. Offline once is nothing to act
 on; offline for a week is a toolchain that has stopped advancing.
 
+### Retrying a transient failure
+
+`nvm-update.service` carries `Restart=on-failure` with `RestartPreventExitStatus=1`, so the
+transient class retries and the fault class does not: a broken toolchain or a failed signature check
+will fail the same way on a retry, and neither should churn against the registry. Retries are
+bounded by the unit's start limit — 6 starts per 6h, 30 minutes apart — which recovers an outage of
+a couple of hours and then stops, leaving the stamp to age into `STALE` for one that lasts longer.
+
+This is the only recovery path a *failed* run has. The timer's `Persistent=true` covers a window
+missed while the manager was not running; a window taken by a run that then failed is spent, because
+systemd stamps a timer when it elapses and not when the service succeeds. Ordering on
+`network-online.target` is not a path either — it gates unit startup, while this unit is started by a
+daily timer on a machine that has typically been up for days — so the unit is not ordered against it
+and connectivity is handled where it actually arises, in the run's own exit status.
+
+The daily window is the host's local time; an operator moves it with `sudo systemctl --user -M
+ai-tools@.host edit nvm-update.timer`.
+
 Each field has a distinct reader. `RESULT` and `EXIT_CODE` are the service's verdict. `FINISHED`
 carries two: it dates that verdict, and its **age** is what `nvm-update.timer` — which can
 otherwise report nothing at all — infers its own health from, since a run systemd started proves
