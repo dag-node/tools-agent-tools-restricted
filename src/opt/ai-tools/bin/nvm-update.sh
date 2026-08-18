@@ -144,7 +144,15 @@ prune_versions() {
     local node_alias="$1" nvm_dir="${HOME}/.nvm"
     local active_version ver aliased
 
-    active_version="$(nvm version "${node_alias}")"
+    # Same bare-assignment rule as the target-version lookup in main: absorb the status so a failed
+    # lookup is reported and SKIPPED rather than aborting the run here -- the prune is housekeeping,
+    # and an abort at this point would strand the launcher repoint that follows it, leaving the new
+    # toolchain installed but unwired.
+    active_version="$(nvm version "${node_alias}" 2>/dev/null)" || true
+    if [[ -z "${active_version}" || "${active_version}" == "N/A" ]]; then
+        warn "could not resolve the version alias '${node_alias}' points at -- skipping the prune"
+        return 0
+    fi
     log "Pruning old Node.js versions (keeping ${active_version})"
 
     local -A keep
@@ -221,11 +229,16 @@ main() {
     # keys on. An explicit argument overrides the lookup.
     if [[ -z "${target_version}" ]]; then
         command -v curl >/dev/null 2>&1 || die "curl required to resolve the latest version"
+        # The `|| true` is load-bearing, the same way the emitters' is. A BARE assignment takes the
+        # exit status of its command substitution, so under `set -e -o pipefail` a registry this host
+        # cannot reach (or a grep that matches nothing) aborts the updater ON THIS LINE -- silently,
+        # since nvm's own error is discarded above and the die below never runs. Absorbing the status
+        # here is what lets the emptiness be REPORTED, by the check that was always meant to.
         target_version="$(
             nvm ls-remote --lts "v${major}" 2>/dev/null \
                 | grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+' \
                 | sort -V | tail -1
-        )"
+        )" || true
         [[ -n "${target_version}" ]] \
             || die "could not resolve latest v${major} from nvm ls-remote"
     fi
