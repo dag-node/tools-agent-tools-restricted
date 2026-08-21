@@ -228,10 +228,18 @@ if command -v runuser >/dev/null 2>&1; then
     fal="${TESTDIR}/for-allowlist"; : > "${fal}"
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${fal}"
 
+    # setsid: every assertion below expects a refusal, and each must land BEFORE the gate's
+    # snapshot step, which is a --for run's only sudo. Without a controlling terminal sudo cannot
+    # open /dev/tty to prompt (a stdin redirect does not stop it) and fails at once, so a
+    # regression that let a refusal fall past the snapshot FAILS here instead of hanging on a
+    # developer's password prompt -- the asymmetry being that a container with no tty would fail
+    # while an interactive run stalls indefinitely. -w because setsid FORKS when it is already a
+    # process-group leader, and the bare form then returns 0 rather than the command's status,
+    # which would quietly pass every rc-based assertion below.
     run_for() {
         runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${fconf}" AI_TOOLS_ALLOWLIST="${fal}" \
-            "${CLI}" "$@" 2>&1
+            setsid -w "${CLI}" "$@" 2>&1
     }
 
     # (1) An unenrolled target is refused, naming the enrolment command. Nothing may be written for
