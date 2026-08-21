@@ -279,6 +279,14 @@ names, so `ai-tools-unclaim` cannot resolve an owner from an entry and binds the
 **invoking uid** instead — the guard that stops one operator rewriting another's files. Honouring
 `--for` there would have the CLI name one operator while the helper acted as another.
 
+**Every refusal in the gate precedes the snapshot**, which is a `--for` run's first `sudo`: a
+command that is going to be refused must not first prompt for a password. That ordering is what
+places the `--force` check in the gate — reading the verb's own arguments — rather than where
+`--force` is parsed in `cmd_project_unclaim`, which runs after the gate and so would prompt first.
+The target's group is likewise resolved only *after* enrollment is confirmed, so a name that is
+neither an operator nor a user on this host is refused with the enrolment command rather than a
+`getent` failure naming the wrong problem.
+
 Sandbox clones stay invoker-only: `--sandbox-create` clones as the invoking user with that user's
 git credentials, so pointing it at another owner is more than a registry redirect and is not
 attempted here.

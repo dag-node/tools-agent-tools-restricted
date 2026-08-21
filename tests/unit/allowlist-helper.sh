@@ -34,6 +34,12 @@ chmod 0755 "${TESTDIR}" "${proj}"
 mk_allowlist "# fixture allowlist"
 mk_operator
 readonly ALLOWFILE="${TESTDIR}/allowed-projects"
+# The harness writes the fixture as root; a real allowlist is the operator's own file, 0600 in a
+# 0700 config dir. Model that, because "the helper leaves the registry as its operator's data
+# rather than taking it over as root" is one of the properties asserted below -- against a
+# root-owned fixture it would pass trivially.
+chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ALLOWFILE}"
+chmod 600 "${ALLOWFILE}"
 OPERATOR_UID="$(id -u "${PROJECTS_USER}")"
 readonly OPERATOR_UID
 

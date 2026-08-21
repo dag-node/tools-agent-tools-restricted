@@ -177,9 +177,17 @@ unset _forless_args
 # up holding the files. What a root helper's walk treats as "the operator" is still resolved per
 # path from the path's own allowlist coverage, never from either of these.
 OWNER_USER="${FOR_OPERATOR:-${ME}}"
-OWNER_GROUP="$(id -gn "${OWNER_USER}" 2>/dev/null)" \
-    || { echo "ai-tools: cannot resolve the primary group of ${OWNER_USER}" >&2; exit 1; }
-readonly FOR_OPERATOR OWNER_USER OWNER_GROUP
+# Without --for the owner is the invoker, whose group always resolves. With --for the group is
+# resolved by require_for_target only AFTER the target is confirmed enrolled: a name that is
+# neither an operator nor a user on this host has to be refused with the actionable "not a
+# configured ai-tools operator -- enrol it with ..." message, not with a getent failure that names
+# the wrong problem.
+OWNER_GROUP=""
+if [[ -z "${FOR_OPERATOR}" ]]; then
+    OWNER_GROUP="$(id -gn "${OWNER_USER}" 2>/dev/null)" \
+        || { echo "ai-tools: cannot resolve the primary group of ${OWNER_USER}" >&2; exit 1; }
+fi
+readonly FOR_OPERATOR OWNER_USER
 
 # The registry this run reads and writes. Without --for it is the invoker's own file, read and
 # written directly. With --for, require_for_target re-points it at a root-side SNAPSHOT of the
@@ -1624,16 +1632,6 @@ cmd_project_unclaim() {
     if [[ -n "${group_opt}" ]] && ! getent group "${group_opt}" >/dev/null 2>&1; then
         die "no such group: ${group_opt}"
     fi
-    # --force reaches a tree NO allowlist names, so ai-tools-unclaim cannot resolve its owner from
-    # an entry and binds the walk to the INVOKING uid instead -- the guard that stops one operator
-    # rewriting another's files. --for cannot be honoured there: the CLI would name one operator
-    # while the helper acted as another. Refused rather than silently ignored.
-    if ${force} && [[ -n "${FOR_OPERATOR}" ]]; then
-        die "--for cannot be combined with --force" \
-            "an unlisted tree has no allowlist entry naming its owner, so the unclaim is bound to" \
-            "       you as the invoking operator; run it as ${FOR_OPERATOR}, or unclaim the registered" \
-            "       project without --force"
-    fi
     if ${dry} && ! ${force}; then
         die "-n/--dry-run applies to --force only" \
             "       a registered project's unclaim previews itself: it lists what it will do and asks before acting"
@@ -2691,23 +2689,27 @@ snapshot_allowlist() {
     ALLOWLIST="${ALLOWLIST_SNAPSHOT}"
 }
 
-# require_for_target <verb> -- validate a --for run and re-point ALLOWLIST at the target's
-# registry. A no-op without the flag, so nothing below changes for an ordinary run.
+# require_for_target <verb> [verb-args...] -- validate a --for run, resolve the target's group, and
+# re-point ALLOWLIST at the target's registry. A no-op without the flag, so nothing below changes
+# for an ordinary run.
+#
+# EVERY refusal here precedes snapshot_allowlist, which is the run's first sudo: a command that is
+# going to be refused must not first prompt the operator for a password. That ordering is why the
+# --force incompatibility is checked HERE, on the verb's own arguments, rather than where --force is
+# parsed in cmd_project_unclaim -- that runs after this gate, so the prompt would come first.
 #
 # --for is accepted only on the verbs whose whole effect is decided by WHICH operator's allowlist
 # covers the path: the registry pair, the two per-project root helpers that gate on allowlist
 # coverage, and the listing. Elsewhere it is REFUSED rather than ignored -- a --sandbox-create
 # --for that silently cloned as the invoker would leave the tree owned by the wrong operator with
-# nothing to show the flag was disregarded. It is refused with --unlisted for a different reason,
-# stated at that flag's own parse: ai-tools-unclaim binds an unlisted tree to the invoking uid
-# precisely so one operator cannot rewrite another's files, and --for cannot be allowed to
-# reach past that.
+# nothing to show the flag was disregarded.
 #
 # The target must be ENROLLED in OPERATORS: ai-tools-setfacl and the handback helpers resolve a
 # path's owner over that list, so an entry written for an unenrolled name would create a launch
-# gate no ownership machinery can act on.
+# gate no ownership machinery can act on. Enrollment is checked before the group lookup, so an
+# unknown name is refused with the enrolment command rather than a getent failure.
 require_for_target() {
-    local verb="$1"
+    local verb="${1:-}"; shift || true
     [[ -n "${FOR_OPERATOR}" ]] || return 0
     case "${verb}" in
         --project-claim|--project-create|--project-unclaim|--project-remove|\
@@ -2716,6 +2718,18 @@ require_for_target() {
                "it applies to: --project-claim, --project-create, --project-unclaim," \
                "       --project-remove, --lockdown, --reclaim, --list" ;;
     esac
+    # --force reaches a tree NO allowlist names, so ai-tools-unclaim cannot resolve its owner from
+    # an entry and binds the walk to the INVOKING uid instead -- the guard that stops one operator
+    # rewriting another's files. Honouring --for there would have the CLI name one operator while
+    # the helper acted as another.
+    local a
+    for a in "$@"; do
+        [[ "${a}" == "--force" ]] || continue
+        die "--for cannot be combined with --force" \
+            "an unlisted tree has no allowlist entry naming its owner, so the unclaim is bound to" \
+            "       you as the invoking operator; run it as ${FOR_OPERATOR}, or unclaim the registered" \
+            "       project without --force"
+    done
     [[ "${FOR_OPERATOR}" != "${SANDBOX_USER}" ]] \
         || die "the sandbox account is not an operator and must not own projects"
     [[ "${FOR_OPERATOR}" != "root" ]] || die "root is not an operator"
@@ -2728,6 +2742,8 @@ require_for_target() {
     fi
     ${found} || die "${FOR_OPERATOR} is not a configured ai-tools operator -- enrol it first with:" \
         "       sudo ai-tools-admin operator add ${FOR_OPERATOR}"
+    OWNER_GROUP="$(id -gn "${FOR_OPERATOR}" 2>/dev/null)" \
+        || die "cannot resolve the primary group of ${FOR_OPERATOR}"
     snapshot_allowlist
 }
 
@@ -2742,7 +2758,7 @@ esac
 # Validate a --for run and re-point the registry at the target, after require_operator: acting for
 # another operator is an operator action, so the invoker must be enrolled before the target is even
 # looked up.
-require_for_target "${1:-}"
+require_for_target "$@"
 
 # ── Dispatch ─────────────────────────────────────────────────────────────────────
 case "${1:-}" in
