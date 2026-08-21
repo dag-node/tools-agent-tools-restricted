@@ -2055,7 +2055,7 @@ cmd_lockdown() {
 }
 
 # cmd_reclaim [--full] [path]  -- hand agent-written files under the project (default: cwd) back to
-# ${ME}:${SANDBOX_GROUP} via ai-tools-reclaim (sudo). Reclaims the .git tree the per-session sweeps
+# ${OWNER_USER}:${SANDBOX_GROUP} via ai-tools-reclaim (sudo). Reclaims the .git tree the per-session sweeps
 # skip; run it before an ACL-unaware backup so ownership (not the per-project ACL) carries the
 # operator's access into the copy. --full also reclaims the heavy trees the default run skips
 # (node_modules, .venv, ...).
