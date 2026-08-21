@@ -230,7 +230,7 @@ grep -rlZ '@AI_TOOLS_VERSION@' src \
 install -d -m 0750 %{buildroot}%{ai_libexecdir}
 for h in ai-tools-chown ai-tools-setgid ai-tools-setfacl ai-tools-unclaim \
          ai-tools-lockdown ai-tools-relabel ai-tools-safedir ai-tools-reclaim \
-         ai-tools-admin; do
+         ai-tools-allowlist ai-tools-admin; do
     install -m 0750 src%{ai_libexecdir}/${h}.sh %{buildroot}%{ai_libexecdir}/${h}
 done
 install -m 0750 src%{ai_libexecdir}/ai-tools-handback.py %{buildroot}%{ai_libexecdir}/ai-tools-handback
@@ -773,6 +773,7 @@ fi
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-relabel
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-safedir
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-reclaim
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-allowlist
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-admin
 %{_sbindir}/ai-tools-admin
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-handback
@@ -921,6 +922,24 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Fri Aug 21 2026 dagnode <tools@dagnode.com> - 0.12.0-1
+- NEW: 'ai-tools --for <operator>' runs a project command on behalf of another enrolled operator,
+  so a service account that runs a coding agent but has no password can be given projects. The
+  allowlist entry lands in that account's registry rather than yours, which is what makes the
+  project theirs: files the agent writes are handed back to them, the per-project ACL grants them,
+  and their next launch finds the project claimed instead of prompting for a password it cannot
+  supply. Claim once as yourself, with your own password, and the account never meets a sudo
+  prompt. Accepted on --project-claim/-create, --project-unclaim/-remove, --lockdown, --reclaim
+  and --list; refused elsewhere rather than ignored, and refused with --project-unclaim --force
+  (an unlisted tree has no entry naming an owner, so that mode stays bound to the invoking
+  operator). Enrol the target first with 'sudo ai-tools-admin operator add <name>'.
+- NEW: The ai-tools-allowlist root helper backs it, reading and editing another operator's
+  allowed-projects. Root is needed for the read too, since an allowlist is 0600 inside a 0700
+  directory. Like the other project helpers it carries no NOPASSWD grant -- you authenticate --
+  it authorizes against the uid sudo sets rather than a name from the environment, and it refuses
+  a bare root call, an unenrolled caller or target, the sandbox account, and a protected system
+  directory, leaving the registry byte-identical whenever it refuses.
+
 * Tue Aug 18 2026 dagnode <tools@dagnode.com> - 0.11.1-1
 - FIX: A toolchain update that could not reach the npm registry failed with an empty journal and
   left ai-tools --status reporting FAILED until the next day's window. It now says what it could

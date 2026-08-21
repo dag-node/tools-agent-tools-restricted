@@ -48,6 +48,9 @@ wrapper needs and which does require a fresh login). The **informational** comma
 (`--help`/`--version`/`--list`/`--providers`) stay open, so an unenrolled user can still read usage
 and inspect the host.
 
+A third gate, `require_for_target`, runs immediately after it and validates a `--for` run (see
+*Acting for another operator* below). It is a no-op without the flag.
+
 ## Commands
 
 - `--project-claim [path]` (alias `--project-create`) — claim a real project in place
@@ -220,6 +223,8 @@ advancing surfaces. The account's own
   in-place rewrite), and closes with a compact **Maintenance** pointer to the per-project verbs.
   Informational, so it stays open to a non-operator.
 - `--version` (the deploy-stamped package version; `dev` from a raw source tree), `--help`.
+- `--for <operator>` — a **modifier**, not a command: run the verb on behalf of another enrolled
+  operator (see *Acting for another operator* below).
 
 The CLI ships a man page, `ai-tools(1)`
 (`src/usr/local/share/man/man1/ai-tools.1` → `/usr/local/share/man/man1/`, deployed by
@@ -229,6 +234,69 @@ It is hand-written troff — the CLI cannot be executed at package-build time fo
 `tests/unit/man.sh` keeps it honest: the long-option sets of `usage()` and the page must
 match in both directions, so adding, renaming, or removing a CLI option obligates the
 same change in the page or the suite fails.
+
+## Acting for another operator (`--for`)
+
+`--for <operator>` performs a command **on behalf of** another enrolled operator: the allowlist
+entry lands in *their* `~/.config/ai-tools/allowed-projects`, so `ai-tools-setfacl` grants
+`user:<them>`, the ownership handback restores to them, and their agent's launch gate covers the
+path. It exists for a **service account that runs an agent but holds no password**: such an account
+cannot authenticate the claim's own no-NOPASSWD root helpers, and a claim performed by a human
+would otherwise register the project in the *human's* registry — not the one that account's launch
+wrapper reads. A human operator claims once with `--for`, and that account's session then finds the
+project fully claimed and never reaches a password prompt.
+
+The flag is separated from the verb's own arguments **before dispatch**, so every command reads one
+already-decided owner rather than each parsing it. Two globals carry the result: `OWNER_USER` /
+`OWNER_GROUP` name the operator the run acts for (the target, or the invoker), and every message
+that names the owner a file ends up with — and every scan that matches on that owner
+(`acl_drift_scan`, `grantable_ancestor`, the hand-back prompt's default) — reads them rather than
+the invoking user. What a *root helper's* walk treats as the operator is still resolved per path
+from that path's allowlist coverage (`operator.lib.sh`), never from either global.
+
+**The target's registry is unreadable to the invoker.** An allowlist is `0600` inside a `0700`
+`.config/ai-tools` (seeded that way by `ai-tools-admin`), so one operator cannot read another's at
+all — and every decision the CLI makes from it (is the path listed, which `!` exclusions apply, what
+`--list` reports) would read an unreadable file as an empty one. A `--for` run therefore takes a
+root-side **snapshot** through `ai-tools-allowlist --print` into a `0600` temp file removed on exit,
+and points `ALLOWLIST` at it for reads. The snapshot is read-only input for that run: mutations go
+back through the helper, which re-reads the real file and applies its own idempotency, and
+`reg_allow`/`unreg_allow` refresh the snapshot after theirs — so a stale copy is never what a write
+is based on.
+
+`require_for_target` gates the run, after `require_operator` (acting for another operator is itself
+an operator action, so the invoker must be enrolled before the target is looked up). It accepts the
+flag only on the verbs whose whole effect is decided by *which* operator's allowlist covers the
+path — `--project-claim`/`-create`, `--project-unclaim`/`-remove`, `--lockdown`, `--reclaim`,
+`--list` — and **refuses it elsewhere rather than ignoring it**: a `--sandbox-create --for` that
+silently cloned as the invoker would leave the tree owned by the wrong operator with nothing to
+show the flag was disregarded. The target must be **enrolled in `OPERATORS`**, since the ownership
+helpers resolve a path's owner over that list and an entry written for an unenrolled name would be
+a launch gate nothing can act on; the sandbox account and `root` are refused outright.
+
+`--for` is **refused with `--project-unclaim --force`**. That mode reaches a tree no allowlist
+names, so `ai-tools-unclaim` cannot resolve an owner from an entry and binds the walk to the
+**invoking uid** instead — the guard that stops one operator rewriting another's files. Honouring
+`--for` there would have the CLI name one operator while the helper acted as another.
+
+**Every refusal in the gate precedes the snapshot**, which is a `--for` run's first `sudo`: a
+command that is going to be refused must not first prompt for a password. That ordering is what
+places the `--force` check in the gate — reading the verb's own arguments — rather than where
+`--force` is parsed in `cmd_project_unclaim`, which runs after the gate and so would prompt first.
+The target's group is likewise resolved only *after* enrollment is confirmed, so a name that is
+neither an operator nor a user on this host is refused with the enrolment command rather than a
+`getent` failure naming the wrong problem.
+
+Sandbox clones stay invoker-only: `--sandbox-create` clones as the invoking user with that user's
+git credentials, so pointing it at another owner is more than a registry redirect and is not
+attempted here.
+
+**What this widens, stated plainly.** An allowlist is an operator's own launch gate, and `--for`
+lets one operator write into another's. That sits inside the model's standing "`ai-ops` operators
+are trusted" boundary — an operator could already claim the project themselves — but it is a real
+change in who curates a gate, so every mutation is logged with both the caller and the target. The
+sandbox account reaches none of it: the helper is `750 root:root` inside a `750 root:root`
+directory and the account holds no sudo rule.
 
 ## Two project models
 
@@ -399,10 +467,10 @@ otherwise), so the grant adds it no access.
 
 ## Privilege model
 
-The CLI itself is unprivileged. Seven of its root operations — `ai-tools-lockdown`,
+The CLI itself is unprivileged. Eight of its root operations — `ai-tools-lockdown`,
 `ai-tools-relabel`, `ai-tools-setfacl`, `ai-tools-setgid`, `ai-tools-unclaim`, `ai-tools-safedir`,
-and `ai-tools-reclaim` — run via `sudo` with **no** NOPASSWD grant by design, so sudo prompts for
-the projects user's password; the sandbox account has no grant for any. The exception, `--relabel` →
+`ai-tools-reclaim`, and `ai-tools-allowlist` — run via `sudo` with **no** NOPASSWD grant by design,
+so sudo prompts for the projects user's password; the sandbox account has no grant for any. The exception, `--relabel` →
 `ai-tools-relabel-agent`, is: it has a dedicated fixed-path NOPASSWD rule
 (shared with the `nvm-update` timer, see [updater](updater.rule.md) / [launch](launch.rule.md)),
 so it runs **as root without a prompt** — kept safe by being a fixed path the projects user
@@ -416,6 +484,10 @@ write the root-owned `.gitconfig`; on add it re-validates the path against the a
 the shared `operator.lib.sh` resolver, but edits a single entry rather than walking a tree.
 `ai-tools-reclaim` walks the project and hands each agent-owned path to `ai-tools-chown`, so the
 allowlist/secret/exclusion enforcement and the need for root are that helper's, not its own.
+`ai-tools-allowlist` needs root for the **read** as much as the write, since an allowlist is `0600`
+inside a `0700` directory in a home the invoker cannot traverse; it is reached only by a `--for`
+run, and it authorizes against `SUDO_UID` — the uid sudo sets, not the spoofable `SUDO_USER` name —
+refusing a bare root call outright.
 Repo-local `core.filemode=true` and the allowlist are plain writes the projects user performs
 unprivileged.
 `/usr/local/libexec/ai-tools` is `750 root:root`, so the projects user cannot even stat the

@@ -213,4 +213,82 @@ EOF
     fi
 fi
 
+# --for <operator>: acting on another enrolled operator's registry. Every refusal here precedes the
+# root helper entirely, so none of these reach a sudo prompt. The helper's own gates are asserted
+# in tests/unit/allowlist-helper.sh; what this covers is the CLI deciding, up front, that a run
+# must not proceed at all.
+if command -v runuser >/dev/null 2>&1; then
+    section "CLI --for (acting for another operator)"
+    mktestdir
+    chmod 755 "${TESTDIR}"
+    fconf="${TESTDIR}/operator.conf"
+    printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${fconf}"; chmod 644 "${fconf}"
+    fproj="${TESTDIR}/forproj"; mkdir -p "${fproj}"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${fproj}"
+    fal="${TESTDIR}/for-allowlist"; : > "${fal}"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${fal}"
+
+    # setsid: every assertion below expects a refusal, and each must land BEFORE the gate's
+    # snapshot step, which is a --for run's only sudo. Without a controlling terminal sudo cannot
+    # open /dev/tty to prompt (a stdin redirect does not stop it) and fails at once, so a
+    # regression that let a refusal fall past the snapshot FAILS here instead of hanging on a
+    # developer's password prompt -- the asymmetry being that a container with no tty would fail
+    # while an interactive run stalls indefinitely. -w because setsid FORKS when it is already a
+    # process-group leader, and the bare form then returns 0 rather than the command's status,
+    # which would quietly pass every rc-based assertion below.
+    run_for() {
+        runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${fconf}" AI_TOOLS_ALLOWLIST="${fal}" \
+            setsid -w "${CLI}" "$@" 2>&1
+    }
+
+    # (1) An unenrolled target is refused, naming the enrolment command. Nothing may be written for
+    # a name the ownership helpers cannot later resolve to an owner.
+    out="$(run_for --project-claim --for definitely-not-an-operator "${fproj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'not a configured ai-tools operator' <<<"${out}"; then
+        pass "--for refuses an unenrolled target operator"
+    else
+        fail "--for accepted an unenrolled target (rc=${rc}): ${out}"
+    fi
+    if [[ -s "${fal}" ]]; then
+        fail "refused --for run still wrote to a registry: $(cat "${fal}")"
+    else
+        pass "refused --for run wrote no registry state"
+    fi
+
+    # (2) The sandbox account can never be a --for target: it would be the agent owning projects.
+    out="$(run_for --project-claim --for "${SANDBOX_USER}" "${fproj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'not an operator' <<<"${out}"; then
+        pass "--for refuses the sandbox account as the target"
+    else
+        fail "--for accepted the sandbox account (rc=${rc}): ${out}"
+    fi
+
+    # (3) Refused, not ignored, on a verb it does not apply to -- a --sandbox-create that silently
+    # cloned as the invoker would leave the tree owned by the wrong operator with nothing to show.
+    out="$(run_for --sandbox-create --for "${PROJECTS_USER}" "${fproj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'for is not accepted on' <<<"${out}"; then
+        pass "--for is refused on a verb that does not accept it (not silently ignored)"
+    else
+        fail "--for was not refused on --sandbox-create (rc=${rc}): ${out}"
+    fi
+
+    # (4) --force binds an unlisted tree to the INVOKING uid inside ai-tools-unclaim, so honouring
+    # --for there would have the CLI name one operator while the helper acted as another.
+    out="$(run_for --project-unclaim --force --for "${PROJECTS_USER}" "${fproj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'cannot be combined with --force' <<<"${out}"; then
+        pass "--for refuses to combine with --project-unclaim --force"
+    else
+        fail "--for was accepted alongside --force (rc=${rc}): ${out}"
+    fi
+
+    # (5) A bare --for with no name is a parse error, not an empty operator silently meaning "me".
+    out="$(run_for --project-claim --for)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'for needs an operator name' <<<"${out}"; then
+        pass "--for with no operator name is refused"
+    else
+        fail "--for with no name was not refused (rc=${rc}): ${out}"
+    fi
+fi
+
 finish

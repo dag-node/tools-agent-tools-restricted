@@ -240,6 +240,39 @@ without prompting, in both the normal and
 modes. Without it the command asks whether to hand back and whose group to use,
 and a run with no terminal takes the invoking user's group by default \(em so a
 script should name the group outright.
+.TP
+.BI \-\-for " operator"
+Act on
+.IR operator 's
+projects instead of your own. The allowlist entry lands in
+.IR operator 's
+.I ~/.config/ai-tools/allowed-projects
+rather than yours, so the project is granted to
+.IR operator ,
+files the agent writes are handed back to
+.IR operator ,
+and
+.IR operator 's
+own agent launches there without further setup.
+.IP
+This exists for a service account that runs a coding agent but has no password,
+and so cannot authenticate the root helpers a claim of its own would invoke: a
+human operator performs the claim on its behalf, once, and the account never
+meets a password prompt.
+.I operator
+must already be enrolled
+.RB ( "sudo ai\-tools\-admin operator add " \fIoperator\fR ),
+since the ownership helpers resolve a project's owner from the
+.B OPERATORS
+list.
+.IP
+Accepted on
+.BR \-\-project\-claim ", " \-\-project\-create ", " \-\-project\-unclaim ,
+.BR \-\-project\-remove ", " \-\-lockdown ", " \-\-reclaim ", and " \-\-list ;
+refused elsewhere rather than ignored. It cannot be combined with
+.BR "\-\-project\-unclaim \-\-force" ,
+whose tree carries no allowlist entry naming an owner and is therefore bound to
+the invoking operator.
 .SH FILES
 .TP
 .I ~/.config/ai-tools/allowed-projects
