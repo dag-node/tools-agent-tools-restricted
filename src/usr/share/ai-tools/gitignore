@@ -24,11 +24,15 @@
 # Each agent owns a config directory under this home whose NAME its manifest declares
 # (.claude for Claude Code), so these patterns match ANY dot-directory rather than one name --
 # a second agent's guardrails are captured without editing this base-owned file. The other
-# dot-directories here (.nvm, .npm, .cache, .local) hold no file matching the re-includes
-# below, and git tracks files rather than directories, so admitting their directory entries
-# costs nothing.
+# dot-directories here (.npm, .cache, .local) hold no file matching the re-includes below, and
+# git tracks files rather than directories, so admitting their directory entries costs nothing.
+# .nvm is the one exception: nvm installs Node from a git clone, so it carries a nested .git,
+# and admitting its directory entry would make `git add` record it as an embedded-repo gitlink
+# (a spurious submodule pointer) with a warning. It holds no durable control-plane asset, so it
+# is excluded outright below.
 !/.*/
 /.*/*
+/.nvm/
 # Agent-authored guardrails (root:ai-tools, not agent-writable)
 !/.*/settings.json
 !/.*/*-hook.sh
