@@ -230,7 +230,7 @@ grep -rlZ '@AI_TOOLS_VERSION@' src \
 install -d -m 0750 %{buildroot}%{ai_libexecdir}
 for h in ai-tools-chown ai-tools-setgid ai-tools-setfacl ai-tools-unclaim \
          ai-tools-lockdown ai-tools-relabel ai-tools-safedir ai-tools-reclaim \
-         ai-tools-admin; do
+         ai-tools-allowlist ai-tools-admin; do
     install -m 0750 src%{ai_libexecdir}/${h}.sh %{buildroot}%{ai_libexecdir}/${h}
 done
 install -m 0750 src%{ai_libexecdir}/ai-tools-handback.py %{buildroot}%{ai_libexecdir}/ai-tools-handback
@@ -773,6 +773,7 @@ fi
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-relabel
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-safedir
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-reclaim
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-allowlist
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-admin
 %{_sbindir}/ai-tools-admin
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-handback

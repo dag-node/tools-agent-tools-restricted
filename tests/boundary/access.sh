@@ -297,4 +297,33 @@ else
     pass "the agent cannot write owner-only.lib.sh (the seal predicate and residue strip)"
 fi
 
+# ai-tools-allowlist edits an operator's allowed-projects -- the launch gate deciding where a
+# session may start. Reaching it would let the agent approve its own projects, so this is the
+# boundary half of the pair whose runtime half (each of the helper's gates fires) is in
+# tests/unit/allowlist-helper.sh. The helper is 750 root:root inside a 750 root:root directory and
+# the sandbox account holds no sudo rule, so it is unreachable three ways over; assert the two the
+# filesystem can show.
+alhelper=/usr/local/libexec/ai-tools/ai-tools-allowlist
+if [[ ! -e "${alhelper}" ]]; then
+    skip "cross-operator allowlist helper not agent-reachable" "not installed at ${alhelper}"
+elif runuser -u "${SANDBOX_USER}" -- test -x "${alhelper}" 2>/dev/null; then
+    fail "the agent can execute ${alhelper} -- it could write its own launch gate"
+elif runuser -u "${SANDBOX_USER}" -- test -w "${alhelper}" 2>/dev/null; then
+    fail "the agent can write ${alhelper} -- it could rewrite the registry helper"
+else
+    pass "the agent cannot execute or write ai-tools-allowlist (the cross-operator launch gate)"
+fi
+
+# The gate itself: an operator's allowed-projects. The agent must not be able to add a project to
+# any operator's registry -- with or without the helper. The primary operator's is the one this
+# host is guaranteed to have.
+opallow="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
+if [[ ! -e "${opallow}" ]]; then
+    skip "operator allowlist not agent-writable" "not present at ${opallow}"
+elif runuser -u "${SANDBOX_USER}" -- test -w "${opallow}" 2>/dev/null; then
+    fail "the agent can write ${opallow} -- it could approve its own projects"
+else
+    pass "the agent cannot write the operator's allowed-projects (its own launch gate)"
+fi
+
 finish

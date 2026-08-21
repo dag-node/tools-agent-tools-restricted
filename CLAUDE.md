@@ -59,7 +59,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Toolchain provisioning + Node/claude updater, symlink repoint, post-upgrade relabel | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `ai-tools-launcher-symlink.sh`, `ai-tools-relabel-agent.sh`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
 | Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, the `session-env.d` session-env seam, the claude-code custom API endpoint, and the dotnet integration | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,session-env}.d/**`, `lib/ai-tools/claude-endpoint.lib.sh`, `ai-tools-dotnet.sh`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
 | Running .NET (CoreCLR) under confinement: the dotnet integration files ↔ the `tmpmap`/`apphost`/`netcore` SELinux groups, project-type→group map, denial breakdown | `lib/ai-tools/session-env.d/dotnet.env.sh`, `lib/ai-tools/filters.d/dotnet.rules`, `ai-tools-dotnet.sh`, `selinux/policy/ai_tools_{tmpmap,apphost,netcore}.te` | [dotnet](.claude/rules/dotnet.rule.md) |
-| Management CLI, project lifecycle, relabel | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel}.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
+| Management CLI, project lifecycle, relabel, acting for another operator (`--for`) | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel,allowlist}.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
 | Protected-paths backstop (refuse system dirs as targets) | `safe-paths.lib.sh` + the wrapper/CLI/elevated helpers | [safe-paths](.claude/rules/safe-paths.rule.md) |
 | Shared logging library | `log.lib.sh` | [logging](.claude/rules/logging.rule.md) |
 | User-facing message formatting (box, wrap, ties) | `msg.lib.sh` + its consumers | [messaging](.claude/rules/messaging.rule.md) |
@@ -203,7 +203,11 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   `bubblewrap`/`--system` isolation are deferred (see
   [confinement](.claude/rules/confinement.rule.md) and memory).
 - **`ai-ops` operators are trusted.** The model defends the host and other users from the
-  *agent*, not from an operator, who already holds the launch grant.
+  *agent*, not from an operator, who already holds the launch grant. `ai-tools --for <operator>`
+  rests on this: it lets one operator write an entry into another's allowlist — their launch gate —
+  so a human can claim a project for a passwordless service account that runs an agent. The target
+  must be enrolled, every mutation is logged with both caller and target, and the agent reaches
+  none of it (see [cli](.claude/rules/cli.rule.md)).
 - **Toolchain provenance is checksum-, allowlist-, and signature-gated.** The updater
   checksum-verifies Node, gates npm install scripts behind an allowlist, and verifies the
   installed toolchain's npm registry signatures before activating it — failing closed on a
