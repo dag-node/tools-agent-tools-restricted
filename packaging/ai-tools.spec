@@ -669,6 +669,16 @@ fi
 %postun -n ai-tools-integration-nodejs
 %systemd_postun_with_restart ai-tools-relabel.path
 
+%posttrans -n ai-tools-integration-nodejs
+# Start the relabel watcher so it is live without a reboot -- the twin of ai-tools-base's
+# posttrans starting the handback socket. The nodejs post scriptlet only ENABLES the unit
+# (applies the preset); a .path unit must be started to begin watching, and until it does a Node
+# auto-upgrade that repoints the launcher goes unwatched and the next launch fail-closes on a
+# bin_t entrypoint. posttrans runs after the systemd daemon-reload file trigger, so the unit is
+# known. Idempotent; guarded so a systemd-less build/image fails soft.
+# (No macro names in this comment: rpm expands macros inside scriptlet comments too.)
+systemctl start ai-tools-relabel.path 2>/dev/null || :
+
 %post -n ai-tools-integration-dotnet
 # Create + SELinux-label the sandbox-side dotnet dirs (writable NuGet cache, read-only shared
 # tools) the session-env fragment relies on. Offline + idempotent; the helper recognizes a host
