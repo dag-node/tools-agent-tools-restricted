@@ -43,14 +43,23 @@ Agent Tools Restricted runs autonomous coding agents under a dedicated, unprivil
 
 ## Package install
 
-Two commands. The first installs the dag-node release package, which brings the signed DNF
-repository definition and the org signing key with it
-([source](https://github.com/dag-node/rpm-dagnode-release)); the second pulls the stack. One
+Import the org signing key, then install the dag-node release package and the stack. The release
+package is signed by the org key, so `dnf` verifies its signature at install time — importing the
+key first satisfies that check, since the package that would otherwise install the key has not run
+yet. The release package brings the signed DNF repository definition and the key with it
+([source](https://github.com/dag-node/rpm-dagnode-release)); the last command pulls the stack. One
 repository serves EL 9 and EL 10, and both the packages and the repository metadata are
-signature-verified.
+signature-verified. Verify the key fingerprint out of band before importing — see the
+[repository README](https://github.com/dag-node/rpm/blob/main/README.md#signing-key).
 
 ```bash
-sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
+# Import the org signing key (verify its fingerprint out of band first — see the README above)
+sudo rpm --import \
+  https://rpm.dagnode.com/RPM-GPG-KEY-dag-node
+
+# Install the release package (repo definition + key), then the stack
+sudo dnf install \
+  https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
 sudo dnf install ai-tools ai-tools-selinux   # the whole stack + SELinux confinement
 ```
 
