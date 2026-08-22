@@ -218,6 +218,15 @@ The type is pinned in `relabel.lib.sh` and a declared pattern is accepted only w
 nothing outside the sandbox toolchain root (no traversal, no alternation, an anchored literal
 head), so a manifest chooses **which** file is its entrypoint, never what label a file gets. The
 whole body lives in `relabel.lib.sh`, shared with `install-selinux.sh`'s verify pass.
+
+The helper then **reconciles** what it applied against what is installed: it resolves
+`/opt/ai-tools/bin/<launcher>` the way the launch preflight does and reports `stale` — non-zero —
+when an entrypoint is installed at a path the declared pattern does not cover, instead of the
+`none`/success a pattern matching nothing would otherwise produce. So a relabel that exits 0 means
+the next launch will not fail closed on the entrypoint label, and a manifest that has stopped
+describing its own package is named as the cause rather than diagnosed as a missing install. It
+never labels the resolved path: the files that take `ai_tools_exec_t` stay exactly those the
+root-owned manifests declare (see [agent-claude-code](agent-claude-code.rule.md)).
 `ai-tools-relabel-agent --remove <agent>` is the erase-time counterpart: the agent package's
 `%preun` drops its rule while its manifest is still on disk.
 

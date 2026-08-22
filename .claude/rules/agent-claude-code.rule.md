@@ -65,7 +65,25 @@ Which link a component addresses is a deliberate choice per component, not an in
 The one-hop constraint in `claude.sh` exists solely to avoid that EACCES. It carries no coupling to
 sudoers matching, which targets the fixed path `/opt/ai-tools/bin/ai-tools-run`.
 
-## Entrypoint labelling: resolved at check time, pattern-matched at apply time
+**[3] is a hardlink, not the package's only name for the binary.** The npm package declares the
+per-platform binaries as `optionalDependencies` — one per platform/arch/libc
+(`@anthropic-ai/claude-code-<platform>-<arch>[-musl]`) — so the executable ships in a nested package
+(`…/claude-code/node_modules/@anthropic-ai/claude-code-<platform>-<arch>/claude`), and the
+`postinstall` script (`install.cjs`) hardlinks the one for this host to `bin/claude.exe`. Three
+consequences:
+
+- The declared `entrypoint_fcontext` matches only because that hardlink exists. It names the
+  arch-independent `bin/claude.exe`, so it is not itself arch-specific — but it describes a
+  *convenience name* the package creates, not where the payload ships.
+- A recursive `restorecon` over the toolchain visits **two names for one inode**, and the label the
+  walk leaves is whichever name it reached last — so a sweep wide enough to include the nested
+  package can un-label the entrypoint. The relabel helper itself never does: it `restorecon`s only
+  the paths the declared pattern matches.
+- Any rule written against the nested path would have to span the arch variants, which a single
+  anchored literal head cannot. This is why the reconciliation below **resolves** the entrypoint
+  rather than declaring a second pattern for it.
+
+## Entrypoint labelling: applied from the declaration, checked on the resolved inode
 
 Because the transition fires on **[3]**, that inode must carry `ai_tools_exec_t`, and a freshly
 installed one is born the default type — only `restorecon` applies the label. Three components care,
@@ -86,25 +104,37 @@ executable. The guarantee that does **not** depend on that agreement is the impo
 the transition would not honour is caught by the preflight on the resolved inode, so the failure is
 a refused launch, never an unconfined session.
 
-### What a repackaged upstream produces
+### The relabel reconciles the two, and fails when they disagree
 
-If the executable moves — most plausibly into a platform-specific optional dependency, the
-conventional npm shape for a native binary — the pattern matches nothing while the chain still
-resolves. The resulting state is fail-closed but self-inconsistent, and it is worth stating exactly,
-because the remedy the refusal names does not clear it:
+`ai-tools-relabel-agent` closes the gap between them without changing which side applies the label.
+The declared pattern stays the **apply** mechanism, because a `semanage fcontext` rule is what makes
+a type survive a later `restorecon`; resolution is the **check**, so the helper's exit status answers
+the question the operator actually asked — will the next launch be confined?
 
-- `matchpathcon` on the resolved path yields no `ai_tools_exec_t` (no rule covers the new location),
-  the core module's file-contexts are live, so the verdict is **`unverifiable`** and the launch is
-  **refused**.
-- The refusal prints `Fix: ai-tools --relabel`. That helper registers the same stale pattern,
-  `find` returns nothing, and `_ai_tools_label_agent_entrypoint` reports `none` and returns **0** —
-  so the run **exits successfully**, its only entrypoint line reading `claude-code: its entrypoint
-  is not installed -- nothing to label`, which names the wrong cause: the entrypoint is installed,
-  and the manifest no longer describes it.
+For each enabled agent it resolves `/opt/ai-tools/bin/<launcher>` the same way the preflight does
+(`realpath -e`, as root), applies the declared rule, and reconciles the two through the pure
+`ai_tools_entrypoint_reconcile_verdict` (`relabel.lib.sh`):
 
-Closing this means resolving the entrypoint at apply time the way the two checkers already resolve
-it at check time, rather than declaring its path. The design is drafted in
-`wip/ai-tools-claude-code-native-packaging-plan-v0.1.md`.
+| state | verdict | outcome |
+|---|---|---|
+| the launcher resolves to a file the pattern covers | `ok` | labelled and verified |
+| nothing resolves and the pattern matched nothing | `none` | the agent is not provisioned; nothing to label |
+| the launcher **resolves** to a file the pattern does **not** cover | `stale` | **reported and the run exits non-zero** |
+
+`stale` is the case a repackaged upstream produces — the pattern matches nothing while the chain
+still resolves, so the preflight's verdict is `unverifiable` and the launch is refused. The relabel
+names that cause and says the fix is upstream of it (update the agent package, whose manifest has
+stopped describing where its own executable installs), rather than reporting success and sending the
+operator back around a loop no rerun can clear.
+
+**It does not label the resolved path to compensate.** The set of files that ever take
+`ai_tools_exec_t` — the exec entrypoint of the confined domain — stays exactly the set the
+root-owned manifests declare. The resolved path is reached through an npm symlink the sandbox
+account owns, and a literal rule for it would pin the Node version, so labelling from resolution
+would both widen the set on agent-influenced input and accumulate a stale rule per Node bump. The
+resolved path is only ever *compared* and *reported*, and it is carried into a status line only
+while it passes an allowlist (`_ai_tools_entrypoint_path_reportable`: absolute, `..`-free, and no
+whitespace or control byte that could split the line or reach the operator's terminal).
 
 ## The wrapper (`claude.sh`)
 
@@ -246,9 +276,10 @@ Two properties of the current channel shape the design:
 
 ## Quirks
 
-- **`ai-tools --relabel` can report success while the launch stays refused.** Covered above: the
-  relabel applies a declared pattern, the preflight checks a resolved inode, and only the second is
-  layout-independent.
+- **`ai-tools --relabel` reports `stale`, not `not installed`, for a moved entrypoint.** The relabel
+  applies a declared pattern but post-conditions on the resolved inode, so its exit status agrees
+  with the launch preflight's verdict. A `none` line therefore means the agent genuinely is not
+  provisioned.
 - **A `.rpmnew` for `settings.json` leaves a newly shipped hook installed but uninvoked.** It is
   `%config(noreplace)` for the same reason `operator.conf` is — a dormant option is recoverable, a
   silently reverted setting is not (see [providers](providers.rule.md),
@@ -258,9 +289,36 @@ Two properties of the current channel shape the design:
 
 ## Deferred
 
-**Moving the agent off npm onto a root-owned native exec root.** The npm package is deprecated
-upstream while a native/`dnf` channel exists, and a root-owned entrypoint would close the
-agent-writable-exec-root bound above, make the relabel layout-independent, and remove the
-reinstall-re-mints-the-entrypoint race the updater currently works around. It needs the `runtime`
-field the provider seam already names, a second exec root, and a packaging split. Drafted, not
-built: `wip/ai-tools-claude-code-native-packaging-plan-v0.1.md`.
+**A native/`dnf` runtime alongside the npm one, as an opt-in.** The npm package is deprecated
+upstream while a signed vendor `dnf` channel exists, installing `/usr/bin/claude` root-owned and
+read-only to the agent. That closes the agent-writable-exec-root bound above and removes the
+reinstall-re-mints-the-entrypoint race the updater works around. It needs the `runtime` field the
+provider seam already names, an exact-path containment rule for a host-packaged binary
+([providers](providers.rule.md)), and a packaging split. Not built.
+
+**npm is the default, deliberately, and the reason is not that npm is safer.** The two channels
+trade one risk for another, and the trades sit on opposite sides of this project's threat model:
+
+- **npm's cost is in-model and bounded.** The exec root is agent-writable, so a compromised session
+  can modify `claude.exe` in place. Writing does not change the inode's SELinux type, so the launch
+  preflight still passes, and `npm install -g` does not reinstall an unchanged version — the tamper
+  persists across sessions and across operators. Confinement, the allowlist, and the handback still
+  bound what it reaches. This is exactly the adversary the model defends against.
+- **native's cost is out-of-model and unbounded.** It puts a second, *real* `claude` on every
+  operator's PATH. Running `/usr/bin/claude` starts an **unconfined session as the operator**, with
+  their own credentials and home and none of this machinery — the outcome the project exists to
+  prevent, reachable today only by operator error. `/usr/local/bin` precedes `/usr/bin` in the
+  default PATH and `path-dedup.sh` ranks it Tier 1, so the wrapper wins; but `sudo`'s `secure_path`
+  commonly omits `/usr/local/bin`, and an IDE plugin resolving an absolute path does too.
+
+So the native hazard cannot be *prevented* (rpm owns that path), only *detected*, while the npm
+hazard is one confinement already contains. Defaulting to npm keeps existing hosts unchanged and
+makes the switch an informed operator decision — the same posture as every other trust decision
+here. A host that adopts native gets the PATH assertion as a precondition, not an afterthought.
+
+**The signed release manifest closes npm's side of that trade without changing channel.** Upstream
+publishes a per-release `manifest.json` of SHA256 checksums for every platform binary, GPG-signed
+with a published fingerprint, independent of the delivery channel. Verifying the installed
+`claude.exe` against it would catch the in-place tamper described above — the one property native
+was buying — while the entrypoint stays where it is. Named here as the cheaper alternative to a
+channel move; not built.

@@ -939,6 +939,15 @@ fi
   it authorizes against the uid sudo sets rather than a name from the environment, and it refuses
   a bare root call, an unenrolled caller or target, the sandbox account, and a protected system
   directory, leaving the registry byte-identical whenever it refuses.
+- FIX: 'ai-tools --relabel' could report success while every launch stayed refused. It applied the
+  file-context pattern each agent's manifest declares, but the SELinux transition fires on the
+  binary the launcher actually resolves to -- so an agent whose package installs its executable
+  somewhere the pattern no longer covers left nothing to label, and the command exited 0 saying
+  the entrypoint "is not installed". It now resolves the entrypoint the way the launch check does
+  and reconciles the two: that case exits non-zero naming the real cause (the agent package's
+  manifest is stale and needs updating), and "not installed" is reported only when the agent
+  genuinely is not provisioned. The set of files that can take the confined domain's exec label is
+  unchanged -- still exactly what the root-owned manifests declare.
 
 * Tue Aug 18 2026 dagnode <tools@dagnode.com> - 0.11.1-1
 - FIX: A toolchain update that could not reach the npm registry failed with an empty journal and

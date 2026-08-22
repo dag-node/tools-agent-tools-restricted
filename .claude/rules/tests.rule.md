@@ -92,6 +92,25 @@ fixture tree in its testdir. It carries the same standing as the three above —
 reachable only as root, `sudo` strips the name, and a caller who could set it may already edit
 those files outright — and is unset in production, where the registry paths stand as written.
 
+`AI_TOOLS_LAUNCHER_DIR` (`relabel.lib.sh`) is the fifth, and the one hook no automated test
+consumes. It redirects where the entrypoint reconciliation looks for an agent's stable launcher
+symlink, which is what lets the `stale` verdict be driven **end to end on a live host** — point it
+at a directory whose `claude` link resolves to a real file the declared pattern does not cover, and
+`ai-tools-relabel-agent` must print the stale warning and exit non-zero:
+
+```
+sudo bash -c 'n=$(find /opt/ai-tools/.nvm/versions/node/*/lib/node_modules/@anthropic-ai/claude-code/node_modules -name claude -type f | head -1); d=$(mktemp -d); ln -s "$n" "$d/claude"; env AI_TOOLS_LAUNCHER_DIR="$d" /usr/local/libexec/ai-tools/ai-tools-relabel-agent; echo "exit=$?"; rm -rf "$d"'
+```
+
+It is not in the suite because the full function registers a `semanage fcontext` rule, and this
+suite does not mutate the host's SELinux policy to test a helper — the same line
+`integration/selinux.sh` draws for `ai_tools_unlabel_project`. The check above is safe *because* it
+re-asserts the rule that is already registered, leaving the policy store unchanged; a fixture
+manifest would not, which is why the hook redirects the **launcher** rather than the manifest
+directory. The pure decision behind the verdict is covered hermetically in `unit/relabel.sh`, and
+the live agreement between declaration and installation in `integration/selinux.sh`; what this
+exercises is the wiring between them and the renderer's exit status.
+
 ## Two-ended assertions
 
 A security guarantee is covered by a **pair** of tests, not one, and the pair is what makes the
@@ -229,7 +248,14 @@ entrypoint file-context predicate (`relabel.lib.sh`). A declared pattern becomes
 rule granting `ai_tools_exec_t`, the confined domain's exec entrypoint, so the test drives every
 way a pattern could name something outside the sandbox toolchain (traversal, alternation, a
 foreign prefix) and asserts each is refused — plus that the type is the library's constant, never
-manifest-supplied.
+manifest-supplied. It then pins the two pure decisions behind the declared-vs-installed
+reconciliation: `ai_tools_entrypoint_reconcile_verdict` over its whole truth table — where `stale`
+is the verdict that must fail a relabel, being the one cause a rerun cannot clear, and an
+uninterpretable flag must err toward it rather than toward blessing a divergence — and
+`_ai_tools_entrypoint_path_reportable`, the allowlist that keeps an agent-influenced path from
+splitting a status line or carrying an escape sequence to the operator's terminal. Both are pure,
+so they need no provisioned host; the resolution they consume is exercised in
+`integration/selinux.sh`.
 
 `selinux-groups.sh` pins the optional-group registry (`selinux-groups.lib.sh`, shared by
 `ai-tools-admin selinux` and `install-selinux.sh`): the four-field accessors (including the

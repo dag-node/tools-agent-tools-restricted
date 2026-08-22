@@ -390,10 +390,19 @@ what it would leave alone:
   <semver>/bin/<launcher>`; the version directory pins the launcher to the toolchain version the
   updater installed. A dotnet global tool has no version directory, so its rule is its own exec
   root (`/opt/ai-tools/integrations/dotnet/tools/<launcher>`, root-owned and read-only to the agent — stricter
-  than the nvm tree, which the sandbox account owns). What every rule must keep is the property
-  the current one carries: an absolute, `..`-free path under a known sandbox toolchain root whose
-  launcher an **enabled manifest claims**, so nothing the agent can drop beside a launcher starts
-  a session.
+  than the nvm tree, which the sandbox account owns).
+
+  A **host-packaged** runtime has neither property and must not be expressed as a root at all. Its
+  binary lands in a shared system directory (`/usr/bin`), so admitting that directory as a prefix
+  would let a manifest name any binary on the host — `/usr/bin/sudo` — as its entrypoint and have
+  `relabel.lib.sh` grant it `ai_tools_exec_t`, the confined domain's exec entrypoint. The rule for
+  such a runtime is therefore **exact-path**: one file, `/usr/bin/<launcher>` for that manifest's
+  own claimed `launcher`, with no pattern language. So this is a containment rule **per runtime**,
+  not one more entry in a list of roots, and the host-packaged rule is *stricter* than today's.
+
+  What every rule must keep is the property the current one carries: an absolute, `..`-free path
+  whose launcher an **enabled manifest claims**, decided only by input the agent cannot write — so
+  nothing the agent drops beside a launcher starts a session.
 - **A provisioning branch** for that runtime (`dotnet tool install --tool-path` in place of
   `npm install -g`), invoked from the same enabled-agent loop `ai-tools-bootstrap` and
   `nvm-update` already run.

@@ -35,8 +35,8 @@ failed.
 **The gate names one agent.** `CLAUDE_LINK` is the literal `/opt/ai-tools/bin/claude`, so a host
 that enables a different agent and disables `claude-code` has a provisioned toolchain the CLI
 refuses to act on. This is the one place the otherwise agent-agnostic CLI is coupled to a specific
-provider; resolving it against the enabled-agent set is part of the multi-runtime work drafted in
-`wip/ai-tools-claude-code-native-packaging-plan-v0.1.md`.
+provider; the sentinel it needs is a launcher symlink for *any* enabled agent, which
+`ai_tools_enabled_agents` already resolves ([providers](providers.rule.md)).
 
 ## Operator preflight
 
@@ -113,10 +113,12 @@ A third gate, `require_for_target`, runs immediately after it and validates a `-
   upgrade, via `ai-tools-relabel-agent`. The manual counterpart to the automatic post-upgrade
   relabel the `nvm-update` timer runs (see [updater](updater.rule.md)); for an out-of-band
   upgrade or if the timer's relabel failed and `ai-tools-run` is fail-closing on the launch.
-  It applies each agent's **declared** `entrypoint_fcontext` pattern, which is not the same
-  resolution the launch preflight performs — see
-  [agent-claude-code](agent-claude-code.rule.md) for where the two can disagree and what that
-  looks like to an operator.
+  It applies each agent's **declared** `entrypoint_fcontext` pattern, then reconciles the result
+  against the entrypoint that agent's launcher symlink actually resolves to — the inode the launch
+  preflight checks. An entrypoint that is installed where the declaration does not reach exits
+  non-zero naming that cause, so this command never reports success on a host whose next launch
+  will fail closed. See [agent-claude-code](agent-claude-code.rule.md) for the reconciliation and
+  what each verdict looks like to an operator.
 - `--providers` — read-only report of the installed agents and integrations, which of them a
   session gets, and why. It resolves through `providers.lib.sh` (see
   [providers](providers.rule.md)) rather than re-reading `operator.conf`, so the report and the
