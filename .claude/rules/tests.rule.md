@@ -92,7 +92,17 @@ fixture tree in its testdir. It carries the same standing as the three above —
 reachable only as root, `sudo` strips the name, and a caller who could set it may already edit
 those files outright — and is unset in production, where the registry paths stand as written.
 
-`AI_TOOLS_LAUNCHER_DIR` (`relabel.lib.sh`) is the fifth, and the one hook no automated test
+`AI_TOOLS_ENTRYPOINT_PIN_DIR` (`entrypoint-verify.lib.sh`) is the fifth, and it carries more weight
+than the others: the production pin decides whether a session may launch at all, so a test that
+wrote a deliberately wrong checksum into it would refuse every launch on the host until the next
+reconcile. `integration/ai-tools-run.sh` redirects it at a `mktemp -d` instead and drives the
+mismatch refusal through the deployed shim — the feature's actual guarantee, and the one gate that
+needs a VALID executable to reach, since every other refusal case exits before it. Its complement
+(an unpinned entrypoint must NOT be refused, or an air-gapped host stops launching) is deliberately
+left to the pure verdict: nothing else about that run is invalid, so driving it would start a real
+session.
+
+`AI_TOOLS_LAUNCHER_DIR` (`relabel.lib.sh`) is the sixth, and the one hook no automated test
 consumes. It redirects where the entrypoint reconciliation looks for an agent's stable launcher
 symlink, which is what lets the `stale` verdict be driven **end to end on a live host** — point it
 at a directory whose `claude` link resolves to a real file the declared pattern does not cover, and
@@ -297,8 +307,8 @@ fail-closed load of `safe-paths.lib.sh`, and consultation of the protected-paths
 the launch CWD), the handback `socket → daemon → helper` chain (including its negative paths —
 unknown verb, wrong/empty/non-absolute/control-character args, and an out-of-allowlist CHOWN
 all refused), the CLI principal guard (refuses root and the sandbox account), `ai-tools-run`'s
-`AI_TOOLS_AGENT_EXEC` / `AI_TOOLS_PROJECT_DIR` re-validation (a bad value is refused before any
-session launches — including a real sibling binary in the same versioned `bin` directory, which
+`AI_TOOLS_AGENT_EXEC` / `AI_TOOLS_PROJECT_DIR` re-validation and its entrypoint gates (a bad value —
+or an entrypoint that does not match its pin — is refused before any session launches — including a real sibling binary in the same versioned `bin` directory, which
 is refused because no enabled agent manifest claims that launcher, and a non-semver version
 directory) plus its pinned session-confinement properties
 (`RestrictNamespaces`/`NoNewPrivileges`/`UMask`), the claude-code session-env pins

@@ -209,6 +209,39 @@ else
         fi
         rm -rf "${fake_version_dir}"
     fi
+
+    # (8) The entrypoint pin. This is the feature's actual security guarantee -- a binary that does
+    # not match the checksum its vendor signed must not start a session -- and it is the last gate
+    # the shim runs, so reaching it needs a VALID executable: every earlier case exits before here.
+    #
+    # Driven against a THROWAWAY pin directory (AI_TOOLS_ENTRYPOINT_PIN_DIR, a root-only test hook
+    # like AI_TOOLS_ALLOWLIST: sudo strips it and the handback daemon execs with its own
+    # environment, so only a root caller that sets it and execs the shim directly can redirect it).
+    # The production pin is never read, written, or invalidated -- which matters more here than
+    # elsewhere, since corrupting the real one would refuse every launch on this host.
+    # mktemp, not a fixed name under /tmp: this runs as root in a world-writable directory, where a
+    # predictable path is one another user can pre-create or symlink. 0755 because the shim reads
+    # the pin AS the sandbox account, which must traverse in.
+    pin_dir="$(mktemp -d)"
+    _cleanup+=("${pin_dir}")
+    chmod 0755 "${pin_dir}"
+    # A well-formed pin for a checksum this entrypoint cannot have: the shape is valid, so the
+    # refusal comes from the COMPARISON rather than from the reader rejecting a malformed record.
+    printf 'AGENT=claude-code\nVERSION=0.0.0\nSHA256=%064d\nVERIFIED=1970-01-01T00:00:00Z\n' 0 \
+        > "${pin_dir}/claude-code"
+    chmod 0644 "${pin_dir}/claude-code"
+    out="$(run_crun AI_TOOLS_AGENT_EXEC="${real}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'does not match the checksum its vendor signed' <<<"${out}"; then
+        pass "ai-tools-run refuses an entrypoint that does not match its pin"
+    else
+        fail "a mismatched entrypoint pin did not refuse the launch (rc=${rc}): ${out}"
+    fi
+
+    # The complementary property -- an UNPINNED entrypoint must NOT be refused, or an air-gapped
+    # host would stop launching -- is deliberately NOT driven here. Nothing else about that run is
+    # invalid, so the shim would go on to start a real session, which this file's design forbids.
+    # It is covered where it costs nothing: the pure verdict returns `unpinned` rather than
+    # `mismatch` (tests/unit/entrypoint-verify.sh), and only `mismatch` reaches the refusal above.
 fi
 
 section "ai-tools-run: the verified entrypoint is the one exec'd"
