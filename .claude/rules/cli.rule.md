@@ -22,15 +22,21 @@ and as the sandbox account (the agent must not manage its own allowlist).
 
 ## Bootstrap preflight
 
-A single `require_bootstrap` gate runs **before dispatch**: it keys on the `/opt/ai-tools/bin/claude`
-launcher symlink — bootstrap's last load-bearing artifact, written after the account,
-Node, and the agent package all succeed — so its presence means provisioning finished, and
-its absence fails the CLI fast with the provisioning hint rather than mid-operation in a
-root helper. This is the same symlink the launch wrapper gates on (`claude.sh`'s
-`CLAUDE_LINK`), so both entry points share one definition of "provisioned". Every command
-is behind the gate, `--version` included — an unfinished install reports nothing, fail-closed. The
-one exception is `--status`, the diagnostic: it bypasses the gate and reports the unprovisioned
-state itself, since a health check must run precisely when provisioning may have failed.
+A single `require_bootstrap` gate runs **before dispatch**: it keys on a launcher symlink under
+`/opt/ai-tools/bin` — bootstrap's last load-bearing artifact, written after the account, Node, and
+the agent package all succeed — so its presence means provisioning finished, and its absence fails
+the CLI fast with the provisioning hint rather than mid-operation in a root helper. It is the same
+symlink the launch wrapper gates on, so both entry points share one definition of "provisioned".
+Every command is behind the gate, `--version` included — an unfinished install reports nothing,
+fail-closed. The one exception is `--status`, the diagnostic: it bypasses the gate and reports the
+unprovisioned state itself, since a health check must run precisely when provisioning may have
+failed.
+
+**The gate names one agent.** `CLAUDE_LINK` is the literal `/opt/ai-tools/bin/claude`, so a host
+that enables a different agent and disables `claude-code` has a provisioned toolchain the CLI
+refuses to act on. This is the one place the otherwise agent-agnostic CLI is coupled to a specific
+provider; resolving it against the enabled-agent set is part of the multi-runtime work drafted in
+`wip/ai-tools-claude-code-native-packaging-plan-v0.1.md`.
 
 ## Operator preflight
 
@@ -103,10 +109,14 @@ A third gate, `require_for_target`, runs immediately after it and validates a `-
   run on demand before an ACL-unaware backup so ownership (not the ACL) carries the operator's
   access into the copy. `--full` includes the skipped heavy trees (`node_modules`, `.venv`, …). See
   [ownership-and-hooks](ownership-and-hooks.rule.md).
-- `--relabel` — restore `ai_tools_exec_t` on the claude entrypoint(s) after a Node upgrade,
-  via `ai-tools-relabel-agent`. The manual counterpart to the automatic post-upgrade
+- `--relabel` — restore `ai_tools_exec_t` on every enabled agent's entrypoint after a Node
+  upgrade, via `ai-tools-relabel-agent`. The manual counterpart to the automatic post-upgrade
   relabel the `nvm-update` timer runs (see [updater](updater.rule.md)); for an out-of-band
   upgrade or if the timer's relabel failed and `ai-tools-run` is fail-closing on the launch.
+  It applies each agent's **declared** `entrypoint_fcontext` pattern, which is not the same
+  resolution the launch preflight performs — see
+  [agent-claude-code](agent-claude-code.rule.md) for where the two can disagree and what that
+  looks like to an operator.
 - `--providers` — read-only report of the installed agents and integrations, which of them a
   session gets, and why. It resolves through `providers.lib.sh` (see
   [providers](providers.rule.md)) rather than re-reading `operator.conf`, so the report and the

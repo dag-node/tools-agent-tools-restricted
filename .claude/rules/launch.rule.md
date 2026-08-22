@@ -1,8 +1,6 @@
 ---
 paths:
   - "src/opt/ai-tools/bin/ai-tools-run.sh"
-  - "src/usr/local/bin/claude.sh"
-  - "src/usr/local/lib/ai-tools/claude-prompt.lib.sh"
   - "src/etc/sudoers.d/ai-tools"
   - "src/usr/local/lib/ai-tools/path-dedup.sh"
   - "src/usr/local/lib/ai-tools/session-env.d/**"
@@ -10,54 +8,53 @@ paths:
 
 # Launch path and project gating
 
-The wrapper → `ai-tools-run` → session handoff: binary resolution, allowlist
-gating, and placing the session in a transient systemd unit. Kernel confinement
+The agent wrapper → `ai-tools-run` → session handoff: the gating contract every wrapper
+owes, and placing the session in a transient systemd unit. Kernel confinement
 of that unit (namespaces, SELinux transition, `/tmp`) lives in
 [confinement](confinement.rule.md); ownership handback in
-[ownership-and-hooks](ownership-and-hooks.rule.md).
+[ownership-and-hooks](ownership-and-hooks.rule.md). One agent's wrapper and its
+agent-specific inputs live in that agent's own rule —
+[agent-claude-code](agent-claude-code.rule.md) for Claude Code.
 
-## Resolution and gating (the wrapper)
+## The wrapper contract (agent-side)
 
-1. `claude` resolves to the system wrapper `/usr/local/bin/claude` (`claude.sh`,
-   `root:root 0755`, rpm-owned), which runs as the invoking operator. `path-dedup.sh`,
-   wired into the operator's dotfiles by `ai-tools-admin operator add`, ranks
-   `/usr/local/bin` (Tier 1) above the nvm shims, so the wrapper shadows the
-   nvm-managed `claude` on the operator's PATH.
-2. It gates on `ai-ops` membership first: a caller not in the operators group is refused
-   with a framed `msg.lib` message that names the `ai-tools-admin operator add` fix,
-   rather than leaking the raw `sudo` denial the `%ai-ops` rule would otherwise produce.
-3. The wrapper checks the current directory against the operator's approved-projects
-   allowlist (`~/.config/ai-tools/allowed-projects`, keyed off the launching operator's
-   `${HOME}`); it starts only inside an allowed project and refuses a CWD carved out by a
-   `!` exclusion. The CWD and every allowlist entry are canonicalized with `realpath -e`
-   before matching, and the match is exact-or-`/`-prefixed, so a symlink or `..` component
-   cannot smuggle a CWD past the gate and a sibling sharing a name prefix does not match.
-   `ai-tools-chown` parses the same list the same way, so the launch gate and the ownership
-   handback agree on what is in-project.
-4. It resolves the versioned binary via the stable symlink `/opt/ai-tools/bin/claude`
-   with a single `readlink` hop, validates the target is an absolute, `..`-free path
-   matching `${AI_TOOLS_NVM_DIR}/versions/node/*/bin/claude`, exports it as
-   `AI_TOOLS_AGENT_EXEC`, and execs
-   `sudo -u SANDBOX_USER -g SANDBOX_GROUP -- /opt/ai-tools/bin/ai-tools-run`.
-5. A print-and-exit invocation — `--version`/`-v`/`--help`/`-h` as the sole argument —
-   skips the CWD gates (backstop, allowlist, claim): it touches no working tree, so no
-   project grant is implied. It still launches the same validated binary confined as
+Each `ai-tools-agents-*` package ships one wrapper into `/usr/local/bin`, `root:root 0755`,
+rpm-owned, running as the invoking operator. `path-dedup.sh`, wired into the operator's
+dotfiles by `ai-tools-admin operator add`, ranks `/usr/local/bin` (Tier 1) above the nvm
+shims, so a wrapper shadows the nvm-managed launcher of the same name on the operator's
+PATH. Whatever else a wrapper does, these five gates are what the security model rests on,
+and every one of them refuses toward *less* access:
+
+1. **Operator gate first** — a caller not in the `ai-ops` operators group is refused before
+   anything else happens, with a framed `msg.lib` message naming the
+   `ai-tools-admin operator add` fix rather than leaking the raw `sudo` denial the
+   `%ai-ops` rule would otherwise produce.
+2. **Protected-paths backstop, then the allowlist**, both on the `realpath -e`-canonicalized
+   CWD. A session starts only inside an allowed project and never in a CWD carved out by a
+   `!` exclusion. Every allowlist entry is canonicalized before matching and the match is
+   exact-or-`/`-prefixed, so a symlink or `..` component cannot smuggle a CWD past the gate
+   and a sibling sharing a name prefix does not match. `ai-tools-chown` parses the same list
+   the same way, so the launch gate and the ownership handback agree on what is in-project.
+3. **Binary resolution to the versioned shape** — the stable symlink
+   `/opt/ai-tools/bin/<launcher>` is resolved and the target validated as an absolute,
+   `..`-free path under the sandbox toolchain, then exported as `AI_TOOLS_AGENT_EXEC`. This
+   validation is an integrity check against a misconfigured or compromised
+   `ai-tools-launcher-symlink` root helper, not a guard against external injection — only
+   root writes `/opt/ai-tools/bin` (`0551 root:SANDBOX_GROUP`). `ai-tools-run` re-validates
+   it regardless, so a wrapper is never the only thing checking.
+4. **Print-and-exit short-circuit** — `--version`/`-v`/`--help`/`-h` as the *sole* argument
+   skips the CWD gates (backstop, allowlist, claim): such a run touches no working tree, so
+   no project grant is implied. It still launches the same validated binary confined as
    `SANDBOX_USER`, with the sandbox home as `WorkingDirectory`.
+5. **`exec sudo -u SANDBOX_USER -g SANDBOX_GROUP -- /opt/ai-tools/bin/ai-tools-run`**,
+   carrying exactly `AI_TOOLS_AGENT_EXEC` and `AI_TOOLS_PROJECT_DIR` through `env_keep`.
 
-The resolved path is validated as an integrity check against a misconfigured or
-compromised `ai-tools-launcher-symlink` root helper, not a guard against external
-injection — only root writes `/opt/ai-tools/bin` (`0551 root:SANDBOX_GROUP`).
+A wrapper **detects and delegates; it never repairs.** Ownership, label, and
+`safe.directory` gaps are reported read-only and fixed by `ai-tools --project-claim` (see
+[cli](cli.rule.md)) — no wrapper performs a `chgrp` or a relabel itself.
 
-### Symlink resolution is one hop, not full resolution
-
-The versioned `bin/claude` is itself an npm symlink into the package
-(`-> .../@anthropic-ai/claude-code/bin/claude.exe`). Fully resolving it with
-`realpath`/`readlink -f` traverses the package directory (mode 700,
-`SANDBOX_USER`-owned), which the invoking user cannot enter — EACCES, a silent abort
-under `set -e`. One hop yields the versioned `.../node/<ver>/bin/claude` path, which
-the wrapper validates with string checks only (no filesystem traversal beyond the
-symlink). The one-hop constraint exists solely to avoid EACCES; it carries no coupling
-to sudoers matching, which targets the fixed path `/opt/ai-tools/bin/ai-tools-run`.
+Agent-specific inputs a wrapper may additionally resolve (a custom system prompt, an API
+endpoint) are that agent's rule to document, not this one's.
 
 ## The `ai-tools-run` service shim (launch mechanics)
 
@@ -92,21 +89,26 @@ does), so the umask is set as a unit property, authoritative over the per-comman
 sudoers `umask`.
 
 **Environment is an explicit allowlist.** The user manager spawns the service with
-its own environment, not `ai-tools-run`'s, so `ai-tools-run` forwards only a named
-allowlist (`TERM`/`COLORTERM`, the locale `LC_*`/`LANG` set, proxy vars) via
-`--setenv=NAME`, and pins `HOME=/opt/ai-tools`, a controlled `PATH`,
-`CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude`, and
-`NODE_COMPILE_CACHE=/opt/ai-tools/.cache/node-compile-cache`. The operator's secrets
-(`ANTHROPIC_API_KEY`, `AWS_*`, `SSH_AUTH_SOCK`, …) stay out of the session by
+its own environment, not `ai-tools-run`'s, so nothing crosses into the session unless
+it is named. `ai-tools-run` forwards only terminal-, locale-, and connectivity-shaping
+variables **by name** (`FORWARDED_ENVIRONMENT_VARIABLES`: `TERM`/`COLORTERM`, the
+`LANG`/`LANGUAGE`/`LC_*` set, `XDG_RUNTIME_DIR`, and the upper- and lower-case proxy
+vars) via `--setenv=NAME`, so a value never reaches the command line. The operator's
+secrets (`ANTHROPIC_API_KEY`, `AWS_*`, `SSH_AUTH_SOCK`, …) stay out of the session by
 construction, independent of sudo's `env_reset`/`env_keep`. To share a variable
-deliberately, add its name to `_ENV_ALLOW` in `ai-tools-run`. `HOME` stays
-`/opt/ai-tools`: the agent's control plane (`settings.json`, the hooks) is root-owned
-and `ai_tools_home_t`, and is not relocated into the agent-writable project tree.
-`CLAUDE_CONFIG_DIR` keeps claude's state file `.claude.json` (login account, onboarding
-flags, per-project trust) inside the group-writable, sticky `.claude`: claude saves it
-atomically — a temp file beside it, then rename — which needs write on the containing
-directory; the home root (`2751`) denies the agent that, so an unpinned
-`${HOME}/.claude.json` never persists and every session demands a fresh login.
+deliberately, add its name to that array.
+
+It **pins** three things itself: `HOME=/opt/ai-tools`, `SHELL=/usr/bin/bash`, and a
+controlled `PATH`, so the session's identity and shell tooling are the sandbox's rather
+than whatever the operator's login carries. `HOME` stays `/opt/ai-tools` because the
+agent's control plane (`settings.json`, the hooks) is root-owned and `ai_tools_home_t`,
+and is not relocated into the agent-writable project tree.
+
+Everything **agent-specific** — a config directory, a compile cache, an autoupdater
+switch — is pinned by that agent's own session-env fragment rather than here, so the shim
+names no agent (see [providers](providers.rule.md), and
+[agent-claude-code](agent-claude-code.rule.md) for the pins Claude Code makes and why each
+is load-bearing).
 
 **Enabled providers extend that allowlist, and nothing else may.** Every enabled provider —
 each integration *and* the agent itself — may contribute session env and a PATH tail through a
@@ -142,7 +144,7 @@ trade availability for a non-security convenience). The session-end sweep re-che
 when it is down, skips the walk and records the stranded count rather than a tally of failed calls
 (see [handback-bridge](handback-bridge.rule.md), [ownership-and-hooks](ownership-and-hooks.rule.md)).
 
-**An operator-side pre-launch service warning (`claude.sh`).** Before the final `exec`, the wrapper
+**An operator-side pre-launch service warning (wrapper-side).** Before the final `exec`, the wrapper
 runs one more warn-not-block check, from `services.lib.sh` — the same registry `ai-tools --status`
 reads (see [cli](cli.rule.md)). It warns about a down **system** service the wrapper owns, currently
 the `ai-tools-relabel.path` watcher: while it is down a post-upgrade launch fail-closes on a
@@ -167,48 +169,22 @@ on `ai_tools_project_t` (see [confinement](confinement.rule.md)).
 directives; systemd 252 rejects them on a scope unit (`Unknown assignment`) because a
 scope has no exec context — the caller, not the manager, performs the final `exec`.
 A service unit (the manager execs `ExecStart`) accepts them, and `--pty` keeps the
-session attached to the terminal so claude's TUI works.
+session attached to the terminal so the agent's TUI works.
 
-## Custom system prompt (`claude-prompt.lib.sh`)
+## Operator-configured launch inputs
 
-The wrapper can prepend a custom system prompt to the session, configured in `operator.conf` and
-resolved by `claude-prompt.lib.sh` (a Claude Code-specific lib the agent package ships; its pure
-resolution is split out for unit testing, like `confinement.lib`/`providers.lib`). `claude.sh`
-sources it and, just before the final `exec`, prepends the resolved
-`--append-system-prompt-file <path>` (mode `append`, the default — keeps Claude Code's own
-tool-use/safety guidance) or `--system-prompt-file <path>` (mode `replace`) ahead of the operator's
-`"$@"`.
+A wrapper may resolve agent-specific configuration from `operator.conf` and prepend it to the
+operator's `"$@"` before the final `exec`. These inputs are **not confinement**, so they take a
+distinct fail-closed tier from the confinement libraries (`safe-paths`/`conf`/`msg`, which fail
+*every* launch closed): an unconfigured host launches untouched, while a configured-but-unhonourable
+input **refuses the launch** rather than silently reverting to the default the operator did not ask
+for. Whatever the input, the enforced property is that its sources are root-owned and pass
+`ai_tools_conf_is_trusted`, so the sandbox can neither set one nor plant a file a resolver would
+honour.
 
-- **`CLAUDE_SYSTEM_PROMPT_FILE`** names the prompt file, which must resolve **under
-  `/etc/ai-tools/prompts/`** — the one location the confined `ai_tools_t` domain is granted read on
-  (`etc_t`, via `files_read_etc_files`); a root-owned file elsewhere would pass the DAC trust check
-  yet be unreadable to the session, turning a mis-set path into a failed launch. The file, its
-  directory, the prompts base, and `operator.conf` each pass `ai_tools_conf_is_trusted`, and the
-  file must be readable text (not a binary). Claude Code reads the file **verbatim** — it is not
-  processed or comment-stripped — so it must hold only prompt text; the shipped default is therefore
-  **empty** (`0640 root:SANDBOX_GROUP` — a custom prompt may be proprietary, so it is not
-  world-readable; `claude.sh` only `stat`s it as the operator, and the confined binary reads it as
-  the sandbox account). Uncommenting the pointer alone changes nothing until the operator adds text.
-- **`replace` sets the request's `system` field, not the whole model context.** `--system-prompt-file`
-  replaces Claude Code's default *system prompt*; it does not remove the tool definitions or the
-  `CLAUDE.md` context Claude Code injects (the latter as `<system-reminder>` message blocks collected
-  from the cwd and its parent directories), which ride in separate request fields. "Only the file
-  reaches the model" is therefore not reachable through this flag; for a non-Anthropic endpoint,
-  shape the final request at the proxy.
-- **Fail closed when configured.** An *unconfigured* host launches with Claude Code's default
-  prompt. A *configured-but-unhonourable* prompt (missing, untrusted, outside the base, non-text,
-  or an unknown mode) **refuses the launch** rather than silently reverting — the operator relies on
-  the configured behaviour, so a wrong prompt is not a safe degradation. This is a distinct tier
-  from the confinement libraries (`safe-paths`/`conf`/`msg`), which fail every launch closed; the
-  prompt resolver fails closed **only** once a prompt is configured.
-- **Deterministic per-invocation override.** A `--{,append-}system-prompt{,-file}` flag the operator
-  types for one launch suppresses the `operator.conf` default entirely (scanned in `"$@"`), so the
-  explicit flag wins without depending on Claude Code's own flag-precedence behaviour.
-
-The two-ended tests are `tests/unit/claude-prompt.sh` (drives each bad state to no-injection or a
-refusal) and `tests/boundary/access.sh` (the prompt file and lib are not agent-writable). The
-custom **endpoint** (`ANTHROPIC_BASE_URL` and friends) is the session-env counterpart, resolved
-sandbox-side in the agent's fragment — see [providers](providers.rule.md).
+Claude Code's two — a custom system prompt (wrapper-side) and a custom API endpoint (resolved
+sandbox-side in its session-env fragment) — are in
+[agent-claude-code](agent-claude-code.rule.md).
 
 ## Why `/opt/ai-tools`, not `/home`
 
@@ -269,10 +245,11 @@ contents; globs match as-is.
 
 ## PATH ordering
 
-The wrapper lives in `/usr/local/bin`, which `path-dedup.sh`
+Every agent wrapper lives in `/usr/local/bin`, which `path-dedup.sh`
 (`/usr/local/lib/ai-tools/path-dedup.sh`, `644 root:root`) ranks Tier 1 — above the nvm
-shims it leaves in Tier 4 — so `/usr/local/bin/claude` resolves ahead of the nvm-managed
-`claude` and typing `claude` always enters the sandboxed launch path. The fragment is
+shims it leaves in Tier 4 — so `/usr/local/bin/<launcher>` resolves ahead of the
+nvm-managed binary of the same name and typing the launcher always enters the sandboxed
+launch path. The fragment is
 sourced per-account: `ai-tools-admin operator add` offers to add the guard line to the
 operator's `~/.bashrc` and `~/.bash_profile` **after** their nvm init, the one position
 where the ordering holds (the dedup must follow anything that prepends to PATH, and

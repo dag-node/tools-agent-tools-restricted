@@ -5,7 +5,6 @@ paths:
   - "src/usr/local/lib/ai-tools/agents.d/**"
   - "src/usr/local/lib/ai-tools/integrations.d/**"
   - "src/usr/local/lib/ai-tools/session-env.d/**"
-  - "src/usr/local/lib/ai-tools/claude-endpoint.lib.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-dotnet.sh"
 ---
 
@@ -289,50 +288,23 @@ launch: an `export` it makes persists into the `systemd-run` invocation, and an 
 refuses the launch (it runs before the unit is created and before the session-end sweep trap, so the
 refusal is clean).
 
-### The claude-code custom endpoint (`claude-endpoint.lib.sh`)
+### A fragment may resolve operator configuration of its own
 
-The `claude-code` fragment routes a session at a custom API endpoint, configured in `operator.conf`
-and resolved by `claude-endpoint.lib.sh` (pure resolution split out for unit testing). `operator.conf`
-`CLAUDE_BASE_URL_FILE` points at a **dedicated** file under `/etc/ai-tools/endpoints/`, from which
-the resolver reads exactly four recognised keys — `ANTHROPIC_BASE_URL` (required, a validated
-http(s) URL), `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL` — and turns
-each valid one into a `--setenv=` entry. An arbitrary key in the file is never read, so the file
-cannot inject unrecognised environment.
+A fragment is where an agent turns operator configuration into session environment, and the
+`claude-code` one does exactly that for a custom API endpoint (`claude-endpoint.lib.sh`). Two
+properties of that pattern belong to the seam rather than to any one provider:
 
-- **A dedicated `640 root:ai-tools` file, not `operator.conf`.** `ANTHROPIC_AUTH_TOKEN` is a
-  credential and `operator.conf` is `644` world-readable, so the endpoint file lives apart at a mode
-  readable by root and the sandbox account (which needs the token) but **not** world and **not** the
-  operator (who is not in `ai-tools`). `operator.conf` holds only the pointer. Because the operator
-  cannot read the file, validation happens **sandbox-side in the fragment**, not in the wrapper.
-- **The token is imported by name.** A valid token is `export`ed and forwarded as the name-only
-  `--setenv=ANTHROPIC_AUTH_TOKEN` (the `export` is the sanctioned fragment exception above), so its
-  value never lands on a command line — the discipline `ai-tools-run` already uses for the forwarded
-  environment.
-- **Fail closed on an invalid configured option.** A present-but-invalid option (malformed URL, a
-  model label with whitespace, a token with control bytes, options with no anchoring
-  `ANTHROPIC_BASE_URL`, or a missing/untrusted pointer file) makes the resolver return non-zero and
-  the fragment **`exit`s the launch**. Only valid, uncommented options reach Claude Code; an omitted
-  one is skipped, and a fully inert file (the shipped default) applies nothing. A non-local endpoint
-  with no token is warned about but still applied (an absent token is omitted, not invalid).
-- **Precedence.** These are process environment variables; a Claude Code settings `env` block
-  (`settings.json`, authoritatively `/etc/claude-code/managed-settings.json`) that sets the same name
-  wins over them. The shipped settings set no `ANTHROPIC_*` key, so the endpoint file governs by
-  default and `managed-settings.json` stays the un-overridable host lock.
+- **A credential is read sandbox-side and imported by name.** A token the *operator* cannot read
+  (a `640 root:ai-tools` file, pointed at from `operator.conf`) is resolved in the fragment, which
+  runs as the sandbox account, and forwarded as a name-only `--setenv=NAME` — the same
+  value-off-the-command-line discipline `ai-tools-run` uses for the forwarded environment, and the
+  reason `export` is a sanctioned fragment exception.
+- **A configured-but-invalid option `exit`s the launch.** The fragment is sourced before the unit
+  is created and before the session-end sweep trap, so an `exit` there is a clean fail-closed with
+  no session started — the second sanctioned exception.
 
-- **Boundary — this is operator *configuration*, not an agent-confinement control.** The enforced
-  property is that the root-owned inputs (the endpoint file, `operator.conf`, the lib) are not
-  agent-writable, so the sandbox cannot change what *any* session launches with, plant an untrusted
-  file the resolver would honour, or swap the token other sessions use. It is **not** a claim that a
-  running session cannot alter its own environment: a session sets `ANTHROPIC_BASE_URL` in its own
-  or a child's env freely, but that does not repoint the already-started Claude Code client (which
-  reads the variable at startup — a Bash-tool child's `export` never reaches the parent), and
-  arbitrary outbound traffic is governed by network policy, not this variable. The endpoint routes
-  where Claude Code sends its API calls for the operator's benefit; it is not an egress boundary.
-
-Two-ended coverage: `tests/unit/claude-endpoint.sh` drives each bad state to no-injection or a
-refusal and asserts the token stays off the command line; `tests/boundary/access.sh` asserts the
-endpoint file and lib are not agent-writable. The custom **system prompt** is the wrapper-side
-counterpart — see [launch](launch.rule.md).
+The endpoint's own keys, validation, precedence, and the boundary it does *not* claim are in
+[agent-claude-code](agent-claude-code.rule.md).
 
 ## dotnet integration (`ai-tools-integration-dotnet`)
 
