@@ -384,6 +384,15 @@ verify_agent_labels() {
                       warn "      $(matchpathcon "${subject}" 2>/dev/null | awk '{print $2}')"
                       warn "    chase with: sudo restorecon -nv '${subject}'" 
                       warn "            and: sudo semanage fcontext -C -l" ;;
+                # The declared rule does not cover the entrypoint the agent's launcher actually
+                # resolves to, so nothing this sweep applies can label it and the session would
+                # be refused. Counted as `bad`: the install must not report a confined host.
+                stale) bad=1
+                      warn "${subject}: its installed entrypoint is"
+                      warn "    ${detail}"
+                      warn "    -- not covered by the file-context rule its manifest declares,"
+                      warn "    so no relabel can label it and every launch will fail closed."
+                      warn "    Update the agent package; its manifest is stale." ;;
                 none) warn "${subject}: ${detail} is not installed -- nothing to label" ;;
                 skip) warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
                 # A verdict this renderer does not know is REPORTED, not dropped. Silently
@@ -400,7 +409,7 @@ verify_agent_labels() {
     # here rather than proceed to the optional groups with a broken core. A missing path
     # (toolchain not provisioned yet) stays a warning -- there is nothing to label.
     [[ "${bad}" -eq 0 ]] \
-        || die "an agent path did not take its type (see above) -- the agent would run UNCONFINED"
+        || die "an agent path is not correctly labelled (see above) -- the session would be refused, or run UNCONFINED"
     # Nothing labelled has two very different causes, and the bare message named neither. An
     # EMPTY report means no enabled agent was iterated at all -- the manifests resolved to
     # nothing -- which is a configuration problem: the entrypoint keeps whatever type it has, and

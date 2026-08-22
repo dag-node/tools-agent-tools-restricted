@@ -88,24 +88,35 @@ fi
 # Render the lib's status lines: it reports per path and per agent, this decides what an operator
 # reads and what fails the run. The wanted type travels with a "bad" line, since an agent
 # declares two paths that carry different types.
-labelled=0 mislabelled=0
+labelled=0 mislabelled=0 stale=0
 if [[ -n "${report}" ]]; then
     while read -r verdict subject detail wanted; do
         case "${verdict}" in
-            ok)   labelled=$(( labelled + 1 ))
-                  say "labelled: ${subject}"
-                  ai_tools_log_info "relabelled ${subject}" ;;
-            bad)  mislabelled=$(( mislabelled + 1 ))
-                  say "WARNING: ${subject} is '${detail}', NOT ${wanted}"
-                  ai_tools_log_warn "${subject} did not take ${wanted} (now '${detail}')" ;;
-            none) say "${subject}: ${detail} is not installed -- nothing to label"
-                  ai_tools_log_info "${subject}: ${detail} absent, nothing to label" ;;
-            skip) say "${subject}: skipped -- ${detail} ${wanted}"
-                  ai_tools_log_warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
+            ok)    labelled=$(( labelled + 1 ))
+                   say "labelled: ${subject}"
+                   ai_tools_log_info "relabelled ${subject}" ;;
+            bad)   mislabelled=$(( mislabelled + 1 ))
+                   say "WARNING: ${subject} is '${detail}', NOT ${wanted}"
+                   ai_tools_log_warn "${subject} did not take ${wanted} (now '${detail}')" ;;
+            stale) stale=$(( stale + 1 ))
+                   say "WARNING: ${subject}: its installed entrypoint is ${detail}"
+                   say "         -- a path the file-context rule its manifest declares does not cover"
+                   ai_tools_log_warn "${subject}: installed entrypoint ${detail} is not covered by its declared entrypoint_fcontext" ;;
+            none)  say "${subject}: ${detail} is not installed -- nothing to label"
+                   ai_tools_log_info "${subject}: ${detail} absent, nothing to label" ;;
+            skip)  say "${subject}: skipped -- ${detail} ${wanted}"
+                   ai_tools_log_warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
         esac
     done <<< "${report}"
 fi
 
+# A stale declaration is reported FIRST, because it is the more specific cause and the only one
+# here this helper cannot clear: the entrypoint is installed somewhere the declared rule does not
+# reach, so every relabel -- this one included -- leaves it unlabelled and every launch
+# fail-closes. Naming the module or a rerun as the remedy would send the operator around a loop
+# that cannot end. The fix is upstream of this helper, in the agent package's manifest.
+(( stale == 0 )) \
+    || die "${stale} agent(s) install their entrypoint where their manifest no longer says -- this relabel cannot label it; update the agent package (dnf update 'ai-tools-agents-*'), then rerun"
 # A mislabelled path is a broken session: a mislabelled entrypoint runs unconfined (ai-tools-run
 # refuses the launch) and a mislabelled config directory leaves the agent unable to write its own
 # state. Fail rather than report success -- this is the earlier, clearer signal.

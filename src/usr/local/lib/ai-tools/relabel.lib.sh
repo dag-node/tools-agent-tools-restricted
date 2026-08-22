@@ -10,7 +10,11 @@
 #     launcher binary to ai_tools_exec_t (the label that drives the -> ai_tools_t domain
 #     transition on exec) and its config directory to ai_tools_home_t (so the confined session can
 #     write its state). Sourced by the root helper ai-tools-relabel-agent and by the same
-#     installer's verify pass.
+#     installer's verify pass. The declared pattern APPLIES the label (an fcontext rule is what
+#     makes a type survive a later restorecon); the launcher symlink, resolved the way the launch
+#     preflight resolves it, CHECKS the result -- so a manifest that has stopped describing where
+#     its package installs the executable is reported as such instead of passing as "not
+#     installed" (ai_tools_entrypoint_reconcile_verdict).
 # Both families keep their `semanage fcontext` + `restorecon` body in exactly one place.
 #
 # In-place project paths (under a user's home) are DYNAMIC, so they get a
@@ -38,6 +42,12 @@ readonly AI_TOOLS_AGENT_CONFIG_TYPE="ai_tools_home_t"
 # The one tree an agent entrypoint may live in -- the sandbox's own Node toolchain. Every
 # declared pattern is checked against it (ai_tools_entrypoint_fcontext_valid).
 readonly AI_TOOLS_ENTRYPOINT_ROOT="/opt/ai-tools/.nvm/versions/node"
+# The locked control-plane directory holding every agent's stable launcher symlink. Resolving
+# through it is how this library learns where a package actually PUT its executable, rather than
+# only where a manifest says it is (_ai_tools_launcher_target). Root-only test hook, the same
+# posture as providers.lib.sh's manifest directories: the helpers that source this file run under
+# sudo, which scrubs the environment, and the sudoers rules keep none of these names.
+: "${AI_TOOLS_LAUNCHER_DIR:=/opt/ai-tools/bin}"
 
 # Which agents are enabled and what each declares comes from the provider manifests; the home
 # root, the config-directory contract, and its name validator come from control-plane.lib.sh
@@ -149,6 +159,51 @@ ai_tools_entrypoint_fcontext_valid() {
     [[ "${plain}" == "${AI_TOOLS_ENTRYPOINT_ROOT}/"* ]]
 }
 
+# _ai_tools_entrypoint_path_reportable <path>: succeed when <path> may be put in a status line.
+#   The paths reconciled below are AGENT-INFLUENCED -- the middle link of the launcher chain is an
+#   npm symlink the sandbox account owns -- and a status line is read back by a root helper that
+#   splits it on whitespace and prints the fields to an operator's terminal. So a name is carried
+#   only while it is absolute, `..`-free, and drawn from the same character set a declared pattern
+#   is allowed; anything else is reported as unusable rather than emitted raw. Allowlist, not
+#   blocklist: `]` leads the set and `-` closes it, the POSIX way to include both.
+_ai_tools_entrypoint_path_reportable() {
+    local path="${1:-}"
+    [[ "${path}" == /* && "${path}" != *..* ]] || return 1
+    [[ "${path}" =~ ^[]A-Za-z0-9_./@+^[-]+$ ]]
+}
+
+# ai_tools_entrypoint_reconcile_verdict <installed-path> <covered> <matched>: pure verdict, no I/O
+#   -- reconcile what an agent's manifest DECLARES against what its package actually INSTALLED,
+#   and print one of:
+#     ok     the declared rule governs the installed entrypoint (or nothing is installed and the
+#            rule matched a file anyway -- another Node version's copy, mid-upgrade)
+#     none   nothing is installed and nothing matched: the agent is simply not provisioned yet
+#     stale  an entrypoint IS installed and the declared rule does not cover it
+#   <installed-path> is the file the agent's launcher symlink resolves to, empty when it does not
+#   resolve; <covered> is whether that file was among the pattern's matches; <matched> is whether
+#   the pattern matched anything at all. Both flags are `yes`/`no`, and anything other than the
+#   exact literal `yes` reads as `no` -- an unknown input errs toward reporting a divergence, which
+#   is the direction that fails a relabel loudly rather than blessing one silently.
+#
+#   `stale` exists because the two are checked by different mechanisms and can disagree: the launch
+#   preflight and the symlink helper RESOLVE the entrypoint, while this library PATTERN-MATCHES a
+#   declared path. Where they disagree the launch fail-closes on an unlabelled inode, so a relabel
+#   that reported `none` and exited 0 would name the wrong cause ("not installed") and send the
+#   operator back around a loop that cannot clear it. The relabel does not label the resolved path
+#   to compensate: the set of files that ever take ai_tools_exec_t -- the exec entrypoint of the
+#   confined domain -- stays exactly the set the root-owned manifests declare, so a stale manifest
+#   is fixed by updating the agent package, not by this helper widening the set on its own.
+#   Unit-tested over the truth table (tests/unit/relabel.sh).
+ai_tools_entrypoint_reconcile_verdict() {
+    local installed="${1:-}" covered="${2:-}" matched="${3:-}"
+    if [[ -z "${installed}" ]]; then
+        [[ "${matched}" == yes ]] && { printf 'ok'; return 0; }
+        printf 'none'; return 0
+    fi
+    [[ "${covered}" == yes ]] && { printf 'ok'; return 0; }
+    printf 'stale'
+}
+
 # _ai_tools_entrypoint_policy_active: succeed when there is an ai_tools_exec_t to assign, i.e.
 #   SELinux is on, the labelling tools are present, and the ai_tools module is loaded. Where it
 #   fails there is nothing to label and that is not an error -- the SELinux layer is optional.
@@ -194,6 +249,27 @@ _ai_tools_entrypoint_paths() {
          -regex "$1" -type f 2>/dev/null
 }
 
+# _ai_tools_launcher_target <agent>: print the file <agent>'s stable launcher symlink resolves to
+#   -- the inode execve transitions on, which is what makes the reconciliation below independent of
+#   where a manifest says the executable lives. This is the SAME resolution ai-tools-run's preflight
+#   and ai-tools-launcher-symlink's idempotency guard perform (`realpath -e` through the chain), so
+#   the three cannot disagree about which file is the entrypoint. Runs as root, which can traverse
+#   the 0750 toolchain the chain ends in.
+#
+#   Prints nothing and returns non-zero when the agent declares no usable launcher name, the link
+#   does not resolve (the agent is not provisioned -- the ordinary pre-bootstrap state), or the
+#   result is not reportable. The launcher name is allowlisted to one plain component before it
+#   becomes a path, the same guard ai_tools_agent_manifest_field applies to an agent name, so a
+#   manifest cannot address a link outside the control-plane bin directory.
+_ai_tools_launcher_target() {
+    local agent="$1" launcher resolved
+    launcher="$(ai_tools_agent_manifest_field "${agent}" launcher || true)"
+    [[ "${launcher}" =~ ^[A-Za-z0-9._-]+$ && "${launcher}" != *..* ]] || return 1
+    resolved="$(realpath -e "${AI_TOOLS_LAUNCHER_DIR}/${launcher}" 2>/dev/null)" || return 1
+    _ai_tools_entrypoint_path_reportable "${resolved}" || return 1
+    printf '%s\n' "${resolved}"
+}
+
 # _ai_tools_verify_label <path> <wanted-type> : restore the label on <path> and report the
 #   outcome as one status line (see ai_tools_label_agent_paths). Returns non-zero when the path
 #   did not take the type.
@@ -209,10 +285,20 @@ _ai_tools_verify_label() {
     return 1
 }
 
-# _ai_tools_label_agent_entrypoint <agent> : the entrypoint half of the loop below. Emits status
-#   lines; returns non-zero on a refusal or a path that did not take the type.
+# _ai_tools_label_agent_entrypoint <agent> : the entrypoint half of the loop below. Applies the
+#   declared rule, then RECONCILES it against the installed entrypoint. Emits status lines; returns
+#   non-zero on a refusal, a path that did not take the type, or a declaration the installed
+#   entrypoint has outgrown.
+#
+#   The declared pattern stays the mechanism that APPLIES the label, because a `semanage fcontext`
+#   rule is what makes the type survive a later restorecon -- resolution alone would relabel an
+#   inode nothing keeps labelled. Resolution is what CHECKS the result, so this helper's exit
+#   status answers the question the operator actually asked: will the next launch be confined?
 _ai_tools_label_agent_entrypoint() {
-    local agent="$1" pattern path status=0 matched=0
+    local agent="$1" pattern path status=0 matched=no installed covered=no
+    # Resolved BEFORE the rule is applied, so a refusal below still leaves the reconciliation
+    # inputs gathered from the same state the launch preflight would see.
+    installed="$(_ai_tools_launcher_target "${agent}" || true)"
     pattern="$(ai_tools_agent_manifest_field "${agent}" entrypoint_fcontext || true)"
     if [[ -z "${pattern}" ]]; then
         printf 'skip %s declares no entrypoint_fcontext\n' "${agent}"
@@ -228,10 +314,15 @@ _ai_tools_label_agent_entrypoint() {
         return 1
     fi
     while IFS= read -r path; do
-        matched=1
+        matched=yes
+        [[ "${path}" == "${installed}" ]] && covered=yes
         _ai_tools_verify_label "${path}" "${AI_TOOLS_ENTRYPOINT_TYPE}" || status=1
     done < <(_ai_tools_entrypoint_paths "${pattern}")
-    (( matched )) || printf 'none %s its entrypoint\n' "${agent}"
+
+    case "$(ai_tools_entrypoint_reconcile_verdict "${installed}" "${covered}" "${matched}")" in
+        none)  printf 'none %s its entrypoint\n' "${agent}" ;;
+        stale) printf 'stale %s %s\n' "${agent}" "${installed}"; status=1 ;;
+    esac
     return "${status}"
 }
 
@@ -269,9 +360,13 @@ _ai_tools_label_agent_config_dir() {
 #     ok    <path>                     the path carries the type the base pins for it
 #     bad   <path> <actual> <wanted>   it does not -- the session would break or run unconfined
 #     none  <agent> <what>             declared, but not installed (yet)
+#     stale <agent> <installed-path>   an entrypoint IS installed and the agent's declared rule
+#                                      does not cover it, so no relabel can label it -- the
+#                                      agent package's manifest has to be updated
 #     skip  <agent> <reason...>        nothing to apply, or a declaration was refused
-#   Returns 0 when every path it managed is correctly labelled, 1 when one is not or a rule could
-#   not be registered, and 2 when the SELinux layer is inactive (nothing to do).
+#   Returns 0 when every path it managed is correctly labelled, 1 when one is not, a rule could
+#   not be registered, or a declaration is stale, and 2 when the SELinux layer is inactive
+#   (nothing to do).
 ai_tools_label_agent_paths() {
     _ai_tools_entrypoint_policy_active || return 2
     declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 2
