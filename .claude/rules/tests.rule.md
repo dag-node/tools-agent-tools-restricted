@@ -92,6 +92,35 @@ fixture tree in its testdir. It carries the same standing as the three above —
 reachable only as root, `sudo` strips the name, and a caller who could set it may already edit
 those files outright — and is unset in production, where the registry paths stand as written.
 
+`AI_TOOLS_ENTRYPOINT_PIN_DIR` (`entrypoint-verify.lib.sh`) is the fifth, and it carries more weight
+than the others: the production pin decides whether a session may launch at all, so a test that
+wrote a deliberately wrong checksum into it would refuse every launch on the host until the next
+reconcile. `integration/ai-tools-run.sh` redirects it at a `mktemp -d` instead and drives the
+mismatch refusal through the deployed shim — the feature's actual guarantee, and the one gate that
+needs a VALID executable to reach, since every other refusal case exits before it. Its complement
+(an unpinned entrypoint must NOT be refused, or an air-gapped host stops launching) is deliberately
+left to the pure verdict: nothing else about that run is invalid, so driving it would start a real
+session.
+
+`AI_TOOLS_LAUNCHER_DIR` (`relabel.lib.sh`) is the sixth, and the one hook no automated test
+consumes. It redirects where the entrypoint reconciliation looks for an agent's stable launcher
+symlink, which is what lets the `stale` verdict be driven **end to end on a live host** — point it
+at a directory whose `claude` link resolves to a real file the declared pattern does not cover, and
+`ai-tools-relabel-agent` must print the stale warning and exit non-zero:
+
+```
+sudo bash -c 'n=$(find /opt/ai-tools/.nvm/versions/node/*/lib/node_modules/@anthropic-ai/claude-code/node_modules -name claude -type f | head -1); d=$(mktemp -d); ln -s "$n" "$d/claude"; env AI_TOOLS_LAUNCHER_DIR="$d" /usr/local/libexec/ai-tools/ai-tools-relabel-agent; echo "exit=$?"; rm -rf "$d"'
+```
+
+It is not in the suite because the full function registers a `semanage fcontext` rule, and this
+suite does not mutate the host's SELinux policy to test a helper — the same line
+`integration/selinux.sh` draws for `ai_tools_unlabel_project`. The check above is safe *because* it
+re-asserts the rule that is already registered, leaving the policy store unchanged; a fixture
+manifest would not, which is why the hook redirects the **launcher** rather than the manifest
+directory. The pure decision behind the verdict is covered hermetically in `unit/relabel.sh`, and
+the live agreement between declaration and installation in `integration/selinux.sh`; what this
+exercises is the wiring between them and the renderer's exit status.
+
 ## Two-ended assertions
 
 A security guarantee is covered by a **pair** of tests, not one, and the pair is what makes the
@@ -217,6 +246,9 @@ The **last-run stamp** is the one input here a non-root writer controls and it i
 operator's terminal, so every way a hostile or corrupt value could reach that terminal — a
 symlinked stamp, a control byte or escape sequence, an over-long or unanchored line — is driven
 and must read as *no value*, degrading the unit to `unknown` rather than to a wrong verdict. And
+the age reader takes the key it reads (default `FINISHED`), because the entrypoint pin
+records a `VERIFIED` time in the same grammar and both must age through one implementation — so the
+default is pinned too, a regression there silently turning every existing caller's age unknown. And
 the **freshness** mapping exists for a failure a `RESULT` cannot express — every recorded run
 succeeds while the schedule driving them has stopped — so the file asserts that a successful run
 goes `stale` past `max_age`, that a failed one stays `failed` at any age, that an unknown or
@@ -229,7 +261,31 @@ entrypoint file-context predicate (`relabel.lib.sh`). A declared pattern becomes
 rule granting `ai_tools_exec_t`, the confined domain's exec entrypoint, so the test drives every
 way a pattern could name something outside the sandbox toolchain (traversal, alternation, a
 foreign prefix) and asserts each is refused — plus that the type is the library's constant, never
-manifest-supplied.
+manifest-supplied. It then pins the two pure decisions behind the declared-vs-installed
+reconciliation: `ai_tools_entrypoint_reconcile_verdict` over its whole truth table — where `stale`
+is the verdict that must fail a relabel, being the one cause a rerun cannot clear, and an
+uninterpretable flag must err toward it rather than toward blessing a divergence — and
+`_ai_tools_entrypoint_path_reportable`, the allowlist that keeps an agent-influenced path from
+splitting a status line or carrying an escape sequence to the operator's terminal. Both are pure,
+so they need no provisioned host; the resolution they consume is exercised in
+`integration/selinux.sh`.
+
+`entrypoint-verify.sh` pins the pure half of the entrypoint verifier (`entrypoint-verify.lib.sh`,
+see [updater](updater.rule.md)). Every assertion targets a way the gate could fail **open**: an
+absent pin must read as `unpinned` and never as a mismatch (collapsing them would report a fresh
+install as tamper, or — inverted — bless a tampered one); a checksum is admitted only in exact
+64-hex shape, so malformed JSON, an absent platform, or a crafted value yields nothing rather than
+a value that could compare equal to a partial observation; a URL template with no `{version}` slot
+is refused rather than fetched as-is, since one manifest for every version reads as "verified"
+while checking a release it never looked at; and the template charset admits nothing that could
+carry a shell metacharacter or a traversal into `curl`. It also pins the public pin path, which `ai-tools --status` reads to report verification
+state: an agent name becomes a path component, so a name that could escape the pin directory must
+yield nothing. It closes with the one impure assertion that needs no vendor: the library refuses a
+**non-root** pin write itself, rather than letting it fail on `EACCES`, so the caller can tell "not
+permitted" from "the directory is missing". The
+signed-manifest probe is not driven here — it needs the vendor's live endpoint, `gpgv`, and a
+300 MB hash — and its boundary half (neither the pin, the pin directory, the shipped key, nor the
+library is agent-writable) is in `boundary/access.sh`.
 
 `selinux-groups.sh` pins the optional-group registry (`selinux-groups.lib.sh`, shared by
 `ai-tools-admin selinux` and `install-selinux.sh`): the four-field accessors (including the
@@ -251,8 +307,8 @@ fail-closed load of `safe-paths.lib.sh`, and consultation of the protected-paths
 the launch CWD), the handback `socket → daemon → helper` chain (including its negative paths —
 unknown verb, wrong/empty/non-absolute/control-character args, and an out-of-allowlist CHOWN
 all refused), the CLI principal guard (refuses root and the sandbox account), `ai-tools-run`'s
-`AI_TOOLS_AGENT_EXEC` / `AI_TOOLS_PROJECT_DIR` re-validation (a bad value is refused before any
-session launches — including a real sibling binary in the same versioned `bin` directory, which
+`AI_TOOLS_AGENT_EXEC` / `AI_TOOLS_PROJECT_DIR` re-validation and its entrypoint gates (a bad value —
+or an entrypoint that does not match its pin — is refused before any session launches — including a real sibling binary in the same versioned `bin` directory, which
 is refused because no enabled agent manifest claims that launcher, and a non-semver version
 directory) plus its pinned session-confinement properties
 (`RestrictNamespaces`/`NoNewPrivileges`/`UMask`), the claude-code session-env pins
@@ -266,7 +322,9 @@ shim has one file to answer to; `handback.sh` keeps the bridge and the entrypoin
 `selinux.sh` asserts the confinement layer is actually enforcing: when the
 `ai_tools` module is loaded the system is `Enforcing` and neither `ai_tools_t` nor
 `ai_tools_handback_t` is marked permissive; it skips when the module is absent (the layer is
-optional). `systemd.sh` is the single home for unit checks:
+optional). It also holds the two entrypoint assertions that need a labelled host — that each
+agent's declared file-context rule still covers what its package installed, and that no link in
+the exec chain carries a type the confined domain may manage. `systemd.sh` is the single home for unit checks:
 `systemd-analyze verify` on each shipped unit, plus enablement in the correct instance —
 the `nvm-update` timer in the sandbox account's own `--user` instance, the relabel watcher
 and handback socket in the system instance. The
@@ -291,7 +349,11 @@ it through `tests/run.sh all`. Adding or repermissioning an installed file means
 control plane, cannot reach the operator's credential stores (`~/.ssh`, `~/.gnupg`, …), and
 holds no sudo rights — `sudo -l` reports it is not allowed to run sudo at all (both NOPASSWD
 rules belong to the projects user and drop privilege), plus the account hygiene that invariant
-leans on (nologin shell, locked password, non-membership in `ai-ops`). `providers.sh` asserts
+leans on (nologin shell, locked password, non-membership in `ai-ops`). It also asserts the agent
+cannot write the **pin**, the pin directory, the shipped signing key, or the verifier library — the
+inputs that decide what a verified checksum is — so it can neither record nor authorise a checksum
+for a binary it modified. Those are root-owned files, so they are DAC facts and this vantage sees
+them. `providers.sh` asserts
 the deployed half of "the sandbox cannot widen its own surface": none of `operator.conf`,
 `conf.lib.sh`, `providers.lib.sh`, the three provider directories, the manifests and fragments
 in them, or the `ai-tools-run` shim and the `bin` directory holding it is agent-writable, while
@@ -305,7 +367,11 @@ non-agent-writable — the engine because it is sourced as the agent on every Ba
 sets because they decide what every command in a session becomes. These probe **DAC and
 account state** from the sandbox account's vantage — they run as the sandbox *user*, not inside
 the `ai_tools_t` SELinux domain (a launched session), so they assert the filesystem/credential
-boundary; the SELinux enforcing posture is asserted separately in `integration/selinux.sh`.
+boundary; the SELinux enforcing posture is asserted separately in `integration/selinux.sh`. A
+property the **type layout alone** enforces is therefore not assertable here, and reads as its DAC
+answer: the agent's inability to write its own entrypoint is one (DAC permits it — the account owns
+that tree), so it is asserted in `integration/selinux.sh` as the layout the policy rests on, one
+check per swap vector.
 
 ## Quirks
 

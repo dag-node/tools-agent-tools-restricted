@@ -110,6 +110,26 @@ value turns filtering off entirely.
 Filtering never decides what the agent may run: the permission rules in the
 agent's settings are evaluated on the rewritten command.
 .TP
+.BI AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY= yes
+Entrypoint-verification strictness. Each agent's entrypoint is verified against
+the per-release checksum its vendor signed, and the verified value is recorded in
+a root-owned pin under
+.IR /var/opt/ai-tools/state/entrypoint-pin.d/ ;
+the launch shim compares the entrypoint against that pin with no network of its
+own. A
+.B mismatch
+refuses the launch at every setting \(em that is the tamper signal. This key
+governs only the other outcome, an entrypoint carrying
+.B no pin at all.
+.B Absent
+(the default): such a launch proceeds, because unpinned is also the state of a
+host that has not yet run a relabel, one whose vendor published no manifest for
+the installed release, and any air\-gapped host.
+.B Set:
+only a verified entrypoint may start a session. Pin one with
+.BR "ai\-tools \-\-relabel" ,
+which fetches the vendor's signed manifest and so needs the host online.
+.TP
 .BI CLAUDE_SYSTEM_PROMPT_FILE= path
 A custom system prompt for Claude Code sessions (requires the
 .B ai-tools-agents-claude-code-restricted

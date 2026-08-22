@@ -66,6 +66,73 @@ else
     fail "AI_TOOLS_ENTRYPOINT_TYPE is '${AI_TOOLS_ENTRYPOINT_TYPE:-unset}', not the pinned ai_tools_exec_t"
 fi
 
+# ── Reconciling the declared rule against the INSTALLED entrypoint ────────────────────────────
+# The label is applied from the manifest's declared pattern, but the SELinux transition fires on
+# the inode the launcher symlink resolves to -- so the two can disagree, and did nothing about it
+# the relabel would report success while every launch fail-closed on an unlabelled entrypoint.
+# ai_tools_entrypoint_reconcile_verdict is the pure decision that closes that: `stale` is the
+# verdict that must make a relabel FAIL, because it is the one cause a rerun cannot clear. Pinned
+# here over the whole truth table; the resolution it consumes needs a provisioned host and lives
+# in integration/selinux.sh.
+section "relabel: declared-vs-installed entrypoint reconciliation (unit)"
+
+readonly INSTALLED='/opt/ai-tools/.nvm/versions/node/v22.23.2/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe'
+
+# verdict_is <expected> <installed> <covered> <matched> <why>
+verdict_is() {
+    local expected="$1" got
+    got="$(ai_tools_entrypoint_reconcile_verdict "$2" "$3" "$4")"
+    if [[ "${got}" == "${expected}" ]]; then pass "${5} -> ${expected}"
+    else fail "${5}: expected ${expected}, got '${got}'"; fi
+}
+
+if declare -F ai_tools_entrypoint_reconcile_verdict >/dev/null 2>&1; then
+    verdict_is ok    "${INSTALLED}" yes yes "an installed entrypoint the declared rule covers"
+    verdict_is stale "${INSTALLED}" no  no  "an installed entrypoint the rule matches nothing for"
+    verdict_is stale "${INSTALLED}" no  yes "the rule matched some OTHER file, not the installed one"
+    verdict_is none  ""            no  no  "no entrypoint installed and no match (not provisioned)"
+    verdict_is ok    ""            no  yes "no launcher resolves but the rule matched a copy"
+    # Unknown flags must not read as "covered": an input this function cannot interpret errs
+    # toward reporting a divergence, which fails a relabel loudly rather than blessing one.
+    verdict_is stale "${INSTALLED}" ""      "" "an empty covered flag"
+    verdict_is stale "${INSTALLED}" YES     no "a flag that is not the exact literal yes"
+    verdict_is none  ""             yes     "" "covered claimed with nothing installed"
+else
+    skip "entrypoint reconciliation" "ai_tools_entrypoint_reconcile_verdict not defined by ${LIB}"
+fi
+
+# ── Reporting an agent-influenced path ────────────────────────────────────────────────────────
+# The resolved entrypoint is reached through an npm symlink the SANDBOX account owns, and it is
+# printed into a status line that a root helper splits on whitespace and renders to an operator's
+# terminal. So the name is carried only while it is drawn from the same character set a declared
+# pattern is -- an allowlist, matching ai_tools_entrypoint_fcontext_valid's posture.
+section "relabel: reportability of an agent-influenced entrypoint path (unit)"
+
+# reportable/unreportable <path> [why]
+reportable() {
+    if _ai_tools_entrypoint_path_reportable "$1"; then pass "reports ${1}"
+    else fail "refused a legitimate entrypoint path: $1"; fi
+}
+unreportable() {
+    if _ai_tools_entrypoint_path_reportable "$1"; then fail "REPORTED ${2}: ${1:-<empty>}"
+    else pass "refuses ${2}"; fi
+}
+
+if declare -F _ai_tools_entrypoint_path_reportable >/dev/null 2>&1; then
+    reportable "${INSTALLED}"
+    reportable '/opt/ai-tools/.nvm/versions/node/v22.23.2/bin/some-agent'
+    unreportable ''                              "an empty path"
+    unreportable 'relative/claude.exe'           "a relative path"
+    unreportable '/opt/ai-tools/../etc/shadow'   "a parent-directory traversal"
+    unreportable '/opt/ai-tools/bin/a b'         "whitespace, which would split the status line"
+    unreportable "/opt/ai-tools/bin/$(printf 'a\tb')" "a tab, which would split the status line"
+    unreportable "/opt/ai-tools/bin/$(printf 'a\033[2Kb')" "an ANSI escape aimed at the terminal"
+    # shellcheck disable=SC2016  # the literal $(...) is the input under test, not an expansion
+    unreportable '/opt/ai-tools/bin/$(id)'       "shell-substitution characters"
+else
+    skip "entrypoint path reportability" "_ai_tools_entrypoint_path_reportable not defined by ${LIB}"
+fi
+
 # ── The project-label verification predicate (relabel.lib.sh) ─────────────────────────────────
 # ai_tools_label_project trusts the ACHIEVED label, not restorecon's exit status: after the
 # relabel it calls ai_tools_project_labelled to confirm the tree actually carries

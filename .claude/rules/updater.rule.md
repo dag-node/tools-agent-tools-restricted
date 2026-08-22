@@ -2,6 +2,8 @@
 paths:
   - "src/opt/ai-tools/bin/nvm-update.sh"
   - "src/usr/local/lib/ai-tools/npm-verify.lib.sh"
+  - "src/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
+  - "src/usr/local/lib/ai-tools/keys/**"
   - "src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh"
@@ -218,6 +220,15 @@ The type is pinned in `relabel.lib.sh` and a declared pattern is accepted only w
 nothing outside the sandbox toolchain root (no traversal, no alternation, an anchored literal
 head), so a manifest chooses **which** file is its entrypoint, never what label a file gets. The
 whole body lives in `relabel.lib.sh`, shared with `install-selinux.sh`'s verify pass.
+
+The helper then **reconciles** what it applied against what is installed: it resolves
+`/opt/ai-tools/bin/<launcher>` the way the launch preflight does and reports `stale` — non-zero —
+when an entrypoint is installed at a path the declared pattern does not cover, instead of the
+`none`/success a pattern matching nothing would otherwise produce. So a relabel that exits 0 means
+the next launch will not fail closed on the entrypoint label, and a manifest that has stopped
+describing its own package is named as the cause rather than diagnosed as a missing install. It
+never labels the resolved path: the files that take `ai_tools_exec_t` stay exactly those the
+root-owned manifests declare (see [agent-claude-code](agent-claude-code.rule.md)).
 `ai-tools-relabel-agent --remove <agent>` is the erase-time counterpart: the agent package's
 `%preun` drops its rule while its manifest is still on disk.
 
@@ -309,6 +320,81 @@ action) — warns and proceeds, since the update itself is not the danger and th
 best-effort against such hosts. The signing keys are fetched from the registry keys endpoint
 (`<registry>/-/npm/v1/keys`) over HTTPS on each run.
 
+## Entrypoint verification and the pin
+
+The checks above attest to what was **delivered**. Neither can see what the entrypoint *is now*: the
+exec root is sandbox-owned, and `npm install -g` does not reinstall an unchanged version, so on a
+DAC-only host a modified entrypoint persists across sessions and operators indefinitely (under
+SELinux the vector is closed outright — see [confinement](confinement.rule.md)).
+`entrypoint-verify.lib.sh` closes it by comparing the installed entrypoint against a checksum the
+**vendor signed**. The three optional manifest fields that declare where to find it — and why the
+signing key is shipped rather than fetched — are in [providers](providers.rule.md); the library
+itself names no agent.
+
+The work splits by principal, which is what keeps the network off the launch path. The operator
+cannot read the entrypoint at all (the toolchain is `0750` sandbox-owned), so the verification runs
+as **root**, and its result travels to the launch as a **pin**:
+`/var/opt/ai-tools/state/entrypoint-pin.d/<agent>`, in the shared `KEY=value` grammar
+(`AGENT`, `VERSION`, `SHA256`, `VERIFIED`, `SOURCE`). Its directory is root-owned and not
+group-writable inside the `0750 root:SANDBOX_GROUP` state root — the same two independent layers
+(DAC, plus `usr_t` under enforcing) that bound the last-run stamp — so the account the pin
+constrains can read it and cannot write it. It is read back defensively: symlink refused, bounded
+read, and a value admitted only in exact 64-hex shape, so a corrupt pin reads as *unpinned* rather
+than as a wrong verdict.
+
+| when | who | what |
+|---|---|---|
+| provision | `ai-tools-bootstrap` (root) | reconciles the entrypoint, which pins it |
+| update | `nvm-update` (sandbox) | verifies **before** the repoint — the same position as the npm signature gate |
+| update | `ai-tools-relabel.service` (root) | the repoint fires the existing `.path` watcher → reconcile → **write the pin** |
+| launch | `ai-tools-run` (sandbox) | hash the entrypoint, compare to the pin — no network, no `gpgv`, no key |
+
+There is deliberately **no manifest cache**. Every fetch happens at a moment the host is already
+online (immediately after an update downloaded the package), and the pin is what makes the launch
+offline-safe, so a cache would add an input to reason about for no availability gained.
+
+### Three outcomes, and only one of them is tamper
+
+The status contract is `npm-verify.lib.sh`'s, so the two gates in `nvm-update` read alike: `0`
+verified, `1` **mismatch**, `2` **unable to verify**. Keeping `1` and `2` apart is the whole
+usability of the feature, and `gpgv`'s own exit status separates them exactly — `1` for a signature
+it rejects, `2` for a key it does not hold.
+
+- **Mismatch** refuses, everywhere and unconditionally: the relabel fails, the updater declines to
+  activate, the launch refuses. No configuration turns it off.
+- **Unable to verify** — offline, no manifest published for that release (they are per-release and
+  not guaranteed), no `gpgv`, an agent declaring no provenance, or a **vendor key rotation** — warns
+  and proceeds, leaving any previous pin standing. A rotation reporting as tamper would fail every
+  host closed on an untouched binary, so the agent package ships old and new keys in one keyring and
+  declares both fingerprints for the overlap.
+
+`AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` (`operator.conf`, read through
+`ai_tools_entrypoint_verify_required` so the updater and the launch cannot disagree about how strict
+the host is) turns the *unverifiable* case into a refusal: the launch will not start an unpinned
+entrypoint, and the updater will not activate a release it could not verify. Its default is **no**,
+and that is an air-gap decision — unpinned is also the state of a host with an internal npm mirror
+and no vendor route, and blocking there would quietly freeze its agent forever. Nothing in this
+layer hard-fails offline: the fetch carries a short `--connect-timeout` because it runs inside the
+relabel, and so inside an rpm `%post` that must succeed offline.
+
+### Why the pin lives in the relabel helper
+
+`ai-tools-relabel-agent` verifies and pins **before** it labels, on every host — including the
+DAC-only one, where the labelling half has nothing to do. Both halves answer one question, *the
+entrypoint changed, reconcile it*, and they share the three things that would otherwise be
+duplicated: the **trigger** (`ai-tools-relabel.path` watches the launcher directory, so it fires on
+exactly the event that changes an entrypoint), the **privilege** (root, which the sandbox-account
+updater does not have), and the **timing**. Splitting them would buy one name at the cost of a
+second `%ai-ops` sudoers rule and a second unit for a step that must run at the same instant anyway
+— so `--relabel` keeps its established name and its scope is stated to be the whole reconciliation,
+not the SELinux half alone.
+
+The costs of that folding are bounded rather than absent, and both are handled where they arise: a
+networked step now sits inside an otherwise-local verb (which is why it fails soft and connects with
+a short timeout), and a pin mismatch fails a command an operator may have run for a label (which is
+correct — an entrypoint that is not the binary its vendor published is the more serious finding, and
+it is reported first).
+
 ## Deferred
 
 **Pinning the registry signing key.** Fetching the keys each run detects a mirror or cache
@@ -320,3 +406,9 @@ verifier and the free transitive-tree coverage, and must track npm's key rotatio
 already serves one retired and one active key) or a rotation breaks updates. TLS covers the
 man-in-the-middle key swap, so pinning is defense in depth against a primary-registry
 root-of-trust compromise, held against that cost.
+
+For the **agent binary** specifically that gap is now closed from the other side: the entrypoint
+verification above pins its key in a root-owned file rather than fetching one, so a compromised
+registry serving a forged package, signature, and keys together still fails the release-manifest
+comparison. What stays deferred is the rest of the toolchain — Node and npm itself — where no
+equivalent signed-checksum manifest is consumed.

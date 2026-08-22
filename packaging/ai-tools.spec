@@ -193,6 +193,13 @@ Requires:       ai-tools-integration-nodejs = %{version}-%{release}
 # stops reclaiming .git and stops the session-end sweep, and filter-hook stops filtering. The
 # first two are ownership guarantees, so this is Requires rather than Recommends.
 Requires:       jq
+# gnupg2 provides gpgv, the verify-only half this uses to check the vendor's signed release
+# manifest before trusting the checksum it publishes for this agent's entrypoint
+# (entrypoint-verify.lib.sh). Absent it, the verification degrades to "unable to verify" and the
+# entrypoint is never pinned -- so like jq this is Requires, not Recommends: the declaration in
+# this package's manifest is what makes the check meaningful, and shipping the declaration without
+# the verifier would leave every host silently unverified.
+Requires:       gnupg2
 # Renamed from claude-code-restricted; see the note on ai-tools-integration-nodejs for why the
 # pair is required rather than cosmetic. This one also owns the launch wrapper and the hooks, so
 # without the Obsoletes an install alongside the old name is a file conflict.
@@ -266,7 +273,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf skip-dirs owner-only relabel secret-patterns operator control-plane safe-paths confinement npm-verify managed-assets providers selinux-groups filters services; do
+for l in log msg conf skip-dirs owner-only relabel secret-patterns operator control-plane safe-paths confinement npm-verify entrypoint-verify managed-assets providers selinux-groups filters services; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -282,6 +289,12 @@ install -d -m 0755 %{buildroot}%{ai_libdir}/session-env.d
 # own ships one beside it. An agent's filter hook reads them through filters.lib.sh.
 install -d -m 0755 %{buildroot}%{ai_libdir}/filters.d
 install -m 0644 src%{ai_libdir}/filters.d/core.rules %{buildroot}%{ai_libdir}/filters.d/core.rules
+# Pinned vendor release-signing keys, keyed by agent: keys/<agent>.asc. Base owns the directory
+# and ships none -- the key that signs an agent's releases belongs to that agent's package, the
+# same split as agents.d. entrypoint-verify.lib.sh verifies a release manifest against the key its
+# manifest names, so the key is SHIPPED rather than fetched (a fetched key proves only that whoever
+# served the manifest served the key).
+install -d -m 0755 %{buildroot}%{ai_libdir}/keys
 # The shared confinement shim. Base-owned and agent-agnostic: it resolves which agent may launch
 # from the manifests above, so an ai-tools-agents-* package ships only its wrapper, manifest, and
 # session-env fragment, and one sudoers grant serves every agent.
@@ -346,6 +359,10 @@ done
 install -d -m 2750 %{buildroot}/var/opt/ai-tools
 install -d -m 2770 %{buildroot}/var/opt/ai-tools/sandbox-projects
 install -d -m 0750 %{buildroot}/var/opt/ai-tools/state
+# Verified entrypoint pins, one file per agent, written by ai-tools-relabel-agent as root and read
+# by the launch shim as the sandbox account. Root-owned and NOT group-writable, like its parent:
+# the whole value of a pin is that the account it constrains cannot write it.
+install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-pin.d
 install -m 0640 src/var/opt/ai-tools/README.md %{buildroot}/var/opt/ai-tools/README.md
 install -d -m 0700 %{buildroot}/var/log/ai-tools
 
@@ -434,6 +451,11 @@ install -m 0640 src/opt/ai-tools/agents/claude-code/settings.json     %{buildroo
 # Claude npm package and symlinks the claude launcher without hardcoding either (the agents.d
 # directory itself is owned by ai-tools-base).
 install -m 0644 src%{ai_libdir}/agents.d/claude-code.conf  %{buildroot}%{ai_libdir}/agents.d/claude-code.conf
+# The pinned Anthropic release-signing key (published at downloads.claude.ai/keys/claude-code.asc).
+# Plain rpm-owned data, NOT %%config: the pin must change only when a signed package installs a new
+# one, never by an edit on the host. Its fingerprint is declared in the manifest above and asserted
+# against gpgv's output, so this file alone does not decide what may sign a release.
+install -m 0644 src%{ai_libdir}/keys/claude-code.asc %{buildroot}%{ai_libdir}/keys/claude-code.asc
 # Its session env (config dir, compile cache, in-session updater), sourced by ai-tools-run last
 # so the agent's own pins are authoritative over an integration's.
 install -m 0644 src%{ai_libdir}/session-env.d/claude-code.env.sh %{buildroot}%{ai_libdir}/session-env.d/claude-code.env.sh
@@ -754,7 +776,7 @@ fi
 # File lists
 # ─────────────────────────────────────────────────────────────────────────────
 %files
-%doc docs/rpm-packaging.md docs/project-lifecycle.md README.md
+%doc docs/rpm-packaging.md docs/project-lifecycle.md docs/entrypoint-verification.md README.md
 
 %files -n ai-tools-selinux
 %license LICENSES/GPL-2.0-or-later.txt
@@ -795,11 +817,13 @@ fi
 %attr(0644, root, root) %{ai_libdir}/safe-paths.lib.sh
 %attr(0644, root, root) %{ai_libdir}/confinement.lib.sh
 %attr(0644, root, root) %{ai_libdir}/npm-verify.lib.sh
+%attr(0644, root, root) %{ai_libdir}/entrypoint-verify.lib.sh
 %attr(0644, root, root) %{ai_libdir}/conf.lib.sh
 %attr(0644, root, root) %{ai_libdir}/providers.lib.sh
 %attr(0644, root, root) %{ai_libdir}/selinux-groups.lib.sh
 %attr(0644, root, root) %{ai_libdir}/filters.lib.sh
 %attr(0644, root, root) %{ai_libdir}/services.lib.sh
+%dir %attr(0755, root, root) %{ai_libdir}/keys
 %dir %attr(0755, root, root) %{ai_libdir}/agents.d
 %dir %attr(0755, root, root) %{ai_libdir}/integrations.d
 %dir %attr(0755, root, root) %{ai_libdir}/session-env.d
@@ -833,6 +857,7 @@ fi
 # place by its writer, which confines the added surface to that one file's contents. Readers reach
 # it through the g:ai-ops:r-x ACL %post applies (%files cannot express an ACL).
 %dir %attr(0750, root, ai-tools) /var/opt/ai-tools/state
+%dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-pin.d
 %dir %attr(0700, root, root) /var/log/ai-tools
 %ghost %attr(0600, root, root) /var/log/ai-tools/chown.log
 %ghost %attr(0600, root, root) /var/log/ai-tools/setgid.log
@@ -905,6 +930,7 @@ fi
 # a group-writer for its session state but cannot unlink the root-owned files below.
 %dir %attr(3770, root, ai-tools) /opt/ai-tools/.claude
 %attr(0644, root, root) %{ai_libdir}/agents.d/claude-code.conf
+%attr(0644, root, root) %{ai_libdir}/keys/claude-code.asc
 %attr(0644, root, root) %{ai_libdir}/session-env.d/claude-code.env.sh
 %attr(0644, root, root) %{ai_libdir}/claude-prompt.lib.sh
 %attr(0644, root, root) %{ai_libdir}/claude-endpoint.lib.sh
@@ -939,6 +965,44 @@ fi
   it authorizes against the uid sudo sets rather than a name from the environment, and it refuses
   a bare root call, an unenrolled caller or target, the sandbox account, and a protected system
   directory, leaving the registry byte-identical whenever it refuses.
+- NEW: The agent binary is now verified against the checksum its vendor SIGNED, and the verified
+  value is pinned where the sandbox account cannot write it, so a binary modified AFTER it was
+  installed refuses to launch. npm's integrity hash and registry signature attest to what was
+  delivered, not to what is on disk afterwards -- and since 'npm install -g' does not reinstall an
+  unchanged version, such a change would otherwise persist across sessions and operators. The
+  signing key ships in the package rather than being downloaded, which closes the registry
+  key-pinning gap for this one binary. Nothing to maintain per release: the key identifies the
+  signer, not the release, and the per-version pin is written automatically by the same watcher
+  that already relabels entrypoints. Requires gnupg2 (gpgv).
+- NEW: 'ai-tools --relabel' reconciles the entrypoint rather than only its SELinux label -- it
+  verifies and pins first, then relabels -- so it is also the way to pin an entrypoint on a
+  DAC-only host or one the watcher was offline for. The verification fails soft when the vendor is
+  unreachable; only a checksum mismatch fails the command.
+- NEW: 'ai-tools --status' reports, per agent, whether its entrypoint carries a verified checksum --
+  VERIFIED with the pinned version and how long ago, or unverified. It is the only view an operator
+  has of the verification: the entrypoint itself lives in a toolchain they cannot read. Unverified
+  counts toward the exit status only where verification is required, so an air-gapped host does not
+  alarm.
+- NEW: AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY in operator.conf refuses to launch an entrypoint that
+  carries no verified checksum, and stops the updater activating a release it could not verify. A
+  MISMATCH always refuses regardless; this key governs only the unverifiable case, whose default
+  stays permissive because unpinned is equally the state of an air-gapped host. See
+  docs/entrypoint-verification.md.
+- FIX: ai-tools-run verified one path and started another: it checked the SELinux label on the
+  resolved entrypoint but handed systemd the launcher symlink, leaving the whole preflight as a
+  window in which that link could be repointed. It now resolves once, contains the target to the
+  same Node version directory, uses that single path for both, and re-checks its device/inode/
+  size/ctime immediately before the launch. Under SELinux this window was never reachable (the
+  toolchain is read-only to the confined domain); it mattered on a DAC-only host.
+- FIX: 'ai-tools --relabel' could report success while every launch stayed refused. It applied the
+  file-context pattern each agent's manifest declares, but the SELinux transition fires on the
+  binary the launcher actually resolves to -- so an agent whose package installs its executable
+  somewhere the pattern no longer covers left nothing to label, and the command exited 0 saying
+  the entrypoint "is not installed". It now resolves the entrypoint the way the launch check does
+  and reconciles the two: that case exits non-zero naming the real cause (the agent package's
+  manifest is stale and needs updating), and "not installed" is reported only when the agent
+  genuinely is not provisioned. The set of files that can take the confined domain's exec label is
+  unchanged -- still exactly what the root-owned manifests declare.
 
 * Tue Aug 18 2026 dagnode <tools@dagnode.com> - 0.11.1-1
 - FIX: A toolchain update that could not reach the npm registry failed with an empty journal and

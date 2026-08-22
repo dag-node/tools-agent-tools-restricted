@@ -326,4 +326,34 @@ else
     pass "the agent cannot write the operator's allowed-projects (its own launch gate)"
 fi
 
+# ── Entrypoint verification: the agent must not be able to bless its own binary ───────────────
+# The pin is only worth comparing against while the account it constrains cannot write it -- nor
+# the key that decided what went into it. Probed rather than inferred from modes, so an ACL that
+# contradicts a correct-looking mode still fails.
+for _ev_path in /var/opt/ai-tools/state/entrypoint-pin.d \
+                /usr/local/lib/ai-tools/keys \
+                /usr/local/lib/ai-tools/keys/claude-code.asc \
+                /usr/local/lib/ai-tools/entrypoint-verify.lib.sh; do
+    if [[ ! -e "${_ev_path}" ]]; then
+        skip "entrypoint verification not agent-writable" "${_ev_path} not installed"
+    elif runuser -u "${SANDBOX_USER}" -- test -w "${_ev_path}" 2>/dev/null; then
+        fail "the agent can write ${_ev_path} -- it could record or authorise a checksum for a binary it modified, defeating the launch-time verification"
+    else
+        pass "the agent cannot write ${_ev_path}"
+    fi
+done
+
+# The pin directory's contents, specifically: a directory the agent cannot write is only half the
+# guarantee if an existing pin inside it is writable (or is a symlink it can redirect).
+_ev_pin=/var/opt/ai-tools/state/entrypoint-pin.d/claude-code
+if [[ ! -e "${_ev_pin}" ]]; then
+    skip "entrypoint pin not agent-writable" "no pin recorded yet at ${_ev_pin}"
+elif [[ -L "${_ev_pin}" ]]; then
+    fail "${_ev_pin} is a symlink -- the pin reader refuses one, but its presence means something other than the root helper wrote there"
+elif runuser -u "${SANDBOX_USER}" -- test -w "${_ev_pin}" 2>/dev/null; then
+    fail "the agent can write ${_ev_pin} -- it could pin the checksum of a binary it tampered with"
+else
+    pass "the agent cannot write its own entrypoint pin"
+fi
+
 finish

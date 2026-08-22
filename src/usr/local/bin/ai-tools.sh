@@ -41,7 +41,8 @@
 #   --reclaim [--full] [path] take back ownership of agent-written files -- the project stays
 #                             claimed and the agent keeps access; the on-demand ownership
 #                             handback, e.g. before an ACL-unaware backup (sudo; default: cwd)
-#   --relabel                 relabel the enabled agents' entrypoints after a Node upgrade (sudo)
+#   --relabel                 reconcile the enabled agents' entrypoints -- verify each against its
+#                             vendor's signed release checksum and pin it, then relabel (sudo)
 #   --providers               report the installed agents/integrations, which are enabled,
 #                             and why (read-only; resolved through providers.lib.sh)
 #   --status                  report ai-tools service health (read-only; services.lib.sh)
@@ -2082,29 +2083,32 @@ cmd_reclaim() {
     ai_tools_log_info "reclaim run for ${d}$(${full} && printf ' (full)')"
 }
 
-# cmd_relabel  -- restore the ai_tools_exec_t SELinux label on each enabled agent's entrypoint
-# after a Node auto-upgrade, via the root helper (sudo, no password: the dedicated rule). An
-# nvm-update installs a fresh agent binary that npm leaves mislabelled (bin_t), so the domain
-# transition stops firing and ai-tools-run refuses to launch (fail-closed) until the label is
-# restored. Takes no path -- the helper resolves the entrypoints from the agent manifests.
+# cmd_relabel  -- reconcile each enabled agent's entrypoint after a toolchain change, via the root
+# helper (sudo, no password: the dedicated fixed-path rule). Two steps, in this order:
+#   1. VERIFY the entrypoint against the checksum its vendor signed and record it in that agent's
+#      pin, which ai-tools-run compares the binary against at launch. Needs the host online, and
+#      fails soft when it cannot reach the vendor; a MISMATCH fails the command.
+#   2. RELABEL it to ai_tools_exec_t. An nvm-update installs a fresh agent binary that npm leaves
+#      mislabelled (bin_t), so the domain transition stops firing and ai-tools-run refuses to
+#      launch (fail-closed) until the label is restored.
+# Takes no path -- the helper resolves the entrypoints from the agent manifests.
 #
-# Design note: if post-upgrade maintenance ever grows beyond this one step, fold the steps
-# under a `--postupgrade` umbrella verb that runs them in sequence; while relabel is the
-# only step, the explicit `--relabel` is clearer in the UX, so there is no umbrella yet.
+# The verb keeps the name it had when relabelling was its only step; why the two are one command
+# is in .claude/rules/cli.rule.md.
 cmd_relabel() {
     [[ "$#" -eq 0 ]] || die "--relabel takes no arguments"
-    section "Relabel the agent entrypoints (after a Node upgrade)"
-    say "  A Node auto-upgrade installs new agent binaries that must be relabelled so"
-    say "  the sandbox can confine the session; until then the agent refuses to launch."
+    section "Reconcile the agent entrypoints (after a toolchain change)"
+    say "  Verifies each agent binary against the checksum its vendor signed, then relabels"
+    say "  it so the sandbox can confine the session; until then the agent refuses to launch."
     command -v sudo >/dev/null 2>&1 \
-        || die "sudo not found -- cannot relabel; run as root: ${RELABEL_ENTRYPOINT_BIN}"
+        || die "sudo not found -- cannot reconcile; run as root: ${RELABEL_ENTRYPOINT_BIN}"
     # Reaches the helper through the dedicated fixed-path NOPASSWD rule (the same one the
     # nvm-update timer uses), so this runs as root without a password prompt.
     if sudo "${RELABEL_ENTRYPOINT_BIN}"; then
-        ok "entrypoints relabelled -- exit any running session and relaunch"
-        ai_tools_log_info "relabelled the agent entrypoints (post-upgrade)"
+        ok "entrypoints reconciled -- exit any running session and relaunch"
+        ai_tools_log_info "reconciled the agent entrypoints (verify + relabel)"
     else
-        die "relabel failed -- see the message above"
+        die "reconcile failed -- see the message above"
     fi
 }
 
@@ -2284,7 +2288,7 @@ list_maintenance_note() {
     say "  ai-tools --project-unclaim <path>   release a project (revoke agent access)"
     say "  ai-tools --reclaim [--full] <path>  take back ownership; project stays claimed"
     say "  ai-tools --lockdown <path>          lock down secret-named files"
-    say "  ai-tools --relabel                  relabel the agent entrypoints after a Node upgrade"
+    say "  ai-tools --relabel                  re-verify and relabel the agent entrypoints"
 }
 
 # status_fmt_age <seconds>  -- render an age the way an operator reads it ("3 days ago"), not as a
@@ -2330,6 +2334,78 @@ status_sandbox_unit_commands() {
 # healthy, its consequence and the exact commands that inspect and fix it.
 # Reuses services.lib.sh -- the SAME registry the launch-time warning reads -- so the status view and
 # the launch warning never disagree. Informational (no operator gate), like --list/--providers.
+# status_entrypoint_pins  -- report, per enabled agent, whether its entrypoint carries a verified
+# checksum. This is the ONE piece of the verification an operator can observe: the entrypoint itself
+# lives in the 0750 toolchain they cannot read (which is why its LABEL stays unreportable here), but
+# the pin is a root-owned record placed where they can. Without this line the only signals are a
+# warning in a journal the operator cannot reach and, eventually, a refused launch.
+#
+# The pin is written in the same KEY=value stamp grammar as the updater's last-run record, so it is
+# read through the SAME accessors -- charset-clamped fields and one age implementation - rather than
+# a second reader that could drift. Its path comes from entrypoint-verify.lib.sh, never hardcoded.
+#
+# Returns non-zero only when an unpinned entrypoint is actually actionable, which is exactly when
+# the operator has required verification: everywhere else unpinned is a legitimate state (an
+# air-gapped host, a release the vendor published no manifest for) and must not make a healthy host
+# alarm, the same rule the unqueryable units follow. A pin this account cannot read is reported as
+# unknown and is never a fault -- --status stays open to a non-operator, who cannot traverse the
+# state directory at all.
+status_entrypoint_pins() {
+    local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
+    local verify_lib=/usr/local/lib/ai-tools/entrypoint-verify.lib.sh
+    # shellcheck source=SCRIPTDIR/../lib/ai-tools/providers.lib.sh
+    source "${providers_lib}" 2>/dev/null || true
+    # shellcheck source=SCRIPTDIR/../lib/ai-tools/entrypoint-verify.lib.sh
+    source "${verify_lib}" 2>/dev/null || true
+    declare -F ai_tools_enabled_agents      >/dev/null 2>&1 || return 0
+    declare -F ai_tools_entrypoint_pin_path >/dev/null 2>&1 || return 0
+    declare -F ai_tools_service_stamp_field >/dev/null 2>&1 || return 0
+
+    local strict=no
+    declare -F ai_tools_entrypoint_verify_required >/dev/null 2>&1 \
+        && ai_tools_entrypoint_verify_required && strict=yes
+
+    local agent pin version verified age seen=0 unpinned=0
+    while IFS=$'\t' read -r agent _ _; do
+        [[ -n "${agent}" ]] || continue
+        # An agent whose package declares no release manifest has nothing to verify against, so it
+        # is left out entirely rather than reported as perpetually unpinned.
+        [[ -n "$(ai_tools_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" ]] || continue
+        (( seen++ == 0 )) && section "Entrypoint verification"
+        pin="$(ai_tools_entrypoint_pin_path "${agent}" 2>/dev/null || true)"
+        version="$(ai_tools_service_stamp_field "${pin}" VERSION)"
+        if [[ -n "${version}" ]]; then
+            verified="$(ai_tools_service_stamp_age "${pin}" VERIFIED)"
+            age="$(status_fmt_age "${verified}")"
+            printf '  %-28s %sVERIFIED%s %s(%s%s)%s\n' "${agent}" "${C_GRN}" "${C_RST}" \
+                "${C_DIM}" "${version}" "${age:+, ${age}}" "${C_RST}"
+        elif [[ -e "${pin}" && ! -r "${pin}" ]]; then
+            # Not a fault: --status stays open to a non-operator, who cannot traverse the state
+            # directory at all. It says only that this vantage cannot tell.
+            printf '  %-28s %s? (pin not readable from this account)%s\n' "${agent}" "${C_DIM}" "${C_RST}"
+        elif [[ -e "${pin}" ]]; then
+            # Readable but carrying no VERSION the clamped reader will accept. Distinct from both
+            # states above and from a missing pin, because the remedy is to rewrite it -- and it is
+            # never read as verified, since the version check above is what gates that line.
+            printf '  %-28s %sunverified%s %s(pin present but unreadable -- rewrite it: ai-tools --relabel)%s\n' \
+                "${agent}" "${C_DIM}" "${C_RST}" "${C_DIM}" "${C_RST}"
+        else
+            unpinned=$(( unpinned + 1 ))
+            if [[ "${strict}" == yes ]]; then
+                printf '  %-28s %sUNVERIFIED%s\n' "${agent}" "${C_YEL}" "${C_RST}"
+                say "      this host requires verification, so its sessions will not launch"
+                say "      ${C_BOLD}ai-tools --relabel${C_RST} ${C_DIM}(needs network -- it fetches the vendor's signed manifest)${C_RST}"
+            else
+                printf '  %-28s %sunverified%s %s(no pin -- launches are not blocked)%s\n' \
+                    "${agent}" "${C_DIM}" "${C_RST}" "${C_DIM}" "${C_RST}"
+            fi
+        fi
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+
+    [[ "${strict}" == yes && "${unpinned}" -gt 0 ]] && return 1
+    return 0
+}
+
 cmd_status() {
     local problems=0
 
@@ -2434,6 +2510,8 @@ cmd_status() {
             fi
         fi
     done < <(ai_tools_service_records)
+
+    status_entrypoint_pins || problems=$(( problems + 1 ))
 
     # Pointers, not duplication: name the sibling read-only reports (which own their own detail) and
     # where the full command list lives, so --status is a hub without re-implementing --providers or
@@ -2597,7 +2675,7 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
   ai-tools --sandbox-remove [path]   remove a sandbox clone and unregister it
   ai-tools --lockdown [path] [-n|-y] lock down secret files (sudo; default: cwd)
   ai-tools --reclaim [--full] [path] take back ownership of agent files; project stays claimed (sudo; default: cwd)
-  ai-tools --relabel                 relabel the agent entrypoints after a Node upgrade (sudo)
+  ai-tools --relabel                 re-verify and relabel the agent entrypoints (sudo)
   ai-tools --providers               list installed agents/integrations and which are enabled
   ai-tools --status                  report service health (handback socket, relabel watcher, updater)
   ai-tools --list                    list registered projects

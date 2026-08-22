@@ -153,6 +153,88 @@ verify_toolchain_signatures() {
     esac
 }
 
+# Entrypoint verifier (entrypoint-verify.lib.sh). Best-effort source, same posture as the npm
+# verifier above: a missing lib is a broken install, and degrades to "unable to verify".
+readonly ENTRYPOINT_VERIFY_LIB="/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/entrypoint-verify.lib.sh
+if ! source "${ENTRYPOINT_VERIFY_LIB}" 2>/dev/null \
+        || ! declare -F ai_tools_entrypoint_release_verify >/dev/null 2>&1; then
+    warn "entrypoint verifier unavailable (${ENTRYPOINT_VERIFY_LIB}) -- skipping the release-checksum check"
+    ai_tools_entrypoint_release_verify() { return 2; }
+fi
+
+# entrypoint_blocked[<launcher>] : set where a declared release manifest exists but the freshly
+# installed entrypoint did not verify against it AND the operator required verification. The
+# repoint loop skips those launchers. Populated by verify_agent_entrypoints.
+declare -A entrypoint_blocked=()
+entrypoint_unverified=0
+
+# verify_agent_entrypoints <target-version>: check every enabled agent's just-installed entrypoint
+# against the checksum its vendor signed for the version its package declares. A MISMATCH dies here,
+# before the prune and the repoint, exactly as the npm gate does. Anything else is not fatal; see
+# the branch comments below.
+verify_agent_entrypoints() {
+    local target="$1" agent launcher entrypoint version rc
+    declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 0
+    while IFS=$'\t' read -r agent _ launcher; do
+        [[ -n "${agent}" && -n "${launcher}" ]] || continue
+        local url_template
+        url_template="$(ai_tools_agent_manifest_field "${agent}" release_manifest_url || true)"
+        [[ -n "${url_template}" ]] || continue      # declares no provenance: nothing to check
+        # Resolved, never executed: the versioned launcher is a symlink into the package, and what
+        # must be hashed is the file it points at -- the same inode the launch shim verifies.
+        entrypoint="$(realpath -e "${HOME}/.nvm/versions/node/${target}/bin/${launcher}" 2>/dev/null || true)"
+        if [[ -z "${entrypoint}" ]]; then
+            log "${agent}: ${launcher} not installed in ${target} -- nothing to verify"
+            continue
+        fi
+        version="$(agent_package_version "${entrypoint}")"
+        if [[ -z "${version}" ]]; then
+            warn "${agent}: could not read the installed version beside ${entrypoint} -- not verified"
+            ai_tools_entrypoint_verify_required 2>/dev/null \
+                && { entrypoint_blocked["${launcher}"]=1; entrypoint_unverified=$(( entrypoint_unverified + 1 )); }
+            continue
+        fi
+        rc=0
+        ai_tools_entrypoint_release_verify "${entrypoint}" "${version}" "${url_template}" \
+            "$(ai_tools_agent_manifest_field "${agent}" release_key || true)" \
+            "$(ai_tools_agent_manifest_field "${agent}" release_fingerprint || true)" \
+            >/dev/null || rc=$?
+        case "${rc}" in
+            0) log "${agent}: entrypoint matches the checksum signed for release ${version}" ;;
+            1) die "${agent}: the installed entrypoint does NOT match the checksum its vendor signed for release ${version} -- refusing to activate it; the previous version stays in use" ;;
+            *) # Unverifiable does not block by default -- an air-gap decision (updater.rule.md):
+               # a host with an internal npm mirror and no vendor route keeps updating, unpinned.
+               # Where the operator required verification, activating such a release would instead
+               # refuse every launch, so the repoint is held back and the verified version stays.
+               if ai_tools_entrypoint_verify_required 2>/dev/null; then
+                   warn "${agent}: could not verify release ${version} against its signed manifest -- not activating it (AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set); the previously verified version stays in use"
+                   entrypoint_blocked["${launcher}"]=1; entrypoint_unverified=$(( entrypoint_unverified + 1 ))
+               else
+                   warn "${agent}: could not verify release ${version} against its signed manifest -- activating it anyway; its entrypoint will be unpinned until the vendor's manifest is reachable"
+               fi ;;
+        esac
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+    return 0
+}
+
+# agent_package_version <entrypoint>: print the MAJOR.MINOR.PATCH the package beside the entrypoint
+# declares, walking up to the nearest package.json. Bounded read; anything not semver yields
+# nothing, so a crafted value cannot become part of a URL.
+agent_package_version() {
+    local dir="${1%/*}" declared
+    for _ in 1 2 3; do
+        if [[ -f "${dir}/package.json" ]]; then
+            declared="$(head -c 65536 -- "${dir}/package.json" 2>/dev/null \
+                | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+            [[ "${declared}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && { printf '%s' "${declared}"; return 0; }
+        fi
+        dir="${dir%/*}"
+        [[ -n "${dir}" ]] || break
+    done
+    return 0
+}
+
 # version_in_use: succeed if a live process is executing from this version's tree.
 # A session is pinned to the Node version it launched with (ai-tools-run sets PATH to
 # that version's bin and DISABLE_AUTOUPDATER=1), so pruning a version out from under a
@@ -337,6 +419,12 @@ main() {
     # stays active. Runs against the just-installed global tree as the sandbox account.
     verify_toolchain_signatures
 
+    # Second gate, same position and the same fail-closed shape, asking the other question: the
+    # signature above says the package was DELIVERED untampered, this says the binary inside it is
+    # the one the vendor published. It runs as the sandbox account, so it is a fail-fast economy
+    # measure rather than the boundary -- the root-side pin is (updater.rule.md).
+    verify_agent_entrypoints "${target_version}"
+
     prune_versions "${node_alias}"
 
     # Refresh the stable launcher symlink each wrapper resolves with one readlink hop -- one per
@@ -354,6 +442,12 @@ main() {
             log "${launcher} not installed in ${target_version} -- skipping its stable-symlink repoint"
             continue
         fi
+        # Not activated: leaving the stable symlink where it is keeps the previously verified and
+        # pinned version in use, so the next launch works and this run changed nothing for it.
+        if [[ -n "${entrypoint_blocked[${launcher}]:-}" ]]; then
+            warn "not repointing ${AI_TOOLS_BIN}/${launcher}: its new entrypoint is unverified (see above); the previously verified version stays active"
+            continue
+        fi
         # Repoint (and, via the ai-tools-relabel.path watcher the touched bin directory drives,
         # relabel) is best-effort, NOT fatal: this warns rather than dying. A manual/out-of-band
         # run (this script's documented use) executes outside a session, where the handback
@@ -366,6 +460,13 @@ main() {
     done
 
     log "Done. Active: $(nvm version "${node_alias}")"
+
+    # Reported LAST, after every agent that did verify has been repointed, so one unverifiable
+    # agent never strands another. TRANSIENT rather than failed: nothing is broken and nothing
+    # changed for that agent. It goes through the stamp because that is the only channel an
+    # operator session can read at all -- see the stamp's own section in this file's header.
+    (( entrypoint_unverified == 0 )) \
+        || skip unverified "${entrypoint_unverified} agent entrypoint(s) could not be verified against their vendor's signed release manifest -- not activated; the previously verified version stays in use"
 }
 
 main "$@"

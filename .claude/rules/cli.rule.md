@@ -22,15 +22,21 @@ and as the sandbox account (the agent must not manage its own allowlist).
 
 ## Bootstrap preflight
 
-A single `require_bootstrap` gate runs **before dispatch**: it keys on the `/opt/ai-tools/bin/claude`
-launcher symlink — bootstrap's last load-bearing artifact, written after the account,
-Node, and the agent package all succeed — so its presence means provisioning finished, and
-its absence fails the CLI fast with the provisioning hint rather than mid-operation in a
-root helper. This is the same symlink the launch wrapper gates on (`claude.sh`'s
-`CLAUDE_LINK`), so both entry points share one definition of "provisioned". Every command
-is behind the gate, `--version` included — an unfinished install reports nothing, fail-closed. The
-one exception is `--status`, the diagnostic: it bypasses the gate and reports the unprovisioned
-state itself, since a health check must run precisely when provisioning may have failed.
+A single `require_bootstrap` gate runs **before dispatch**: it keys on a launcher symlink under
+`/opt/ai-tools/bin` — bootstrap's last load-bearing artifact, written after the account, Node, and
+the agent package all succeed — so its presence means provisioning finished, and its absence fails
+the CLI fast with the provisioning hint rather than mid-operation in a root helper. It is the same
+symlink the launch wrapper gates on, so both entry points share one definition of "provisioned".
+Every command is behind the gate, `--version` included — an unfinished install reports nothing,
+fail-closed. The one exception is `--status`, the diagnostic: it bypasses the gate and reports the
+unprovisioned state itself, since a health check must run precisely when provisioning may have
+failed.
+
+**The gate names one agent.** `CLAUDE_LINK` is the literal `/opt/ai-tools/bin/claude`, so a host
+that enables a different agent and disables `claude-code` has a provisioned toolchain the CLI
+refuses to act on. This is the one place the otherwise agent-agnostic CLI is coupled to a specific
+provider; the sentinel it needs is a launcher symlink for *any* enabled agent, which
+`ai_tools_enabled_agents` already resolves ([providers](providers.rule.md)).
 
 ## Operator preflight
 
@@ -103,10 +109,22 @@ A third gate, `require_for_target`, runs immediately after it and validates a `-
   run on demand before an ACL-unaware backup so ownership (not the ACL) carries the operator's
   access into the copy. `--full` includes the skipped heavy trees (`node_modules`, `.venv`, …). See
   [ownership-and-hooks](ownership-and-hooks.rule.md).
-- `--relabel` — restore `ai_tools_exec_t` on the claude entrypoint(s) after a Node upgrade,
-  via `ai-tools-relabel-agent`. The manual counterpart to the automatic post-upgrade
+- `--relabel` — restore `ai_tools_exec_t` on every enabled agent's entrypoint after a Node
+  upgrade, via `ai-tools-relabel-agent`. The manual counterpart to the automatic post-upgrade
   relabel the `nvm-update` timer runs (see [updater](updater.rule.md)); for an out-of-band
   upgrade or if the timer's relabel failed and `ai-tools-run` is fail-closing on the launch.
+  **The verb reconciles the entrypoint, of which the label is one half.** It first verifies each
+  agent's entrypoint against the checksum its vendor signed and pins the result — the half that also
+  runs on a DAC-only host, and the operator-facing way to pin an entrypoint the watcher was offline
+  for. That step, its three outcomes, and why it is not a command of its own are in
+  [updater](updater.rule.md).
+
+  It then applies each agent's **declared** `entrypoint_fcontext` pattern and reconciles the result
+  against the entrypoint that agent's launcher symlink actually resolves to — the inode the launch
+  preflight checks. An entrypoint that is installed where the declaration does not reach exits
+  non-zero naming that cause, so this command never reports success on a host whose next launch
+  will fail closed. See [agent-claude-code](agent-claude-code.rule.md) for the reconciliation and
+  what each verdict looks like to an operator.
 - `--providers` — read-only report of the installed agents and integrations, which of them a
   session gets, and why. It resolves through `providers.lib.sh` (see
   [providers](providers.rule.md)) rather than re-reading `operator.conf`, so the report and the
@@ -182,7 +200,20 @@ advancing surfaces. The account's own
   anything is broken, so the command is usable from a monitor or cron without parsing its output.
   An unqueryable unit is not a fault and does not alarm.
 
-  **Entrypoint label drift is not reported here**, though it is the precondition `ai-tools-run`
+  **Entrypoint verification is reported; the entrypoint's label is not.** The two are asked from
+  different vantages, which is the whole reason they differ. The *pin* is a root-owned record placed
+  where the operator can read it, so `--status` reports one line per agent that declares a release
+  manifest: `VERIFIED` with the pinned version and how long ago, or `unverified`, or `?` when this
+  account cannot read the pin at all (`--status` stays open to a non-operator, who cannot traverse
+  the state directory). It reads through the **same stamp accessors** as the unit records — the pin
+  is written in that grammar — so the charset clamp and the age calculation have one implementation.
+  An agent whose package declares no release manifest is omitted rather than reported as perpetually
+  unverified. Unpinned counts toward the **exit status only where the operator required verification**
+  (`AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`), since that is exactly when it will refuse a launch;
+  everywhere else it is a legitimate state — an air-gapped host, a release the vendor published no
+  manifest for — and must not alarm, the same rule the unqueryable units follow.
+
+  The **label**, by contrast, is not reported here, though it is the precondition `ai-tools-run`
   fail-closes on. Reading an entrypoint's live context means `stat`ing a file under
   `/opt/ai-tools/.nvm`, which `ai-tools-bootstrap` creates `0750 SANDBOX_USER:SANDBOX_GROUP` — the
   operator is not in that group and cannot traverse it, and `matchpathcon` computes only what the
