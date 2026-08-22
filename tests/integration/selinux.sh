@@ -172,4 +172,44 @@ else
     rmdir "${sprobe}" 2>/dev/null || true
 fi
 
+# (7) The declared entrypoint rule still describes where each enabled agent's package installs its
+# executable. This is the live half of unit/relabel.sh's pure reconciliation: the resolution needs a
+# provisioned toolchain (and root, to traverse the 0750 nvm tree), so only a real host can drive it.
+#
+# What it catches is upstream repackaging. The agent's executable is delivered through a nested,
+# platform-specific optional dependency and hardlinked into the path the manifest declares -- so the
+# declaration holds only while that postinstall hardlink does. A release that stops creating it
+# leaves the entrypoint installed, unlabelled, and every launch fail-closing. This assertion turns
+# that into a test failure at the next suite run instead of a refused launch for an operator.
+#
+# Read-only: it resolves and compares, and mutates no policy.
+section "SELinux: each enabled agent's declared entrypoint rule matches what is installed"
+
+if ! declare -F ai_tools_entrypoint_reconcile_verdict >/dev/null 2>&1 \
+        || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+    skip "entrypoint declaration reconciliation" "relabel.lib.sh/providers.lib.sh not loaded"
+else
+    agents_seen=0
+    while IFS=$'\t' read -r agent _ _; do
+        [[ -n "${agent}" ]] || continue
+        agents_seen=$(( agents_seen + 1 ))
+        installed="$(_ai_tools_launcher_target "${agent}" || true)"
+        if [[ -z "${installed}" ]]; then
+            skip "${agent} entrypoint declaration" "its launcher does not resolve (not provisioned)"
+            continue
+        fi
+        pattern="$(ai_tools_agent_manifest_field "${agent}" entrypoint_fcontext || true)"
+        covered=no matched=no
+        while IFS= read -r p; do
+            matched=yes
+            [[ "${p}" == "${installed}" ]] && covered=yes
+        done < <(_ai_tools_entrypoint_paths "${pattern}")
+        case "$(ai_tools_entrypoint_reconcile_verdict "${installed}" "${covered}" "${matched}")" in
+            ok) pass "${agent}: its declared entrypoint rule covers ${installed}" ;;
+            *)  fail "${agent}: installed at ${installed}, which its declared entrypoint_fcontext does not cover -- every launch will fail closed; the manifest is stale" ;;
+        esac
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+    (( agents_seen > 0 )) || skip "entrypoint declaration reconciliation" "no enabled agent resolved"
+fi
+
 finish
