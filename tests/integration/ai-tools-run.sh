@@ -182,6 +182,60 @@ else
     else
         fail "non-semver version directory not refused (rc=${rc}): ${out}"
     fi
+
+    # (7) Containment across the symlink. Shape validation matches the launcher PATH; what execve
+    # transitions on is what that path RESOLVES to, and a string match cannot follow a link. A
+    # launcher that is correctly shaped and claimed by an enabled manifest, but whose target lands
+    # outside its own version directory, must be refused -- otherwise a repointed link starts a
+    # session on a binary the toolchain never installed.
+    #
+    # Probed in a THROWAWAY version directory (v0.0.1), never the live one: the shim only needs the
+    # path to be semver-shaped, and writing into the active tree is what this file's header rules
+    # out. Removed on exit whichever way this test ends.
+    fake_version_dir="/opt/ai-tools/.nvm/versions/node/v0.0.1"
+    if [[ -e "${fake_version_dir}" ]]; then
+        skip "ai-tools-run entrypoint containment" "${fake_version_dir} already exists -- not overwriting"
+    else
+        _cleanup+=("${fake_version_dir}")
+        mkdir -p "${fake_version_dir}/bin"
+        # Escapes the version root: a real, executable target the shim must still refuse.
+        ln -sfn /bin/sh "${fake_version_dir}/bin/claude"
+        chown -R "${SANDBOX_USER}" "${fake_version_dir}" 2>/dev/null || true
+        out="$(run_crun AI_TOOLS_AGENT_EXEC="${fake_version_dir}/bin/claude")" && rc=0 || rc=$?
+        if [[ ${rc} -ne 0 ]] && grep -qi 'does not resolve to an executable inside' <<<"${out}"; then
+            pass "ai-tools-run refuses a launcher resolving outside its own version directory"
+        else
+            fail "escaping launcher symlink not refused (rc=${rc}): ${out}"
+        fi
+        rm -rf "${fake_version_dir}"
+    fi
+fi
+
+section "ai-tools-run: the verified entrypoint is the one exec'd"
+
+# The shim checks the RESOLVED entrypoint (label preflight, and the re-check below) and must hand
+# systemd that same path. Naming the launcher symlink in ExecStart instead would leave the manager
+# re-resolving it after every check has run, so a repoint in that window would go unobserved on a
+# DAC-only host. Asserted against the deployed script, the same way the unit properties above are.
+if grep -qE -- '-- "\$\{session_exec_path\}" "\$@"' "${CRUN}"; then
+    pass "ai-tools-run execs the resolved entrypoint, not the launcher symlink"
+else
+    fail "ai-tools-run does not ExecStart \${session_exec_path} -- the file checked is not the file exec'd"
+fi
+
+# The window between the checks and the launch is re-closed at the last instruction: both the
+# resolution and a device/inode/size/ctime identity are re-compared, so a repoint (new inode), a
+# rename-over (same path, new inode) and an in-place write (same inode, new ctime) are all caught.
+# Under SELinux none of the three is reachable (tests/boundary/access.sh); this is the DAC-only
+# observer, and it must sit AFTER the session-env fragments, not with the earlier validation.
+crun_recheck_line="$(grep -n 'entrypoint_identity' "${CRUN}" | tail -n1 | cut -d: -f1)"
+crun_launch_line="$(grep -n '^systemd-run --user --pty --quiet' "${CRUN}" | head -n1 | cut -d: -f1)"
+if [[ -z "${crun_recheck_line}" || -z "${crun_launch_line}" ]]; then
+    fail "ai-tools-run has no last-moment entrypoint re-check before systemd-run"
+elif (( crun_recheck_line < crun_launch_line )) && (( crun_launch_line - crun_recheck_line < 20 )); then
+    pass "ai-tools-run re-checks the entrypoint identity immediately before the launch"
+else
+    fail "the entrypoint re-check is not immediately before systemd-run (re-check line ${crun_recheck_line}, launch line ${crun_launch_line}) -- the window it narrows is back"
 fi
 
 finish

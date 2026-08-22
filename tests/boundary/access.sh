@@ -326,4 +326,41 @@ else
     pass "the agent cannot write the operator's allowed-projects (its own launch gate)"
 fi
 
+# ── The exec chain: the agent must not be able to swap its own entrypoint ─────────────────────
+# ai-tools-run verifies the entrypoint and hands systemd that same resolved path, re-checking its
+# device/inode/size/ctime immediately before the launch (tests/integration/ai-tools-run.sh covers
+# that half). This is the other half, and the stronger one: on an enforcing host the swap the
+# re-check would observe is not reachable at all. DAC alone permits it -- the account OWNS this
+# tree -- so what refuses is the type layout: ai_tools.fc leaves the nvm tree at its default
+# usr_t/bin_t/lib_t and ai_tools.te grants manage rules for project/home/tmp types only, none of
+# which appear in the exec chain. Three vectors, one per link:
+#   the entrypoint file          an in-place write (a targeted pwrite, not a 324 MB rewrite)
+#   its parent directory         unlink + create, or a rename over the same name
+#   the versioned bin directory  repointing the launcher symlink ExecStart used to name
+# On a DAC-only host all three ARE reachable; that is the documented cost of declining the policy
+# (see confinement.rule.md), so this skips rather than fails there.
+_exec_chain_selinux=no
+if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null || true)" == "Enforcing" ]] \
+        && command -v semodule >/dev/null 2>&1 && semodule -l 2>/dev/null | grep -qx 'ai_tools'; then
+    _exec_chain_selinux=yes
+fi
+_launcher="$(readlink -f /opt/ai-tools/bin/claude 2>/dev/null || true)"
+if [[ "${_exec_chain_selinux}" != yes ]]; then
+    skip "agent cannot swap its own entrypoint" "DAC-only host (ai_tools module not enforcing) -- the nvm tree is agent-owned by design"
+elif [[ -z "${_launcher}" || ! -f "${_launcher}" ]]; then
+    skip "agent cannot swap its own entrypoint" "no entrypoint resolves from /opt/ai-tools/bin/claude"
+else
+    _entry_dir="${_launcher%/*}"
+    _version_bin="$(readlink -- /opt/ai-tools/bin/claude 2>/dev/null || true)"; _version_bin="${_version_bin%/*}"
+    if runuser -u "${SANDBOX_USER}" -- test -w "${_launcher}" 2>/dev/null; then
+        fail "the agent can write ${_launcher} -- it could tamper with its own entrypoint in place and the tamper would persist across sessions and operators"
+    elif runuser -u "${SANDBOX_USER}" -- test -w "${_entry_dir}" 2>/dev/null; then
+        fail "the agent can write ${_entry_dir} -- it could rename a prepared binary over its own entrypoint"
+    elif [[ -n "${_version_bin}" ]] && runuser -u "${SANDBOX_USER}" -- test -w "${_version_bin}" 2>/dev/null; then
+        fail "the agent can write ${_version_bin} -- it could repoint the launcher symlink at a binary of its choosing"
+    else
+        pass "the agent cannot write its entrypoint, its directory, or the versioned bin dir: no in-place tamper, rename-over, or symlink repoint"
+    fi
+fi
+
 finish

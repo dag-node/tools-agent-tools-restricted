@@ -299,11 +299,16 @@ provider seam already names, an exact-path containment rule for a host-packaged 
 **npm is the default, deliberately, and the reason is not that npm is safer.** The two channels
 trade one risk for another, and the trades sit on opposite sides of this project's threat model:
 
-- **npm's cost is in-model and bounded.** The exec root is agent-writable, so a compromised session
-  can modify `claude.exe` in place. Writing does not change the inode's SELinux type, so the launch
-  preflight still passes, and `npm install -g` does not reinstall an unchanged version — the tamper
-  persists across sessions and across operators. Confinement, the allowlist, and the handback still
-  bound what it reaches. This is exactly the adversary the model defends against.
+- **npm's cost is in-model, bounded, and DAC-only.** The exec root is owned by the sandbox account,
+  so on a host running **without** the SELinux policy a compromised session can modify `claude.exe`
+  in place. Writing does not change the inode's SELinux type, so the launch preflight still passes,
+  and `npm install -g` does not reinstall an unchanged version — the tamper persists across sessions
+  and across operators. Confinement, the allowlist, and the handback still bound what it reaches.
+  This is exactly the adversary the model defends against. **With the policy loaded the vector is
+  closed outright**: the nvm tree keeps its default `usr_t`/`bin_t`/`lib_t` types, which `ai_tools_t`
+  carries no manage rule for, so the confined agent can neither write the entrypoint nor repoint its
+  launcher symlink (see [confinement](confinement.rule.md)). The gap is real on the DAC-only
+  deployment the weak dependency permits, not on an enforcing one.
 - **native's cost is out-of-model and unbounded.** It puts a second, *real* `claude` on every
   operator's PATH. Running `/usr/bin/claude` starts an **unconfined session as the operator**, with
   their own credentials and home and none of this machinery — the outcome the project exists to

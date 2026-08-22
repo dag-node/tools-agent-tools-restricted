@@ -78,6 +78,25 @@ accepted only at `${AI_TOOLS_NVM_DIR}/versions/node/<semver>/bin/<launcher>` —
 therefore cannot start a session, because no manifest claims it. A `..` component is refused
 before the match, and the resolution fails closed: with no enabled agent, nothing launches.
 
+**What is checked is what is exec'd.** That validated path is the versioned launcher *symlink*; the
+file `execve` transitions on is what it resolves to. The shim resolves it once, requires the target
+to stay inside the **same semver version directory** the launcher was accepted at (a property
+string-matching cannot carry across a symlink, and what stops a link repointed at another version's
+tree or out of the toolchain), and then uses that single path for both the SELinux label preflight
+and the unit's `ExecStart` — so the manager is never handed a link to re-resolve after the checks
+have run. Immediately before the launch it re-resolves and re-compares a device/inode/size/ctime
+identity, refusing if the entrypoint moved: a repoint changes the path, a rename-over keeps the path
+and changes the inode, an in-place write keeps both and changes ctime (which no unprivileged caller
+can roll back — `utimes(2)` sets atime and mtime, never ctime).
+
+That re-check **narrows** the window a concurrent same-uid process would have to win, from the whole
+preflight to the `systemd-run` round trip; it does not close it. Only an exec root the agent cannot
+write does, and under SELinux that already holds — the nvm tree keeps its default
+`usr_t`/`bin_t`/`lib_t` types, which `ai_tools_t` carries no manage rule for, so the confined agent
+can neither write the entrypoint nor repoint the link and there is no move to make. The re-check is
+therefore for the **DAC-only** deployment, where it is the only observer of such a swap (see
+[confinement](confinement.rule.md)).
+
 It then wraps the session in a transient systemd *service* unit (`systemd-run --user --pty`)
 before exec'ing the versioned binary. The service runs in `SANDBOX_USER`'s systemd user instance, kept alive by
 `loginctl enable-linger` (see [updater](updater.rule.md)). The kernel security properties
