@@ -213,6 +213,13 @@ model defends the host from the *agent*, not from an operator. The full trust mo
 non-goals, and the deferred hardening (per-operator isolation, registry-key pinning) are
 in [`CLAUDE.md`](CLAUDE.md#boundaries-and-non-goals).
 
+The agent binary itself is verified against the checksum its vendor **signed**, using a key shipped
+in the package rather than downloaded, and the verified value is pinned where the sandbox account
+cannot write it — so a binary modified after installation refuses to launch. It needs no per-release
+maintenance and no network at launch; what it checks, what each failure means, and how it behaves on
+an air-gapped host are in
+[docs/entrypoint-verification.md](docs/entrypoint-verification.md).
+
 ## Identities and naming
 
 Three identities recur throughout this README, the scripts, and the templates.

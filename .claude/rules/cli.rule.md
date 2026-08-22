@@ -113,7 +113,13 @@ A third gate, `require_for_target`, runs immediately after it and validates a `-
   upgrade, via `ai-tools-relabel-agent`. The manual counterpart to the automatic post-upgrade
   relabel the `nvm-update` timer runs (see [updater](updater.rule.md)); for an out-of-band
   upgrade or if the timer's relabel failed and `ai-tools-run` is fail-closing on the launch.
-  It applies each agent's **declared** `entrypoint_fcontext` pattern, then reconciles the result
+  **The verb reconciles the entrypoint, of which the label is one half.** It first verifies each
+  agent's entrypoint against the checksum its vendor signed and pins the result — the half that also
+  runs on a DAC-only host, and the operator-facing way to pin an entrypoint the watcher was offline
+  for. That step, its three outcomes, and why it is not a command of its own are in
+  [updater](updater.rule.md).
+
+  It then applies each agent's **declared** `entrypoint_fcontext` pattern and reconciles the result
   against the entrypoint that agent's launcher symlink actually resolves to — the inode the launch
   preflight checks. An entrypoint that is installed where the declaration does not reach exits
   non-zero naming that cause, so this command never reports success on a host whose next launch

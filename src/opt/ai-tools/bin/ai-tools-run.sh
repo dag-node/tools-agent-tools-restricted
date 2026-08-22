@@ -14,15 +14,10 @@
 # side is a single point of trust.
 #
 # What is CHECKED is what is EXEC'd. AI_TOOLS_AGENT_EXEC names the versioned launcher symlink; this
-# shim resolves it to the file execve transitions on, contains that path to the same semver version
-# directory, and uses that one path for the SELinux label preflight AND as the unit's ExecStart --
-# so the manager is never handed a link to re-resolve after the checks have run. The resolution is
-# repeated at the last instruction before the launch, together with a device/inode/size/ctime
-# identity, which narrows the window a concurrent same-uid process would have to win from the whole
-# preflight to the systemd-run round trip. It narrows; it does not close. Under SELinux there is
-# nothing to narrow: the nvm tree keeps its default usr_t/bin_t/lib_t types, which ai_tools_t holds
-# no manage rule for, so the confined agent can neither write the entrypoint nor repoint the link.
-# The re-check is for the DAC-only deployment, where it is the only observer of such a swap.
+# shim resolves it once, contains the target to the same semver version directory, and uses that
+# single path for the SELinux label preflight, the entrypoint pin, and the unit's ExecStart -- then
+# re-resolves it immediately before the launch. What that window is, and why it is a DAC-only
+# concern, are in launch.rule.md.
 #
 # It names no agent. Which executables may launch, what environment each session gets, and
 # whether the session's ownership handback needs driving from here come from the root-owned
@@ -163,17 +158,9 @@ agent_handback="$(ai_tools_agent_manifest_field "${agent_name}" handback || true
 # label preflight and the unit's ExecStart, so the file this shim checks is the file the manager
 # runs -- rather than checking one path and handing systemd another to re-resolve at exec time.
 #
-# It matters only where the toolchain is agent-writable, which is a DAC-only host: under SELinux
-# the whole nvm tree keeps its default usr_t/bin_t/lib_t types, which ai_tools_t carries no manage
-# rule for, so the confined agent can neither write the entrypoint nor repoint the symlink and the
-# vector is closed at the kernel. Naming the symlink in ExecStart on a DAC-only host would leave a
-# repoint between check and exec unobserved.
-#
 # Containment: the resolved path must stay inside the SAME semver version directory the launcher
-# was accepted at. String-matching the launcher path cannot carry that property across a symlink,
-# and this is what keeps the entrypoint inside the toolchain version this launch resolved -- a link
-# repointed at another version's tree, or out of the toolchain entirely, is refused rather than
-# exec'd.
+# was accepted at -- a property string-matching cannot carry across a symlink, so a link repointed
+# at another version's tree, or out of the toolchain, is refused rather than exec'd.
 #
 # Frozen at the validated version: node_version is re-assigned to "n/a" further down when it fails
 # the banner's display pattern, and the pre-launch re-check must resolve against the SAME root the
@@ -528,6 +515,42 @@ fi
 # deployment, where it is the only observer of a swap. Both the path and the identity are compared:
 # a repoint changes the path, a rename-over keeps it and changes the inode, an in-place write keeps
 # both and changes ctime.
+# The pin is checked in the same breath, this being the one place where hashing the file and
+# starting it are adjacent. A MISMATCH means the binary changed after root verified it, and refuses;
+# an UNPINNED entrypoint launches unless the operator required otherwise. Why those two outcomes
+# differ, and what each costs, are in updater.rule.md.
+entrypoint_pin_verdict=unchecked
+# Guarded, not bare: the pin is a check the launch tightens with, and a missing library is a broken
+# install rather than agent action -- it degrades to "unchecked", which the require switch below
+# turns into a refusal on a host that declared verification mandatory.
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/entrypoint-verify.lib.sh
+if source "${AI_TOOLS_LIB_DIR}/entrypoint-verify.lib.sh" 2>/dev/null \
+        && declare -F ai_tools_entrypoint_check >/dev/null 2>&1; then
+    entrypoint_pin_verdict="$(ai_tools_entrypoint_check "${agent_name}" "${session_exec_path}")" || true
+fi
+# Through the library's own accessor, so this launch and the updater's activation gate cannot
+# disagree about how strict the host is.
+require_entrypoint_verify=no
+declare -F ai_tools_entrypoint_verify_required >/dev/null 2>&1 \
+    && ai_tools_entrypoint_verify_required && require_entrypoint_verify=yes
+audit info "entrypoint: agent=${agent_name} pin=${entrypoint_pin_verdict} require=${require_entrypoint_verify}"
+
+case "${entrypoint_pin_verdict}" in
+    mismatch)
+        audit warning "REFUSED: entrypoint does not match its pin (${session_exec_path})"
+        refuse 'the agent entrypoint does not match the checksum its vendor signed for the installed version -- refusing to start the session' \
+               "entrypoint:  ${session_exec_path}" \
+               'The binary changed after it was verified. Treat this toolchain as tampered and reprovision it:' \
+               '  sudo ai-tools-bootstrap' ;;
+    ok) ;;
+    *)  if [[ "${require_entrypoint_verify}" == yes ]]; then
+            audit warning "REFUSED: entrypoint unverified (${entrypoint_pin_verdict}) and AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set"
+            refuse 'refusing to launch -- AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set in operator.conf, but this entrypoint carries no verified checksum.' \
+                   'Pin it (this fetches the vendor'"'"'s signed release manifest, so the host must be online):' \
+                   '  ai-tools --relabel'
+        fi ;;
+esac
+
 if [[ "$(resolve_entrypoint || true)" != "${session_exec_path}" \
       || "$(entrypoint_identity "${session_exec_path}")" != "${session_exec_identity}" ]]; then
     audit warning "REFUSED: entrypoint changed between preflight and launch (${session_exec_path})"

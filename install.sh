@@ -624,6 +624,8 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/safe-paths.lib.sh
     _chk /usr/local/lib/ai-tools/confinement.lib.sh
     _chk /usr/local/lib/ai-tools/npm-verify.lib.sh
+    _chk /usr/local/lib/ai-tools/entrypoint-verify.lib.sh
+    _chk /usr/local/lib/ai-tools/keys/claude-code.asc
     _chk /usr/local/lib/ai-tools/conf.lib.sh
     _chk /usr/local/lib/ai-tools/providers.lib.sh
     _chk /usr/local/lib/ai-tools/filters.lib.sh
@@ -857,6 +859,27 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/npm-verify.lib.sh" \
         /usr/local/lib/ai-tools/npm-verify.lib.sh
+
+    # Entrypoint verifier: proves an agent's installed entrypoint is the binary its vendor
+    # published, against a per-release manifest the vendor SIGNED with a key pinned below. Read by
+    # root (ai-tools-relabel-agent writes the pin) and by the sandbox account (ai-tools-run compares
+    # it at launch), so 644 root:root -- world-readable, no secrets, no tokens.
+    log "/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/entrypoint-verify.lib.sh" \
+        /usr/local/lib/ai-tools/entrypoint-verify.lib.sh
+
+    # The pinned vendor release-signing keys, one per agent. 755 dir / 644 keys: public key
+    # material, read by root at pin time. The pin is only as good as this file being root-owned and
+    # replaced solely by a package install -- never edited on the host.
+    install -o root -g root -d -m 755 /usr/local/lib/ai-tools/keys
+    # Verified entrypoint pins: root-owned and not group-writable, so the account the pin
+    # constrains cannot write it. 755 so the sandbox account can read the pin at launch.
+    install -o root -g root -d -m 755 /var/opt/ai-tools/state/entrypoint-pin.d
+    log "/usr/local/lib/ai-tools/keys/claude-code.asc"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/keys/claude-code.asc" \
+        /usr/local/lib/ai-tools/keys/claude-code.asc
 
     # Shared KEY=value config grammar + the trust predicate: 644 root:root -- world-readable,
     # sourced by operator.lib.sh, skip-dirs.lib.sh and providers.lib.sh so every key in

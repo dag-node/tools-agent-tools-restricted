@@ -305,10 +305,10 @@ trade one risk for another, and the trades sit on opposite sides of this project
   and `npm install -g` does not reinstall an unchanged version — the tamper persists across sessions
   and across operators. Confinement, the allowlist, and the handback still bound what it reaches.
   This is exactly the adversary the model defends against. **With the policy loaded the vector is
-  closed outright**: the nvm tree keeps its default `usr_t`/`bin_t`/`lib_t` types, which `ai_tools_t`
-  carries no manage rule for, so the confined agent can neither write the entrypoint nor repoint its
-  launcher symlink (see [confinement](confinement.rule.md)). The gap is real on the DAC-only
-  deployment the weak dependency permits, not on an enforcing one.
+  closed outright** (see
+  [the type layout](confinement.rule.md#the-toolchain-is-read-only-to-the-confined-domain)), so the
+  gap is real on the DAC-only deployment the weak dependency permits, not on an enforcing one — and
+  it is now detected on both (see [updater](updater.rule.md)).
 - **native's cost is out-of-model and unbounded.** It puts a second, *real* `claude` on every
   operator's PATH. Running `/usr/bin/claude` starts an **unconfined session as the operator**, with
   their own credentials and home and none of this machinery — the outcome the project exists to

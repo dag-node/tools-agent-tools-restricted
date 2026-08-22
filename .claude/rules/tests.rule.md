@@ -257,6 +257,21 @@ splitting a status line or carrying an escape sequence to the operator's termina
 so they need no provisioned host; the resolution they consume is exercised in
 `integration/selinux.sh`.
 
+`entrypoint-verify.sh` pins the pure half of the entrypoint verifier (`entrypoint-verify.lib.sh`,
+see [updater](updater.rule.md)). Every assertion targets a way the gate could fail **open**: an
+absent pin must read as `unpinned` and never as a mismatch (collapsing them would report a fresh
+install as tamper, or — inverted — bless a tampered one); a checksum is admitted only in exact
+64-hex shape, so malformed JSON, an absent platform, or a crafted value yields nothing rather than
+a value that could compare equal to a partial observation; a URL template with no `{version}` slot
+is refused rather than fetched as-is, since one manifest for every version reads as "verified"
+while checking a release it never looked at; and the template charset admits nothing that could
+carry a shell metacharacter or a traversal into `curl`. It closes with the one impure assertion
+that needs no vendor: the library refuses a **non-root** pin write itself, rather than letting it
+fail on `EACCES`, so the caller can tell "not permitted" from "the directory is missing". The
+signed-manifest probe is not driven here — it needs the vendor's live endpoint, `gpgv`, and a
+300 MB hash — and its boundary half (neither the pin, the pin directory, the shipped key, nor the
+library is agent-writable) is in `boundary/access.sh`.
+
 `selinux-groups.sh` pins the optional-group registry (`selinux-groups.lib.sh`, shared by
 `ai-tools-admin selinux` and `install-selinux.sh`): the four-field accessors (including the
 `stability` field, guarding the regression where a fourth pipe field bleeds into the reason), the
@@ -292,7 +307,9 @@ shim has one file to answer to; `handback.sh` keeps the bridge and the entrypoin
 `selinux.sh` asserts the confinement layer is actually enforcing: when the
 `ai_tools` module is loaded the system is `Enforcing` and neither `ai_tools_t` nor
 `ai_tools_handback_t` is marked permissive; it skips when the module is absent (the layer is
-optional). `systemd.sh` is the single home for unit checks:
+optional). It also holds the two entrypoint assertions that need a labelled host — that each
+agent's declared file-context rule still covers what its package installed, and that no link in
+the exec chain carries a type the confined domain may manage. `systemd.sh` is the single home for unit checks:
 `systemd-analyze verify` on each shipped unit, plus enablement in the correct instance —
 the `nvm-update` timer in the sandbox account's own `--user` instance, the relabel watcher
 and handback socket in the system instance. The
@@ -317,7 +334,11 @@ it through `tests/run.sh all`. Adding or repermissioning an installed file means
 control plane, cannot reach the operator's credential stores (`~/.ssh`, `~/.gnupg`, …), and
 holds no sudo rights — `sudo -l` reports it is not allowed to run sudo at all (both NOPASSWD
 rules belong to the projects user and drop privilege), plus the account hygiene that invariant
-leans on (nologin shell, locked password, non-membership in `ai-ops`). `providers.sh` asserts
+leans on (nologin shell, locked password, non-membership in `ai-ops`). It also asserts the agent
+cannot write the **pin**, the pin directory, the shipped signing key, or the verifier library — the
+inputs that decide what a verified checksum is — so it can neither record nor authorise a checksum
+for a binary it modified. Those are root-owned files, so they are DAC facts and this vantage sees
+them. `providers.sh` asserts
 the deployed half of "the sandbox cannot widen its own surface": none of `operator.conf`,
 `conf.lib.sh`, `providers.lib.sh`, the three provider directories, the manifests and fragments
 in them, or the `ai-tools-run` shim and the `bin` directory holding it is agent-writable, while
@@ -331,7 +352,11 @@ non-agent-writable — the engine because it is sourced as the agent on every Ba
 sets because they decide what every command in a session becomes. These probe **DAC and
 account state** from the sandbox account's vantage — they run as the sandbox *user*, not inside
 the `ai_tools_t` SELinux domain (a launched session), so they assert the filesystem/credential
-boundary; the SELinux enforcing posture is asserted separately in `integration/selinux.sh`.
+boundary; the SELinux enforcing posture is asserted separately in `integration/selinux.sh`. A
+property the **type layout alone** enforces is therefore not assertable here, and reads as its DAC
+answer: the agent's inability to write its own entrypoint is one (DAC permits it — the account owns
+that tree), so it is asserted in `integration/selinux.sh` as the layout the policy rests on, one
+check per swap vector.
 
 ## Quirks
 

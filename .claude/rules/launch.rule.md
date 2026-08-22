@@ -89,13 +89,21 @@ identity, refusing if the entrypoint moved: a repoint changes the path, a rename
 and changes the inode, an in-place write keeps both and changes ctime (which no unprivileged caller
 can roll back — `utimes(2)` sets atime and mtime, never ctime).
 
+**The entrypoint pin is compared in the same breath**, because that is the one place where hashing
+the file and starting it are adjacent. The pin is what root recorded after verifying this entrypoint
+against the checksum its vendor signed, in a directory this account cannot write (see
+[updater](updater.rule.md)); a **mismatch** means the binary changed after it was verified, and
+refuses the launch unconditionally. An **unpinned** entrypoint is a different fact and launches
+normally — it is equally the state of an air-gapped host, one whose vendor published no manifest for
+the installed release, and one that has not reconciled yet — unless
+`AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` declares otherwise, the same operator-asserts-intent shape as
+`AI_TOOLS_REQUIRE_SELINUX`. The verdict rides the per-launch audit line.
+
 That re-check **narrows** the window a concurrent same-uid process would have to win, from the whole
 preflight to the `systemd-run` round trip; it does not close it. Only an exec root the agent cannot
-write does, and under SELinux that already holds — the nvm tree keeps its default
-`usr_t`/`bin_t`/`lib_t` types, which `ai_tools_t` carries no manage rule for, so the confined agent
-can neither write the entrypoint nor repoint the link and there is no move to make. The re-check is
-therefore for the **DAC-only** deployment, where it is the only observer of such a swap (see
-[confinement](confinement.rule.md)).
+write does — which under SELinux already holds, so there is no swap to observe there (see
+[the type layout](confinement.rule.md#the-toolchain-is-read-only-to-the-confined-domain)). The
+re-check is for the **DAC-only** deployment, where it is the only observer of one.
 
 It then wraps the session in a transient systemd *service* unit (`systemd-run --user --pty`)
 before exec'ing the versioned binary. The service runs in `SANDBOX_USER`'s systemd user instance, kept alive by

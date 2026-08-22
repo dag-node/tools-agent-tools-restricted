@@ -41,7 +41,8 @@
 #   --reclaim [--full] [path] take back ownership of agent-written files -- the project stays
 #                             claimed and the agent keeps access; the on-demand ownership
 #                             handback, e.g. before an ACL-unaware backup (sudo; default: cwd)
-#   --relabel                 relabel the enabled agents' entrypoints after a Node upgrade (sudo)
+#   --relabel                 reconcile the enabled agents' entrypoints -- verify each against its
+#                             vendor's signed release checksum and pin it, then relabel (sudo)
 #   --providers               report the installed agents/integrations, which are enabled,
 #                             and why (read-only; resolved through providers.lib.sh)
 #   --status                  report ai-tools service health (read-only; services.lib.sh)
@@ -2082,29 +2083,32 @@ cmd_reclaim() {
     ai_tools_log_info "reclaim run for ${d}$(${full} && printf ' (full)')"
 }
 
-# cmd_relabel  -- restore the ai_tools_exec_t SELinux label on each enabled agent's entrypoint
-# after a Node auto-upgrade, via the root helper (sudo, no password: the dedicated rule). An
-# nvm-update installs a fresh agent binary that npm leaves mislabelled (bin_t), so the domain
-# transition stops firing and ai-tools-run refuses to launch (fail-closed) until the label is
-# restored. Takes no path -- the helper resolves the entrypoints from the agent manifests.
+# cmd_relabel  -- reconcile each enabled agent's entrypoint after a toolchain change, via the root
+# helper (sudo, no password: the dedicated fixed-path rule). Two steps, in this order:
+#   1. VERIFY the entrypoint against the checksum its vendor signed and record it in that agent's
+#      pin, which ai-tools-run compares the binary against at launch. Needs the host online, and
+#      fails soft when it cannot reach the vendor; a MISMATCH fails the command.
+#   2. RELABEL it to ai_tools_exec_t. An nvm-update installs a fresh agent binary that npm leaves
+#      mislabelled (bin_t), so the domain transition stops firing and ai-tools-run refuses to
+#      launch (fail-closed) until the label is restored.
+# Takes no path -- the helper resolves the entrypoints from the agent manifests.
 #
-# Design note: if post-upgrade maintenance ever grows beyond this one step, fold the steps
-# under a `--postupgrade` umbrella verb that runs them in sequence; while relabel is the
-# only step, the explicit `--relabel` is clearer in the UX, so there is no umbrella yet.
+# The verb keeps the name it had when relabelling was its only step; why the two are one command
+# is in .claude/rules/cli.rule.md.
 cmd_relabel() {
     [[ "$#" -eq 0 ]] || die "--relabel takes no arguments"
-    section "Relabel the agent entrypoints (after a Node upgrade)"
-    say "  A Node auto-upgrade installs new agent binaries that must be relabelled so"
-    say "  the sandbox can confine the session; until then the agent refuses to launch."
+    section "Reconcile the agent entrypoints (after a toolchain change)"
+    say "  Verifies each agent binary against the checksum its vendor signed, then relabels"
+    say "  it so the sandbox can confine the session; until then the agent refuses to launch."
     command -v sudo >/dev/null 2>&1 \
-        || die "sudo not found -- cannot relabel; run as root: ${RELABEL_ENTRYPOINT_BIN}"
+        || die "sudo not found -- cannot reconcile; run as root: ${RELABEL_ENTRYPOINT_BIN}"
     # Reaches the helper through the dedicated fixed-path NOPASSWD rule (the same one the
     # nvm-update timer uses), so this runs as root without a password prompt.
     if sudo "${RELABEL_ENTRYPOINT_BIN}"; then
-        ok "entrypoints relabelled -- exit any running session and relaunch"
-        ai_tools_log_info "relabelled the agent entrypoints (post-upgrade)"
+        ok "entrypoints reconciled -- exit any running session and relaunch"
+        ai_tools_log_info "reconciled the agent entrypoints (verify + relabel)"
     else
-        die "relabel failed -- see the message above"
+        die "reconcile failed -- see the message above"
     fi
 }
 
@@ -2284,7 +2288,7 @@ list_maintenance_note() {
     say "  ai-tools --project-unclaim <path>   release a project (revoke agent access)"
     say "  ai-tools --reclaim [--full] <path>  take back ownership; project stays claimed"
     say "  ai-tools --lockdown <path>          lock down secret-named files"
-    say "  ai-tools --relabel                  relabel the agent entrypoints after a Node upgrade"
+    say "  ai-tools --relabel                  re-verify and relabel the agent entrypoints"
 }
 
 # status_fmt_age <seconds>  -- render an age the way an operator reads it ("3 days ago"), not as a
@@ -2597,7 +2601,7 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
   ai-tools --sandbox-remove [path]   remove a sandbox clone and unregister it
   ai-tools --lockdown [path] [-n|-y] lock down secret files (sudo; default: cwd)
   ai-tools --reclaim [--full] [path] take back ownership of agent files; project stays claimed (sudo; default: cwd)
-  ai-tools --relabel                 relabel the agent entrypoints after a Node upgrade (sudo)
+  ai-tools --relabel                 re-verify and relabel the agent entrypoints (sudo)
   ai-tools --providers               list installed agents/integrations and which are enabled
   ai-tools --status                  report service health (handback socket, relabel watcher, updater)
   ai-tools --list                    list registered projects

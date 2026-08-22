@@ -44,7 +44,7 @@ readonly AI_TOOLS_AGENT_CONFIG_TYPE="ai_tools_home_t"
 readonly AI_TOOLS_ENTRYPOINT_ROOT="/opt/ai-tools/.nvm/versions/node"
 # The locked control-plane directory holding every agent's stable launcher symlink. Resolving
 # through it is how this library learns where a package actually PUT its executable, rather than
-# only where a manifest says it is (_ai_tools_launcher_target). Root-only test hook, the same
+# only where a manifest says it is (ai_tools_agent_entrypoint_path). Root-only test hook, the same
 # posture as providers.lib.sh's manifest directories: the helpers that source this file run under
 # sudo, which scrubs the environment, and the sudoers rules keep none of these names.
 : "${AI_TOOLS_LAUNCHER_DIR:=/opt/ai-tools/bin}"
@@ -249,7 +249,7 @@ _ai_tools_entrypoint_paths() {
          -regex "$1" -type f 2>/dev/null
 }
 
-# _ai_tools_launcher_target <agent>: print the file <agent>'s stable launcher symlink resolves to
+# ai_tools_agent_entrypoint_path <agent>: print the file <agent>'s stable launcher symlink resolves to
 #   -- the inode execve transitions on, which is what makes the reconciliation below independent of
 #   where a manifest says the executable lives. This is the SAME resolution ai-tools-run's preflight
 #   and ai-tools-launcher-symlink's idempotency guard perform (`realpath -e` through the chain), so
@@ -261,7 +261,7 @@ _ai_tools_entrypoint_paths() {
 #   result is not reportable. The launcher name is allowlisted to one plain component before it
 #   becomes a path, the same guard ai_tools_agent_manifest_field applies to an agent name, so a
 #   manifest cannot address a link outside the control-plane bin directory.
-_ai_tools_launcher_target() {
+ai_tools_agent_entrypoint_path() {
     local agent="$1" launcher resolved
     launcher="$(ai_tools_agent_manifest_field "${agent}" launcher || true)"
     [[ "${launcher}" =~ ^[A-Za-z0-9._-]+$ && "${launcher}" != *..* ]] || return 1
@@ -298,7 +298,7 @@ _ai_tools_label_agent_entrypoint() {
     local agent="$1" pattern path status=0 matched=no installed covered=no
     # Resolved BEFORE the rule is applied, so a refusal below still leaves the reconciliation
     # inputs gathered from the same state the launch preflight would see.
-    installed="$(_ai_tools_launcher_target "${agent}" || true)"
+    installed="$(ai_tools_agent_entrypoint_path "${agent}" || true)"
     pattern="$(ai_tools_agent_manifest_field "${agent}" entrypoint_fcontext || true)"
     if [[ -z "${pattern}" ]]; then
         printf 'skip %s declares no entrypoint_fcontext\n' "${agent}"

@@ -145,8 +145,19 @@ ACL alone \(em carries your access into the copy). Runs via
 .BR sudo .
 .TP
 .B \-\-relabel
-Restore the SELinux label on the agent entrypoint after a Node upgrade, for
-when the automatic post-upgrade relabel did not run.
+Reconcile the enabled agents' entrypoints after a toolchain change, for when the
+automatic post-upgrade reconcile did not run. Two steps: verify each entrypoint
+against the checksum its vendor signed and record it in that agent's pin (which
+the launch compares against), then restore its SELinux label. The verification
+needs the host online and
+.B fails soft
+if it cannot reach the vendor; a checksum
+.B mismatch
+fails the command, because an entrypoint that is not the binary its vendor
+published is a more serious finding than any label. See
+.I /usr/share/doc/ai-tools/entrypoint-verification.md
+and
+.BR operator.conf (5).
 .TP
 .B \-\-providers
 List the installed agents and toolchain integrations, which of them a session

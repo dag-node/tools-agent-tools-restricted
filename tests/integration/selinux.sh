@@ -6,7 +6,9 @@
 # type enforcement; a `setenforce 0` or a stray `semanage permissive -a ai_tools_t` -- the kind
 # of "temporary debug" that never gets reverted -- would drop that boundary while every DAC test
 # stays green. This asserts the missing signal: when the ai_tools module is loaded the system is
-# Enforcing and neither domain is marked permissive. The confinement module is an OPTIONAL layer
+# Enforcing and neither domain is marked permissive, that each agent's declared entrypoint rule
+# still covers what its package installed, and that the exec chain carries no type the confined
+# domain may write. The confinement module is an OPTIONAL layer
 # (permissive-first bring-up, stock-box installs without it), so when it is not loaded the whole
 # file SKIPS -- it never demands SELinux on a host that does not ship the policy. Run as root.
 
@@ -193,7 +195,7 @@ else
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         agents_seen=$(( agents_seen + 1 ))
-        installed="$(_ai_tools_launcher_target "${agent}" || true)"
+        installed="$(ai_tools_agent_entrypoint_path "${agent}" || true)"
         if [[ -z "${installed}" ]]; then
             skip "${agent} entrypoint declaration" "its launcher does not resolve (not provisioned)"
             continue
@@ -210,6 +212,52 @@ else
         esac
     done < <(ai_tools_enabled_agents 2>/dev/null)
     (( agents_seen > 0 )) || skip "entrypoint declaration reconciliation" "no enabled agent resolved"
+fi
+
+# The exec chain is READ-ONLY to the confined domain, which is what makes a tampered entrypoint
+# unreachable rather than merely detected (see confinement.rule.md). DAC alone permits the write --
+# the sandbox account owns this whole tree -- so the type layout is the only thing refusing it, and
+# it is asserted HERE rather than in tests/boundary, whose probes run as the sandbox *user* but
+# outside ai_tools_t and therefore see DAC only.
+#
+# Asserted as the layout rather than by driving a denial: querying the allow rules needs setools
+# (not installed on a minimal host) and provoking a real AVC would mean writing into the production
+# toolchain, which this file's header rules out. What is checked is the property the policy rests
+# on -- no link in the chain carries a type ai_tools_t holds a manage rule for. Those three types
+# are the whole manage set in ai_tools.te; a fourth added there without a matching entry here is
+# exactly the regression worth failing on.
+section "SELinux: the agent's exec chain carries no type the confined domain may write"
+
+readonly AI_TOOLS_MANAGED_TYPES="ai_tools_project_t ai_tools_home_t ai_tools_tmp_t"
+
+# type_of <path> : PRINT the SELinux type, or nothing.
+type_of() { stat -c '%C' -- "$1" 2>/dev/null | awk -F: '{print $3}'; }
+
+if ! declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+    skip "exec chain type containment" "providers.lib.sh not loaded"
+else
+    chain_seen=0
+    while IFS=$'\t' read -r agent _ launcher; do
+        [[ -n "${agent}" && -n "${launcher}" ]] || continue
+        entry="$(ai_tools_agent_entrypoint_path "${agent}" || true)"
+        [[ -n "${entry}" ]] || continue
+        chain_seen=$(( chain_seen + 1 ))
+        # One link per swap vector: an in-place write to the entrypoint, a rename-over in its
+        # directory, a repoint of the versioned launcher symlink's directory.
+        versioned="$(readlink -- "/opt/ai-tools/bin/${launcher}" 2>/dev/null || true)"
+        for link in "${entry}" "${entry%/*}" "${versioned%/*}"; do
+            [[ -n "${link}" && -e "${link}" ]] || continue
+            t="$(type_of "${link}")"
+            if [[ -z "${t}" ]]; then
+                skip "${agent} exec chain" "no SELinux type readable on ${link}"
+            elif [[ " ${AI_TOOLS_MANAGED_TYPES} " == *" ${t} "* ]]; then
+                fail "${agent}: ${link} is ${t}, a type ai_tools_t may manage -- the confined agent could tamper with its own entrypoint and the tamper would persist across sessions and operators"
+            else
+                pass "${agent}: ${link} is ${t}, outside the domain's manage set"
+            fi
+        done
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+    (( chain_seen > 0 )) || skip "exec chain type containment" "no enabled agent's entrypoint resolved"
 fi
 
 finish

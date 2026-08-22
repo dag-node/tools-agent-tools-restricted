@@ -223,11 +223,9 @@ else
     fail "ai-tools-run does not ExecStart \${session_exec_path} -- the file checked is not the file exec'd"
 fi
 
-# The window between the checks and the launch is re-closed at the last instruction: both the
-# resolution and a device/inode/size/ctime identity are re-compared, so a repoint (new inode), a
-# rename-over (same path, new inode) and an in-place write (same inode, new ctime) are all caught.
-# Under SELinux none of the three is reachable (tests/boundary/access.sh); this is the DAC-only
-# observer, and it must sit AFTER the session-env fragments, not with the earlier validation.
+# The re-check must sit AFTER the session-env fragments, not with the earlier validation -- its
+# whole value is the width of the window it leaves (launch.rule.md). Asserted by line order,
+# because nothing about the code's behaviour reveals where it runs.
 crun_recheck_line="$(grep -n 'entrypoint_identity' "${CRUN}" | tail -n1 | cut -d: -f1)"
 crun_launch_line="$(grep -n '^systemd-run --user --pty --quiet' "${CRUN}" | head -n1 | cut -d: -f1)"
 if [[ -z "${crun_recheck_line}" || -z "${crun_launch_line}" ]]; then

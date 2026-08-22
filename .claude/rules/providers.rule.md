@@ -33,7 +33,8 @@ execute code in the privileged scripts that read it:
   call it), `handback` (which side converges ownership — below), `entrypoint_fcontext` and
   `config_dir` (the two paths it declares to SELinux — below), `skills_dir` / `subagents_dir`
   (where inside its config directory it reads each shared asset kind, so the shared copies can be
-  symlinked in — see [shipped-assets](shipped-assets.rule.md)), `default_enable`.
+  symlinked in — see [shipped-assets](shipped-assets.rule.md)), `default_enable`, and — optionally
+  — the three release-verification fields below.
 - integrations: `default_enable`.
 
 Either kind may also ship `session-env.d/<name>.env.sh`, keyed by the same `<name>` — one flat
@@ -106,6 +107,52 @@ Two constraints keep that from being a label-anything primitive, and both live i
 The rule's lifecycle follows the package: applied by the agent package's `%post` (and by
 `install.sh`, `ai-tools-bootstrap`, the relabel watcher, and `ai-tools --relabel`), dropped by its
 `%preun` on final erase via `ai-tools-relabel-agent --remove <agent>`.
+
+## `release_manifest_url` / `release_key` / `release_fingerprint` — the agent declares its own provenance
+
+An agent whose vendor publishes signed per-release checksums declares three optional fields, and
+`entrypoint-verify.lib.sh` then proves the installed entrypoint is the binary that vendor published
+— independently of how it was delivered (see [updater](updater.rule.md) for where the check runs
+and what gates on it):
+
+| field | value |
+|---|---|
+| `release_manifest_url` | the vendor's per-release checksum manifest, with a single `{version}` slot |
+| `release_key` | the OpenPGP key that signs it, a file the agent's own package ships |
+| `release_fingerprint` | the fingerprint(s) that key must have — a **list**, in the grammar below |
+
+Three properties keep this a declaration rather than a lever:
+
+- **The key is shipped, never fetched.** A key pulled from the host that served the manifest proves
+  only that whoever served one served the other — npm's own weakness, and the reason
+  [updater](updater.rule.md) defers pinning the registry signing key. Both the manifest and the key
+  are plain rpm-owned files (`0644 root:root`, **not** `%config`), so they change only when a signed
+  package installs new ones; nothing on the host rewrites them, and the pin ultimately rests on the
+  package signature.
+- **The fingerprint is declared apart from the keyring** and asserted against `gpgv`'s output, so a
+  keyring swapped for another *valid* key is still refused. It is a list because a vendor key
+  rotation would otherwise be an outage: the package ships old and new keys in one keyring and both
+  fingerprints, then drops the old pair once upstream has.
+- **A template with no `{version}` slot is refused**, not fetched as-is. One manifest for every
+  version would read as "verified" while checking a release it never looked at.
+
+An agent declaring none of them is simply unverified — the state every agent is in until its vendor
+publishes something to check against.
+
+**These fields identify the signer, not the release, so they do not track versions.** One key signs
+every Claude Code release, and the entrypoint's own per-version checksum lives elsewhere — in the
+root-written pin (`/var/opt/ai-tools/state/entrypoint-pin.d/<agent>`), refreshed automatically by
+the relabel watcher on every legitimate update. The two halves have deliberately different
+lifecycles, which is what keeps a static trust anchor from needing per-release maintenance:
+
+| | changes when | written by | on a mismatch |
+|---|---|---|---|
+| the manifest fields | the vendor rotates its signing key | a signed rpm, never the host | *cannot verify*, with the `dnf update` as its remedy |
+| the pin | every agent update | root, from the relabel watcher | *tamper* — the launch fails closed |
+
+So an operator edits neither in the normal path. A key rotation is absorbed by shipping both keys
+and both fingerprints for the overlap, and until that package lands the host reports unverified
+rather than compromised — the direction that keeps a vendor's key ceremony from becoming an outage.
 
 ## The shared config grammar (`conf.lib.sh`)
 
