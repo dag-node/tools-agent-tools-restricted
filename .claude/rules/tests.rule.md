@@ -236,6 +236,9 @@ The **last-run stamp** is the one input here a non-root writer controls and it i
 operator's terminal, so every way a hostile or corrupt value could reach that terminal — a
 symlinked stamp, a control byte or escape sequence, an over-long or unanchored line — is driven
 and must read as *no value*, degrading the unit to `unknown` rather than to a wrong verdict. And
+the age reader takes the key it reads (default `FINISHED`), because the entrypoint pin
+records a `VERIFIED` time in the same grammar and both must age through one implementation — so the
+default is pinned too, a regression there silently turning every existing caller's age unknown. And
 the **freshness** mapping exists for a failure a `RESULT` cannot express — every recorded run
 succeeds while the schedule driving them has stopped — so the file asserts that a successful run
 goes `stale` past `max_age`, that a failed one stays `failed` at any age, that an unknown or
@@ -265,9 +268,11 @@ install as tamper, or — inverted — bless a tampered one); a checksum is admi
 a value that could compare equal to a partial observation; a URL template with no `{version}` slot
 is refused rather than fetched as-is, since one manifest for every version reads as "verified"
 while checking a release it never looked at; and the template charset admits nothing that could
-carry a shell metacharacter or a traversal into `curl`. It closes with the one impure assertion
-that needs no vendor: the library refuses a **non-root** pin write itself, rather than letting it
-fail on `EACCES`, so the caller can tell "not permitted" from "the directory is missing". The
+carry a shell metacharacter or a traversal into `curl`. It also pins the public pin path, which `ai-tools --status` reads to report verification
+state: an agent name becomes a path component, so a name that could escape the pin directory must
+yield nothing. It closes with the one impure assertion that needs no vendor: the library refuses a
+**non-root** pin write itself, rather than letting it fail on `EACCES`, so the caller can tell "not
+permitted" from "the directory is missing". The
 signed-manifest probe is not driven here — it needs the vendor's live endpoint, `gpgv`, and a
 300 MB hash — and its boundary half (neither the pin, the pin directory, the shipped key, nor the
 library is agent-writable) is in `boundary/access.sh`.

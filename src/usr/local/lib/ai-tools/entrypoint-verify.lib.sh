@@ -143,10 +143,12 @@ ai_tools_entrypoint_sha256() {
     printf '%s' "${line}"
 }
 
-# _ai_tools_ev_pin_file <agent> : print the pin path for an agent. The name is allowlisted to one
-#   plain identifier before it becomes a path -- the same guard ai_tools_agent_manifest_field
-#   applies -- so no declaration can address a file outside the pin directory.
-_ai_tools_ev_pin_file() {
+# ai_tools_entrypoint_pin_path <agent> : print the pin path for an agent. The name is allowlisted to
+#   one plain identifier before it becomes a path -- the same guard ai_tools_agent_manifest_field
+#   applies -- so no declaration can address a file outside the pin directory. Public because the
+#   CLI's status report reads the pin through the shared stamp accessors (services.lib.sh) and must
+#   not hardcode where it lives.
+ai_tools_entrypoint_pin_path() {
     local agent="${1:-}"
     [[ "${agent}" =~ ^[A-Za-z0-9._-]+$ && "${agent}" != *..* ]] || return 1
     printf '%s/%s' "${AI_TOOLS_ENTRYPOINT_PIN_DIR}" "${agent}"
@@ -168,7 +170,7 @@ _ai_tools_ev_pin_field() {
 # ai_tools_entrypoint_pin_read <agent> : print the SHA-256 recorded for that agent, or nothing.
 ai_tools_entrypoint_pin_read() {
     local pin checksum
-    pin="$(_ai_tools_ev_pin_file "${1:-}")" || return 1
+    pin="$(ai_tools_entrypoint_pin_path "${1:-}")" || return 1
     checksum="$(_ai_tools_ev_pin_field "${pin}" SHA256)" || return 1
     [[ "${checksum}" =~ ^[0-9a-f]{64}$ ]] || return 1
     printf '%s' "${checksum}"
@@ -181,7 +183,7 @@ ai_tools_entrypoint_pin_read() {
 ai_tools_entrypoint_pin_write() {
     local agent="${1:-}" version="${2:-}" checksum="${3:-}" source_url="${4:-}" pin tmp
     [[ "${EUID:-$(id -u)}" -eq 0 ]] || { _ai_tools_ev_warn "refusing to write a pin as non-root"; return 1; }
-    pin="$(_ai_tools_ev_pin_file "${agent}")" || return 1
+    pin="$(ai_tools_entrypoint_pin_path "${agent}")" || return 1
     [[ "${checksum}" =~ ^[0-9a-f]{64}$ ]] || return 1
     [[ -d "${AI_TOOLS_ENTRYPOINT_PIN_DIR}" ]] \
         || install -d -m 0750 -o root -g root "${AI_TOOLS_ENTRYPOINT_PIN_DIR}" 2>/dev/null \

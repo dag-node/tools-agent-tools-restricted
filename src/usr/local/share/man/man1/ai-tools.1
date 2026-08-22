@@ -179,7 +179,8 @@ group that its build needs is not loaded.
 Report ai-tools health: the installed version, whether the toolchain is provisioned,
 each managed systemd unit \(em the handback socket, the relabel watcher, and the
 toolchain auto-update timer and update service \(em as OK, SKIPPED, DOWN, FAILED,
-STALE, or not-installed. Read-only. Exits non-zero when anything is reported broken,
+STALE, or not-installed \(em then, per agent whose package declares one, whether its
+entrypoint carries a verified checksum. Read-only. Exits non-zero when anything is reported broken,
 so it can be run unattended from a monitor or a cron job. SKIPPED is not broken: it
 reports a run that correctly did nothing, such as an update that could not reach the
 package registry, and turns STALE if the condition persists.

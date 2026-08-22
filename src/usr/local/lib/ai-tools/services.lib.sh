@@ -106,15 +106,19 @@ ai_tools_service_stamp_field() {
     return 0
 }
 
-# ai_tools_service_stamp_age <stamp-path>  -- PRINT the whole seconds since the stamp's FINISHED
-# time, or NOTHING when that cannot be determined (no stamp, no FINISHED, an unparseable one, or no
-# date(1)). ALWAYS returns 0. Consumers must treat "nothing" as "age unknown" and never as "old":
-# a missing age must not manufacture a 'stale' verdict out of an absence.
-# FINISHED reaches date(1) only after ai_tools_service_stamp_field's charset clamp, and as a single
+# ai_tools_service_stamp_age <stamp-path> [key]  -- PRINT the whole seconds since the timestamp the
+# stamp records under <key> (default FINISHED), or NOTHING when that cannot be determined (no stamp,
+# no such key, an unparseable value, or no date(1)). ALWAYS returns 0. Consumers must treat
+# "nothing" as "age unknown" and never as "old": a missing age must not manufacture a 'stale'
+# verdict out of an absence.
+# The key is a parameter because more than one record in this grammar carries a time an operator
+# reads as an age -- the updater's stamp (FINISHED) and an entrypoint pin (VERIFIED) -- and both
+# must age through one implementation rather than two that can drift.
+# The value reaches date(1) only after ai_tools_service_stamp_field's charset clamp, and as a single
 # argument, so a hostile stamp can make this fail to parse but nothing more.
 ai_tools_service_stamp_age() {
-    local stamp="$1" finished stamped now
-    finished="$(ai_tools_service_stamp_field "${stamp}" FINISHED)"
+    local stamp="$1" key="${2:-FINISHED}" finished stamped now
+    finished="$(ai_tools_service_stamp_field "${stamp}" "${key}")"
     [[ -n "${finished}" ]] || return 0
     command -v date >/dev/null 2>&1 || return 0
     stamped="$(date -u -d "${finished}" +%s 2>/dev/null)" || return 0

@@ -978,6 +978,11 @@ fi
   verifies and pins first, then relabels -- so it is also the way to pin an entrypoint on a
   DAC-only host or one the watcher was offline for. The verification fails soft when the vendor is
   unreachable; only a checksum mismatch fails the command.
+- NEW: 'ai-tools --status' reports, per agent, whether its entrypoint carries a verified checksum --
+  VERIFIED with the pinned version and how long ago, or unverified. It is the only view an operator
+  has of the verification: the entrypoint itself lives in a toolchain they cannot read. Unverified
+  counts toward the exit status only where verification is required, so an air-gapped host does not
+  alarm.
 - NEW: AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY in operator.conf refuses to launch an entrypoint that
   carries no verified checksum, and stops the updater activating a release it could not verify. A
   MISMATCH always refuses regardless; this key governs only the unverifiable case, whose default

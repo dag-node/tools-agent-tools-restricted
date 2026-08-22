@@ -125,6 +125,25 @@ ${GOOD_JSON}|linux-arm64|a platform the manifest does not list
 {"platforms":{}}|linux-x64|a manifest with no platforms
 EOF
 
+# ── The pin path ─────────────────────────────────────────────────────────────────────────────
+# Public, because `ai-tools --status` reads the pin to report verification state and must not
+# hardcode where it lives. The agent name becomes a path component, so it is allowlisted to one
+# plain identifier first — the same guard ai_tools_agent_manifest_field applies — and a name that
+# could escape the pin directory must yield NOTHING rather than a path outside it.
+if [[ "$(ai_tools_entrypoint_pin_path claude-code 2>/dev/null || printf '')" \
+      == "${AI_TOOLS_ENTRYPOINT_PIN_DIR:-/var/opt/ai-tools/state/entrypoint-pin.d}/claude-code" ]]; then
+    pass "pin path: a plain agent name resolves inside the pin directory"
+else
+    fail "pin path: claude-code did not resolve to a pin inside the pin directory"
+fi
+for bad in "../../etc/passwd" "a/b" ".." "" "a b"; do
+    if ai_tools_entrypoint_pin_path "${bad}" >/dev/null 2>&1; then
+        fail "pin path: agent name '${bad}' was accepted -- it could address a file outside the pin directory"
+    else
+        pass "pin path refused: agent name '${bad}'"
+    fi
+done
+
 # ── The pin is root-write-only ───────────────────────────────────────────────────────────────
 # The whole value of the pin is that the account it constrains cannot write it. The library
 # refuses a non-root write itself rather than letting it fail on EACCES, so a caller can tell

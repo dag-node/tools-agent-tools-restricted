@@ -200,7 +200,20 @@ advancing surfaces. The account's own
   anything is broken, so the command is usable from a monitor or cron without parsing its output.
   An unqueryable unit is not a fault and does not alarm.
 
-  **Entrypoint label drift is not reported here**, though it is the precondition `ai-tools-run`
+  **Entrypoint verification is reported; the entrypoint's label is not.** The two are asked from
+  different vantages, which is the whole reason they differ. The *pin* is a root-owned record placed
+  where the operator can read it, so `--status` reports one line per agent that declares a release
+  manifest: `VERIFIED` with the pinned version and how long ago, or `unverified`, or `?` when this
+  account cannot read the pin at all (`--status` stays open to a non-operator, who cannot traverse
+  the state directory). It reads through the **same stamp accessors** as the unit records — the pin
+  is written in that grammar — so the charset clamp and the age calculation have one implementation.
+  An agent whose package declares no release manifest is omitted rather than reported as perpetually
+  unverified. Unpinned counts toward the **exit status only where the operator required verification**
+  (`AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`), since that is exactly when it will refuse a launch;
+  everywhere else it is a legitimate state — an air-gapped host, a release the vendor published no
+  manifest for — and must not alarm, the same rule the unqueryable units follow.
+
+  The **label**, by contrast, is not reported here, though it is the precondition `ai-tools-run`
   fail-closes on. Reading an entrypoint's live context means `stat`ing a file under
   `/opt/ai-tools/.nvm`, which `ai-tools-bootstrap` creates `0750 SANDBOX_USER:SANDBOX_GROUP` — the
   operator is not in that group and cannot traverse it, and `matchpathcon` computes only what the
