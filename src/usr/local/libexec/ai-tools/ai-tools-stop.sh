@@ -163,6 +163,14 @@ set -uo pipefail
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
+# The cgroup walk must see EVERY child directory, and `*/` alone does not: a name beginning with a
+# dot is skipped by default globbing. Every name inside the delegated subtree is the DELEGATEE's to
+# choose (see the delegation note above), so without `dotglob` a session could place itself in a
+# cgroup called `.hidden` and drop out of the enumeration -- including under --all, the form that
+# must hold against a hostile session. `nullglob` makes a childless cgroup yield nothing rather than
+# the unexpanded pattern. Set once, at file scope: every walk here depends on it.
+shopt -s dotglob nullglob
+
 readonly SANDBOX_USER='@SANDBOX_USER@'
 
 # How long the graceful pass gets before the kill. Short and owned here rather than left to a
@@ -235,81 +243,89 @@ DRY_RUN=false
 ASSUME_YES=false
 FORCE_KILL=false
 TARGET_PROJECT=""
-while (( $# )); do
-    case "$1" in
-        --all)        STOP_EVERY_SESSION=true; shift ;;
-        -n|--dry-run) DRY_RUN=true; shift ;;
-        -y|--yes)     ASSUME_YES=true; shift ;;
-        --force)      FORCE_KILL=true; shift ;;
-        -*) printf 'ai-tools-stop: unknown option: %s\n' "$1" >&2; exit 2 ;;
-        *)  if [[ -n "${TARGET_PROJECT}" ]]; then
-                printf 'ai-tools-stop: too many arguments\n' >&2; exit 2
-            fi
-            TARGET_PROJECT="$1"; shift ;;
-    esac
-done
-if ${STOP_EVERY_SESSION} && [[ -n "${TARGET_PROJECT}" ]]; then
-    printf 'ai-tools-stop: --all takes no path\n' >&2; exit 2
-fi
-if ! ${STOP_EVERY_SESSION} && [[ -z "${TARGET_PROJECT}" ]]; then
-    printf 'usage: ai-tools-stop [-n|--dry-run] [-y|--yes] [--force] <absolute-project-path>\n' >&2
-    printf '       ai-tools-stop [-n|--dry-run] [-y|--yes] [--force] --all\n' >&2
-    exit 2
-fi
-readonly STOP_EVERY_SESSION DRY_RUN ASSUME_YES FORCE_KILL TARGET_PROJECT
-
-if [[ "$(id -u)" != "0" ]]; then
-    say_error "ai-tools-stop must run as root: stopping a session means signalling ${SANDBOX_USER}'s cgroups" \
-              "run it as: sudo ai-tools --stop"
-    exit 5
-fi
-
-# Who sudo says invoked this -- written by a root process, unreachable by the sandbox account. A
-# direct root invocation has no SUDO_USER and therefore no allowlist, which is why the scoped form
-# refuses it rather than inventing one.
-#
-# SUDO_USER ALONE IS NOT PROOF OF A SUDO TRANSACTION. A root shell entered with `sudo -i` keeps
-# SUDO_USER set, so its presence does not establish that *this* invocation came through sudo on
-# behalf of that user -- it may be inherited state from an earlier one. SUDO_UID is cross-checked
-# against it: the two are set together by the same sudo run, so a pair that disagrees is inherited
-# or forged environment and is refused rather than trusted. Both, plus the real uid, are recorded
-# separately, so the trail carries what was observed rather than one derived conclusion.
-CALLER="${SUDO_USER:-root}"
-if [[ -n "${SUDO_USER:-}" ]]; then
-    caller_uid_from_name="$(id -u "${SUDO_USER}" 2>/dev/null)"
-    if [[ -z "${SUDO_UID:-}" || -z "${caller_uid_from_name}" \
-          || "${SUDO_UID}" != "${caller_uid_from_name}" ]]; then
-        log_event warning \
-            "SUDO_USER=${SUDO_USER} does not agree with SUDO_UID=${SUDO_UID:-<unset>} -- treating this as a direct root invocation, which cannot run a scoped stop" \
-            "AI_TOOLS_SUDO_USER=${SUDO_USER}" "AI_TOOLS_SUDO_UID=${SUDO_UID:-}" "AI_TOOLS_RESULT=identity-rejected"
-        CALLER="root"
+parse_command_line() {
+    while (( $# )); do
+        case "$1" in
+            --all)        STOP_EVERY_SESSION=true; shift ;;
+            -n|--dry-run) DRY_RUN=true; shift ;;
+            -y|--yes)     ASSUME_YES=true; shift ;;
+            --force)      FORCE_KILL=true; shift ;;
+            -*) printf 'ai-tools-stop: unknown option: %s\n' "$1" >&2; exit 2 ;;
+            *)  if [[ -n "${TARGET_PROJECT}" ]]; then
+                    printf 'ai-tools-stop: too many arguments\n' >&2; exit 2
+                fi
+                TARGET_PROJECT="$1"; shift ;;
+        esac
+    done
+    if ${STOP_EVERY_SESSION} && [[ -n "${TARGET_PROJECT}" ]]; then
+        printf 'ai-tools-stop: --all takes no path\n' >&2; exit 2
     fi
-    unset caller_uid_from_name
-fi
-readonly CALLER
+    if ! ${STOP_EVERY_SESSION} && [[ -z "${TARGET_PROJECT}" ]]; then
+        printf 'usage: ai-tools-stop [-n|--dry-run] [-y|--yes] [--force] <absolute-project-path>\n' >&2
+        printf '       ai-tools-stop [-n|--dry-run] [-y|--yes] [--force] --all\n' >&2
+        exit 2
+    fi
+    readonly STOP_EVERY_SESSION DRY_RUN ASSUME_YES FORCE_KILL TARGET_PROJECT
+}
 
-SANDBOX_UID="$(id -u "${SANDBOX_USER}" 2>/dev/null)"
-if [[ -z "${SANDBOX_UID}" ]]; then
-    say_error "ai-tools-stop: cannot resolve the uid of ${SANDBOX_USER}, so no cgroup can be located" \
-              "the sandbox account is missing -- reprovision with: sudo ai-tools-bootstrap"
-    log_event error "REFUSED: ${SANDBOX_USER} has no uid; cannot locate any session cgroup"
-    exit 5
-fi
-readonly SANDBOX_UID
+# resolve_run_context -- establish who is asking and what account is being stopped, and arm the
+# trail's traps. Everything here either succeeds or exits; nothing below it runs on a guess.
+resolve_run_context() {
+    if [[ "$(id -u)" != "0" ]]; then
+        say_error "ai-tools-stop must run as root: stopping a session means signalling ${SANDBOX_USER}'s cgroups" \
+                  "run it as: sudo ai-tools --stop"
+        exit 5
+    fi
 
-# An incomplete run must be visible in the trail. The trap covers every exit including a signal
-# that bash can handle; only SIGKILL of this helper escapes it, which is a documented residual.
+    # Who sudo says invoked this -- written by a root process, unreachable by the sandbox account.
+    # A direct root invocation has no SUDO_USER and therefore no allowlist, which is why the scoped
+    # form refuses it rather than inventing one.
+    #
+    # SUDO_USER ALONE IS NOT PROOF OF A SUDO TRANSACTION. A root shell entered with `sudo -i` keeps
+    # SUDO_USER set, so its presence does not establish that *this* invocation came through sudo on
+    # behalf of that user -- it may be inherited state from an earlier one. SUDO_UID is cross-checked
+    # against it: the two are set together by the same sudo run, so a pair that disagrees is inherited
+    # or forged environment and is refused rather than trusted. Both, plus the real uid, are recorded
+    # separately, so the trail carries what was observed rather than one derived conclusion.
+    CALLER="${SUDO_USER:-root}"
+    if [[ -n "${SUDO_USER:-}" ]]; then
+        local caller_uid_from_name
+        caller_uid_from_name="$(id -u "${SUDO_USER}" 2>/dev/null)"
+        if [[ -z "${SUDO_UID:-}" || -z "${caller_uid_from_name}" \
+              || "${SUDO_UID}" != "${caller_uid_from_name}" ]]; then
+            log_event warning \
+                "SUDO_USER=${SUDO_USER} does not agree with SUDO_UID=${SUDO_UID:-<unset>} -- treating this as a direct root invocation, which cannot run a scoped stop" \
+                "AI_TOOLS_SUDO_USER=${SUDO_USER}" "AI_TOOLS_SUDO_UID=${SUDO_UID:-}" "AI_TOOLS_RESULT=identity-rejected"
+            CALLER="root"
+        fi
+    fi
+    readonly CALLER
+
+    SANDBOX_UID="$(id -u "${SANDBOX_USER}" 2>/dev/null)"
+    if [[ -z "${SANDBOX_UID}" ]]; then
+        say_error "ai-tools-stop: cannot resolve the uid of ${SANDBOX_USER}, so no cgroup can be located" \
+                  "the sandbox account is missing -- reprovision with: sudo ai-tools-bootstrap"
+        log_event error "REFUSED: ${SANDBOX_USER} has no uid; cannot locate any session cgroup"
+        exit 5
+    fi
+    readonly SANDBOX_UID
+
+    # An incomplete run must be visible in the trail. The trap covers every exit including a signal
+    # that bash can handle; only SIGKILL of this helper escapes it, which is a documented residual.
+    trap record_incomplete_run EXIT
+    # A signal during a stop is its own event, not merely an incomplete run: an operator who
+    # interrupts one mid-way needs the trail to say a kill was in flight when it happened, because
+    # the tree is then in whatever state that pass left it. Named separately from the EXIT trap so
+    # the two causes are distinguishable. SIGKILL of this helper remains untrappable and is a stated
+    # residual.
+    trap 'log_event error "stop run by ${CALLER} interrupted by a signal -- some sessions may be partially stopped" "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_RESULT=interrupted"; STOP_EXIT_REACHED=true; exit 130' INT TERM HUP
+}
+
 record_incomplete_run() {
     ${STOP_EXIT_REACHED} && return 0
     log_event error "stop run by ${CALLER} ended without completing -- state unverified" \
         "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_RESULT=incomplete"
 }
-trap record_incomplete_run EXIT
-# A signal during a stop is its own event, not merely an incomplete run: an operator who
-# interrupts one mid-way needs the trail to say a kill was in flight when it happened, because the
-# tree is then in whatever state that pass left it. Named separately from the EXIT trap so the two
-# causes are distinguishable. SIGKILL of this helper remains untrappable and is a stated residual.
-trap 'log_event error "stop run by ${CALLER} interrupted by a signal -- some sessions may be partially stopped" "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_RESULT=interrupted"; STOP_EXIT_REACHED=true; exit 130' INT TERM HUP
 
 # ── Locating the sandbox account's cgroups ───────────────────────────────────────────────────
 # cgroup2_mount -- PRINT the cgroup v2 hierarchy's mount point. Unified hosts mount it at
@@ -323,32 +339,36 @@ cgroup2_mount() {
     return 1
 }
 
-CGROUP2_MOUNT="$(cgroup2_mount)"
-if [[ -z "${CGROUP2_MOUNT}" ]]; then
-    say_error "ai-tools-stop: this host has no cgroup v2 hierarchy, so sessions cannot be enumerated or stopped reliably." \
-              "Stop them by hand and report the host: sudo systemctl --user -M ${SANDBOX_USER}@.host list-units"
-    log_event error "REFUSED: no cgroup2 mount; cannot enumerate sessions for ${CALLER}"
-    exit 5
-fi
-readonly CGROUP2_MOUNT
-# The account's own manager slice. A process the operator's sudo spawned under that account lives
-# in the INVOKING session's slice, not this one, so scoping to this path is also what keeps this
-# helper from selecting its own children.
-#
-# The root is the account's WHOLE per-user slice, not just its `user@<uid>.service` manager subtree.
-# systemd places login session scopes (`session-N.scope`) as SIBLINGS of the manager service, under
-# the same per-user slice -- so a scan rooted at the manager alone has a blind spot for anything
-# not started by that manager. The sandbox account has no login shell and no password, so nothing
-# should ever appear there; scanning the wider root costs one directory level and removes the need
-# for that to be true.
-#
-# It stays scoped to the ACCOUNT's slice rather than widening to uid alone, which is what keeps the
-# scan off this helper's own `sudo -u` children: those share the account's uid but live in the
-# INVOKING user's slice.
-readonly SANDBOX_SLICE="${CGROUP2_MOUNT}/user.slice/user-${SANDBOX_UID}.slice"
-# The two structural cgroups, named exactly rather than by basename. See find_session_cgroups.
-readonly MANAGER_SERVICE="${SANDBOX_SLICE}/user@${SANDBOX_UID}.service"
-readonly MANAGER_INIT_SCOPE="${MANAGER_SERVICE}/init.scope"
+# resolve_cgroup_layout -- fix the three paths the whole enumeration is expressed against, or
+# refuse. Every one is derived from the host, never assumed.
+resolve_cgroup_layout() {
+    CGROUP2_MOUNT="$(cgroup2_mount)"
+    if [[ -z "${CGROUP2_MOUNT}" ]]; then
+        say_error "ai-tools-stop: this host has no cgroup v2 hierarchy, so sessions cannot be enumerated or stopped reliably." \
+                  "Stop them by hand and report the host: sudo systemctl --user -M ${SANDBOX_USER}@.host list-units"
+        log_event error "REFUSED: no cgroup2 mount; cannot enumerate sessions for ${CALLER}"
+        exit 5
+    fi
+    readonly CGROUP2_MOUNT
+    # The account's own manager slice. A process the operator's sudo spawned under that account
+    # lives in the INVOKING session's slice, not this one, so scoping to this path is also what
+    # keeps this helper from selecting its own children.
+    #
+    # The root is the account's WHOLE per-user slice, not just its `user@<uid>.service` manager
+    # subtree. systemd places login session scopes (`session-N.scope`) as SIBLINGS of the manager
+    # service, under the same per-user slice -- so a scan rooted at the manager alone has a blind
+    # spot for anything not started by that manager. The sandbox account has no login shell and no
+    # password, so nothing should ever appear there; scanning the wider root costs one directory
+    # level and removes the need for that to be true.
+    #
+    # It stays scoped to the ACCOUNT's slice rather than widening to uid alone, which is what keeps
+    # the scan off this helper's own `sudo -u` children: those share the account's uid but live in
+    # the INVOKING user's slice.
+    readonly SANDBOX_SLICE="${CGROUP2_MOUNT}/user.slice/user-${SANDBOX_UID}.slice"
+    # The two structural cgroups, named exactly rather than by basename. See find_session_cgroups.
+    readonly MANAGER_SERVICE="${SANDBOX_SLICE}/user@${SANDBOX_UID}.service"
+    readonly MANAGER_INIT_SCOPE="${MANAGER_SERVICE}/init.scope"
+}
 
 # find_session_cgroups -- PRINT one absolute cgroup directory per live session, deepest first.
 # Every directory under the account's manager slice is a candidate except init.scope, which holds
@@ -407,23 +427,35 @@ find_session_cgroups() {
 # the only place a task can hide from a unit walk is a slice, and a slice with its own tasks is
 # emitted in its own right.
 #
-# FAIL-CLOSED ON A READ ERROR, which is the whole point. "I could not read cgroup.procs" and "there
-# are no tasks" are different facts, and collapsing them is a fail-open on the predicate the
-# guarantee rests on. The kernel has a documented case: reading cgroup.procs in a THREADED cgroup
-# fails with EOPNOTSUPP, and a threaded descendant would otherwise read as empty while holding live
-# threads. Only one failure means empty -- the file not existing, i.e. the cgroup was removed, which
-# is the successful outcome. Every other failure answers "live", so an unprovable subtree is
-# reported as still running rather than silently declared stopped.
+# FAIL-CLOSED WHERE A READ ERROR IS DISTINGUISHABLE, which is the whole point. "I could not read
+# cgroup.procs" and "there are no tasks" are different facts, and collapsing them is a fail-open on
+# the predicate the guarantee rests on. Only one failure means empty -- the file not existing, i.e.
+# the cgroup was removed, which is the successful outcome.
+#
+# Bash cannot tell a failed read(2) from a clean EOF: `read` returns 1 for both, and so does
+# `x="$(< file)"`. Verified, not assumed. So each cause is separated by a fact that IS observable:
+#
+#   permission-unreadable -- `-r` answers it directly, and answers LIVE.
+#   THREADED cgroup       -- the kernel's documented case, and the one that matters here: in a
+#                            threaded subtree every cgroup.procs below the threaded root fails the
+#                            read (EOPNOTSUPP) while the cgroup holds live threads, and the file is
+#                            permission-readable, so `-r` does NOT catch it. cgroup.threads is
+#                            readable in EVERY cgroup including those, so it is the corroborating
+#                            source: no pid but a tid means tasks. In a domain cgroup the two
+#                            always agree (a member process' threads are in its own cgroup), so
+#                            consulting it costs an ordinary empty cgroup one extra failed open.
+#
+# What remains indistinguishable -- a cgroup.procs that is present, permission-readable, and errors
+# for some third reason with no cgroup.threads beside it -- is not a shape cgroupfs produces.
 has_own_tasks() {
-    local first_pid=""
+    local first_task=""
     [[ -e "$1/cgroup.procs" ]] || return 1          # cgroup gone == no tasks, the good outcome
     # `2>/dev/null` precedes the input redirect: see the note in cgroup_pids.
-    if ! read -r first_pid 2>/dev/null < "$1/cgroup.procs"; then
-        # `read` also returns non-zero on a clean EOF with no data -- an empty but readable file --
-        # so the two are separated by re-testing readability rather than by the status alone.
-        [[ -r "$1/cgroup.procs" ]] || return 0      # exists, unreadable: assume LIVE
-    fi
-    [[ -n "${first_pid}" ]]
+    read -r first_task 2>/dev/null < "$1/cgroup.procs"
+    [[ -n "${first_task}" ]] && return 0
+    [[ -r "$1/cgroup.procs" ]] || return 0          # exists, unreadable: assume LIVE
+    read -r first_task 2>/dev/null < "$1/cgroup.threads"
+    [[ -n "${first_task}" ]]
 }
 
 # cgroup_unit_name <cgroup-dir> -- PRINT the systemd unit this cgroup belongs to, or empty.
@@ -1004,7 +1036,23 @@ main() {
     return 0
 }
 
+# ── Entry point ──────────────────────────────────────────────────────────────────────────────
+# SOURCING THIS FILE IS INERT: it defines the functions and returns here, having parsed nothing,
+# resolved nothing about the host, armed no trap and signalled nothing. That is what lets the unit
+# suite drive the enumeration and liveness predicates -- the two things a reading review has
+# repeatedly failed to get right -- against a FIXTURE cgroup tree, on any host, with no session
+# running and no privilege. It is not a mode and not a hook: there is no environment variable to
+# set, no branch inside any function, and nothing an invoker can reach that changes what a real run
+# does. Running the file is unchanged.
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+    return 0
+fi
+
+parse_command_line "$@"
+resolve_run_context
+resolve_cgroup_layout
 main
 main_status=$?
 STOP_EXIT_REACHED=true
 exit "${main_status}"
+
