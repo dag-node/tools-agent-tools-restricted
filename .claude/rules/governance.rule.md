@@ -64,6 +64,29 @@ deliberate: this rule loads when a matching source file is open, which is not th
 expectations bind. A conduct expectation is worth nothing in a file the session never reads, so the
 short form lives in the always-loaded layer and the reasoning lives here.
 
+## The audit plane, and the line drawn inside it
+
+The trail records what the agent did, and one part of it is written **by** the agent: the
+lifecycle hooks run as the sandbox account, so the tool-call record is the session's own account
+of itself ([logging](logging.rule.md)). That is not a flaw to engineer away — no record written
+from inside a monitored system can be more trustworthy than the system — but it is a line that
+has to be **drawn and shown** rather than left for a reader to discover.
+
+So the two trails are kept distinguishable at every layer that touches them. The root-only file
+sink (`700 root:root`, root writers only) is evidence: the sandbox account can neither read it,
+to learn what an operator is about to be shown, nor write it, to plant or erase a finding.
+Journald under `ai-tools-hook` and `ai-tools-run` is the session's own account. Every documented
+query pairs the tag with the writer's `_UID`; `ai-tools --audit` reports the two in separate
+titled sections rather than merging them ([cli](cli.rule.md)); and the boundary suite asserts,
+as the agent, that the sandbox can append to journald but cannot unmake what it appended.
+
+What the agent-written half is *for* is **reconciliation**. An inconsistency between the
+session's account and the root-written record is itself the finding, and that is the whole value
+of keeping a trail the agent can write: not proof, but something an independent record can be
+checked against. Presenting it as proof would be the actual failure — a monitoring plane that
+manufactures confidence is worse than none, which is also why a record the hook cannot build is
+logged as a gap rather than skipped.
+
 ## Design notes
 
 - **The agent is a subject of the standard it ships.** The skill is a shared asset any sandboxed
