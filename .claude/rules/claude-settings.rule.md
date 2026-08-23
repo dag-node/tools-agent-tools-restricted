@@ -86,7 +86,32 @@ which is why the host-survey group below is denied rather than merely unlisted.
 
 ### Refused (`deny`)
 
-Two groups with distinct criteria.
+Three groups with distinct criteria.
+
+**Irreversible VCS operations** — these **succeed**, and what they take has no undo: history
+rewritten, a published branch overwritten for everyone else holding it, uncommitted or untracked
+work deleted from the tree.
+
+| Entry | What it destroys |
+|---|---|
+| `git push --force*` | The remote's history for every other clone. The pattern also covers `--force-with-lease`, which narrows the race but still overwrites. |
+| `git push -f *` | The short spelling of the same. |
+| `git reset --hard*` | The working tree and index, including changes never committed. |
+| `git clean -f*` | Untracked files — the ones no commit and no reflog can bring back. |
+
+The criterion is **destruction with no undo**, so the refusal holds regardless of target: a
+scratch branch and `main` are denied alike, because a deny rule matches a command string and
+cannot tell them apart. These would prompt if merely unlisted (they are mutations, not the
+auto-approved safe reads of the host-survey group), and a prompt is the wrong gate for them —
+it approves a command string, while what the operator has to weigh is what is about to be lost.
+Denied, the agent raises the operation in conversation, and the operator runs it where the
+consequence lands.
+
+The group is deliberately narrow, and it is a gate rather than a boundary: the same destruction
+is still reachable through a spelling the pattern does not match (`--force` placed after the
+refspec, `git push origin +branch`, an `rm -rf` of the work tree), and matching those would take
+a matcher over intent rather than over text. What it buys is that the **habitual** spellings —
+the ones an agent reaches for without deliberating — cannot be taken silently.
 
 **Categorical dead-ends** — the core posture refuses these regardless of arguments or
 target, so a deny stops the agent spending a tool call, and emitting an AVC, on an
@@ -133,10 +158,14 @@ enforcement plus DAC (see [confinement](confinement.rule.md)); a `deny` entry on
 the agent from attempting a denied action. Removing an entry re-exposes the attempt to the
 SELinux floor — it does not by itself grant the capability.
 
-`tests/integration/hooks.sh` pins both deny groups at install time (the verify phase runs
-it): a missing categorical entry fails; host-survey relaxations are reported by name and
-pass, but a file with none of them (a kept pre-upgrade settings.json) fails; an entry in
-both lists fails as drift.
+`tests/integration/hooks.sh` pins all three deny groups at install time (the verify phase
+runs it): a missing categorical or irreversible-VCS entry fails; host-survey relaxations are
+reported by name and pass, but a file with none of them (a kept pre-upgrade settings.json)
+fails; an entry in both lists fails as drift. The irreversible-VCS entries are pinned
+strictly rather than reported, because the paths that preserve a host's tuning — the
+keep-existing install and `%config(noreplace)` on upgrade — are also the paths by which a
+settings.json predating them, or edited in the permission arrays it invites tuning of,
+silently loses the gate.
 
 ## `env` — the privacy default
 
