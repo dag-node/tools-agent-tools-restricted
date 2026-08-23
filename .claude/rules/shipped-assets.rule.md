@@ -23,8 +23,14 @@ subagent frontmatter) and are not standardized across products, so an agent that
 kind simply declares no directory for it and takes no links of that kind.
 
 Ships now: the `ai-tools-reference-architect` agent, the `ai-tools-docs-*`
-documentation skills (`reference`, `usage`, `comments`, `changelog`), and
-`ai-tools-engineering-principles`.
+documentation skills (`reference`, `usage`, `comments`, `changelog`),
+`ai-tools-engineering-principles`, and `ai-tools-capable-systems-governance`.
+
+An asset is a **tree**, not a file: a skill may carry supporting material beside its `SKILL.md`
+(`ai-tools-capable-systems-governance/references/framework.md` is the normative text its `SKILL.md`
+defers to, so the working guidance stays short and the long text loads only when it is needed). The
+seeder copies a directory asset whole (`cp -rT`) and applies the modes recursively, and the linker
+places one symlink for the asset's top directory, so nesting needs nothing of either.
 
 ## Placement: one rule, four hops
 
