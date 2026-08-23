@@ -182,6 +182,12 @@ of what it can ever send:
   CLI, and `install.sh` log through one library to **journald** (always, leveled and
   tagged: `journalctl -t ai-tools-chown _UID=0`) and, for the root writers only, to
   root-only files under **`/var/log/ai-tools/`**.
+- **A working stop** — `sudo ai-tools --stop [path]` ends sessions running in one project;
+  `--all` ends every session on the host. Sessions are found and killed by **cgroup**, so a child
+  that called `setsid(2)` or double-forked goes with them, and success means verified gone from
+  the kernel's view rather than from systemd's. The session takes no part in it: the account it
+  runs as can neither invoke, read nor alter the helper. What each outcome means and what a stop
+  cannot undo are in [docs/session-stop.md](docs/session-stop.md).
 - **Auto-updating** — a `systemd --user` timer in `${SANDBOX_USER}`'s own instance keeps
   Node and `@anthropic-ai/claude-code` current under `/opt/ai-tools`, and a root-side
   watcher relabels the new entrypoint for SELinux after each upgrade. Each update verifies the

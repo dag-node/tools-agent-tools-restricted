@@ -6,142 +6,59 @@
 # control (unclaim, disable a provider, revoke an operator) only changes what the NEXT launch gets.
 #
 # THE PROPERTY THIS FILE EXISTS TO HOLD: a stop that is asked for and reported as done HAS
-# HAPPENED. Everything below follows from that one sentence, including three places where this
-# helper deliberately inverts a project-wide convention. Each inversion is called out where it
-# appears, and they share one reason: for every other component the safe direction is DON'T ACT,
-# and for this one it is ACT.
+# HAPPENED. The design that follows from it -- why sessions are found by CGROUP rather than by
+# process tree, what authorizes a scoped stop, where containment ends, and the residual failure
+# modes -- is documented once, in docs/session-stop.md. This header states only what a reader of
+# THIS FILE needs; each function below carries its own local mechanism.
 #
-# ── Inversion 1: this helper has no required dependencies ────────────────────────────────────
-# Everywhere else, a missing library aborts the operation, because not acting is safe. Here a
-# missing library that aborted the run would be a stop that did not happen. So every library is
-# loaded best-effort behind an inline fallback, `set -e` is deliberately NOT used (an unexpected
-# non-zero anywhere must not abandon a half-finished kill), and the kill path itself -- enumerate,
-# signal, verify -- runs on bash builtins plus /proc and /sys reads, with `sleep` the only external
-# it calls. A host broken enough to have lost /usr/local/lib/ai-tools can still be stopped.
+# ── Three inverted conventions, stated here so they are not "fixed" back ─────────────────────
+# For every other component in this project the safe direction is DON'T ACT. For this one it is
+# ACT, and three project-wide conventions invert for that single reason (the "Degradation policy"
+# section of docs/session-stop.md):
 #
-# Scoped precisely, because the weaker claim is the true one: this does NOT survive a broken
-# coreutils, and does not pretend to. `id` resolves the account, `realpath` canonicalizes a scoped
-# target, `date` timestamps the fallback log line, and `logger`, `timeout`, `systemctl` and `sudo`
-# serve logging and attribution -- the last two under `timeout`, since a stop that hangs while
-# attributing sessions is a stop that did not happen. Every one of those is outside the kill path
-# or best-effort within it;
-# what the file guarantees is independence from THIS PROJECT's libraries, not from the base system.
+#   1. NO REQUIRED DEPENDENCIES, and deliberately NO `set -e`. A missing library that aborted the
+#      run, or an unexpected non-zero that abandoned a half-finished kill, would be a stop that did
+#      not happen. Every library loads behind an inline fallback; the kill path -- enumerate,
+#      signal, verify -- runs on bash builtins plus /proc and /sys reads, with `sleep` its only
+#      external. That is independence from THIS PROJECT's libraries, not from the base system:
+#      `id`, `realpath`, `date`, `logger`, `timeout`, `systemctl` and `sudo` are each outside the
+#      kill path or best-effort within it, and the two that can BLOCK -- the attribution calls into
+#      the sandbox account's user manager -- run under `timeout`, since a stop that hangs is a stop
+#      that did not happen. The one seam kept single-sourced is the allowlist matcher in
+#      operator.lib.sh; if it will not load the SCOPED form refuses and names --all, which stops
+#      MORE -- so even that degradation moves toward stopping.
+#   2. THE CONFIRMATION DEFAULTS TO YES (messaging.rule.md requires NO). A pipe, a cron run, an
+#      absent msg.lib.sh and a bare Enter all proceed; only a deliberate `n` declines. -n/--dry-run
+#      is how this command is looked at without acting.
+#   3. THE PROTECTED-PATHS BACKSTOP IS ADVISORY. This helper only SELECTS processes by a path and
+#      never writes to it, so a missing backstop degrades to no gate rather than to no stop.
 #
-# The one seam kept: the SCOPED form authorizes against the caller's allowlist, and that matcher
-# stays single-sourced in operator.lib.sh rather than being reimplemented here. If it will not
-# load, the scoped form refuses and names --all -- which stops MORE, so even that degradation
-# moves toward stopping.
-#
-# ── Inversion 2: the confirmation defaults to YES ────────────────────────────────────────────
-# messaging.rule.md requires a destructive question to default NO, because Enter and any run
-# without a terminal take the default. The rule's actual principle is "the default is the SAFE
-# outcome", and for a stop the safe outcome is stopping. So this prompt defaults YES: a piped run,
-# a cron job, an absent msg.lib.sh and a plain Enter all proceed, and declining takes a deliberate
-# `n`. -n/--dry-run is the way to look without acting.
-#
-# ── Inversion 3: the protected-paths backstop is advisory here ───────────────────────────────
-# safe-paths.lib.sh is fail-closed in every other helper because those helpers WRITE to the path.
-# This one only selects processes by it; "stopping sessions whose working directory is under /etc"
-# writes nothing to /etc. So a missing backstop degrades to no gate rather than to no stop.
+# ── The mechanism, in one paragraph ──────────────────────────────────────────────────────────
+# Sessions are enumerated by walking the sandbox account's per-user cgroup slice: a cgroup is the
+# one container a spawned process cannot fall out of (inherited across fork(), surviving setsid(2)
+# and the double fork). A systemd UNIT cgroup is the unit of work. The graceful pass is SIGTERM,
+# deepest-first, re-collected each second; the kill pass writes `cgroup.kill` (atomic, 5.14+) with
+# a start-time-validated per-pid loop as the older-kernel fallback. Liveness is read from the
+# kernel -- `cgroup.events`, `cgroup.procs`, /proc -- and never from systemd, which is used for
+# exactly one thing: reading a unit's WorkingDirectory to attribute a session to a project, which
+# is best-effort and never decides whether something is running. Every liveness read fails CLOSED.
+# The user manager and its init.scope are spared by EXACT PATH, never by basename.
 #
 # ── Why root, and what authorizes a scoped stop ──────────────────────────────────────────────
-# Sessions run in the sandbox account's cgroups; signalling them and writing cgroup.kill is root's
-# to do. There is no NOPASSWD grant -- this is reached through `sudo ai-tools --stop` and sudo
-# prompts, like ai-tools-lockdown, -reclaim and -audit. The sudoers surface stays at two rules.
-#
-# All sessions run as one shared account, so a routine stop must be scoped or one operator would
-# terminate another's work -- and the scoping input must be something the sandbox account cannot
-# write. Nothing the session records about itself qualifies: the launch line, the unit name and the
-# unit's own properties are all written by that account, so a session could name any operator it
-# liked. The input used instead is the CALLER'S OWN allowed-projects (0600 inside a 0700 home,
-# unreadable and unwritable by the sandbox) paired with a caller identity sudo supplies (SUDO_USER,
-# written by a root process; the session cannot invoke sudo at all -- NoNewPrivileges drops its
-# SUID bit). Two operators who both claimed a project can stop each other's sessions in it, which
-# is consistent with them already sharing write access to that tree.
-#
-# --all takes NO authorization input. Scoping by working directory is sound but not complete: a
-# process can sit in a unit whose directory no allowlist covers, or in no unit at all. A stop path
-# the monitored system can put itself outside of is not a stop path. --all reaches every cgroup in
-# the account's slice, any operator may pull it, and it can only ever over-stop.
-#
-# ── The mechanism: cgroups, not process trees ────────────────────────────────────────────────
-# A session spawns children, and children are the whole difficulty. Three ways to find them:
-#
-#   process group  -- broken by setsid(2): a process that leaves the group stops being signalled.
-#   ppid walk      -- broken by the double fork: a re-parented process's ppid becomes 1, so it
-#                     drops out of the subtree entirely. (This is what a portable process-tree
-#                     terminator must use when it cannot assume a cgroup, and its known hole.)
-#   cgroup         -- inherited across fork(), and SURVIVES setsid(2) and the double fork. A task
-#                     is only ever moved by an explicit write to a cgroup.procs, never by anything
-#                     it does to itself.
-#
-# So the cgroup is the container a spawned process cannot fall out of, and it is what this helper
-# enumerates and kills. Nothing here depends on the ppid graph or on process groups.
-#
-# WHAT THAT DOES **NOT** MEAN, stated plainly because an earlier version of this file got it wrong:
-# it is NOT true that the session cannot move between cgroups. systemd DELEGATES the per-user
-# subtree to the account, which is what lets the user manager create units at all -- and delegation
-# by definition permits the delegatee to move its own tasks around INSIDE that subtree. Containment
-# holds at the delegation boundary, not within it. So a session that wants to can move a process
-# from one cgroup in the account's slice to another.
-#
-# The consequence is precise and is the reason the two forms of this command differ in strength:
-#
-#   --all  reaches every cgroup in the account's slice, so a move WITHIN the slice cannot escape it.
-#          This form holds against a hostile session.
-#   scoped selects by the project a cgroup is attributed to, so a process moved into a cgroup
-#          attributed elsewhere is no longer selected. This form is for routine use -- stopping
-#          one's own session in one project -- and must NOT be relied on against a session that is
-#          actively evading it.
-#
-# That is not a gap being tolerated: it is why --all exists, needs no authorization, and is the rung
-# the incident ladder points at. The final sweep below reports a cgroup that became live after being
-# verified empty, which is what such a move looks like from here.
-#
-# `cgroup.kill` (Linux 5.14+, so both supported EL targets) makes the kill ATOMIC: one write
-# freezes the cgroup and SIGKILLs every member including descendants, so there is no window in
-# which a fork can outrun the signal. Where it is absent, the fallback signals pids in a
-# re-collecting loop -- re-reading the set each pass so late children are caught -- and validates
-# each pid's start time (/proc/<pid>/stat field 22) immediately before signalling, so a pid
-# recycled between reading and killing is skipped rather than signalled blind.
-#
-# The user manager (`systemd --user`) and its (sd-pam) helper are spared, by CGROUP and not by
-# name: they live in init.scope, which this never descends into. They run no agent code, and
-# killing them breaks the lingering the next launch needs.
-#
-# systemd is used for exactly one thing: reading a unit's WorkingDirectory, to attribute a session
-# to a project for the scoped form. It is best-effort and never decides whether something is
-# running -- a wedged user manager or an absent machine transport degrades attribution, not the
-# stop. Where the unit view and the cgroup disagree about liveness, the cgroup wins.
-#
-# ── What "graceful" means here, and what it does not ─────────────────────────────────────────
-# The first pass is SIGTERM, deepest-first (children before parents, so a parent is not left
-# waiting on a child it can still see), which gives each process its own handlers. It does NOT run
-# the agent's SessionEnd hook, and no stop can: that hook fires when the agent exits on its own
-# terms, not when it is signalled. A stopped session therefore leaves its clean-exit marker
-# behind, which is by design the signal the next session-start reads to widen its .git reclaim and
-# warn the operator (ownership-and-hooks.rule.md). The tree is not left unknown either way: the
-# per-turn PostToolUse and Stop hooks already handed back everything up to the last completed
-# turn, so what a stop can strand is the in-flight turn's writes. This command names the reclaim
-# for the projects it actually stopped.
-#
-# ── Everything is recorded ───────────────────────────────────────────────────────────────────
-# The request, every authorization refusal, the answer to the confirmation, each session ended and
-# WHICH PASS ended it, and anything that survived, all with the caller and the target -- to
-# journald and to the root-only /var/log/ai-tools/stop.log. An operator ending another operator's
-# work is a thing the trail must show, and so is a stop that had to escalate. An EXIT trap records
-# an incomplete run, so silence in the trail is never ambiguous.
+# Signalling the sandbox account's cgroups and writing cgroup.kill is root's to do. There is no
+# NOPASSWD grant -- this is reached through `sudo ai-tools --stop` and sudo prompts, like
+# ai-tools-lockdown, -reclaim and -audit. All sessions share one account, so a routine stop is
+# scoped by the CALLER'S OWN allowed-projects (0600 in a 0700 home, unwritable by the sandbox)
+# paired with an identity sudo supplies; nothing a session records about itself is trusted for
+# this. --all takes no authorization input at all and cannot be evaded from inside a session.
 #
 # Usage:  ai-tools-stop [-n|--dry-run] [-y|--yes] [--force] <absolute-project-path>
 #         ai-tools-stop [-n|--dry-run] [-y|--yes] [--force] --all
 #
 # WHAT A SUCCESSFUL EXIT MEANS, stated exactly rather than generously. Exit 0 means: every session
 # matching the request that existed at ENUMERATION was stopped, and a final re-enumeration found
-# nothing matching still live. It does NOT mean no matching session can exist afterwards -- a
-# session launched after that final sweep is outside the window, and closing that needs a
-# launch/stop gate shared with the launcher, which does not exist yet. For the incident use this
-# command is built for, the operator holds the launch path anyway; for an adversarial session,
-# --all plus a revoked launch grant is the answer, not a stronger promise here.
+# nothing matching still live. It does NOT mean no matching session can exist afterwards -- the
+# launch/stop window is a stated residual.
 #
 # Exit:   0 stopped and verified gone (or nothing was running)
 #         1 something survived SIGKILL -- the only outcome that is not a stop
@@ -155,7 +72,8 @@
 #   sudo install -o root -g root -m 750 \
 #       src/usr/local/libexec/ai-tools/ai-tools-stop.sh /usr/local/libexec/ai-tools/ai-tools-stop
 
-# NOT `set -e`: see Inversion 1. An unexpected non-zero must never abandon a half-finished kill.
+# NOT `set -e`: see inverted convention 1 above. An unexpected non-zero must never abandon a
+# half-finished kill.
 set -uo pipefail
 
 # A fixed PATH, set before anything is resolved. This helper runs as root and is reachable directly
@@ -711,7 +629,7 @@ authorize_scoped_stop() {
         log_event warning "REFUSED: ${CALLER} named an unusable path for a scoped stop"
         return 3
     fi
-    # Advisory here, not fail-closed -- see Inversion 3.
+    # Advisory here, not fail-closed -- see inverted convention 3 in the header.
     if declare -F ai_tools_assert_safe_target >/dev/null 2>&1; then
         ai_tools_assert_safe_target "${canonical}" "stop" || return 3
     fi
@@ -740,13 +658,13 @@ authorize_scoped_stop() {
 }
 
 # ── Confirmation ─────────────────────────────────────────────────────────────────────────────
-# confirm_stop <count> -- succeed unless the operator deliberately declines. See Inversion 2: the
-# default is YES, so no terminal, no msg.lib.sh, a pipe, or a bare Enter all proceed. Only an
-# explicit `n` stops the stop.
+# confirm_stop <count> -- succeed unless the operator deliberately declines. Inverted convention 2
+# in the header: the default is YES, so no terminal, no msg.lib.sh, a pipe, or a bare Enter all
+# proceed, and only an explicit `n` stops the stop.
 # WHICH PATH GAVE CONSENT IS RECORDED, because the paths are not equally strong and a reader of
 # the trail must not have to guess. `--yes` is an operator decision; the library prompt is a real
 # answered question; the raw /dev/tty prompt is the same question asked without the shared
-# renderer; and `no-tty` means nobody was asked at all and the inversion carried the run. The last
+# renderer; and `no-tty` means nobody was asked at all and the default carried the run. The last
 # is legitimate -- it is the whole point of defaulting YES -- but it is the one an operator would
 # want to see when asking why a cron job stopped a session at 4am.
 confirm_stop() {
@@ -1065,4 +983,3 @@ main
 main_status=$?
 STOP_EXIT_REACHED=true
 exit "${main_status}"
-

@@ -1,6 +1,7 @@
 ---
 paths:
   - "src/usr/local/lib/ai-tools/log.lib.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-stop.sh"
 ---
 
 # Operation logging
@@ -26,7 +27,7 @@ secrets and every principal sources it). It exposes `ai_tools_log <level>` and
   keeps the secret filenames `ai-tools-chown` records out of the agent's reach. The files
   are `chown.log`, `setgid.log`, `setfacl.log`, `unclaim.log`, `safedir.log`, `allowlist.log`,
   `symlink.log`, `lockdown.log`,
-  `relabel.log`, `dotnet.log`, `handback.log`, and `install.log`. Most are written through this library
+  `relabel.log`, `dotnet.log`, `stop.log`, `handback.log`, and `install.log`. Most are written through this library
   by the root helpers; `handback.log` is the exception — the socket daemon
   (`ai-tools-handback`, root, Python) writes it directly (not through this library, which it
   does not source), recording the bridge's own events (rejected peers, malformed/refused
@@ -107,7 +108,13 @@ agent-named path straight to stderr — `ai-tools-chown`'s per-path prompt and b
 `ai-tools-reclaim`'s pre-confirmation sample, `ai-tools-lockdown`'s scan and locked lines —
 route each path through `ai_tools_log_sanitize` and **require** `log.lib.sh` (a missing logger
 aborts the helper rather than emitting an agent path raw), unlike the pure-logging consumers
-that keep a soft no-op fallback. The test harness applies the same allowlist to every
+that keep a soft no-op fallback. `ai-tools-stop` (`stop.log`) is the one consumer that prints
+agent-influenced values and still loads the logger **best-effort**, behind an inline sanitizer
+byte-identical to `ai_tools_log_sanitize` and an inline `logger(1)`-plus-append fallback: there a
+missing library would mean a stop that did not happen, so the reduction is preserved rather than
+the load being made fatal ([docs/session-stop.md](../../docs/session-stop.md)).
+
+The test harness applies the same allowlist to every
 `pass`/`fail`/`skip`/`section` line (`_san`), so a suite run — which executes as root via
 `sudo`, often on a live host — cannot print a crafted byte a fixture carried into a result
 message.

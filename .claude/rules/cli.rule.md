@@ -6,6 +6,7 @@ paths:
   - "src/usr/local/libexec/ai-tools/ai-tools-safedir.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-relabel.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-stop.sh"
   - "src/usr/local/lib/ai-tools/relabel.lib.sh"
   - "src/usr/local/lib/ai-tools/services.lib.sh"
 ---
@@ -187,6 +188,37 @@ A third gate, `require_for_target`, runs immediately after it and validates a `-
   banner without parsing its output — the same contract `--status` offers. A `--since` value
   `date(1)` cannot parse is refused rather than treated as "everything", so a typo does not
   silently become a reassuring wall of old findings.
+- `--stop [path]` / `--stop --all` — end running agent sessions and everything they spawned,
+  through the `ai-tools-stop` root helper (`sudo`, no NOPASSWD). The only verb that acts on a
+  session **already running**; every other control here changes what the *next* launch gets. The
+  CLI half is deliberately thin — option grammar, and resolving the default target to the working
+  directory — because every remaining decision is a security decision that must not be made twice
+  in two places.
+
+  Four properties a contributor has to hold on to; the reasoning for each is in
+  **[docs/session-stop.md](../../docs/session-stop.md)**, which is this component's single source
+  of truth:
+
+  - **Sessions are found and killed by cgroup**, never by process tree, and liveness is read from
+    the kernel. systemd supplies one thing only — a unit's `WorkingDirectory`, to attribute a
+    session to a project — and never decides whether something is running.
+  - **A scoped stop is authorized by the caller's own `allowed-projects`**, because everything a
+    session records about itself is written by the account being stopped. `--all` takes no
+    authorization input and accepts no path, deliberately.
+  - **The two forms differ in strength.** systemd delegates the per-user subtree to the account, so
+    a session can move its tasks between cgroups inside it: `--all` still reaches them, a scoped
+    stop may not. Do not argue that gap away — it is why `--all` exists.
+  - **Three project conventions are inverted here**, all for the reason that the safe direction for
+    this one component is *act*: the confirmation defaults YES
+    ([messaging](messaging.rule.md)), no library is required and `set -e` is not used
+    ([logging](logging.rule.md)), and the protected-paths backstop is advisory
+    ([safe-paths](safe-paths.rule.md)).
+
+  A stop cannot run the agent's `SessionEnd` hook, so the in-flight turn's writes may still be
+  sandbox-owned and the clean-exit marker is left for the next `SessionStart`
+  ([ownership-and-hooks](ownership-and-hooks.rule.md)); the command names the `--reclaim` per
+  project it stopped. Everything is recorded to `stop.log` and journald, including which path gave
+  consent and which pass ended each session. Exit codes are in `ai-tools(1)`.
 - `--status` — read-only health report: the installed `ai-tools` version, whether the toolchain is
   provisioned, then each managed systemd unit (`ai-tools-handback.socket`, `ai-tools-relabel.path`,
   and the sandbox account's `nvm-update.timer` and `nvm-update.service`) as OK / SKIPPED / STALE /
