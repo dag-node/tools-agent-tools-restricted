@@ -90,6 +90,20 @@ else
     done
     ${deny_ok} && pass "settings.json denies the categorical dead-ends (sudo/su, manager/audit CLIs, pkg, mount, SELinux mgmt)"
 
+    # (0b-ii) The irreversible-VCS deny group is present. Unlike the categorical group above,
+    # these commands SUCCEED if attempted -- the deny is the only thing between the agent and a
+    # force-push, a hard reset, or a forced clean, none of which has an undo. They are pinned
+    # strictly (not reported like the host-survey group below) because the two paths that
+    # preserve a host's tuning -- install.sh's keep-existing and %config(noreplace) on upgrade --
+    # are also how a settings.json that predates the group, or one edited in the permission
+    # arrays it invites tuning of, silently loses the gate while every other check stays green.
+    vcs_ok=true
+    for rule in 'Bash(git push --force*)' 'Bash(git push -f *)' \
+                'Bash(git reset --hard*)' 'Bash(git clean -f*)'; do
+        grep -qxF "${rule}" <<<"${deny}" || { fail "settings.json deny list is missing '${rule}' -- the irreversible-VCS gate is open (reseed or re-add it)"; vcs_ok=false; }
+    done
+    ${vcs_ok} && pass "settings.json denies the irreversible VCS operations (force-push, hard reset, forced clean)"
+
     # (0c) The host-survey deny group exists. Unlisted safe-reads are auto-approved by
     # the harness past the prompt, so these denies are the only layer keeping host recon
     # (accounts, packages, processes, storage, security posture) operator-mediated. A
