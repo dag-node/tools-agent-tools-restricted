@@ -9,9 +9,10 @@ paths:
 `settings.json` is the agent session's Claude Code configuration. It declares the
 ownership hooks (covered in [ownership-and-hooks](ownership-and-hooks.rule.md)), the
 token-saving filter hook on both `Bash` events (covered in [filters](filters.rule.md)), the
-Bash-tool permission rules, a privacy `env` block, and the auto-mode default. This rule
-covers the **permission rules** and how they couple to the SELinux policy, the **`env`
-privacy default**, and the **`disableAutoMode`** default. The catalog of other Claude Code
+Bash-tool permission rules, an `env` block, the auto-mode default, and the observability
+defaults. This rule covers the **permission rules** and how they couple to the SELinux policy,
+the **`env` block**, the **observability defaults**, and the **`disableAutoMode`** default. The
+catalog of other Claude Code
 options an operator MAY add — and which are set elsewhere — is in
 [`docs/claude-options.md`](../../docs/claude-options.md).
 
@@ -86,7 +87,32 @@ which is why the host-survey group below is denied rather than merely unlisted.
 
 ### Refused (`deny`)
 
-Two groups with distinct criteria.
+Three groups with distinct criteria.
+
+**Irreversible VCS operations** — these **succeed**, and what they take has no undo: history
+rewritten, a published branch overwritten for everyone else holding it, uncommitted or untracked
+work deleted from the tree.
+
+| Entry | What it destroys |
+|---|---|
+| `git push --force*` | The remote's history for every other clone. The pattern also covers `--force-with-lease`, which narrows the race but still overwrites. |
+| `git push -f *` | The short spelling of the same. |
+| `git reset --hard*` | The working tree and index, including changes never committed. |
+| `git clean -f*` | Untracked files — the ones no commit and no reflog can bring back. |
+
+The criterion is **destruction with no undo**, so the refusal holds regardless of target: a
+scratch branch and `main` are denied alike, because a deny rule matches a command string and
+cannot tell them apart. These would prompt if merely unlisted (they are mutations, not the
+auto-approved safe reads of the host-survey group), and a prompt is the wrong gate for them —
+it approves a command string, while what the operator has to weigh is what is about to be lost.
+Denied, the agent raises the operation in conversation, and the operator runs it where the
+consequence lands.
+
+The group is deliberately narrow, and it is a gate rather than a boundary: the same destruction
+is still reachable through a spelling the pattern does not match (`--force` placed after the
+refspec, `git push origin +branch`, an `rm -rf` of the work tree), and matching those would take
+a matcher over intent rather than over text. What it buys is that the **habitual** spellings —
+the ones an agent reaches for without deliberating — cannot be taken silently.
 
 **Categorical dead-ends** — the core posture refuses these regardless of arguments or
 target, so a deny stops the agent spending a tool call, and emitting an AVC, on an
@@ -133,18 +159,25 @@ enforcement plus DAC (see [confinement](confinement.rule.md)); a `deny` entry on
 the agent from attempting a denied action. Removing an entry re-exposes the attempt to the
 SELinux floor — it does not by itself grant the capability.
 
-`tests/integration/hooks.sh` pins both deny groups at install time (the verify phase runs
-it): a missing categorical entry fails; host-survey relaxations are reported by name and
-pass, but a file with none of them (a kept pre-upgrade settings.json) fails; an entry in
-both lists fails as drift.
+`tests/integration/hooks.sh` pins all three deny groups at install time (the verify phase
+runs it): a missing categorical or irreversible-VCS entry fails; host-survey relaxations are
+reported by name and pass, but a file with none of them (a kept pre-upgrade settings.json)
+fails; an entry in both lists fails as drift. The irreversible-VCS entries are pinned
+strictly rather than reported, because the paths that preserve a host's tuning — the
+keep-existing install and `%config(noreplace)` on upgrade — are also the paths by which a
+settings.json predating them, or edited in the permission arrays it invites tuning of,
+silently loses the gate.
 
-## `env` — the privacy default
+## `env` — the privacy and output defaults
 
-The top-level `env` block applies environment variables to every session. It ships one
-entry:
+The top-level `env` block applies environment variables to every session. It ships two
+entries:
 
 ```json
-"env": { "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1" }
+"env": {
+  "CLAUDE_CODE_MAX_OUTPUT_TOKENS": 131072,
+  "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+}
 ```
 
 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` opts the session out of all non-essential
@@ -154,9 +187,32 @@ outbound traffic in one variable: it subsumes `DISABLE_TELEMETRY`,
 individually. The essential Anthropic API traffic the agent needs is unaffected, as is the
 WebFetch domain safety check (which has its own `skipWebFetchPreflight` opt-out, left on).
 
-It lives here rather than in `ai-tools-run`'s allowlist because it is Claude Code product
+`CLAUDE_CODE_MAX_OUTPUT_TOKENS=131072` sets the per-response output-token cap a session
+requests. It shapes response length and cost, not authority — a capped and an uncapped session
+may do exactly the same things.
+
+Both live here rather than in `ai-tools-run`'s allowlist because they are Claude Code product
 policy, not confinement structure — Claude Code's own config surface, beside the permission
 and hook declarations. Layering and override are under "Control-plane integrity" below.
+
+## `showThinkingSummaries` and `verbose` — the observability defaults
+
+```json
+"showThinkingSummaries": true,
+"verbose": true
+```
+
+Both put more of a session in front of the operator watching it: `showThinkingSummaries` re-shows
+the thinking blocks Claude Code hides by default, and `verbose` shows Bash and command output in
+full rather than truncated. They cost terminal space and nothing else — the session's authority is
+identical either way — and what they buy is that the operator confirming an action sees the
+reasoning that produced it and the output it produced, which is the difference between approving a
+command string and approving what the command did.
+
+They are the operator-side complement to `disableAutoMode` below: that key decides *whether* a
+human is asked, these decide *how much* that human is shown. The catalog of the other UI and
+behavior keys an operator MAY add is in
+[`docs/claude-options.md`](../../docs/claude-options.md).
 
 ## `disableAutoMode` — confirm-by-default
 
@@ -201,11 +257,12 @@ in the agent-writable project tree. The layers compose differently per setting:
 - The **deny rules** and **hook declarations** merge additively across every layer — a
   deny from any source wins over any allow, and project hooks add to rather than replace
   these — so a project layer cannot remove them. They hold for the whole session.
-- The **`env` privacy default** and **`disableAutoMode`** are single-valued: a
-  higher-precedence project layer overrides them per key — control-plane defaults, not
-  locks. Neither is a containment boundary (telemetry is not one, and `disableAutoMode`
-  only removes confirmation prompts; the session's confinement is unchanged either way), so
-  a lock is unneeded. The one unoverridable layer, managed policy
+- The **`env` block**, the **observability defaults**, and **`disableAutoMode`** are
+  single-valued: a higher-precedence project layer overrides them per key — control-plane
+  defaults, not locks. None is a containment boundary (telemetry and an output cap are not
+  one, the observability keys only change how much is displayed, and `disableAutoMode` only
+  removes confirmation prompts; the session's confinement is unchanged either way), so a lock
+  is unneeded. The one unoverridable layer, managed policy
   (`/etc/claude-code/managed-settings.json`), is machine-wide — it applies to every Claude
   Code user on the host — so the sandbox does not ship it.
 

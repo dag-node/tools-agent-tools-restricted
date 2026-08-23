@@ -13,9 +13,12 @@ secrets and every principal sources it). It exposes `ai_tools_log <level>` and
 - **journald** — always, via `logger` with a per-component `SyslogIdentifier`
   (`AI_TOOLS_LOG_TAG`) and a syslog priority matching the level. This is the universal
   sink: the non-root components write here because they cannot write the root-only files.
-  Query with `journalctl -t ai-tools-chown` (or `-setgid`, `-launcher-symlink`, `-lockdown`,
-  `-hook`, `-handback`, `ai-tools`, `ai-tools-install`), with `-p warning` to filter by
-  level.
+  Query with the tag **and** the writer's uid — `journalctl -t ai-tools-chown _UID=0`, and
+  likewise `_UID=0` for `-setgid`, `-setfacl`, `-unclaim`, `-safedir`, `-reclaim`,
+  `-allowlist`, `-launcher-symlink`, `-lockdown`, `-relabel`, `-relabel-agent`, `-dotnet`,
+  `-handback` and `ai-tools-install`; the sandbox account's uid for `ai-tools-run` and
+  `-hook`; the operator's for `ai-tools`. Add `-p warning` to filter by level. The uid is not
+  decoration — see "A tag attributes nothing, `_UID` does" below.
 - **`/var/log/ai-tools/<component>.log`** — only when the caller sets `AI_TOOLS_LOG_FILE`,
   which only the root writers do. The directory is `700 root:root`, each file
   `600 root:root`: the root helpers append as root, while `SANDBOX_USER` — neither the dir
@@ -33,6 +36,32 @@ secrets and every principal sources it). It exposes `ai_tools_log <level>` and
   handback daemon execs with its own environment), so the test suite points a run's file
   logs at a throwaway dir instead of the production trail (see
   [tests](tests.rule.md)); no production principal can redirect it.
+
+## A tag attributes nothing, `_UID` does
+
+The syslog identifier is chosen by whoever writes the line, and `ai_tools_t` may write
+`/dev/log` — that is how the hooks reach journald at all. So a session can emit
+`logger -t ai-tools-chown "handed back /etc/shadow"`, and the line lands in the same trail an
+operator reads, under a root helper's tag. A query filtered by tag alone is poisonable by the
+account it is being read about.
+
+`_UID` is not. journald stamps it from the sender's kernel credentials, which the peer cannot
+set, so pairing the tag with the uid of that tag's **legitimate** writer separates the real lines
+from anything the sandbox account appended: `_UID=0` for the root helpers, the handback daemon and
+the installer; the sandbox account's uid for `ai-tools-run` and the hooks; the operator's uid for
+the CLI. `ai-tools-run` prints its own recipe in exactly that form
+(`sudo journalctl -t ai-tools-run _UID=<sandbox uid> -n 50`).
+
+Two tags have no separating filter, because the agent **is** their legitimate writer:
+`ai-tools-hook` and `ai-tools-run` both run as the sandbox account, so a forged line under either
+carries the same `_UID` as a real one. Their journal lines are the session's own account of what
+happened — evidence to reconcile, not proof of it. The trail that carries no such doubt is the
+file sink above: `700 root:root`, root writers only, which the agent can neither read nor append
+to. Where a journald line and the file sink disagree, the file sink is what happened.
+
+`tests/boundary/access.sh` asserts the separation from the agent's side: a line the sandbox
+account writes under a root helper's tag lands under the sandbox uid and is absent from the same
+tag at `_UID=0`.
 
 What is logged is a caller convention, not enforced by the library: the privileged
 operations the hooks and helpers perform, the CLI's workflow milestones (project/sandbox

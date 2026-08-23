@@ -356,4 +356,39 @@ else
     pass "the agent cannot write its own entrypoint pin"
 fi
 
+# ── journald attribution: a tag is not an attribution, _UID is ───────────────────────────────
+# Every documented journal query pairs a syslog tag with the uid of that tag's legitimate writer
+# (.claude/rules/logging.rule.md). This is the reason, probed rather than asserted from the
+# design: the agent can write /dev/log under ANY tag, including a root helper's, so a tag-only
+# query is poisonable by the very account it reports on. Emit a line AS the agent under
+# ai-tools-chown's tag, then check both directions -- it must appear under the sandbox uid (the
+# forgery does reach the trail, so the uid is load-bearing rather than ceremony) and must NOT
+# appear under _UID=0 (the documented form excludes it). The probe line names itself as a test so
+# a later reader of the real trail is not misled by it. A host with no journald skips: absence of
+# the line proves nothing either way.
+if ! command -v logger >/dev/null || ! command -v journalctl >/dev/null; then
+    skip "journald _UID attribution" "logger or journalctl not available"
+else
+    _sbx_uid="$(id -u "${SANDBOX_USER}")"
+    runuser -u "${SANDBOX_USER}" -- logger -t ai-tools-chown \
+        "boundary-test forged-tag probe pid=$$ (test line, NOT a handback)" 2>/dev/null || true
+    journalctl --sync >/dev/null 2>&1 || true
+    _as_agent=0
+    for _i in 1 2 3 4 5 6 7 8 9 10; do
+        _as_agent="$(journalctl -t ai-tools-chown _UID="${_sbx_uid}" --since '2 min ago' \
+                        --no-pager 2>/dev/null | grep -cF "forged-tag probe pid=$$" || true)"
+        [[ "${_as_agent}" != 0 ]] && break
+        sleep 0.5
+    done
+    _as_root="$(journalctl -t ai-tools-chown _UID=0 --since '2 min ago' \
+                    --no-pager 2>/dev/null | grep -cF "forged-tag probe pid=$$" || true)"
+    if [[ "${_as_agent}" == 0 ]]; then
+        skip "journald _UID attribution" "the agent's probe line never reached the journal (journald unavailable here)"
+    elif [[ "${_as_root}" != 0 ]]; then
+        fail "an agent-written line under the ai-tools-chown tag is returned by the _UID=0 query -- the documented query form does not separate a forged line from the root helper's own"
+    else
+        pass "an agent-written ai-tools-chown line files under uid ${_sbx_uid}, never _UID=0: '-t <tag> _UID=<writer>' separates a forged line from the helper's own"
+    fi
+fi
+
 finish
