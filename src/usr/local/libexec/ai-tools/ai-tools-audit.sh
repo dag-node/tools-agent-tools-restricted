@@ -116,8 +116,10 @@ collect_file_findings() {
 }
 
 # ── The secondary source: launch refusals, which only journald can hold ──────────────────────
-# collect_launch_refusals -- PRINT one `<timestamp>|<message>` per REFUSED line ai-tools-run
-# recorded. Filtered by the sandbox account's uid as every documented query is: the tag alone
+# collect_launch_refusals -- PRINT one `launch|<timestamp>|WARNING|<message>` per REFUSED line
+# ai-tools-run recorded, in the same shape as a file finding so it collapses through the same
+# renderer: a refusal that recurs on every launch attempt would otherwise flood the report
+# exactly as the handback lines did. Filtered by the sandbox account's uid as every documented query is: the tag alone
 # attributes nothing, and here the legitimate writer IS the account under scrutiny -- which is
 # exactly why these are reported apart from the file sink's evidence.
 collect_launch_refusals() {
@@ -128,7 +130,8 @@ collect_launch_refusals() {
         [[ "${line}" =~ ^([0-9-]+[[:space:]][0-9:]+)[[:space:]]+(.*)$ ]] || continue
         entry_timestamp="${BASH_REMATCH[1]}"
         entry_message="${BASH_REMATCH[2]}"
-        printf '%s|%s\n' "${entry_timestamp}" "$(ai_tools_log_sanitize "${entry_message}")"
+        printf 'launch|%s|WARNING|%s\n' "${entry_timestamp}" \
+            "$(ai_tools_log_sanitize "${entry_message}")"
     done < <(journalctl -t ai-tools-run _UID="${sandbox_uid}" \
                 --since "@${CUTOFF_EPOCH}" --no-pager \
                 --output=short-iso --output-fields=MESSAGE 2>/dev/null \
@@ -136,6 +139,59 @@ collect_launch_refusals() {
 }
 
 # ── Report ───────────────────────────────────────────────────────────────────────────────────
+# render_findings -- read `<component>|<ts>|<level>|<message>` on stdin and print one line per
+# DISTINCT finding, most serious and most recent first.
+#
+# Collapsing is not cosmetic, it is what makes the command usable. A recurring condition writes
+# one line per occurrence -- the handback daemon's refusals alone run to hundreds over a week on
+# a host that exercises them -- and a report that lists each one buries the single ERROR that
+# needs acting on under a wall of a condition already understood. That is the same reason INFO
+# is out of scope entirely: an audit nobody finishes reading reports nothing.
+#
+# Findings are grouped by their message with digit runs replaced by `#`, so occurrences that
+# differ only in a pid, a count, or a timestamp collapse into one line carrying the number of
+# times it happened and the most recent example in full. Nothing is hidden -- the count states
+# what was folded, and the underlying files are named above.
+#
+# Ordering is by severity first and recency second, because those are the two questions actually
+# being asked: what is worst, and is it still happening.
+render_findings() {
+    awk -F'|' '
+        {
+            component = $1; entry_timestamp = $2; entry_level = $3; entry_message = $4
+            normalized = entry_message
+            gsub(/[0-9]+/, "#", normalized)
+            key = component SUBSEP entry_level SUBSEP normalized
+            occurrences[key]++
+            if (entry_timestamp > last_seen[key]) {
+                last_seen[key] = entry_timestamp
+                most_recent[key] = entry_message
+            }
+            finding_component[key] = component
+            finding_level[key] = entry_level
+        }
+        END {
+            for (key in occurrences) {
+                severity_rank = (finding_level[key] == "ERROR") ? 1 \
+                              : (finding_level[key] == "WARNING") ? 2 : 3
+                printf "%d|%s|%s|%d|%s\n", severity_rank, last_seen[key],
+                       finding_component[key], occurrences[key], most_recent[key]
+            }
+        }' \
+    | sort -t'|' -k1,1n -k2,2r \
+    | awk -F'|' '
+        {
+            severity_rank = $1; last_seen = $2; component = $3
+            occurrences = $4; most_recent = $5
+            level = (severity_rank == 1) ? "ERROR" : (severity_rank == 2) ? "WARNING" : "NOTICE"
+            # The date alone: the time of the latest of several occurrences is not a fact worth
+            # a column, and the day is what an operator correlates against.
+            split(last_seen, timestamp_parts, "T")
+            printf "  %-7s  %-10s  %-9s %5dx  %s\n", level, timestamp_parts[1], component,
+                   occurrences, most_recent
+        }'
+}
+
 mapfile -t FILE_FINDINGS < <(collect_file_findings)
 mapfile -t LAUNCH_REFUSALS < <(collect_launch_refusals)
 readonly FILE_FINDING_COUNT=${#FILE_FINDINGS[@]}
@@ -148,19 +204,22 @@ if (( FILE_FINDING_COUNT == 0 && LAUNCH_REFUSAL_COUNT == 0 )); then
     exit 0
 fi
 
+DISTINCT_FINDING_COUNT=0
+if (( FILE_FINDING_COUNT > 0 )); then
+    DISTINCT_FINDING_COUNT="$(printf '%s\n' "${FILE_FINDINGS[@]}" | render_findings | wc -l)"
+fi
+readonly DISTINCT_FINDING_COUNT
+
 ai_tools_msg_headline "Audit" 1 \
-    "${FILE_FINDING_COUNT} recorded finding(s) and ${LAUNCH_REFUSAL_COUNT} launch refusal(s) since ${SINCE_DISPLAY}."
+    "${DISTINCT_FINDING_COUNT} distinct finding(s) from ${FILE_FINDING_COUNT} recorded line(s), and ${LAUNCH_REFUSAL_COUNT} launch refusal(s), since ${SINCE_DISPLAY}."
 
 if (( FILE_FINDING_COUNT > 0 )); then
     printf '\n  %s\n' "Recorded findings -- ${AI_TOOLS_LOG_DIR}/*.log, root writers only"
     printf '  %s\n' "these are evidence: the sandbox account can neither write nor read this trail"
     printf '\n'
-    # Grouped by component so a burst from one helper reads as one problem, not as many.
-    for component in $(printf '%s\n' "${FILE_FINDINGS[@]}" | cut -d'|' -f1 | sort -u); do
-        printf '  %s\n' "${component}"
-        printf '%s\n' "${FILE_FINDINGS[@]}" \
-            | awk -F'|' -v c="${component}" '$1==c {printf "      %s  %-7s %s\n", $2, $3, $4}'
-    done
+    printf '  %-7s  %-10s  %-9s %6s  %s\n' "LEVEL" "LAST SEEN" "COMPONENT" "COUNT" "MOST RECENT"
+    render_findings < <(printf '%s\n' "${FILE_FINDINGS[@]}")
+    printf '\n  %s\n' "repeats are collapsed; a count above 1 means the same finding recurred"
 fi
 
 if (( LAUNCH_REFUSAL_COUNT > 0 )); then
@@ -168,7 +227,8 @@ if (( LAUNCH_REFUSAL_COUNT > 0 )); then
     printf '  %s\n' "the session's own account of itself: written by the sandbox account, so"
     printf '  %s\n' "reconcile these against the findings above rather than relying on them alone"
     printf '\n'
-    printf '%s\n' "${LAUNCH_REFUSALS[@]}" | awk -F'|' '{printf "      %s  %s\n", $1, $2}'
+    printf '  %-7s  %-10s  %-9s %6s  %s\n' "LEVEL" "LAST SEEN" "COMPONENT" "COUNT" "MOST RECENT"
+    render_findings < <(printf '%s\n' "${LAUNCH_REFUSALS[@]}")
 fi
 
 printf '\n  %s\n' "Next: ai-tools --status (service health), journalctl -t ai-tools-chown _UID=0 (full ownership trail)"

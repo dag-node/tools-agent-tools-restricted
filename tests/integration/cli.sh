@@ -340,6 +340,34 @@ else
         pass "--audit honours --since (an older finding is out of the window)"
     fi
 
+    # (3b) Repeats collapse, and severity leads. This is what makes the command usable rather
+    #      than merely correct: a recurring condition writes one line per occurrence -- the
+    #      handback daemon's refusals run to hundreds over a week on a host that exercises them
+    #      -- and an uncollapsed report buries the one ERROR that needs acting on. Seed a
+    #      recurring warning that differs only in its pid, alongside a single ERROR, and assert
+    #      the report folds the first and leads with the second.
+    for audit_pid in 111 222 333 444; do
+        printf '%s WARNING [%d] rejected malformed arg for CHOWN (pid %d)\n' \
+            "${audit_now}" "${audit_pid}" "${audit_pid}" >> "${audit_dir}/handback.log"
+    done
+    printf '%s ERROR   [9] AUDIT-REAL-FINDING that must not be buried\n' "${audit_now}" \
+        > "${audit_dir}/relabel.log"
+    out="$(AI_TOOLS_LOG_DIR="${audit_dir}" "${audit_bin}" --since '2 days ago' 2>&1)" || true
+
+    if [[ "$(grep -c 'rejected malformed arg' <<<"${out}")" == 1 ]] \
+            && grep -qE '4x +rejected malformed arg' <<<"${out}"; then
+        pass "--audit collapses a repeated finding into one line carrying its count"
+    else
+        fail "--audit did not collapse the four repeats of one finding: ${out}"
+    fi
+
+    # The ERROR must be the first finding printed -- an operator reads the top of a report.
+    if [[ "$(grep -E '^\s+(ERROR|WARNING|NOTICE)\s' <<<"${out}" | head -1)" == *AUDIT-REAL-FINDING* ]]; then
+        pass "--audit leads with the most severe finding, ahead of recurring noise"
+    else
+        fail "--audit did not lead with the ERROR: $(grep -E '^\s+(ERROR|WARNING|NOTICE)\s' <<<"${out}" | head -3)"
+    fi
+
     # (4) A clean window exits zero, so a healthy host does not alarm every night.
     out="$(AI_TOOLS_LOG_DIR="${audit_dir}" "${audit_bin}" --since '+1 hour' 2>&1)" && rc=0 || rc=$?
     if [[ ${rc} -eq 0 ]] && grep -qi 'nothing refused' <<<"${out}"; then

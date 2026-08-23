@@ -166,6 +166,14 @@ A third gate, `require_for_target`, runs immediately after it and validates a `-
   to reconcile against the first rather than to rely on alone (see [logging](logging.rule.md)).
   This is the split that keeps an agent-writable trail from being presented as proof.
 
+  **Repeats collapse, and severity leads.** A recurring condition writes one line per
+  occurrence, so an uncollapsed report buries the finding that needs acting on under one already
+  understood — the same reason `INFO` is out of scope. Findings are grouped by their message with
+  digit runs normalized, so occurrences differing only in a pid or a count fold into one line
+  carrying the number of times it happened and the most recent example in full; nothing is
+  hidden, since the count states what was folded. Ordering is severity first, recency second —
+  the two questions actually being asked: what is worst, and is it still happening.
+
   Exits **non-zero when anything is reported**, so it runs unattended from cron or a login
   banner without parsing its output — the same contract `--status` offers. A `--since` value
   `date(1)` cannot parse is refused rather than treated as "everything", so a typo does not
