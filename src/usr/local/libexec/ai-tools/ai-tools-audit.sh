@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-audit
-# Answers one question: has anything refused, been rejected, been stranded, or been flagged
-# since <when>? The detections already exist and are already recorded -- what they lacked was a
+# Answers one question: what was refused, rejected, stranded or flagged BETWEEN two points in
+# time? It reports EVENTS, never current state -- a condition recorded here may have been
+# resolved since, and confirming that is ai-tools --status's job, not this one's. Conflating the
+# two invites acting on a finding that is already fixed.
+# The detections already exist and are already recorded -- what they lacked was a
 # reader, and a detection nobody reads is decoration.
 #
 # It INVENTS no detection and parses no per-case wording. The root-only file sink already
@@ -216,6 +219,8 @@ ai_tools_msg_headline "Audit" 1 \
 if (( FILE_FINDING_COUNT > 0 )); then
     printf '\n  %s\n' "Recorded findings -- ${AI_TOOLS_LOG_DIR}/*.log, root writers only"
     printf '  %s\n' "these are evidence: the sandbox account can neither write nor read this trail"
+    printf '  %s\n' "each line is something that HAPPENED, not something still true -- a condition"
+    printf '  %s\n' "reported here may have been resolved since; check LAST SEEN, then confirm" 
     printf '\n'
     printf '  %-7s  %-10s  %-9s %6s  %s\n' "LEVEL" "LAST SEEN" "COMPONENT" "COUNT" "MOST RECENT"
     render_findings < <(printf '%s\n' "${FILE_FINDINGS[@]}")
@@ -231,5 +236,8 @@ if (( LAUNCH_REFUSAL_COUNT > 0 )); then
     render_findings < <(printf '%s\n' "${LAUNCH_REFUSALS[@]}")
 fi
 
-printf '\n  %s\n' "Next: ai-tools --status (service health), journalctl -t ai-tools-chown _UID=0 (full ownership trail)"
+printf '\n  %s\n' "Current state is a different question, asked elsewhere:"
+printf '  %s\n'   "    ai-tools --status    service health and entrypoint verification, live"
+printf '  %s\n'   "    ai-tools --relabel   re-verify and relabel the agent entrypoints now"
+printf '  %s\n'   "    journalctl -t ai-tools-chown _UID=0    the full ownership trail" 
 exit 1

@@ -166,6 +166,15 @@ A third gate, `require_for_target`, runs immediately after it and validates a `-
   to reconcile against the first rather than to rely on alone (see [logging](logging.rule.md)).
   This is the split that keeps an agent-writable trail from being presented as proof.
 
+  **It reports events, never current state.** Each line is something that *happened* between
+  two points in time; a condition recorded here may have been resolved since. That distinction is
+  load-bearing and the report states it, because the failure mode is specific and easy: a dated
+  `ERROR` read as a standing fault sends an operator to fix something already fixed, and erodes
+  trust in the trail on the first false alarm. Confirming what is true *now* is `--status`'s job
+  (and `--relabel`'s), and the report closes by naming them rather than implying it answered that
+  question itself. The command deliberately does **not** re-verify a finding: knowing how to
+  re-check each condition is exactly the per-detection knowledge it refuses to carry.
+
   **Repeats collapse, and severity leads.** A recurring condition writes one line per
   occurrence, so an uncollapsed report buries the finding that needs acting on under one already
   understood — the same reason `INFO` is out of scope. Findings are grouped by their message with
