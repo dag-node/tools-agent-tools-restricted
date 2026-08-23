@@ -180,7 +180,7 @@ of what it can ever send:
   `/usr/share/ai-tools/skills/README.md`.
 - **Operation logging** — the `sudo` helpers, the lifecycle hooks, the `ai-tools`
   CLI, and `install.sh` log through one library to **journald** (always, leveled and
-  tagged: `journalctl -t ai-tools-chown`) and, for the root writers only, to
+  tagged: `journalctl -t ai-tools-chown _UID=0`) and, for the root writers only, to
   root-only files under **`/var/log/ai-tools/`**.
 - **Auto-updating** — a `systemd --user` timer in `${SANDBOX_USER}`'s own instance keeps
   Node and `@anthropic-ai/claude-code` current under `/opt/ai-tools`, and a root-side
@@ -324,19 +324,52 @@ its whole lifetime by design.
 
 ## Operation logging
 
-Two sinks — **journald** (all components) and **`/var/log/ai-tools/`** (root helpers
-only, `700 root:root`). Query journald by component:
+Start here — one command answers "has anything gone wrong lately?":
 
-    sudo journalctl -t ai-tools-chown            # the ownership-restore helper
-    sudo journalctl -t ai-tools-lockdown -p warning
-    sudo journalctl -t ai-tools-hook             # the lifecycle hooks
-    sudo journalctl -t ai-tools-handback         # the privilege bridge (one line per request)
-    sudo journalctl -t ai-tools                  # the CLI (project/sandbox created, …)
+    sudo ai-tools --audit                      # findings in the last 7 days
+    sudo ai-tools --audit --since '2 days ago' # any window date(1) understands
+
+It reads the trails below and reports what refused, was rejected, was stranded, or was
+flagged — a breached secret, a rejected socket peer, a helper timeout, a refused launch. It
+exits non-zero when anything is reported, so it works from cron or a login banner without
+parsing its output. Findings from the root-only files and refusals from the session's own
+journald tag are reported **separately**, because only the first is a trail the agent cannot
+write.
+
+Every tool call a session makes is recorded too, one line each:
+
+    sudo journalctl -t ai-tools-hook _UID="$(id -u ai-tools)"   # what the agent ran and wrote
+    sudo journalctl -t ai-tools-hook -o json _UID="$(id -u ai-tools)" | jq  # structured fields
+
+A `Bash` record carries the command's leading two words and its argument count — never the
+command line, which through a here-doc would carry file contents. The same facts are also
+emitted as native journald fields (`AI_TOOLS_TOOL`, `AI_TOOLS_CMD`, `AI_TOOLS_ARGC`,
+`AI_TOOLS_PATH`), so a journal ingester can select on them without re-parsing the message.
+
+Two sinks — **journald** (all components) and **`/var/log/ai-tools/`** (root helpers
+only, `700 root:root`). Query journald by component **and by the writer's uid**:
+
+    sudo journalctl -t ai-tools-chown _UID=0                  # the ownership-restore helper
+    sudo journalctl -t ai-tools-lockdown _UID=0 -p warning    # the secret lockdown
+    sudo journalctl -t ai-tools-handback _UID=0               # the privilege bridge (one line per request)
+    sudo journalctl -t ai-tools-run _UID="$(id -u ai-tools)"  # session launches
+    sudo journalctl -t ai-tools _UID="$(id -u)"               # the CLI (project/sandbox created, …)
+
+The uid matters because a syslog tag is chosen by whoever writes the line, and the sandbox
+account can write to `/dev/log` — so a session could emit a line under a root helper's tag.
+`_UID` is stamped by journald from the sender's kernel credentials and cannot be forged, so
+pairing it with the tag is what makes a line attributable.
+
+`ai-tools-hook` is the one tag no filter separates: the lifecycle hooks run **as** the agent, so
+it is that tag's legitimate writer. Read those lines as the session's own account, and reconcile
+them against the root-written trail — `/var/log/ai-tools/` is `700 root:root`, so the agent can
+neither read nor append to it.
 
 The handback daemon keeps a per-request audit line — the peer PID, the verb, the path, and
 the helper result — plus a `WARNING` for every rejected peer or malformed request, so each
 privileged action is attributable at the socket layer. Root-only log files: `chown.log`,
-`setgid.log`, `symlink.log`, `lockdown.log`, `handback.log`, `install.log`.
+`setgid.log`, `setfacl.log`, `unclaim.log`, `safedir.log`, `allowlist.log`, `symlink.log`,
+`lockdown.log`, `relabel.log`, `dotnet.log`, `handback.log`, `install.log`.
 
 ## SELinux
 

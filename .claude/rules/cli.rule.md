@@ -146,6 +146,47 @@ A third gate, `require_for_target`, runs immediately after it and validates a `-
   with its own enable command: `ai-tools-admin selinux enable-group tmpmap` for the stable one, the
   source `install-selinux.sh enable-group apphost` for the experimental one. These are the
   dependencies [providers](providers.rule.md) documents, surfaced where the operator checks status.
+- `--audit [--since <when>]` — report what has refused, been rejected, been stranded, or been
+  flagged since a given time, through the `ai-tools-audit` root helper (`sudo`, no NOPASSWD).
+  The detections it reports already existed and were already recorded; what they lacked was a
+  reader, and a detection nobody reads is decoration. The verb is the lightest thing that
+  qualifies as one — not an alerting stack, one command with a consumer.
+
+  **It invents no detection and matches no per-case wording.** The root-only file sink already
+  encodes severity in its line format (`<ts> <LEVEL> [<pid>] <msg>`), so a finding is a line at
+  `NOTICE` or above. `NOTICE` is in scope deliberately: `ai-tools-chown` records a breached
+  secret at that level, and a leaked credential is the most actionable thing the command can
+  surface. Nothing drifts — a helper that adds a warning is reported the day it ships.
+
+  **Two sources, not equal, and the report says so.** `/var/log/ai-tools/*.log` is `700
+  root:root`, root writers only, so the sandbox account can neither read nor append to it: those
+  lines are **evidence**. Launch refusals are the exception — `ai-tools-run` runs *as* the
+  sandbox account and reaches only journald, under a tag whose legitimate writer is that same
+  account — so they are shown in a section of their own as the session's own account of itself,
+  to reconcile against the first rather than to rely on alone (see [logging](logging.rule.md)).
+  This is the split that keeps an agent-writable trail from being presented as proof.
+
+  **It reports events, never current state.** Each line is something that *happened* between
+  two points in time; a condition recorded here may have been resolved since. That distinction is
+  load-bearing and the report states it, because the failure mode is specific and easy: a dated
+  `ERROR` read as a standing fault sends an operator to fix something already fixed, and erodes
+  trust in the trail on the first false alarm. Confirming what is true *now* is `--status`'s job
+  (and `--relabel`'s), and the report closes by naming them rather than implying it answered that
+  question itself. The command deliberately does **not** re-verify a finding: knowing how to
+  re-check each condition is exactly the per-detection knowledge it refuses to carry.
+
+  **Repeats collapse, and severity leads.** A recurring condition writes one line per
+  occurrence, so an uncollapsed report buries the finding that needs acting on under one already
+  understood — the same reason `INFO` is out of scope. Findings are grouped by their message with
+  digit runs normalized, so occurrences differing only in a pid or a count fold into one line
+  carrying the number of times it happened and the most recent example in full; nothing is
+  hidden, since the count states what was folded. Ordering is severity first, recency second —
+  the two questions actually being asked: what is worst, and is it still happening.
+
+  Exits **non-zero when anything is reported**, so it runs unattended from cron or a login
+  banner without parsing its output — the same contract `--status` offers. A `--since` value
+  `date(1)` cannot parse is refused rather than treated as "everything", so a typo does not
+  silently become a reassuring wall of old findings.
 - `--status` — read-only health report: the installed `ai-tools` version, whether the toolchain is
   provisioned, then each managed systemd unit (`ai-tools-handback.socket`, `ai-tools-relabel.path`,
   and the sandbox account's `nvm-update.timer` and `nvm-update.service`) as OK / SKIPPED / STALE /
