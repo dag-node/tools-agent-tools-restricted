@@ -213,6 +213,29 @@ EOF
     fi
 fi
 
+# --stop: the CLI half only -- the option grammar and the two forms not being combinable. Both
+# refusals land in the argument loop, BEFORE the sudo that reaches the root helper, so neither
+# reaches a password prompt or signals anything. The helper's own authorization, enumeration and
+# kill are covered in tests/unit/stop.sh and tests/integration/stop.sh; what this asserts is that
+# the verb is dispatched at all and that a mistyped one is refused rather than passed through.
+if command -v runuser >/dev/null 2>&1; then
+    section "CLI --stop (argument grammar)"
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" setsid \
+            "${CLI}" --stop --bogus 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'unknown --stop option' <<<"${out}"; then
+        pass "--stop refuses an unknown option"
+    else
+        fail "--stop did not refuse an unknown option (rc=${rc}): ${out}"
+    fi
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" setsid \
+            "${CLI}" --stop --all /some/project 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'takes no path' <<<"${out}"; then
+        pass "--stop --all refuses a path: it ends every session, not one project's"
+    else
+        fail "--stop --all accepted a path (rc=${rc}): ${out}"
+    fi
+fi
+
 # --for <operator>: acting on another enrolled operator's registry. Every refusal here precedes the
 # root helper entirely, so none of these reach a sudo prompt. The helper's own gates are asserted
 # in tests/unit/allowlist-helper.sh; what this covers is the CLI deciding, up front, that a run

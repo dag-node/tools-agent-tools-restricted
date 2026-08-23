@@ -34,16 +34,26 @@
 # for any project, so run this where you can answer a password prompt. A completed install and
 # provisioned toolchain are assumed.
 #
-# usage: tests/manual/verify-live-flows.sh [--keep]
-#   --keep   leave the workspace and its registry entries in place for inspection
+# THE ONE DESTRUCTIVE CHECK IS OPT-IN. `ai-tools --stop --all` ends EVERY agent session on the
+# host, which is what it is for and cannot be proven any other way -- a stop that is scoped to a
+# fixture proves the mechanism, not the rung. It runs only with --stop-all-drill, and only when a
+# session is actually running; without the flag the section still exercises everything that is
+# reversible (the dry run, the refusals, the trail). Run it when no session holds work you want.
+#
+# usage: tests/manual/verify-live-flows.sh [--keep] [--stop-all-drill]
+#   --keep             leave the workspace and its registry entries in place for inspection
+#   --stop-all-drill   also END EVERY RUNNING AGENT SESSION, to prove the incident ladder's stop
+#                      rung on this host. Destructive by design; see section 8.
 
 set -uo pipefail          # deliberately NOT -e: a failing check must be recorded, not fatal
 
 KEEP=false
+STOP_ALL_DRILL=false
 for a in "$@"; do
     case "${a}" in
-        --keep)    KEEP=true ;;
-        -h|--help) sed -n '3,38p' "$0"; exit 0 ;;
+        --keep)           KEEP=true ;;
+        --stop-all-drill) STOP_ALL_DRILL=true ;;
+        -h|--help) sed -n '3,46p' "$0"; exit 0 ;;
         *) printf 'unknown option: %s (see --help)\n' "${a}" >&2; exit 2 ;;
     esac
 done
@@ -515,6 +525,131 @@ if [[ -n "${SUITE_DIR}" && -d "${SUITE_DIR}" ]]; then
     done
 else
     skip "unit suites (not run from a checkout)"
+fi
+
+# ── 8. the stop rung: ai-tools --stop ────────────────────────────────────────────────────────
+# The incident ladder's stop rung, and the one control here that acts on a session ALREADY
+# RUNNING. Everything reversible runs unconditionally; the undeclinable form (`--all`) runs only
+# with --stop-all-drill, because proving it means ending every session on the host.
+#
+# This is also the DRILL: an escalation ladder nobody has ever climbed is a document, not a
+# control, so the destructive half is meant to be run deliberately, periodically, with the trail
+# read afterwards -- not merely to be tested once.
+section "8. ai-tools --stop"
+
+SANDBOX_UID_N="$(id -u "${SANDBOX_GROUP}" 2>/dev/null || true)"
+CG2_MOUNT="$(awk '$3 == "cgroup2" { print $2; exit }' /proc/mounts)"
+SANDBOX_SLICE_DIR="${CG2_MOUNT:-/sys/fs/cgroup}/user.slice/user-${SANDBOX_UID_N}.slice"
+SANDBOX_INIT_SCOPE="${SANDBOX_SLICE_DIR}/user@${SANDBOX_UID_N}.service/init.scope"
+
+# session_task_count: how many tasks the sandbox account's slice holds OUTSIDE the user manager's
+# own init.scope -- i.e. how much agent work is running. Read from cgroupfs directly, which is
+# world-readable, so this observes the same fact the helper acts on without going through it.
+session_task_count() {
+    local procs_file cgroup_dir line count=0
+    while IFS= read -r procs_file; do
+        cgroup_dir="${procs_file%/cgroup.procs}"
+        [[ "${cgroup_dir}" == "${SANDBOX_INIT_SCOPE}" ]] && continue
+        while read -r line; do [[ -n "${line}" ]] && count=$(( count + 1 )); done \
+            < "${procs_file}" 2>/dev/null
+    done < <(find "${SANDBOX_SLICE_DIR}" -name cgroup.procs 2>/dev/null)
+    printf '%s' "${count}"
+}
+
+if [[ -z "${SANDBOX_UID_N}" || ! -d "${SANDBOX_SLICE_DIR}" ]]; then
+    skip "--stop (the sandbox account has no per-user slice on this host -- nothing has run yet)"
+else
+    # A relative path never becomes a project: the same command must not mean different things
+    # from different directories.
+    OUT="$("${CLI}" --stop some/relative/path 2>&1)"; RC=$?
+    if [[ "${RC}" -ne 0 ]] && grep -qi 'absolute' <<<"${OUT}"; then
+        pass "--stop refuses a relative path"
+    else
+        fail "--stop accepted a relative path (rc=${RC}): ${OUT}"
+    fi
+
+    # A project this operator has not claimed is not theirs to stop sessions in. ${HOME} is never
+    # claimable (the protected-paths backstop refuses a home root outright), so it is a target no
+    # host can accidentally have allowlisted.
+    sudo_why "--stop reads the caller's allowlist as root"
+    OUT="$("${CLI}" --stop "${HOME}" 2>&1)"; RC=$?
+    if [[ "${RC}" -ne 0 ]]; then
+        pass "--stop refuses a target the caller has not claimed (rc=${RC})"
+        note "$(head -3 <<<"${OUT}" | tr '\n' ' ')"
+    else
+        fail "--stop accepted an unclaimed target: ${OUT}"
+    fi
+
+    TASKS_BEFORE="$(session_task_count)"
+    note "sandbox slice holds ${TASKS_BEFORE} task(s) outside the user manager's init.scope"
+
+    # The dry run changes nothing, and says so. Safe whether or not a session is running.
+    sudo_why "--stop --all --dry-run enumerates the sandbox account's cgroups"
+    OUT="$("${CLI}" --stop --all --dry-run 2>&1)"; RC=$?
+    printf '%s\n' "${OUT}" | sed 's/^/        /'
+    if [[ "${RC}" -eq 0 ]]; then
+        pass "--stop --all --dry-run exits 0"
+    else
+        fail "--stop --all --dry-run exited ${RC}"
+    fi
+    if [[ "$(session_task_count)" == "${TASKS_BEFORE}" ]]; then
+        pass "the dry run stopped nothing (task count unchanged)"
+    else
+        fail "the dry run changed the running task count"
+    fi
+
+    if ! ${STOP_ALL_DRILL}; then
+        skip "--stop --all (destructive; re-run with --stop-all-drill to prove the stop rung)"
+        note "it ends EVERY agent session on this host, including any in another terminal"
+    elif [[ "${TASKS_BEFORE}" -eq 0 ]]; then
+        skip "--stop --all (nothing is running, so a successful stop would prove nothing)"
+        note "start a session first: ai-tools claude, in a claimed project, from another terminal"
+    else
+        printf '  %sDRILL%s  ending every agent session on this host in 5s -- Ctrl-C to abort\n' \
+            "${C_R}" "${C_0}"
+        sleep 5
+        sudo_why "--stop --all signals the sandbox account's cgroups as root"
+        OUT="$("${CLI}" --stop --all --yes 2>&1)"; RC=$?
+        printf '%s\n' "${OUT}" | sed 's/^/        /'
+        if [[ "${RC}" -eq 0 ]]; then
+            pass "--stop --all completed and reported success (exit 0)"
+        else
+            fail "--stop --all exited ${RC} -- 1 means something survived SIGKILL, 5 that the helper could not run"
+        fi
+        TASKS_AFTER="$(session_task_count)"
+        if [[ "${TASKS_AFTER}" -eq 0 ]]; then
+            pass "the reported success is true: the sandbox slice holds no task outside init.scope"
+        else
+            fail "${TASKS_AFTER} task(s) still in the sandbox slice after a reported success"
+        fi
+        # The user manager itself is spared -- killing it breaks the lingering the next launch
+        # needs, and it runs no agent code.
+        if [[ -s "${SANDBOX_INIT_SCOPE}/cgroup.procs" ]]; then
+            pass "the user manager (init.scope) is untouched, so the next launch still works"
+        else
+            fail "the user manager was killed; the next launch will have no --user instance"
+        fi
+        # Idempotent: re-running after an interrupted stop is the documented remedy, so a second
+        # run must be a clean no-op rather than an error.
+        OUT="$("${CLI}" --stop --all --yes 2>&1)"; RC=$?
+        if [[ "${RC}" -eq 0 ]] && grep -qi 'no agent session' <<<"${OUT}"; then
+            pass "a second --stop --all is a clean no-op (exit 0)"
+        else
+            fail "the second --stop --all was not a clean no-op (rc=${RC}): ${OUT}"
+        fi
+        note "the stop cannot run the agent's session-end handback: reclaim each project it named"
+    fi
+
+    # The trail is the point of the rung as much as the kill is: who asked, what for, what ended.
+    sudo_why "reading the root-only stop trail"
+    TRAIL="$(sudo -n cat /var/log/ai-tools/stop.log 2>/dev/null | tail -20 \
+             || sudo cat /var/log/ai-tools/stop.log 2>/dev/null | tail -20)"
+    if grep -q "${ME}" <<<"${TRAIL}"; then
+        pass "the trail names the operator who asked for the stop"
+        printf '%s\n' "${TRAIL}" | tail -6 | sed 's/^/        /'
+    else
+        fail "the stop trail does not name ${ME} (or is unreadable)"
+    fi
 fi
 
 # ── summary ──────────────────────────────────────────────────────────────────────────────────
