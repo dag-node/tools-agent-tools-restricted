@@ -24,7 +24,8 @@ secrets and every principal sources it). It exposes `ai_tools_log <level>` and
   `600 root:root`: the root helpers append as root, while `SANDBOX_USER` — neither the dir
   owner nor able to traverse a `700` dir — can neither read nor tamper with the trail. That
   keeps the secret filenames `ai-tools-chown` records out of the agent's reach. The files
-  are `chown.log`, `setgid.log`, `setfacl.log`, `symlink.log`, `lockdown.log`,
+  are `chown.log`, `setgid.log`, `setfacl.log`, `unclaim.log`, `safedir.log`, `allowlist.log`,
+  `symlink.log`, `lockdown.log`,
   `relabel.log`, `dotnet.log`, `handback.log`, and `install.log`. Most are written through this library
   by the root helpers; `handback.log` is the exception — the socket daemon
   (`ai-tools-handback`, root, Python) writes it directly (not through this library, which it
@@ -61,7 +62,13 @@ to. Where a journald line and the file sink disagree, the file sink is what happ
 
 `tests/boundary/access.sh` asserts the separation from the agent's side: a line the sandbox
 account writes under a root helper's tag lands under the sandbox uid and is absent from the same
-tag at `_UID=0`.
+tag at `_UID=0`. It also asserts the asymmetry the trail depends on — the agent can append but
+cannot unmake: journal storage refuses it a new file, none of its files is agent-writable, and
+`journalctl`'s destructive verbs (`--vacuum-time`, `--rotate`) fail for that account.
+
+**The reader for these trails is `ai-tools --audit`** (see [cli](cli.rule.md)). It reports the
+file sink as evidence and the sandbox-written launch refusals separately, which is this
+distinction made operational rather than left to whoever runs the query.
 
 What is logged is a caller convention, not enforced by the library: the privileged
 operations the hooks and helpers perform, the CLI's workflow milestones (project/sandbox

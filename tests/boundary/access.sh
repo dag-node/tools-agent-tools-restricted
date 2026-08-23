@@ -391,6 +391,30 @@ else
     fi
 fi
 
+# ── the audit reader and the trail it reports are out of reach ───────────────────────────────
+# `ai-tools --audit` presents the root-only file sink as EVIDENCE, and that claim rests on this
+# vantage: the sandbox account can neither read the trail (so it cannot know what an operator is
+# about to be shown) nor write it (so it cannot plant or erase a finding), and cannot run or
+# alter the reader itself. Asserted from the agent's side, because that is the side the claim is
+# about.
+_audit_bin=/usr/local/libexec/ai-tools/ai-tools-audit
+if [[ ! -x "${_audit_bin}" ]]; then
+    skip "audit reader out of reach" "${_audit_bin} not installed"
+else
+    _audit_breach=""
+    runuser -u "${SANDBOX_USER}" -- test -r /var/log/ai-tools 2>/dev/null \
+        && _audit_breach="the agent can read the root-only trail directory"
+    runuser -u "${SANDBOX_USER}" -- test -w "${_audit_bin}" 2>/dev/null \
+        && _audit_breach="the agent can write ${_audit_bin}"
+    runuser -u "${SANDBOX_USER}" -- test -x "${_audit_bin}" 2>/dev/null \
+        && _audit_breach="the agent can execute ${_audit_bin}"
+    if [[ -n "${_audit_breach}" ]]; then
+        fail "the audit trail is not out of the agent's reach: ${_audit_breach}"
+    else
+        pass "the agent can neither read the audit trail nor run or alter its reader"
+    fi
+fi
+
 # ── the trail is append-only to the agent ────────────────────────────────────────────────────
 # The tool-call record's whole value rests on one asymmetry: the agent WRITES the trail (the
 # hooks run as the sandbox account, so it must be able to) but cannot go back and remove a line

@@ -175,6 +175,23 @@ integration is enabled under Enforcing but the
 .B tmpmap
 group that its build needs is not loaded.
 .TP
+.B \-\-audit \fR[\fB\-\-since\fI when\fR]
+Report what has refused, been rejected, been stranded, or been flagged since a given
+time \(em the detections the sandbox already records but that nothing previously read
+back. Needs
+.BR sudo :
+the trail it reads is
+.I /var/log/ai\-tools/*.log
+at
+.BR "700 root:root" ,
+which the sandbox account can neither read nor append to, so those lines are evidence.
+Launch refusals are reported in a section of their own, because
+.B ai\-tools\-run
+runs as the sandbox account and can reach only journald \(em they are the session's own
+account of itself, to reconcile against the trail above rather than to rely on alone.
+Exits non-zero when anything is reported, so it can be run unattended from a cron job
+or a login banner without parsing its output.
+.TP
 .B \-\-status
 Report ai-tools health: the installed version, whether the toolchain is provisioned,
 each managed systemd unit \(em the handback socket, the relabel watcher, and the
@@ -216,6 +233,21 @@ list every path that would change, with ownership and mode, and change nothing.
 A registered project's unclaim previews itself, so this pairs with
 .B \-\-force
 only.
+.TP
+.B \-\-since \fIwhen\fR
+For
+.BR \-\-audit :
+the start of the reporting window \(em anything
+.BR date (1)
+parses, such as
+.RB \(oq "2 days ago" \(cq,
+.RB \(oq yesterday \(cq
+or
+.RB \(oq 2026\-08\-01 \(cq.
+Defaults to 7 days ago. A value
+.BR date (1)
+cannot parse is refused rather than treated as \(lqeverything\(rq, so a typo does not
+silently become a reassuring wall of old findings.
 .TP
 .B \-\-full
 For

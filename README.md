@@ -324,6 +324,28 @@ its whole lifetime by design.
 
 ## Operation logging
 
+Start here — one command answers "has anything gone wrong lately?":
+
+    sudo ai-tools --audit                      # findings in the last 7 days
+    sudo ai-tools --audit --since '2 days ago' # any window date(1) understands
+
+It reads the trails below and reports what refused, was rejected, was stranded, or was
+flagged — a breached secret, a rejected socket peer, a helper timeout, a refused launch. It
+exits non-zero when anything is reported, so it works from cron or a login banner without
+parsing its output. Findings from the root-only files and refusals from the session's own
+journald tag are reported **separately**, because only the first is a trail the agent cannot
+write.
+
+Every tool call a session makes is recorded too, one line each:
+
+    sudo journalctl -t ai-tools-hook _UID="$(id -u ai-tools)"   # what the agent ran and wrote
+    sudo journalctl -t ai-tools-hook -o json _UID="$(id -u ai-tools)" | jq  # structured fields
+
+A `Bash` record carries the command's leading two words and its argument count — never the
+command line, which through a here-doc would carry file contents. The same facts are also
+emitted as native journald fields (`AI_TOOLS_TOOL`, `AI_TOOLS_CMD`, `AI_TOOLS_ARGC`,
+`AI_TOOLS_PATH`), so a journal ingester can select on them without re-parsing the message.
+
 Two sinks — **journald** (all components) and **`/var/log/ai-tools/`** (root helpers
 only, `700 root:root`). Query journald by component **and by the writer's uid**:
 
@@ -346,7 +368,8 @@ neither read nor append to it.
 The handback daemon keeps a per-request audit line — the peer PID, the verb, the path, and
 the helper result — plus a `WARNING` for every rejected peer or malformed request, so each
 privileged action is attributable at the socket layer. Root-only log files: `chown.log`,
-`setgid.log`, `symlink.log`, `lockdown.log`, `handback.log`, `install.log`.
+`setgid.log`, `setfacl.log`, `unclaim.log`, `safedir.log`, `allowlist.log`, `symlink.log`,
+`lockdown.log`, `relabel.log`, `dotnet.log`, `handback.log`, `install.log`.
 
 ## SELinux
 

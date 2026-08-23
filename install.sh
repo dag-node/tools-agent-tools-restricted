@@ -590,6 +590,7 @@ do_summary() {
     _chk /usr/local/libexec/ai-tools/ai-tools-safedir
     _chk /usr/local/libexec/ai-tools/ai-tools-reclaim
     _chk /usr/local/libexec/ai-tools/ai-tools-allowlist
+    _chk /usr/local/libexec/ai-tools/ai-tools-audit
     _chk /usr/local/libexec/ai-tools/ai-tools-launcher-symlink
     _chk /usr/local/libexec/ai-tools/ai-tools-lockdown
     _chk /usr/local/libexec/ai-tools/ai-tools-relabel
@@ -808,6 +809,11 @@ do_install() {
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh" \
         /usr/local/libexec/ai-tools/ai-tools-allowlist
+
+    log "/usr/local/libexec/ai-tools/ai-tools-audit"
+    install_subst 750 root root \
+        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-audit.sh" \
+        /usr/local/libexec/ai-tools/ai-tools-audit
 
     log "/usr/local/libexec/ai-tools/ai-tools-launcher-symlink"
     install_subst 750 root root \

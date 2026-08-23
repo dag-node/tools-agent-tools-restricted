@@ -291,4 +291,79 @@ if command -v runuser >/dev/null 2>&1; then
     fi
 fi
 
+# ── --audit: the reader for the refusal trails ───────────────────────────────────────────────
+# Driven against the deployed helper directly rather than through `ai-tools --audit`, because the
+# CLI reaches it via sudo with no NOPASSWD rule and would prompt for a password. The helper is
+# where every decision lives (the CLI is a pass-through that propagates its exit status), and
+# AI_TOOLS_LOG_DIR -- the same root-only hook the harness already uses -- points it at a seeded
+# throwaway trail instead of the production one. Root-only, so this needs the suite's root.
+section "ai-tools --audit reads the refusal trails"
+audit_bin=/usr/local/libexec/ai-tools/ai-tools-audit
+if [[ ! -x "${audit_bin}" ]]; then
+    skip "--audit" "${audit_bin} not installed"
+else
+    audit_dir="${TESTDIR}/audit-trail"
+    mkdir -p "${audit_dir}"
+    audit_now="$(date -Is)"
+    audit_old="$(date -Is -d '30 days ago')"
+    # One finding per level that counts, one INFO that must not, and one line older than any
+    # window this test asks for.
+    {
+        printf '%s INFO    [1] restored ownership of /tmp/x (routine, must NOT be reported)\n' "${audit_now}"
+        printf '%s NOTICE  [1] NOTICE: secret-named file written by agent considered breached: /p/.env\n' "${audit_now}"
+        printf '%s ERROR   [1] AUDIT-OLD-MARKER outside every window under test\n' "${audit_old}"
+    } > "${audit_dir}/chown.log"
+    printf '%s WARNING [2] rejected peer uid=1234 (not the sandbox account)\n' "${audit_now}" \
+        > "${audit_dir}/handback.log"
+
+    # (1) Findings present -> reported, and the exit status is non-zero so cron//etc/profile.d
+    #     can act on it without parsing the output.
+    out="$(AI_TOOLS_LOG_DIR="${audit_dir}" "${audit_bin}" --since '2 days ago' 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -q 'breached' <<<"${out}" && grep -q 'rejected peer' <<<"${out}"; then
+        pass "--audit reports findings from every root-only log and exits non-zero"
+    else
+        fail "--audit did not report the seeded findings (rc=${rc}): ${out}"
+    fi
+
+    # (2) Severity is the selector, so routine INFO churn must not surface. An audit command
+    #     that reports every ownership restore is one an operator stops reading.
+    if grep -q 'must NOT be reported' <<<"${out}"; then
+        fail "--audit reported an INFO line -- the severity floor is not being applied"
+    else
+        pass "--audit reports NOTICE and above only (routine INFO churn stays out)"
+    fi
+
+    # (3) The window is honoured: a finding older than --since is out of scope.
+    if grep -q 'AUDIT-OLD-MARKER' <<<"${out}"; then
+        fail "--audit reported a finding older than --since -- the window is not applied"
+    else
+        pass "--audit honours --since (an older finding is out of the window)"
+    fi
+
+    # (4) A clean window exits zero, so a healthy host does not alarm every night.
+    out="$(AI_TOOLS_LOG_DIR="${audit_dir}" "${audit_bin}" --since '+1 hour' 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -eq 0 ]] && grep -qi 'nothing refused' <<<"${out}"; then
+        pass "--audit exits zero and says so when the window holds no findings"
+    else
+        fail "--audit did not report a clean window (rc=${rc}): ${out}"
+    fi
+
+    # (5) An unparseable --since is REFUSED, never widened to "everything": a typo that silently
+    #     reported all of history would read as a catastrophe, and one that silently reported
+    #     nothing would read as all-clear. Both are worse than an error.
+    out="$(AI_TOOLS_LOG_DIR="${audit_dir}" "${audit_bin}" --since 'not a date' 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'not understood' <<<"${out}"; then
+        pass "--audit refuses a --since value date(1) cannot parse"
+    else
+        fail "--audit accepted an unparseable --since (rc=${rc}): ${out}"
+    fi
+
+    # (6) The verb is declared in the CLI's own help, which the man page is checked against.
+    if ai-tools --help 2>&1 | grep -q -- '--audit'; then
+        pass "ai-tools --help documents --audit"
+    else
+        fail "ai-tools --help does not mention --audit"
+    fi
+fi
+
 finish
