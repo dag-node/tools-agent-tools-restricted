@@ -21,8 +21,10 @@
 #
 # Scoped precisely, because the weaker claim is the true one: this does NOT survive a broken
 # coreutils, and does not pretend to. `id` resolves the account, `realpath` canonicalizes a scoped
-# target, `date` timestamps the fallback log line, and `logger`, `systemctl` and `sudo` serve
-# logging and attribution. Every one of those is outside the kill path or best-effort within it;
+# target, `date` timestamps the fallback log line, and `logger`, `timeout`, `systemctl` and `sudo`
+# serve logging and attribution -- the last two under `timeout`, since a stop that hangs while
+# attributing sessions is a stop that did not happen. Every one of those is outside the kill path
+# or best-effort within it;
 # what the file guarantees is independence from THIS PROJECT's libraries, not from the base system.
 #
 # The one seam kept: the SCOPED form authorizes against the caller's allowlist, and that matcher
@@ -667,11 +669,19 @@ end_session() {
 # system bus already authorizes it, whereas `sudo -u` needs that account's own bus to accept the
 # connection, which a host can refuse while the manager is healthy. A failure here costs
 # attribution and nothing else.
+#
+# BOUNDED IN TIME, because "the user manager is wedged" is not a hypothetical here -- it is one of
+# the states an operator reaches for this command IN. A d-bus call to a hung manager blocks
+# indefinitely, and a stop that hangs while attributing sessions is a stop that did not happen,
+# which is the one outcome this file exists to prevent. Both calls therefore run under a short
+# `timeout`, and every way that can fail -- the manager not answering, `timeout` itself absent --
+# yields no attribution, which refuses the SCOPED form and sends the operator to --all. --all needs
+# no attribution at all, so the undeclinable form cannot be delayed by this at all.
 unit_working_directory() {
     local raw
-    raw="$(systemctl --user -M "${SANDBOX_USER}@.host" show --property=WorkingDirectory "$1" 2>/dev/null)"
+    raw="$(timeout 5 systemctl --user -M "${SANDBOX_USER}@.host" show --property=WorkingDirectory "$1" 2>/dev/null)"
     if [[ -z "${raw}" ]]; then
-        raw="$(sudo -u "${SANDBOX_USER}" XDG_RUNTIME_DIR="/run/user/${SANDBOX_UID}" \
+        raw="$(timeout 5 sudo -n -u "${SANDBOX_USER}" XDG_RUNTIME_DIR="/run/user/${SANDBOX_UID}" \
                    systemctl --user show --property=WorkingDirectory "$1" 2>/dev/null)"
     fi
     raw="${raw#WorkingDirectory=}"
