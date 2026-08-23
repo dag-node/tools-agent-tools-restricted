@@ -116,6 +116,10 @@
           {
             "type": "command",
             "command": "/opt/ai-tools/.claude/filter-hook.sh post-tool-use"
+          },
+          {
+            "type": "command",
+            "command": "/opt/ai-tools/.claude/post-tool-hook.sh record"
           }
         ]
       }
