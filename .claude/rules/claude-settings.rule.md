@@ -9,9 +9,10 @@ paths:
 `settings.json` is the agent session's Claude Code configuration. It declares the
 ownership hooks (covered in [ownership-and-hooks](ownership-and-hooks.rule.md)), the
 token-saving filter hook on both `Bash` events (covered in [filters](filters.rule.md)), the
-Bash-tool permission rules, a privacy `env` block, and the auto-mode default. This rule
-covers the **permission rules** and how they couple to the SELinux policy, the **`env`
-privacy default**, and the **`disableAutoMode`** default. The catalog of other Claude Code
+Bash-tool permission rules, an `env` block, the auto-mode default, and the observability
+defaults. This rule covers the **permission rules** and how they couple to the SELinux policy,
+the **`env` block**, the **observability defaults**, and the **`disableAutoMode`** default. The
+catalog of other Claude Code
 options an operator MAY add — and which are set elsewhere — is in
 [`docs/claude-options.md`](../../docs/claude-options.md).
 
@@ -167,13 +168,16 @@ keep-existing install and `%config(noreplace)` on upgrade — are also the paths
 settings.json predating them, or edited in the permission arrays it invites tuning of,
 silently loses the gate.
 
-## `env` — the privacy default
+## `env` — the privacy and output defaults
 
-The top-level `env` block applies environment variables to every session. It ships one
-entry:
+The top-level `env` block applies environment variables to every session. It ships two
+entries:
 
 ```json
-"env": { "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1" }
+"env": {
+  "CLAUDE_CODE_MAX_OUTPUT_TOKENS": 131072,
+  "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+}
 ```
 
 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` opts the session out of all non-essential
@@ -183,9 +187,32 @@ outbound traffic in one variable: it subsumes `DISABLE_TELEMETRY`,
 individually. The essential Anthropic API traffic the agent needs is unaffected, as is the
 WebFetch domain safety check (which has its own `skipWebFetchPreflight` opt-out, left on).
 
-It lives here rather than in `ai-tools-run`'s allowlist because it is Claude Code product
+`CLAUDE_CODE_MAX_OUTPUT_TOKENS=131072` sets the per-response output-token cap a session
+requests. It shapes response length and cost, not authority — a capped and an uncapped session
+may do exactly the same things.
+
+Both live here rather than in `ai-tools-run`'s allowlist because they are Claude Code product
 policy, not confinement structure — Claude Code's own config surface, beside the permission
 and hook declarations. Layering and override are under "Control-plane integrity" below.
+
+## `showThinkingSummaries` and `verbose` — the observability defaults
+
+```json
+"showThinkingSummaries": true,
+"verbose": true
+```
+
+Both put more of a session in front of the operator watching it: `showThinkingSummaries` re-shows
+the thinking blocks Claude Code hides by default, and `verbose` shows Bash and command output in
+full rather than truncated. They cost terminal space and nothing else — the session's authority is
+identical either way — and what they buy is that the operator confirming an action sees the
+reasoning that produced it and the output it produced, which is the difference between approving a
+command string and approving what the command did.
+
+They are the operator-side complement to `disableAutoMode` below: that key decides *whether* a
+human is asked, these decide *how much* that human is shown. The catalog of the other UI and
+behavior keys an operator MAY add is in
+[`docs/claude-options.md`](../../docs/claude-options.md).
 
 ## `disableAutoMode` — confirm-by-default
 
@@ -230,11 +257,12 @@ in the agent-writable project tree. The layers compose differently per setting:
 - The **deny rules** and **hook declarations** merge additively across every layer — a
   deny from any source wins over any allow, and project hooks add to rather than replace
   these — so a project layer cannot remove them. They hold for the whole session.
-- The **`env` privacy default** and **`disableAutoMode`** are single-valued: a
-  higher-precedence project layer overrides them per key — control-plane defaults, not
-  locks. Neither is a containment boundary (telemetry is not one, and `disableAutoMode`
-  only removes confirmation prompts; the session's confinement is unchanged either way), so
-  a lock is unneeded. The one unoverridable layer, managed policy
+- The **`env` block**, the **observability defaults**, and **`disableAutoMode`** are
+  single-valued: a higher-precedence project layer overrides them per key — control-plane
+  defaults, not locks. None is a containment boundary (telemetry and an output cap are not
+  one, the observability keys only change how much is displayed, and `disableAutoMode` only
+  removes confirmation prompts; the session's confinement is unchanged either way), so a lock
+  is unneeded. The one unoverridable layer, managed policy
   (`/etc/claude-code/managed-settings.json`), is machine-wide — it applies to every Claude
   Code user on the host — so the sandbox does not ship it.
 

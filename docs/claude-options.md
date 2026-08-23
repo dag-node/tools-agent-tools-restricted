@@ -32,7 +32,10 @@ applies to every Claude Code user on the host, not only the sandbox account.
 | Option | Value | Where | Purpose |
 |---|---|---|---|
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | `1` | `settings.json` `env` | Opts out of telemetry, error reporting, `/feedback` upload, and the quality survey in one variable. |
+| `CLAUDE_CODE_MAX_OUTPUT_TOKENS` | `131072` | `settings.json` `env` | Per-response output-token cap. Shapes response length and cost, not what a session may do. |
 | `disableAutoMode` | `"disable"` | `settings.json` | Removes `auto` from the `Shift+Tab` cycle and rejects `--permission-mode auto`, so a session confirms actions rather than acting autonomously. |
+| `showThinkingSummaries` | `true` | `settings.json` | Re-shows the thinking blocks Claude Code hides by default, so the operator confirming an action sees the reasoning behind it. |
+| `verbose` | `true` | `settings.json` | Shows Bash and command output in full rather than truncated. |
 | `DISABLE_AUTOUPDATER` | `1` | `ai-tools-run` `--setenv` | The agent's Node tree is not agent-writable; updates run out-of-band via the toolchain updater. |
 | `HOME`, `PATH`, `CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE`, `SHELL` | sandbox paths | `ai-tools-run` `--setenv` | Structural pins coupled to the sandbox layout — do not override. |
 | `TERM`, `COLORTERM`, `LANG`/`LC_*`, `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`, `XDG_RUNTIME_DIR` | forwarded from operator | `ai-tools-run` `--setenv` | Terminal, locale, and outbound-proxy shaping imported by name from the operator's environment. |
@@ -56,7 +59,7 @@ breaks the session layout.
 |---|---|
 | `ANTHROPIC_MODEL` | Override the default model (e.g. `claude-opus-4-8`). |
 | `CLAUDE_CODE_SUBAGENT_MODEL` | Separate model for subagents — the main cost lever (pair an Opus main with a Haiku/Sonnet subagent). |
-| `CLAUDE_CODE_MAX_OUTPUT_TOKENS` | Cap output length per response. |
+| `CLAUDE_CODE_MAX_OUTPUT_TOKENS` | Cap output length per response. Shipped at `131072`; a project entry overrides that value. |
 | `model` (key) | Default-model override as a settings key rather than an env var. |
 
 ### Privacy and cost
@@ -99,8 +102,8 @@ Often the fix when a Bash or MCP call hangs.
 | `CLAUDE_CODE_DISABLE_TERMINAL_TITLE` | Leave the terminal title unchanged. |
 | `CLAUDE_CODE_HIDE_CWD` | Hide the working directory in the startup banner. |
 | `USE_BUILTIN_RIPGREP` | Use the bundled ripgrep instead of a system one. |
-| `showThinkingSummaries` (key) | `true` re-shows thinking blocks (hidden by default since 2.1.69). |
-| `verbose` (key) | Show full Bash and command output. |
+| `showThinkingSummaries` (key) | `true` re-shows thinking blocks (hidden by default since 2.1.69). Shipped `true`; set `false` in a project layer to turn it off. |
+| `verbose` (key) | Show full Bash and command output. Shipped `true`; set `false` in a project layer to turn it off. |
 
 ### Behavior
 
