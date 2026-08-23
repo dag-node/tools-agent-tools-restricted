@@ -1,4 +1,7 @@
-# Highly Capable Systems Governance Framework v0.2
+# Highly Capable Systems Governance Framework v0.1
+
+**Draft.** Clause numbering is provisional and moves between drafts, so a consumer applies an
+obligation rather than citing its number.
 
 The normative reference for the `ai-tools-capable-systems-governance` skill. `SKILL.md` is the
 working guidance; this file holds the clause-level obligations, the definitions the clauses depend

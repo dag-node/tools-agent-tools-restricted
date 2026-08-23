@@ -23,8 +23,9 @@ One rule binds them: **a control the system can decline, disable, or route aroun
 Everything below is an application of it.
 
 Full normative text, with the clause-level obligations and the term definitions:
-`references/framework.md`. Read it when drafting or auditing an actual governance model; this file
-is the working guidance.
+`references/framework.md` — **framework v0.1, draft**, whose clause numbering is provisional: apply
+an obligation, do not cite its number. Read it when drafting or auditing an actual governance
+model; this file is the working guidance.
 
 ## Proportionality: how much of this applies
 
