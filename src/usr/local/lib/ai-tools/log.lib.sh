@@ -9,10 +9,15 @@
 #
 #   journald  -- ALWAYS. Each line goes to the systemd journal via logger(1) with a
 #                per-component SyslogIdentifier (AI_TOOLS_LOG_TAG) and a syslog
-#                priority matching the level, so `journalctl -t ai-tools-chown -p
-#                warning` (and friends) just work. This is the universal sink: it is
+#                priority matching the level, so `journalctl -t ai-tools-chown _UID=0
+#                -p warning` (and friends) just work. This is the universal sink: it is
 #                writable by the NON-root components (the hooks run as the agent, the
-#                CLI as the projects user) which cannot write the root-only file logs.
+#                CLI as the projects user) which cannot write the root-only file logs --
+#                and that is why a query names the writer's _UID as well as the tag. The
+#                tag is chosen by whoever writes the line and ANY account reaching
+#                /dev/log can write under ANY tag; _UID comes from the sender's kernel
+#                credentials and cannot be set by the sender. Detail, and the per-tag
+#                uid map: .claude/rules/logging.rule.md.
 #
 #   file      -- OPTIONALLY, when the caller set AI_TOOLS_LOG_FILE to a basename under
 #                /var/log/ai-tools (root:root 700, files 600). Only the root writers

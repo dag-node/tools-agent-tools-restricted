@@ -353,7 +353,12 @@ leans on (nologin shell, locked password, non-membership in `ai-ops`). It also a
 cannot write the **pin**, the pin directory, the shipped signing key, or the verifier library — the
 inputs that decide what a verified checksum is — so it can neither record nor authorise a checksum
 for a binary it modified. Those are root-owned files, so they are DAC facts and this vantage sees
-them. `providers.sh` asserts
+them. Its one assertion that is not a permission check is the journald one: it *writes* a line as
+the agent under a root helper's syslog tag and asserts journald files it under the sandbox uid and
+not under `_UID=0`. That is the boundary half of the documented query form (see
+[logging](logging.rule.md)) — the forgery is reachable, and what makes it separable is the uid the
+sender cannot set, not the tag. A host with no journald skips: an absent line proves nothing.
+`providers.sh` asserts
 the deployed half of "the sandbox cannot widen its own surface": none of `operator.conf`,
 `conf.lib.sh`, `providers.lib.sh`, the three provider directories, the manifests and fragments
 in them, or the `ai-tools-run` shim and the `bin` directory holding it is agent-writable, while
