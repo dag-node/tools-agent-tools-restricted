@@ -128,6 +128,12 @@ readonly ALLOWLIST_BIN="/usr/local/libexec/ai-tools/ai-tools-allowlist"
 # Reader for the refusal/rejection trails (--audit). Root-only, since the trail it reads is
 # 700 root:root; no NOPASSWD rule, so sudo prompts like the other per-project helpers.
 readonly AUDIT_BIN="/usr/local/libexec/ai-tools/ai-tools-audit"
+# Session-stop helper (--stop). Root-only, since a session is a transient unit in the sandbox
+# account's own `systemd --user` manager, which no operator can reach; no NOPASSWD rule, so sudo
+# prompts like the other root helpers. It authorizes a scoped stop against the CALLER'S OWN
+# allowed-projects -- an input the sandbox account can neither read nor write -- and takes no
+# authorization input at all for --all.
+readonly STOP_BIN="/usr/local/libexec/ai-tools/ai-tools-stop"
 # Sentinel in a guard CLAUDE.md (see drop_lockdown_guard) so the lockdown step can
 # recognise and remove its own placeholder once secrets are secured.
 readonly GUARD_MARKER="ai-tools-lockdown-guard"
