@@ -111,4 +111,81 @@ else
     fail "daemon _sanitize violated the allowlist contract on the shared vectors"
 fi
 
+# ── structured journal fields ────────────────────────────────────────────────────────────────
+# ai_tools_log_structured carries the machine-readable half of a record (logging.rule.md). Its
+# security claim is narrow and worth pinning exactly: a FIELD cannot forge a sibling field, and
+# a caller cannot claim journald's trusted namespace. logger(1) is stubbed as a shell function
+# so the entry is captured instead of sent; the stub writes to a file because the real call is
+# the tail of a pipeline and therefore runs in a subshell.
+section "logger: structured journal fields (unit)"
+if ! declare -F ai_tools_log_structured >/dev/null; then
+    skip "structured logging" "installed log.lib.sh predates ai_tools_log_structured"
+else
+    _cap="$(mktemp)"; _cleanup+=("${_cap}")
+    logger() {
+        if [[ "${1:-}" == "--journald" ]]; then cat > "${_cap}"; return 0; fi
+        { printf 'PLAIN-FALLBACK'; printf ' %s' "$@"; printf '\n'; } > "${_cap}"; return 0
+    }
+
+    AI_TOOLS_LOG_TAG="ai-tools-unit-test"
+    # A newline inside a value is the forgery vector the newline-delimited protocol invites: if
+    # it survived, the text after it would parse as a field of its own.
+    ai_tools_log_structured info "a structured message" \
+        AI_TOOLS_TOOL=Bash \
+        AI_TOOLS_CMD="$(printf 'evil\nAI_TOOLS_TOOL=forged')" \
+        _UID=0 _SYSTEMD_USER_UNIT=forged.service \
+        lowercase=x "BAD NAME=y" NOEQUALSSIGN
+    _entry="$(cat "${_cap}")"
+
+    # (1) The envelope and a well-formed field arrive.
+    if grep -qx 'MESSAGE=a structured message' <<<"${_entry}" \
+            && grep -qx 'SYSLOG_IDENTIFIER=ai-tools-unit-test' <<<"${_entry}" \
+            && grep -qx 'PRIORITY=6' <<<"${_entry}" \
+            && grep -qx 'AI_TOOLS_TOOL=Bash' <<<"${_entry}"; then
+        pass "a structured record carries its MESSAGE, identifier, priority and fields"
+    else
+        fail "the structured entry lost its envelope or a valid field: $(hx "${_entry}")"
+    fi
+
+    # (2) THE CLAIM. A newline in a value must not become a second field. Asserted as an
+    #     anchored line match, which is exactly how a journal consumer would read a forged one.
+    if grep -qx 'AI_TOOLS_TOOL=forged' <<<"${_entry}"; then
+        fail "a newline inside a field value forged a sibling field -- the structured record's shape is not safe"
+    else
+        pass "a newline inside a field value cannot forge a sibling field"
+    fi
+
+    # (3) journald's trusted namespace is refused. A sender cannot set _UID or
+    #     _SYSTEMD_USER_UNIT in any case -- they are what makes a line attributable -- so the
+    #     point of refusing here is that a caller never believes it set one.
+    if grep -qE '^_(UID|SYSTEMD_USER_UNIT)=' <<<"${_entry}"; then
+        fail "a leading-underscore field reached the entry -- the trusted-field namespace is not refused"
+    else
+        pass "fields in journald's trusted _-namespace are refused, never emitted"
+    fi
+
+    # (4) A malformed name drops that field and keeps the rest: a bad label must not cost the
+    #     record. (1) already asserted the valid field survived alongside these.
+    if grep -qE '^(lowercase|BAD|NOEQUALSSIGN)' <<<"${_entry}"; then
+        fail "a malformed field name was emitted: $(hx "${_entry}")"
+    else
+        pass "a malformed field name is dropped without costing the record"
+    fi
+
+    # (5) A host whose logger(1) predates --journald must still get the line, through the plain
+    #     path. Structured logging is an enhancement; losing it must never lose the record.
+    logger() {
+        if [[ "${1:-}" == "--journald" ]]; then return 1; fi
+        { printf 'PLAIN-FALLBACK'; printf ' %s' "$@"; printf '\n'; } > "${_cap}"; return 0
+    }
+    ai_tools_log_structured warning "fallback message" AI_TOOLS_TOOL=Bash
+    if grep -q 'PLAIN-FALLBACK' "${_cap}" && grep -q 'fallback message' "${_cap}"; then
+        pass "a logger(1) without --journald falls back to the plain path, keeping the record"
+    else
+        fail "the record was lost when --journald was unavailable: $(hx "$(cat "${_cap}")")"
+    fi
+
+    unset -f logger
+fi
+
 finish

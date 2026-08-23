@@ -51,7 +51,12 @@ readonly HANDBACK_CLIENT="/usr/local/bin/ai-tools-handback-client"
 # audit trail, so they are named and stated here rather than buried as literals inside
 # the jq program below. Widening either widens what the trail carries; the reasoning
 # for the current values is in format_tool_call_record and pinned in logging.rule.md.
-readonly MAX_RECORDED_WORD_LENGTH=32
+# 128 rather than a tighter figure because a PATH is the common second word (`cd <dir>`,
+# `mkdir <dir>`, `dotnet build <proj>`) and a cap that truncates one mid-directory removes
+# exactly the part that identifies it. This is not the bound that matters -- first-line-two-words
+# already bounds the record structurally -- it is the backstop for a single pathological word
+# with no whitespace in it, such as a base64 blob, so it needs only to be finite.
+readonly MAX_RECORDED_WORD_LENGTH=128
 readonly RECORDED_LEADING_WORD_COUNT=2
 
 # The unit separator (0x1F) joining the parts format_tool_call_record prints. Every value is
@@ -97,10 +102,14 @@ readonly RECORD_FIELD_SEPARATOR=$'\037'
 # excluding `=` 0x3D).
 #
 # The structured FIELDS need none of that narrowing: journald's native protocol delimits each
-# field itself, so a value cannot forge a sibling and needs no escaping. They therefore carry
-# the faithful value -- a path with a space stays a path with a space -- and the shared logger
-# applies its display allowlist to each on the way out. The MESSAGE is the lossy human view;
-# the fields are the faithful machine one.
+# field itself, so a value cannot forge a sibling and needs no escaping. They therefore keep
+# what the MESSAGE reduces -- a path with a space stays a path with a space, where the MESSAGE
+# shows `?` -- and the shared logger applies its display allowlist to each on the way out. The
+# MESSAGE is the lossy human view; the fields are the faithful machine one.
+#
+# The length cap is the one reduction BOTH renderings take, since it bounds a pathological word
+# rather than the record's shape: AI_TOOLS_CMD is capped like the MESSAGE's copy of it, while
+# AI_TOOLS_PATH is not capped at all (a file path is already bounded by PATH_MAX).
 #
 # Extraction runs inside jq rather than the shell, so an unbounded here-doc body is never
 # assigned to a shell variable on its way to being discarded.

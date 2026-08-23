@@ -122,8 +122,8 @@ agent's own **actions** — every other trail in this system records a privilege
 performed on the operator's behalf, or the fact that a session started.
 
 ```
-tool=Bash  cwd=/home/xd/project  cmd="git log" argc=4
-tool=Write cwd=/home/xd/project  path=/home/xd/project/src/main.c
+tool=Bash  cwd=/home/<you>/project  cmd="git log" argc=4
+tool=Write cwd=/home/<you>/project  path=/home/<you>/project/src/main.c
 ```
 
 **Each record is written twice over, in one journal entry.** The line above is the `MESSAGE`,
@@ -151,7 +151,7 @@ namespace journald reserves for the trusted fields it stamps itself — a sender
 regardless, and refusing them here means a caller never believes it did.
 
 **The content bound is fixed and is not to be widened.** For a `Bash` call the record carries
-the first **two** words of the command's **first line**, each capped at 32 characters (a longer
+the first **two** words of the command's **first line**, each capped at 128 characters (a longer
 one marked `~`), plus the count of words on that line — never the command line itself. Taking
 only the first line excludes a here-doc body by construction rather than by a length cap: `cat >
 f <<'EOF'` followed by a credential records `cmd="cat >" argc=4` and nothing of the payload. A
@@ -171,9 +171,16 @@ the line's shape unforgeable while leaving it readable, and the variable-length 
 **last**, so nothing the agent controls precedes a field a reader trusts.
 
 The **structured fields need none of that narrowing** — the protocol delimits them — so they
-carry the faithful value: a path containing a space stays a path containing a space, where the
-`MESSAGE` shows `?`. The `MESSAGE` is the lossy human view; the fields are the faithful machine
-one, and a consumer that needs the exact bytes reads the field. The shared display allowlist
+keep what the `MESSAGE` reduces: a path containing a space stays a path containing a space, where
+the `MESSAGE` shows `?`. The `MESSAGE` is the lossy human view; the fields are the faithful
+machine one, and a consumer that needs the exact bytes reads the field.
+
+The **length cap is the one reduction both renderings take**, because it bounds a pathological
+word rather than the record's shape: `AI_TOOLS_CMD` is capped like the `MESSAGE`'s copy of it,
+while `AI_TOOLS_PATH` is not capped at all, a file path being bounded by `PATH_MAX` already. The
+cap is deliberately generous — a path is the common second word, and one truncated
+mid-directory loses exactly what identifies it — since the record is already bounded
+structurally by first-line-two-words, and the cap only has to be finite. The shared display allowlist
 applies to both on the way out and remains the backstop beneath the narrower one.
 
 **A gap in the trail announces itself.** A call whose event cannot be parsed is recorded at
