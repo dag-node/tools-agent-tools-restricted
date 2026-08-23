@@ -2134,6 +2134,43 @@ cmd_audit() {
     sudo "${AUDIT_BIN}" "$@"
 }
 
+# cmd_stop -- end running agent sessions, in one project or on the whole host. Thin by design: the
+# helper owns the decisions, because every one of them is a security decision that must not be
+# re-implemented on the unprivileged side. It authorizes a scoped stop against the caller's own
+# allowed-projects (read as root -- an allowlist is 0600 in a 0700 directory), so nothing is
+# pre-checked here that the helper would only have to check again; a refusal arrives from the one
+# place that can make it, naming --all, which needs no authorization at all.
+#
+# The helper's EXIT STATUS propagates, and its codes carry information a caller acts on: 1 means a
+# process survived SIGKILL, 3 refused, 4 declined at the confirmation, 5 the helper could not run.
+cmd_stop() {
+    local target="" argument stop_all=false; local -a passthru=()
+    for argument in "$@"; do
+        case "${argument}" in
+            --all)   stop_all=true; passthru+=("${argument}") ;;
+            -n|--dry-run|-y|--yes|--force) passthru+=("${argument}") ;;
+            -*)      die "unknown --stop option: ${argument}" \
+                         "allowed: --all, --dry-run/-n, --yes/-y, --force" ;;
+            *)       if [[ -z "${target}" ]]; then target="${argument}"
+                     else die "--stop takes a single path"; fi ;;
+        esac
+    done
+    command -v sudo >/dev/null 2>&1 \
+        || die "sudo not found -- a session runs in the sandbox account's cgroups, which only root can signal" \
+               "run as root: ${STOP_BIN}"
+    if ${stop_all}; then
+        [[ -z "${target}" ]] || die "--stop --all takes no path: it ends every session on this host"
+        sudo "${STOP_BIN}" "${passthru[@]}"
+        return
+    fi
+    # Resolved here so the helper is always handed an absolute, existing path -- it refuses a
+    # relative one, since the same command must not mean different projects from different
+    # directories. The default is the working directory, as for --lockdown and --reclaim.
+    target="$(resolve_dir "${target:-$PWD}")"
+    [[ -d "${target}" ]] || die "not a directory: ${target}"
+    sudo "${STOP_BIN}" "${passthru[@]}" "${target}"
+}
+
 # cmd_providers  -- report the installed providers of both kinds and, for each, whether a
 # session gets it and why. Read-only: it resolves through providers.lib.sh, the same resolver
 # ai-tools-run and the toolchain layer use, so what it reports is what a session gets rather than
@@ -2697,6 +2734,7 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
   ai-tools --sandbox-remove [path]   remove a sandbox clone and unregister it
   ai-tools --lockdown [path] [-n|-y] lock down secret files (sudo; default: cwd)
   ai-tools --reclaim [--full] [path] take back ownership of agent files; project stays claimed (sudo; default: cwd)
+  ai-tools --stop [path] | --all     end running agent sessions and everything they spawned (sudo)
   ai-tools --relabel                 re-verify and relabel the agent entrypoints (sudo)
   ai-tools --providers               list installed agents/integrations and which are enabled
   ai-tools --audit [--since <when>]  report what refused, was rejected or stranded (sudo; default: 7 days)
@@ -2718,6 +2756,14 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
                       directory name; default: repo basename), -y/--yes (skip the create confirm)
   --lockdown options: -n/--dry-run (preview only), -y/--yes (skip confirmation)
   --reclaim options:  --full (also reclaim node_modules, .venv, ... not just the work tree + .git)
+  --stop options:     --all (every session on the host, not one project -- the form to reach for
+                      in an incident: it needs no allowlist coverage and cannot be evaded from
+                      inside a session), -n/--dry-run (list what would stop, change nothing),
+                      -y/--yes (skip the confirmation, which DEFAULTS TO YES here: an unattended
+                      stop that declines is a stop that failed), --force (kill immediately, no
+                      grace period -- the current turn's unsaved work is lost). Without --all the
+                      default target is the working directory, and it must be a project you have
+                      claimed. Exits 1 if anything survived, 3 refused, 4 declined.
   --audit options:    --since <when> (anything date(1) parses: '2 days ago', '2026-08-01';
                       default: 7 days ago). Exits non-zero when anything is reported, so it
                       is usable from cron or a login banner without parsing its output.
@@ -2878,6 +2924,7 @@ case "${1:-}" in
     --relabel)        shift; cmd_relabel "$@" ;;
     --providers)      shift; cmd_providers "$@" ;;
     --audit)          shift; cmd_audit "$@" ;;
+    --stop)           shift; cmd_stop "$@" ;;
     --status)         cmd_status ;;
     --list)           cmd_list ;;
     --version|-V)     printf 'ai-tools %s\n' "${AI_TOOLS_VERSION}" ;;

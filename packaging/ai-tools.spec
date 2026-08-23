@@ -237,7 +237,7 @@ grep -rlZ '@AI_TOOLS_VERSION@' src \
 install -d -m 0750 %{buildroot}%{ai_libexecdir}
 for h in ai-tools-chown ai-tools-setgid ai-tools-setfacl ai-tools-unclaim \
          ai-tools-lockdown ai-tools-relabel ai-tools-safedir ai-tools-reclaim \
-         ai-tools-allowlist ai-tools-audit ai-tools-admin; do
+         ai-tools-allowlist ai-tools-audit ai-tools-stop ai-tools-admin; do
     install -m 0750 src%{ai_libexecdir}/${h}.sh %{buildroot}%{ai_libexecdir}/${h}
 done
 install -m 0750 src%{ai_libexecdir}/ai-tools-handback.py %{buildroot}%{ai_libexecdir}/ai-tools-handback
@@ -776,7 +776,8 @@ fi
 # File lists
 # ─────────────────────────────────────────────────────────────────────────────
 %files
-%doc docs/rpm-packaging.md docs/project-lifecycle.md docs/entrypoint-verification.md README.md
+%doc docs/rpm-packaging.md docs/project-lifecycle.md docs/entrypoint-verification.md
+%doc docs/session-stop.md README.md
 
 %files -n ai-tools-selinux
 %license LICENSES/GPL-2.0-or-later.txt
@@ -797,6 +798,7 @@ fi
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-reclaim
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-allowlist
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-audit
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-stop
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-admin
 %{_sbindir}/ai-tools-admin
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-handback
