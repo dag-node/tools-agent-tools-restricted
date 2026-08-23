@@ -248,11 +248,11 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   its manifest, and its session-env fragment, and inherits the single `%ai-ops` sudoers grant
   rather than adding one. See [launch](.claude/rules/launch.rule.md).
 - **Root sudo-helpers** live under `/usr/local/libexec/ai-tools/` (`chown`, `setgid`, `setfacl`,
-  `unclaim`, `safedir`, `reclaim`, `launcher-symlink`, `lockdown`, `relabel`, `bootstrap`,
-  `relabel-agent`, `admin`, `dotnet`); shared libraries under `/usr/local/lib/ai-tools/`
+  `unclaim`, `safedir`, `reclaim`, `allowlist`, `launcher-symlink`, `lockdown`, `relabel`,
+  `bootstrap`, `relabel-agent`, `admin`, `dotnet`); shared libraries under `/usr/local/lib/ai-tools/`
   (`conf`, `secret-patterns`, `skip-dirs`, `owner-only`, `safe-paths`, `relabel`, `operator`, `control-plane`,
   `confinement`, `npm-verify`, `entrypoint-verify`, `managed-assets`, `providers`, `selinux-groups`, `filters`, `services`,
-  `msg`, `log`),
+  `msg`, `log`, and the claude-code pair `claude-prompt`/`claude-endpoint`),
   plus `path-dedup.sh`,
   the PATH-ordering fragment `ai-tools-admin` wires into operator dotfiles (see
   [launch](.claude/rules/launch.rule.md)). That directory is `0751 root:SANDBOX_GROUP` and its
