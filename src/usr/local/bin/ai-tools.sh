@@ -124,6 +124,10 @@ readonly RECLAIM_BIN="/usr/local/libexec/ai-tools/ai-tools-reclaim"
 # allowlist is 0600 inside a 0700 .config/ai-tools. Only a --for run reaches it -- without the flag
 # the CLI writes the invoker's own registry directly, as before.
 readonly ALLOWLIST_BIN="/usr/local/libexec/ai-tools/ai-tools-allowlist"
+
+# Reader for the refusal/rejection trails (--audit). Root-only, since the trail it reads is
+# 700 root:root; no NOPASSWD rule, so sudo prompts like the other per-project helpers.
+readonly AUDIT_BIN="/usr/local/libexec/ai-tools/ai-tools-audit"
 # Sentinel in a guard CLAUDE.md (see drop_lockdown_guard) so the lockdown step can
 # recognise and remove its own placeholder once secrets are secured.
 readonly GUARD_MARKER="ai-tools-lockdown-guard"
@@ -2112,6 +2116,18 @@ cmd_relabel() {
     fi
 }
 
+# cmd_audit -- report what has refused, been rejected, been stranded or been flagged since a
+# given time. A thin pass-through to the root helper, which does the reading and the rendering:
+# the trail is 700 root:root, so there is nothing this unprivileged CLI could usefully do with
+# it first. The helper's EXIT STATUS is propagated deliberately -- non-zero means findings --
+# so `ai-tools --audit` is usable from cron or a login banner without parsing its output, the
+# same contract --status already offers.
+cmd_audit() {
+    command -v sudo >/dev/null 2>&1 \
+        || die "sudo not found -- cannot read the root-only trail; run as root: ${AUDIT_BIN}"
+    sudo "${AUDIT_BIN}" "$@"
+}
+
 # cmd_providers  -- report the installed providers of both kinds and, for each, whether a
 # session gets it and why. Read-only: it resolves through providers.lib.sh, the same resolver
 # ai-tools-run and the toolchain layer use, so what it reports is what a session gets rather than
@@ -2677,6 +2693,7 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
   ai-tools --reclaim [--full] [path] take back ownership of agent files; project stays claimed (sudo; default: cwd)
   ai-tools --relabel                 re-verify and relabel the agent entrypoints (sudo)
   ai-tools --providers               list installed agents/integrations and which are enabled
+  ai-tools --audit [--since <when>]  report what refused, was rejected or stranded (sudo; default: 7 days)
   ai-tools --status                  report service health (handback socket, relabel watcher, updater)
   ai-tools --list                    list registered projects
   ai-tools --version
@@ -2695,6 +2712,9 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
                       directory name; default: repo basename), -y/--yes (skip the create confirm)
   --lockdown options: -n/--dry-run (preview only), -y/--yes (skip confirmation)
   --reclaim options:  --full (also reclaim node_modules, .venv, ... not just the work tree + .git)
+  --audit options:    --since <when> (anything date(1) parses: '2 days ago', '2026-08-01';
+                      default: 7 days ago). Exits non-zero when anything is reported, so it
+                      is usable from cron or a login banner without parsing its output.
 
   --for <operator>    act on another enrolled operator's projects instead of your own: the
                       entry lands in THEIR allowed-projects, so the tree is granted to them and
@@ -2851,6 +2871,7 @@ case "${1:-}" in
     --reclaim)        shift; cmd_reclaim "$@" ;;
     --relabel)        shift; cmd_relabel "$@" ;;
     --providers)      shift; cmd_providers "$@" ;;
+    --audit)          shift; cmd_audit "$@" ;;
     --status)         cmd_status ;;
     --list)           cmd_list ;;
     --version|-V)     printf 'ai-tools %s\n' "${AI_TOOLS_VERSION}" ;;

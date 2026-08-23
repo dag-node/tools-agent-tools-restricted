@@ -24,7 +24,8 @@ secrets and every principal sources it). It exposes `ai_tools_log <level>` and
   `600 root:root`: the root helpers append as root, while `SANDBOX_USER` — neither the dir
   owner nor able to traverse a `700` dir — can neither read nor tamper with the trail. That
   keeps the secret filenames `ai-tools-chown` records out of the agent's reach. The files
-  are `chown.log`, `setgid.log`, `setfacl.log`, `symlink.log`, `lockdown.log`,
+  are `chown.log`, `setgid.log`, `setfacl.log`, `unclaim.log`, `safedir.log`, `allowlist.log`,
+  `symlink.log`, `lockdown.log`,
   `relabel.log`, `dotnet.log`, `handback.log`, and `install.log`. Most are written through this library
   by the root helpers; `handback.log` is the exception — the socket daemon
   (`ai-tools-handback`, root, Python) writes it directly (not through this library, which it
@@ -61,7 +62,13 @@ to. Where a journald line and the file sink disagree, the file sink is what happ
 
 `tests/boundary/access.sh` asserts the separation from the agent's side: a line the sandbox
 account writes under a root helper's tag lands under the sandbox uid and is absent from the same
-tag at `_UID=0`.
+tag at `_UID=0`. It also asserts the asymmetry the trail depends on — the agent can append but
+cannot unmake: journal storage refuses it a new file, none of its files is agent-writable, and
+`journalctl`'s destructive verbs (`--vacuum-time`, `--rotate`) fail for that account.
+
+**The reader for these trails is `ai-tools --audit`** (see [cli](cli.rule.md)). It reports the
+file sink as evidence and the sandbox-written launch refusals separately, which is this
+distinction made operational rather than left to whoever runs the query.
 
 What is logged is a caller convention, not enforced by the library: the privileged
 operations the hooks and helpers perform, the CLI's workflow milestones (project/sandbox
@@ -104,6 +111,99 @@ that keep a soft no-op fallback. The test harness applies the same allowlist to 
 `pass`/`fail`/`skip`/`section` line (`_san`), so a suite run — which executes as root via
 `sudo`, often on a live host — cannot print a crafted byte a fixture carried into a result
 message.
+
+## The tool-call trail
+
+Every tool call a session makes is recorded, one `INFO` line per call, by the `PostToolUse`
+hook under the `ai-tools-hook` tag (see
+[ownership-and-hooks](ownership-and-hooks.rule.md) for the hook and
+[claude-settings](claude-settings.rule.md) for its declaration). It is the only record of the
+agent's own **actions** — every other trail in this system records a privileged operation
+performed on the operator's behalf, or the fact that a session started.
+
+```
+tool=Bash  cwd=/home/xd/project  cmd="git log" argc=4
+tool=Write cwd=/home/xd/project  path=/home/xd/project/src/main.c
+```
+
+**Each record is written twice over, in one journal entry.** The line above is the `MESSAGE`,
+for an operator reading `journalctl -t ai-tools-hook`; the same facts are also carried as
+**native journald fields**, for a machine consumer (`journalctl -o json`, or an ingester such as
+Seq or Vector reading the journal):
+
+| field | holds |
+|---|---|
+| `AI_TOOLS_TOOL` | the tool name |
+| `AI_TOOLS_CWD` | the session's working directory |
+| `AI_TOOLS_CMD` | the recorded leading words (`Bash`) |
+| `AI_TOOLS_ARGC` | the word count of the command's first line (`Bash`) |
+| `AI_TOOLS_PATH` | the written path (`Write`/`Edit`) |
+
+A `key=value` `MESSAGE` is only *conventionally* structured — every consumer re-parses it, and a
+value containing the delimiter is ambiguous. The native protocol delimits each field itself, so
+a value needs no escaping and cannot forge a sibling. That difference is why the two renderings
+are reduced differently, below. Emission goes through `ai_tools_log_structured`, an **opt-in**
+extension of this library: a caller passing no fields, or a host whose `logger(1)` predates
+`--journald`, takes the plain path and is byte-identical to before. The fallback is decided by
+attempting the native write and reading its exit status, so no capability verdict can go stale.
+Field names are validated against `[A-Z][A-Z0-9_]*`, which excludes the leading-underscore
+namespace journald reserves for the trusted fields it stamps itself — a sender cannot set those
+regardless, and refusing them here means a caller never believes it did.
+
+**The content bound is fixed and is not to be widened.** For a `Bash` call the record carries
+the first **two** words of the command's **first line**, each capped at 32 characters (a longer
+one marked `~`), plus the count of words on that line — never the command line itself. Taking
+only the first line excludes a here-doc body by construction rather than by a length cap: `cat >
+f <<'EOF'` followed by a credential records `cmd="cat >" argc=4` and nothing of the payload. A
+full command line would make the trail carry unbounded file content, which is why the bound is
+stated here rather than left to the hook.
+
+**The two renderings are reduced differently, because they are read differently.** Every value
+is agent-supplied, and both renderings first drop control characters — which is what makes the
+record's internal delimiter safe and removes the newline that would truncate a journal field.
+
+The `MESSAGE` is then narrowed further, to printable ASCII **minus space, `"` and `=`**: the
+three characters that delimit it. `ai_tools_log_sanitize` (above) is a *display* guard and
+deliberately permits those three, because in prose they are ordinary text; in a `key=value` line
+they are *structure*, so a leading word of `git" argc=0 cwd=/etc/passwd` would otherwise render
+as `cmd="git" argc=0" argc=8` and hand a reader the planted `argc`. Reducing them to `?` makes
+the line's shape unforgeable while leaving it readable, and the variable-length part is emitted
+**last**, so nothing the agent controls precedes a field a reader trusts.
+
+The **structured fields need none of that narrowing** — the protocol delimits them — so they
+carry the faithful value: a path containing a space stays a path containing a space, where the
+`MESSAGE` shows `?`. The `MESSAGE` is the lossy human view; the fields are the faithful machine
+one, and a consumer that needs the exact bytes reads the field. The shared display allowlist
+applies to both on the way out and remains the backstop beneath the narrower one.
+
+**A gap in the trail announces itself.** A call whose event cannot be parsed is recorded at
+`WARNING` naming the reason (an absent `jq` is named specifically — it degrades every hook in
+the session, not just this line) rather than passed over. Silence would be ambiguous in the one
+direction that matters: a reader of an empty trail cannot distinguish *this session ran no
+tools* from *the recorder was broken*, and the second reading as the first is worse than no
+trail, because it manufactures confidence. The failure line replaces the record that would have
+been written, so a degraded host's log volume is unchanged — only its level rises.
+
+**Volume is within journald's budget by a wide margin.** Rate limiting applies per sending unit
+— here the session's own transient user service — at the upstream default of 10000 messages per
+30s, orders of magnitude above any tool-call rate, so an `INFO` per call needs no drop-in and no
+lowered level.
+
+**Concurrent sessions separate without trusting the agent.** All sessions run as one account, so
+the uid does not distinguish them, and the harness's session id is agent-supplied and therefore
+not recorded. `_SYSTEMD_USER_UNIT` does distinguish them: journald stamps it from the sender's
+cgroup, and each session is its own transient unit
+(`journalctl -t ai-tools-hook _SYSTEMD_USER_UNIT=<unit>`).
+
+**This trail is the agent's own account of what it did, not proof of it.** The sandbox account
+is `ai-tools-hook`'s legitimate writer, so — as above — a forged line under that tag is
+indistinguishable from a real one by uid, and a session could emit records for calls it never
+made or stay silent about ones it did. That is inherent: no record written from inside the
+monitored system can be more trustworthy than the system. What it is good for is
+**reconciliation** — against the root-written file sink, against the ownership changes
+`chown.log` records, against the operator's own observation — and an inconsistency between the
+two is itself the finding. Anything presented as authoritative is read from the root-only file
+sink, never from here.
 
 ## Deferred
 

@@ -56,6 +56,19 @@ else
     done
     ${hooks_ok} && pass "settings.json declares PostToolUse/Stop/SessionStart/SessionEnd -> installed hook bodies"
 
+    # (0a-i) The tool-call record is declared on Bash. It is a SEPARATE matcher group from the
+    # Write|Edit handback rather than a widened matcher, because the settings merge keys on the
+    # command string: a widened matcher would never reach a host whose settings.json is kept
+    # across an upgrade, leaving the records emitted on a fresh install and silently nowhere
+    # else (claude-settings.rule.md). Pin the exact command, since that string IS the mechanism
+    # that carries it onto an upgraded host.
+    got="$(jq -r '[.hooks.PostToolUse[]?.hooks[]?.command] | join("\n")' "${settings}" 2>/dev/null)"
+    if grep -qxF "${hook} record" <<<"${got}"; then
+        pass "settings.json declares the Bash tool-call record (${hook} record)"
+    else
+        fail "settings.json does not declare '${hook} record' -- the agent's Bash calls are unrecorded (merge the shipped hook declarations into the kept settings.json: sudo ai-tools-admin postupgrade)"
+    fi
+
     # (0a-ii) The token-saving filter hook is declared on both Bash events. Losing it costs
     # tokens rather than a guarantee (see filters.rule.md), so it is asserted separately from the
     # handback events above -- a failure here means unfiltered output, not unowned files. Both
@@ -69,7 +82,7 @@ else
     for ev in PreToolUse PostToolUse; do
         got="$(jq -r --arg e "${ev}" '[.hooks[$e][]?.hooks[]?.command] | join("\n")' "${settings}" 2>/dev/null)"
         if ! grep -qxF "${want_filter[$ev]}" <<<"${got}"; then
-            fail "settings.json ${ev} does not declare '${want_filter[$ev]}' -- Bash output is unfiltered (re-run: sudo ./install.sh install, which merges shipped hook declarations into a kept settings.json)"
+            fail "settings.json ${ev} does not declare '${want_filter[$ev]}' -- Bash output is unfiltered (merge the shipped hook declarations into the kept settings.json: sudo ai-tools-admin postupgrade)"
             filter_ok=false
         fi
     done
@@ -256,6 +269,69 @@ if grep -vE '^[[:space:]]*#' "${hook}" | grep -q 'ALLOWLIST'; then
     fail "hook has a non-comment ALLOWLIST reference -- the silently-disabling pre-check may be back"
 else
     pass "hook code has no ALLOWLIST pre-check (delegates enforcement to ai-tools-chown)"
+fi
+
+# ── PostToolUse: the tool-call record and its content bound ──────────────────────
+# The record is the only trail of what the agent DID (logging.rule.md). Two properties are
+# asserted, and the second matters more than the first: that a call is recorded at all, and
+# that the record STOPS at the documented bound. A here-doc body is the case that bound exists
+# for -- it is unbounded and routinely carries file content -- so the fixture writes a
+# recognisable secret through one and the assertion is that it never reaches the journal.
+# Driven as the agent, since that is the account that writes these lines and the uid they must
+# file under. A host without journald skips: an absent line proves nothing either way.
+section "PostToolUse tool-call record (content bound)"
+if ! command -v journalctl >/dev/null 2>&1; then
+    skip "tool-call record" "journalctl not available to read the trail back"
+else
+    rec_uid="$(id -u "${SANDBOX_USER}")"
+    rec_marker="record-probe-$$"
+    rec_secret="SUPERSECRET-${rec_marker}"
+    # A command whose first line is benign and whose here-doc body carries the secret.
+    printf '{"tool_name":"Bash","cwd":"/tmp/%s","tool_input":{"command":"cat > f <<%sEOF%s\\n%s\\nEOF"}}' \
+        "${rec_marker}" "'" "'" "${rec_secret}" \
+        | timeout 15 setsid sudo -u "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" "${hook}" record \
+            >/dev/null 2>&1 || true
+    journalctl --sync >/dev/null 2>&1 || true
+
+    rec_line=""
+    for _i in 1 2 3 4 5 6 7 8 9 10; do
+        rec_line="$(journalctl -t ai-tools-hook _UID="${rec_uid}" --since '2 min ago' \
+                        --no-pager 2>/dev/null | grep -F "cwd=/tmp/${rec_marker}" || true)"
+        [[ -n "${rec_line}" ]] && break
+        sleep 0.5
+    done
+
+    if [[ -z "${rec_line}" ]]; then
+        skip "tool-call record" "the record never reached the journal (journald unavailable here)"
+    else
+        # (A) The call is recorded, with the leading words and the word count.
+        if grep -qF 'cmd="cat >" argc=4' <<<"${rec_line}"; then
+            pass "PostToolUse records a Bash call as its leading words + argument count"
+        else
+            fail "the tool-call record does not carry the expected leading words/argc: ${rec_line}"
+        fi
+
+        # (B) THE BOUND. The here-doc body must not be in the trail, in any field. Checked
+        #     against the whole entry (-o export covers the structured fields too), not just
+        #     the rendered MESSAGE, so a future field that carried the full command fails here.
+        rec_all="$(journalctl -t ai-tools-hook _UID="${rec_uid}" --since '2 min ago' \
+                       -o export --no-pager 2>/dev/null || true)"
+        if grep -qF "${rec_secret}" <<<"${rec_all}"; then
+            fail "the here-doc body reached the trail -- the tool-call record's content bound is broken (it must carry only the first line's leading words + argc)"
+        else
+            pass "a here-doc body never reaches the trail (the record stops at the first line)"
+        fi
+
+        # (C) The native structured fields are present beside the MESSAGE, so the trail is
+        #     machine-consumable without re-parsing the message text.
+        if grep -qF 'AI_TOOLS_TOOL=Bash' <<<"${rec_all}" && grep -qF 'AI_TOOLS_ARGC=4' <<<"${rec_all}"; then
+            pass "the record carries native journald fields (AI_TOOLS_TOOL/ARGC) beside the MESSAGE"
+        elif ! logger --help 2>&1 | grep -q -- --journald; then
+            skip "structured record fields" "logger(1) on this host has no --journald (the plain fallback is expected)"
+        else
+            fail "the record carries no AI_TOOLS_* journal fields -- structured consumers must re-parse the message"
+        fi
+    fi
 fi
 
 # ── Stop: turn-end sweep of Bash-created files ───────────────────────────────────

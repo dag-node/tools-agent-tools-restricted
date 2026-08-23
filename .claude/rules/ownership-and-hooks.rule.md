@@ -40,6 +40,15 @@ tree. The full pinned-fd sequence is in the `ai-tools-chown.sh` header.
 
 ## `PostToolUse` — the immediate path
 
+`post-tool-hook.sh` serves two events, dispatched on its argument the way `session-hook.sh`
+dispatches its session phases. **Both record the tool call** in the operator-readable trail —
+the grammar, the content bound, and why the trail is evidence rather than proof are in
+[logging](logging.rule.md). The argument-less form (`Write|Edit`) additionally performs the
+handback below; the `record` form (`Bash`) records and stops, since a Bash-created file carries
+no `file_path` and is caught by the `Stop` sweep instead. The two are declared as separate
+matcher groups rather than one widened matcher for a reason that belongs to the upgrade path;
+see [claude-settings](claude-settings.rule.md).
+
 A `PostToolUse` hook (`post-tool-hook.sh`, declared in `settings.json`) calls
 `ai-tools-handback-client CHOWN <file>` to restore `<you>:SANDBOX_GROUP` and strip world
 bits, inside allowlisted paths only (never on `!`-excluded paths). It also walks the

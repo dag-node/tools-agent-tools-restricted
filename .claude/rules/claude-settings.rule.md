@@ -168,6 +168,21 @@ keep-existing install and `%config(noreplace)` on upgrade — are also the paths
 settings.json predating them, or edited in the permission arrays it invites tuning of,
 silently loses the gate.
 
+## The tool-call record is declared as its own matcher group
+
+`post-tool-hook.sh` appears twice under `PostToolUse`: argument-less on `Write|Edit` (record
+then hand back) and as `post-tool-hook.sh record` on `Bash` (record only). One widened
+`Write|Edit|Bash` matcher would express the same intent in a single group and **would not reach
+an upgraded host**: `ai_tools_conf_merge_hook_declarations` keys on the *command string*, not on
+the matcher, so a kept `settings.json` already declaring that command counts the group as
+present and the widened matcher is never merged in. The `Bash` records would then be emitted on
+a fresh install and silently nowhere else — precisely the failure the merge exists to prevent.
+A distinct argument makes it a distinct command string, so the merge carries it like any other
+newly shipped declaration. This is the same dispatch-on-`$1` shape `session-hook.sh` and
+`filter-hook.sh` already use, and it is why the argument-less form must stay argument-less:
+renaming it would leave the old declaration in place beside the new one and run the handback
+twice per write.
+
 ## `env` — the privacy and output defaults
 
 The top-level `env` block applies environment variables to every session. It ships two

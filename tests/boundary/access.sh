@@ -391,4 +391,69 @@ else
     fi
 fi
 
+# ── the audit reader and the trail it reports are out of reach ───────────────────────────────
+# `ai-tools --audit` presents the root-only file sink as EVIDENCE, and that claim rests on this
+# vantage: the sandbox account can neither read the trail (so it cannot know what an operator is
+# about to be shown) nor write it (so it cannot plant or erase a finding), and cannot run or
+# alter the reader itself. Asserted from the agent's side, because that is the side the claim is
+# about.
+_audit_bin=/usr/local/libexec/ai-tools/ai-tools-audit
+if [[ ! -x "${_audit_bin}" ]]; then
+    skip "audit reader out of reach" "${_audit_bin} not installed"
+else
+    _audit_breach=""
+    runuser -u "${SANDBOX_USER}" -- test -r /var/log/ai-tools 2>/dev/null \
+        && _audit_breach="the agent can read the root-only trail directory"
+    runuser -u "${SANDBOX_USER}" -- test -w "${_audit_bin}" 2>/dev/null \
+        && _audit_breach="the agent can write ${_audit_bin}"
+    runuser -u "${SANDBOX_USER}" -- test -x "${_audit_bin}" 2>/dev/null \
+        && _audit_breach="the agent can execute ${_audit_bin}"
+    if [[ -n "${_audit_breach}" ]]; then
+        fail "the audit trail is not out of the agent's reach: ${_audit_breach}"
+    else
+        pass "the agent can neither read the audit trail nor run or alter its reader"
+    fi
+fi
+
+# ── the trail is append-only to the agent ────────────────────────────────────────────────────
+# The tool-call record's whole value rests on one asymmetry: the agent WRITES the trail (the
+# hooks run as the sandbox account, so it must be able to) but cannot go back and remove a line
+# it would rather an operator did not read. That is what makes journald a usable sink for a
+# record of the agent's own actions, where the session transcript -- which the agent owns -- is
+# not. Probe the two ways a line could be unmade: the journal's own storage, and journalctl's
+# destructive verbs. Both are DAC facts, which is what this vantage sees.
+_journal_dir=/var/log/journal
+if [[ ! -d "${_journal_dir}" ]]; then
+    skip "journal is append-only to the agent" "no persistent journal at ${_journal_dir}"
+else
+    _breach=""
+    # The storage directory must not accept a new file, and no journal file may be writable.
+    if _probe="$(runuser -u "${SANDBOX_USER}" -- \
+            mktemp "${_journal_dir}/.ai-tools-probe-XXXXXX" 2>/dev/null)"; then
+        _breach="the agent created ${_probe} -- journal storage is agent-writable"
+        rm -f -- "${_probe}"
+    else
+        while IFS= read -r _jf; do
+            if runuser -u "${SANDBOX_USER}" -- test -w "${_jf}" 2>/dev/null; then
+                _breach="the agent can write the journal file ${_jf}"; break
+            fi
+        done < <(find "${_journal_dir}" -name '*.journal' -type f 2>/dev/null | head -20)
+    fi
+    if [[ -n "${_breach}" ]]; then
+        fail "the agent can unmake its own trail: ${_breach}"
+    else
+        pass "the agent cannot create or rewrite journal storage: its own trail is append-only to it"
+    fi
+
+    # journalctl's destructive verbs must fail for the agent. --vacuum-time would discard the
+    # trail wholesale; it is the single most valuable call an agent covering its tracks could
+    # make. (Bash(journalctl *) is denied in settings.json too, but that is a tooling hint --
+    # this asserts the floor underneath it.)
+    if runuser -u "${SANDBOX_USER}" -- journalctl --vacuum-time=99999d >/dev/null 2>&1; then
+        fail "the agent can run 'journalctl --vacuum-time' -- it can discard the trail it is recorded in"
+    else
+        pass "the agent cannot vacuum or rotate the journal (destructive journalctl verbs refused)"
+    fi
+fi
+
 finish
