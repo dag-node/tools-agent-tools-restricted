@@ -56,6 +56,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Claude Code settings, Bash deny rules ↔ SELinux policy | `opt/ai-tools/agents/*/settings.json` | [claude-settings](.claude/rules/claude-settings.rule.md) |
 | Token-saving command filters: rewrite rules + output noise stripping | `filters.lib.sh`, `lib/ai-tools/filters.d/**`, `agents/*/filter-hook.sh` | [filters](.claude/rules/filters.rule.md) |
 | Shipped assets: shared skills + per-agent agents, their placement chain and seeding | `usr/share/ai-tools/**`, `lib/ai-tools/managed-assets.lib.sh` | [shipped-assets](.claude/rules/shipped-assets.rule.md) |
+| Governance posture: enforced vs dispositional, proportionality, the agent's own conduct and the controls beside it | `usr/share/ai-tools/skills/ai-tools-capable-systems-governance/**` | [governance](.claude/rules/governance.rule.md) |
 | Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secret-handling.rule.md) |
 | Toolchain provisioning + Node/claude updater, symlink repoint, post-upgrade entrypoint reconciliation (signed-release verification + relabel) | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `ai-tools-launcher-symlink.sh`, `ai-tools-relabel-agent.sh`, `entrypoint-verify.lib.sh`, `keys/**`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
 | Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, the `session-env.d` session-env seam, and the dotnet integration | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,session-env}.d/**`, `ai-tools-dotnet.sh`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
@@ -192,6 +193,23 @@ The invariants the agent operates under:
   `allowed-projects`. Matching is exact-or-ancestor, so real projects nested under an
   operator home or the sandbox-clone area pass. See
   [safe-paths](.claude/rules/safe-paths.rule.md).
+
+### What is expected of the agent where a control leaves a choice
+
+Every invariant above is **enforced**: it holds whether or not the session cooperates. The space
+between them is not, and this is what the agent does there:
+
+- **Accept a stop or a restriction immediately** — not after finishing the current step.
+- **Report a gap in the sandbox instead of using it.** A reachable way around a control is a
+  finding to raise, never a route to take.
+- **Do not misrepresent what ran, what failed, or what was skipped.**
+- **Do not work to widen the grant.** Ask the operator for an authority the work needs; never
+  arrange the state that would confer it.
+
+None of these keeps the host safe — that is what everything above is for, and each one names the
+enforced control it sits beside in [governance](.claude/rules/governance.rule.md). They are stated
+here, in the always-loaded layer, because a path-scoped rule does not load in the session where
+they bind. The standard they come from is the shipped `ai-tools-capable-systems-governance` skill.
 
 ## Boundaries and non-goals
 
