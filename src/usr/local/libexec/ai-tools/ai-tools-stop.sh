@@ -18,14 +18,16 @@
 #
 #   1. NO REQUIRED DEPENDENCIES, and deliberately NO `set -e`. A missing library that aborted the
 #      run, or an unexpected non-zero that abandoned a half-finished kill, would be a stop that did
-#      not happen. Every library loads behind an inline fallback; the kill path -- enumerate,
-#      signal, verify -- runs on bash builtins plus /proc and /sys reads, with `sleep` its only
-#      external. That is independence from THIS PROJECT's libraries, not from the base system:
-#      `id`, `date`, `logger`, `timeout`, `systemctl` and `sudo` are each outside the kill path or
-#      best-effort within it, and the two that can BLOCK -- the attribution calls into the sandbox
-#      account's user manager -- run under `timeout`, since a stop that hangs is a stop that did
-#      not happen. NO project library is load-bearing here: this helper takes no input that decides
-#      WHICH sessions to stop, so there is nothing left for one to gate.
+#      not happen. `set -u` IS used, and it ends a run just as abruptly wherever a name or an
+#      argument is read unset -- so a value a caller may legitimately not have passed is defaulted
+#      where it is read (confirm_stop). Every library loads behind an inline fallback; the kill
+#      path -- enumerate, signal, verify -- runs on bash builtins plus /proc and /sys reads, with
+#      `sleep` its only external. That is independence from THIS PROJECT's libraries, not from the
+#      base system: `id`, `date`, `logger`, `timeout`, `systemctl` and `sudo` are each outside the
+#      kill path or best-effort within it, and the two that can BLOCK -- the attribution calls into
+#      the sandbox account's user manager -- run under `timeout`, since a stop that hangs is a stop
+#      that did not happen. NO project library is load-bearing here: this helper takes no input
+#      that decides WHICH sessions to stop, so there is nothing left for one to gate.
 #   2. THE CONFIRMATION DEFAULTS TO YES (messaging.rule.md requires NO). A pipe, a cron run, an
 #      absent msg.lib.sh and a bare Enter all proceed; only a deliberate `n` declines. -n/--dry-run
 #      is how this command is looked at without acting.
@@ -746,25 +748,35 @@ restore_user_manager() {
 }
 
 # ── Confirmation ─────────────────────────────────────────────────────────────────────────────
-# confirm_stop <count> -- succeed unless the operator deliberately declines. Inverted convention 2
-# in the header: the default is YES, so no terminal, no msg.lib.sh, a pipe, or a bare Enter all
-# proceed, and only an explicit `n` stops the stop.
+# confirm_stop <agent-count> <plumbing-count> -- succeed unless the operator deliberately declines.
+# Inverted convention 2 in the header: the default is YES, so no terminal, no msg.lib.sh, a pipe, or
+# a bare Enter all proceed, and only an explicit `n` stops the stop.
+#
+# THE QUESTION NAMES BOTH CLASSES, for the reason the table separates them: consent given to "4
+# sessions" that were one session and three units of the account's own plumbing was not informed
+# consent about either number.
+#
+# THE ARITY IS DEFAULTED, and that is inverted convention 1 rather than defensive habit. This file
+# runs under `set -u`, where reading an argument a caller did not pass aborts the shell outright --
+# here, mid-question, after the table has been printed and before anything has been signalled: a
+# stop that was asked for and did not happen, which is the one outcome this file exists to prevent.
+# main() always passes both counts, so the default is not an expected path; it is the guarantee that
+# a caller's slip costs the wording of a question and never the answer to it.
+#
 # WHICH PATH GAVE CONSENT IS RECORDED, because the paths are not equally strong and a reader of
 # the trail must not have to guess. `--yes` is an operator decision; the library prompt is a real
 # answered question; the raw /dev/tty prompt is the same question asked without the shared
 # renderer; and `no-tty` means nobody was asked at all and the default carried the run. The last
 # is legitimate -- it is the whole point of defaulting YES -- but it is the one an operator would
 # want to see when asking why a cron job stopped a session at 4am.
-# confirm_stop <agent-count> <plumbing-count> -- the question names both classes, for the reason the
-# table separates them: consent given to "4 sessions" that were one session and three units of the
-# account's own plumbing was not informed consent about either number.
 confirm_stop() {
+    local agent_count="${1:-0}" plumbing_count="${2:-0}"
     # Three shapes, none of which names a class that is not there. main() reaches this only with at
     # least one cgroup selected, so "no sessions and no plumbing" cannot occur.
     local question
-    if   (( $1 == 0 )); then question="Terminate the $2 unit(s) of the ${SANDBOX_USER} account's own plumbing listed above?"
-    elif (( $2 ));      then question="Terminate the $1 agent session(s) listed above, and $2 unit(s) of the ${SANDBOX_USER} account's own plumbing with them?"
-    else                     question="Terminate the $1 agent session(s) listed above?"
+    if   (( agent_count == 0 )); then question="Terminate the ${plumbing_count} unit(s) of the ${SANDBOX_USER} account's own plumbing listed above?"
+    elif (( plumbing_count ));   then question="Terminate the ${agent_count} agent session(s) listed above, and ${plumbing_count} unit(s) of the ${SANDBOX_USER} account's own plumbing with them?"
+    else                              question="Terminate the ${agent_count} agent session(s) listed above?"
     fi
     if ${ASSUME_YES}; then
         log_event info "stop confirmed by ${CALLER} via --yes" "AI_TOOLS_CONSENT=flag"

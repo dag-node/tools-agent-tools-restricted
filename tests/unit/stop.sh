@@ -430,10 +430,21 @@ run_main() {
 }
 
 run_main true
-if (( MAIN_STATUS == 0 )) && grep -q '4 agent session' <<< "${MAIN_OUTPUT}"; then
+if (( MAIN_STATUS == 0 )) && grep -q '3 agent session' <<< "${MAIN_OUTPUT}"; then
     pass "a dry run reports every session in the slice and changes nothing (exit 0)"
 else
     fail "dry run: status ${MAIN_STATUS}, output: ${MAIN_OUTPUT}"
+fi
+
+# THE TWO COUNTS ARE REPORTED APART, NEVER SUMMED. The fixture slice holds three agent sessions and
+# the manager's own init.scope, and the four of them are stopped identically -- but the line an
+# operator reads first during an incident, and answers the confirmation against, must not call four
+# cgroups four agent sessions. The plumbing row is still in the table: separated, not omitted.
+if grep -q "1 unit(s) of the ${SANDBOX_USER} account's own plumbing" <<< "${MAIN_OUTPUT}" \
+        && grep -q 'init.scope.*(account plumbing)' <<< "${MAIN_OUTPUT}"; then
+    pass "the account's own plumbing is counted apart from the agent sessions, and still listed"
+else
+    fail "the plumbing split is missing from the dry run: ${MAIN_OUTPUT}"
 fi
 
 # THE PROPERTY THAT REPLACED SCOPING. Every one of these is selected, including the session whose
@@ -495,19 +506,58 @@ section "confirmation"
 
 # INVERSION 2 (see the helper's header): every other destructive verb defaults NO, because not
 # acting is the safe outcome. For a stop, DECLINING is the failure -- so a piped run, a cron job,
-# an absent renderer and a bare Enter all proceed, and only a deliberate `n` stops the stop. The
-# assertion runs under `setsid`, which removes the controlling terminal: that is the shape of every
-# unattended run, and the one a default-NO prompt would silently turn into "nothing was stopped".
-consent_out="$(setsid bash -c '
-    source "$1" 2>/dev/null || true
-    CALLER="$2"
-    confirm_stop 1 </dev/null 2>/dev/null
-    printf "status=%s" "$?"' _ "${STOP_HELPER}" "${PROJECTS_USER}" </dev/null 2>&1 || true)"
+# an absent renderer and a bare Enter all proceed, and only a deliberate `n` stops the stop.
+#
+# unattended_confirm <arg...> -- drive confirm_stop under `setsid`, which removes the controlling
+# terminal: that is the shape of every unattended run, and the one a default-NO prompt would
+# silently turn into "nothing was stopped". The sub-shell's STDERR IS CAPTURED, not discarded --
+# discarding it once turned a shell that aborted outright under `set -u` into a result line reading
+# "the confirmation declined", which named neither the abort nor the line it happened on.
+unattended_confirm() {
+    setsid bash -c '
+        source "$1" 2>/dev/null || true
+        CALLER="$2"; shift 2
+        confirm_stop "$@" </dev/null
+        printf "status=%s" "$?"' _ "${STOP_HELPER}" "${PROJECTS_USER}" "$@" </dev/null 2>&1 || true
+}
+
+consent_out="$(unattended_confirm 1 0)"
 if [[ "${consent_out}" == *"status=0"* ]]; then
     pass "with no terminal to ask, the confirmation PROCEEDS -- a stop that declines unattended failed"
 else
     fail "unattended confirmation did not proceed: ${consent_out}"
 fi
+
+# NOR MAY A CALLER'S SLIP ABANDON ONE. Under `set -u` an argument the caller did not pass aborts the
+# shell where it is read -- in a real run that is after the table is printed and before anything is
+# signalled, i.e. a stop that was asked for and did not happen. The counts are defaulted for exactly
+# that reason (inverted convention 1), so a short call still reaches an answer.
+consent_out="$(unattended_confirm 1)"
+if [[ "${consent_out}" == *"status=0"* ]]; then
+    pass "a confirmation missing a count still answers, rather than abandoning the stop"
+else
+    fail "a missing count abandoned the confirmation: ${consent_out}"
+fi
+
+# THE QUESTION NAMES BOTH CLASSES AND SUMS NEITHER INTO THE OTHER. This is the consent half of the
+# split the table makes: agreement to "5 sessions" that were two sessions and three units of the
+# account's own plumbing is not informed consent about either number. Each shape is asserted
+# against the counts it was given, so a branch that names a class that is not there fails here.
+CONFIRM_QUESTION=""
+ai_tools_msg_confirm() { CONFIRM_QUESTION="$1"; return 0; }
+check_question() {
+    CONFIRM_QUESTION=""; ASSUME_YES=false
+    confirm_stop "$1" "$2" >/dev/null 2>&1
+    if [[ "${CONFIRM_QUESTION}" == *"$3"* ]]; then
+        pass "$1 session(s) + $2 plumbing unit(s) is asked as: '$3'"
+    else
+        fail "confirm_stop $1 $2 asked: '${CONFIRM_QUESTION}'"
+    fi
+}
+check_question 2 0 "Terminate the 2 agent session(s) listed above?"
+check_question 0 3 "Terminate the 3 unit(s) of the ${SANDBOX_USER} account's own plumbing listed above?"
+check_question 2 3 "the 2 agent session(s) listed above, and 3 unit(s) of the ${SANDBOX_USER} account's own plumbing with them?"
+unset -f ai_tools_msg_confirm check_question
 
 # And a deliberate decline stops the stop, at exit 4, with nothing signalled. The renderer's answer
 # is stubbed because a real `n` needs a terminal to type it into; what is under test is that the
