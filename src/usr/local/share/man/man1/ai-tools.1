@@ -144,9 +144,9 @@ ownership handback (run it before an ACL-unaware backup, so ownership \(em not t
 ACL alone \(em carries your access into the copy). Runs via
 .BR sudo .
 .TP
-.B \-\-stop \fR[\fIpath\fR] | \fB\-\-stop \-\-all
-End running agent sessions and everything they spawned. This is the one control that acts
-on a session
+.B \-\-stop
+Terminate every running agent session and everything it spawned. This is the one control
+that acts on a session
 .BR "already running" :
 every other operator control \(em unclaim, disabling a provider, revoking an operator \(em
 changes only what the
@@ -157,36 +157,55 @@ a session is a transient unit in the sandbox account's own per-user
 .BR systemd (1)
 manager, and signalling it is root's to do.
 .IP
-Without
-.B \-\-all
-the target is one project (default: the working directory), and it must be one
-.B you
-have claimed \(em the authorization is your own
-.IR allowed\-projects ,
-a file the sandbox account can neither read nor write. Sessions are found by
+It is
+.B not
+the way to finish a session you have done with. Use
+.B /exit
+inside the session for that, which lets it run its own session-end handback. This command
+kills the process tree, so no handback runs and the last turn's writes may still be
+sandbox-owned: it names the
+.B \-\-reclaim
+to run for each project it terminated.
+.IP
+It takes
+.B no path
+and no authorization input. There is deliberately no per-project form: a session is
+attributed to a project by reading its working directory from the sandbox account's own
+.BR systemd (1)
+manager \(em the account being stopped \(em so attribution is reported to you, never
+trusted to decide what a stop reaches. A unit name is no better, since a session may be
+able to choose its own. What is terminated is decided by one fact a session cannot
+influence: membership of the account's
+.B cgroup
+slice. A path argument is therefore refused rather than ignored, so that adding targeted
+stopping later cannot silently change what an existing command means.
+.IP
+Sessions are found by
 .BR cgroup ,
 not by process tree, so a child that called
 .BR setsid (2)
-or double-forked is still ended.
-.IP
-Each session gets 10 seconds to exit on
+or double-forked is still terminated. Each gets 10 seconds to exit on
 .B SIGTERM
-before it is killed. A stop cannot run the agent's own session-end handback, so the last
-turn's writes may still be sandbox-owned: the command names the
-.B \-\-reclaim
-to run for each project it stopped. Success means every matching session that existed at
-enumeration was stopped and verified gone from its
+before it is killed.
+.B Nothing is exempt
+\(em not the account's own
+.BR systemd (1)
+manager, whose
+.I init.scope
+is terminated with everything else, because an exemption is a cgroup a session could move
+into. The manager is restarted afterwards, as a separate step reported on its own; if that
+fails the command says so and names the fix, and the next launch needs it before it can
+start a session. Success means every session that existed at enumeration was terminated
+and verified gone from its
 .BR cgroup ;
-it does not mean none can start afterwards.
+it does not mean none can start afterwards, and it says nothing about the manager.
 .IP
 Exit status carries the outcome:
 .B 1
 something survived
 .BR SIGKILL ,
 .B 2
-usage,
-.B 3
-refused (unclaimed target, or a live session that could not be attributed to a project),
+usage \(em an unknown option, or a path,
 .B 4
 declined at the confirmation,
 .B 5
@@ -200,15 +219,8 @@ cannot undo:
 .B \-\-all
 For
 .BR \-\-stop :
-end
-.B every
-agent session on the host rather than one project's. It takes no path and needs no
-allowlist coverage, deliberately \(em a stop path that a session can put itself outside of
-is not a stop path. It reaches every cgroup in the sandbox account's slice, so it holds
-against a session that moves its processes between cgroups to evade a scoped stop, and it
-can only ever over-stop. This is the form to reach for in an incident. Anything else the
-account is running at the time \(em an in-flight toolchain update \(em is in scope too; the
-updater is fail-closed on interruption and leaves the previous, trusted version active.
+accepted and inert. Every run already terminates every agent session, so this flag exists
+only so that a script spelling the intent out is not refused for being explicit.
 .TP
 .B \-\-force
 For

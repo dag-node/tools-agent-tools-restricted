@@ -130,9 +130,8 @@ readonly ALLOWLIST_BIN="/usr/local/libexec/ai-tools/ai-tools-allowlist"
 readonly AUDIT_BIN="/usr/local/libexec/ai-tools/ai-tools-audit"
 # Session-stop helper (--stop). Root-only, since a session is a transient unit in the sandbox
 # account's own `systemd --user` manager, which no operator can reach; no NOPASSWD rule, so sudo
-# prompts like the other root helpers. It authorizes a scoped stop against the CALLER'S OWN
-# allowed-projects -- an input the sandbox account can neither read nor write -- and takes no
-# authorization input at all for --all.
+# prompts like the other root helpers. It takes NO authorization input and NO target: what it
+# terminates is decided by cgroup-slice membership, the one fact a session cannot influence.
 readonly STOP_BIN="/usr/local/libexec/ai-tools/ai-tools-stop"
 # Sentinel in a guard CLAUDE.md (see drop_lockdown_guard) so the lockdown step can
 # recognise and remove its own placeholder once secrets are secured.
@@ -2144,31 +2143,36 @@ cmd_audit() {
 # The helper's EXIT STATUS propagates, and its codes carry information a caller acts on: 1 means a
 # process survived SIGKILL, 3 refused, 4 declined at the confirmation, 5 the helper could not run.
 cmd_stop() {
-    local target="" argument stop_all=false; local -a passthru=()
+    local argument; local -a passthru=()
     for argument in "$@"; do
         case "${argument}" in
-            --all)   stop_all=true; passthru+=("${argument}") ;;
-            -n|--dry-run|-y|--yes|--force) passthru+=("${argument}") ;;
-            -*)      die "unknown --stop option: ${argument}" \
-                         "allowed: --all, --dry-run/-n, --yes/-y, --force" ;;
-            *)       if [[ -z "${target}" ]]; then target="${argument}"
-                     else die "--stop takes a single path"; fi ;;
+            # --all is accepted and inert: every run stops every session with or without it. It
+            # exists so a script that spells the intent out is not refused for being explicit.
+            --all|-n|--dry-run|-y|--yes|--force) passthru+=("${argument}") ;;
+            -*) die "unknown --stop option: ${argument}" \
+                    "allowed: --all, --dry-run/-n, --yes/-y, --force" ;;
+            # A PATH IS REFUSED HERE, NOT PASSED ON. The helper refuses it too -- that is the last
+            # line, for a direct root call -- but the refusal has to happen on this side as well,
+            # BEFORE the sudo below: a command that is going to be refused must not first prompt
+            # for a password (the ordering rule --for follows). Why refusing beats ignoring is in
+            # the helper's refuse_positional_argument.
+            #
+            # The commands are printed PLAIN, ahead of die(): die() joins its arguments and wraps
+            # them through the error emitter, which would break a command across lines
+            # (messaging.rule.md).
+            *)  printf '\n' >&2
+                printf '  %s\n' \
+                    "Terminate every session:    ai-tools --stop" \
+                    "See what is running first:  ai-tools --stop --dry-run" \
+                    "End one session cleanly:    /exit inside it, which runs its session-end handback" >&2
+                printf '\n' >&2
+                die "--stop takes no path: ${argument}. It TERMINATES every agent session on this host -- killing the process tree, so no session-end handback runs -- and has no per-project form, because a session is attributed to a project by the sandbox account's own user manager -- the account being stopped -- so that attribution is reported, never trusted to decide what a stop reaches." ;;
         esac
     done
     command -v sudo >/dev/null 2>&1 \
         || die "sudo not found -- a session runs in the sandbox account's cgroups, which only root can signal" \
                "run as root: ${STOP_BIN}"
-    if ${stop_all}; then
-        [[ -z "${target}" ]] || die "--stop --all takes no path: it ends every session on this host"
-        sudo "${STOP_BIN}" "${passthru[@]}"
-        return
-    fi
-    # Resolved here so the helper is always handed an absolute, existing path -- it refuses a
-    # relative one, since the same command must not mean different projects from different
-    # directories. The default is the working directory, as for --lockdown and --reclaim.
-    target="$(resolve_dir "${target:-$PWD}")"
-    [[ -d "${target}" ]] || die "not a directory: ${target}"
-    sudo "${STOP_BIN}" "${passthru[@]}" "${target}"
+    sudo "${STOP_BIN}" "${passthru[@]}"
 }
 
 # cmd_providers  -- report the installed providers of both kinds and, for each, whether a
@@ -2734,7 +2738,7 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
   ai-tools --sandbox-remove [path]   remove a sandbox clone and unregister it
   ai-tools --lockdown [path] [-n|-y] lock down secret files (sudo; default: cwd)
   ai-tools --reclaim [--full] [path] take back ownership of agent files; project stays claimed (sudo; default: cwd)
-  ai-tools --stop [path] | --all     end running agent sessions and everything they spawned (sudo)
+  ai-tools --stop                    terminate every agent session and all it spawned (sudo)
   ai-tools --relabel                 re-verify and relabel the agent entrypoints (sudo)
   ai-tools --providers               list installed agents/integrations and which are enabled
   ai-tools --audit [--since <when>]  report what refused, was rejected or stranded (sudo; default: 7 days)
@@ -2756,14 +2760,15 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
                       directory name; default: repo basename), -y/--yes (skip the create confirm)
   --lockdown options: -n/--dry-run (preview only), -y/--yes (skip confirmation)
   --reclaim options:  --full (also reclaim node_modules, .venv, ... not just the work tree + .git)
-  --stop options:     --all (every session on the host, not one project -- the form to reach for
-                      in an incident: it needs no allowlist coverage and cannot be evaded from
-                      inside a session), -n/--dry-run (list what would stop, change nothing),
-                      -y/--yes (skip the confirmation, which DEFAULTS TO YES here: an unattended
-                      stop that declines is a stop that failed), --force (kill immediately, no
-                      grace period -- the current turn's unsaved work is lost). Without --all the
-                      default target is the working directory, and it must be a project you have
-                      claimed. Exits 1 if anything survived, 3 refused, 4 declined.
+  --stop options:     -n/--dry-run (list what would be terminated, change nothing), -y/--yes
+                      (skip the confirmation, which DEFAULTS TO YES here: an unattended stop
+                      that declines is a stop that failed), --force (kill immediately, no
+                      grace period -- the current turn's unsaved work is lost), --all
+                      (accepted and inert; every run already terminates every session).
+                      It takes NO path: there is no per-project form, because a session is
+                      attributed to a project by the account being stopped. To finish one
+                      session cleanly use /exit inside it, which runs its session-end
+                      handback. Exits 1 if anything survived, 2 on a path, 4 declined.
   --audit options:    --since <when> (anything date(1) parses: '2 days ago', '2026-08-01';
                       default: 7 days ago). Exits non-zero when anything is reported, so it
                       is usable from cron or a login banner without parsing its output.
