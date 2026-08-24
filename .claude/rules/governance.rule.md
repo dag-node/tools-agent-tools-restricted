@@ -71,8 +71,9 @@ stopping, because "the agent stops when asked" is the easiest thing to write and
 mean. `ai-tools --stop` is what makes that row enforced: the operator signals a cgroup as root, the
 session's cooperation is not an input, and the account it runs as can neither run, read nor alter
 the helper — asserted from the agent's own vantage in `tests/boundary/access.sh`. Its undeclinable
-form, `--all`, deliberately takes **no** authorization input, because a stop path the monitored
-system can put itself outside of is not a stop path.
+command deliberately takes **no** authorization input and **no** target, and exempts **no** cgroup
+in the account's slice, because a stop path the monitored system can put itself outside of is not a
+stop path — and any target or exemption is a way to be outside it.
 
 Two properties of the rung matter to this rule beyond the mechanism, which lives in
 [docs/session-stop.md](../../docs/session-stop.md):

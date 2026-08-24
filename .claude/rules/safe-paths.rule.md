@@ -81,19 +81,18 @@ Two layers, both fail-closed:
 Refusal exits `3` in the helpers (distinct from usage `2` and the silent skips) and `1` in the
 launch wrapper (matching its `die`); a load failure (below) uses the same codes.
 
-**One consumer is advisory: `ai-tools-stop`.** Every helper above *writes* to the path it is
-given, which is what makes an unloadable backstop a refusal there. The stop helper only *selects
-processes* by it — "stop the sessions whose working directory is under `/etc`" writes nothing to
-`/etc` — so the guard is consulted when the library is present and skipped when it is not, and its
-real gate is the caller's own allowlist, which a protected path can never legitimately be in. Why
-that helper resolves every degradation toward acting:
+**`ai-tools-stop` is not a consumer, and the reason is instructive.** It loaded this library while
+it took a per-project target, to vet that caller-supplied path — advisorily, since it only
+*selected processes* by the path and never wrote to it. It now takes no path at all: what it
+terminates is decided by cgroup-slice membership, so there is no caller-supplied path to vet and
+the library is not loaded. A helper comes into scope here by *taking an argument that names a
+path*, which is the same rule that keeps `ai-tools-dotnet` out.
 [docs/session-stop.md](../../docs/session-stop.md).
 
 ## Load failure fails closed
 
-Every consumer that *gates* on the backstop requires the library (the one advisory consumer
-above is the exception, and is advisory precisely because it writes nothing); none installs a
-fail-open stub, so the protected-path check is in force whenever a gating consumer runs. Such a
+Every consumer of this backstop *gates* on it and therefore requires the library; none installs a
+fail-open stub, so the protected-path check is in force whenever a consumer runs. Such a
 consumer that cannot load the library refuses rather than continue with the check absent — a
 broken or mis-permissioned install yields a refusal, not an unguarded operation. Two forms:
 
