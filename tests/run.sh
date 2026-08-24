@@ -23,6 +23,8 @@ set -uo pipefail
 
 readonly HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mode="${1:-all}"
+# Per-file wall-clock budget. AI_TOOLS_TEST_FILE_TIMEOUT overrides it for a slow host.
+readonly FILE_TIMEOUT="${AI_TOOLS_TEST_FILE_TIMEOUT:-600}"
 
 [[ "${EUID}" -eq 0 ]] || { echo "error: run with sudo (tests need root)" >&2; exit 1; }
 [[ -n "${SUDO_USER:-}" ]] || { echo "error: invoke via sudo, not as root directly" >&2; exit 1; }
@@ -45,8 +47,19 @@ run_dir() {
         # Stream output live (tee) while capturing it, so a failed file's FAIL lines can be
         # reprinted in the end-of-run summary. PIPESTATUS[0] is the test's status, not tee's.
         out="$(mktemp)"
-        bash "${f}" 2>&1 | tee "${out}"
+        # BOUNDED IN TIME. A test file that blocks -- on a terminal read, on a wedged daemon, on a
+        # fixture process holding a pipe open -- otherwise hangs the whole run with no output and no
+        # exit, and this suite is run by `install.sh` as its verification phase, so a hung file
+        # stalls an install. `timeout` makes that a FAILED file with a diagnosable transcript
+        # instead. The budget is per file and generous: the slowest legitimate file drives a
+        # ten-second graceful stop and waits on real processes.
+        timeout --foreground "${FILE_TIMEOUT}" bash "${f}" 2>&1 | tee "${out}"
         st="${PIPESTATUS[0]}"
+        if [[ "${st}" -eq 124 ]]; then
+            printf '  FAIL  %s did not finish within %ss -- killed\n' "${name}" "${FILE_TIMEOUT}"
+            printf '  FAIL  %s did not finish within %ss -- killed\n' "${name}" "${FILE_TIMEOUT}" \
+                >> "${out}"
+        fi
         if [[ "${st}" -ne 0 ]]; then
             rc=1
             _failed+=("${name}")

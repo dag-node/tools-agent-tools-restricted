@@ -213,4 +213,232 @@ EOF
     fi
 fi
 
+# --stop: the CLI half only -- the option grammar and the two forms not being combinable. Both
+# refusals land in the argument loop, BEFORE the sudo that reaches the root helper, so neither
+# reaches a password prompt or signals anything. The helper's own enumeration and kill are covered
+# in tests/unit/stop.sh and tests/integration/stop.sh; what this asserts is that the verb is
+# dispatched at all and that a mistyped one is refused rather than passed through.
+#
+# THE EXACT CODE IS ASSERTED, not merely non-zero. cmd_stop propagates the helper's exit status, so
+# these codes are a published contract (ai-tools(1), docs/session-stop.md): 2 is usage, and 1
+# already means "a process survived SIGKILL" -- a caller told 1 for a typo reads it as a failed
+# kill. A `-ne 0` assertion cannot see that difference, and did not: the CLI refused through its
+# own die (1) against a documented 2, and only the live drill, which pins the code, caught it.
+if command -v runuser >/dev/null 2>&1; then
+    section "CLI --stop (argument grammar)"
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" setsid \
+            "${CLI}" --stop --bogus 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -eq 2 ]] && grep -qi 'unknown --stop option' <<<"${out}"; then
+        pass "--stop refuses an unknown option with the documented usage code (2)"
+    else
+        fail "--stop did not refuse an unknown option with rc=2 (rc=${rc}): ${out}"
+    fi
+    # A path is refused BY THE CLI, before sudo. Accepting it would invert the operator's intent
+    # in the destructive direction -- they typed a path to narrow the command, which terminates
+    # every session -- and the refusal must name the alternative rather than dead-end them.
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" setsid \
+            "${CLI}" --stop /some/project 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -eq 2 ]] && grep -qi 'takes no path' <<<"${out}" && grep -q '/exit' <<<"${out}"; then
+        pass "--stop refuses a path (rc=2) and names /exit as the way to end one session"
+    else
+        fail "--stop accepted a path, or refused it without rc=2/guidance (rc=${rc}): ${out}"
+    fi
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" setsid \
+            "${CLI}" --stop --all /some/project 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -eq 2 ]] && grep -qi 'takes no path' <<<"${out}"; then
+        pass "a path is refused (rc=2) even beside --all"
+    else
+        fail "--stop --all accepted a path or refused it without rc=2 (rc=${rc}): ${out}"
+    fi
+fi
+
+# --for <operator>: acting on another enrolled operator's registry. Every refusal here precedes the
+# root helper entirely, so none of these reach a sudo prompt. The helper's own gates are asserted
+# in tests/unit/allowlist-helper.sh; what this covers is the CLI deciding, up front, that a run
+# must not proceed at all.
+if command -v runuser >/dev/null 2>&1; then
+    section "CLI --for (acting for another operator)"
+    mktestdir
+    chmod 755 "${TESTDIR}"
+    fconf="${TESTDIR}/operator.conf"
+    printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${fconf}"; chmod 644 "${fconf}"
+    fproj="${TESTDIR}/forproj"; mkdir -p "${fproj}"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${fproj}"
+    fal="${TESTDIR}/for-allowlist"; : > "${fal}"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${fal}"
+
+    # setsid: every assertion below expects a refusal, and each must land BEFORE the gate's
+    # snapshot step, which is a --for run's only sudo. Without a controlling terminal sudo cannot
+    # open /dev/tty to prompt (a stdin redirect does not stop it) and fails at once, so a
+    # regression that let a refusal fall past the snapshot FAILS here instead of hanging on a
+    # developer's password prompt -- the asymmetry being that a container with no tty would fail
+    # while an interactive run stalls indefinitely. -w because setsid FORKS when it is already a
+    # process-group leader, and the bare form then returns 0 rather than the command's status,
+    # which would quietly pass every rc-based assertion below.
+    run_for() {
+        runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${fconf}" AI_TOOLS_ALLOWLIST="${fal}" \
+            setsid -w "${CLI}" "$@" 2>&1
+    }
+
+    # (1) An unenrolled target is refused, naming the enrolment command. Nothing may be written for
+    # a name the ownership helpers cannot later resolve to an owner.
+    out="$(run_for --project-claim --for definitely-not-an-operator "${fproj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'not a configured ai-tools operator' <<<"${out}"; then
+        pass "--for refuses an unenrolled target operator"
+    else
+        fail "--for accepted an unenrolled target (rc=${rc}): ${out}"
+    fi
+    if [[ -s "${fal}" ]]; then
+        fail "refused --for run still wrote to a registry: $(cat "${fal}")"
+    else
+        pass "refused --for run wrote no registry state"
+    fi
+
+    # (2) The sandbox account can never be a --for target: it would be the agent owning projects.
+    out="$(run_for --project-claim --for "${SANDBOX_USER}" "${fproj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'not an operator' <<<"${out}"; then
+        pass "--for refuses the sandbox account as the target"
+    else
+        fail "--for accepted the sandbox account (rc=${rc}): ${out}"
+    fi
+
+    # (3) Refused, not ignored, on a verb it does not apply to -- a --sandbox-create that silently
+    # cloned as the invoker would leave the tree owned by the wrong operator with nothing to show.
+    out="$(run_for --sandbox-create --for "${PROJECTS_USER}" "${fproj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'for is not accepted on' <<<"${out}"; then
+        pass "--for is refused on a verb that does not accept it (not silently ignored)"
+    else
+        fail "--for was not refused on --sandbox-create (rc=${rc}): ${out}"
+    fi
+
+    # (4) --force binds an unlisted tree to the INVOKING uid inside ai-tools-unclaim, so honouring
+    # --for there would have the CLI name one operator while the helper acted as another.
+    out="$(run_for --project-unclaim --force --for "${PROJECTS_USER}" "${fproj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'cannot be combined with --force' <<<"${out}"; then
+        pass "--for refuses to combine with --project-unclaim --force"
+    else
+        fail "--for was accepted alongside --force (rc=${rc}): ${out}"
+    fi
+
+    # (5) A bare --for with no name is a parse error, not an empty operator silently meaning "me".
+    out="$(run_for --project-claim --for)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'for needs an operator name' <<<"${out}"; then
+        pass "--for with no operator name is refused"
+    else
+        fail "--for with no name was not refused (rc=${rc}): ${out}"
+    fi
+fi
+
+# ── --audit: the reader for the refusal trails ───────────────────────────────────────────────
+# Driven against the deployed helper directly rather than through `ai-tools --audit`, because the
+# CLI reaches it via sudo with no NOPASSWD rule and would prompt for a password. The helper is
+# where every decision lives (the CLI is a pass-through that propagates its exit status), and
+# AI_TOOLS_LOG_DIR -- the same root-only hook the harness already uses -- points it at a seeded
+# throwaway trail instead of the production one. Root-only, so this needs the suite's root.
+section "ai-tools --audit reads the refusal trails"
+audit_bin=/usr/local/libexec/ai-tools/ai-tools-audit
+if [[ ! -x "${audit_bin}" ]]; then
+    skip "--audit" "${audit_bin} not installed"
+else
+    audit_dir="${TESTDIR}/audit-trail"
+    mkdir -p "${audit_dir}"
+    audit_now="$(date -Is)"
+    audit_old="$(date -Is -d '30 days ago')"
+    # One finding per level that counts, one INFO that must not, and one line older than any
+    # window this test asks for.
+    {
+        printf '%s INFO    [1] restored ownership of /tmp/x (routine, must NOT be reported)\n' "${audit_now}"
+        printf '%s NOTICE  [1] NOTICE: secret-named file written by agent considered breached: /p/.env\n' "${audit_now}"
+        printf '%s ERROR   [1] AUDIT-OLD-MARKER outside every window under test\n' "${audit_old}"
+    } > "${audit_dir}/chown.log"
+    printf '%s WARNING [2] rejected peer uid=1234 (not the sandbox account)\n' "${audit_now}" \
+        > "${audit_dir}/handback.log"
+
+    # (1) Findings present -> reported, and the exit status is non-zero so cron//etc/profile.d
+    #     can act on it without parsing the output.
+    out="$(AI_TOOLS_LOG_DIR="${audit_dir}" "${audit_bin}" --since '2 days ago' 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -q 'breached' <<<"${out}" && grep -q 'rejected peer' <<<"${out}"; then
+        pass "--audit reports findings from every root-only log and exits non-zero"
+    else
+        fail "--audit did not report the seeded findings (rc=${rc}): ${out}"
+    fi
+
+    # (2) Severity is the selector, so routine INFO churn must not surface. An audit command
+    #     that reports every ownership restore is one an operator stops reading.
+    if grep -q 'must NOT be reported' <<<"${out}"; then
+        fail "--audit reported an INFO line -- the severity floor is not being applied"
+    else
+        pass "--audit reports NOTICE and above only (routine INFO churn stays out)"
+    fi
+
+    # (3) The window is honoured: a finding older than --since is out of scope.
+    if grep -q 'AUDIT-OLD-MARKER' <<<"${out}"; then
+        fail "--audit reported a finding older than --since -- the window is not applied"
+    else
+        pass "--audit honours --since (an older finding is out of the window)"
+    fi
+
+    # (3b) Repeats collapse, and severity leads. This is what makes the command usable rather
+    #      than merely correct: a recurring condition writes one line per occurrence -- the
+    #      handback daemon's refusals run to hundreds over a week on a host that exercises them
+    #      -- and an uncollapsed report buries the one ERROR that needs acting on. Seed a
+    #      recurring warning that differs only in its pid, alongside a single ERROR, and assert
+    #      the report folds the first and leads with the second.
+    for audit_pid in 111 222 333 444; do
+        printf '%s WARNING [%d] rejected malformed arg for CHOWN (pid %d)\n' \
+            "${audit_now}" "${audit_pid}" "${audit_pid}" >> "${audit_dir}/handback.log"
+    done
+    printf '%s ERROR   [9] AUDIT-REAL-FINDING that must not be buried\n' "${audit_now}" \
+        > "${audit_dir}/relabel.log"
+    out="$(AI_TOOLS_LOG_DIR="${audit_dir}" "${audit_bin}" --since '2 days ago' 2>&1)" || true
+
+    if [[ "$(grep -c 'rejected malformed arg' <<<"${out}")" == 1 ]] \
+            && grep -qE '4x +rejected malformed arg' <<<"${out}"; then
+        pass "--audit collapses a repeated finding into one line carrying its count"
+    else
+        fail "--audit did not collapse the four repeats of one finding: ${out}"
+    fi
+
+    # The ERROR must be the first finding printed -- an operator reads the top of a report.
+    if [[ "$(grep -E '^\s+(ERROR|WARNING|NOTICE)\s' <<<"${out}" | head -1)" == *AUDIT-REAL-FINDING* ]]; then
+        pass "--audit leads with the most severe finding, ahead of recurring noise"
+    else
+        fail "--audit did not lead with the ERROR: $(grep -E '^\s+(ERROR|WARNING|NOTICE)\s' <<<"${out}" | head -3)"
+    fi
+
+    # (4) A clean window exits zero, so a healthy host does not alarm every night.
+    out="$(AI_TOOLS_LOG_DIR="${audit_dir}" "${audit_bin}" --since '+1 hour' 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -eq 0 ]] && grep -qi 'nothing refused' <<<"${out}"; then
+        pass "--audit exits zero and says so when the window holds no findings"
+    else
+        fail "--audit did not report a clean window (rc=${rc}): ${out}"
+    fi
+
+    # (5) An unparseable --since is REFUSED, never widened to "everything": a typo that silently
+    #     reported all of history would read as a catastrophe, and one that silently reported
+    #     nothing would read as all-clear. Both are worse than an error.
+    out="$(AI_TOOLS_LOG_DIR="${audit_dir}" "${audit_bin}" --since 'not a date' 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'not understood' <<<"${out}"; then
+        pass "--audit refuses a --since value date(1) cannot parse"
+    else
+        fail "--audit accepted an unparseable --since (rc=${rc}): ${out}"
+    fi
+
+    # (6) The DEPLOYED CLI reaches the helper. (1)-(5) drive the helper directly, so nothing so
+    #     far would notice a verb that was never wired into the dispatch. Asserted through the
+    #     help text rather than by running the verb, which sudo-prompts (no NOPASSWD rule).
+    #     The usage()/man-page pairing itself is covered from source in unit/man.sh; what this
+    #     adds is that the copy actually installed on this host carries it -- which is why it
+    #     SKIPS rather than fails when the deployed CLI predates the verb. That is the normal
+    #     state between building this branch and installing it, and it is not a defect.
+    if ! command -v ai-tools >/dev/null 2>&1; then
+        skip "--audit is wired into the CLI" "ai-tools is not on PATH"
+    elif ai-tools --help 2>&1 | grep -q -- '--audit'; then
+        pass "the deployed ai-tools dispatches --audit"
+    else
+        skip "--audit is wired into the CLI" "the deployed ai-tools predates the verb (install this version to cover it)"
+    fi
+fi
+
 finish

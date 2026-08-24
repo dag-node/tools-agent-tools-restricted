@@ -8,11 +8,19 @@
 # secret lockdown -- through the sudo root helpers (no NOPASSWD: the operator is prompted for a
 # password; the sandbox account holds no grant).
 #
-# Two preflight gates run before dispatch: require_bootstrap (provisioned install) and, for the
+# Three preflight gates run before dispatch: require_bootstrap (provisioned install); for the
 # operator-acting commands (--project-*/--sandbox-*/--lockdown/--reclaim/--relabel),
 # require_operator -- the invoking user must be in OPERATORS in operator.conf, since the root
-# helpers resolve the caller's identity from that list. --help/--version/--list/--providers stay
+# helpers resolve the caller's identity from that list; and require_for_target, which validates a
+# --for run and re-points the registry at its target. --help/--version/--list/--providers stay
 # open to any user.
+#
+# --for <operator> performs a command ON BEHALF OF another enrolled operator: the allowlist entry
+# lands in THEIR registry, so ai-tools-setfacl grants user:<them>, the handback restores to them,
+# and their agent's launch gate covers the path. It exists for a service account that runs an
+# agent but holds no password to authenticate a claim of its own. The target's registry is
+# unreadable to the invoker (0600 in a 0700 directory), so a --for run reads a root-side snapshot
+# of it and routes its writes through ai-tools-allowlist.
 #
 # Commands (each confirms before applying and reports the result):
 #   --project-claim   [path]  claim a project in place -- grant the agent access (idempotent;
@@ -33,7 +41,8 @@
 #   --reclaim [--full] [path] take back ownership of agent-written files -- the project stays
 #                             claimed and the agent keeps access; the on-demand ownership
 #                             handback, e.g. before an ACL-unaware backup (sudo; default: cwd)
-#   --relabel                 relabel the enabled agents' entrypoints after a Node upgrade (sudo)
+#   --relabel                 reconcile the enabled agents' entrypoints -- verify each against its
+#                             vendor's signed release checksum and pin it, then relabel (sudo)
 #   --providers               report the installed agents/integrations, which are enabled,
 #                             and why (read-only; resolved through providers.lib.sh)
 #   --status                  report ai-tools service health (read-only; services.lib.sh)
@@ -110,6 +119,19 @@ readonly SAFEDIR_BIN="/usr/local/libexec/ai-tools/ai-tools-safedir"
 # under a project back to the operator via ai-tools-chown (the per-path trust boundary), needed for
 # the .git tree the per-session sweeps skip; useful before an ACL-unaware backup.
 readonly RECLAIM_BIN="/usr/local/libexec/ai-tools/ai-tools-reclaim"
+# Root-only cross-operator allowlist helper, same sudo (no NOPASSWD) model. Reads and edits ANOTHER
+# enrolled operator's allowed-projects for a --for run; root is needed for the READ too, since an
+# allowlist is 0600 inside a 0700 .config/ai-tools. Only a --for run reaches it -- without the flag
+# the CLI writes the invoker's own registry directly, as before.
+readonly ALLOWLIST_BIN="/usr/local/libexec/ai-tools/ai-tools-allowlist"
+
+# Reader for the refusal/rejection trails (--audit). Root-only, since the trail it reads is
+# 700 root:root; no NOPASSWD rule, so sudo prompts like the other per-project helpers.
+readonly AUDIT_BIN="/usr/local/libexec/ai-tools/ai-tools-audit"
+# Session-stop helper (--stop). Root-only, since a session is a transient unit in the sandbox
+# account's own `systemd --user` manager, which no operator can reach; no NOPASSWD rule, so sudo
+# prompts like the other root helpers. What it accepts, and why so little: cmd_stop.
+readonly STOP_BIN="/usr/local/libexec/ai-tools/ai-tools-stop"
 # Sentinel in a guard CLAUDE.md (see drop_lockdown_guard) so the lockdown step can
 # recognise and remove its own placeholder once secrets are secured.
 readonly GUARD_MARKER="ai-tools-lockdown-guard"
@@ -119,11 +141,6 @@ readonly GUARD_MARKER="ai-tools-lockdown-guard"
 # write the registries with the wrong owner) and never as the sandbox account
 # (the agent must not manage its own allowlist).
 ME="$(id -un)"
-# The invoking operator's own primary group, for the one message that must name it: the lockdown
-# preamble, which states the owner a locked secret ends up with (<you>:<you>). Not a decision
-# input anywhere -- what a walk treats as "the operator's group" is resolved per path from the
-# path's owner, never from who happens to be running the CLI.
-MY_GROUP="$(id -gn)"
 [[ "${ME}" == "root" ]] \
     && { echo "ai-tools: do not run as root -- run as the projects user, without sudo" >&2
          echo "          (the CLI invokes sudo itself for the steps that need it)" >&2; exit 1; }
@@ -133,10 +150,63 @@ MY_GROUP="$(id -gn)"
 HOME_DIR="$(getent passwd "${ME}" | cut -d: -f6)"
 [[ -d "${HOME_DIR}" ]] || { echo "ai-tools: cannot resolve home for ${ME}" >&2; exit 1; }
 readonly ME HOME_DIR
-# One resolution point for readers AND writers (reg_allow/unreg_allow), so a fixture test that
-# sets AI_TOOLS_ALLOWLIST never mutates the operator's real registry. Root-only test hook -- see
-# the GITCONFIG note above for why the override grants the CLI's operator caller nothing new.
-readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-${HOME_DIR}/.config/ai-tools/allowed-projects}"
+
+# ── --for <operator>: act on another enrolled operator's project registry ────────
+# A service account that runs an agent has no password, so it cannot authenticate the claim's own
+# root helpers -- and a project claimed by a human lands in the HUMAN's registry, which is not the
+# one that account's launch gate reads. --for closes both: a human operator performs the claim ON
+# BEHALF OF the target, whose allowlist then covers the path, so ai-tools-setfacl grants
+# user:<target>, the handback restores to <target>, and that account's own launch finds the project
+# already claimed and never reaches a password prompt.
+#
+# The flag is separated from the command's own arguments HERE, before the registry path below is
+# resolved and before dispatch, so every command reads one already-decided owner instead of each
+# parsing the flag itself. Validation (is the target enrolled, does this verb accept --for) needs
+# conf.lib.sh and runs at the dispatch gate.
+FOR_OPERATOR=""
+_forless_args=()
+while (( $# )); do
+    case "$1" in
+        --for)   [[ -n "${2:-}" && "${2:-}" != -* ]] \
+                     || { echo "ai-tools: --for needs an operator name" >&2; exit 1; }
+                 FOR_OPERATOR="$2"; shift 2 ;;
+        --for=*) FOR_OPERATOR="${1#--for=}"
+                 [[ -n "${FOR_OPERATOR}" ]] \
+                     || { echo "ai-tools: --for needs an operator name" >&2; exit 1; }
+                 shift ;;
+        *)       _forless_args+=("$1"); shift ;;
+    esac
+done
+set -- "${_forless_args[@]}"
+unset _forless_args
+
+# The operator this run acts FOR: the --for target, or the invoker. Every message that names the
+# owner a file ends up with, and every scan that matches on that owner, reads these rather than ME
+# -- on a --for run the tree belongs to the target, so naming the invoker would misreport who ends
+# up holding the files. What a root helper's walk treats as "the operator" is still resolved per
+# path from the path's own allowlist coverage, never from either of these.
+OWNER_USER="${FOR_OPERATOR:-${ME}}"
+# Without --for the owner is the invoker, whose group always resolves. With --for the group is
+# resolved by require_for_target only AFTER the target is confirmed enrolled: a name that is
+# neither an operator nor a user on this host has to be refused with the actionable "not a
+# configured ai-tools operator -- enrol it with ..." message, not with a getent failure that names
+# the wrong problem.
+OWNER_GROUP=""
+if [[ -z "${FOR_OPERATOR}" ]]; then
+    OWNER_GROUP="$(id -gn "${OWNER_USER}" 2>/dev/null)" \
+        || { echo "ai-tools: cannot resolve the primary group of ${OWNER_USER}" >&2; exit 1; }
+fi
+readonly FOR_OPERATOR OWNER_USER
+
+# The registry this run reads and writes. Without --for it is the invoker's own file, read and
+# written directly. With --for, require_for_target re-points it at a root-side SNAPSHOT of the
+# target's file: an allowlist is 0600 inside a 0700 .config/ai-tools, so one operator cannot read
+# another's at all, and every decision made from it (is the path listed, which '!' exclusions
+# apply, what --list reports) would otherwise read an unreadable file as an empty one. One
+# resolution point for readers AND writers (reg_allow/unreg_allow), so a fixture test that sets
+# AI_TOOLS_ALLOWLIST never mutates the operator's real registry. Root-only test hook -- see the
+# GITCONFIG note above for why the override grants the CLI's operator caller nothing new.
+ALLOWLIST="${AI_TOOLS_ALLOWLIST:-${HOME_DIR}/.config/ai-tools/allowed-projects}"
 
 # ── Output / prompt helpers ──────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
@@ -306,6 +376,18 @@ require_sandbox_clone() {
 
 reg_allow() {
     local dir="$1"
+    # A --for run edits a registry in a home this operator cannot even read, so the write goes
+    # through the root helper (which re-reads the real file and applies its own idempotency), and
+    # the snapshot is refreshed so the rest of this run sees the entry it just added.
+    if [[ -n "${FOR_OPERATOR}" ]]; then
+        if sudo "${ALLOWLIST_BIN}" --operator "${FOR_OPERATOR}" --add "${dir}" >/dev/null; then
+            snapshot_allowlist
+            say "    allowed-projects: added for ${FOR_OPERATOR}"
+        else
+            die "could not add ${dir} to ${FOR_OPERATOR}'s allowed-projects"
+        fi
+        return 0
+    fi
     [[ -f "${ALLOWLIST}" ]] || die "allowlist not found at ${ALLOWLIST} -- run install first"
     # Match through the shared grammar, not a raw line: a hand-added entry with a comment or
     # quotes is already listed, and appending would duplicate it (conf.lib.sh).
@@ -326,6 +408,18 @@ allow_escape() { printf '%s' "$1" | sed 's/[]\.*^$|[]/\\&/g'; }
 
 unreg_allow() {
     local dir="$1"
+    # A --for run de-lists through the root helper, which applies the same raw-line matcher below
+    # to the real file; the snapshot is refreshed so a later read in this run agrees with it.
+    if [[ -n "${FOR_OPERATOR}" ]]; then
+        if sudo "${ALLOWLIST_BIN}" --operator "${FOR_OPERATOR}" --remove "${dir}" >/dev/null; then
+            snapshot_allowlist
+            say "    allowed-projects: removed for ${FOR_OPERATOR}"
+        else
+            warn "could not remove ${dir} from ${FOR_OPERATOR}'s allowed-projects -- run:"
+            say  "      ${C_BOLD}sudo ${ALLOWLIST_BIN} --operator ${FOR_OPERATOR} --remove ${dir}${C_RST}"
+        fi
+        return 0
+    fi
     [[ -f "${ALLOWLIST}" ]] || return 0
     # Delete the RAW line(s) whose grammar entry matches ${dir}, not a line rebuilt from ${dir}:
     # a hand-added entry may carry a comment or quotes (conf.lib.sh), and anchoring on ${dir}
@@ -486,7 +580,7 @@ acl_drift_scan() {
         [[ "${excl}" == "${dir}"/* ]] && skip+=( -o -path "${excl}" -prune )
     done < <(grep '^!' "${ALLOWLIST}" 2>/dev/null || true)
     find "${dir}" -xdev \( "${skip[@]}" \) -o \
-        \( -user "${ME}" -o -user "${SANDBOX_USER}" \) \
+        \( -user "${OWNER_USER}" -o -user "${SANDBOX_USER}" \) \
         ! -group "${SANDBOX_GROUP}" -perm /077 -print 2>/dev/null
 }
 
@@ -568,14 +662,19 @@ agent_can_traverse() {
     return 1
 }
 
-# grantable_ancestor <dir>  -- 0 if reg_reach may grant traverse on <dir>: the operator OWNS it and
-# it is not a protected system directory (the safe-paths backstop). Fail-closed when the predicate
-# is unavailable, so a broken install never widens a directory it cannot vet.
+# grantable_ancestor <dir>  -- 0 if reg_reach may grant traverse on <dir>: the project's OWNER owns
+# it and it is not a protected system directory (the safe-paths backstop). Fail-closed when the
+# predicate is unavailable, so a broken install never widens a directory it cannot vet.
+#
+# On a --for run the owner is the target, whose directories the invoker may not be able to setfacl;
+# the grant is still offered, because the alternative -- declining a reachable path outright --
+# would report a working project as unreachable. An unprivileged setfacl that is refused falls to
+# reg_reach's per-path warning, which prints the exact command to run as the owner or as root.
 grantable_ancestor() {
     local p="$1"
     declare -F ai_tools_protected_path_match >/dev/null 2>&1 || return 1
     if ai_tools_protected_path_match "${p}" >/dev/null 2>&1; then return 1; fi
-    [[ "$(stat -c '%U' "${p}" 2>/dev/null || true)" == "${ME}" ]]
+    [[ "$(stat -c '%U' "${p}" 2>/dev/null || true)" == "${OWNER_USER}" ]]
 }
 
 # reach_scan <dir>  -- detect the traverse gap between the sandbox account and <dir>:
@@ -618,7 +717,7 @@ reg_reach() {
         elif ai_tools_protected_path_match "${REACH_BLOCKED}" >/dev/null 2>&1; then
             why="a protected system directory"
         else
-            why="owned by $(stat -c '%U' "${REACH_BLOCKED}" 2>/dev/null || echo '?'), not by ${ME}"
+            why="owned by $(stat -c '%U' "${REACH_BLOCKED}" 2>/dev/null || echo '?'), not by ${OWNER_USER}"
         fi
         headline_warn "WARNING: project unreachable for the sandbox account" \
             "the sandbox account cannot traverse ${REACH_BLOCKED} (${why}), so it cannot reach ${dir}; an isolated clone under the sandbox area is the way in:"
@@ -1367,7 +1466,7 @@ resolve_handback_group() {
     # Default YES: the natural completion of an unclaim. Still confirmed, because it rewrites
     # ownership and permissions across the tree.
     if confirm "Hand the files back to a group and remove the agent's write access?" y; then
-        hb_user="$(ask "  Hand the files to which user's group?" "${ME}")"
+        hb_user="$(ask "  Hand the files to which user's group?" "${OWNER_USER}")"
         if ! HANDBACK_GROUP="$(id -gn "${hb_user}" 2>/dev/null)"; then
             warn "no such user '${hb_user}' -- skipping the filesystem hand-back"
             HANDBACK_GROUP=""; HANDBACK_HINT=1
@@ -1952,7 +2051,7 @@ cmd_lockdown() {
     # If it is genuinely missing, sudo reports it and run_lockdown returns non-zero.
     section "Lock down project secrets"
     say "  ${d}"
-    say "  ${C_DIM}secret-matching files -> 600, dirs -> 700, owner ${ME}:${MY_GROUP}${C_RST}"
+    say "  ${C_DIM}secret-matching files -> 600, dirs -> 700, owner ${OWNER_USER}:${OWNER_GROUP}${C_RST}"
     if run_lockdown "${d}" "${passthru[@]}"; then
         ${dry} || clear_lockdown_guard "${d}"
         ok "lockdown done: ${d}"
@@ -1963,7 +2062,7 @@ cmd_lockdown() {
 }
 
 # cmd_reclaim [--full] [path]  -- hand agent-written files under the project (default: cwd) back to
-# ${ME}:${SANDBOX_GROUP} via ai-tools-reclaim (sudo). Reclaims the .git tree the per-session sweeps
+# ${OWNER_USER}:${SANDBOX_GROUP} via ai-tools-reclaim (sudo). Reclaims the .git tree the per-session sweeps
 # skip; run it before an ACL-unaware backup so ownership (not the per-project ACL) carries the
 # operator's access into the copy. --full also reclaims the heavy trees the default run skips
 # (node_modules, .venv, ...).
@@ -1984,7 +2083,7 @@ cmd_reclaim() {
                "       list your registered projects with: ai-tools --list"
     section "Reclaim agent-written files"
     say "  ${d}${C_DIM}$(${full} && printf ' (--full: incl. node_modules, .venv, ...)')${C_RST}"
-    say "  ${C_DIM}-> ${ME}:${SANDBOX_GROUP} (secret-named files stay ${ME}:${ME} 600)${C_RST}"
+    say "  ${C_DIM}-> ${OWNER_USER}:${SANDBOX_GROUP} (secret-named files stay ${OWNER_USER}:${OWNER_GROUP} 600)${C_RST}"
     # The helper reports the outcome itself -- the pre-scan count, the one whole-set
     # confirm, then "handed back N" / "nothing to reclaim" / "declined" -- so no blanket
     # success line here: the CLI states only what actually happened.
@@ -1992,30 +2091,101 @@ cmd_reclaim() {
     ai_tools_log_info "reclaim run for ${d}$(${full} && printf ' (full)')"
 }
 
-# cmd_relabel  -- restore the ai_tools_exec_t SELinux label on each enabled agent's entrypoint
-# after a Node auto-upgrade, via the root helper (sudo, no password: the dedicated rule). An
-# nvm-update installs a fresh agent binary that npm leaves mislabelled (bin_t), so the domain
-# transition stops firing and ai-tools-run refuses to launch (fail-closed) until the label is
-# restored. Takes no path -- the helper resolves the entrypoints from the agent manifests.
+# cmd_relabel  -- reconcile each enabled agent's entrypoint after a toolchain change, via the root
+# helper (sudo, no password: the dedicated fixed-path rule). Two steps, in this order:
+#   1. VERIFY the entrypoint against the checksum its vendor signed and record it in that agent's
+#      pin, which ai-tools-run compares the binary against at launch. Needs the host online, and
+#      fails soft when it cannot reach the vendor; a MISMATCH fails the command.
+#   2. RELABEL it to ai_tools_exec_t. An nvm-update installs a fresh agent binary that npm leaves
+#      mislabelled (bin_t), so the domain transition stops firing and ai-tools-run refuses to
+#      launch (fail-closed) until the label is restored.
+# Takes no path -- the helper resolves the entrypoints from the agent manifests.
 #
-# Design note: if post-upgrade maintenance ever grows beyond this one step, fold the steps
-# under a `--postupgrade` umbrella verb that runs them in sequence; while relabel is the
-# only step, the explicit `--relabel` is clearer in the UX, so there is no umbrella yet.
+# The verb keeps the name it had when relabelling was its only step; why the two are one command
+# is in .claude/rules/cli.rule.md.
 cmd_relabel() {
     [[ "$#" -eq 0 ]] || die "--relabel takes no arguments"
-    section "Relabel the agent entrypoints (after a Node upgrade)"
-    say "  A Node auto-upgrade installs new agent binaries that must be relabelled so"
-    say "  the sandbox can confine the session; until then the agent refuses to launch."
+    section "Reconcile the agent entrypoints (after a toolchain change)"
+    say "  Verifies each agent binary against the checksum its vendor signed, then relabels"
+    say "  it so the sandbox can confine the session; until then the agent refuses to launch."
     command -v sudo >/dev/null 2>&1 \
-        || die "sudo not found -- cannot relabel; run as root: ${RELABEL_ENTRYPOINT_BIN}"
+        || die "sudo not found -- cannot reconcile; run as root: ${RELABEL_ENTRYPOINT_BIN}"
     # Reaches the helper through the dedicated fixed-path NOPASSWD rule (the same one the
     # nvm-update timer uses), so this runs as root without a password prompt.
     if sudo "${RELABEL_ENTRYPOINT_BIN}"; then
-        ok "entrypoints relabelled -- exit any running session and relaunch"
-        ai_tools_log_info "relabelled the agent entrypoints (post-upgrade)"
+        ok "entrypoints reconciled -- exit any running session and relaunch"
+        ai_tools_log_info "reconciled the agent entrypoints (verify + relabel)"
     else
-        die "relabel failed -- see the message above"
+        die "reconcile failed -- see the message above"
     fi
+}
+
+# cmd_audit -- report what has refused, been rejected, been stranded or been flagged since a
+# given time. A thin pass-through to the root helper, which does the reading and the rendering:
+# the trail is 700 root:root, so there is nothing this unprivileged CLI could usefully do with
+# it first. The helper's EXIT STATUS is propagated deliberately -- non-zero means findings --
+# so `ai-tools --audit` is usable from cron or a login banner without parsing its output, the
+# same contract --status already offers.
+cmd_audit() {
+    command -v sudo >/dev/null 2>&1 \
+        || die "sudo not found -- cannot read the root-only trail; run as root: ${AUDIT_BIN}"
+    sudo "${AUDIT_BIN}" "$@"
+}
+
+# cmd_stop -- terminate every running agent session, through ai-tools-stop. Thin by design, and the
+# thinness is the whole contract: the command takes no target and no authorization input, so there
+# is nothing on this side to decide. What a stop reaches follows from membership of the sandbox
+# account's cgroup slice, which only the root helper can read, and every remaining decision is a
+# security decision that must not be made twice in two places. Option grammar is all that lives
+# here. Why the command is shaped this way: docs/session-stop.md.
+#
+# The helper's EXIT STATUS propagates unchanged, so a caller reads one set of codes whichever side
+# refused. They are listed in ai-tools(1) and are not restated here, so the two cannot drift.
+#
+# die_stop_usage -- refuse a --stop command line in the HELPER's exit-code space (2 = usage), not
+# the CLI's own (die exits 1). Because cmd_stop propagates the helper's status, 2 is what a caller
+# reading --stop's exit code is told a usage error is -- in ai-tools(1) and docs/session-stop.md
+# alike -- and WHICH SIDE refused is an implementation detail of the ordering below, not something
+# the caller asked about. Exiting 1 here would report the same mistake as one code from the CLI and
+# another from a direct root call, and 1 already means "a process survived SIGKILL".
+die_stop_usage() { ai_tools_log_error "$*"; ai_tools_msg_error "ai-tools: $*"; exit 2; }
+
+cmd_stop() {
+    local argument; local -a passthru=()
+    for argument in "$@"; do
+        case "${argument}" in
+            # --all is accepted and inert; ai-tools(1) says why it exists at all.
+            --all|-n|--dry-run|-y|--yes|--force) passthru+=("${argument}") ;;
+            -*) die_stop_usage "unknown --stop option: ${argument}" \
+                    "allowed: --all, --dry-run/-n, --yes/-y, --force" ;;
+            # A PATH IS REFUSED HERE, NOT PASSED ON. The helper refuses it too -- that is the last
+            # line, for a direct root call -- but the refusal has to happen on this side as well,
+            # BEFORE the sudo below: a command that is going to be refused must not first prompt
+            # for a password (the ordering rule --for follows). Why refusing beats ignoring is in
+            # the helper's refuse_positional_argument.
+            #
+            # THIS TEXT IS A DELIBERATE TWIN of that function's, and the duplication is unavoidable:
+            # the two run in different processes and the helper is 750 root:root, so neither can
+            # source the other, while an operator meets whichever side refused. The two must say the
+            # same thing and offer the same four commands -- change one, change both.
+            #
+            # The commands are printed PLAIN, ahead of die(): die() joins its arguments and wraps
+            # them through the error emitter, which would break a command across lines
+            # (messaging.rule.md).
+            *)  printf '\n' >&2
+                printf '  %s\n' \
+                    "Terminate every session:    ai-tools --stop" \
+                    "See what is running first:  ai-tools --stop --dry-run" \
+                    "End one session cleanly:    /exit inside it, which runs its session-end handback" \
+                    "Terminate one by hand:      sudo systemctl --user -M ${SANDBOX_USER}@.host stop <unit>" >&2
+                printf '\n' >&2
+                die_stop_usage "--stop takes no path: ${argument}. It TERMINATES every agent session on this host -- killing the process tree, so no session-end handback runs -- and has no per-project form, because a session is attributed to a project by the sandbox account's own user manager -- the account being stopped -- so that attribution is reported, never trusted to decide what a stop reaches." ;;
+        esac
+    done
+    command -v sudo >/dev/null 2>&1 \
+        || die "sudo not found -- a session runs in the sandbox account's cgroups, which only root can signal" \
+               "run as root: ${STOP_BIN}"
+    sudo "${STOP_BIN}" "${passthru[@]}"
 }
 
 # cmd_providers  -- report the installed providers of both kinds and, for each, whether a
@@ -2194,7 +2364,7 @@ list_maintenance_note() {
     say "  ai-tools --project-unclaim <path>   release a project (revoke agent access)"
     say "  ai-tools --reclaim [--full] <path>  take back ownership; project stays claimed"
     say "  ai-tools --lockdown <path>          lock down secret-named files"
-    say "  ai-tools --relabel                  relabel the agent entrypoints after a Node upgrade"
+    say "  ai-tools --relabel                  re-verify and relabel the agent entrypoints"
 }
 
 # status_fmt_age <seconds>  -- render an age the way an operator reads it ("3 days ago"), not as a
@@ -2240,6 +2410,78 @@ status_sandbox_unit_commands() {
 # healthy, its consequence and the exact commands that inspect and fix it.
 # Reuses services.lib.sh -- the SAME registry the launch-time warning reads -- so the status view and
 # the launch warning never disagree. Informational (no operator gate), like --list/--providers.
+# status_entrypoint_pins  -- report, per enabled agent, whether its entrypoint carries a verified
+# checksum. This is the ONE piece of the verification an operator can observe: the entrypoint itself
+# lives in the 0750 toolchain they cannot read (which is why its LABEL stays unreportable here), but
+# the pin is a root-owned record placed where they can. Without this line the only signals are a
+# warning in a journal the operator cannot reach and, eventually, a refused launch.
+#
+# The pin is written in the same KEY=value stamp grammar as the updater's last-run record, so it is
+# read through the SAME accessors -- charset-clamped fields and one age implementation - rather than
+# a second reader that could drift. Its path comes from entrypoint-verify.lib.sh, never hardcoded.
+#
+# Returns non-zero only when an unpinned entrypoint is actually actionable, which is exactly when
+# the operator has required verification: everywhere else unpinned is a legitimate state (an
+# air-gapped host, a release the vendor published no manifest for) and must not make a healthy host
+# alarm, the same rule the unqueryable units follow. A pin this account cannot read is reported as
+# unknown and is never a fault -- --status stays open to a non-operator, who cannot traverse the
+# state directory at all.
+status_entrypoint_pins() {
+    local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
+    local verify_lib=/usr/local/lib/ai-tools/entrypoint-verify.lib.sh
+    # shellcheck source=SCRIPTDIR/../lib/ai-tools/providers.lib.sh
+    source "${providers_lib}" 2>/dev/null || true
+    # shellcheck source=SCRIPTDIR/../lib/ai-tools/entrypoint-verify.lib.sh
+    source "${verify_lib}" 2>/dev/null || true
+    declare -F ai_tools_enabled_agents      >/dev/null 2>&1 || return 0
+    declare -F ai_tools_entrypoint_pin_path >/dev/null 2>&1 || return 0
+    declare -F ai_tools_service_stamp_field >/dev/null 2>&1 || return 0
+
+    local strict=no
+    declare -F ai_tools_entrypoint_verify_required >/dev/null 2>&1 \
+        && ai_tools_entrypoint_verify_required && strict=yes
+
+    local agent pin version verified age seen=0 unpinned=0
+    while IFS=$'\t' read -r agent _ _; do
+        [[ -n "${agent}" ]] || continue
+        # An agent whose package declares no release manifest has nothing to verify against, so it
+        # is left out entirely rather than reported as perpetually unpinned.
+        [[ -n "$(ai_tools_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" ]] || continue
+        (( seen++ == 0 )) && section "Entrypoint verification"
+        pin="$(ai_tools_entrypoint_pin_path "${agent}" 2>/dev/null || true)"
+        version="$(ai_tools_service_stamp_field "${pin}" VERSION)"
+        if [[ -n "${version}" ]]; then
+            verified="$(ai_tools_service_stamp_age "${pin}" VERIFIED)"
+            age="$(status_fmt_age "${verified}")"
+            printf '  %-28s %sVERIFIED%s %s(%s%s)%s\n' "${agent}" "${C_GRN}" "${C_RST}" \
+                "${C_DIM}" "${version}" "${age:+, ${age}}" "${C_RST}"
+        elif [[ -e "${pin}" && ! -r "${pin}" ]]; then
+            # Not a fault: --status stays open to a non-operator, who cannot traverse the state
+            # directory at all. It says only that this vantage cannot tell.
+            printf '  %-28s %s? (pin not readable from this account)%s\n' "${agent}" "${C_DIM}" "${C_RST}"
+        elif [[ -e "${pin}" ]]; then
+            # Readable but carrying no VERSION the clamped reader will accept. Distinct from both
+            # states above and from a missing pin, because the remedy is to rewrite it -- and it is
+            # never read as verified, since the version check above is what gates that line.
+            printf '  %-28s %sunverified%s %s(pin present but unreadable -- rewrite it: ai-tools --relabel)%s\n' \
+                "${agent}" "${C_DIM}" "${C_RST}" "${C_DIM}" "${C_RST}"
+        else
+            unpinned=$(( unpinned + 1 ))
+            if [[ "${strict}" == yes ]]; then
+                printf '  %-28s %sUNVERIFIED%s\n' "${agent}" "${C_YEL}" "${C_RST}"
+                say "      this host requires verification, so its sessions will not launch"
+                say "      ${C_BOLD}ai-tools --relabel${C_RST} ${C_DIM}(needs network -- it fetches the vendor's signed manifest)${C_RST}"
+            else
+                printf '  %-28s %sunverified%s %s(no pin -- launches are not blocked)%s\n' \
+                    "${agent}" "${C_DIM}" "${C_RST}" "${C_DIM}" "${C_RST}"
+            fi
+        fi
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+
+    [[ "${strict}" == yes && "${unpinned}" -gt 0 ]] && return 1
+    return 0
+}
+
 cmd_status() {
     local problems=0
 
@@ -2345,6 +2587,8 @@ cmd_status() {
         fi
     done < <(ai_tools_service_records)
 
+    status_entrypoint_pins || problems=$(( problems + 1 ))
+
     # Pointers, not duplication: name the sibling read-only reports (which own their own detail) and
     # where the full command list lives, so --status is a hub without re-implementing --providers or
     # --help.
@@ -2367,7 +2611,13 @@ cmd_status() {
 # and verbs -- no recovery machinery of its own.
 cmd_list() {
     [[ -f "${ALLOWLIST}" ]] || { say "no allowlist at ${ALLOWLIST}"; return 0; }
-    section "Registered projects"
+    # Name the operator on a --for run: the entries below are that account's launch gate, not the
+    # invoker's, and an unlabelled listing of someone else's projects reads as your own.
+    if [[ -n "${FOR_OPERATOR}" ]]; then
+        section "Registered projects for ${FOR_OPERATOR}"
+    else
+        section "Registered projects"
+    fi
     local raw entry excl kind safe sd shown=0
     local -a cleanup=()
 
@@ -2501,8 +2751,10 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
   ai-tools --sandbox-remove [path]   remove a sandbox clone and unregister it
   ai-tools --lockdown [path] [-n|-y] lock down secret files (sudo; default: cwd)
   ai-tools --reclaim [--full] [path] take back ownership of agent files; project stays claimed (sudo; default: cwd)
-  ai-tools --relabel                 relabel the agent entrypoints after a Node upgrade (sudo)
+  ai-tools --stop                    terminate every agent session and all it spawned (sudo)
+  ai-tools --relabel                 re-verify and relabel the agent entrypoints (sudo)
   ai-tools --providers               list installed agents/integrations and which are enabled
+  ai-tools --audit [--since <when>]  report what refused, was rejected or stranded (sudo; default: 7 days)
   ai-tools --status                  report service health (handback socket, relabel watcher, updater)
   ai-tools --list                    list registered projects
   ai-tools --version
@@ -2521,6 +2773,26 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
                       directory name; default: repo basename), -y/--yes (skip the create confirm)
   --lockdown options: -n/--dry-run (preview only), -y/--yes (skip confirmation)
   --reclaim options:  --full (also reclaim node_modules, .venv, ... not just the work tree + .git)
+  --stop options:     -n/--dry-run (list what would be terminated, change nothing), -y/--yes
+                      (skip the confirmation, which DEFAULTS TO YES here: an unattended stop
+                      that declines is a stop that failed), --force (kill immediately, no
+                      grace period -- the current turn's unsaved work is lost), --all
+                      (accepted and inert; every run already terminates every session).
+                      It takes NO path: there is no per-project form, because a session is
+                      attributed to a project by the account being stopped. To finish one
+                      session cleanly use /exit inside it, which runs its session-end
+                      handback. Exits 1 if anything survived, 2 on a path, 4 declined.
+  --audit options:    --since <when> (anything date(1) parses: '2 days ago', '2026-08-01';
+                      default: 7 days ago). Exits non-zero when anything is reported, so it
+                      is usable from cron or a login banner without parsing its output.
+
+  --for <operator>    act on another enrolled operator's projects instead of your own: the
+                      entry lands in THEIR allowed-projects, so the tree is granted to them and
+                      their agent launches there. For a service account that runs an agent but
+                      has no password to authenticate a claim of its own. Accepted on
+                      --project-claim/-create, --project-unclaim/-remove, --lockdown,
+                      --reclaim and --list; not with --project-unclaim --force.
+                      Enrol the target first: sudo ai-tools-admin operator add <operator>
 
 Sandbox workflow: /var/opt/ai-tools/README.md
 EOF
@@ -2566,6 +2838,83 @@ require_operator() {
         "       sudo ai-tools-admin operator add ${ME}"
 }
 
+# snapshot_allowlist -- point ALLOWLIST at a private copy of the --for target's registry, read
+# through the root helper. The copy is read-only input for THIS run: every mutation goes back
+# through the helper, which re-reads the real file, so a stale snapshot can never be what a write
+# is based on -- and reg_allow/unreg_allow refresh it after theirs. mktemp creates it 0600, and the
+# EXIT trap removes it, so another operator's project list does not outlive the command.
+ALLOWLIST_SNAPSHOT=""
+snapshot_allowlist() {
+    if [[ -z "${ALLOWLIST_SNAPSHOT}" ]]; then
+        ALLOWLIST_SNAPSHOT="$(mktemp)" || die "cannot create a temporary file for the allowlist snapshot"
+        trap 'rm -f -- "${ALLOWLIST_SNAPSHOT}"' EXIT
+    fi
+    # shellcheck disable=SC2024  # the redirect is meant to be the CALLER's: root reads the
+    # 0600 allowlist, this shell writes the snapshot it owns. `sudo tee` would create the temp
+    # file as root and leave the CLI unable to read back what it just asked for.
+    sudo "${ALLOWLIST_BIN}" --operator "${FOR_OPERATOR}" --print > "${ALLOWLIST_SNAPSHOT}" \
+        || die "could not read ${FOR_OPERATOR}'s allowed-projects"
+    ALLOWLIST="${ALLOWLIST_SNAPSHOT}"
+}
+
+# require_for_target <verb> [verb-args...] -- validate a --for run, resolve the target's group, and
+# re-point ALLOWLIST at the target's registry. A no-op without the flag, so nothing below changes
+# for an ordinary run.
+#
+# EVERY refusal here precedes snapshot_allowlist, which is the run's first sudo: a command that is
+# going to be refused must not first prompt the operator for a password. That ordering is why the
+# --force incompatibility is checked HERE, on the verb's own arguments, rather than where --force is
+# parsed in cmd_project_unclaim -- that runs after this gate, so the prompt would come first.
+#
+# --for is accepted only on the verbs whose whole effect is decided by WHICH operator's allowlist
+# covers the path: the registry pair, the two per-project root helpers that gate on allowlist
+# coverage, and the listing. Elsewhere it is REFUSED rather than ignored -- a --sandbox-create
+# --for that silently cloned as the invoker would leave the tree owned by the wrong operator with
+# nothing to show the flag was disregarded.
+#
+# The target must be ENROLLED in OPERATORS: ai-tools-setfacl and the handback helpers resolve a
+# path's owner over that list, so an entry written for an unenrolled name would create a launch
+# gate no ownership machinery can act on. Enrollment is checked before the group lookup, so an
+# unknown name is refused with the enrolment command rather than a getent failure.
+require_for_target() {
+    local verb="${1:-}"; shift || true
+    [[ -n "${FOR_OPERATOR}" ]] || return 0
+    case "${verb}" in
+        --project-claim|--project-create|--project-unclaim|--project-remove|\
+        --lockdown|--reclaim|--list) ;;
+        *) die "--for is not accepted on ${verb}" \
+               "it applies to: --project-claim, --project-create, --project-unclaim," \
+               "       --project-remove, --lockdown, --reclaim, --list" ;;
+    esac
+    # --force reaches a tree NO allowlist names, so ai-tools-unclaim cannot resolve its owner from
+    # an entry and binds the walk to the INVOKING uid instead -- the guard that stops one operator
+    # rewriting another's files. Honouring --for there would have the CLI name one operator while
+    # the helper acted as another.
+    local a
+    for a in "$@"; do
+        [[ "${a}" == "--force" ]] || continue
+        die "--for cannot be combined with --force" \
+            "an unlisted tree has no allowlist entry naming its owner, so the unclaim is bound to" \
+            "       you as the invoking operator; run it as ${FOR_OPERATOR}, or unclaim the registered" \
+            "       project without --force"
+    done
+    [[ "${FOR_OPERATOR}" != "${SANDBOX_USER}" ]] \
+        || die "the sandbox account is not an operator and must not own projects"
+    [[ "${FOR_OPERATOR}" != "root" ]] || die "root is not an operator"
+    local conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
+    local -a ops=(); local op found=false
+    if ai_tools_conf_list ops "${conf}" OPERATORS 2>/dev/null; then
+        for op in "${ops[@]}"; do
+            [[ "${op}" == "${FOR_OPERATOR}" ]] && { found=true; break; }
+        done
+    fi
+    ${found} || die "${FOR_OPERATOR} is not a configured ai-tools operator -- enrol it first with:" \
+        "       sudo ai-tools-admin operator add ${FOR_OPERATOR}"
+    OWNER_GROUP="$(id -gn "${FOR_OPERATOR}" 2>/dev/null)" \
+        || die "cannot resolve the primary group of ${FOR_OPERATOR}"
+    snapshot_allowlist
+}
+
 # Gate the operator-acting commands up front; the informational ones (--help/--version/--list/
 # --providers) stay open so an unenrolled user can still read usage and inspect the host.
 case "${1:-}" in
@@ -2573,6 +2922,11 @@ case "${1:-}" in
     --sandbox-create|--sandbox-push|--sandbox-remove|\
     --lockdown|--reclaim|--relabel) require_operator ;;
 esac
+
+# Validate a --for run and re-point the registry at the target, after require_operator: acting for
+# another operator is an operator action, so the invoker must be enrolled before the target is even
+# looked up.
+require_for_target "$@"
 
 # ── Dispatch ─────────────────────────────────────────────────────────────────────
 case "${1:-}" in
@@ -2587,6 +2941,8 @@ case "${1:-}" in
     --reclaim)        shift; cmd_reclaim "$@" ;;
     --relabel)        shift; cmd_relabel "$@" ;;
     --providers)      shift; cmd_providers "$@" ;;
+    --audit)          shift; cmd_audit "$@" ;;
+    --stop)           shift; cmd_stop "$@" ;;
     --status)         cmd_status ;;
     --list)           cmd_list ;;
     --version|-V)     printf 'ai-tools %s\n' "${AI_TOOLS_VERSION}" ;;

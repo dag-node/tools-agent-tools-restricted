@@ -8,6 +8,7 @@ paths:
   - "src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-relabel.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-stop.sh"
 ---
 
 # Protected-paths backstop
@@ -80,12 +81,20 @@ Two layers, both fail-closed:
 Refusal exits `3` in the helpers (distinct from usage `2` and the silent skips) and `1` in the
 launch wrapper (matching its `die`); a load failure (below) uses the same codes.
 
+**`ai-tools-stop` is not a consumer, and the reason is instructive.** It loaded this library while
+it took a per-project target, to vet that caller-supplied path — advisorily, since it only
+*selected processes* by the path and never wrote to it. It now takes no path at all: what it
+terminates is decided by cgroup-slice membership, so there is no caller-supplied path to vet and
+the library is not loaded. A helper comes into scope here by *taking an argument that names a
+path*, which is the same rule that keeps `ai-tools-dotnet` out.
+[docs/session-stop.md](../../docs/session-stop.md).
+
 ## Load failure fails closed
 
-Every consumer requires the library; none installs a fail-open stub, so the protected-path
-check is in force whenever a consumer runs. A consumer that cannot load the library refuses
-rather than continue with the check absent — a broken or mis-permissioned install yields a
-refusal, not an unguarded operation. Two forms:
+Every consumer of this backstop *gates* on it and therefore requires the library; none installs a
+fail-open stub, so the protected-path check is in force whenever a consumer runs. Such a
+consumer that cannot load the library refuses rather than continue with the check absent — a
+broken or mis-permissioned install yields a refusal, not an unguarded operation. Two forms:
 
 - **User-facing entry points (`claude.sh`, `ai-tools`)** source the library and verify its
   guard functions are defined; on failure they log to journald and print a framed notice naming

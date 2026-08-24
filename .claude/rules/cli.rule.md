@@ -6,6 +6,7 @@ paths:
   - "src/usr/local/libexec/ai-tools/ai-tools-safedir.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-relabel.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-stop.sh"
   - "src/usr/local/lib/ai-tools/relabel.lib.sh"
   - "src/usr/local/lib/ai-tools/services.lib.sh"
 ---
@@ -22,15 +23,21 @@ and as the sandbox account (the agent must not manage its own allowlist).
 
 ## Bootstrap preflight
 
-A single `require_bootstrap` gate runs **before dispatch**: it keys on the `/opt/ai-tools/bin/claude`
-launcher symlink — bootstrap's last load-bearing artifact, written after the account,
-Node, and the agent package all succeed — so its presence means provisioning finished, and
-its absence fails the CLI fast with the provisioning hint rather than mid-operation in a
-root helper. This is the same symlink the launch wrapper gates on (`claude.sh`'s
-`CLAUDE_LINK`), so both entry points share one definition of "provisioned". Every command
-is behind the gate, `--version` included — an unfinished install reports nothing, fail-closed. The
-one exception is `--status`, the diagnostic: it bypasses the gate and reports the unprovisioned
-state itself, since a health check must run precisely when provisioning may have failed.
+A single `require_bootstrap` gate runs **before dispatch**: it keys on a launcher symlink under
+`/opt/ai-tools/bin` — bootstrap's last load-bearing artifact, written after the account, Node, and
+the agent package all succeed — so its presence means provisioning finished, and its absence fails
+the CLI fast with the provisioning hint rather than mid-operation in a root helper. It is the same
+symlink the launch wrapper gates on, so both entry points share one definition of "provisioned".
+Every command is behind the gate, `--version` included — an unfinished install reports nothing,
+fail-closed. The one exception is `--status`, the diagnostic: it bypasses the gate and reports the
+unprovisioned state itself, since a health check must run precisely when provisioning may have
+failed.
+
+**The gate names one agent.** `CLAUDE_LINK` is the literal `/opt/ai-tools/bin/claude`, so a host
+that enables a different agent and disables `claude-code` has a provisioned toolchain the CLI
+refuses to act on. This is the one place the otherwise agent-agnostic CLI is coupled to a specific
+provider; the sentinel it needs is a launcher symlink for *any* enabled agent, which
+`ai_tools_enabled_agents` already resolves ([providers](providers.rule.md)).
 
 ## Operator preflight
 
@@ -47,6 +54,9 @@ command — no re-login, unlike the `ai-ops` group the admin verb also grants (w
 wrapper needs and which does require a fresh login). The **informational** commands
 (`--help`/`--version`/`--list`/`--providers`) stay open, so an unenrolled user can still read usage
 and inspect the host.
+
+A third gate, `require_for_target`, runs immediately after it and validates a `--for` run (see
+*Acting for another operator* below). It is a no-op without the flag.
 
 ## Commands
 
@@ -100,10 +110,22 @@ and inspect the host.
   run on demand before an ACL-unaware backup so ownership (not the ACL) carries the operator's
   access into the copy. `--full` includes the skipped heavy trees (`node_modules`, `.venv`, …). See
   [ownership-and-hooks](ownership-and-hooks.rule.md).
-- `--relabel` — restore `ai_tools_exec_t` on the claude entrypoint(s) after a Node upgrade,
-  via `ai-tools-relabel-agent`. The manual counterpart to the automatic post-upgrade
+- `--relabel` — restore `ai_tools_exec_t` on every enabled agent's entrypoint after a Node
+  upgrade, via `ai-tools-relabel-agent`. The manual counterpart to the automatic post-upgrade
   relabel the `nvm-update` timer runs (see [updater](updater.rule.md)); for an out-of-band
   upgrade or if the timer's relabel failed and `ai-tools-run` is fail-closing on the launch.
+  **The verb reconciles the entrypoint, of which the label is one half.** It first verifies each
+  agent's entrypoint against the checksum its vendor signed and pins the result — the half that also
+  runs on a DAC-only host, and the operator-facing way to pin an entrypoint the watcher was offline
+  for. That step, its three outcomes, and why it is not a command of its own are in
+  [updater](updater.rule.md).
+
+  It then applies each agent's **declared** `entrypoint_fcontext` pattern and reconciles the result
+  against the entrypoint that agent's launcher symlink actually resolves to — the inode the launch
+  preflight checks. An entrypoint that is installed where the declaration does not reach exits
+  non-zero naming that cause, so this command never reports success on a host whose next launch
+  will fail closed. See [agent-claude-code](agent-claude-code.rule.md) for the reconciliation and
+  what each verdict looks like to an operator.
 - `--providers` — read-only report of the installed agents and integrations, which of them a
   session gets, and why. It resolves through `providers.lib.sh` (see
   [providers](providers.rule.md)) rather than re-reading `operator.conf`, so the report and the
@@ -125,6 +147,93 @@ and inspect the host.
   with its own enable command: `ai-tools-admin selinux enable-group tmpmap` for the stable one, the
   source `install-selinux.sh enable-group apphost` for the experimental one. These are the
   dependencies [providers](providers.rule.md) documents, surfaced where the operator checks status.
+- `--audit [--since <when>]` — report what has refused, been rejected, been stranded, or been
+  flagged since a given time, through the `ai-tools-audit` root helper (`sudo`, no NOPASSWD).
+  The detections it reports already existed and were already recorded; what they lacked was a
+  reader, and a detection nobody reads is decoration. The verb is the lightest thing that
+  qualifies as one — not an alerting stack, one command with a consumer.
+
+  **It invents no detection and matches no per-case wording.** The root-only file sink already
+  encodes severity in its line format (`<ts> <LEVEL> [<pid>] <msg>`), so a finding is a line at
+  `NOTICE` or above. `NOTICE` is in scope deliberately: `ai-tools-chown` records a breached
+  secret at that level, and a leaked credential is the most actionable thing the command can
+  surface. Nothing drifts — a helper that adds a warning is reported the day it ships.
+
+  **Two sources, not equal, and the report says so.** `/var/log/ai-tools/*.log` is `700
+  root:root`, root writers only, so the sandbox account can neither read nor append to it: those
+  lines are **evidence**. Launch refusals are the exception — `ai-tools-run` runs *as* the
+  sandbox account and reaches only journald, under a tag whose legitimate writer is that same
+  account — so they are shown in a section of their own as the session's own account of itself,
+  to reconcile against the first rather than to rely on alone (see [logging](logging.rule.md)).
+  This is the split that keeps an agent-writable trail from being presented as proof.
+
+  **It reports events, never current state.** Each line is something that *happened* between
+  two points in time; a condition recorded here may have been resolved since. That distinction is
+  load-bearing and the report states it, because the failure mode is specific and easy: a dated
+  `ERROR` read as a standing fault sends an operator to fix something already fixed, and erodes
+  trust in the trail on the first false alarm. Confirming what is true *now* is `--status`'s job
+  (and `--relabel`'s), and the report closes by naming them rather than implying it answered that
+  question itself. The command deliberately does **not** re-verify a finding: knowing how to
+  re-check each condition is exactly the per-detection knowledge it refuses to carry.
+
+  **Repeats collapse, and severity leads.** A recurring condition writes one line per
+  occurrence, so an uncollapsed report buries the finding that needs acting on under one already
+  understood — the same reason `INFO` is out of scope. Findings are grouped by their message with
+  digit runs normalized, so occurrences differing only in a pid or a count fold into one line
+  carrying the number of times it happened and the most recent example in full; nothing is
+  hidden, since the count states what was folded. Ordering is severity first, recency second —
+  the two questions actually being asked: what is worst, and is it still happening.
+
+  Exits **non-zero when anything is reported**, so it runs unattended from cron or a login
+  banner without parsing its output — the same contract `--status` offers. A `--since` value
+  `date(1)` cannot parse is refused rather than treated as "everything", so a typo does not
+  silently become a reassuring wall of old findings.
+- `--stop` — terminate every running agent session and everything it spawned, through the
+  `ai-tools-stop` root helper (`sudo`, no NOPASSWD). The only verb that acts on a session
+  **already running**; every other control here changes what the *next* launch gets. It is **not**
+  the session-lifecycle command — `/exit` inside a session is, and it lets the session run its own
+  `SessionEnd` handback. The CLI half is deliberately thin — option grammar only — because every
+  remaining decision is a security decision that must not be made twice in two places.
+
+  Four properties a contributor has to hold on to; the reasoning for each is in
+  **[docs/session-stop.md](../../docs/session-stop.md)**, which is this component's single source
+  of truth:
+
+  - **Sessions are found and killed by cgroup**, never by process tree, and liveness is read from
+    the kernel. systemd supplies one thing only — a unit's `WorkingDirectory` — and that is
+    **display**: it labels a row and names a `--reclaim`, and selects nothing. The report's split
+    between agent sessions and the account's own plumbing (its user manager, dbus, login session
+    scopes) is display in that same sense and carries the same caveat — the class comes from a unit
+    name, which inside a delegated subtree is the delegatee's to choose. It splits the two counts,
+    orders the table and decides which rows get a `--reclaim`; it selects nothing, and both classes
+    are killed identically.
+  - **It takes no target and no authorization input.** There is no per-project form, because every
+    way to attribute a session to a project is written by the account being stopped. A path is
+    **refused (exit 2), not ignored** — which is also what keeps targeted stopping addable later
+    without changing what an existing command line means. `--all` is accepted and inert.
+  - **Nothing is exempt, including the account's own `systemd --user` and its `init.scope`.** An
+    exemption is a cgroup a session can move into on a DAC-only host. The manager is **restarted
+    afterwards** (`restore_user_manager`), as a step that runs after verification and is reported
+    on its own — it never changes what the command says about the stop. One consequence to keep:
+    a **rerun is therefore not silent**, since the restored manager is back inside the swept slice.
+    The command is idempotent in *end state*, not in what it reports, and buying a silent rerun
+    would cost either an exemption or a name-decided sweep.
+  - **Two project conventions are inverted here**, both because the safe direction for this one
+    component is *act*: the confirmation defaults YES ([messaging](messaging.rule.md)), and no
+    library is required nor `set -e` used ([logging](logging.rule.md)). No project library is
+    load-bearing at all: with no target to vet or authorize, `safe-paths.lib.sh` and
+    `operator.lib.sh` are not loaded ([safe-paths](safe-paths.rule.md)). The second inversion is
+    about *abandonment*, not about one shell option — `set -u` is on, and it ends a run just as
+    abruptly, so a value a caller may not have passed is defaulted where it is read rather than
+    left to abort a stop that was already asked for.
+
+  A stop cannot run the agent's `SessionEnd` hook, so the in-flight turn's writes may still be
+  sandbox-owned and the clean-exit marker is left for the next `SessionStart`
+  ([ownership-and-hooks](ownership-and-hooks.rule.md)); the command names the `--reclaim` per
+  project it terminated. On a shared host one operator's stop ends every operator's sessions — a
+  stated consequence, not an oversight, since `--all` never took an authorization input either.
+  Everything is recorded to `stop.log` and journald, including which path gave consent and which
+  pass ended each session. Exit codes are in `ai-tools(1)`.
 - `--status` — read-only health report: the installed `ai-tools` version, whether the toolchain is
   provisioned, then each managed systemd unit (`ai-tools-handback.socket`, `ai-tools-relabel.path`,
   and the sandbox account's `nvm-update.timer` and `nvm-update.service`) as OK / SKIPPED / STALE /
@@ -179,7 +288,20 @@ advancing surfaces. The account's own
   anything is broken, so the command is usable from a monitor or cron without parsing its output.
   An unqueryable unit is not a fault and does not alarm.
 
-  **Entrypoint label drift is not reported here**, though it is the precondition `ai-tools-run`
+  **Entrypoint verification is reported; the entrypoint's label is not.** The two are asked from
+  different vantages, which is the whole reason they differ. The *pin* is a root-owned record placed
+  where the operator can read it, so `--status` reports one line per agent that declares a release
+  manifest: `VERIFIED` with the pinned version and how long ago, or `unverified`, or `?` when this
+  account cannot read the pin at all (`--status` stays open to a non-operator, who cannot traverse
+  the state directory). It reads through the **same stamp accessors** as the unit records — the pin
+  is written in that grammar — so the charset clamp and the age calculation have one implementation.
+  An agent whose package declares no release manifest is omitted rather than reported as perpetually
+  unverified. Unpinned counts toward the **exit status only where the operator required verification**
+  (`AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`), since that is exactly when it will refuse a launch;
+  everywhere else it is a legitimate state — an air-gapped host, a release the vendor published no
+  manifest for — and must not alarm, the same rule the unqueryable units follow.
+
+  The **label**, by contrast, is not reported here, though it is the precondition `ai-tools-run`
   fail-closes on. Reading an entrypoint's live context means `stat`ing a file under
   `/opt/ai-tools/.nvm`, which `ai-tools-bootstrap` creates `0750 SANDBOX_USER:SANDBOX_GROUP` — the
   operator is not in that group and cannot traverse it, and `matchpathcon` computes only what the
@@ -220,6 +342,8 @@ advancing surfaces. The account's own
   in-place rewrite), and closes with a compact **Maintenance** pointer to the per-project verbs.
   Informational, so it stays open to a non-operator.
 - `--version` (the deploy-stamped package version; `dev` from a raw source tree), `--help`.
+- `--for <operator>` — a **modifier**, not a command: run the verb on behalf of another enrolled
+  operator (see *Acting for another operator* below).
 
 The CLI ships a man page, `ai-tools(1)`
 (`src/usr/local/share/man/man1/ai-tools.1` → `/usr/local/share/man/man1/`, deployed by
@@ -229,6 +353,69 @@ It is hand-written troff — the CLI cannot be executed at package-build time fo
 `tests/unit/man.sh` keeps it honest: the long-option sets of `usage()` and the page must
 match in both directions, so adding, renaming, or removing a CLI option obligates the
 same change in the page or the suite fails.
+
+## Acting for another operator (`--for`)
+
+`--for <operator>` performs a command **on behalf of** another enrolled operator: the allowlist
+entry lands in *their* `~/.config/ai-tools/allowed-projects`, so `ai-tools-setfacl` grants
+`user:<them>`, the ownership handback restores to them, and their agent's launch gate covers the
+path. It exists for a **service account that runs an agent but holds no password**: such an account
+cannot authenticate the claim's own no-NOPASSWD root helpers, and a claim performed by a human
+would otherwise register the project in the *human's* registry — not the one that account's launch
+wrapper reads. A human operator claims once with `--for`, and that account's session then finds the
+project fully claimed and never reaches a password prompt.
+
+The flag is separated from the verb's own arguments **before dispatch**, so every command reads one
+already-decided owner rather than each parsing it. Two globals carry the result: `OWNER_USER` /
+`OWNER_GROUP` name the operator the run acts for (the target, or the invoker), and every message
+that names the owner a file ends up with — and every scan that matches on that owner
+(`acl_drift_scan`, `grantable_ancestor`, the hand-back prompt's default) — reads them rather than
+the invoking user. What a *root helper's* walk treats as the operator is still resolved per path
+from that path's allowlist coverage (`operator.lib.sh`), never from either global.
+
+**The target's registry is unreadable to the invoker.** An allowlist is `0600` inside a `0700`
+`.config/ai-tools` (seeded that way by `ai-tools-admin`), so one operator cannot read another's at
+all — and every decision the CLI makes from it (is the path listed, which `!` exclusions apply, what
+`--list` reports) would read an unreadable file as an empty one. A `--for` run therefore takes a
+root-side **snapshot** through `ai-tools-allowlist --print` into a `0600` temp file removed on exit,
+and points `ALLOWLIST` at it for reads. The snapshot is read-only input for that run: mutations go
+back through the helper, which re-reads the real file and applies its own idempotency, and
+`reg_allow`/`unreg_allow` refresh the snapshot after theirs — so a stale copy is never what a write
+is based on.
+
+`require_for_target` gates the run, after `require_operator` (acting for another operator is itself
+an operator action, so the invoker must be enrolled before the target is looked up). It accepts the
+flag only on the verbs whose whole effect is decided by *which* operator's allowlist covers the
+path — `--project-claim`/`-create`, `--project-unclaim`/`-remove`, `--lockdown`, `--reclaim`,
+`--list` — and **refuses it elsewhere rather than ignoring it**: a `--sandbox-create --for` that
+silently cloned as the invoker would leave the tree owned by the wrong operator with nothing to
+show the flag was disregarded. The target must be **enrolled in `OPERATORS`**, since the ownership
+helpers resolve a path's owner over that list and an entry written for an unenrolled name would be
+a launch gate nothing can act on; the sandbox account and `root` are refused outright.
+
+`--for` is **refused with `--project-unclaim --force`**. That mode reaches a tree no allowlist
+names, so `ai-tools-unclaim` cannot resolve an owner from an entry and binds the walk to the
+**invoking uid** instead — the guard that stops one operator rewriting another's files. Honouring
+`--for` there would have the CLI name one operator while the helper acted as another.
+
+**Every refusal in the gate precedes the snapshot**, which is a `--for` run's first `sudo`: a
+command that is going to be refused must not first prompt for a password. That ordering is what
+places the `--force` check in the gate — reading the verb's own arguments — rather than where
+`--force` is parsed in `cmd_project_unclaim`, which runs after the gate and so would prompt first.
+The target's group is likewise resolved only *after* enrollment is confirmed, so a name that is
+neither an operator nor a user on this host is refused with the enrolment command rather than a
+`getent` failure naming the wrong problem.
+
+Sandbox clones stay invoker-only: `--sandbox-create` clones as the invoking user with that user's
+git credentials, so pointing it at another owner is more than a registry redirect and is not
+attempted here.
+
+**What this widens, stated plainly.** An allowlist is an operator's own launch gate, and `--for`
+lets one operator write into another's. That sits inside the model's standing "`ai-ops` operators
+are trusted" boundary — an operator could already claim the project themselves — but it is a real
+change in who curates a gate, so every mutation is logged with both the caller and the target. The
+sandbox account reaches none of it: the helper is `750 root:root` inside a `750 root:root`
+directory and the account holds no sudo rule.
 
 ## Two project models
 
@@ -399,10 +586,10 @@ otherwise), so the grant adds it no access.
 
 ## Privilege model
 
-The CLI itself is unprivileged. Seven of its root operations — `ai-tools-lockdown`,
+The CLI itself is unprivileged. Eight of its root operations — `ai-tools-lockdown`,
 `ai-tools-relabel`, `ai-tools-setfacl`, `ai-tools-setgid`, `ai-tools-unclaim`, `ai-tools-safedir`,
-and `ai-tools-reclaim` — run via `sudo` with **no** NOPASSWD grant by design, so sudo prompts for
-the projects user's password; the sandbox account has no grant for any. The exception, `--relabel` →
+`ai-tools-reclaim`, and `ai-tools-allowlist` — run via `sudo` with **no** NOPASSWD grant by design,
+so sudo prompts for the projects user's password; the sandbox account has no grant for any. The exception, `--relabel` →
 `ai-tools-relabel-agent`, is: it has a dedicated fixed-path NOPASSWD rule
 (shared with the `nvm-update` timer, see [updater](updater.rule.md) / [launch](launch.rule.md)),
 so it runs **as root without a prompt** — kept safe by being a fixed path the projects user
@@ -416,6 +603,10 @@ write the root-owned `.gitconfig`; on add it re-validates the path against the a
 the shared `operator.lib.sh` resolver, but edits a single entry rather than walking a tree.
 `ai-tools-reclaim` walks the project and hands each agent-owned path to `ai-tools-chown`, so the
 allowlist/secret/exclusion enforcement and the need for root are that helper's, not its own.
+`ai-tools-allowlist` needs root for the **read** as much as the write, since an allowlist is `0600`
+inside a `0700` directory in a home the invoker cannot traverse; it is reached only by a `--for`
+run, and it authorizes against `SUDO_UID` — the uid sudo sets, not the spoofable `SUDO_USER` name —
+refusing a bare root call outright.
 Repo-local `core.filemode=true` and the allowlist are plain writes the projects user performs
 unprivileged.
 `/usr/local/libexec/ai-tools` is `750 root:root`, so the projects user cannot even stat the

@@ -6,6 +6,7 @@ paths:
   - src/opt/ai-tools/bin/ai-tools-run.sh
   - src/opt/ai-tools/agents/*/session-hook.sh
   - src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh
+  - src/usr/local/libexec/ai-tools/ai-tools-stop.sh
   - install.sh
   - selinux/install-selinux.sh
 ---
@@ -123,6 +124,26 @@ Pre-answering is two distinct mechanisms, by direction:
   delegated claim, covering just the proceed prompt), `ai-tools-lockdown --yes`,
   `ai-tools-chown --yes` (the batch caller's per-path skip) — an auditable operator
   decision, never ambient state.
+
+### The stop confirmation defaults YES, and that is the rule, not an exception to it
+
+`ai-tools --stop` inverts the direction above: its confirmation defaults **YES**, so a bare Enter,
+a pipe, a cron run and an absent `msg.lib.sh` all proceed, and only a deliberate `n` declines. The
+principle is unchanged — *give it the default that is the safe outcome* — and it is **which outcome
+is safe** that flips: for the one control whose job is to end a session already running, declining
+is the failure. `-n/--dry-run` is how that command is looked at without acting, and
+`AI_TOOLS_ASSUME_YES=1` fast-tracks it like any other default-yes question.
+
+The inversion is bounded to the *confirmation*, not to argument handling. The same command
+**refuses** an unexpected positional argument (a path) rather than proceeding: defaulting toward
+action covers a known intent with something environmental in the way, not an ambiguous request
+whose most destructive reading would be to terminate every session on the host. Its refusal prints
+the alternative commands **plain, outside the frame**, since the wrapping emitters would break a
+command across lines (see *Quirks*).
+
+Because the no-terminal path is legitimate here rather than degraded, that helper records **which**
+path gave consent (`flag`, `prompt`, `fallback-prompt`, `no-tty`) rather than only the answer. Full
+reasoning: [docs/session-stop.md](../../docs/session-stop.md).
 
 ## Decision audit trail
 

@@ -330,6 +330,30 @@ else
     fail "a future-dated stamp gave age $(ai_tools_service_stamp_age "${STAMP}")"
 fi
 
+# The age reader takes the KEY, because a second record in this grammar carries a time an operator
+# reads as an age: an entrypoint pin's VERIFIED (see cli.rule.md). Both must age through this one
+# implementation, so the key is a parameter rather than a copied function -- and the default must
+# stay FINISHED, or every existing caller silently starts reporting "age unknown".
+mk_stamp "RESULT=ok" "FINISHED=$(at_age 7200)" "VERIFIED=$(at_age 300)"
+age_default="$(ai_tools_service_stamp_age "${STAMP}")"
+age_keyed="$(ai_tools_service_stamp_age "${STAMP}" VERIFIED)"
+age_absent="$(ai_tools_service_stamp_age "${STAMP}" NOSUCHKEY)"
+if [[ "${age_default}" -ge 7000 && "${age_default}" -le 7400 ]]; then
+    pass "stamp age defaults to FINISHED (${age_default}s)"
+else
+    fail "stamp age default is not FINISHED: ${age_default}"
+fi
+if [[ "${age_keyed}" -ge 200 && "${age_keyed}" -le 400 ]]; then
+    pass "stamp age reads the named key (VERIFIED -> ${age_keyed}s)"
+else
+    fail "stamp age did not read VERIFIED: ${age_keyed}"
+fi
+if [[ -z "${age_absent}" ]]; then
+    pass "an absent key yields no age, never a manufactured one"
+else
+    fail "an absent key produced an age: ${age_absent}"
+fi
+
 # The registry's own records must carry the freshness policy, or none of the above ever applies in
 # production: both nvm-update records point at the stamp, and the timer reads it in 'fired' mode.
 svc_rec="$(grep '^nvm-update\.service|' <<<"${recs}")"

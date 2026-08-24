@@ -111,6 +111,24 @@ Detecting it requires reading the store, which the sandbox account cannot do —
 can — and it is vanishingly rare (a normal `semodule -i` loads store and policy together). It is no
 worse than the previous `semodule -l`-as-sandbox read, which reported "absent" for **every** host.
 
+#### The toolchain is read-only to the confined domain
+
+The preflight checks that the entrypoint carries `ai_tools_exec_t`; the type layout is what stops
+the confined agent changing it afterwards. `ai_tools.fc` deliberately leaves the whole nvm tree at
+its default `usr_t`/`bin_t`/`lib_t`, and `ai_tools.te` grants `manage_*_pattern` for exactly three
+types — `ai_tools_project_t`, `ai_tools_home_t`, `ai_tools_tmp_t`. None of them appears in the exec
+chain: the versioned launcher symlink is `bin_t`, the agent's package directory `lib_t`, and the
+entrypoint `ai_tools_exec_t`, on which `ai_tools_t` holds `execute_no_trans` plus what
+`application_domain` gives (entrypoint/read/getattr) and nothing more.
+
+So on an enforcing host with the module loaded, `ai_tools_t` can neither write the entrypoint, nor
+unlink or rename over it (no `add_name`/`remove_name` on a `lib_t` directory), nor repoint the
+`bin_t` symlink — even though DAC alone would allow all three, since the account owns that tree.
+This is the layer that makes the exec root effectively read-only to the agent, and it is why the
+launch-time entrypoint re-check in [launch](launch.rule.md) is a **DAC-only** concern. The residual
+is the unconfined `--user` manager: anything the agent persuades that manager to run executes
+outside `ai_tools_t`, which is why `~/.config/systemd/user` must stay root-owned.
+
 #### `AI_TOOLS_REQUIRE_SELINUX` — operator-declared fail-closed
 
 The preflight launches DAC-only whenever confinement is unverifiable, because a DAC-only deployment

@@ -13,6 +13,12 @@
 # working directory) carried through sudo's env_keep. Both are re-validated here, so neither
 # side is a single point of trust.
 #
+# What is CHECKED is what is EXEC'd. AI_TOOLS_AGENT_EXEC names the versioned launcher symlink; this
+# shim resolves it once, contains the target to the same semver version directory, and uses that
+# single path for the SELinux label preflight, the entrypoint pin, and the unit's ExecStart -- then
+# re-resolves it immediately before the launch. What that window is, and why it is a DAC-only
+# concern, are in launch.rule.md.
+#
 # It names no agent. Which executables may launch, what environment each session gets, and
 # whether the session's ownership handback needs driving from here come from the root-owned
 # provider manifests under /usr/local/lib/ai-tools/agents.d and the session-env fragments under
@@ -146,6 +152,47 @@ agent_display_name="$(ai_tools_agent_manifest_field "${agent_name}" display_name
 # session-end sweep below (see the sweep section).
 agent_handback="$(ai_tools_agent_manifest_field "${agent_name}" handback || true)"
 
+# ── Entrypoint resolution: verify and exec the same inode ────────────────────────────────────
+# The path validated above is the versioned launcher SYMLINK; the file execve actually transitions
+# on is what it resolves to. Resolve it ONCE here and use that single path for both the SELinux
+# label preflight and the unit's ExecStart, so the file this shim checks is the file the manager
+# runs -- rather than checking one path and handing systemd another to re-resolve at exec time.
+#
+# Containment: the resolved path must stay inside the SAME semver version directory the launcher
+# was accepted at -- a property string-matching cannot carry across a symlink, so a link repointed
+# at another version's tree, or out of the toolchain, is refused rather than exec'd.
+#
+# Frozen at the validated version: node_version is re-assigned to "n/a" further down when it fails
+# the banner's display pattern, and the pre-launch re-check must resolve against the SAME root the
+# first resolution used, not a display value.
+readonly entrypoint_version_root="${AI_TOOLS_NVM_DIR}/versions/node/${node_version}/"
+
+# resolve_entrypoint : print the launcher's resolved, contained, executable target; non-zero when
+#   it does not resolve or leaves that root. Called twice -- once here, once immediately before the
+#   launch -- so the check and the re-check cannot drift.
+resolve_entrypoint() {
+    local resolved
+    resolved="$(realpath -e "${agent_executable_path}" 2>/dev/null)" || return 1
+    [[ "${resolved}" == "${entrypoint_version_root}"* && "${resolved}" != *"/../"* ]] || return 1
+    [[ -f "${resolved}" && -x "${resolved}" ]] || return 1
+    printf '%s' "${resolved}"
+}
+
+# entrypoint_identity <path> : print a change-detecting identity for the file -- device, inode,
+#   size, and ctime at nanosecond precision. Each of the three ways a same-uid process can swap an
+#   entrypoint moves it: a symlink repoint and a rename-over both land a different inode, and an
+#   in-place write bumps ctime (which no unprivileged caller can roll back -- utimes(2) sets atime
+#   and mtime, never ctime). Prints nothing when the path cannot be stat'd, which compares unequal.
+entrypoint_identity() {
+    stat -c '%d:%i:%s:%z' -- "$1" 2>/dev/null || true
+}
+
+session_exec_path="$(resolve_entrypoint)" \
+    || refuse "the launcher does not resolve to an executable inside ${entrypoint_version_root}" \
+              "resolved from:  ${agent_executable_path}" \
+              'reprovision the toolchain:  sudo ai-tools-bootstrap'
+session_exec_identity="$(entrypoint_identity "${session_exec_path}")"
+
 # ── Session working directory ────────────────────────────────────────────────────────────────
 # A transient unit does not inherit the caller's cwd, so the wrapper's validated project
 # directory is passed through and re-validated here before it becomes --working-directory.
@@ -175,9 +222,9 @@ export XDG_RUNTIME_DIR="/run/user/${UID}"
 # ai_tools_confinement_verdict; this block owns only the probing and the reporting.
 if command -v getenforce >/dev/null 2>&1; then
     selinux_mode="$(getenforce 2>/dev/null || echo unknown)"
-    # realpath resolves the launcher symlink chain to the real transition entrypoint. It
-    # succeeds here because this runs as @SANDBOX_USER@, which owns the 700 package directory.
-    entrypoint_path="$(realpath -e "${agent_executable_path}" 2>/dev/null || printf '%s' "${agent_executable_path}")"
+    # The already-resolved and contained entrypoint -- the same inode this shim hands systemd as
+    # ExecStart, so the label checked here is the label the transitioning execve reads.
+    entrypoint_path="${session_exec_path}"
     expected_label="" actual_label="" manager_domain="" module_present=no
     if command -v matchpathcon >/dev/null 2>&1; then
         expected_label="$(matchpathcon -n "${entrypoint_path}" 2>/dev/null | awk -F: '{print $3}' || true)"
@@ -405,7 +452,7 @@ ai_tools_version="@AI_TOOLS_VERSION@"; [[ "${ai_tools_version}" == @*@ ]] && ai_
 [[ "${node_version}" =~ ${VERSION_PATTERN} ]] || node_version="n/a"
 
 agent_version="n/a"
-package_directory="$(realpath -e "${agent_executable_path}" 2>/dev/null || true)"
+package_directory="${session_exec_path}"
 for _ in 1 2 3; do
     package_directory="${package_directory%/*}"
     [[ -n "${package_directory}" && -f "${package_directory}/package.json" ]] && break
@@ -455,9 +502,69 @@ if ai_tools_agent_sweeps_at_exit "${agent_handback}"; then
     trap 'sweep_project_ownership || true' EXIT
 fi
 
-# ExecStart is the entrypoint directly, so the manager's execve performs the domain transition
-# with no intermediary. Run rather than exec: --pty implies --wait and returns the payload's
-# status, which a fast failure below turns into an actionable breadcrumb.
+# ── Last-moment entrypoint re-validation ─────────────────────────────────────────────────────
+# Everything between resolving the entrypoint and starting the unit -- the label probe, the version
+# reads, the session-env fragments, the banner -- is time in which a concurrent process running as
+# this same account could swap the file out from under the check. Re-resolve and re-stat here, at
+# the last instruction before the launch, so the window such a process would have to win is the
+# systemd-run round trip rather than the whole preflight.
+#
+# This NARROWS the race; it does not close it. Only an exec root the agent cannot write removes it,
+# which is exactly what the SELinux types give: on an enforcing host with the module loaded the nvm
+# tree is read-only to ai_tools_t and there is no move to make, so this check is for the DAC-only
+# deployment, where it is the only observer of a swap. Both the path and the identity are compared:
+# a repoint changes the path, a rename-over keeps it and changes the inode, an in-place write keeps
+# both and changes ctime.
+# The pin is checked in the same breath, this being the one place where hashing the file and
+# starting it are adjacent. A MISMATCH means the binary changed after root verified it, and refuses;
+# an UNPINNED entrypoint launches unless the operator required otherwise. Why those two outcomes
+# differ, and what each costs, are in updater.rule.md.
+entrypoint_pin_verdict=unchecked
+# Guarded, not bare: the pin is a check the launch tightens with, and a missing library is a broken
+# install rather than agent action -- it degrades to "unchecked", which the require switch below
+# turns into a refusal on a host that declared verification mandatory.
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/entrypoint-verify.lib.sh
+if source "${AI_TOOLS_LIB_DIR}/entrypoint-verify.lib.sh" 2>/dev/null \
+        && declare -F ai_tools_entrypoint_check >/dev/null 2>&1; then
+    entrypoint_pin_verdict="$(ai_tools_entrypoint_check "${agent_name}" "${session_exec_path}")" || true
+fi
+# Through the library's own accessor, so this launch and the updater's activation gate cannot
+# disagree about how strict the host is.
+require_entrypoint_verify=no
+declare -F ai_tools_entrypoint_verify_required >/dev/null 2>&1 \
+    && ai_tools_entrypoint_verify_required && require_entrypoint_verify=yes
+audit info "entrypoint: agent=${agent_name} pin=${entrypoint_pin_verdict} require=${require_entrypoint_verify}"
+
+case "${entrypoint_pin_verdict}" in
+    mismatch)
+        audit warning "REFUSED: entrypoint does not match its pin (${session_exec_path})"
+        refuse 'the agent entrypoint does not match the checksum its vendor signed for the installed version -- refusing to start the session' \
+               "entrypoint:  ${session_exec_path}" \
+               'The binary changed after it was verified. Treat this toolchain as tampered and reprovision it:' \
+               '  sudo ai-tools-bootstrap' ;;
+    ok) ;;
+    *)  if [[ "${require_entrypoint_verify}" == yes ]]; then
+            audit warning "REFUSED: entrypoint unverified (${entrypoint_pin_verdict}) and AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set"
+            refuse 'refusing to launch -- AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set in operator.conf, but this entrypoint carries no verified checksum.' \
+                   'Pin it (this fetches the vendor'"'"'s signed release manifest, so the host must be online):' \
+                   '  ai-tools --relabel'
+        fi ;;
+esac
+
+if [[ "$(resolve_entrypoint || true)" != "${session_exec_path}" \
+      || "$(entrypoint_identity "${session_exec_path}")" != "${session_exec_identity}" ]]; then
+    audit warning "REFUSED: entrypoint changed between preflight and launch (${session_exec_path})"
+    refuse 'the agent entrypoint changed while this launch was being prepared -- refusing to start the session' \
+           "entrypoint:  ${session_exec_path}" \
+           'A toolchain update running at the same moment explains this: rerun the launch.' \
+           'If it repeats with no update running, treat the toolchain as untrusted:' \
+           'reprovision it:  sudo ai-tools-bootstrap'
+fi
+
+# ExecStart is the RESOLVED entrypoint, not the launcher symlink: the manager's execve performs the
+# domain transition on the same inode this shim verified, with no link left for it to re-resolve.
+# Run rather than exec: --pty implies --wait and returns the payload's status, which a fast failure
+# below turns into an actionable breadcrumb.
 session_start_seconds=${SECONDS}
 session_exit_status=0
 systemd-run --user --pty --quiet \
@@ -468,7 +575,7 @@ systemd-run --user --pty --quiet \
     --property=RestrictNamespaces=yes \
     --property=NoNewPrivileges=yes \
     --property=UMask=0007 \
-    -- "${agent_executable_path}" "$@" || session_exit_status=$?
+    -- "${session_exec_path}" "$@" || session_exit_status=$?
 
 if (( session_exit_status != 0 && SECONDS - session_start_seconds < 5 )); then
     audit warning "session unit ${session_unit_name} exited with status ${session_exit_status} at startup"

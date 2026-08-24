@@ -43,14 +43,23 @@ Agent Tools Restricted runs autonomous coding agents under a dedicated, unprivil
 
 ## Package install
 
-Two commands. The first installs the dag-node release package, which brings the signed DNF
-repository definition and the org signing key with it
-([source](https://github.com/dag-node/rpm-dagnode-release)); the second pulls the stack. One
+Import the org signing key, then install the dag-node release package and the stack. The release
+package is signed by the org key, so `dnf` verifies its signature at install time — importing the
+key first satisfies that check, since the package that would otherwise install the key has not run
+yet. The release package brings the signed DNF repository definition and the key with it
+([source](https://github.com/dag-node/rpm-dagnode-release)); the last command pulls the stack. One
 repository serves EL 9 and EL 10, and both the packages and the repository metadata are
-signature-verified.
+signature-verified. Verify the key fingerprint out of band before importing — see the
+[repository README](https://github.com/dag-node/rpm/blob/main/README.md#signing-key).
 
 ```bash
-sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
+# Import the org signing key (verify its fingerprint out of band first — see the README above)
+sudo rpm --import \
+  https://rpm.dagnode.com/RPM-GPG-KEY-dag-node
+
+# Install the release package (repo definition + key), then the stack
+sudo dnf install \
+  https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
 sudo dnf install ai-tools ai-tools-selinux   # the whole stack + SELinux confinement
 ```
 
@@ -171,8 +180,18 @@ of what it can ever send:
   `/usr/share/ai-tools/skills/README.md`.
 - **Operation logging** — the `sudo` helpers, the lifecycle hooks, the `ai-tools`
   CLI, and `install.sh` log through one library to **journald** (always, leveled and
-  tagged: `journalctl -t ai-tools-chown`) and, for the root writers only, to
+  tagged: `journalctl -t ai-tools-chown _UID=0`) and, for the root writers only, to
   root-only files under **`/var/log/ai-tools/`**.
+- **A working stop** — `sudo ai-tools --stop` terminates every agent session on the host and
+  everything it spawned. (To finish a session you are done with, use `/exit` inside it, which lets
+  it run its own ownership handback.) Sessions are found and killed by **cgroup**, so a child that
+  called `setsid(2)` or double-forked goes with them, and success means verified gone from the
+  kernel's view rather than from systemd's. It takes no path and no authorization input, and
+  exempts no cgroup — a stop path the session can put itself outside of is not a stop path — so the
+  sandbox account's own user manager is terminated too and restarted afterwards. The session takes
+  no part in any of it: the account it runs as can neither invoke, read nor alter the helper. What
+  each outcome means and what a stop cannot undo are in
+  [docs/session-stop.md](docs/session-stop.md).
 - **Auto-updating** — a `systemd --user` timer in `${SANDBOX_USER}`'s own instance keeps
   Node and `@anthropic-ai/claude-code` current under `/opt/ai-tools`, and a root-side
   watcher relabels the new entrypoint for SELinux after each upgrade. Each update verifies the
@@ -203,6 +222,13 @@ The enforced isolation boundary is DAC plus the `ai_tools_t` SELinux type. A few
 model defends the host from the *agent*, not from an operator. The full trust model, the
 non-goals, and the deferred hardening (per-operator isolation, registry-key pinning) are
 in [`CLAUDE.md`](CLAUDE.md#boundaries-and-non-goals).
+
+The agent binary itself is verified against the checksum its vendor **signed**, using a key shipped
+in the package rather than downloaded, and the verified value is pinned where the sandbox account
+cannot write it — so a binary modified after installation refuses to launch. It needs no per-release
+maintenance and no network at launch; what it checks, what each failure means, and how it behaves on
+an air-gapped host are in
+[docs/entrypoint-verification.md](docs/entrypoint-verification.md).
 
 ## Identities and naming
 
@@ -308,19 +334,52 @@ its whole lifetime by design.
 
 ## Operation logging
 
-Two sinks — **journald** (all components) and **`/var/log/ai-tools/`** (root helpers
-only, `700 root:root`). Query journald by component:
+Start here — one command answers "has anything gone wrong lately?":
 
-    sudo journalctl -t ai-tools-chown            # the ownership-restore helper
-    sudo journalctl -t ai-tools-lockdown -p warning
-    sudo journalctl -t ai-tools-hook             # the lifecycle hooks
-    sudo journalctl -t ai-tools-handback         # the privilege bridge (one line per request)
-    sudo journalctl -t ai-tools                  # the CLI (project/sandbox created, …)
+    sudo ai-tools --audit                      # findings in the last 7 days
+    sudo ai-tools --audit --since '2 days ago' # any window date(1) understands
+
+It reads the trails below and reports what refused, was rejected, was stranded, or was
+flagged — a breached secret, a rejected socket peer, a helper timeout, a refused launch. It
+exits non-zero when anything is reported, so it works from cron or a login banner without
+parsing its output. Findings from the root-only files and refusals from the session's own
+journald tag are reported **separately**, because only the first is a trail the agent cannot
+write.
+
+Every tool call a session makes is recorded too, one line each:
+
+    sudo journalctl -t ai-tools-hook _UID="$(id -u ai-tools)"   # what the agent ran and wrote
+    sudo journalctl -t ai-tools-hook -o json _UID="$(id -u ai-tools)" | jq  # structured fields
+
+A `Bash` record carries the command's leading two words and its argument count — never the
+command line, which through a here-doc would carry file contents. The same facts are also
+emitted as native journald fields (`AI_TOOLS_TOOL`, `AI_TOOLS_CMD`, `AI_TOOLS_ARGC`,
+`AI_TOOLS_PATH`), so a journal ingester can select on them without re-parsing the message.
+
+Two sinks — **journald** (all components) and **`/var/log/ai-tools/`** (root helpers
+only, `700 root:root`). Query journald by component **and by the writer's uid**:
+
+    sudo journalctl -t ai-tools-chown _UID=0                  # the ownership-restore helper
+    sudo journalctl -t ai-tools-lockdown _UID=0 -p warning    # the secret lockdown
+    sudo journalctl -t ai-tools-handback _UID=0               # the privilege bridge (one line per request)
+    sudo journalctl -t ai-tools-run _UID="$(id -u ai-tools)"  # session launches
+    sudo journalctl -t ai-tools _UID="$(id -u)"               # the CLI (project/sandbox created, …)
+
+The uid matters because a syslog tag is chosen by whoever writes the line, and the sandbox
+account can write to `/dev/log` — so a session could emit a line under a root helper's tag.
+`_UID` is stamped by journald from the sender's kernel credentials and cannot be forged, so
+pairing it with the tag is what makes a line attributable.
+
+`ai-tools-hook` is the one tag no filter separates: the lifecycle hooks run **as** the agent, so
+it is that tag's legitimate writer. Read those lines as the session's own account, and reconcile
+them against the root-written trail — `/var/log/ai-tools/` is `700 root:root`, so the agent can
+neither read nor append to it.
 
 The handback daemon keeps a per-request audit line — the peer PID, the verb, the path, and
 the helper result — plus a `WARNING` for every rejected peer or malformed request, so each
 privileged action is attributable at the socket layer. Root-only log files: `chown.log`,
-`setgid.log`, `symlink.log`, `lockdown.log`, `handback.log`, `install.log`.
+`setgid.log`, `setfacl.log`, `unclaim.log`, `safedir.log`, `allowlist.log`, `symlink.log`,
+`lockdown.log`, `relabel.log`, `dotnet.log`, `handback.log`, `install.log`.
 
 ## SELinux
 

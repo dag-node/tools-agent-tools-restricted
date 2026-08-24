@@ -35,7 +35,13 @@ x-ai-tools-updated: 2026-07-28
 ```
 
 Shipped now: `ai-tools-docs-reference`, `ai-tools-docs-usage`, `ai-tools-docs-comments`,
-`ai-tools-docs-changelog` (the documentation family), and `ai-tools-engineering-principles`.
+`ai-tools-docs-changelog` (the documentation family), `ai-tools-engineering-principles`, and
+`ai-tools-capable-systems-governance`.
+
+A skill may be more than one file. Put supporting material in a subdirectory beside `SKILL.md` and
+point at it from there — `ai-tools-capable-systems-governance/references/framework.md` is its full
+normative text, kept out of `SKILL.md` so the guidance stays short and the long text is read only
+when the task calls for it. The whole directory is seeded and linked as one asset.
 
 ## Agent-specific skills
 

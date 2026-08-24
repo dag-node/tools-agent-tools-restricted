@@ -20,6 +20,9 @@ check_file /usr/local/libexec/ai-tools/ai-tools-setfacl          root           
 check_file /usr/local/libexec/ai-tools/ai-tools-unclaim          root              root              750
 check_file /usr/local/libexec/ai-tools/ai-tools-safedir          root              root              750
 check_file /usr/local/libexec/ai-tools/ai-tools-reclaim          root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-allowlist        root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-audit            root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-stop             root              root              750
 check_file /usr/local/libexec/ai-tools/ai-tools-launcher-symlink root              root              750
 check_file /usr/local/libexec/ai-tools/ai-tools-lockdown         root              root              750
 # SELinux project-label helper: 750 root:root -- user-run via sudo, never by the agent (no
@@ -74,6 +77,8 @@ check_file /usr/local/lib/ai-tools/managed-assets.lib.sh     root              r
 check_file /usr/local/lib/ai-tools/safe-paths.lib.sh         root              root              644
 check_file /usr/local/lib/ai-tools/confinement.lib.sh        root              root              644
 check_file /usr/local/lib/ai-tools/npm-verify.lib.sh         root              root              644
+check_file /usr/local/lib/ai-tools/entrypoint-verify.lib.sh  root              root              644
+check_file /usr/local/lib/ai-tools/keys/claude-code.asc      root              root              644
 # Shared KEY=value grammar + the trust predicate: 644 root:root -- world-readable, sourced by
 # operator.lib.sh, skip-dirs.lib.sh and providers.lib.sh; carries no secrets.
 check_file /usr/local/lib/ai-tools/conf.lib.sh               root              root              644
@@ -272,6 +277,10 @@ check_file /var/opt/ai-tools/README.md                        root              
 # base-only install legitimately lacks it.
 check_file /var/opt/ai-tools/state                            root              "${SANDBOX_GROUP}" 750
 check_file_optional /var/opt/ai-tools/state/nvm-update.status "${SANDBOX_USER}" ai-ops            640
+# The entrypoint pins. root:root and not group-writable, unlike the stamp beside them: a stamp
+# reports and gates nothing, while a pin is what the launch compares the agent binary against, so
+# the account it constrains must not be able to write it.
+check_file /var/opt/ai-tools/state/entrypoint-pin.d           root              root              755
 # Sandbox-area operator ACL: ai-ops reaches the area without SANDBOX_GROUP membership -- traverse
 # on the outer dir, rwX + default on sandbox-projects. The agent (not in ai-ops) gains nothing.
 if ! command -v getfacl >/dev/null 2>&1; then

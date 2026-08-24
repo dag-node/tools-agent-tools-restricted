@@ -182,6 +182,91 @@ else
     else
         fail "non-semver version directory not refused (rc=${rc}): ${out}"
     fi
+
+    # (7) Containment across the symlink. Shape validation matches the launcher PATH; what execve
+    # transitions on is what that path RESOLVES to, and a string match cannot follow a link. A
+    # launcher that is correctly shaped and claimed by an enabled manifest, but whose target lands
+    # outside its own version directory, must be refused -- otherwise a repointed link starts a
+    # session on a binary the toolchain never installed.
+    #
+    # Probed in a THROWAWAY version directory (v0.0.1), never the live one: the shim only needs the
+    # path to be semver-shaped, and writing into the active tree is what this file's header rules
+    # out. Removed on exit whichever way this test ends.
+    fake_version_dir="/opt/ai-tools/.nvm/versions/node/v0.0.1"
+    if [[ -e "${fake_version_dir}" ]]; then
+        skip "ai-tools-run entrypoint containment" "${fake_version_dir} already exists -- not overwriting"
+    else
+        _cleanup+=("${fake_version_dir}")
+        mkdir -p "${fake_version_dir}/bin"
+        # Escapes the version root: a real, executable target the shim must still refuse.
+        ln -sfn /bin/sh "${fake_version_dir}/bin/claude"
+        chown -R "${SANDBOX_USER}" "${fake_version_dir}" 2>/dev/null || true
+        out="$(run_crun AI_TOOLS_AGENT_EXEC="${fake_version_dir}/bin/claude")" && rc=0 || rc=$?
+        if [[ ${rc} -ne 0 ]] && grep -qi 'does not resolve to an executable inside' <<<"${out}"; then
+            pass "ai-tools-run refuses a launcher resolving outside its own version directory"
+        else
+            fail "escaping launcher symlink not refused (rc=${rc}): ${out}"
+        fi
+        rm -rf "${fake_version_dir}"
+    fi
+
+    # (8) The entrypoint pin. This is the feature's actual security guarantee -- a binary that does
+    # not match the checksum its vendor signed must not start a session -- and it is the last gate
+    # the shim runs, so reaching it needs a VALID executable: every earlier case exits before here.
+    #
+    # Driven against a THROWAWAY pin directory (AI_TOOLS_ENTRYPOINT_PIN_DIR, a root-only test hook
+    # like AI_TOOLS_ALLOWLIST: sudo strips it and the handback daemon execs with its own
+    # environment, so only a root caller that sets it and execs the shim directly can redirect it).
+    # The production pin is never read, written, or invalidated -- which matters more here than
+    # elsewhere, since corrupting the real one would refuse every launch on this host.
+    # mktemp, not a fixed name under /tmp: this runs as root in a world-writable directory, where a
+    # predictable path is one another user can pre-create or symlink. 0755 because the shim reads
+    # the pin AS the sandbox account, which must traverse in.
+    pin_dir="$(mktemp -d)"
+    _cleanup+=("${pin_dir}")
+    chmod 0755 "${pin_dir}"
+    # A well-formed pin for a checksum this entrypoint cannot have: the shape is valid, so the
+    # refusal comes from the COMPARISON rather than from the reader rejecting a malformed record.
+    printf 'AGENT=claude-code\nVERSION=0.0.0\nSHA256=%064d\nVERIFIED=1970-01-01T00:00:00Z\n' 0 \
+        > "${pin_dir}/claude-code"
+    chmod 0644 "${pin_dir}/claude-code"
+    out="$(run_crun AI_TOOLS_AGENT_EXEC="${real}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'does not match the checksum its vendor signed' <<<"${out}"; then
+        pass "ai-tools-run refuses an entrypoint that does not match its pin"
+    else
+        fail "a mismatched entrypoint pin did not refuse the launch (rc=${rc}): ${out}"
+    fi
+
+    # The complementary property -- an UNPINNED entrypoint must NOT be refused, or an air-gapped
+    # host would stop launching -- is deliberately NOT driven here. Nothing else about that run is
+    # invalid, so the shim would go on to start a real session, which this file's design forbids.
+    # It is covered where it costs nothing: the pure verdict returns `unpinned` rather than
+    # `mismatch` (tests/unit/entrypoint-verify.sh), and only `mismatch` reaches the refusal above.
+fi
+
+section "ai-tools-run: the verified entrypoint is the one exec'd"
+
+# The shim checks the RESOLVED entrypoint (label preflight, and the re-check below) and must hand
+# systemd that same path. Naming the launcher symlink in ExecStart instead would leave the manager
+# re-resolving it after every check has run, so a repoint in that window would go unobserved on a
+# DAC-only host. Asserted against the deployed script, the same way the unit properties above are.
+if grep -qE -- '-- "\$\{session_exec_path\}" "\$@"' "${CRUN}"; then
+    pass "ai-tools-run execs the resolved entrypoint, not the launcher symlink"
+else
+    fail "ai-tools-run does not ExecStart \${session_exec_path} -- the file checked is not the file exec'd"
+fi
+
+# The re-check must sit AFTER the session-env fragments, not with the earlier validation -- its
+# whole value is the width of the window it leaves (launch.rule.md). Asserted by line order,
+# because nothing about the code's behaviour reveals where it runs.
+crun_recheck_line="$(grep -n 'entrypoint_identity' "${CRUN}" | tail -n1 | cut -d: -f1)"
+crun_launch_line="$(grep -n '^systemd-run --user --pty --quiet' "${CRUN}" | head -n1 | cut -d: -f1)"
+if [[ -z "${crun_recheck_line}" || -z "${crun_launch_line}" ]]; then
+    fail "ai-tools-run has no last-moment entrypoint re-check before systemd-run"
+elif (( crun_recheck_line < crun_launch_line )) && (( crun_launch_line - crun_recheck_line < 20 )); then
+    pass "ai-tools-run re-checks the entrypoint identity immediately before the launch"
+else
+    fail "the entrypoint re-check is not immediately before systemd-run (re-check line ${crun_recheck_line}, launch line ${crun_launch_line}) -- the window it narrows is back"
 fi
 
 finish

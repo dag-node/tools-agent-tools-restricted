@@ -33,6 +33,13 @@ one-file-per-rule mapping.
 
 - One file per component: `<topic>.rule.md`. The `.rule.md` suffix lets tooling and this
   guideline target every rule with the `*.rule.md` glob.
+- **A rule covering one provider is named for its kind and its name**, matching the package
+  taxonomy (`ai-tools-agents-<name>` / `ai-tools-integration-<name>`): `agent-claude-code.rule.md`
+  for an agent, and the integration rules by their bare provider name. The generic seam
+  ([providers](providers.rule.md)) and the generic launch contract ([launch](launch.rule.md)) hold
+  what is true of *every* provider; a provider rule holds only what is true of that one, and each
+  side links the other. A fact that would have to be restated for the second provider belongs in
+  the seam, not in a provider rule.
 - **Avoid a stem that matches a secret pattern.** `ai-tools-chown` quarantines
   secret-named files the agent writes (see [secret-handling](secret-handling.rule.md)): a
   file whose basename matches `~/.config/ai-tools/secret-patterns` is chowned to

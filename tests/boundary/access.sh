@@ -297,4 +297,189 @@ else
     pass "the agent cannot write owner-only.lib.sh (the seal predicate and residue strip)"
 fi
 
+# ai-tools-allowlist edits an operator's allowed-projects -- the launch gate deciding where a
+# session may start. Reaching it would let the agent approve its own projects, so this is the
+# boundary half of the pair whose runtime half (each of the helper's gates fires) is in
+# tests/unit/allowlist-helper.sh. The helper is 750 root:root inside a 750 root:root directory and
+# the sandbox account holds no sudo rule, so it is unreachable three ways over; assert the two the
+# filesystem can show.
+alhelper=/usr/local/libexec/ai-tools/ai-tools-allowlist
+if [[ ! -e "${alhelper}" ]]; then
+    skip "cross-operator allowlist helper not agent-reachable" "not installed at ${alhelper}"
+elif runuser -u "${SANDBOX_USER}" -- test -x "${alhelper}" 2>/dev/null; then
+    fail "the agent can execute ${alhelper} -- it could write its own launch gate"
+elif runuser -u "${SANDBOX_USER}" -- test -w "${alhelper}" 2>/dev/null; then
+    fail "the agent can write ${alhelper} -- it could rewrite the registry helper"
+else
+    pass "the agent cannot execute or write ai-tools-allowlist (the cross-operator launch gate)"
+fi
+
+# The gate itself: an operator's allowed-projects. The agent must not be able to add a project to
+# any operator's registry -- with or without the helper. The primary operator's is the one this
+# host is guaranteed to have.
+opallow="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
+if [[ ! -e "${opallow}" ]]; then
+    skip "operator allowlist not agent-writable" "not present at ${opallow}"
+elif runuser -u "${SANDBOX_USER}" -- test -w "${opallow}" 2>/dev/null; then
+    fail "the agent can write ${opallow} -- it could approve its own projects"
+else
+    pass "the agent cannot write the operator's allowed-projects (its own launch gate)"
+fi
+
+# ── Entrypoint verification: the agent must not be able to bless its own binary ───────────────
+# The pin is only worth comparing against while the account it constrains cannot write it -- nor
+# the key that decided what went into it. Probed rather than inferred from modes, so an ACL that
+# contradicts a correct-looking mode still fails.
+for _ev_path in /var/opt/ai-tools/state/entrypoint-pin.d \
+                /usr/local/lib/ai-tools/keys \
+                /usr/local/lib/ai-tools/keys/claude-code.asc \
+                /usr/local/lib/ai-tools/entrypoint-verify.lib.sh; do
+    if [[ ! -e "${_ev_path}" ]]; then
+        skip "entrypoint verification not agent-writable" "${_ev_path} not installed"
+    elif runuser -u "${SANDBOX_USER}" -- test -w "${_ev_path}" 2>/dev/null; then
+        fail "the agent can write ${_ev_path} -- it could record or authorise a checksum for a binary it modified, defeating the launch-time verification"
+    else
+        pass "the agent cannot write ${_ev_path}"
+    fi
+done
+
+# The pin directory's contents, specifically: a directory the agent cannot write is only half the
+# guarantee if an existing pin inside it is writable (or is a symlink it can redirect).
+_ev_pin=/var/opt/ai-tools/state/entrypoint-pin.d/claude-code
+if [[ ! -e "${_ev_pin}" ]]; then
+    skip "entrypoint pin not agent-writable" "no pin recorded yet at ${_ev_pin}"
+elif [[ -L "${_ev_pin}" ]]; then
+    fail "${_ev_pin} is a symlink -- the pin reader refuses one, but its presence means something other than the root helper wrote there"
+elif runuser -u "${SANDBOX_USER}" -- test -w "${_ev_pin}" 2>/dev/null; then
+    fail "the agent can write ${_ev_pin} -- it could pin the checksum of a binary it tampered with"
+else
+    pass "the agent cannot write its own entrypoint pin"
+fi
+
+# ── journald attribution: a tag is not an attribution, _UID is ───────────────────────────────
+# Every documented journal query pairs a syslog tag with the uid of that tag's legitimate writer
+# (.claude/rules/logging.rule.md). This is the reason, probed rather than asserted from the
+# design: the agent can write /dev/log under ANY tag, including a root helper's, so a tag-only
+# query is poisonable by the very account it reports on. Emit a line AS the agent under
+# ai-tools-chown's tag, then check both directions -- it must appear under the sandbox uid (the
+# forgery does reach the trail, so the uid is load-bearing rather than ceremony) and must NOT
+# appear under _UID=0 (the documented form excludes it). The probe line names itself as a test so
+# a later reader of the real trail is not misled by it. A host with no journald skips: absence of
+# the line proves nothing either way.
+if ! command -v logger >/dev/null || ! command -v journalctl >/dev/null; then
+    skip "journald _UID attribution" "logger or journalctl not available"
+else
+    _sbx_uid="$(id -u "${SANDBOX_USER}")"
+    runuser -u "${SANDBOX_USER}" -- logger -t ai-tools-chown \
+        "boundary-test forged-tag probe pid=$$ (test line, NOT a handback)" 2>/dev/null || true
+    journalctl --sync >/dev/null 2>&1 || true
+    _as_agent=0
+    for _i in 1 2 3 4 5 6 7 8 9 10; do
+        _as_agent="$(journalctl -t ai-tools-chown _UID="${_sbx_uid}" --since '2 min ago' \
+                        --no-pager 2>/dev/null | grep -cF "forged-tag probe pid=$$" || true)"
+        [[ "${_as_agent}" != 0 ]] && break
+        sleep 0.5
+    done
+    _as_root="$(journalctl -t ai-tools-chown _UID=0 --since '2 min ago' \
+                    --no-pager 2>/dev/null | grep -cF "forged-tag probe pid=$$" || true)"
+    if [[ "${_as_agent}" == 0 ]]; then
+        skip "journald _UID attribution" "the agent's probe line never reached the journal (journald unavailable here)"
+    elif [[ "${_as_root}" != 0 ]]; then
+        fail "an agent-written line under the ai-tools-chown tag is returned by the _UID=0 query -- the documented query form does not separate a forged line from the root helper's own"
+    else
+        pass "an agent-written ai-tools-chown line files under uid ${_sbx_uid}, never _UID=0: '-t <tag> _UID=<writer>' separates a forged line from the helper's own"
+    fi
+fi
+
+# ── the audit reader and the trail it reports are out of reach ───────────────────────────────
+# `ai-tools --audit` presents the root-only file sink as EVIDENCE, and that claim rests on this
+# vantage: the sandbox account can neither read the trail (so it cannot know what an operator is
+# about to be shown) nor write it (so it cannot plant or erase a finding), and cannot run or
+# alter the reader itself. Asserted from the agent's side, because that is the side the claim is
+# about.
+_audit_bin=/usr/local/libexec/ai-tools/ai-tools-audit
+if [[ ! -x "${_audit_bin}" ]]; then
+    skip "audit reader out of reach" "${_audit_bin} not installed"
+else
+    _audit_breach=""
+    runuser -u "${SANDBOX_USER}" -- test -r /var/log/ai-tools 2>/dev/null \
+        && _audit_breach="the agent can read the root-only trail directory"
+    runuser -u "${SANDBOX_USER}" -- test -w "${_audit_bin}" 2>/dev/null \
+        && _audit_breach="the agent can write ${_audit_bin}"
+    runuser -u "${SANDBOX_USER}" -- test -x "${_audit_bin}" 2>/dev/null \
+        && _audit_breach="the agent can execute ${_audit_bin}"
+    if [[ -n "${_audit_breach}" ]]; then
+        fail "the audit trail is not out of the agent's reach: ${_audit_breach}"
+    else
+        pass "the agent can neither read the audit trail nor run or alter its reader"
+    fi
+fi
+
+# ── the stop path is out of reach from inside a session ──────────────────────────────────────
+# `ai-tools --stop` is the incident ladder's stop rung: the one control that acts on a session
+# already running. A control the monitored system can disarm is not a control, so the claim rests
+# on this vantage -- the account a session runs as can neither run the helper (which would let a
+# session terminate every operator's work, or exhaust the trail with noise) nor alter it. There is
+# no authorization input for it to aim at either: the command takes no target and no allowlist, so
+# what it terminates is decided by cgroup-slice membership alone. What the agent CAN do is be
+# stopped: the kill is delivered by root to a cgroup, and nothing inside the cgroup takes part.
+_stop_bin=/usr/local/libexec/ai-tools/ai-tools-stop
+if [[ ! -e "${_stop_bin}" ]]; then
+    skip "stop helper not agent-reachable" "not installed at ${_stop_bin}"
+else
+    _stop_breach=""
+    runuser -u "${SANDBOX_USER}" -- test -x "${_stop_bin}" 2>/dev/null \
+        && _stop_breach="the agent can execute ${_stop_bin}"
+    runuser -u "${SANDBOX_USER}" -- test -w "${_stop_bin}" 2>/dev/null \
+        && _stop_breach="the agent can write ${_stop_bin}"
+    runuser -u "${SANDBOX_USER}" -- test -r "${_stop_bin}" 2>/dev/null \
+        && _stop_breach="the agent can read ${_stop_bin}"
+    if [[ -n "${_stop_breach}" ]]; then
+        fail "the stop path is not out of the agent's reach: ${_stop_breach}"
+    else
+        pass "the agent can neither run, read nor alter ai-tools-stop (the control that ends it)"
+    fi
+fi
+
+# ── the trail is append-only to the agent ────────────────────────────────────────────────────
+# The tool-call record's whole value rests on one asymmetry: the agent WRITES the trail (the
+# hooks run as the sandbox account, so it must be able to) but cannot go back and remove a line
+# it would rather an operator did not read. That is what makes journald a usable sink for a
+# record of the agent's own actions, where the session transcript -- which the agent owns -- is
+# not. Probe the two ways a line could be unmade: the journal's own storage, and journalctl's
+# destructive verbs. Both are DAC facts, which is what this vantage sees.
+_journal_dir=/var/log/journal
+if [[ ! -d "${_journal_dir}" ]]; then
+    skip "journal is append-only to the agent" "no persistent journal at ${_journal_dir}"
+else
+    _breach=""
+    # The storage directory must not accept a new file, and no journal file may be writable.
+    if _probe="$(runuser -u "${SANDBOX_USER}" -- \
+            mktemp "${_journal_dir}/.ai-tools-probe-XXXXXX" 2>/dev/null)"; then
+        _breach="the agent created ${_probe} -- journal storage is agent-writable"
+        rm -f -- "${_probe}"
+    else
+        while IFS= read -r _jf; do
+            if runuser -u "${SANDBOX_USER}" -- test -w "${_jf}" 2>/dev/null; then
+                _breach="the agent can write the journal file ${_jf}"; break
+            fi
+        done < <(find "${_journal_dir}" -name '*.journal' -type f 2>/dev/null | head -20)
+    fi
+    if [[ -n "${_breach}" ]]; then
+        fail "the agent can unmake its own trail: ${_breach}"
+    else
+        pass "the agent cannot create or rewrite journal storage: its own trail is append-only to it"
+    fi
+
+    # journalctl's destructive verbs must fail for the agent. --vacuum-time would discard the
+    # trail wholesale; it is the single most valuable call an agent covering its tracks could
+    # make. (Bash(journalctl *) is denied in settings.json too, but that is a tooling hint --
+    # this asserts the floor underneath it.)
+    if runuser -u "${SANDBOX_USER}" -- journalctl --vacuum-time=99999d >/dev/null 2>&1; then
+        fail "the agent can run 'journalctl --vacuum-time' -- it can discard the trail it is recorded in"
+    else
+        pass "the agent cannot vacuum or rotate the journal (destructive journalctl verbs refused)"
+    fi
+fi
+
 finish
