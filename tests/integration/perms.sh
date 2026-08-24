@@ -186,7 +186,7 @@ if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_agent_config_dirs >/de
     # what keeps an asset authored in one place. Assert a shipped asset of each kind arrived that
     # way, so a regression to per-agent copies (silently forking the content) fails here. The
     # pairs are <manifest field>:<shared root>:<a shipped asset name>.
-    for _spec in "skills_dir:/opt/ai-tools/skills:ai-tools-docs-reference" \
+    for _spec in "skills_dir:/opt/ai-tools/skills:ai-tools-technical-docs" \
                  "subagents_dir:/opt/ai-tools/subagents:ai-tools-reference-architect.md"; do
         _field="${_spec%%:*}"; _rest="${_spec#*:}"; _root="${_rest%%:*}"; _asset="${_rest#*:}"
         _marker=""

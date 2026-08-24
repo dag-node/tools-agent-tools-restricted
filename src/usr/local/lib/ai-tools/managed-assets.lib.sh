@@ -17,6 +17,11 @@
 # (install.sh, ai-tools-bootstrap) run as root and have already sourced msg.lib.sh. See
 # shipped-assets.rule.md.
 
+# Withdrawing an asset needs its own step: the seeder only adds and updates, and the live roots are
+# not rpm-owned, so a name this project stops shipping stays live on an upgraded host until it is
+# named here. `ai_tools_remove_retired_assets` reads this list; the linker then drops each agent's
+# now-dangling symlink on its next run.
+#
 # Sourced more than once in a single shell: return early so the second pass is a no-op (an
 # if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips set -e).
 if [[ -n "${_AI_TOOLS_MANAGED_ASSETS_LIB:-}" ]]; then
@@ -30,6 +35,16 @@ readonly _AI_TOOLS_MANAGED_ASSETS_LIB=1
 # further and naming the asset alone, so the listing reads as entries of that directory rather
 # than as a flat list that repeats the directory on every line.
 _ai_tools_ma_say() { printf '      %s\n' "$*"; }
+
+# Assets this project has withdrawn, as `<kind>/<name>` entries. An entry stays listed for as long
+# as a host may still carry it from an older package.
+# shellcheck disable=SC2034  # read by ai_tools_remove_retired_assets below
+readonly AI_TOOLS_RETIRED_ASSETS=(
+    "skills/ai-tools-docs-reference"
+    "skills/ai-tools-docs-usage"
+    "skills/ai-tools-docs-comments"
+    "skills/ai-tools-docs-changelog"
+)
 
 # Print the integer x-ai-tools-version from a managed asset's marker file; empty if absent.
 ai_tools_asset_version() {
@@ -113,6 +128,40 @@ ai_tools_seed_managed_assets() {
                 _ai_tools_ma_say "${name} seeded (v${new:-?})"
             fi
         done
+    done
+}
+
+# ai_tools_remove_retired_assets <live_root> [kinds...]
+# Remove the assets in AI_TOOLS_RETIRED_ASSETS from a live shared root, so a host upgraded from a
+# package that still shipped them stops offering them. Restricted to the named kinds when given.
+#
+# Removal requires the x-ai-tools-managed marker, so an asset the operator authored under the same
+# name is kept and reported -- the same predicate the seeder uses to decide what it may claim.
+# Each agent's symlink is left to `ai_tools_link_shared_assets`, which drops a link into the shared
+# root once its target is gone.
+# $1 live_root  $2.. kinds (default: every kind named in the list)
+ai_tools_remove_retired_assets() {
+    local live_root="$1"; shift
+    local -a kinds=( "$@" )
+    local entry kind name path marker
+    for entry in "${AI_TOOLS_RETIRED_ASSETS[@]}"; do
+        kind="${entry%%/*}"; name="${entry#*/}"
+        if (( ${#kinds[@]} )); then
+            local wanted match=0
+            for wanted in "${kinds[@]}"; do
+                [[ "${wanted}" == "${kind}" ]] && { match=1; break; }
+            done
+            (( match )) || continue
+        fi
+        path="${live_root}/${kind}/${name}"
+        [[ -e "${path}" ]] || continue
+        marker="${path}"; [[ -d "${path}" ]] && marker="${path}/SKILL.md"
+        if ! ai_tools_asset_is_managed "${marker}"; then
+            _ai_tools_ma_say "${name} kept (operator's own, not ai-tools-managed)"
+            continue
+        fi
+        rm -rf "${path}"
+        _ai_tools_ma_say "${name} removed (no longer shipped)"
     done
 }
 

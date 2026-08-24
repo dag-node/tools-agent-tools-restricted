@@ -158,6 +158,7 @@ seed_managed_assets_step() {
         install -d -o root -g "${SANDBOX_GROUP}" -m "${CP_DIR_MODES[${kind}]}" "${shared}"
         log "seeding ai-tools-managed ${kind} into ${shared}"
         ai_tools_seed_managed_assets "${pristine}" "${CP_HOME}" "${SANDBOX_GROUP}" "${kind}"
+        ai_tools_remove_retired_assets "${CP_HOME}" "${kind}"
         ai_tools_link_asset_readme "${pristine}/${kind}/README.md" "${shared}" "${SANDBOX_GROUP}"
         while IFS=$'\t' read -r _ asset_dir; do
             log "linking the shared ${kind} into ${asset_dir}"

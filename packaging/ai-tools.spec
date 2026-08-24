@@ -546,10 +546,11 @@ fi
 # bash (the lib is bash; a %post scriptlet runs under /bin/sh). Skills and subagent definitions
 # are agent-agnostic, so they are seeded once here and each agent package symlinks them into the
 # directories it reads. Non-interactive, so an existing managed asset is kept and only an absent
-# one is seeded.
+# one is seeded. Withdrawn assets are then removed by name: the live roots are not rpm-owned, so
+# an upgrade leaves an asset this package no longer ships in place until this runs.
 for kind in skills subagents; do
     [ -d %{_datadir}/ai-tools/${kind} ] && command -v bash >/dev/null 2>&1 || continue
-    bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools ai-tools ${kind}; ai_tools_link_asset_readme %{_datadir}/ai-tools/${kind}/README.md /opt/ai-tools/${kind} ai-tools" >/dev/null 2>&1 || :
+    bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools ai-tools ${kind}; ai_tools_remove_retired_assets /opt/ai-tools ${kind}; ai_tools_link_asset_readme %{_datadir}/ai-tools/${kind}/README.md /opt/ai-tools/${kind} ai-tools" >/dev/null 2>&1 || :
 done
 # Operator binding + toolchain are per-operator / network steps a scriptlet must not do; direct
 # the operator to them. ai-tools-bootstrap installs the Node toolchain; ai-tools-admin operator

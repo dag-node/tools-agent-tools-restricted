@@ -34,8 +34,8 @@ x-ai-tools-updated: 2026-07-28
 ---
 ```
 
-Shipped now: `ai-tools-docs-reference`, `ai-tools-docs-usage`, `ai-tools-docs-comments`,
-`ai-tools-docs-changelog` (the documentation family), `ai-tools-engineering-principles`, and
+Shipped now: `ai-tools-technical-docs` (the writing standard for every artifact — docs, comments,
+changelogs, commit messages, runtime output), `ai-tools-engineering-principles`, and
 `ai-tools-capable-systems-governance`.
 
 A skill may be more than one file. Put supporting material in a subdirectory beside `SKILL.md` and
