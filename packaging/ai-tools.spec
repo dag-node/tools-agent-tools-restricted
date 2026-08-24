@@ -951,61 +951,71 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
-* Fri Aug 21 2026 dagnode <tools@dagnode.com> - 0.12.0-1
-- NEW: 'ai-tools --for <operator>' runs a project command on behalf of another enrolled operator,
-  so a service account that runs a coding agent but has no password can be given projects. The
-  allowlist entry lands in that account's registry rather than yours, which is what makes the
-  project theirs: files the agent writes are handed back to them, the per-project ACL grants them,
-  and their next launch finds the project claimed instead of prompting for a password it cannot
-  supply. Claim once as yourself, with your own password, and the account never meets a sudo
-  prompt. Accepted on --project-claim/-create, --project-unclaim/-remove, --lockdown, --reclaim
-  and --list; refused elsewhere rather than ignored, and refused with --project-unclaim --force
-  (an unlisted tree has no entry naming an owner, so that mode stays bound to the invoking
-  operator). Enrol the target first with 'sudo ai-tools-admin operator add <name>'.
-- NEW: The ai-tools-allowlist root helper backs it, reading and editing another operator's
-  allowed-projects. Root is needed for the read too, since an allowlist is 0600 inside a 0700
-  directory. Like the other project helpers it carries no NOPASSWD grant -- you authenticate --
-  it authorizes against the uid sudo sets rather than a name from the environment, and it refuses
-  a bare root call, an unenrolled caller or target, the sandbox account, and a protected system
-  directory, leaving the registry byte-identical whenever it refuses.
-- NEW: The agent binary is now verified against the checksum its vendor SIGNED, and the verified
-  value is pinned where the sandbox account cannot write it, so a binary modified AFTER it was
-  installed refuses to launch. npm's integrity hash and registry signature attest to what was
-  delivered, not to what is on disk afterwards -- and since 'npm install -g' does not reinstall an
-  unchanged version, such a change would otherwise persist across sessions and operators. The
-  signing key ships in the package rather than being downloaded, which closes the registry
-  key-pinning gap for this one binary. Nothing to maintain per release: the key identifies the
-  signer, not the release, and the per-version pin is written automatically by the same watcher
-  that already relabels entrypoints. Requires gnupg2 (gpgv).
-- NEW: 'ai-tools --relabel' reconciles the entrypoint rather than only its SELinux label -- it
-  verifies and pins first, then relabels -- so it is also the way to pin an entrypoint on a
-  DAC-only host or one the watcher was offline for. The verification fails soft when the vendor is
-  unreachable; only a checksum mismatch fails the command.
-- NEW: 'ai-tools --status' reports, per agent, whether its entrypoint carries a verified checksum --
-  VERIFIED with the pinned version and how long ago, or unverified. It is the only view an operator
-  has of the verification: the entrypoint itself lives in a toolchain they cannot read. Unverified
-  counts toward the exit status only where verification is required, so an air-gapped host does not
-  alarm.
-- NEW: AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY in operator.conf refuses to launch an entrypoint that
-  carries no verified checksum, and stops the updater activating a release it could not verify. A
-  MISMATCH always refuses regardless; this key governs only the unverifiable case, whose default
-  stays permissive because unpinned is equally the state of an air-gapped host. See
-  docs/entrypoint-verification.md.
-- FIX: ai-tools-run verified one path and started another: it checked the SELinux label on the
-  resolved entrypoint but handed systemd the launcher symlink, leaving the whole preflight as a
-  window in which that link could be repointed. It now resolves once, contains the target to the
-  same Node version directory, uses that single path for both, and re-checks its device/inode/
-  size/ctime immediately before the launch. Under SELinux this window was never reachable (the
-  toolchain is read-only to the confined domain); it mattered on a DAC-only host.
-- FIX: 'ai-tools --relabel' could report success while every launch stayed refused. It applied the
-  file-context pattern each agent's manifest declares, but the SELinux transition fires on the
-  binary the launcher actually resolves to -- so an agent whose package installs its executable
-  somewhere the pattern no longer covers left nothing to label, and the command exited 0 saying
-  the entrypoint "is not installed". It now resolves the entrypoint the way the launch check does
-  and reconciles the two: that case exits non-zero naming the real cause (the agent package's
-  manifest is stale and needs updating), and "not installed" is reported only when the agent
-  genuinely is not provisioned. The set of files that can take the confined domain's exec label is
-  unchanged -- still exactly what the root-owned manifests declare.
+* Mon Aug 24 2026 dagnode <tools@dagnode.com> - 0.12.0-1
+- NEW: 'sudo ai-tools --stop' ends every agent session running on this host, and everything it
+  spawned. Until now every control changed only what the NEXT launch gets -- unclaiming a project,
+  disabling a provider, revoking an operator -- and "stop what it is doing, now" meant hunting for
+  units in an account you cannot reach. Sessions are found by their cgroup, so a child that
+  double-forked or called setsid is still ended; each gets ten seconds to exit before it is killed.
+  Preview with --dry-run, skip the confirmation with -y, skip the grace period with --force. It
+  reports what it ended, and because a killed session cannot run its own hand-back it names the
+  --reclaim for each project it interrupted. Use /exit inside a session you are simply finished
+  with. Details in /usr/share/doc/ai-tools/session-stop.md.
+- NEW: The agent binary is checked against the checksum its vendor SIGNED, and the verified value
+  is pinned where the sandbox account cannot write it -- so a binary altered after installation
+  refuses to launch. npm's integrity hash covers what was delivered, not what is on disk weeks
+  later, and 'npm install -g' does not reinstall an unchanged version, so such a change would
+  otherwise persist across every session and operator. The signing key ships in the package rather
+  than being fetched, and the pin is written automatically by the watcher that already relabels
+  entrypoints: nothing to maintain per release. Requires gnupg2 (gpgv).
+- NEW: 'ai-tools --status' shows that verification per agent: VERIFIED with the pinned version and
+  how long ago, or unverified. It is the only window an operator has onto it, the entrypoint itself
+  living in a toolchain they cannot read. Unverified counts against the exit status only where
+  verification is required, so an air-gapped host does not alarm.
+- NEW: AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes in operator.conf refuses to launch an entrypoint
+  carrying no verified checksum, and keeps the updater from activating a release it could not
+  verify -- for hosts that should never run an unattested agent. A checksum MISMATCH always refuses
+  regardless of this key. Off by default. See docs/entrypoint-verification.md.
+- NEW: 'ai-tools --relabel' now reconciles the whole entrypoint -- verify, pin, then label -- so it
+  is also how to pin one on a DAC-only host, or on a host the watcher was offline for. An
+  unreachable vendor is not an error; only a mismatch fails the command.
+- NEW: 'sudo ai-tools --audit [--since <when>]' reads back what has refused, been rejected, been
+  stranded or been flagged. These detections were already being recorded and nothing read them,
+  each landing in a root-only file or a journald tag someone had to think to query. It exits
+  non-zero when anything is reported, so it runs from cron or a login banner without parsing its
+  output. Launch refusals are reported separately, since those lines come from the sandbox account
+  itself and are for reconciling against the root-only trail rather than relying on alone. Window
+  defaults to 7 days; a --since date(1) cannot parse is refused rather than read as "everything".
+- NEW: Every tool call a session makes is recorded where the agent can append but neither edit nor
+  delete -- 'journalctl -t ai-tools-hook _UID="$(id -u ai-tools)"', or '-o json' for structured
+  fields. The session's own transcript is agent-owned, so after an incident there was nothing
+  independent to reconcile it against; now there is a record of what ran and what was written. Each
+  record is bounded on purpose: for a shell command, its first two words and word count, never the
+  command line -- a here-doc body or a credential in an argument never reaches the journal.
+- NEW: 'ai-tools --for <operator>' claims projects on behalf of another enrolled operator, so a
+  passwordless service account that runs an agent can be given work. The entry lands in that
+  account's registry, which is what makes the project theirs: files the agent writes are handed
+  back to them, the per-project ACL grants them, and their next launch finds the project claimed
+  instead of prompting for a password it cannot supply. You claim once, with your own password, and
+  the account never meets a sudo prompt. Accepted on --project-claim/-create,
+  --project-unclaim/-remove, --lockdown, --reclaim and --list; refused elsewhere rather than
+  quietly ignored. Enrol the target first with 'sudo ai-tools-admin operator add <name>'.
+- NEW: Sandboxed agents now carry a shared standard for building and operating systems that act
+  with autonomy -- what constrains a system, what watches it, and what a human does when a
+  threshold is crossed -- which also binds the agent's own conduct in the sandbox. Seeded with the
+  other shipped skills; nothing to configure.
+- FIX: On a DAC-only host, launch verified one path and started another: it checked the resolved
+  entrypoint but handed systemd the launcher symlink, leaving the preflight as a window in which
+  that link could be repointed. It now resolves once, uses that single path for both, and re-checks
+  it immediately before starting. SELinux hosts were never exposed to this.
+- FIX: 'ai-tools --relabel' could report success while every launch stayed refused, exiting 0 with
+  "entrypoint is not installed" for an agent that was in fact installed elsewhere than its package
+  declares. That case now exits non-zero and names the real cause, and "not installed" is reported
+  only when the agent genuinely is not provisioned.
+- FIX: A fresh install left the entrypoint relabel watcher enabled but not started, so
+  'ai-tools --status' showed it DOWN until a reboot -- and a Node auto-upgrade in that window left
+  the next launch refusing on an unlabelled entrypoint. It is started at install.
+- FIX: A fresh toolchain bootstrap no longer emits "warning: adding embedded git repository: .nvm".
 
 * Tue Aug 18 2026 dagnode <tools@dagnode.com> - 0.11.1-1
 - FIX: A toolchain update that could not reach the npm registry failed with an empty journal and
