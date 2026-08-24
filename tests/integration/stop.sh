@@ -85,14 +85,13 @@ if ! declare -F end_session >/dev/null 2>&1; then
     finish; exit
 fi
 
-# Aim the walk at the fixture. The two structural exemptions are pointed at names that do not
-# exist, so nothing in the fixture is skipped or descended-into by special case.
+# Aim the walk at the fixture. The manager-service special case is pointed at a name that does not
+# exist, so nothing in the fixture is descended-into rather than emitted. There is no exemption to
+# neutralize: the helper spares no cgroup.
 # shellcheck disable=SC2034  # all three are read by the sourced helper
 SANDBOX_SLICE="${FIXTURE_SLICE}"
 # shellcheck disable=SC2034
 MANAGER_SERVICE="${FIXTURE_SLICE}/no-such-manager.service"
-# shellcheck disable=SC2034
-MANAGER_INIT_SCOPE="${MANAGER_SERVICE}/init.scope"
 # shellcheck disable=SC2034
 CALLER="${PROJECTS_USER}"
 FORCE_KILL=false
@@ -254,19 +253,34 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
     sleep 0.5
 done
 
-# run_main <all?> <dry-run?> -- set the request the way the argument parser would and run main(),
+# THE MANAGER RESTORE IS STUBBED, and this is the one stub that matters here. main() ends by
+# restarting user@<uid>.service, which on this host is the REAL sandbox account's user manager --
+# a fixture run must not restart, or fail to restart, a live service outside its own testdir. The
+# stub records that it was called, so the wiring is still asserted; what it must not do is act.
+#
+# IT RECORDS INTO A FILE, NOT A VARIABLE, and that is not a style choice. run_main captures main()
+# through `$(...)`, which runs it in a SUBSHELL: a variable the stub sets there is gone the moment
+# the substitution closes, so a flag would read `false` however faithfully the stub ran -- an
+# assertion that fails while the code is correct. The marker outlives the subshell because the
+# filesystem does. (Same family as the `$(...)` foot-guns already documented in this file's
+# start_payload.)
+RESTORE_MARKER="${TESTDIR}/restore-user-manager-called"
+restore_user_manager() { : > "${RESTORE_MARKER}"; return 0; }
+
+# run_main <dry-run?> -- set the request the way the argument parser would and run main(),
 # capturing its output and status. Always --yes: the confirmation is covered in unit/stop.sh, and a
 # prompt here would block the suite on a terminal read.
 # shellcheck disable=SC2034  # the request globals are read by the sourced helper's main()
 run_main() {
-    STOP_EVERY_SESSION="$1"; TARGET_PROJECT=""; DRY_RUN="$2"; ASSUME_YES=true; FORCE_KILL=false
+    rm -f "${RESTORE_MARKER}"
+    DRY_RUN="$1"; ASSUME_YES=true; FORCE_KILL=false
     set +e
     MAIN_OUTPUT="$(main 2>&1)"
     MAIN_STATUS=$?
     set -e
 }
 
-run_main true true
+run_main true
 if (( MAIN_STATUS == 0 )) && [[ -d "/proc/${d_pid}" ]] \
         && grep -qi 'dry run' <<< "${MAIN_OUTPUT}"; then
     pass "a dry run reports the session and changes nothing (exit 0, the session still runs)"
@@ -274,7 +288,7 @@ else
     fail "dry run: status ${MAIN_STATUS}, leader alive=$([[ -d "/proc/${d_pid}" ]] && echo yes || echo no)"
 fi
 
-run_main true false
+run_main false
 if (( MAIN_STATUS == 0 )); then
     pass "the stop completes and reports success (exit 0)"
 else
@@ -290,6 +304,13 @@ if grep -q "${TESTDIR}/project" <<< "${MAIN_OUTPUT}"; then
 else
     fail "no reclaim guidance for the stopped project: ${MAIN_OUTPUT}"
 fi
+# The manager restore is part of the command, not an optional extra: the sweep spares nothing, so
+# a run that kills without restoring leaves the host unable to start the next session.
+if [[ -e "${RESTORE_MARKER}" ]]; then
+    pass "the run restores the user manager it necessarily terminated"
+else
+    fail "main() completed without restoring the user manager"
+fi
 
 stop_log="${AI_TOOLS_LOG_DIR}/stop.log"
 if grep -q "stopped session" "${stop_log}" 2>/dev/null \
@@ -301,7 +322,7 @@ fi
 
 # Nothing running is a successful stop, not an error -- the idempotence an operator relies on when
 # re-running the command after an interrupted one.
-run_main true false
+run_main false
 if (( MAIN_STATUS == 0 )); then
     pass "re-running the stop with nothing left is exit 0 (the command is idempotent)"
 else

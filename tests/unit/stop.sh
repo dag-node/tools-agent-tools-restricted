@@ -20,9 +20,9 @@
 #
 # NOTHING REAL CAN BE SIGNALLED. Every fixture pid is above the host's pid_max, so it has no /proc
 # entry; the helper validates a pid's start time immediately before signalling and skips one it
-# cannot read, which is asserted here rather than assumed. main() is driven only in modes that
-# return before the kill (dry run, and the scoped refusal). The kill primitive itself is exercised
-# against real `sleep` children this test spawns and reaps.
+# cannot read, which is asserted here rather than assumed. main() is driven only in the dry run,
+# which returns before the kill. The kill primitive itself is exercised against real `sleep`
+# children this test spawns and reaps, and end to end in tests/integration/stop.sh.
 #
 # Run as root via sudo with the rest of the suite; needs no privilege of its own, so it also runs
 # directly as an unprivileged user during development. Two assertions about an UNREADABLE file skip
@@ -45,11 +45,10 @@ if [[ ! -r "${STOP_HELPER}" ]]; then
 fi
 
 mktestdir
-# Before sourcing: operator.lib.sh freezes AI_TOOLS_OPERATOR_CONF at source time, and the scoped
-# authorization reads the allowlist through it. The fixture names this run's user as the sole
-# operator and claims one fixture project.
+# Fixture project directories only. This helper reads no allowlist and resolves no operator: it
+# takes no target, so there is nothing to authorize. These paths exist purely as the working
+# directories the fixture attribution map hands back for the table.
 mkdir -p "${TESTDIR}/proj/alpha" "${TESTDIR}/proj/alpha-extra" "${TESTDIR}/proj/beta"
-mk_allowlist "${TESTDIR}/proj/alpha"
 
 # The harness and the helper both name the sandbox account SANDBOX_USER and both declare it
 # readonly, and a second `readonly` on an existing name is an error even when the value agrees --
@@ -58,6 +57,13 @@ mk_allowlist "${TESTDIR}/proj/alpha"
 source_errors="${TESTDIR}/source-stderr"
 # shellcheck source=/dev/null
 source "${STOP_HELPER}" 2>"${source_errors}" || true
+
+# The real attribution function, saved under a second name BEFORE the fixture stub below replaces
+# it. `unset -f` cannot get it back: overriding a function discards the original outright, so a
+# test that stubbed first and unset later would drive nothing.
+eval "helper_unit_working_directory() $(declare -f unit_working_directory 2>/dev/null | tail -n +2)" \
+    2>/dev/null || true
+
 if ! declare -F find_session_cgroups >/dev/null 2>&1; then
     fail "sourcing ${STOP_HELPER} defined nothing -- the helper is not inert on source"
     finish; exit
@@ -106,13 +112,14 @@ sync_events() {
     done < <(find "$1" -type d)
 }
 
-# point_at <slice-root> <uid> -- aim the helper's three walk globals at a fixture tree. They are
-# readonly only once the helper's own resolve_cgroup_layout runs, which sourcing does not do.
+# point_at <slice-root> <uid> -- aim the helper's two walk globals at a fixture tree. They are
+# readonly only once the helper's own resolve_cgroup_layout runs, which sourcing does not do -- and
+# this file never calls it, which is what keeps every main() here on a fixture slice under TESTDIR
+# and off the real sandbox account's. Every main() call below is preceded by a point_at.
 # shellcheck disable=SC2034  # read by the sourced helper's walk, not by this file
 point_at() {
     SANDBOX_SLICE="$1"
     MANAGER_SERVICE="$1/user@$2.service"
-    MANAGER_INIT_SCOPE="${MANAGER_SERVICE}/init.scope"
 }
 
 # emitted_set -- find_session_cgroups' output as slice-relative paths, one per line, sorted, so an
@@ -151,6 +158,7 @@ user@4242.service/app.slice/.wrap/inner.scope
 user@4242.service/app.slice/ai-tools-claude-code-11.service
 user@4242.service/app.slice/ai-tools-claude-code-12.service
 user@4242.service/app.slice/evil/init.scope
+user@4242.service/init.scope
 user@4242.service/weird.slice
 EOF
 )"
@@ -172,10 +180,11 @@ assert_not_emitted() {
 }
 assert_not_emitted "the manager service is descended into, never emitted" "user@4242.service"
 assert_not_emitted "a parent slice is never offered as a stoppable thing" "user@4242.service/app.slice"
-assert_not_emitted "the manager's init.scope is spared"                   "user@4242.service/init.scope"
+assert_emitted "the manager's OWN init.scope is enumerated -- NOTHING is exempt, because an exemption is a cgroup a session can move into" \
+    "user@4242.service/init.scope"
 assert_not_emitted "a unit's nested cgroup is part of it, not a session" \
     "user@4242.service/app.slice/ai-tools-claude-code-11.service/nested.scope"
-assert_emitted "a NESTED init.scope is NOT spared -- the exemption is by exact path" \
+assert_emitted "a NESTED init.scope is enumerated too -- no name is treated as special anywhere" \
     "user@4242.service/app.slice/evil/init.scope"
 assert_emitted "a login scope beside the manager is found"        "session-3.scope"
 assert_emitted "a slice holding tasks directly is found"          "user@4242.service/weird.slice"
@@ -382,8 +391,9 @@ section "selection"
 declare -A FIXTURE_WORKING_DIR=()
 unit_working_directory() { printf '%s' "${FIXTURE_WORKING_DIR[$1]:-}"; }
 
-# A tree in which everything IS attributable, so the scoped form reaches its selection rather than
-# its refusal. `alpha-extra` is the prefix trap: a scoped stop of `<...>/alpha` must not match it.
+# A tree with a mix of attributable and unattributable sessions. Attribution is DISPLAY ONLY -- it
+# selects nothing -- so what these assert is that every session is selected regardless of it, and
+# that an unreadable working directory costs a label rather than a target.
 CG2="${TESTDIR}/cgroup2b/user.slice/user-4242.slice"
 point_at "${CG2}" 4242
 mkcg "${CG2}"
@@ -400,84 +410,80 @@ FIXTURE_WORKING_DIR=(
     [ai-tools-claude-code-23.service]="${TESTDIR}/proj/alpha-extra"
 )
 
-# The caller identity the scoped form authorizes against. In production it comes from sudo; here
-# it is this run's own user, which is the operator the fixture allowlist belongs to.
+# The caller identity recorded in the trail. In production it comes from sudo; it authorizes
+# nothing -- this command takes no authorization input.
 # shellcheck disable=SC2034  # CALLER/SANDBOX_UID are read by the sourced helper
 CALLER="${PROJECTS_USER}"
 # shellcheck disable=SC2034  # as above
 SANDBOX_UID=4242
 
-# run_main <all?> <target> <dry-run?> -- set the request the way the argument parser would and run
-# main(), capturing its output and status. Only modes that return BEFORE the kill are used.
+# run_main <dry-run?> -- set the request the way the argument parser would and run main(),
+# capturing its output and status. Only the dry run is used: it returns BEFORE the kill, and the
+# kill primitive itself is exercised against real processes in tests/integration/stop.sh.
 # shellcheck disable=SC2034  # the request globals are read by the sourced helper's main()
 run_main() {
-    STOP_EVERY_SESSION="$1"; TARGET_PROJECT="$2"; DRY_RUN="$3"
-    ASSUME_YES=false; FORCE_KILL=false
+    DRY_RUN="$1"; ASSUME_YES=false; FORCE_KILL=false
     set +e
     MAIN_OUTPUT="$(main 2>&1)"
     MAIN_STATUS=$?
     set -e
 }
 
-run_main true "" true
-if (( MAIN_STATUS == 0 )) && grep -q '3 session' <<< "${MAIN_OUTPUT}"; then
-    pass "--all --dry-run reports every session and changes nothing (exit 0)"
+run_main true
+if (( MAIN_STATUS == 0 )) && grep -q '4 agent session' <<< "${MAIN_OUTPUT}"; then
+    pass "a dry run reports every session in the slice and changes nothing (exit 0)"
 else
-    fail "--all --dry-run: status ${MAIN_STATUS}, output: ${MAIN_OUTPUT}"
+    fail "dry run: status ${MAIN_STATUS}, output: ${MAIN_OUTPUT}"
 fi
 
-run_main false "${TESTDIR}/proj/alpha" true
-if (( MAIN_STATUS == 0 )) \
-        && grep -q 'ai-tools-claude-code-21.service' <<< "${MAIN_OUTPUT}" \
-        && grep -q 'ai-tools-claude-code-22.service' <<< "${MAIN_OUTPUT}"; then
-    pass "a scoped stop selects the project's sessions, including one in a subdirectory"
-else
-    fail "scoped selection: status ${MAIN_STATUS}, output: ${MAIN_OUTPUT}"
-fi
-if grep -q 'ai-tools-claude-code-23.service' <<< "${MAIN_OUTPUT}"; then
-    fail "a scoped stop matched a project whose path merely SHARES A PREFIX with the target"
-else
-    pass "a sibling project sharing a path prefix is not selected"
-fi
+# THE PROPERTY THAT REPLACED SCOPING. Every one of these is selected, including the session whose
+# project merely shares a path prefix with another and the manager's own init.scope. Nothing here
+# is a target to be matched, so there is no prefix trap and no exemption to get wrong.
+for expect_unit in ai-tools-claude-code-21.service ai-tools-claude-code-22.service \
+                   ai-tools-claude-code-23.service; do
+    if grep -q "${expect_unit}" <<< "${MAIN_OUTPUT}"; then
+        pass "${expect_unit} is selected -- selection does not consult the project at all"
+    else
+        fail "${expect_unit} was not selected: ${MAIN_OUTPUT}"
+    fi
+done
 
-run_main false "${TESTDIR}/proj/beta" true
-if (( MAIN_STATUS == 3 )); then
-    pass "a project the caller has not claimed is refused (exit 3), nothing selected"
-else
-    fail "unclaimed project: expected exit 3, got ${MAIN_STATUS}: ${MAIN_OUTPUT}"
-fi
-
-run_main false "proj/alpha" true
-if (( MAIN_STATUS == 3 )) && grep -qi 'absolute' <<< "${MAIN_OUTPUT}"; then
-    pass "a relative path is refused before canonicalization (exit 3)"
-else
-    fail "relative path: expected exit 3 naming 'absolute', got ${MAIN_STATUS}: ${MAIN_OUTPUT}"
-fi
-
-# An unattributable live cgroup blocks the SCOPED form outright -- it cannot honestly scope what it
-# cannot see -- and the refusal names each blocker so the operator can act on it.
+# ATTRIBUTION CANNOT COST A SESSION ITS STOP. A unit whose working directory cannot be read is
+# still selected and simply shows as `unknown`; the old behaviour refused the whole run. This is
+# the assertion that a misreporting session gains nothing by lying.
 FIXTURE_WORKING_DIR[ai-tools-claude-code-22.service]=""
-run_main false "${TESTDIR}/proj/alpha" true
-if (( MAIN_STATUS == 3 )) \
-        && grep -q 'unattributable' <<< "${MAIN_OUTPUT}" \
-        && grep -q 'ai-tools-claude-code-22.service' <<< "${MAIN_OUTPUT}"; then
-    pass "an unattributable live cgroup refuses the scoped stop and is named in the refusal"
+run_main true
+if (( MAIN_STATUS == 0 )) \
+        && grep -q 'ai-tools-claude-code-22.service' <<< "${MAIN_OUTPUT}" \
+        && grep -q 'unknown' <<< "${MAIN_OUTPUT}"; then
+    pass "a session with no readable project is still selected, shown as 'unknown'"
 else
-    fail "unattributable refusal: status ${MAIN_STATUS}, output: ${MAIN_OUTPUT}"
-fi
-# --all needs no attribution at all, which is why the refusal sends the operator there.
-run_main true "" true
-if (( MAIN_STATUS == 0 )); then
-    pass "--all is unaffected by an unattributable cgroup"
-else
-    fail "--all with an unattributable cgroup: status ${MAIN_STATUS}: ${MAIN_OUTPUT}"
+    fail "unattributable session: status ${MAIN_STATUS}, output: ${MAIN_OUTPUT}"
 fi
 FIXTURE_WORKING_DIR[ai-tools-claude-code-22.service]="${TESTDIR}/proj/alpha/sub/dir"
+
+# A WORKING DIRECTORY THAT IS NOT AN ABSOLUTE PATH YIELDS NOTHING. systemd renders the
+# "missing is ok" flag as a `!` prefix over d-bus (`WorkingDirectory=!/opt/ai-tools`), and an
+# unstripped one reached the operator inside a `--reclaim` command that will not run -- and that,
+# pasted into an interactive bash, is not even inert. Driven through the real function, with the
+# systemctl calls it makes stubbed out.
+systemctl() { printf 'WorkingDirectory=%s\n' "${STUB_WORKING_DIR}"; }
+timeout()   { shift; "$@"; }
+for stub_case in "!/srv/p:/srv/p" "-/srv/p:/srv/p" "/srv/p:/srv/p" "~:" "!~:" "relative/p:" ":"; do
+    STUB_WORKING_DIR="${stub_case%%:*}"
+    marker_got="$(helper_unit_working_directory some.service)"
+    if [[ "${marker_got}" == "${stub_case#*:}" ]]; then
+        pass "WorkingDirectory '${STUB_WORKING_DIR}' resolves to '${stub_case#*:}'"
+    else
+        fail "WorkingDirectory '${STUB_WORKING_DIR}': expected '${stub_case#*:}', got '${marker_got}'"
+    fi
+done
+unset -f systemctl timeout
 
 # An empty slice is not an error: nothing running is a successful stop.
 point_at "${TESTDIR}/cgroup2c/user.slice/user-4242.slice" 4242
 mkcg "${SANDBOX_SLICE}"
-run_main true "" true
+run_main true
 if (( MAIN_STATUS == 0 )) && grep -qi 'no agent session' <<< "${MAIN_OUTPUT}"; then
     pass "no session running is exit 0, not an error"
 else
@@ -508,7 +514,7 @@ fi
 # answer is honoured, which is the wiring between the two.
 point_at "${CG2}" 4242
 ai_tools_msg_confirm() { return 1; }
-run_main true "" false
+run_main false
 if (( MAIN_STATUS == 4 )) && grep -qi 'nothing was stopped' <<< "${MAIN_OUTPUT}"; then
     pass "a deliberate decline stops the stop (exit 4) and says nothing was stopped"
 else
@@ -523,47 +529,88 @@ unset -f ai_tools_msg_confirm
 stop_log="${AI_TOOLS_LOG_DIR}/stop.log"
 if [[ -s "${stop_log}" ]] \
         && grep -q "requested stop" "${stop_log}" \
-        && grep -q "declined the stop" "${stop_log}" \
-        && grep -q "REFUSED" "${stop_log}"; then
+        && grep -q "declined the stop" "${stop_log}"; then
     pass "the request, the refusals and the decline are all recorded in the trail"
 else
     fail "the trail is missing one of request/refusal/decline: $(tail -5 "${stop_log}" 2>&1)"
 fi
 
-# ── Usage contract, driven as a command ───────────────────────────────────────────────────────
+# ── Usage contract ────────────────────────────────────────────────────────────────────────────
 section "usage"
 
-# These exit before any privilege check or host resolution, so they are assertable at any uid.
+# WHERE THE LINE IS, AND WHY IT IS EXACTLY HERE. A refusal is safe to drive as a command: it exits
+# inside parse_command_line, before any privilege check or host resolution, at any uid. An
+# ACCEPTANCE is not. Anything that parses cleanly goes on to resolve the real host and reach
+# main(), which enumerates the SANDBOX ACCOUNT'S OWN SLICE -- so running the accepted forms here
+# would, as root, list every live session on the machine and prompt to terminate them, defaulting
+# to YES. In a suite that `install.sh` runs as its verification phase, that is an install that
+# hangs on a terminal read and one keystroke away from ending every session on the host.
+#
+# So acceptance is asserted at the PARSER, which is the thing actually being claimed about: it
+# touches no host state and needs no privilege. The live command belongs to
+# tests/manual/verify-live-flows.sh, behind its opt-in drill flag, which is the only place a real
+# stop is ever issued.
+#
+# A subshell per call, because parse_command_line exits on a refusal and marks its globals
+# readonly on success.
+parse_status() { ( parse_command_line "$@" ) >/dev/null 2>&1; printf '%s' "$?"; }
+
+if [[ "$(parse_status)" == "0" ]]; then
+    pass "no argument parses cleanly -- it is THE documented form, not a usage error"
+else
+    fail "no argument was rejected by the parser (status $(parse_status))"
+fi
+# --all is accepted and inert, so a script that spells the intent out is never refused for being
+# explicit -- and it must not turn into a second mode by accident: it sets none of the three flags.
+if [[ "$(parse_status --all)" == "0" ]]; then
+    pass "--all parses cleanly and is inert"
+else
+    fail "--all was rejected by the parser (status $(parse_status --all))"
+fi
+inert_check="$( ( parse_command_line --all; printf '%s|%s|%s' "${DRY_RUN}" "${ASSUME_YES}" "${FORCE_KILL}" ) 2>/dev/null )"
+if [[ "${inert_check}" == "false|false|false" ]]; then
+    pass "--all sets no flag of its own, so it cannot become a second mode"
+else
+    fail "--all changed the request: ${inert_check}"
+fi
+
+# Refusals ARE driven as a command, end to end against the deployed artifact, because each one
+# exits inside the parser and can never reach the host.
 run_helper() {
     set +e
     HELPER_OUTPUT="$(bash "${STOP_HELPER}" "$@" 2>&1)"
     HELPER_STATUS=$?
     set -e
 }
-run_helper
-if (( HELPER_STATUS == 2 )) && grep -q 'usage:' <<< "${HELPER_OUTPUT}"; then
-    pass "no argument prints usage and exits 2"
-else
-    fail "no argument: expected exit 2 with usage, got ${HELPER_STATUS}: ${HELPER_OUTPUT}"
-fi
 run_helper --bogus
 if (( HELPER_STATUS == 2 )); then
     pass "an unknown option exits 2"
 else
     fail "unknown option: expected exit 2, got ${HELPER_STATUS}: ${HELPER_OUTPUT}"
 fi
+# A PATH IS REFUSED, NOT IGNORED. Accepting it and terminating everything anyway would invert what
+# the operator asked for, in the destructive direction; and refusing keeps `--stop <path>` free to
+# mean something narrower later without an existing command line silently changing meaning. The
+# refusal has to NAME the alternatives, or it is a dead end mid-incident.
+run_helper /some/project
+if (( HELPER_STATUS == 2 )) \
+        && grep -q 'takes no path' <<< "${HELPER_OUTPUT}" \
+        && grep -q '/exit' <<< "${HELPER_OUTPUT}"; then
+    pass "a path exits 2 and the refusal names /exit as the way to end one session"
+else
+    fail "a path: expected exit 2 naming /exit, got ${HELPER_STATUS}: ${HELPER_OUTPUT}"
+fi
 run_helper --all /some/project
 if (( HELPER_STATUS == 2 )); then
-    pass "--all with a path exits 2 -- the two forms are not combinable"
+    pass "a path is refused even beside --all"
 else
     fail "--all with a path: expected exit 2, got ${HELPER_STATUS}: ${HELPER_OUTPUT}"
 fi
-run_helper /some/project /another
-if (( HELPER_STATUS == 2 )); then
-    pass "a second path exits 2"
-else
-    fail "two paths: expected exit 2, got ${HELPER_STATUS}: ${HELPER_OUTPUT}"
-fi
+# The one accepted form driven as a command, and ONLY when this run is unprivileged -- the guard
+# is what makes it safe. Non-root, the helper exits 5 at its root check, which is still before
+# resolve_cgroup_layout and main(), so the real slice is never enumerated. Do not remove the guard
+# to "also cover root": as root this exact line reaches main() and prompts to terminate every
+# session on the host.
 if [[ "${EUID}" -ne 0 ]]; then
     run_helper --all --dry-run
     if (( HELPER_STATUS == 5 )); then

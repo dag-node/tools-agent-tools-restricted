@@ -419,10 +419,10 @@ fi
 # `ai-tools --stop` is the incident ladder's stop rung: the one control that acts on a session
 # already running. A control the monitored system can disarm is not a control, so the claim rests
 # on this vantage -- the account a session runs as can neither run the helper (which would let a
-# session stop another operator's work, or exhaust the trail with noise) nor alter it, and cannot
-# reach the authorization input a SCOPED stop reads, an operator's own allowed-projects (asserted
-# above, since it is the same file that gates the launch). What the agent CAN do is be stopped: the
-# kill is delivered by root to a cgroup, and nothing inside the cgroup takes part in it.
+# session terminate every operator's work, or exhaust the trail with noise) nor alter it. There is
+# no authorization input for it to aim at either: the command takes no target and no allowlist, so
+# what it terminates is decided by cgroup-slice membership alone. What the agent CAN do is be
+# stopped: the kill is delivered by root to a cgroup, and nothing inside the cgroup takes part.
 _stop_bin=/usr/local/libexec/ai-tools/ai-tools-stop
 if [[ ! -e "${_stop_bin}" ]]; then
     skip "stop helper not agent-reachable" "not installed at ${_stop_bin}"

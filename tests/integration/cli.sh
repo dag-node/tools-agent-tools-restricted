@@ -215,9 +215,9 @@ fi
 
 # --stop: the CLI half only -- the option grammar and the two forms not being combinable. Both
 # refusals land in the argument loop, BEFORE the sudo that reaches the root helper, so neither
-# reaches a password prompt or signals anything. The helper's own authorization, enumeration and
-# kill are covered in tests/unit/stop.sh and tests/integration/stop.sh; what this asserts is that
-# the verb is dispatched at all and that a mistyped one is refused rather than passed through.
+# reaches a password prompt or signals anything. The helper's own enumeration and kill are covered
+# in tests/unit/stop.sh and tests/integration/stop.sh; what this asserts is that the verb is
+# dispatched at all and that a mistyped one is refused rather than passed through.
 if command -v runuser >/dev/null 2>&1; then
     section "CLI --stop (argument grammar)"
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" setsid \
@@ -227,10 +227,20 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--stop did not refuse an unknown option (rc=${rc}): ${out}"
     fi
+    # A path is refused BY THE CLI, before sudo. Accepting it would invert the operator's intent
+    # in the destructive direction -- they typed a path to narrow the command, which terminates
+    # every session -- and the refusal must name the alternative rather than dead-end them.
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" setsid \
+            "${CLI}" --stop /some/project 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'takes no path' <<<"${out}" && grep -q '/exit' <<<"${out}"; then
+        pass "--stop refuses a path and names /exit as the way to end one session"
+    else
+        fail "--stop accepted a path or refused it without guidance (rc=${rc}): ${out}"
+    fi
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" setsid \
             "${CLI}" --stop --all /some/project 2>&1)" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'takes no path' <<<"${out}"; then
-        pass "--stop --all refuses a path: it ends every session, not one project's"
+        pass "a path is refused even beside --all"
     else
         fail "--stop --all accepted a path (rc=${rc}): ${out}"
     fi
