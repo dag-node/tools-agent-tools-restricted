@@ -556,6 +556,21 @@ session_task_count() {
     printf '%s' "${count}"
 }
 
+# manager_is_up: does the sandbox account's user manager hold any task? Read as CONTENT, and
+# NEVER with `-s`: every cgroupfs file stats as zero bytes however many tasks it holds, so
+# `[[ -s cgroup.procs ]]` is false even for a slice holding hundreds -- an assertion that cannot
+# pass, and that reports a healthy restore as a failure. (Verified: the root cgroup.procs stats 0
+# with 379 pids in it.) session_task_count above already reads content, for the same reason.
+#
+# `2>/dev/null` PRECEDES the input redirect, per the rule ai-tools-stop.sh's cgroup_pids states:
+# redirections apply left to right, so the other order lets a missing init.scope -- exactly the
+# case this asserts against -- write its open failure to the real stderr, mid-report.
+manager_is_up() {
+    local line
+    read -r line 2>/dev/null < "${SANDBOX_INIT_SCOPE}/cgroup.procs" || return 1
+    [[ -n "${line}" ]]
+}
+
 if [[ -z "${SANDBOX_UID_N}" || ! -d "${SANDBOX_SLICE_DIR}" ]]; then
     skip "--stop (the sandbox account has no per-user slice on this host -- nothing has run yet)"
 else
@@ -624,21 +639,24 @@ else
         # everything else and the manager is restarted afterwards. What matters to the next launch
         # is only that it is back -- give it a moment, since the restart is asynchronous.
         for _ in 1 2 3 4 5 6 7 8 9 10; do
-            [[ -s "${SANDBOX_INIT_SCOPE}/cgroup.procs" ]] && break
+            manager_is_up && break
             sleep 0.5
         done
-        if [[ -s "${SANDBOX_INIT_SCOPE}/cgroup.procs" ]]; then
+        if manager_is_up; then
             pass "the user manager was restored after the stop, so the next launch still works"
         else
             fail "the user manager did not come back; the next launch will have no --user instance -- restore it: sudo systemctl start user@$(id -u "${SANDBOX_GROUP}").service"
         fi
-        # Idempotent: re-running after an interrupted stop is the documented remedy, so a second
-        # run must be a clean no-op rather than an error.
+        # IDEMPOTENT IN END STATE, WHICH IS NOT THE SAME AS SILENT -- and the difference follows
+        # from the rebuild rather than being a defect in it. The manager the run above restored is
+        # itself inside the swept slice, so a second run finds it, stops it, and restarts it again.
+        # What must hold is that no AGENT session is found (the first stop took) and the run still
+        # exits 0. A second run reporting agent sessions would mean the first one did not.
         OUT="$("${CLI}" --stop --yes 2>&1)"; RC=$?
         if [[ "${RC}" -eq 0 ]] && grep -qi 'no agent session' <<<"${OUT}"; then
-            pass "a second --stop is a clean no-op (exit 0)"
+            pass "a second --stop finds no agent session and exits 0 (only the restored manager goes)"
         else
-            fail "the second --stop was not a clean no-op (rc=${RC}): ${OUT}"
+            fail "the second --stop still reported agent sessions, or failed (rc=${RC}): ${OUT}"
         fi
         note "the stop cannot run the agent's session-end handback: reclaim each project it named"
     fi
