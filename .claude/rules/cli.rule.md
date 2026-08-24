@@ -201,7 +201,12 @@ A third gate, `require_for_target`, runs immediately after it and validates a `-
 
   - **Sessions are found and killed by cgroup**, never by process tree, and liveness is read from
     the kernel. systemd supplies one thing only — a unit's `WorkingDirectory` — and that is
-    **display**: it labels a row and names a `--reclaim`, and selects nothing.
+    **display**: it labels a row and names a `--reclaim`, and selects nothing. The report's split
+    between agent sessions and the account's own plumbing (its user manager, dbus, login session
+    scopes) is display in that same sense and carries the same caveat — the class comes from a unit
+    name, which inside a delegated subtree is the delegatee's to choose. It splits the two counts,
+    orders the table and decides which rows get a `--reclaim`; it selects nothing, and both classes
+    are killed identically.
   - **It takes no target and no authorization input.** There is no per-project form, because every
     way to attribute a session to a project is written by the account being stopped. A path is
     **refused (exit 2), not ignored** — which is also what keeps targeted stopping addable later
@@ -209,7 +214,10 @@ A third gate, `require_for_target`, runs immediately after it and validates a `-
   - **Nothing is exempt, including the account's own `systemd --user` and its `init.scope`.** An
     exemption is a cgroup a session can move into on a DAC-only host. The manager is **restarted
     afterwards** (`restore_user_manager`), as a step that runs after verification and is reported
-    on its own — it never changes what the command says about the stop.
+    on its own — it never changes what the command says about the stop. One consequence to keep:
+    a **rerun is therefore not silent**, since the restored manager is back inside the swept slice.
+    The command is idempotent in *end state*, not in what it reports, and buying a silent rerun
+    would cost either an exemption or a name-decided sweep.
   - **Two project conventions are inverted here**, both because the safe direction for this one
     component is *act*: the confirmation defaults YES ([messaging](messaging.rule.md)), and no
     library is required nor `set -e` used ([logging](logging.rule.md)). No project library is

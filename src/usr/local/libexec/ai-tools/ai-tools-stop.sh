@@ -441,6 +441,40 @@ cgroup_unit_name() {
     [[ "${leaf}" == *.service || "${leaf}" == *.scope ]] && printf '%s' "${leaf}"
 }
 
+# ── Classification (advisory, exactly like attribution) ──────────────────────────────────────
+# The account's slice holds more than agent sessions: its own `systemd --user` and `init.scope`, a
+# dbus broker, and a login session scope for every `sudo -u` that crossed pam_systemd. All of them
+# are terminated -- nothing is exempt -- but calling four such cgroups "4 agent sessions" in the
+# table an operator confirms against, and in the line they read first after an incident, is untrue,
+# and untrue in the direction that inflates how much agent work was running.
+#
+# THIS CHANGES A LABEL AND A COUNT, NEVER A TARGET. It has the same standing as
+# unit_working_directory and carries the same caveat: a unit name inside the delegated subtree is
+# the delegatee's to choose, so a session can name itself out of the agent class -- and gains
+# nothing by it, because both classes are enumerated, listed and killed identically. Nothing here
+# is consulted to decide what a stop reaches; that remains cgroup-slice membership alone.
+
+# session_is_agent <unit-name> -- succeed for a unit ai-tools-run started. It names every session
+# `<SANDBOX_USER>-<agent>-<pid>.service`, so this matches THIS PROJECT's own prefix rather than any
+# distro's unit names -- the file still contains no name that differs between EL9, EL10 and Fedora.
+session_is_agent() {
+    [[ "$1" == "${SANDBOX_USER}-"*.service ]]
+}
+
+# session_class_note <unit-name> -- PRINT the parenthetical a non-agent row is marked with, or
+# empty for an agent session.
+#
+# ONE MARKER, deliberately, rather than naming the user manager separately. Distinguishing it would
+# take either a path test against MANAGER_SERVICE -- which is wrong, since every unit that manager
+# starts is inside its subtree, agent sessions included, so the account's dbus broker came out
+# labelled "user manager" -- or an `init.scope` literal, which would put a systemd unit name back
+# in a file that deliberately holds none. The headline already states that the manager is among
+# these and is restarted afterwards, which is the part an operator acts on.
+session_class_note() {
+    session_is_agent "$1" && return 0
+    printf '(account plumbing)'
+}
+
 # cgroup_pids <cgroup-dir> -- PRINT every pid in this cgroup AND its descendants. cgroup.procs is
 # per-cgroup, so a nested cgroup's members are not listed by its parent and the subtree is walked.
 # This is the liveness source of truth: a task cannot remove itself from a cgroup, so it cannot
@@ -721,20 +755,30 @@ restore_user_manager() {
 # renderer; and `no-tty` means nobody was asked at all and the default carried the run. The last
 # is legitimate -- it is the whole point of defaulting YES -- but it is the one an operator would
 # want to see when asking why a cron job stopped a session at 4am.
+# confirm_stop <agent-count> <plumbing-count> -- the question names both classes, for the reason the
+# table separates them: consent given to "4 sessions" that were one session and three units of the
+# account's own plumbing was not informed consent about either number.
 confirm_stop() {
+    # Three shapes, none of which names a class that is not there. main() reaches this only with at
+    # least one cgroup selected, so "no sessions and no plumbing" cannot occur.
+    local question
+    if   (( $1 == 0 )); then question="Terminate the $2 unit(s) of the ${SANDBOX_USER} account's own plumbing listed above?"
+    elif (( $2 ));      then question="Terminate the $1 agent session(s) listed above, and $2 unit(s) of the ${SANDBOX_USER} account's own plumbing with them?"
+    else                     question="Terminate the $1 agent session(s) listed above?"
+    fi
     if ${ASSUME_YES}; then
         log_event info "stop confirmed by ${CALLER} via --yes" "AI_TOOLS_CONSENT=flag"
         return 0
     fi
     if declare -F ai_tools_msg_confirm >/dev/null 2>&1; then
-        if ai_tools_msg_confirm "Terminate the $1 session(s) listed above?" y; then
+        if ai_tools_msg_confirm "${question}" y; then
             log_event info "stop confirmed by ${CALLER} at the prompt" "AI_TOOLS_CONSENT=prompt"
             return 0
         fi
         return 1
     fi
     local answer=""
-    if ! read -r -p "Terminate the $1 session(s) listed above? [Y/n] (default: Yes): " answer 2>/dev/null < /dev/tty; then
+    if ! read -r -p "${question} [Y/n] (default: Yes): " answer 2>/dev/null < /dev/tty; then
         log_event notice \
             "no terminal to confirm with -- proceeding, since a stop that declines when unattended is a stop that failed" \
             "AI_TOOLS_CONSENT=no-tty"
@@ -755,20 +799,39 @@ confirm_stop() {
 # file joins fields into a delimited string any more: a WorkingDirectory is an arbitrary pathname
 # and may contain the delimiter, which would split one session into two garbled rows -- in the very
 # table whose job is to be exact.
+# Agent sessions are listed FIRST, ahead of the account's plumbing, because the table is read under
+# time pressure and the rows that answer "what was running" must not be interleaved with rows that
+# are always there. Order is presentation only; every selected cgroup is ended by the loop in main()
+# in its own order, and nothing is dropped from either pass.
 print_session_table() {
-    local verb="$1" index
+    local verb="$1" index note
     printf '  %-11s %-40s %6s  %s\n' "" "SESSION" "PROCS" "PROJECT"
     for index in "${!selected_cgroups[@]}"; do
+        ${selected_is_agent[index]} || continue
         printf '  %-11s %-40s %6s  %s\n' "${verb}" \
             "$(sanitize "${selected_units[index]:-unattributed cgroup}")" \
             "${selected_counts[index]}" \
             "$(sanitize "${selected_dirs[index]:-unknown}")"
+    done
+    for index in "${!selected_cgroups[@]}"; do
+        ${selected_is_agent[index]} && continue
+        note="$(session_class_note "${selected_units[index]}")"
+        printf '  %-11s %-40s %6s  %s  %s\n' "${verb}" \
+            "$(sanitize "${selected_units[index]:-unattributed cgroup}")" \
+            "${selected_counts[index]}" \
+            "$(sanitize "${selected_dirs[index]:-unknown}")" "${note}"
     done
 }
 
 # print_reclaim_guidance <dir>... -- name the reclaim per project actually stopped. A stop cannot
 # run the agent's SessionEnd hook, so the in-flight turn's writes may still be sandbox-owned;
 # naming the project beats a pointer the operator must translate mid-incident.
+#
+# CALLED WITH AGENT SESSIONS' DIRECTORIES ONLY. The account's plumbing has no project to hand back,
+# and its WorkingDirectory is routinely a path `ai-tools --reclaim` would refuse outright: the
+# account's dbus broker reports `/opt/ai-tools`, the control plane, which the safe-paths backstop
+# protects. Emitting it produced a remedy that cannot run, offered to an operator mid-incident with
+# nothing to distinguish it from the one that can.
 print_reclaim_guidance() {
     local directory
     local -A seen=()
@@ -801,7 +864,9 @@ main() {
         "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_SCOPE=${scope}" \
         "AI_TOOLS_FORCE=${FORCE_KILL}" "AI_TOOLS_DRYRUN=${DRY_RUN}"
 
-    local -a selected_cgroups=() selected_units=() selected_dirs=() selected_counts=()
+    local -a selected_cgroups=() selected_units=() selected_dirs=() selected_counts=() \
+             selected_is_agent=()
+    local agent_count=0 plumbing_count=0
     local cgroup_directory unit working_directory pid_count
     local -a session_pids
     while read -r cgroup_directory; do
@@ -823,6 +888,11 @@ main() {
         selected_units+=("${unit}")
         selected_dirs+=("${working_directory}")
         selected_counts+=("${pid_count}")
+        if session_is_agent "${unit}"; then
+            selected_is_agent+=(true);  agent_count=$(( agent_count + 1 ))
+        else
+            selected_is_agent+=(false); plumbing_count=$(( plumbing_count + 1 ))
+        fi
     done < <(find_session_cgroups)
 
     if (( ${#selected_cgroups[@]} == 0 )); then
@@ -831,42 +901,65 @@ main() {
         return 0
     fi
 
+    # The two counts are reported separately everywhere, never summed into one "session" figure.
+    # See the classification block above for why, and for why the split is advisory.
+    #
+    # Two wordings, because "go with them" has no antecedent when no agent session was found -- the
+    # shape a RERUN always takes, the manager having been restarted by the run before it.
+    local plumbing_clause=""
+    if (( plumbing_count && agent_count )); then
+        plumbing_clause=" ${plumbing_count} unit(s) of the ${SANDBOX_USER} account's own plumbing (marked below) go with them -- nothing in the account's slice is exempt -- and its user manager is restarted afterwards."
+    elif (( plumbing_count )); then
+        plumbing_clause=" ${plumbing_count} unit(s) of the ${SANDBOX_USER} account's own plumbing (marked below) are stopped regardless -- nothing in the account's slice is exempt -- and its user manager is restarted afterwards."
+    fi
+
     if ${DRY_RUN}; then
-        say_headline "Stop (dry run)" \
-            "${#selected_cgroups[@]} agent session(s) would be terminated. Nothing was changed."
+        local dry_headline
+        if (( agent_count )); then
+            dry_headline="${agent_count} agent session(s) would be terminated.${plumbing_clause} Nothing was changed."
+        else
+            dry_headline="No agent session is running.${plumbing_clause} Nothing was changed."
+        fi
+        say_headline "Stop (dry run)" "${dry_headline}"
         print_session_table "would stop"
-        log_event info "dry run: ${#selected_cgroups[@]} session(s) would be stopped in ${scope} for ${CALLER}"
+        log_event info "dry run: ${agent_count} agent session(s) and ${plumbing_count} account unit(s) would be stopped in ${scope} for ${CALLER}"
         return 0
     fi
 
     local headline
-    if ${FORCE_KILL}; then
-        headline="${#selected_cgroups[@]} agent session(s) will be KILLED immediately (--force): no grace period, no session-end handback, and unsaved work in the current turn is lost."
+    if (( agent_count == 0 )); then
+        headline="No agent session is running.${plumbing_clause}"
+    elif ${FORCE_KILL}; then
+        headline="${agent_count} agent session(s) will be KILLED immediately (--force): no grace period, no session-end handback, and unsaved work in the current turn is lost.${plumbing_clause}"
     else
-        headline="${#selected_cgroups[@]} agent session(s) will be terminated, with everything they spawned. Each gets ${GRACE_SECONDS}s to exit before it is killed. No session runs its session-end handback, so reclaim the projects named below afterwards."
+        headline="${agent_count} agent session(s) will be terminated, with everything they spawned. Each gets ${GRACE_SECONDS}s to exit before it is killed. No session runs its session-end handback, so reclaim the projects named below afterwards.${plumbing_clause}"
     fi
     say_headline "Terminate agent sessions" "${headline}"
     print_session_table "stop"
 
-    if ! confirm_stop "${#selected_cgroups[@]}"; then
+    if ! confirm_stop "${agent_count}" "${plumbing_count}"; then
         say_notice "Nothing was stopped."
         log_event notice \
-            "${CALLER} declined the stop of ${#selected_cgroups[@]} session(s) in ${scope} -- nothing stopped" \
+            "${CALLER} declined the stop of ${agent_count} agent session(s) and ${plumbing_count} account unit(s) in ${scope} -- nothing stopped" \
             "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_SCOPE=${scope}" "AI_TOOLS_RESULT=declined"
         return 4
     fi
 
-    local index outcome survivors=0
+    local index outcome survivors=0 class_note
     local -a survived_cgroups=()
     for index in "${!selected_cgroups[@]}"; do
         cgroup_directory="${selected_cgroups[index]}"
         unit="${selected_units[index]}"
         working_directory="${selected_dirs[index]}"
+        # Carried onto the result lines too, not just the table: in a run with several sessions the
+        # table has scrolled off by the time these appear, and these are what the operator watches.
+        class_note="$(session_class_note "${unit}")"
+        [[ -n "${class_note}" ]] && class_note="  ${class_note}"
         outcome="$(end_session "${cgroup_directory}")"
         case "${outcome}" in
             terminated)
-                printf '  stopped    %s  (%s)\n' \
-                    "$(sanitize "${unit:-unattributed cgroup}")" "$(sanitize "${working_directory:-unknown}")"
+                printf '  stopped    %s  (%s)%s\n' \
+                    "$(sanitize "${unit:-unattributed cgroup}")" "$(sanitize "${working_directory:-unknown}")" "${class_note}"
                 log_event notice \
                     "stopped session ${unit:-<unattributed>} in ${working_directory:-<none>} on SIGTERM for ${CALLER}" \
                     "AI_TOOLS_UNIT=${unit}" "AI_TOOLS_CWD=${working_directory}" \
@@ -875,8 +968,8 @@ main() {
                 local reason
                 ${FORCE_KILL} && reason="--force: no grace period" \
                               || reason="did not exit within ${GRACE_SECONDS}s"
-                printf '  KILLED     %s  (%s)  %s\n' \
-                    "$(sanitize "${unit:-unattributed cgroup}")" "$(sanitize "${working_directory:-unknown}")" "${reason}"
+                printf '  KILLED     %s  (%s)  %s%s\n' \
+                    "$(sanitize "${unit:-unattributed cgroup}")" "$(sanitize "${working_directory:-unknown}")" "${reason}" "${class_note}"
                 log_event warning \
                     "killed session ${unit:-<unattributed>} in ${working_directory:-<none>} with SIGKILL for ${CALLER} (${reason}; it flushed nothing)" \
                     "AI_TOOLS_UNIT=${unit}" "AI_TOOLS_CWD=${working_directory}" \
@@ -884,8 +977,8 @@ main() {
             *)
                 survivors=$(( survivors + 1 ))
                 survived_cgroups+=("${cgroup_directory}")
-                printf '  STILL UP   %s  (%s)\n' \
-                    "$(sanitize "${unit:-unattributed cgroup}")" "$(sanitize "${working_directory:-unknown}")" >&2
+                printf '  STILL UP   %s  (%s)%s\n' \
+                    "$(sanitize "${unit:-unattributed cgroup}")" "$(sanitize "${working_directory:-unknown}")" "${class_note}" >&2
                 log_event error \
                     "session ${unit:-<unattributed>} in ${working_directory:-<none>} survived SIGKILL for ${CALLER}" \
                     "AI_TOOLS_UNIT=${unit}" "AI_TOOLS_CWD=${working_directory}" \
@@ -960,17 +1053,22 @@ main() {
 
     if (( survivors )); then
         log_event error \
-            "stop finished with ${survivors} of ${#selected_cgroups[@]} session(s) still present for ${CALLER}" \
+            "stop finished with ${survivors} of ${#selected_cgroups[@]} cgroup(s) still present for ${CALLER}" \
             "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_SCOPE=${scope}" "AI_TOOLS_RESULT=survived"
-        say_error "${survivors} of ${#selected_cgroups[@]} session(s) survived SIGKILL. A task only outlives SIGKILL while blocked in an uninterruptible kernel call: it holds no CPU, runs no code and can start nothing new, but only the I/O completing or a reboot clears it. Inspect it with:" \
+        say_error "${survivors} of ${#selected_cgroups[@]} cgroup(s) survived SIGKILL. A task only outlives SIGKILL while blocked in an uninterruptible kernel call: it holds no CPU, runs no code and can start nothing new, but only the I/O completing or a reboot clears it. Inspect it with:" \
                   "sudo ps -o pid,stat,wchan:20,cmd -u ${SANDBOX_USER}"
         return 1
     fi
     log_event notice \
-        "stopped ${#selected_cgroups[@]} session(s) in ${scope} for ${CALLER}, verified empty via cgroup.procs and a final slice sweep" \
+        "stopped ${agent_count} agent session(s) and ${plumbing_count} account unit(s) in ${scope} for ${CALLER}, verified empty via cgroup.procs and a final slice sweep" \
         "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_SCOPE=${scope}" \
-        "AI_TOOLS_COUNT=${#selected_cgroups[@]}"
-    print_reclaim_guidance "${selected_dirs[@]}"
+        "AI_TOOLS_COUNT=${#selected_cgroups[@]}" "AI_TOOLS_AGENT_COUNT=${agent_count}"
+    # Agent sessions only -- the account's plumbing has no project to reclaim. See the function.
+    local -a agent_dirs=(); local index_reclaim
+    for index_reclaim in "${!selected_cgroups[@]}"; do
+        ${selected_is_agent[index_reclaim]} && agent_dirs+=("${selected_dirs[index_reclaim]}")
+    done
+    (( ${#agent_dirs[@]} )) && print_reclaim_guidance "${agent_dirs[@]}"
     return 0
 }
 

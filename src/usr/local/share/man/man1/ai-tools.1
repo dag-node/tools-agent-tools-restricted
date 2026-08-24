@@ -200,6 +200,18 @@ and verified gone from its
 .BR cgroup ;
 it does not mean none can start afterwards, and it says nothing about the manager.
 .IP
+The report counts agent sessions apart from the account's own plumbing \(em its user manager, its
+dbus broker, and a login session scope per
+.BR sudo (8)
+that crossed pam_systemd. All are terminated; the plumbing is listed after the sessions and marked
+.IR "(account plumbing)" ,
+so the headline does not report four units of scaffolding as four agent sessions. The split labels
+and orders rows and decides which get a reclaim command; it selects nothing, and like the project
+attribution it is read from a unit name and so is advisory. Because the restarted manager is itself
+inside the swept slice, running the command twice in a row is not silent: the second run reports no
+agent session, then terminates and restarts the manager again. It is idempotent in end state, not
+in what it prints.
+.IP
 Exit status carries the outcome:
 .B 1
 something survived

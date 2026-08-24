@@ -80,6 +80,51 @@ seeing which projects they are in is not agreeing to anything. A session whose p
 read shows as `unknown` and is terminated like any other; attribution is for you to read, so a
 missing one costs you a label rather than costing the stop a target.
 
+**Agent sessions and the account's own plumbing are counted separately.** The slice holds more than
+sessions: the account's `systemd --user` and its `init.scope`, a dbus broker, and a login session
+scope for every `sudo -u` that crossed `pam_systemd`. All of them are terminated — nothing is
+exempt — but they are listed after the agent sessions and marked `(account plumbing)`, and the
+headline gives the two counts apart:
+
+```
+1 agent session(s) will be terminated, with everything they spawned. … 3 unit(s) of the
+ai-tools account's own plumbing (marked below) go with them -- nothing in the account's
+slice is exempt -- and its user manager is restarted afterwards.
+
+            SESSION                              PROCS  PROJECT
+  stop      ai-tools-claude-code-4711.service        1  /home/<you>/projects/api
+  stop      session-c27.scope                        4  unknown        (account plumbing)
+  stop      dbus-broker.service                      2  /opt/ai-tools  (account plumbing)
+  stop      init.scope                               2  unknown        (account plumbing)
+```
+
+The split is **advisory, exactly like attribution, and for the same reason**: a unit name inside the
+delegated subtree is the delegatee's to choose, so a session can name itself out of the agent class.
+It gains nothing by doing so — both classes are enumerated, listed and killed identically, and
+nothing here is consulted to decide what a stop reaches. What the split buys is that the line you
+read first during an incident does not tell you four agents were running when one was.
+
+Only agent sessions produce a `--reclaim` line, because only they have a project to hand back. The
+account's dbus broker reports `/opt/ai-tools` as its working directory — the control plane, which
+the protected-paths backstop refuses — so listing it offered a remedy that cannot run.
+
+### A second run is not silent
+
+Running `--stop` again straight after a successful one is **not** a no-op, and that follows from
+sparing nothing rather than being a defect in it. The user manager the first run restored is itself
+inside the swept slice, so the second run finds it, terminates it, and restarts it again:
+
+```
+No agent session is running. 1 unit(s) of the ai-tools account's own plumbing (marked below)
+are stopped regardless -- nothing in the account's slice is exempt -- and its user manager is
+restarted afterwards.
+```
+
+The command is idempotent in **end state** — no sessions, manager up — which is what "re-running is
+the remedy" means. It is not idempotent in what it *reports*, and it cannot be without either
+exempting the manager (a cgroup a session could then move into, §2) or letting a name decide what is
+swept.
+
 > **The confirmation defaults to *yes*.** A bare Enter, a pipe, a cron job and a login banner all
 > proceed; only a deliberate `n` declines. This is the opposite of every other destructive command
 > here, on purpose (§4). Use `--dry-run` to look without acting.
@@ -326,6 +371,8 @@ off. It is discovery, consent, verification, restoration, and the record.
   │        NOTHING is exempt -- init.scope is enumerated like anything else     │
   │  attribute each unit via WorkingDirectory  (best-effort, DISPLAY ONLY:      │
   │        it selects nothing, so `unknown` costs a label, not a target)        │
+  │  classify agent session vs account plumbing  (advisory, DISPLAY ONLY:       │
+  │        splits the counts and orders the table; selects nothing)             │
   └────────────────────────────────────────────────────────────────────────────┘
   ┌ 3. confirm ────────────────────────────────────────────────────────────────┐
   │  the table, then a question that DEFAULTS TO YES; consent path recorded     │
@@ -409,6 +456,8 @@ Each of these looks like a defect to a fresh reader, and each is deliberate. If 
 | The restart never changes the exit status | the invariant is that the *stop* happened; the manager is a separate fact (§2) |
 | Liveness comes from cgroups only | systemd never decides whether something is running (§3) |
 | Attribution is best-effort and display-only | it selects nothing, so a misreported project costs a label, never a target (§2) |
+| Agent sessions and account plumbing are counted apart, advisorily | the class comes from a unit name, so it is the account's word — but it labels a row, never selects one, and the alternative was telling an operator four "agent sessions" were running when one was (§1) |
+| A second run terminates and restarts the manager again | idempotence is in end state; a silent rerun costs either an exemption or a name-decided sweep (§1) |
 
 ## 5. Deferred hardening
 
