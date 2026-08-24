@@ -144,6 +144,99 @@ ownership handback (run it before an ACL-unaware backup, so ownership \(em not t
 ACL alone \(em carries your access into the copy). Runs via
 .BR sudo .
 .TP
+.B \-\-stop
+Terminate every running agent session and everything it spawned. This is the one control
+that acts on a session
+.BR "already running" :
+every other operator control \(em unclaim, disabling a provider, revoking an operator \(em
+changes only what the
+.B next
+launch gets. Runs via
+.BR sudo :
+a session is a transient unit in the sandbox account's own per-user
+.BR systemd (1)
+manager, and signalling it is root's to do.
+.IP
+It is
+.B not
+the way to finish a session you have done with. Use
+.B /exit
+inside the session for that, which lets it run its own session-end handback. This command
+kills the process tree, so no handback runs and the last turn's writes may still be
+sandbox-owned: it names the
+.B \-\-reclaim
+to run for each project it terminated.
+.IP
+It takes
+.B no path
+and no authorization input, and there is deliberately no per-project form: every way to
+attribute a session to a project is written by the account being stopped, so attribution
+is reported to you and never used to decide what a stop reaches. What is terminated is
+decided by one fact a session cannot influence: membership of the account's
+.B cgroup
+slice. A path argument is refused (exit 2) rather than ignored; why that direction, and
+what a targeted form would need first, is in
+.IR /usr/share/doc/ai\-tools/session\-stop.md .
+.IP
+Sessions are found by
+.BR cgroup ,
+not by process tree, so a child that called
+.BR setsid (2)
+or double-forked is still terminated. Each gets 10 seconds to exit on
+.B SIGTERM
+before it is killed.
+.B Nothing is exempt
+\(em not the account's own
+.BR systemd (1)
+manager, whose
+.I init.scope
+is terminated with everything else, because an exemption is a cgroup a session could move
+into. The manager is restarted afterwards, as a separate step reported on its own; if that
+fails the command says so and names the fix, and the next launch needs it before it can
+start a session. Success means every session that existed at enumeration was terminated
+and verified gone from its
+.BR cgroup ;
+it does not mean none can start afterwards, and it says nothing about the manager.
+.IP
+The report counts agent sessions apart from the account's own plumbing \(em its user manager, its
+dbus broker, and a login session scope per
+.BR sudo (8)
+that crossed pam_systemd. All are terminated; the plumbing is listed after the sessions and marked
+.IR "(account plumbing)" ,
+so the headline does not report four units of scaffolding as four agent sessions. The split is
+presentational \(em it labels and orders rows and decides which get a reclaim command, and selects
+nothing. Because the restarted manager is itself inside the swept slice, running the command twice
+in a row is not silent: the second run reports no agent session, then terminates and restarts the
+manager again. It is idempotent in end state, not in what it prints.
+.IP
+Exit status carries the outcome:
+.B 1
+something survived
+.BR SIGKILL ,
+.B 2
+usage \(em an unknown option, or a path,
+.B 4
+declined at the confirmation,
+.B 5
+the helper could not run. The request, the answer to the confirmation, each session ended
+and which pass ended it are all recorded in
+.I /var/log/ai\-tools/stop.log
+and journald. What each outcome means, the kernel invariants the stop rests on, and what it
+cannot undo:
+.IR /usr/share/doc/ai\-tools/session\-stop.md .
+.TP
+.B \-\-all
+For
+.BR \-\-stop :
+accepted and inert. Every run already terminates every agent session, so this flag exists
+only so that a script spelling the intent out is not refused for being explicit.
+.TP
+.B \-\-force
+For
+.BR \-\-stop :
+skip the grace period and kill immediately. The current turn's unsaved work is lost, and
+the trail records that no process was given the chance to flush anything.
+.TP
 .B \-\-relabel
 Reconcile the enabled agents' entrypoints after a toolchain change, for when the
 automatic post-upgrade reconcile did not run. Two steps: verify each entrypoint
@@ -340,3 +433,9 @@ recovery paths):
 .I docs/project\-lifecycle.md
 in the source repository
 .RI ( https://github.com/dag\-node/tools\-agent\-tools\-restricted ).
+.PP
+Stopping a running session \(em what each outcome means, the invariants the stop rests
+on, and what a stop cannot undo:
+.I /usr/share/doc/ai\-tools/session\-stop.md
+.RI ( docs/session\-stop.md
+in the source repository).

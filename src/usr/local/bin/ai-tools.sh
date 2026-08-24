@@ -128,6 +128,10 @@ readonly ALLOWLIST_BIN="/usr/local/libexec/ai-tools/ai-tools-allowlist"
 # Reader for the refusal/rejection trails (--audit). Root-only, since the trail it reads is
 # 700 root:root; no NOPASSWD rule, so sudo prompts like the other per-project helpers.
 readonly AUDIT_BIN="/usr/local/libexec/ai-tools/ai-tools-audit"
+# Session-stop helper (--stop). Root-only, since a session is a transient unit in the sandbox
+# account's own `systemd --user` manager, which no operator can reach; no NOPASSWD rule, so sudo
+# prompts like the other root helpers. What it accepts, and why so little: cmd_stop.
+readonly STOP_BIN="/usr/local/libexec/ai-tools/ai-tools-stop"
 # Sentinel in a guard CLAUDE.md (see drop_lockdown_guard) so the lockdown step can
 # recognise and remove its own placeholder once secrets are secured.
 readonly GUARD_MARKER="ai-tools-lockdown-guard"
@@ -2128,6 +2132,62 @@ cmd_audit() {
     sudo "${AUDIT_BIN}" "$@"
 }
 
+# cmd_stop -- terminate every running agent session, through ai-tools-stop. Thin by design, and the
+# thinness is the whole contract: the command takes no target and no authorization input, so there
+# is nothing on this side to decide. What a stop reaches follows from membership of the sandbox
+# account's cgroup slice, which only the root helper can read, and every remaining decision is a
+# security decision that must not be made twice in two places. Option grammar is all that lives
+# here. Why the command is shaped this way: docs/session-stop.md.
+#
+# The helper's EXIT STATUS propagates unchanged, so a caller reads one set of codes whichever side
+# refused. They are listed in ai-tools(1) and are not restated here, so the two cannot drift.
+#
+# die_stop_usage -- refuse a --stop command line in the HELPER's exit-code space (2 = usage), not
+# the CLI's own (die exits 1). Because cmd_stop propagates the helper's status, 2 is what a caller
+# reading --stop's exit code is told a usage error is -- in ai-tools(1) and docs/session-stop.md
+# alike -- and WHICH SIDE refused is an implementation detail of the ordering below, not something
+# the caller asked about. Exiting 1 here would report the same mistake as one code from the CLI and
+# another from a direct root call, and 1 already means "a process survived SIGKILL".
+die_stop_usage() { ai_tools_log_error "$*"; ai_tools_msg_error "ai-tools: $*"; exit 2; }
+
+cmd_stop() {
+    local argument; local -a passthru=()
+    for argument in "$@"; do
+        case "${argument}" in
+            # --all is accepted and inert; ai-tools(1) says why it exists at all.
+            --all|-n|--dry-run|-y|--yes|--force) passthru+=("${argument}") ;;
+            -*) die_stop_usage "unknown --stop option: ${argument}" \
+                    "allowed: --all, --dry-run/-n, --yes/-y, --force" ;;
+            # A PATH IS REFUSED HERE, NOT PASSED ON. The helper refuses it too -- that is the last
+            # line, for a direct root call -- but the refusal has to happen on this side as well,
+            # BEFORE the sudo below: a command that is going to be refused must not first prompt
+            # for a password (the ordering rule --for follows). Why refusing beats ignoring is in
+            # the helper's refuse_positional_argument.
+            #
+            # THIS TEXT IS A DELIBERATE TWIN of that function's, and the duplication is unavoidable:
+            # the two run in different processes and the helper is 750 root:root, so neither can
+            # source the other, while an operator meets whichever side refused. The two must say the
+            # same thing and offer the same four commands -- change one, change both.
+            #
+            # The commands are printed PLAIN, ahead of die(): die() joins its arguments and wraps
+            # them through the error emitter, which would break a command across lines
+            # (messaging.rule.md).
+            *)  printf '\n' >&2
+                printf '  %s\n' \
+                    "Terminate every session:    ai-tools --stop" \
+                    "See what is running first:  ai-tools --stop --dry-run" \
+                    "End one session cleanly:    /exit inside it, which runs its session-end handback" \
+                    "Terminate one by hand:      sudo systemctl --user -M ${SANDBOX_USER}@.host stop <unit>" >&2
+                printf '\n' >&2
+                die_stop_usage "--stop takes no path: ${argument}. It TERMINATES every agent session on this host -- killing the process tree, so no session-end handback runs -- and has no per-project form, because a session is attributed to a project by the sandbox account's own user manager -- the account being stopped -- so that attribution is reported, never trusted to decide what a stop reaches." ;;
+        esac
+    done
+    command -v sudo >/dev/null 2>&1 \
+        || die "sudo not found -- a session runs in the sandbox account's cgroups, which only root can signal" \
+               "run as root: ${STOP_BIN}"
+    sudo "${STOP_BIN}" "${passthru[@]}"
+}
+
 # cmd_providers  -- report the installed providers of both kinds and, for each, whether a
 # session gets it and why. Read-only: it resolves through providers.lib.sh, the same resolver
 # ai-tools-run and the toolchain layer use, so what it reports is what a session gets rather than
@@ -2691,6 +2751,7 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
   ai-tools --sandbox-remove [path]   remove a sandbox clone and unregister it
   ai-tools --lockdown [path] [-n|-y] lock down secret files (sudo; default: cwd)
   ai-tools --reclaim [--full] [path] take back ownership of agent files; project stays claimed (sudo; default: cwd)
+  ai-tools --stop                    terminate every agent session and all it spawned (sudo)
   ai-tools --relabel                 re-verify and relabel the agent entrypoints (sudo)
   ai-tools --providers               list installed agents/integrations and which are enabled
   ai-tools --audit [--since <when>]  report what refused, was rejected or stranded (sudo; default: 7 days)
@@ -2712,6 +2773,15 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
                       directory name; default: repo basename), -y/--yes (skip the create confirm)
   --lockdown options: -n/--dry-run (preview only), -y/--yes (skip confirmation)
   --reclaim options:  --full (also reclaim node_modules, .venv, ... not just the work tree + .git)
+  --stop options:     -n/--dry-run (list what would be terminated, change nothing), -y/--yes
+                      (skip the confirmation, which DEFAULTS TO YES here: an unattended stop
+                      that declines is a stop that failed), --force (kill immediately, no
+                      grace period -- the current turn's unsaved work is lost), --all
+                      (accepted and inert; every run already terminates every session).
+                      It takes NO path: there is no per-project form, because a session is
+                      attributed to a project by the account being stopped. To finish one
+                      session cleanly use /exit inside it, which runs its session-end
+                      handback. Exits 1 if anything survived, 2 on a path, 4 declined.
   --audit options:    --since <when> (anything date(1) parses: '2 days ago', '2026-08-01';
                       default: 7 days ago). Exits non-zero when anything is reported, so it
                       is usable from cron or a login banner without parsing its output.
@@ -2872,6 +2942,7 @@ case "${1:-}" in
     --relabel)        shift; cmd_relabel "$@" ;;
     --providers)      shift; cmd_providers "$@" ;;
     --audit)          shift; cmd_audit "$@" ;;
+    --stop)           shift; cmd_stop "$@" ;;
     --status)         cmd_status ;;
     --list)           cmd_list ;;
     --version|-V)     printf 'ai-tools %s\n' "${AI_TOOLS_VERSION}" ;;

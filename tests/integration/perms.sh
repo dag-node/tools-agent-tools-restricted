@@ -22,6 +22,7 @@ check_file /usr/local/libexec/ai-tools/ai-tools-safedir          root           
 check_file /usr/local/libexec/ai-tools/ai-tools-reclaim          root              root              750
 check_file /usr/local/libexec/ai-tools/ai-tools-allowlist        root              root              750
 check_file /usr/local/libexec/ai-tools/ai-tools-audit            root              root              750
+check_file /usr/local/libexec/ai-tools/ai-tools-stop             root              root              750
 check_file /usr/local/libexec/ai-tools/ai-tools-launcher-symlink root              root              750
 check_file /usr/local/libexec/ai-tools/ai-tools-lockdown         root              root              750
 # SELinux project-label helper: 750 root:root -- user-run via sudo, never by the agent (no

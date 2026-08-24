@@ -415,6 +415,32 @@ else
     fi
 fi
 
+# ── the stop path is out of reach from inside a session ──────────────────────────────────────
+# `ai-tools --stop` is the incident ladder's stop rung: the one control that acts on a session
+# already running. A control the monitored system can disarm is not a control, so the claim rests
+# on this vantage -- the account a session runs as can neither run the helper (which would let a
+# session terminate every operator's work, or exhaust the trail with noise) nor alter it. There is
+# no authorization input for it to aim at either: the command takes no target and no allowlist, so
+# what it terminates is decided by cgroup-slice membership alone. What the agent CAN do is be
+# stopped: the kill is delivered by root to a cgroup, and nothing inside the cgroup takes part.
+_stop_bin=/usr/local/libexec/ai-tools/ai-tools-stop
+if [[ ! -e "${_stop_bin}" ]]; then
+    skip "stop helper not agent-reachable" "not installed at ${_stop_bin}"
+else
+    _stop_breach=""
+    runuser -u "${SANDBOX_USER}" -- test -x "${_stop_bin}" 2>/dev/null \
+        && _stop_breach="the agent can execute ${_stop_bin}"
+    runuser -u "${SANDBOX_USER}" -- test -w "${_stop_bin}" 2>/dev/null \
+        && _stop_breach="the agent can write ${_stop_bin}"
+    runuser -u "${SANDBOX_USER}" -- test -r "${_stop_bin}" 2>/dev/null \
+        && _stop_breach="the agent can read ${_stop_bin}"
+    if [[ -n "${_stop_breach}" ]]; then
+        fail "the stop path is not out of the agent's reach: ${_stop_breach}"
+    else
+        pass "the agent can neither run, read nor alter ai-tools-stop (the control that ends it)"
+    fi
+fi
+
 # ── the trail is append-only to the agent ────────────────────────────────────────────────────
 # The tool-call record's whole value rests on one asymmetry: the agent WRITES the trail (the
 # hooks run as the sandbox account, so it must be able to) but cannot go back and remove a line

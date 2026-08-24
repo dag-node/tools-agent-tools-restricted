@@ -213,6 +213,45 @@ EOF
     fi
 fi
 
+# --stop: the CLI half only -- the option grammar and the two forms not being combinable. Both
+# refusals land in the argument loop, BEFORE the sudo that reaches the root helper, so neither
+# reaches a password prompt or signals anything. The helper's own enumeration and kill are covered
+# in tests/unit/stop.sh and tests/integration/stop.sh; what this asserts is that the verb is
+# dispatched at all and that a mistyped one is refused rather than passed through.
+#
+# THE EXACT CODE IS ASSERTED, not merely non-zero. cmd_stop propagates the helper's exit status, so
+# these codes are a published contract (ai-tools(1), docs/session-stop.md): 2 is usage, and 1
+# already means "a process survived SIGKILL" -- a caller told 1 for a typo reads it as a failed
+# kill. A `-ne 0` assertion cannot see that difference, and did not: the CLI refused through its
+# own die (1) against a documented 2, and only the live drill, which pins the code, caught it.
+if command -v runuser >/dev/null 2>&1; then
+    section "CLI --stop (argument grammar)"
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" setsid \
+            "${CLI}" --stop --bogus 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -eq 2 ]] && grep -qi 'unknown --stop option' <<<"${out}"; then
+        pass "--stop refuses an unknown option with the documented usage code (2)"
+    else
+        fail "--stop did not refuse an unknown option with rc=2 (rc=${rc}): ${out}"
+    fi
+    # A path is refused BY THE CLI, before sudo. Accepting it would invert the operator's intent
+    # in the destructive direction -- they typed a path to narrow the command, which terminates
+    # every session -- and the refusal must name the alternative rather than dead-end them.
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" setsid \
+            "${CLI}" --stop /some/project 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -eq 2 ]] && grep -qi 'takes no path' <<<"${out}" && grep -q '/exit' <<<"${out}"; then
+        pass "--stop refuses a path (rc=2) and names /exit as the way to end one session"
+    else
+        fail "--stop accepted a path, or refused it without rc=2/guidance (rc=${rc}): ${out}"
+    fi
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" setsid \
+            "${CLI}" --stop --all /some/project 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -eq 2 ]] && grep -qi 'takes no path' <<<"${out}"; then
+        pass "a path is refused (rc=2) even beside --all"
+    else
+        fail "--stop --all accepted a path or refused it without rc=2 (rc=${rc}): ${out}"
+    fi
+fi
+
 # --for <operator>: acting on another enrolled operator's registry. Every refusal here precedes the
 # root helper entirely, so none of these reach a sudo prompt. The helper's own gates are asserted
 # in tests/unit/allowlist-helper.sh; what this covers is the CLI deciding, up front, that a run

@@ -29,6 +29,10 @@
 #   - ai_tools_resolve_owner   -> the operator who owns a given path (their allowlist covers it,
 #                                 nearest-ancestor-owner tie-break); for the handback helpers that
 #                                 restore ownership of agent-written project files.
+# Beside them, ai_tools_operator_allowlist_for answers a third, narrower question -- where ONE
+# NAMED operator's registry is -- for a component authorizing against that operator specifically
+# rather than against whoever covers a path (ai-tools-stop, which must not accept a stop from an
+# operator merely because some other operator claimed the project).
 #
 # The handback helpers (ai-tools-chown/-setgid/-setfacl/-lockdown/-unclaim) source this lib
 # best-effort and, when it is absent, define a fail-closed ai_tools_resolve_owner stub that
@@ -100,6 +104,20 @@ _ai_tools_operator_allowlist() {
     else
         printf '%s/.config/ai-tools/allowed-projects' "$(getent passwd "$1" 2>/dev/null | cut -d: -f6)"
     fi
+}
+
+# ai_tools_operator_allowlist_for <operator>: echo the allowlist path of a NAMED operator, deciding
+# the primary/secondary tag itself so a caller never has to know the list order. This is the public
+# way to ask "where is THIS operator's registry", for a component that authorizes against one
+# specific operator's list rather than against whoever happens to cover a path
+# (ai_tools_resolve_owner answers that different question). Going through here rather than
+# composing the path inline is what keeps the AI_TOOLS_ALLOWLIST test hook working for such a
+# caller. Returns 1 when no operator is configured.
+ai_tools_operator_allowlist_for() {
+    local operator="$1" tag=secondary
+    ai_tools_load_operators || return 1
+    [[ "${operator}" == "${AI_TOOLS_OPERATORS[0]}" ]] && tag=primary
+    _ai_tools_operator_allowlist "${operator}" "${tag}"
 }
 
 # ai_tools_allowlist_covers <allowlist-file> <canonical-path>: succeed when the allowlist allows

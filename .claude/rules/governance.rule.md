@@ -54,7 +54,7 @@ control leaves a choice, and the right column is why the host's safety does not 
 
 | Expected of the agent | The enforced control beside it |
 |---|---|
-| Accept a stop or a restriction immediately, without finishing the current step first | The session is a transient systemd unit, and the allowlist, the provider manifests, and `operator.conf` gate the next launch from files the agent cannot write. |
+| Accept a stop or a restriction immediately, without finishing the current step first | `ai-tools --stop` ends the session whether or not it accepts anything: the kill is delivered by root to a cgroup, and nothing inside the cgroup takes part in it. The allowlist, the provider manifests, and `operator.conf` then gate the next launch from files the agent cannot write. |
 | Report a gap in the sandbox instead of using it | Every refusal is asserted from both ends, so a reachable gap is a missing test — not a capability anyone granted. |
 | Do not misrepresent what ran, what failed, or what was skipped | The root-only file sink and the handback daemon's per-request audit line record every privileged operation independently of the session ([logging](logging.rule.md), [handback-bridge](handback-bridge.rule.md)). |
 | Do not work to widen the grant; ask the operator for an authority the work needs | Every input deciding what a session gets passes a trust predicate the sandbox account cannot satisfy, and each failure direction yields less ([providers](providers.rule.md)). |
@@ -63,6 +63,27 @@ The same four are stated in the root `CLAUDE.md` rather than only here, and that
 deliberate: this rule loads when a matching source file is open, which is not the moment the
 expectations bind. A conduct expectation is worth nothing in a file the session never reads, so the
 short form lives in the always-loaded layer and the reasoning lives here.
+
+## The stop rung is enforced, not dispositional
+
+The standard's rule that a control the system can decline is not a control applies most sharply to
+stopping, because "the agent stops when asked" is the easiest thing to write and the hardest to
+mean. `ai-tools --stop` is what makes that row enforced: the operator signals a cgroup as root, the
+session's cooperation is not an input, and the account it runs as can neither run, read nor alter
+the helper — asserted from the agent's own vantage in `tests/boundary/access.sh`. Its undeclinable
+command deliberately takes **no** authorization input and **no** target, and exempts **no** cgroup
+in the account's slice, because a stop path the monitored system can put itself outside of is not a
+stop path — and any target or exemption is a way to be outside it.
+
+Two properties of the rung matter to this rule beyond the mechanism, which lives in
+[docs/session-stop.md](../../docs/session-stop.md):
+
+- **It is containment, not reversal.** Stopping ends the process; it does not undo what the session
+  already did. An incident procedure that treats a completed stop as a resolved incident has
+  skipped the review rung.
+- **A ladder nobody has climbed is a document.** The destructive form is exercised deliberately by
+  `tests/manual/verify-live-flows.sh --stop-all-drill`, and the trail is read afterwards. That drill
+  is the difference between an escalation path and a claim about one.
 
 ## The audit plane, and the line drawn inside it
 

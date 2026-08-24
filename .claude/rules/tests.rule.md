@@ -16,7 +16,11 @@ identity to derive, and fixtures built root-owned would be skipped by every owne
 test — a suite that passes while proving nothing. It streams
 each file's output live, then — on any failure — reprints the failing files and their `FAIL`
 lines as an end-of-run summary, so a long run needs no scrolling; an all-green run prints no
-summary and exits zero. A green file that recorded no `PASS` (every check skipped, or no
+summary and exits zero. Each file runs under a per-file wall-clock budget
+(`AI_TOOLS_TEST_FILE_TIMEOUT`, default 600s): a file that blocks — on a terminal read, a wedged
+daemon, or a fixture process holding a pipe open — is killed and reported as a failure with its
+transcript, rather than hanging the run. That matters beyond convenience because `install.sh`
+runs this suite as its verification phase, so an unbounded file stalls an install. A green file that recorded no `PASS` (every check skipped, or no
 harness result line) and a category with no test files are listed in an end-of-run
 `no coverage` notice, parsed from `finish()`'s result line: green-by-exit-status alone cannot
 hide a run that proved nothing. The default stays lenient — a partial/dev install
