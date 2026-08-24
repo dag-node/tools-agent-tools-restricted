@@ -159,9 +159,15 @@ log_event() {
 
 # say_error / say_warn / say_notice <line...> -- framed through msg.lib.sh when it loaded, plain
 # otherwise. Output formatting is the most expendable thing here.
-say_error()  { if declare -F ai_tools_msg_error  >/dev/null 2>&1; then ai_tools_msg_error  2 "$@"; else printf 'ai-tools-stop: %s\n' "$@" >&2; fi; }
-say_warn()   { if declare -F ai_tools_msg_warn   >/dev/null 2>&1; then ai_tools_msg_warn   2 "$@"; else printf 'ai-tools-stop: %s\n' "$@" >&2; fi; }
-say_notice() { if declare -F ai_tools_msg_notice >/dev/null 2>&1; then ai_tools_msg_notice 1 "$@"; else printf '%s\n'               "$@";     fi; }
+#
+# THE EMITTERS TAKE LINES ONLY, NOT A LEADING FD -- unlike ai_tools_msg_headline below, whose
+# signature IS <title> <fd> <line...>. The two shapes sit next to each other, so passing the
+# headline's fd to an emitter reads as consistent and is not: ai_tools_msg_error bakes in fd 2
+# already, so a leading `2` becomes the message's FIRST LINE and every refusal prints a stray
+# digit above itself. It is invisible in the boxed path and obvious only when captured.
+say_error()  { if declare -F ai_tools_msg_error  >/dev/null 2>&1; then ai_tools_msg_error  "$@"; else printf 'ai-tools-stop: %s\n' "$@" >&2; fi; }
+say_warn()   { if declare -F ai_tools_msg_warn   >/dev/null 2>&1; then ai_tools_msg_warn   "$@"; else printf 'ai-tools-stop: %s\n' "$@" >&2; fi; }
+say_notice() { if declare -F ai_tools_msg_notice >/dev/null 2>&1; then ai_tools_msg_notice "$@"; else printf '%s\n'               "$@";     fi; }
 say_headline() {
     local title="$1"; shift
     if declare -F ai_tools_msg_headline >/dev/null 2>&1; then ai_tools_msg_headline "${title}" 1 "$@"
