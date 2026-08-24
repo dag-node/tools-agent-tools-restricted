@@ -2142,6 +2142,15 @@ cmd_audit() {
 #
 # The helper's EXIT STATUS propagates, and its codes carry information a caller acts on: 1 means a
 # process survived SIGKILL, 3 refused, 4 declined at the confirmation, 5 the helper could not run.
+#
+# die_stop_usage -- refuse a --stop command line in the HELPER's exit-code space (2 = usage), not
+# the CLI's own (die exits 1). Because cmd_stop propagates the helper's status, 2 is what a caller
+# reading --stop's exit code is told a usage error is -- in ai-tools(1) and docs/session-stop.md
+# alike -- and WHICH SIDE refused is an implementation detail of the ordering below, not something
+# the caller asked about. Exiting 1 here would report the same mistake as one code from the CLI and
+# another from a direct root call, and 1 already means "a process survived SIGKILL".
+die_stop_usage() { ai_tools_log_error "$*"; ai_tools_msg_error "ai-tools: $*"; exit 2; }
+
 cmd_stop() {
     local argument; local -a passthru=()
     for argument in "$@"; do
@@ -2149,7 +2158,7 @@ cmd_stop() {
             # --all is accepted and inert: every run stops every session with or without it. It
             # exists so a script that spells the intent out is not refused for being explicit.
             --all|-n|--dry-run|-y|--yes|--force) passthru+=("${argument}") ;;
-            -*) die "unknown --stop option: ${argument}" \
+            -*) die_stop_usage "unknown --stop option: ${argument}" \
                     "allowed: --all, --dry-run/-n, --yes/-y, --force" ;;
             # A PATH IS REFUSED HERE, NOT PASSED ON. The helper refuses it too -- that is the last
             # line, for a direct root call -- but the refusal has to happen on this side as well,
@@ -2166,7 +2175,7 @@ cmd_stop() {
                     "See what is running first:  ai-tools --stop --dry-run" \
                     "End one session cleanly:    /exit inside it, which runs its session-end handback" >&2
                 printf '\n' >&2
-                die "--stop takes no path: ${argument}. It TERMINATES every agent session on this host -- killing the process tree, so no session-end handback runs -- and has no per-project form, because a session is attributed to a project by the sandbox account's own user manager -- the account being stopped -- so that attribution is reported, never trusted to decide what a stop reaches." ;;
+                die_stop_usage "--stop takes no path: ${argument}. It TERMINATES every agent session on this host -- killing the process tree, so no session-end handback runs -- and has no per-project form, because a session is attributed to a project by the sandbox account's own user manager -- the account being stopped -- so that attribution is reported, never trusted to decide what a stop reaches." ;;
         esac
     done
     command -v sudo >/dev/null 2>&1 \
