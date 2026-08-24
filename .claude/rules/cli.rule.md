@@ -222,7 +222,10 @@ A third gate, `require_for_target`, runs immediately after it and validates a `-
     component is *act*: the confirmation defaults YES ([messaging](messaging.rule.md)), and no
     library is required nor `set -e` used ([logging](logging.rule.md)). No project library is
     load-bearing at all: with no target to vet or authorize, `safe-paths.lib.sh` and
-    `operator.lib.sh` are not loaded ([safe-paths](safe-paths.rule.md)).
+    `operator.lib.sh` are not loaded ([safe-paths](safe-paths.rule.md)). The second inversion is
+    about *abandonment*, not about one shell option — `set -u` is on, and it ends a run just as
+    abruptly, so a value a caller may not have passed is defaulted where it is read rather than
+    left to abort a stop that was already asked for.
 
   A stop cannot run the agent's `SessionEnd` hook, so the in-flight turn's writes may still be
   sandbox-owned and the clean-exit marker is left for the next `SessionStart`

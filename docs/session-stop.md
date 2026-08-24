@@ -326,11 +326,16 @@ Stated so the guarantee is bounded honestly rather than overstated.
 
 Nothing, and this is asserted from the agent's own vantage in `tests/boundary/access.sh`: the
 sandbox account cannot read, write or execute the helper and holds no `sudo` rule to reach root
-by. There is no authorization input left for it to aim at, either — the command takes none. The kill is delivered by root to a
-cgroup, and nothing inside the cgroup takes part in it. The user manager (`init.scope`) is spared
-by exact path, never by basename — a nested cgroup that names itself `init.scope` is enumerated
-like any other, because every name inside a delegated subtree is the delegatee's to choose. Dot-
-named cgroups are enumerated for the same reason.
+by. There is no authorization input left for it to aim at, either — the command takes none. The kill
+is delivered by root to a cgroup, and nothing inside the cgroup takes part in it.
+
+**No name buys anything, because no name is spared.** One cgroup is matched by name at all — the
+manager unit, `user@<uid>.service`, by *exact path* — and it is not an exemption: it is descended
+into rather than emitted, so its contents (`init.scope` among them) are listed and killed
+individually instead of the whole manager subtree being swallowed as one opaque row. A nested cgroup
+that names itself `init.scope`, or `user@0.service`, is enumerated like any other, because every
+name inside a delegated subtree is the delegatee's to choose. Dot-named cgroups are enumerated for
+the same reason.
 
 ---
 
@@ -424,16 +429,18 @@ off. It is discovery, consent, verification, restoration, and the record.
 For every other component here the safe direction is **don't act**. For this one it is **act**. So
 two project-wide conventions are inverted, and each is inverted for that reason alone:
 
-1. **No required dependencies, and no `set -e`.** A missing library that aborted the run would be a
-   stop that did not happen. Every library loads behind an inline fallback; an unexpected non-zero
-   must never abandon a half-finished kill. Scoped precisely: this does not survive a broken
-   coreutils and does not pretend to — `id`, `date`, `logger`, `systemctl` and `sudo` are all
-   reachable from a run, each outside the kill path or best-effort within it. What is guaranteed is
-   independence from *this project's* libraries, and now absolutely: **no project library is
-   load-bearing here at all.** The command takes no input that decides which sessions to stop, so
-   there is nothing left for one to gate. `log.lib.sh` and `msg.lib.sh` load best-effort for output
-   quality; `safe-paths.lib.sh` and `operator.lib.sh` are no longer loaded, having existed here
-   only to vet and authorize a caller-supplied target.
+1. **No required dependencies, and no `set -e`.** A missing library that aborted the run, or an
+   unexpected non-zero that abandoned a half-finished kill, would be a stop that did not happen.
+   The rule is about *abandonment*, not about `set -e` specifically: `set -u` **is** used, and it
+   ends the shell just as abruptly wherever a name or an argument is read unset — so a value a
+   caller may legitimately not have passed is defaulted where it is read, rather than left to abort
+   a run mid-way. What is guaranteed is independence from *this project's* libraries, and now
+   absolutely: **no project library is load-bearing here at all.** The command takes no input that
+   decides which sessions to stop, so there is nothing left for one to gate. `log.lib.sh` and
+   `msg.lib.sh` load best-effort for output quality; `safe-paths.lib.sh` and `operator.lib.sh` are
+   not loaded, having existed here only to vet and authorize a caller-supplied target. It is not
+   independence from the base system and does not pretend to be — which externals a run touches and
+   which of them are on the kill path (I7) is stated in the helper's header, beside the code.
 2. **The confirmation defaults to yes.** The principle in
    [messaging](../.claude/rules/messaging.rule.md) is unchanged — *the default is the safe
    outcome*; which outcome is safe is what flips.
@@ -448,7 +455,7 @@ Each of these looks like a defect to a fresh reader, and each is deliberate. If 
 | Decision | Why |
 |---|---|
 | The confirmation defaults **yes** | for the one control whose job is to act, declining is the failure (§3) |
-| No `set -e`, no required library | an aborted run is a stop that did not happen (§3) |
+| No `set -e`, no required library, and every value defaulted where `set -u` would abort | an aborted run is a stop that did not happen — including one aborted by an argument a caller did not pass (§3) |
 | There is **no per-project form**, and a path is an error | every way to attribute a session to a project is written by the account being stopped (§2) |
 | A path errors rather than being ignored | it keeps targeted stopping addable later without changing what an existing command means (§1) |
 | **Nothing is exempt**, `init.scope` included | an exemption is a cgroup a session can move into on a DAC-only host (§2) |

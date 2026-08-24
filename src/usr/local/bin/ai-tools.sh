@@ -130,8 +130,7 @@ readonly ALLOWLIST_BIN="/usr/local/libexec/ai-tools/ai-tools-allowlist"
 readonly AUDIT_BIN="/usr/local/libexec/ai-tools/ai-tools-audit"
 # Session-stop helper (--stop). Root-only, since a session is a transient unit in the sandbox
 # account's own `systemd --user` manager, which no operator can reach; no NOPASSWD rule, so sudo
-# prompts like the other root helpers. It takes NO authorization input and NO target: what it
-# terminates is decided by cgroup-slice membership, the one fact a session cannot influence.
+# prompts like the other root helpers. What it accepts, and why so little: cmd_stop.
 readonly STOP_BIN="/usr/local/libexec/ai-tools/ai-tools-stop"
 # Sentinel in a guard CLAUDE.md (see drop_lockdown_guard) so the lockdown step can
 # recognise and remove its own placeholder once secrets are secured.
@@ -2133,15 +2132,15 @@ cmd_audit() {
     sudo "${AUDIT_BIN}" "$@"
 }
 
-# cmd_stop -- end running agent sessions, in one project or on the whole host. Thin by design: the
-# helper owns the decisions, because every one of them is a security decision that must not be
-# re-implemented on the unprivileged side. It authorizes a scoped stop against the caller's own
-# allowed-projects (read as root -- an allowlist is 0600 in a 0700 directory), so nothing is
-# pre-checked here that the helper would only have to check again; a refusal arrives from the one
-# place that can make it, naming --all, which needs no authorization at all.
+# cmd_stop -- terminate every running agent session, through ai-tools-stop. Thin by design, and the
+# thinness is the whole contract: the command takes no target and no authorization input, so there
+# is nothing on this side to decide. What a stop reaches follows from membership of the sandbox
+# account's cgroup slice, which only the root helper can read, and every remaining decision is a
+# security decision that must not be made twice in two places. Option grammar is all that lives
+# here. Why the command is shaped this way: docs/session-stop.md.
 #
-# The helper's EXIT STATUS propagates, and its codes carry information a caller acts on: 1 means a
-# process survived SIGKILL, 3 refused, 4 declined at the confirmation, 5 the helper could not run.
+# The helper's EXIT STATUS propagates unchanged, so a caller reads one set of codes whichever side
+# refused. They are listed in ai-tools(1) and are not restated here, so the two cannot drift.
 #
 # die_stop_usage -- refuse a --stop command line in the HELPER's exit-code space (2 = usage), not
 # the CLI's own (die exits 1). Because cmd_stop propagates the helper's status, 2 is what a caller
@@ -2155,8 +2154,7 @@ cmd_stop() {
     local argument; local -a passthru=()
     for argument in "$@"; do
         case "${argument}" in
-            # --all is accepted and inert: every run stops every session with or without it. It
-            # exists so a script that spells the intent out is not refused for being explicit.
+            # --all is accepted and inert; ai-tools(1) says why it exists at all.
             --all|-n|--dry-run|-y|--yes|--force) passthru+=("${argument}") ;;
             -*) die_stop_usage "unknown --stop option: ${argument}" \
                     "allowed: --all, --dry-run/-n, --yes/-y, --force" ;;
@@ -2166,6 +2164,11 @@ cmd_stop() {
             # for a password (the ordering rule --for follows). Why refusing beats ignoring is in
             # the helper's refuse_positional_argument.
             #
+            # THIS TEXT IS A DELIBERATE TWIN of that function's, and the duplication is unavoidable:
+            # the two run in different processes and the helper is 750 root:root, so neither can
+            # source the other, while an operator meets whichever side refused. The two must say the
+            # same thing and offer the same four commands -- change one, change both.
+            #
             # The commands are printed PLAIN, ahead of die(): die() joins its arguments and wraps
             # them through the error emitter, which would break a command across lines
             # (messaging.rule.md).
@@ -2173,7 +2176,8 @@ cmd_stop() {
                 printf '  %s\n' \
                     "Terminate every session:    ai-tools --stop" \
                     "See what is running first:  ai-tools --stop --dry-run" \
-                    "End one session cleanly:    /exit inside it, which runs its session-end handback" >&2
+                    "End one session cleanly:    /exit inside it, which runs its session-end handback" \
+                    "Terminate one by hand:      sudo systemctl --user -M ${SANDBOX_USER}@.host stop <unit>" >&2
                 printf '\n' >&2
                 die_stop_usage "--stop takes no path: ${argument}. It TERMINATES every agent session on this host -- killing the process tree, so no session-end handback runs -- and has no per-project form, because a session is attributed to a project by the sandbox account's own user manager -- the account being stopped -- so that attribution is reported, never trusted to decide what a stop reaches." ;;
         esac

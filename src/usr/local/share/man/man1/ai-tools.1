@@ -169,16 +169,14 @@ to run for each project it terminated.
 .IP
 It takes
 .B no path
-and no authorization input. There is deliberately no per-project form: a session is
-attributed to a project by reading its working directory from the sandbox account's own
-.BR systemd (1)
-manager \(em the account being stopped \(em so attribution is reported to you, never
-trusted to decide what a stop reaches. A unit name is no better, since a session may be
-able to choose its own. What is terminated is decided by one fact a session cannot
-influence: membership of the account's
+and no authorization input, and there is deliberately no per-project form: every way to
+attribute a session to a project is written by the account being stopped, so attribution
+is reported to you and never used to decide what a stop reaches. What is terminated is
+decided by one fact a session cannot influence: membership of the account's
 .B cgroup
-slice. A path argument is therefore refused rather than ignored, so that adding targeted
-stopping later cannot silently change what an existing command means.
+slice. A path argument is refused (exit 2) rather than ignored; why that direction, and
+what a targeted form would need first, is in
+.IR /usr/share/doc/ai\-tools/session\-stop.md .
 .IP
 Sessions are found by
 .BR cgroup ,
@@ -205,12 +203,11 @@ dbus broker, and a login session scope per
 .BR sudo (8)
 that crossed pam_systemd. All are terminated; the plumbing is listed after the sessions and marked
 .IR "(account plumbing)" ,
-so the headline does not report four units of scaffolding as four agent sessions. The split labels
-and orders rows and decides which get a reclaim command; it selects nothing, and like the project
-attribution it is read from a unit name and so is advisory. Because the restarted manager is itself
-inside the swept slice, running the command twice in a row is not silent: the second run reports no
-agent session, then terminates and restarts the manager again. It is idempotent in end state, not
-in what it prints.
+so the headline does not report four units of scaffolding as four agent sessions. The split is
+presentational \(em it labels and orders rows and decides which get a reclaim command, and selects
+nothing. Because the restarted manager is itself inside the swept slice, running the command twice
+in a row is not silent: the second run reports no agent session, then terminates and restarts the
+manager again. It is idempotent in end state, not in what it prints.
 .IP
 Exit status carries the outcome:
 .B 1
@@ -226,7 +223,7 @@ and which pass ended it are all recorded in
 .I /var/log/ai\-tools/stop.log
 and journald. What each outcome means, the kernel invariants the stop rests on, and what it
 cannot undo:
-.I /usr/share/doc/ai\-tools/session\-stop.md .
+.IR /usr/share/doc/ai\-tools/session\-stop.md .
 .TP
 .B \-\-all
 For

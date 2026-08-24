@@ -44,31 +44,25 @@
 # or whether it is stopped. Every liveness read fails CLOSED. Nothing is spared -- the account's own
 # user manager included -- and it is put back afterwards (restore_user_manager) rather than exempted.
 #
-# ── Why root, and why there is no per-project form ───────────────────────────────────────────
+# ── Why root, and what this command accepts ──────────────────────────────────────────────────
 # Signalling the sandbox account's cgroups and writing cgroup.kill is root's to do. There is no
 # NOPASSWD grant -- this is reached through `sudo ai-tools --stop` and sudo prompts, like
 # ai-tools-lockdown, -reclaim and -audit.
 #
-# THIS COMMAND TAKES NO AUTHORIZATION INPUT AND NO TARGET, and that is a deliberate narrowing
-# rather than a missing feature. A per-project form would have to decide which sessions belong to
-# a project, and the only available answer -- a unit's WorkingDirectory -- is read from the
-# sandbox account's own user manager, i.e. from the account being stopped. Anything a session
-# reports about itself can therefore shape what a stop reaches, which is exactly backwards. A unit
-# name is no better: on a DAC-only host a session can reach that manager and choose its own. So
-# attribution is kept for the operator to READ, and the set of things this stops is decided by one
-# fact the session cannot influence -- membership of the account's cgroup slice.
+# IT TAKES NO TARGET AND NO AUTHORIZATION INPUT. What is stopped is decided by one fact a session
+# cannot influence -- membership of the account's cgroup slice -- and everything this file reads
+# from the account being stopped (a unit's WorkingDirectory, its name) is kept away from that
+# decision and used only to label a row. Why a per-project form cannot be built on either of them
+# is in docs/session-stop.md §2.
 #
 # The routine way to FINISH a session is `/exit` inside it, which lets it run its own session-end
 # handback. This command TERMINATES instead: it kills the process tree, so no handback runs and the
 # last turn's writes may still be sandbox-owned (which is why a run names the reclaim per project).
-# It is the incident rung, and the scenario that reaches for it is one that wants everything gone.
 #
 # Usage:  ai-tools-stop [-n|--dry-run] [-y|--yes] [--force] [--all]
 #
-# `--all` is accepted and inert: every run already stops every session, and the flag exists only so
-# a script that spells the intent out is not refused for being explicit. A PATH is refused (exit 2)
-# rather than ignored -- see refuse_positional_argument for why that direction, and only that one,
-# leaves room to add targeting later without changing what an existing command line means.
+# `--all` is accepted and inert. A PATH is refused (exit 2) rather than ignored -- see
+# refuse_positional_argument.
 #
 # WHAT A SUCCESSFUL EXIT MEANS, stated exactly rather than generously. Exit 0 means: every session
 # that existed at ENUMERATION was stopped, and a final re-enumeration found nothing still live. It
@@ -200,6 +194,11 @@ FORCE_KILL=false
 # accepted, narrower request. That is a pure widening and no existing command line changes meaning.
 # Had it meant "stop everything, ignoring your path", the identical line would silently begin doing
 # something different, which is the one outcome that cannot be rolled out safely.
+#
+# THE TEXT BELOW IS A DELIBERATE TWIN of the CLI's refusal in cmd_stop, which is the copy an
+# operator normally meets -- this one is the last line, reached by a direct root call. They cannot
+# be single-sourced: different processes, and this file is 750 root:root. They must say the same
+# thing and offer the same four commands -- change one, change both.
 refuse_positional_argument() {
     printf 'ai-tools-stop: this command takes no path: %s\n' "$1" >&2
     printf '%s' '
@@ -221,9 +220,8 @@ refuse_positional_argument() {
 parse_command_line() {
     while (( $# )); do
         case "$1" in
-            # Accepted and inert. Every run stops every session with or without it, so --all is
-            # kept purely so a script that spells the intent out is not refused for being
-            # explicit. `ai-tools --stop` is the documented form.
+            # Accepted and inert (the header's usage note says why it exists at all). The
+            # documented form is `ai-tools --stop`.
             --all)        shift ;;
             -n|--dry-run) DRY_RUN=true; shift ;;
             -y|--yes)     ASSUME_YES=true; shift ;;
