@@ -15,7 +15,9 @@
 #     preflight resolves it, CHECKS the result -- so a manifest that has stopped describing where
 #     its package installs the executable is reported as such instead of passing as "not
 #     installed" (ai_tools_entrypoint_reconcile_verdict).
-# Both families keep their `semanage fcontext` + `restorecon` body in exactly one place.
+# Both families keep their `semanage fcontext` + `restorecon` body in exactly one place, and both
+# write the one policy store -- so the library also owns the lock that serializes them
+# (ai_tools_relabel_lock) and the reason a refused rule reports (AI_TOOLS_FCONTEXT_ERROR).
 #
 # In-place project paths (under a user's home) are DYNAMIC, so they get a
 # per-project `semanage fcontext` rule here. Sandbox clones under
@@ -57,6 +59,58 @@ readonly AI_TOOLS_ENTRYPOINT_ROOT="/opt/ai-tools/.nvm/versions/node"
 source "${BASH_SOURCE[0]%/*}/providers.lib.sh" 2>/dev/null || true
 # shellcheck source=SCRIPTDIR/control-plane.lib.sh
 source "${BASH_SOURCE[0]%/*}/control-plane.lib.sh" 2>/dev/null || true
+
+# ── Serializing writes to the policy store ───────────────────────────────────────────────────
+# semanage serializes on the policy store and reports an error to whichever process finds it held,
+# rather than waiting for it, so two root helpers running at once leave rules unregistered and
+# both report a failure neither caused. The helpers take this lock so the second one waits. Which
+# callers overlap, and when, is in .claude/rules/updater.rule.md.
+#
+# Root-only test hooks, the same posture as AI_TOOLS_LAUNCHER_DIR above: the helpers that take
+# this lock run under sudo, which scrubs the environment, and the sudoers rules keep neither name.
+# A caller that did set one moves an advisory lock or shortens a wait, which can only leave a run
+# unserialized -- the documented fail-soft below -- and never changes what a label may be applied
+# to.
+: "${AI_TOOLS_RELABEL_LOCK:=/run/lock/ai-tools-relabel.lock}"
+: "${AI_TOOLS_RELABEL_LOCK_WAIT:=120}"
+# Why the lock could not be taken, or empty when it is held. Read by the caller after
+# ai_tools_relabel_lock, which reports it in its own voice.
+AI_TOOLS_RELABEL_LOCK_NOTE=""
+
+# ai_tools_relabel_lock: hold AI_TOOLS_RELABEL_LOCK for the rest of the calling process, so a
+#   concurrent relabel waits rather than colliding inside semanage. Root-only: the lock file is
+#   created under /run/lock.
+#
+#   Call it in the CALLING shell, never through `$(...)`: the lock is an open file descriptor, and
+#   a command substitution's subshell would drop it the moment the substitution returns. The
+#   reason travels in AI_TOOLS_RELABEL_LOCK_NOTE for the same reason.
+#
+#   ALWAYS returns 0. A host without flock, a lock file that cannot be created, and a wait that
+#   runs out all proceed unserialized: labelling is idempotent and every refusal is reported, so a
+#   lock this helper cannot take costs a repeat run rather than a wrong label.
+# shellcheck disable=SC2034  # AI_TOOLS_RELABEL_LOCK_NOTE is this function's output, read by
+#                              ai-tools-relabel-agent and ai-tools-relabel.
+ai_tools_relabel_lock() {
+    AI_TOOLS_RELABEL_LOCK_NOTE=""
+    if ! command -v flock >/dev/null 2>&1; then
+        AI_TOOLS_RELABEL_LOCK_NOTE="flock is not installed"
+        return 0
+    fi
+    # Two bash properties decide the shape of this line. The file is created by a SIMPLE command
+    # first, because a failed redirection on a command-less `exec` exits a non-interactive shell
+    # outright -- turning "cannot serialize" into "no relabel at all". And stderr is redirected
+    # BEFORE the create, because bash reports a failed redirection on whatever stderr is in force
+    # as it processes that redirection, so the `>file 2>/dev/null` order still prints the error and
+    # the note below would be a second message for one condition.
+    if ! : 2>/dev/null >"${AI_TOOLS_RELABEL_LOCK}"; then
+        AI_TOOLS_RELABEL_LOCK_NOTE="cannot write ${AI_TOOLS_RELABEL_LOCK}"
+        return 0
+    fi
+    exec {_ai_tools_relabel_lock_fd}>"${AI_TOOLS_RELABEL_LOCK}"
+    flock -w "${AI_TOOLS_RELABEL_LOCK_WAIT}" "${_ai_tools_relabel_lock_fd}" \
+        || AI_TOOLS_RELABEL_LOCK_NOTE="another relabel held the policy store for more than ${AI_TOOLS_RELABEL_LOCK_WAIT}s"
+    return 0
+}
 
 # ai_tools_relabel_available: 0 when SELinux is active and restorecon is present,
 # i.e. when labelling can do anything. Non-zero (2) otherwise.
@@ -214,23 +268,43 @@ _ai_tools_entrypoint_policy_active() {
     semodule -l 2>/dev/null | grep -qE '^ai_tools([[:space:]]|$)'
 }
 
+# Why the last file-context rule could not be registered -- semanage's own stderr, newlines
+# collapsed to keep it on one line. Set by _ai_tools_fcontext for the caller that just called it,
+# which appends it to the `skip` status line it prints. That is why the reason travels on STDOUT
+# rather than in this variable alone: ai_tools_label_agent_paths runs inside a `$(...)` in
+# ai-tools-relabel-agent, and a variable set in that subshell does not survive the substitution,
+# while its report does.
+AI_TOOLS_FCONTEXT_ERROR=""
+
 # _ai_tools_fcontext <add|delete> <file-type> <selinux-type> <pattern>: register or drop the local
 #   file-context rule mapping <pattern> to <selinux-type>, scoped by semanage's file-type letter
 #   (`f` regular files, as the base policy's own `--` rules are scoped; `a` all types, for a
-#   subtree). `-a` fails when a rule for the pattern already exists, so an add falls back to `-m`
-#   and the call is idempotent.
+#   subtree). Some semanage versions refuse an `-a` for a pattern already registered and others
+#   modify it in place, so an add falls back to `-m` and the call is idempotent either way.
 _ai_tools_fcontext() {
-    local action="$1" file_type="$2" selinux_type="$3" pattern="$4"
+    local action="$1" file_type="$2" selinux_type="$3" pattern="$4" add_error modify_error
+    AI_TOOLS_FCONTEXT_ERROR=""
     if [[ "${action}" == delete ]]; then
         semanage fcontext -d -f "${file_type}" -- "${pattern}" >/dev/null 2>&1 || true
         return 0
     fi
-    # Both streams are dropped, stdout included: semanage announces "already defined, modifying
-    # instead" there, while this function's caller emits a PARSED report on stdout. Anything else
-    # written to that stream is read as a verdict line, so the commands called here stay silent.
-    # The `-m` fallback is the handling for an existing entry.
-    semanage fcontext -a -f "${file_type}" -t "${selinux_type}" -- "${pattern}" >/dev/null 2>&1 && return 0
-    semanage fcontext -m -f "${file_type}" -t "${selinux_type}" -- "${pattern}" >/dev/null 2>&1
+    # stdout is dropped and stderr is KEPT. semanage announces "already defined, modifying
+    # instead" on stdout, while this function's caller emits a PARSED report on that stream, so
+    # anything written there is read as a verdict line. stderr carries the reason an add was
+    # refused -- a policy store another semanage transaction holds, a type the loaded policy does
+    # not define -- which reaches the operator through AI_TOOLS_FCONTEXT_ERROR.
+    add_error="$(semanage fcontext -a -f "${file_type}" -t "${selinux_type}" -- "${pattern}" 2>&1 >/dev/null)" \
+        && return 0
+    modify_error="$(semanage fcontext -m -f "${file_type}" -t "${selinux_type}" -- "${pattern}" 2>&1 >/dev/null)" \
+        && return 0
+    # The add's message names the cause; the modify's usually reports the consequence ("not
+    # defined"), so it is the fallback rather than the first choice. Newlines and carriage returns
+    # are collapsed: the caller puts this on a status line its reader splits per line, so a
+    # multi-line message would read as extra verdicts.
+    AI_TOOLS_FCONTEXT_ERROR="${add_error:-${modify_error:-semanage gave no reason}}"
+    AI_TOOLS_FCONTEXT_ERROR="${AI_TOOLS_FCONTEXT_ERROR//$'\n'/ }"
+    AI_TOOLS_FCONTEXT_ERROR="${AI_TOOLS_FCONTEXT_ERROR//$'\r'/ }"
+    return 1
 }
 
 # _ai_tools_agent_config_pattern <config-dir-name>: print the file-context pattern for an agent's
@@ -310,7 +384,8 @@ _ai_tools_label_agent_entrypoint() {
         return 1
     fi
     if ! _ai_tools_fcontext add f "${AI_TOOLS_ENTRYPOINT_TYPE}" "${pattern}"; then
-        printf 'skip %s could not register its entrypoint file-context rule\n' "${agent}"
+        printf 'skip %s could not register its entrypoint file-context rule -- %s\n' \
+            "${agent}" "${AI_TOOLS_FCONTEXT_ERROR}"
         return 1
     fi
     while IFS= read -r path; do
@@ -342,7 +417,8 @@ _ai_tools_label_agent_config_dir() {
     fi
     pattern="$(_ai_tools_agent_config_pattern "${config_dir}")"
     if ! _ai_tools_fcontext add a "${AI_TOOLS_AGENT_CONFIG_TYPE}" "${pattern}"; then
-        printf 'skip %s could not register its config-directory file-context rule\n' "${agent}"
+        printf 'skip %s could not register its config-directory file-context rule -- %s\n' \
+            "${agent}" "${AI_TOOLS_FCONTEXT_ERROR}"
         return 1
     fi
     path="${CP_HOME}/${config_dir}"

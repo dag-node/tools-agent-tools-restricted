@@ -68,6 +68,15 @@ source /usr/local/lib/ai-tools/relabel.lib.sh
 declare -F ai_tools_label_agent_paths >/dev/null 2>&1 \
     || die "relabel.lib.sh is incomplete -- reinstall ai-tools-base"
 
+# Serialize against the other callers of this helper before touching the policy store: the agent
+# package's %post, the ai-tools-relabel.path watcher, and `ai-tools --relabel` all run it, and an
+# upgrade drives two of them at once. Taken here so it covers --remove as well, which writes the
+# same store. Proceeding unserialized is reported, not fatal (see relabel.lib.sh).
+ai_tools_relabel_lock
+[[ -z "${AI_TOOLS_RELABEL_LOCK_NOTE}" ]] \
+    || { say "NOTE: relabels are not serialized on this host -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"
+         ai_tools_log_warn "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"; }
+
 # --remove <agent>: erase-time counterpart, invoked by the agent package's own %preun while its
 # manifest is still on disk. Dropping the rules matters because the types they name belong to the
 # base policy, which the host may erase next.

@@ -221,6 +221,22 @@ nothing outside the sandbox toolchain root (no traversal, no alternation, an anc
 head), so a manifest chooses **which** file is its entrypoint, never what label a file gets. The
 whole body lives in `relabel.lib.sh`, shared with `install-selinux.sh`'s verify pass.
 
+**Relabels serialize, and a refusal names its cause.** Three callers run this helper and an
+upgrade drives two of them at once — the agent package's `%post` and the `ai-tools-relabel.path`
+watcher, which the same transaction's `restorecon` of `/opt/ai-tools` triggers. `semanage`
+serializes on the policy store and reports an error to whichever process finds it held rather than
+waiting, so overlapping runs leave rules unregistered and both report a failure neither caused.
+`ai_tools_relabel_lock` (`relabel.lib.sh`, taken by `ai-tools-relabel-agent` and by
+`ai-tools-relabel`, which writes the same store for a project claim) makes the second wait. It is
+best-effort in one direction only: no `flock`, an uncreatable lock file, or a wait that runs out
+proceeds unserialized and says so, since labelling is idempotent and every refusal is reported, so
+an untaken lock costs a repeat run rather than a wrong label.
+
+`semanage`'s own stderr is what a refusal reports, carried on the status line the helper renders
+and logs (`relabel.log`, journald, and so `ai-tools --audit`) — the store being held and a type the
+loaded policy does not define need different remedies, and the message is the only thing that tells
+them apart.
+
 The helper then **reconciles** what it applied against what is installed: it resolves
 `/opt/ai-tools/bin/<launcher>` the way the launch preflight does and reports `stale` — non-zero —
 when an entrypoint is installed at a path the declared pattern does not cover, instead of the

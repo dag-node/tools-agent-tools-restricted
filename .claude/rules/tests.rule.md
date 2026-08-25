@@ -116,6 +116,13 @@ at a directory whose `claude` link resolves to a real file the declared pattern 
 sudo bash -c 'n=$(find /opt/ai-tools/.nvm/versions/node/*/lib/node_modules/@anthropic-ai/claude-code/node_modules -name claude -type f | head -1); d=$(mktemp -d); ln -s "$n" "$d/claude"; env AI_TOOLS_LAUNCHER_DIR="$d" /usr/local/libexec/ai-tools/ai-tools-relabel-agent; echo "exit=$?"; rm -rf "$d"'
 ```
 
+`AI_TOOLS_RELABEL_LOCK` and `AI_TOOLS_RELABEL_LOCK_WAIT` (`relabel.lib.sh`) are the seventh, and
+the first of the family a test drives directly: they move the lock that serializes writes to the
+policy store, and shorten the wait for it, so `unit/relabel.sh` exercises real cross-process
+contention against a lock file in its own testdir. They carry the lightest standing of the family —
+what they redirect is an advisory lock, so a caller who sets one can leave a run unserialized,
+which is the documented fail-soft and never changes what a label may be applied to.
+
 It is not in the suite because the full function registers a `semanage fcontext` rule, and this
 suite does not mutate the host's SELinux policy to test a helper — the same line
 `integration/selinux.sh` draws for `ai_tools_unlabel_project`. The check above is safe *because* it
@@ -273,6 +280,16 @@ uninterpretable flag must err toward it rather than toward blessing a divergence
 splitting a status line or carrying an escape sequence to the operator's terminal. Both are pure,
 so they need no provisioned host; the resolution they consume is exercised in
 `integration/selinux.sh`.
+
+Two further sections cover what happens when a rule does **not** register, with `semanage` stubbed
+as a shell function so no policy store is touched. The first asserts the refusal carries
+`semanage`'s stderr, collapsed to one line, and that it arrives on the **status line** rather than
+in a variable — the labelling runs inside a `$(...)` in `ai-tools-relabel-agent`, so a variable set
+there is gone by the time the renderer reads it, and the assertion is made through that same
+capture. It also pins the stream split in the other direction: `semanage`'s stdout must never reach
+the caller, which parses that stream as verdict lines. The second drives `ai_tools_relabel_lock`
+across real processes — a held lock is reported as held, the contended run proceeds anyway, the
+lock is released when its holder exits, and an uncreatable lock file is reported rather than fatal.
 
 `entrypoint-verify.sh` pins the pure half of the entrypoint verifier (`entrypoint-verify.lib.sh`,
 see [updater](updater.rule.md)). Every assertion targets a way the gate could fail **open**: an
