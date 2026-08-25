@@ -51,7 +51,9 @@ ARG RPM_RELEASE=""
 # rpm-sign + gnupg2 are baked in here, NOT dnf-installed at sign time: the release workflow
 # runs sign-rpms.sh in this image with the signing key in the environment, and no package
 # scriptlet may ever execute while that secret is present.
-RUN microdnf -y install \
+# Nothing below comes from the `extras` repo; disable it so a flaky refresh can't abort the install.
+RUN sed -i '/^\[extras\]/,/^\[/ s/^enabled=1$/enabled=0/' /etc/yum.repos.d/*.repo \
+    && microdnf -y install \
         dnf rpm-build rpm-sign gnupg2 systemd-rpm-macros make sed tar gzip findutils createrepo_c \
         systemd dbus-broker sudo shadow-utils passwd util-linux procps-ng libselinux-utils \
         git curl which glibc-langpack-en \
