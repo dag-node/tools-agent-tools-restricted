@@ -395,7 +395,12 @@ _ai_tools_label_agent_entrypoint() {
     done < <(_ai_tools_entrypoint_paths "${pattern}")
 
     case "$(ai_tools_entrypoint_reconcile_verdict "${installed}" "${covered}" "${matched}")" in
-        none)  printf 'none %s its entrypoint\n' "${agent}" ;;
+        # 3, not 0: the rule registered and nothing failed, but no file took the type because none
+        # is installed yet. The caller reports that as "nothing to label" rather than as labels
+        # applied, which on an unprovisioned host is the difference between a true report and a
+        # green line for work that did not happen.
+        none)  printf 'none %s its entrypoint\n' "${agent}"
+               if [[ "${status}" -eq 0 ]]; then status=3; fi ;;
         stale) printf 'stale %s %s\n' "${agent}" "${installed}"; status=1 ;;
     esac
     return "${status}"
@@ -424,7 +429,7 @@ _ai_tools_label_agent_config_dir() {
     path="${CP_HOME}/${config_dir}"
     if [[ ! -d "${path}" ]]; then
         printf 'none %s its config directory\n' "${agent}"
-        return 0
+        return 3
     fi
     restorecon -FR "${path}" 2>/dev/null || true
     _ai_tools_verify_label "${path}" "${AI_TOOLS_AGENT_CONFIG_TYPE}"
@@ -440,17 +445,34 @@ _ai_tools_label_agent_config_dir() {
 #                                      does not cover it, so no relabel can label it -- the
 #                                      agent package's manifest has to be updated
 #     skip  <agent> <reason...>        nothing to apply, or a declaration was refused
+#     agent <agent> <ok|failed|none>   that agent's whole outcome, closing its lines: every path it
+#                                      declares took its type, one of them did not, or neither is
+#                                      installed to label. This is what ai-tools-relabel-agent
+#                                      records per agent for `ai-tools --status` to report, so the
+#                                      operator can see the labelling half from outside the
+#                                      toolchain they cannot read.
 #   Returns 0 when every path it managed is correctly labelled, 1 when one is not, a rule could
 #   not be registered, or a declaration is stale, and 2 when the SELinux layer is inactive
 #   (nothing to do).
 ai_tools_label_agent_paths() {
     _ai_tools_entrypoint_policy_active || return 2
     declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 2
-    local agent status=0
+    local agent status=0 entrypoint_rc config_rc agent_status
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
-        _ai_tools_label_agent_entrypoint "${agent}" || status=1
-        _ai_tools_label_agent_config_dir "${agent}" || status=1
+        entrypoint_rc=0; config_rc=0
+        _ai_tools_label_agent_entrypoint "${agent}" || entrypoint_rc=$?
+        _ai_tools_label_agent_config_dir  "${agent}" || config_rc=$?
+        # Only 1 is a failure. 3 says the path is not installed yet, which is the ordinary
+        # pre-bootstrap state and must not fail a relabel that did everything it could.
+        if [[ "${entrypoint_rc}" -eq 1 || "${config_rc}" -eq 1 ]]; then
+            agent_status=failed; status=1
+        elif [[ "${entrypoint_rc}" -eq 3 && "${config_rc}" -eq 3 ]]; then
+            agent_status=none
+        else
+            agent_status=ok
+        fi
+        printf 'agent %s %s\n' "${agent}" "${agent_status}"
     done < <(ai_tools_enabled_agents 2>/dev/null)
     return "${status}"
 }

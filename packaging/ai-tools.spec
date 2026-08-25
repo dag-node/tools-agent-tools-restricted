@@ -363,6 +363,11 @@ install -d -m 0750 %{buildroot}/var/opt/ai-tools/state
 # by the launch shim as the sandbox account. Root-owned and NOT group-writable, like its parent:
 # the whole value of a pin is that the account it constrains cannot write it.
 install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-pin.d
+# What the last reconciliation could do about each agent's SELinux labels -- the labelling half's
+# counterpart to the pin above, written by the same helper and read by `ai-tools --status`. Same
+# ownership for the same reason: it reports on the sandbox account, which must not be able to
+# rewrite it.
+install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-label.d
 install -m 0640 src/var/opt/ai-tools/README.md %{buildroot}/var/opt/ai-tools/README.md
 install -d -m 0700 %{buildroot}/var/log/ai-tools
 
@@ -875,6 +880,7 @@ fi
 # it through the g:ai-ops:r-x ACL %post applies (%files cannot express an ACL).
 %dir %attr(0750, root, ai-tools) /var/opt/ai-tools/state
 %dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-pin.d
+%dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-label.d
 %dir %attr(0700, root, root) /var/log/ai-tools
 %ghost %attr(0600, root, root) /var/log/ai-tools/chown.log
 %ghost %attr(0600, root, root) /var/log/ai-tools/setgid.log

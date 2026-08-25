@@ -281,6 +281,7 @@ check_file_optional /var/opt/ai-tools/state/nvm-update.status "${SANDBOX_USER}" 
 # reports and gates nothing, while a pin is what the launch compares the agent binary against, so
 # the account it constrains must not be able to write it.
 check_file /var/opt/ai-tools/state/entrypoint-pin.d           root              root              755
+check_file /var/opt/ai-tools/state/entrypoint-label.d         root              root              755
 # Sandbox-area operator ACL: ai-ops reaches the area without SANDBOX_GROUP membership -- traverse
 # on the outer dir, rwX + default on sandbox-projects. The agent (not in ai-ops) gains nothing.
 if ! command -v getfacl >/dev/null 2>&1; then

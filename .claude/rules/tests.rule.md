@@ -104,7 +104,9 @@ mismatch refusal through the deployed shim — the feature's actual guarantee, a
 needs a VALID executable to reach, since every other refusal case exits before it. Its complement
 (an unpinned entrypoint must NOT be refused, or an air-gapped host stops launching) is deliberately
 left to the pure verdict: nothing else about that run is invalid, so driving it would start a real
-session.
+session. Its sibling `AI_TOOLS_ENTRYPOINT_LABEL_DIR`, which moves the labelling record written
+beside the pin, carries none of that weight — the record gates nothing and is only reported — so
+`unit/entrypoint-verify.sh` redirects it at its testdir and writes real records through the library.
 
 `AI_TOOLS_LAUNCHER_DIR` (`relabel.lib.sh`) is the sixth, and the one hook no automated test
 consumes. It redirects where the entrypoint reconciliation looks for an agent's stable launcher
@@ -265,7 +267,13 @@ succeeds while the schedule driving them has stopped — so the file asserts tha
 goes `stale` past `max_age`, that a failed one stays `failed` at any age, that an unknown or
 future-dated age never manufactures staleness out of an absence, and that `fired` mode reads
 recency alone, letting one stamp yield two verdicts (a healthy trigger beside the failed run it
-started). `systemctl` is stubbed as a shell function, so no real unit is touched.
+started). The same "the trigger is not the run" split appears for **system** units: a `Type=oneshot`
+service is inactive whenever it is healthy, so the file drives its three states from unit properties
+— never run reads `unknown` rather than an OK it has not earned, a successful last run reads OK
+though `is-active` would say DOWN, and a failed one reads FAILED and needs attention — plus that a
+unit with no `Type` is still judged by `is-active`, and that the launch wrapper's filter does not
+select `ai-tools-relabel.service` (the `.path` already carries that warning). `systemctl` is stubbed
+as a shell function, so no real unit is touched.
 
 `relabel.sh` pins the other manifest-supplied decision with a security consequence: the
 entrypoint file-context predicate (`relabel.lib.sh`). A declared pattern becomes a `semanage`
@@ -290,6 +298,11 @@ capture. It also pins the stream split in the other direction: `semanage`'s stdo
 the caller, which parses that stream as verdict lines. The second drives `ai_tools_relabel_lock`
 across real processes — a held lock is reported as held, the contended run proceeds anyway, the
 lock is released when its holder exits, and an uncreatable lock file is reported rather than fatal.
+A third pins the per-agent verdict each agent's report closes with, which is what
+`ai-tools-relabel-agent` files for `ai-tools --status`: both halves stubbed, over the whole truth
+table. Two entries carry the weight — a path that is not installed yet must read as "nothing to
+label" rather than as labels applied, and must not fail the run, or every host would report green
+before provisioning and non-zero after it.
 
 `entrypoint-verify.sh` pins the pure half of the entrypoint verifier (`entrypoint-verify.lib.sh`,
 see [updater](updater.rule.md)). Every assertion targets a way the gate could fail **open**: an
@@ -301,7 +314,12 @@ is refused rather than fetched as-is, since one manifest for every version reads
 while checking a release it never looked at; and the template charset admits nothing that could
 carry a shell metacharacter or a traversal into `curl`. It also pins the public pin path, which `ai-tools --status` reads to report verification
 state: an agent name becomes a path component, so a name that could escape the pin directory must
-yield nothing. It closes with the one impure assertion that needs no vendor: the library refuses a
+yield nothing. The label record written beside it is covered the same way — the shared path guard,
+a `RESULT` outside the vocabulary refused rather than filed (an unrecognised value reads as "never
+relabelled", which is a different report from the one it meant to make), a reason that is not a
+token dropped rather than written where the reader's charset clamp would silently lose it, and a
+round trip asserted through `services.lib.sh`'s **real** accessors, since a record and its reader
+are worth nothing unless they agree on the grammar. It closes with the one impure assertion that needs no vendor: the library refuses a
 **non-root** pin write itself, rather than letting it fail on `EACCES`, so the caller can tell "not
 permitted" from "the directory is missing". The
 signed-manifest probe is not driven here — it needs the vendor's live endpoint, `gpgv`, and a

@@ -2411,9 +2411,9 @@ status_sandbox_unit_commands() {
 # Reuses services.lib.sh -- the SAME registry the launch-time warning reads -- so the status view and
 # the launch warning never disagree. Informational (no operator gate), like --list/--providers.
 # status_entrypoint_pins  -- report, per enabled agent, whether its entrypoint carries a verified
-# checksum. This is the ONE piece of the verification an operator can observe: the entrypoint itself
-# lives in the 0750 toolchain they cannot read (which is why its LABEL stays unreportable here), but
-# the pin is a root-owned record placed where they can. Without this line the only signals are a
+# checksum, and under it (status_entrypoint_label) what the last reconciliation could do about that
+# agent's labels. The entrypoint itself lives in a 0750 toolchain the operator cannot read, so both
+# lines report root-written records placed where they can. Without them the only signals are a
 # warning in a journal the operator cannot reach and, eventually, a refused launch.
 #
 # The pin is written in the same KEY=value stamp grammar as the updater's last-run record, so it is
@@ -2441,7 +2441,7 @@ status_entrypoint_pins() {
     declare -F ai_tools_entrypoint_verify_required >/dev/null 2>&1 \
         && ai_tools_entrypoint_verify_required && strict=yes
 
-    local agent pin version verified age seen=0 unpinned=0
+    local agent pin version verified age seen=0 unpinned=0 mislabelled=0
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         # An agent whose package declares no release manifest has nothing to verify against, so it
@@ -2476,9 +2476,52 @@ status_entrypoint_pins() {
                     "${agent}" "${C_DIM}" "${C_RST}" "${C_DIM}" "${C_RST}"
             fi
         fi
+        status_entrypoint_label "${agent}" || mislabelled=$(( mislabelled + 1 ))
     done < <(ai_tools_enabled_agents 2>/dev/null)
 
+    [[ "${mislabelled}" -gt 0 ]] && return 1
     [[ "${strict}" == yes && "${unpinned}" -gt 0 ]] && return 1
+    return 0
+}
+
+# status_entrypoint_label <agent>  -- report what the last reconciliation could do about that
+# agent's SELinux labels, under its verification line. The two halves of one reconciliation are
+# reported together because they are asked from the same vantage and fail independently: on a host
+# whose relabel could not register its file-context rules, the pin line alone reads as a fresh green
+# all-clear for the half that did work.
+#
+# The label itself stays unreadable from here -- the entrypoint lives in a 0750 toolchain this
+# account cannot traverse, and matchpathcon computes only what a label SHOULD be -- so this reports
+# the root-written record instead, through the same stamp accessors as the pin. It reports an EVENT:
+# what the last run could do, and when. Confirming the labels are right NOW is `ai-tools --relabel`,
+# which the failure line names.
+#
+# Returns non-zero only for a recorded failure, which is the one state that stops a launch.
+status_entrypoint_label() {
+    local agent="$1" record result reason age
+    declare -F ai_tools_entrypoint_label_path >/dev/null 2>&1 || return 0
+    record="$(ai_tools_entrypoint_label_path "${agent}" 2>/dev/null || true)"
+    result="$(ai_tools_service_stamp_field "${record}" RESULT)"
+    age="$(status_fmt_age "$(ai_tools_service_stamp_age "${record}" LABELLED)")"
+    reason="$(ai_tools_service_stamp_field "${record}" REASON)"
+    case "${result}" in
+        ok)      printf '  %-28s %slabelled%s %s(%s)%s\n' "" "${C_DIM}" "${C_RST}" \
+                     "${C_DIM}" "${age:-at an unknown time}" "${C_RST}" ;;
+        failed)  printf '  %-28s %sNOT LABELLED%s %s(%s%s)%s\n' "" "${C_RED}" "${C_RST}" \
+                     "${C_DIM}" "${age:-at an unknown time}" "${reason:+, ${reason}}" "${C_RST}"
+                 say "      its next session refuses to launch rather than run unconfined"
+                 say "      ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST} ${C_DIM}(then: journalctl -t ai-tools-relabel-agent)${C_RST}"
+                 return 1 ;;
+        # Nothing to label -- a DAC-only host, or an agent the toolchain has not provisioned yet.
+        # Neither is a fault, so neither is coloured or counted.
+        skipped) printf '  %-28s %snot labelled (%s)%s\n' "" "${C_DIM}" \
+                     "${reason:-nothing to label}" "${C_RST}" ;;
+        # No record at all: this host has not run a reconciliation since the record was introduced,
+        # or the state directory is unreadable from this account. It says only that, and never
+        # counts against the exit status -- the same rule the unqueryable units follow.
+        *)       printf '  %-28s %s? (no labelling recorded -- run: ai-tools --relabel)%s\n' \
+                     "" "${C_DIM}" "${C_RST}" ;;
+    esac
     return 0
 }
 
@@ -2554,10 +2597,20 @@ cmd_status() {
                     printf '  %-28s %sSKIPPED%s %s(last run %s%s -- nothing was changed)%s\n' \
                         "${unit}" "${C_DIM}" "${C_RST}" "${C_DIM}" "${age:-at an unknown time}" \
                         "${reason:+, ${reason}}" "${C_RST}" ;;
-            failed) exit_code="$(ai_tools_service_stamp_field "${stamp}" EXIT_CODE)"
-                    printf '  %-28s %sFAILED%s %s(last run %s, exit %s)%s\n' "${unit}" \
-                        "${C_RED}" "${C_RST}" "${C_DIM}" "${age:-at an unknown time}" \
-                        "${exit_code:-?}" "${C_RST}" ;;
+            # Two forms, because the two kinds of failed unit know different things about the run.
+            # A stamped unit records when it ran; a system oneshot's result comes from systemd,
+            # which knows the exit status but is read here without a time, so the line does not
+            # claim one.
+            failed) if [[ -n "${stamp}" ]]; then
+                        exit_code="$(ai_tools_service_stamp_field "${stamp}" EXIT_CODE)"
+                        printf '  %-28s %sFAILED%s %s(last run %s, exit %s)%s\n' "${unit}" \
+                            "${C_RED}" "${C_RST}" "${C_DIM}" "${age:-at an unknown time}" \
+                            "${exit_code:-?}" "${C_RST}"
+                    else
+                        exit_code="$(ai_tools_service_unit_property "${unit}" ExecMainStatus)"
+                        printf '  %-28s %sFAILED%s %s(its last run exited %s)%s\n' "${unit}" \
+                            "${C_RED}" "${C_RST}" "${C_DIM}" "${exit_code:-non-zero}" "${C_RST}"
+                    fi ;;
             stale)  printf '  %-28s %sSTALE%s %s(last run %s)%s\n' \
                         "${unit}" "${C_YEL}" "${C_RST}" "${C_DIM}" "${age:-long ago}" "${C_RST}" ;;
             absent) printf '  %-28s %sn/a (not installed)%s\n' "${unit}" "${C_DIM}" "${C_RST}" ;;

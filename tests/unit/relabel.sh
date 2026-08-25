@@ -282,4 +282,46 @@ else
     else fail "expected a single cannot-write note, got '${unwritable}'"; fi
 fi
 
+# ── The per-agent outcome the report closes with ──────────────────────────────────────────────
+# ai-tools-relabel-agent records this per agent so `ai-tools --status` can report the labelling
+# half of a reconciliation; the operator cannot inspect the labels themselves, the entrypoint
+# living in a toolchain they cannot traverse. Two properties matter beyond the mapping. A path that
+# is not installed YET (rc 3 -- the ordinary pre-bootstrap state) must not read as labels applied,
+# or a host that has never provisioned reports green for work that did not happen; and it must not
+# fail the relabel either, which would make every fresh install exit non-zero. Both halves are
+# stubbed, so this drives the decision without a policy store.
+section "relabel: the per-agent outcome closing the report (unit)"
+if declare -F ai_tools_label_agent_paths >/dev/null 2>&1; then
+    _ai_tools_entrypoint_policy_active() { return 0; }
+    ai_tools_enabled_agents() { printf 'some-agent\t\t\n'; }
+
+    # outcome_is <expected-outcome> <expected-run-status> <entrypoint-rc> <config-rc> <why>
+    outcome_is() {
+        local expected="$1" expected_status="$2" entry_rc="$3" config_rc="$4" why="$5" line got status=0
+        eval "_ai_tools_label_agent_entrypoint() { return ${entry_rc}; }"
+        eval "_ai_tools_label_agent_config_dir()  { return ${config_rc}; }"
+        line="$(ai_tools_label_agent_paths)" || status=$?
+        got="$(printf '%s\n' "${line}" | sed -n 's/^agent some-agent //p')"
+        if [[ "${got}" == "${expected}" && "${status}" -eq "${expected_status}" ]]; then
+            pass "${why} -> ${expected} (run status ${expected_status})"
+        else
+            fail "${why}: expected ${expected}/${expected_status}, got '${got:-<none>}'/${status}"
+        fi
+    }
+
+    outcome_is ok     0 0 0 "both halves applied their labels"
+    outcome_is failed 1 1 0 "the entrypoint half failed"
+    outcome_is failed 1 0 1 "the config-directory half failed"
+    outcome_is failed 1 1 1 "both halves failed"
+    outcome_is none   0 3 3 "neither path is installed yet (not provisioned)"
+    outcome_is ok     0 3 0 "the entrypoint is not installed but the config directory took its type"
+    outcome_is ok     0 0 3 "the config directory is absent but the entrypoint took its type"
+    outcome_is failed 1 1 3 "a real failure outranks a path that is not installed"
+
+    unset -f _ai_tools_entrypoint_policy_active ai_tools_enabled_agents \
+             _ai_tools_label_agent_entrypoint _ai_tools_label_agent_config_dir
+else
+    skip "per-agent labelling outcome" "ai_tools_label_agent_paths not defined by ${LIB}"
+fi
+
 finish

@@ -43,6 +43,12 @@ source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null || true
 # manifest directories: every consumer runs under sudo, which scrubs the environment, and no
 # sudoers rule keeps these names).
 : "${AI_TOOLS_ENTRYPOINT_PIN_DIR:=/var/opt/ai-tools/state/entrypoint-pin.d}"
+# The labelling half of the same reconciliation records its outcome beside the pin, in the same
+# grammar and with the same ownership. It lives HERE, next to the pin, rather than in
+# relabel.lib.sh which performs the labelling: `ai-tools --status` reads both, and it runs as the
+# operator, who can read this library (644) but not that one (640 root:root). One record the
+# report can read is worth more than a record filed next to the code that writes it.
+: "${AI_TOOLS_ENTRYPOINT_LABEL_DIR:=/var/opt/ai-tools/state/entrypoint-label.d}"
 
 # _ai_tools_ev_warn <message...> : report to stderr and, when log.lib.sh is loaded by the caller,
 #   to journald. Never alters a verdict.
@@ -149,9 +155,66 @@ ai_tools_entrypoint_sha256() {
 #   CLI's status report reads the pin through the shared stamp accessors (services.lib.sh) and must
 #   not hardcode where it lives.
 ai_tools_entrypoint_pin_path() {
-    local agent="${1:-}"
+    _ai_tools_ev_record_path "${AI_TOOLS_ENTRYPOINT_PIN_DIR}" "${1:-}"
+}
+
+# ai_tools_entrypoint_label_path <agent> : print the path of the record holding what the last
+#   reconciliation could do about that agent's SELinux labels. Public for the same reason the pin
+#   path is: `ai-tools --status` reports it and must not hardcode where it lives.
+ai_tools_entrypoint_label_path() {
+    _ai_tools_ev_record_path "${AI_TOOLS_ENTRYPOINT_LABEL_DIR}" "${1:-}"
+}
+
+# _ai_tools_ev_record_path <dir> <agent> : print <dir>/<agent> for an agent name that is one plain
+#   identifier -- the same guard ai_tools_agent_manifest_field applies -- so no declaration can
+#   address a file outside the record directory. One implementation, because a name allowlist that
+#   exists twice is a name allowlist that can differ.
+_ai_tools_ev_record_path() {
+    local dir="${1:-}" agent="${2:-}"
     [[ "${agent}" =~ ^[A-Za-z0-9._-]+$ && "${agent}" != *..* ]] || return 1
-    printf '%s/%s' "${AI_TOOLS_ENTRYPOINT_PIN_DIR}" "${agent}"
+    printf '%s/%s' "${dir}" "${agent}"
+}
+
+# _ai_tools_ev_write_record <path> <dir> : write stdin to <path>, creating <dir> if absent. ROOT
+#   ONLY, and refused rather than left to fail on EACCES, so a caller can tell "not permitted" from
+#   "the directory is missing". Written to a temp file and renamed, so a reader never sees a partial
+#   record. World-readable: what these records hold is a published checksum and a label outcome,
+#   neither a secret, and the launch shim reads the pin as the sandbox account. The 0750 directory
+#   is the boundary, not the file mode.
+_ai_tools_ev_write_record() {
+    local path="${1:-}" dir="${2:-}" tmp
+    [[ "${EUID:-$(id -u)}" -eq 0 ]] || { _ai_tools_ev_warn "refusing to write ${path} as non-root"; return 1; }
+    [[ -d "${dir}" ]] \
+        || install -d -m 0750 -o root -g root "${dir}" 2>/dev/null \
+        || { _ai_tools_ev_warn "cannot create ${dir}"; return 1; }
+    tmp="$(mktemp "${path}.XXXXXX" 2>/dev/null)" || return 1
+    cat > "${tmp}" 2>/dev/null || { rm -f -- "${tmp}"; return 1; }
+    chmod 0644 "${tmp}" 2>/dev/null || true
+    mv -f -- "${tmp}" "${path}" 2>/dev/null || { rm -f -- "${tmp}"; return 1; }
+    return 0
+}
+
+# ai_tools_entrypoint_label_write <agent> <ok|failed|skipped> [reason-token] : record what the last
+#   reconciliation could do about <agent>'s labels. ROOT ONLY.
+#
+#   `skipped` is the SELinux layer being inactive -- a DAC-only host, where there is no
+#   ai_tools_exec_t to assign and nothing to fix. The reason is a short TOKEN, not prose: every
+#   field here is read back through the stamp accessors' charset clamp, which admits no spaces, and
+#   the operator-facing detail (semanage's own message) belongs in the log the refusal already
+#   writes. This says which class of failure, so the report can name the remedy.
+ai_tools_entrypoint_label_write() {
+    local agent="${1:-}" result="${2:-}" reason="${3:-}" record
+    record="$(ai_tools_entrypoint_label_path "${agent}")" || return 1
+    case "${result}" in ok|failed|skipped) ;; *) return 1 ;; esac
+    [[ -z "${reason}" || "${reason}" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || reason=""
+    {
+        printf '# ai-tools entrypoint label record -- written as root, read by ai-tools --status.\n'
+        printf 'AGENT=%s\nRESULT=%s\nLABELLED=%s\n' \
+            "${agent}" "${result}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        # See the pin above: the last command's status is the group's, and most records carry no
+        # reason -- so an `ok` outcome would report itself as unrecordable.
+        if [[ -n "${reason}" ]]; then printf 'REASON=%s\n' "${reason}"; fi
+    } | _ai_tools_ev_write_record "${record}" "${AI_TOOLS_ENTRYPOINT_LABEL_DIR}"
 }
 
 # _ai_tools_ev_pin_field <pin-file> <key> : read one field defensively. A symlink is refused (the
@@ -177,29 +240,20 @@ ai_tools_entrypoint_pin_read() {
 }
 
 # ai_tools_entrypoint_pin_write <agent> <version> <sha256> <source-url> : record a verified
-#   entrypoint. ROOT ONLY, and refused rather than left to fail on EACCES, so a caller can tell
-#   "not permitted" from "the directory is missing". Written whole through a temp file and renamed,
-#   so a reader never sees a partial pin.
+#   entrypoint. ROOT ONLY (see _ai_tools_ev_write_record, which also makes the write atomic). A
+#   checksum is admitted only in exact 64-hex shape, so a partial observation never lands as a pin.
 ai_tools_entrypoint_pin_write() {
-    local agent="${1:-}" version="${2:-}" checksum="${3:-}" source_url="${4:-}" pin tmp
-    [[ "${EUID:-$(id -u)}" -eq 0 ]] || { _ai_tools_ev_warn "refusing to write a pin as non-root"; return 1; }
+    local agent="${1:-}" version="${2:-}" checksum="${3:-}" source_url="${4:-}" pin
     pin="$(ai_tools_entrypoint_pin_path "${agent}")" || return 1
     [[ "${checksum}" =~ ^[0-9a-f]{64}$ ]] || return 1
-    [[ -d "${AI_TOOLS_ENTRYPOINT_PIN_DIR}" ]] \
-        || install -d -m 0750 -o root -g root "${AI_TOOLS_ENTRYPOINT_PIN_DIR}" 2>/dev/null \
-        || { _ai_tools_ev_warn "cannot create ${AI_TOOLS_ENTRYPOINT_PIN_DIR}"; return 1; }
-    tmp="$(mktemp "${pin}.XXXXXX" 2>/dev/null)" || return 1
     {
         printf '# ai-tools entrypoint pin -- written as root, read by the launch shim.\n'
         printf 'AGENT=%s\nVERSION=%s\nSHA256=%s\nVERIFIED=%s\n' \
             "${agent}" "${version:-unknown}" "${checksum}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        [[ -n "${source_url}" ]] && printf 'SOURCE=%s\n' "${source_url}"
-    } > "${tmp}" 2>/dev/null || { rm -f -- "${tmp}"; return 1; }
-    # World-readable: a published checksum is not a secret, and the launch shim reads it as the
-    # sandbox account. The 0750 directory above is the boundary, not this mode.
-    chmod 0644 "${tmp}" 2>/dev/null || true
-    mv -f -- "${tmp}" "${pin}" 2>/dev/null || { rm -f -- "${tmp}"; return 1; }
-    return 0
+        # An `if`, not `[[ ]] && printf`: this is the group's LAST command, so its status is the
+        # group's, and a pin written without a source URL would fail the pipeline that writes it.
+        if [[ -n "${source_url}" ]]; then printf 'SOURCE=%s\n' "${source_url}"; fi
+    } | _ai_tools_ev_write_record "${pin}" "${AI_TOOLS_ENTRYPOINT_PIN_DIR}"
 }
 
 # _ai_tools_ev_dearmor <armored-key> <out> : convert a published ASCII-armored key to the binary

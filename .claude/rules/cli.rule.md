@@ -235,8 +235,9 @@ A third gate, `require_for_target`, runs immediately after it and validates a `-
   Everything is recorded to `stop.log` and journald, including which path gave consent and which
   pass ended each session. Exit codes are in `ai-tools(1)`.
 - `--status` — read-only health report: the installed `ai-tools` version, whether the toolchain is
-  provisioned, then each managed systemd unit (`ai-tools-handback.socket`, `ai-tools-relabel.path`,
-  and the sandbox account's `nvm-update.timer` and `nvm-update.service`) as OK / SKIPPED / STALE /
+  provisioned, then each managed systemd unit (`ai-tools-handback.socket`, `ai-tools-relabel.path`
+  and the `ai-tools-relabel.service` it triggers, and the sandbox account's `nvm-update.timer` and
+  `nvm-update.service`) as OK / SKIPPED / STALE /
   DOWN / FAILED /
   not-installed, with the consequence and the exact remedy for anything broken, and a closing
   **More** block that points at the sibling
@@ -288,9 +289,10 @@ advancing surfaces. The account's own
   anything is broken, so the command is usable from a monitor or cron without parsing its output.
   An unqueryable unit is not a fault and does not alarm.
 
-  **Entrypoint verification is reported; the entrypoint's label is not.** The two are asked from
-  different vantages, which is the whole reason they differ. The *pin* is a root-owned record placed
-  where the operator can read it, so `--status` reports one line per agent that declares a release
+  **Both halves of the entrypoint reconciliation are reported, from the records it writes.** Neither
+  the binary nor its label can be inspected from this account, so each half leaves a root-owned
+  record where the operator can read it. The *pin* is the verification half: `--status` reports one
+  line per agent that declares a release
   manifest: `VERIFIED` with the pinned version and how long ago, or `unverified`, or `?` when this
   account cannot read the pin at all (`--status` stays open to a non-operator, who cannot traverse
   the state directory). It reads through the **same stamp accessors** as the unit records — the pin
@@ -301,17 +303,36 @@ advancing surfaces. The account's own
   everywhere else it is a legitimate state — an air-gapped host, a release the vendor published no
   manifest for — and must not alarm, the same rule the unqueryable units follow.
 
-  The **label**, by contrast, is not reported here, though it is the precondition `ai-tools-run`
-  fail-closes on. Reading an entrypoint's live context means `stat`ing a file under
-  `/opt/ai-tools/.nvm`, which `ai-tools-bootstrap` creates `0750 SANDBOX_USER:SANDBOX_GROUP` — the
-  operator is not in that group and cannot traverse it, and `matchpathcon` computes only what the
-  label *should* be, never what it is. No unprivileged check is possible from this vantage point.
-  Little is lost, because the drift is already handled where it arises rather than observed after
-  the fact: `ai-tools-relabel.path` relabels the entrypoint whenever a Node upgrade repoints its
-  launcher (see [updater](updater.rule.md)), and that watcher **is** one of the registry entries
-  reported above — so the mechanism that keeps entrypoints labelled is what `--status` covers. A
-  mislabel that survives it stops the next launch with the fault and the `ai-tools --relabel` that
-  clears it.
+  The **labelling** is reported beneath it, from a second record the same helper writes
+  (`state/entrypoint-label.d/<agent>`, see [updater](updater.rule.md)): `labelled` with its age,
+  `NOT LABELLED` with the class of failure, `not labelled` for a host with nothing to label (the
+  SELinux layer inactive, or an agent the toolchain has not provisioned), or `?` where no
+  reconciliation has been recorded. Only a recorded failure counts toward the exit status, since it
+  is the one state that stops the next launch.
+
+  **The two halves are reported together because they fail independently.** Verification and
+  labelling run in the same helper, in that order, and the first can succeed while the second does
+  not — leaving the pin line freshly green, written by the very run whose labelling failed. Reported
+  alone it reads as an all-clear rather than as half a story.
+
+  What is reported is the last run's **outcome**, not the live label. Reading an entrypoint's actual
+  context means `stat`ing a file under `/opt/ai-tools/.nvm`, which `ai-tools-bootstrap` creates
+  `0750 SANDBOX_USER:SANDBOX_GROUP` — the operator is not in that group and cannot traverse it, and
+  `matchpathcon` computes only what a label *should* be, never what it is. So the record carries the
+  same caveat as the rest of this report: it is an event, and `ai-tools --relabel` is what confirms
+  the labels now. A mislabel that arises after it still stops the next launch with the fault and the
+  command that clears it.
+
+  **The unit that does the labelling is reported too, and it is not the same signal.**
+  `ai-tools-relabel.service` is in the registry beside the `.path` that triggers it, because a
+  healthy watcher says only that a run *started* — on the upgrade that motivated both records, the
+  watcher was `OK` and the relabel it fired had failed. A `Type=oneshot` service is inactive
+  whenever it is healthy, so it is judged by the result of its last run rather than by `is-active`
+  (see `services.lib.sh`), and its remedy is `systemctl start ai-tools-relabel.service`: that
+  re-runs the work *and* clears the recorded failure the report reads, which `ai-tools --relabel`
+  does not. The two records answer different questions — the label record covers every caller
+  (an rpm `%post`, the watcher, `--relabel`), while the unit covers a watcher run that failed before
+  it reached any labelling at all.
 
   Every command for such a unit goes through root, and the CLI composes them rather than the
   registry storing them: each names the sandbox **account**, and `services.lib.sh` is deployed with

@@ -10,7 +10,8 @@
 # scans, and formats the result however it likes (a framed warn at launch, a plain table in --status).
 #
 # Detection is two-sourced, by scope. A system unit is queried live (`systemctl is-active`, which
-# any user may read). A unit in the sandbox account's own `systemd --user` manager is not reachable
+# any user may read) -- except a Type=oneshot service, which is inactive whenever it is healthy and
+# is judged by the result of its last run instead. A unit in the sandbox account's own `systemd --user` manager is not reachable
 # from the operator's session at all -- the machine transport needs root and no NOPASSWD rule grants
 # it -- so its state comes from a LAST-RUN STAMP the unit writes to a path the operator can read
 # (/var/opt/ai-tools/state), and from the one live fact that IS readable: whether its unit file is
@@ -37,8 +38,9 @@
 readonly _AI_TOOLS_SERVICES_LIB_LOADED=1
 
 # Registry: "unit|scope|severity|preflight|purpose|remedy|stamp|stamp_mode|max_age".
-#   scope    = system       -- checkable unprivileged via `systemctl is-active` (a system unit's
-#                              state is world-readable).
+#   scope    = system       -- checkable unprivileged (a system unit's state is world-readable):
+#                              from `systemctl is-active`, or, for a Type=oneshot service, from the
+#                              result of its last run, since such a unit is inactive while healthy.
 #              sandbox-user  -- a --user unit in the sandbox account's own systemd instance, which
 #                              the operator cannot query unprivileged, so its live state comes from
 #                              a last-run stamp if the unit publishes one and is reported as
@@ -77,6 +79,7 @@ readonly _AI_TOOLS_SERVICES_LIB_LOADED=1
 _AI_TOOLS_SERVICES=(
   "ai-tools-handback.socket|system|critical|shim|the privilege bridge every ownership hand-back runs over; without it, files the agent writes stay ai-tools-owned and git reports \"dubious ownership\"|sudo systemctl enable --now ai-tools-handback.socket|||"
   "ai-tools-relabel.path|system|critical|wrapper|the watcher that re-labels the agent entrypoint after a Node auto-upgrade repoints its symlink; without it, a post-upgrade launch fail-closes on a mislabelled binary|sudo systemctl enable --now ai-tools-relabel.path|||"
+  "ai-tools-relabel.service|system|critical|none|the relabel run the watcher triggers, which gives a freshly installed agent entrypoint its ai_tools_exec_t type; without a run that succeeded the entrypoint can carry the wrong type and the next launch fail-closes|sudo systemctl start ai-tools-relabel.service|||"
   "nvm-update.timer|sandbox-user|maintenance|none|the sandbox account's toolchain auto-update schedule; without it, Node and the agent packages stop receiving updates|sudo ai-tools-bootstrap|/var/opt/ai-tools/state/nvm-update.status|fired|172800"
   "nvm-update.service|sandbox-user|maintenance|none|the toolchain update run the timer triggers; without a recent successful run, Node and the agent packages stop receiving updates||/var/opt/ai-tools/state/nvm-update.status|result|172800"
 )
@@ -103,6 +106,22 @@ ai_tools_service_stamp_field() {
     line="$(head -c 4096 -- "${stamp}" 2>/dev/null \
                 | grep -m1 -E "^${key}=[A-Za-z0-9:+._-]{1,64}$" 2>/dev/null)" || return 0
     printf '%s' "${line#*=}"
+    return 0
+}
+
+# ai_tools_service_unit_property <unit> <property>  -- PRINT one systemd property of a SYSTEM unit,
+# or nothing. ALWAYS returns 0. A system unit's properties are world-readable, so this needs no
+# privilege; a sandbox-user unit's are not reachable from here at all and are read from a stamp
+# instead. The value is clamped to the same display-safe charset as a stamp field: it reaches the
+# operator's terminal, and while systemd is a trusted writer, one reader for both records means one
+# place where that guarantee is made.
+ai_tools_service_unit_property() {
+    local unit="${1:-}" property="${2:-}" value
+    [[ -n "${unit}" && -n "${property}" ]] || return 0
+    command -v systemctl >/dev/null 2>&1 || return 0
+    value="$(systemctl show -p "${property}" --value -- "${unit}" 2>/dev/null)" || return 0
+    [[ "${value}" =~ ^[A-Za-z0-9:+._\ -]{1,64}$ ]] || return 0
+    printf '%s' "${value}"
     return 0
 }
 
@@ -163,9 +182,9 @@ _ai_tools_user_unit_installed() {
 #              health either, so it stays distinct from 'active' and keeps AGEING: a host that is
 #              offline once reads skipped, one that has been offline for days reads 'stale'.
 #   down    -- installed but not active (disabled or stopped) -- the state a remedy addresses.
-#   failed  -- the unit's last stamped run ended non-zero. Only a stamped sandbox-user unit reaches
-#              this: a system unit that failed reads as 'down' from is-active, which carries the
-#              same remedy.
+#   failed  -- the unit's last run ended non-zero: a stamped sandbox-user unit's recorded RESULT, or
+#              a system oneshot's systemd-recorded one. A system unit of any other type that is not
+#              running reads 'down' instead, which carries the same remedy.
 #   stale   -- the stamp is older than max_age. The unit is not reporting a fault -- which is the
 #              point: a schedule that quietly stops firing leaves every recorded run successful and
 #              would otherwise read as a permanent, and increasingly wrong, OK.
@@ -224,12 +243,30 @@ ai_tools_service_state() {
     if ! command -v systemctl >/dev/null 2>&1; then
         printf 'unknown'; return 0
     fi
+    if ! systemctl cat -- "${unit}" >/dev/null 2>&1; then
+        printf 'absent'; return 0
+    fi
+    # A Type=oneshot service is 'inactive' whenever it is HEALTHY -- it runs, does its work and
+    # exits -- so is-active cannot judge it and would read every successful run as 'down'. Its
+    # verdict is the result of its last run instead, which is also the only way a run that failed
+    # hours ago is still visible. Read from the unit's own type, so a oneshot added later needs no
+    # registry field: the property is what makes is-active meaningless, not this unit's identity.
+    if [[ "$(ai_tools_service_unit_property "${unit}" Type)" == oneshot ]]; then
+        # Never run: nothing to report, and Result reads 'success' on a unit that has done
+        # nothing, which would otherwise be an OK no run has earned.
+        [[ -n "$(ai_tools_service_unit_property "${unit}" ExecMainStartTimestamp)" ]] \
+            || { printf 'unknown'; return 0; }
+        if [[ "$(ai_tools_service_unit_property "${unit}" Result)" == success ]]; then
+            printf 'active'
+        else
+            printf 'failed'
+        fi
+        return 0
+    fi
     if systemctl is-active --quiet -- "${unit}" 2>/dev/null; then
         printf 'active'
-    elif systemctl cat -- "${unit}" >/dev/null 2>&1; then
-        printf 'down'
     else
-        printf 'absent'
+        printf 'down'
     fi
     return 0
 }

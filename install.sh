@@ -888,6 +888,7 @@ do_install() {
     # Verified entrypoint pins: root-owned and not group-writable, so the account the pin
     # constrains cannot write it. 755 so the sandbox account can read the pin at launch.
     install -o root -g root -d -m 755 /var/opt/ai-tools/state/entrypoint-pin.d
+    install -o root -g root -d -m 755 /var/opt/ai-tools/state/entrypoint-label.d
     log "/usr/local/lib/ai-tools/keys/claude-code.asc"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/keys/claude-code.asc" \

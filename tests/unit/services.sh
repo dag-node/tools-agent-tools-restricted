@@ -114,6 +114,9 @@ fi
 # comes from _SVC_STATE (active|down|absent); an unset unit defaults to absent. is-active succeeds
 # only for 'active'; cat (presence) succeeds for anything not 'absent'. ---
 declare -A _SVC_STATE=()
+# Unit properties for the `show` verb, keyed "<unit>|<property>". A unit with no Type entry reads
+# as a non-service, which is what every unit here was before oneshots were distinguished.
+declare -A _SVC_PROP=()
 systemctl() {
     local verb="$1"; shift
     local a unit=""
@@ -121,6 +124,15 @@ systemctl() {
     case "${verb}" in
         is-active) [[ "${_SVC_STATE[${unit}]:-absent}" == active ]] ;;
         cat)       [[ "${_SVC_STATE[${unit}]:-absent}" != absent ]] ;;
+        show)      local prop="" next_is_prop=0
+                   unit=""
+                   for a in "$@"; do
+                       if [[ "${a}" == -p ]]; then next_is_prop=1; continue; fi
+                       if (( next_is_prop )); then prop="${a}"; next_is_prop=0; continue; fi
+                       [[ "${a}" == -* ]] && continue
+                       unit="${a}"
+                   done
+                   printf '%s' "${_SVC_PROP[${unit}|${prop}]:-}" ;;
         *)         return 3 ;;
     esac
 }
@@ -137,6 +149,77 @@ if [[ "${st_socket}" == active && "${st_relabel}" == down \
 else
     fail "state mapping wrong: socket=${st_socket} relabel=${st_relabel} absent=${st_absent} timer=${st_timer}"
 fi
+
+# --- (B1) a Type=oneshot service is judged by its LAST RUN, not by is-active ---
+# Such a unit is 'inactive' whenever it is healthy, so is-active would report every successful run
+# as DOWN and -- worse -- report a run that FAILED hours ago the same way, hiding it behind a
+# remedy that does not apply. ai-tools-relabel.service is the case that matters: it is triggered by
+# a .path watcher whose own health says nothing about whether the relabel it started succeeded.
+ONESHOT=ai-tools-relabel.service
+_SVC_STATE=( [${ONESHOT}]=down )
+
+_SVC_PROP=( [${ONESHOT}|Type]=oneshot )
+st_never="$(ai_tools_service_state "${ONESHOT}" system)"
+if [[ "${st_never}" == unknown ]]; then
+    pass "a oneshot that has never run is 'unknown', not an OK it has not earned"
+else
+    fail "a never-run oneshot read as '${st_never}'"
+fi
+
+_SVC_PROP=( [${ONESHOT}|Type]=oneshot [${ONESHOT}|ExecMainStartTimestamp]="Tue 2026-08-25 19:49:22 CEST"
+            [${ONESHOT}|Result]=success )
+st_ok="$(ai_tools_service_state "${ONESHOT}" system)"
+if [[ "${st_ok}" == active ]]; then
+    pass "a oneshot whose last run succeeded is OK though it is not running"
+else
+    fail "a successful oneshot read as '${st_ok}' (is-active would say 'down')"
+fi
+
+_SVC_PROP=( [${ONESHOT}|Type]=oneshot [${ONESHOT}|ExecMainStartTimestamp]="Tue 2026-08-25 19:49:22 CEST"
+            [${ONESHOT}|Result]=exit-code )
+st_failed="$(ai_tools_service_state "${ONESHOT}" system)"
+if [[ "${st_failed}" == failed ]] && ai_tools_service_needs_attention "${st_failed}"; then
+    pass "a oneshot whose last run failed is FAILED and needs attention"
+else
+    fail "a failed oneshot read as '${st_failed}' (needs_attention decides the exit status)"
+fi
+
+# The unit that triggers it is a .path, which has no Type -- so the reading above must not change
+# how any non-service unit is judged.
+_SVC_STATE=( [ai-tools-relabel.path]=active )
+_SVC_PROP=()
+if [[ "$(ai_tools_service_state ai-tools-relabel.path system)" == active ]]; then
+    pass "a unit with no Type is still judged by is-active"
+else
+    fail "a non-service unit was judged as a oneshot"
+fi
+
+# The registry entry, and the remedy it names. `ai-tools --relabel` does the same work through a
+# different path, which leaves this unit's recorded failure standing -- so the remedy has to be the
+# one that both re-runs the work and clears what the report reads.
+relabel_rec=""
+while IFS= read -r rec; do
+    [[ "$(ai_tools_service_field "${rec}" 1)" == "${ONESHOT}" ]] && relabel_rec="${rec}"
+done < <(ai_tools_service_records)
+if [[ -n "${relabel_rec}" \
+      && "$(ai_tools_service_field "${relabel_rec}" 6)" == "sudo systemctl start ${ONESHOT}" \
+      && "$(ai_tools_service_field "${relabel_rec}" 4)" == none ]]; then
+    pass "ai-tools-relabel.service is registered, with a remedy that clears its recorded result"
+else
+    fail "ai-tools-relabel.service registry entry missing or wrong: ${relabel_rec:-<absent>}"
+fi
+
+# The launch wrapper must not warn about it: ai-tools-relabel.path already carries that warning,
+# and one upgrade would otherwise print two lines for one condition.
+_SVC_PROP=( [${ONESHOT}|Type]=oneshot [${ONESHOT}|ExecMainStartTimestamp]="Tue 2026-08-25 19:49:22 CEST"
+            [${ONESHOT}|Result]=exit-code )
+_SVC_STATE=( [${ONESHOT}]=down )
+if ai_tools_services_scan wrapper; then
+    fail "the wrapper filter selected the relabel service (preflight=none should exclude it)"
+else
+    pass "the wrapper does not warn about the relabel service the .path already covers"
+fi
+_SVC_PROP=(); _SVC_STATE=()
 
 # A sandbox-user unit is never queried through systemctl -- that account's bus is unreachable from
 # here, so a stub reporting it 'active' must not be able to leak into the verdict.
