@@ -253,7 +253,11 @@ The load and unload scriptlets live in the subpackage, with the payload, so no c
 ordering question arises. `%post` runs `semodule -i` — into the running kernel policy, not only the
 module store, since the entrypoint cannot be labelled until the module's types exist in the kernel —
 at the default module priority, the same slot `install-selinux.sh` and `ai-tools-admin` address, so a
-host holds one copy of each module. After the module load, `%post` also `restorecon`s the trees
+host holds one copy of each module. A load that fails is **reported with `semodule`'s own message**
+and the command that repeats it, rather than swallowed: every type the entrypoint and project labels
+name comes from this module, so a load that did not happen surfaces later as a relabel that cannot
+register its rules and a launch that fail-closes, with nothing naming this as the cause. The
+transaction still completes — the remedy is a re-run, not a rollback. After the module load, `%post` also `restorecon`s the trees
 that carry `ai_tools*` types (the handback daemon among them) and, when the handback socket is
 already active — an upgrade — refreshes the live listener: `restorecon` fixes the daemon binary's
 on-disk label, but the socket bound on tmpfs `/run/ai-tools` keeps its stale context and its

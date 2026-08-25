@@ -363,6 +363,11 @@ install -d -m 0750 %{buildroot}/var/opt/ai-tools/state
 # by the launch shim as the sandbox account. Root-owned and NOT group-writable, like its parent:
 # the whole value of a pin is that the account it constrains cannot write it.
 install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-pin.d
+# What the last reconciliation could do about each agent's SELinux labels -- the labelling half's
+# counterpart to the pin above, written by the same helper and read by `ai-tools --status`. Same
+# ownership for the same reason: it reports on the sandbox account, which must not be able to
+# rewrite it.
+install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-label.d
 install -m 0640 src/var/opt/ai-tools/README.md %{buildroot}/var/opt/ai-tools/README.md
 install -d -m 0700 %{buildroot}/var/log/ai-tools
 
@@ -649,8 +654,16 @@ fi
 # daemon-reexec + socket restart re-derive the listener context from the now-correct binary label.
 # Guarded on is-active, so a fresh install (base %posttrans starts it later, already correct) no-ops.
 # Same sequence as install-selinux.sh _relabel_runtime; rationale in confinement.rule.md.
+#
+# A failed load is REPORTED rather than swallowed: every type the entrypoint and the project
+# labels name comes from this module, so a load that did not happen surfaces later as a relabel
+# that cannot register its rules and a launch that fail-closes, with nothing naming this as the
+# cause. The transaction still completes -- the remedy is a re-run, not a rollback.
 if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/null 2>&1; then
-    semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp >/dev/null 2>&1 || :
+    _semodule_error=$(semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp 2>&1) || {
+        echo "ai-tools-selinux: WARNING could not load the ai_tools policy module: ${_semodule_error}" >&2
+        echo "ai-tools-selinux: sessions run unconfined until it loads; re-run: sudo semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp" >&2
+    }
     if command -v restorecon >/dev/null 2>&1; then
         restorecon -R %{ai_libexecdir} %{ai_libdir} /opt/ai-tools /var/log/ai-tools >/dev/null 2>&1 || :
     fi
@@ -867,6 +880,7 @@ fi
 # it through the g:ai-ops:r-x ACL %post applies (%files cannot express an ACL).
 %dir %attr(0750, root, ai-tools) /var/opt/ai-tools/state
 %dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-pin.d
+%dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-label.d
 %dir %attr(0700, root, root) /var/log/ai-tools
 %ghost %attr(0600, root, root) /var/log/ai-tools/chown.log
 %ghost %attr(0600, root, root) /var/log/ai-tools/setgid.log

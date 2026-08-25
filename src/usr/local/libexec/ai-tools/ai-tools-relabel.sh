@@ -103,6 +103,14 @@ ai_tools_assert_safe_target "${dir}" "relabel" || exit 3
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/relabel.lib.sh
 source "${RELABEL_LIB}" 2>/dev/null || die "missing label library: ${RELABEL_LIB}"
 
+# Serialize against the agent relabel (ai-tools-relabel-agent), which writes the same policy
+# store: a claim can land while the ai-tools-relabel.path watcher is running one. Proceeding
+# unserialized is reported, not fatal (see relabel.lib.sh).
+ai_tools_relabel_lock
+[[ -z "${AI_TOOLS_RELABEL_LOCK_NOTE}" ]] \
+    || { echo "ai-tools-relabel: NOTE: relabels are not serialized on this host -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"
+         ai_tools_log_warn "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"; }
+
 if ai_tools_relabel_available; then :; else
     # SELinux off or restorecon absent -- nothing to do, and not an error: the
     # confinement layer simply is not in play on this host.

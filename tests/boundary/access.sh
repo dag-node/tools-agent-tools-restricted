@@ -331,6 +331,7 @@ fi
 # the key that decided what went into it. Probed rather than inferred from modes, so an ACL that
 # contradicts a correct-looking mode still fails.
 for _ev_path in /var/opt/ai-tools/state/entrypoint-pin.d \
+                /var/opt/ai-tools/state/entrypoint-label.d \
                 /usr/local/lib/ai-tools/keys \
                 /usr/local/lib/ai-tools/keys/claude-code.asc \
                 /usr/local/lib/ai-tools/entrypoint-verify.lib.sh; do
@@ -354,6 +355,21 @@ elif runuser -u "${SANDBOX_USER}" -- test -w "${_ev_pin}" 2>/dev/null; then
     fail "the agent can write ${_ev_pin} -- it could pin the checksum of a binary it tampered with"
 else
     pass "the agent cannot write its own entrypoint pin"
+fi
+
+# The labelling record, for a different reason from the pin: it gates nothing, it is REPORTED. An
+# agent that could write it could tell `ai-tools --status` its labels were applied on a host where
+# the relabel had failed -- turning the operator's one window onto the labelling half into
+# something the sandbox account writes.
+_ev_label=/var/opt/ai-tools/state/entrypoint-label.d/claude-code
+if [[ ! -e "${_ev_label}" ]]; then
+    skip "entrypoint label record not agent-writable" "no record written yet at ${_ev_label}"
+elif [[ -L "${_ev_label}" ]]; then
+    fail "${_ev_label} is a symlink -- the reader refuses one, but its presence means something other than the root helper wrote there"
+elif runuser -u "${SANDBOX_USER}" -- test -w "${_ev_label}" 2>/dev/null; then
+    fail "the agent can write ${_ev_label} -- it could report its own labelling healthy"
+else
+    pass "the agent cannot write the record that reports its labelling"
 fi
 
 # ── journald attribution: a tag is not an attribution, _UID is ───────────────────────────────
