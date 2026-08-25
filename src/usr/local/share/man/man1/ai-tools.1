@@ -410,6 +410,56 @@ refused elsewhere rather than ignored. It cannot be combined with
 .BR "\-\-project\-unclaim \-\-force" ,
 whose tree carries no allowlist entry naming an owner and is therefore bound to
 the invoking operator.
+.SH EXIT STATUS
+.TP
+.B 0
+The command completed.
+A dry run that printed its plan, and an idempotent verb that found nothing left
+to do, both land here.
+.TP
+.B 1
+The operation failed.
+For
+.B \-\-stop
+this is the specific case that a process was still running after the kill:
+re-run it.
+.TP
+.B 2
+The command line was rejected.
+.B \-\-stop
+returns this for a
+.I path
+argument, which it refuses rather than accepts and ignores.
+.TP
+.B 3
+The target is a protected path \(em a system directory or a home root \(em and
+every elevated helper refuses it, whatever the allowlist says.
+.TP
+.B 5
+.B \-\-stop
+could not run at all: it was not invoked as root, the sandbox account has no
+uid, or the host exposes no cgroup v2 hierarchy.
+No session was signalled.
+.TP
+.B 130
+.B \-\-stop
+was interrupted by a signal.
+Some sessions may be partially stopped; re-run it.
+.SH ENVIRONMENT
+.TP
+.B AI_TOOLS_ASSUME_YES
+Set to
+.B 1
+to answer every question whose default is already
+.I yes
+without prompting, for unattended runs.
+A question defaulting to
+.I no
+still prompts, so this never turns a refusal into consent.
+.PP
+Operator-wide settings are not environment variables: they live in
+.BR operator.conf (5),
+which is root-owned so that a session cannot widen what it is given.
 .SH FILES
 .TP
 .I ~/.config/ai-tools/allowed-projects
@@ -424,18 +474,56 @@ Operator registry and skip-list overrides.
 The sandbox-clone area;
 .I /var/opt/ai-tools/README.md
 documents the push-only clone workflow.
+.SH EXAMPLES
+Claim the project in the current directory, answering each prompt:
+.PP
+.RS 4
+.EX
+ai\-tools \-\-project\-claim
+.EE
+.RE
+.PP
+Claim a specific tree, taking every default:
+.PP
+.RS 4
+.EX
+ai\-tools \-\-project\-claim \-y ~/src/myproject
+.EE
+.RE
+.PP
+List what is registered, and what the sandbox account resolves for a session:
+.PP
+.RS 4
+.EX
+ai\-tools \-\-list
+ai\-tools \-\-providers
+.EE
+.RE
+.PP
+End every running agent session on the host:
+.PP
+.RS 4
+.EX
+sudo ai\-tools \-\-stop
+.EE
+.RE
+.PP
+Give a project back and leave the directory on disk:
+.PP
+.RS 4
+.EX
+ai\-tools \-\-project\-unclaim ~/src/myproject
+.EE
+.RE
 .SH SEE ALSO
-.BR sudo (8),
-.BR setfacl (1).
+.BR operator.conf (5),
+.BR setfacl (1),
+.BR sudo (8).
 .PP
-The lifecycle guide (claim vs sandbox decision, what each prompt grants,
-recovery paths):
-.I docs/project\-lifecycle.md
-in the source repository
-.RI ( https://github.com/dag\-node/tools\-agent\-tools\-restricted ).
+The lifecycle guide \(em claim against sandbox clone, what each prompt grants,
+and the recovery paths:
+.I /usr/share/doc/ai\-tools/project\-lifecycle.md
 .PP
-Stopping a running session \(em what each outcome means, the invariants the stop rests
-on, and what a stop cannot undo:
+Stopping a running session \(em what each outcome means, the invariants the stop
+rests on, and what a stop cannot undo:
 .I /usr/share/doc/ai\-tools/session\-stop.md
-.RI ( docs/session\-stop.md
-in the source repository).
