@@ -46,6 +46,15 @@ readonly AI_TOOLS_RETIRED_ASSETS=(
     "skills/ai-tools-docs-changelog"
 )
 
+# An UPDATE replaces the live copy outright and keeps no sidecar, which is not an oversight: there
+# is no baseline to detect an edit against. The live copy is the previous version, so it differs
+# from the incoming one by definition, and the pristine datadir carries only the current version
+# (rpm has already replaced it by the time this runs). A copy-on-every-update would therefore fire
+# on every upgrade and bury the withdrawal copies that matter. An update is also announced and
+# declinable, and the supported ways to override a shipped asset live elsewhere -- an asset without
+# the marker is never touched, and a real file in an agent's own directory shadows the link. A
+# WITHDRAWAL has neither property, which is why that path preserves and this one does not.
+
 # Print the integer x-ai-tools-version from a managed asset's marker file; empty if absent.
 ai_tools_asset_version() {
     grep -m1 -E '^x-ai-tools-version:' "$1" 2>/dev/null | grep -oE '[0-9]+' | head -n1
@@ -114,7 +123,7 @@ ai_tools_seed_managed_assets() {
                 fi
                 cur="$(ai_tools_asset_version "${dst_marker}")"; new="$(ai_tools_asset_version "${marker}")"
                 if [[ -n "${new}" && -n "${cur}" && "${new}" -gt "${cur}" ]]; then
-                    if ai_tools_msg_confirm "Update ${name} (v${cur} -> v${new})?" n; then
+                    if ai_tools_msg_confirm "Update ${name} (v${cur} -> v${new})?" y; then
                         _ai_tools_place_asset "${src%/}" "${dst}" "${group}"
                         _ai_tools_ma_say "${name} updated (v${cur} -> v${new})"
                     else
@@ -132,18 +141,37 @@ ai_tools_seed_managed_assets() {
 }
 
 # ai_tools_remove_retired_assets <live_root> [kinds...]
-# Remove the assets in AI_TOOLS_RETIRED_ASSETS from a live shared root, so a host upgraded from a
+# Withdraw the assets in AI_TOOLS_RETIRED_ASSETS from a live shared root, so a host upgraded from a
 # package that still shipped them stops offering them. Restricted to the named kinds when given.
 #
-# Removal requires the x-ai-tools-managed marker, so an asset the operator authored under the same
-# name is kept and reported -- the same predicate the seeder uses to decide what it may claim.
+# Withdrawal requires the x-ai-tools-managed marker, so an asset the operator authored under the
+# same name is kept and reported -- the same predicate the seeder uses to decide what it may claim.
 # Each agent's symlink is left to `ai_tools_link_shared_assets`, which drops a link into the shared
 # root once its target is gone.
+#
+# The asset is MOVED, not deleted: a withdrawn asset has no shipped counterpart left to compare
+# against, so there is no way to tell a copy an operator edited from an untouched one, and the
+# unrecoverable direction is the one to avoid. It lands in `<live_root>/retired/` as
+# `<name>.<YYYYMMDD>.retired`, through the same stamping helper conf.lib.sh uses for a replaced
+# config -- one home for the `<name>.<YYYYMMDD>[-N].<kind>` shape, and a kind token that says which
+# event produced the copy. A subagent keeps its `.md`, so one flat directory holds both kinds
+# without collision.
+#
+# That directory sits BESIDE the shared roots rather than inside one, which is what keeps it out of
+# circulation: the linker iterates a shared root and would otherwise create a symlink for the
+# sidecar, and an agent scanning its own directory reads whatever a link points at. Renaming the
+# asset inside the skills root would leave both of those depending on how a given agent product
+# decides what is a skill -- a rule this project does not set. Out of the tree is the version that
+# does not need the assumption. It is 0700 root:root: recovery material an operator retrieves with
+# sudo, invisible to the sandbox account.
+#
+# Fails toward keeping: an asset whose copy cannot be made is left in place and reported, so a
+# withdrawal never destroys what it could not first preserve.
 # $1 live_root  $2.. kinds (default: every kind named in the list)
 ai_tools_remove_retired_assets() {
     local live_root="$1"; shift
     local -a kinds=( "$@" )
-    local entry kind name path marker
+    local entry kind name path marker retired_dir target
     for entry in "${AI_TOOLS_RETIRED_ASSETS[@]}"; do
         kind="${entry%%/*}"; name="${entry#*/}"
         if (( ${#kinds[@]} )); then
@@ -160,8 +188,15 @@ ai_tools_remove_retired_assets() {
             _ai_tools_ma_say "${name} kept (operator's own, not ai-tools-managed)"
             continue
         fi
-        rm -rf "${path}"
-        _ai_tools_ma_say "${name} removed (no longer shipped)"
+        retired_dir="${live_root}/retired"
+        if ! declare -F ai_tools_conf_sidecar_path >/dev/null 2>&1 \
+           || ! install -d -o root -g root -m 700 "${retired_dir}" 2>/dev/null \
+           || ! target="$(ai_tools_conf_sidecar_path "${retired_dir}/${name}" retired)" \
+           || ! mv "${path}" "${target}" 2>/dev/null; then
+            _ai_tools_ma_say "${name} kept (no longer shipped, and could not be moved aside)"
+            continue
+        fi
+        _ai_tools_ma_say "${name} withdrawn (no longer shipped); kept as retired/${target##*/}"
     done
 }
 

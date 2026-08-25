@@ -121,10 +121,21 @@ asset — and keeps offering it to every session — until it is named in
 `AI_TOOLS_RETIRED_ASSETS` (`managed-assets.lib.sh`) as a `<kind>/<name>` entry.
 
 `ai_tools_remove_retired_assets` runs after the seeder in all three provisioning paths
-(`install.sh`, `ai-tools-bootstrap`, base's `%post`) and removes each listed asset from the live
-shared root. It gates on the same `x-ai-tools-managed` marker the seeder claims by, so an
-operator's own asset under a withdrawn name is kept and reported. Each agent's symlink needs no
-handling of its own: the linker drops a link into the shared root once its target is gone.
+(`install.sh`, `ai-tools-bootstrap`, base's `%post`). It gates on the same `x-ai-tools-managed`
+marker the seeder claims by, so an operator's own asset under a withdrawn name is kept and
+reported. Each agent's symlink needs no handling of its own: the linker drops a link into the
+shared root once its target is gone.
+
+The asset is **moved, not deleted**, to `/opt/ai-tools/retired/<name>.<YYYYMMDD>.retired` —
+`ai_tools_conf_sidecar_path` (`conf.lib.sh`) is the single home of that stamp, shared with the
+config sidecars, and the kind token names the event that produced the copy. Withdrawal is the one
+path with no prompt and no baseline, so it fails toward keeping: an asset that cannot be moved is
+left in place and reported rather than destroyed.
+
+`retired/` sits **beside** the shared roots, not inside one. The linker iterates a shared root and
+would otherwise symlink the sidecar into an agent's directory, where whether it loads comes down to
+how that product decides what a skill is — a rule this project does not set. It is `0700
+root:root`: operator recovery material, unreachable from the sandbox account.
 
 An entry stays listed for as long as a host may still carry that asset from an older package.
 Withdrawing therefore lands in the same change as the removal from `src/`, together with
@@ -139,7 +150,10 @@ It acts on an asset **only** when its name matches `ai-tools-*` **and** its fron
 
 - **absent** in the live tree → seeded;
 - **present + managed + a newer shipped `x-ai-tools-version`** → a keep/update confirm defaulting
-  to keep, so Enter and any non-interactive run leave an operator-tuned copy intact;
+  to **update**, so Enter and any non-interactive run (a scriptlet has no tty) take the new
+  version. The replace keeps no sidecar: the live copy is the previous version and differs from
+  the incoming one by definition, so there is no baseline an edit could be detected against, and a
+  copy per upgrade would bury the withdrawal copies that do carry something unrecoverable;
 - **present + unmanaged** (no marker) → left untouched (the operator's own file);
 - **present + same-or-older version** → no-op.
 
