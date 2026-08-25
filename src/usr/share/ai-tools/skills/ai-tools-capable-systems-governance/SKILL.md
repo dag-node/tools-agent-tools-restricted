@@ -3,8 +3,8 @@ name: ai-tools-capable-systems-governance
 # ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the name above is stable.
 x-ai-tools-managed: true
 x-ai-tools-status: draft
-x-ai-tools-version: 1
-x-ai-tools-updated: 2026-08-23
+x-ai-tools-version: 2
+x-ai-tools-updated: 2026-08-25
 description: "Use when designing, building, reviewing, or operating a system that acts with autonomy — an agent with tool access, a delegating or multi-agent system, anything holding credentials, spending, writing to external systems, persisting across sessions, or running unattended — and when writing the governance, oversight, or safety model for one. Sets the three-layer model: technical constraints limit what a system can do, monitoring planes detect what it is doing, operational doctrine defines what humans do when a threshold is crossed — bound by the rule that a control the system can decline is not a control. Covers least authority, asymmetric corrigibility, fail-closed-in-one-direction, authority that does not amplify through delegation, reversibility gates, audit before exotic telemetry, and a drilled escalation ladder; scales by blast radius, so a bounded tool gets a credential scope and an audit log rather than a monitoring plane. Governs the agent's own conduct in the sandbox too. For general design judgment defer to ai-tools-engineering-principles. Trigger on 'design an agent', 'give it tool/API access', 'it needs credentials', 'multi-agent', 'run unattended', 'kill switch', 'is this agentic system safe', or 'oversight/governance model'."
 ---
 
@@ -217,5 +217,4 @@ Hold a design against these; each failure is a finding.
 
 General design judgment (priority order, simplicity, fail-closed defaults, allowlists) belongs to
 `ai-tools-engineering-principles`; this skill specializes it for systems that act with autonomy and
-defers to it on everything else. Prose style belongs to `ai-tools-docs-reference`,
-`ai-tools-docs-usage`, `ai-tools-docs-comments`, and `ai-tools-docs-changelog`.
+defers to it on everything else. Prose style belongs to `ai-tools-technical-docs`.

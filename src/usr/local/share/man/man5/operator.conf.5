@@ -245,23 +245,8 @@ This file.
 .TQ
 .I /usr/local/lib/ai-tools/filters.d/
 Provider manifests and rule sets, keyed by the names used above.
-.SH EXAMPLES
-Enable the dotnet integration and keep every default elsewhere:
-.PP
-.RS 4
-.EX
-AI_TOOLS_INTEGRATIONS="dotnet"
-.EE
-.RE
-.PP
-Turn command filtering off while diagnosing unexpected command output:
-.PP
-.RS 4
-.EX
-AI_TOOLS_FILTERS=
-.EE
-.RE
-.SH UPGRADES
+.SH NOTES
+.SS Upgrades
 This file ships as
 .BR %config(noreplace) ,
 so an upgrade never overwrites what you wrote. When the shipped file has
@@ -289,6 +274,22 @@ Against
 .I operator.conf
 that command only reports: it names the new options and shows the difference,
 and every edit stays yours.
+.SH EXAMPLES
+Enable the dotnet integration and keep every default elsewhere:
+.PP
+.RS 4
+.EX
+AI_TOOLS_INTEGRATIONS="dotnet"
+.EE
+.RE
+.PP
+Turn command filtering off while diagnosing unexpected command output:
+.PP
+.RS 4
+.EX
+AI_TOOLS_FILTERS=
+.EE
+.RE
 .SH SEE ALSO
 .BR ai\-tools (1)
 .PP

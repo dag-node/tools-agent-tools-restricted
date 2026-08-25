@@ -280,10 +280,17 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
 
 ### Documentation register
 
-Match the surface to its skill — they use different voices:
+**Every artifact in this repo is written to the shipped `ai-tools-technical-docs` skill —
+invoke it before writing or editing prose of any kind.** One standard covers all of them;
+the artifact sections inside it carry the differences in structure, altitude, and reader:
 
-- `CLAUDE.md`, `.claude/rules/*.rule.md`, file/module headers, design notes → **reference-docs**
+- `CLAUDE.md`, `.claude/rules/*.rule.md`, file/module headers, design notes → reference prose
   (present-tense spec; state current behavior, not history).
-- `README.md`, getting-started, usage guides → **usage-docs**.
-- Method/function/class doc comments and docstrings → **doc-comments**.
-- Changelogs, release notes, migration guides → **change-docs**.
+- `README.md`, `docs/*.md`, getting-started guides, man pages → usage prose (example first).
+- Method/function/class doc comments and docstrings → the contract, in concrete types.
+- Changelogs, release notes, migration guides → what the operator gains and what changes on
+  upgrade.
+- Commit messages → Conventional Commits; the why and what the change achieves, pointing at
+  the layer that owns the detail rather than restating it.
+- `src/usr/local/share/man/**` → man pages; see the skill's `references/man-pages.md`.
+- Error messages, notices, and log lines → runtime output: what happened, and what to do.

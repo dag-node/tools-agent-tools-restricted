@@ -3,9 +3,9 @@ name: ai-tools-engineering-principles
 # ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the name above is stable.
 x-ai-tools-managed: true
 x-ai-tools-status: draft
-x-ai-tools-version: 1
-x-ai-tools-updated: 2026-07-15
-description: "Use when introducing a new feature (to set its shape before coding), when validating or reviewing a feature implementation against these defaults, or when choosing an approach, architecture, or how much machinery a problem warrants — in any language. Consult it at both ends: before building a feature and when checking the result. Sets the default engineering judgment: resolve trade-offs in the order security, then performance; write in a pragmatic, low-ceremony style (simple, explicit, terse-but-readable, POCO/DTO-first, no speculative abstraction); fail closed on critical components; sanitize with an allowlist not a blocklist; reach for the lightest mechanism that works; spend context and tokens deliberately (amortize discovery through persistent docs, isolate noisy fan-out work, and never downgrade planning to a weaker model); keep humans in the loop for irreversible or outward-facing actions. For prose style defer to ai-tools-docs-reference / ai-tools-docs-usage / ai-tools-docs-comments / ai-tools-docs-changelog. Trigger on 'add/implement a feature', 'design this', 'how should I build/structure this', 'which approach', 'review/validate this implementation', 'is this over-engineered', or any design/architecture decision."
+x-ai-tools-version: 2
+x-ai-tools-updated: 2026-08-25
+description: "Use when introducing a new feature (to set its shape before coding), when validating or reviewing a feature implementation against these defaults, or when choosing an approach, architecture, or how much machinery a problem warrants — in any language. Consult it at both ends: before building a feature and when checking the result. Sets the default engineering judgment: resolve trade-offs in the order security, then performance; write in a pragmatic, low-ceremony style (simple, explicit, terse-but-readable, POCO/DTO-first, no speculative abstraction); fail closed on critical components; sanitize with an allowlist not a blocklist; reach for the lightest mechanism that works; spend context and tokens deliberately (amortize discovery through persistent docs, isolate noisy fan-out work, and never downgrade planning to a weaker model); keep humans in the loop for irreversible or outward-facing actions. For prose style defer to ai-tools-technical-docs. Trigger on 'add/implement a feature', 'design this', 'how should I build/structure this', 'which approach', 'review/validate this implementation', 'is this over-engineered', or any design/architecture decision."
 ---
 
 # Engineering principles
@@ -58,8 +58,11 @@ understands in one pass — the code is the best documentation.
 - **Single-source each fact; link, don't repeat.** A given fact lives at exactly one layer — line
   comment, method doc, file header, a reference/rule file, CLAUDE.md, README — chosen by altitude;
   every other layer references it by a short link rather than restating it. Keep the layers in sync
-  up through CLAUDE.md with the **code as tiebreaker**: pinpoint and resolve any contradiction
-  against the code, never average two descriptions. A docs-to-code ratio climbing toward parity is a
+  up through CLAUDE.md: **the code is true for behaviour, and invariants have to hold.** Where a
+  description disagrees with the code, resolve it toward the code and never average two
+  descriptions. Where the *code* contradicts an invariant CLAUDE.md or a rule states, that is a
+  defect in the code — raise it and leave the invariant standing, because rewriting the invariant
+  to match retires a guarantee by editing prose. A docs-to-code ratio climbing toward parity is a
   signal the *code* must become self-descriptive (a rename, an extraction, a stronger type) — not
   that it needs more prose.
 - **Match the surrounding code.** Adopt the file's existing idioms, naming, and comment density
@@ -104,10 +107,9 @@ understands in one pass — the code is the best documentation.
 
 ## Routing
 
-- **Prose** — comments, docs, headers, READMEs, changelogs — is owned by the
-  writing skills: `ai-tools-docs-reference`, `ai-tools-docs-usage`, `ai-tools-docs-comments`, `ai-tools-docs-changelog`.
-  This skill governs the code and the decision, not the wording; those skills carry the terse,
-  present-tense, affirmative, mechanism-named voice.
+- **Prose** — comments, docs, headers, READMEs, changelogs, commit messages, runtime output — is
+  owned by `ai-tools-technical-docs`. This skill governs the code and the decision, not the
+  wording; that skill carries the terse, present-tense, affirmative, mechanism-named voice.
 
 ## Anti-patterns
 

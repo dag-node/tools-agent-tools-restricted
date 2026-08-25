@@ -185,10 +185,12 @@ ai_tools_conf_list() {
 # is never overwritten -- an operator who ran the installer twice in a day is exactly the one
 # who needs the first copy.
 
-# _ai_tools_conf_sidecar_path <file> <kind> : print an UNUSED sidecar path for <file>. Returns 1
+# ai_tools_conf_sidecar_path <path> <kind> : print an UNUSED sidecar path for <path>. Returns 1
 #   without printing when the day's namespace is exhausted, so a caller never silently reuses a
-#   name. Pure except for the existence tests.
-_ai_tools_conf_sidecar_path() {
+#   name. Pure except for the existence tests. Public because it is the single home of the
+#   `<path>.<YYYYMMDD>[-N].<kind>` convention: managed-assets.lib.sh stamps a replaced shipped
+#   asset the same way this file stamps a replaced config, and <path> may be a directory there.
+ai_tools_conf_sidecar_path() {
     local file="$1" kind="$2" stamp candidate index
     stamp="$(date +%Y%m%d)" || return 1
     candidate="${file}.${stamp}.${kind}"
@@ -218,7 +220,7 @@ _ai_tools_conf_match_perms() {
 ai_tools_conf_backup() {
     local file="$1" target
     [[ -f "${file}" ]] || return 1
-    target="$(_ai_tools_conf_sidecar_path "${file}" bak)" || return 1
+    target="$(ai_tools_conf_sidecar_path "${file}" bak)" || return 1
     cp -p "${file}" "${target}" 2>/dev/null || return 1
     printf '%s' "${target}"
 }
@@ -229,7 +231,7 @@ ai_tools_conf_backup() {
 ai_tools_conf_reference() {
     local deployed="$1" shipped="$2" target
     [[ -f "${shipped}" ]] || return 1
-    target="$(_ai_tools_conf_sidecar_path "${deployed}" shipped)" || return 1
+    target="$(ai_tools_conf_sidecar_path "${deployed}" shipped)" || return 1
     cp "${shipped}" "${target}" 2>/dev/null || return 1
     _ai_tools_conf_match_perms "${target}" "${deployed}"
     printf '%s' "${target}"

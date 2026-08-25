@@ -660,9 +660,9 @@ do_summary() {
     _chk /opt/ai-tools/.claude/settings.json
     _chk /opt/ai-tools/subagents/ai-tools-reference-architect.md
     _chk /opt/ai-tools/.claude/agents/ai-tools-reference-architect.md
-    _chk /opt/ai-tools/skills/ai-tools-docs-reference/SKILL.md
+    _chk /opt/ai-tools/skills/ai-tools-technical-docs/SKILL.md
     _chk /opt/ai-tools/skills/ai-tools-engineering-principles/SKILL.md
-    _chk /opt/ai-tools/.claude/skills/ai-tools-docs-reference
+    _chk /opt/ai-tools/.claude/skills/ai-tools-technical-docs
 
     printf '  %s\n' "${sep}"
     if (( missing == 0 )); then
@@ -1574,6 +1574,7 @@ do_install() {
         chown "root:${SANDBOX_GROUP}" "${_shared}"
         ai_tools_apply_mode "${CP_DIR_MODES[${_kind}]}" "${_shared}"
         ai_tools_seed_managed_assets /usr/share/ai-tools "${CP_HOME}" "${SANDBOX_GROUP}" "${_kind}"
+        ai_tools_remove_retired_assets "${CP_HOME}" "${_kind}"
         ai_tools_link_asset_readme "/usr/share/ai-tools/${_kind}/README.md" \
             "${_shared}" "${SANDBOX_GROUP}"
     done
