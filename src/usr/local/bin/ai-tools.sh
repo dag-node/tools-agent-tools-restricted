@@ -113,7 +113,9 @@ readonly UNCLAIM_BIN="/usr/local/libexec/ai-tools/ai-tools-unclaim"
 # Root-only entrypoint-relabel helper, same sudo (no NOPASSWD) model. Restores
 # ai_tools_exec_t on the claude.exe entrypoint(s) after a Node auto-upgrade leaves them
 # mislabelled; needs root (the projects user runs as unconfined_t, which can relabel, but
-# only via sudo as the helper is 750 root:root). Invoked by --relabel and --postupgrade.
+# only via sudo as the helper is 750 root:root). --relabel is the one caller that goes through
+# sudo; the ai-tools-relabel.path watcher, ai-tools-bootstrap, and the agent package's %post all
+# reach the same helper as root.
 readonly RELABEL_ENTRYPOINT_BIN="/usr/local/libexec/ai-tools/ai-tools-relabel-agent"
 # Root-only git safe.directory helper, same sudo (no NOPASSWD) model as lockdown/relabel/
 # setfacl/unclaim. /opt/ai-tools/.gitconfig is root-owned 644: world-readable (the agent reads
