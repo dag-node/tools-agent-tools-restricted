@@ -182,6 +182,33 @@ wire_dedup() {
     fi
 }
 
+# report_operator_role <user> -- say which of the two operator shapes this enrolment produced,
+# where the decision is being made rather than where it first fails.
+#
+# This command writes both facts that make an operator (ai-ops membership, a name in OPERATORS)
+# and CANNOT write the third thing a claim needs: a general sudo grant, which the host's own
+# sudoers decides. Group membership cannot imply a sudoers rule, so the only way to know is to
+# ask sudo -- and running as root, it can ask on the enrolled account's behalf without a password.
+# The probe names ai-tools-lockdown because the secret gate is a claim's first sudo, so it answers
+# the question the administrator actually has: can this account claim a project?
+#
+# An account without the grant is a supported shape, not a misconfiguration, so this reports and
+# never refuses: it names the --for command that claims on the account's behalf.
+report_operator_role() {
+    local user="$1"
+    local claim_helper="/usr/local/libexec/ai-tools/ai-tools-lockdown"
+    if ! command -v sudo >/dev/null 2>&1; then
+        log "${user}: no sudo on this host, so no project can be claimed by anyone -- ${user} can still launch agent sessions"
+        return 0
+    fi
+    if LC_ALL=C sudo -l -U "${user}" "${claim_helper}" >/dev/null 2>&1; then
+        log "${user} holds a general sudo grant: it can claim projects as well as launch sessions"
+        return 0
+    fi
+    log "${user} holds no general sudo grant: it can launch agent sessions and read the reports, and cannot claim a project"
+    log "${user}: claim on its behalf from an operator that holds one -- ai-tools --project-claim --for ${user} <path>"
+}
+
 op_add() {
     local user="${1:-${SUDO_USER:-}}"
     [[ -n "${user}" ]] || die "usage: ai-tools-admin operator add <user>  (or run via sudo so SUDO_USER is set)"
@@ -222,6 +249,7 @@ op_add() {
 
     wire_dedup "${user}"
     log "operator ${user} added"
+    report_operator_role "${user}"
     # ai-ops membership applies to NEW login sessions; an already-open shell keeps the credential
     # set it had at login, and the launch wrapper gates on that live set. Name the activation step
     # so the operator's first claude launch does not hit the stale-session refusal.

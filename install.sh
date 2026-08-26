@@ -1905,8 +1905,66 @@ do_uninstall() {
 
 # ── dispatch ───────────────────────────────────────────────────────────────────
 
+# ── The operator this install enrols ─────────────────────────────────────────────
+# choose_operator -- name the operator explicitly instead of adopting SUDO_USER unannounced.
+#
+# One account comes out of this install holding both facts that make an operator: ai-ops
+# membership and a name in OPERATORS. Which account that is was previously decided by whoever
+# happened to type sudo, which is right often enough that the decision was never visible -- and
+# wrong for the two shapes an administrator actually picks between: enrolling a purpose-made
+# provisioning account, and installing on behalf of someone else.
+#
+# The prompt defaults to SUDO_USER, so a non-interactive run and a plain Enter both keep the
+# previous behaviour. Answering No reads a name and re-validates it against the same guards the
+# entry applies, since a typed name reaches them by a different route.
+#
+# It states what enrolment does NOT confer: a claim additionally needs a general sudo grant that
+# this script cannot write, so an account without one launches sessions and has its projects
+# claimed for it with `ai-tools --project-claim --for`.
+choose_operator() {
+    local candidate attempts=3
+    confirm_boxed "Operator" y "Enrol ${PROJECTS_USER}?" \
+        "This install enrols ONE operator: the account is added to the ai-ops group and to" \
+        "OPERATORS in /etc/ai-tools/operator.conf, and the sandbox area is prepared for it." \
+        "" \
+        "  ${PROJECTS_USER}   (the account that invoked sudo)" \
+        "" \
+        "Answer No to name a different account -- a purpose-made provisioning account, or the" \
+        "colleague this host is being set up for." \
+        "" \
+        "Claiming projects also needs a general sudo grant, which this script does not write." \
+        "An operator without one launches agent sessions; another operator claims for it with" \
+        "ai-tools --project-claim --for <operator>." \
+        && return 0
+
+    while (( attempts-- > 0 )); do
+        printf 'operator account: ' > /dev/tty
+        read -r candidate < /dev/tty || candidate=""
+        candidate="${candidate//[[:space:]]/}"
+        if [[ -z "${candidate}" ]]; then
+            warn "no account named"
+        elif [[ "${candidate}" == "root" ]]; then
+            warn "the operator must be a normal login user, not root"
+        elif [[ "${candidate}" == "${SANDBOX_USER}" ]]; then
+            warn "the operator must not be the sandbox account ${SANDBOX_USER}"
+        elif ! id "${candidate}" &>/dev/null; then
+            warn "no such user: ${candidate}"
+        elif [[ ! -d "$(getent passwd "${candidate}" | cut -d: -f6)" ]]; then
+            warn "${candidate} has no home directory on this host"
+        else
+            PROJECTS_USER="${candidate}"
+            PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"
+            PROJECTS_GROUP="$(id -gn "${PROJECTS_USER}")"
+            log "enrolling ${PROJECTS_USER} (${PROJECTS_HOME}, group ${PROJECTS_GROUP})"
+            return 0
+        fi
+    done
+    die "no usable operator named -- re-run the install and name one that exists"
+}
+
 case "${ACTION}" in
     install)
+        choose_operator
         do_install
         ;;
     uninstall)
