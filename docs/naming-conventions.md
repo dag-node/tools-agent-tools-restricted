@@ -26,10 +26,13 @@ their sessions.
 | the list | `AI_TOOLS_OPERATORS` (array) | "the operators" |
 | operators group | literal `ai-ops` | "the operators group" / `ai-ops` |
 
-`operator.conf` is written at runtime by `ai-tools-admin`, never substituted at build
-time, so every host ships identical files. There is **no** `@PROJECTS_USER@` token: an
-operator's identity is resolved at runtime, with home and primary group derived per name
-via `getent`/`id`.
+`operator.conf` is managed in place at runtime by `ai-tools-admin operator add|remove`. Its
+source template carries one substitution token, `OPERATORS="@PROJECTS_USER@"`, and the two
+install paths treat it differently: the RPM rewrites the line to `OPERATORS=""` at build
+(`packaging/ai-tools.spec`), so a packaged host ships with nobody enrolled, while `install.sh`
+substitutes the invoking `SUDO_USER` and enrols that account. **Nothing else about an operator
+is substituted** — home and primary group are derived per name at runtime via `getent`/`id`, so
+a name added to the list takes effect without touching any other file.
 
 ### The owner — the operator a path resolves to
 
