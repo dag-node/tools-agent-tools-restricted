@@ -3052,15 +3052,31 @@ require_operator() {
         "       sudo ai-tools-admin operator add ${INVOKING_USER}"
 }
 
-# handover_target [args...] -- the project path to name in a handed-over command: the first
-# argument that is an existing directory, else the current one (what these verbs default to).
-# Naming it explicitly is the point -- the operator who runs the command is standing somewhere
-# else. Deliberately a heuristic: it composes a SUGGESTION, and the verb re-resolves its own
-# target when it is actually run, so a wrong guess costs a re-typed path and nothing more.
+# handover_target [args...] -- the project path to name in a handed-over command. Naming it
+# explicitly is the point: the operator who runs that command is standing somewhere else, so a
+# path-less suggestion would resolve against THEIR directory.
+#
+# It falls back to the current directory only when the caller named no path, which is what these
+# verbs default to anyway. A path the caller DID name is passed through as typed even when it does
+# not exist, because substituting the current directory there composes a command against a
+# directory nobody named -- and since the suggestion is a claim, a plausible-looking one the
+# operator pastes would grant the agent access to whatever they happened to be standing in.
+# Mistyping a path must cost a re-typed path, so the mistyped one is what the message shows.
+#
+# Arguments are matched positionally: a flag is skipped, and so is the value of one that takes
+# one, so `--group <name>` cannot be read as the project.
 handover_target() {
-    local argument
-    for argument in "$@"; do [[ -d "${argument}" ]] && { printf '%s' "${argument}"; return 0; }; done
-    printf '%s' "${PWD}"
+    local argument first_named="" skip_value=0
+    for argument in "$@"; do
+        if (( skip_value )); then skip_value=0; continue; fi
+        case "${argument}" in
+            -g|--group|--from|--branch|--dir|--since) skip_value=1; continue ;;
+            -*) continue ;;
+        esac
+        [[ -d "${argument}" ]] && { printf '%s' "${argument}"; return 0; }
+        [[ -n "${first_named}" ]] || first_named="${argument}"
+    done
+    printf '%s' "${first_named:-${PWD}}"
 }
 
 # require_sudo_access <verb> [verb-args...] -- refuse a verb whose root helper this caller holds no
