@@ -279,9 +279,12 @@ else
     readonly C_BOLD='' C_DIM='' C_GRN='' C_YEL='' C_RED='' C_RST=''
 fi
 
-say()     { printf '%s\n' "$*"; }
-section() { printf '\n%s%s%s\n' "${C_BOLD}" "$*" "${C_RST}"; }
-ok()      { printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$*"; }
+# Each takes ONE line and prints it. "$1", not "$*": this CLI runs under IFS=$'\n\t', so "$*"
+# would join a second argument on a NEWLINE rather than a space -- a silently mis-rendered message
+# for a caller that reasonably expects printf-style words.
+say()     { printf '%s\n' "$1"; }
+section() { printf '\n%s%s%s\n' "${C_BOLD}" "$1" "${C_RST}"; }
+ok()      { printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$1"; }
 warn()    { ai_tools_msg_warn "$@"; }
 die()     { ai_tools_log_error "$*"; ai_tools_msg_error "ai-tools: $*"; exit 1; }
 # The claim/sandbox flows are sequences of SELF-CONTAINED blocks, each opened by a wide
