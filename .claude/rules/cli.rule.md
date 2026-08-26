@@ -80,8 +80,58 @@ wrapper needs and which does require a fresh login). The **informational** comma
 (`--help`/`--version`/`--list`/`--providers`) stay open, so an unenrolled user can still read usage
 and inspect the host.
 
-A third gate, `require_for_target`, runs immediately after it and validates a `--for` run (see
-*Acting for another operator* below). It is a no-op without the flag.
+A third gate, `require_sudo_access`, refuses a verb whose root helper the caller holds no sudo
+grant for, and names the command that reaches it instead (below). A fourth, `require_for_target`,
+runs last and validates a `--for` run (see *Acting for another operator* below). It is a no-op
+without the flag.
+
+### The caller with no sudo grant
+
+Every helper outside the `%ai-ops` NOPASSWD rules ([launch](launch.rule.md) holds the drop-in's
+contents) is reached by a plain `sudo`, which assumes the operator also holds a general grant. An
+account in `ai-ops` and in no sudoers rule is a supported shape — it is what `--for` exists for —
+and it is distinct from having no password.
+
+`sudo` authenticates before it decides whether a rule matches. `require_sudo_access` answers that
+question ahead of it, before the run's first `sudo` — the same ordering `require_for_target`
+follows — so a caller holding a password is never asked for it on a verb no rule lets them run. Each verb is
+probed on the **first** helper it reaches (a `--for` run on `ai-tools-allowlist`, whose snapshot
+precedes the verb's own helper), so a host granting some helpers and not others is answered
+accurately rather than through one representative. `--sandbox-push`, `--sandbox-remove`, and the
+informational verbs reach no helper that can refuse the command, and are not probed.
+
+The probe is `sudo -n -l <helper>`, which cannot prompt. Its exit status alone does not answer the
+question — a `wheel` operator with no cached credential fails it exactly as an account with no rule
+does — so the two are told apart by the message: *a password is required* means the grant exists
+and that caller is left to the ordinary prompt, and only an explicit refusal counts as absent.
+`LC_ALL=C` pins the wording those matches read.
+
+**The gate reports; it does not decide, and so it fails open.** The project's fail-closed rule
+governs the predicates that decide what a principal may do: each resolves, on any failure, to
+*less* access ([CLAUDE.md](../../CLAUDE.md)). This gate is not one of them. It grants nothing, and
+`sudo` is still the only thing consulted about the helper — so an inconclusive probe (no `sudo`
+binary, a translated or unrecognized answer) falls through to the call site and lets sudo answer,
+leaving the access outcome identical to having no gate at all. The composition stays fail-closed
+because the enforcement point it sits in front of is.
+
+Failing *closed* here would invert that: refusing on an unparsed message subtracts access sudo
+would have granted, turning a diagnostic into an access decision that can only ever take away —
+a `wheel` operator whose sudo answered in a locale the match did not cover would lose a command
+they hold the grant for. The cost of the direction chosen is bounded and is never a security one:
+on a host where the answer cannot be read, the operator meets sudo's own message, which is the
+behaviour this gate exists to improve on rather than to guarantee.
+
+The refusal names the account, the helper, and one command, and stops there. Who that account
+belongs to is not knowable — a service account, a person on a restricted login, an administrator
+working from one deliberately — nor is who runs the suggested command or what they are to each
+other. So it recommends no route to obtaining a grant, and describes nothing as anyone's. For the
+delegable verbs the command carries `--for <account>`, which is the whole mechanism: the verb runs
+against that account's registry whoever performs it. `--sandbox-create` takes no `--for` (the clone
+is made with the git credentials of whoever runs it), so its refusal names two commands — the
+create, then a `--project-claim --for <account>` over the resulting clone, which the protected-paths
+backstop deliberately permits. `--audit` additionally names a `journalctl` query, since the trail is
+written to journald as well and many hosts let an ordinary account read it — a partial view, the
+file sink being the authoritative one.
 
 ## Commands
 

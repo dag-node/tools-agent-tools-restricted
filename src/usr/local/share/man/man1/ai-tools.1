@@ -37,6 +37,19 @@ and
 .B \-\-list
 run by root reports root's own registry, which is empty on a normal host.
 .PP
+A command whose root helper your account holds no
+.BR sudo (8)
+rule for is refused before any password prompt, naming the command an operator
+who does hold one can run instead \(em for most commands that is the same
+command with
+.BR \-\-for .
+Membership of the
+.B ai\-ops
+group grants the agent launch and the entrypoint relabel; the other helpers
+assume a general
+.B sudo
+grant as well.
+.PP
 Every
 .I path
 argument defaults to the current working directory. Every yes/no question

@@ -266,6 +266,8 @@ install -m 0644 src%{ai_mandir}/man5/operator.conf.5        %{buildroot}%{ai_man
 # mutating verbs must never run under sudo, and without the symlink `sudo ai-tools` dies with
 # sudo's "command not found" (%%{ai_bindir} is not in secure_path) before the CLI's own
 # refusal -- run as the projects user, drop the sudo -- can explain the right invocation.
+# That only holds for a caller sudo will exec at all: an operator whose only grant is the
+# %%ai-ops drop-in is refused by sudo first, and meets sudo's message rather than the CLI's.
 # The symlink also carries the read-only reports, which the CLI now accepts as root.
 ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 

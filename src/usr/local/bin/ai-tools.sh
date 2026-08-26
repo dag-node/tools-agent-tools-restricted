@@ -8,12 +8,13 @@
 # secret lockdown -- through the sudo root helpers (no NOPASSWD: the operator is prompted for a
 # password; the sandbox account holds no grant).
 #
-# Three preflight gates run before dispatch: require_bootstrap (provisioned install); for the
+# Four preflight gates run before dispatch: require_bootstrap (provisioned install); for the
 # operator-acting commands (--project-*/--sandbox-*/--lockdown/--reclaim/--relabel),
 # require_operator -- the invoking user must be in OPERATORS in operator.conf, since the root
-# helpers resolve the caller's identity from that list; and require_for_target, which validates a
-# --for run and re-points the registry at its target. --help/--version/--list/--providers stay
-# open to any user.
+# helpers resolve the caller's identity from that list; require_sudo_access, which refuses a verb
+# whose root helper this caller holds no sudo grant for, before sudo prompts for a password it
+# will then reject; and require_for_target, which validates a --for run and re-points the registry
+# at its target. --help/--version/--list/--providers stay open to any user.
 #
 # The principal guard above them refuses the sandbox account outright and allows root only the
 # read-only reports (ROOT_ALLOWED_VERBS): --audit needs root by construction, since the trail it
@@ -377,11 +378,25 @@ source "${SERVICES_LIB}" 2>/dev/null || true
 
 # ── Reaching a root helper ───────────────────────────────────────────────────────
 # Most verbs do work only root can do, through a helper in /usr/local/libexec/ai-tools (750
-# root:root -- the operator cannot even stat one). Whether the caller is already root decides HOW
-# that helper is reached, and the answer is given here rather than at each call site: root runs it
-# directly, with no sudo in between. Root reaches only the read-only verbs (see the principal guard
-# above), so today that is --audit alone. The condition lives here rather than inside cmd_audit so
-# a read-only verb added later inherits it.
+# root:root -- the operator cannot even stat one). Two facts about the caller decide HOW, and
+# WHETHER, that helper is reached; both are answered here rather than at each call site.
+#
+# ALREADY ROOT -- run the helper directly, with no sudo in between. Root reaches only the
+# read-only verbs (see the principal guard above), so today that is --audit alone. The condition
+# lives here rather than inside cmd_audit so a read-only verb added later inherits it.
+#
+# NO SUDO GRANT -- refuse before sudo prompts. Every helper outside the %ai-ops NOPASSWD rules
+# (the shipped sudoers drop-in holds their list) is reached by a plain
+# sudo, which assumes the operator ALSO holds a general grant. An ai-ops-only account does not --
+# and sudo authenticates BEFORE it refuses, so such an operator is asked for a password and turned
+# away after supplying it, for a decision that was knowable without asking. require_sudo_access
+# answers it up front instead, and probes with -n so the probe itself never prompts.
+#
+# THE PROBE IS NOT A SECURITY GATE and is deliberately fail-OPEN, against the project's usual
+# direction. sudo remains the thing that decides; this only replaces a refusal that was going to
+# happen anyway with one that says what to do instead. So an inconclusive probe falls through to
+# the call site and lets sudo answer, because the failure it would otherwise cause is the serious
+# one: refusing an operator who does hold a grant, on the strength of a message we did not parse.
 
 # run_root_helper <bin> [args...] -- run a root helper, directly when the caller is already root
 # and through sudo otherwise. The helper's exit status propagates either way (--audit and --stop
@@ -394,6 +409,25 @@ run_root_helper() {
 # sudo binary. Call sites that fall back to "run as root: <helper>" gate on this rather than on a
 # bare `command -v sudo`, which reads as missing to root as well.
 root_helper_reachable() { [[ "${INVOKING_USER}" == "root" ]] || command -v sudo >/dev/null 2>&1; }
+
+# sudo_grant_missing <bin> -- true only when sudo will refuse <bin> for this caller OUTRIGHT,
+# without a password ever being able to help.
+#
+# `sudo -n -l <bin>` asks sudo the question directly and, with -n, cannot prompt. Its exit status
+# alone does not answer it: a `wheel` operator with no cached credential fails the same probe as
+# an account with no rule at all. The two are told apart by the message, so "a password is
+# required" is read as the grant EXISTING -- that operator is left to the ordinary prompt -- and
+# only an explicit refusal counts as absent. LC_ALL=C pins the wording those matches read; a
+# translated or unrecognized answer falls through to "not missing", which is the fail-open
+# direction described above.
+sudo_grant_missing() {
+    local bin="$1" answer
+    [[ "${INVOKING_USER}" == "root" ]] && return 1
+    command -v sudo >/dev/null 2>&1 || return 1
+    answer="$(LC_ALL=C sudo -n -l "${bin}" 2>&1)" && return 1
+    [[ "${answer}" == *"password is required"* ]] && return 1
+    [[ "${answer}" == *"not allowed to execute"* || "${answer}" == *"may not run sudo"* ]]
+}
 
 # confirm <prompt> <y|n>  -- the shared yes/no prompt (ai_tools_msg_confirm; see
 # msg.lib.sh): the explicit default decides the Enter answer and the no-tty answer, so
@@ -2934,7 +2968,9 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
 
   Runs as an operator, without sudo -- the CLI invokes sudo itself for the steps that need
   it. Root is accepted for the read-only reports only (--audit, --status, --list,
-  --providers); every other verb writes operator-owned state and refuses root.
+  --providers); every other verb writes operator-owned state and refuses root. A caller
+  holding no sudo grant for a verb's root helper is told so before sudo prompts, with the
+  command an operator who does hold one can run instead.
 
   --for <operator>    act on another enrolled operator's projects instead of your own: the
                       entry lands in THEIR allowed-projects, so the tree is granted to them and
@@ -2988,6 +3024,103 @@ require_operator() {
     fi
     die "you (${INVOKING_USER}) are not a configured ai-tools operator -- add your name to OPERATORS in ${conf} with:" \
         "       sudo ai-tools-admin operator add ${INVOKING_USER}"
+}
+
+# handover_target [args...] -- the project path to name in a handed-over command: the first
+# argument that is an existing directory, else the current one (what these verbs default to).
+# Naming it explicitly is the point -- the operator who runs the command is standing somewhere
+# else. Deliberately a heuristic: it composes a SUGGESTION, and the verb re-resolves its own
+# target when it is actually run, so a wrong guess costs a re-typed path and nothing more.
+handover_target() {
+    local argument
+    for argument in "$@"; do [[ -d "${argument}" ]] && { printf '%s' "${argument}"; return 0; }; done
+    printf '%s' "${PWD}"
+}
+
+# require_sudo_access <verb> [verb-args...] -- refuse a verb whose root helper this caller holds no
+# sudo grant for, and say who can run it instead.
+#
+# The case it exists for is an ai-ops-only account: in the operators group, in no sudoers rule.
+# That is a supported shape, not a misconfiguration -- it is what --for was built for -- and it is
+# NOT the same as having no password. An operator who has one is the worse case today: sudo
+# authenticates before it decides, so they are asked for a password and refused after supplying
+# it. Nothing here changes what anyone is granted; it moves a refusal that was already coming to
+# before the prompt, and attaches the route to the result.
+#
+# Every verb that reaches a root helper is covered, and each is probed on the FIRST helper it
+# reaches -- a site that grants some helpers and not others is then answered accurately rather
+# than by a single representative. The refusal precedes the run's first sudo, which is the same
+# ordering require_for_target follows: a command that is going to be refused must not prompt first.
+require_sudo_access() {
+    local verb="${1:-}"; shift || true
+    local bin="" what="" delegable=false
+    case "${verb}" in
+        --audit)                            bin="${AUDIT_BIN}"    what="reading the refusal trail" ;;
+        --stop)                             bin="${STOP_BIN}"     what="terminating the running sessions" ;;
+        --lockdown)                         bin="${LOCKDOWN_BIN}" what="locking down secret files"; delegable=true ;;
+        --reclaim)                          bin="${RECLAIM_BIN}"  what="reclaiming agent-written files"; delegable=true ;;
+        --project-claim|--project-create)   bin="${LOCKDOWN_BIN}" what="claiming a project"; delegable=true ;;
+        --project-unclaim|--project-remove) bin="${UNCLAIM_BIN}"  what="unclaiming a project"; delegable=true ;;
+        --sandbox-create)                   bin="${LOCKDOWN_BIN}" what="creating a sandbox clone" ;;
+        # --sandbox-push/-remove and the informational verbs reach no helper that can refuse the
+        # command: the only sudo either of the sandbox pair makes is unreg_allow's safedir removal,
+        # which already warns and carries on rather than failing the verb.
+        #
+        # --relabel is left out deliberately, and it is the one verb that WORKS for an account
+        # holding no general grant: %ai-ops carries a dedicated NOPASSWD rule for
+        # ai-tools-relabel-agent, so every enrolled operator can already reach it. Probing it would
+        # risk the opposite error -- that rule is pinned to the helper's zero-argument form (the
+        # trailing "" in the drop-in), which `sudo -l` does not answer for as plainly as it does an
+        # unrestricted rule, and a probe read as a refusal here would block the one privileged verb
+        # this shape of account has. Where the drop-in is missing entirely, sudo reports it.
+        *) return 0 ;;
+    esac
+    # A --for run's first helper is the allowlist READER, before the verb's own -- so that is what
+    # decides whether the run can start at all.
+    [[ -z "${FOR_OPERATOR}" ]] || bin="${ALLOWLIST_BIN}"
+    sudo_grant_missing "${bin}" || return 0
+
+    # The route out, printed PLAIN and ahead of die(): die() wraps its text through the error
+    # emitter, which would break a command across lines (messaging.rule.md).
+    # WHAT THIS MESSAGE DOES NOT SAY. It names the account and the command, and stops. Who that
+    # account belongs to is not knowable here -- a service account, a person with a restricted
+    # login, an administrator working from one deliberately -- and neither is who runs the
+    # suggested command or what they are to each other. So there is no advice to obtain a grant,
+    # and nothing is described as anyone's: a message that guesses the arrangement is wrong in
+    # exactly the deployments this refusal exists for.
+    local -a advice=("Ask an administrator or an ai-ops operator with sudo to run:" "")
+    if [[ -n "${FOR_OPERATOR}" ]]; then
+        advice+=( "    ai-tools ${verb} --for ${FOR_OPERATOR} $(handover_target "$@")" )
+    elif ${delegable}; then
+        # --for is the whole answer here: the verb runs against ${INVOKING_USER}'s registry whoever performs
+        # it, which is what the pre-configured no-sudo account needs.
+        advice+=( "    ai-tools ${verb} --for ${INVOKING_USER} $(handover_target "$@")" )
+    elif [[ "${verb}" == --sandbox-create ]]; then
+        # The one verb --for is refused on: a clone is made with the git credentials of whoever
+        # runs it. The REGISTRY half is delegable all the same, and the clone area is deliberately
+        # outside the protected-paths set so that claim is allowed. Two commands, two acts.
+        local source_dir clone_dir
+        source_dir="$(handover_target "$@")"
+        clone_dir="${SANDBOX_ROOT}/$(basename "${source_dir}")"
+        advice+=( "    ai-tools --sandbox-create ${source_dir}" \
+                  "    ai-tools --project-claim --for ${INVOKING_USER} ${clone_dir}" "" \
+                  "--sandbox-create takes no --for: the clone is made with the git credentials of" \
+                  "whoever runs it. The second command registers it for ${INVOKING_USER}." )
+    else
+        local rest=""; (( $# )) && rest="$(printf ' %q' "$@")"
+        advice+=( "    ai-tools ${verb}${rest}" )
+    fi
+    # The trail is written to journald as well, which many hosts let an ordinary account read --
+    # a partial view (the file sink is the authoritative one) but one that needs no one else.
+    [[ "${verb}" == --audit ]] && advice+=( "" \
+        "Some of the same events reach the journal, readable without root on many hosts:" "" \
+        "    journalctl -p notice --since '7 days ago' | grep ai-tools" )
+
+    printf '\n' >&2
+    printf '  %s\n' "${advice[@]}" >&2
+    printf '\n' >&2
+    die "${what} needs root, and ${INVOKING_USER} holds no sudo grant for ${bin##*/}." \
+        "Membership of ai-ops does not carry a general sudo grant."
 }
 
 # snapshot_allowlist -- point ALLOWLIST at a private copy of the --for target's registry, read
@@ -3074,6 +3207,11 @@ case "${1:-}" in
     --sandbox-create|--sandbox-push|--sandbox-remove|\
     --lockdown|--reclaim|--relabel) require_operator ;;
 esac
+
+# Refuse a verb whose root helper this caller has no sudo grant for, before require_for_target --
+# whose snapshot is a --for run's first sudo. Both gates keep the same ordering rule: a command
+# that is going to be refused must not prompt for a password first.
+require_sudo_access "$@"
 
 # Validate a --for run and re-point the registry at the target, after require_operator: acting for
 # another operator is an operator action, so the invoker must be enrolled before the target is even
