@@ -262,10 +262,11 @@ install -m 0644 src%{ai_mandir}/man1/ai-tools.1             %{buildroot}%{ai_man
 # operator.conf(5): the host options and the shared KEY=value grammar they are written in.
 install -d -m 0755 %{buildroot}%{ai_mandir}/man5
 install -m 0644 src%{ai_mandir}/man5/operator.conf.5        %{buildroot}%{ai_mandir}/man5/operator.conf.5
-# The CLI gets a %%{_sbindir} symlink for the OPPOSITE reason ai-tools-admin does: it must
-# never run under sudo, and without the symlink `sudo ai-tools` dies with sudo's "command
-# not found" (%%{ai_bindir} is not in secure_path) before the CLI's own refusal -- run as
-# the projects user, drop the sudo -- can explain the right invocation.
+# The CLI gets a %%{_sbindir} symlink for the OPPOSITE reason ai-tools-admin does: its
+# mutating verbs must never run under sudo, and without the symlink `sudo ai-tools` dies with
+# sudo's "command not found" (%%{ai_bindir} is not in secure_path) before the CLI's own
+# refusal -- run as the projects user, drop the sudo -- can explain the right invocation.
+# The symlink also carries the read-only reports, which the CLI now accepts as root.
 ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 
 # ── base: shared libraries ───────────────────────────────────────────────────

@@ -18,8 +18,29 @@ projects user** — not root, not the sandbox account. It writes the operator-ow
 (`~/.config/ai-tools/allowed-projects`) directly, and reaches the root-owned git
 `safe.directory` list in `/opt/ai-tools/.gitconfig` (`root:ai-tools 644`: world-readable,
 root-write-only) through the `ai-tools-safedir` root helper (`sudo`), alongside its other
-root operations. It refuses to run as root (would write the registries with the wrong owner)
-and as the sandbox account (the agent must not manage its own allowlist).
+root operations. It refuses to run as the sandbox account (the agent must not manage its own
+allowlist).
+
+**Root runs the verbs that write no operator-owned state, and no others.** That criterion is what
+the root refusal protects: a registry written by root names an owner whose own launch gate cannot
+read it. `ROOT_ALLOWED_VERBS` — `--audit`, `--status`, `--list`, `--providers` — is the whole set,
+and every member is a report, so `--help` and `ai-tools(1)` present it as the read-only reports;
+a verb joins it on what it writes rather than on what it reads. `--audit` is what the carve-out
+exists for: the trail it reads is `700 root:root`, so the verb needs root by construction, and a
+blanket refusal left it unreachable from both sides on a host whose only operator holds no general
+sudo grant. The set is named once and read by the guard, by the guard's own refusal, and by
+`ai-tools(1)`.
+
+The check runs **after** `--for` is separated from the command's arguments, because `$1` before
+that point is not reliably the verb (`ai-tools --for op --list` leads with the flag). That
+placement also refuses `--for` for root in either argument order: root is absent from `OPERATORS`,
+so an entry written for it would name an owner no ownership helper can resolve. `require_operator`
+does not cover this on its own — it gates the mutating verbs, and `--list` is not one.
+
+`--list` run by root reads root's own registry, which no bootstrap creates, so it reports an empty
+list correctly and misleadingly. It therefore says whose registry it read and names the enrolled
+operators, since an allowlist is per-operator by design. Root cannot follow that with `--for`, so
+the line points at running the report as the operator instead.
 
 ## Bootstrap preflight
 
@@ -29,9 +50,13 @@ the agent package all succeed — so its presence means provisioning finished, a
 the CLI fast with the provisioning hint rather than mid-operation in a root helper. It is the same
 symlink the launch wrapper gates on, so both entry points share one definition of "provisioned".
 Every command is behind the gate, `--version` included — an unfinished install reports nothing,
-fail-closed. The one exception is `--status`, the diagnostic: it bypasses the gate and reports the
-unprovisioned state itself, since a health check must run precisely when provisioning may have
-failed.
+fail-closed. Two bypass it (`BOOTSTRAP_EXEMPT_VERBS`), both because they answer a question about a
+host that may be broken: `--status`, the diagnostic, reports the unprovisioned state itself, since
+a health check must run precisely when provisioning may have failed; and `--audit` reads a record
+of what already happened, which an install that never finished does not invalidate — a failed
+provisioning is when that record is most worth reading. The set is deliberately narrower than
+`ROOT_ALLOWED_VERBS`: `--list` and `--providers` describe a toolchain that has to exist first, so
+they stay behind the gate.
 
 **The gate names one agent.** `CLAUDE_LINK` is the literal `/opt/ai-tools/bin/claude`, so a host
 that enables a different agent and disables `claude-code` has a provisioned toolchain the CLI
@@ -611,10 +636,13 @@ The CLI itself is unprivileged. Eight of its root operations — `ai-tools-lockd
 `ai-tools-relabel`, `ai-tools-setfacl`, `ai-tools-setgid`, `ai-tools-unclaim`, `ai-tools-safedir`,
 `ai-tools-reclaim`, and `ai-tools-allowlist` — run via `sudo` with **no** NOPASSWD grant by design,
 so sudo prompts for the projects user's password; the sandbox account has no grant for any. The exception, `--relabel` →
-`ai-tools-relabel-agent`, is: it has a dedicated fixed-path NOPASSWD rule
-(shared with the `nvm-update` timer, see [updater](updater.rule.md) / [launch](launch.rule.md)),
-so it runs **as root without a prompt** — kept safe by being a fixed path the projects user
-cannot modify, granted only in its zero-argument form (the rule's trailing `""`). `ai-tools-setfacl` and `ai-tools-unclaim` need root
+`ai-tools-relabel-agent`, is: it has a dedicated fixed-path NOPASSWD rule of its own
+(see [launch](launch.rule.md)), so it runs **as root without a prompt** — kept safe by being a
+fixed path the projects user cannot modify, granted only in its zero-argument form (the rule's
+trailing `""`). `ai-tools --relabel` is that rule's only consumer: the `ai-tools-relabel.path`
+watcher and the agent package's `%post` both reach the same helper as root and need no rule, and
+the `nvm-update` timer runs as the sandbox account, which `ai-tools-run` refuses to launch for if
+it ever appears in `ai-ops`. `ai-tools-setfacl` and `ai-tools-unclaim` need root
 (`CAP_FOWNER`) to act on files the projects user does not own (e.g. agent-written files from
 a prior session); `ai-tools-setgid` needs root to `chgrp` the project's directories to
 `SANDBOX_GROUP` — a group the operator is not a member of (multi-operator), so the change is not

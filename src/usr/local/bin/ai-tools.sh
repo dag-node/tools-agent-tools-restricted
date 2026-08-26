@@ -15,6 +15,10 @@
 # --for run and re-points the registry at its target. --help/--version/--list/--providers stay
 # open to any user.
 #
+# The principal guard above them refuses the sandbox account outright and allows root only the
+# read-only reports (ROOT_ALLOWED_VERBS): --audit needs root by construction, since the trail it
+# reads is 700 root:root.
+#
 # --for <operator> performs a command ON BEHALF OF another enrolled operator: the allowlist entry
 # lands in THEIR registry, so ai-tools-setfacl grants user:<them>, the handback restores to them,
 # and their agent's launch gate covers the path. It exists for a service account that runs an
@@ -136,14 +140,43 @@ readonly STOP_BIN="/usr/local/libexec/ai-tools/ai-tools-stop"
 # recognise and remove its own placeholder once secrets are secured.
 readonly GUARD_MARKER="ai-tools-lockdown-guard"
 
+# ── Verb sets ────────────────────────────────────────────────────────────────────
+# Two sets of verbs are tested in more than one place. Each is named ONCE here, so a verb added
+# to a set cannot be added to one of its readers and missed by another.
+#
+# ROOT_ALLOWED_VERBS -- what root may run. The criterion is WRITES NO OPERATOR-OWNED STATE, which
+# is what the root guard exists to protect: a registry written by root names an owner whose own
+# launch gate cannot read it. Every member happens to be a report, so `--help` calls them the
+# read-only reports, but a verb qualifies on what it writes rather than on what it reads. Read by
+# the principal guard below, by that guard's own refusal (which lists them), and by ai-tools(1).
+readonly ROOT_ALLOWED_VERBS=(--audit --status --list --providers)
+# BOOTSTRAP_EXEMPT_VERBS -- what runs on an unprovisioned host. Deliberately NOT the set above:
+# both of these answer a question about a host that may be broken (--status reports the
+# unprovisioned state itself; --audit reads a historical trail, which an install that never
+# finished does not invalidate), while --list and --providers describe a toolchain that has to
+# exist first and stay behind the gate.
+readonly BOOTSTRAP_EXEMPT_VERBS=(--status --audit)
+
+# verb_in <verb> <name>... -- true when <verb> is one of the named verbs.
+verb_in() {
+    local verb="$1"; shift
+    local name; for name in "$@"; do [[ "${verb}" == "${name}" ]] && return 0; done
+    return 1
+}
+# join_words <word>... -- the words joined by single spaces, for a message. Pins IFS locally: the
+# CLI runs under IFS=$'\n\t', so a bare "${array[*]}" would join on a NEWLINE.
+join_words() { local IFS=' '; printf '%s' "$*"; }
+
 # ── Invoker guards ───────────────────────────────────────────────────────────────
-# This is a user tool. It must run as the projects user: never as root (it would
-# write the registries with the wrong owner) and never as the sandbox account
-# (the agent must not manage its own allowlist).
+# This is a user tool. It must run as the projects user, and never as the sandbox account --
+# the agent must not manage its own allowlist. That refusal is unconditional and first: no
+# verb, and no argument, makes the agent a legitimate caller.
+#
+# Root is refused for every verb that WRITES (it would write the operator registries owned by
+# root, where the operator's own launch gate cannot read them) and allowed for the four that
+# only read. That split is decided below, once the verb is known -- see "Root and the read-only
+# reports".
 INVOKING_USER="$(id -un)"
-[[ "${INVOKING_USER}" == "root" ]] \
-    && { echo "ai-tools: do not run as root -- run as the projects user, without sudo" >&2
-         echo "          (the CLI invokes sudo itself for the steps that need it)" >&2; exit 1; }
 [[ "${INVOKING_USER}" == "${SANDBOX_USER}" ]] \
     && { echo "ai-tools: refusing to run as the sandbox account ${SANDBOX_USER}" >&2; exit 1; }
 
@@ -179,6 +212,33 @@ while (( $# )); do
 done
 set -- "${_forless_args[@]}"
 unset _forless_args
+
+# ── Root and the read-only reports ───────────────────────────────────────────────
+# Root may run the verbs that only READ -- --audit, --status, --list, --providers -- and no other.
+# --audit is why the carve-out exists: the trail it reads is 700 root:root, so the verb needs root
+# by construction, and a blanket refusal left it unreachable from BOTH sides on a host whose only
+# operator holds no general sudo grant. The mutating verbs keep refusing root for the reason this
+# guard has always existed -- they would write the operator registries owned by root, where that
+# operator's own launch gate cannot read them.
+#
+# The check runs HERE, after --for is separated out, for two reasons. Before that point $1 is not
+# reliably the verb (`ai-tools --for op --list` leads with the flag). And running it here refuses
+# --for for root in EITHER argument order: root is not in OPERATORS, so a --for run performed by
+# root would write an entry that names an owner no ownership helper can resolve. require_operator
+# does not cover that on its own -- it gates the mutating verbs, and --list is not one of them.
+#
+# Plain echo, not die(): this runs before msg.lib.sh is sourced, like the sandbox refusal above.
+root_may_run() {
+    [[ -z "${FOR_OPERATOR}" ]] || return 1
+    verb_in "$1" "${ROOT_ALLOWED_VERBS[@]}"
+}
+if [[ "${INVOKING_USER}" == "root" ]] && ! root_may_run "${1:-}"; then
+    echo "ai-tools: do not run as root -- run as the projects user, without sudo" >&2
+    echo "          (the CLI invokes sudo itself for the steps that need it)" >&2
+    echo "          as root you can run the read-only reports:" \
+         "$(join_words "${ROOT_ALLOWED_VERBS[@]}")" >&2
+    exit 1
+fi
 
 # The operator this run acts FOR: the --for target, or the invoker. Every message that names the
 # owner a file ends up with, and every scan that matches on that owner, reads these rather than
@@ -314,6 +374,26 @@ source "${SKIP_DIRS_LIB}" 2>/dev/null \
 readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/services.lib.sh
 source "${SERVICES_LIB}" 2>/dev/null || true
+
+# ── Reaching a root helper ───────────────────────────────────────────────────────
+# Most verbs do work only root can do, through a helper in /usr/local/libexec/ai-tools (750
+# root:root -- the operator cannot even stat one). Whether the caller is already root decides HOW
+# that helper is reached, and the answer is given here rather than at each call site: root runs it
+# directly, with no sudo in between. Root reaches only the read-only verbs (see the principal guard
+# above), so today that is --audit alone. The condition lives here rather than inside cmd_audit so
+# a read-only verb added later inherits it.
+
+# run_root_helper <bin> [args...] -- run a root helper, directly when the caller is already root
+# and through sudo otherwise. The helper's exit status propagates either way (--audit and --stop
+# both publish theirs as their own contract).
+run_root_helper() {
+    if [[ "${INVOKING_USER}" == "root" ]]; then "$@"; else sudo "$@"; fi
+}
+
+# root_helper_reachable -- false only when no root helper can be reached at all: not root, and no
+# sudo binary. Call sites that fall back to "run as root: <helper>" gate on this rather than on a
+# bare `command -v sudo`, which reads as missing to root as well.
+root_helper_reachable() { [[ "${INVOKING_USER}" == "root" ]] || command -v sudo >/dev/null 2>&1; }
 
 # confirm <prompt> <y|n>  -- the shared yes/no prompt (ai_tools_msg_confirm; see
 # msg.lib.sh): the explicit default decides the Enter answer and the no-tty answer, so
@@ -2128,9 +2208,9 @@ cmd_relabel() {
 # so `ai-tools --audit` is usable from cron or a login banner without parsing its output, the
 # same contract --status already offers.
 cmd_audit() {
-    command -v sudo >/dev/null 2>&1 \
+    root_helper_reachable \
         || die "sudo not found -- cannot read the root-only trail; run as root: ${AUDIT_BIN}"
-    sudo "${AUDIT_BIN}" "$@"
+    run_root_helper "${AUDIT_BIN}" "$@"
 }
 
 # cmd_stop -- terminate every running agent session, through ai-tools-stop. Thin by design, and the
@@ -2672,6 +2752,18 @@ cmd_list() {
     else
         section "Registered projects"
     fi
+    # Root reads ROOT's allowlist, which no bootstrap creates -- so the report is empty, and
+    # correct, and reads as a fault. An allowlist is per-operator by design (it is that operator's
+    # own launch gate), so say whose registry this is and name the ones that hold projects. Root
+    # cannot follow this with --for: that flag needs an enrolled invoker, and root is not one.
+    if [[ "${INVOKING_USER}" == "root" ]]; then
+        local -a enrolled=()
+        ai_tools_conf_list enrolled "${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}" \
+            OPERATORS 2>/dev/null || enrolled=()
+        say "  ${C_DIM}root's own registry -- projects are registered per operator${C_RST}"
+        (( ${#enrolled[@]} )) && say \
+            "  ${C_DIM}read one as that operator ($(join_words "${enrolled[@]}")): su - <operator> -c 'ai-tools --list'${C_RST}"
+    fi
     local raw entry excl kind safe sd shown=0
     local -a cleanup=()
 
@@ -2840,6 +2932,10 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
                       default: 7 days ago). Exits non-zero when anything is reported, so it
                       is usable from cron or a login banner without parsing its output.
 
+  Runs as an operator, without sudo -- the CLI invokes sudo itself for the steps that need
+  it. Root is accepted for the read-only reports only (--audit, --status, --list,
+  --providers); every other verb writes operator-owned state and refuses root.
+
   --for <operator>    act on another enrolled operator's projects instead of your own: the
                       entry lands in THEIR allowed-projects, so the tree is granted to them and
                       their agent launches there. For a service account that runs an agent but
@@ -2868,10 +2964,12 @@ require_bootstrap() {
 # dispatch below. On execution BASH_SOURCE[0] equals $0, so this is a no-op and the CLI proceeds.
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] || return 0
 
-# --status is the one diagnostic meant to run WHEN things may be broken, so it bypasses the
-# provisioning gate: cmd_status reports the unprovisioned state (and service health) itself instead
-# of being blocked by it. Every other command stays gated.
-[[ "${1:-}" == --status ]] || require_bootstrap
+# The two diagnostics meant to run WHEN things may be broken bypass the provisioning gate
+# (BOOTSTRAP_EXEMPT_VERBS): cmd_status reports the unprovisioned state itself instead of being
+# blocked by it, and --audit reads a record of what already happened, which an install that never
+# finished does not invalidate -- a failed provisioning is precisely when that record is worth
+# reading. Every other command stays gated.
+verb_in "${1:-}" "${BOOTSTRAP_EXEMPT_VERBS[@]}" || require_bootstrap
 
 # require_operator -- refuse a command that acts as an operator unless the invoking user is
 # listed in OPERATORS in operator.conf. The project/sandbox/lockdown/reclaim paths resolve the

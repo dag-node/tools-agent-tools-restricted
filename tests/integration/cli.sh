@@ -3,9 +3,11 @@
 # tests/integration/cli.sh
 # Integration: the ai-tools management CLI. The CLI edits the allowlist as the PROJECTS user (and
 # registers git safe.directory through the ai-tools-safedir root helper); it must refuse to run as
-# root (it would write the registries with the wrong owner) and as the sandbox account (the agent
-# must not manage its own allowlist). Asserts both refusals fire, that the projects user passes the
-# guard, the operator preflight and the per-verb "not a claimed project" refusals, and -- over a
+# the sandbox account for every verb (the agent must not manage its own allowlist), and as root for
+# every verb that WRITES (it would write the registries with the wrong owner) while accepting the
+# read-only reports, which root reaches because --audit's trail is 700 root:root. Asserts that
+# split in both directions, that the projects user passes the guard, the operator preflight and the
+# per-verb "not a claimed project" refusals, and -- over a
 # FIXTURE allowlist + gitconfig (the AI_TOOLS_ALLOWLIST / AI_TOOLS_GITCONFIG root-only test hooks,
 # so it never reads the operator's real registry) -- the full --list reconciliation render: every
 # entry class, every Suggested-cleanup class, and that the loop reaches its Maintenance footer past
@@ -16,19 +18,48 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
 readonly CLI="/usr/local/bin/ai-tools"
-section "CLI principal guard (refuses root and the sandbox account)"
+section "CLI principal guard (root reads only; the sandbox account is refused outright)"
 
 if [[ ! -x "${CLI}" ]]; then
     skip "CLI principal guard" "not installed at ${CLI}"; finish; exit
 fi
 
-# (1) Running as root must be refused before any registry write.
-out="$("${CLI}" --list 2>&1)" && rc=0 || rc=$?
-if [[ ${rc} -ne 0 ]] && grep -qi 'do not run as root' <<<"${out}"; then
-    pass "CLI refuses to run as root (would write registries with the wrong owner)"
-else
-    fail "CLI did not refuse root (rc=${rc}): ${out}"
-fi
+# (1a) Every MUTATING verb must refuse root before any registry write. One per family, since the
+# guard keys on the verb: a claim, a clone, a per-project helper verb, and the two host-wide ones.
+for verb in --project-claim --project-unclaim --sandbox-create --lockdown --reclaim --relabel --stop; do
+    out="$("${CLI}" "${verb}" 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'do not run as root' <<<"${out}"; then
+        pass "CLI refuses root on ${verb} (would write registries with the wrong owner)"
+    else
+        fail "CLI did not refuse root on ${verb} (rc=${rc}): ${out}"
+    fi
+done
+
+# (1b) The read-only reports are the carve-out: --audit needs root by construction (its trail is
+# 700 root:root), and refusing it left the verb unreachable from BOTH sides on a host whose only
+# operator holds no general sudo grant. Asserted on the refusal text rather than the exit status:
+# --audit and --status both exit non-zero to REPORT something, which is not a refusal.
+for verb in --audit --status --list --providers; do
+    out="$("${CLI}" "${verb}" 2>&1)" || true
+    if ! grep -qi 'do not run as root' <<<"${out}"; then
+        pass "CLI accepts root on the read-only report ${verb}"
+    else
+        fail "CLI wrongly refused root on the read-only report ${verb}: ${out}"
+    fi
+done
+
+# (1c) --for stays refused for root in EITHER argument order: root is not in OPERATORS, so an
+# entry written for it names an owner no ownership helper can resolve. The trailing form is the
+# one a $1-keyed guard would miss, which is why the check runs after --for is separated out.
+for form in "--for ${PROJECTS_USER} --list" "--list --for ${PROJECTS_USER}"; do
+    # shellcheck disable=SC2086  # deliberate word-splitting: each form is a command line
+    out="$("${CLI}" ${form} 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'do not run as root' <<<"${out}"; then
+        pass "CLI refuses root on '${form}' (--for needs an enrolled invoker)"
+    else
+        fail "CLI did not refuse root on '${form}' (rc=${rc}): ${out}"
+    fi
+done
 
 # (2) Running as the sandbox account must be refused -- the agent must not manage its own
 # allowlist. The CLI is 755 root:root, so the agent can exec it; the guard, not the perms,
