@@ -140,16 +140,16 @@ readonly GUARD_MARKER="ai-tools-lockdown-guard"
 # This is a user tool. It must run as the projects user: never as root (it would
 # write the registries with the wrong owner) and never as the sandbox account
 # (the agent must not manage its own allowlist).
-ME="$(id -un)"
-[[ "${ME}" == "root" ]] \
+INVOKING_USER="$(id -un)"
+[[ "${INVOKING_USER}" == "root" ]] \
     && { echo "ai-tools: do not run as root -- run as the projects user, without sudo" >&2
          echo "          (the CLI invokes sudo itself for the steps that need it)" >&2; exit 1; }
-[[ "${ME}" == "${SANDBOX_USER}" ]] \
+[[ "${INVOKING_USER}" == "${SANDBOX_USER}" ]] \
     && { echo "ai-tools: refusing to run as the sandbox account ${SANDBOX_USER}" >&2; exit 1; }
 
-HOME_DIR="$(getent passwd "${ME}" | cut -d: -f6)"
-[[ -d "${HOME_DIR}" ]] || { echo "ai-tools: cannot resolve home for ${ME}" >&2; exit 1; }
-readonly ME HOME_DIR
+HOME_DIR="$(getent passwd "${INVOKING_USER}" | cut -d: -f6)"
+[[ -d "${HOME_DIR}" ]] || { echo "ai-tools: cannot resolve home for ${INVOKING_USER}" >&2; exit 1; }
+readonly INVOKING_USER HOME_DIR
 
 # ── --for <operator>: act on another enrolled operator's project registry ────────
 # A service account that runs an agent has no password, so it cannot authenticate the claim's own
@@ -181,11 +181,12 @@ set -- "${_forless_args[@]}"
 unset _forless_args
 
 # The operator this run acts FOR: the --for target, or the invoker. Every message that names the
-# owner a file ends up with, and every scan that matches on that owner, reads these rather than ME
-# -- on a --for run the tree belongs to the target, so naming the invoker would misreport who ends
-# up holding the files. What a root helper's walk treats as "the operator" is still resolved per
+# owner a file ends up with, and every scan that matches on that owner, reads these rather than
+# INVOKING_USER -- on a --for run the tree belongs to the target, so naming the invoker would
+# misreport who ends up holding the files. What a root helper's walk treats as "the operator" is
+# still resolved per
 # path from the path's own allowlist coverage, never from either of these.
-OWNER_USER="${FOR_OPERATOR:-${ME}}"
+OWNER_USER="${FOR_OPERATOR:-${INVOKING_USER}}"
 # Without --for the owner is the invoker, whose group always resolves. With --for the group is
 # resolved by require_for_target only AFTER the target is confirmed enrolled: a name that is
 # neither an operator nor a user on this host has to be refused with the actionable "not a
@@ -2885,10 +2886,10 @@ require_operator() {
     local conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
     local -a ops=(); local op
     if ai_tools_conf_list ops "${conf}" OPERATORS 2>/dev/null; then
-        for op in "${ops[@]}"; do [[ "${op}" == "${ME}" ]] && return 0; done
+        for op in "${ops[@]}"; do [[ "${op}" == "${INVOKING_USER}" ]] && return 0; done
     fi
-    die "you (${ME}) are not a configured ai-tools operator -- add your name to OPERATORS in ${conf} with:" \
-        "       sudo ai-tools-admin operator add ${ME}"
+    die "you (${INVOKING_USER}) are not a configured ai-tools operator -- add your name to OPERATORS in ${conf} with:" \
+        "       sudo ai-tools-admin operator add ${INVOKING_USER}"
 }
 
 # snapshot_allowlist -- point ALLOWLIST at a private copy of the --for target's registry, read
