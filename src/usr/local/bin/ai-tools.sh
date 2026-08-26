@@ -418,19 +418,40 @@ root_helper_reachable() { [[ "${INVOKING_USER}" == "root" ]] || command -v sudo 
 # sudo_grant_missing <bin> -- true only when sudo will refuse <bin> for this caller OUTRIGHT,
 # without a password ever being able to help.
 #
-# `sudo -n -l <bin>` asks sudo the question directly and, with -n, cannot prompt. Its exit status
-# alone does not answer it: a `wheel` operator with no cached credential fails the same probe as
-# an account with no rule at all. The two are told apart by the message, so "a password is
-# required" is read as the grant EXISTING -- that operator is left to the ordinary prompt -- and
-# only an explicit refusal counts as absent. LC_ALL=C pins the wording those matches read; a
-# translated or unrecognized answer falls through to "not missing", which is the fail-open
-# direction described above.
+# `sudo -n -l <bin>` asks sudo the question directly and, with -n, cannot prompt. Four answers,
+# and the second is the one this reads:
+#
+#   exit 0                       the rule exists; sudo echoes the command it would run. This is
+#                                what a general-grant operator gets whether or not a credential is
+#                                cached -- LISTING an allowed command is not itself password-gated
+#                                on a stock sudoers.
+#   exit != 0, NO OUTPUT         sudo's answer for "no rule matches this command". It is silent,
+#                                so there is no message to match on: the refusal that reaches the
+#                                terminal ("Sorry, user op is not allowed to execute ...") comes
+#                                from the attempt to RUN the command, never from -l. This is the
+#                                ai-ops-only account the gate exists for.
+#   exit != 0, "password is required"   listing is password-gated here (sudoers `listpw`). The
+#                                grant may well exist, so that caller is left to the ordinary
+#                                prompt.
+#   exit != 0, any other text    not understood -- fall through and let sudo answer at the call
+#                                site, the fail-open direction described above.
+#
+# Silence is only conclusive while sudo is answering at all, so it is confirmed against a bare
+# `sudo -n -l`: that lists the caller's whole rule set (an ai-ops member always has one), and its
+# success is what separates "sudo knows this caller and has no rule for that command" from a sudo
+# that failed for its own reasons -- an unreachable sudoers backend, a host that refuses -l
+# outright. Only the first is read as a missing grant; the second falls open like any other
+# answer that cannot be read. LC_ALL=C pins the wording of the one text match.
 sudo_grant_missing() {
     local bin="$1" answer
     [[ "${INVOKING_USER}" == "root" ]] && return 1
     command -v sudo >/dev/null 2>&1 || return 1
     answer="$(LC_ALL=C sudo -n -l "${bin}" 2>&1)" && return 1
     [[ "${answer}" == *"password is required"* ]] && return 1
+    if [[ -z "${answer//[[:space:]]/}" ]]; then
+        LC_ALL=C sudo -n -l >/dev/null 2>&1 && return 0
+        return 1
+    fi
     [[ "${answer}" == *"not allowed to execute"* || "${answer}" == *"may not run sudo"* ]]
 }
 
@@ -3071,13 +3092,13 @@ require_sudo_access() {
         # command: the only sudo either of the sandbox pair makes is unreg_allow's safedir removal,
         # which already warns and carries on rather than failing the verb.
         #
-        # --relabel is left out deliberately, and it is the one verb that WORKS for an account
-        # holding no general grant: %ai-ops carries a dedicated NOPASSWD rule for
-        # ai-tools-relabel-agent, so every enrolled operator can already reach it. Probing it would
-        # risk the opposite error -- that rule is pinned to the helper's zero-argument form (the
-        # trailing "" in the drop-in), which `sudo -l` does not answer for as plainly as it does an
-        # unrestricted rule, and a probe read as a refusal here would block the one privileged verb
-        # this shape of account has. Where the drop-in is missing entirely, sudo reports it.
+        # --relabel needs no entry: it is the one privileged verb that WORKS for an account
+        # holding no general grant, since %ai-ops carries a dedicated NOPASSWD rule for
+        # ai-tools-relabel-agent. Probing it is harmless -- `sudo -n -l <helper>` answers exit 0
+        # for that rule even though the drop-in pins it to the helper's zero-argument form (the
+        # trailing ""), because the probe passes no operand. Listing it here would only ever
+        # produce "grant present", so it stays out and the verb reaches sudo directly, which
+        # reports a missing drop-in itself.
         *) return 0 ;;
     esac
     # A --for run's first helper is the allowlist READER, before the verb's own -- so that is what

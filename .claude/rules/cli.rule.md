@@ -98,13 +98,24 @@ follows — so a caller holding a password is never asked for it on a verb no ru
 probed on the **first** helper it reaches (a `--for` run on `ai-tools-allowlist`, whose snapshot
 precedes the verb's own helper), so a host granting some helpers and not others is answered
 accurately rather than through one representative. `--sandbox-push`, `--sandbox-remove`, and the
-informational verbs reach no helper that can refuse the command, and are not probed.
+informational verbs reach no helper that can refuse the command, and are not probed. Neither is
+`--relabel`, the one privileged verb an operator without a general grant can already run, through
+the `%ai-ops` rule for `ai-tools-relabel-agent`: probing it answers "grant present" every time, so
+the entry would carry no information.
 
-The probe is `sudo -n -l <helper>`, which cannot prompt. Its exit status alone does not answer the
-question — a `wheel` operator with no cached credential fails it exactly as an account with no rule
-does — so the two are told apart by the message: *a password is required* means the grant exists
-and that caller is left to the ordinary prompt, and only an explicit refusal counts as absent.
-`LC_ALL=C` pins the wording those matches read.
+The probe is `sudo -n -l <helper>`, which cannot prompt. An operator holding a general grant gets
+exit 0 and the command echoed back, whether or not a credential is cached — listing an allowed
+command is not itself password-gated on a stock sudoers. **The refusal is silent:** for a command
+no rule matches, `sudo -l` exits non-zero and prints nothing, and the *"Sorry, user … is not
+allowed to execute"* line an operator sees comes from the attempt to **run** the command, never
+from the listing. So silence with a non-zero status is the answer this reads as a missing grant.
+
+Silence is conclusive only while sudo is answering, so it is confirmed against a bare `sudo -n -l`,
+which lists the caller's whole rule set — an `ai-ops` member always has one. That separates "sudo
+knows this caller and has no rule for that command" from a sudo that failed for its own reasons,
+and only the first refuses. A *password is required* answer means listing is itself password-gated
+(sudoers `listpw`), so the grant may exist and that caller is left to the ordinary prompt;
+`LC_ALL=C` pins the wording of that one match.
 
 **The gate reports; it does not decide, and so it fails open.** The project's fail-closed rule
 governs the predicates that decide what a principal may do: each resolves, on any failure, to
