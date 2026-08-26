@@ -117,6 +117,11 @@ into it). `sudo ai-tools-bootstrap` does both in one idempotent command. Then ru
 
     sudo ./install.sh install
 
+Run it from the account that will own projects: the script enrols the invoking `SUDO_USER`
+as the first operator. It refuses `root`, which is otherwise reachable from a root shell
+(`sudo -i`, then `sudo ./install.sh` sets `SUDO_USER=root`) and would enrol an account the
+CLI then refuses every project verb.
+
 The script deploys the static `%ai-ops` sudoers drop-in, the helpers and the system
 units, creates the approved-projects allowlist with format documentation, installs the
 `ai-tools` project CLI and the `/var/opt/ai-tools` sandbox area, enables the

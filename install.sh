@@ -35,6 +35,16 @@ readonly SCRIPT_DIR
     || { echo "error: run with sudo" >&2; exit 1; }
 
 PROJECTS_USER="${SUDO_USER:?error: SUDO_USER not set -- invoke via sudo, not as root directly}"
+# The operator this install enrols: it writes OPERATORS in operator.conf and adds the account to
+# ai-ops. Root is refused, the same guard `ai-tools-admin operator add` applies, because enrolling
+# it produces a host nobody can provision: the CLI refuses root every mutating verb, --for refuses
+# root as a target, and operator.lib.sh resolves path owners from OPERATORS, so the ownership
+# handback would restore agent-written files to root:ai-tools. The SUDO_USER check above does not
+# cover this -- sudo invoked from a root shell sets SUDO_USER=root, so `sudo -i` followed by
+# `sudo ./install.sh` arrives here with a resolvable home and a real group.
+[[ "${PROJECTS_USER}" != "root" ]] \
+    || { echo "error: the operator must be a normal login user, not root" >&2
+         echo "       log in as that account and run: sudo ./install.sh" >&2; exit 1; }
 PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"
 PROJECTS_GROUP="$(id -gn "${PROJECTS_USER}")"
 [[ -d "${PROJECTS_HOME}" ]] \
