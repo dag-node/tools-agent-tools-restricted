@@ -194,6 +194,15 @@ wire_dedup() {
 #
 # An account without the grant is a supported shape, not a misconfiguration, so this reports and
 # never refuses: it names the --for command that claims on the account's behalf.
+#
+# A non-zero answer is a refusal only while sudo is answering at all -- for a command no rule
+# matches, `sudo -l` exits non-zero and prints NOTHING, so there is no message separating that from
+# a sudo which failed for its own reasons (an unreachable sudoers backend, a host that refuses -l).
+# It is separated by a second probe, the same way the CLI's sudo_grant_missing does it: listing the
+# account's whole rule set, which succeeds for anyone this command has just enrolled, since the
+# %ai-ops rules apply to the membership written moments earlier (sudo reads the group database, not
+# a cached credential). Only a first probe refused while the second answers is read as "no grant";
+# anything else is reported as undetermined, because a wrong verdict here is acted on immediately.
 report_operator_role() {
     local user="$1"
     local claim_helper="/usr/local/libexec/ai-tools/ai-tools-lockdown"
@@ -203,6 +212,10 @@ report_operator_role() {
     fi
     if LC_ALL=C sudo -l -U "${user}" "${claim_helper}" >/dev/null 2>&1; then
         log "${user} holds a general sudo grant: it can claim projects as well as launch sessions"
+        return 0
+    fi
+    if ! LC_ALL=C sudo -l -U "${user}" >/dev/null 2>&1; then
+        log "${user}: sudo did not answer, so whether ${user} holds a general sudo grant is undetermined -- check with: sudo -l -U ${user}"
         return 0
     fi
     log "${user} holds no general sudo grant: it can launch agent sessions and read the reports, and cannot claim a project"
