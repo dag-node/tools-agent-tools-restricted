@@ -43,12 +43,6 @@ rule for is refused before any password prompt, naming the command an operator
 who does hold one can run instead \(em for most commands that is the same
 command with
 .BR \-\-for .
-Membership of the
-.B ai\-ops
-group grants the agent launch and the entrypoint relabel; the other helpers
-assume a general
-.B sudo
-grant as well.
 .PP
 Every
 .I path
@@ -57,6 +51,32 @@ states its default in the prompt
 .RB ( "[Y/n] (default: Yes)" );
 plain Enter \(em and any run without a terminal \(em takes the default, which
 always falls on the safe side of the question.
+.SS Operators and the sudo grant
+Being an operator is two facts, both written by
+.BR "ai\-tools\-admin operator add" :
+membership of the
+.B ai\-ops
+group, and a name in
+.B OPERATORS
+in
+.BR operator.conf (5).
+A general
+.BR sudo (8)
+grant is neither of them \(em the host's own sudoers decides it, and nothing in
+this package writes or records it.
+.PP
+An operator holding only the two launches agent sessions and reads the reports.
+The commands that write a registry \(em
+.BR \-\-project\-claim ,
+.BR \-\-project\-unclaim ,
+.BR \-\-lockdown ,
+.BR \-\-reclaim ,
+.B \-\-sandbox\-create
+\(em reach root helpers with no NOPASSWD rule and need the grant as well; an
+operator who holds one performs them on another's behalf with
+.BR \-\-for .
+A host needs at least one operator holding the grant, since root is refused
+every command that writes.
 .SH COMMANDS
 .TP
 .B \-\-project\-claim \fR[\fB\-y\fR] [\fIpath\fR]

@@ -26,13 +26,28 @@ their sessions.
 | the list | `AI_TOOLS_OPERATORS` (array) | "the operators" |
 | operators group | literal `ai-ops` | "the operators group" / `ai-ops` |
 
+Being an operator is those two facts and nothing else: `ai-ops` membership and a name in
+`OPERATORS`. **A general sudo grant is a separate host-level axis, not part of the term** — the
+host's own sudoers decides it, and this project neither writes nor records it. Both shapes are
+operators, and prose distinguishes them by naming the grant rather than by inventing a role:
+
+- an operator **with** a general sudo grant claims and unclaims projects, locks down secrets, and
+  reclaims files — the verbs whose root helpers carry no NOPASSWD rule. A host needs at least one
+  (root cannot substitute; see the security model in `CLAUDE.md`), and it may be a purpose-made
+  provisioning account rather than a person.
+- an operator **without** one launches sessions and reads the reports. Projects are claimed for it
+  by the first shape, with `ai-tools --project-claim --for <operator>`. A passwordless service
+  account that runs an agent is this shape, and "service account" describes its intent — the host
+  records nothing that distinguishes it from any other grant-less operator.
+
 `operator.conf` is managed in place at runtime by `ai-tools-admin operator add|remove`. Its
 source template carries one substitution token, `OPERATORS="@PROJECTS_USER@"`, and the two
 install paths treat it differently: the RPM rewrites the line to `OPERATORS=""` at build
 (`packaging/ai-tools.spec`), so a packaged host ships with nobody enrolled, while `install.sh`
-substitutes the invoking `SUDO_USER` and enrols that account. **Nothing else about an operator
-is substituted** — home and primary group are derived per name at runtime via `getent`/`id`, so
-a name added to the list takes effect without touching any other file.
+substitutes the one operator it enrols — the account named at its prompt, defaulting to the
+invoking `SUDO_USER`. **Nothing else about an operator is substituted** — home and primary group
+are derived per name at runtime via `getent`/`id`, so a name added to the list takes effect
+without touching any other file.
 
 ### The owner — the operator a path resolves to
 

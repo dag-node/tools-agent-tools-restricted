@@ -722,6 +722,13 @@ unprivileged.
 `/usr/local/libexec/ai-tools` is `750 root:root`, so the projects user cannot even stat the
 helpers — only sudo, as root, reaches them.
 
+**Those eight calls assume a grant `ai-ops` membership does not carry** — a **general** sudo grant
+is a separate host-level axis that nothing in this project writes or records
+([naming-conventions](../../docs/naming-conventions.md) fixes the vocabulary), and the CLI answers
+for it ahead of the run's first prompt (*The caller with no sudo grant*, above). A host needs at
+least one operator holding it, since root is refused every mutating verb — the requirement, and why
+root cannot stand in, are in [CLAUDE.md](../../CLAUDE.md).
+
 ## Secret pre-check on claim/clone
 
 Before granting access, the CLI runs `ai-tools-lockdown --dry-run` and, when secret-matching

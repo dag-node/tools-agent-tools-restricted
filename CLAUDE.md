@@ -116,6 +116,27 @@ rule grants it anything — including the root rule, which `SANDBOX_USER` cannot
 unless it runs as `SANDBOX_USER` and refuses if `SANDBOX_USER` is ever in `ai-ops`, so the
 sandbox account can never hold the operator grant.
 
+### An operator is two facts; provisioning needs a third this project does not grant
+
+`ai-tools-admin operator add` writes both facts that make an operator: membership of `ai-ops`
+(the rules above, and the launch wrapper's own gate) and a name in `OPERATORS`
+(`/etc/ai-tools/operator.conf`, from which `operator.lib.sh` resolves each path's owner). An
+account holding only those two runs agent sessions on the projects claimed for it, and is a
+first-class operator — the shape `ai-tools --for <operator>` exists to serve, and the one a
+passwordless service account takes.
+
+Claim, unclaim, lockdown, reclaim, and sandbox-create reach root helpers carrying **no** NOPASSWD
+rule, so each needs a **general sudo grant** as well. That grant is a third, independent axis:
+nothing here installs it, records it, or can infer it from the other two — `ai-tools-admin` writes
+`operator.conf` and the group, never sudoers, and the RPM enrols nobody at all. The CLI answers
+for it by asking `sudo` before the verb's first prompt (see [cli](.claude/rules/cli.rule.md)).
+
+**A host needs at least one operator holding that grant.** Without one, no project can be claimed
+on it by any principal — root included, since every mutating verb refuses root to keep an
+operator's registries out of root's ownership. That operator provisions, and the others run
+sessions on what it claimed for them with `--for`. A purpose-made provisioning account satisfies
+this, so a human administrator need not be an operator at all.
+
 ### Trust is one-sided, and every refusal moves to less access
 
 The invariants below are instances of one property, stated once here rather than re-derived in
