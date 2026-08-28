@@ -240,6 +240,17 @@ when the merge could not run. It drives the deployed `conf.lib.sh` directly, lik
 library unit tests: the decision lives there rather than in `install.sh` precisely so it can be
 exercised without stubs or text extraction, and the installer keeps only the rendering.
 
+`install-guards.sh` is the other `install.sh` unit test, and it covers the decision that sits
+above the dispatch: which account the install enrols. Every refusal is driven through
+`--operator`, the one route by which a name reaches that decision without a terminal (the prompt
+reads `/dev/tty`, so its branch is not drivable here) — root, the sandbox account, an account that
+does not exist, and the flag's own valueless form. Each case runs the installer with an
+unrecognized action, so a run that reaches the dispatch at all prints usage and exits having
+written nothing, which is also how "admitted" is asserted. Beyond the refusals it pins what the
+flag does **not** decide: a `SUDO_USER=root` invocation naming a usable operator is admitted,
+while the same invocation naming nobody is refused, so the flag chooses who is enrolled and never
+how the script was invoked.
+
 `postupgrade.sh` is that same reconciliation seen from the RPM side: `ai-tools-admin postupgrade`
 end to end, from dispatch through the registry to each treatment (see
 [providers](providers.rule.md) and [claude-settings](claude-settings.rule.md)). It asserts which

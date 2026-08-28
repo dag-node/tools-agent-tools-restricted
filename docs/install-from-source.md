@@ -123,6 +123,15 @@ A non-interactive run and a plain Enter both take `SUDO_USER`. `root` is refused
 route, including the one that reaches it by accident: `sudo` from a root shell sets
 `SUDO_USER=root`, and the resulting host has an operator the CLI refuses every project verb.
 
+Name the account up front to skip the question — what an unattended install uses:
+
+    sudo ./install.sh install --operator op
+
+The name is refused on the same terms as a typed one (`root`, the `ai-tools` sandbox
+account, an account that does not exist or has no home), and it decides only **who is
+enrolled**: the script still runs as `sudo`, and its verification suite still runs as the
+invoking `SUDO_USER`.
+
 Enrolment writes the two facts that make an operator — `ai-ops` membership and a name in
 `OPERATORS`. **Claiming a project needs a general sudo grant as well**, which nothing here
 writes; the host's own sudoers decides it. An operator without one launches agent sessions,
