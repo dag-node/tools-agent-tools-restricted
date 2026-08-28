@@ -15,11 +15,40 @@ ai-tools \- manage the projects a sandboxed coding agent may work in
 registers, secures, and hands back the projects the sandboxed coding agent
 (Claude Code, running as the unprivileged
 .B ai-tools
-system account) may work in. Run it as your own login user \(em never as root
-and never as the sandbox account; the CLI refuses both. Steps that need root
+system account) may work in. Run it as your own login user \(em never as the
+sandbox account, which the CLI refuses for every command. Steps that need root
 (secret lockdown, ownership, SELinux labels) invoke
 .B sudo
 themselves and prompt for your password.
+.PP
+Root may run the read-only reports \(em
+.BR \-\-audit ,
+.BR \-\-status ,
+.BR \-\-list ,
+.BR \-\-providers .
+Every other command writes registries that belong to an operator and refuses
+root, as does
+.B \-\-for
+in any combination.
+.B \-\-audit
+needs root either way, since the trail it reads is
+.BR "700 root:root" ,
+and
+.B \-\-list
+run by root reports root's own registry, which is empty on a normal host.
+.PP
+A command whose root helper your account holds no
+.BR sudo (8)
+rule for is refused before any password prompt, naming the command an operator
+who does hold one can run instead \(em for most commands that is the same
+command with
+.BR \-\-for .
+Membership of the
+.B ai\-ops
+group grants the agent launch and the entrypoint relabel; the other helpers
+assume a general
+.B sudo
+grant as well.
 .PP
 Every
 .I path
