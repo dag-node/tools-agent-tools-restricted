@@ -4,8 +4,9 @@
 # Integration: the ai-tools management CLI. The CLI edits the allowlist as the PROJECTS user (and
 # registers git safe.directory through the ai-tools-safedir root helper); it must refuse to run as
 # the sandbox account for every verb (the agent must not manage its own allowlist), and as root for
-# every verb that WRITES (it would write the registries with the wrong owner) while accepting the
-# read-only reports, which root reaches because --audit's trail is 700 root:root. Asserts that
+# every verb that WRITES OPERATOR-OWNED STATE (it would write the registries with the wrong owner)
+# while accepting the ones that write none -- the four reports, which root reaches because
+# --audit's trail is 700 root:root, and --stop, whose helper requires root. Asserts that
 # split in both directions, that the projects user passes the guard, the operator preflight and the
 # per-verb "not a claimed project" refusals, and -- over a
 # FIXTURE allowlist + gitconfig (the AI_TOOLS_ALLOWLIST / AI_TOOLS_GITCONFIG root-only test hooks,
@@ -24,9 +25,10 @@ if [[ ! -x "${CLI}" ]]; then
     skip "CLI principal guard" "not installed at ${CLI}"; finish; exit
 fi
 
-# (1a) Every MUTATING verb must refuse root before any registry write. One per family, since the
-# guard keys on the verb: a claim, a clone, a per-project helper verb, and the two host-wide ones.
-for verb in --project-claim --project-unclaim --sandbox-create --lockdown --reclaim --relabel --stop; do
+# (1a) Every verb that WRITES OPERATOR-OWNED STATE must refuse root before the first write. One
+# per family, since the guard keys on the verb: a claim, a clone, a per-project helper verb, and
+# the host-wide relabel.
+for verb in --project-claim --project-unclaim --sandbox-create --lockdown --reclaim --relabel; do
     out="$("${CLI}" "${verb}" 2>&1)" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'do not run as root' <<<"${out}"; then
         pass "CLI refuses root on ${verb} (would write registries with the wrong owner)"
@@ -35,10 +37,11 @@ for verb in --project-claim --project-unclaim --sandbox-create --lockdown --recl
     fi
 done
 
-# (1b) The read-only reports are the carve-out: --audit needs root by construction (its trail is
-# 700 root:root), and refusing it left the verb unreachable from BOTH sides on a host whose only
-# operator holds no general sudo grant. Asserted on the refusal text rather than the exit status:
-# --audit and --status both exit non-zero to REPORT something, which is not a refusal.
+# (1b) The verbs that write no operator state are the carve-out: --audit needs root by
+# construction (its trail is 700 root:root), and refusing it left the verb unreachable from BOTH
+# sides on a host whose only operator holds no general sudo grant. Asserted on the refusal text
+# rather than the exit status: --audit and --status both exit non-zero to REPORT something, which
+# is not a refusal.
 for verb in --audit --status --list --providers; do
     out="$("${CLI}" "${verb}" 2>&1)" || true
     if ! grep -qi 'do not run as root' <<<"${out}"; then
@@ -47,6 +50,18 @@ for verb in --audit --status --list --providers; do
         fail "CLI wrongly refused root on the read-only report ${verb}: ${out}"
     fi
 done
+
+# --stop is in that set too and is the one member that ACTS, so it is asserted through a REFUSAL
+# it reaches only past the principal guard: an unknown option, which cmd_stop's argument loop
+# rejects with the documented usage code BEFORE the sudo that would reach the root helper. Driving
+# the bare command here would terminate every session on the host -- including the one running
+# this suite -- so the assertion is that root got as far as the option loop, not that a stop ran.
+out="$("${CLI}" --stop --bogus 2>&1)" && rc=0 || rc=$?
+if [[ ${rc} -eq 2 ]] && grep -qi 'unknown --stop option' <<<"${out}"; then
+    pass "CLI accepts root on --stop (reached the option loop, no session signalled)"
+else
+    fail "CLI did not admit root to --stop's option loop (rc=${rc}): ${out}"
+fi
 
 # (1c) --for stays refused for root in EITHER argument order: root is not in OPERATORS, so an
 # entry written for it names an owner no ownership helper can resolve. The trailing form is the

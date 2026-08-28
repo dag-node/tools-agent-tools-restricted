@@ -81,6 +81,10 @@ Two properties of the rung matter to this rule beyond the mechanism, which lives
 - **It is containment, not reversal.** Stopping ends the process; it does not undo what the session
   already did. An incident procedure that treats a completed stop as a resolved incident has
   skipped the review rung.
+- **A rung only a human can reach is missing when nobody is there.** The bare command carries a
+  `%ai-ops` NOPASSWD rule for exactly that reason: a detector cannot answer a password prompt, so
+  gating the stop behind one would make it unavailable during the unattended incidents it exists
+  for. What that grant covers and what it withholds is in the same document.
 - **A ladder nobody has climbed is a document.** The destructive form is exercised deliberately by
   `tests/manual/verify-live-flows.sh --stop-all-drill`, and the trail is read afterwards. That drill
   is the difference between an escalation path and a claim about one.

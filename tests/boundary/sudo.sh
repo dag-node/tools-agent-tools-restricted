@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/boundary/sudo.sh
 # Boundary: the sandbox account holds NO sudo rights -- the first security-model invariant in
-# CLAUDE.md. The two NOPASSWD rules in sudoers.d/ai-tools both belong to the PROJECTS
-# user and DROP privilege to the sandbox account; the agent runs AS the sandbox account and
-# can invoke neither. Asserts that at runtime (sudo -l for the sandbox account reports it is not
+# CLAUDE.md. The three NOPASSWD rules in sudoers.d/ai-tools all belong to the PROJECTS
+# user -- one dropping privilege to the sandbox account, two running a fixed-path helper as root;
+# the agent runs AS the sandbox account and can invoke none of them. Asserts that at runtime
+# (sudo -l for the sandbox account reports it is not
 # allowed to run sudo at all) and statically (no grant line names the sandbox account as
 # principal). Also pins the account hygiene the invariant depends on -- nologin shell, locked
 # password, and non-membership in ai-ops. Run as root via sudo.

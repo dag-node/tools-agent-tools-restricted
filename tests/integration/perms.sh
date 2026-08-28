@@ -345,6 +345,20 @@ if [[ -r /etc/sudoers.d/ai-tools ]]; then
     else
         fail "sudoers env_keep names unexpected variable(s): ${ek_extra//$'\n'/ } -- widened launch env surface"
     fi
+
+    # Both root rules must be pinned to their helper's ZERO-ARGUMENT form. The trailing "" is what
+    # keeps each a grant to run one program one way: sudoers(5) reads a command listed with no
+    # arguments at all as permitting ANY, so a dropped "" silently turns a narrow root rule into
+    # `--remove <agent>` (relabel) or `--force` (stop) without a password. tests/unit/helper-path.sh
+    # pins the same two lines in the SOURCE; this asserts what the install actually deployed.
+    for _rule_helper in ai-tools-relabel-agent ai-tools-stop; do
+        if grep -qE "^%ai-ops[[:space:]]+.*NOPASSWD:[[:space:]]*/usr/local/libexec/ai-tools/${_rule_helper}[[:space:]]+\"\"[[:space:]]*$" \
+                /etc/sudoers.d/ai-tools; then
+            pass "sudoers grants ${_rule_helper} in its zero-argument form only"
+        else
+            fail "sudoers rule for ${_rule_helper} is missing or not pinned to the zero-argument form"
+        fi
+    done
 fi
 
 finish

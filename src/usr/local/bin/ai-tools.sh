@@ -17,8 +17,9 @@
 # at its target. --help/--version/--list/--providers stay open to any user.
 #
 # The principal guard above them refuses the sandbox account outright and allows root only the
-# read-only reports (ROOT_ALLOWED_VERBS): --audit needs root by construction, since the trail it
-# reads is 700 root:root.
+# verbs that write no operator state (ROOT_ALLOWED_VERBS): the four reports, --audit needing root
+# by construction since the trail it reads is 700 root:root, plus --stop, whose helper requires
+# root anyway.
 #
 # --for <operator> performs a command ON BEHALF OF another enrolled operator: the allowlist entry
 # lands in THEIR registry, so ai-tools-setfacl grants user:<them>, the handback restores to them,
@@ -149,16 +150,23 @@ readonly GUARD_MARKER="ai-tools-lockdown-guard"
 #
 # ROOT_ALLOWED_VERBS -- what root may run. The criterion is WRITES NO OPERATOR-OWNED STATE, which
 # is what the root guard exists to protect: a registry written by root names an owner whose own
-# launch gate cannot read it. Every member happens to be a report, so `--help` calls them the
-# read-only reports, but a verb qualifies on what it writes rather than on what it reads. Read by
-# the principal guard below, by that guard's own refusal (which lists them), and by ai-tools(1).
-readonly ROOT_ALLOWED_VERBS=(--audit --status --list --providers)
+# launch gate cannot read it. A verb qualifies on what it writes rather than on what it reads, so
+# --stop belongs here despite being the one member that ACTS: it writes no registry, and root is
+# the identity an unattended detector usually runs as -- the caller this rung most has to serve.
+# Admitting it grants nothing new either, since root can already run ai-tools-stop directly and
+# can signal any process on the host; what it removes is a CLI that refused the one principal its
+# own helper requires. Read by the principal guard below, by that guard's own refusal (which lists
+# them), and by ai-tools(1).
+readonly ROOT_ALLOWED_VERBS=(--audit --status --list --providers --stop)
 # BOOTSTRAP_EXEMPT_VERBS -- what runs on an unprovisioned host. Deliberately NOT the set above:
-# both of these answer a question about a host that may be broken (--status reports the
-# unprovisioned state itself; --audit reads a historical trail, which an install that never
-# finished does not invalidate), while --list and --providers describe a toolchain that has to
-# exist first and stay behind the gate.
-readonly BOOTSTRAP_EXEMPT_VERBS=(--status --audit)
+# each of these is meant for a host that may be broken (--status reports the unprovisioned state
+# itself; --audit reads a historical trail, which an install that never finished does not
+# invalidate; --stop ends sessions already running, and needs nothing from the toolchain to do it
+# -- the gate keys on ONE agent's launcher symlink, so leaving --stop behind it would put the
+# incident ladder's last rung out of reach on a host that enables a different agent, or that lost
+# that symlink while sessions were running). --list and --providers describe a toolchain that has
+# to exist first and stay behind the gate.
+readonly BOOTSTRAP_EXEMPT_VERBS=(--status --audit --stop)
 
 # verb_in <verb> <name>... -- true when <verb> is one of the named verbs.
 verb_in() {
@@ -216,11 +224,13 @@ done
 set -- "${_forless_args[@]}"
 unset _forless_args
 
-# ── Root and the read-only reports ───────────────────────────────────────────────
-# Root may run the verbs that only READ -- --audit, --status, --list, --providers -- and no other.
+# ── Root and the verbs that write no operator state ──────────────────────────────
+# Root may run the verbs that write no registry -- the four reports, plus --stop -- and no other.
 # --audit is why the carve-out exists: the trail it reads is 700 root:root, so the verb needs root
 # by construction, and a blanket refusal left it unreachable from BOTH sides on a host whose only
-# operator holds no general sudo grant. The mutating verbs keep refusing root for the reason this
+# operator holds no general sudo grant. --stop is here for the mirror of that reason: its helper
+# requires root, and an incident response running as root should reach the rung through the same
+# command an operator uses. The mutating verbs keep refusing root for the reason this
 # guard has always existed -- they would write the operator registries owned by root, where that
 # operator's own launch gate cannot read them.
 #
@@ -238,7 +248,7 @@ root_may_run() {
 if [[ "${INVOKING_USER}" == "root" ]] && ! root_may_run "${1:-}"; then
     echo "ai-tools: do not run as root -- run as the projects user, without sudo" >&2
     echo "          (the CLI invokes sudo itself for the steps that need it)" >&2
-    echo "          as root you can run the read-only reports:" \
+    echo "          as root you can run the verbs that write no operator state:" \
          "$(join_words "${ROOT_ALLOWED_VERBS[@]}")" >&2
     exit 1
 fi
@@ -2323,10 +2333,10 @@ cmd_stop() {
                 die_stop_usage "--stop takes no path: ${argument}. It TERMINATES every agent session on this host -- killing the process tree, so no session-end handback runs -- and has no per-project form, because a session is attributed to a project by the sandbox account's own user manager -- the account being stopped -- so that attribution is reported, never trusted to decide what a stop reaches." ;;
         esac
     done
-    command -v sudo >/dev/null 2>&1 \
+    root_helper_reachable \
         || die "sudo not found -- a session runs in the sandbox account's cgroups, which only root can signal" \
                "run as root: ${STOP_BIN}"
-    sudo "${STOP_BIN}" "${passthru[@]}"
+    run_root_helper "${STOP_BIN}" "${passthru[@]}"
 }
 
 # cmd_providers  -- report the installed providers of both kinds and, for each, whether a
@@ -2993,10 +3003,11 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
                       is usable from cron or a login banner without parsing its output.
 
   Runs as an operator, without sudo -- the CLI invokes sudo itself for the steps that need
-  it. Root is accepted for the read-only reports only (--audit, --status, --list,
-  --providers); every other verb writes operator-owned state and refuses root. A caller
-  holding no sudo grant for a verb's root helper is told so before sudo prompts, with the
-  command an operator who does hold one can run instead.
+  it. Root is accepted for the verbs that write no operator state (--audit, --status,
+  --list, --providers, --stop); every other verb writes operator-owned state and refuses
+  root. A caller holding no sudo grant for a verb's root helper is told so before sudo
+  prompts, with the command an operator who does hold one can run instead; --stop needs no
+  such grant (%ai-ops carries a NOPASSWD rule for its bare form).
 
   --for <operator>    act on another enrolled operator's projects instead of your own: the
                       entry lands in THEIR allowed-projects, so the tree is granted to them and
@@ -3098,7 +3109,6 @@ require_sudo_access() {
     local bin="" what="" delegable=false
     case "${verb}" in
         --audit)                            bin="${AUDIT_BIN}"    what="reading the refusal trail" ;;
-        --stop)                             bin="${STOP_BIN}"     what="terminating the running sessions" ;;
         --lockdown)                         bin="${LOCKDOWN_BIN}" what="locking down secret files"; delegable=true ;;
         --reclaim)                          bin="${RECLAIM_BIN}"  what="reclaiming agent-written files"; delegable=true ;;
         --project-claim|--project-create)   bin="${LOCKDOWN_BIN}" what="claiming a project"; delegable=true ;;
@@ -3108,13 +3118,17 @@ require_sudo_access() {
         # command: the only sudo either of the sandbox pair makes is unreg_allow's safedir removal,
         # which already warns and carries on rather than failing the verb.
         #
-        # --relabel needs no entry: it is the one privileged verb that WORKS for an account
-        # holding no general grant, since %ai-ops carries a dedicated NOPASSWD rule for
-        # ai-tools-relabel-agent. Probing it is harmless -- `sudo -n -l <helper>` answers exit 0
-        # for that rule even though the drop-in pins it to the helper's zero-argument form (the
-        # trailing ""), because the probe passes no operand. Listing it here would only ever
-        # produce "grant present", so it stays out and the verb reaches sudo directly, which
+        # --relabel and --stop need no entry: they are the privileged verbs that WORK for an
+        # account holding no general grant, since %ai-ops carries a dedicated NOPASSWD rule for
+        # each of their helpers. Probing either is harmless -- `sudo -n -l <helper>` answers exit 0
+        # for those rules even though the drop-in pins each to its helper's zero-argument form (the
+        # trailing ""), because the probe passes no operand. Listing them here would only ever
+        # produce "grant present", so they stay out and the verbs reach sudo directly, which
         # reports a missing drop-in itself.
+        # The pin also means --stop's FLAGGED forms fall outside the rule and meet sudo's ordinary
+        # prompt (deliberate; docs/session-stop.md). This probe could not report that either: it
+        # asks about the helper, while what a flag changes is whether the rule matches the command
+        # line.
         *) return 0 ;;
     esac
     # A --for run's first helper is the allowlist READER, before the verb's own -- so that is what
