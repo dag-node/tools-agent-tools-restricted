@@ -57,7 +57,13 @@ readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 die() { printf 'ai-tools-admin: error: %s\n' "$*" >&2; exit 1; }
 log() { printf 'ai-tools-admin: %s\n' "$*"; }
 
-[[ "${EUID}" -eq 0 ]] || die "run as root (sudo)"
+# Executed, this administers a host and needs root. Sourced -- by tests/unit/admin-operator-add.sh,
+# which drives one function with sudo stubbed -- it asserts nothing about the host and only
+# defines, stopping at the matching guard above the dispatch. Everything between the two is
+# definitions, so the executed path still refuses a non-root caller before any action.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    [[ "${EUID}" -eq 0 ]] || die "run as root (sudo)"
+fi
 
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 . "${OPERATOR_LIB}" || die "cannot source ${OPERATOR_LIB}"
@@ -182,6 +188,46 @@ wire_dedup() {
     fi
 }
 
+# report_operator_role <user> -- say which of the two operator shapes this enrolment produced,
+# where the decision is being made rather than where it first fails.
+#
+# This command writes both facts that make an operator (ai-ops membership, a name in OPERATORS)
+# and CANNOT write the third thing a claim needs: a general sudo grant, which the host's own
+# sudoers decides. Group membership cannot imply a sudoers rule, so the only way to know is to
+# ask sudo -- and running as root, it can ask on the enrolled account's behalf without a password.
+# The probe names ai-tools-lockdown because the secret gate is a claim's first sudo, so it answers
+# the question the administrator actually has: can this account claim a project?
+#
+# An account without the grant is a supported shape, not a misconfiguration, so this reports and
+# never refuses: it names the --for command that claims on the account's behalf.
+#
+# A non-zero answer is a refusal only while sudo is answering at all -- for a command no rule
+# matches, `sudo -l` exits non-zero and prints NOTHING, so there is no message separating that from
+# a sudo which failed for its own reasons (an unreachable sudoers backend, a host that refuses -l).
+# It is separated by a second probe, the same way the CLI's sudo_grant_missing does it: listing the
+# account's whole rule set, which succeeds for anyone this command has just enrolled, since the
+# %ai-ops rules apply to the membership written moments earlier (sudo reads the group database, not
+# a cached credential). Only a first probe refused while the second answers is read as "no grant";
+# anything else is reported as undetermined, because a wrong verdict here is acted on immediately.
+report_operator_role() {
+    local user="$1"
+    local claim_helper="/usr/local/libexec/ai-tools/ai-tools-lockdown"
+    if ! command -v sudo >/dev/null 2>&1; then
+        log "${user}: no sudo on this host, so no project can be claimed by anyone -- ${user} can still launch agent sessions"
+        return 0
+    fi
+    if LC_ALL=C sudo -l -U "${user}" "${claim_helper}" >/dev/null 2>&1; then
+        log "${user} holds a general sudo grant: it can claim projects as well as launch sessions"
+        return 0
+    fi
+    if ! LC_ALL=C sudo -l -U "${user}" >/dev/null 2>&1; then
+        log "${user}: sudo did not answer, so whether ${user} holds a general sudo grant is undetermined -- check with: sudo -l -U ${user}"
+        return 0
+    fi
+    log "${user} holds no general sudo grant: it can launch agent sessions and read the reports, and cannot claim a project"
+    log "${user}: claim on its behalf from an operator that holds one -- ai-tools --project-claim --for ${user} <path>"
+}
+
 op_add() {
     local user="${1:-${SUDO_USER:-}}"
     [[ -n "${user}" ]] || die "usage: ai-tools-admin operator add <user>  (or run via sudo so SUDO_USER is set)"
@@ -222,6 +268,7 @@ op_add() {
 
     wire_dedup "${user}"
     log "operator ${user} added"
+    report_operator_role "${user}"
     # ai-ops membership applies to NEW login sessions; an already-open shell keeps the credential
     # set it had at login, and the launch wrapper gates on that live set. Name the activation step
     # so the operator's first claude launch does not hit the stale-session refusal.
@@ -520,6 +567,10 @@ selinux_dispatch() {
         *) die "unknown selinux subcommand '${sub}' (list-groups|enable-group|disable-group)" ;;
     esac
 }
+
+# Sourced rather than executed (see the note at the root check): stop here with every function
+# defined and nothing dispatched, so the caller's arguments are not read as a subcommand.
+[[ "${BASH_SOURCE[0]}" == "${0}" ]] || return 0
 
 # Dispatch: `operator <add|remove|list>` | `selinux <list-groups|enable-group|disable-group>`.
 [[ $# -ge 1 ]] || die "usage: ai-tools-admin <operator|selinux|postupgrade> ..."
