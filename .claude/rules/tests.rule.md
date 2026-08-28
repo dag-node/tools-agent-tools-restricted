@@ -253,6 +253,17 @@ the pair is already deployed: `boundary/access.sh` covers `settings.json` and th
 directory, `boundary/providers.sh` and `boundary/filters.sh` cover `operator.conf`, and
 `boundary/sudo.sh` covers the grant, so no input this command reads is agent-writable.
 
+`admin-operator-add.sh` pins the other reported decision that command makes: the line
+`operator add` closes with, naming which of the two operator shapes the enrolment produced. The
+verdict is read out of `sudo -l -U`, so what the file drives is the direction that misleads — a
+sudo which fails for its own reasons must read as *undetermined* rather than as a verdict about
+the account, since an administrator acts on that line at the moment of the decision and a false
+"no grant" sends them to a `--for` workflow they do not need. `sudo` is stubbed as a shell
+function and the helper is **sourced** rather than run (its root check and its dispatch are
+guarded for exactly that), so one function is driven with no host to administer and nothing
+written anywhere; each case runs in its own `bash`, because the helper and the harness both
+declare `SANDBOX_USER` readonly.
+
 `services.sh` pins the service-health registry (`services.lib.sh`) that `ai-tools --status` and
 the launch wrapper's pre-launch warning share. Two properties carry weight beyond the accessors.
 The **last-run stamp** is the one input here a non-root writer controls and it is rendered to the

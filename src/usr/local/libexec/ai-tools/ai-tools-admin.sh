@@ -57,7 +57,13 @@ readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 die() { printf 'ai-tools-admin: error: %s\n' "$*" >&2; exit 1; }
 log() { printf 'ai-tools-admin: %s\n' "$*"; }
 
-[[ "${EUID}" -eq 0 ]] || die "run as root (sudo)"
+# Executed, this administers a host and needs root. Sourced -- by tests/unit/admin-operator-add.sh,
+# which drives one function with sudo stubbed -- it asserts nothing about the host and only
+# defines, stopping at the matching guard above the dispatch. Everything between the two is
+# definitions, so the executed path still refuses a non-root caller before any action.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    [[ "${EUID}" -eq 0 ]] || die "run as root (sudo)"
+fi
 
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 . "${OPERATOR_LIB}" || die "cannot source ${OPERATOR_LIB}"
@@ -561,6 +567,10 @@ selinux_dispatch() {
         *) die "unknown selinux subcommand '${sub}' (list-groups|enable-group|disable-group)" ;;
     esac
 }
+
+# Sourced rather than executed (see the note at the root check): stop here with every function
+# defined and nothing dispatched, so the caller's arguments are not read as a subcommand.
+[[ "${BASH_SOURCE[0]}" == "${0}" ]] || return 0
 
 # Dispatch: `operator <add|remove|list>` | `selinux <list-groups|enable-group|disable-group>`.
 [[ $# -ge 1 ]] || die "usage: ai-tools-admin <operator|selinux|postupgrade> ..."
