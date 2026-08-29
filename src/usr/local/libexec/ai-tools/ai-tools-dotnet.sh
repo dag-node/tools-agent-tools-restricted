@@ -68,7 +68,11 @@ selinux_active() {
     command -v getenforce >/dev/null 2>&1 || return 1
     [[ "$(getenforce 2>/dev/null)" != Disabled ]] || return 1
     command -v semodule >/dev/null 2>&1 || return 1
-    semodule -l 2>/dev/null | grep -qx ai_tools
+    # Captured, not piped into `grep -q`: an early-exiting reader makes semodule die of SIGPIPE
+    # and pipefail then reports the probe failed -- see ai_tools_selinux_group_loaded.
+    local modules
+    modules="$(semodule -l 2>/dev/null || true)"
+    grep -qx ai_tools <<<"${modules}"
 }
 
 # label_state <path> : give <path> the label the base policy already maps it to. No `semanage`:

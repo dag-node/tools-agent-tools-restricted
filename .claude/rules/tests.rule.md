@@ -187,10 +187,21 @@ departs the installed-helper pattern the other way: it runs a `TESTDIR` copy of
 fixture `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the
 three-way match, `vX.Y.Z-rc.N` compares its base and relaxes only the `%changelog` match,
 any other dashed tag is refused, a missing `%changelog` entry is fatal for every form.
-`man.sh` is a pure text-sync check: the long-option sets of the CLI's `usage()` heredoc
-and the `ai-tools(1)` man page must match in both directions (see [cli](cli.rule.md)),
-validated from the repo sources (or the installed pair outside a checkout) without
-executing the CLI.
+`man.sh` is a pure text-sync check between the CLI's `usage()` heredoc and the `ai-tools(1)`
+man page, validated from the repo sources (or the installed pair outside a checkout) without
+executing the CLI. The two are not copies — the help is orientation, the page is the reference
+(see [cli](cli.rule.md)) — so it asserts three relations rather than set equality: the **verb**
+sets match in both directions, every option the help names is documented, and every option the
+page documents is one a CLI **parser** accepts. The last is the direction with teeth: what goes
+stale is an option outliving its parser, whereas requiring the help to name every documented
+option is what previously made slimming the help impossible.
+
+`sandbox.sh` closes with `tree_is_pristine`, which is not a sandbox helper but belongs to the same
+class: a pure decision with a security consequence. `--project-create` skips the secret scan, the
+git-history prompt and the proceed confirm when it returns 0, so every way it could wrongly say yes
+is a way to grant an agent access to a tree nothing scanned — which is why the claim re-derives it
+from the tree rather than trusting the caller's hint, and why the cases driven here are the states
+that must read as **not** pristine (any file beyond the README, one nested deeper, any commit).
 
 `conf.sh` and `providers.sh` are the library pair behind the provider seam (see
 [providers](providers.rule.md)). `conf.sh` pins the shared `KEY=value` grammar every
@@ -359,6 +370,16 @@ ship prebuilt — registry↔filesystem lockstep: every registered group has a `
 **no committed** `.pp` (source-only, so a compiled dev copy left tracked is caught); and no policy
 module on disk is missing from the registry. The lockstep half reads git track-state, so it needs
 the checkout.
+
+It closes with the registry's one impure accessor, `ai_tools_selinux_group_loaded`, whose failure
+mode is a **race** rather than a wrong answer: `semodule -l` needs several writes to deliver a
+few hundred module names, so reading it as `semodule -l | grep -qx` lets grep exit on the match
+and leaves the writer to die of SIGPIPE, which `pipefail` reports as 141 — a loaded module read as
+absent, about half the time. `semodule` is stubbed as a shell function emitting one line per
+`printf`, so a single-write listing cannot hide the regression, and the probe is driven 25 times
+because one green run says nothing about a race. The same shape reached production twice (the
+`.TH` check in `man.sh` failed at random on the EL container runners for exactly this reason), so
+each remaining `semodule -l` probe now captures the listing before matching it.
 
 **`integration`** — checks that need a completed install and the running system
 (`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`, `cli.sh`,

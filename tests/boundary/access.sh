@@ -498,4 +498,34 @@ else
     fi
 fi
 
+# ── The two project verbs that write the filesystem as an owner ─────────────────
+# The boundary half of the pair for --project-create and --project-remove. Their runtime
+# refusals are asserted in integration/cli.sh; what makes those meaningful is that the agent
+# cannot reach the verbs at all. --project-remove matters most: it deletes a whole project
+# tree, and an agent that could invoke it could destroy the operator's work.
+#
+# Both are driven with NO path argument, so a regression that let one through would still
+# have nothing to act on -- the create refuses a missing path outright, and the remove would
+# resolve the agent's own cwd, which is not a claimed project of the agent's. The assertion
+# is on the principal guard's own wording, not merely on a non-zero exit, since every one of
+# these commands has other reasons to fail.
+for _verb in --project-create --project-remove; do
+    _out="$(runuser -u "${SANDBOX_USER}" -- "${AI_TOOLS_CLI:-/usr/local/bin/ai-tools}" "${_verb}" 2>&1)" \
+        && _rc=0 || _rc=$?
+    if (( _rc != 0 )) && grep -qi 'refusing to run as the sandbox account' <<<"${_out}"; then
+        pass "the agent cannot reach ${_verb} (principal guard)"
+    else
+        fail "the agent was not refused ${_verb} by the principal guard (rc=${_rc}): ${_out}"
+    fi
+done
+
+# And it cannot reach the runas seam those verbs use under --for. `sudo -u <operator>` is how
+# a --for run acts as the target; the agent holds no sudo rule at all, and the session runs
+# under PR_SET_NO_NEW_PRIVS, which drops sudo's SUID bit. Either alone is sufficient here.
+if runuser -u "${SANDBOX_USER}" -- sudo -n -u "${PROJECTS_USER}" true >/dev/null 2>&1; then
+    fail "the agent can run commands as ${PROJECTS_USER} via sudo -u -- the runas seam is reachable"
+else
+    pass "the agent cannot act as the operator through sudo -u (no rule; NNP drops sudo's SUID)"
+fi
+
 finish

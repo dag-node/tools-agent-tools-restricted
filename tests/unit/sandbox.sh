@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/sandbox.sh
-# Unit test for the two pure decisions behind the --sandbox-create flow (ai-tools.sh):
+# Unit test for the pure decisions behind two ai-tools.sh flows -- the --sandbox-create pair, and
+# the precondition --project-create's skipped prompts rest on (tree_is_pristine, at the end).
+#
+# The --sandbox-create pair:
 #   * sandbox_default_branch -- composes the DEFAULT sandbox branch (sandbox/<leaf-of-from>) with no
 #     host or operator identity in it; the operator overrides the whole name with --branch, so this
 #     only pins the default shape and the leaf extraction.
@@ -100,6 +103,76 @@ if call sandbox_resolve_base "${repo}" origin nope >/dev/null 2>&1; then
     fail "resolve_base accepted a nonexistent base"
 else
     pass "resolve_base refuses a base that is not a branch, remote branch, or ref"
+fi
+
+# ── tree_is_pristine ──────────────────────────────────────────────────────────────────────────
+# The predicate --project-create's flow rests on, and the reason it is pinned here rather than
+# left to the CLI test: what it gates is the SECRET SCAN. A claim skips that scan, the git-history
+# prompt, and the proceed confirm when this returns 0, so every way it could wrongly say yes is a
+# way to grant an agent access to a tree nothing scanned. It must answer for the tree as it is on
+# disk -- never for what a caller asserts about it -- so the cases below are the states that must
+# read as NOT pristine.
+section "tree_is_pristine: the precondition behind --project-create's skipped prompts (unit)"
+
+pristine() { call tree_is_pristine "$1"; }
+
+# Fixtures are built AS ROOT and handed over at the end, the same way the repo fixture above is.
+# The predicate only reads the tree, so what matters is that the projects user can read it when
+# `call` runs; driving each mkdir/git through runuser instead would make every fixture line a
+# command that can fail under set -e for reasons unrelated to what is being tested.
+work="${TESTDIR}/pristine"
+fresh="${work}/fresh"
+bare="${work}/bare"
+mkdir -p "${fresh}" "${bare}"
+git init -q "${fresh}"
+printf '# fresh\n' > "${fresh}/README.md"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${work}"
+
+if pristine "${fresh}"; then
+    pass "a freshly created project (empty repo + README) reads as pristine"
+else
+    fail "a freshly created project was not recognised as pristine"
+fi
+
+# A secret-named file is the exact thing the skipped scan exists to catch, so its presence has to
+# put the scan back.
+printf 'TOKEN=x\n' > "${fresh}/.env"
+chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${fresh}/.env"
+if pristine "${fresh}"; then
+    fail "a tree containing .env still read as pristine -- the secret scan would be skipped"
+else
+    pass "any file beyond the README makes a tree non-pristine (the secret scan runs)"
+fi
+rm -f "${fresh}/.env"
+
+# A file nested deeper counts too: a check that only looked at the top level would miss it.
+mkdir -p "${fresh}/sub"
+printf 'x\n' > "${fresh}/sub/deep.txt"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${fresh}/sub"
+if pristine "${fresh}"; then
+    fail "a nested file still read as pristine -- the check is not walking the tree"
+else
+    pass "a file nested below the root makes a tree non-pristine"
+fi
+rm -rf "${fresh}/sub"
+
+# Commits are the other half: the git-history prompt is inferred to yes only because a repository
+# with no commits has no history to expose.
+git -C "${fresh}" -c user.email=t@example.invalid -c user.name=t add -A
+git -C "${fresh}" -c user.email=t@example.invalid -c user.name=t commit -qm first
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${fresh}"
+if pristine "${fresh}"; then
+    fail "a repository with a commit read as pristine -- history would be shared unasked"
+else
+    pass "a repository carrying any commit is not pristine (the history prompt returns)"
+fi
+
+# An empty directory with no repository at all is still pristine: the predicate is about contents,
+# and --project-create's git init failing is a warning, not a reason to rescan an empty tree.
+if pristine "${bare}"; then
+    pass "an empty directory with no repository is pristine"
+else
+    fail "an empty directory was not recognised as pristine"
 fi
 
 finish

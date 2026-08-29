@@ -76,7 +76,9 @@ readonly ACL_BASE="group:${GROUP}:rwX,other::---"
 # Two identities may legitimately hold a project tree's files: the resolved operator and the
 # sandbox account. A file belonging to a third party (root, another developer) is left untouched --
 # claim must not pull a foreign file into the agent's group, even one the operator placed in the
-# tree. Matched by numeric UID; PROJECTS_UID is the resolved operator (set below).
+# tree -- and COUNTED, so a walk that granted nothing is reported rather than silent; the project
+# root hitting the guard is called out on its own, since it means the claim granted no access at
+# all. Matched by numeric UID; PROJECTS_UID is the resolved operator (set below).
 SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
 readonly SANDBOX_UID
 
@@ -211,9 +213,11 @@ _safe_setfacl() {
     fi
     # Owner guard (checked on the pinned inode, TOCTOU-safe): only the projects user's
     # or the sandbox account's own files are eligible; anything else is left untouched.
+    # Returns 3, not 1, so the walk can tell a third-party owner from a stat failure and
+    # report it: a walk that grants nothing must not read as one that had nothing to grant.
     if [[ "${got_uid}" != "${PROJECTS_UID}" && "${got_uid}" != "${SANDBOX_UID}" ]]; then
         exec {fd}<&-
-        return 1
+        return 3
     fi
     # Owner-only guard: the operator sealed this path and the claim honours it. Granting it would
     # be worse than a no-op -- `setfacl -m` RECALCULATES the mask, so the grant on a 0600 file
@@ -276,7 +280,8 @@ declare -a expr=( "${canonical}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
 declare -i applied=0
 find "${expr[@]}" 2>/dev/null \
     | { declare -a skip=()
-        declare -i owneronly=0 rc=0
+        declare -i owneronly=0 thirdparty=0 rc=0
+        declare root_thirdparty=false
         _under_skip() { local p; for p in "${skip[@]:-}"; do
             [[ -n "${p}" && ( "$1" == "${p}" || "$1" == "${p}/"* ) ]] && return 0; done; return 1; }
         while IFS= read -r -d '' p; do
@@ -293,6 +298,10 @@ find "${expr[@]}" 2>/dev/null \
                    # unreachable directory's contents cannot be granted through it, and
                    # descending would grant paths the operator sealed off at the parent.
                    [[ -d "${p}" ]] && skip+=("${p}") ;;
+                3) thirdparty=$(( thirdparty + 1 ))
+                   # The project root decides whether the ACL grant happened at all -- see
+                   # the same split in ai-tools-setgid.
+                   [[ "${p}" == "${canonical}" ]] && root_thirdparty=true ;;
             esac
         done
         # The counts are local to this subshell (pipe); log them here.
@@ -301,6 +310,18 @@ find "${expr[@]}" 2>/dev/null \
             ai_tools_log_info "left ${owneronly} owner-only path(s) under ${canonical} out of the agent's reach"
             printf 'ai-tools-setfacl: left %d owner-only path(s) (0600/0700) out of the sandbox account'"'"'s reach\n' \
                 "${owneronly}" >&2
+        fi
+        # Surfaced for the same reason as the setgid walk's: the owner guard is the one skip
+        # that can leave a claim reporting success having granted nothing.
+        if (( thirdparty )); then
+            ai_tools_log_warn "left ${thirdparty} path(s) under ${canonical} untouched: owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@"
+            if ${root_thirdparty}; then
+                printf 'ai-tools-setfacl: the project directory itself is owned by neither %s nor %s -- no ACL was applied, and the agent gets no access to this tree\n' \
+                    "${PROJECTS_USER}" "@SANDBOX_USER@" >&2
+            else
+                printf 'ai-tools-setfacl: left %d path(s) owned by neither %s nor %s untouched -- the agent gets no access to them\n' \
+                    "${thirdparty}" "${PROJECTS_USER}" "@SANDBOX_USER@" >&2
+            fi
         fi
       } || true
 
@@ -317,7 +338,7 @@ if ${WITH_GIT} && [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
     declare -a gskip=()
     _under_gskip() { local q; for q in "${gskip[@]:-}"; do
         [[ -n "${q}" && ( "$1" == "${q}" || "$1" == "${q}/"* ) ]] && return 0; done; return 1; }
-    declare -i git_owneronly=0 grc=0
+    declare -i git_owneronly=0 git_thirdparty=0 grc=0
     while IFS= read -r -d '' p; do
         _under_gskip "${p}" && continue
         if _is_excluded "${p}" || _is_secret_name "${p}"; then
@@ -329,6 +350,7 @@ if ${WITH_GIT} && [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
             0) git_applied=$(( git_applied + 1 )) ;;
             2) git_owneronly=$(( git_owneronly + 1 ))
                [[ -d "${p}" ]] && gskip+=("${p}") ;;
+            3) git_thirdparty=$(( git_thirdparty + 1 )) ;;
         esac
     done < <(find "${gitdir}" -xdev '(' -type d -o -type f ')' -print0 2>/dev/null)
     ai_tools_log_info "normalized ${git_applied} path(s) under ${gitdir} (group ${GROUP}, setgid dirs, ACL)"
@@ -338,6 +360,13 @@ if ${WITH_GIT} && [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
         ai_tools_log_info "left ${git_owneronly} owner-only path(s) under ${gitdir} out of the agent's reach"
         printf 'ai-tools-setfacl: %d owner-only path(s) under .git were NOT shared (0600/0700) -- git history stays out of the sandbox account'"'"'s reach\n' \
             "${git_owneronly}" >&2
+    fi
+    # Same disclosure as the main walk, for the same reason the owner-only count is disclosed
+    # here: --with-git is an explicit opt-in, so a share that did not happen must be said.
+    if (( git_thirdparty )); then
+        ai_tools_log_warn "left ${git_thirdparty} path(s) under ${gitdir} untouched: owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@"
+        printf 'ai-tools-setfacl: %d path(s) under .git were NOT shared -- owned by neither %s nor %s\n' \
+            "${git_thirdparty}" "${PROJECTS_USER}" "@SANDBOX_USER@" >&2
     fi
 fi
 

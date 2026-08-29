@@ -7,8 +7,11 @@
 # hermetically: it sources the deployed library and asserts the exact-or-ancestor rule --
 # a system directory (and "/") is protected, a user home root is protected exactly, while
 # a real project nested under an operator home or the sandbox-clone area passes. Also checks the assert emits a refusal and returns
-# non-zero on a protected target and is silent + zero on a safe one. Run as root via sudo
-# (the suite contract); needs no privilege of its own.
+# non-zero on a protected target and is silent + zero on a safe one, and pins the second,
+# narrower predicate beside it -- ai_tools_traverse_grant_allowed, which admits the acting
+# operator's own home root for a traverse-only ACL and nothing else. Run as root via sudo
+# (the suite contract); the only case needing privilege (a foreign-owned fixture) skips without
+# it, so the file also runs directly as an operator.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -83,5 +86,87 @@ if (( rc == 0 )) && [[ -z "${err}" ]]; then
 else
     fail "assert should pass /home/tester/myproject silently (rc=${rc}, msg='${err}')"
 fi
+
+# ── The traverse-grant predicate ─────────────────────────────────────────────
+# ai_tools_traverse_grant_allowed vets a strictly weaker operation than the target backstop
+# above: one `u:ai-tools:--x` entry on ONE directory, which conveys search permission and no
+# read. It therefore admits the acting operator's OWN home root, which the backstop refuses as a
+# target -- so these assertions are about the difference between the two, and (2b) above still
+# stands unchanged. What keeps the carve-out from becoming a hole is the owner argument: it is
+# checked before the home-root exemption, so the exemption reaches exactly one account's home.
+section "traverse-grant predicate (unit)"
+
+# This file stays runnable unprivileged (it drives a pure library), so the fixture ownership is
+# only asserted where it can be arranged: run as root the testdir is root-owned and has to be
+# handed over, run as the operator it is already theirs.
+mktestdir
+owned="${TESTDIR}/owned"; mkdir -p "${owned}"
+if [[ "$(id -u)" -eq 0 ]]; then chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${owned}"; fi
+
+# (6) An ordinary directory the owner holds is grantable -- the case that has always worked.
+if ai_tools_traverse_grant_allowed "${owned}" "${PROJECTS_USER}"; then
+    pass "an ordinary directory the operator owns is grantable"
+else
+    fail "an operator-owned directory was refused: ${owned}"
+fi
+
+# (7) The owner guard: a directory the operator does not hold is refused.
+if [[ "$(id -u)" -eq 0 ]]; then
+    foreignowned="${TESTDIR}/root-owned"; mkdir -p "${foreignowned}"   # stays root-owned
+    if ai_tools_traverse_grant_allowed "${foreignowned}" "${PROJECTS_USER}"; then
+        fail "a directory owned by root was reported grantable: ${foreignowned}"
+    else
+        pass "a directory the operator does not own is refused"
+    fi
+else
+    skip "owner guard" "cannot create a foreign-owned fixture unprivileged"
+fi
+
+# (8) Every system directory stays refused, home roots included -- /home itself is a protected
+#     entry and is nobody's home, so no exemption can reach it.
+sys_ok=true
+for p in / /etc /home /usr /var /opt /opt/ai-tools; do
+    if ai_tools_traverse_grant_allowed "${p}" root; then
+        fail "system directory reported grantable: ${p}"; sys_ok=false
+    fi
+done
+${sys_ok} && pass "system directories (and /home) are never grantable"
+
+# (9) The carve-out, in both directions: the operator's OWN home root is grantable, and the same
+#     path asked for a different account is not. The second is the "any other user's home root"
+#     case -- a home root is grantable only to the account whose home it is.
+if [[ "${PROJECTS_HOME}" =~ ^/home/[^/]+$ && -d "${PROJECTS_HOME}" ]]; then
+    if ai_tools_traverse_grant_allowed "${PROJECTS_HOME}" "${PROJECTS_USER}"; then
+        pass "the operator's own home root is grantable (traverse only)"
+    else
+        fail "the operator's own home root was refused: ${PROJECTS_HOME}"
+    fi
+    if id nobody >/dev/null 2>&1; then
+        if ai_tools_traverse_grant_allowed "${PROJECTS_HOME}" nobody; then
+            fail "another account's home root was reported grantable: ${PROJECTS_HOME}"
+        else
+            pass "a home root is not grantable to an account whose home it is not"
+        fi
+    else
+        skip "foreign home root" "user 'nobody' not present"
+    fi
+else
+    skip "own home root" "${PROJECTS_HOME} is not a /home/<user> home root"
+fi
+
+# (10) Fail closed on inputs that name nothing: a missing path, a file rather than a directory,
+#      and an empty owner all refuse rather than default to granting.
+closed_ok=true
+: > "${TESTDIR}/afile"
+for args in "${TESTDIR}/does-not-exist ${PROJECTS_USER}" "${TESTDIR}/afile ${PROJECTS_USER}"; do
+    # shellcheck disable=SC2086  # deliberate word-splitting of the two-argument case
+    if ai_tools_traverse_grant_allowed ${args}; then
+        fail "grantable for '${args}'"; closed_ok=false
+    fi
+done
+if ai_tools_traverse_grant_allowed "${owned}" ""; then
+    fail "grantable with no owner named"; closed_ok=false
+fi
+${closed_ok} && pass "a missing path, a non-directory, and an unnamed owner all refuse"
 
 finish

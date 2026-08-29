@@ -36,8 +36,14 @@ section "Handback bridge + entrypoint (regression guards)"
 # state ai-tools-run fail-closes on, and it FAILS here rather than skipping quietly.
 _exe="$(ls -1 /opt/ai-tools/.nvm/versions/node/*/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe 2>/dev/null | head -1)"
 _module_loaded=no
-command -v semodule >/dev/null 2>&1 \
-    && semodule -l 2>/dev/null | grep -qE '^ai_tools([[:space:]]|$)' && _module_loaded=yes
+# The listing is captured, not piped into `grep -q`: an early-exiting reader makes semodule die of
+# SIGPIPE, which this file's pipefail reports as "module absent" -- see the note on
+# ai_tools_selinux_group_loaded (selinux-groups.lib.sh).
+_modules=""
+if command -v semodule >/dev/null 2>&1; then
+    _modules="$(semodule -l 2>/dev/null || true)"
+fi
+grep -qE '^ai_tools([[:space:]]|$)' <<<"${_modules}" && _module_loaded=yes
 if [[ -z "${_exe}" ]]; then
     skip "claude.exe entrypoint label" "no claude.exe under the nvm tree"
 elif [[ "${_module_loaded}" != yes ]] || ! command -v matchpathcon >/dev/null 2>&1; then

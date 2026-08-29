@@ -326,7 +326,96 @@ else
     fail "confirm hint notation drifted from [Y/n] (default: Yes) / [y/N] (default: No)"
 fi
 
-# (19) Include guard: a consumer that sources the lib directly AND through
+# ── ai_tools_msg_challenge: the typed-name challenge ───────────────────────────────
+# The interactive branch needs a controlling terminal, which this suite does not allocate (every
+# prompt assertion in this file drives the no-tty path under setsid, for the same reason). What
+# IS drivable is the half that carries the guarantee: with no terminal the challenge must decline,
+# since a destructive verb behind one has to be unreachable from cron by construction.
+
+# (19) No terminal -- and therefore no possible answer -- declines. It has no default to fall
+# back on, which is what distinguishes it from a confirm.
+ch_rc=0; _confirm 'ai_tools_msg_challenge "Delete?" myproj' || ch_rc=$?
+if [[ "${ch_rc}" != 0 ]]; then
+    pass "challenge declines with no terminal (no default to fall back on)"
+else
+    fail "challenge returned success with no terminal (rc=${ch_rc})"
+fi
+
+# (20) A missing <expected> is a caller error, never an assumed match -- the same rule the
+# confirm's required default follows.
+chm_rc=0; _confirm 'ai_tools_msg_challenge "Delete?"' || chm_rc=$?
+if [[ "${chm_rc}" != 0 ]]; then
+    pass "challenge rejects a missing expected value (rc=${chm_rc})"
+else
+    fail "challenge accepted a missing expected value"
+fi
+
+# (21) The prompt states what to type: the value is a deliberateness check, not a secret, so
+# hiding it would only make the challenge a guessing game.
+if grep -qF '[type %s to confirm]' "${LIB}"; then
+    pass "challenge prompt echoes the value to type"
+else
+    fail "challenge prompt no longer states what to type"
+fi
+
+# (22) With a terminal: an exact answer matches, anything else does not, and the answer -- which
+# is untrusted input reaching a log sink -- is sanitized before it is recorded. Same `script` pty
+# harness as the pick cases above, and the same graceful skip where no pty can be allocated. The
+# audit line is captured by stubbing the logger AFTER sourcing, so the real sanitizer still runs.
+chprobe="${TESTDIR}/challenge-probe.sh"
+cat > "${chprobe}" <<EOF
+source "${LIB}"
+ai_tools_log() { shift; printf '%s\n' "\$*" >> "${TESTDIR}/audit"; }
+rc=0
+ai_tools_msg_challenge "Delete myproj?" myproj || rc=\$?
+printf '%s' "\${rc}" > "${TESTDIR}/chrc"
+EOF
+# challenge_probe <input> -- run the probe under a pty with <input> on its stdin; echoes the
+# challenge's exit status, or "nopty" when a pseudo-terminal cannot be allocated.
+challenge_probe() {
+    : > "${TESTDIR}/chrc"; : > "${TESTDIR}/audit"
+    if ! printf '%b' "$1" | timeout 20 script -qec "bash ${chprobe}" /dev/null >/dev/null 2>&1; then
+        [[ -s "${TESTDIR}/chrc" ]] || { printf 'nopty'; return; }
+    fi
+    cat "${TESTDIR}/chrc"
+}
+if ! command -v script >/dev/null 2>&1; then
+    skip "ai_tools_msg_challenge interactive cases" "script(1) not available for a pty"
+else
+    match_rc="$(challenge_probe 'myproj\n')"
+    if [[ "${match_rc}" == nopty ]]; then
+        skip "ai_tools_msg_challenge interactive cases" "no pseudo-terminal available here"
+    else
+        if [[ "${match_rc}" == 0 ]]; then
+            pass "challenge accepts the exact expected value"
+        else
+            fail "challenge rejected the exact expected value (rc=${match_rc})"
+        fi
+
+        # A near miss is still a miss: the point of the challenge is that only the exact name
+        # counts, so a prefix must not pass.
+        near_rc="$(challenge_probe 'mypro\n')"
+        if [[ "${near_rc}" != 0 ]]; then
+            pass "challenge rejects a near miss (rc=${near_rc})"
+        else
+            fail "challenge accepted a value that is not the expected one"
+        fi
+
+        # The untrusted-input case: an answer carrying a terminal escape is recorded through the
+        # shared allowlist sanitizer, so no raw control byte reaches the root-owned trail an
+        # operator later cats. The decision itself is recorded either way.
+        esc_rc="$(challenge_probe '\033[31mBAD\n')"
+        audit="$(cat "${TESTDIR}/audit" 2>/dev/null || true)"
+        if [[ "${esc_rc}" != 0 ]] && grep -q 'challenge:' <<<"${audit}" \
+                && ! grep -q $'\033' <<<"${audit}" && grep -qF '?[31mBAD' <<<"${audit}"; then
+            pass "a mistyped challenge answer is recorded with its control bytes sanitized"
+        else
+            fail "the challenge logged an unsanitized answer (audit: $(cat -v <<<"${audit}"))"
+        fi
+    fi
+fi
+
+# (23) Include guard: a consumer that sources the lib directly AND through
 # safe-paths.lib.sh must survive the re-source under set -e (readonly constants).
 if bash -c 'set -euo pipefail; source "'"${LIB}"'"; source "'"${LIB}"'"'; then
     pass "a second source of msg.lib.sh is a no-op (include guard)"

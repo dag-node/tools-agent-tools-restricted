@@ -9,10 +9,13 @@
 #   * registry <-> filesystem lockstep -- because the groups ship PREBUILT, a registry name with
 #     no policy source or no committed .pp (or a policy module absent from the registry) means
 #     enable-group either has no package to load or silently cannot be reached. That drift is the
-#     cost of shipping binaries, so it is asserted here against the checkout.
+#     cost of shipping binaries, so it is asserted here against the checkout;
+#   * the loaded probe against a full-size module listing -- the one impure accessor, driven over
+#     a stubbed `semodule` because its failure mode is a race rather than a wrong answer.
 #
 # Sources the deployed lib; the lockstep half additionally needs the repo policy sources, so it
-# runs only in a checkout. No root risk, no SELinux dependency (semodule is never called).
+# runs only in a checkout. No root risk and no SELinux dependency: the real semodule is never
+# called -- the probe section shadows it with a shell function.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -84,6 +87,40 @@ if ai_tools_selinux_group_valid "definitely-not-a-group"; then
     fail "ai_tools_selinux_group_valid accepted an unknown group"
 else
     pass "ai_tools_selinux_group_valid rejects an unknown group"
+fi
+
+# --- The loaded probe survives a full-size module listing (SIGPIPE regression) ---
+# ai_tools_selinux_group_loaded reads `semodule -l`, which on a real host is several hundred lines
+# -- past a stdio buffer, so the command needs more than one write to deliver it. Written as
+# `semodule -l | grep -qx`, grep exits on the match, the still-writing semodule dies of SIGPIPE, and
+# the `set -o pipefail` every consumer of this library runs under turns that into 141: the probe
+# reports NOT LOADED for a module that IS. An ai_tools* name sorts early, so the match lands in the
+# first buffer and the race is lost about half the time -- which is what makes it worth pinning
+# rather than reasoning about. `semodule` is stubbed as a shell function (like `systemctl` in
+# services.sh and `semanage` in relabel.sh), emitting one printf per line the way a C program with
+# a 4 KiB stdio buffer does -- a single-write listing would deliver everything before any reader
+# could exit and hide the regression. The probe is driven repeatedly because one passing run
+# proves nothing about a race.
+semodule() {
+    [[ "${1:-}" == -l ]] || return 1
+    printf '%s\n' abrt accountsd acct afs aiccu aide ajaxterm ai_tools ai_tools_tmpmap
+    local i
+    for i in $(seq 1 600); do printf 'filler_module_%s\n' "${i}"; done
+}
+
+probe_failures=0
+for _ in $(seq 1 25); do
+    ai_tools_selinux_group_loaded tmpmap || probe_failures=$(( probe_failures + 1 ))
+done
+if (( probe_failures == 0 )); then
+    pass "group_loaded reports a loaded module every time against a 600-line listing"
+else
+    fail "group_loaded reported a LOADED module as absent in ${probe_failures}/25 runs (SIGPIPE under pipefail?)"
+fi
+if ai_tools_selinux_group_loaded definitelynotloaded; then
+    fail "group_loaded reported an absent module as loaded"
+else
+    pass "group_loaded reports an absent module as absent"
 fi
 
 # --- Lockstep with the source tree + git (real checkout only) ---
