@@ -704,7 +704,9 @@ by re-reading the file and separates *applied* (0) from *could not write* (1) fr
 from this state* (2). Two rules live there rather than in any caller, so no writer can skip them:
 `_add` **refuses** a disabled path (appending under a winning `!` is the duplicate-pair bug), and
 `_remove` takes **both** line kinds, so de-registering a parked project leaves no `!` behind to
-park whatever is claimed at that path next. `_enable` additionally collapses an existing duplicate
+park whatever is claimed at that path next. `_add` also opens a line of its own for the entry it
+writes: the readers keep a hand-edited last line that runs to EOF, so an entry appended straight on
+would join two paths into a third naming no project, taking the one above it off the gate. `_enable` additionally collapses an existing duplicate
 pair to one live entry, in the earliest position it held.
 
 Before this, the same edit existed three times — an append here, a hand-escaped `sed -i` there, a

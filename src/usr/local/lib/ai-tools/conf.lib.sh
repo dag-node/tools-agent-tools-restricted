@@ -585,17 +585,23 @@ ai_tools_conf_allowlist_state() {
     fi
 }
 
-# ai_tools_conf_allowlist_add <allowlist-file> <path> : append <path> as an allow entry. A path
-#   already listed is left alone (a re-claim must not duplicate a line); a DISABLED path is
-#   refused with 2 rather than appended, because the appended line would not take effect.
+# ai_tools_conf_allowlist_add <allowlist-file> <path> : append <path> as an allow entry, on a line
+#   of its own. A path already listed is left alone (a re-claim must not duplicate a line); a
+#   DISABLED path is refused with 2 rather than appended, because the appended line would not take
+#   effect.
 ai_tools_conf_allowlist_add() {
-    local file="$1" path="$2"
+    local file="$1" path="$2" line_break=''
     [[ -f "${file}" ]] || return 1
     case "$(ai_tools_conf_allowlist_state "${file}" "${path}")" in
         listed)   return 0 ;;
         disabled) return 2 ;;
     esac
-    printf '%s\n' "${path}" >> "${file}" 2>/dev/null || return 1
+    # A hand-edited registry can run to EOF part-way through its last line, and every reader here
+    # keeps that entry (the read loops take a final unbroken line). So the append opens a new line
+    # first: written straight, it would join the two paths into a third that names no project,
+    # dropping the claimed one from the launch gate while the entry above it changed meaning.
+    [[ -n "$(tail -c 1 -- "${file}" 2>/dev/null)" ]] && line_break=$'\n'
+    printf '%s%s\n' "${line_break}" "${path}" >> "${file}" 2>/dev/null || return 1
     ai_tools_conf_allowlist_has_entry "${file}" "${path}" || return 1
 }
 
