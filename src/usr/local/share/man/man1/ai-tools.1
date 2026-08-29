@@ -21,11 +21,12 @@ sandbox account, which the CLI refuses for every command. Steps that need root
 .B sudo
 themselves and prompt for your password.
 .PP
-Root may run the read-only reports \(em
+Root may run the commands that write no operator-owned state \(em
 .BR \-\-audit ,
 .BR \-\-status ,
 .BR \-\-list ,
-.BR \-\-providers .
+.BR \-\-providers ,
+.BR \-\-stop .
 Every other command writes registries that belong to an operator and refuses
 root, as does
 .B \-\-for
@@ -36,6 +37,9 @@ needs root either way, since the trail it reads is
 and
 .B \-\-list
 run by root reports root's own registry, which is empty on a normal host.
+.B \-\-stop
+is the one member of that set that acts rather than reports: its helper needs root either
+way, and root is what an unattended detector usually runs as.
 .PP
 A command whose root helper your account holds no
 .BR sudo (8)
@@ -204,7 +208,16 @@ launch gets. Runs via
 .BR sudo :
 a session is a transient unit in the sandbox account's own per-user
 .BR systemd (1)
-manager, and signalling it is root's to do.
+manager, and signalling it is root's to do. The bare command needs
+.B no password
+\(em the operators group holds a
+.B NOPASSWD
+rule for exactly that form, so a detector with no human present can reach it \(em while
+.B \-\-force
+and
+.B \-\-dry\-run
+fall outside the rule and prompt. Why it is granted this way:
+.IR /usr/share/doc/ai\-tools/session\-stop.md .
 .IP
 It is
 .B not
@@ -549,11 +562,11 @@ ai\-tools \-\-providers
 .EE
 .RE
 .PP
-End every running agent session on the host:
+End every running agent session on the host (no password; run it as yourself):
 .PP
 .RS 4
 .EX
-sudo ai\-tools \-\-stop
+ai\-tools \-\-stop
 .EE
 .RE
 .PP

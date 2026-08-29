@@ -35,8 +35,10 @@ if [[ -z "${helperdir}" ]]; then
 fi
 pass "canonical helper dir from spec: ${helperdir}"
 
-# Each load-bearing anchor must name exactly <helperdir>/ai-tools-relabel-agent (or the dir).
+# Each load-bearing anchor must name exactly <helperdir>/ai-tools-relabel-agent (or the dir), and
+# the second root sudoers rule exactly <helperdir>/ai-tools-stop.
 want_agent="${helperdir}/ai-tools-relabel-agent"
+want_stop="${helperdir}/ai-tools-stop"
 
 check_contains() {
     local label="$1" file="$2" needle="$3"
@@ -54,6 +56,11 @@ check_contains() {
 # canonical relabel-agent path; the SELinux fcontext must scope the canonical dir.
 check_contains "sudoers relabel-agent rule" \
     "src/etc/sudoers.d/ai-tools" "${want_agent} \"\""
+# The stop rule carries the same two properties, and both are load-bearing: a stranded path leaves
+# the incident ladder's stop rung needing a password no unattended detector can answer, and a lost
+# trailing "" would widen a NOPASSWD root rule from the bare command to any argument it takes.
+check_contains "sudoers stop rule" \
+    "src/etc/sudoers.d/ai-tools" "${want_stop} \"\""
 check_contains "systemd relabel.service ExecStart" \
     "src/usr/lib/systemd/system/ai-tools-relabel.service" "ExecStart=${want_agent}"
 check_contains "SELinux fcontext helper-tree rule" \

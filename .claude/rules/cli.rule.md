@@ -23,13 +23,16 @@ allowlist).
 
 **Root runs the verbs that write no operator-owned state, and no others.** That criterion is what
 the root refusal protects: a registry written by root names an owner whose own launch gate cannot
-read it. `ROOT_ALLOWED_VERBS` — `--audit`, `--status`, `--list`, `--providers` — is the whole set,
-and every member is a report, so `--help` and `ai-tools(1)` present it as the read-only reports;
-a verb joins it on what it writes rather than on what it reads. `--audit` is what the carve-out
-exists for: the trail it reads is `700 root:root`, so the verb needs root by construction, and a
-blanket refusal left it unreachable from both sides on a host whose only operator holds no general
-sudo grant. The set is named once and read by the guard, by the guard's own refusal, and by
-`ai-tools(1)`.
+read it. `ROOT_ALLOWED_VERBS` — `--audit`, `--status`, `--list`, `--providers`, `--stop` — is the
+whole set, and a verb joins it on what it **writes** rather than on what it reads. `--audit` is
+what the carve-out exists for: the trail it reads is `700 root:root`, so the verb needs root by
+construction, and a blanket refusal left it unreachable from both sides on a host whose only
+operator holds no general sudo grant. `--stop` is the one member that **acts** rather than
+reports: it writes no registry, its helper requires root anyway, and root is the identity an
+unattended detector usually runs as — so a CLI that refused root there refused the one principal
+the rung most has to serve, while granting nothing new (root can run the helper directly and can
+signal any process on the host). The set is named once and read by the guard, by the guard's own
+refusal, and by `ai-tools(1)`.
 
 The check runs **after** `--for` is separated from the command's arguments, because `$1` before
 that point is not reliably the verb (`ai-tools --for op --list` leads with the flag). That
@@ -50,11 +53,15 @@ the agent package all succeed — so its presence means provisioning finished, a
 the CLI fast with the provisioning hint rather than mid-operation in a root helper. It is the same
 symlink the launch wrapper gates on, so both entry points share one definition of "provisioned".
 Every command is behind the gate, `--version` included — an unfinished install reports nothing,
-fail-closed. Two bypass it (`BOOTSTRAP_EXEMPT_VERBS`), both because they answer a question about a
-host that may be broken: `--status`, the diagnostic, reports the unprovisioned state itself, since
-a health check must run precisely when provisioning may have failed; and `--audit` reads a record
+fail-closed. Three bypass it (`BOOTSTRAP_EXEMPT_VERBS`), each because it is meant for a host that
+may be broken: `--status`, the diagnostic, reports the unprovisioned state itself, since
+a health check must run precisely when provisioning may have failed; `--audit` reads a record
 of what already happened, which an install that never finished does not invalidate — a failed
-provisioning is when that record is most worth reading. The set is deliberately narrower than
+provisioning is when that record is most worth reading; and `--stop` ends sessions **already
+running**, needing nothing from the toolchain to do it. That last one matters because of the gate's
+own coupling below: keying on one agent's launcher symlink would otherwise put the incident
+ladder's last rung out of reach on a host that enables a different agent, or that lost the symlink
+while sessions were live. The set is deliberately narrower than
 `ROOT_ALLOWED_VERBS`: `--list` and `--providers` describe a toolchain that has to exist first, so
 they stay behind the gate.
 
@@ -98,10 +105,12 @@ follows — so a caller holding a password is never asked for it on a verb no ru
 probed on the **first** helper it reaches (a `--for` run on `ai-tools-allowlist`, whose snapshot
 precedes the verb's own helper), so a host granting some helpers and not others is answered
 accurately rather than through one representative. `--sandbox-push`, `--sandbox-remove`, and the
-informational verbs reach no helper that can refuse the command, and are not probed. Neither is
-`--relabel`, the one privileged verb an operator without a general grant can already run, through
-the `%ai-ops` rule for `ai-tools-relabel-agent`: probing it answers "grant present" every time, so
-the entry would carry no information.
+informational verbs reach no helper that can refuse the command, and are not probed. Neither are
+`--relabel` and `--stop`, the privileged verbs an operator without a general grant can already run
+through the `%ai-ops` rules for their helpers: probing either answers "grant present" every time,
+so the entry would carry no information. (`--stop`'s rule covers its bare form only, so its flagged
+forms do meet sudo's ordinary prompt — see [docs/session-stop.md](../../docs/session-stop.md). The
+probe could not have reported that either: it asks about a helper, not about a command line.)
 
 The probe is `sudo -n -l <helper>`, which cannot prompt. An operator holding a general grant gets
 exit 0 and the command echoed back, whether or not a credential is cached — listing an allowed
@@ -275,7 +284,9 @@ file sink being the authoritative one.
   `date(1)` cannot parse is refused rather than treated as "everything", so a typo does not
   silently become a reassuring wall of old findings.
 - `--stop` — terminate every running agent session and everything it spawned, through the
-  `ai-tools-stop` root helper (`sudo`, no NOPASSWD). The only verb that acts on a session
+  `ai-tools-stop` root helper, which `%ai-ops` grants NOPASSWD in its bare form (the one rule in
+  the drop-in whose passwordlessness is its purpose: an unattended detector cannot answer a prompt
+  — [docs/session-stop.md](../../docs/session-stop.md)). The only verb that acts on a session
   **already running**; every other control here changes what the *next* launch gets. It is **not**
   the session-lifecycle command — `/exit` inside a session is, and it lets the session run its own
   `SessionEnd` handback. The CLI half is deliberately thin — option grammar only — because every
@@ -696,10 +707,11 @@ otherwise), so the grant adds it no access.
 The CLI itself is unprivileged. Eight of its root operations — `ai-tools-lockdown`,
 `ai-tools-relabel`, `ai-tools-setfacl`, `ai-tools-setgid`, `ai-tools-unclaim`, `ai-tools-safedir`,
 `ai-tools-reclaim`, and `ai-tools-allowlist` — run via `sudo` with **no** NOPASSWD grant by design,
-so sudo prompts for the projects user's password; the sandbox account has no grant for any. The exception, `--relabel` →
-`ai-tools-relabel-agent`, is: it has a dedicated fixed-path NOPASSWD rule of its own
-(see [launch](launch.rule.md)), so it runs **as root without a prompt** — kept safe by being a
-fixed path the projects user cannot modify, granted only in its zero-argument form (the rule's
+so sudo prompts for the projects user's password; the sandbox account has no grant for any. Two are
+the exception — `--relabel` → `ai-tools-relabel-agent` and `--stop` → `ai-tools-stop` — each with a
+dedicated fixed-path NOPASSWD rule of its own
+(see [launch](launch.rule.md)), so each runs **as root without a prompt**, kept safe by being a
+fixed path the projects user cannot modify and granted only in its zero-argument form (the rule's
 trailing `""`). `ai-tools --relabel` is that rule's only consumer: the `ai-tools-relabel.path`
 watcher and the agent package's `%post` both reach the same helper as root and need no rule, and
 the `nvm-update` timer runs as the sandbox account, which `ai-tools-run` refuses to launch for if

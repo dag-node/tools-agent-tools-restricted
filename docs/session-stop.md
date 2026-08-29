@@ -45,9 +45,13 @@ confirm_stop → end_session → terminate_gracefully → kill_outright → rest
 ### One form
 
 ```
-sudo ai-tools --stop              # terminate every agent session on this host
-sudo ai-tools --stop --dry-run    # list what would be terminated, change nothing
+ai-tools --stop              # terminate every agent session on this host
+ai-tools --stop --dry-run    # list what would be terminated, change nothing
 ```
+
+Run it as yourself, not under `sudo` — the CLI reaches the root helper on its own, and the bare
+form needs no password at all (§2, *Who may stop what*). The `--dry-run` and `--force` forms fall
+outside that grant, so those prompt. Root may run the command too.
 
 Add `-y`/`--yes` to skip the confirmation, `--force` to skip the ten-second grace period and kill
 immediately. `--all` is accepted and does nothing — every run already terminates every session, and
@@ -244,10 +248,37 @@ that happens between reading the list and signalling it, and `cgroup.kill` has n
 
 ### Who may stop what
 
-Any enrolled operator may run it, and it terminates every agent session on the host — including
-other operators' sessions. That is deliberate, and it is not a widening: `--all` never took an
-authorization input, so an operator could always end everyone's sessions. What changed is that
+Any `ai-ops` operator may run it — and so may root — and it terminates every agent session on the
+host, including other operators'. That is deliberate, and it is not a widening: `--all` never took
+an authorization input, so an operator could always end everyone's sessions. What changed is that
 there is no longer a *politer* form beside it, because the politer form was not a control.
+
+**It needs no password, and that is the requirement the grant answers.** The `%ai-ops` drop-in
+carries a NOPASSWD rule for the helper's bare form, so the command runs with no prompt:
+
+```
+%ai-ops ALL=(root) NOPASSWD: /usr/local/libexec/ai-tools/ai-tools-stop ""
+```
+
+The deciding argument is automation, not convenience. A service that detects a session doing
+something that must end *now* cannot answer an interactive password prompt, so a stop gated behind
+one is reachable only by a human at a terminal — which makes the ladder's last rung unavailable
+during exactly the incidents it exists for. The bare command is the whole of what a detector needs,
+because the confirmation defaults yes and proceeds with no terminal (§1). The trailing `""` pins
+the rule to that zero-argument form and therefore withholds `--force` (which drops the grace period
+and the current turn's unsaved work with it) and `--dry-run` (a detector does not preview); both
+stay behind a general sudo grant. Since the helper takes no target and no authorization input, the
+rule has no argument surface at all — the narrowest shape a NOPASSWD rule can have.
+
+Root reaches the same command directly (`ai-tools --stop` is one of the verbs that write no
+operator-owned state, so the CLI admits root; the helper required root regardless), which matters
+because root is the identity a monitoring daemon usually runs as.
+
+What this widens, stated plainly: any `ai-ops` member can now end every operator's sessions
+without authenticating. That is availability-only, it was already true of anyone holding a general
+grant, and it moves in the **corrigible** direction — every other control in this project resolves
+failure toward *less access*, and this one resolves toward *less activity*, so making it easier to
+reach is asymmetrically safe.
 
 A per-project form would have to decide which sessions belong to a project, and every available
 answer is written by the account being stopped — the unit's `WorkingDirectory`, its name, its
