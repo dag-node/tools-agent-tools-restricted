@@ -241,13 +241,20 @@ the exit status of the operation whose outcome they report.
 ## Where it is wired
 
 - **`claude.sh`** routes its central `die()` through `ai_tools_msg_error`, so every fatal
-  refusal is framed at one chokepoint; converts its standalone `safe.directory` NOTICE
-  prose; and frames **both** guidance screens with `ai_tools_msg_block` — the not-accessible
-  screen (title "This directory is not accessible to sandbox user", options `a)` create
-  sandbox / `b)` claim in place) and the not-fully-claimed screen (per-gap bullets kept).
-  Neither repeats paths: the claim/clone commands default to the current directory. The
-  not-accessible screen drives an `ai_tools_msg_pick` menu — **1)** Create sandbox, **2)**
-  Claim in place, **3)** Cancel (the default, so an unattended/piped run refuses safely).
+  refusal is framed at one chokepoint; converts its standalone `safe.directory` NOTICE prose;
+  and frames **both** guidance screens with `ai_tools_msg_block`. Titles name the action, not
+  the refusal ("Set up this project for the sandboxed agent", "Finish setting up this project
+  for the agent"), and commands print as bare names through `ai_tools_cmd_display`. Neither
+  screen repeats paths: the claim/clone commands default to the current directory.
+
+  The **setup** screen carries one line of prose and **no commands**; its options live in the
+  `ai_tools_msg_pick none` menu below it, each with the consequence that distinguishes it —
+  **1)** Create sandbox (*the session runs in the copy, not here*), **2)** Claim here (*its
+  group becomes `ai-tools`*), **3)** Cancel. Because the block names no command, the Cancel
+  path — which is also the no-terminal and unanswered-menu path — prints both commands itself,
+  plain and below the frame. The **finish-setup** screen keeps its per-gap bullets, its
+  embedded `--sandbox-create` command (its prompt is a yes/no confirm offering only the claim,
+  so the alternative has nowhere else to appear), and its severity-based default.
 - **`ai-tools.sh`** routes `die()` and `warn()` through the error/warning emitters, and
   builds the `--project-claim` / `--sandbox-create` flows from `ai_tools_msg_headline`
   blocks (Review, Secret lockdown, `.git` history, Reachability, Apply — see
