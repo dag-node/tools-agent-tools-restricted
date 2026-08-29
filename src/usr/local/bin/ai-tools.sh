@@ -879,7 +879,8 @@ reg_ownership() {
     if sudo "${SETGID_BIN}" "${dir}"; then
         say "    ownership: set group ${SANDBOX_GROUP} + setgid on the project directories"
     else
-        warn "ownership: could not set group/setgid on ${dir} -- run: sudo ${SETGID_BIN} ${dir}"
+        warn "ownership: could not set group/setgid on ${dir} -- run it by hand:"
+        say  "      ${C_BOLD}sudo ${SETGID_BIN} ${dir}${C_RST}"
         return 1
     fi
 }
@@ -1068,7 +1069,11 @@ run_lockdown() {
 # the path and the optional flag in any order.
 run_relabel() {
     local d="$1"; shift
-    sudo "${RELABEL_BIN}" "$@" "${d}"
+    # stdout suppressed: the helper narrates its own success ("labelled <path> ai_tools_project_t"),
+    # which lands unindented in the middle of a flow block whose result lines are all indented, and
+    # says what the caller is about to say anyway. stderr is kept -- that is where a failure
+    # explains itself.
+    sudo "${RELABEL_BIN}" "$@" "${d}" >/dev/null
 }
 
 # run_reclaim <dir> [--full]  -- hand agent-written files under <dir> back to the operator via
@@ -1856,8 +1861,8 @@ cmd_project_create() {
     # host whose umask would have sealed what this verb creates, the operator is told what was
     # done and why. Printed once, covering the directory and everything seeded into it below.
     if (( (8#${umask_would_be} & 077) == 0 )); then
-        say "    ${C_DIM}modes 0750/0640 -- this host's umask ($(umask)) would have made what this${C_RST}"
-        say "    ${C_DIM}creates owner-only, which the claim honours as a seal and grants nothing on${C_RST}"
+        say "    ${C_DIM}modes set to 0750/0640 -- your umask ($(umask)) would have made them${C_RST}"
+        say "    ${C_DIM}owner-only, which the agent cannot read${C_RST}"
     fi
     ai_tools_log_info "created project directory ${d}"
 
@@ -1959,7 +1964,8 @@ unclaim_one() {
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
         if ! run_relabel "${d}" --remove; then
-            warn "could not revert SELinux label -- run: sudo ${RELABEL_BIN} --remove ${d}"
+            warn "could not revert the SELinux label -- run it by hand:"
+            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove ${d}${C_RST}"
             note_root_failure || stopped=true
         fi
     fi
@@ -2536,7 +2542,8 @@ cmd_project_remove() {
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
         if ! run_relabel "${d}" --remove; then
-            warn "could not revert the SELinux label -- run: sudo ${RELABEL_BIN} --remove ${d}"
+            warn "could not revert the SELinux label -- run it by hand:"
+            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove ${d}${C_RST}"
             note_root_failure || cleanup_stopped=true
         fi
     fi
@@ -2555,19 +2562,27 @@ cmd_project_remove() {
     fi
 
     say ""
-    ok "removed ${d}"
     ai_tools_log_info "removed project ${d}"
-    # The removal itself succeeded -- the tree is gone and deregistered -- so this closes with a ✓
-    # either way. What a failed cleanup left behind is still said, since it names entries that now
-    # point at nothing.
+    # The tree is gone either way, but a green ✓ is this project's report card and there is no
+    # reading of it that covers "and two cleanup steps failed". So the check mark is reserved for
+    # a clean run, and a run with failures closes by stating both facts and exits non-zero, which
+    # is also what lets a script tell the two apart.
     if (( ROOT_STEP_FAILURES )); then
-        say "  ${C_DIM}${ROOT_STEP_FAILURES} cleanup step(s) did not run; ai-tools --list reports what they left${C_RST}"
+        warn "removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run."
+        say  "  Each is named above with the command that completes it. Registry entries left"
+        say  "  behind now point at a path that no longer exists; this lists every entry that"
+        say  "  needs attention, across all your projects:"
+        say  ""
+        say  "      ${C_BOLD}ai-tools --list${C_RST}"
+        ai_tools_log_warn "removed ${d} with ${ROOT_STEP_FAILURES} cleanup step(s) incomplete"
+    else
+        ok "removed ${d}"
     fi
     # The shell that started here is now sitting in a directory that no longer exists, where most
     # commands fail with a confusing error. Said plainly, since the cause is this command.
     [[ "${PWD}" == "${d}" || "${PWD}" == "${d}/"* ]] \
         && say "  ${C_DIM}your shell is still in the deleted directory -- cd somewhere else${C_RST}"
-    return 0
+    (( ROOT_STEP_FAILURES == 0 ))
 }
 
 # sandbox_finalize <dst>  -- the access-granting tail of every sandbox create, run only

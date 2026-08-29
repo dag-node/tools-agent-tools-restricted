@@ -560,11 +560,22 @@ if command -v runuser >/dev/null 2>&1; then
     rmgo="${rmwork}/rm-go"; mkdir -p "${rmgo}/sub"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmgo}"
     printf '%s\n' "${rmgo}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    # The tree must be gone and deregistered. The exit status depends on the environment: on an
+    # enforcing host the SELinux label removal needs a password this run cannot supply, so a
+    # cleanup step fails and the verb exits 1 while still having removed the project. Both are
+    # correct; what is asserted is that a run with failures does NOT close on a success mark.
     out="$(remove_cli -y "${rmgo}")" && rc=0 || rc=$?
-    if [[ ${rc} -eq 0 ]] && [[ ! -e "${rmgo}" ]] && ! grep -qF "${rmgo}" "${rmal}"; then
+    if [[ ! -e "${rmgo}" ]] && ! grep -qF "${rmgo}" "${rmal}" \
+            && { [[ ${rc} -eq 0 ]] \
+                 || { [[ ${rc} -eq 1 ]] && grep -qi 'cleanup step(s) did not run' <<<"${out}"; }; }; then
         pass "--project-remove -y deregisters and then deletes (registries first, tree last)"
     else
         fail "--project-remove -y did not complete (rc=${rc}, dir exists: $([[ -e "${rmgo}" ]] && echo yes || echo no)): $(brief "${out}")"
+    fi
+    if grep -q '✓ removed' <<<"${out}" && grep -qi 'cleanup step(s) did not run' <<<"${out}"; then
+        fail "the removal showed a success mark alongside failed cleanup: $(brief "${out}" 'removed|cleanup')"
+    else
+        pass "the removal reserves its success mark for a run with no failures"
     fi
 
     # (7) --list renders the reconciliation view deterministically over a FIXTURE allowlist +
