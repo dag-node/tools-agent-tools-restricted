@@ -10,7 +10,8 @@
 #   (2) every long option usage() names anywhere is documented in the page;
 #   (3) every long option the page's OPTIONS section documents is one a CLI parser
 #       accepts -- the direction that catches an option outliving its parser;
-#   (4) the .TH version slot survives.
+#   (4) the .TH version field is present -- @AI_TOOLS_VERSION@ in the repo source, a version
+#       number on an RPM install, `dev` on a source install of an unstamped tree.
 # Pure text comparison of the two source files -- no root, no install dependency, no CLI
 # execution (the CLI's bootstrap gate fail-closes on an unprovisioned host, so it cannot be
 # run for its help output here). Validates the repo sources directly, falling back to the
@@ -120,12 +121,19 @@ else
 fi
 
 # ── (4) The version slot the deploys substitute ─────────────────────────────────
-# The token in the repo source, a substituted version on an installed copy -- never an
-# empty source field.
-if read_man | grep -qE '^\.TH AI-TOOLS 1 .*(@AI_TOOLS_VERSION@|[0-9]+\.[0-9]+)'; then
+# The contract is that the field is PRESENT, not that it looks like a release. Three values are
+# all correct: the repo source carries the @AI_TOOLS_VERSION@ token, an RPM install carries a
+# version number, and a source install of an unstamped tree carries `dev` -- which is exactly what
+# `ai-tools --version` reports there, and what ai_tools_msg_version passes through deliberately.
+# Enumerating the shapes rejected `dev`, so the check failed or passed according to how the HOST
+# was provisioned rather than according to anything about the page. It now asserts what it always
+# meant: the field is non-empty.
+if read_man | grep -qE '^\.TH AI-TOOLS 1 .*"ai-tools [^"[:space:]][^"]*"'; then
     pass "man page .TH carries the version token/substitution"
 else
-    fail "man page .TH lost its version field"
+    # Name the file: this check reads the repo source when there is one and the installed copy
+    # otherwise, and which of the two it got is the first thing worth knowing on a failure.
+    fail "man page .TH lost its version field (read ${MAN})"
 fi
 
 finish
