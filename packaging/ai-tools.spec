@@ -974,6 +974,82 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Sat Aug 29 2026 dagnode <tools@dagnode.com> - 0.13.0-1
+- CHANGE: "Operator" now names exactly two facts -- membership of ai-ops and a name in OPERATORS,
+  both written by 'ai-tools-admin operator add'. A general sudo grant is a THIRD, independent axis
+  this project never writes, records, or infers: the host's own sudoers decides it. An account
+  holding only the two is a first-class operator -- it launches sessions and has projects claimed
+  for it with --for -- rather than a half-configured one. The requirement that follows is now
+  stated: a host needs at least one operator holding a general grant, or nothing can be claimed on
+  it by any principal, root included. Nothing changes on an existing host; what changes is that a
+  refusal now says which of the three you are missing.
+- NEW: A verb whose root helper you hold no sudo grant for is refused BEFORE sudo asks for a
+  password. sudo authenticates before it decides whether a rule matches, so a restricted operator
+  was made to authenticate and then turned away, for a decision that was knowable without asking.
+  The refusal names the command that does work -- for most verbs the same command with
+  '--for <you>', run by an operator who holds a grant. It reports rather than decides: an answer it
+  cannot read falls through to sudo, so nobody loses a command they do hold the grant for.
+- NEW: Root may run the commands that write no operator-owned state -- --audit, --status, --list,
+  --providers and --stop. --audit needs root by construction (its trail is 700 root:root) and was
+  unreachable from both sides on a host whose only operator holds no general grant. Every command
+  that writes a registry still refuses root, since a registry owned by root names an operator whose
+  own launch gate cannot read it.
+- NEW: 'ai-tools --stop' runs with no password in its bare form, so a service that detects a session
+  which must end immediately can escalate to a full stop with nobody present. A control unattended
+  monitoring cannot exercise is unavailable during exactly the incidents it exists for. The grant is
+  pinned to that bare form: --force (which drops the grace period, and the current turn's unsaved
+  work with it) and --dry-run still prompt. It now also works on a host that is unprovisioned or
+  that enables an agent other than Claude Code -- a stop must not depend on what it is stopping.
+- FIX: 'sudo ai-tools --stop', the form 0.12.0 documented, was refused on every host: --stop sat in
+  the set of verbs the CLI refuses root for, though it writes no operator state. Run it as yourself
+  -- 'ai-tools --stop' -- and root may now run it too.
+- NEW: 'install.sh --operator <account>' names the account to enrol instead of silently adopting
+  SUDO_USER, and an interactive install asks. Root, the sandbox account, an unknown name and a name
+  with no home are each refused by one rule whichever route the name arrived by, so an unattended
+  from-source install can enrol an account other than SUDO_USER.
+- NEW: 'sudo ai-tools-admin operator add <name>' reports which of the two operator shapes it just
+  created, by asking sudo about the enrolled account directly. Group membership cannot imply a
+  sudoers rule, so asking is the only way to know -- and the administrator learns at the moment of
+  the decision whether that account can claim projects or needs another operator to claim for it.
+- CHANGE: A shipped skill or agent is now UPDATED by default on upgrade. It was only ever replaced
+  when an operator answered yes at a prompt, and a package scriptlet has no terminal, so every dnf
+  upgrade silently took the keep default with its output discarded -- a host stayed on whatever
+  version it first seeded and was never told. Assets seeded before this need ONE interactive
+  './install.sh install' or 'sudo ai-tools-bootstrap' to move; after that, upgrades deliver new
+  versions on their own. A withdrawn asset is moved to /opt/ai-tools/retired rather than deleted.
+- CHANGE: The four documentation skills (reference, usage, doc comments, changelogs) are replaced by
+  one writing standard, ai-tools-technical-docs, which also covers commit messages, man pages, and
+  error and log output. The four are removed from the live skills root on upgrade and kept under
+  /opt/ai-tools/retired; a skill of your own under one of those names is left alone.
+- NEW: 'ai-tools --status' reports the LABELLING half of the entrypoint reconciliation beside the
+  verification half. An upgrade whose relabel failed previously reported a healthy host -- the
+  watcher OK and a fresh green VERIFIED line, both true, with the failure between them writing no
+  record at all. ai-tools-relabel.service is reported too, judged by its last run rather than by
+  is-active, which a healthy oneshot service always fails.
+- FIX: An upgrade could leave the entrypoint and config-directory SELinux rules unregistered. The
+  agent package's %post and the relabel watcher the same transaction triggers ran at once, and
+  semanage reports an error to whichever process finds the policy store held rather than waiting,
+  so both runs failed on a store neither had broken. They now take a shared lock, and a refusal
+  carries semanage's own reason instead of naming none -- a held store and a type the loaded policy
+  does not define need different remedies.
+- FIX: A policy module that failed to load during install left no trace at the point it happened,
+  surfacing much later as a relabel that cannot register its rules and a launch that fail-closes.
+  The scriptlet now prints semodule's message and the command that repeats it.
+- FIX: A refusal that suggested a claim command could name a directory nobody typed. It scanned the
+  arguments for one that exists and fell back to the current directory, so a mistyped project path
+  produced a plausible-looking claim of whatever repository you were standing in -- observed live.
+  A path you named now passes through as typed.
+- FIX: 'ai-tools-admin operator add' read a sudo that failed for its own reasons -- an unreachable
+  sudoers backend, a host that refuses -l -- as proof the account holds no grant, sending an
+  administrator to a --for workflow they did not need. It now reports "undetermined" unless a
+  second probe confirms sudo is answering at all.
+- FIX: ai-tools(1) documents the exit codes it returns, including the three specific to --stop, and
+  both man pages follow the shipped man-page guideline (ENVIRONMENT, EXAMPLES, and the lifecycle
+  guide cited at the path the package installs it to).
+- Upgrading from 0.12.x needs no action beyond dnf, with one exception: shipped skills and agents
+  seeded before this release move on the next INTERACTIVE './install.sh install' or
+  'sudo ai-tools-bootstrap', not on the dnf upgrade itself.
+
 * Mon Aug 24 2026 dagnode <tools@dagnode.com> - 0.12.0-1
 - NEW: 'sudo ai-tools --stop' ends every agent session running on this host, and everything it
   spawned. Until now every control changed only what the NEXT launch gets -- unclaiming a project,
