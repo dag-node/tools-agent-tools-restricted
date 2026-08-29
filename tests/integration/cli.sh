@@ -265,7 +265,14 @@ if command -v runuser >/dev/null 2>&1; then
             AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${rmal}" \
             setsid "${CLI}" --project-remove "$@" 2>&1
     }
-    rmal="${TESTDIR}/remove-allowlist"
+    # The fixture registry lives in a directory the PROJECTS user owns, not in TESTDIR itself
+    # (root-owned): unreg_allow rewrites the allowlist with `sed -i`, which writes its temporary
+    # file into the file's own DIRECTORY, so a root-owned parent fails the removal even though the
+    # file is writable. That is the same shape as the real layout, where the allowlist sits in the
+    # operator's own 0700 ~/.config/ai-tools.
+    regdir="${TESTDIR}/registries"; mkdir -p "${regdir}"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${regdir}"; chmod 700 "${regdir}"
+    rmal="${regdir}/remove-allowlist"
     rmproj="${TESTDIR}/rm-proj"; mkdir -p "${rmproj}/sub"
     rmnested="${rmproj}/inner"; mkdir -p "${rmnested}"
     rmother="${TESTDIR}/rm-other"; mkdir -p "${rmother}"
@@ -358,6 +365,25 @@ if command -v runuser >/dev/null 2>&1; then
         fi
     else
         skip "--project-remove deletability pre-flight" "user 'nobody' not present"
+    fi
+
+    # A registry the removal cannot rewrite must REFUSE, not delete. The allowlist entry is the
+    # agent's launch gate, so deleting the tree past a failed de-registration would strand a
+    # registration that is still standing -- exactly what this verb's teardown order exists to
+    # prevent. The fixture puts the allowlist in the ROOT-owned testdir: `sed -i` writes its
+    # temporary file into the file's own directory, so the rewrite fails while the file itself
+    # stays writable, which is also how this fails on a real host.
+    rmstuck="${TESTDIR}/rm-stuck"; mkdir -p "${rmstuck}"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmstuck}"
+    stuckal="${TESTDIR}/stuck-allowlist"
+    printf '%s\n' "${rmstuck}" > "${stuckal}"; chown "${PROJECTS_USER}" "${stuckal}"
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${stuckal}" \
+            setsid "${CLI}" --project-remove -y "${rmstuck}" 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmstuck}" ]] && grep -qi 'still registered' <<<"${out}"; then
+        pass "--project-remove refuses to delete when the allowlist entry cannot be removed"
+    else
+        fail "--project-remove acted past a failed de-registration (rc=${rc}): ${out}"
     fi
 
     # Teardown order: registries before the tree. Driven with -y, which is the one path that

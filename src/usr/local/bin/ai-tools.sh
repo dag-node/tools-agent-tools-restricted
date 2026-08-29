@@ -604,10 +604,33 @@ unreg_allow() {
     # alone would miss it -- the same blind spot that used to leave the entry (and the agent's
     # access) behind on unclaim.
     local -a lines=() raw
+    # shellcheck disable=SC2034  # a nameref out-param for ai_tools_conf_allowlist_matching_lines:
+    # only that call's exit status is read below, never the array it fills.
+    local -a still=()
     if ai_tools_conf_allowlist_matching_lines lines "${ALLOWLIST}" "${dir}"; then
+        local failed=false
         for raw in "${lines[@]}"; do
-            sed -i "\|^$(allow_escape "${raw}")$|d" "${ALLOWLIST}"
+            sed -i "\|^$(allow_escape "${raw}")$|d" "${ALLOWLIST}" || failed=true
         done
+        # This entry is the agent's LAUNCH GATE, so the removal is verified by re-reading the
+        # file rather than trusted from an exit status: an entry that survives a "removal" leaves
+        # the project launchable while the caller carries on as though it did not -- and for
+        # --project-remove the very next step would delete the tree out from under a registration
+        # that is still standing, which is the state its teardown order exists to prevent.
+        #
+        # Reported and fatal, never silent. `sed -i` writes its temporary file into the file's own
+        # DIRECTORY, so it fails on a config dir this operator cannot write even when the
+        # allowlist itself is writable -- which under `set -e` used to abort the whole command
+        # with sed's bare I/O error and its exit status, telling the operator nothing about what
+        # was left registered.
+        if ${failed} || ai_tools_conf_allowlist_matching_lines still "${ALLOWLIST}" "${dir}"; then
+            warn "could not remove ${dir} from allowed-projects -- it is STILL LISTED, so the agent can still launch there. Remove the line by hand:"
+            for raw in "${lines[@]}"; do
+                printf "      %ssed -i '\\\\|^%s\$|d' %s%s\n" \
+                    "${C_BOLD}" "$(allow_escape "${raw}")" "${ALLOWLIST}" "${C_RST}"
+            done
+            die "allowed-projects not updated -- ${dir} is still registered"
+        fi
         say "    allowed-projects: removed"
     else
         say "    allowed-projects: not listed"

@@ -646,6 +646,12 @@ directory it could not enter, with no registry entry left to find the remains by
 runs **registries first, deletion last**: the label, the `safe.directory` entry and the allowlist
 entry go, and only then the tree, so a failed deletion leaves an *unregistered* tree — less access,
 not more — where the reverse order would leave a half-deleted one the agent still reaches. The
+allowlist step is **fatal** if it cannot complete: that entry is the launch gate, so a removal that
+deleted the tree past a failed de-registration would strand exactly the entry this ordering exists
+to drop. `unreg_allow` therefore verifies the entry is gone by re-reading the file rather
+than trusting `sed`'s exit status, and refuses with the manual line to delete (`sed -i` writes its
+temporary file into the allowlist's own directory, so it fails on a config directory the operator
+cannot write even when the allowlist itself is writable). The
 filesystem hand-back `--project-unclaim` performs is deliberately **not** run: it is a full-tree
 `chgrp`/`chmod` pass over files about to be deleted.
 
