@@ -5,7 +5,11 @@
 # exceeds 80 columns, every framed line is a '#' comment (paste-safe), the wrap never
 # ends a line on a tie-word (preposition/article/conjunction) and never splits a single
 # token (paths survive), and plain mode keeps a phrase on one line so the test suite's
-# substring greps still match. Pure formatting -- no root, no install dependency: the
+# substring greps still match. The two question renderers carry decisions rather than
+# formatting, so each is driven to its answer-less end: a menu with no default must yield
+# NOTHING on stdout and a non-zero status on every path that fails to get an index (no
+# terminal, closed input, three unanswered attempts), or a caller would read an unanswered
+# menu as a chosen option. Pure formatting -- no root, no install dependency: the
 # library carries no token substitution, so the repo source IS the deployed artifact. The
 # test validates the source of truth directly (so it never reports a false failure against a
 # not-yet-redeployed installed copy), falling back to the installed path outside a checkout.
@@ -156,6 +160,91 @@ if [[ "${sel}" == "3" ]]; then
     pass "ai_tools_msg_pick yields the default when no terminal is present"
 else
     fail "ai_tools_msg_pick did not default without a tty (got '${sel}')"
+fi
+
+# ── ai_tools_msg_pick, no-default mode ────────────────────────────────────────────
+# `none` is the mode that refuses to answer for the user: every way it can fail to get a
+# valid index must yield NOTHING on stdout and a non-zero status, so a caller cannot mistake
+# an unanswered menu for a chosen option (the claude wrapper reads that as Cancel).
+
+# (12b) No terminal: non-zero, nothing on stdout -- the caller decides, the lib does not.
+nd_rc=0
+nd_sel="$(setsid bash -c 'source "'"${LIB}"'"; ai_tools_msg_pick none a b c' </dev/null 2>/dev/null)" \
+    || nd_rc=$?
+if [[ "${nd_rc}" != 0 && -z "${nd_sel}" ]]; then
+    pass "ai_tools_msg_pick none refuses (non-zero, no output) with no terminal"
+else
+    fail "ai_tools_msg_pick none answered without a tty (rc=${nd_rc}, out='${nd_sel}')"
+fi
+
+# (12c) An invalid first argument is a caller error, never an assumed answer.
+ba_rc=0
+bad_sel="$(bash -c 'source "'"${LIB}"'"; ai_tools_msg_pick 7 a b c' 2>/dev/null)" || ba_rc=$?
+if [[ "${ba_rc}" == 2 && -z "${bad_sel}" ]]; then
+    pass "ai_tools_msg_pick rejects a default outside 1..N (rc=2, no output)"
+else
+    fail "ai_tools_msg_pick accepted an out-of-range default (rc=${ba_rc}, out='${bad_sel}')"
+fi
+
+# (12d) With a terminal: empty input RE-ASKS and, after three attempts, gives up -- while a
+# valid index is echoed. Both need a real controlling terminal (the menu is drawn on
+# /dev/tty), so they run under a `script` pty; the probe writes its result to a file, since
+# everything the pty carries is one stream. A host with no pty available skips rather than
+# misreports. Each run is bounded by `timeout`, so a regression that blocks on the read
+# fails the check instead of hanging the suite.
+mktestdir
+probe="${TESTDIR}/pick-probe.sh"
+cat > "${probe}" <<EOF
+source "${LIB}"
+rc=0
+sel="\$(ai_tools_msg_pick none "Create sandbox"\$'\t'"an isolated copy" \\
+    "Claim here"\$'\t'"in place" "Cancel"\$'\t'"change nothing")" || rc=\$?
+printf '%s' "\${sel}" > "${TESTDIR}/sel"
+printf '%s' "\${rc}"  > "${TESTDIR}/rc"
+EOF
+# pick_probe <input> -- run the probe under a pty with <input> on its stdin; echoes
+# "<rc>:<selection>", or "nopty" when a pseudo-terminal cannot be allocated.
+pick_probe() {
+    : > "${TESTDIR}/sel"; : > "${TESTDIR}/rc"
+    if ! printf '%b' "$1" | timeout 20 script -qec "bash ${probe}" /dev/null >/dev/null 2>&1; then
+        [[ -s "${TESTDIR}/rc" ]] || { printf 'nopty'; return; }
+    fi
+    printf '%s:%s' "$(cat "${TESTDIR}/rc")" "$(cat "${TESTDIR}/sel")"
+}
+if ! command -v script >/dev/null 2>&1; then
+    skip "ai_tools_msg_pick none interactive cases" "script(1) not available for a pty"
+else
+    empty_res="$(pick_probe '\n\n\n')"
+    valid_res="$(pick_probe '\n9\n2\n')"
+    if [[ "${empty_res}" == nopty || "${valid_res}" == nopty ]]; then
+        skip "ai_tools_msg_pick none interactive cases" "no pseudo-terminal available here"
+    elif [[ "${empty_res}" == "1:" ]]; then
+        pass "ai_tools_msg_pick none re-asks and gives up (non-zero, no output) after 3 empties"
+    else
+        fail "ai_tools_msg_pick none did not give up on empty input (got '${empty_res}')"
+    fi
+    if [[ "${valid_res}" == nopty ]]; then
+        :   # already reported above
+    elif [[ "${valid_res}" == "0:2" ]]; then
+        pass "ai_tools_msg_pick none re-asks past empty/out-of-range input and takes the valid index"
+    else
+        fail "ai_tools_msg_pick none did not accept the valid index after two misses (got '${valid_res}')"
+    fi
+fi
+
+# ── ai_tools_cmd_display: a command the user can type ──────────────────────────────
+# (12e) The bare name only where PATH resolves it to that SAME absolute path; the absolute
+# path otherwise, so a host with an unexpected PATH still gets a command that works.
+mkdir -p "${TESTDIR}/bin" "${TESTDIR}/elsewhere"
+printf '#!/bin/sh\n' > "${TESTDIR}/bin/ai-tools-probe"
+cp "${TESTDIR}/bin/ai-tools-probe" "${TESTDIR}/elsewhere/ai-tools-probe"
+chmod 0755 "${TESTDIR}/bin/ai-tools-probe" "${TESTDIR}/elsewhere/ai-tools-probe"
+on_path="$(PATH="${TESTDIR}/bin:${PATH}" ai_tools_cmd_display "${TESTDIR}/bin/ai-tools-probe")"
+shadowed="$(PATH="${TESTDIR}/bin:${PATH}" ai_tools_cmd_display "${TESTDIR}/elsewhere/ai-tools-probe")"
+if [[ "${on_path}" == "ai-tools-probe" && "${shadowed}" == "${TESTDIR}/elsewhere/ai-tools-probe" ]]; then
+    pass "ai_tools_cmd_display shortens only what PATH resolves to that same path"
+else
+    fail "ai_tools_cmd_display wrong (on-path='${on_path}', shadowed='${shadowed}')"
 fi
 
 # (13) Caller-IFS independence: the claude wrapper sets IFS=$'\n\t' (no space). The wrap must
