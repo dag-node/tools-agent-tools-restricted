@@ -1346,6 +1346,22 @@ under_skip_listed_name() {
     return 1
 }
 
+# tree_is_pristine <dir>  -- 0 when <dir> holds nothing but what --project-create just put there:
+# no file outside .git except README.md, and a git repository with no commits. Cheap and
+# unprivileged.
+#
+# It is re-derived here rather than trusted from the caller, because what it gates is the secret
+# scan: a stale or planted CLAIM_FRESH_TREE must not be able to skip that on a tree with content
+# in it. Both halves are the actual preconditions -- no files means no secret-named files, and no
+# commits means no history -- so the answer is a property of the tree, not a claim about it.
+tree_is_pristine() {
+    local d="$1"
+    [[ -z "$(find "${d}" -path "${d}/.git" -prune -o ! -type d ! -path "${d}/README.md" \
+                 -print -quit 2>/dev/null)" ]] || return 1
+    [[ -d "${d}/.git" ]] || return 0
+    ! git -C "${d}" rev-parse --verify --quiet HEAD >/dev/null 2>&1
+}
+
 # require_claimable_owner <dir>  -- die unless <dir> is held by the operator this run acts FOR or
 # by the sandbox account. The two root helpers that grant the agent its access -- ai-tools-setgid
 # and ai-tools-setfacl -- act only on those two owners, so a project root held by anyone else
@@ -1401,6 +1417,11 @@ cmd_project_claim() {
     # Before any registry write: a root the access-granting helpers cannot act on makes the whole
     # claim a no-op they would report only as a count on stderr.
     require_claimable_owner "${d}"
+
+    # A tree --project-create just made, verified rather than taken on trust (tree_is_pristine).
+    # Three of this flow's questions are answerable from that fact alone; each is marked below.
+    local fresh=false
+    if [[ "${CLAIM_FRESH_TREE:-}" == "${d}" ]] && tree_is_pristine "${d}"; then fresh=true; fi
 
     local listed safedir filemode owngap acl labelled git
     # project_state prints seven SPACE-separated tokens; this script's global IFS is
@@ -1476,6 +1497,12 @@ cmd_project_claim() {
     local -a head=("${d}")
     if [[ "${owngap}" == true ]] || ${need_acl} || ${need_label} || (( ${#drift[@]} )); then
         heavy=true
+    fi
+    # NOT said on a pristine tree: every sentence below is false for one. There are no previous
+    # permissions to modify, nothing that is not reversible, and nothing to back up -- the tree was
+    # empty a moment ago. A warning that is routinely untrue is what teaches an operator to click
+    # through the ones that are not, so silence is the more careful choice here.
+    if ${heavy} && ! ${fresh}; then
         head+=("claiming in place grants the agent group access to this whole tree")
         # Said plainly, before the confirm that authorizes it: the steps below rewrite metadata
         # across the tree, and unclaim NORMALIZES rather than restores (setfacl -b clears ACLs
@@ -1520,6 +1547,11 @@ cmd_project_claim() {
             || ${need_acl} || ${need_git} || ${need_label} || (( ${#drift[@]} )); then
         need_gate=true
     fi
+    # The gate's whole job is to find secret-named files before access is granted. A tree whose
+    # only file is the README this command wrote a moment ago provably has none, and the scan is
+    # not free: ai-tools-lockdown has no NOPASSWD rule, so it costs the operator a sudo PASSWORD
+    # prompt to search a directory the tool itself just created.
+    if ${fresh}; then need_gate=false; fi
 
     say ""
     say "  pending:"
@@ -1531,7 +1563,10 @@ cmd_project_claim() {
     ${need_label} && say "    - apply SELinux ai_tools_project_t label"
     (( ${#drift[@]} )) && say "    - re-apply group ${SANDBOX_GROUP} + ACL to ${#drift[@]} drifted path(s) -- details below"
     ${need_gate} && say "    - scan for secret-named files and lock them down -- you will confirm"
-    ${need_git} && say "    - normalize .git so the agent can access git history -- you will be asked"
+    if ${need_git}; then
+        if ${fresh}; then say "    - normalize .git so the agent can access git history"
+        else say "    - normalize .git so the agent can access git history -- you will be asked"; fi
+    fi
     (( ${#REACH_GRANT[@]} )) && say "    - grant traverse-only access on ${#REACH_GRANT[@]} parent path(s) -- you will be asked"
 
     if (( ${#drift[@]} )); then
@@ -1553,7 +1588,11 @@ cmd_project_claim() {
     # place now?" confirmation, so a delegated claim does not ask the same question
     # twice. The scoped opt-ins below (secret lockdown, .git history, ancestor traversal)
     # still ask on their own terms.
-    if ${heavy}; then
+    # Skipped for a pristine tree along with the warnings it exists to authorize: with nothing
+    # pre-existing to expose, this asks the operator to approve the command they just typed, and
+    # its own subject ("apply the pending steps IN PLACE") describes a tree that has no contents
+    # to apply them to.
+    if ${heavy} && ! ${fresh}; then
         ${ASSUME_YES} || confirm "Apply the pending steps above IN PLACE?" n \
             || die "aborted"
     fi
@@ -1576,12 +1615,21 @@ cmd_project_claim() {
     # before exposing the repo's full git history.
     local do_git=false
     if ${need_git}; then
-        headline_warn "WARNING: git history exposure" \
-            "normalizing .git lets the agent read this repo's full git history"
-        if confirm "Normalize .git so the agent can access git history here?" y; then
+        if ${fresh}; then
+            # Inferred, not asked. The question is about exposing history, and a repository with
+            # no commits has none; normalizing is meanwhile the outcome the operator wants either
+            # way, since it is what keeps THEIR later commits readable by the agent. Asking would
+            # offer a choice between one real option and one that costs them something for nothing.
             do_git=true
+            say "    .git: normalizing for shared history (new repository -- no history to expose)"
         else
-            say "    .git: left as-is (history not accessible to the agent)"
+            headline_warn "WARNING: git history exposure" \
+                "normalizing .git lets the agent read this repo's full git history"
+            if confirm "Normalize .git so the agent can access git history here?" y; then
+                do_git=true
+            else
+                say "    .git: left as-is (history not accessible to the agent)"
+            fi
         fi
     fi
 
@@ -1622,11 +1670,16 @@ cmd_project_claim() {
 # the resolved operator or the sandbox account holds, so a tree born owned by the invoker is one
 # require_claimable_owner then refuses.
 cmd_project_create() {
-    local a path="" ASSUME_YES=false
+    # No -y: this verb asks nothing that a flag could pre-answer. Its own confirmation would be a
+    # request to approve the command just typed over a tree that does not exist yet, and the claim
+    # that follows infers the rest from the tree being empty (see tree_is_pristine). The one
+    # question that can still appear -- the traverse grant on an ancestor -- widens access ABOVE
+    # the project and is deliberately answerable by nothing but a person at a terminal.
+    local a path=""
     for a in "$@"; do
         case "${a}" in
-            -y|--yes) ASSUME_YES=true ;;
-            -*) die "unknown --project-create option: ${a} (allowed: -y/--yes)" ;;
+            -*) die "unknown --project-create option: ${a}" \
+                    "       it takes a path and nothing else; see: man ai-tools" ;;
             *)  if [[ -z "${path}" ]]; then path="${a}"
                 else die "--project-create takes a single path"; fi ;;
         esac
@@ -1706,21 +1759,18 @@ cmd_project_create() {
         die "project create stopped -- the agent could not reach a project at that location"
     fi
 
-    # ── Review block: the creation steps, then ONE default-NO confirm covering the whole
-    # operation. The claim that follows prints its own review but does not ask again (it is
-    # passed --yes, the same delegated-claim contract the launch wrapper uses); its scoped
-    # opt-ins -- secret lockdown, .git history, ancestor traversal -- still ask on their own
-    # terms. ──
+    # ── What is about to happen, stated and then done. There is no confirmation: every refusal
+    # above has already run, the directory does not exist, and what follows creates it and claims
+    # it -- which is the command the operator typed. ──
     headline "Create project" "${d}" \
-        "This creates the directory, initializes an empty git repository in it, writes a README.md, and then claims it -- which grants the sandbox account group access to the tree. One confirmation covers all of that; the secret-lockdown, git-history and parent-traversal questions are asked separately below."
+        "Creating the directory, an empty git repository in it, and a README.md, then claiming it so the sandbox account can work there."
     say ""
     say "  pending:"
     say "    - create ${d}"
     say "    - initialize an empty git repository"
     say "    - write README.md"
-    say "    - claim the project -- the claim reviews its own steps below"
+    say "    - claim the project -- the claim reports its own steps below"
     say ""
-    ${ASSUME_YES} || confirm "Create and claim this project?" n || die "aborted"
 
     # ── Apply ──
     headline "Creating the project" "${d}"
@@ -1747,7 +1797,10 @@ cmd_project_create() {
     fi
 
     # The claim runs unchanged on the new tree -- one implementation of what claiming means.
-    cmd_project_claim --yes "${d}"
+    # CLAIM_FRESH_TREE names the tree this run created; the claim VERIFIES that independently
+    # before it acts on it, so this is a hint and never an authorization.
+    CLAIM_FRESH_TREE="${d}"
+    cmd_project_claim "${d}"
 }
 
 # positive_project_entries  -- print each allowed-projects entry that names a real,
@@ -3554,7 +3607,9 @@ require_sudo_access() {
         --lockdown)                         bin="${LOCKDOWN_BIN}" what="locking down secret files"; delegable=true ;;
         --reclaim)                          bin="${RECLAIM_BIN}"  what="reclaiming agent-written files"; delegable=true ;;
         --project-claim)                    bin="${LOCKDOWN_BIN}" what="claiming a project"; delegable=true ;;
-        --project-create)                   bin="${LOCKDOWN_BIN}" what="creating a project"; delegable=true ;;
+        # A create skips the secret gate (its tree is empty by construction), so the first helper
+        # it reaches is the safe.directory registration, not the lockdown scan.
+        --project-create)                   bin="${SAFEDIR_BIN}"  what="creating a project"; delegable=true ;;
         --project-unclaim)                  bin="${UNCLAIM_BIN}"  what="unclaiming a project"; delegable=true ;;
         # --project-remove runs no ai-tools-unclaim: it deletes the tree instead of handing it
         # back, so the first helper it reaches is the safe.directory de-registration.

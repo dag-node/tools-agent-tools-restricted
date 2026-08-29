@@ -192,6 +192,24 @@ file sink being the authoritative one.
   enter, before anything is created, and names an alternative only after checking that one on this
   host (`--sandbox-create` is deliberately *not* named here: it clones an existing repository, and
   this verb's subject is a project that does not exist yet).
+
+  **It takes no options and asks no confirmation.** Its tree is empty by construction, which
+  answers three of the claim's questions outright, so `cmd_project_claim` infers them instead of
+  asking — gated on `tree_is_pristine`, which the claim re-derives itself (no file outside `.git`
+  but `README.md`, and a repository with no commits) rather than trusting the caller's
+  `CLAIM_FRESH_TREE` hint, since what it gates is the secret scan. The proceed confirm and the
+  warnings it authorizes are **not shown**: every sentence in them ("MODIFIES group, permissions
+  and ACLs throughout this tree", "NOT reversible", "Back up first") is false for a directory that
+  did not exist a moment ago, and a warning that is routinely untrue is what teaches an operator
+  to click through the ones that are not. The **secret gate** is skipped: its job is to find
+  secret-named files before access is granted, a tree whose only file is the README this command
+  wrote provably has none, and `ai-tools-lockdown` carries no NOPASSWD rule — so the scan costs a
+  sudo *password* prompt to search a directory the tool itself just made. The **`.git` history**
+  question is inferred to yes: it asks about exposing history, a repository with no commits has
+  none, and normalizing is what keeps the operator's own later commits readable by the agent, so
+  asking would offer a choice between one real option and one that costs something for nothing.
+  The traverse grant still asks — it widens access *above* the project, on directories that do
+  exist and do have contents.
 - `--project-remove [path]` — unclaim a project **and delete its directory**; `--project-unclaim`
   stays the non-destructive reversal its refusals point at. Detail below under *Remove*.
 - `--project-unclaim [path]` — unclaim a real project

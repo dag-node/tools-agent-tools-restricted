@@ -94,7 +94,7 @@ repository's git history
 .RB ( .git )
 is a separate opt-in prompt.
 .TP
-.B \-\-project\-create \fR[\fB\-y\fR] \fIpath\fR
+.B \-\-project\-create \fIpath\fR
 Create a
 .I new
 project directory and claim it: one
@@ -116,6 +116,13 @@ than manufactured. Every filesystem step runs as the operator the run acts for, 
 a create under
 .B \-\-for
 produces a tree that operator owns. A refusal leaves nothing behind.
+.IP
+It takes no options and asks no confirmation of its own: the tree it makes is empty,
+so the claim that follows infers the answers its prompts would otherwise ask for \(em
+there are no pre-existing permissions to warn about, no secret-named files to scan a
+brand-new directory for, and no git history to expose in a repository with no commits.
+The one question that can still appear is the traverse grant on a parent directory,
+which widens access above the project and is answered only by a person at a terminal.
 .TP
 .B \-\-project\-unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-n\fR] [\fB\-y\fR] [\fB\-\-group\fI g\fR] [\fIpath\fR]
 Reverse a claim: revert the SELinux label, drop both registries, and \(em behind
@@ -418,8 +425,6 @@ For
 .BR \-\-project\-unclaim :
 pre-answer the confirm. It never answers the hand-back or skip-listed questions.
 For
-.BR \-\-project\-create :
-pre-answer the create-and-claim confirmation; the scoped opt-ins still ask. For
 .BR \-\-project\-remove :
 pre-answer
 .I both

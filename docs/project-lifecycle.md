@@ -31,9 +31,13 @@ ai-tools --project-create ~/src/newproject
 ```
 
 This makes the directory, initializes an empty git repository in it, writes a `README.md`
-naming it, and then runs the ordinary claim on the result — one confirmation covers all of
-it, and the scoped opt-ins (secret lockdown, git history, parent traversal) still ask on
-their own terms.
+naming it, and then runs the ordinary claim on the result.
+
+It asks nothing. A tree that did not exist a moment ago has no pre-existing permissions to
+warn about, no secret-named files worth a `sudo` password to scan for, and no git history to
+expose — so the questions a claim asks about an existing tree are answered by the tree being
+empty, not by you. The one prompt that can still appear is the traverse grant on a parent
+directory, which widens access *above* the project and is never answered for you.
 
 It creates exactly one directory. The parent has to exist already, so a mistyped path is
 refused rather than quietly built:
