@@ -210,6 +210,21 @@ file sink being the authoritative one.
   asking would offer a choice between one real option and one that costs something for nothing.
   The traverse grant still asks — it widens access *above* the project, on directories that do
   exist and do have contents.
+
+  **Nothing it seeds is left owner-only, whatever the host umask.** A new directory, `git init`'s
+  `.git`, and the `README.md` are all born under the caller's umask, so on an `077` host they come
+  out `0700`/`0600` — and an owner-only path is one `ai-tools-setgid` and `ai-tools-setfacl` honour
+  as the operator's standing **seal** and skip, taking a directory's subtree with it. A create that
+  inherited that would register a project whose README the agent cannot read and whose `.git` it
+  cannot use, having just reported that it normalized both. So the directory is made `mkdir -m
+  0750`, the README `chmod 0640`, and `.git` opened with `chmod -R g+rX` — group read and traverse
+  only, since write comes from the claim's ACL exactly as it does for the work tree. `0750`/`0640`
+  rather than `0770`/`0660` because group write here would widen the tree to the *operator's*
+  primary group, shared on some hosts, for no gain; they are also the modes an unclaim normalizes
+  back to. This is **not** a prompt: the seal is a statement about a path an operator restricted
+  deliberately, while a umask is a default for every new file that carries no intent about a
+  directory created a moment ago by a command whose purpose is to give the agent somewhere to work.
+  Where the umask *would* have sealed it, the create says so in a line rather than asking.
 - `--project-remove [path]` — unclaim a project **and delete its directory**; `--project-unclaim`
   stays the non-destructive reversal its refusals point at. Detail below under *Remove*.
 - `--project-unclaim [path]` — unclaim a real project

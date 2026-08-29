@@ -39,6 +39,22 @@ expose — so the questions a claim asks about an existing tree are answered by 
 empty, not by you. The one prompt that can still appear is the traverse grant on a parent
 directory, which widens access *above* the project and is never answered for you.
 
+On a host with a restrictive `umask` (`077`, the `/etc/login.defs` default on many systems) it
+also sets the modes rather than inheriting them — `0750` for the directory, `0640` for the
+`README.md`, and group read/traverse on `.git` — and says so:
+
+```text
+    created /home/you/src/newproject
+    modes 0750/0640 -- this host's umask (0077) would have made what this
+    creates owner-only, which the claim honours as a seal and grants nothing on
+```
+
+Owner-only (`700`/`600`) is how you seal a path *away* from the agent, and the claim honours it
+everywhere. But it is a statement about a file you restricted on purpose, and a umask is only a
+default for every new file — so it is not read as one about a directory this command just made
+for the agent to work in. To seal a path inside the project afterwards, `chmod 700` it and
+re-claim; that is respected.
+
 It creates exactly one directory. The parent has to exist already, so a mistyped path is
 refused rather than quietly built:
 

@@ -1774,14 +1774,50 @@ cmd_project_create() {
 
     # ── Apply ──
     headline "Creating the project" "${d}"
-    run_as_owner mkdir -- "${d}" || die "could not create ${d}"
+    # Mode 0750 EXPLICITLY, not whatever the caller's umask yields. Under a umask of 077 -- the
+    # /etc/login.defs default on many hosts, and what a PAM session hands this command -- a new
+    # directory is born 0700, which ai-tools-setgid and ai-tools-setfacl both honour as the
+    # operator's standing SEAL and leave alone. The claim would then report a NOTICE and grant
+    # nothing, producing a registered project the agent can never enter: the one outcome this
+    # verb exists to avoid.
+    #
+    # The seal is a statement about a path the operator restricted deliberately. A umask is not
+    # that -- it is a default for every new file, carrying no intent about a directory created a
+    # moment ago BY a command whose whole purpose is to give the agent somewhere to work. So the
+    # mode is set rather than inherited, and it is not asked about: for anyone who typed
+    # --project-create the answer is the same, and declining would yield a project that cannot be
+    # worked in.
+    #
+    # 0750 rather than 0770: the agent's write access comes from the claim's ACL
+    # (g:SANDBOX_GROUP:rwX, which raises the mask), so group write here would only widen the tree
+    # to the OPERATOR's primary group -- shared on some hosts -- for no gain. It is also the mode
+    # an unclaim normalizes a directory back to. `mkdir -m` applies the mode after creation, so
+    # the umask cannot mask it.
+    local umask_would_be
+    printf -v umask_would_be '%04o' "$(( 0777 & ~0$(umask) ))"
+    run_as_owner mkdir -m 0750 -- "${d}" || die "could not create ${d}"
     say "    created ${d}"
+    # Said only where it is news: on a permissive umask these modes are unremarkable, but on a
+    # host whose umask would have sealed what this verb creates, the operator is told what was
+    # done and why. Printed once, covering the directory and everything seeded into it below.
+    if (( (8#${umask_would_be} & 077) == 0 )); then
+        say "    ${C_DIM}modes 0750/0640 -- this host's umask ($(umask)) would have made what this${C_RST}"
+        say "    ${C_DIM}creates owner-only, which the claim honours as a seal and grants nothing on${C_RST}"
+    fi
     ai_tools_log_info "created project directory ${d}"
 
     # Plain `git init`, so the operator's own init.defaultBranch decides the branch name rather
     # than this tool holding an opinion about it. run_as_owner passes -H, so it is the TARGET's
     # git config that is read on a --for run.
     if run_as_owner git init -q -- "${d}"; then
+        # git builds .git under the caller's umask, so on an 077 host it is born 0700/0600 --
+        # owner-only, which ai-tools-setfacl's --with-git pass skips as a seal, taking the whole
+        # subtree with it. The claim below reports that it is normalizing .git for shared history,
+        # so leaving it sealed would make that line untrue. g+rX only: group read, and traverse on
+        # directories. The agent's WRITE access comes from the claim's ACL, exactly as for the
+        # work tree, so nothing here grants more than reachability.
+        run_as_owner chmod -R g+rX -- "${d}/.git" \
+            || warn "could not open .git for the agent -- git history may stay out of its reach"
         say "    git: initialized an empty repository"
     else
         warn "git init failed -- the directory is created but is not a git repository"
@@ -1791,6 +1827,12 @@ cmd_project_create() {
     # would need an opinion this tool should not hold. Written through `tee` as the owner, since a
     # shell redirect here would create the file as the INVOKER on a --for run.
     if printf '# %s\n' "${d##*/}" | run_as_owner tee -- "${d}/README.md" >/dev/null; then
+        # tee creates under the caller's umask (0600 on an 077 host), and an owner-only file is
+        # one ai-tools-setfacl leaves alone -- so the first file this verb writes for the project
+        # would be the one file in it the agent cannot read. 0640 is the mode the claim's ACL
+        # expects to raise, and the one an unclaim normalizes a file back to.
+        run_as_owner chmod 0640 -- "${d}/README.md" \
+            || warn "could not set the mode on README.md -- the agent may not be able to read it"
         say "    wrote README.md"
     else
         warn "could not write ${d}/README.md (continuing)"
@@ -3706,7 +3748,7 @@ require_runas_target() {
     [[ -n "${FOR_OPERATOR}" ]] || return 0
     local -a needed=()
     case "${verb}" in
-        --project-create) needed=(mkdir git tee setfacl) ;;
+        --project-create) needed=(mkdir git tee chmod setfacl) ;;
         --project-remove) needed=(find rm) ;;
         *) return 0 ;;
     esac
