@@ -324,4 +324,34 @@ else
     skip "per-agent labelling outcome" "ai_tools_label_agent_paths not defined by ${LIB}"
 fi
 
+# ── The deployed helper's allowlist gate ─────────────────────────────────────────────────────
+# ai-tools-relabel grants a project the type the confined domain may work in, so the gate deciding
+# WHICH paths get it is the one thing here worth driving through the real helper. Only the REFUSAL
+# is: the accepting branch registers a semanage fcontext rule, and this suite does not mutate the
+# host's policy store to test a helper (the same line integration/selinux.sh draws). The accepting
+# branch on a MULTI-OPERATOR host -- the case that matters, since the entry authorizing a label may
+# live in any operator's registry -- is covered live in tests/manual/verify-live-flows.sh, which
+# has a second enrolled operator to act for.
+section "relabel: the deployed helper refuses a path no allowlist covers (unit)"
+RELABEL_BIN=/usr/local/libexec/ai-tools/ai-tools-relabel
+if [[ ! -x "${RELABEL_BIN}" ]]; then
+    skip "relabel allowlist gate" "${RELABEL_BIN} not installed"
+elif [[ "${EUID}" -ne 0 ]]; then
+    skip "relabel allowlist gate" "needs root (the helper refuses a non-root caller first)"
+elif ! command -v getenforce >/dev/null 2>&1 || [[ "$(getenforce 2>/dev/null)" == Disabled ]]; then
+    # The helper reports "SELinux inactive" and exits 0 BEFORE the gate, so there is nothing to
+    # assert here on a DAC-only host.
+    skip "relabel allowlist gate" "SELinux inactive -- the helper exits before the gate"
+else
+    mktestdir
+    unlisted="${TESTDIR}/unlisted-project"; mkdir -p "${unlisted}"
+    : > "${TESTDIR}/empty-allowlist"
+    out="$(AI_TOOLS_ALLOWLIST="${TESTDIR}/empty-allowlist" "${RELABEL_BIN}" "${unlisted}" 2>&1)" && rc=0 || rc=$?
+    if [[ "${rc}" -ne 0 ]] && grep -qi 'not in the allowed-projects allowlist' <<<"${out}"; then
+        pass "a path no allowlist covers is refused, before any policy write"
+    else
+        fail "the helper did not refuse an unlisted path (rc=${rc}): ${out}"
+    fi
+fi
+
 finish

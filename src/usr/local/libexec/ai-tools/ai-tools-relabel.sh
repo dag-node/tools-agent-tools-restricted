@@ -29,18 +29,21 @@ set -euo pipefail
 
 readonly RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
 
-# Operator identity (PROJECTS_HOME for the allowlist path) from /etc/ai-tools/operator.conf
-# via the shared resolver. AI_TOOLS_OPERATOR_CONF / AI_TOOLS_ALLOWLIST override the paths --
-# root-only test hooks: sudo strips them (env_reset, not in env_keep), so neither the operator
-# nor the agent can inject them in production (relabel is only ever reached as root via sudo).
+# Owner resolution from /etc/ai-tools/operator.conf via the shared resolver.
+# AI_TOOLS_OPERATOR_CONF / AI_TOOLS_ALLOWLIST override the paths -- root-only test hooks: sudo
+# strips them (env_reset, not in env_keep), so neither the operator nor the agent can inject them
+# in production (relabel is only ever reached as root via sudo).
+#
+# The owner is resolved PER PATH (ai_tools_resolve_owner), the way every other per-project helper
+# does it, rather than by loading one operator up front. On a multi-operator host the entry that
+# authorizes a label lives in whichever operator's registry holds the project, and reading a single
+# operator's file refuses every project registered to any of the others -- a secondary operator's
+# own claim, and every `--project-claim --for <op>`, would leave the tree unlabelled while the rest
+# of the claim reported success. A load failure leaves the resolver undefined, which allowlisted()
+# treats as "no owner" and refuses on: no label is granted from a half-parsed identity.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
-if source "${OPERATOR_LIB}" 2>/dev/null; then
-    ai_tools_load_operator || true
-else
-    PROJECTS_USER=''; PROJECTS_HOME=''   # the fallback sets only what this helper reads
-fi
-readonly ALLOWLIST="${AI_TOOLS_ALLOWLIST:-${PROJECTS_HOME}/.config/ai-tools/allowed-projects}"
+source "${OPERATOR_LIB}" 2>/dev/null || true
 
 # Shared leveled logger: journald (always) + the root-only file
 # /var/log/ai-tools/relabel.log. Best-effort -- a no-op fallback keeps the helper
@@ -72,15 +75,26 @@ source "${CONF_LIB}"
 
 [[ "${EUID}" -eq 0 ]] || die "must run as root (via sudo)"
 
-# allowlisted <dir>: 0 when <dir> is an exact, non-excluded entry in the operator's
-# allowed-projects allowlist. Reads through the shared grammar (conf.lib.sh), realpath-normalized,
-# so a listed project with a comment or quotes -- or reached by a symlink -- is recognized;
-# an explicit `!<dir>` exclusion still wins.
+# allowlisted <dir>: 0 when <dir> is an exact, non-excluded entry in the allowlist of the operator
+# who OWNS it. Reads through the shared grammar (conf.lib.sh), realpath-normalized, so a listed
+# project with a comment or quotes -- or reached by a symlink -- is recognized; an explicit
+# `!<dir>` exclusion still wins, at both stages.
+#
+# Two stages, because they answer different questions: the resolver says WHICH operator's registry
+# covers this path (honouring exclusions and covering subtrees, the same matcher the launch gate
+# uses), and the exact-entry check then requires the path to be a registered project ROOT in that
+# registry rather than something merely underneath one -- a label is applied to a project, not to
+# an arbitrary directory inside it.
 allowlisted() {
-    local dir="$1"
-    [[ -f "${ALLOWLIST}" ]] || return 1
-    ai_tools_conf_allowlist_has_exclusion "${ALLOWLIST}" "${dir}" && return 1   # explicit exclusion wins
-    ai_tools_conf_allowlist_has_entry "${ALLOWLIST}" "${dir}"
+    local dir="$1" file="${AI_TOOLS_ALLOWLIST:-}"
+    if [[ -z "${file}" ]]; then
+        declare -F ai_tools_resolve_owner >/dev/null 2>&1 || return 1
+        ai_tools_resolve_owner "${dir}" >/dev/null 2>&1 || return 1
+        file="${AI_TOOLS_RESOLVED_ALLOWLIST:-}"
+    fi
+    [[ -n "${file}" && -f "${file}" ]] || return 1
+    ai_tools_conf_allowlist_has_exclusion "${file}" "${dir}" && return 1   # explicit exclusion wins
+    ai_tools_conf_allowlist_has_entry "${file}" "${dir}"
 }
 
 # ── Parse args ─────────────────────────────────────────────────────────────────

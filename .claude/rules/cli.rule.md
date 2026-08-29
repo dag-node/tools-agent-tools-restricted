@@ -996,6 +996,12 @@ possible unprivileged. Each re-validates its target path against the allowlist a
 exclusion/secret-skip/skip-list rules (see [ownership-and-hooks](ownership-and-hooks.rule.md)). `ai-tools-safedir` needs root to
 write the root-owned `.gitconfig`; on add it re-validates the path against the allowlist through
 the shared `operator.lib.sh` resolver, but edits a single entry rather than walking a tree.
+`ai-tools-relabel` re-validates the same way — **per path**, not against one operator's registry:
+the entry that authorizes a label lives in whichever operator's allowlist holds the project, so
+resolving a single operator up front would refuse every project registered to any of the others
+(a secondary operator's own claim, and every `--project-claim --for`). It then additionally
+requires an **exact** entry there, since a label is applied to a registered project root rather
+than to a directory inside one.
 `ai-tools-reclaim` walks the project and hands each agent-owned path to `ai-tools-chown`, so the
 allowlist/secret/exclusion enforcement and the need for root are that helper's, not its own.
 `ai-tools-allowlist` needs root for the **read** as much as the write, since an allowlist is `0600`
