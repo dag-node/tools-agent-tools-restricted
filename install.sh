@@ -1918,15 +1918,20 @@ do_uninstall() {
     section "Registration"
     # Optionally remove this project from the allowlist (default: keep)
     local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
-    if [[ -f "${allowlist}" ]] && grep -qxF "${SCRIPT_DIR}" "${allowlist}"; then
+    # Membership and the removal both go through conf.lib.sh -- the same editing functions the CLI
+    # and the ai-tools-allowlist helper use. A raw `grep -qxF` plus a hand-escaped `sed` was the
+    # third implementation of this edit in the tree, and the narrowest: it saw only a line spelled
+    # exactly as ${SCRIPT_DIR}, so an entry carrying a comment or quotes read as absent and the
+    # question was never asked.
+    if [[ -f "${allowlist}" ]] \
+            && [[ "$(ai_tools_conf_allowlist_state "${allowlist}" "${SCRIPT_DIR}")" != absent ]]; then
         if confirm_boxed "Keep registration" y \
                 "Keep this project in allowed-projects?" "  ${SCRIPT_DIR}"; then
             log "allowed-projects: kept"
-        else
-            local escaped
-            escaped="$(printf '%s' "${SCRIPT_DIR}" | sed 's/[\\|]/\\&/g')"
-            sed -i "\|^${escaped}$|d" "${allowlist}"
+        elif ai_tools_conf_allowlist_remove "${allowlist}" "${SCRIPT_DIR}"; then
             log "allowed-projects: removed"
+        else
+            warn "could not remove ${SCRIPT_DIR} from ${allowlist} -- it is still registered"
         fi
     fi
 

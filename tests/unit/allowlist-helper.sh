@@ -168,4 +168,60 @@ else
     fail "--remove failed on an already-removed project (rc=${rc}): ${out}"
 fi
 
+# ── --disable / --enable: the privileged half of ai-tools --project-disable/--project-enable ──
+# What separates them from an add/remove pair is that they edit the operator's OWN line in place.
+# A --for target's allowlist is as much a curated document as the invoker's, so the position and
+# the comment must survive a park/restore performed by root on someone else's file.
+printf '%s\n' "# fixture allowlist" "${proj}   # payments, dev stage" > "${ALLOWFILE}"
+chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ALLOWFILE}"; chmod 600 "${ALLOWFILE}"
+before="$(cat "${ALLOWFILE}")"
+
+out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --disable "${proj}")" && rc=0 || rc=$?
+if (( rc == 0 )) && [[ "$(sed -n '2p' "${ALLOWFILE}")" == "!${proj}   # payments, dev stage" ]]; then
+    pass "--disable parks the entry in place, keeping its position and comment"
+else
+    fail "--disable did not park the entry (rc=${rc}): ${out}"$'\n'"$(cat "${ALLOWFILE}")"
+fi
+
+owner="$(stat -c '%U' "${ALLOWFILE}")"; mode="$(stat -c '%a' "${ALLOWFILE}")"
+if [[ "${owner}" == "${PROJECTS_USER}" && "${mode}" == "600" ]]; then
+    pass "--disable preserves the allowlist's owner and mode (${owner}, ${mode})"
+else
+    fail "--disable left the allowlist as ${owner} ${mode}, expected ${PROJECTS_USER} 600"
+fi
+
+# A parked project is NOT an unlisted one: adding over it would leave the '!' winning at the
+# launch gate while the caller was told the project was registered.
+refuses "--add refuses a disabled project" "DISABLED" \
+    "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --add "${proj}"
+
+out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --enable "${proj}")" && rc=0 || rc=$?
+if (( rc == 0 )) && [[ "$(cat "${ALLOWFILE}")" == "${before}" ]]; then
+    pass "--enable restores the entry, leaving the file byte-identical to before the park"
+else
+    fail "--enable did not restore the file (rc=${rc}): ${out}"$'\n'"$(cat "${ALLOWFILE}")"
+fi
+
+out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --enable "${proj}")" && rc=0 || rc=$?
+if (( rc == 0 )); then
+    pass "--enable on an already-enabled project is a clean no-op"
+else
+    fail "--enable failed on an enabled project (rc=${rc}): ${out}"
+fi
+
+# Neither verb may INVENT an entry: registering a project is a claim, which scans for secrets
+# before granting access. --enable reports and succeeds (nothing to lift); --disable refuses,
+# since a caller asking to park an unregistered path has the wrong path or the wrong verb.
+# Compared whole-file, not by substring: every fixture entry lives UNDER ${TESTDIR}, so a
+# substring test matches the line that is legitimately there and inverts the assertion.
+before="$(cat "${ALLOWFILE}")"
+out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --enable "${TESTDIR}")" && rc=0 || rc=$?
+if (( rc == 0 )) && [[ "$(cat "${ALLOWFILE}")" == "${before}" ]]; then
+    pass "--enable on an unlisted path registers nothing"
+else
+    fail "--enable on an unlisted path wrote an entry (rc=${rc}): $(cat "${ALLOWFILE}")"
+fi
+refuses "--disable refuses an unlisted path" "no entry to disable" \
+    "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --disable "${TESTDIR}"
+
 finish
