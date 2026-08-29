@@ -37,7 +37,9 @@
 #   --project-unclaim [path]  release a project -- revoke the agent's access and hand the tree
 #                             back to your own group (or a named user's), the agent's write
 #                             removed; the directory is left on disk
-#   --project-remove  [path]  alias for --project-unclaim (kept for back-compat)
+#   --project-remove  [path]  release a project AND delete its directory (default: cwd); acts
+#                             only on an exact allowlist entry, has no --force, and confirms
+#                             twice -- a default-NO prompt and a typed-name challenge
 #   --sandbox-create [path]   shallow-clone a repo into the sandbox area (private,
 #                             umask 077), lock down tip-commit secrets, then grant
 #                             the agent access and register -- fail-closed: an
@@ -1800,6 +1802,22 @@ unclaim_one() {
     ai_tools_log_info "unclaimed project ${d}"
 }
 
+# undeletable_scan <dir>  -- print every directory under <dir> the ACTING OWNER can neither write
+# nor traverse, one per line, capped. Read-only and run AS that owner, so it answers the question
+# the removal actually depends on: rm -rf needs write+execute on a directory to unlink what is in
+# it, and the realistic blocker is a sandbox-owned 0700 directory a session left behind.
+#
+# This is the pre-flight that keeps --project-remove from having the one failure mode a
+# destructive verb must not have: a tree deleted down to the first directory it cannot enter, with
+# no registry entry left to find the remains by. Under-reporting is not the safe direction here --
+# unlike residue_scan, whose gate only decides what to OFFER -- so the walk reports a directory it
+# cannot descend rather than skipping it silently.
+undeletable_scan() {
+    local d="$1"
+    run_as_owner find "${d}" -xdev -type d '(' -not -writable -o -not -executable ')' \
+        -print 2>/dev/null | head -n 50
+}
+
 # residue_scan <dir>  -- fill RESIDUE and RESIDUE_SKIPPED with every path under <dir> that still
 # carries ai-tools ownership or group: the on-disk fingerprint of a claim. RESIDUE holds what the
 # default helper walk reaches, RESIDUE_SKIPPED what only --full does; .git counts as reachable
@@ -2140,6 +2158,174 @@ cmd_project_unclaim() {
             say "   ${C_BOLD}ai-tools --project-unclaim --force --dry-run ${d}${C_RST}"
         fi
     fi
+}
+
+# cmd_project_remove [path] [-y]  -- unclaim a project AND delete its directory (default: cwd).
+# --project-unclaim stays the non-destructive reversal, and is what these refusals point at.
+#
+# AUTHORIZATION IS THE REGISTRY ENTRY, and only an EXACT one. There is no --force: the flag exists
+# on unclaim to reach a tree the allowlist does not name, and "delete a tree nothing registered"
+# is not an operation this verb should offer at all -- that is `--project-unclaim --force` followed
+# by an rm the operator types themselves, where the destructive step is theirs.
+#
+# This verb sits OUTSIDE the "every refusal moves to less access" table in CLAUDE.md, and the
+# difference is worth naming rather than letting it read as an exception: the predicates in that
+# table decide what a session may REACH, so their safe direction is to grant less. This one decides
+# what is DESTROYED, so its safe direction is to do nothing -- which is why its gate is an exact
+# registry entry plus a typed confirmation rather than one of the launch predicates.
+#
+# Teardown order is registries first, deletion last. A failure at the deletion therefore leaves an
+# UNREGISTERED tree -- less access, not more -- recoverable with an ordinary rm. The reverse order
+# would leave a half-deleted tree the agent still reaches. The filesystem hand-back that
+# --project-unclaim performs is deliberately NOT run: it is a full-tree chgrp/chmod pass over files
+# about to be deleted.
+cmd_project_remove() {
+    local a path="" assume_yes=false
+    for a in "$@"; do
+        case "${a}" in
+            -y|--yes) assume_yes=true ;;
+            --force) die "--project-remove has no --force: a registry entry is what authorizes a deletion here." \
+                         "To reverse a claim on an unregistered tree, and then remove it yourself:" \
+                         "       ai-tools --project-unclaim --force ${path:-<path>}" ;;
+            # Deliberately does NOT enumerate the options the way the other verbs' refusals do:
+            # the only one this verb has pre-answers both the confirmation and the typed-name
+            # challenge, and a caller who has just mistyped a flag is not who that is for. It is
+            # documented in ai-tools(1), where reaching it is a deliberate act.
+            -*) die "unknown --project-remove option: ${a}" \
+                    "       the options this verb takes are in: man ai-tools" ;;
+            *)  if [[ -z "${path}" ]]; then path="${a}"
+                else die "--project-remove takes a single path"; fi ;;
+        esac
+    done
+    # An unattended run must never delete whatever directory it happened to start in, so the one
+    # mode that can proceed without a terminal has to name its target explicitly.
+    if ${assume_yes} && [[ -z "${path}" ]]; then
+        die "--project-remove -y needs a path." \
+            "-y pre-answers the confirmation and the typed-name challenge, so an unattended run must say which project it means rather than inheriting the current directory."
+    fi
+
+    local d; d="$(resolve_dir "${path:-$PWD}")"
+    [[ -d "${d}" ]] || die "not a directory: ${d}"
+    ai_tools_assert_safe_target "${d}" "project remove" || exit 3
+
+    # ── Classification: an EXACT entry, and nothing else, is a removal target. ──
+    local -a entries=() nested=()
+    local e
+    while IFS= read -r e; do [[ -n "${e}" ]] && entries+=("${e}"); done \
+        < <(positive_project_entries)
+    local exact=false nearest=""
+    for e in "${entries[@]:-}"; do
+        [[ "${e}" == "${d}" ]] && exact=true
+        [[ "${e}" == "${d}/"* ]] && nested+=("${e}")
+        if [[ "${d}" == "${e}/"* ]] && (( ${#e} > ${#nearest} )); then nearest="${e}"; fi
+    done
+
+    if ! ${exact}; then
+        if (( ${#nested[@]} )); then
+            printf '\n' >&2
+            printf '    %s\n' "${nested[@]}" >&2
+            printf '\n' >&2
+            die "this is not a claimed project, but ${#nested[@]} claimed project(s) are nested under it: ${d}" \
+                "--project-remove deletes one registered project, never a directory that merely contains some. Reverse the claims first:" \
+                "       ai-tools --project-unclaim ${d}"
+        fi
+        if [[ -n "${nearest}" ]]; then
+            die "this path is inside a claimed project, not a project itself: ${d}" \
+                "       the claimed project is: ${nearest}" \
+                "       remove that instead: ai-tools --project-remove ${nearest}"
+        fi
+        die "not a claimed project: ${d}" \
+            "--project-remove deletes only a registered project -- the registry entry is what authorizes the deletion. See what is registered with: ai-tools --list" \
+            "To reverse a claim on an unregistered tree, and then remove it yourself:" \
+            "       ai-tools --project-unclaim --force ${d}"
+    fi
+
+    # An exact entry that CONTAINS other claimed projects. rm -rf would take them with it, leaving
+    # each one's allowlist entry, safe.directory line and SELinux label pointing at nothing -- and
+    # on a shared host one of them may belong to another operator. Refused rather than cascaded:
+    # this verb deletes one project, and the nested ones are their own decisions.
+    #
+    # The check sees only the registry THIS run reads (the invoker's, or the --for target's
+    # snapshot), since an allowlist is 0600 in a 0700 directory. A project another operator
+    # registered under this path is therefore not visible here.
+    if (( ${#nested[@]} )); then
+        printf '\n' >&2
+        printf '    %s\n' "${nested[@]}" >&2
+        printf '\n' >&2
+        die "this project contains ${#nested[@]} other claimed project(s), listed above: ${d}" \
+            "Deleting it would delete them too, leaving each one registered, git-trusted and SELinux-labelled at a path that no longer exists. Remove or unclaim those first, then re-run this."
+    fi
+
+    # ── Deletability pre-flight: read-only, run as the acting owner. ──
+    local -a undeletable=()
+    mapfile -t undeletable < <(undeletable_scan "${d}")
+    if (( ${#undeletable[@]} )); then
+        headline_warn "WARNING: this tree cannot be fully deleted" \
+            "${#undeletable[@]} director(ies) under ${d} cannot be written or entered by ${OWNER_USER}, so a removal would stop partway and leave the rest behind -- unregistered, and harder to find than it is now. Nothing has been changed."
+        path_listing "director(ies)" "${undeletable[@]}"
+        say ""
+        say "  take ownership of the tree first, then re-run the removal:"
+        say "      ${C_BOLD}ai-tools --reclaim --full ${d}${C_RST}"
+        die "project remove stopped -- the tree is not fully deletable by ${OWNER_USER}"
+    fi
+
+    # ── Git safety report: what deleting this loses. Reported, never refused -- a scratch
+    # repository with uncommitted work is a legitimate thing to delete on purpose. ──
+    if git -C "${d}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        local dirty upstream ahead
+        dirty="$(git -C "${d}" status --porcelain 2>/dev/null | wc -l)"
+        (( dirty )) && warn "${dirty} uncommitted change(s) in this repository"
+        if upstream="$(git -C "${d}" rev-parse --abbrev-ref '@{u}' 2>/dev/null)"; then
+            ahead="$(git -C "${d}" rev-list --count "${upstream}..HEAD" 2>/dev/null || echo 0)"
+            (( ahead )) && warn "${ahead} commit(s) not pushed to ${upstream}"
+        else
+            warn "no upstream is configured -- every commit in this repository is local"
+        fi
+    fi
+
+    # ── Confirmation: the block states what is lost, then a default-NO confirm, then the typed
+    # name. Neither is pre-answered by AI_TOOLS_ASSUME_YES -- that only fast-tracks default-YES
+    # questions, and the challenge has no default to fast-track -- so the ONLY thing that answers
+    # them ahead of time is this command's own -y, an auditable per-invocation decision. With no
+    # terminal both decline independently. ──
+    headline_warn "WARNING: this deletes the project directory" \
+        "${d} and everything in it is deleted. This is NOT reversible: there is no undo, and the tree is not moved to a trash location. To release the project and keep the files, use ai-tools --project-unclaim instead."
+    if ! ${assume_yes}; then
+        confirm "Delete this project directory and everything in it?" n || die "aborted"
+        ai_tools_msg_challenge "  Confirm the project to delete" "${d##*/}" \
+            || die "aborted -- the name did not match"
+    fi
+
+    # ── Apply: registries first, deletion last. ──
+    headline "Removing the project" "${d}"
+    if command -v sudo >/dev/null 2>&1 \
+            && command -v getenforce >/dev/null 2>&1 \
+            && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
+        run_relabel "${d}" --remove \
+            || warn "could not revert the SELinux label -- run: sudo ${RELABEL_BIN} --remove ${d}"
+    fi
+    unreg_safedir "${d}"
+    unreg_allow "${d}"
+
+    if ! run_as_owner rm -rf -- "${d}"; then
+        warn "the deletion did not complete -- the project is already unregistered, so it is out of the agent's reach; remove what is left by hand:"
+        say  "      ${C_BOLD}rm -rf ${d}${C_RST}"
+        die "project remove incomplete -- paths were left behind"
+    fi
+    if [[ -e "${d}" ]]; then
+        warn "paths were left behind under ${d} -- the project is already unregistered; remove them by hand:"
+        say  "      ${C_BOLD}rm -rf ${d}${C_RST}"
+        die "project remove incomplete -- paths were left behind"
+    fi
+
+    say ""
+    ok "removed ${d}"
+    ai_tools_log_info "removed project ${d}"
+    # The shell that started here is now sitting in a directory that no longer exists, where most
+    # commands fail with a confusing error. Said plainly, since the cause is this command.
+    [[ "${PWD}" == "${d}" || "${PWD}" == "${d}/"* ]] \
+        && say "  ${C_DIM}your shell is still in the deleted directory -- cd somewhere else${C_RST}"
+    return 0
 }
 
 # sandbox_finalize <dst>  -- the access-granting tail of every sandbox create, run only
@@ -3199,7 +3385,7 @@ ai-tools -- manage Claude Code sandbox projects (run as the projects user)
   ai-tools --project-claim [-y] [path]  claim a project in place: grant the agent access (default: cwd)
   ai-tools --project-create  <path>  create a new project directory, init git, and claim it
   ai-tools --project-unclaim [path]  release a project: revoke agent access, return the tree to your group
-  ai-tools --project-remove  [path]  alias for --project-unclaim (back-compat)
+  ai-tools --project-remove  [path]  release a project AND delete its directory
   ai-tools --sandbox-create [path]   shallow-clone a repo into the sandbox area
   ai-tools --sandbox-push   [path]   push the sandbox clone's commits to its branch
   ai-tools --sandbox-remove [path]   remove a sandbox clone and unregister it
@@ -3351,7 +3537,10 @@ require_sudo_access() {
         --reclaim)                          bin="${RECLAIM_BIN}"  what="reclaiming agent-written files"; delegable=true ;;
         --project-claim)                    bin="${LOCKDOWN_BIN}" what="claiming a project"; delegable=true ;;
         --project-create)                   bin="${LOCKDOWN_BIN}" what="creating a project"; delegable=true ;;
-        --project-unclaim|--project-remove) bin="${UNCLAIM_BIN}"  what="unclaiming a project"; delegable=true ;;
+        --project-unclaim)                  bin="${UNCLAIM_BIN}"  what="unclaiming a project"; delegable=true ;;
+        # --project-remove runs no ai-tools-unclaim: it deletes the tree instead of handing it
+        # back, so the first helper it reaches is the safe.directory de-registration.
+        --project-remove)                   bin="${SAFEDIR_BIN}"  what="removing a project"; delegable=true ;;
         --sandbox-create)                   bin="${LOCKDOWN_BIN}" what="creating a sandbox clone" ;;
         # --sandbox-push/-remove and the informational verbs reach no helper that can refuse the
         # command: the only sudo either of the sandbox pair makes is unreg_allow's safedir removal,
@@ -3428,11 +3617,12 @@ require_sudo_access() {
 # performed AS the target. A no-op without --for, and a no-op for every verb that touches the
 # filesystem only through a root helper.
 #
-# --project-create writes the tree as an owner, through run_as_owner, i.e. `sudo -u <target>`. That
-# is a different sudoers question from the one require_sudo_access asks: a host can grant every
-# ai-tools helper and still restrict Runas to root, and there the create would fail partway --
-# after making directories, or after making the tree and before claiming it. Probing first is what
-# keeps the verb's "refused before anything exists" property true on such a host.
+# The two project verbs that touch the filesystem as an OWNER do it through run_as_owner, i.e.
+# `sudo -u <target>`. That is a different sudoers question from the one require_sudo_access asks: a
+# host can grant every ai-tools helper and still restrict Runas to root, and there each verb would
+# fail at the worst moment -- the create after making the directory and before claiming it, the
+# remove after unregistering the project and before deleting it. Probing first is what keeps
+# "refused before anything changes" true on such a host.
 #
 # Each command the run actually executes is probed rather than one representative, for the reason
 # require_sudo_access gives: a sudoers permitting some and not others is then answered accurately.
@@ -3444,6 +3634,7 @@ require_runas_target() {
     local -a needed=()
     case "${verb}" in
         --project-create) needed=(mkdir git tee setfacl) ;;
+        --project-remove) needed=(find rm) ;;
         *) return 0 ;;
     esac
     local name resolved blocked=""
@@ -3454,13 +3645,17 @@ require_runas_target() {
     [[ -n "${blocked}" ]] || return 0
 
     # Printed plain and ahead of die(), whose emitter would wrap a command across lines.
+    local -a advice=("Run it as ${FOR_OPERATOR} instead.")
+    if [[ "${verb}" == --project-create ]]; then
+        advice=("Run it as ${FOR_OPERATOR}, or create the project without --for and hand it over:" "" \
+                "    ai-tools --project-create <path>" \
+                "    sudo chown -R ${FOR_OPERATOR} <path>" \
+                "    ai-tools --project-claim --for ${FOR_OPERATOR} <path>")
+    fi
     printf '\n' >&2
-    printf '  %s\n' "Run it as ${FOR_OPERATOR}, or create the project without --for and hand it over:" "" \
-                    "    ai-tools --project-create <path>" \
-                    "    sudo chown -R ${FOR_OPERATOR} <path>" \
-                    "    ai-tools --project-claim --for ${FOR_OPERATOR} <path>" >&2
+    printf '  %s\n' "${advice[@]}" >&2
     printf '\n' >&2
-    die "${verb} --for ${FOR_OPERATOR} builds the tree as ${FOR_OPERATOR}, and ${INVOKING_USER} holds no sudo grant to run ${blocked##*/} as that account." \
+    die "${verb} --for ${FOR_OPERATOR} acts on the filesystem AS ${FOR_OPERATOR}, and ${INVOKING_USER} holds no sudo grant to run ${blocked##*/} as that account." \
         "This is a separate sudoers question from the ai-tools helpers: a host can grant every one of those and still restrict which accounts you may act as."
 }
 
@@ -3570,7 +3765,7 @@ case "${1:-}" in
     --project-claim)   shift; cmd_project_claim   "$@" ;;
     --project-create)  shift; cmd_project_create  "$@" ;;
     --project-unclaim) shift; cmd_project_unclaim "$@" ;;
-    --project-remove)  shift; cmd_project_unclaim "$@" ;;
+    --project-remove)  shift; cmd_project_remove  "$@" ;;
     --sandbox-create) shift; cmd_sandbox_create "$@" ;;
     --sandbox-push)   shift; cmd_sandbox_push   "${1:-}" ;;
     --sandbox-remove) shift; cmd_sandbox_remove "${1:-}" ;;

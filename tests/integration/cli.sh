@@ -256,6 +256,89 @@ if command -v runuser >/dev/null 2>&1; then
         pass "every refused --project-create left the allowlist untouched"
     fi
 
+    # (6d) --project-remove deletes, so every assertion here is that it did NOT. Its authorization
+    # is an exact allowlist entry and nothing else: there is no --force, and an unattended run
+    # never reaches the deletion because both the default-NO confirm and the typed-name challenge
+    # decline with no terminal (these run under setsid, so that is the path being driven).
+    remove_cli() {
+        runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${rmal}" \
+            setsid "${CLI}" --project-remove "$@" 2>&1
+    }
+    rmal="${TESTDIR}/remove-allowlist"
+    rmproj="${TESTDIR}/rm-proj"; mkdir -p "${rmproj}/sub"
+    rmnested="${rmproj}/inner"; mkdir -p "${rmnested}"
+    rmother="${TESTDIR}/rm-other"; mkdir -p "${rmother}"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmproj}" "${rmother}"
+
+    # An unregistered path is refused: the registry entry is the authorization, so a tree nothing
+    # claimed is not this verb's to delete.
+    printf '%s\n' "${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    out="$(remove_cli "${rmother}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmother}" ]] && grep -qi 'not a claimed project' <<<"${out}"; then
+        pass "--project-remove refuses an unregistered path, deleting nothing"
+    else
+        fail "--project-remove did not refuse an unregistered path (rc=${rc}): ${out}"
+    fi
+
+    # A path INSIDE a claimed project is refused, naming the project that is the real target.
+    out="$(remove_cli "${rmproj}/sub")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}/sub" ]] && grep -qF "${rmproj}" <<<"${out}"; then
+        pass "--project-remove refuses a path inside a project, naming the project"
+    else
+        fail "--project-remove did not refuse a descendant (rc=${rc}): ${out}"
+    fi
+
+    # An ancestor of claimed projects is refused and pointed at --project-unclaim: this verb
+    # removes one registered project, never a directory that merely contains some.
+    out="$(remove_cli "${TESTDIR}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}" ]] && grep -q -- '--project-unclaim' <<<"${out}"; then
+        pass "--project-remove refuses an ancestor of claimed projects"
+    else
+        fail "--project-remove did not refuse an ancestor (rc=${rc}): ${out}"
+    fi
+
+    # An exact entry that CONTAINS another claimed project is refused. Deleting it would take the
+    # nested one with it and leave that project registered, git-trusted and labelled at a path
+    # that no longer exists.
+    printf '%s\n%s\n' "${rmproj}" "${rmnested}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    out="$(remove_cli "${rmproj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmnested}" ]] && grep -qF "${rmnested}" <<<"${out}"; then
+        pass "--project-remove refuses a project containing another claimed project, naming it"
+    else
+        fail "--project-remove did not refuse a project with a nested claim (rc=${rc}): ${out}"
+    fi
+
+    # There is no --force: the flag that reaches an unregistered tree on unclaim must not become
+    # a way to delete one here.
+    printf '%s\n' "${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    out="$(remove_cli --force "${rmother}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmother}" ]] && grep -qi 'no --force' <<<"${out}"; then
+        pass "--project-remove has no --force (an unregistered tree stays undeletable by it)"
+    else
+        fail "--project-remove accepted or mishandled --force (rc=${rc}): ${out}"
+    fi
+
+    # -y requires an explicit path, so an unattended run can never delete whatever directory it
+    # started in.
+    out="$(cd "${rmproj}" && remove_cli -y)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}" ]] && grep -qi 'needs a path' <<<"${out}"; then
+        pass "--project-remove -y refuses to inherit the current directory"
+    else
+        fail "--project-remove -y did not require an explicit path (rc=${rc}): ${out}"
+    fi
+
+    # And the property the whole gate exists for: a registered project, correctly targeted, is
+    # still NOT deleted without a terminal -- the confirm takes its No default and the challenge
+    # has no default to take. The allowlist entry must survive too, since the registries are torn
+    # down before the deletion.
+    out="$(remove_cli "${rmproj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}" ]] && grep -qF "${rmproj}" "${rmal}"; then
+        pass "--project-remove deletes nothing with no terminal (confirm and challenge both decline)"
+    else
+        fail "--project-remove acted without a terminal (rc=${rc}, dir gone or de-registered): ${out}"
+    fi
+
     # (7) --list renders the reconciliation view deterministically over a FIXTURE allowlist +
     # gitconfig (AI_TOOLS_ALLOWLIST / AI_TOOLS_GITCONFIG), so it never reads the operator's real
     # registry. Every entry class and every Suggested-cleanup class is asserted. The stale and
