@@ -468,7 +468,11 @@ check per swap vector.
 - **The wrapper prompts on `/dev/tty`, not stdin.** `</dev/null` does not suppress it;
   `setsid` (no controlling tty) does, so the wrapper takes its non-interactive default.
 - **The wrapper keys off `${HOME}`** for the allowlist, so its test mocks the allowlist by
-  pointing `HOME` at a `/tmp` testdir — no helper override needed there.
+  pointing `HOME` at a `/tmp` testdir — no helper override needed there. **The CLI does not**: it
+  resolves the invoking user's home through `getent passwd`, so that nothing in the environment
+  can redirect a registry write. A test that drives both against one fixture must therefore set
+  `HOME` *and* `AI_TOOLS_ALLOWLIST`; setting only the first steers the wrapper while the CLI
+  quietly edits the operator's real allowlist.
 - **The wrapper detects a controlling terminal by opening `/dev/tty`,** not by the node's
   permission bits (which read `rw` even with no controlling tty). Under `setsid` the open
   fails, so every wrapper invocation in a test cleanly skips the claim prompt instead of

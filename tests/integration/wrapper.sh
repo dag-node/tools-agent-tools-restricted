@@ -139,15 +139,24 @@ fi
 #      the wrapper honours a '!' CWD (2b above) -- so what this asserts is that they agree about
 #      the same file: the CLI's own edit, read back by the deployed wrapper.
 #
-#      Driven through the CLI as the operator against this hermetic HOME, so nothing here writes
-#      the real registry. It reaches no root helper (the pair edits one line of the caller's own
-#      allowlist), so there is no sudo and no password prompt.
+#      Driven through the CLI as the operator against this fixture registry, so nothing here
+#      touches the operator's real one (see the note on the two lookup routes below). The pair
+#      edits one line of the caller's own allowlist and reaches no root helper, so there is no
+#      password prompt.
 cli=/usr/local/bin/ai-tools
 if [[ ! -x "${cli}" ]]; then
     skip "disabled project refused at launch" "${cli} not installed"
 else
-    run_cli() {  # $@ = CLI args, run as the operator against the fixture HOME
+    # The two readers reach the same file by DIFFERENT routes, and a test that steers only one of
+    # them silently drives the operator's real registry: the wrapper keys its allowlist off
+    # ${HOME}, while the CLI resolves the invoking user's home through `getent passwd` -- on
+    # purpose, so nothing in the environment can redirect a registry write. So the CLI is pointed
+    # at the fixture with AI_TOOLS_ALLOWLIST, the root-only hook the rest of the suite uses, and
+    # HOME is kept as well so both agree on the file.
+    fixture_allowlist="${home}/.config/ai-tools/allowed-projects"
+    run_cli() {  # $@ = CLI args, run as the operator against the fixture registry
         setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
+            AI_TOOLS_ALLOWLIST="${fixture_allowlist}" \
             "${cli}" "$@" < /dev/null 2>&1 || true
     }
     # The park assertion is ANCHORED to a whole line. A substring test for "!${approved}" also
@@ -157,7 +166,7 @@ else
     if grep -qi 'unknown command' <<<"${disable_out}"; then
         # A deployed CLI older than this test: an environment fact, not a defect to report as one.
         skip "disabled project refused at launch" "the installed ai-tools has no --project-disable"
-    elif ! grep -qxF "!${approved}" "${home}/.config/ai-tools/allowed-projects"; then
+    elif ! grep -qxF "!${approved}" "${fixture_allowlist}"; then
         fail "--project-disable did not park the entry: $(printf '%s' "${disable_out}" | awk 'NF' | tail -3 | tr '\n' ' ')"
     else
         pass "--project-disable parks the approved project in the wrapper's own allowlist"
