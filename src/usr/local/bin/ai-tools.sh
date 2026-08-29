@@ -3375,73 +3375,55 @@ cmd_list() {
     list_maintenance_note
 }
 
-# usage() is paired with the ai-tools(1) man page (src/usr/local/share/man/man1/
-# ai-tools.1): tests/unit/man.sh asserts the two long-option sets match, so an option
-# added, renamed, or removed here changes the man page in the same commit.
+# usage() is ORIENTATION, not reference: the verbs, one line each, and the three flags that cross
+# verbs. Every per-verb option lives in ai-tools(1), so there is one reference surface for options
+# and one operational surface for finding a verb -- rather than two copies of the same list, which
+# is what this text had become (it was longer than the command summary it introduced).
+#
+# The two are paired by tests/unit/man.sh, which asserts: the VERB sets match in both directions,
+# every long option named here is documented in the page, and every option the page's OPTIONS
+# section documents is one a CLI parser actually accepts. So a verb added, renamed, or removed here
+# changes the page in the same commit, and an option that outlives its parser fails the suite.
+#
+# The layout is load-bearing for that test: a verb line is indented FOUR spaces and starts with its
+# long option, while the cross-verb flag lines are indented two. Keep descriptions free of long
+# options, or they read as verbs.
 usage() {
     cat <<EOF
-ai-tools -- manage Claude Code sandbox projects (run as the projects user)
+ai-tools -- manage the projects a sandboxed coding agent may work in
 
-  ai-tools --project-claim [-y] [path]  claim a project in place: grant the agent access (default: cwd)
-  ai-tools --project-create  <path>  create a new project directory, init git, and claim it
-  ai-tools --project-unclaim [path]  release a project: revoke agent access, return the tree to your group
-  ai-tools --project-remove  [path]  release a project AND delete its directory
-  ai-tools --sandbox-create [path]   shallow-clone a repo into the sandbox area
-  ai-tools --sandbox-push   [path]   push the sandbox clone's commits to its branch
-  ai-tools --sandbox-remove [path]   remove a sandbox clone and unregister it
-  ai-tools --lockdown [path] [-n|-y] lock down secret files (sudo; default: cwd)
-  ai-tools --reclaim [--full] [path] take back ownership of agent files; project stays claimed (sudo; default: cwd)
-  ai-tools --stop                    terminate every agent session and all it spawned (sudo)
-  ai-tools --relabel                 re-verify and relabel the agent entrypoints (sudo)
-  ai-tools --providers               list installed agents/integrations and which are enabled
-  ai-tools --audit [--since <when>]  report what refused, was rejected or stranded (sudo; default: 7 days)
-  ai-tools --status                  report service health (handback socket, relabel watcher, updater)
-  ai-tools --list                    list registered projects
-  ai-tools --version
-  ai-tools --help
+  Projects
+    --project-create <path>     create a new project directory, init git, and claim it
+    --project-claim [path]      claim an existing project in place
+    --project-unclaim [path]    release a project; the directory stays on disk
+    --project-remove [path]     release a project AND delete its directory
+  Sandbox clones
+    --sandbox-create [path]     shallow-clone a repo into the sandbox area
+    --sandbox-push [path]       push the clone's commits to its branch
+    --sandbox-remove [path]     remove a clone and unregister it
+  Maintenance
+    --lockdown [path]           lock down secret-named files
+    --reclaim [path]            take back ownership of agent-written files
+    --relabel                   re-verify and relabel the agent entrypoints
+  Reports
+    --status                    service health, and whether anything needs attention
+    --list                      registered projects, real and sandbox
+    --providers                 installed agents and integrations, and which are enabled
+    --audit                     what has refused, been rejected, or been stranded
+    --version                   the installed version
+    --help                      this summary
+  Incident
+    --stop                      terminate every agent session on this host
 
-  --project-claim options: -y/--yes (pre-answer the proceed prompt; the secret-lockdown,
-                      .git-history, and ancestor-traversal questions still ask)
-  --project-unclaim options: --group <group> (hand back to <group> without prompting),
-                      --full (also cover node_modules, .venv, ...), -y/--yes (pre-answer
-                      the confirm), --force (normalize a COPY of a claimed project that is
-                      not registered; acts only on paths still carrying ai-tools ownership,
-                      group, or ACL), -n/--dry-run (with --force: list, change nothing)
-  --sandbox-create options: --from <ref> (branch/ref to fork from; default: current branch),
-                      --branch <name> (full sandbox branch to create/track; default:
-                      sandbox/<leaf of --from>; any valid git ref), --dir <name> (sandbox
-                      directory name; default: repo basename), -y/--yes (skip the create confirm)
-  --lockdown options: -n/--dry-run (preview only), -y/--yes (skip confirmation)
-  --reclaim options:  --full (also reclaim node_modules, .venv, ... not just the work tree + .git)
-  --stop options:     -n/--dry-run (list what would be terminated, change nothing), -y/--yes
-                      (skip the confirmation, which DEFAULTS TO YES here: an unattended stop
-                      that declines is a stop that failed), --force (kill immediately, no
-                      grace period -- the current turn's unsaved work is lost), --all
-                      (accepted and inert; every run already terminates every session).
-                      It takes NO path: there is no per-project form, because a session is
-                      attributed to a project by the account being stopped. To finish one
-                      session cleanly use /exit inside it, which runs its session-end
-                      handback. Exits 1 if anything survived, 2 on a path, 4 declined.
-  --audit options:    --since <when> (anything date(1) parses: '2 days ago', '2026-08-01';
-                      default: 7 days ago). Exits non-zero when anything is reported, so it
-                      is usable from cron or a login banner without parsing its output.
+  -y/--yes        pre-answer a command's own confirmation (never its scoped opt-ins)
+  -n/--dry-run    show what would change, change nothing
+  --for <op>      act on another enrolled operator's projects instead of your own
 
-  Runs as an operator, without sudo -- the CLI invokes sudo itself for the steps that need
-  it. Root is accepted for the verbs that write no operator state (--audit, --status,
-  --list, --providers, --stop); every other verb writes operator-owned state and refuses
-  root. A caller holding no sudo grant for a verb's root helper is told so before sudo
-  prompts, with the command an operator who does hold one can run instead; --stop needs no
-  such grant (%ai-ops carries a NOPASSWD rule for its bare form).
+  Run as an operator, without sudo -- the CLI invokes sudo itself for the steps that
+  need it. Root may run only the verbs that write no operator state.
 
-  --for <operator>    act on another enrolled operator's projects instead of your own: the
-                      entry lands in THEIR allowed-projects, so the tree is granted to them and
-                      their agent launches there. For a service account that runs an agent but
-                      has no password to authenticate a claim of its own. Accepted on
-                      --project-claim/-create, --project-unclaim/-remove, --lockdown,
-                      --reclaim and --list; not with --project-unclaim --force.
-                      Enrol the target first: sudo ai-tools-admin operator add <operator>
-
-Sandbox workflow: /var/opt/ai-tools/README.md
+  Every option, exit code and example:  man ai-tools
+  Sandbox workflow:                     /var/opt/ai-tools/README.md
 EOF
 }
 

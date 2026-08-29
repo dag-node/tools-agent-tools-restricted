@@ -132,7 +132,7 @@ if command -v runuser >/dev/null 2>&1; then
     # (5) The informational commands stay open to that same non-operator user.
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${tconf}" "${CLI}" --help 2>&1)" || true
-    if grep -qi 'manage Claude Code sandbox projects' <<<"${out}"; then
+    if grep -qi 'manage the projects a sandboxed coding agent may work in' <<<"${out}"; then
         pass "--help stays open to a non-operator user"
     else
         fail "--help was blocked for a non-operator: ${out}"

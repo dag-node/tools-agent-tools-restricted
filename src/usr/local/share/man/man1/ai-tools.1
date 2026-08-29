@@ -94,9 +94,28 @@ repository's git history
 .RB ( .git )
 is a separate opt-in prompt.
 .TP
-.B \-\-project\-create
-Alias for
-.BR \-\-project\-claim .
+.B \-\-project\-create \fR[\fB\-y\fR] \fIpath\fR
+Create a
+.I new
+project directory and claim it: one
+.BR mkdir ,
+an empty git repository, a
+.B README.md
+carrying the directory's own name, then the ordinary claim flow on the result.
+The
+.I path
+is required and must
+.I not
+exist \(em claiming a directory that already exists is
+.BR \-\-project\-claim ,
+and keeping the two apart is what stops the operation that grants an agent access
+to an existing tree from being reachable by a typo. Its parent
+.I must
+exist: only the final component is created, so a mistyped path is refused rather
+than manufactured. Every filesystem step runs as the operator the run acts for, so
+a create under
+.B \-\-for
+produces a tree that operator owns. A refusal leaves nothing behind.
 .TP
 .B \-\-project\-unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-n\fR] [\fB\-y\fR] [\fB\-\-group\fI g\fR] [\fIpath\fR]
 Reverse a claim: revert the SELinux label, drop both registries, and \(em behind
@@ -124,9 +143,32 @@ recorded nowhere, so the operation is
 .BR "not reversible" .
 Back up first.
 .TP
-.B \-\-project\-remove
-Alias for
-.BR \-\-project\-unclaim .
+.B \-\-project\-remove \fR[\fB\-y\fR] [\fIpath\fR]
+Release a project
+.I and
+delete its directory (default: the current directory). Use
+.B \-\-project\-unclaim
+to release one and keep the files.
+.IP
+The authorization is an
+.I exact
+.B allowed\-projects
+entry and nothing else: there is no
+.BR \-\-force ,
+an ancestor or a path inside a project is refused, and so is a project that
+contains another claimed project \(em deleting it would take that one with it and
+leave it registered at a path that no longer exists. A read-only pre-flight refuses
+up front if any directory is not deletable by the acting owner, so a removal never
+stops partway through a tree. Teardown removes the SELinux label and both
+registries before deleting, so a failed deletion leaves an unregistered tree rather
+than a half-deleted one.
+.IP
+It confirms twice \(em a default-NO prompt, then a typed-name challenge \(em and
+neither is answered by a run with no terminal, so nothing is deleted unattended
+without
+.BR \-y ,
+which additionally requires an explicit
+.IR path .
 .TP
 .B \-\-sandbox\-create \fR[\fIpath\fR] [\fB\-\-from\fR \fIref\fR] [\fB\-\-branch\fR \fIname\fR] [\fB\-\-dir\fR \fIname\fR] [\fB\-y\fR|\fB\-\-yes\fR]
 Shallow-clone the repository at
@@ -286,18 +328,16 @@ and which pass ended it are all recorded in
 and journald. What each outcome means, the kernel invariants the stop rests on, and what it
 cannot undo:
 .IR /usr/share/doc/ai\-tools/session\-stop.md .
+.RS
 .TP
 .B \-\-all
-For
-.BR \-\-stop :
-accepted and inert. Every run already terminates every agent session, so this flag exists
+Accepted and inert. Every run already terminates every agent session, so this flag exists
 only so that a script spelling the intent out is not refused for being explicit.
 .TP
 .B \-\-force
-For
-.BR \-\-stop :
-skip the grace period and kill immediately. The current turn's unsaved work is lost, and
+Skip the grace period and kill immediately. The current turn's unsaved work is lost, and
 the trail records that no process was given the chance to flush anything.
+.RE
 .TP
 .B \-\-relabel
 Reconcile the enabled agents' entrypoints after a toolchain change, for when the
@@ -377,6 +417,18 @@ skip the confirmation.
 For
 .BR \-\-project\-unclaim :
 pre-answer the confirm. It never answers the hand-back or skip-listed questions.
+For
+.BR \-\-project\-create :
+pre-answer the create-and-claim confirmation; the scoped opt-ins still ask. For
+.BR \-\-project\-remove :
+pre-answer
+.I both
+the confirmation and the typed-name challenge \(em the only thing that does, since
+.B AI_TOOLS_ASSUME_YES
+never answers a default-NO question and the challenge has no default at all. It
+then requires an explicit
+.IR path ,
+so an unattended removal cannot inherit the current directory.
 .TP
 .BR \-n ", " \-\-dry\-run
 For
@@ -465,6 +517,18 @@ since the ownership helpers resolve a project's owner from the
 .B OPERATORS
 list.
 .IP
+.B \-\-project\-create
+and
+.B \-\-project\-remove
+write the filesystem
+.I as
+.IR operator ,
+so they additionally need a
+.BR sudo (8)
+grant to run as that account \(em a separate question from the ai-tools helper
+grants, and one a host can answer differently. It is checked before the run
+starts rather than partway through.
+.IP
 Accepted on
 .BR \-\-project\-claim ", " \-\-project\-create ", " \-\-project\-unclaim ,
 .BR \-\-project\-remove ", " \-\-lockdown ", " \-\-reclaim ", and " \-\-list ;
@@ -484,7 +548,11 @@ The operation failed.
 For
 .B \-\-stop
 this is the specific case that a process was still running after the kill:
-re-run it.
+re-run it. For
+.B \-\-project\-remove
+it also covers a removal that left paths behind: the project is already
+unregistered by then, so what remains is out of the agent's reach and can be
+deleted by hand.
 .TP
 .B 2
 The command line was rejected.
@@ -550,6 +618,24 @@ Claim a specific tree, taking every default:
 .RS 4
 .EX
 ai\-tools \-\-project\-claim \-y ~/src/myproject
+.EE
+.RE
+.PP
+Start a new project: create the directory, initialize git, and claim it. The parent
+must already exist, and the directory must not:
+.PP
+.RS 4
+.EX
+ai\-tools \-\-project\-create ~/src/newproject
+.EE
+.RE
+.PP
+Release a project and delete its directory. It confirms, then asks you to type the
+project's name; the files are not recoverable afterwards:
+.PP
+.RS 4
+.EX
+ai\-tools \-\-project\-remove ~/src/oldproject
 .EE
 .RE
 .PP
