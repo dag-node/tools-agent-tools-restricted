@@ -642,7 +642,13 @@ registry this run can read, so another operator's nested project is not visible 
 A read-only **deletability pre-flight**, run as the acting owner, refuses up front when any
 directory in the tree is not writable and traversable by them — naming `ai-tools --reclaim --full`
 — because the failure a destructive verb must not have is a tree deleted down to the first
-directory it could not enter, with no registry entry left to find the remains by. Teardown then
+directory it could not enter, with no registry entry left to find the remains by. It checks the
+project's **parent** separately and first, since `rm -rf <d>` finishes by unlinking `<d>` from the
+directory containing it: that needs write and execute *there*, on a directory that is not part of
+the project and so is not covered by the walk. Missing it is the worst outcome the verb has — `rm`
+descends, deletes every file, and fails only on the top directory, leaving an empty husk that is
+already deregistered — and its remedy is not `--reclaim`, the parent never having been the
+project's to reclaim, so it is a refusal of its own naming `--project-unclaim` instead. Teardown then
 runs **registries first, deletion last**: the label, the `safe.directory` entry and the allowlist
 entry go, and only then the tree, so a failed deletion leaves an *unregistered* tree — less access,
 not more — where the reverse order would leave a half-deleted one the agent still reaches. The

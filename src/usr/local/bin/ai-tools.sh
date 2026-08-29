@@ -2280,6 +2280,19 @@ cmd_project_remove() {
     fi
 
     # ── Deletability pre-flight: read-only, run as the acting owner. ──
+    # The PARENT first, and separately, because `rm -rf <d>` finishes by unlinking <d> from the
+    # directory that contains it -- which needs write+execute THERE, on a directory that is not
+    # part of the project and so is not covered by the walk below. Missing it produces the worst
+    # outcome this verb has: rm descends, deletes every file successfully, and fails only on the
+    # top directory, leaving an empty husk that is already deregistered. Its remedy is not
+    # --reclaim either, since the parent was never the project's to reclaim.
+    local rm_parent="${d%/*}"; [[ -n "${rm_parent}" ]] || rm_parent=/
+    if [[ -z "$(run_as_owner find "${rm_parent}" -maxdepth 0 -writable -executable 2>/dev/null)" ]]; then
+        die "the parent directory is not writable by ${OWNER_USER}: ${rm_parent}" \
+            "Removing ${d} means unlinking it from that directory, and ${OWNER_USER} cannot write there. Nothing has been changed. To release the project and leave the files where they are, use:" \
+            "       ai-tools --project-unclaim ${d}"
+    fi
+
     local -a undeletable=()
     mapfile -t undeletable < <(undeletable_scan "${d}")
     if (( ${#undeletable[@]} )); then

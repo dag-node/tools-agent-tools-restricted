@@ -273,9 +273,15 @@ if command -v runuser >/dev/null 2>&1; then
     regdir="${TESTDIR}/registries"; mkdir -p "${regdir}"
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${regdir}"; chmod 700 "${regdir}"
     rmal="${regdir}/remove-allowlist"
-    rmproj="${TESTDIR}/rm-proj"; mkdir -p "${rmproj}/sub"
+    # The project fixtures live under a directory the PROJECTS user OWNS, because removing a
+    # project ends by unlinking it from its parent -- which needs write permission there, not on
+    # the project. Root-owned TESTDIR would fail that, which is a real refusal (asserted on its
+    # own below) rather than the case these are for.
+    rmwork="${TESTDIR}/work"; mkdir -p "${rmwork}"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${rmwork}"; chmod 755 "${rmwork}"
+    rmproj="${rmwork}/rm-proj"; mkdir -p "${rmproj}/sub"
     rmnested="${rmproj}/inner"; mkdir -p "${rmnested}"
-    rmother="${TESTDIR}/rm-other"; mkdir -p "${rmother}"
+    rmother="${rmwork}/rm-other"; mkdir -p "${rmother}"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmproj}" "${rmother}"
 
     # An unregistered path is refused: the registry entry is the authorization, so a tree nothing
@@ -298,7 +304,7 @@ if command -v runuser >/dev/null 2>&1; then
 
     # An ancestor of claimed projects is refused and pointed at --project-unclaim: this verb
     # removes one registered project, never a directory that merely contains some.
-    out="$(remove_cli "${TESTDIR}")" && rc=0 || rc=$?
+    out="$(remove_cli "${rmwork}")" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}" ]] && grep -q -- '--project-unclaim' <<<"${out}"; then
         pass "--project-remove refuses an ancestor of claimed projects"
     else
@@ -351,7 +357,7 @@ if command -v runuser >/dev/null 2>&1; then
     # sandbox-owned 0700 left by a session), and it must refuse the WHOLE removal up front with
     # the tree still intact -- not delete as far as it can and report a failure.
     if id nobody >/dev/null 2>&1; then
-        rmblocked="${TESTDIR}/rm-blocked"; mkdir -p "${rmblocked}/locked"
+        rmblocked="${rmwork}/rm-blocked"; mkdir -p "${rmblocked}/locked"
         chown "${PROJECTS_USER}:${PROJECTS_USER}" "${rmblocked}"
         chown nobody:nobody "${rmblocked}/locked"; chmod 0700 "${rmblocked}/locked"
         printf '%s\n' "${rmblocked}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
@@ -367,13 +373,31 @@ if command -v runuser >/dev/null 2>&1; then
         skip "--project-remove deletability pre-flight" "user 'nobody' not present"
     fi
 
+    # A parent the acting owner cannot write must REFUSE, and this is the case with the worst
+    # failure mode if it is missed: `rm -rf` needs write permission on the directory it unlinks
+    # the project FROM, not on the project, so rm descends, deletes every file successfully, and
+    # fails only on the top directory -- leaving an empty husk that is already deregistered. The
+    # fixture is a project owned by the operator directly inside the root-owned testdir, which is
+    # exactly that shape. Both the tree AND its contents must survive.
+    rmpar="${TESTDIR}/rm-parent"; mkdir -p "${rmpar}/sub"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmpar}"
+    printf '%s\n' "${rmpar}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    out="$(remove_cli -y "${rmpar}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmpar}/sub" ]] \
+            && grep -qi 'parent directory is not writable' <<<"${out}" \
+            && grep -qF "${rmpar}" "${rmal}"; then
+        pass "--project-remove refuses an unwritable parent before deleting any of the tree"
+    else
+        fail "--project-remove did not refuse an unwritable parent (rc=${rc}, contents gone: $([[ -d "${rmpar}/sub" ]] && echo no || echo yes)): ${out}"
+    fi
+
     # A registry the removal cannot rewrite must REFUSE, not delete. The allowlist entry is the
     # agent's launch gate, so deleting the tree past a failed de-registration would strand a
     # registration that is still standing -- exactly what this verb's teardown order exists to
     # prevent. The fixture puts the allowlist in the ROOT-owned testdir: `sed -i` writes its
     # temporary file into the file's own directory, so the rewrite fails while the file itself
     # stays writable, which is also how this fails on a real host.
-    rmstuck="${TESTDIR}/rm-stuck"; mkdir -p "${rmstuck}"
+    rmstuck="${rmwork}/rm-stuck"; mkdir -p "${rmstuck}"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmstuck}"
     stuckal="${TESTDIR}/stuck-allowlist"
     printf '%s\n' "${rmstuck}" > "${stuckal}"; chown "${PROJECTS_USER}" "${stuckal}"
@@ -390,7 +414,7 @@ if command -v runuser >/dev/null 2>&1; then
     # reaches the deletion without a terminal, over a project that IS fully deletable. Both
     # halves are asserted -- the tree is gone AND the allowlist entry with it -- because the
     # ordering guarantee is only meaningful if the deletion actually ran.
-    rmgo="${TESTDIR}/rm-go"; mkdir -p "${rmgo}/sub"
+    rmgo="${rmwork}/rm-go"; mkdir -p "${rmgo}/sub"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmgo}"
     printf '%s\n' "${rmgo}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
     out="$(remove_cli -y "${rmgo}")" && rc=0 || rc=$?
