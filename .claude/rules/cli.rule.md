@@ -234,6 +234,9 @@ file sink being the authoritative one.
   revoked, via `ai-tools-unclaim`. The target is classified against `allowed-projects`
   first, and a protected system directory is refused up front — see *Unclaim* below for
   the classification and the `--force` gate. Options are in `ai-tools(1)`.
+- `--project-disable [path]` / `--project-enable [path]` — park a claimed project and restore it,
+  by putting a `!` on its `allowed-projects` line and taking it off again, **in place**. Detail
+  below under *Enabled, disabled, absent*.
 - `--sandbox-create [path]` — shallow-clone a repo into the sandbox area **privately**
   (`umask 077`), lock down tip-commit secrets, and only past that gate grant the agent
   access and register the clone; fail-closed otherwise, resumable by re-running on the
@@ -621,6 +624,94 @@ change in who curates a gate, so every mutation is logged with both the caller a
 sandbox account reaches none of it: the helper is `750 root:root` inside a `750 root:root`
 directory and the account holds no sudo rule.
 
+## Enabled, disabled, absent — the three states of an entry
+
+`allowed-projects` is a document the operator edits, and prefixing a line with `!` to take a
+project out of service is a workflow that predates any verb for it. The file therefore has three
+states per path, not two, and the CLI names all three (`ai_tools_conf_allowlist_state`):
+
+| state | the file says | what it means |
+|---|---|---|
+| `listed` | an allow line names the path | sessions may start there |
+| `disabled` | a `!` line names it | no session starts there; the entry, the permissions and the label are all still in place |
+| `absent` | neither | not a project |
+
+**An exclusion outranks an allow line for the same path**, exactly as it does at the launch gate:
+with both present nothing can start there, so `disabled` is the only honest answer. Reading only
+`listed`/`absent` is what made a parked project indistinguishable from an unclaimed one — a claim
+appended a duplicate over an exclusion that still won and reported success, and every per-project
+verb refused a parked project as "not a claimed project".
+
+**Entry state is not reachability.** A path can hold a clean allow line and still be unreachable,
+because an *ancestor* is parked or a glob exclusion matches it — neither of which names the path.
+That is `covered_by_project`'s question, and the two are reported apart: a verb that changes an
+entry says what the entry now is, and names the other line when one still blocks the path
+(`blocking_exclusion`). Reporting a project "enabled" that no session can enter is the misreport
+this split exists to prevent.
+
+### The two verbs
+
+`--project-disable` puts the `!` on; `--project-enable` takes it off. Both edit **the operator's
+own line, in place** — position, indentation and end-of-line comment survive — which is their
+reason to exist rather than being an add/remove pair: an ordered, commented allowlist comes back
+exactly as it was. Both are **registry-only**: group, ACLs, setgid and the SELinux label are
+untouched, so re-enabling grants nothing that was not already granted and neither runs the secret
+gate. Neither invents an entry — a path the file does not name is refused, naming
+`--project-claim`, because registering a project is a claim and a claim scans for secrets first.
+
+What disabling costs is everything downstream of the allowlist, and the verb says so: the root
+helpers resolve a path's owner through the same allow/exclude matcher, so while a project is
+parked `ai-tools-unclaim`, `-chown`, `-setfacl` and `-setgid` resolve no owner and **exit 0 having
+done nothing**, and `ai-tools-lockdown` refuses. The ownership handback therefore stops restoring
+files written under it — the consequence to know before parking a project a session is still
+writing to.
+
+On a **parked** target the unclaim asks to lift the exclusion first, because the hand-back cannot
+run under one. Declining does not abort: the registry reversal still applies — the entry dropped,
+or parked under `--keep-entry` — and only the hand-back is given up, reported as not having run
+with the `--project-enable` + `--reclaim --full` pair that completes it, and a non-zero exit. That
+is the same treatment a hand-back that was wanted and failed already gets.
+
+`--project-unclaim --keep-entry` is the same edit at the end of an unclaim: the files are handed
+back as usual, then the line is parked instead of deleted. It serves the release cycle — unclaim
+for clean permissions before a release, claim again for the next stage — without the project
+losing its place in the file.
+
+### Why no verb writes an ambiguous `!`
+
+A `!` line means one of two things, and **after the edit they are the same text**: a *parked
+project*, or a *carve-out* — a subtree an operator withheld from an enclosing project. Nested
+claimed projects are a supported shape, so "an exclusion inside a listed project is a carve-out"
+is not sound on its own. The ambiguity is removed by refusing to create it, in both directions:
+
+- `--project-disable` (and `--keep-entry`) **refuses a project nested inside another listed
+  project**, naming the two alternatives — unclaim the nested project, or park the one above it.
+- `--project-enable` therefore **refuses every exclusion inside a listed project** as the
+  carve-out it must be, since no verb wrote it. Lifting one is the only registry edit here that
+  *widens* what the agent reaches, so it is left to the editor it was written in.
+
+Neither refusal touches the hand-edited workflow: an operator may still park a nested project
+themselves, and delete the `!` themselves. The tool declines to guess, and declines toward less
+access. The full state model, the cases, and the alternatives rejected (a marker comment, a
+prompt, a structured `projects.*` registry) are in the design note that accompanies this work.
+
+### One implementation of a registry change
+
+Three components write this file — the CLI (the operator's own), `ai-tools-allowlist` (another
+operator's, for `--for`), `install.sh` (de-registering its own checkout) — and all three call the
+same functions in `conf.lib.sh`: `_state`, `_add`, `_remove`, `_enable`, `_disable`. Each verifies
+by re-reading the file and separates *applied* (0) from *could not write* (1) from *does not apply
+from this state* (2). Two rules live there rather than in any caller, so no writer can skip them:
+`_add` **refuses** a disabled path (appending under a winning `!` is the duplicate-pair bug), and
+`_remove` takes **both** line kinds, so de-registering a parked project leaves no `!` behind to
+park whatever is claimed at that path next. `_enable` additionally collapses an existing duplicate
+pair to one live entry, in the earliest position it held.
+
+Before this, the same edit existed three times — an append here, a hand-escaped `sed -i` there, a
+read-transform-rename in the third, each with its own idea of what a match is. For a file that is
+the launch gate, a writer that matches lines differently from the reader is a project that stays
+reachable after a "removal".
+
 ## Two project models
 
 **Claim in place** (`--project-claim`) registers an existing working tree where it lives.
@@ -665,7 +756,10 @@ counts what its owner guard skipped and says so, with the project root called ou
 ([ownership-and-hooks](ownership-and-hooks.rule.md)).
 
 **Remove** (`--project-remove`) deletes the directory as well. Its authorization is an **exact**
-`allowed-projects` entry and nothing else: there is no `--force` — that flag exists on unclaim to
+`allowed-projects` entry — allow or parked, since a `!` records "not right now" rather than "not
+mine", and requiring the operator to re-enable a project first would make a tree they mean to
+delete launchable on the way out. A parked one gets its own default-NO confirm naming that state,
+ahead of the deletion warning, and both its lines go with the tree. Nothing else authorizes it: there is no `--force` — that flag exists on unclaim to
 reach a tree the allowlist does not name, and "delete a tree nothing registered" is an unclaim plus
 an `rm` the operator types themselves, where the destructive step is theirs. An ancestor, a path
 inside a project, and an unregistered path are each refused with the command that does apply; so is
@@ -766,7 +860,7 @@ verb, because the safe direction does:
 | verb | on a failed root step | why |
 |---|---|---|
 | `--project-claim` | stops, reports what is pending, exits 1 | fewer steps applied is *less* access, and a re-run is idempotent |
-| `--project-unclaim` | drops the registries **anyway**, then reports | dropping them is what moves to less access; stopping short would leave the project launchable |
+| `--project-unclaim` | applies the registry reversal **anyway**, then reports — dropping the entry, or parking it under `--keep-entry` | either disposition ends with no session able to start there, so it is what moves to less access; stopping short would leave the project launchable |
 | `--project-remove` | deletes **anyway**, notes the cleanup that did not run | the leftovers point at a path that no longer exists; refusing to delete would leave the tree |
 | `--sandbox-create` | reports the clone is not git-ready, exits 1 | a clone exists to run git in, and without `safe.directory` the agent's git refuses the tree |
 
@@ -805,7 +899,9 @@ reachability to a later `chmod 700` above it.
 | unlisted, carrying the ai-tools fingerprint | reported; acting needs `--force` |
 | unlisted, no fingerprint | refused |
 
-`--force` **swaps one gate for another, never removes one**: the helper's allowlist-membership
+`--keep-entry` changes only what becomes of the line at the end (parked, not deleted) and is
+refused with `--force`, which reaches a tree no entry names. `--force` **swaps one gate for
+another, never removes one**: the helper's allowlist-membership
 check is replaced by a per-path residue predicate, so on a tree that was never claimed it changes
 nothing, and what it does to a path it *accepts* is identical to a registered unclaim — the
 reversal is specified and tested once. It relaxes nothing else (protected paths, owner guard,
@@ -814,7 +910,8 @@ classification is the front line; `ai-tools-unclaim`'s own gate is the last line
 two-layer split as the rest of this section — so the CLI may never be the only thing standing
 between a caller and a tree. Mechanism, and why an unlisted tree resolves its owner
 differently, live in that helper's header.
-For each selected project it removes the SELinux label and both registries and (default-yes
+For each selected project it removes the SELinux label and both registries — or, under
+`--keep-entry`, parks the allowlist line in place instead of deleting it — and (default-yes
 confirm) runs `ai-tools-unclaim` to hand the filesystem back — the hand-back running **before**
 the allowlist entry is dropped, so the helper still sees the target listed (see the owner/allowlist
 guard below).
@@ -899,6 +996,12 @@ possible unprivileged. Each re-validates its target path against the allowlist a
 exclusion/secret-skip/skip-list rules (see [ownership-and-hooks](ownership-and-hooks.rule.md)). `ai-tools-safedir` needs root to
 write the root-owned `.gitconfig`; on add it re-validates the path against the allowlist through
 the shared `operator.lib.sh` resolver, but edits a single entry rather than walking a tree.
+`ai-tools-relabel` re-validates the same way — **per path**, not against one operator's registry:
+the entry that authorizes a label lives in whichever operator's allowlist holds the project, so
+resolving a single operator up front would refuse every project registered to any of the others
+(a secondary operator's own claim, and every `--project-claim --for`). It then additionally
+requires an **exact** entry there, since a label is applied to a registered project root rather
+than to a directory inside one.
 `ai-tools-reclaim` walks the project and hands each agent-owned path to `ai-tools-chown`, so the
 allowlist/secret/exclusion enforcement and the need for root are that helper's, not its own.
 `ai-tools-allowlist` needs root for the **read** as much as the write, since an allowlist is `0600`

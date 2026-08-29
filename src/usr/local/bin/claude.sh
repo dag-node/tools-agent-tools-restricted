@@ -257,16 +257,40 @@ while IFS= read -r entry || [[ -n "${entry}" ]]; do
     fi
 done < "${ALLOWLIST}"
 
-# Exclusions are checked first and override allows (mirrors ai-tools-chown).
+# Exclusions are checked first and override allows (mirrors ai-tools-chown). Two shapes reach
+# this, and they are DIFFERENT situations for the operator standing here, so they are reported
+# apart: a line naming this very directory is a project someone PARKED -- `ai-tools
+# --project-disable`, or the same edit by hand -- and the way back is one command, while a line
+# covering it from above (a parent, or a glob) is a subtree deliberately withheld from a project,
+# where the remedy is to edit that line rather than to re-enable anything. Telling an operator
+# their parked project is merely "excluded" leaves them to work out which of the two they are in.
 if [[ "${#excluded[@]}" -gt 0 ]]; then
     for pat in "${excluded[@]}"; do
         pat="${pat%/}"                         # normalise: strip trailing slash
         if [[ "${cwd}" == ${pat} ]]; then
-            die "claude: $(pwd): excluded by '!' rule in approved projects list"
+            # A line naming this very directory is one of two things, and the same test the CLI
+            # applies separates them: an approved project STRICTLY ABOVE makes this a subtree
+            # withheld from it, while none makes it a project that was parked. Exact-match alone
+            # cannot tell them apart -- a carve-out names its own path too.
+            # Guarded on the count, not written as "${allowed[@]:-}": an EMPTY array expands
+            # that way to one empty element, and "${dir}/"* is then the pattern /* -- which
+            # matches every absolute path, so a parked project with no approved entries at all
+            # would report as carved out of nothing.
+            if [[ "${#allowed[@]}" -gt 0 ]]; then
+                for dir in "${allowed[@]}"; do
+                    [[ "${cwd}" == "${dir}/"* ]] || continue
+                    die "claude: $(pwd): excluded by '!' rule in approved projects list" \
+                        "claude: it is carved out of the approved project ${dir}; edit ${ALLOWLIST} to change that"
+                done
+            fi
+            die "claude: $(pwd): this project is disabled in your approved projects list" \
+                "claude: no session starts here until it is re-enabled -- its files, group and label are untouched" \
+                "claude: re-enable it with:  ${CLI_CMD} --project-enable"
         fi
         # For plain paths (no glob), also exclude directory contents
         if [[ "${pat}" != *'*'* && "${cwd}" == "${pat}/"* ]]; then
-            die "claude: $(pwd): excluded by '!' rule in approved projects list"
+            die "claude: $(pwd): excluded by '!' rule in approved projects list" \
+                "claude: an entry above this directory carves it out; edit ${ALLOWLIST} to change that"
         fi
     done
 fi

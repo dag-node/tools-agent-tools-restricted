@@ -797,6 +797,213 @@ if command -v runuser >/dev/null 2>&1; then
     fi
 fi
 
+# ── --project-disable / --project-enable: parking a project in place ─────────────────────────
+# The pair edits ONE line of the operator's own allowlist and reaches no root helper, so the whole
+# lifecycle is drivable here as the projects user over the fixture registry. What is asserted is
+# what the flat-file model rests on (see the state note in wip/issues): the line is edited IN
+# PLACE, a parked project is not an unlisted one, and neither verb ever invents or lifts a line it
+# cannot attribute -- since lifting the wrong '!' hands the agent a subtree its operator withheld.
+section "ai-tools --project-disable / --project-enable"
+
+if ! command -v runuser >/dev/null 2>&1; then
+    skip "--project-disable/--project-enable" "runuser unavailable"
+else
+    mktestdir
+    chmod 755 "${TESTDIR}"
+    pd_conf="${TESTDIR}/op.conf"
+    printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${pd_conf}"; chmod 644 "${pd_conf}"
+    pd_al="${TESTDIR}/allowed-projects"
+    pd_proj="${TESTDIR}/api"; pd_other="${TESTDIR}/web"
+    pd_nested="${pd_proj}/service-a"; pd_carve="${pd_proj}/secrets"
+    mkdir -p "${pd_proj}" "${pd_other}" "${pd_nested}" "${pd_carve}"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${TESTDIR}"
+
+    # pd_cli <args...> : run the CLI as the operator against the fixture registry, under setsid so
+    # every prompt takes its non-interactive default (the re-enable confirm defaults NO).
+    pd_cli() {
+        runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${pd_conf}" AI_TOOLS_ALLOWLIST="${pd_al}" \
+            setsid "${CLI}" "$@" 2>&1
+    }
+    pd_seed() { printf '%s\n' "$@" > "${pd_al}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${pd_al}"; }
+
+    # (1) Park a listed project: the line keeps its position, indentation and comment. That is the
+    # whole reason these verbs exist rather than being an unclaim/claim pair -- an operator whose
+    # allowed-projects is an ordered, commented document gets it back unchanged.
+    pd_seed "# projects" "  ${pd_proj}   # payments, dev stage" "${pd_other}"
+    pd_before="$(cat "${pd_al}")"
+    out="$(pd_cli --project-disable "${pd_proj}")" && rc=0 || rc=$?
+    if [[ ${rc} -eq 0 ]] && [[ "$(sed -n '2p' "${pd_al}")" == "  !${pd_proj}   # payments, dev stage" ]]; then
+        pass "--project-disable parks the entry in place, keeping position and comment"
+    else
+        fail "--project-disable did not park the entry (rc=${rc}): $(brief "${out}")"
+    fi
+    if grep -qi 'handback' <<<"${out}"; then
+        pass "the disable states the consequence an operator has to know (the handback stops)"
+    else
+        fail "the disable did not mention the ownership handback: $(brief "${out}")"
+    fi
+
+    # (2) A parked project is NOT an unlisted one. The claim must not append a second, positive
+    # line that the '!' would go on winning over -- it offers the re-enable, which with no
+    # terminal takes its default NO, and refuses.
+    out="$(pd_cli --project-claim "${pd_proj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'disabled' <<<"${out}"; then
+        pass "--project-claim over a parked project refuses instead of claiming"
+    else
+        fail "--project-claim did not refuse over a parked project (rc=${rc}): $(brief "${out}")"
+    fi
+    if [[ "$(grep -cF "${pd_proj}" "${pd_al}")" == 1 ]]; then
+        pass "the refused claim appended no duplicate line"
+    else
+        fail "the refused claim duplicated the entry:"$'\n'"$(cat "${pd_al}")"
+    fi
+
+    # (3) --list calls it what it is, and names the verb that restores it.
+    out="$(pd_cli --list)" || true
+    if grep -qE "disabled[[:space:]]+${pd_proj}" <<<"${out}" \
+            && grep -qF -- "--project-enable ${pd_proj}" <<<"${out}"; then
+        pass "--list reports a parked project as disabled, with the re-enable command"
+    else
+        fail "--list did not report the parked project: $(brief "${out}" 'disabl|exclude')"
+    fi
+
+    # (4) Restore it: the file comes back byte-identical to before the park.
+    out="$(pd_cli --project-enable "${pd_proj}")" && rc=0 || rc=$?
+    if [[ ${rc} -eq 0 ]] && [[ "$(cat "${pd_al}")" == "${pd_before}" ]]; then
+        pass "--project-enable restores the file byte-identically (a lossless round trip)"
+    else
+        fail "--project-enable did not restore the file (rc=${rc}): $(brief "${out}")"$'\n'"$(cat "${pd_al}")"
+    fi
+
+    # (5) Neither verb invents an entry. Registering a project is a claim -- it scans for secrets
+    # before granting access -- so a path the file does not name is refused by both, pointing there.
+    for verb in --project-disable --project-enable; do
+        out="$(pd_cli "${verb}" "${TESTDIR}")" && rc=0 || rc=$?
+        if [[ ${rc} -ne 0 ]] && grep -qi 'not a claimed project' <<<"${out}" \
+                && grep -qF -- '--project-claim' <<<"${out}"; then
+            pass "${verb} refuses an unregistered path and names --project-claim"
+        else
+            fail "${verb} did not refuse an unregistered path (rc=${rc}): $(brief "${out}")"
+        fi
+    done
+    if [[ "$(cat "${pd_al}")" == "${pd_before}" ]]; then
+        pass "both refusals left the registry untouched"
+    else
+        fail "a refusal wrote to the registry:"$'\n'"$(cat "${pd_al}")"
+    fi
+
+    # (6) A CARVE-OUT is not a parked project, and lifting one is the only edit here that would
+    # WIDEN what the agent reaches -- a subtree its operator withheld from a claimed project. It is
+    # refused, and the refusal names the project it belongs to.
+    pd_seed "# projects" "${pd_proj}" "!${pd_carve}"
+    out="$(pd_cli --project-enable "${pd_carve}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'inside a claimed project' <<<"${out}"; then
+        pass "--project-enable refuses a carve-out rather than handing over the subtree"
+    else
+        fail "--project-enable did not refuse a carve-out (rc=${rc}): $(brief "${out}")"
+    fi
+    if grep -qF "!${pd_carve}" "${pd_al}"; then
+        pass "the carve-out line survived the refusal"
+    else
+        fail "the refused enable deleted the carve-out:"$'\n'"$(cat "${pd_al}")"
+    fi
+
+    # (7) The other half of keeping a '!' unambiguous: parking a NESTED project would write a line
+    # nothing could later tell apart from that carve-out, so no verb writes one.
+    pd_seed "# projects" "${pd_proj}" "${pd_nested}"
+    out="$(pd_cli --project-disable "${pd_nested}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'nested inside another claimed project' <<<"${out}"; then
+        pass "--project-disable refuses to park a project nested inside another"
+    else
+        fail "--project-disable parked a nested project (rc=${rc}): $(brief "${out}")"
+    fi
+    if ! grep -qF "!${pd_nested}" "${pd_al}"; then
+        pass "the refused park wrote no exclusion"
+    else
+        fail "the refused park wrote a line:"$'\n'"$(cat "${pd_al}")"
+    fi
+
+    # (8) The per-project verbs must not call a parked project unclaimed: on an excluded path the
+    # root helpers resolve no owner and do NOTHING, so a run that got that far would report steps
+    # it never applied. (A host may also refuse earlier for a missing sudo grant -- that is a
+    # different, correct refusal; what must not appear is "not a claimed project".)
+    pd_seed "# projects" "!${pd_proj}"
+    for verb in --reclaim --lockdown --project-unclaim; do
+        out="$(pd_cli "${verb}" "${pd_proj}")" && rc=0 || rc=$?
+        if [[ ${rc} -ne 0 ]] && ! grep -qi 'not a claimed project' <<<"${out}"; then
+            pass "${verb} over a parked project does not report it as unclaimed"
+        else
+            fail "${verb} called a parked project unclaimed (rc=${rc}): $(brief "${out}")"
+        fi
+    done
+
+    # (9) --project-remove's AUTHORIZATION is the exact entry, and a parked one counts: the '!'
+    # records "not right now", not "not mine", and making the operator re-enable a tree they mean
+    # to delete would make it launchable on the way out. So the verb must get past classification
+    # -- reaching its own disabled confirm -- rather than refusing as unregistered. It must also
+    # delete NOTHING here: with no terminal the confirm and the typed-name challenge both decline,
+    # which is the property that keeps a destructive verb out of an unattended run.
+    out="$(pd_cli --project-remove "${pd_proj}")" && rc=0 || rc=$?
+    if grep -qi 'not a claimed project' <<<"${out}"; then
+        fail "--project-remove refused a parked project as unregistered: $(brief "${out}")"
+    elif grep -qi 'holds no sudo grant' <<<"${out}"; then
+        # A host whose operator holds no general sudo grant refuses ahead of classification. That
+        # is a different, correct refusal, and it is not what this case is about.
+        skip "--project-remove over a parked project" "no sudo grant for the removal helper here"
+    elif [[ ${rc} -ne 0 ]] && grep -qi 'disabled' <<<"${out}"; then
+        pass "--project-remove accepts a parked entry as authorization and names the parked state"
+    else
+        fail "--project-remove did not recognise the parked entry (rc=${rc}): $(brief "${out}")"
+    fi
+    if [[ -d "${pd_proj}" ]]; then
+        pass "the declined removal deleted nothing (no terminal answers both prompts NO)"
+    else
+        fail "--project-remove deleted a project with no terminal to confirm at"
+    fi
+
+    # (10) --keep-entry is about what becomes of an ENTRY, so it is refused where there is none to
+    # keep: --force is the mode that reaches a tree the allowlist does not name. Refused rather
+    # than ignored, since a flag silently doing nothing is how an operator learns the wrong model.
+    out="$(pd_cli --project-unclaim --keep-entry --force "${pd_proj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'keep-entry cannot be combined with --force' <<<"${out}"; then
+        pass "--keep-entry with --force is refused (there is no entry to keep)"
+    elif grep -qi 'holds no sudo grant' <<<"${out}"; then
+        skip "--keep-entry with --force" "no sudo grant for the unclaim helper here"
+    else
+        fail "--keep-entry --force was not refused (rc=${rc}): $(brief "${out}")"
+    fi
+
+    # (10b) --keep-entry belongs to the unclaim ALONE. A removal deletes the tree, so an entry
+    # kept for it would park a path that no longer exists -- and the flag reads as though it might
+    # spare something, which is the worst thing a flag can suggest on a destructive verb. Refused
+    # as an unknown option rather than silently ignored.
+    out="$(pd_cli --project-remove --keep-entry "${pd_proj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'unknown --project-remove option' <<<"${out}"; then
+        pass "--project-remove refuses --keep-entry (it belongs to the unclaim)"
+    else
+        fail "--project-remove accepted --keep-entry (rc=${rc}): $(brief "${out}")"
+    fi
+    if [[ -d "${pd_proj}" ]]; then
+        pass "the refused option deleted nothing"
+    else
+        fail "--project-remove deleted the project while refusing an option"
+    fi
+
+    # (11) An entry can be clean and the project still unreachable, because an ANCESTOR is parked
+    # or a glob matches. Entry state and reachability are different questions, and reporting the
+    # first as though it answered the second sends an operator hunting through their own file for
+    # a refusal the CLI already knew about.
+    pd_seed "# projects" "${pd_proj}" "!${TESTDIR}"
+    out="$(pd_cli --project-enable "${pd_proj}")" && rc=0 || rc=$?
+    if [[ ${rc} -eq 0 ]] && grep -qi 'already enabled' <<<"${out}" \
+            && grep -qF "!${TESTDIR}" <<<"${out}"; then
+        pass "--project-enable reports the OTHER exclusion that still parks a listed project"
+    else
+        fail "--project-enable did not name the blocking ancestor exclusion (rc=${rc}): $(brief "${out}" 'enabled|exclusion')"
+    fi
+fi
+
 # ── --audit: the reader for the refusal trails ───────────────────────────────────────────────
 # Driven against the deployed helper directly rather than through `ai-tools --audit`, because the
 # CLI reaches it via sudo with no NOPASSWD rule and would prompt for a password. The helper is

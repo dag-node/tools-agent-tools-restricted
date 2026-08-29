@@ -152,7 +152,8 @@ sandbox cannot improve its own position by breaking something.
 One CLI verb sits **outside** this table rather than as an exception to it: `ai-tools
 --project-remove` decides what is *destroyed*, not what a session may reach, so its safe direction
 is inaction rather than less access. Its authorization is correspondingly different — an exact
-`allowed-projects` entry plus a typed-name confirmation, not one of the predicates below — and it
+`allowed-projects` entry (allow or `!`-parked) plus a typed-name confirmation, not one of the
+predicates below — and it
 holds the same shape of guarantee: it deletes nothing unattended, and a failure leaves an
 unregistered tree rather than a half-deleted one. See [cli](.claude/rules/cli.rule.md).
 
