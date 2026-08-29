@@ -52,18 +52,27 @@ A single `require_bootstrap` gate runs **before dispatch**: it keys on a launche
 the agent package all succeed — so its presence means provisioning finished, and its absence fails
 the CLI fast with the provisioning hint rather than mid-operation in a root helper. It is the same
 symlink the launch wrapper gates on, so both entry points share one definition of "provisioned".
-Every command is behind the gate, `--version` included — an unfinished install reports nothing,
-fail-closed. Three bypass it (`BOOTSTRAP_EXEMPT_VERBS`), each because it is meant for a host that
-may be broken: `--status`, the diagnostic, reports the unprovisioned state itself, since
-a health check must run precisely when provisioning may have failed; `--audit` reads a record
-of what already happened, which an install that never finished does not invalidate — a failed
-provisioning is when that record is most worth reading; and `--stop` ends sessions **already
-running**, needing nothing from the toolchain to do it. That last one matters because of the gate's
-own coupling below: keying on one agent's launcher symlink would otherwise put the incident
-ladder's last rung out of reach on a host that enables a different agent, or that lost the symlink
-while sessions were live. The set is deliberately narrower than
-`ROOT_ALLOWED_VERBS`: `--list` and `--providers` describe a toolchain that has to exist first, so
-they stay behind the gate.
+Every command that acts on the toolchain is behind the gate. `BOOTSTRAP_EXEMPT_VERBS` names what
+bypasses it, in two groups.
+
+The **diagnostics** are exempt because each is meant for a host that may be broken: `--status`
+reports the unprovisioned state itself, since a health check must run precisely when provisioning
+may have failed; `--audit` reads a record of what already happened, which an install that never
+finished does not invalidate — a failed provisioning is when that record is most worth reading; and
+`--stop` ends sessions **already running**, needing nothing from the toolchain to do it. That last
+one matters because of the gate's own coupling below: keying on one agent's launcher symlink would
+otherwise put the incident ladder's last rung out of reach on a host that enables a different
+agent, or that lost the symlink while sessions were live.
+
+`--help`, `--version` and the bare invocation are exempt because they describe **the CLI** rather
+than the toolchain: `usage()` and `AI_TOOLS_VERSION` read no installed state. The gate's own
+refusal names `ai-tools-bootstrap` as the command to run next, so gating the usage would leave that
+message as the only place an operator could find it. `tests/unit/cli-verbs.sh` pins the membership,
+since the gate is one line far from the table it reads and the failure appears only on an
+unprovisioned host.
+
+The set stays narrower than `ROOT_ALLOWED_VERBS`: `--list` and `--providers` describe a toolchain
+that has to exist first, so they stay behind the gate.
 
 **The gate names one agent.** `CLAUDE_LINK` is the literal `/opt/ai-tools/bin/claude`, so a host
 that enables a different agent and disables `claude-code` has a provisioned toolchain the CLI

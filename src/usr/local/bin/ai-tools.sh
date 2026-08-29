@@ -178,9 +178,13 @@ readonly ROOT_ALLOWED_VERBS=(--audit --status --list --providers --stop)
 # invalidate; --stop ends sessions already running, and needs nothing from the toolchain to do it
 # -- the gate keys on ONE agent's launcher symlink, so leaving --stop behind it would put the
 # incident ladder's last rung out of reach on a host that enables a different agent, or that lost
-# that symlink while sessions were running). --list and --providers describe a toolchain that has
-# to exist first and stay behind the gate.
-readonly BOOTSTRAP_EXEMPT_VERBS=(--status --audit --stop)
+# that symlink while sessions were running). --help, --version and the bare invocation describe
+# the CLI rather than the toolchain -- usage() and AI_TOOLS_VERSION read no installed state -- and
+# gating them leaves a caller who cannot print the usage with only the gate's own message to find
+# the provisioning command by. The short forms and "" are listed so verb_in matches every spelling
+# the dispatcher accepts. --list and --providers describe a toolchain that has to exist first and
+# stay behind the gate.
+readonly BOOTSTRAP_EXEMPT_VERBS=(--status --audit --stop --help -h --version -V "")
 # OPERATOR_VERBS -- what only an enrolled operator may run. The criterion is ACTS AS AN OPERATOR:
 # the verb resolves the caller's identity out of OPERATORS somewhere below it (the root helpers do,
 # via operator.lib.sh), so an unenrolled caller would otherwise get through the registry writes and
@@ -4154,11 +4158,9 @@ require_bootstrap() {
 # dispatch below. On execution BASH_SOURCE[0] equals $0, so this is a no-op and the CLI proceeds.
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] || return 0
 
-# The two diagnostics meant to run WHEN things may be broken bypass the provisioning gate
-# (BOOTSTRAP_EXEMPT_VERBS): cmd_status reports the unprovisioned state itself instead of being
-# blocked by it, and --audit reads a record of what already happened, which an install that never
-# finished does not invalidate -- a failed provisioning is precisely when that record is worth
-# reading. Every other command stays gated.
+# The verbs meant to run WHEN things may be broken bypass the provisioning gate. Which ones, and
+# what each of them reads on a host whose install never finished, is at BOOTSTRAP_EXEMPT_VERBS
+# above. Every other command stays gated.
 verb_in "${1:-}" "${BOOTSTRAP_EXEMPT_VERBS[@]}" || require_bootstrap
 
 # require_operator -- refuse a command that acts as an operator unless the invoking user is

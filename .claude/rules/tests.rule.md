@@ -194,7 +194,11 @@ silent and one-directional: a verb added to the dispatcher and forgotten in `OPE
 runs for an unenrolled caller, with nothing to say so until a root helper refuses it midway. So
 every dispatched verb must be classified — operator-acting, or in the informational set the test
 names — no verb may be both operator-acting and root-allowed, no table may name a verb the
-dispatcher no longer has, and the help must list exactly what the dispatcher accepts.
+dispatcher no longer has, and the help must list exactly what the dispatcher accepts. Its last
+check asserts required **content** rather than consistency: `--help` and `--version` must be in
+`BOOTSTRAP_EXEMPT_VERBS`, because a CLI that cannot print its own usage on an unprovisioned host
+leaves the gate's refusal as the only route to the provisioning command — a regression visible
+only on the host nobody develops against.
 
 `man.sh` is a pure text-sync check between the CLI's `usage()` heredoc and the `ai-tools(1)`
 man page, validated from the repo sources (or the installed pair outside a checkout) without
