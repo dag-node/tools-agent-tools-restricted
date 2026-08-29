@@ -205,6 +205,8 @@ gate, then normalize + label + register, removing the guard on success.
 ai-tools --lockdown /path/to/project    # lock secret-named files, any time
 ai-tools --reclaim  /path/to/project    # hand agent-written files back to you
 ai-tools --project-unclaim              # revert a claim; the directory stays on disk
+ai-tools --project-disable /path        # park a project: no session may start in it
+ai-tools --project-enable  /path        # put a parked project back
 ```
 
 `--lockdown` runs the same scan-and-lock on demand — after adding a credential file to a
@@ -214,6 +216,59 @@ before an ACL-unaware backup so plain ownership carries your access into the cop
 add `--full` to include the heavy skipped trees. `--sandbox-remove` deletes a
 clone and its registration, warning about unpushed commits first; the remote branch stays
 for others to merge.
+
+### Taking a project out of service, and putting it back
+
+Sometimes a project should stop being reachable without being released. Prefix its
+`allowed-projects` line with `!` and no session starts there — a text edit operators have always
+made, and now a pair of verbs that makes the same edit:
+
+```bash
+ai-tools --project-disable ~/src/api    # park it: no session may start here
+ai-tools --project-enable  ~/src/api    # put it back
+```
+
+Both edit **your line, in place**. The entry keeps its position and its end-of-line comment, so an
+`allowed-projects` you maintain as an ordered, documented file comes back exactly as it was:
+
+```text
+# projects
+  /home/you/src/api   # payments, dev stage      ->    !/home/you/src/api   # payments, dev stage
+  /home/you/src/web                                     /home/you/src/web
+```
+
+Disabling changes the registry and nothing else — the group, the ACLs, the setgid bits and the
+SELinux label all stay — so re-enabling grants nothing that was not already granted, and neither
+command runs a secret scan. One consequence is worth knowing before you park a project a session
+is still writing to: while it is disabled the **ownership handback stops restoring files** written
+under it, because the root helpers resolve a path's owner through the same allowlist. Stop the
+session first, or re-enable and `ai-tools --reclaim` afterwards.
+
+Two refusals keep a `!` line unambiguous, and both are worth recognising:
+
+- `--project-enable` refuses an exclusion **inside** a claimed project. That line is a *carve-out*
+  — a subtree you withheld from the agent — and lifting it would hand that subtree over. Delete it
+  yourself if that is what you mean.
+- `--project-disable` refuses a project **nested inside** another claimed project, because the line
+  it would write could not later be told apart from such a carve-out. Unclaim the nested project,
+  or park the one above it.
+
+#### The release cycle: unclaim without losing your place
+
+A common rhythm is to unclaim a project before a production release — so the tree carries clean,
+ordinary permissions — and claim it again for the next development stage. A plain unclaim deletes
+the line, so the later claim appends a new one at the end of the file. `--keep-entry` parks it
+instead:
+
+```bash
+ai-tools --project-unclaim --keep-entry ~/src/api   # files handed back; the line stays, parked
+# ... release ...
+ai-tools --project-claim ~/src/api                  # offers to re-enable it, in place
+```
+
+The claim finds the parked entry, shows it, and asks (default **No**) whether to re-enable it
+before claiming — it never appends a second line over an exclusion that would go on winning. Say
+yes and the project is claimed again with its line, and its comment, exactly where they were.
 
 ### Removing a project, directory and all
 
@@ -227,7 +282,8 @@ ai-tools --project-remove ~/src/oldproject
 There is no undo and nothing is moved to a trash location, so the command is deliberately
 hard to reach by accident. It acts only on a path with an **exact** entry in
 `allowed-projects` — registration is what authorizes the deletion, and there is no `--force`
-to get around that. An ancestor of claimed projects, a path *inside* one, an unregistered
+to get around that. A parked (`!`) entry counts: it records "not right now", not "not mine", and
+you get one extra confirmation naming that state. An ancestor of claimed projects, a path *inside* one, an unregistered
 path, and a project that **contains** another claimed project are each refused, the last
 because deleting it would take the nested one with it and leave that project registered at a
 path that no longer exists.

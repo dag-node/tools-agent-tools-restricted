@@ -181,9 +181,15 @@ why the rule lives in one place: a parser copied into each is a parser that drif
 wrapper resolves but the chown helper does not is a project the agent can launch in whose files
 never come back. All four require the library rather than falling back to a private parser. The CLI,
 the relabel helper, and the launch wrapper's post-claim confirm additionally decide **membership**
-through `ai_tools_conf_allowlist_has_entry`/`_has_exclusion` (and `_matching_lines` for a delete),
-which parse each line with the same grammar and compare realpath-normalized values, so a commented
-or quoted entry is never mistaken for unlisted (see [cli](cli.rule.md)).
+through `ai_tools_conf_allowlist_has_entry`/`_has_exclusion` (and `_matching_lines` /
+`_exclusion_lines` for the raw lines), which parse each line with the same grammar and compare
+realpath-normalized values, so a commented or quoted entry is never mistaken for unlisted.
+
+The same library owns the **editing** of that file — `_state`, `_add`, `_remove`, `_enable`,
+`_disable` — because all three of its writers (the CLI, the `ai-tools-allowlist` root helper, and
+`install.sh`) must agree with its readers about what a line matches. A writer with its own matcher
+is a project that stays reachable after a "removal". The state model those functions implement,
+and the rules they enforce on every caller, are in [cli](cli.rule.md).
 
 `ai_tools_conf_read` returns present/absent separately from the value, which is what makes
 `KEY=` (an explicit "none") distinguishable from an omitted key — the distinction the gating below
