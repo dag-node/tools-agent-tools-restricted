@@ -38,13 +38,27 @@ _ai_tools_ma_say() { printf '      %s\n' "$*"; }
 
 # Assets this project has withdrawn, as `<kind>/<name>` entries. An entry stays listed for as long
 # as a host may still carry it from an older package.
-# shellcheck disable=SC2034  # read by ai_tools_remove_retired_assets below
 readonly AI_TOOLS_RETIRED_ASSETS=(
     "skills/ai-tools-docs-reference"
     "skills/ai-tools-docs-usage"
     "skills/ai-tools-docs-comments"
     "skills/ai-tools-docs-changelog"
 )
+
+# True when <kind>/<name> is withdrawn. Read by BOTH passes, which is what keeps the two from
+# depending on the order they run in: the source root is not guaranteed to be final when seeding
+# runs. In base's %post it is not -- rpm installs the new package's files first and removes the old
+# package's only at the end of the transaction, so the seeder sees the previous version's copy of
+# an asset this version withdrew, and without this would report it against a file rpm is about to
+# delete (and seed it, on a host whose live root lacks it) for the withdrawal pass to undo moments
+# later.
+_ai_tools_asset_is_retired() {
+    local wanted="$1/$2" entry
+    for entry in "${AI_TOOLS_RETIRED_ASSETS[@]}"; do
+        [[ "${entry}" == "${wanted}" ]] && return 0
+    done
+    return 1
+}
 
 # An UPDATE replaces the live copy outright and keeps no sidecar, which is not an oversight: there
 # is no baseline to detect an edit against. The live copy is the previous version, so it differs
@@ -85,10 +99,13 @@ _ai_tools_place_asset() {
 # Seed every managed asset of the named kinds from a pristine source root into a live root. The
 # source root holds one directory per kind -- `skills/ai-tools-*/` (a directory per asset),
 # `subagents/ai-tools-*.md` (a file per asset); the live root is the caller's.
-# Absent live asset -> seeded. Present + managed + a newer shipped version -> a keep/update prompt
-# defaulting to keep (so Enter and any non-interactive run never clobber an operator-tuned copy).
+# Absent live asset -> seeded. Present + managed + a newer shipped version -> an update confirm
+# defaulting to UPDATE, so Enter and any non-interactive run take the new version (a scriptlet has
+# no tty, and a host that answered "keep" by default stayed on its first-seeded version forever).
 # Present + unmanaged (no marker) -> left untouched and logged: it is the operator's own file.
 # Present + same-or-older version -> no-op.
+# A WITHDRAWN name -> skipped outright, whatever the source root holds; ai_tools_remove_retired_assets
+# is the only pass that acts on one.
 # $1 src_root  $2 live_root (resolved by the caller)  $3 group  $4.. kinds (default: both)
 ai_tools_seed_managed_assets() {
     local src_root="$1" live_root="$2" group="$3"; shift 3
@@ -108,6 +125,9 @@ ai_tools_seed_managed_assets() {
         for src in ${src_glob}; do
             [[ -e "${src}" ]] || continue                    # no matches -> literal pattern, skip
             name="$(basename "${src}")"
+            # A withdrawn name is never seeded, whatever the source root happens to hold: only the
+            # withdrawal pass acts on it, and it reports what it did.
+            _ai_tools_asset_is_retired "${kind}" "${name}" && continue
             # marker file carries the frontmatter: the agent file itself, or a skill's SKILL.md
             if [[ -d "${src}" ]]; then marker="${src%/}/SKILL.md"; else marker="${src}"; fi
             if ! ai_tools_asset_is_managed "${marker}"; then
@@ -116,12 +136,16 @@ ai_tools_seed_managed_assets() {
             fi
             dst="${live_root}/${kind}/${name}"
             if [[ -d "${src}" ]]; then dst_marker="${dst}/SKILL.md"; else dst_marker="${dst}"; fi
+            # Read the shipped version HERE, not inside the update branch: both branches report it,
+            # and a loop variable set only on one path carries the previous asset's value into the
+            # other -- which reads as a correct version exactly often enough to look fine.
+            new="$(ai_tools_asset_version "${marker}")"
             if [[ -e "${dst}" ]]; then
                 if ! ai_tools_asset_is_managed "${dst_marker}"; then
                     _ai_tools_ma_say "${name} kept (operator's own, not ai-tools-managed)"
                     continue
                 fi
-                cur="$(ai_tools_asset_version "${dst_marker}")"; new="$(ai_tools_asset_version "${marker}")"
+                cur="$(ai_tools_asset_version "${dst_marker}")"
                 if [[ -n "${new}" && -n "${cur}" && "${new}" -gt "${cur}" ]]; then
                     if ai_tools_msg_confirm "Update ${name} (v${cur} -> v${new})?" y; then
                         _ai_tools_place_asset "${src%/}" "${dst}" "${group}"

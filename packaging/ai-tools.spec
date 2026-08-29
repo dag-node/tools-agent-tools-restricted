@@ -553,17 +553,22 @@ fi
 # Seed each ai-tools-managed SHARED kind into its own root, reusing the seeder under an explicit
 # bash (the lib is bash; a %post scriptlet runs under /bin/sh). Skills and subagent definitions
 # are agent-agnostic, so they are seeded once here and each agent package symlinks them into the
-# directories it reads. Non-interactive, so an existing managed asset is kept and only an absent
-# one is seeded, and a newer shipped version replaces the live copy (the confirm defaults to yes,
-# which is what a scriptlet with no tty takes) after stamping anything that differs aside.
-# Withdrawn assets are then moved to /opt/ai-tools/retired: the live roots are not rpm-owned, so an
-# upgrade leaves an asset this package no longer ships in place until this runs.
+# directories it reads. A newer shipped version replaces the live copy, then withdrawn assets are
+# moved to /opt/ai-tools/retired: the live roots are not rpm-owned, so an upgrade leaves an asset
+# this package no longer ships in place until this runs.
+# AI_TOOLS_ASSUME_YES answers the update confirm here rather than letting it fall through to its
+# default. The outcome is the same either way -- the default IS yes, and a scriptlet has no tty to
+# answer with -- but the prompt is written to /dev/tty, which succeeds when dnf runs on a terminal,
+# so without this the operator is shown a question that nothing can answer and that is then decided
+# without them. Pre-answering skips drawing it, and the decision audits as `assume-yes` rather than
+# `default`, which is what actually happened. It cannot widen anything: the variable fast-tracks a
+# question whose default is already yes and never flips a default-NO one (see msg.lib.sh).
 # conf.lib.sh comes first -- it owns the dated-sidecar stamp both of those steps preserve through.
 # stdout is kept so `dnf upgrade` reports what changed; a host that never sees these lines cannot
 # tell that a shipped asset moved.
 for kind in skills subagents; do
     [ -d %{_datadir}/ai-tools/${kind} ] && command -v bash >/dev/null 2>&1 || continue
-    bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools ai-tools ${kind}; ai_tools_remove_retired_assets /opt/ai-tools ${kind}; ai_tools_link_asset_readme %{_datadir}/ai-tools/${kind}/README.md /opt/ai-tools/${kind} ai-tools" 2>/dev/null || :
+    AI_TOOLS_ASSUME_YES=1 bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools ai-tools ${kind}; ai_tools_remove_retired_assets /opt/ai-tools ${kind}; ai_tools_link_asset_readme %{_datadir}/ai-tools/${kind}/README.md /opt/ai-tools/${kind} ai-tools" 2>/dev/null || :
 done
 # Operator binding + toolchain are per-operator / network steps a scriptlet must not do; direct
 # the operator to them. ai-tools-bootstrap installs the Node toolchain; ai-tools-admin operator

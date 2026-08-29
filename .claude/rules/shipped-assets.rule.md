@@ -126,6 +126,13 @@ marker the seeder claims by, so an operator's own asset under a withdrawn name i
 reported. Each agent's symlink needs no handling of its own: the linker drops a link into the
 shared root once its target is gone.
 
+**The list gates both passes, so neither depends on the order they run in.** The seeder skips a
+withdrawn name outright, because the source root it reads is not guaranteed to be final: in base's
+`%post` it is not, rpm installing the new package's files first and removing the old package's only
+at the end of the transaction. The seeder therefore sees the *previous* version's copy of an asset
+this version withdrew, and without the gate would report it against a file rpm is about to delete —
+or seed it, on a host whose live root lacks it — for the withdrawal pass to undo moments later.
+
 The asset is **moved, not deleted**, to `/opt/ai-tools/retired/<name>.<YYYYMMDD>.retired` —
 `ai_tools_conf_sidecar_path` (`conf.lib.sh`) is the single home of that stamp, shared with the
 config sidecars, and the kind token names the event that produced the copy. Withdrawal is the one
@@ -155,7 +162,16 @@ It acts on an asset **only** when its name matches `ai-tools-*` **and** its fron
   the incoming one by definition, so there is no baseline an edit could be detected against, and a
   copy per upgrade would bury the withdrawal copies that do carry something unrecoverable;
 - **present + unmanaged** (no marker) → left untouched (the operator's own file);
-- **present + same-or-older version** → no-op.
+- **present + same-or-older version** → no-op;
+- **a withdrawn name** → skipped outright, before any of the above (see *Withdrawing an asset*).
+
+Base's `%post` pre-answers the update confirm with `AI_TOOLS_ASSUME_YES=1` rather than letting it
+fall through to its default. The outcome is identical, but the prompt is written to `/dev/tty`,
+which *succeeds* when `dnf` runs on a terminal — so without it the operator is shown a question
+nothing can answer and which is then decided without them. Pre-answering skips drawing it, and the
+decision audits as `assume-yes` rather than `default`, which is what happened. It widens nothing:
+the variable fast-tracks a question whose default is already yes and never flips a default-NO one
+([messaging](messaging.rule.md)).
 
 Seeded copies are `root:SANDBOX_GROUP`, files `640` and dirs `750` — in each kind's shared root. The agent reads and invokes
 them but cannot rewrite one, so what every session reads stays what the operator installed —
