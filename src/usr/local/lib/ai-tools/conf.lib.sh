@@ -510,3 +510,196 @@ ai_tools_conf_allowlist_matching_lines() {
     done < "${file}"
     (( ${#_ai_tools_conf_matched[@]} > 0 ))
 }
+
+# ai_tools_conf_allowlist_exclusion_lines <array-name> <allowlist-file> <path> : the exclusion
+#   counterpart of the matcher above -- set the named array to every RAW line whose `!` entry names
+#   <path> exactly (compared without the `!`), and return 0 when at least one did. Exact-path like
+#   ai_tools_conf_allowlist_has_exclusion, never glob-expanding: it serves the callers that must
+#   EDIT the line an operator wrote to park a project (the CLI's re-enable, its de-registration,
+#   and the --for root helper), and a glob line names no single project to act on.
+ai_tools_conf_allowlist_exclusion_lines() {
+    local -n _ai_tools_conf_excluded="$1"
+    local file="$2" want line entry
+    want="$(_ai_tools_conf_allowlist_norm "$3")"
+    _ai_tools_conf_excluded=()
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        ai_tools_conf_path_entry "${line}" || continue
+        entry="${_ai_tools_conf_value}"
+        [[ "${entry}" == '!'* ]] || continue
+        [[ "$(_ai_tools_conf_allowlist_norm "${entry#\!}")" == "${want}" ]] && _ai_tools_conf_excluded+=("${line}")
+    done < "${file}"
+    (( ${#_ai_tools_conf_excluded[@]} > 0 ))
+}
+
+# ── Allowlist editing (the one implementation of a registry change) ──────────────────────────
+# An allowed-projects line has four states to move between -- absent, listed, disabled (a `!`
+# exclusion parks it), and gone -- and three components change one: the CLI on the operator's own
+# file, ai-tools-allowlist on another operator's (a `--for` run), and install.sh de-registering its
+# own checkout. Each used to carry its own edit: an append here, a `sed -i` line-deletion there, a
+# read-transform-rename in the third, with their own escaping and their own idea of what a match
+# is. That is the drift this section removes -- the file is the agent's LAUNCH GATE, so a writer
+# that matches lines differently from the reader is a project that stays reachable after a
+# "removal", or one parked twice over.
+#
+# Every function below is idempotent, verifies by RE-READING the file rather than trusting a write,
+# and reports three outcomes apart:
+#   0  the file now holds the intended state (including "it already did")
+#   1  the edit could not be applied -- the file is missing or could not be written
+#   2  the request does not apply from the CURRENT state, and nothing was written
+# The 2 cases are what keep the four states honest: adding over an exclusion would leave both lines
+# present with the `!` still winning at the launch gate (a claim reporting success over a project
+# no session can start in), and enabling or disabling a path the file does not name would invent an
+# entry rather than edit one.
+
+# _ai_tools_conf_allowlist_write <file> <src> : replace <file> with <src>'s contents, preserving
+#   its owner and mode. Written beside it and renamed, so a concurrent reader (a launch wrapper
+#   gating a session) sees the whole old file or the whole new one, never a half-written gate. The
+#   temp file is created in the file's OWN directory, which is what a rename across it requires --
+#   so this fails on a config directory the caller cannot write even when the file itself is
+#   writable, and the callers report that rather than aborting on it.
+_ai_tools_conf_allowlist_write() {
+    local file="$1" src="$2" tmp owner mode
+    owner="$(stat -c '%U:%G' "${file}" 2>/dev/null || true)"
+    mode="$(stat -c '%a' "${file}" 2>/dev/null || true)"
+    tmp="$(mktemp "${file}.XXXXXX" 2>/dev/null)" || return 1
+    if ! cat -- "${src}" > "${tmp}" 2>/dev/null; then rm -f -- "${tmp}"; return 1; fi
+    # Best-effort metadata: a root writer restores another operator's ownership, an unprivileged
+    # one is already writing as the owner. A mode that will not apply is worth failing over --
+    # this file is 0600 by design and a widened one exposes an operator's project list.
+    [[ -n "${owner}" ]] && chown "${owner}" "${tmp}" 2>/dev/null
+    if [[ -n "${mode}" ]] && ! chmod "${mode}" "${tmp}" 2>/dev/null; then rm -f -- "${tmp}"; return 1; fi
+    mv -f -- "${tmp}" "${file}" 2>/dev/null || { rm -f -- "${tmp}"; return 1; }
+}
+
+# ai_tools_conf_allowlist_state <allowlist-file> <path> : print how the file answers for <path> --
+#   `disabled`, `listed`, or `absent`. An exclusion WINS over an allow entry, exactly as it does at
+#   the launch gate, so a path carrying both lines reads `disabled`: no session can start there,
+#   which makes it the only honest answer. This is the third state the has_entry/absent reading
+#   could not express, and every verb that used to call a parked project "not claimed" reads it.
+ai_tools_conf_allowlist_state() {
+    local file="$1" path="$2"
+    [[ -f "${file}" ]] || { printf 'absent'; return 0; }
+    if   ai_tools_conf_allowlist_has_exclusion "${file}" "${path}"; then printf 'disabled'
+    elif ai_tools_conf_allowlist_has_entry     "${file}" "${path}"; then printf 'listed'
+    else printf 'absent'
+    fi
+}
+
+# ai_tools_conf_allowlist_add <allowlist-file> <path> : append <path> as an allow entry. A path
+#   already listed is left alone (a re-claim must not duplicate a line); a DISABLED path is
+#   refused with 2 rather than appended, because the appended line would not take effect.
+ai_tools_conf_allowlist_add() {
+    local file="$1" path="$2"
+    [[ -f "${file}" ]] || return 1
+    case "$(ai_tools_conf_allowlist_state "${file}" "${path}")" in
+        listed)   return 0 ;;
+        disabled) return 2 ;;
+    esac
+    printf '%s\n' "${path}" >> "${file}" 2>/dev/null || return 1
+    ai_tools_conf_allowlist_has_entry "${file}" "${path}" || return 1
+}
+
+# ai_tools_conf_allowlist_remove <allowlist-file> <path> : delete every line naming <path>, allow
+#   and exclusion alike. Both, because a de-registration that left the `!` behind would park a
+#   directory that no longer exists -- and silently disable the next project claimed at that path.
+#   Removing what is not there succeeds: an unclaim run twice is not an error.
+ai_tools_conf_allowlist_remove() {
+    local file="$1" path="$2" tmp line keep m
+    # Names distinct from any scalar a sibling library uses: every consumer sources this file, and
+    # an array here sharing a name with a local there reads as a type conflict at lint time.
+    local -a doomed_lines=() parked_lines=()
+    [[ -f "${file}" ]] || return 0
+    ai_tools_conf_allowlist_matching_lines  doomed_lines "${file}" "${path}" || true
+    ai_tools_conf_allowlist_exclusion_lines parked_lines "${file}" "${path}" || true
+    doomed_lines+=("${parked_lines[@]}")
+    (( ${#doomed_lines[@]} )) || return 0
+    tmp="$(mktemp 2>/dev/null)" || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        keep=true
+        for m in "${doomed_lines[@]}"; do
+            [[ "${line}" == "${m}" ]] && { keep=false; break; }
+        done
+        ${keep} && printf '%s\n' "${line}"
+    done < "${file}" > "${tmp}"
+    if ! _ai_tools_conf_allowlist_write "${file}" "${tmp}"; then rm -f -- "${tmp}"; return 1; fi
+    rm -f -- "${tmp}"
+    [[ "$(ai_tools_conf_allowlist_state "${file}" "${path}")" == absent ]] || return 1
+}
+
+# _ai_tools_conf_allowlist_retag <allowlist-file> <path> <disable|enable> : the shared line rewrite
+#   behind the two verbs below. It edits the line the operator wrote IN PLACE -- the `!` goes on or
+#   comes off, and the line keeps its position, its indentation and its comment -- so parking a
+#   project and restoring it leaves the file as it was, rather than moving the entry to the end.
+_ai_tools_conf_allowlist_retag() {
+    local file="$1" path="$2" op="$3" tmp line m head
+    [[ -f "${file}" ]] || return 1
+    local -a retag_lines=()
+    if [[ "${op}" == disable ]]; then
+        ai_tools_conf_allowlist_matching_lines  retag_lines "${file}" "${path}" || return 2
+    else
+        ai_tools_conf_allowlist_exclusion_lines retag_lines "${file}" "${path}" || return 2
+    fi
+    # ENABLE additionally collapses duplicates. Un-parking `!/p` while an allow line for `/p`
+    # already exists -- the pair the old "append over an exclusion" bug created -- would leave two
+    # live entries for one path. So the FIRST line naming the path survives, un-parked, in its own
+    # position, and every later line naming it is dropped: one live entry per path, which is the
+    # invariant every reader of this file assumes. DISABLE needs no such rule, since parking each
+    # of several allow lines leaves them all excluded, which is one state and not two.
+    local -a live_lines=()
+    if [[ "${op}" == enable ]]; then
+        ai_tools_conf_allowlist_matching_lines live_lines "${file}" "${path}" || true
+        retag_lines+=("${live_lines[@]}")
+    fi
+    local emitted=false
+    tmp="$(mktemp 2>/dev/null)" || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        for m in "${retag_lines[@]}"; do
+            [[ "${line}" == "${m}" ]] || continue
+            if [[ "${op}" == disable ]]; then
+                # Insert the '!' before the first non-blank character, so an indented entry keeps
+                # its indentation and the '!' still opens the entry the grammar reads.
+                head="${line%%[![:space:]]*}"
+                line="${head}!${line#"${head}"}"
+            elif ${emitted}; then
+                continue 2                      # a later duplicate of a path already restored
+            else
+                # Delete the FIRST '!' -- the one that opens the entry. One in a trailing comment
+                # is left alone. A line that carries none is already the allow entry and is kept
+                # as it is.
+                line="${line/'!'/}"
+                emitted=true
+            fi
+            break
+        done
+        printf '%s\n' "${line}"
+    done < "${file}" > "${tmp}"
+    if ! _ai_tools_conf_allowlist_write "${file}" "${tmp}"; then rm -f -- "${tmp}"; return 1; fi
+    rm -f -- "${tmp}"
+}
+
+# ai_tools_conf_allowlist_disable <allowlist-file> <path> : park a listed project -- prefix its
+#   line with `!`. The launch gate then refuses a session there while the entry, the project's
+#   permissions and its label all stay as they are. Already disabled succeeds; a path the file does
+#   not name returns 2, since there is no entry to park.
+ai_tools_conf_allowlist_disable() {
+    local file="$1" path="$2" rc
+    case "$(ai_tools_conf_allowlist_state "${file}" "${path}")" in
+        disabled) return 0 ;;
+        absent)   return 2 ;;
+    esac
+    _ai_tools_conf_allowlist_retag "${file}" "${path}" disable || { rc=$?; return "${rc}"; }
+    [[ "$(ai_tools_conf_allowlist_state "${file}" "${path}")" == disabled ]] || return 1
+}
+
+# ai_tools_conf_allowlist_enable <allowlist-file> <path> : restore a parked project -- delete the
+#   `!` from its line. Already listed succeeds; a path the file does not name returns 2, because
+#   enabling one would be claiming it, which is a different operation with a secret scan in it.
+ai_tools_conf_allowlist_enable() {
+    local file="$1" path="$2" rc
+    case "$(ai_tools_conf_allowlist_state "${file}" "${path}")" in
+        listed) return 0 ;;
+        absent) return 2 ;;
+    esac
+    _ai_tools_conf_allowlist_retag "${file}" "${path}" enable || { rc=$?; return "${rc}"; }
+    [[ "$(ai_tools_conf_allowlist_state "${file}" "${path}")" == listed ]] || return 1
+}
