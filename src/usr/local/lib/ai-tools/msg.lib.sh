@@ -66,7 +66,9 @@
 # single yes/no prompt: the standard bracketed hint with the default spelled out --
 # "[Y/n] (default: Yes): " / "[y/N] (default: No): " -- on /dev/tty, returning the default
 # when no terminal answers, so every yes/no question in the project renders and defaults
-# one way. See each function.
+# one way. ai_tools_msg_challenge is the third decision point: a typed-name challenge with
+# no default at all, so a mismatch, an empty answer, and an absent terminal are all "no" --
+# what a confirm cannot express and a destructive verb needs. See each function.
 #
 # This library is REQUIRED by its consumers (bare-sourced under set -e, like
 # safe-paths.lib.sh): ai_tools_msg_confirm carries yes/no decisions, so there is no
@@ -81,8 +83,9 @@
 if [[ -n "${_AI_TOOLS_MSG_LIB_LOADED:-}" ]]; then return 0; fi
 readonly _AI_TOOLS_MSG_LIB_LOADED=1
 
-# Decision audit trail. ai_tools_msg_confirm and ai_tools_msg_pick below record every
-# yes/no answer and menu choice through the shared logger (log.lib.sh), so every user
+# Decision audit trail. ai_tools_msg_confirm, ai_tools_msg_pick and ai_tools_msg_challenge below
+# record every yes/no answer, menu choice and typed challenge through the shared logger
+# (log.lib.sh), so every user
 # action taken through this library leaves ONE consistent trail: journald always, and the
 # root-only file sink (/var/log/ai-tools/<component>.log) when a root caller set
 # AI_TOOLS_LOG_FILE. The logger is sourced from the SIBLING file -- resolved relative to
@@ -497,6 +500,52 @@ ai_tools_msg_confirm() {
     # One audit line per decision, at the single yes/no chokepoint (see log.lib.sh sink).
     _ai_tools_msg_audit "confirm: ${question} -> ${result} (${how})"
     [[ "${result}" == "yes" ]]
+}
+
+# ai_tools_msg_challenge <question> <expected> -- the third decision renderer, beside
+# ai_tools_msg_confirm and ai_tools_msg_pick: a typed-name challenge. It draws <question>, reads
+# one line from /dev/tty, and returns 0 only when that line matches <expected> EXACTLY. Anything
+# else -- a mismatch, empty input, closed input, or no controlling terminal -- returns non-zero.
+#
+# It has no default, and that is the point rather than an omission. A confirm exists to let Enter
+# mean something, so it must state which way it falls; a challenge exists to make the answer cost
+# something a reflex cannot supply, so an absent answer can only be "no". That also settles the
+# unattended case without a rule of its own: a run with no terminal cannot type a name, so it
+# declines, and a destructive command behind one is unreachable from cron by construction.
+#
+# <expected> is echoed in the prompt: this is a deliberateness check, not a secret, and hiding
+# what to type would only make it a guessing game.
+ai_tools_msg_challenge() {
+    local question="$1" expected="${2:?ai_tools_msg_challenge: expected value is required}"
+    local resp how result typed
+    # 2>/dev/null BEFORE > /dev/tty, for the reason ai_tools_msg_confirm documents: with no
+    # controlling terminal it is the open that fails, and its complaint must not reach stderr.
+    if printf '%s [type %s to confirm]: ' "${question}" "${expected}" 2>/dev/null > /dev/tty; then
+        IFS= read -r resp < /dev/tty 2>/dev/null || resp=""
+        how="answered"
+    else
+        resp=""; how="no-tty"
+    fi
+    # Compared literally: the right side is quoted, so <expected> is a value and never a pattern.
+    if [[ "${resp}" == "${expected}" ]]; then result="match"; else result="no-match"; fi
+    # Same audit trail as the other two decision points (see log.lib.sh sink), and the one that
+    # records a MISTYPED answer -- the trail for a destructive verb is worth more when it shows
+    # what was actually typed than when it shows only that something was.
+    #
+    # That value is untrusted input, so it is treated like every other untrusted string this
+    # project logs: reduced to printable ASCII by the shared allowlist sanitizer (a crafted answer
+    # must not inject a terminal escape into a session that cats the root-owned log, forge a line,
+    # or reorder the audit text) and clamped to a bounded length, since a pasted answer is
+    # unbounded. Fail-safe: with the logger -- and so the sanitizer -- unavailable, the answer is
+    # omitted rather than recorded raw. The decision itself is still recorded either way.
+    if [[ "${result}" == "no-match" && "${how}" == "answered" ]] \
+            && declare -F ai_tools_log_sanitize >/dev/null 2>&1; then
+        typed="$(ai_tools_log_sanitize "${resp}")"
+        _ai_tools_msg_audit "challenge: ${question} -> ${result} (${how}, typed '${typed:0:64}')"
+    else
+        _ai_tools_msg_audit "challenge: ${question} -> ${result} (${how})"
+    fi
+    [[ "${result}" == "match" ]]
 }
 
 # ── Umbrella brand banner ──────────────────────────────────────────────────────

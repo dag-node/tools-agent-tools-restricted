@@ -20,8 +20,9 @@ carries no secrets and operator, agent, and root principals all source it, exact
 <line...>`, the convenience emitters `ai_tools_msg_{error,warn,notice,info,success}`,
 the flow-block opener `ai_tools_msg_headline <title> <fd> <line...>`,
 `ai_tools_msg_wrap <width> <text>` for callers that need wrapped-but-unframed text to
-embed elsewhere, the two question renderers `ai_tools_msg_pick` and
-`ai_tools_msg_confirm` — every menu and every yes/no prompt in the project renders and
+embed elsewhere, the three question renderers `ai_tools_msg_pick`,
+`ai_tools_msg_confirm` and `ai_tools_msg_challenge` — every menu, every yes/no prompt, and
+every typed-name challenge in the project renders and
 defaults through them — the command renderer `ai_tools_cmd_display`, and the umbrella banner
 `ai_tools_msg_banner` (with its `ai_tools_msg_version` helper).
 
@@ -179,9 +180,38 @@ Because the no-terminal path is legitimate here rather than degraded, that helpe
 path gave consent (`flag`, `prompt`, `fallback-prompt`, `no-tty`) rather than only the answer. Full
 reasoning: [docs/session-stop.md](../../docs/session-stop.md).
 
+## `ai_tools_msg_challenge` — the typed-name challenge
+
+`ai_tools_msg_challenge <question> <expected>` draws the question, reads one line from
+`/dev/tty`, and returns 0 only on an **exact** match with `<expected>`. A mismatch, empty
+input, closed input (Ctrl-D), and **no terminal** all return non-zero.
+
+**It takes no default, and that is the mechanism rather than an omission.** A confirm exists so
+that Enter can mean something, which is why it must state which way it falls; a challenge exists
+so the answer costs something a reflex cannot supply, which leaves an absent answer with only one
+reading. That also settles the unattended case without a rule of its own — a run with no terminal
+cannot type a name, so it declines — and it is what makes a destructive verb behind one
+unreachable from cron by construction, without depending on a `-y` convention.
+
+`<expected>` is **echoed in the prompt**: this is a deliberateness check, not a secret, and hiding
+what to type would make it a guessing game. It is the caller's job to have already printed what is
+about to happen; the challenge only asks the user to re-type the name of the thing.
+
+**A mistyped answer is recorded, and it is treated as untrusted input.** The trail for a
+destructive verb is worth more showing what was typed than showing only that something was, so a
+mismatch logs the answer — through the shared allowlist sanitizer (`ai_tools_log_sanitize`) and
+clamped to a bounded length, the same treatment every other untrusted string reaching a log sink
+or a terminal gets ([logging](logging.rule.md)). Without that sanitizer — the logger is loaded
+best-effort here — the answer is **omitted** rather than recorded raw; the decision itself is
+recorded either way.
+
+Where a caller pre-answers it (`ai-tools --project-remove -y`), that is the same explicit
+per-invocation flag rule as a default-NO confirm, and the flag is the auditable decision.
+
 ## Decision audit trail
 
-`ai_tools_msg_confirm` and `ai_tools_msg_pick` are the project's two decision points, so
+`ai_tools_msg_confirm`, `ai_tools_msg_pick` and `ai_tools_msg_challenge` are the project's three
+decision points, so
 each records its outcome through the shared logger ([logging](logging.rule.md)): one INFO
 line naming the question and the answer (`confirm: <question> -> yes|no (answered | default
 | assume-yes | no-tty-default)`) or the menu choice (`menu: chose <n>/<N> (<label>)`). A menu
