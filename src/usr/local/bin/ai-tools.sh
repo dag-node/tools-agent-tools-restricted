@@ -659,6 +659,7 @@ reg_safedir() {
     else
         warn "could not register git safe.directory -- run it by hand:"
         say  "      ${C_BOLD}sudo ${SAFEDIR_BIN} ${dir}${C_RST}"
+        return 1
     fi
 }
 
@@ -844,6 +845,7 @@ reg_ownership() {
         say "    ownership: set group ${SANDBOX_GROUP} + setgid on the project directories"
     else
         warn "ownership: could not set group/setgid on ${dir} -- run: sudo ${SETGID_BIN} ${dir}"
+        return 1
     fi
 }
 
@@ -1230,6 +1232,7 @@ claim_relabel() {
     else
         warn "could not apply the SELinux label -- run it by hand:"
         say  "      ${C_BOLD}sudo ${RELABEL_BIN} ${d}${C_RST}"
+        return 1
     fi
 }
 
@@ -1251,6 +1254,7 @@ claim_setfacl() {
     else
         warn "could not apply the project ACL -- run it by hand:"
         say  "      ${C_BOLD}sudo ${SETFACL_BIN}${flag} ${d}${C_RST}"
+        return 1
     fi
 }
 
@@ -1638,16 +1642,63 @@ cmd_project_claim() {
     # ── Apply block: the approved steps run back to back, each reporting one result
     # line; the closing ✓ is the claim's completion. ──
     headline "Applying claim steps" "${d}"
-    [[ "${safedir}" == true  ]] || reg_safedir "${d}"
-    ${need_filemode} && reg_filemode "${d}"
-    if [[ "${owngap}" == true ]]; then
-        reg_ownership "${d}"
-    elif (( ${#drift[@]} )); then
-        reg_ownership "${d}" force
+
+    # Each step below authenticates on its own, and nothing can be pre-authenticated for the
+    # block: a hardened sudoers may set timestamp_timeout=0, where a credential is never cached
+    # and every invocation prompts. So a mistyped password costs a full round of attempts PER
+    # STEP -- nine prompts and three warnings for one claim, the last arriving long after the flow
+    # has already reported two failures, and the whole thing closing on a ✓.
+    #
+    # The reaction is to ask ONCE, at the first failure, instead of walking into the next one.
+    # Default NO, which is also the no-terminal answer: stopping leaves fewer steps applied, and
+    # the claim is idempotent, so nothing is lost by re-running it. What is not offered is a
+    # choice about whether the claim succeeded -- see the close below.
+    local root_failures=0 asked=false carry_on=1
+    note_root_failure() {
+        root_failures=$(( root_failures + 1 ))
+        if ! ${asked}; then
+            asked=true
+            say ""
+            if confirm "That step needed root and did not apply. Try the remaining steps? (each one asks for your password again)" n; then
+                carry_on=0
+            else
+                carry_on=1
+            fi
+        fi
+        return "${carry_on}"
+    }
+
+    local stopped=false
+    if [[ "${safedir}" != true ]]; then
+        reg_safedir "${d}" || note_root_failure || stopped=true
     fi
-    { ${need_acl} || ${do_git} || (( ${#drift[@]} )); } && claim_setfacl "${d}" "${do_git}"
-    ${need_label} && claim_relabel "${d}"
+    ${need_filemode} && reg_filemode "${d}"
+    if ! ${stopped}; then
+        if [[ "${owngap}" == true ]]; then
+            reg_ownership "${d}" || note_root_failure || stopped=true
+        elif (( ${#drift[@]} )); then
+            reg_ownership "${d}" force || note_root_failure || stopped=true
+        fi
+    fi
+    if ! ${stopped} && { ${need_acl} || ${do_git} || (( ${#drift[@]} )); }; then
+        claim_setfacl "${d}" "${do_git}" || note_root_failure || stopped=true
+    fi
+    if ! ${stopped} && ${need_label}; then
+        claim_relabel "${d}" || note_root_failure || stopped=true
+    fi
     say ""
+
+    # A claim whose access-granting steps did not apply has NOT claimed anything, and must not say
+    # it has. This is the owner guard's rule at the other end of the flow: no ✓ over a project the
+    # agent cannot work in. The registry entries stand, so a re-run applies exactly what is
+    # missing -- which is why stopping early costs nothing.
+    if (( root_failures )); then
+        headline_warn "WARNING: the claim did not complete" \
+            "${d} is registered, but ${root_failures} step(s) that grant the agent access did not apply, so it cannot work there yet. Each is named above with the command that applies it. Re-running the claim is the simpler route -- it is idempotent and does only what is still missing:"
+        say "      ${C_BOLD}ai-tools --project-claim ${d}${C_RST}"
+        ai_tools_log_warn "claim of ${d} incomplete -- ${root_failures} root step(s) did not apply"
+        exit 1
+    fi
     ok "claimed ${d}"
     ai_tools_log_info "claimed project ${d}"
 }
@@ -1759,21 +1810,12 @@ cmd_project_create() {
         die "project create stopped -- the agent could not reach a project at that location"
     fi
 
-    # ── What is about to happen, stated and then done. There is no confirmation: every refusal
-    # above has already run, the directory does not exist, and what follows creates it and claims
-    # it -- which is the command the operator typed. ──
+    # ── Apply. Deliberately ONE block, not a review followed by an apply: this verb takes no
+    # confirmation, so a pending list would announce three steps whose result lines follow
+    # immediately underneath -- the same information twice -- and the claim below opens with a
+    # pending list of its own, which made the pair read as one repeated block. ──
     headline "Create project" "${d}" \
         "Creating the directory, an empty git repository in it, and a README.md, then claiming it so the sandbox account can work there."
-    say ""
-    say "  pending:"
-    say "    - create ${d}"
-    say "    - initialize an empty git repository"
-    say "    - write README.md"
-    say "    - claim the project -- the claim reports its own steps below"
-    say ""
-
-    # ── Apply ──
-    headline "Creating the project" "${d}"
     # Mode 0750 EXPLICITLY, not whatever the caller's umask yields. Under a umask of 077 -- the
     # /etc/login.defs default on many hosts, and what a PAM session hands this command -- a new
     # directory is born 0700, which ai-tools-setgid and ai-tools-setfacl both honour as the

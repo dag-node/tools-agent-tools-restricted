@@ -279,11 +279,23 @@ if command -v runuser >/dev/null 2>&1; then
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${crwork}"; chmod 755 "${crwork}"
     : > "${emptyal}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${emptyal}"
     newproj="${crwork}/newproject"
+    # The exit status depends on whether this environment can authenticate for the claim's root
+    # helpers. Under setsid there is no terminal to type a password at, so the claim reports that
+    # it could not finish and exits 1; where the suite's sudo needs no password it exits 0. Both
+    # are correct, and both are asserted -- what must never happen is the third outcome this
+    # replaced, where every root step failed and the flow still closed on a success mark.
     out="$(create_cli "${newproj}")" && rc=0 || rc=$?
-    if [[ ${rc} -eq 0 ]] && [[ -d "${newproj}" ]]; then
-        pass "--project-create creates and claims a new project unattended"
+    if [[ -d "${newproj}" ]] && { [[ ${rc} -eq 0 ]] \
+            || { [[ ${rc} -eq 1 ]] && grep -qi 'the claim did not complete' <<<"${out}"; }; }; then
+        pass "--project-create creates the project and reports the claim outcome honestly"
     else
-        fail "--project-create did not complete (rc=${rc}): $(brief "${out}")"
+        fail "--project-create neither completed nor reported why (rc=${rc}): $(brief "${out}")"
+    fi
+    # The two must not co-occur: a claim that reports steps it could not apply has not claimed.
+    if grep -qi 'did not complete' <<<"${out}" && grep -q '✓ claimed' <<<"${out}"; then
+        fail "the claim reported both an incomplete state and success: $(brief "${out}" 'did not complete|claimed')"
+    else
+        pass "the claim never reports success alongside steps it could not apply"
     fi
     if [[ -d "${newproj}/.git" ]] && [[ -f "${newproj}/README.md" ]] \
             && grep -qxF '# newproject' "${newproj}/README.md"; then

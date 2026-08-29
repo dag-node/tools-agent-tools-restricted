@@ -168,7 +168,8 @@ file sink being the authoritative one.
   frame): *Review* (the pending-step overview announcing every later block, the drift reports, and
   the default-NO proceed confirm covering exactly the steps listed), *Secret lockdown* (before any
   access-granting step; fails the claim closed), the *`.git` history* and *Reachability* opt-ins,
-  then *Apply* (one result line per step, closed by the final `claimed` ✓). `-y/--yes` pre-answers
+  then *Apply* (one result line per step, closed by the final `claimed` ✓ — **only** when the steps
+  that grant access actually applied; see below). `-y/--yes` pre-answers
   only the claim's own default-NO proceed prompt ("Apply the pending steps above IN PLACE?") — the
   launch wrapper passes it for a delegated claim after taking its own confirmation, so the same
   decision is not asked twice; the scoped opt-ins (secret lockdown, `.git` history, ancestor
@@ -742,6 +743,22 @@ against the invoking user's: on a multi-operator host the group the walks treat 
 the resolved project owner's, so comparing against the invoker's would report a bit the claim goes
 on to strip, or stay silent about one it keeps. New files in such a directory are still born in
 that third group, so the block names the paths and the `chmod g-s` that clears one.
+
+**A claim that could not apply its root steps does not report success.** `reg_safedir`,
+`reg_ownership`, `claim_setfacl` and `claim_relabel` each return non-zero when their helper fails,
+the Apply block counts that, and a non-zero count closes the flow with a warning naming what is
+still pending and **exit 1** instead of the `claimed` ✓. This is the owner rule at the other end of
+the same flow: no ✓ over a project the agent cannot work in. The registries stand either way, and
+the claim is idempotent, so a re-run applies exactly what is missing.
+
+**A failed step asks once before attempting the next.** Every step authenticates separately and
+**nothing can be pre-authenticated** — a hardened sudoers may set `timestamp_timeout=0`, where a
+credential is never cached and every invocation prompts — so a mistyped password costs a full round
+of attempts *per step*: nine prompts and three warnings for one claim. At the first failure the
+operator is asked once whether to try the rest, default **NO**, which is also the no-terminal
+answer. Stopping applies fewer steps (the safe direction) and costs nothing, since re-running is
+idempotent. The question is genuinely unanswerable from here — a mistyped password and an absent
+grant look identical at this point — which is why it is asked rather than inferred.
 
 **Reachability.** The confined session runs *as* the sandbox account, so it must be able to
 **traverse** the path to the project; a project nested under a directory the account cannot enter
