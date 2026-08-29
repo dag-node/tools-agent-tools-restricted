@@ -475,6 +475,13 @@ check per swap vector.
 
 ## Quirks
 
+- **The result word carries a colour escape.** `harness.sh` colours `PASS` green, `SKIP` yellow
+  and `FAIL` red when stdout is a terminal or `AI_TOOLS_TEST_COLOR=1`. `run.sh` and `install.sh`
+  both set that variable, because each pipes the suite through `tee` and the harness's own tty test
+  then reads false while a terminal is still watching. Only the word is wrapped, so a grep on a
+  result *message* is unaffected; a grep anchored on the *word* must allow the escape, as
+  `run.sh`'s failure summary (`_FAIL_RE`) does. Anchored without it the summary comes back empty on
+  a coloured run, while the suite still reports the failure and exits non-zero.
 - **Setgid bits survive numeric `chmod`.** GNU coreutils `chmod` with an octal mode does
   not clear a directory's setgid/setuid bit; a testdir under a setgid parent inherits it.
   Assertions on the rwx bits use `perm()` (low 3 octal digits), not raw `stat %a`.

@@ -1844,7 +1844,10 @@ do_install() {
             section "Verify"
             section "Installed files"
             do_summary
-            "${SCRIPT_DIR}/tests/run.sh" all \
+            # do_install's log tee makes the suite's own tty test false. This script answered
+            # that question at startup, before the redirect, so hand the answer down: C_GRN is
+            # set only on a terminal, and the log copy has its escapes stripped by the tee's sed.
+            AI_TOOLS_TEST_COLOR="${C_GRN:+1}" "${SCRIPT_DIR}/tests/run.sh" all \
                 || warn "test suite reported failures -- review the output above"
         else
             log "test suite skipped -- run it any time with: sudo ${SCRIPT_DIR}/tests/run.sh all"
