@@ -256,6 +256,47 @@ if command -v runuser >/dev/null 2>&1; then
         pass "every refused --project-create left the allowlist untouched"
     fi
 
+    # THE HAPPY PATH. Every assertion above is a refusal, which together can be satisfied by a
+    # verb that does nothing at all -- so the one run that has to actually work is asserted too,
+    # end to end and unattended. It runs under setsid with NO -y (the verb has none): a create
+    # that still asked something would block here and be killed by the file timeout, which is the
+    # regression this also guards.
+    crwork="${TESTDIR}/create-work"; mkdir -p "${crwork}"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${crwork}"; chmod 755 "${crwork}"
+    : > "${emptyal}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${emptyal}"
+    newproj="${crwork}/newproject"
+    out="$(create_cli "${newproj}")" && rc=0 || rc=$?
+    if [[ ${rc} -eq 0 ]] && [[ -d "${newproj}" ]]; then
+        pass "--project-create creates and claims a new project unattended"
+    else
+        fail "--project-create did not complete (rc=${rc}): ${out}"
+    fi
+    if [[ -d "${newproj}/.git" ]] && [[ -f "${newproj}/README.md" ]] \
+            && grep -qxF '# newproject' "${newproj}/README.md"; then
+        pass "--project-create initializes git and writes a README naming the directory"
+    else
+        fail "--project-create left an incomplete tree: $(ls -A "${newproj}" 2>&1)"
+    fi
+    if grep -qxF "${newproj}" "${emptyal}"; then
+        pass "--project-create registers the new project in allowed-projects"
+    else
+        fail "--project-create did not register the project: $(cat "${emptyal}")"
+    fi
+    # The tree it makes is owned by the operator, which is what the claim's own owner guard
+    # requires -- a create that produced a root-owned tree would claim nothing and say so.
+    if [[ "$(stat -c '%U' "${newproj}")" == "${PROJECTS_USER}" ]]; then
+        pass "--project-create leaves the tree owned by the operator it acts for"
+    else
+        fail "the created tree is owned by $(stat -c '%U' "${newproj}"), not ${PROJECTS_USER}"
+    fi
+    # And it asked for no password: the secret scan is skipped on a tree with nothing in it, so a
+    # create must never reach ai-tools-lockdown's sudo prompt.
+    if ! grep -qi 'password' <<<"${out}"; then
+        pass "--project-create completes without a sudo password prompt (no secret scan)"
+    else
+        fail "--project-create reached a password prompt: ${out}"
+    fi
+
     # (6d) --project-remove deletes, so every assertion here is that it did NOT. Its authorization
     # is an exact allowlist entry and nothing else: there is no --force, and an unattended run
     # never reaches the deletion because both the default-NO confirm and the typed-name challenge
@@ -371,6 +412,55 @@ if command -v runuser >/dev/null 2>&1; then
         fi
     else
         skip "--project-remove deletability pre-flight" "user 'nobody' not present"
+    fi
+
+    # AI_TOOLS_ASSUME_YES MUST NOT DELETE ANYTHING. This is the highest-consequence property the
+    # verb has and the easiest to regress: the variable is a legitimate thing for an operator to
+    # export for unattended runs of every other command, and if it reached either of this verb's
+    # two questions it would silently delete whole projects on a host where nobody typed -y. It
+    # cannot: the confirm's default is NO (the lib only fast-tracks default-YES questions) and the
+    # challenge has no default at all. Asserted with the variable set AND a terminal absent, which
+    # is exactly how an unattended run arrives.
+    printf '%s\n' "${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${rmal}" \
+            AI_TOOLS_ASSUME_YES=1 \
+            setsid "${CLI}" --project-remove "${rmproj}" 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}" ]] && grep -qF "${rmproj}" "${rmal}"; then
+        pass "AI_TOOLS_ASSUME_YES does not delete a project (neither prompt is fast-trackable)"
+    else
+        fail "AI_TOOLS_ASSUME_YES deleted or deregistered a project (rc=${rc}): ${out}"
+    fi
+
+    # A protected path as the removal target: exit 3, whatever the allowlist says. The scenario is
+    # an operator (or a script) reaching for a home root or a system directory -- the allowlist is
+    # hand-editable, so the backstop has to stand on its own. Both are driven with -y, the only
+    # mode that can reach a deletion unattended, and the entry is planted deliberately so the
+    # classification would otherwise ACCEPT the target.
+    # The home case is included only in the /home/<user> shape the home-root rule covers by
+    # construction. Elsewhere it is skipped rather than assumed: this drives -y against a planted
+    # entry, so a host where the assumption did not hold would be pointing a real removal at a
+    # real home. /etc is on the protected list unconditionally.
+    _protected_targets=(/etc)
+    [[ "${PROJECTS_HOME}" =~ ^/home/[^/]+$ ]] && _protected_targets+=("${PROJECTS_HOME}")
+    for _bad in "${_protected_targets[@]}"; do
+        printf '%s\n' "${_bad}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+        out="$(remove_cli -y "${_bad}")" && rc=0 || rc=$?
+        if [[ ${rc} -eq 3 ]] && [[ -d "${_bad}" ]]; then
+            pass "--project-remove refuses the protected path ${_bad} (exit 3) even when listed"
+        else
+            fail "--project-remove did not refuse protected ${_bad} with exit 3 (rc=${rc}): ${out}"
+        fi
+    done
+
+    # -y must not bypass the classification. The scripted-removal mistake is a -y run pointed at a
+    # path that is not a claimed project; the flag pre-answers the two prompts and nothing else.
+    printf '%s\n' "${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    out="$(remove_cli -y "${rmother}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmother}" ]]; then
+        pass "-y does not bypass the registry check (an unlisted path is still refused)"
+    else
+        fail "-y deleted an unregistered path (rc=${rc}): ${out}"
     fi
 
     # A parent the acting owner cannot write must REFUSE, and this is the case with the worst

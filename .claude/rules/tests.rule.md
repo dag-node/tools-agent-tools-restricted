@@ -196,6 +196,13 @@ page documents is one a CLI **parser** accepts. The last is the direction with t
 stale is an option outliving its parser, whereas requiring the help to name every documented
 option is what previously made slimming the help impossible.
 
+`sandbox.sh` closes with `tree_is_pristine`, which is not a sandbox helper but belongs to the same
+class: a pure decision with a security consequence. `--project-create` skips the secret scan, the
+git-history prompt and the proceed confirm when it returns 0, so every way it could wrongly say yes
+is a way to grant an agent access to a tree nothing scanned — which is why the claim re-derives it
+from the tree rather than trusting the caller's hint, and why the cases driven here are the states
+that must read as **not** pristine (any file beyond the README, one nested deeper, any commit).
+
 `conf.sh` and `providers.sh` are the library pair behind the provider seam (see
 [providers](providers.rule.md)). `conf.sh` pins the shared `KEY=value` grammar every
 `operator.conf` key and every manifest is read with — quotes optional, commas and whitespace
