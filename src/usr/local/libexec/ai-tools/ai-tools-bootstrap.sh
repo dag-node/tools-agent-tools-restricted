@@ -137,12 +137,17 @@ seed_managed_assets_step() {
     local pristine=/usr/share/ai-tools
     local lib=/usr/local/lib/ai-tools/managed-assets.lib.sh msglib=/usr/local/lib/ai-tools/msg.lib.sh
     local cplib=/usr/local/lib/ai-tools/control-plane.lib.sh
+    # conf.lib.sh owns the dated-sidecar stamp the seeder uses to preserve a replaced or withdrawn
+    # asset, so it is required here rather than optional: without it those steps decline to act.
+    local conflib=/usr/local/lib/ai-tools/conf.lib.sh
     [[ -d "${pristine}/agents" && -r "${cplib}" ]] \
         || { log "managed assets: control plane not present yet -- install it, then re-run to seed agents/skills"; return 0; }
-    [[ -r "${lib}" && -r "${msglib}" ]] \
+    [[ -r "${lib}" && -r "${msglib}" && -r "${conflib}" ]] \
         || die "control plane present but the managed-asset libs are missing -- reinstall ai-tools"
     # shellcheck source=/dev/null
     source "${msglib}"
+    # shellcheck source=/dev/null
+    source "${conflib}"
     # shellcheck source=/dev/null
     source "${lib}"
     # shellcheck source=/dev/null
@@ -158,6 +163,7 @@ seed_managed_assets_step() {
         install -d -o root -g "${SANDBOX_GROUP}" -m "${CP_DIR_MODES[${kind}]}" "${shared}"
         log "seeding ai-tools-managed ${kind} into ${shared}"
         ai_tools_seed_managed_assets "${pristine}" "${CP_HOME}" "${SANDBOX_GROUP}" "${kind}"
+        ai_tools_remove_retired_assets "${CP_HOME}" "${kind}"
         ai_tools_link_asset_readme "${pristine}/${kind}/README.md" "${shared}" "${SANDBOX_GROUP}"
         while IFS=$'\t' read -r _ asset_dir; do
             log "linking the shared ${kind} into ${asset_dir}"

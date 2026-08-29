@@ -186,7 +186,7 @@ if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_agent_config_dirs >/de
     # what keeps an asset authored in one place. Assert a shipped asset of each kind arrived that
     # way, so a regression to per-agent copies (silently forking the content) fails here. The
     # pairs are <manifest field>:<shared root>:<a shipped asset name>.
-    for _spec in "skills_dir:/opt/ai-tools/skills:ai-tools-docs-reference" \
+    for _spec in "skills_dir:/opt/ai-tools/skills:ai-tools-technical-docs" \
                  "subagents_dir:/opt/ai-tools/subagents:ai-tools-reference-architect.md"; do
         _field="${_spec%%:*}"; _rest="${_spec#*:}"; _root="${_rest%%:*}"; _asset="${_rest#*:}"
         _marker=""
@@ -281,6 +281,7 @@ check_file_optional /var/opt/ai-tools/state/nvm-update.status "${SANDBOX_USER}" 
 # reports and gates nothing, while a pin is what the launch compares the agent binary against, so
 # the account it constrains must not be able to write it.
 check_file /var/opt/ai-tools/state/entrypoint-pin.d           root              root              755
+check_file /var/opt/ai-tools/state/entrypoint-label.d         root              root              755
 # Sandbox-area operator ACL: ai-ops reaches the area without SANDBOX_GROUP membership -- traverse
 # on the outer dir, rwX + default on sandbox-projects. The agent (not in ai-ops) gains nothing.
 if ! command -v getfacl >/dev/null 2>&1; then
@@ -344,6 +345,20 @@ if [[ -r /etc/sudoers.d/ai-tools ]]; then
     else
         fail "sudoers env_keep names unexpected variable(s): ${ek_extra//$'\n'/ } -- widened launch env surface"
     fi
+
+    # Both root rules must be pinned to their helper's ZERO-ARGUMENT form. The trailing "" is what
+    # keeps each a grant to run one program one way: sudoers(5) reads a command listed with no
+    # arguments at all as permitting ANY, so a dropped "" silently turns a narrow root rule into
+    # `--remove <agent>` (relabel) or `--force` (stop) without a password. tests/unit/helper-path.sh
+    # pins the same two lines in the SOURCE; this asserts what the install actually deployed.
+    for _rule_helper in ai-tools-relabel-agent ai-tools-stop; do
+        if grep -qE "^%ai-ops[[:space:]]+.*NOPASSWD:[[:space:]]*/usr/local/libexec/ai-tools/${_rule_helper}[[:space:]]+\"\"[[:space:]]*$" \
+                /etc/sudoers.d/ai-tools; then
+            pass "sudoers grants ${_rule_helper} in its zero-argument form only"
+        else
+            fail "sudoers rule for ${_rule_helper} is missing or not pinned to the zero-argument form"
+        fi
+    done
 fi
 
 finish

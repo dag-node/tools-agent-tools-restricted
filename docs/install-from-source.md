@@ -117,6 +117,27 @@ into it). `sudo ai-tools-bootstrap` does both in one idempotent command. Then ru
 
     sudo ./install.sh install
 
+The script asks which account to enrol as the operator, offering the invoking `SUDO_USER`
+as the default — answer No to name another, such as a purpose-made provisioning account.
+A non-interactive run and a plain Enter both take `SUDO_USER`. `root` is refused at either
+route, including the one that reaches it by accident: `sudo` from a root shell sets
+`SUDO_USER=root`, and the resulting host has an operator the CLI refuses every project verb.
+
+Name the account up front to skip the question — what an unattended install uses:
+
+    sudo ./install.sh install --operator op
+
+The name is refused on the same terms as a typed one (`root`, the `ai-tools` sandbox
+account, an account that does not exist or has no home), and it decides only **who is
+enrolled**: the script still runs as `sudo`, and its verification suite still runs as the
+invoking `SUDO_USER`.
+
+Enrolment writes the two facts that make an operator — `ai-ops` membership and a name in
+`OPERATORS`. **Claiming a project needs a general sudo grant as well**, which nothing here
+writes; the host's own sudoers decides it. An operator without one launches agent sessions,
+and another operator claims for it with `ai-tools --project-claim --for <operator>`. A host
+needs at least one operator holding the grant, so enrol one that does.
+
 The script deploys the static `%ai-ops` sudoers drop-in, the helpers and the system
 units, creates the approved-projects allowlist with format documentation, installs the
 `ai-tools` project CLI and the `/var/opt/ai-tools` sandbox area, enables the
@@ -124,9 +145,12 @@ units, creates the approved-projects allowlist with format documentation, instal
 `ai-tools-relabel.path` watcher. It is idempotent — safe to re-run after updates. The
 install directory is never auto-registered as a project.
 
-Enrol each login user as an operator (ai-ops membership, allowlist seed):
+Enrol each further login user as an operator (ai-ops membership, allowlist seed):
 
     sudo ai-tools-admin operator add <user>     # defaults to $SUDO_USER
+
+It reports which shape the enrolment produced — whether the account can claim projects, or
+only launch sessions and have them claimed for it — by asking sudo about that account.
 
 Register projects with the `ai-tools` CLI, run as your own user (no sudo):
 

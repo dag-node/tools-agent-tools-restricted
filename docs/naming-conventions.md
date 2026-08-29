@@ -26,10 +26,28 @@ their sessions.
 | the list | `AI_TOOLS_OPERATORS` (array) | "the operators" |
 | operators group | literal `ai-ops` | "the operators group" / `ai-ops` |
 
-`operator.conf` is written at runtime by `ai-tools-admin`, never substituted at build
-time, so every host ships identical files. There is **no** `@PROJECTS_USER@` token: an
-operator's identity is resolved at runtime, with home and primary group derived per name
-via `getent`/`id`.
+Being an operator is those two facts and nothing else: `ai-ops` membership and a name in
+`OPERATORS`. **A general sudo grant is a separate host-level axis, not part of the term** — the
+host's own sudoers decides it, and this project neither writes nor records it. Both shapes are
+operators, and prose distinguishes them by naming the grant rather than by inventing a role:
+
+- an operator **with** a general sudo grant claims and unclaims projects, locks down secrets, and
+  reclaims files — the verbs whose root helpers carry no NOPASSWD rule. A host needs at least one
+  (root cannot substitute; see the security model in `CLAUDE.md`), and it may be a purpose-made
+  provisioning account rather than a person.
+- an operator **without** one launches sessions and reads the reports. Projects are claimed for it
+  by the first shape, with `ai-tools --project-claim --for <operator>`. A passwordless service
+  account that runs an agent is this shape, and "service account" describes its intent — the host
+  records nothing that distinguishes it from any other grant-less operator.
+
+`operator.conf` is managed in place at runtime by `ai-tools-admin operator add|remove`. Its
+source template carries one substitution token, `OPERATORS="@PROJECTS_USER@"`, and the two
+install paths treat it differently: the RPM rewrites the line to `OPERATORS=""` at build
+(`packaging/ai-tools.spec`), so a packaged host ships with nobody enrolled, while `install.sh`
+substitutes the one operator it enrols — the account named at its prompt, defaulting to the
+invoking `SUDO_USER`. **Nothing else about an operator is substituted** — home and primary group
+are derived per name at runtime via `getent`/`id`, so a name added to the list takes effect
+without touching any other file.
 
 ### The owner — the operator a path resolves to
 
@@ -52,6 +70,29 @@ owner wins). `operator.lib.sh` resolves an operator into the `PROJECTS_*` global
 
 The owner's private group is always written `PROJECTS_USER:PROJECTS_GROUP`. Do not spell it
 `PROJECTS_USER:PROJECTS_USER` even though RHEL User-Private-Groups make the two coincide.
+
+### The invoker and the acting operator — who ran a command, and for whom
+
+`ai-tools --for <operator>` separates two identities the other components never tell apart: a
+root helper resolves the owner from the path it is handed, while the CLI decides before there is
+a path. Both names live in `ai-tools.sh` alone.
+
+| Facet | Shell variable | Prose term |
+|-------|----------------|------------|
+| the account that ran the command | `INVOKING_USER` | "the invoking user" |
+| the `--for` target, empty without the flag | `FOR_OPERATOR` | "the target operator" |
+| the operator the run acts for | `OWNER_USER` / `OWNER_GROUP` | "the acting operator" |
+
+`OWNER_USER` is `FOR_OPERATOR` where the flag is given and `INVOKING_USER` otherwise. Every
+message naming the account a file ends up with, and every scan matching on that account, reads
+`OWNER_USER`; the gates deciding who may run a verb read `INVOKING_USER`.
+
+`INVOKING_USER` denotes a host account rather than an operator: the informational verbs stay open
+to a user absent from `OPERATORS`, and root reaches the read-only reports.
+
+Both are distinct from `PROJECTS_USER` above, which a root helper resolves per path from the
+allowlist covering it. The CLI sets neither of the `PROJECTS_*` globals, and a `--for` run leaves
+that resolution alone — a helper's walk still resolves each path's own owner.
 
 ### Sandbox user — the unprivileged service account the agent runs as
 

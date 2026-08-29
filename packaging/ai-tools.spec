@@ -262,10 +262,13 @@ install -m 0644 src%{ai_mandir}/man1/ai-tools.1             %{buildroot}%{ai_man
 # operator.conf(5): the host options and the shared KEY=value grammar they are written in.
 install -d -m 0755 %{buildroot}%{ai_mandir}/man5
 install -m 0644 src%{ai_mandir}/man5/operator.conf.5        %{buildroot}%{ai_mandir}/man5/operator.conf.5
-# The CLI gets a %%{_sbindir} symlink for the OPPOSITE reason ai-tools-admin does: it must
-# never run under sudo, and without the symlink `sudo ai-tools` dies with sudo's "command
-# not found" (%%{ai_bindir} is not in secure_path) before the CLI's own refusal -- run as
-# the projects user, drop the sudo -- can explain the right invocation.
+# The CLI gets a %%{_sbindir} symlink for the OPPOSITE reason ai-tools-admin does: its
+# mutating verbs must never run under sudo, and without the symlink `sudo ai-tools` dies with
+# sudo's "command not found" (%%{ai_bindir} is not in secure_path) before the CLI's own
+# refusal -- run as the projects user, drop the sudo -- can explain the right invocation.
+# That only holds for a caller sudo will exec at all: an operator whose only grant is the
+# %%ai-ops drop-in is refused by sudo first, and meets sudo's message rather than the CLI's.
+# The symlink also carries the read-only reports, which the CLI now accepts as root.
 ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 
 # ── base: shared libraries ───────────────────────────────────────────────────
@@ -363,6 +366,11 @@ install -d -m 0750 %{buildroot}/var/opt/ai-tools/state
 # by the launch shim as the sandbox account. Root-owned and NOT group-writable, like its parent:
 # the whole value of a pin is that the account it constrains cannot write it.
 install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-pin.d
+# What the last reconciliation could do about each agent's SELinux labels -- the labelling half's
+# counterpart to the pin above, written by the same helper and read by `ai-tools --status`. Same
+# ownership for the same reason: it reports on the sandbox account, which must not be able to
+# rewrite it.
+install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-label.d
 install -m 0640 src/var/opt/ai-tools/README.md %{buildroot}/var/opt/ai-tools/README.md
 install -d -m 0700 %{buildroot}/var/log/ai-tools
 
@@ -546,10 +554,16 @@ fi
 # bash (the lib is bash; a %post scriptlet runs under /bin/sh). Skills and subagent definitions
 # are agent-agnostic, so they are seeded once here and each agent package symlinks them into the
 # directories it reads. Non-interactive, so an existing managed asset is kept and only an absent
-# one is seeded.
+# one is seeded, and a newer shipped version replaces the live copy (the confirm defaults to yes,
+# which is what a scriptlet with no tty takes) after stamping anything that differs aside.
+# Withdrawn assets are then moved to /opt/ai-tools/retired: the live roots are not rpm-owned, so an
+# upgrade leaves an asset this package no longer ships in place until this runs.
+# conf.lib.sh comes first -- it owns the dated-sidecar stamp both of those steps preserve through.
+# stdout is kept so `dnf upgrade` reports what changed; a host that never sees these lines cannot
+# tell that a shipped asset moved.
 for kind in skills subagents; do
     [ -d %{_datadir}/ai-tools/${kind} ] && command -v bash >/dev/null 2>&1 || continue
-    bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools ai-tools ${kind}; ai_tools_link_asset_readme %{_datadir}/ai-tools/${kind}/README.md /opt/ai-tools/${kind} ai-tools" >/dev/null 2>&1 || :
+    bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools ai-tools ${kind}; ai_tools_remove_retired_assets /opt/ai-tools ${kind}; ai_tools_link_asset_readme %{_datadir}/ai-tools/${kind}/README.md /opt/ai-tools/${kind} ai-tools" 2>/dev/null || :
 done
 # Operator binding + toolchain are per-operator / network steps a scriptlet must not do; direct
 # the operator to them. ai-tools-bootstrap installs the Node toolchain; ai-tools-admin operator
@@ -643,8 +657,16 @@ fi
 # daemon-reexec + socket restart re-derive the listener context from the now-correct binary label.
 # Guarded on is-active, so a fresh install (base %posttrans starts it later, already correct) no-ops.
 # Same sequence as install-selinux.sh _relabel_runtime; rationale in confinement.rule.md.
+#
+# A failed load is REPORTED rather than swallowed: every type the entrypoint and the project
+# labels name comes from this module, so a load that did not happen surfaces later as a relabel
+# that cannot register its rules and a launch that fail-closes, with nothing naming this as the
+# cause. The transaction still completes -- the remedy is a re-run, not a rollback.
 if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/null 2>&1; then
-    semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp >/dev/null 2>&1 || :
+    _semodule_error=$(semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp 2>&1) || {
+        echo "ai-tools-selinux: WARNING could not load the ai_tools policy module: ${_semodule_error}" >&2
+        echo "ai-tools-selinux: sessions run unconfined until it loads; re-run: sudo semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp" >&2
+    }
     if command -v restorecon >/dev/null 2>&1; then
         restorecon -R %{ai_libexecdir} %{ai_libdir} /opt/ai-tools /var/log/ai-tools >/dev/null 2>&1 || :
     fi
@@ -861,6 +883,7 @@ fi
 # it through the g:ai-ops:r-x ACL %post applies (%files cannot express an ACL).
 %dir %attr(0750, root, ai-tools) /var/opt/ai-tools/state
 %dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-pin.d
+%dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-label.d
 %dir %attr(0700, root, root) /var/log/ai-tools
 %ghost %attr(0600, root, root) /var/log/ai-tools/chown.log
 %ghost %attr(0600, root, root) /var/log/ai-tools/setgid.log

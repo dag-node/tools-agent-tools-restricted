@@ -11,6 +11,7 @@
 #   sudo ./install.sh install              deploy all files, enable timer
 #   sudo ./install.sh uninstall            remove deployed files, disable timer
 #   sudo ./install.sh check-perms          run the permissions test (tests/integration/perms.sh; also part of the suite offered at the end of an interactive install)
+#   sudo ./install.sh install --operator op      enrol the named account, asking nothing
 #
 # Project registration lives in the `ai-tools` CLI (/usr/local/bin/ai-tools), run
 # as the projects user, not in install.sh:
@@ -25,20 +26,40 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-readonly ACTION="${1:-install}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
+
+# usage: the one place the accepted arguments are spelled out, printed by a malformed command line
+# and by an unrecognized action alike.
+usage() {
+    printf 'usage: sudo %s [install|uninstall|check-perms] [--operator <account>]\n' "$0" >&2
+    printf '       (register projects with the ai-tools CLI, not install.sh)\n' >&2
+    exit 1
+}
+
+# Arguments: an optional action (default install) and an optional --operator, which names the
+# account to enrol instead of asking for it -- what an unattended install and the guard tests use,
+# and the only route by which a name other than SUDO_USER arrives without a terminal.
+ACTION=""
+OPERATOR_OPT=""
+while (( $# )); do
+    case "$1" in
+        --operator)
+            [[ $# -ge 2 ]] || { echo "error: --operator needs an account name" >&2; exit 1; }
+            OPERATOR_OPT="$2"; shift 2 ;;
+        --operator=*)
+            OPERATOR_OPT="${1#--operator=}"; shift ;;
+        *)
+            [[ -z "${ACTION}" ]] || usage
+            ACTION="$1"; shift ;;
+    esac
+done
+readonly ACTION="${ACTION:-install}" OPERATOR_OPT
 
 # ── Guards ─────────────────────────────────────────────────────────────────────
 
 [[ "${EUID}" -eq 0 ]] \
     || { echo "error: run with sudo" >&2; exit 1; }
-
-PROJECTS_USER="${SUDO_USER:?error: SUDO_USER not set -- invoke via sudo, not as root directly}"
-PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"
-PROJECTS_GROUP="$(id -gn "${PROJECTS_USER}")"
-[[ -d "${PROJECTS_HOME}" ]] \
-    || { echo "error: home directory ${PROJECTS_HOME} not found" >&2; exit 1; }
 
 # Sandbox service account the agent runs as. This is only a PARTIAL knob: owner
 # strings and the sudoers principal/runas spec (the @SANDBOX_USER@/@SANDBOX_GROUP@
@@ -48,6 +69,47 @@ PROJECTS_GROUP="$(id -gn "${PROJECTS_USER}")"
 # requires changing those too. See docs/naming-conventions.md.
 readonly SANDBOX_USER="ai-tools"
 readonly SANDBOX_GROUP="ai-tools"
+
+# operator_refusal <name> -- echo why <name> cannot be the operator this install enrols, or
+# nothing when it can. The single home for that decision, because a name now reaches it by three
+# routes -- the invoking SUDO_USER, --operator, and the prompt -- which must refuse alike or the
+# route decides the outcome.
+#
+# Root is the one that matters: `ai-tools-admin operator add` refuses it outright and this script
+# reaches the same end state by a different route (the @PROJECTS_USER@ substitution plus
+# `usermod -aG ai-ops`), producing a host nobody can provision -- the CLI refuses root every
+# mutating verb, --for refuses root as a target, and operator.lib.sh resolves path owners from
+# OPERATORS, so the ownership handback would restore agent-written files to root:ai-tools. It is
+# reachable without meaning to: sudo invoked from a root shell sets SUDO_USER=root, so `sudo -i`
+# followed by `sudo ./install.sh` arrives here with a resolvable home and a real group.
+operator_refusal() {
+    local name="$1" home
+    if [[ -z "${name}" ]]; then
+        echo "no account named"
+    elif [[ "${name}" == "root" ]]; then
+        echo "the operator must be a normal login user, not root"
+    elif [[ "${name}" == "${SANDBOX_USER}" ]]; then
+        echo "the operator must not be the sandbox account ${SANDBOX_USER}"
+    elif ! id "${name}" &>/dev/null; then
+        echo "no such user: ${name}"
+    else
+        home="$(getent passwd "${name}" | cut -d: -f6)"
+        [[ -d "${home}" ]] || echo "${name} has no home directory on this host (${home:-none})"
+    fi
+}
+
+# The install runs its verification suite as SUDO_USER, so that variable is required whichever
+# account is enrolled: --operator decides WHO is enrolled, never how this script was invoked.
+: "${SUDO_USER:?error: SUDO_USER not set -- invoke via sudo, not as root directly}"
+PROJECTS_USER="${OPERATOR_OPT:-${SUDO_USER}}"
+OPERATOR_REFUSAL="$(operator_refusal "${PROJECTS_USER}")"
+[[ -z "${OPERATOR_REFUSAL}" ]] \
+    || { echo "error: ${OPERATOR_REFUSAL}" >&2
+         echo "       name a normal login account: sudo ./install.sh --operator <account>" >&2
+         exit 1; }
+unset OPERATOR_REFUSAL
+PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"
+PROJECTS_GROUP="$(id -gn "${PROJECTS_USER}")"
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -660,9 +722,9 @@ do_summary() {
     _chk /opt/ai-tools/.claude/settings.json
     _chk /opt/ai-tools/subagents/ai-tools-reference-architect.md
     _chk /opt/ai-tools/.claude/agents/ai-tools-reference-architect.md
-    _chk /opt/ai-tools/skills/ai-tools-docs-reference/SKILL.md
+    _chk /opt/ai-tools/skills/ai-tools-technical-docs/SKILL.md
     _chk /opt/ai-tools/skills/ai-tools-engineering-principles/SKILL.md
-    _chk /opt/ai-tools/.claude/skills/ai-tools-docs-reference
+    _chk /opt/ai-tools/.claude/skills/ai-tools-technical-docs
 
     printf '  %s\n' "${sep}"
     if (( missing == 0 )); then
@@ -888,6 +950,7 @@ do_install() {
     # Verified entrypoint pins: root-owned and not group-writable, so the account the pin
     # constrains cannot write it. 755 so the sandbox account can read the pin at launch.
     install -o root -g root -d -m 755 /var/opt/ai-tools/state/entrypoint-pin.d
+    install -o root -g root -d -m 755 /var/opt/ai-tools/state/entrypoint-label.d
     log "/usr/local/lib/ai-tools/keys/claude-code.asc"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/keys/claude-code.asc" \
@@ -1574,6 +1637,7 @@ do_install() {
         chown "root:${SANDBOX_GROUP}" "${_shared}"
         ai_tools_apply_mode "${CP_DIR_MODES[${_kind}]}" "${_shared}"
         ai_tools_seed_managed_assets /usr/share/ai-tools "${CP_HOME}" "${SANDBOX_GROUP}" "${_kind}"
+        ai_tools_remove_retired_assets "${CP_HOME}" "${_kind}"
         ai_tools_link_asset_readme "/usr/share/ai-tools/${_kind}/README.md" \
             "${_shared}" "${SANDBOX_GROUP}"
     done
@@ -1893,8 +1957,67 @@ do_uninstall() {
 
 # ── dispatch ───────────────────────────────────────────────────────────────────
 
+# ── The operator this install enrols ─────────────────────────────────────────────
+# choose_operator -- name the operator explicitly instead of adopting SUDO_USER unannounced.
+#
+# One account comes out of this install holding both facts that make an operator: ai-ops
+# membership and a name in OPERATORS. Which account that is was previously decided by whoever
+# happened to type sudo, which is right often enough that the decision was never visible -- and
+# wrong for the two shapes an administrator actually picks between: enrolling a purpose-made
+# provisioning account, and installing on behalf of someone else.
+#
+# The prompt defaults to SUDO_USER, so a non-interactive run and a plain Enter both keep the
+# previous behaviour. Answering No reads a name, refused through operator_refusal -- the same
+# decision the entry applies, since a typed name reaches it by a different route.
+#
+# `--operator <account>` answers the question ahead of time: the entry has already refused an
+# unusable name, so there is nothing left to ask and the prompt is skipped. That is what an
+# unattended install uses, and what lets the refusals be driven without a terminal.
+#
+# It states what enrolment does NOT confer: a claim additionally needs a general sudo grant that
+# this script cannot write, so an account without one launches sessions and has its projects
+# claimed for it with `ai-tools --project-claim --for`.
+choose_operator() {
+    local candidate attempts=3 refusal
+    if [[ -n "${OPERATOR_OPT}" ]]; then
+        log "enrolling ${PROJECTS_USER} (${PROJECTS_HOME}, group ${PROJECTS_GROUP}) -- named with --operator"
+        return 0
+    fi
+    confirm_boxed "Operator" y "Enrol ${PROJECTS_USER}?" \
+        "This install enrols ONE operator: the account is added to the ai-ops group and to" \
+        "OPERATORS in /etc/ai-tools/operator.conf, and the sandbox area is prepared for it." \
+        "" \
+        "  ${PROJECTS_USER}   (the account that invoked sudo)" \
+        "" \
+        "Answer No to name a different account -- a purpose-made provisioning account, or the" \
+        "colleague this host is being set up for." \
+        "" \
+        "Claiming projects also needs a general sudo grant, which this script does not write." \
+        "An operator without one launches agent sessions; another operator claims for it with" \
+        "ai-tools --project-claim --for <operator>." \
+        && return 0
+
+    while (( attempts-- > 0 )); do
+        printf 'operator account: ' > /dev/tty
+        read -r candidate < /dev/tty || candidate=""
+        candidate="${candidate//[[:space:]]/}"
+        refusal="$(operator_refusal "${candidate}")"
+        if [[ -n "${refusal}" ]]; then
+            warn "${refusal}"
+        else
+            PROJECTS_USER="${candidate}"
+            PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"
+            PROJECTS_GROUP="$(id -gn "${PROJECTS_USER}")"
+            log "enrolling ${PROJECTS_USER} (${PROJECTS_HOME}, group ${PROJECTS_GROUP})"
+            return 0
+        fi
+    done
+    die "no usable operator named -- re-run the install and name one that exists"
+}
+
 case "${ACTION}" in
     install)
+        choose_operator
         do_install
         ;;
     uninstall)
@@ -1907,8 +2030,6 @@ case "${ACTION}" in
         exec bash "${SCRIPT_DIR}/tests/integration/perms.sh"
         ;;
     *)
-        printf 'usage: sudo %s [install|uninstall|check-perms]\n' "$0" >&2
-        printf '       (register projects with the ai-tools CLI, not install.sh)\n' >&2
-        exit 1
+        usage
         ;;
 esac

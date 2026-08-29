@@ -68,6 +68,15 @@ source /usr/local/lib/ai-tools/relabel.lib.sh
 declare -F ai_tools_label_agent_paths >/dev/null 2>&1 \
     || die "relabel.lib.sh is incomplete -- reinstall ai-tools-base"
 
+# Serialize against the other callers of this helper before touching the policy store: the agent
+# package's %post, the ai-tools-relabel.path watcher, and `ai-tools --relabel` all run it, and an
+# upgrade drives two of them at once. Taken here so it covers --remove as well, which writes the
+# same store. Proceeding unserialized is reported, not fatal (see relabel.lib.sh).
+ai_tools_relabel_lock
+[[ -z "${AI_TOOLS_RELABEL_LOCK_NOTE}" ]] \
+    || { say "NOTE: relabels are not serialized on this host -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"
+         ai_tools_log_warn "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"; }
+
 # --remove <agent>: erase-time counterpart, invoked by the agent package's own %preun while its
 # manifest is still on disk. Dropping the rules matters because the types they name belong to the
 # base policy, which the host may erase next.
@@ -94,6 +103,7 @@ if ! source "${ENTRYPOINT_VERIFY_LIB}" 2>/dev/null \
     ai_tools_log_warn "entrypoint verifier unavailable -- no entrypoint pinned this run"
     ai_tools_entrypoint_release_verify() { return 2; }
     ai_tools_entrypoint_pin_write() { return 1; }
+    ai_tools_entrypoint_label_write() { return 1; }
 fi
 
 # pin_agent_entrypoint <agent> : verify one agent's installed entrypoint against its vendor's
@@ -157,9 +167,11 @@ _installed_agent_version() {
 }
 
 pin_failures=0
+enabled_agents=()
 if declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
     while IFS=$'\t' read -r pin_agent _ _; do
         [[ -n "${pin_agent}" ]] || continue
+        enabled_agents+=( "${pin_agent}" )
         pin_agent_entrypoint "${pin_agent}" || pin_failures=$(( pin_failures + 1 ))
     done < <(ai_tools_enabled_agents 2>/dev/null)
 fi
@@ -172,8 +184,28 @@ fi
 # active here, which is a supported deployment and not a failure).
 report=""; status=0
 report="$(ai_tools_label_agent_paths)" || status=$?
+
+# record_label_outcome <agent> <ok|failed|skipped> [reason-token] : file what this run could do
+#   about that agent's labels where `ai-tools --status` can read it. The operator cannot inspect
+#   the labels themselves -- the entrypoint sits in a toolchain they cannot traverse -- so this
+#   record is the only account of the labelling half they have, the counterpart to the pin the
+#   verification half writes. Best-effort: a record that cannot be written is reported and never
+#   changes the outcome of the relabel it describes.
+record_label_outcome() {
+    ai_tools_entrypoint_label_write "$1" "$2" "${3:-}" && return 0
+    say "WARNING: could not record ${1}'s labelling outcome for ai-tools --status"
+    ai_tools_log_warn "could not write the label record for $1"
+    return 0
+}
+
 if (( status == 2 )); then
     say "SELinux confinement inactive -- no agent labelling needed"
+    # Recorded rather than left silent: on a DAC-only host there is nothing to label and nothing to
+    # fix, which is a different report from "this vantage point cannot tell".
+    for label_agent in "${enabled_agents[@]:-}"; do
+        [[ -n "${label_agent}" ]] || continue
+        record_label_outcome "${label_agent}" skipped selinux-inactive
+    done
     exit 0
 fi
 
@@ -181,6 +213,7 @@ fi
 # reads and what fails the run. The wanted type travels with a "bad" line, since an agent
 # declares two paths that carry different types.
 labelled=0 mislabelled=0 stale=0
+declare -A agent_outcome=() agent_reason=()
 if [[ -n "${report}" ]]; then
     while read -r verdict subject detail wanted; do
         case "${verdict}" in
@@ -191,16 +224,33 @@ if [[ -n "${report}" ]]; then
                    say "WARNING: ${subject} is '${detail}', NOT ${wanted}"
                    ai_tools_log_warn "${subject} did not take ${wanted} (now '${detail}')" ;;
             stale) stale=$(( stale + 1 ))
+                   agent_reason["${subject}"]="stale-declaration"
                    say "WARNING: ${subject}: its installed entrypoint is ${detail}"
                    say "         -- a path the file-context rule its manifest declares does not cover"
                    ai_tools_log_warn "${subject}: installed entrypoint ${detail} is not covered by its declared entrypoint_fcontext" ;;
             none)  say "${subject}: ${detail} is not installed -- nothing to label"
                    ai_tools_log_info "${subject}: ${detail} absent, nothing to label" ;;
-            skip)  say "${subject}: skipped -- ${detail} ${wanted}"
+            skip)  agent_reason["${subject}"]="rule-not-registered"
+                   say "${subject}: skipped -- ${detail} ${wanted}"
                    ai_tools_log_warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
+            # Closes an agent's lines with its whole outcome. Recorded here, where the per-agent
+            # reason lines above have already been seen, so a failure is filed with the cause that
+            # decides the remedy rather than with a bare "failed".
+            agent) agent_outcome["${subject}"]="${detail}" ;;
         esac
     done <<< "${report}"
 fi
+
+for label_agent in "${!agent_outcome[@]}"; do
+    case "${agent_outcome[${label_agent}]}" in
+        ok)     record_label_outcome "${label_agent}" ok ;;
+        # Nothing installed to label: the ordinary state before ai-tools-bootstrap provisions the
+        # toolchain, and not a fault -- so it is filed the same way an inactive SELinux layer is.
+        none)   record_label_outcome "${label_agent}" skipped not-provisioned ;;
+        failed) record_label_outcome "${label_agent}" failed \
+                    "${agent_reason[${label_agent}]:-did-not-take-its-type}" ;;
+    esac
+done
 
 # A stale declaration is reported FIRST, because it is the more specific cause and the only one
 # here this helper cannot clear: the entrypoint is installed somewhere the declared rule does not

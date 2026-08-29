@@ -3,9 +3,12 @@
 # tests/integration/cli.sh
 # Integration: the ai-tools management CLI. The CLI edits the allowlist as the PROJECTS user (and
 # registers git safe.directory through the ai-tools-safedir root helper); it must refuse to run as
-# root (it would write the registries with the wrong owner) and as the sandbox account (the agent
-# must not manage its own allowlist). Asserts both refusals fire, that the projects user passes the
-# guard, the operator preflight and the per-verb "not a claimed project" refusals, and -- over a
+# the sandbox account for every verb (the agent must not manage its own allowlist), and as root for
+# every verb that WRITES OPERATOR-OWNED STATE (it would write the registries with the wrong owner)
+# while accepting the ones that write none -- the four reports, which root reaches because
+# --audit's trail is 700 root:root, and --stop, whose helper requires root. Asserts that
+# split in both directions, that the projects user passes the guard, the operator preflight and the
+# per-verb "not a claimed project" refusals, and -- over a
 # FIXTURE allowlist + gitconfig (the AI_TOOLS_ALLOWLIST / AI_TOOLS_GITCONFIG root-only test hooks,
 # so it never reads the operator's real registry) -- the full --list reconciliation render: every
 # entry class, every Suggested-cleanup class, and that the loop reaches its Maintenance footer past
@@ -16,19 +19,62 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
 readonly CLI="/usr/local/bin/ai-tools"
-section "CLI principal guard (refuses root and the sandbox account)"
+section "CLI principal guard (root reads only; the sandbox account is refused outright)"
 
 if [[ ! -x "${CLI}" ]]; then
     skip "CLI principal guard" "not installed at ${CLI}"; finish; exit
 fi
 
-# (1) Running as root must be refused before any registry write.
-out="$("${CLI}" --list 2>&1)" && rc=0 || rc=$?
-if [[ ${rc} -ne 0 ]] && grep -qi 'do not run as root' <<<"${out}"; then
-    pass "CLI refuses to run as root (would write registries with the wrong owner)"
+# (1a) Every verb that WRITES OPERATOR-OWNED STATE must refuse root before the first write. One
+# per family, since the guard keys on the verb: a claim, a clone, a per-project helper verb, and
+# the host-wide relabel.
+for verb in --project-claim --project-unclaim --sandbox-create --lockdown --reclaim --relabel; do
+    out="$("${CLI}" "${verb}" 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'do not run as root' <<<"${out}"; then
+        pass "CLI refuses root on ${verb} (would write registries with the wrong owner)"
+    else
+        fail "CLI did not refuse root on ${verb} (rc=${rc}): ${out}"
+    fi
+done
+
+# (1b) The verbs that write no operator state are the carve-out: --audit needs root by
+# construction (its trail is 700 root:root), and refusing it left the verb unreachable from BOTH
+# sides on a host whose only operator holds no general sudo grant. Asserted on the refusal text
+# rather than the exit status: --audit and --status both exit non-zero to REPORT something, which
+# is not a refusal.
+for verb in --audit --status --list --providers; do
+    out="$("${CLI}" "${verb}" 2>&1)" || true
+    if ! grep -qi 'do not run as root' <<<"${out}"; then
+        pass "CLI accepts root on the read-only report ${verb}"
+    else
+        fail "CLI wrongly refused root on the read-only report ${verb}: ${out}"
+    fi
+done
+
+# --stop is in that set too and is the one member that ACTS, so it is asserted through a REFUSAL
+# it reaches only past the principal guard: an unknown option, which cmd_stop's argument loop
+# rejects with the documented usage code BEFORE the sudo that would reach the root helper. Driving
+# the bare command here would terminate every session on the host -- including the one running
+# this suite -- so the assertion is that root got as far as the option loop, not that a stop ran.
+out="$("${CLI}" --stop --bogus 2>&1)" && rc=0 || rc=$?
+if [[ ${rc} -eq 2 ]] && grep -qi 'unknown --stop option' <<<"${out}"; then
+    pass "CLI accepts root on --stop (reached the option loop, no session signalled)"
 else
-    fail "CLI did not refuse root (rc=${rc}): ${out}"
+    fail "CLI did not admit root to --stop's option loop (rc=${rc}): ${out}"
 fi
+
+# (1c) --for stays refused for root in EITHER argument order: root is not in OPERATORS, so an
+# entry written for it names an owner no ownership helper can resolve. The trailing form is the
+# one a $1-keyed guard would miss, which is why the check runs after --for is separated out.
+for form in "--for ${PROJECTS_USER} --list" "--list --for ${PROJECTS_USER}"; do
+    # shellcheck disable=SC2086  # deliberate word-splitting: each form is a command line
+    out="$("${CLI}" ${form} 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'do not run as root' <<<"${out}"; then
+        pass "CLI refuses root on '${form}' (--for needs an enrolled invoker)"
+    else
+        fail "CLI did not refuse root on '${form}' (rc=${rc}): ${out}"
+    fi
+done
 
 # (2) Running as the sandbox account must be refused -- the agent must not manage its own
 # allowlist. The CLI is 755 root:root, so the agent can exec it; the guard, not the perms,

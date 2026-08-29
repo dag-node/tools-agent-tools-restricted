@@ -33,6 +33,13 @@ fi
 # shellcheck source=/dev/null
 source "${LIB}"
 
+# The stamp accessors, which is how `ai-tools --status` reads the label record this library writes.
+# Loaded here so the round-trip below is asserted through the REAL reader rather than a local one:
+# the record and the reader are only worth anything if they agree on the grammar.
+readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
+# shellcheck source=/dev/null
+source "${SERVICES_LIB}" 2>/dev/null || true
+
 readonly SHA_A="55d281096f57d411ebbdd94dbf5e9ff3accb7c05713e37348c2c11d4b83bf9d9"
 readonly SHA_B="0000000000000000000000000000000000000000000000000000000000000000"
 
@@ -154,6 +161,79 @@ elif runuser -u "${SANDBOX_USER}" -- bash -c "source '${LIB}'; ai_tools_entrypoi
     fail "the sandbox account was allowed to write an entrypoint pin -- it could bless its own binary"
 else
     pass "the sandbox account cannot write an entrypoint pin (root-only by construction)"
+fi
+
+# ── The label record ─────────────────────────────────────────────────────────────────────────
+# The labelling half of a reconciliation files its outcome beside the pin, and `ai-tools --status`
+# reads it to report whether the last relabel could apply an agent's SELinux rules. Without it the
+# report shows the verification half alone -- a fresh green line written by the same run whose
+# labelling failed, which reads as an all-clear rather than as half a story.
+#
+# It shares the pin's path guard, so the same escapes are refused: an agent name becomes a path
+# component here too.
+if [[ "$(ai_tools_entrypoint_label_path claude-code 2>/dev/null || printf '')" \
+      == "${AI_TOOLS_ENTRYPOINT_LABEL_DIR:-/var/opt/ai-tools/state/entrypoint-label.d}/claude-code" ]]; then
+    pass "label path: a plain agent name resolves inside the label directory"
+else
+    fail "label path: claude-code did not resolve to a record inside the label directory"
+fi
+for bad in "../../etc/passwd" "a/b" ".." "" "a b"; do
+    if ai_tools_entrypoint_label_path "${bad}" >/dev/null 2>&1; then
+        fail "label path: agent name '${bad}' was accepted -- it could address a file outside the label directory"
+    else
+        pass "label path refused: agent name '${bad}'"
+    fi
+done
+
+# A result outside the vocabulary is refused rather than filed: `ai-tools --status` reports an
+# unrecognised RESULT as "no labelling recorded", so a typo would read as a host that has never
+# relabelled instead of as the outcome it meant to record.
+mktestdir
+AI_TOOLS_ENTRYPOINT_LABEL_DIR="${TESTDIR}/labels"
+for bad_result in "" "OK" "success" "failed;id"; do
+    if ai_tools_entrypoint_label_write claude-code "${bad_result}" 2>/dev/null; then
+        fail "label write accepted the result '${bad_result}'"
+    else
+        pass "label write refused the result '${bad_result:-<empty>}'"
+    fi
+done
+
+# Root-only, for the same reason the pin is: it is a record about the sandbox account's own
+# entrypoint, placed where that account cannot rewrite it.
+if ! declare -F ai_tools_service_stamp_field >/dev/null 2>&1; then
+    skip "label record round trip" "services.lib.sh not readable at ${SERVICES_LIB}"
+elif [[ "${EUID}" -ne 0 ]]; then
+    skip "label record round trip" "needs root to write into the record directory"
+elif ! command -v runuser >/dev/null 2>&1; then
+    skip "label write is root-only" "runuser unavailable"
+else
+    if runuser -u "${SANDBOX_USER}" -- bash -c \
+        "AI_TOOLS_ENTRYPOINT_LABEL_DIR='${AI_TOOLS_ENTRYPOINT_LABEL_DIR}'; source '${LIB}'; ai_tools_entrypoint_label_write probe ok" 2>/dev/null; then
+        fail "the sandbox account was allowed to write a label record -- it could report its own labels healthy"
+    else
+        pass "the sandbox account cannot write a label record (root-only by construction)"
+    fi
+
+    # Written in the stamp grammar, so --status reads it through the same accessors as the pin
+    # rather than a second reader that could drift.
+    if ai_tools_entrypoint_label_write claude-code failed rule-not-registered \
+       && [[ "$(ai_tools_service_stamp_field "$(ai_tools_entrypoint_label_path claude-code)" RESULT)" == failed \
+             && "$(ai_tools_service_stamp_field "$(ai_tools_entrypoint_label_path claude-code)" REASON)" == rule-not-registered \
+             && -n "$(ai_tools_service_stamp_age "$(ai_tools_entrypoint_label_path claude-code)" LABELLED)" ]]; then
+        pass "a written record reads back through the shared stamp accessors"
+    else
+        fail "the label record did not read back as RESULT=failed with its reason and a LABELLED age"
+    fi
+
+    # A reason is a token, never prose: the accessors' charset clamp admits no spaces, so a value
+    # carrying any would read as absent and the record would lose the field silently. It is dropped
+    # at write time instead, leaving a record whose every field can be read back.
+    if ai_tools_entrypoint_label_write claude-code failed "rule not registered; id" \
+       && [[ -z "$(grep -c '^REASON=' "$(ai_tools_entrypoint_label_path claude-code)" 2>/dev/null | grep -v '^0$')" ]]; then
+        pass "a reason that is not a token is dropped rather than written unreadable"
+    else
+        fail "a non-token reason was written into the record"
+    fi
 fi
 
 finish

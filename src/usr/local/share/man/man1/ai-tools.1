@@ -15,11 +15,38 @@ ai-tools \- manage the projects a sandboxed coding agent may work in
 registers, secures, and hands back the projects the sandboxed coding agent
 (Claude Code, running as the unprivileged
 .B ai-tools
-system account) may work in. Run it as your own login user \(em never as root
-and never as the sandbox account; the CLI refuses both. Steps that need root
+system account) may work in. Run it as your own login user \(em never as the
+sandbox account, which the CLI refuses for every command. Steps that need root
 (secret lockdown, ownership, SELinux labels) invoke
 .B sudo
 themselves and prompt for your password.
+.PP
+Root may run the commands that write no operator-owned state \(em
+.BR \-\-audit ,
+.BR \-\-status ,
+.BR \-\-list ,
+.BR \-\-providers ,
+.BR \-\-stop .
+Every other command writes registries that belong to an operator and refuses
+root, as does
+.B \-\-for
+in any combination.
+.B \-\-audit
+needs root either way, since the trail it reads is
+.BR "700 root:root" ,
+and
+.B \-\-list
+run by root reports root's own registry, which is empty on a normal host.
+.B \-\-stop
+is the one member of that set that acts rather than reports: its helper needs root either
+way, and root is what an unattended detector usually runs as.
+.PP
+A command whose root helper your account holds no
+.BR sudo (8)
+rule for is refused before any password prompt, naming the command an operator
+who does hold one can run instead \(em for most commands that is the same
+command with
+.BR \-\-for .
 .PP
 Every
 .I path
@@ -28,6 +55,32 @@ states its default in the prompt
 .RB ( "[Y/n] (default: Yes)" );
 plain Enter \(em and any run without a terminal \(em takes the default, which
 always falls on the safe side of the question.
+.SS Operators and the sudo grant
+Being an operator is two facts, both written by
+.BR "ai\-tools\-admin operator add" :
+membership of the
+.B ai\-ops
+group, and a name in
+.B OPERATORS
+in
+.BR operator.conf (5).
+A general
+.BR sudo (8)
+grant is neither of them \(em the host's own sudoers decides it, and nothing in
+this package writes or records it.
+.PP
+An operator holding only the two launches agent sessions and reads the reports.
+The commands that write a registry \(em
+.BR \-\-project\-claim ,
+.BR \-\-project\-unclaim ,
+.BR \-\-lockdown ,
+.BR \-\-reclaim ,
+.B \-\-sandbox\-create
+\(em reach root helpers with no NOPASSWD rule and need the grant as well; an
+operator who holds one performs them on another's behalf with
+.BR \-\-for .
+A host needs at least one operator holding the grant, since root is refused
+every command that writes.
 .SH COMMANDS
 .TP
 .B \-\-project\-claim \fR[\fB\-y\fR] [\fIpath\fR]
@@ -155,7 +208,16 @@ launch gets. Runs via
 .BR sudo :
 a session is a transient unit in the sandbox account's own per-user
 .BR systemd (1)
-manager, and signalling it is root's to do.
+manager, and signalling it is root's to do. The bare command needs
+.B no password
+\(em the operators group holds a
+.B NOPASSWD
+rule for exactly that form, so a detector with no human present can reach it \(em while
+.B \-\-force
+and
+.B \-\-dry\-run
+fall outside the rule and prompt. Why it is granted this way:
+.IR /usr/share/doc/ai\-tools/session\-stop.md .
 .IP
 It is
 .B not
@@ -410,6 +472,56 @@ refused elsewhere rather than ignored. It cannot be combined with
 .BR "\-\-project\-unclaim \-\-force" ,
 whose tree carries no allowlist entry naming an owner and is therefore bound to
 the invoking operator.
+.SH EXIT STATUS
+.TP
+.B 0
+The command completed.
+A dry run that printed its plan, and an idempotent verb that found nothing left
+to do, both land here.
+.TP
+.B 1
+The operation failed.
+For
+.B \-\-stop
+this is the specific case that a process was still running after the kill:
+re-run it.
+.TP
+.B 2
+The command line was rejected.
+.B \-\-stop
+returns this for a
+.I path
+argument, which it refuses rather than accepts and ignores.
+.TP
+.B 3
+The target is a protected path \(em a system directory or a home root \(em and
+every elevated helper refuses it, whatever the allowlist says.
+.TP
+.B 5
+.B \-\-stop
+could not run at all: it was not invoked as root, the sandbox account has no
+uid, or the host exposes no cgroup v2 hierarchy.
+No session was signalled.
+.TP
+.B 130
+.B \-\-stop
+was interrupted by a signal.
+Some sessions may be partially stopped; re-run it.
+.SH ENVIRONMENT
+.TP
+.B AI_TOOLS_ASSUME_YES
+Set to
+.B 1
+to answer every question whose default is already
+.I yes
+without prompting, for unattended runs.
+A question defaulting to
+.I no
+still prompts, so this never turns a refusal into consent.
+.PP
+Operator-wide settings are not environment variables: they live in
+.BR operator.conf (5),
+which is root-owned so that a session cannot widen what it is given.
 .SH FILES
 .TP
 .I ~/.config/ai-tools/allowed-projects
@@ -424,18 +536,56 @@ Operator registry and skip-list overrides.
 The sandbox-clone area;
 .I /var/opt/ai-tools/README.md
 documents the push-only clone workflow.
+.SH EXAMPLES
+Claim the project in the current directory, answering each prompt:
+.PP
+.RS 4
+.EX
+ai\-tools \-\-project\-claim
+.EE
+.RE
+.PP
+Claim a specific tree, taking every default:
+.PP
+.RS 4
+.EX
+ai\-tools \-\-project\-claim \-y ~/src/myproject
+.EE
+.RE
+.PP
+List what is registered, and what the sandbox account resolves for a session:
+.PP
+.RS 4
+.EX
+ai\-tools \-\-list
+ai\-tools \-\-providers
+.EE
+.RE
+.PP
+End every running agent session on the host (no password; run it as yourself):
+.PP
+.RS 4
+.EX
+ai\-tools \-\-stop
+.EE
+.RE
+.PP
+Give a project back and leave the directory on disk:
+.PP
+.RS 4
+.EX
+ai\-tools \-\-project\-unclaim ~/src/myproject
+.EE
+.RE
 .SH SEE ALSO
-.BR sudo (8),
-.BR setfacl (1).
+.BR operator.conf (5),
+.BR setfacl (1),
+.BR sudo (8).
 .PP
-The lifecycle guide (claim vs sandbox decision, what each prompt grants,
-recovery paths):
-.I docs/project\-lifecycle.md
-in the source repository
-.RI ( https://github.com/dag\-node/tools\-agent\-tools\-restricted ).
+The lifecycle guide \(em claim against sandbox clone, what each prompt grants,
+and the recovery paths:
+.I /usr/share/doc/ai\-tools/project\-lifecycle.md
 .PP
-Stopping a running session \(em what each outcome means, the invariants the stop rests
-on, and what a stop cannot undo:
+Stopping a running session \(em what each outcome means, the invariants the stop
+rests on, and what a stop cannot undo:
 .I /usr/share/doc/ai\-tools/session\-stop.md
-.RI ( docs/session\-stop.md
-in the source repository).

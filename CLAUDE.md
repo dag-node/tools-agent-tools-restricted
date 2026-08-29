@@ -98,23 +98,48 @@ Each step's mechanism is in the rule files above; the invariant each guarantees:
 
 The sudoers drop-in (`/etc/sudoers.d/ai-tools`) is a static `%ai-ops` group rule
 granting the **operators** (members of the `ai-ops` group, managed by `ai-tools-admin`)
-two NOPASSWD rules:
+three NOPASSWD rules:
 
 ```
 %ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/ai-tools-run
 %ai-ops  ALL=(root)                       NOPASSWD: /usr/local/libexec/ai-tools/ai-tools-relabel-agent ""
+%ai-ops  ALL=(root)                       NOPASSWD: /usr/local/libexec/ai-tools/ai-tools-stop ""
 ```
 
-The first **drops** privilege to `SANDBOX_USER` (launch); the second runs **as root** for
-the on-demand `ai-tools --relabel` entrypoint relabel (a fixed path, pinned by the trailing
-`""` to the zero-argument form — see [launch](.claude/rules/launch.rule.md)). The toolchain update runs as `SANDBOX_USER` in
+The first **drops** privilege to `SANDBOX_USER` (launch); the other two run **as root**, each at a
+fixed path pinned by the trailing `""` to the zero-argument form — the on-demand
+`ai-tools --relabel` entrypoint relabel, and `ai-tools --stop`, which terminates every running
+agent session and is granted without a password so that unattended monitoring can reach the
+incident ladder's stop rung. What each rule is scoped to, and what the stop rule deliberately
+withholds, are in [launch](.claude/rules/launch.rule.md). The toolchain update runs as `SANDBOX_USER` in
 its own `systemd --user` instance and the automatic post-upgrade relabel runs through the
 root-side `ai-tools-relabel.path` watcher, so neither needs a sudo rule. The agent runs
-*as* `SANDBOX_USER`, which is not in `ai-ops` and has no rule of its own, so **neither**
-rule grants it anything — including the root rule, which `SANDBOX_USER` cannot reach.
+*as* `SANDBOX_USER`, which is not in `ai-ops` and has no rule of its own, so **no**
+rule grants it anything — including the two root rules, which `SANDBOX_USER` cannot reach.
 `ai-tools-run` additionally refuses to launch
 unless it runs as `SANDBOX_USER` and refuses if `SANDBOX_USER` is ever in `ai-ops`, so the
 sandbox account can never hold the operator grant.
+
+### An operator is two facts; provisioning needs a third this project does not grant
+
+`ai-tools-admin operator add` writes both facts that make an operator: membership of `ai-ops`
+(the rules above, and the launch wrapper's own gate) and a name in `OPERATORS`
+(`/etc/ai-tools/operator.conf`, from which `operator.lib.sh` resolves each path's owner). An
+account holding only those two runs agent sessions on the projects claimed for it, and is a
+first-class operator — the shape `ai-tools --for <operator>` exists to serve, and the one a
+passwordless service account takes.
+
+Claim, unclaim, lockdown, reclaim, and sandbox-create reach root helpers carrying **no** NOPASSWD
+rule, so each needs a **general sudo grant** as well. That grant is a third, independent axis:
+nothing here installs it, records it, or can infer it from the other two — `ai-tools-admin` writes
+`operator.conf` and the group, never sudoers, and the RPM enrols nobody at all. The CLI answers
+for it by asking `sudo` before the verb's first prompt (see [cli](.claude/rules/cli.rule.md)).
+
+**A host needs at least one operator holding that grant.** Without one, no project can be claimed
+on it by any principal — root included, since every mutating verb refuses root to keep an
+operator's registries out of root's ownership. That operator provisions, and the others run
+sessions on what it claimed for them with `--for`. A purpose-made provisioning account satisfies
+this, so a human administrator need not be an operator at all.
 
 ### Trust is one-sided, and every refusal moves to less access
 
@@ -145,10 +170,10 @@ The invariants the agent operates under:
   `PR_SET_NO_NEW_PRIVS`, which drops `sudo`'s SUID bit, so `sudo` is inoperative from
   inside the session by construction.
 - **`SANDBOX_USER` has no login shell and no password.**
-- **The `%ai-ops` rules run only `ai-tools-run` as `SANDBOX_USER`** — never an arbitrary
-  shell or binary. `ai-tools-run` is a fixed-path target (no glob), `root:SANDBOX_GROUP` and
-  not writable by the agent. The agent itself, *as* `SANDBOX_USER`, holds no sudo rule at
-  all.
+- **Every `%ai-ops` rule names one fixed-path program** — never an arbitrary shell or binary, and
+  never a glob. `ai-tools-run` is `root:SANDBOX_GROUP` and not writable by the agent; the two root
+  helpers are `750 root:root` and pinned to their zero-argument form. The agent itself, *as*
+  `SANDBOX_USER`, holds no sudo rule at all.
 - **The control-plane files are not agent-writable** — `settings.json`, the hooks,
   `nvm-update.sh`, and `ai-tools-run` are `root:SANDBOX_GROUP` with no group write;
   each agent's config directory (`/opt/ai-tools/<config_dir>`, `.claude` for Claude Code — the
@@ -280,10 +305,17 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
 
 ### Documentation register
 
-Match the surface to its skill — they use different voices:
+**Every artifact in this repo is written to the shipped `ai-tools-technical-docs` skill —
+invoke it before writing or editing prose of any kind.** One standard covers all of them;
+the artifact sections inside it carry the differences in structure, altitude, and reader:
 
-- `CLAUDE.md`, `.claude/rules/*.rule.md`, file/module headers, design notes → **reference-docs**
+- `CLAUDE.md`, `.claude/rules/*.rule.md`, file/module headers, design notes → reference prose
   (present-tense spec; state current behavior, not history).
-- `README.md`, getting-started, usage guides → **usage-docs**.
-- Method/function/class doc comments and docstrings → **doc-comments**.
-- Changelogs, release notes, migration guides → **change-docs**.
+- `README.md`, `docs/*.md`, getting-started guides, man pages → usage prose (example first).
+- Method/function/class doc comments and docstrings → the contract, in concrete types.
+- Changelogs, release notes, migration guides → what the operator gains and what changes on
+  upgrade.
+- Commit messages → Conventional Commits; the why and what the change achieves, pointing at
+  the layer that owns the detail rather than restating it.
+- `src/usr/local/share/man/**` → man pages; see the skill's `references/man-pages.md`.
+- Error messages, notices, and log lines → runtime output: what happened, and what to do.

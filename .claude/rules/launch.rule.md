@@ -219,7 +219,7 @@ sandbox-side in its session-env fragment) — are in
 runs as the invoking user. `/opt/ai-tools` has no `nosuid`, so the switch to
 `SANDBOX_USER` takes effect and the binary is owned by `SANDBOX_USER`.
 
-## Sudoers grants (the two `%ai-ops` rules)
+## Sudoers grants (the three `%ai-ops` rules)
 
 The drop-in (`/etc/sudoers.d/ai-tools`) is a **static** `%ai-ops` group rule the
 package ships unchanged — membership in the `ai-ops` operators group (managed by
@@ -228,6 +228,7 @@ package ships unchanged — membership in the `ai-ops` operators group (managed 
 ```
 %ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/ai-tools-run
 %ai-ops  ALL=(root)                       NOPASSWD: /usr/local/libexec/ai-tools/ai-tools-relabel-agent ""
+%ai-ops  ALL=(root)                       NOPASSWD: /usr/local/libexec/ai-tools/ai-tools-stop ""
 ```
 
 The first rule **drops** privilege to the lower-privileged `SANDBOX_USER`; the agent runs
@@ -247,6 +248,14 @@ operator side beside the launch rule. The automatic post-upgrade relabel runs th
 root-side `ai-tools-relabel.path` watcher, which needs no sudo rule. The toolchain update
 runs as `SANDBOX_USER` in its own `systemd --user` instance, so it needs no sudo rule
 either.
+
+The third rule runs **as root** for the same structural reason and is scoped the same way:
+`ai-tools --stop` terminates every running agent session, which means signalling the sandbox
+account's cgroups, and the `""` pin grants the **bare** command only — so `--force` and `--dry-run`
+fall outside it and meet sudo's ordinary prompt. Where this rule differs is that NOPASSWD is its
+*purpose* rather than a convenience, and what that trades is a security question rather than a
+launch one: both are in [docs/session-stop.md](../../docs/session-stop.md), which owns this
+component ([cli](cli.rule.md) holds its CLI contract).
 
 `SANDBOX_USER` holds no sudo rights in this file. Two `ai-tools-run` preflights enforce the
 account boundary the sudoers model assumes: it refuses to launch unless it runs **as**

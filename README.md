@@ -182,8 +182,8 @@ of what it can ever send:
   CLI, and `install.sh` log through one library to **journald** (always, leveled and
   tagged: `journalctl -t ai-tools-chown _UID=0`) and, for the root writers only, to
   root-only files under **`/var/log/ai-tools/`**.
-- **A working stop** — `sudo ai-tools --stop` terminates every agent session on the host and
-  everything it spawned. (To finish a session you are done with, use `/exit` inside it, which lets
+- **A working stop** — `ai-tools --stop` terminates every agent session on the host and
+  everything it spawned, with no password to answer, so an unattended detector can reach it too. (To finish a session you are done with, use `/exit` inside it, which lets
   it run its own ownership handback.) Sessions are found and killed by **cgroup**, so a child that
   called `setsid(2)` or double-forked goes with them, and success means verified gone from the
   kernel's view rather than from systemd's. It takes no path and no authorization input, and
