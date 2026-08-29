@@ -386,8 +386,11 @@ sel_disable() {
 # module uses the same bracketed [LOADED]/[disabled] state column as the group rows for one legend.
 sel_list() {
     require_selinux || return 0
-    local core_state='[disabled]'
-    semodule -l 2>/dev/null | grep -qx 'ai_tools' && core_state='[LOADED]  '
+    local core_state='[disabled]' modules
+    # Captured, not piped into `grep -q`: an early-exiting reader makes semodule die of SIGPIPE
+    # and pipefail then reports the probe failed -- see ai_tools_selinux_group_loaded.
+    modules="$(semodule -l 2>/dev/null || true)"
+    grep -qx 'ai_tools' <<<"${modules}" && core_state='[LOADED]  '
     printf '\nSELinux policy groups\n\n'
     printf '  %s core module (ai_tools) -- the confinement domain; DAC-only when disabled\n\n' "${core_state}"
     printf '  optional groups (all default: disabled)\n'

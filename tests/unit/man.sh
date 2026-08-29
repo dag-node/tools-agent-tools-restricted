@@ -128,7 +128,14 @@ fi
 # Enumerating the shapes rejected `dev`, so the check failed or passed according to how the HOST
 # was provisioned rather than according to anything about the page. It now asserts what it always
 # meant: the field is non-empty.
-if read_man | grep -qE '^\.TH AI-TOOLS 1 .*"ai-tools [^"[:space:]][^"]*"'; then
+#
+# The page is read into a here-string rather than piped into `grep -q`, and that is load-bearing
+# under this file's `set -o pipefail`: `grep -q` exits the moment it matches, and the .TH line is
+# line 5 of a 24 KB page, so the writer upstream is still mid-page and dies of SIGPIPE. pipefail
+# then reports 141 for a pipeline whose grep succeeded, and the check fails at random -- about
+# half the time here, near-always on the EL container runners. A here-string is fully written
+# before grep starts, so there is no early reader to race. Do not "simplify" it back to a pipe.
+if grep -qE '^\.TH AI-TOOLS 1 .*"ai-tools [^"[:space:]][^"]*"' <<<"$(read_man)"; then
     pass "man page .TH carries the version token/substitution"
 else
     # Name the file: this check reads the repo source when there is one and the installed copy

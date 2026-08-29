@@ -371,6 +371,16 @@ ship prebuilt — registry↔filesystem lockstep: every registered group has a `
 module on disk is missing from the registry. The lockstep half reads git track-state, so it needs
 the checkout.
 
+It closes with the registry's one impure accessor, `ai_tools_selinux_group_loaded`, whose failure
+mode is a **race** rather than a wrong answer: `semodule -l` needs several writes to deliver a
+few hundred module names, so reading it as `semodule -l | grep -qx` lets grep exit on the match
+and leaves the writer to die of SIGPIPE, which `pipefail` reports as 141 — a loaded module read as
+absent, about half the time. `semodule` is stubbed as a shell function emitting one line per
+`printf`, so a single-write listing cannot hide the regression, and the probe is driven 25 times
+because one green run says nothing about a race. The same shape reached production twice (the
+`.TH` check in `man.sh` failed at random on the EL container runners for exactly this reason), so
+each remaining `semodule -l` probe now captures the listing before matching it.
+
 **`integration`** — checks that need a completed install and the running system
 (`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`, `cli.sh`,
 `ai-tools-run.sh`, `systemd.sh`, `selinux.sh`): installed-artifact ownership/modes, sudoers

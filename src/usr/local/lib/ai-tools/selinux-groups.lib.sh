@@ -77,6 +77,17 @@ ai_tools_selinux_group_valid() {
 # currently loaded in the kernel. `semodule -l` prints one module NAME per line with
 # no version column (selinux-policy on RHEL/Rocky 9/10 and UEK R8), so match the whole
 # line exactly -- the same form tests/integration/selinux.sh uses for the core.
+#
+# The listing is captured first and matched from a here-string, NOT piped into `grep -q`.
+# This is the canonical note for every `semodule -l` probe in the tree; the others point
+# here. `grep -q` exits on its first match, and an ai_tools* name sorts early in a listing
+# of some 400 modules, so the match lands in the first buffer while semodule is still
+# writing -- it then dies of SIGPIPE, and under the `set -o pipefail` every consumer of this
+# library runs with, the pipeline reports 141 for a probe that SUCCEEDED. The module reads as
+# absent at random, and each caller acts on that: no label registered, no group reported
+# loaded. A here-string is fully written before grep starts, so nothing can exit early on it.
 ai_tools_selinux_group_loaded() {
-    semodule -l 2>/dev/null | grep -qx "ai_tools_${1}"
+    local modules
+    modules="$(semodule -l 2>/dev/null || true)"
+    grep -qx "ai_tools_${1}" <<<"${modules}"
 }
