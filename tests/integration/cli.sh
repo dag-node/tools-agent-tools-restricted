@@ -172,12 +172,12 @@ if command -v runuser >/dev/null 2>&1; then
         if [[ ${rc} -ne 0 ]] && grep -qi 'owned by nobody' <<<"${out}"; then
             pass "--project-claim refuses a project root owned by a third party"
         else
-            fail "--project-claim did not refuse a third-party-owned root (rc=${rc}): ${out}"
+            fail "--project-claim did not refuse a third-party-owned root (rc=${rc}): $(brief "${out}")"
         fi
         if grep -q "chown -R ${PROJECTS_USER} ${foreignproj}" <<<"${out}"; then
             pass "the refusal names the chown that makes the tree claimable"
         else
-            fail "the refusal did not name the chown remedy: ${out}"
+            fail "the refusal did not name the chown remedy: $(brief "${out}" 'chown')"
         fi
         if [[ -s "${emptyal}" ]]; then
             fail "refused claim still wrote to the allowlist: $(cat "${emptyal}")"
@@ -187,6 +187,20 @@ if command -v runuser >/dev/null 2>&1; then
     else
         skip "third-party-owned claim root" "user 'nobody' not present"
     fi
+
+    # brief <captured-output> [pattern]  -- a SHORT diagnostic for a FAIL message. The flows below
+    # print thirty-odd lines of headline blocks and per-step results, and interpolating all of
+    # that into a failure line buries the one thing that explains it -- especially in the runner's
+    # end-of-run summary, which reprints FAIL lines and is unreadable if each is a screenful.
+    # With a <pattern> it shows the lines the assertion is actually about; without one, the last
+    # three non-empty lines, which is where a refusal or a die() lands. Joined with " ~ " so the
+    # message stays a single line.
+    brief() {
+        local text="$1" pat="${2:-}" sel=""
+        [[ -n "${pat}" ]] && sel="$(grep -iE -- "${pat}" <<<"${text}" | head -n 3)"
+        [[ -n "${sel}" ]] || sel="$(awk 'NF' <<<"${text}" | tail -n 3)"
+        awk '{printf "%s%s", sep, $0; sep=" ~ "}' <<<"${sel}"
+    }
 
     # (6c) --project-create is a real verb, not an alias, so its refusals are asserted where the
     # old alias had none. Every one of them must leave NOTHING behind -- no directory, no registry
@@ -203,7 +217,7 @@ if command -v runuser >/dev/null 2>&1; then
     if [[ ${rc} -ne 0 ]] && grep -qi 'needs a path' <<<"${out}"; then
         pass "--project-create refuses to run without a path"
     else
-        fail "--project-create did not refuse a missing path (rc=${rc}): ${out}"
+        fail "--project-create did not refuse a missing path (rc=${rc}): $(brief "${out}")"
     fi
 
     # An EXISTING directory is refused, naming the verb that does claim one. This is the line
@@ -216,7 +230,7 @@ if command -v runuser >/dev/null 2>&1; then
             && grep -q -- '--project-claim' <<<"${out}"; then
         pass "--project-create refuses an existing directory, naming --project-claim"
     else
-        fail "--project-create did not refuse an existing directory (rc=${rc}): ${out}"
+        fail "--project-create did not refuse an existing directory (rc=${rc}): $(brief "${out}")"
     fi
 
     # ONE directory is created, never a path of them: a parent that does not exist is refused
@@ -227,7 +241,7 @@ if command -v runuser >/dev/null 2>&1; then
             && [[ ! -e "${TESTDIR}/no" ]]; then
         pass "--project-create refuses a missing parent and creates none of it"
     else
-        fail "--project-create did not refuse a missing parent (rc=${rc}): ${out}"
+        fail "--project-create did not refuse a missing parent (rc=${rc}): $(brief "${out}")"
     fi
 
     # The protected-paths backstop on the target: a create must not be able to MANUFACTURE a
@@ -242,7 +256,7 @@ if command -v runuser >/dev/null 2>&1; then
         if [[ ${rc} -eq 3 ]] && [[ ! -e "${protected}" ]]; then
             pass "--project-create refuses a protected target (exit 3, nothing created)"
         else
-            fail "--project-create did not refuse protected ${protected} with exit 3 (rc=${rc}): ${out}"
+            fail "--project-create did not refuse protected ${protected} with exit 3 (rc=${rc}): $(brief "${out}")"
         fi
     else
         skip "--project-create protected-target refusal" "this host has every protected path already"
@@ -269,7 +283,7 @@ if command -v runuser >/dev/null 2>&1; then
     if [[ ${rc} -eq 0 ]] && [[ -d "${newproj}" ]]; then
         pass "--project-create creates and claims a new project unattended"
     else
-        fail "--project-create did not complete (rc=${rc}): ${out}"
+        fail "--project-create did not complete (rc=${rc}): $(brief "${out}")"
     fi
     if [[ -d "${newproj}/.git" ]] && [[ -f "${newproj}/README.md" ]] \
             && grep -qxF '# newproject' "${newproj}/README.md"; then
@@ -289,12 +303,39 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "the created tree is owned by $(stat -c '%U' "${newproj}"), not ${PROJECTS_USER}"
     fi
-    # And it asked for no password: the secret scan is skipped on a tree with nothing in it, so a
-    # create must never reach ai-tools-lockdown's sudo prompt.
-    if ! grep -qi 'password' <<<"${out}"; then
-        pass "--project-create completes without a sudo password prompt (no secret scan)"
+    # The secret scan is skipped on a tree with nothing in it, so a create must never reach
+    # ai-tools-lockdown. Asserted on that helper specifically, NOT on the absence of any password
+    # prompt: the claim legitimately sudo's for safedir, setgid, setfacl and relabel, since group
+    # ownership cannot be changed to a group the operator is not in without root.
+    if ! grep -q 'ai-tools-lockdown' <<<"${out}" \
+            && ! grep -qi 'scan for secret-named files' <<<"${out}"; then
+        pass "--project-create never reaches the secret scan (nothing in the tree to scan)"
     else
-        fail "--project-create reached a password prompt: ${out}"
+        fail "--project-create ran the secret scan on a tree it had just created: $(brief "${out}" 'lockdown|secret-named')"
+    fi
+
+    # Nothing it seeds may be owner-only. Under a umask of 077 the directory would be born 0700,
+    # README.md 0600, and .git 0700/0600 -- and an owner-only path is one the claim's helpers
+    # honour as a seal and skip, so the verb would produce a registered project whose README the
+    # agent cannot read and whose git it cannot use, having reported that it normalized both.
+    # This is the assertion that fails on a umask-077 host if any of those modes is inherited.
+    _sealed=""
+    for _p in "${newproj}" "${newproj}/README.md" "${newproj}/.git" "${newproj}/.git/config"; do
+        [[ -e "${_p}" ]] || continue
+        (( (8#$(stat -c '%a' "${_p}") & 077) == 0 )) && _sealed+=" ${_p}($(stat -c '%a' "${_p}"))"
+    done
+    if [[ -z "${_sealed}" ]]; then
+        pass "--project-create seeds nothing owner-only (reachable whatever the host umask)"
+    else
+        fail "--project-create seeded owner-only path(s) the claim will skip:${_sealed}"
+    fi
+    # Matched on the NOTICE's own title, not on the phrase "owner-only": the create prints that
+    # phrase itself when it explains the modes it set on a umask-077 host, so a looser grep
+    # asserts the opposite of what it means on exactly the hosts this case exists for.
+    if ! grep -qi 'this project directory is owner-only' <<<"${out}"; then
+        pass "the claim does not report the new project as out of the agent's reach"
+    else
+        fail "the created project was claimed as owner-only: $(brief "${out}" 'owner-only')"
     fi
 
     # (6d) --project-remove deletes, so every assertion here is that it did NOT. Its authorization
@@ -332,7 +373,7 @@ if command -v runuser >/dev/null 2>&1; then
     if [[ ${rc} -ne 0 ]] && [[ -d "${rmother}" ]] && grep -qi 'not a claimed project' <<<"${out}"; then
         pass "--project-remove refuses an unregistered path, deleting nothing"
     else
-        fail "--project-remove did not refuse an unregistered path (rc=${rc}): ${out}"
+        fail "--project-remove did not refuse an unregistered path (rc=${rc}): $(brief "${out}")"
     fi
 
     # A path INSIDE a claimed project is refused, naming the project that is the real target.
@@ -340,7 +381,7 @@ if command -v runuser >/dev/null 2>&1; then
     if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}/sub" ]] && grep -qF "${rmproj}" <<<"${out}"; then
         pass "--project-remove refuses a path inside a project, naming the project"
     else
-        fail "--project-remove did not refuse a descendant (rc=${rc}): ${out}"
+        fail "--project-remove did not refuse a descendant (rc=${rc}): $(brief "${out}")"
     fi
 
     # An ancestor of claimed projects is refused and pointed at --project-unclaim: this verb
@@ -349,7 +390,7 @@ if command -v runuser >/dev/null 2>&1; then
     if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}" ]] && grep -q -- '--project-unclaim' <<<"${out}"; then
         pass "--project-remove refuses an ancestor of claimed projects"
     else
-        fail "--project-remove did not refuse an ancestor (rc=${rc}): ${out}"
+        fail "--project-remove did not refuse an ancestor (rc=${rc}): $(brief "${out}")"
     fi
 
     # An exact entry that CONTAINS another claimed project is refused. Deleting it would take the
@@ -360,7 +401,7 @@ if command -v runuser >/dev/null 2>&1; then
     if [[ ${rc} -ne 0 ]] && [[ -d "${rmnested}" ]] && grep -qF "${rmnested}" <<<"${out}"; then
         pass "--project-remove refuses a project containing another claimed project, naming it"
     else
-        fail "--project-remove did not refuse a project with a nested claim (rc=${rc}): ${out}"
+        fail "--project-remove did not refuse a project with a nested claim (rc=${rc}): $(brief "${out}")"
     fi
 
     # There is no --force: the flag that reaches an unregistered tree on unclaim must not become
@@ -370,7 +411,7 @@ if command -v runuser >/dev/null 2>&1; then
     if [[ ${rc} -ne 0 ]] && [[ -d "${rmother}" ]] && grep -qi 'no --force' <<<"${out}"; then
         pass "--project-remove has no --force (an unregistered tree stays undeletable by it)"
     else
-        fail "--project-remove accepted or mishandled --force (rc=${rc}): ${out}"
+        fail "--project-remove accepted or mishandled --force (rc=${rc}): $(brief "${out}")"
     fi
 
     # -y requires an explicit path, so an unattended run can never delete whatever directory it
@@ -379,7 +420,7 @@ if command -v runuser >/dev/null 2>&1; then
     if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}" ]] && grep -qi 'needs a path' <<<"${out}"; then
         pass "--project-remove -y refuses to inherit the current directory"
     else
-        fail "--project-remove -y did not require an explicit path (rc=${rc}): ${out}"
+        fail "--project-remove -y did not require an explicit path (rc=${rc}): $(brief "${out}")"
     fi
 
     # And the property the whole gate exists for: a registered project, correctly targeted, is
@@ -390,7 +431,7 @@ if command -v runuser >/dev/null 2>&1; then
     if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}" ]] && grep -qF "${rmproj}" "${rmal}"; then
         pass "--project-remove deletes nothing with no terminal (confirm and challenge both decline)"
     else
-        fail "--project-remove acted without a terminal (rc=${rc}, dir gone or de-registered): ${out}"
+        fail "--project-remove acted without a terminal (rc=${rc}, dir gone or de-registered): $(brief "${out}")"
     fi
 
     # The deletability pre-flight, which is what keeps a removal from stopping partway. A
@@ -408,7 +449,7 @@ if command -v runuser >/dev/null 2>&1; then
                 && grep -qF "${rmblocked}" "${rmal}"; then
             pass "--project-remove refuses an undeletable tree up front, intact and still registered"
         else
-            fail "--project-remove did not stop on the deletability pre-flight (rc=${rc}): ${out}"
+            fail "--project-remove did not stop on the deletability pre-flight (rc=${rc}): $(brief "${out}")"
         fi
     else
         skip "--project-remove deletability pre-flight" "user 'nobody' not present"
@@ -429,7 +470,7 @@ if command -v runuser >/dev/null 2>&1; then
     if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}" ]] && grep -qF "${rmproj}" "${rmal}"; then
         pass "AI_TOOLS_ASSUME_YES does not delete a project (neither prompt is fast-trackable)"
     else
-        fail "AI_TOOLS_ASSUME_YES deleted or deregistered a project (rc=${rc}): ${out}"
+        fail "AI_TOOLS_ASSUME_YES deleted or deregistered a project (rc=${rc}): $(brief "${out}")"
     fi
 
     # A protected path as the removal target: exit 3, whatever the allowlist says. The scenario is
@@ -449,7 +490,7 @@ if command -v runuser >/dev/null 2>&1; then
         if [[ ${rc} -eq 3 ]] && [[ -d "${_bad}" ]]; then
             pass "--project-remove refuses the protected path ${_bad} (exit 3) even when listed"
         else
-            fail "--project-remove did not refuse protected ${_bad} with exit 3 (rc=${rc}): ${out}"
+            fail "--project-remove did not refuse protected ${_bad} with exit 3 (rc=${rc}): $(brief "${out}")"
         fi
     done
 
@@ -460,7 +501,7 @@ if command -v runuser >/dev/null 2>&1; then
     if [[ ${rc} -ne 0 ]] && [[ -d "${rmother}" ]]; then
         pass "-y does not bypass the registry check (an unlisted path is still refused)"
     else
-        fail "-y deleted an unregistered path (rc=${rc}): ${out}"
+        fail "-y deleted an unregistered path (rc=${rc}): $(brief "${out}")"
     fi
 
     # A parent the acting owner cannot write must REFUSE, and this is the case with the worst
@@ -478,7 +519,7 @@ if command -v runuser >/dev/null 2>&1; then
             && grep -qF "${rmpar}" "${rmal}"; then
         pass "--project-remove refuses an unwritable parent before deleting any of the tree"
     else
-        fail "--project-remove did not refuse an unwritable parent (rc=${rc}, contents gone: $([[ -d "${rmpar}/sub" ]] && echo no || echo yes)): ${out}"
+        fail "--project-remove did not refuse an unwritable parent (rc=${rc}, contents gone: $([[ -d "${rmpar}/sub" ]] && echo no || echo yes)): $(brief "${out}" 'parent directory')"
     fi
 
     # A registry the removal cannot rewrite must REFUSE, not delete. The allowlist entry is the
@@ -497,7 +538,7 @@ if command -v runuser >/dev/null 2>&1; then
     if [[ ${rc} -ne 0 ]] && [[ -d "${rmstuck}" ]] && grep -qi 'still registered' <<<"${out}"; then
         pass "--project-remove refuses to delete when the allowlist entry cannot be removed"
     else
-        fail "--project-remove acted past a failed de-registration (rc=${rc}): ${out}"
+        fail "--project-remove acted past a failed de-registration (rc=${rc}): $(brief "${out}")"
     fi
 
     # Teardown order: registries before the tree. Driven with -y, which is the one path that
@@ -511,7 +552,7 @@ if command -v runuser >/dev/null 2>&1; then
     if [[ ${rc} -eq 0 ]] && [[ ! -e "${rmgo}" ]] && ! grep -qF "${rmgo}" "${rmal}"; then
         pass "--project-remove -y deregisters and then deletes (registries first, tree last)"
     else
-        fail "--project-remove -y did not complete (rc=${rc}, dir exists: $([[ -e "${rmgo}" ]] && echo yes || echo no)): ${out}"
+        fail "--project-remove -y did not complete (rc=${rc}, dir exists: $([[ -e "${rmgo}" ]] && echo yes || echo no)): $(brief "${out}")"
     fi
 
     # (7) --list renders the reconciliation view deterministically over a FIXTURE allowlist +

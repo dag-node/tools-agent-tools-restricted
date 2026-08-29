@@ -116,56 +116,59 @@ section "tree_is_pristine: the precondition behind --project-create's skipped pr
 
 pristine() { call tree_is_pristine "$1"; }
 
+# Fixtures are built AS ROOT and handed over at the end, the same way the repo fixture above is.
+# The predicate only reads the tree, so what matters is that the projects user can read it when
+# `call` runs; driving each mkdir/git through runuser instead would make every fixture line a
+# command that can fail under set -e for reasons unrelated to what is being tested.
 work="${TESTDIR}/pristine"
-mkdir -p "${work}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${work}"
-# git needs to run as the projects user for the fixtures to be theirs, as elsewhere in this file.
-as_op() { runuser -u "${PROJECTS_USER}" -- "$@"; }
-
 fresh="${work}/fresh"
-as_op mkdir -p "${fresh}"
-as_op git -C "${fresh}" init -q
-as_op bash -c 'printf "# fresh
-" > "$1/README.md"' _ "${fresh}"
+bare="${work}/bare"
+mkdir -p "${fresh}" "${bare}"
+git init -q "${fresh}"
+printf '# fresh\n' > "${fresh}/README.md"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${work}"
+
 if pristine "${fresh}"; then
     pass "a freshly created project (empty repo + README) reads as pristine"
 else
     fail "a freshly created project was not recognised as pristine"
 fi
 
-# A secret-named file is the exact thing the skipped scan exists to catch, so its presence must
+# A secret-named file is the exact thing the skipped scan exists to catch, so its presence has to
 # put the scan back.
-as_op bash -c 'printf "TOKEN=x
-" > "$1/.env"' _ "${fresh}"
+printf 'TOKEN=x\n' > "${fresh}/.env"
+chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${fresh}/.env"
 if pristine "${fresh}"; then
     fail "a tree containing .env still read as pristine -- the secret scan would be skipped"
 else
     pass "any file beyond the README makes a tree non-pristine (the secret scan runs)"
 fi
-as_op rm -f "${fresh}/.env"
+rm -f "${fresh}/.env"
 
-# A file nested deeper must count too: a walk that only looked at the top level would miss it.
-as_op mkdir -p "${fresh}/sub"
-as_op bash -c 'printf "x
-" > "$1/sub/deep.txt"' _ "${fresh}"
+# A file nested deeper counts too: a check that only looked at the top level would miss it.
+mkdir -p "${fresh}/sub"
+printf 'x\n' > "${fresh}/sub/deep.txt"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${fresh}/sub"
 if pristine "${fresh}"; then
     fail "a nested file still read as pristine -- the check is not walking the tree"
 else
     pass "a file nested below the root makes a tree non-pristine"
 fi
-as_op rm -rf "${fresh}/sub"
+rm -rf "${fresh}/sub"
 
-# Commits are the other half: the git-history prompt is skipped only because there is no history.
-as_op git -C "${fresh}" -c user.email=t@e -c user.name=t add -A
-as_op git -C "${fresh}" -c user.email=t@e -c user.name=t commit -qm 'first'
+# Commits are the other half: the git-history prompt is inferred to yes only because a repository
+# with no commits has no history to expose.
+git -C "${fresh}" -c user.email=t@example.invalid -c user.name=t add -A
+git -C "${fresh}" -c user.email=t@example.invalid -c user.name=t commit -qm first
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${fresh}"
 if pristine "${fresh}"; then
     fail "a repository with a commit read as pristine -- history would be shared unasked"
 else
     pass "a repository carrying any commit is not pristine (the history prompt returns)"
 fi
 
-# A directory with no repository at all is still pristine if nothing is in it: the predicate is
-# about contents, and --project-create's git init failing is a warning, not a reason to rescan.
-bare="${work}/bare"; as_op mkdir -p "${bare}"
+# An empty directory with no repository at all is still pristine: the predicate is about contents,
+# and --project-create's git init failing is a warning, not a reason to rescan an empty tree.
 if pristine "${bare}"; then
     pass "an empty directory with no repository is pristine"
 else
