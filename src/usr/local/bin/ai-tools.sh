@@ -474,6 +474,40 @@ sudo_grant_missing() {
     [[ "${answer}" == *"not allowed to execute"* || "${answer}" == *"may not run sudo"* ]]
 }
 
+# ── Reacting to a root step that did not apply ───────────────────────────────────
+# Every root helper authenticates on its own, and nothing can be pre-authenticated for a flow: a
+# hardened sudoers may set timestamp_timeout=0, where a credential is never cached and every
+# invocation prompts, so there is no credential to obtain up front. One mistyped password therefore
+# costs a full round of attempts PER STEP -- a claim asks nine times, an unclaim over three nested
+# projects twenty-seven -- each round re-asking for something the operator authorized once, and the
+# last arriving long after the flow has already reported the earlier failures.
+#
+# The reaction is to ask ONCE whether to attempt the rest. Default NO, which is also the
+# no-terminal answer. It is asked rather than inferred because a mistyped password and an absent
+# grant are indistinguishable at this point and call for opposite actions; and it is asked once per
+# RUN rather than per step or per project, so an ancestor unclaim does not re-ask for each project.
+#
+# The decision covers only which steps are ATTEMPTED. What a partial result means is the caller's
+# to report, and the callers differ: for a claim, stopping leaves less access, so it stops
+# completely; for an unclaim or a removal, the registry drops proceed regardless, because those are
+# the steps that move to less access.
+ROOT_STEP_FAILURES=0
+_root_step_asked=false
+_root_step_carry_on=1
+note_root_failure() {
+    ROOT_STEP_FAILURES=$(( ROOT_STEP_FAILURES + 1 ))
+    if ! ${_root_step_asked}; then
+        _root_step_asked=true
+        say ""
+        if confirm "That step needed root and did not apply. Try the remaining steps? (each one asks for your password again)" n; then
+            _root_step_carry_on=0
+        else
+            _root_step_carry_on=1
+        fi
+    fi
+    return "${_root_step_carry_on}"
+}
+
 # confirm <prompt> <y|n>  -- the shared yes/no prompt (ai_tools_msg_confirm; see
 # msg.lib.sh): the explicit default decides the Enter answer and the no-tty answer, so
 # each caller states the default whose unattended answer is the safe outcome for its
@@ -684,6 +718,7 @@ unreg_safedir() {
     else
         warn "could not remove git safe.directory -- run it by hand:"
         say  "      ${C_BOLD}sudo ${SAFEDIR_BIN} --remove ${dir}${C_RST}"
+        return 1
     fi
 }
 
@@ -1643,31 +1678,9 @@ cmd_project_claim() {
     # line; the closing ✓ is the claim's completion. ──
     headline "Applying claim steps" "${d}"
 
-    # Each step below authenticates on its own, and nothing can be pre-authenticated for the
-    # block: a hardened sudoers may set timestamp_timeout=0, where a credential is never cached
-    # and every invocation prompts. So a mistyped password costs a full round of attempts PER
-    # STEP -- nine prompts and three warnings for one claim, the last arriving long after the flow
-    # has already reported two failures, and the whole thing closing on a ✓.
-    #
-    # The reaction is to ask ONCE, at the first failure, instead of walking into the next one.
-    # Default NO, which is also the no-terminal answer: stopping leaves fewer steps applied, and
-    # the claim is idempotent, so nothing is lost by re-running it. What is not offered is a
-    # choice about whether the claim succeeded -- see the close below.
-    local root_failures=0 asked=false carry_on=1
-    note_root_failure() {
-        root_failures=$(( root_failures + 1 ))
-        if ! ${asked}; then
-            asked=true
-            say ""
-            if confirm "That step needed root and did not apply. Try the remaining steps? (each one asks for your password again)" n; then
-                carry_on=0
-            else
-                carry_on=1
-            fi
-        fi
-        return "${carry_on}"
-    }
-
+    # A failed step asks once before the next is attempted (note_root_failure). Stopping is the
+    # safe direction here -- fewer steps applied -- and costs nothing, since the claim is
+    # idempotent and a re-run does exactly what is still missing.
     local stopped=false
     if [[ "${safedir}" != true ]]; then
         reg_safedir "${d}" || note_root_failure || stopped=true
@@ -1692,11 +1705,11 @@ cmd_project_claim() {
     # it has. This is the owner guard's rule at the other end of the flow: no ✓ over a project the
     # agent cannot work in. The registry entries stand, so a re-run applies exactly what is
     # missing -- which is why stopping early costs nothing.
-    if (( root_failures )); then
+    if (( ROOT_STEP_FAILURES )); then
         headline_warn "WARNING: the claim did not complete" \
-            "${d} is registered, but ${root_failures} step(s) that grant the agent access did not apply, so it cannot work there yet. Each is named above with the command that applies it. Re-running the claim is the simpler route -- it is idempotent and does only what is still missing:"
+            "${d} is registered, but ${ROOT_STEP_FAILURES} step(s) that grant the agent access did not apply, so it cannot work there yet. Each is named above with the command that applies it. Re-running the claim is the simpler route -- it is idempotent and does only what is still missing:"
         say "      ${C_BOLD}ai-tools --project-claim ${d}${C_RST}"
-        ai_tools_log_warn "claim of ${d} incomplete -- ${root_failures} root step(s) did not apply"
+        ai_tools_log_warn "claim of ${d} incomplete -- ${ROOT_STEP_FAILURES} root step(s) did not apply"
         exit 1
     fi
     ok "claimed ${d}"
@@ -1940,24 +1953,56 @@ covered_by_project() {
 unclaim_one() {
     local d="$1" group="$2" hint="$3"; shift 3
     local flags=""; (( $# )) && flags=" $*"
+    local stopped=false handback_missing=false
+
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
-        run_relabel "${d}" --remove \
-            || warn "could not revert SELinux label -- run: sudo ${RELABEL_BIN} --remove ${d}"
+        if ! run_relabel "${d}" --remove; then
+            warn "could not revert SELinux label -- run: sudo ${RELABEL_BIN} --remove ${d}"
+            note_root_failure || stopped=true
+        fi
     fi
+
+    # The filesystem hand-back is the step that actually revokes the agent's access to the FILES,
+    # so a failure here is the one an operator must not be able to miss: everything else this
+    # function does is registry work, which stops the agent launching here but leaves the tree
+    # group-owned by it. Recorded rather than merely warned about, and reported in the close.
     if [[ -n "${group}" ]]; then
-        if run_unclaim "${d}" "${group}" "$@"; then
+        if ${stopped}; then
+            handback_missing=true
+            warn "the files were NOT handed back -- run it by hand:"
+            say  "      ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} ${group}${flags}${C_RST}"
+        elif run_unclaim "${d}" "${group}" "$@"; then
             ok "handed ${d} back to group ${group}, agent write access removed"
         else
+            handback_missing=true
             warn "could not hand the files back -- run it by hand:"
             say  "      ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} ${group}${flags}${C_RST}"
+            note_root_failure || stopped=true
         fi
     elif [[ -n "${hint}" ]]; then
+        handback_missing=true
         say  "      run it later with: ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} <group>${flags}${C_RST}"
     fi
-    unreg_safedir "${d}"
+
+    # The registry drops run REGARDLESS of the decision above, and that is the difference from a
+    # claim: dropping them is what moves to LESS access -- the agent can no longer launch here --
+    # so stopping short of them would be the unsafe direction. Only the safe.directory removal,
+    # which is cleanup and needs its own authentication, is skipped once the operator has said to
+    # stop; ai-tools --list reports the entry it leaves behind.
+    ${stopped} || unreg_safedir "${d}" || note_root_failure || true
     unreg_allow "${d}"
+
+    # No bare ✓ over an unclaim whose hand-back did not run. A claim that under-applies leaves the
+    # agent with too little access, which is merely inconvenient; an unclaim that under-applies
+    # leaves it with access the operator has just been told was removed.
+    if ${handback_missing}; then
+        headline_warn "WARNING: deregistered, but the files were not handed back" \
+            "${d} is out of allowed-projects, so no session can launch there. Its files still carry group ${SANDBOX_GROUP}, so an agent session that can reach the path keeps its access to them. The command above completes the reversal."
+        ai_tools_log_warn "unclaimed ${d} (registries dropped; filesystem hand-back did NOT run)"
+        return 1
+    fi
     ok "unclaimed ${d}"
     ai_tools_log_info "unclaimed project ${d}"
 }
@@ -2297,9 +2342,18 @@ cmd_project_unclaim() {
     local -a helper_flags=()
     ${full} && helper_flags=(--full)
 
+    local incomplete=0
     for t in "${targets[@]}"; do
-        unclaim_one "${t}" "${hb_group}" "${hb_hint}" "${helper_flags[@]}"
+        unclaim_one "${t}" "${hb_group}" "${hb_hint}" "${helper_flags[@]}" \
+            || incomplete=$(( incomplete + 1 ))
     done
+
+    # An incomplete reversal is an outcome a script has to be able to see, so it reaches the exit
+    # status rather than only the terminal. The registries are dropped either way, which is why
+    # this reports rather than aborts.
+    if (( incomplete )); then
+        ai_tools_log_warn "unclaim finished with ${incomplete} of ${#targets[@]} project(s) not fully reversed"
+    fi
 
     # Mixed tree: the registered projects are done, but ai-tools residue can still sit elsewhere
     # under this path (another copy, a leftover from a tree that was never registered). Reported
@@ -2318,6 +2372,7 @@ cmd_project_unclaim() {
             say "   ${C_BOLD}ai-tools --project-unclaim --force --dry-run ${d}${C_RST}"
         fi
     fi
+    (( incomplete == 0 ))
 }
 
 # cmd_project_remove [path] [-y]  -- unclaim a project AND delete its directory (default: cwd).
@@ -2471,13 +2526,21 @@ cmd_project_remove() {
 
     # ── Apply: registries first, deletion last. ──
     headline "Removing the project" "${d}"
+    # The two cleanup steps authenticate separately, so a wrong password would otherwise cost a
+    # round of attempts for each; note_root_failure asks once instead. Neither can stop the
+    # removal: what they clean up are registry entries pointing at a path that is about to stop
+    # existing, and refusing to delete over them would leave the tree in place -- MORE access,
+    # not less. ai-tools --list reports whatever is left behind.
+    local cleanup_stopped=false
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
-        run_relabel "${d}" --remove \
-            || warn "could not revert the SELinux label -- run: sudo ${RELABEL_BIN} --remove ${d}"
+        if ! run_relabel "${d}" --remove; then
+            warn "could not revert the SELinux label -- run: sudo ${RELABEL_BIN} --remove ${d}"
+            note_root_failure || cleanup_stopped=true
+        fi
     fi
-    unreg_safedir "${d}"
+    ${cleanup_stopped} || unreg_safedir "${d}" || note_root_failure || true
     unreg_allow "${d}"
 
     if ! run_as_owner rm -rf -- "${d}"; then
@@ -2494,6 +2557,12 @@ cmd_project_remove() {
     say ""
     ok "removed ${d}"
     ai_tools_log_info "removed project ${d}"
+    # The removal itself succeeded -- the tree is gone and deregistered -- so this closes with a ✓
+    # either way. What a failed cleanup left behind is still said, since it names entries that now
+    # point at nothing.
+    if (( ROOT_STEP_FAILURES )); then
+        say "  ${C_DIM}${ROOT_STEP_FAILURES} cleanup step(s) did not run; ai-tools --list reports what they left${C_RST}"
+    fi
     # The shell that started here is now sitting in a directory that no longer exists, where most
     # commands fail with a confusing error. Said plainly, since the cause is this command.
     [[ "${PWD}" == "${d}" || "${PWD}" == "${d}/"* ]] \
@@ -2525,8 +2594,20 @@ sandbox_finalize() {
     normalize_clone "${dst}" "${SECRET_GATE_LOCKED[@]}"
     say "    access: group ${SANDBOX_GROUP} rwX + setgid dirs (locked secrets stay private)"
     relabel_clone "${dst}"
-    reg_safedir "${dst}"
+    # A clone exists to run git in, so a missing safe.directory is not cosmetic here: the agent's
+    # git refuses to operate in a tree it sees as someone else's ("dubious ownership"), and the
+    # clone would be ready for everything except its purpose. Reported at the close rather than
+    # letting the ✓ stand for it. (Also `|| true`: reg_safedir now signals failure, and this call
+    # is not conditional, so under set -e a bare call would abort the create.)
+    local safedir_ok=true
+    reg_safedir "${dst}" || safedir_ok=false
     say ""
+    if ! ${safedir_ok}; then
+        headline_warn "WARNING: the clone is not git-ready" \
+            "${dst} is created, secured and registered, but git safe.directory could not be added, so the agent's git will refuse to operate in it. The command above adds the entry; nothing else about the clone needs redoing."
+        ai_tools_log_warn "sandbox ${dst} registered without a git safe.directory entry"
+        return 1
+    fi
     ok "sandbox ready: ${dst}"
     ai_tools_log_info "sandbox secured and registered: ${dst}"
 
@@ -2769,7 +2850,11 @@ cmd_sandbox_remove() {
 
     rm -rf "${d}"
     unreg_allow "${d}"
-    unreg_safedir "${d}"
+    # `|| true`: the clone is already gone, so a safe.directory entry that could not be removed is
+    # a stale line pointing at nothing -- reported by ai-tools --list, and not a reason to abort a
+    # removal that has already happened. unreg_safedir signals failure now, and a bare call under
+    # set -e would do exactly that.
+    unreg_safedir "${d}" || true
     ok "removed ${d} and unregistered it"
     ai_tools_log_info "removed sandbox ${d} and unregistered it"
     say "  ${C_DIM}remote branch left intact -- others may still merge it${C_RST}"

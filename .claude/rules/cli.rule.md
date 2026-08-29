@@ -754,11 +754,29 @@ the claim is idempotent, so a re-run applies exactly what is missing.
 **A failed step asks once before attempting the next.** Every step authenticates separately and
 **nothing can be pre-authenticated** — a hardened sudoers may set `timestamp_timeout=0`, where a
 credential is never cached and every invocation prompts — so a mistyped password costs a full round
-of attempts *per step*: nine prompts and three warnings for one claim. At the first failure the
-operator is asked once whether to try the rest, default **NO**, which is also the no-terminal
-answer. Stopping applies fewer steps (the safe direction) and costs nothing, since re-running is
-idempotent. The question is genuinely unanswerable from here — a mistyped password and an absent
-grant look identical at this point — which is why it is asked rather than inferred.
+of attempts *per step*: nine prompts for one claim, twenty-seven for an unclaim over three nested
+projects. `note_root_failure` asks once, default **NO**, which is also the no-terminal answer, and
+asks once **per run** rather than per step or per project. The question is genuinely unanswerable
+from here — a mistyped password and an absent grant look identical at this point — which is why it
+is asked rather than inferred.
+
+That decision covers only which steps are **attempted**; what a partial result means differs by
+verb, because the safe direction does:
+
+| verb | on a failed root step | why |
+|---|---|---|
+| `--project-claim` | stops, reports what is pending, exits 1 | fewer steps applied is *less* access, and a re-run is idempotent |
+| `--project-unclaim` | drops the registries **anyway**, then reports | dropping them is what moves to less access; stopping short would leave the project launchable |
+| `--project-remove` | deletes **anyway**, notes the cleanup that did not run | the leftovers point at a path that no longer exists; refusing to delete would leave the tree |
+| `--sandbox-create` | reports the clone is not git-ready, exits 1 | a clone exists to run git in, and without `safe.directory` the agent's git refuses the tree |
+
+**An unclaim whose hand-back did not run says so, and exits non-zero.** That step is what revokes
+the agent's access to the *files*; everything else `unclaim_one` does is registry work, which stops
+a session launching there but leaves the tree group-owned by the sandbox account. A bare `✓
+unclaimed` over it is the worst misreport in this file — a claim that under-applies leaves the
+agent too little access, which is inconvenient, while an unclaim that under-applies leaves it
+access the operator has just been told was removed. The batch loop counts such targets and the verb
+exits non-zero.
 
 **Reachability.** The confined session runs *as* the sandbox account, so it must be able to
 **traverse** the path to the project; a project nested under a directory the account cannot enter
