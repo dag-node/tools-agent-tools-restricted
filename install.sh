@@ -121,13 +121,16 @@ else
     readonly C_BOLD='' C_DIM='' C_GRN='' C_YEL='' C_RED='' C_RST=''
 fi
 
-say()     { printf '%s\n' "$*"; }
-section() { printf '\n%s── %s ──%s\n' "${C_BOLD}" "$*" "${C_RST}"; }
-ok()      { printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$*"; }
+# Each emitter pins IFS locally before "$*": this script runs under IFS=$'\n\t', where the join
+# character is a NEWLINE, so a call passing more than one word would break its message across
+# lines. Same guard as the CLI's join_words.
+say()     { local IFS=' '; printf '%s\n' "$*"; }
+section() { local IFS=' '; printf '\n%s── %s ──%s\n' "${C_BOLD}" "$*" "${C_RST}"; }
+ok()      { local IFS=' '; printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$*"; }
 # log: a dim checklist bullet for each deployed file / action.
-log()     { printf '  %s+%s %s\n' "${C_DIM}" "${C_RST}" "$*"; }
-warn()    { printf '  %s!%s %s\n' "${C_YEL}" "${C_RST}" "$*" >&2; }
-die()     { printf '%sinstall: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; exit 1; }
+log()     { local IFS=' '; printf '  %s+%s %s\n' "${C_DIM}" "${C_RST}" "$*"; }
+warn()    { local IFS=' '; printf '  %s!%s %s\n' "${C_YEL}" "${C_RST}" "$*" >&2; }
+die()     { local IFS=' '; printf '%sinstall: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; exit 1; }
 
 # Shared message formatter, sourced from the SOURCE TREE (the installed copy may not exist
 # yet -- this script installs it). Frames interactive prompts in the '#' box and carries
@@ -1841,7 +1844,10 @@ do_install() {
             section "Verify"
             section "Installed files"
             do_summary
-            "${SCRIPT_DIR}/tests/run.sh" all \
+            # do_install's log tee makes the suite's own tty test false. This script answered
+            # that question at startup, before the redirect, so hand the answer down: C_GRN is
+            # set only on a terminal, and the log copy has its escapes stripped by the tee's sed.
+            AI_TOOLS_TEST_COLOR="${C_GRN:+1}" "${SCRIPT_DIR}/tests/run.sh" all \
                 || warn "test suite reported failures -- review the output above"
         else
             log "test suite skipped -- run it any time with: sudo ${SCRIPT_DIR}/tests/run.sh all"

@@ -137,4 +137,17 @@ else
     fail "verb(s) in the help that the dispatcher does not accept: $(tr '\n' ' ' <<<"${extra_help}")"
 fi
 
+# ── (5) The CLI describes itself on a host that is not provisioned yet ──────────
+# --help and --version read no installed state, and the provisioning gate's own refusal names the
+# command to run next -- which a caller who cannot print the usage has no way to look up. Gating
+# them fails on the one host nobody develops against, so the membership is pinned here rather than
+# left to the gate, which is a single line far from the table it reads.
+readonly SELF_DESCRIBING=(--help --version)
+ungated="$(comm -23 <(printf '%s\n' "${SELF_DESCRIBING[@]}" | sort -u) <(printf '%s\n' "${BOOTEXEMPT}"))"
+if [[ -z "${ungated}" ]]; then
+    pass "--help and --version run on an unprovisioned host"
+else
+    fail "verb(s) that describe the CLI but sit behind the provisioning gate: $(tr '\n' ' ' <<<"${ungated}") -- add each to BOOTSTRAP_EXEMPT_VERBS"
+fi
+
 finish

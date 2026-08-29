@@ -52,18 +52,27 @@ A single `require_bootstrap` gate runs **before dispatch**: it keys on a launche
 the agent package all succeed — so its presence means provisioning finished, and its absence fails
 the CLI fast with the provisioning hint rather than mid-operation in a root helper. It is the same
 symlink the launch wrapper gates on, so both entry points share one definition of "provisioned".
-Every command is behind the gate, `--version` included — an unfinished install reports nothing,
-fail-closed. Three bypass it (`BOOTSTRAP_EXEMPT_VERBS`), each because it is meant for a host that
-may be broken: `--status`, the diagnostic, reports the unprovisioned state itself, since
-a health check must run precisely when provisioning may have failed; `--audit` reads a record
-of what already happened, which an install that never finished does not invalidate — a failed
-provisioning is when that record is most worth reading; and `--stop` ends sessions **already
-running**, needing nothing from the toolchain to do it. That last one matters because of the gate's
-own coupling below: keying on one agent's launcher symlink would otherwise put the incident
-ladder's last rung out of reach on a host that enables a different agent, or that lost the symlink
-while sessions were live. The set is deliberately narrower than
-`ROOT_ALLOWED_VERBS`: `--list` and `--providers` describe a toolchain that has to exist first, so
-they stay behind the gate.
+Every command that acts on the toolchain is behind the gate. `BOOTSTRAP_EXEMPT_VERBS` names what
+bypasses it, in two groups.
+
+The **diagnostics** are exempt because each is meant for a host that may be broken: `--status`
+reports the unprovisioned state itself, since a health check must run precisely when provisioning
+may have failed; `--audit` reads a record of what already happened, which an install that never
+finished does not invalidate — a failed provisioning is when that record is most worth reading; and
+`--stop` ends sessions **already running**, needing nothing from the toolchain to do it. That last
+one matters because of the gate's own coupling below: keying on one agent's launcher symlink would
+otherwise put the incident ladder's last rung out of reach on a host that enables a different
+agent, or that lost the symlink while sessions were live.
+
+`--help`, `--version` and the bare invocation are exempt because they describe **the CLI** rather
+than the toolchain: `usage()` and `AI_TOOLS_VERSION` read no installed state. The gate's own
+refusal names `ai-tools-bootstrap` as the command to run next, so gating the usage would leave that
+message as the only place an operator could find it. `tests/unit/cli-verbs.sh` pins the membership,
+since the gate is one line far from the table it reads and the failure appears only on an
+unprovisioned host.
+
+The set stays narrower than `ROOT_ALLOWED_VERBS`: `--list` and `--providers` describe a toolchain
+that has to exist first, so they stay behind the gate.
 
 **The gate names one agent.** `CLAUDE_LINK` is the literal `/opt/ai-tools/bin/claude`, so a host
 that enables a different agent and disables `claude-code` has a provisioned toolchain the CLI
@@ -597,8 +606,9 @@ Most `--for` verbs redirect a **registry**: the entry lands in the target's allo
 helpers resolve the owner from it. Two do not. `--project-create` and `--project-remove` write the
 **filesystem** as an owner — a tree the target must own for the claim's helpers to act on it, and a
 tree only its owner can delete — so both go through `run_as_owner`, which prefixes `sudo -u
-<target> -H` when `--for` is set and runs the command directly otherwise. `reg_reach` uses the same
-seam for the traverse ACL, whose ancestors belong to the target on a `--for` run.
+<target> -H` when `--for` is set and runs the command directly otherwise. Two claim steps use the
+same seam: `reg_reach` for the traverse ACL, whose ancestors belong to the target on a `--for` run,
+and `reg_filemode` for the `core.filemode` pin it writes into the target's `.git/config`.
 
 `-H` is load-bearing rather than tidiness: without it (and without sudoers' `always_set_home`) sudo
 leaves `HOME` pointing at the **invoker's** home, so the `git init` inside a create would configure
@@ -616,6 +626,11 @@ one representative, for the reason that gate gives — because the alternative i
 worst moment: a create after making the directory and before claiming it, a remove after
 unregistering the project and before deleting it. Like every refusal in this family it precedes the
 `--for` snapshot, which is the run's first sudo.
+
+`--project-claim` stays out of that probe even though it uses the seam. Each of its owner-run steps
+warns and continues on its own, so a claim on a `Runas`-restricted host loses those steps
+individually and leaves no part-built tree. Probing would refuse the whole claim over one step the
+rest does not need.
 
 **What this widens, stated plainly.** An allowlist is an operator's own launch gate, and `--for`
 lets one operator write into another's. That sits inside the model's standing "`ai-ops` operators
@@ -1008,8 +1023,9 @@ allowlist/secret/exclusion enforcement and the need for root are that helper's, 
 inside a `0700` directory in a home the invoker cannot traverse; it is reached only by a `--for`
 run, and it authorizes against `SUDO_UID` — the uid sudo sets, not the spoofable `SUDO_USER` name —
 refusing a bare root call outright.
-Repo-local `core.filemode=true` and the allowlist are plain writes the projects user performs
-unprivileged.
+Repo-local `core.filemode=true` and the allowlist are unprivileged writes. `reg_filemode` makes
+its git calls through `run_as_owner`, since under `--for` the `.git/config` it writes belongs to
+the target operator and the invoking user may not even traverse the tree.
 `/usr/local/libexec/ai-tools` is `750 root:root`, so the projects user cannot even stat the
 helpers — only sudo, as root, reaches them.
 
