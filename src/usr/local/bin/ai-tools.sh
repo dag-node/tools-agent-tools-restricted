@@ -1260,6 +1260,38 @@ under_skip_listed_name() {
     return 1
 }
 
+# require_claimable_owner <dir>  -- die unless <dir> is held by the operator this run acts FOR or
+# by the sandbox account. The two root helpers that grant the agent its access -- ai-tools-setgid
+# and ai-tools-setfacl -- act only on those two owners, so a project root held by anyone else
+# takes neither the group/setgid change nor the ACL, while the allowlist entry, the git
+# safe.directory entry and the SELinux label all still apply. The claim would close with its ✓
+# having granted nothing, and the agent could not enter the tree.
+#
+# The case this exists for is a --for claim: `mkdir ~/proj && ai-tools --project-claim --for svc
+# ~/proj` resolves the owner to svc, so every inode in the tree fails the helpers' guard. This is
+# the CLI-side front line for the count those helpers now report; the refusal names the chown that
+# fixes it, because transferring a tree recursively needs an authority this CLI does not hold.
+require_claimable_owner() {
+    local d="$1" owner
+    owner="$(stat -c '%U' "${d}" 2>/dev/null)" || die "cannot read the owner of ${d}"
+    [[ "${owner}" == "${OWNER_USER}" || "${owner}" == "${SANDBOX_USER}" ]] && return 0
+
+    # The remedy is a command, so it prints plain and ahead of die(), whose emitter would wrap it
+    # across lines (messaging.rule.md).
+    printf '\n' >&2
+    printf '  %s\n' "Give the tree to ${OWNER_USER}, then re-run the claim:" "" \
+                    "    sudo chown -R ${OWNER_USER} ${d}" >&2
+    printf '\n' >&2
+    local -a why=(
+        "this project directory is owned by ${owner}, and the claim grants it to ${OWNER_USER}."
+        "The claim's setgid and ACL steps act only on paths held by ${OWNER_USER} or ${SANDBOX_USER}, so here they would apply nothing while the registries and the SELinux label still would -- a claim that reports success and leaves the agent unable to enter the project."
+    )
+    [[ -n "${FOR_OPERATOR}" ]] && why+=(
+        "You are claiming for ${FOR_OPERATOR}, so the tree has to belong to ${FOR_OPERATOR} rather than to you."
+    )
+    die "${why[@]}"
+}
+
 cmd_project_claim() {
     # -y/--yes pre-answers the claim's own proceed prompt ("Apply the pending steps IN
     # PLACE?", default NO) -- an explicit per-invocation flag, passed by a caller that
@@ -1280,6 +1312,9 @@ cmd_project_claim() {
     # Refuse to claim a protected system directory before it ever reaches the allowlist. The
     # safe-paths guard is guaranteed loaded (the top-level source fails closed otherwise).
     ai_tools_assert_safe_target "${d}" "project claim" || exit 3
+    # Before any registry write: a root the access-granting helpers cannot act on makes the whole
+    # claim a no-op they would report only as a count on stderr.
+    require_claimable_owner "${d}"
 
     local listed safedir filemode owngap acl labelled git
     # project_state prints seven SPACE-separated tokens; this script's global IFS is
@@ -3158,10 +3193,16 @@ require_sudo_access() {
         local source_dir clone_dir
         source_dir="$(handover_target "$@")"
         clone_dir="${SANDBOX_ROOT}/$(basename "${source_dir}")"
+        # The chown is not optional bookkeeping: the clone is created by whoever runs the first
+        # command, and a claim FOR another operator over a tree that operator does not own grants
+        # nothing (require_claimable_owner refuses it). Three commands, because the middle one is
+        # the only thing that makes the third do anything.
         advice+=( "    ai-tools --sandbox-create ${source_dir}" \
+                  "    sudo chown -R ${INVOKING_USER} ${clone_dir}" \
                   "    ai-tools --project-claim --for ${INVOKING_USER} ${clone_dir}" "" \
                   "--sandbox-create takes no --for: the clone is made with the git credentials of" \
-                  "whoever runs it. The second command registers it for ${INVOKING_USER}." )
+                  "whoever runs it, so it is born owned by them. The chown hands it to" \
+                  "${INVOKING_USER}, and the claim registers it for ${INVOKING_USER}." )
     else
         local rest=""; (( $# )) && rest="$(printf ' %q' "$@")"
         advice+=( "    ai-tools ${verb}${rest}" )

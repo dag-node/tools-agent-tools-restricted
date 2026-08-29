@@ -157,6 +157,37 @@ if command -v runuser >/dev/null 2>&1; then
         fail "--project-unclaim did not refuse a non-project (rc=${rc}): ${out}"
     fi
 
+    # (6b) A project root owned by a third party is REFUSED, not claimed. The claim's setgid and
+    # ACL helpers act only on paths held by the resolved operator or the sandbox account, so such
+    # a tree takes neither grant while the registries and the label still apply -- a claim that
+    # reports ✓ having given the agent no way into the project. The refusal has to precede the
+    # first registry write, so the fixture allowlist is inspected afterwards as well.
+    if id nobody >/dev/null 2>&1; then
+        : > "${emptyal}"
+        foreignproj="${TESTDIR}/foreign-proj"; mkdir -p "${foreignproj}"
+        chown nobody:nobody "${foreignproj}"
+        out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+                AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
+                setsid "${CLI}" --project-claim "${foreignproj}" 2>&1)" && rc=0 || rc=$?
+        if [[ ${rc} -ne 0 ]] && grep -qi 'owned by nobody' <<<"${out}"; then
+            pass "--project-claim refuses a project root owned by a third party"
+        else
+            fail "--project-claim did not refuse a third-party-owned root (rc=${rc}): ${out}"
+        fi
+        if grep -q "chown -R ${PROJECTS_USER} ${foreignproj}" <<<"${out}"; then
+            pass "the refusal names the chown that makes the tree claimable"
+        else
+            fail "the refusal did not name the chown remedy: ${out}"
+        fi
+        if [[ -s "${emptyal}" ]]; then
+            fail "refused claim still wrote to the allowlist: $(cat "${emptyal}")"
+        else
+            pass "the owner refusal precedes every registry write"
+        fi
+    else
+        skip "third-party-owned claim root" "user 'nobody' not present"
+    fi
+
     # (7) --list renders the reconciliation view deterministically over a FIXTURE allowlist +
     # gitconfig (AI_TOOLS_ALLOWLIST / AI_TOOLS_GITCONFIG), so it never reads the operator's real
     # registry. Every entry class and every Suggested-cleanup class is asserted. The stale and
