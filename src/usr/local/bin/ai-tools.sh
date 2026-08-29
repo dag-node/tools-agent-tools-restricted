@@ -830,20 +830,22 @@ unreg_safedir() {
 # git tracks the executable bit deterministically for BOTH co-writers, regardless of
 # either user's global git config. Repo-LOCAL (not the shared /opt/ai-tools/.gitconfig,
 # which is the agent's global): the setting must be shared by the projects user and the
-# agent, and .git is reclaimed to the projects user, who can write it. Idempotent and
-# quiet when already set; a no-op (with a note) when <dir> is not a git work tree.
+# agent, and .git is reclaimed to the owner, who can write it. Every git call runs through
+# run_as_owner: under --for the tree belongs to the target operator, and the invoking user
+# may not even traverse it. Idempotent and quiet when already set; a no-op (with a note)
+# when <dir> is not a git work tree.
 # Orthogonal to the ACL hardening -- filemode governs only the exec bit, never group/
 # other permission bits -- but claimed in the same git-config step as safe.directory.
 reg_filemode() {
     local dir="$1"
-    if ! git -C "${dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if ! run_as_owner git -C "${dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         say "    git core.filemode: not a git work tree -- skipped"
         return 0
     fi
-    if [[ "$(git -C "${dir}" config --local --get core.filemode 2>/dev/null)" == "true" ]]; then
+    if [[ "$(run_as_owner git -C "${dir}" config --local --get core.filemode 2>/dev/null)" == "true" ]]; then
         say "    git core.filemode: already true"
     else
-        if git -C "${dir}" config --local core.filemode true; then
+        if run_as_owner git -C "${dir}" config --local core.filemode true; then
             say "    git core.filemode: set true"
         else
             warn "git core.filemode: could not set (continuing)"
@@ -4317,12 +4319,17 @@ require_sudo_access() {
 # performed AS the target. A no-op without --for, and a no-op for every verb that touches the
 # filesystem only through a root helper.
 #
-# The two project verbs that touch the filesystem as an OWNER do it through run_as_owner, i.e.
-# `sudo -u <target>`. That is a different sudoers question from the one require_sudo_access asks: a
-# host can grant every ai-tools helper and still restrict Runas to root, and there each verb would
-# fail at the worst moment -- the create after making the directory and before claiming it, the
-# remove after unregistering the project and before deleting it. Probing first is what keeps
-# "refused before anything changes" true on such a host.
+# --project-create and --project-remove build and destroy a tree as an OWNER, through run_as_owner
+# i.e. `sudo -u <target>`. That is a different sudoers question from the one require_sudo_access
+# asks: a host can grant every ai-tools helper and still restrict Runas to root, and there each
+# verb would fail at the worst moment -- the create after making the directory and before claiming
+# it, the remove after unregistering the project and before deleting it. Probing first is what
+# keeps "refused before anything changes" true on such a host.
+#
+# --project-claim runs steps as the acting operator too -- its traverse ACL, its drift probe, its
+# core.filemode pin -- and is not probed here. Each of those warns and continues on its own, so a
+# claim on a Runas-restricted host loses those steps individually and leaves no part-built tree.
+# Probing would refuse the whole claim over one step the rest does not need.
 #
 # Each command the run actually executes is probed rather than one representative, for the reason
 # require_sudo_access gives: a sudoers permitting some and not others is then answered accurately.
