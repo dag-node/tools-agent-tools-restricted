@@ -133,6 +133,50 @@ else
     fail "wrapper did NOT refuse a '!'-excluded CWD (output: ${out_excl})"
 fi
 
+# (2c) The two halves of --project-disable meet HERE, and nowhere else: the verb's whole promise
+#      is that a parked project cannot be launched in, and that is this gate's decision, not the
+#      CLI's. Both sides are covered apart -- the CLI writes the line (tests/integration/cli.sh),
+#      the wrapper honours a '!' CWD (2b above) -- so what this asserts is that they agree about
+#      the same file: the CLI's own edit, read back by the deployed wrapper.
+#
+#      Driven through the CLI as the operator against this hermetic HOME, so nothing here writes
+#      the real registry. It reaches no root helper (the pair edits one line of the caller's own
+#      allowlist), so there is no sudo and no password prompt.
+cli=/usr/local/bin/ai-tools
+if [[ ! -x "${cli}" ]]; then
+    skip "disabled project refused at launch" "${cli} not installed"
+else
+    run_cli() {  # $@ = CLI args, run as the operator against the fixture HOME
+        setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
+            "${cli}" "$@" < /dev/null 2>&1 || true
+    }
+    disable_out="$(run_cli --project-disable "${approved}")"
+    if grep -qF "!${approved}" "${home}/.config/ai-tools/allowed-projects"; then
+        pass "--project-disable parks the approved project in the wrapper's own allowlist"
+    else
+        fail "--project-disable did not park the entry: ${disable_out}"
+    fi
+
+    out_disabled="$(run_wrapper "${approved}")"
+    if printf '%s' "${out_disabled}" | grep -qi "excluded by"; then
+        pass "the launch gate refuses a project the CLI disabled (the verb's whole promise)"
+    else
+        fail "wrapper did NOT refuse a CLI-disabled project (output: ${out_disabled})"
+    fi
+
+    # And back: re-enabling must restore the launch, or the pair is a one-way door. This is the
+    # same assertion as (2) above, made after a park/restore round trip rather than on a fresh
+    # allowlist -- so an edit that left the line subtly different (moved, requoted, duplicated)
+    # shows up as a project that no longer launches.
+    enable_out="$(run_cli --project-enable "${approved}")"
+    out_reenabled="$(run_wrapper "${approved}")"
+    if printf '%s' "${out_reenabled}" | grep -qE "no session started|allowlist not found|excluded by"; then
+        fail "wrapper still blocked the project after --project-enable (enable: ${enable_out}) (launch: ${out_reenabled})"
+    else
+        pass "the launch gate accepts it again after --project-enable"
+    fi
+fi
+
 # (3) End-to-end symlink resolution on that same approved run: the deployed
 #     /opt/ai-tools/bin/claude resolves through a package dir the user cannot stat, so an
 #     `-e` existence guard would mis-report the link as missing. The wrapper must NOT.

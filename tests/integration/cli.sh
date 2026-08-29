@@ -929,11 +929,78 @@ else
     # it never applied. (A host may also refuse earlier for a missing sudo grant -- that is a
     # different, correct refusal; what must not appear is "not a claimed project".)
     pd_seed "# projects" "!${pd_proj}"
-    out="$(pd_cli --reclaim "${pd_proj}")" && rc=0 || rc=$?
-    if [[ ${rc} -ne 0 ]] && ! grep -qi 'not a claimed project' <<<"${out}"; then
-        pass "--reclaim over a parked project does not report it as unclaimed"
+    for verb in --reclaim --lockdown --project-unclaim; do
+        out="$(pd_cli "${verb}" "${pd_proj}")" && rc=0 || rc=$?
+        if [[ ${rc} -ne 0 ]] && ! grep -qi 'not a claimed project' <<<"${out}"; then
+            pass "${verb} over a parked project does not report it as unclaimed"
+        else
+            fail "${verb} called a parked project unclaimed (rc=${rc}): $(brief "${out}")"
+        fi
+    done
+
+    # (9) --project-remove's AUTHORIZATION is the exact entry, and a parked one counts: the '!'
+    # records "not right now", not "not mine", and making the operator re-enable a tree they mean
+    # to delete would make it launchable on the way out. So the verb must get past classification
+    # -- reaching its own disabled confirm -- rather than refusing as unregistered. It must also
+    # delete NOTHING here: with no terminal the confirm and the typed-name challenge both decline,
+    # which is the property that keeps a destructive verb out of an unattended run.
+    out="$(pd_cli --project-remove "${pd_proj}")" && rc=0 || rc=$?
+    if grep -qi 'not a claimed project' <<<"${out}"; then
+        fail "--project-remove refused a parked project as unregistered: $(brief "${out}")"
+    elif grep -qi 'holds no sudo grant' <<<"${out}"; then
+        # A host whose operator holds no general sudo grant refuses ahead of classification. That
+        # is a different, correct refusal, and it is not what this case is about.
+        skip "--project-remove over a parked project" "no sudo grant for the removal helper here"
+    elif [[ ${rc} -ne 0 ]] && grep -qi 'disabled' <<<"${out}"; then
+        pass "--project-remove accepts a parked entry as authorization and names the parked state"
     else
-        fail "--reclaim called a parked project unclaimed (rc=${rc}): $(brief "${out}")"
+        fail "--project-remove did not recognise the parked entry (rc=${rc}): $(brief "${out}")"
+    fi
+    if [[ -d "${pd_proj}" ]]; then
+        pass "the declined removal deleted nothing (no terminal answers both prompts NO)"
+    else
+        fail "--project-remove deleted a project with no terminal to confirm at"
+    fi
+
+    # (10) --keep-entry is about what becomes of an ENTRY, so it is refused where there is none to
+    # keep: --force is the mode that reaches a tree the allowlist does not name. Refused rather
+    # than ignored, since a flag silently doing nothing is how an operator learns the wrong model.
+    out="$(pd_cli --project-unclaim --keep-entry --force "${pd_proj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'keep-entry cannot be combined with --force' <<<"${out}"; then
+        pass "--keep-entry with --force is refused (there is no entry to keep)"
+    elif grep -qi 'holds no sudo grant' <<<"${out}"; then
+        skip "--keep-entry with --force" "no sudo grant for the unclaim helper here"
+    else
+        fail "--keep-entry --force was not refused (rc=${rc}): $(brief "${out}")"
+    fi
+
+    # (10b) --keep-entry belongs to the unclaim ALONE. A removal deletes the tree, so an entry
+    # kept for it would park a path that no longer exists -- and the flag reads as though it might
+    # spare something, which is the worst thing a flag can suggest on a destructive verb. Refused
+    # as an unknown option rather than silently ignored.
+    out="$(pd_cli --project-remove --keep-entry "${pd_proj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'unknown --project-remove option' <<<"${out}"; then
+        pass "--project-remove refuses --keep-entry (it belongs to the unclaim)"
+    else
+        fail "--project-remove accepted --keep-entry (rc=${rc}): $(brief "${out}")"
+    fi
+    if [[ -d "${pd_proj}" ]]; then
+        pass "the refused option deleted nothing"
+    else
+        fail "--project-remove deleted the project while refusing an option"
+    fi
+
+    # (11) An entry can be clean and the project still unreachable, because an ANCESTOR is parked
+    # or a glob matches. Entry state and reachability are different questions, and reporting the
+    # first as though it answered the second sends an operator hunting through their own file for
+    # a refusal the CLI already knew about.
+    pd_seed "# projects" "${pd_proj}" "!${TESTDIR}"
+    out="$(pd_cli --project-enable "${pd_proj}")" && rc=0 || rc=$?
+    if [[ ${rc} -eq 0 ]] && grep -qi 'already enabled' <<<"${out}" \
+            && grep -qF "!${TESTDIR}" <<<"${out}"; then
+        pass "--project-enable reports the OTHER exclusion that still parks a listed project"
+    else
+        fail "--project-enable did not name the blocking ancestor exclusion (rc=${rc}): $(brief "${out}" 'enabled|exclusion')"
     fi
 fi
 
