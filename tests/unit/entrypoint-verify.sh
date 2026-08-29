@@ -236,4 +236,143 @@ else
     fi
 fi
 
+# ── Pin reuse: answering from the pin instead of refetching the signed manifest ───────────────
+# The unattended callers (the relabel watcher, the agent package's %post) may skip the fetch and
+# the gpgv when nothing that decides the verdict has changed. Every assertion below targets a way
+# that shortcut could answer a question it was not asked -- which is the only way it can fail
+# open, since a reused verdict is indistinguishable from a fresh one to everything downstream.
+section "entrypoint-verify: pin reuse (unit)"
+
+# Asserted only when the deployed library actually carries the predicate. Without this guard an
+# absent function exits 127, which every negative case below would read as a correct refusal --
+# the section would report green while testing nothing at all.
+if ! declare -F ai_tools_entrypoint_pin_reusable >/dev/null 2>&1 \
+        || ! declare -F ai_tools_entrypoint_inputs_digest >/dev/null 2>&1; then
+    skip "pin reuse" "the installed ${LIB} carries no pin-reuse predicate -- reinstall to cover it"
+    finish; exit
+fi
+
+mktestdir
+AI_TOOLS_ENTRYPOINT_PIN_DIR="${TESTDIR}/pins"
+mkdir -p "${AI_TOOLS_ENTRYPOINT_PIN_DIR}"
+printf 'key-one\n' > "${TESTDIR}/key-one.asc"
+printf 'key-two\n' > "${TESTDIR}/key-two.asc"
+
+DIGEST="$(ai_tools_entrypoint_inputs_digest "https://v/{version}/m.json" "${TESTDIR}/key-one.asc" "AAAA" || true)"
+if [[ "${DIGEST}" =~ ^[0-9a-f]{64}$ ]]; then
+    pass "the inputs digest is a 64-hex value"
+else
+    fail "the inputs digest was not 64 hex: '${DIGEST}'"
+fi
+
+# Each declared input must move the digest, or a change to it would be invisible to the reuse
+# check and the pin would answer for a verification nobody performed under the new inputs. The
+# key's CONTENT is included, not just its path, so a rotation that ships a new key at the same
+# path still forces a full verification.
+printf 'key-one-modified\n' > "${TESTDIR}/key-one-rotated.asc"
+for variant in \
+        "https://OTHER/{version}/m.json|${TESTDIR}/key-one.asc|AAAA|url template" \
+        "https://v/{version}/m.json|${TESTDIR}/key-two.asc|AAAA|key path" \
+        "https://v/{version}/m.json|${TESTDIR}/key-one-rotated.asc|AAAA|key content" \
+        "https://v/{version}/m.json|${TESTDIR}/key-one.asc|BBBB|fingerprints"; do
+    IFS='|' read -r v_url v_key v_fpr v_what <<< "${variant}"
+    if [[ "$(ai_tools_entrypoint_inputs_digest "${v_url}" "${v_key}" "${v_fpr}" || true)" == "${DIGEST}" ]]; then
+        fail "the inputs digest ignored a change of ${v_what}"
+    else
+        pass "the inputs digest changes with the ${v_what}"
+    fi
+done
+
+if ai_tools_entrypoint_inputs_digest "https://v/{version}/m.json" "${TESTDIR}/absent.asc" "AAAA" >/dev/null 2>&1; then
+    fail "the inputs digest was produced for an unreadable key file"
+else
+    pass "an unreadable key file yields no digest, so the run verifies in full"
+fi
+
+# The pin files are written by hand rather than through pin_write, which is root-only: what is
+# under test is the DECISION, and driving it from fixtures keeps the truth table root-free.
+write_pin() {   # write_pin <agent> <version> <sha256> <inputs>
+    { printf 'AGENT=%s\nVERSION=%s\nSHA256=%s\nVERIFIED=2026-01-01T00:00:00Z\n' "$1" "$2" "$3"
+      if [[ -n "${4:-}" ]]; then printf 'INPUTS=%s\n' "$4"; fi
+    } > "${AI_TOOLS_ENTRYPOINT_PIN_DIR}/$1"
+}
+
+write_pin claude-code 1.2.3 "${SHA_A}" "${DIGEST}"
+if ai_tools_entrypoint_pin_reusable claude-code 1.2.3 "${DIGEST}" "${SHA_A}"; then
+    pass "an unchanged version, inputs and entrypoint reuse the pin"
+else
+    fail "a pin matching on every field was not reusable"
+fi
+
+# The three fields that must each veto reuse on their own. A changed SHA256 is a changed binary,
+# which is the tamper case the pin exists for; a changed VERSION or INPUTS means the recorded
+# verdict answers a different question.
+if ai_tools_entrypoint_pin_reusable claude-code 1.2.3 "${DIGEST}" "${SHA_B}"; then
+    fail "a pin was reused for an entrypoint whose checksum had changed"
+else
+    pass "a changed entrypoint checksum forces a full verification"
+fi
+if ai_tools_entrypoint_pin_reusable claude-code 9.9.9 "${DIGEST}" "${SHA_A}"; then
+    fail "a pin was reused across a version change"
+else
+    pass "a changed installed version forces a full verification"
+fi
+if ai_tools_entrypoint_pin_reusable claude-code 1.2.3 "${SHA_B}" "${SHA_A}"; then
+    fail "a pin was reused after its verification inputs changed"
+else
+    pass "changed verification inputs force a full verification"
+fi
+
+# A pin carrying no INPUTS cannot state which inputs produced it, so it is never reusable. This
+# is also what makes the field safe to introduce: an existing pin simply verifies once more.
+write_pin claude-code 1.2.3 "${SHA_A}" ""
+if ai_tools_entrypoint_pin_reusable claude-code 1.2.3 "${DIGEST}" "${SHA_A}"; then
+    fail "a pin with no INPUTS field was reused"
+else
+    pass "a pin recording no inputs is never reused"
+fi
+
+# Absent, unhashable and malformed values all land on a full verification rather than on reuse.
+rm -f "${AI_TOOLS_ENTRYPOINT_PIN_DIR}/claude-code"
+if ai_tools_entrypoint_pin_reusable claude-code 1.2.3 "${DIGEST}" "${SHA_A}"; then
+    fail "a missing pin was treated as reusable"
+else
+    pass "a missing pin is never reusable"
+fi
+write_pin claude-code 1.2.3 "${SHA_A}" "${DIGEST}"
+refuses_reuse() {   # refuses_reuse <what> <version> <inputs> <observed>
+    if ai_tools_entrypoint_pin_reusable claude-code "$2" "$3" "$4"; then
+        fail "the pin was reused with $1"
+    else
+        pass "reuse is refused with $1"
+    fi
+}
+refuses_reuse "no version, digest or checksum" "" "" ""
+refuses_reuse "no inputs digest"               1.2.3 "" "${SHA_A}"
+refuses_reuse "no observed checksum"           1.2.3 "${DIGEST}" ""
+refuses_reuse "a malformed observed checksum"  1.2.3 "${DIGEST}" "not-a-sha"
+
+# The written pin and the reuse check must agree on the grammar, so the round trip runs through
+# the real writer. Root-only, like every other pin write.
+if [[ "${EUID}" -ne 0 ]]; then
+    skip "pin write records its inputs digest" "needs root to write into the pin directory"
+else
+    rm -f "${AI_TOOLS_ENTRYPOINT_PIN_DIR}/claude-code"
+    if ai_tools_entrypoint_pin_write claude-code 1.2.3 "${SHA_A}" "https://v/{version}/m.json" "${DIGEST}" \
+       && ai_tools_entrypoint_pin_reusable claude-code 1.2.3 "${DIGEST}" "${SHA_A}"; then
+        pass "a pin written with its inputs digest reads back as reusable"
+    else
+        fail "a pin written through pin_write did not read back as reusable"
+    fi
+    # A pin written without a digest stays non-reusable, so an unrecordable digest costs a
+    # re-verification instead of granting an unconditional shortcut.
+    rm -f "${AI_TOOLS_ENTRYPOINT_PIN_DIR}/claude-code"
+    if ai_tools_entrypoint_pin_write claude-code 1.2.3 "${SHA_A}" "https://v/{version}/m.json" \
+       && ! ai_tools_entrypoint_pin_reusable claude-code 1.2.3 "${DIGEST}" "${SHA_A}"; then
+        pass "a pin written without a digest is not reusable"
+    else
+        fail "a pin written without an inputs digest was reusable"
+    fi
+fi
+
 finish

@@ -360,7 +360,13 @@ is refused rather than fetched as-is, since one manifest for every version reads
 while checking a release it never looked at; and the template charset admits nothing that could
 carry a shell metacharacter or a traversal into `curl`. It also pins the public pin path, which `ai-tools --status` reads to report verification
 state: an agent name becomes a path component, so a name that could escape the pin directory must
-yield nothing. The label record written beside it is covered the same way — the shared path guard,
+yield nothing. Its pin-reuse section covers the shortcut the unattended callers take (see
+[updater](updater.rule.md)), where the failure direction is the opposite of the rest of the file: a
+reused verdict is indistinguishable downstream from a fresh one, so each assertion drives a way the
+predicate could answer a question it was not asked — a changed checksum, version, or inputs digest,
+and a pin recording no digest at all. The whole section is guarded on the deployed library carrying
+the predicate, because an absent function exits 127, which every negative case would otherwise read
+as a correct refusal. The label record written beside it is covered the same way — the shared path guard,
 a `RESULT` outside the vocabulary refused rather than filed (an unrecognised value reads as "never
 relabelled", which is a different report from the one it meant to make), a reason that is not a
 token dropped rather than written where the reader's charset clamp would silently lose it, and a
