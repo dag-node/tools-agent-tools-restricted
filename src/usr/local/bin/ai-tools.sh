@@ -31,7 +31,9 @@
 # Commands (each confirms before applying and reports the result):
 #   --project-claim   [path]  claim a project in place -- grant the agent access (idempotent;
 #                             default: cwd); -y/--yes pre-answers its proceed prompt (delegated)
-#   --project-create  [path]  alias for --project-claim (kept for back-compat)
+#   --project-create  <path>  create a NEW project directory (one mkdir, git init, README.md)
+#                             and claim it; refuses a path that already exists and one whose
+#                             parent does not, and takes no cwd default -- the cwd always exists
 #   --project-unclaim [path]  release a project -- revoke the agent's access and hand the tree
 #                             back to your own group (or a named user's), the agent's write
 #                             removed; the directory is left on disk
@@ -452,11 +454,16 @@ root_helper_reachable() { [[ "${INVOKING_USER}" == "root" ]] || command -v sudo 
 # that failed for its own reasons -- an unreachable sudoers backend, a host that refuses -l
 # outright. Only the first is read as a missing grant; the second falls open like any other
 # answer that cannot be read. LC_ALL=C pins the wording of the one text match.
+# An optional <runas> asks the same question about `sudo -u <runas> <bin>` -- the form run_as_owner
+# uses -- so a host whose sudoers restricts Runas to root is read here rather than at the call site,
+# where it would abort a create half-way through a tree.
 sudo_grant_missing() {
-    local bin="$1" answer
+    local bin="$1" runas="${2:-}" answer
+    local -a probe=(-n -l)
+    [[ -n "${runas}" ]] && probe+=(-u "${runas}")
     [[ "${INVOKING_USER}" == "root" ]] && return 1
     command -v sudo >/dev/null 2>&1 || return 1
-    answer="$(LC_ALL=C sudo -n -l "${bin}" 2>&1)" && return 1
+    answer="$(LC_ALL=C sudo "${probe[@]}" "${bin}" 2>&1)" && return 1
     [[ "${answer}" == *"password is required"* ]] && return 1
     if [[ -z "${answer//[[:space:]]/}" ]]; then
         LC_ALL=C sudo -n -l >/dev/null 2>&1 && return 0
@@ -1572,9 +1579,151 @@ cmd_project_claim() {
     ai_tools_log_info "claimed project ${d}"
 }
 
-# cmd_project_create [path]  -- back-compat alias for cmd_project_claim. Claiming is
-# idempotent now, so "create" and "claim" are the same operation.
-cmd_project_create() { cmd_project_claim "$@"; }
+# cmd_project_create <path> [-y]  -- create a NEW project directory and claim it: ONE mkdir, an
+# empty git repository, a README.md, then the ordinary claim flow on the result. The parent
+# directory must already exist; see the refusal below for why it is not created.
+#
+# It REFUSES a path that already exists, which is the sharp line between this verb and
+# --project-claim: a create that quietly claimed whatever was already there would make the two
+# interchangeable, and the operation that grants an agent access to a tree is not one to arrive at
+# by a typo. Recovering a half-finished create is therefore --project-claim on the new directory,
+# never a re-run of this.
+#
+# <path> is REQUIRED and has no cwd default, unlike every other verb here: the cwd always exists,
+# so a defaulted create could only ever refuse.
+#
+# Every filesystem step goes through run_as_owner, so a create for another operator produces a
+# TARGET-owned tree. That is not tidiness -- the claim's setgid and ACL helpers act only on paths
+# the resolved operator or the sandbox account holds, so a tree born owned by the invoker is one
+# require_claimable_owner then refuses.
+cmd_project_create() {
+    local a path="" ASSUME_YES=false
+    for a in "$@"; do
+        case "${a}" in
+            -y|--yes) ASSUME_YES=true ;;
+            -*) die "unknown --project-create option: ${a} (allowed: -y/--yes)" ;;
+            *)  if [[ -z "${path}" ]]; then path="${a}"
+                else die "--project-create takes a single path"; fi ;;
+        esac
+    done
+    [[ -n "${path}" ]] || die "--project-create needs a path: it creates a NEW project directory." \
+        "To claim a directory that already exists, use: ai-tools --project-claim [path]"
+
+    local d
+    d="$(realpath -m -- "${path}" 2>/dev/null)" || die "cannot resolve the path: ${path}"
+    if [[ -e "${d}" ]]; then
+        die "this path already exists: ${d}" \
+            "--project-create only ever creates. Claim what is already there instead:" \
+            "       ai-tools --project-claim ${d}"
+    fi
+
+    # ONE directory is created -- the final component, never a path of them. The parent has to
+    # exist already, and a parent that does not is refused rather than built.
+    #
+    # This is the verb's main safety property, not a limitation of it. `mkdir -p` turns a mistyped
+    # path into a silently manufactured tree: `--project-create ~/Devlopment/app` would create the
+    # typo, create the project inside it, claim it, and report success, leaving the operator with
+    # a working project nobody meant to make in a directory nobody meant to make. Requiring the
+    # parent means a typo surfaces as a refusal that names the missing directory. It also removes
+    # every question that a multi-component create raises: which components were created, which to
+    # vet against the backstop, and what to remove when a later step fails.
+    local parent="${d%/*}"; [[ -n "${parent}" ]] || parent=/
+    if [[ ! -d "${parent}" ]]; then
+        die "the parent directory does not exist: ${parent}" \
+            "--project-create creates ONE directory, not a path of them, so a mistyped path is refused here rather than created. Check the path; if it is right, create the parent yourself and re-run:" \
+            "       mkdir -p ${parent}"
+    fi
+
+    # The backstop on the target. Only one directory is created, so this is the whole surface: it
+    # refuses a create that would MANUFACTURE a protected directory (`/efi` or `/lost+found` on a
+    # host without one). It does not refuse a project nested INSIDE a protected tree -- descendants
+    # pass by design here exactly as they do for a claim, or no project under a home would work.
+    ai_tools_assert_safe_target "${d}" "project create" || exit 3
+
+    # Reachability pre-flight. The parent exists by now, so this scans the project's real ancestry:
+    # a blocker no grant may cover means the sandbox account could never enter this project, so the
+    # create is refused BEFORE anything exists rather than leaving a directory to clean up. A
+    # blocker the predicate DOES permit is not a refusal -- it becomes the claim's own traverse
+    # opt-in below, which offers the grant and the exact setfacl for anything it cannot apply.
+    reach_scan "${d}"
+    if [[ -n "${REACH_BLOCKED}" ]]; then
+        # State the blocker and why no grant covers it, and stop there. The claim's own version of
+        # this refusal points at --sandbox-create, which does not apply here: that verb clones an
+        # EXISTING repository into the sandbox area, and this verb's whole subject is a project
+        # that does not exist yet, so there is nothing to name as its source.
+        local why blocked_owner
+        blocked_owner="$(stat -c '%U' "${REACH_BLOCKED}" 2>/dev/null || true)"
+        if [[ -z "${blocked_owner}" ]]; then
+            why="its owner cannot be read from here"
+        elif [[ "${blocked_owner}" != "${OWNER_USER}" ]]; then
+            why="it belongs to ${blocked_owner}, not to ${OWNER_USER}"
+        else
+            why="it is a protected system directory"
+        fi
+        headline_warn "WARNING: the agent could not reach a project here" \
+            "the sandbox account cannot traverse ${REACH_BLOCKED} (${why}), so it could not enter a project created at ${d}. Nothing has been created. Create the project somewhere the sandbox account can reach: every parent directory has to be one it can already enter, or one you own and can grant traverse on."
+
+        # One alternative is offered, and only after it has been CHECKED on this host rather than
+        # assumed: the owner's home is the usual reachable location, but whether it is depends on
+        # the ancestry above it, which differs per host. A suggestion that cannot be verified is
+        # not made at all.
+        local home_dir candidate
+        home_dir="$(getent passwd "${OWNER_USER}" 2>/dev/null | cut -d: -f6)"
+        if [[ -n "${home_dir}" && -d "${home_dir}" ]]; then
+            candidate="${home_dir%/}/${d##*/}"
+            reach_scan "${candidate}"
+            if [[ -z "${REACH_BLOCKED}" && ! -e "${candidate}" ]]; then
+                say ""
+                say "  this location is reachable:"
+                say "      ${C_BOLD}ai-tools --project-create ${candidate}${C_RST}"
+            fi
+        fi
+        die "project create stopped -- the agent could not reach a project at that location"
+    fi
+
+    # ── Review block: the creation steps, then ONE default-NO confirm covering the whole
+    # operation. The claim that follows prints its own review but does not ask again (it is
+    # passed --yes, the same delegated-claim contract the launch wrapper uses); its scoped
+    # opt-ins -- secret lockdown, .git history, ancestor traversal -- still ask on their own
+    # terms. ──
+    headline "Create project" "${d}" \
+        "This creates the directory, initializes an empty git repository in it, writes a README.md, and then claims it -- which grants the sandbox account group access to the tree. One confirmation covers all of that; the secret-lockdown, git-history and parent-traversal questions are asked separately below."
+    say ""
+    say "  pending:"
+    say "    - create ${d}"
+    say "    - initialize an empty git repository"
+    say "    - write README.md"
+    say "    - claim the project -- the claim reviews its own steps below"
+    say ""
+    ${ASSUME_YES} || confirm "Create and claim this project?" n || die "aborted"
+
+    # ── Apply ──
+    headline "Creating the project" "${d}"
+    run_as_owner mkdir -- "${d}" || die "could not create ${d}"
+    say "    created ${d}"
+    ai_tools_log_info "created project directory ${d}"
+
+    # Plain `git init`, so the operator's own init.defaultBranch decides the branch name rather
+    # than this tool holding an opinion about it. run_as_owner passes -H, so it is the TARGET's
+    # git config that is read on a --for run.
+    if run_as_owner git init -q -- "${d}"; then
+        say "    git: initialized an empty repository"
+    else
+        warn "git init failed -- the directory is created but is not a git repository"
+    fi
+
+    # The basename verbatim, with no prettifying: a project skeleton is a different feature and
+    # would need an opinion this tool should not hold. Written through `tee` as the owner, since a
+    # shell redirect here would create the file as the INVOKER on a --for run.
+    if printf '# %s\n' "${d##*/}" | run_as_owner tee -- "${d}/README.md" >/dev/null; then
+        say "    wrote README.md"
+    else
+        warn "could not write ${d}/README.md (continuing)"
+    fi
+
+    # The claim runs unchanged on the new tree -- one implementation of what claiming means.
+    cmd_project_claim --yes "${d}"
+}
 
 # positive_project_entries  -- print each allowed-projects entry that names a real,
 # resolvable project directory (canonicalized), one per line, skipping blanks, comments,
@@ -3048,7 +3197,7 @@ usage() {
 ai-tools -- manage Claude Code sandbox projects (run as the projects user)
 
   ai-tools --project-claim [-y] [path]  claim a project in place: grant the agent access (default: cwd)
-  ai-tools --project-create  [path]  alias for --project-claim (back-compat)
+  ai-tools --project-create  <path>  create a new project directory, init git, and claim it
   ai-tools --project-unclaim [path]  release a project: revoke agent access, return the tree to your group
   ai-tools --project-remove  [path]  alias for --project-unclaim (back-compat)
   ai-tools --sandbox-create [path]   shallow-clone a repo into the sandbox area
@@ -3200,7 +3349,8 @@ require_sudo_access() {
         --audit)                            bin="${AUDIT_BIN}"    what="reading the refusal trail" ;;
         --lockdown)                         bin="${LOCKDOWN_BIN}" what="locking down secret files"; delegable=true ;;
         --reclaim)                          bin="${RECLAIM_BIN}"  what="reclaiming agent-written files"; delegable=true ;;
-        --project-claim|--project-create)   bin="${LOCKDOWN_BIN}" what="claiming a project"; delegable=true ;;
+        --project-claim)                    bin="${LOCKDOWN_BIN}" what="claiming a project"; delegable=true ;;
+        --project-create)                   bin="${LOCKDOWN_BIN}" what="creating a project"; delegable=true ;;
         --project-unclaim|--project-remove) bin="${UNCLAIM_BIN}"  what="unclaiming a project"; delegable=true ;;
         --sandbox-create)                   bin="${LOCKDOWN_BIN}" what="creating a sandbox clone" ;;
         # --sandbox-push/-remove and the informational verbs reach no helper that can refuse the
@@ -3272,6 +3422,46 @@ require_sudo_access() {
     printf '\n' >&2
     die "${what} needs root, and ${INVOKING_USER} holds no sudo grant for ${bin##*/}." \
         "Membership of ai-ops does not carry a general sudo grant."
+}
+
+# require_runas_target <verb> [verb-args...] -- refuse a --for run whose filesystem steps cannot be
+# performed AS the target. A no-op without --for, and a no-op for every verb that touches the
+# filesystem only through a root helper.
+#
+# --project-create writes the tree as an owner, through run_as_owner, i.e. `sudo -u <target>`. That
+# is a different sudoers question from the one require_sudo_access asks: a host can grant every
+# ai-tools helper and still restrict Runas to root, and there the create would fail partway --
+# after making directories, or after making the tree and before claiming it. Probing first is what
+# keeps the verb's "refused before anything exists" property true on such a host.
+#
+# Each command the run actually executes is probed rather than one representative, for the reason
+# require_sudo_access gives: a sudoers permitting some and not others is then answered accurately.
+# `sudo -n -l -u <target> <cmd>` cannot prompt, so this costs no password, and it runs before
+# require_for_target's snapshot -- the run's first real sudo -- like every other refusal here.
+require_runas_target() {
+    local verb="${1:-}"
+    [[ -n "${FOR_OPERATOR}" ]] || return 0
+    local -a needed=()
+    case "${verb}" in
+        --project-create) needed=(mkdir git tee setfacl) ;;
+        *) return 0 ;;
+    esac
+    local name resolved blocked=""
+    for name in "${needed[@]}"; do
+        resolved="$(command -v -- "${name}" 2>/dev/null)" || continue   # absent: its own call site reports it
+        if sudo_grant_missing "${resolved}" "${FOR_OPERATOR}"; then blocked="${resolved}"; break; fi
+    done
+    [[ -n "${blocked}" ]] || return 0
+
+    # Printed plain and ahead of die(), whose emitter would wrap a command across lines.
+    printf '\n' >&2
+    printf '  %s\n' "Run it as ${FOR_OPERATOR}, or create the project without --for and hand it over:" "" \
+                    "    ai-tools --project-create <path>" \
+                    "    sudo chown -R ${FOR_OPERATOR} <path>" \
+                    "    ai-tools --project-claim --for ${FOR_OPERATOR} <path>" >&2
+    printf '\n' >&2
+    die "${verb} --for ${FOR_OPERATOR} builds the tree as ${FOR_OPERATOR}, and ${INVOKING_USER} holds no sudo grant to run ${blocked##*/} as that account." \
+        "This is a separate sudoers question from the ai-tools helpers: a host can grant every one of those and still restrict which accounts you may act as."
 }
 
 # snapshot_allowlist -- point ALLOWLIST at a private copy of the --for target's registry, read
@@ -3363,6 +3553,12 @@ esac
 # whose snapshot is a --for run's first sudo. Both gates keep the same ordering rule: a command
 # that is going to be refused must not prompt for a password first.
 require_sudo_access "$@"
+
+# And refuse a --for run that cannot perform its filesystem steps AS the target -- a separate
+# sudoers question from the helper grants above, and one that would otherwise surface partway
+# through building a tree. Same ordering rule: ahead of the snapshot, which is the first sudo that
+# can prompt.
+require_runas_target "$@"
 
 # Validate a --for run and re-point the registry at the target, after require_operator: acting for
 # another operator is an operator action, so the invoker must be enrolled before the target is even

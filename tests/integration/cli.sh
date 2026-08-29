@@ -188,6 +188,74 @@ if command -v runuser >/dev/null 2>&1; then
         skip "third-party-owned claim root" "user 'nobody' not present"
     fi
 
+    # (6c) --project-create is a real verb, not an alias, so its refusals are asserted where the
+    # old alias had none. Every one of them must leave NOTHING behind -- no directory, no registry
+    # entry -- which is what makes "recover with --project-claim" the only recovery path it needs.
+    : > "${emptyal}"
+    create_cli() {
+        runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
+            setsid "${CLI}" --project-create "$@" 2>&1
+    }
+
+    # A path is REQUIRED: the cwd always exists, so a defaulted create could only ever refuse.
+    out="$(create_cli)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'needs a path' <<<"${out}"; then
+        pass "--project-create refuses to run without a path"
+    else
+        fail "--project-create did not refuse a missing path (rc=${rc}): ${out}"
+    fi
+
+    # An EXISTING directory is refused, naming the verb that does claim one. This is the line
+    # between the two verbs: a create that quietly claimed what was already there would make them
+    # interchangeable, and only one of them grants an agent access to an existing tree.
+    exists="${TESTDIR}/already-here"; mkdir -p "${exists}"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${exists}"
+    out="$(create_cli "${exists}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'already exists' <<<"${out}" \
+            && grep -q -- '--project-claim' <<<"${out}"; then
+        pass "--project-create refuses an existing directory, naming --project-claim"
+    else
+        fail "--project-create did not refuse an existing directory (rc=${rc}): ${out}"
+    fi
+
+    # ONE directory is created, never a path of them: a parent that does not exist is refused
+    # rather than built. This is what keeps a mistyped path from becoming a silently manufactured
+    # tree with a claimed project inside it.
+    out="$(create_cli "${TESTDIR}/no/such/parent/proj")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'parent directory does not exist' <<<"${out}" \
+            && [[ ! -e "${TESTDIR}/no" ]]; then
+        pass "--project-create refuses a missing parent and creates none of it"
+    else
+        fail "--project-create did not refuse a missing parent (rc=${rc}): ${out}"
+    fi
+
+    # The protected-paths backstop on the target: a create must not be able to MANUFACTURE a
+    # protected directory. Exits 3, the backstop's own code. Driven against a protected path this
+    # host does not have; if it has all of them there is nothing to assert and the case skips.
+    protected=""
+    for p in /efi /lost+found /libx32 /lib32 /srv /media; do
+        [[ -e "${p}" ]] || { protected="${p}"; break; }
+    done
+    if [[ -n "${protected}" ]]; then
+        out="$(create_cli "${protected}")" && rc=0 || rc=$?
+        if [[ ${rc} -eq 3 ]] && [[ ! -e "${protected}" ]]; then
+            pass "--project-create refuses a protected target (exit 3, nothing created)"
+        else
+            fail "--project-create did not refuse protected ${protected} with exit 3 (rc=${rc}): ${out}"
+        fi
+    else
+        skip "--project-create protected-target refusal" "this host has every protected path already"
+    fi
+
+    # Atomic on refusal: none of the above may have written a registry entry. The fixture
+    # allowlist is the one a regression would touch.
+    if [[ -s "${emptyal}" ]]; then
+        fail "a refused --project-create wrote to the allowlist: $(cat "${emptyal}")"
+    else
+        pass "every refused --project-create left the allowlist untouched"
+    fi
+
     # (7) --list renders the reconciliation view deterministically over a FIXTURE allowlist +
     # gitconfig (AI_TOOLS_ALLOWLIST / AI_TOOLS_GITCONFIG), so it never reads the operator's real
     # registry. Every entry class and every Suggested-cleanup class is asserted. The stale and
