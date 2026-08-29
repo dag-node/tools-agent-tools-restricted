@@ -19,6 +19,11 @@
 # stays covered by each helper's owner-guard, which acts only on agent- or operator-owned
 # paths and never the root-owned files that fill a system directory.
 #
+# A second, narrower predicate lives beside it: ai_tools_traverse_grant_allowed, which vets a
+# traverse-only ACL on ONE directory rather than a whole tree as an elevated target, and so admits
+# the acting operator's own home root. It is an addition, not a relaxation -- the backstop above is
+# unchanged for every target that reaches it.
+#
 # Sourced (not executed) so every consumer shares ONE list and ONE matcher. Deployed
 # 644 root:root (world-readable; carries no secrets; the operator wrapper, the CLI, and the
 # root helpers all read it) like msg.lib.sh / log.lib.sh.
@@ -58,6 +63,40 @@ ai_tools_protected_path_match() {
         printf '%s\n' "${path} (user home root)"; return 0
     fi
     return 1
+}
+
+# ai_tools_traverse_grant_allowed <path> <owner_user>
+# Return 0 when a TRAVERSE-ONLY ACL (u:SANDBOX_USER:--x) may be granted on <path>: it is a
+# directory <owner_user> owns, and it either matches no protected path or matches ONLY as
+# <owner_user>'s own home root. Return 1 for every system directory, for /home itself, and for
+# any other user's home root.
+#
+# This is a SECOND, NARROWER predicate beside the target backstop above, not a relaxation of it.
+# ai_tools_protected_path_match still refuses a home root as the TARGET of a claim, an unclaim, a
+# lockdown or any elevated walk, and nothing here changes that. What differs is the operation
+# being vetted: a claim rewrites group, mode and ACLs across a whole tree, while this grants one
+# `--x` entry on one directory -- search permission on that directory alone, conveying no listing
+# of it and nothing at all about the files inside, whose own modes and ACLs still decide. Refusing
+# an operator's own home root for THAT is what made every project at /home/<user>/<proj>
+# permanently unreachable, with a sandbox clone the only way in.
+#
+# The owner check is what keeps the home-root carve-out honest: it admits the home of the operator
+# the run acts for, and no one else's.
+ai_tools_traverse_grant_allowed() {
+    local path="${1:-}" owner_user="${2:-}" matched
+    [[ -n "${path}" && -n "${owner_user}" ]] || return 1
+    [[ -d "${path}" ]] || return 1
+    path="${path%/}"; [[ -z "${path}" ]] && path="/"
+    [[ "$(stat -c '%U' "${path}" 2>/dev/null || true)" == "${owner_user}" ]] || return 1
+    matched="$(ai_tools_protected_path_match "${path}")" || return 0
+    # The sole permitted match: <owner_user>'s own home root, which the matcher reports with the
+    # "(user home root)" suffix. Compared against the account's real home so a path that merely
+    # looks like /home/<name> is not admitted on its shape.
+    [[ "${matched}" == *"(user home root)" ]] || return 1
+    local home; home="$(getent passwd "${owner_user}" 2>/dev/null | cut -d: -f6)"
+    [[ -n "${home}" ]] || return 1
+    home="$(realpath -m -- "${home}" 2>/dev/null || printf '%s' "${home}")"
+    [[ "${path}" == "${home%/}" ]]
 }
 
 # ai_tools_assert_safe_target <path> [operation-label]

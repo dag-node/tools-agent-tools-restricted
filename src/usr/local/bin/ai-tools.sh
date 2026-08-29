@@ -519,6 +519,24 @@ require_sandbox_clone() {
         || die "not a git clone: ${d} -- if it is a stray directory, remove it by hand"
 }
 
+# run_as_owner <cmd> [args...]  -- run <cmd> as the operator this run acts FOR. Without --for that
+# is the invoker, so the command runs directly and nothing is prefixed; with --for it is the
+# target, and the command runs under `sudo -u <target> -H`. The seam every step that must touch
+# the filesystem AS AN OWNER goes through.
+#
+# It grants nothing new. `sudo -u <target>` rides the caller's GENERAL sudo grant -- the separate
+# authority axis CLAUDE.md names, which nothing in this project writes or records -- so an operator
+# who reaches it could already act as that account. The sandbox account holds no sudo rule and runs
+# under PR_SET_NO_NEW_PRIVS, which drops sudo's SUID bit, so it reaches none of this.
+#
+# -H is load-bearing rather than tidiness: without it (and without sudoers' always_set_home) sudo
+# leaves HOME pointing at the INVOKER's home, so a command that reads a dotfile -- git above all --
+# would configure the target's tree from the invoker's settings.
+run_as_owner() {
+    if [[ -z "${FOR_OPERATOR}" ]]; then "$@"; return; fi
+    sudo -u "${OWNER_USER}" -H -- "$@"
+}
+
 # ── Registry helpers (the only mutating filesystem writes besides clones) ─────────
 # allowed-projects: one absolute path per line; '!'-prefixed lines are exclusions.
 # safe.directory: git refuses to operate in a dir it does not own, and the clone is
@@ -813,19 +831,17 @@ agent_can_traverse() {
     return 1
 }
 
-# grantable_ancestor <dir>  -- 0 if reg_reach may grant traverse on <dir>: the project's OWNER owns
-# it and it is not a protected system directory (the safe-paths backstop). Fail-closed when the
-# predicate is unavailable, so a broken install never widens a directory it cannot vet.
+# grantable_ancestor <dir>  -- 0 if reg_reach may grant traverse on <dir>. The rule itself lives in
+# safe-paths.lib.sh (ai_tools_traverse_grant_allowed), single-sourced with the two new project
+# verbs; this is the call site. Fail-closed when the predicate is unavailable, so a broken install
+# never widens a directory it cannot vet.
 #
-# On a --for run the owner is the target, whose directories the invoker may not be able to setfacl;
-# the grant is still offered, because the alternative -- declining a reachable path outright --
-# would report a working project as unreachable. An unprivileged setfacl that is refused falls to
-# reg_reach's per-path warning, which prints the exact command to run as the owner or as root.
+# On a --for run the owner is the target, whose directories the invoker cannot setfacl unprivileged;
+# reg_reach applies the grant through the runas seam instead.
 grantable_ancestor() {
     local p="$1"
-    declare -F ai_tools_protected_path_match >/dev/null 2>&1 || return 1
-    if ai_tools_protected_path_match "${p}" >/dev/null 2>&1; then return 1; fi
-    [[ "$(stat -c '%U' "${p}" 2>/dev/null || true)" == "${OWNER_USER}" ]]
+    declare -F ai_tools_traverse_grant_allowed >/dev/null 2>&1 || return 1
+    ai_tools_traverse_grant_allowed "${p}" "${OWNER_USER}"
 }
 
 # reach_scan <dir>  -- detect the traverse gap between the sandbox account and <dir>:
@@ -862,13 +878,14 @@ reach_scan() {
 reg_reach() {
     local dir="$1" a
     if [[ -n "${REACH_BLOCKED}" ]]; then
-        local why
-        if ! declare -F ai_tools_protected_path_match >/dev/null 2>&1; then
-            why="the safe-paths backstop is not loaded, so ancestors cannot be vetted"
-        elif ai_tools_protected_path_match "${REACH_BLOCKED}" >/dev/null 2>&1; then
-            why="a protected system directory"
+        local why blocked_owner
+        blocked_owner="$(stat -c '%U' "${REACH_BLOCKED}" 2>/dev/null || echo '?')"
+        if ! declare -F ai_tools_traverse_grant_allowed >/dev/null 2>&1; then
+            why="the safe-paths traverse rule is not loaded, so ancestors cannot be vetted"
+        elif [[ "${blocked_owner}" != "${OWNER_USER}" ]]; then
+            why="owned by ${blocked_owner}, not by ${OWNER_USER}"
         else
-            why="owned by $(stat -c '%U' "${REACH_BLOCKED}" 2>/dev/null || echo '?'), not by ${OWNER_USER}"
+            why="a protected system directory"
         fi
         headline_warn "WARNING: project unreachable for the sandbox account" \
             "the sandbox account cannot traverse ${REACH_BLOCKED} (${why}), so it cannot reach ${dir}; an isolated clone under the sandbox area is the way in:"
@@ -876,22 +893,59 @@ reg_reach() {
         return 0
     fi
     if (( ${#REACH_GRANT[@]} == 0 )); then return 0; fi
+
     headline_warn "WARNING: parent directories block the agent" \
         "the sandbox account must be able to traverse every parent directory to reach the project; the grant below is traverse-only (enter, never list or read): u:${SANDBOX_USER}:--x"
     for a in "${REACH_GRANT[@]}"; do say "      ${a}"; done
+
+    # The owner's own HOME ROOT is the one entry in that list whose consequence has to be stated,
+    # and what to state is a CONDITION rather than an assertion of exposure. `--x` conveys no
+    # listing of the directory and nothing at all about the files in it -- each file's own mode
+    # and ACL still decides, and the sandbox account is neither their owner nor in their group.
+    # So the grant opens nothing; it makes already-world-readable entries REACHABLE. Under
+    # umask 077 that set is empty; under the RHEL default 022 it is the 644 skel files and
+    # anything else written world-readable. Which of those this host is, is a question with a
+    # one-line answer, so the prompt names the command instead of guessing.
+    local owner_home includes_home=false
+    owner_home="$(getent passwd "${OWNER_USER}" 2>/dev/null | cut -d: -f6)"
+    if [[ -n "${owner_home}" ]]; then
+        for a in "${REACH_GRANT[@]}"; do
+            [[ "${a}" == "${owner_home%/}" ]] && { includes_home=true; break; }
+        done
+    fi
+    if ${includes_home}; then
+        say ""
+        say "  ${owner_home} is ${OWNER_USER}'s home directory. Traverse conveys no listing of it"
+        say "  and no access to the files in it -- each file's own mode and ACL still decides."
+        say "  What it makes reachable is whatever there is already world-readable; this lists it:"
+        say ""
+        say "      ${C_BOLD}find ${owner_home} -maxdepth 1 -perm -o+r${C_RST}"
+        say ""
+    fi
+
+    # Default NO, and deliberately not pre-answerable: the grant widens access ABOVE the project,
+    # so neither AI_TOOLS_ASSUME_YES (which only fast-tracks default-YES questions) nor the claim's
+    # own -y reaches it. A run with no terminal therefore declines, and prints the commands so the
+    # refusal is actionable rather than merely recorded.
     if confirm "Grant the sandbox account traverse-only access on them?" n; then
         local failed=false
         for a in "${REACH_GRANT[@]}"; do
-            if setfacl -m "u:${SANDBOX_USER}:--x" "${a}" 2>/dev/null; then
+            # A --for run's ancestors belong to the TARGET, so an unprivileged setfacl by the
+            # invoker fails on every one of them; run_as_owner applies it as the owner instead.
+            if run_as_owner setfacl -m "u:${SANDBOX_USER}:--x" "${a}" 2>/dev/null; then
                 say "    reach: u:${SANDBOX_USER}:--x ${a}"
             else
                 failed=true
-                warn "reach: could not grant on ${a} -- run: setfacl -m u:${SANDBOX_USER}:--x ${a}"
+                warn "reach: could not grant on ${a} -- run it as ${OWNER_USER} or as root:"
+                say  "      ${C_BOLD}setfacl -m u:${SANDBOX_USER}:--x ${a}${C_RST}"
             fi
         done
         ${failed} || ok "parent directories traversable by the sandbox account"
     else
         say "    reach: left as-is -- the agent may be unable to enter ${dir}"
+        have_tty || for a in "${REACH_GRANT[@]}"; do
+            say "      ${C_BOLD}setfacl -m u:${SANDBOX_USER}:--x ${a}${C_RST}"
+        done
     fi
 }
 
