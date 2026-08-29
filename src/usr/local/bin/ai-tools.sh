@@ -181,6 +181,22 @@ readonly ROOT_ALLOWED_VERBS=(--audit --status --list --providers --stop)
 # that symlink while sessions were running). --list and --providers describe a toolchain that has
 # to exist first and stay behind the gate.
 readonly BOOTSTRAP_EXEMPT_VERBS=(--status --audit --stop)
+# OPERATOR_VERBS -- what only an enrolled operator may run. The criterion is ACTS AS AN OPERATOR:
+# the verb resolves the caller's identity out of OPERATORS somewhere below it (the root helpers do,
+# via operator.lib.sh), so an unenrolled caller would otherwise get through the registry writes and
+# the confirm prompts only to be refused by the first helper that resolves an owner. Its complement
+# is the informational set -- --help/--version/--list/--providers/--status/--audit/--stop -- which
+# stays open so an unenrolled user can still read usage and inspect the host.
+readonly OPERATOR_VERBS=(--project-claim --project-create --project-unclaim --project-remove
+                         --project-enable --project-disable
+                         --sandbox-create --sandbox-push --sandbox-remove
+                         --lockdown --reclaim --relabel)
+# FOR_ALLOWED_VERBS -- what --for accepts: the verbs whose whole effect is decided by WHICH
+# operator's allowlist covers the path. Elsewhere the flag is REFUSED rather than ignored (see
+# require_for_target).
+readonly FOR_ALLOWED_VERBS=(--project-claim --project-create --project-unclaim --project-remove
+                            --project-enable --project-disable
+                            --lockdown --reclaim --list)
 
 # verb_in <verb> <name>... -- true when <verb> is one of the named verbs.
 verb_in() {
@@ -647,15 +663,19 @@ retag_allow() {
 # ai-tools-unclaim, -chown, -setfacl and -setgid resolve no owner and exit 0 having done NOTHING,
 # and ai-tools-lockdown refuses outright. Proceeding over that would report steps as applied that
 # never ran -- the one thing these flows may not do.
+# <what> is named in the message; a THIRD argument makes a declined confirm return non-zero
+# instead of aborting the command, for the one caller whose remaining work is still worth doing.
 offer_reenable() {
-    local dir="$1" what="$2"
+    local dir="$1" what="$2" decline_returns="${3:-}"
     refuse_carveout "${dir}" "${what}"
     headline_warn "This project is disabled" \
         "An exclusion line in allowed-projects parks ${dir}. While it stands the agent cannot launch there, and the root helpers resolve no owner for it -- so ${what} would report steps it did not apply. Re-enabling changes nothing else: the project keeps its permissions, its ACLs and its label."
     disabled_note "${dir}"
     say ""
-    confirm "Re-enable this project (delete the '!' from that line)?" n \
-        || die "aborted -- ${dir} stays disabled and nothing was changed"
+    if ! confirm "Re-enable this project (delete the '!' from that line)?" n; then
+        [[ -n "${decline_returns}" ]] || die "aborted -- ${dir} stays disabled and nothing was changed"
+        return 1
+    fi
     retag_allow "${dir}" enable
 }
 
@@ -2581,6 +2601,26 @@ cmd_project_unclaim() {
             "unclaiming it the normal way, which reverts the whole registered tree."
     fi
 
+    # A parked target is answered BEFORE this verb asks its own question, because it decides what
+    # the run can DO rather than being a step inside it: ai-tools-unclaim resolves this path's
+    # owner through the allowlist, where an exclusion wins, so on a disabled project the hand-back
+    # would exit 0 having handed nothing back -- and the flow would close with a ✓ over files that
+    # still carry the agent's group.
+    #
+    # Declining does NOT abort. That would be the one wrong answer here: the registry reversal is
+    # what moves to less access, so a decline keeps it and gives up only the part that genuinely
+    # cannot run -- the hand-back, which is then reported as not having run (the run exits non-zero
+    # and prints the command that completes it), exactly as it is for a hand-back that was wanted
+    # and failed. The verb's rule is unchanged; what "reversal" means is the <registry> disposition
+    # below -- the entry is DROPPED, or PARKED under --keep-entry, and both end with no session
+    # able to start there.
+    local -a handback_blocked=()
+    local t
+    for t in "${targets[@]}"; do
+        [[ "$(allow_state "${t}")" == disabled ]] || continue
+        offer_reenable "${t}" "the unclaim" decline-returns || handback_blocked+=("${t}")
+    done
+
     if [[ "${mode}" == exact ]]; then
         section "Unclaim project"
         say "  ${d}"
@@ -2606,19 +2646,6 @@ cmd_project_unclaim() {
         done
     fi
 
-    # A parked target has to be un-parked before anything below runs: ai-tools-unclaim resolves
-    # this path's owner through the allowlist, where an exclusion wins, so on a disabled project it
-    # would exit 0 having handed nothing back -- and the flow would close with a ✓ over files that
-    # still carry the agent's group. Asked once per target, default NO, and declining aborts the
-    # run rather than performing the half of it that still works.
-    #
-    # With --keep-entry the line ends up parked again, which is where it started: the registry is
-    # unchanged and what the run was for -- the file hand-back -- is what it did.
-    for t in "${targets[@]}"; do
-        [[ "$(allow_state "${t}")" == disabled ]] || continue
-        offer_reenable "${t}" "the unclaim" || die "aborted -- ${t} is still disabled"
-    done
-
     # Filesystem hand-back: decided ONCE for the whole batch.
     local hb_group hb_hint
     resolve_handback_group "${group_opt}"
@@ -2629,7 +2656,15 @@ cmd_project_unclaim() {
 
     local incomplete=0
     for t in "${targets[@]}"; do
-        unclaim_one "${t}" "${hb_group}" "${hb_hint}" "${registry}" "${helper_flags[@]}" \
+        # A target whose exclusion was left standing takes the registry-only path: no group means
+        # unclaim_one skips the hand-back, and the hint is what it prints in its place.
+        local t_group="${hb_group}" t_hint="${hb_hint}" b
+        for b in "${handback_blocked[@]:-}"; do
+            [[ "${b}" == "${t}" ]] || continue
+            t_group=""; t_hint="re-enable it (ai-tools --project-enable ${t}), then: ai-tools --reclaim --full ${t}"
+            break
+        done
+        unclaim_one "${t}" "${t_group}" "${t_hint}" "${registry}" "${helper_flags[@]}" \
             || incomplete=$(( incomplete + 1 ))
     done
 
@@ -4365,15 +4400,9 @@ snapshot_allowlist() {
 require_for_target() {
     local verb="${1:-}"; shift || true
     [[ -n "${FOR_OPERATOR}" ]] || return 0
-    case "${verb}" in
-        --project-claim|--project-create|--project-unclaim|--project-remove|\
-        --project-enable|--project-disable|\
-        --lockdown|--reclaim|--list) ;;
-        *) die "--for is not accepted on ${verb}" \
-               "it applies to: --project-claim, --project-create, --project-unclaim," \
-               "       --project-remove, --project-enable, --project-disable, --lockdown," \
-               "       --reclaim, --list" ;;
-    esac
+    verb_in "${verb}" "${FOR_ALLOWED_VERBS[@]}" \
+        || die "--for is not accepted on ${verb}" \
+               "it applies to: $(join_words "${FOR_ALLOWED_VERBS[@]}")"
     # --force reaches a tree NO allowlist names, so ai-tools-unclaim cannot resolve its owner from
     # an entry and binds the walk to the INVOKING uid instead -- the guard that stops one operator
     # rewriting another's files. Honouring --for there would have the CLI name one operator while
@@ -4405,12 +4434,7 @@ require_for_target() {
 
 # Gate the operator-acting commands up front; the informational ones (--help/--version/--list/
 # --providers) stay open so an unenrolled user can still read usage and inspect the host.
-case "${1:-}" in
-    --project-claim|--project-create|--project-unclaim|--project-remove|\
-    --project-enable|--project-disable|\
-    --sandbox-create|--sandbox-push|--sandbox-remove|\
-    --lockdown|--reclaim|--relabel) require_operator ;;
-esac
+if verb_in "${1:-}" "${OPERATOR_VERBS[@]}"; then require_operator; fi
 
 # Refuse a verb whose root helper this caller has no sudo grant for, before require_for_target --
 # whose snapshot is a --for run's first sudo. Both gates keep the same ordering rule: a command

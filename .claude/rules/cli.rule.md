@@ -666,6 +666,12 @@ done nothing**, and `ai-tools-lockdown` refuses. The ownership handback therefor
 files written under it — the consequence to know before parking a project a session is still
 writing to.
 
+On a **parked** target the unclaim asks to lift the exclusion first, because the hand-back cannot
+run under one. Declining does not abort: the registry reversal still applies — the entry dropped,
+or parked under `--keep-entry` — and only the hand-back is given up, reported as not having run
+with the `--project-enable` + `--reclaim --full` pair that completes it, and a non-zero exit. That
+is the same treatment a hand-back that was wanted and failed already gets.
+
 `--project-unclaim --keep-entry` is the same edit at the end of an unclaim: the files are handed
 back as usual, then the line is parked instead of deleted. It serves the release cycle — unclaim
 for clean permissions before a release, claim again for the next stage — without the project
@@ -854,7 +860,7 @@ verb, because the safe direction does:
 | verb | on a failed root step | why |
 |---|---|---|
 | `--project-claim` | stops, reports what is pending, exits 1 | fewer steps applied is *less* access, and a re-run is idempotent |
-| `--project-unclaim` | drops the registries **anyway**, then reports | dropping them is what moves to less access; stopping short would leave the project launchable |
+| `--project-unclaim` | applies the registry reversal **anyway**, then reports — dropping the entry, or parking it under `--keep-entry` | either disposition ends with no session able to start there, so it is what moves to less access; stopping short would leave the project launchable |
 | `--project-remove` | deletes **anyway**, notes the cleanup that did not run | the leftovers point at a path that no longer exists; refusing to delete would leave the tree |
 | `--sandbox-create` | reports the clone is not git-ready, exits 1 | a clone exists to run git in, and without `safe.directory` the agent's git refuses the tree |
 
@@ -904,7 +910,8 @@ classification is the front line; `ai-tools-unclaim`'s own gate is the last line
 two-layer split as the rest of this section — so the CLI may never be the only thing standing
 between a caller and a tree. Mechanism, and why an unlisted tree resolves its owner
 differently, live in that helper's header.
-For each selected project it removes the SELinux label and both registries and (default-yes
+For each selected project it removes the SELinux label and both registries — or, under
+`--keep-entry`, parks the allowlist line in place instead of deleting it — and (default-yes
 confirm) runs `ai-tools-unclaim` to hand the filesystem back — the hand-back running **before**
 the allowlist entry is dropped, so the helper still sees the target listed (see the owner/allowlist
 guard below).
