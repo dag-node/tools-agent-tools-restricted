@@ -758,8 +758,13 @@ fi
 # Not swallowed: an entrypoint that stays mislabelled means ai-tools-run refuses every launch, so
 # the scriptlet reports the remedy and exits non-zero rather than leaving that to be discovered
 # at the first `claude`.
+# PIN_REUSE: this scriptlet must finish quickly and must succeed offline, and a package upgrade
+# usually leaves the npm-installed entrypoint untouched. It therefore answers from the existing pin
+# when the version, the declared verification inputs (this package ships the signing key, so a key
+# change invalidates them) and the entrypoint's bytes are all unchanged; anything else re-fetches
+# and re-verifies.
 if [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
-    %{ai_libexecdir}/ai-tools-relabel-agent >/dev/null || {
+    AI_TOOLS_ENTRYPOINT_PIN_REUSE=1 %{ai_libexecdir}/ai-tools-relabel-agent >/dev/null || {
         echo "ai-tools-agents-claude-code-restricted: entrypoint labelling failed; see 'journalctl -t ai-tools-relabel-agent'" >&2
         echo "ai-tools-agents-claude-code-restricted: fix the cause and re-run: sudo ai-tools --relabel" >&2
         exit 1

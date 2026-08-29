@@ -3372,7 +3372,10 @@ cmd_reclaim() {
 # helper (sudo, no password: the dedicated fixed-path rule). Two steps, in this order:
 #   1. VERIFY the entrypoint against the checksum its vendor signed and record it in that agent's
 #      pin, which ai-tools-run compares the binary against at launch. Needs the host online, and
-#      fails soft when it cannot reach the vendor; a MISMATCH fails the command.
+#      fails soft when it cannot reach the vendor; a MISMATCH fails the command. This route always
+#      re-fetches: the unattended callers may answer from an unchanged pin instead
+#      (AI_TOOLS_ENTRYPOINT_PIN_REUSE, see updater.rule.md), and sudo scrubs the environment, so
+#      the operator's on-demand verb cannot inherit that shortcut.
 #   2. RELABEL it to ai_tools_exec_t. An nvm-update installs a fresh agent binary that npm leaves
 #      mislabelled (bin_t), so the domain transition stops firing and ai-tools-run refuses to
 #      launch (fail-closed) until the label is restored.

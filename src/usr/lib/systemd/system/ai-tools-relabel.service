@@ -10,4 +10,11 @@ Type=oneshot
 # Runs the relabel helper as root in the system instance (which holds relabel privilege),
 # triggered by ai-tools-relabel.path after a Node bump. Idempotent and best-effort;
 # ai-tools-run's fail-closed preflight is the backstop. See .claude/rules/updater.rule.md.
+#
+# An upgrade can fire the watching .path several times for one change, and this instance is
+# unattended, so it answers from the existing pin when the installed version, the declared
+# verification inputs, and the entrypoint's own bytes are all unchanged. Any of them differing
+# takes the full fetch-and-verify path, as does `ai-tools --relabel`, which reaches the helper
+# through sudo and so never carries this variable.
+Environment=AI_TOOLS_ENTRYPOINT_PIN_REUSE=1
 ExecStart=/usr/local/libexec/ai-tools/ai-tools-relabel-agent

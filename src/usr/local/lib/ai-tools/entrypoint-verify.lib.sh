@@ -149,6 +149,25 @@ ai_tools_entrypoint_sha256() {
     printf '%s' "${line}"
 }
 
+# ai_tools_entrypoint_inputs_digest <url-template> <key-file> <fingerprints> : print a SHA-256 over
+#   everything that decides a verification verdict besides the entrypoint itself -- the manifest URL
+#   template, the signing key's path AND its content, and the declared fingerprints. A pin records
+#   this digest so a later run can tell "the same question, asked the same way" from a question that
+#   has changed (a vendor key rotation, a repointed manifest host) without refetching anything.
+#   Prints nothing when any input is unusable, which resolves to a full verification.
+ai_tools_entrypoint_inputs_digest() {
+    local url_template="${1:-}" key_file="${2:-}" fingerprints="${3:-}" key_digest line
+    [[ -n "${url_template}" ]] || return 1
+    command -v sha256sum >/dev/null 2>&1 || return 1
+    key_digest="$(ai_tools_entrypoint_sha256 "${key_file}")" || return 1
+    line="$(printf '%s\n%s\n%s\n%s\n' \
+                "${url_template}" "${key_file}" "${key_digest}" "${fingerprints}" \
+            | sha256sum 2>/dev/null)" || return 1
+    line="${line%% *}"
+    [[ "${line}" =~ ^[0-9a-f]{64}$ ]] || return 1
+    printf '%s' "${line}"
+}
+
 # ai_tools_entrypoint_pin_path <agent> : print the pin path for an agent. The name is allowlisted to
 #   one plain identifier before it becomes a path -- the same guard ai_tools_agent_manifest_field
 #   applies -- so no declaration can address a file outside the pin directory. Public because the
@@ -239,21 +258,49 @@ ai_tools_entrypoint_pin_read() {
     printf '%s' "${checksum}"
 }
 
-# ai_tools_entrypoint_pin_write <agent> <version> <sha256> <source-url> : record a verified
-#   entrypoint. ROOT ONLY (see _ai_tools_ev_write_record, which also makes the write atomic). A
-#   checksum is admitted only in exact 64-hex shape, so a partial observation never lands as a pin.
+# ai_tools_entrypoint_pin_write <agent> <version> <sha256> <source-url> [inputs-digest] : record a
+#   verified entrypoint. ROOT ONLY (see _ai_tools_ev_write_record, which also makes the write
+#   atomic). A checksum is admitted only in exact 64-hex shape, so a partial observation never lands
+#   as a pin. <inputs-digest> is what ai_tools_entrypoint_pin_reusable compares against; a pin
+#   written without one is never reusable, so an unrecordable digest costs a re-verification.
 ai_tools_entrypoint_pin_write() {
-    local agent="${1:-}" version="${2:-}" checksum="${3:-}" source_url="${4:-}" pin
+    local agent="${1:-}" version="${2:-}" checksum="${3:-}" source_url="${4:-}" inputs="${5:-}" pin
     pin="$(ai_tools_entrypoint_pin_path "${agent}")" || return 1
     [[ "${checksum}" =~ ^[0-9a-f]{64}$ ]] || return 1
     {
         printf '# ai-tools entrypoint pin -- written as root, read by the launch shim.\n'
         printf 'AGENT=%s\nVERSION=%s\nSHA256=%s\nVERIFIED=%s\n' \
             "${agent}" "${version:-unknown}" "${checksum}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        if [[ "${inputs}" =~ ^[0-9a-f]{64}$ ]]; then printf 'INPUTS=%s\n' "${inputs}"; fi
         # An `if`, not `[[ ]] && printf`: this is the group's LAST command, so its status is the
         # group's, and a pin written without a source URL would fail the pipeline that writes it.
         if [[ -n "${source_url}" ]]; then printf 'SOURCE=%s\n' "${source_url}"; fi
     } | _ai_tools_ev_write_record "${pin}" "${AI_TOOLS_ENTRYPOINT_PIN_DIR}"
+}
+
+# ai_tools_entrypoint_pin_reusable <agent> <version> <inputs-digest> <observed-sha256> : succeed
+#   when the recorded pin already answers exactly this question -- same installed version, same
+#   declared verification inputs, same bytes on disk. The caller may then skip the manifest fetch
+#   and the signature check, because re-running them over unchanged inputs re-derives the verdict
+#   the pin holds.
+#
+#   What it gives up is narrow and deliberate: a vendor REPUBLISHING or withdrawing a release it
+#   already signed goes unnoticed until something else changes. Everything that makes the pin a
+#   tamper gate is intact -- a modified entrypoint changes <observed-sha256>, a rotated key or
+#   repointed manifest changes <inputs-digest>, and either takes the full path.
+#
+#   Every unreadable, absent, or malformed field returns 1, so the failure direction is a full
+#   verification rather than a reused verdict.
+ai_tools_entrypoint_pin_reusable() {
+    local agent="${1:-}" version="${2:-}" inputs="${3:-}" observed="${4:-}" pin
+    [[ "${observed}" =~ ^[0-9a-f]{64}$ ]] || return 1
+    [[ "${inputs}"   =~ ^[0-9a-f]{64}$ ]] || return 1
+    [[ -n "${version}" ]] || return 1
+    pin="$(ai_tools_entrypoint_pin_path "${agent}")" || return 1
+    [[ "$(_ai_tools_ev_pin_field "${pin}" VERSION || true)" == "${version}"  ]] || return 1
+    [[ "$(_ai_tools_ev_pin_field "${pin}" INPUTS  || true)" == "${inputs}"   ]] || return 1
+    [[ "$(_ai_tools_ev_pin_field "${pin}" SHA256  || true)" == "${observed}" ]] || return 1
+    return 0
 }
 
 # _ai_tools_ev_dearmor <armored-key> <out> : convert a published ASCII-armored key to the binary

@@ -104,12 +104,23 @@ if ! source "${ENTRYPOINT_VERIFY_LIB}" 2>/dev/null \
     ai_tools_entrypoint_release_verify() { return 2; }
     ai_tools_entrypoint_pin_write() { return 1; }
     ai_tools_entrypoint_label_write() { return 1; }
+    ai_tools_entrypoint_inputs_digest() { return 1; }
+    ai_tools_entrypoint_sha256() { return 1; }
 fi
 
 # pin_agent_entrypoint <agent> : verify one agent's installed entrypoint against its vendor's
 #   signed release manifest and record the result. Returns 1 only on a mismatch.
+#
+#   AI_TOOLS_ENTRYPOINT_PIN_REUSE=1 lets a run answer from the existing pin when nothing that
+#   decides the verdict has changed, skipping two network fetches and a gpgv per agent. It is
+#   OPT-IN, and the two unattended callers are what it is for: the ai-tools-relabel.path watcher,
+#   which an upgrade can fire several times for one change, and the agent package's %post. An
+#   operator running `ai-tools --relabel` reaches this helper through sudo, which scrubs the
+#   environment, so that command re-checks the vendor's signature every time -- the behaviour it
+#   documents. What reuse gives up, and what it keeps, are in updater.rule.md.
 pin_agent_entrypoint() {
     local agent="$1" entrypoint url_template key_file fingerprints version checksum rc=0
+    local observed inputs
 
     url_template="$(ai_tools_agent_manifest_field "${agent}" release_manifest_url || true)"
     [[ -n "${url_template}" ]] || return 0          # declares no provenance: nothing to verify
@@ -131,10 +142,22 @@ pin_agent_entrypoint() {
         return 0
     fi
 
+    inputs="$(ai_tools_entrypoint_inputs_digest "${url_template}" "${key_file}" "${fingerprints}" \
+                2>/dev/null || true)"
+    if [[ "${AI_TOOLS_ENTRYPOINT_PIN_REUSE:-0}" == "1" ]] \
+            && declare -F ai_tools_entrypoint_pin_reusable >/dev/null 2>&1; then
+        observed="$(ai_tools_entrypoint_sha256 "${entrypoint}" 2>/dev/null || true)"
+        if ai_tools_entrypoint_pin_reusable "${agent}" "${version}" "${inputs}" "${observed}"; then
+            say "${agent}: entrypoint unchanged since its pin for ${version} -- signature not re-checked"
+            ai_tools_log_info "${agent}: pin reused at ${version} -- no manifest fetch"
+            return 0
+        fi
+    fi
+
     checksum="$(ai_tools_entrypoint_release_verify "${entrypoint}" "${version}" \
                     "${url_template}" "${key_file}" "${fingerprints}")" || rc=$?
     case "${rc}" in
-        0)  if ai_tools_entrypoint_pin_write "${agent}" "${version}" "${checksum}" "${url_template}"; then
+        0)  if ai_tools_entrypoint_pin_write "${agent}" "${version}" "${checksum}" "${url_template}" "${inputs}"; then
                 say "${agent}: entrypoint verified against the signed release ${version} and pinned"
                 ai_tools_log_info "${agent}: entrypoint pinned at ${version} (${checksum})"
             else
