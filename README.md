@@ -87,7 +87,9 @@ claude                        # first run here: the wrapper offers to claim it, 
 ```
 
 To claim without launching — or to script it — use `ai-tools --project-claim <path>`,
-which claims an existing directory in place.
+which claims an existing directory in place. To start from nothing, `ai-tools
+--project-create <path>` makes the directory, initializes a git repository in it, and claims
+it in one step.
 
 ### Upgrading
 

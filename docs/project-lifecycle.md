@@ -5,6 +5,7 @@ every path recovers or reverses. All commands run as your own user — the `ai-t
 invokes `sudo` itself where a step needs root and prompts for your password there.
 
 ```bash
+ai-tools --project-create /path/to/new        # start a new project and claim it
 ai-tools --project-claim /path/to/project     # work in the real tree, in place
 ai-tools --sandbox-create /path/to/repo       # work in an isolated shallow clone
 ai-tools --list                               # what is registered, and which model
@@ -12,7 +13,9 @@ ai-tools --list                               # what is registered, and which mo
 
 | Command | Registers | Reverses |
 |---|---|---|
-| `--project-claim` (alias `--project-create`) | the real tree, in place | `--project-unclaim` |
+| `--project-create` | a **new** directory it creates, then claims in place | `--project-unclaim`, or `--project-remove` to delete it too |
+| `--project-claim` | the real tree, in place | `--project-unclaim` |
+| `--project-remove` | nothing — **unclaims and deletes** a claimed project | — (not reversible) |
 | `--sandbox-create` | a shallow clone under `/var/opt/ai-tools/sandbox-projects/` | `--sandbox-remove` |
 | `--lockdown` | nothing — locks secret-named files, any time | — |
 | `--reclaim [--full]` | nothing — hands agent-written files back to you | — |
@@ -20,6 +23,33 @@ ai-tools --list                               # what is registered, and which mo
 Copied a claimed project somewhere else and want its permissions normalized without
 registering it first? That is `--project-unclaim --force` — see
 [a copy that was never unclaimed](#--force-a-copy-that-was-never-unclaimed).
+
+## Starting a new project
+
+```bash
+ai-tools --project-create ~/src/newproject
+```
+
+This makes the directory, initializes an empty git repository in it, writes a `README.md`
+naming it, and then runs the ordinary claim on the result — one confirmation covers all of
+it, and the scoped opt-ins (secret lockdown, git history, parent traversal) still ask on
+their own terms.
+
+It creates exactly one directory. The parent has to exist already, so a mistyped path is
+refused rather than quietly built:
+
+```text
+ai-tools: the parent directory does not exist: /home/you/Devlopment
+```
+
+That refusal is the point of the design. With `mkdir -p` semantics the typo above would have
+created `Devlopment/`, created the project inside it, claimed it, and reported success — a
+working project in a directory nobody meant to make. For the same reason the verb refuses a
+path that **already** exists, naming `--project-claim` instead: claiming grants an agent
+access to whatever is already in a tree, and that is not an operation to arrive at by a typo.
+
+If the location is one the sandbox account could never reach, the create is refused **before**
+anything exists, and it names an alternative only if it has checked that one on your host.
 
 ## Choosing the model
 
@@ -164,6 +194,45 @@ before an ACL-unaware backup so plain ownership carries your access into the cop
 add `--full` to include the heavy skipped trees. `--sandbox-remove` deletes a
 clone and its registration, warning about unpushed commits first; the remote branch stays
 for others to merge.
+
+### Removing a project, directory and all
+
+`--project-unclaim` reverses a claim and leaves the files. `--project-remove` does the same
+**and deletes the directory**:
+
+```bash
+ai-tools --project-remove ~/src/oldproject
+```
+
+There is no undo and nothing is moved to a trash location, so the command is deliberately
+hard to reach by accident. It acts only on a path with an **exact** entry in
+`allowed-projects` — registration is what authorizes the deletion, and there is no `--force`
+to get around that. An ancestor of claimed projects, a path *inside* one, an unregistered
+path, and a project that **contains** another claimed project are each refused, the last
+because deleting it would take the nested one with it and leave that project registered at a
+path that no longer exists.
+
+Before anything changes it checks that the whole tree is actually deletable by you, and
+refuses if not:
+
+```text
+WARNING: this tree cannot be fully deleted
+    take ownership of the tree first, then re-run the removal:
+      ai-tools --reclaim --full ~/src/oldproject
+```
+
+That check exists so a removal never stops partway and leaves an unregistered fragment behind.
+It also reports uncommitted changes, unpushed commits, and a repository with no upstream at
+all — reported, not refused: deleting a scratch repository on purpose is legitimate.
+
+Then it asks twice: a confirmation that defaults to **No**, and the project's name typed out.
+Neither can be answered by a run with no terminal, so nothing is ever deleted unattended
+unless you pass `-y` — and with `-y` a path argument is required, so an unattended removal
+can never inherit the directory it happened to start in.
+
+Teardown removes the SELinux label and both registries first and deletes last. If the
+deletion fails, the project is already deregistered, so what remains is out of the agent's
+reach and you can remove it by hand.
 
 ### What a claim and an unclaim do to permissions
 

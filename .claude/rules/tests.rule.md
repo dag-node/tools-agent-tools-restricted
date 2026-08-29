@@ -187,10 +187,14 @@ departs the installed-helper pattern the other way: it runs a `TESTDIR` copy of
 fixture `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the
 three-way match, `vX.Y.Z-rc.N` compares its base and relaxes only the `%changelog` match,
 any other dashed tag is refused, a missing `%changelog` entry is fatal for every form.
-`man.sh` is a pure text-sync check: the long-option sets of the CLI's `usage()` heredoc
-and the `ai-tools(1)` man page must match in both directions (see [cli](cli.rule.md)),
-validated from the repo sources (or the installed pair outside a checkout) without
-executing the CLI.
+`man.sh` is a pure text-sync check between the CLI's `usage()` heredoc and the `ai-tools(1)`
+man page, validated from the repo sources (or the installed pair outside a checkout) without
+executing the CLI. The two are not copies — the help is orientation, the page is the reference
+(see [cli](cli.rule.md)) — so it asserts three relations rather than set equality: the **verb**
+sets match in both directions, every option the help names is documented, and every option the
+page documents is one a CLI **parser** accepts. The last is the direction with teeth: what goes
+stale is an option outliving its parser, whereas requiring the help to name every documented
+option is what previously made slimming the help impossible.
 
 `conf.sh` and `providers.sh` are the library pair behind the provider seam (see
 [providers](providers.rule.md)). `conf.sh` pins the shared `KEY=value` grammar every

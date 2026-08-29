@@ -177,7 +177,17 @@ collaboration works. Like the claim-side ACL and unclaim helpers, it resolves th
 owning operator (`ai_tools_resolve_owner`) and acts **only** on dirs that operator or the
 sandbox account holds — a dir held by any third party (root, another developer) is left
 untouched, so normalization never pulls a foreign-held dir into the agent's group. This is the claim-side partner to `ai-tools-chown`'s "act only on
-`SANDBOX_USER`-owned paths" rule. An **owner-only** directory (`0600`/`0700`) is left out of
+`SANDBOX_USER`-owned paths" rule.
+
+**That skip is counted and reported, never silent.** It is the one skip that can leave a claim
+having granted *nothing* while every other step succeeds, so each walk (`ai-tools-setgid`,
+`ai-tools-setfacl`) counts the paths its owner guard declined and closes with the count on stderr,
+the **project root** called out on its own — every directory below an unreachable root inherits
+nothing, so that case is the whole outcome of the claim rather than one skipped path. The CLI's
+front line for the same condition is `require_claimable_owner`, which refuses such a claim before
+its first registry write (see [cli](cli.rule.md)).
+
+An **owner-only** directory (`0600`/`0700`) is left out of
 the normalization too, and its subtree with it: that mode is the operator's standing seal, and
 this pass honours it exactly as `ai-tools-setfacl` does. Rather than normalize such a directory
 it *strips* the sandbox residue the directory still carries — the inherited

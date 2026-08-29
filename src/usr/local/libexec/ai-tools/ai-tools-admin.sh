@@ -141,6 +141,7 @@ seed_allowlist() {
         "# or a literal '#', e.g.  \"/home/me/my project\"" \
         "#" \
         "# Managed by the ai-tools CLI -- prefer it over editing by hand:" \
+        "#   ai-tools --project-create <dir>   create a new project directory and claim it" \
         "#   ai-tools --project-claim  <dir>   register/claim a real project in place" \
         "#   ai-tools --sandbox-create <dir>   shallow-clone a repo into the sandbox area" \
         "#   ai-tools --list                   review entries; flags stale/unusable/orphaned ones" \

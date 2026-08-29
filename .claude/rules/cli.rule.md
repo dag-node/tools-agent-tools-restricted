@@ -155,7 +155,7 @@ file sink being the authoritative one.
 
 ## Commands
 
-- `--project-claim [path]` (alias `--project-create`) — claim a real project in place
+- `--project-claim [path]` — claim a real project in place
   (idempotent; default cwd): register it (allowlist + git `safe.directory` via
   `ai-tools-safedir`), pin repo-local `core.filemode=true`, set the project's directory group +
   setgid via `ai-tools-setgid` and apply the group-permission ACL via `ai-tools-setfacl`, apply the
@@ -174,7 +174,27 @@ file sink being the authoritative one.
   decision is not asked twice; the scoped opt-ins (secret lockdown, `.git` history, ancestor
   traversal) still ask on their own terms (see [messaging](messaging.rule.md) for the
   prompt/pre-answer doctrine).
-- `--project-unclaim [path]` (alias `--project-remove`) — unclaim a real project
+- `--project-create <path>` — create a **new** project directory and claim it: one `mkdir`, an
+  empty `git init`, a `README.md` naming the directory, then `cmd_project_claim` unchanged on the
+  result (one implementation of what claiming means, not a second). Every filesystem step goes
+  through the `run_as_owner` seam below, so a create under `--for` produces a **target-owned** tree
+  — which is not tidiness: a tree born owned by the invoker is one the claim then refuses (the
+  owner rule under *Two project models*).
+
+  Two refusals define the verb, and both exist so that a create is never a claim in disguise. A
+  path that **already exists** is refused naming `--project-claim`: the operation that grants an
+  agent access to an existing tree must not be reachable by a typo, and a half-finished create is
+  recovered with a claim rather than a re-run. A **parent that does not exist** is refused rather
+  than created — only the final component is ever made, so a mistyped path surfaces instead of
+  becoming a manufactured tree with a claimed project inside it, and the question of what to clean
+  up after a mid-way failure does not arise. `<path>` is required and has no cwd default, since the
+  cwd always exists. A reachability pre-flight refuses a location the sandbox account could never
+  enter, before anything is created, and names an alternative only after checking that one on this
+  host (`--sandbox-create` is deliberately *not* named here: it clones an existing repository, and
+  this verb's subject is a project that does not exist yet).
+- `--project-remove [path]` — unclaim a project **and delete its directory**; `--project-unclaim`
+  stays the non-destructive reversal its refusals point at. Detail below under *Remove*.
+- `--project-unclaim [path]` — unclaim a real project
   (directory left on disk): revert the label, drop both registries, and (default-yes
   confirm) hand the tree's files back to a target group with the agent's write access
   revoked, via `ai-tools-unclaim`. The target is classified against `allowed-projects`
@@ -468,9 +488,15 @@ The CLI ships a man page, `ai-tools(1)`
 `install.sh` and the RPM with the same `@AI_TOOLS_VERSION@` substitution as the CLI).
 It is hand-written troff — the CLI cannot be executed at package-build time for
 `help2man` (the bootstrap gate fail-closes on an unprovisioned host) — and
-`tests/unit/man.sh` keeps it honest: the long-option sets of `usage()` and the page must
-match in both directions, so adding, renaming, or removing a CLI option obligates the
-same change in the page or the suite fails.
+The two are **not** copies of each other: `usage()` is orientation — the verbs, one line each,
+and the three cross-verb flags — while the page is the reference for every per-verb option, which
+is why a per-verb option lives under its verb there rather than in a flat list that would separate
+`--branch` or `--dir` from the only command they mean anything for. `tests/unit/man.sh` keeps them
+honest with three checks in place of the old set-equality: the **verb** sets match in both
+directions, every option `usage()` names is documented in the page, and every option the page
+documents is one a CLI **parser** accepts. That last direction replaces "the help must name it
+too", which made moving an option out of the help fail as a stale man entry; what actually goes
+stale is an option outliving its parser.
 
 ## Acting for another operator (`--for`)
 
@@ -528,6 +554,32 @@ Sandbox clones stay invoker-only: `--sandbox-create` clones as the invoking user
 git credentials, so pointing it at another owner is more than a registry redirect and is not
 attempted here.
 
+### The runas seam, and why it needs a grant `--for` alone does not
+
+Most `--for` verbs redirect a **registry**: the entry lands in the target's allowlist and the root
+helpers resolve the owner from it. Two do not. `--project-create` and `--project-remove` write the
+**filesystem** as an owner — a tree the target must own for the claim's helpers to act on it, and a
+tree only its owner can delete — so both go through `run_as_owner`, which prefixes `sudo -u
+<target> -H` when `--for` is set and runs the command directly otherwise. `reg_reach` uses the same
+seam for the traverse ACL, whose ancestors belong to the target on a `--for` run.
+
+`-H` is load-bearing rather than tidiness: without it (and without sudoers' `always_set_home`) sudo
+leaves `HOME` pointing at the **invoker's** home, so the `git init` inside a create would configure
+the target's repository from the invoker's `~/.gitconfig`.
+
+**It grants nothing new.** `sudo -u <target>` rides the caller's **general** sudo grant — the
+separate authority axis [CLAUDE.md](../../CLAUDE.md) names, which nothing here writes or records —
+so an operator who reaches it could already act as that account. The sandbox account holds no sudo
+rule and runs under `PR_SET_NO_NEW_PRIVS`, which drops sudo's SUID bit, so it reaches none of it.
+
+It is nonetheless a **distinct sudoers question** from the helper grants `require_sudo_access`
+probes: a host can grant every `ai-tools-*` helper and still restrict `Runas` to root.
+`require_runas_target` asks it up front — probing each command the run will actually execute, not
+one representative, for the reason that gate gives — because the alternative is failing at the
+worst moment: a create after making the directory and before claiming it, a remove after
+unregistering the project and before deleting it. Like every refusal in this family it precedes the
+`--for` snapshot, which is the run's first sudo.
+
 **What this widens, stated plainly.** An allowlist is an operator's own launch gate, and `--for`
 lets one operator write into another's. That sits inside the model's standing "`ai-ops` operators
 are trusted" boundary — an operator could already claim the project themselves — but it is a real
@@ -561,6 +613,50 @@ own commits stay agent-readable — `.git` being the one heavy tree the per-sess
 skip yet both parties write (see [ownership-and-hooks](ownership-and-hooks.rule.md)).
 Claim inspects current state and runs only the missing steps, so a re-run is a quiet no-op
 and existing projects retrofit the ACL/`filemode`/`.git` normalization on the next claim.
+`--project-create` is part of this model rather than a third one: it makes the directory and then
+runs the same claim on it.
+
+**The project root must be held by the resolved operator or the sandbox account, and a claim
+refuses otherwise.** `ai-tools-setgid` and `ai-tools-setfacl` — the two helpers that grant the
+agent its access — act only on those two owners (the *Owner guard* below), while the registries,
+the `safe.directory` entry and the SELinux label apply regardless. A tree held by anyone else
+therefore took every step that registers a project and none that grants access to one, and the
+claim closed with its `✓` over an agent that cannot enter the tree. The commonest route to it is a
+claim for someone else — `mkdir ~/proj && ai-tools --project-claim --for svc ~/proj` resolves the
+owner to `svc`, so every inode fails the guard. `require_claimable_owner` checks the root before
+the first registry write and refuses, naming the `chown` that fixes it; transferring a tree
+recursively needs an authority this CLI does not hold, and is deliberately not built (a repair path
+would need a privileged helper). The helpers report the same condition from their side: each walk
+counts what its owner guard skipped and says so, with the project root called out on its own
+([ownership-and-hooks](ownership-and-hooks.rule.md)).
+
+**Remove** (`--project-remove`) deletes the directory as well. Its authorization is an **exact**
+`allowed-projects` entry and nothing else: there is no `--force` — that flag exists on unclaim to
+reach a tree the allowlist does not name, and "delete a tree nothing registered" is an unclaim plus
+an `rm` the operator types themselves, where the destructive step is theirs. An ancestor, a path
+inside a project, and an unregistered path are each refused with the command that does apply; so is
+an exact entry that **contains another claimed project**, which `rm -rf` would take with it and
+leave registered, git-trusted and labelled at a path that no longer exists (the check sees only the
+registry this run can read, so another operator's nested project is not visible to it).
+
+A read-only **deletability pre-flight**, run as the acting owner, refuses up front when any
+directory in the tree is not writable and traversable by them — naming `ai-tools --reclaim --full`
+— because the failure a destructive verb must not have is a tree deleted down to the first
+directory it could not enter, with no registry entry left to find the remains by. Teardown then
+runs **registries first, deletion last**: the label, the `safe.directory` entry and the allowlist
+entry go, and only then the tree, so a failed deletion leaves an *unregistered* tree — less access,
+not more — where the reverse order would leave a half-deleted one the agent still reaches. The
+filesystem hand-back `--project-unclaim` performs is deliberately **not** run: it is a full-tree
+`chgrp`/`chmod` pass over files about to be deleted.
+
+It confirms **twice** — a default-NO prompt, then `ai_tools_msg_challenge` for the project's name
+([messaging](messaging.rule.md)) — and neither is answered by a run with no terminal, so nothing is
+deleted unattended without `-y`; `AI_TOOLS_ASSUME_YES` never answers either, since it only
+fast-tracks default-YES questions and the challenge has no default at all. With `-y` a `path`
+argument is **required**, so an unattended removal cannot inherit the directory it started in. The
+verb's unknown-option refusal deliberately does not enumerate `-y`, unlike the other verbs': a
+caller who has just mistyped a flag is not who a both-prompts bypass is for, and it is documented
+in `ai-tools(1)` where reaching it is deliberate.
 The flow carries no inline `--sandbox-create` cross-references — the launch wrapper's
 choice screen and `--help`/docs present the sandbox-clone alternative; the one exception
 is the *Reachability* blocked case below, where an in-place claim genuinely cannot work.
@@ -733,6 +829,10 @@ Repo-local `core.filemode=true` and the allowlist are plain writes the projects 
 unprivileged.
 `/usr/local/libexec/ai-tools` is `750 root:root`, so the projects user cannot even stat the
 helpers — only sudo, as root, reaches them.
+
+`--project-create` and `--project-remove` add no helper and no sudoers rule. What they add is
+`sudo -u <target>` on a `--for` run (the *runas seam* above), which is not a new grant either: it
+rides the same general axis, and without `--for` they run as the invoker with no `sudo` at all.
 
 **Those eight calls assume a grant `ai-ops` membership does not carry** — a **general** sudo grant
 is a separate host-level axis that nothing in this project writes or records
