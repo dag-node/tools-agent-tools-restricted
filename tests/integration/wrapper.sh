@@ -150,30 +150,43 @@ else
         setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
             "${cli}" "$@" < /dev/null 2>&1 || true
     }
+    # The park assertion is ANCHORED to a whole line. A substring test for "!${approved}" also
+    # matches the fixture's own carve-out line (!${approved}/secret), so it would pass whether or
+    # not the verb did anything -- and then the launch assertion below fails with no clue why.
     disable_out="$(run_cli --project-disable "${approved}")"
-    if grep -qF "!${approved}" "${home}/.config/ai-tools/allowed-projects"; then
+    if grep -qi 'unknown command' <<<"${disable_out}"; then
+        # A deployed CLI older than this test: an environment fact, not a defect to report as one.
+        skip "disabled project refused at launch" "the installed ai-tools has no --project-disable"
+    elif ! grep -qxF "!${approved}" "${home}/.config/ai-tools/allowed-projects"; then
+        fail "--project-disable did not park the entry: $(printf '%s' "${disable_out}" | awk 'NF' | tail -3 | tr '\n' ' ')"
+    else
         pass "--project-disable parks the approved project in the wrapper's own allowlist"
-    else
-        fail "--project-disable did not park the entry: ${disable_out}"
-    fi
 
-    out_disabled="$(run_wrapper "${approved}")"
-    if printf '%s' "${out_disabled}" | grep -qi "excluded by"; then
-        pass "the launch gate refuses a project the CLI disabled (the verb's whole promise)"
-    else
-        fail "wrapper did NOT refuse a CLI-disabled project (output: ${out_disabled})"
-    fi
+        out_disabled="$(run_wrapper "${approved}")"
+        if printf '%s' "${out_disabled}" | grep -qi "disabled"; then
+            pass "the launch gate refuses a project the CLI disabled (the verb's whole promise)"
+        else
+            fail "wrapper did NOT refuse a CLI-disabled project (output: ${out_disabled})"
+        fi
+        # The refusal has to name the way back, or the operator's next move is a claim over a
+        # project that is already claimed -- which is what the not-yet-claimed screen would invite.
+        if printf '%s' "${out_disabled}" | grep -qF -- '--project-enable'; then
+            pass "and it names --project-enable rather than offering a claim"
+        else
+            fail "the refusal did not name --project-enable: ${out_disabled}"
+        fi
 
-    # And back: re-enabling must restore the launch, or the pair is a one-way door. This is the
-    # same assertion as (2) above, made after a park/restore round trip rather than on a fresh
-    # allowlist -- so an edit that left the line subtly different (moved, requoted, duplicated)
-    # shows up as a project that no longer launches.
-    enable_out="$(run_cli --project-enable "${approved}")"
-    out_reenabled="$(run_wrapper "${approved}")"
-    if printf '%s' "${out_reenabled}" | grep -qE "no session started|allowlist not found|excluded by"; then
-        fail "wrapper still blocked the project after --project-enable (enable: ${enable_out}) (launch: ${out_reenabled})"
-    else
-        pass "the launch gate accepts it again after --project-enable"
+        # And back: re-enabling must restore the launch, or the pair is a one-way door. This is
+        # the same assertion as (2) above, made after a park/restore round trip rather than on a
+        # fresh allowlist -- so an edit that left the line subtly different (moved, requoted,
+        # duplicated) shows up as a project that no longer launches.
+        enable_out="$(run_cli --project-enable "${approved}")"
+        out_reenabled="$(run_wrapper "${approved}")"
+        if printf '%s' "${out_reenabled}" | grep -qE "no session started|allowlist not found|excluded by|disabled"; then
+            fail "wrapper still blocked the project after --project-enable (enable: $(printf '%s' "${enable_out}" | awk 'NF' | tail -2 | tr '\n' ' ')) (launch: ${out_reenabled})"
+        else
+            pass "the launch gate accepts it again after --project-enable"
+        fi
     fi
 fi
 
