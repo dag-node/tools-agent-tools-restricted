@@ -126,6 +126,13 @@ Ownership cells use the shell-variable identities from
 - **Search-bit exposure.** `o+x` on `/opt/ai-tools` and `bin` lets any user traverse
   and `readlink` the launcher (a non-secret `.nvm` path); deeper dirs stay `o=0`.
 
+- **Per-path owner resolution.** Every per-project root helper — `ai-tools-setgid`,
+  `-setfacl`, `-unclaim`, `-chown`, `-lockdown`, `-reclaim`, `-relabel` — resolves *which*
+  operator owns a path from the allowlists themselves (`ai_tools_resolve_owner`), rather than
+  from one operator loaded up front. A helper that reads a single operator's registry refuses
+  every project registered to any of the others: a secondary operator's own claim, and every
+  `--project-claim --for <operator>`, would apply part of the claim and skip the rest.
+
 ## What this removes
 
 The root-owned control plane has no per-operator ownership to restore, so the

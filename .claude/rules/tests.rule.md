@@ -187,6 +187,15 @@ departs the installed-helper pattern the other way: it runs a `TESTDIR` copy of
 fixture `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the
 three-way match, `vX.Y.Z-rc.N` compares its base and relaxes only the `%changelog` match,
 any other dashed tag is refused, a missing `%changelog` entry is fatal for every form.
+`cli-verbs.sh` is the same shape one layer in: a pure text check that the CLI's four
+**gating tables** — `OPERATOR_VERBS`, `ROOT_ALLOWED_VERBS`, `BOOTSTRAP_EXEMPT_VERBS`,
+`FOR_ALLOWED_VERBS` — still describe the verbs it dispatches. The failure it exists for is
+silent and one-directional: a verb added to the dispatcher and forgotten in `OPERATOR_VERBS`
+runs for an unenrolled caller, with nothing to say so until a root helper refuses it midway. So
+every dispatched verb must be classified — operator-acting, or in the informational set the test
+names — no verb may be both operator-acting and root-allowed, no table may name a verb the
+dispatcher no longer has, and the help must list exactly what the dispatcher accepts.
+
 `man.sh` is a pure text-sync check between the CLI's `usage()` heredoc and the `ai-tools(1)`
 man page, validated from the repo sources (or the installed pair outside a checkout) without
 executing the CLI. The two are not copies — the help is orientation, the page is the reference
