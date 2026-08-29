@@ -339,6 +339,41 @@ if command -v runuser >/dev/null 2>&1; then
         fail "--project-remove acted without a terminal (rc=${rc}, dir gone or de-registered): ${out}"
     fi
 
+    # The deletability pre-flight, which is what keeps a removal from stopping partway. A
+    # directory the acting owner can neither write nor enter is the realistic blocker (a
+    # sandbox-owned 0700 left by a session), and it must refuse the WHOLE removal up front with
+    # the tree still intact -- not delete as far as it can and report a failure.
+    if id nobody >/dev/null 2>&1; then
+        rmblocked="${TESTDIR}/rm-blocked"; mkdir -p "${rmblocked}/locked"
+        chown "${PROJECTS_USER}:${PROJECTS_USER}" "${rmblocked}"
+        chown nobody:nobody "${rmblocked}/locked"; chmod 0700 "${rmblocked}/locked"
+        printf '%s\n' "${rmblocked}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+        out="$(remove_cli -y "${rmblocked}")" && rc=0 || rc=$?
+        if [[ ${rc} -ne 0 ]] && [[ -d "${rmblocked}/locked" ]] \
+                && grep -q -- '--reclaim --full' <<<"${out}" \
+                && grep -qF "${rmblocked}" "${rmal}"; then
+            pass "--project-remove refuses an undeletable tree up front, intact and still registered"
+        else
+            fail "--project-remove did not stop on the deletability pre-flight (rc=${rc}): ${out}"
+        fi
+    else
+        skip "--project-remove deletability pre-flight" "user 'nobody' not present"
+    fi
+
+    # Teardown order: registries before the tree. Driven with -y, which is the one path that
+    # reaches the deletion without a terminal, over a project that IS fully deletable. Both
+    # halves are asserted -- the tree is gone AND the allowlist entry with it -- because the
+    # ordering guarantee is only meaningful if the deletion actually ran.
+    rmgo="${TESTDIR}/rm-go"; mkdir -p "${rmgo}/sub"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmgo}"
+    printf '%s\n' "${rmgo}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    out="$(remove_cli -y "${rmgo}")" && rc=0 || rc=$?
+    if [[ ${rc} -eq 0 ]] && [[ ! -e "${rmgo}" ]] && ! grep -qF "${rmgo}" "${rmal}"; then
+        pass "--project-remove -y deregisters and then deletes (registries first, tree last)"
+    else
+        fail "--project-remove -y did not complete (rc=${rc}, dir exists: $([[ -e "${rmgo}" ]] && echo yes || echo no)): ${out}"
+    fi
+
     # (7) --list renders the reconciliation view deterministically over a FIXTURE allowlist +
     # gitconfig (AI_TOOLS_ALLOWLIST / AI_TOOLS_GITCONFIG), so it never reads the operator's real
     # registry. Every entry class and every Suggested-cleanup class is asserted. The stale and
