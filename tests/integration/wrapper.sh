@@ -54,7 +54,7 @@ run_wrapper() {  # $1 = cwd
 # (0) Operator gate: the wrapper refuses anyone not in the ai-ops group BEFORE it reaches the
 #     allowlist. The sandbox account is never an ai-ops member (ai-tools-run enforces this), so
 #     running the wrapper as it must be refused with the operator message -- and must NOT reach
-#     the allowlist gate ("not accessible"), proving the gate short-circuits first. The
+#     the allowlist gate ("no session started"), proving the gate short-circuits first. The
 #     subsequent operator runs (1)-(3), which DO reach the allowlist, are the positive case.
 gate_out="$( cd "${home}" && setsid sudo -u "${SANDBOX_USER}" -- env HOME="${home}" \
     "${wrapper}" --version --gate-probe < /dev/null 2>&1 || true )"
@@ -63,7 +63,7 @@ if printf '%s' "${gate_out}" | grep -qE "not an ai-tools operator|member of the 
 else
     fail "wrapper did NOT refuse a non-operator at the ai-ops gate (output: ${gate_out})"
 fi
-if printf '%s' "${gate_out}" | grep -qE "not accessible|allowlist not found"; then
+if printf '%s' "${gate_out}" | grep -qE "no session started|allowlist not found"; then
     fail "wrapper reached the allowlist gate as a non-operator -- the ai-ops gate must run first"
 else
     pass "wrapper short-circuits at the ai-ops gate before the allowlist check"
@@ -76,15 +76,26 @@ if [[ ! -L "/opt/ai-tools/bin/claude" ]]; then
     skip "wrapper allowlist-gate cases (1)-(3)" "toolchain not provisioned -- run: sudo ai-tools-bootstrap"
 else
 
-# (1) An unapproved cwd is blocked at the allowlist gate. With no tty the picker takes its
-#     default (Cancel), and the refusal reads "... is not accessible to the sandbox" (or
-#     "allowlist not found" when the list file is missing). That phrase proves the BLOCK and
-#     is deliberately distinct from the approved-but-not-claimed path's "not fully claimed".
+# (1) An unapproved cwd is blocked at the allowlist gate. With no tty the wrapper never
+#     draws the menu at all -- it takes Cancel in its own have_tty branch -- and the refusal
+#     reads "no session started -- ... is not set up for the agent" (or "allowlist not found"
+#     when the list file is missing). That phrase proves the BLOCK and is deliberately
+#     distinct from the approved-but-not-claimed path's "not fully claimed".
 out="$(run_wrapper "${unapproved}")"
-if printf '%s' "${out}" | grep -qE "not accessible|allowlist not found"; then
+if printf '%s' "${out}" | grep -qE "no session started|allowlist not found"; then
     pass "wrapper blocks execution from an unapproved directory"
 else
     fail "wrapper did NOT block an unapproved directory (output: ${out})"
+fi
+
+# (1a) Cancelling names BOTH commands. The screen the menu sits under carries none (it states
+#      each choice once, in the menu), so the refusal is the only place they appear -- an
+#      operator who cancels, or whose run has no terminal, must still be told what to run.
+if printf '%s' "${out}" | grep -qF -- '--sandbox-create' \
+        && printf '%s' "${out}" | grep -qF -- '--project-claim'; then
+    pass "the cancel path names both --sandbox-create and --project-claim"
+else
+    fail "the cancel path did not name both setup commands (output: ${out})"
 fi
 
 # (1b) The print-and-exit pass-through: a SOLE --version from that same unapproved cwd is
@@ -93,7 +104,7 @@ fi
 #      version. Asserts the refusal is absent and a version string came back.
 pv_out="$( cd "${unapproved}" && setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
     "${wrapper}" --version < /dev/null 2>&1 || true )"
-if printf '%s' "${pv_out}" | grep -qE "not accessible|allowlist not found"; then
+if printf '%s' "${pv_out}" | grep -qE "no session started|allowlist not found"; then
     fail "sole --version was gated on the CWD -- the pass-through regressed (output: ${pv_out})"
 elif printf '%s' "${pv_out}" | grep -qE '[0-9]+\.[0-9]+\.[0-9]+'; then
     pass "sole --version passes through from an unapproved cwd and prints the version"
@@ -103,9 +114,10 @@ fi
 
 # (2) An approved cwd passes the allowlist gate. It then stops at the downstream claim guard
 #     (the temp dir is approved but not group-claimed) -- that path says "not fully claimed",
-#     never "not accessible", so asserting the allowlist refusal is ABSENT still distinguishes it.
+#     never "no session started", so asserting the allowlist refusal is ABSENT still
+#     distinguishes it.
 out2="$(run_wrapper "${approved}")"
-if printf '%s' "${out2}" | grep -qE "not accessible|allowlist not found"; then
+if printf '%s' "${out2}" | grep -qE "no session started|allowlist not found"; then
     fail "wrapper incorrectly blocked an approved directory (output: ${out2})"
 else
     pass "wrapper passes the allowlist gate for an approved directory"
