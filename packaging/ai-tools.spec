@@ -984,6 +984,133 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Mon Aug 31 2026 dagnode <tools@dagnode.com> - 0.14.0-1
+- NEW: 'ai-tools --project-create <path>' creates a project: one directory, an empty git
+  repository, a README.md naming it, then the ordinary claim on the result. It was an alias for
+  --project-claim, which refuses a path that does not exist, so the one thing its name promised was
+  the one thing it could not do. It asks nothing it can answer for itself -- no proceed
+  confirmation, no secret scan and no git-history question over a tree it just created -- which
+  leaves the traverse grant as the only prompt, and it takes no -y because there is nothing to
+  pre-answer. A path that already exists and a parent that does not are each refused, naming the
+  command that applies.
+- NEW: 'ai-tools --project-remove [path]' releases a project AND deletes its directory.
+  It was an alias for --project-unclaim, so the verb named after removal removed nothing;
+  --project-unclaim stays the non-destructive reversal. An exact allowlist entry is the only thing
+  that authorizes a deletion -- an ancestor, a path inside a project, an unregistered path, and an
+  entry containing another claimed project are each refused -- and there is no --force. It confirms
+  twice, a default-NO prompt and a typed project name with no default at all, so nothing is deleted
+  without a terminal; only this verb's own -y pre-answers them, and -y requires an explicit path so
+  an unattended run cannot delete the directory it started in.
+- FIX: --project-create now produces a project the agent can actually read on a host whose umask is
+  077. The directory, the README and .git were born owner-only, which the claim that follows
+  honours as a deliberate seal and skips -- so the verb registered a project whose README the agent
+  cannot read, having just reported that it was normalizing it. It sets group-readable modes
+  instead of inheriting them, and says what it set rather than asking.
+- FIX: --project-remove checks that it can unlink the project from its PARENT directory before it
+  deletes anything. On a parent the operator cannot write, the deletion previously removed every
+  file, failed on the top directory, and left an empty husk whose registry entries had already been
+  dropped -- exactly the outcome the pre-flight exists to prevent.
+- FIX: --project-remove refuses when the project's allowlist entry cannot be dropped, and names the
+  line to delete by hand. That entry is the agent's launch gate, so deleting the tree past a failed
+  de-registration stranded the one entry the teardown order exists to remove.
+- NEW: 'ai-tools --project-disable [path]' parks a claimed project and '--project-enable [path]'
+  brings it back. Parking takes a project out of service without unclaiming it: no session starts
+  there and the ownership handback stops restoring files written under it, while group ownership,
+  ACLs, setgid and the SELinux label are untouched -- so re-enabling grants nothing that was not
+  already granted. The line is edited in place, so an allowed-projects you keep as an ordered,
+  commented document comes back byte-identical after a park and a restore. --project-disable
+  refuses a project nested inside another, since that line would be indistinguishable from a
+  carve-out withholding a subtree, and --project-enable refuses a carve-out for the same reason.
+- NEW: 'ai-tools --project-unclaim --keep-entry' hands the files back with clean permissions and
+  leaves the project's line parked in place. It serves the release cycle: seal a tree before a
+  release, then claim it again for the next stage without its entry moving to the end of the file.
+- CHANGE: The CLI reads the parked state. A '!'-prefixed line is a workflow that predates any verb
+  for it and the CLI could not see one, so a parked project was indistinguishable from a project
+  never claimed: a claim appended a duplicate under an exclusion that still won and reported
+  success, while --project-unclaim, --project-remove, --lockdown and --reclaim refused it as "not a
+  claimed project". Entry state is now reported apart from effective reachability, since a project
+  whose own line is clean can still be parked by an ancestor or a glob.
+- FIX: A launch refused in a parked project names --project-enable. Both a parked project and a
+  subtree an operator withheld from an enclosing project were refused as "excluded by '!' rule",
+  which left the operator to work out which of the two they had -- and the screen they reached next
+  offered to claim a project that was already claimed. One is now one command, the other an edit.
+- FIX: './install.sh install' asks before de-registering its own checkout when that allowlist entry
+  carries a comment. It matched only a line spelled exactly as the install directory, so a
+  commented entry read as absent, the operator was never asked, and the entry stayed.
+- FIX: A claim no longer closes with a success mark over root steps that did not apply. With a
+  mistyped password all four -- group, setgid, ACLs, label -- could fail, each printing its own
+  warning, and the claim still reported "claimed" over a project the agent cannot enter. It now
+  reports what is still pending and exits non-zero. The first failure also asks once, default NO,
+  whether to attempt the remaining steps, instead of costing three password prompts per step on a
+  host where sudo caches no credential.
+- FIX: --project-unclaim reports when the filesystem hand-back did not run, and exits non-zero.
+  That step is what revokes the agent's access to the FILES; everything else the verb does is
+  registry work, so an unclaim that under-applied told the operator access was removed while the
+  tree stayed group-owned by the sandbox account. --sandbox-create no longer reports "sandbox
+  ready" when git safe.directory could not be added, and --project-remove keeps its check mark for
+  the deleted tree but names the cleanup that did not run.
+- FIX: A claim over a tree the resolved operator does not own is refused before its first registry
+  write, naming the chown that makes it claimable. 'mkdir ~/proj && ai-tools --project-claim --for
+  svc ~/proj' is the common way to reach that state: every inode failed the helpers' owner guard,
+  so the claim applied its registries and its label, granted nothing, and finished with a check
+  mark over a project that account cannot enter.
+- FIX: The setgid and ACL walks report how many paths they skipped because a third party owns them,
+  with the project root stated in its own words -- every directory below an unreachable root
+  inherits nothing, so that case is the outcome of the whole claim rather than one skipped path.
+- FIX: Claiming a project for a secondary operator, and every 'ai-tools --project-claim --for
+  <operator>', now applies the SELinux label. The label step read a single operator's
+  allowlist -- the primary's -- and refused a path absent from it, so on an enforcing host the
+  claim finished registered, git-trusted and ACL'd but unlabelled, which is a project the agent
+  cannot work in. It was reported ("1 step(s) that grant the agent access did not apply") rather
+  than silent, but it could not succeed. The label's authorization now comes from whichever
+  operator's registry holds the project.
+- FIX: 'ai-tools --project-claim --for <operator>' sets git's core.filemode as that operator. It
+  ran git as the invoking user, so the claim either reported the target's tree as "not a git work
+  tree" or was refused the write into a .git/config that account owns.
+- FIX: A project directly under your home -- /home/<you>/<project> -- is reachable again. Vetting
+  an ancestor for the traverse grant reused the rule written for whole-tree targets, which refuses
+  every home root, so such a project was reported permanently unreachable with a sandbox clone the
+  only route in. Granting search permission on one directory is now its own rule: your own home
+  root is allowed, while every system directory, /home itself and any other account's home root
+  stay refused. Under --for the grant applies as the target operator, so a claim made for someone
+  else can set it on ancestors that belong to them instead of warning on each one.
+- FIX: The checks that ask whether an SELinux policy module is loaded could report a loaded module
+  as ABSENT, at random, and more often the more modules a host has. That silently cost an entrypoint
+  relabel its file-context registration and the dotnet integration its label step. Five probes
+  carried the fault; all five are fixed, and the same shape was costing the container test suite
+  red runs on a man-page check that had nothing wrong with it.
+- CHANGE: An unattended entrypoint reconciliation answers from the pin already on disk when the
+  installed version, the binary's bytes and every verification input are unchanged. A single dnf
+  upgrade could otherwise re-fetch and re-verify the vendor's signed manifest several times, which
+  on an air-gapped host meant two connection timeouts per agent per run to leave the pin exactly as
+  it was. 'ai-tools --relabel' still re-verifies the signature every time, which is what an operator
+  runs it for; a pin recording no digest is never reused.
+- FIX: A package upgrade reports honestly what it did with the shipped skills and agents. The four
+  withdrawn documentation skills were reported "up to date" and retired seconds later in the same
+  transaction, "seeded (vN)" carried the previous asset's version rather than the new one, and the
+  update question was drawn on dnf's terminal where nothing could answer it. No host ends an
+  upgrade in a different state; what an operator is shown while it happens is now correct.
+- CHANGE: The first-run screen an agent shows in a directory it cannot work in states each choice
+  once, leads with the action rather than the refusal, and says which option does not start a
+  session there. It has no default: an unattended or piped run cancels, and the cancel path prints
+  both commands plainly below the frame where they can be copied.
+- CHANGE: 'ai-tools --help' is orientation -- the verbs grouped by what they are for, one line
+  each, the three flags that cross verbs, and a pointer to ai-tools(1). The man page is now the one
+  reference for options and gains full entries and examples for --project-create and
+  --project-remove, which it had documented as aliases, and the runas grant a --for create or
+  remove needs.
+- FIX: 'ai-tools --help' and 'ai-tools --version' run on a host whose install never finished. The
+  provisioning gate refused them, so --help answered with a refusal naming ai-tools-bootstrap --
+  the only place the command could still be found.
+- CHANGE: The project lifecycle guide follows the lifecycle: choose a model, create or claim, work,
+  clone, park, release, delete, act for another operator, then the permission reference. Each
+  section opens with a runnable command, and the guide now covers --for, the parked state and
+  --keep-entry. It also separates --reclaim from unclaiming -- bringing a project back after an
+  unclaim is --project-claim run again, not --reclaim -- and states which routes into the tree a
+  release actually closes, in the order that matters. The README leads with the --project-create
+  one-liner and keeps --project-claim beside it.
+- Upgrading from 0.13.x needs no action beyond dnf.
+
 * Sat Aug 29 2026 dagnode <tools@dagnode.com> - 0.13.0-1
 - CHANGE: "Operator" now names exactly two facts -- membership of ai-ops and a name in OPERATORS,
   both written by 'ai-tools-admin operator add'. A general sudo grant is a THIRD, independent axis
