@@ -10,8 +10,8 @@
 # Root is needed for READS as well as writes: an allowlist is 0600 inside a 0700
 # .config/ai-tools (ai-tools-admin seeds both), so one operator cannot see another's list at
 # all. --print exists for exactly that, and the CLI snapshots it for the decisions a claim
-# makes (is the path listed, which '!' exclusions apply) before routing the mutation back
-# through --add/--remove.
+# makes (is the path listed, disabled, or absent) before routing the mutation back through the
+# four editing actions.
 #
 # The allowlist is the LAUNCH GATE: an entry here is what lets that operator's agent start in
 # the directory, and what makes the ownership handback restore files to them. Editing another
@@ -35,6 +35,14 @@
 #   ai-tools-allowlist --operator <name> --print
 #   ai-tools-allowlist --operator <name> --add    <absolute-project-path>
 #   ai-tools-allowlist --operator <name> --remove <absolute-project-path>
+#   ai-tools-allowlist --operator <name> --enable  <absolute-project-path>
+#   ai-tools-allowlist --operator <name> --disable <absolute-project-path>
+#
+# --enable and --disable neither add nor drop a line: they take the leading '!' off an entry, or
+# put it on, IN PLACE. They are the privileged half of `ai-tools --project-enable/--project-disable`
+# (and of the claim's re-enable prompt), and they are deliberately not an add/remove pair: the line
+# keeps its position and its comment, so a park-and-restore round trip leaves an ordered, commented
+# allowed-projects exactly as its operator wrote it.
 #
 # Deploy:
 #   sudo install -o root -g root -m 750 \
@@ -71,12 +79,17 @@ while (( $# )); do
                     _need_value "$1" "${@:2}"; ACTION=add; TARGET_PATH="$2"; shift 2 ;;
         --remove)   [[ -z "${ACTION}" ]] || die "only one action may be given"
                     _need_value "$1" "${@:2}"; ACTION=remove; TARGET_PATH="$2"; shift 2 ;;
+        --enable)   [[ -z "${ACTION}" ]] || die "only one action may be given"
+                    _need_value "$1" "${@:2}"; ACTION=enable; TARGET_PATH="$2"; shift 2 ;;
+        --disable)  [[ -z "${ACTION}" ]] || die "only one action may be given"
+                    _need_value "$1" "${@:2}"; ACTION=disable; TARGET_PATH="$2"; shift 2 ;;
         *)          die "unknown argument: $1
-usage: ai-tools-allowlist --operator <name> (--print | --add <path> | --remove <path>)" ;;
+usage: ai-tools-allowlist --operator <name>
+       (--print | --add <path> | --remove <path> | --enable <path> | --disable <path>)" ;;
     esac
 done
 [[ -n "${OPERATOR}" ]] || die "--operator <name> is required"
-[[ -n "${ACTION}"   ]] || die "one of --print, --add <path>, --remove <path> is required"
+[[ -n "${ACTION}"   ]] || die "one of --print, --add, --remove, --enable, --disable is required"
 readonly OPERATOR ACTION TARGET_PATH
 
 # ── Required libraries (fail closed) ─────────────────────────────────────────────
@@ -171,7 +184,7 @@ if [[ "${ACTION}" == print ]]; then
     exit 0
 fi
 
-# ── Path gate (add/remove) ───────────────────────────────────────────────────────
+# ── Path gate (add/remove/enable/disable) ────────────────────────────────────────
 # Canonicalise before every check and before the write, so a symlink or '..' cannot smuggle a
 # path past the protected-paths backstop and land a different directory in the launch gate.
 canonical="$(realpath -e "${TARGET_PATH}" 2>/dev/null)" \
@@ -195,65 +208,72 @@ ensure_allowlist() {
         || install -o "${OPERATOR}" -g "${target_group}" -m 600 /dev/null "${allowlist}"
 }
 
-# write_allowlist <source-file>: replace the allowlist with <source-file>'s contents, preserving
-# the existing owner and mode. Written to a temp file in the SAME directory and renamed, so a
-# reader (the launch wrapper gating a concurrent session) sees either the old file or the new
-# one, never a half-written gate.
-write_allowlist() {
-    local src="$1" tmp owner mode
-    owner="$(stat -c '%U:%G' "${allowlist}")"
-    mode="$(stat -c '%a' "${allowlist}")"
-    tmp="$(mktemp "${allowlist}.XXXXXX")"
-    cat -- "${src}" > "${tmp}"
-    chown "${owner}" "${tmp}"
-    chmod "${mode}" "${tmp}"
-    mv -f -- "${tmp}" "${allowlist}"
-}
+# Every edit below is one call into conf.lib.sh's allowlist-editing functions -- the same
+# implementation the CLI runs against the operator's own file and install.sh against its checkout.
+# What is left here is this helper's own job: deciding WHO may edit WHOSE registry, and recording
+# it. The library reports three outcomes -- 0 applied (or already so), 1 the write failed, 2 the
+# request does not apply from the current state -- and each is reported to the caller distinctly,
+# since a "not listed" and a "could not write" send an operator to different places.
 
 case "${ACTION}" in
     add)
         ensure_allowlist
-        # Idempotent: an entry the shared grammar already reads as covering this path is left
-        # alone, so a re-claim does not duplicate the line.
-        if ai_tools_conf_allowlist_has_entry "${allowlist}" "${canonical}"; then
-            printf 'ai-tools-allowlist: %s is already listed for %s\n' "${canonical}" "${OPERATOR}"
-            exit 0
-        fi
-        tmpfile="$(mktemp)"
-        trap 'rm -f -- "${tmpfile}"' EXIT
-        cat -- "${allowlist}" > "${tmpfile}"
-        printf '%s\n' "${canonical}" >> "${tmpfile}"
-        write_allowlist "${tmpfile}"
+        rc=0; ai_tools_conf_allowlist_add "${allowlist}" "${canonical}" || rc=$?
+        case "${rc}" in
+            0) ;;
+            2) die "${canonical} is DISABLED for ${OPERATOR} -- a '!' line parks it, and adding a
+       second line would leave that '!' winning at the launch gate. Re-enable it instead:
+       ai-tools-allowlist --operator ${OPERATOR} --enable ${canonical}" ;;
+            *) die "could not add ${canonical} to ${OPERATOR}'s allowlist -- nothing changed" ;;
+        esac
         ai_tools_log_info "operator ${caller} added ${canonical} to ${OPERATOR}'s allowlist"
         printf 'ai-tools-allowlist: added %s for %s\n' "${canonical}" "${OPERATOR}"
         ;;
     remove)
-        # A missing allowlist has nothing to remove -- report it and succeed, so an unclaim
-        # that runs twice is not an error.
+        # A missing allowlist has nothing to remove -- report it and succeed, so an unclaim that
+        # runs twice is not an error. The library drops the exclusion line too, so de-registering
+        # a project the operator had parked leaves no '!' behind to park whatever is claimed at
+        # that path next.
         if [[ ! -f "${allowlist}" ]]; then
             printf 'ai-tools-allowlist: %s has no allowlist -- nothing to remove\n' "${OPERATOR}"
             exit 0
         fi
-        # Match on the RAW lines, not on the canonical path: a listed line may carry a comment,
-        # quotes, or a symlinked spelling, so reconstructing it from the path would fail to
-        # match. Same matcher the CLI's own de-listing uses.
-        declare -a matched=()
-        if ! ai_tools_conf_allowlist_matching_lines matched "${allowlist}" "${canonical}"; then
+        if [[ "$(ai_tools_conf_allowlist_state "${allowlist}" "${canonical}")" == absent ]]; then
             printf 'ai-tools-allowlist: %s is not listed for %s\n' "${canonical}" "${OPERATOR}"
             exit 0
         fi
-        tmpfile="$(mktemp)"
-        trap 'rm -f -- "${tmpfile}"' EXIT
-        while IFS= read -r line || [[ -n "${line}" ]]; do
-            keep=true
-            for m in "${matched[@]}"; do
-                [[ "${line}" == "${m}" ]] && { keep=false; break; }
-            done
-            ${keep} && printf '%s\n' "${line}"
-        done < "${allowlist}" > "${tmpfile}"
-        write_allowlist "${tmpfile}"
+        ai_tools_conf_allowlist_remove "${allowlist}" "${canonical}" \
+            || die "could not remove ${canonical} from ${OPERATOR}'s allowlist -- a line naming it survived, so that project is still registered"
         ai_tools_log_info "operator ${caller} removed ${canonical} from ${OPERATOR}'s allowlist"
         printf 'ai-tools-allowlist: removed %s for %s\n' "${canonical}" "${OPERATOR}"
+        ;;
+    enable)
+        # The one action that WIDENS the target's launch gate. It adds no line: the '!' comes off
+        # the line the operator wrote, in place, and a path the file does not name is refused
+        # rather than registered -- registering one is a claim, which scans for secrets first.
+        rc=0; ai_tools_conf_allowlist_enable "${allowlist}" "${canonical}" || rc=$?
+        case "${rc}" in
+            0) ;;
+            2) printf 'ai-tools-allowlist: %s is not disabled for %s -- nothing to enable\n' \
+                   "${canonical}" "${OPERATOR}"; exit 0 ;;
+            *) die "${canonical} is STILL disabled for ${OPERATOR} -- the line was not rewritten" ;;
+        esac
+        ai_tools_log_info "operator ${caller} enabled ${canonical} in ${OPERATOR}'s allowlist"
+        printf 'ai-tools-allowlist: enabled %s for %s\n' "${canonical}" "${OPERATOR}"
+        ;;
+    disable)
+        # Park the target's project: the '!' goes on, in place. It moves to LESS access -- no
+        # session starts there and the ownership helpers stop resolving an owner for it -- so a
+        # path the file does not name is refused rather than parked (there would be no entry to
+        # park, and inventing one would register a project without claiming it).
+        rc=0; ai_tools_conf_allowlist_disable "${allowlist}" "${canonical}" || rc=$?
+        case "${rc}" in
+            0) ;;
+            2) die "${canonical} is not listed for ${OPERATOR} -- there is no entry to disable" ;;
+            *) die "could not disable ${canonical} for ${OPERATOR} -- nothing changed" ;;
+        esac
+        ai_tools_log_info "operator ${caller} disabled ${canonical} in ${OPERATOR}'s allowlist"
+        printf 'ai-tools-allowlist: disabled %s for %s\n' "${canonical}" "${OPERATOR}"
         ;;
 esac
 

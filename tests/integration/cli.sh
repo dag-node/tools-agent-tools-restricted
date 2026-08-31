@@ -132,7 +132,7 @@ if command -v runuser >/dev/null 2>&1; then
     # (5) The informational commands stay open to that same non-operator user.
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${tconf}" "${CLI}" --help 2>&1)" || true
-    if grep -qi 'manage Claude Code sandbox projects' <<<"${out}"; then
+    if grep -qi 'manage the projects a sandboxed coding agent may work in' <<<"${out}"; then
         pass "--help stays open to a non-operator user"
     else
         fail "--help was blocked for a non-operator: ${out}"
@@ -155,6 +155,427 @@ if command -v runuser >/dev/null 2>&1; then
         pass "--project-unclaim refuses a directory that is neither a claimed project nor an ancestor of one"
     else
         fail "--project-unclaim did not refuse a non-project (rc=${rc}): ${out}"
+    fi
+
+    # (6b) A project root owned by a third party is REFUSED, not claimed. The claim's setgid and
+    # ACL helpers act only on paths held by the resolved operator or the sandbox account, so such
+    # a tree takes neither grant while the registries and the label still apply -- a claim that
+    # reports ✓ having given the agent no way into the project. The refusal has to precede the
+    # first registry write, so the fixture allowlist is inspected afterwards as well.
+    if id nobody >/dev/null 2>&1; then
+        : > "${emptyal}"
+        foreignproj="${TESTDIR}/foreign-proj"; mkdir -p "${foreignproj}"
+        chown nobody:nobody "${foreignproj}"
+        out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+                AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
+                setsid "${CLI}" --project-claim "${foreignproj}" 2>&1)" && rc=0 || rc=$?
+        if [[ ${rc} -ne 0 ]] && grep -qi 'owned by nobody' <<<"${out}"; then
+            pass "--project-claim refuses a project root owned by a third party"
+        else
+            fail "--project-claim did not refuse a third-party-owned root (rc=${rc}): $(brief "${out}")"
+        fi
+        if grep -q "chown -R ${PROJECTS_USER} ${foreignproj}" <<<"${out}"; then
+            pass "the refusal names the chown that makes the tree claimable"
+        else
+            fail "the refusal did not name the chown remedy: $(brief "${out}" 'chown')"
+        fi
+        if [[ -s "${emptyal}" ]]; then
+            fail "refused claim still wrote to the allowlist: $(cat "${emptyal}")"
+        else
+            pass "the owner refusal precedes every registry write"
+        fi
+    else
+        skip "third-party-owned claim root" "user 'nobody' not present"
+    fi
+
+    # brief <captured-output> [pattern]  -- a SHORT diagnostic for a FAIL message. The flows below
+    # print thirty-odd lines of headline blocks and per-step results, and interpolating all of
+    # that into a failure line buries the one thing that explains it -- especially in the runner's
+    # end-of-run summary, which reprints FAIL lines and is unreadable if each is a screenful.
+    # With a <pattern> it shows the lines the assertion is actually about; without one, the last
+    # three non-empty lines, which is where a refusal or a die() lands. Joined with " ~ " so the
+    # message stays a single line.
+    brief() {
+        local text="$1" pat="${2:-}" sel=""
+        [[ -n "${pat}" ]] && sel="$(grep -iE -- "${pat}" <<<"${text}" | head -n 3)"
+        [[ -n "${sel}" ]] || sel="$(awk 'NF' <<<"${text}" | tail -n 3)"
+        awk '{printf "%s%s", sep, $0; sep=" ~ "}' <<<"${sel}"
+    }
+
+    # (6c) --project-create is a real verb, not an alias, so its refusals are asserted where the
+    # old alias had none. Every one of them must leave NOTHING behind -- no directory, no registry
+    # entry -- which is what makes "recover with --project-claim" the only recovery path it needs.
+    : > "${emptyal}"
+    create_cli() {
+        runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
+            setsid "${CLI}" --project-create "$@" 2>&1
+    }
+
+    # A path is REQUIRED: the cwd always exists, so a defaulted create could only ever refuse.
+    out="$(create_cli)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'needs a path' <<<"${out}"; then
+        pass "--project-create refuses to run without a path"
+    else
+        fail "--project-create did not refuse a missing path (rc=${rc}): $(brief "${out}")"
+    fi
+
+    # An EXISTING directory is refused, naming the verb that does claim one. This is the line
+    # between the two verbs: a create that quietly claimed what was already there would make them
+    # interchangeable, and only one of them grants an agent access to an existing tree.
+    exists="${TESTDIR}/already-here"; mkdir -p "${exists}"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${exists}"
+    out="$(create_cli "${exists}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'already exists' <<<"${out}" \
+            && grep -q -- '--project-claim' <<<"${out}"; then
+        pass "--project-create refuses an existing directory, naming --project-claim"
+    else
+        fail "--project-create did not refuse an existing directory (rc=${rc}): $(brief "${out}")"
+    fi
+
+    # ONE directory is created, never a path of them: a parent that does not exist is refused
+    # rather than built. This is what keeps a mistyped path from becoming a silently manufactured
+    # tree with a claimed project inside it.
+    out="$(create_cli "${TESTDIR}/no/such/parent/proj")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'parent directory does not exist' <<<"${out}" \
+            && [[ ! -e "${TESTDIR}/no" ]]; then
+        pass "--project-create refuses a missing parent and creates none of it"
+    else
+        fail "--project-create did not refuse a missing parent (rc=${rc}): $(brief "${out}")"
+    fi
+
+    # The protected-paths backstop on the target: a create must not be able to MANUFACTURE a
+    # protected directory. Exits 3, the backstop's own code. Driven against a protected path this
+    # host does not have; if it has all of them there is nothing to assert and the case skips.
+    protected=""
+    for p in /efi /lost+found /libx32 /lib32 /srv /media; do
+        [[ -e "${p}" ]] || { protected="${p}"; break; }
+    done
+    if [[ -n "${protected}" ]]; then
+        out="$(create_cli "${protected}")" && rc=0 || rc=$?
+        if [[ ${rc} -eq 3 ]] && [[ ! -e "${protected}" ]]; then
+            pass "--project-create refuses a protected target (exit 3, nothing created)"
+        else
+            fail "--project-create did not refuse protected ${protected} with exit 3 (rc=${rc}): $(brief "${out}")"
+        fi
+    else
+        skip "--project-create protected-target refusal" "this host has every protected path already"
+    fi
+
+    # Atomic on refusal: none of the above may have written a registry entry. The fixture
+    # allowlist is the one a regression would touch.
+    if [[ -s "${emptyal}" ]]; then
+        fail "a refused --project-create wrote to the allowlist: $(cat "${emptyal}")"
+    else
+        pass "every refused --project-create left the allowlist untouched"
+    fi
+
+    # THE HAPPY PATH. Every assertion above is a refusal, which together can be satisfied by a
+    # verb that does nothing at all -- so the one run that has to actually work is asserted too,
+    # end to end and unattended. It runs under setsid with NO -y (the verb has none): a create
+    # that still asked something would block here and be killed by the file timeout, which is the
+    # regression this also guards.
+    crwork="${TESTDIR}/create-work"; mkdir -p "${crwork}"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${crwork}"; chmod 755 "${crwork}"
+    : > "${emptyal}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${emptyal}"
+    newproj="${crwork}/newproject"
+    # The exit status depends on whether this environment can authenticate for the claim's root
+    # helpers. Under setsid there is no terminal to type a password at, so the claim reports that
+    # it could not finish and exits 1; where the suite's sudo needs no password it exits 0. Both
+    # are correct, and both are asserted -- what must never happen is the third outcome this
+    # replaced, where every root step failed and the flow still closed on a success mark.
+    out="$(create_cli "${newproj}")" && rc=0 || rc=$?
+    if [[ -d "${newproj}" ]] && { [[ ${rc} -eq 0 ]] \
+            || { [[ ${rc} -eq 1 ]] && grep -qi 'the claim did not complete' <<<"${out}"; }; }; then
+        pass "--project-create creates the project and reports the claim outcome honestly"
+    else
+        fail "--project-create neither completed nor reported why (rc=${rc}): $(brief "${out}")"
+    fi
+    # The two must not co-occur: a claim that reports steps it could not apply has not claimed.
+    if grep -qi 'did not complete' <<<"${out}" && grep -q '✓ claimed' <<<"${out}"; then
+        fail "the claim reported both an incomplete state and success: $(brief "${out}" 'did not complete|claimed')"
+    else
+        pass "the claim never reports success alongside steps it could not apply"
+    fi
+    if [[ -d "${newproj}/.git" ]] && [[ -f "${newproj}/README.md" ]] \
+            && grep -qxF '# newproject' "${newproj}/README.md"; then
+        pass "--project-create initializes git and writes a README naming the directory"
+    else
+        fail "--project-create left an incomplete tree: $(ls -A "${newproj}" 2>&1)"
+    fi
+    if grep -qxF "${newproj}" "${emptyal}"; then
+        pass "--project-create registers the new project in allowed-projects"
+    else
+        fail "--project-create did not register the project: $(cat "${emptyal}")"
+    fi
+    # The tree it makes is owned by the operator, which is what the claim's own owner guard
+    # requires -- a create that produced a root-owned tree would claim nothing and say so.
+    if [[ "$(stat -c '%U' "${newproj}")" == "${PROJECTS_USER}" ]]; then
+        pass "--project-create leaves the tree owned by the operator it acts for"
+    else
+        fail "the created tree is owned by $(stat -c '%U' "${newproj}"), not ${PROJECTS_USER}"
+    fi
+    # The secret scan is skipped on a tree with nothing in it, so a create must never reach
+    # ai-tools-lockdown. Asserted on that helper specifically, NOT on the absence of any password
+    # prompt: the claim legitimately sudo's for safedir, setgid, setfacl and relabel, since group
+    # ownership cannot be changed to a group the operator is not in without root.
+    if ! grep -q 'ai-tools-lockdown' <<<"${out}" \
+            && ! grep -qi 'scan for secret-named files' <<<"${out}"; then
+        pass "--project-create never reaches the secret scan (nothing in the tree to scan)"
+    else
+        fail "--project-create ran the secret scan on a tree it had just created: $(brief "${out}" 'lockdown|secret-named')"
+    fi
+
+    # Nothing it seeds may be owner-only. Under a umask of 077 the directory would be born 0700,
+    # README.md 0600, and .git 0700/0600 -- and an owner-only path is one the claim's helpers
+    # honour as a seal and skip, so the verb would produce a registered project whose README the
+    # agent cannot read and whose git it cannot use, having reported that it normalized both.
+    # This is the assertion that fails on a umask-077 host if any of those modes is inherited.
+    _sealed=""
+    for _p in "${newproj}" "${newproj}/README.md" "${newproj}/.git" "${newproj}/.git/config"; do
+        [[ -e "${_p}" ]] || continue
+        (( (8#$(stat -c '%a' "${_p}") & 077) == 0 )) && _sealed+=" ${_p}($(stat -c '%a' "${_p}"))"
+    done
+    if [[ -z "${_sealed}" ]]; then
+        pass "--project-create seeds nothing owner-only (reachable whatever the host umask)"
+    else
+        fail "--project-create seeded owner-only path(s) the claim will skip:${_sealed}"
+    fi
+    # Matched on the NOTICE's own title, not on the phrase "owner-only": the create prints that
+    # phrase itself when it explains the modes it set on a umask-077 host, so a looser grep
+    # asserts the opposite of what it means on exactly the hosts this case exists for.
+    if ! grep -qi 'this project directory is owner-only' <<<"${out}"; then
+        pass "the claim does not report the new project as out of the agent's reach"
+    else
+        fail "the created project was claimed as owner-only: $(brief "${out}" 'owner-only')"
+    fi
+
+    # (6d) --project-remove deletes, so every assertion here is that it did NOT. Its authorization
+    # is an exact allowlist entry and nothing else: there is no --force, and an unattended run
+    # never reaches the deletion because both the default-NO confirm and the typed-name challenge
+    # decline with no terminal (these run under setsid, so that is the path being driven).
+    remove_cli() {
+        runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${rmal}" \
+            setsid "${CLI}" --project-remove "$@" 2>&1
+    }
+    # The fixture registry lives in a directory the PROJECTS user owns, not in TESTDIR itself
+    # (root-owned): unreg_allow rewrites the allowlist with `sed -i`, which writes its temporary
+    # file into the file's own DIRECTORY, so a root-owned parent fails the removal even though the
+    # file is writable. That is the same shape as the real layout, where the allowlist sits in the
+    # operator's own 0700 ~/.config/ai-tools.
+    regdir="${TESTDIR}/registries"; mkdir -p "${regdir}"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${regdir}"; chmod 700 "${regdir}"
+    rmal="${regdir}/remove-allowlist"
+    # The project fixtures live under a directory the PROJECTS user OWNS, because removing a
+    # project ends by unlinking it from its parent -- which needs write permission there, not on
+    # the project. Root-owned TESTDIR would fail that, which is a real refusal (asserted on its
+    # own below) rather than the case these are for.
+    rmwork="${TESTDIR}/work"; mkdir -p "${rmwork}"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${rmwork}"; chmod 755 "${rmwork}"
+    rmproj="${rmwork}/rm-proj"; mkdir -p "${rmproj}/sub"
+    rmnested="${rmproj}/inner"; mkdir -p "${rmnested}"
+    rmother="${rmwork}/rm-other"; mkdir -p "${rmother}"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmproj}" "${rmother}"
+
+    # An unregistered path is refused: the registry entry is the authorization, so a tree nothing
+    # claimed is not this verb's to delete.
+    printf '%s\n' "${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    out="$(remove_cli "${rmother}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmother}" ]] && grep -qi 'not a claimed project' <<<"${out}"; then
+        pass "--project-remove refuses an unregistered path, deleting nothing"
+    else
+        fail "--project-remove did not refuse an unregistered path (rc=${rc}): $(brief "${out}")"
+    fi
+
+    # A path INSIDE a claimed project is refused, naming the project that is the real target.
+    out="$(remove_cli "${rmproj}/sub")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}/sub" ]] && grep -qF "${rmproj}" <<<"${out}"; then
+        pass "--project-remove refuses a path inside a project, naming the project"
+    else
+        fail "--project-remove did not refuse a descendant (rc=${rc}): $(brief "${out}")"
+    fi
+
+    # An ancestor of claimed projects is refused and pointed at --project-unclaim: this verb
+    # removes one registered project, never a directory that merely contains some.
+    out="$(remove_cli "${rmwork}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}" ]] && grep -q -- '--project-unclaim' <<<"${out}"; then
+        pass "--project-remove refuses an ancestor of claimed projects"
+    else
+        fail "--project-remove did not refuse an ancestor (rc=${rc}): $(brief "${out}")"
+    fi
+
+    # An exact entry that CONTAINS another claimed project is refused. Deleting it would take the
+    # nested one with it and leave that project registered, git-trusted and labelled at a path
+    # that no longer exists.
+    printf '%s\n%s\n' "${rmproj}" "${rmnested}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    out="$(remove_cli "${rmproj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmnested}" ]] && grep -qF "${rmnested}" <<<"${out}"; then
+        pass "--project-remove refuses a project containing another claimed project, naming it"
+    else
+        fail "--project-remove did not refuse a project with a nested claim (rc=${rc}): $(brief "${out}")"
+    fi
+
+    # There is no --force: the flag that reaches an unregistered tree on unclaim must not become
+    # a way to delete one here.
+    printf '%s\n' "${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    out="$(remove_cli --force "${rmother}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmother}" ]] && grep -qi 'no --force' <<<"${out}"; then
+        pass "--project-remove has no --force (an unregistered tree stays undeletable by it)"
+    else
+        fail "--project-remove accepted or mishandled --force (rc=${rc}): $(brief "${out}")"
+    fi
+
+    # -y requires an explicit path, so an unattended run can never delete whatever directory it
+    # started in.
+    out="$(cd "${rmproj}" && remove_cli -y)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}" ]] && grep -qi 'needs a path' <<<"${out}"; then
+        pass "--project-remove -y refuses to inherit the current directory"
+    else
+        fail "--project-remove -y did not require an explicit path (rc=${rc}): $(brief "${out}")"
+    fi
+
+    # And the property the whole gate exists for: a registered project, correctly targeted, is
+    # still NOT deleted without a terminal -- the confirm takes its No default and the challenge
+    # has no default to take. The allowlist entry must survive too, since the registries are torn
+    # down before the deletion.
+    out="$(remove_cli "${rmproj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}" ]] && grep -qF "${rmproj}" "${rmal}"; then
+        pass "--project-remove deletes nothing with no terminal (confirm and challenge both decline)"
+    else
+        fail "--project-remove acted without a terminal (rc=${rc}, dir gone or de-registered): $(brief "${out}")"
+    fi
+
+    # The deletability pre-flight, which is what keeps a removal from stopping partway. A
+    # directory the acting owner can neither write nor enter is the realistic blocker (a
+    # sandbox-owned 0700 left by a session), and it must refuse the WHOLE removal up front with
+    # the tree still intact -- not delete as far as it can and report a failure.
+    if id nobody >/dev/null 2>&1; then
+        rmblocked="${rmwork}/rm-blocked"; mkdir -p "${rmblocked}/locked"
+        chown "${PROJECTS_USER}:${PROJECTS_USER}" "${rmblocked}"
+        chown nobody:nobody "${rmblocked}/locked"; chmod 0700 "${rmblocked}/locked"
+        printf '%s\n' "${rmblocked}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+        out="$(remove_cli -y "${rmblocked}")" && rc=0 || rc=$?
+        if [[ ${rc} -ne 0 ]] && [[ -d "${rmblocked}/locked" ]] \
+                && grep -q -- '--reclaim --full' <<<"${out}" \
+                && grep -qF "${rmblocked}" "${rmal}"; then
+            pass "--project-remove refuses an undeletable tree up front, intact and still registered"
+        else
+            fail "--project-remove did not stop on the deletability pre-flight (rc=${rc}): $(brief "${out}")"
+        fi
+    else
+        skip "--project-remove deletability pre-flight" "user 'nobody' not present"
+    fi
+
+    # AI_TOOLS_ASSUME_YES MUST NOT DELETE ANYTHING. This is the highest-consequence property the
+    # verb has and the easiest to regress: the variable is a legitimate thing for an operator to
+    # export for unattended runs of every other command, and if it reached either of this verb's
+    # two questions it would silently delete whole projects on a host where nobody typed -y. It
+    # cannot: the confirm's default is NO (the lib only fast-tracks default-YES questions) and the
+    # challenge has no default at all. Asserted with the variable set AND a terminal absent, which
+    # is exactly how an unattended run arrives.
+    printf '%s\n' "${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${rmal}" \
+            AI_TOOLS_ASSUME_YES=1 \
+            setsid "${CLI}" --project-remove "${rmproj}" 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}" ]] && grep -qF "${rmproj}" "${rmal}"; then
+        pass "AI_TOOLS_ASSUME_YES does not delete a project (neither prompt is fast-trackable)"
+    else
+        fail "AI_TOOLS_ASSUME_YES deleted or deregistered a project (rc=${rc}): $(brief "${out}")"
+    fi
+
+    # A protected path as the removal target: exit 3, whatever the allowlist says. The scenario is
+    # an operator (or a script) reaching for a home root or a system directory -- the allowlist is
+    # hand-editable, so the backstop has to stand on its own. Both are driven with -y, the only
+    # mode that can reach a deletion unattended, and the entry is planted deliberately so the
+    # classification would otherwise ACCEPT the target.
+    # The home case is included only in the /home/<user> shape the home-root rule covers by
+    # construction. Elsewhere it is skipped rather than assumed: this drives -y against a planted
+    # entry, so a host where the assumption did not hold would be pointing a real removal at a
+    # real home. /etc is on the protected list unconditionally.
+    _protected_targets=(/etc)
+    [[ "${PROJECTS_HOME}" =~ ^/home/[^/]+$ ]] && _protected_targets+=("${PROJECTS_HOME}")
+    for _bad in "${_protected_targets[@]}"; do
+        printf '%s\n' "${_bad}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+        out="$(remove_cli -y "${_bad}")" && rc=0 || rc=$?
+        if [[ ${rc} -eq 3 ]] && [[ -d "${_bad}" ]]; then
+            pass "--project-remove refuses the protected path ${_bad} (exit 3) even when listed"
+        else
+            fail "--project-remove did not refuse protected ${_bad} with exit 3 (rc=${rc}): $(brief "${out}")"
+        fi
+    done
+
+    # -y must not bypass the classification. The scripted-removal mistake is a -y run pointed at a
+    # path that is not a claimed project; the flag pre-answers the two prompts and nothing else.
+    printf '%s\n' "${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    out="$(remove_cli -y "${rmother}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmother}" ]]; then
+        pass "-y does not bypass the registry check (an unlisted path is still refused)"
+    else
+        fail "-y deleted an unregistered path (rc=${rc}): $(brief "${out}")"
+    fi
+
+    # A parent the acting owner cannot write must REFUSE, and this is the case with the worst
+    # failure mode if it is missed: `rm -rf` needs write permission on the directory it unlinks
+    # the project FROM, not on the project, so rm descends, deletes every file successfully, and
+    # fails only on the top directory -- leaving an empty husk that is already deregistered. The
+    # fixture is a project owned by the operator directly inside the root-owned testdir, which is
+    # exactly that shape. Both the tree AND its contents must survive.
+    rmpar="${TESTDIR}/rm-parent"; mkdir -p "${rmpar}/sub"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmpar}"
+    printf '%s\n' "${rmpar}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    out="$(remove_cli -y "${rmpar}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmpar}/sub" ]] \
+            && grep -qi 'parent directory is not writable' <<<"${out}" \
+            && grep -qF "${rmpar}" "${rmal}"; then
+        pass "--project-remove refuses an unwritable parent before deleting any of the tree"
+    else
+        fail "--project-remove did not refuse an unwritable parent (rc=${rc}, contents gone: $([[ -d "${rmpar}/sub" ]] && echo no || echo yes)): $(brief "${out}" 'parent directory')"
+    fi
+
+    # A registry the removal cannot rewrite must REFUSE, not delete. The allowlist entry is the
+    # agent's launch gate, so deleting the tree past a failed de-registration would strand a
+    # registration that is still standing -- exactly what this verb's teardown order exists to
+    # prevent. The fixture puts the allowlist in the ROOT-owned testdir: `sed -i` writes its
+    # temporary file into the file's own directory, so the rewrite fails while the file itself
+    # stays writable, which is also how this fails on a real host.
+    rmstuck="${rmwork}/rm-stuck"; mkdir -p "${rmstuck}"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmstuck}"
+    stuckal="${TESTDIR}/stuck-allowlist"
+    printf '%s\n' "${rmstuck}" > "${stuckal}"; chown "${PROJECTS_USER}" "${stuckal}"
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${stuckal}" \
+            setsid "${CLI}" --project-remove -y "${rmstuck}" 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmstuck}" ]] && grep -qi 'still registered' <<<"${out}"; then
+        pass "--project-remove refuses to delete when the allowlist entry cannot be removed"
+    else
+        fail "--project-remove acted past a failed de-registration (rc=${rc}): $(brief "${out}")"
+    fi
+
+    # Teardown order: registries before the tree. Driven with -y, which is the one path that
+    # reaches the deletion without a terminal, over a project that IS fully deletable. Both
+    # halves are asserted -- the tree is gone AND the allowlist entry with it -- because the
+    # ordering guarantee is only meaningful if the deletion actually ran.
+    rmgo="${rmwork}/rm-go"; mkdir -p "${rmgo}/sub"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmgo}"
+    printf '%s\n' "${rmgo}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    # The tree must be gone and deregistered. The exit status depends on the environment: on an
+    # enforcing host the SELinux label removal needs a password this run cannot supply, so a
+    # cleanup step fails and the verb exits 1 while still having removed the project. Both are
+    # correct; what is asserted is that a run with failures does NOT close on a success mark.
+    out="$(remove_cli -y "${rmgo}")" && rc=0 || rc=$?
+    if [[ ! -e "${rmgo}" ]] && ! grep -qF "${rmgo}" "${rmal}" \
+            && { [[ ${rc} -eq 0 ]] \
+                 || { [[ ${rc} -eq 1 ]] && grep -qi 'cleanup step(s) did not run' <<<"${out}"; }; }; then
+        pass "--project-remove -y deregisters and then deletes (registries first, tree last)"
+    else
+        fail "--project-remove -y did not complete (rc=${rc}, dir exists: $([[ -e "${rmgo}" ]] && echo yes || echo no)): $(brief "${out}")"
+    fi
+    if grep -q '✓ removed' <<<"${out}" && grep -qi 'cleanup step(s) did not run' <<<"${out}"; then
+        fail "the removal showed a success mark alongside failed cleanup: $(brief "${out}" 'removed|cleanup')"
+    else
+        pass "the removal reserves its success mark for a run with no failures"
     fi
 
     # (7) --list renders the reconciliation view deterministically over a FIXTURE allowlist +
@@ -373,6 +794,213 @@ if command -v runuser >/dev/null 2>&1; then
         pass "--for with no operator name is refused"
     else
         fail "--for with no name was not refused (rc=${rc}): ${out}"
+    fi
+fi
+
+# ── --project-disable / --project-enable: parking a project in place ─────────────────────────
+# The pair edits ONE line of the operator's own allowlist and reaches no root helper, so the whole
+# lifecycle is drivable here as the projects user over the fixture registry. What is asserted is
+# what the flat-file model rests on (see the state note in wip/issues): the line is edited IN
+# PLACE, a parked project is not an unlisted one, and neither verb ever invents or lifts a line it
+# cannot attribute -- since lifting the wrong '!' hands the agent a subtree its operator withheld.
+section "ai-tools --project-disable / --project-enable"
+
+if ! command -v runuser >/dev/null 2>&1; then
+    skip "--project-disable/--project-enable" "runuser unavailable"
+else
+    mktestdir
+    chmod 755 "${TESTDIR}"
+    pd_conf="${TESTDIR}/op.conf"
+    printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${pd_conf}"; chmod 644 "${pd_conf}"
+    pd_al="${TESTDIR}/allowed-projects"
+    pd_proj="${TESTDIR}/api"; pd_other="${TESTDIR}/web"
+    pd_nested="${pd_proj}/service-a"; pd_carve="${pd_proj}/secrets"
+    mkdir -p "${pd_proj}" "${pd_other}" "${pd_nested}" "${pd_carve}"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${TESTDIR}"
+
+    # pd_cli <args...> : run the CLI as the operator against the fixture registry, under setsid so
+    # every prompt takes its non-interactive default (the re-enable confirm defaults NO).
+    pd_cli() {
+        runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${pd_conf}" AI_TOOLS_ALLOWLIST="${pd_al}" \
+            setsid "${CLI}" "$@" 2>&1
+    }
+    pd_seed() { printf '%s\n' "$@" > "${pd_al}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${pd_al}"; }
+
+    # (1) Park a listed project: the line keeps its position, indentation and comment. That is the
+    # whole reason these verbs exist rather than being an unclaim/claim pair -- an operator whose
+    # allowed-projects is an ordered, commented document gets it back unchanged.
+    pd_seed "# projects" "  ${pd_proj}   # payments, dev stage" "${pd_other}"
+    pd_before="$(cat "${pd_al}")"
+    out="$(pd_cli --project-disable "${pd_proj}")" && rc=0 || rc=$?
+    if [[ ${rc} -eq 0 ]] && [[ "$(sed -n '2p' "${pd_al}")" == "  !${pd_proj}   # payments, dev stage" ]]; then
+        pass "--project-disable parks the entry in place, keeping position and comment"
+    else
+        fail "--project-disable did not park the entry (rc=${rc}): $(brief "${out}")"
+    fi
+    if grep -qi 'handback' <<<"${out}"; then
+        pass "the disable states the consequence an operator has to know (the handback stops)"
+    else
+        fail "the disable did not mention the ownership handback: $(brief "${out}")"
+    fi
+
+    # (2) A parked project is NOT an unlisted one. The claim must not append a second, positive
+    # line that the '!' would go on winning over -- it offers the re-enable, which with no
+    # terminal takes its default NO, and refuses.
+    out="$(pd_cli --project-claim "${pd_proj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'disabled' <<<"${out}"; then
+        pass "--project-claim over a parked project refuses instead of claiming"
+    else
+        fail "--project-claim did not refuse over a parked project (rc=${rc}): $(brief "${out}")"
+    fi
+    if [[ "$(grep -cF "${pd_proj}" "${pd_al}")" == 1 ]]; then
+        pass "the refused claim appended no duplicate line"
+    else
+        fail "the refused claim duplicated the entry:"$'\n'"$(cat "${pd_al}")"
+    fi
+
+    # (3) --list calls it what it is, and names the verb that restores it.
+    out="$(pd_cli --list)" || true
+    if grep -qE "disabled[[:space:]]+${pd_proj}" <<<"${out}" \
+            && grep -qF -- "--project-enable ${pd_proj}" <<<"${out}"; then
+        pass "--list reports a parked project as disabled, with the re-enable command"
+    else
+        fail "--list did not report the parked project: $(brief "${out}" 'disabl|exclude')"
+    fi
+
+    # (4) Restore it: the file comes back byte-identical to before the park.
+    out="$(pd_cli --project-enable "${pd_proj}")" && rc=0 || rc=$?
+    if [[ ${rc} -eq 0 ]] && [[ "$(cat "${pd_al}")" == "${pd_before}" ]]; then
+        pass "--project-enable restores the file byte-identically (a lossless round trip)"
+    else
+        fail "--project-enable did not restore the file (rc=${rc}): $(brief "${out}")"$'\n'"$(cat "${pd_al}")"
+    fi
+
+    # (5) Neither verb invents an entry. Registering a project is a claim -- it scans for secrets
+    # before granting access -- so a path the file does not name is refused by both, pointing there.
+    for verb in --project-disable --project-enable; do
+        out="$(pd_cli "${verb}" "${TESTDIR}")" && rc=0 || rc=$?
+        if [[ ${rc} -ne 0 ]] && grep -qi 'not a claimed project' <<<"${out}" \
+                && grep -qF -- '--project-claim' <<<"${out}"; then
+            pass "${verb} refuses an unregistered path and names --project-claim"
+        else
+            fail "${verb} did not refuse an unregistered path (rc=${rc}): $(brief "${out}")"
+        fi
+    done
+    if [[ "$(cat "${pd_al}")" == "${pd_before}" ]]; then
+        pass "both refusals left the registry untouched"
+    else
+        fail "a refusal wrote to the registry:"$'\n'"$(cat "${pd_al}")"
+    fi
+
+    # (6) A CARVE-OUT is not a parked project, and lifting one is the only edit here that would
+    # WIDEN what the agent reaches -- a subtree its operator withheld from a claimed project. It is
+    # refused, and the refusal names the project it belongs to.
+    pd_seed "# projects" "${pd_proj}" "!${pd_carve}"
+    out="$(pd_cli --project-enable "${pd_carve}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'inside a claimed project' <<<"${out}"; then
+        pass "--project-enable refuses a carve-out rather than handing over the subtree"
+    else
+        fail "--project-enable did not refuse a carve-out (rc=${rc}): $(brief "${out}")"
+    fi
+    if grep -qF "!${pd_carve}" "${pd_al}"; then
+        pass "the carve-out line survived the refusal"
+    else
+        fail "the refused enable deleted the carve-out:"$'\n'"$(cat "${pd_al}")"
+    fi
+
+    # (7) The other half of keeping a '!' unambiguous: parking a NESTED project would write a line
+    # nothing could later tell apart from that carve-out, so no verb writes one.
+    pd_seed "# projects" "${pd_proj}" "${pd_nested}"
+    out="$(pd_cli --project-disable "${pd_nested}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'nested inside another claimed project' <<<"${out}"; then
+        pass "--project-disable refuses to park a project nested inside another"
+    else
+        fail "--project-disable parked a nested project (rc=${rc}): $(brief "${out}")"
+    fi
+    if ! grep -qF "!${pd_nested}" "${pd_al}"; then
+        pass "the refused park wrote no exclusion"
+    else
+        fail "the refused park wrote a line:"$'\n'"$(cat "${pd_al}")"
+    fi
+
+    # (8) The per-project verbs must not call a parked project unclaimed: on an excluded path the
+    # root helpers resolve no owner and do NOTHING, so a run that got that far would report steps
+    # it never applied. (A host may also refuse earlier for a missing sudo grant -- that is a
+    # different, correct refusal; what must not appear is "not a claimed project".)
+    pd_seed "# projects" "!${pd_proj}"
+    for verb in --reclaim --lockdown --project-unclaim; do
+        out="$(pd_cli "${verb}" "${pd_proj}")" && rc=0 || rc=$?
+        if [[ ${rc} -ne 0 ]] && ! grep -qi 'not a claimed project' <<<"${out}"; then
+            pass "${verb} over a parked project does not report it as unclaimed"
+        else
+            fail "${verb} called a parked project unclaimed (rc=${rc}): $(brief "${out}")"
+        fi
+    done
+
+    # (9) --project-remove's AUTHORIZATION is the exact entry, and a parked one counts: the '!'
+    # records "not right now", not "not mine", and making the operator re-enable a tree they mean
+    # to delete would make it launchable on the way out. So the verb must get past classification
+    # -- reaching its own disabled confirm -- rather than refusing as unregistered. It must also
+    # delete NOTHING here: with no terminal the confirm and the typed-name challenge both decline,
+    # which is the property that keeps a destructive verb out of an unattended run.
+    out="$(pd_cli --project-remove "${pd_proj}")" && rc=0 || rc=$?
+    if grep -qi 'not a claimed project' <<<"${out}"; then
+        fail "--project-remove refused a parked project as unregistered: $(brief "${out}")"
+    elif grep -qi 'holds no sudo grant' <<<"${out}"; then
+        # A host whose operator holds no general sudo grant refuses ahead of classification. That
+        # is a different, correct refusal, and it is not what this case is about.
+        skip "--project-remove over a parked project" "no sudo grant for the removal helper here"
+    elif [[ ${rc} -ne 0 ]] && grep -qi 'disabled' <<<"${out}"; then
+        pass "--project-remove accepts a parked entry as authorization and names the parked state"
+    else
+        fail "--project-remove did not recognise the parked entry (rc=${rc}): $(brief "${out}")"
+    fi
+    if [[ -d "${pd_proj}" ]]; then
+        pass "the declined removal deleted nothing (no terminal answers both prompts NO)"
+    else
+        fail "--project-remove deleted a project with no terminal to confirm at"
+    fi
+
+    # (10) --keep-entry is about what becomes of an ENTRY, so it is refused where there is none to
+    # keep: --force is the mode that reaches a tree the allowlist does not name. Refused rather
+    # than ignored, since a flag silently doing nothing is how an operator learns the wrong model.
+    out="$(pd_cli --project-unclaim --keep-entry --force "${pd_proj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'keep-entry cannot be combined with --force' <<<"${out}"; then
+        pass "--keep-entry with --force is refused (there is no entry to keep)"
+    elif grep -qi 'holds no sudo grant' <<<"${out}"; then
+        skip "--keep-entry with --force" "no sudo grant for the unclaim helper here"
+    else
+        fail "--keep-entry --force was not refused (rc=${rc}): $(brief "${out}")"
+    fi
+
+    # (10b) --keep-entry belongs to the unclaim ALONE. A removal deletes the tree, so an entry
+    # kept for it would park a path that no longer exists -- and the flag reads as though it might
+    # spare something, which is the worst thing a flag can suggest on a destructive verb. Refused
+    # as an unknown option rather than silently ignored.
+    out="$(pd_cli --project-remove --keep-entry "${pd_proj}")" && rc=0 || rc=$?
+    if [[ ${rc} -ne 0 ]] && grep -qi 'unknown --project-remove option' <<<"${out}"; then
+        pass "--project-remove refuses --keep-entry (it belongs to the unclaim)"
+    else
+        fail "--project-remove accepted --keep-entry (rc=${rc}): $(brief "${out}")"
+    fi
+    if [[ -d "${pd_proj}" ]]; then
+        pass "the refused option deleted nothing"
+    else
+        fail "--project-remove deleted the project while refusing an option"
+    fi
+
+    # (11) An entry can be clean and the project still unreachable, because an ANCESTOR is parked
+    # or a glob matches. Entry state and reachability are different questions, and reporting the
+    # first as though it answered the second sends an operator hunting through their own file for
+    # a refusal the CLI already knew about.
+    pd_seed "# projects" "${pd_proj}" "!${TESTDIR}"
+    out="$(pd_cli --project-enable "${pd_proj}")" && rc=0 || rc=$?
+    if [[ ${rc} -eq 0 ]] && grep -qi 'already enabled' <<<"${out}" \
+            && grep -qF "!${TESTDIR}" <<<"${out}"; then
+        pass "--project-enable reports the OTHER exclusion that still parks a listed project"
+    else
+        fail "--project-enable did not name the blocking ancestor exclusion (rc=${rc}): $(brief "${out}" 'enabled|exclusion')"
     fi
 fi
 

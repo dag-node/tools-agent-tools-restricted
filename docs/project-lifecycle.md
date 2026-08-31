@@ -1,102 +1,169 @@
 # Project lifecycle
 
-How a project enters the agent's reach, what each consent prompt actually grants, and how
-every path recovers or reverses. All commands run as your own user — the `ai-tools` CLI
-invokes `sudo` itself where a step needs root and prompts for your password there.
+How a project enters the agent's reach, what each prompt grants, and how every step reverses.
+Run every command as your own user: the `ai-tools` CLI calls `sudo` itself for the steps that
+need root and prompts for your password there.
 
 ```bash
-ai-tools --project-claim /path/to/project     # work in the real tree, in place
-ai-tools --sandbox-create /path/to/repo       # work in an isolated shallow clone
-ai-tools --list                               # what is registered, and which model
+ai-tools --project-create ~/src/newproject    # make a new project and claim it
+ai-tools --project-claim  ~/src/existing      # claim a tree you already have, in place
+ai-tools --sandbox-create ~/src/repo          # work in an isolated shallow clone instead
+ai-tools --list                               # what is registered, and under which model
 ```
 
-| Command | Registers | Reverses |
+A project moves through four states, and one command moves it between each pair:
+
+```
+   (nothing)  --project-create-->  claimed  --project-disable-->  disabled
+                --project-claim-->          <--project-enable---
+                                      |
+                    --project-unclaim | --project-remove
+                                      v
+                       registered no more (files kept / files deleted)
+```
+
+| Command | What it does | How to reverse it |
 |---|---|---|
-| `--project-claim` (alias `--project-create`) | the real tree, in place | `--project-unclaim` |
-| `--sandbox-create` | a shallow clone under `/var/opt/ai-tools/sandbox-projects/` | `--sandbox-remove` |
-| `--lockdown` | nothing — locks secret-named files, any time | — |
-| `--reclaim [--full]` | nothing — hands agent-written files back to you | — |
+| `--project-create <path>` | creates a directory, `git init`s it, claims it | `--project-unclaim`, or `--project-remove` |
+| `--project-claim [path]` | claims a tree in place | `--project-unclaim` |
+| `--project-disable [path]` | parks a claimed project: no session may start in it | `--project-enable` |
+| `--project-unclaim [path]` | hands the files back; the directory stays | `--project-claim` again |
+| `--project-remove [path]` | hands back, then **deletes the directory** | — |
+| `--sandbox-create [path]` | shallow-clones a repo into the sandbox area | `--sandbox-remove` |
+| `--lockdown [path]` | locks secret-named files, any time | — |
+| `--reclaim [--full] [path]` | changes ownership of agent-written files back to you, inside a project that stays claimed | — |
 
-Copied a claimed project somewhere else and want its permissions normalized without
-registering it first? That is `--project-unclaim --force` — see
-[a copy that was never unclaimed](#--force-a-copy-that-was-never-unclaimed).
+**`--reclaim` is not the opposite of a claim.** The two names sit close together and do
+unrelated things: `--project-unclaim` reverses a claim, and running `--project-claim` again is
+how a project comes back. `--reclaim` changes **file ownership** inside a project that stays
+claimed and keeps working — reach for it when agent-written files should be yours again, not
+when you want the agent out.
 
-## Choosing the model
+## Choose a model first
 
-Claim in place when the agent should work your real checkout: shared files, shared git
-history (opt-in), results land directly in your tree. The trade is exposure — the setgid
-group and the `g:ai-tools:rwX` ACL make the whole tree agent-readable and -writable, so
-everything under it is in scope once claimed. Two things stay out: paths that are
-owner-only (`600`/`700`) and paths you `!`-exclude. Everything else loses world access and
-gains the agent — see [what a claim and an unclaim do to
-permissions](#what-a-claim-and-an-unclaim-do-to-permissions) for the exact modes.
+**Claim in place** when the agent should work your real checkout: shared files, shared git
+history (opt-in), results land directly in your tree. The trade is exposure — the setgid group
+and the `g:ai-tools:rwX` ACL make the whole tree agent-readable and -writable, so everything
+under it is in scope once claimed. Two things stay out: paths that are owner-only (`600`/`700`)
+and paths you `!`-exclude. Everything else loses world access and gains the agent; the exact
+modes are in [what a claim and an unclaim do to permissions](#what-a-claim-and-an-unclaim-do-to-permissions).
 
-Create a sandbox clone when the tree, its history, or its surroundings should stay out of
-reach: the clone is shallow (`--depth=1`), so the agent never sees the origin's history,
-and it lives under the already-isolated sandbox area, so nothing above it needs a grant.
-The agent's commits go to a dedicated branch (`ai-tools/sandbox-<user>/<leaf>`) that you
-push and merge back yourself — the day-to-day work cycle is documented on the host in
-`/var/opt/ai-tools/README.md`.
+**Create a sandbox clone** when the tree, its history, or its surroundings should stay out of
+reach: the clone is shallow (`--depth=1`), so the agent never sees the origin's history, and it
+lives under the already-isolated sandbox area, so nothing above it needs a grant. The agent's
+commits go to a dedicated branch you push and merge back yourself.
 
-The launch wrapper offers the same choice interactively when you run `claude` in an
-unregistered directory.
+Running `claude` in an unregistered directory offers the same choice interactively.
 
-## What each prompt grants
+## Start a new project
+
+```bash
+ai-tools --project-create ~/src/newproject
+```
+
+Creates the directory, initializes an empty git repository in it, writes a `README.md` naming
+it, then runs the ordinary claim on the result.
+
+It asks nothing. A tree that did not exist a moment ago has no pre-existing permissions to warn
+about, no secret-named files worth a `sudo` password to scan for, and no git history to expose,
+so the questions a claim asks about an existing tree are answered by the tree being empty. The
+one prompt that can still appear is the traverse grant on a parent directory, which widens
+access *above* the project.
+
+On a host with a restrictive `umask` (`077`, the `/etc/login.defs` default on many systems) it
+sets the modes rather than inheriting them — `0750` for the directory, `0640` for the
+`README.md`, group read and traverse on `.git` — and says so:
+
+```text
+    created /home/you/src/newproject
+    modes 0750/0640 -- this host's umask (0077) would have made what this
+    creates owner-only, which the claim honours as a seal and grants nothing on
+```
+
+Owner-only (`700`/`600`) is how you seal a path *away* from the agent, and the claim honours it
+everywhere. It is a statement about a file you restricted on purpose, while a umask is a default
+for every new file — so it is not read as one about a directory this command just made for the
+agent to work in. To seal a path inside the project afterwards, `chmod 700` it and run
+`ai-tools --project-claim` again.
+
+It creates exactly one directory, and the parent has to exist:
+
+```text
+ai-tools: the parent directory does not exist: /home/you/Devlopment
+```
+
+With `mkdir -p` semantics that typo would have created `Devlopment/`, put the project inside it,
+claimed it, and reported success — a working project in a directory nobody meant to make. The
+verb refuses a path that **already** exists for the same reason, naming `--project-claim`
+instead: claiming grants an agent access to whatever is already in a tree, which is not an
+operation to arrive at by a typo.
+
+A location the sandbox account could never reach is refused **before** anything exists.
+
+## Claim a project you already have
+
+```bash
+cd ~/src/existing
+ai-tools --project-claim
+```
+
+Registers the tree, sets group `ai-tools` and the setgid bit on its directories, applies the
+`g:ai-tools:rwX` ACL, pins repo-local `core.filemode=true`, and applies the SELinux
+`ai_tools_project_t` label. It runs only the steps that are missing, so a re-claim is a quiet
+no-op.
+
+### What each prompt grants
 
 ```text
 Do you want to proceed? [Y/n] (default: Yes):
 ```
 
-Every yes/no question states its default; Enter — and any run without a terminal — takes
-it. Defaults fall on the safe side, so a question that *widens* access defaults to No and
-is never auto-answered by the environment; only an explicit flag (`--project-claim -y`
-for the proceed prompt, `--yes` on `ai-tools-lockdown`) pre-answers one.
+Every yes/no question states its default; Enter — and any run without a terminal — takes it.
+Defaults fall on the safe side, so a question that *widens* access defaults to No and is never
+auto-answered by the environment. Only an explicit flag (`--project-claim -y` for the proceed
+prompt, `--yes` on `ai-tools-lockdown`) pre-answers one.
 
 A claim walks through self-contained blocks, each with its own decision:
 
-- **Proceed confirm** (`[y/N]`) — approves exactly the pending steps the Review block
-  lists: registration, the setgid group + ACL grant on the tree, the SELinux label, and
-  any drift repair shown above it.
+- **Proceed confirm** (`[y/N]`) — approves exactly the pending steps the Review block lists:
+  registration, the setgid group and ACL grant, the SELinux label, and any drift repair shown
+  above it.
 - **Secret lockdown** (`[Y/n]`) — runs before anything widens access. The scan
-  (`ai-tools-lockdown --dry-run`, the first sudo prompt) matches known secret-name
-  patterns; locking sets the finds to owner-only (`600`/`700`). Declining stops the claim
-  — access is never granted over exposed secrets. Lockdown is best-effort pattern
-  matching: handle any secret it cannot know about yourself first.
-- **`.git` history** (`[Y/n]`) — normalizes `.git` so the agent reads the repo's full
-  history and your own commits stay agent-accessible. Decline it to keep history hidden;
-  the working tree stays claimed either way.
-- **Traverse-only parents** (`[y/N]`) — when the project sits under a directory the
-  sandbox account cannot enter (a `700` home), grants `u:ai-tools:--x` on each blocking
-  parent you own: enter only, never list or read. It widens access *above* the project,
-  hence default No.
+  (`ai-tools-lockdown --dry-run`, the first sudo prompt) matches known secret-name patterns;
+  locking sets the finds to owner-only. Declining stops the claim, so access is never granted
+  over exposed secrets. Pattern matching is best-effort: handle any secret it cannot know about
+  yourself first.
+- **`.git` history** (`[Y/n]`) — normalizes `.git` so the agent reads the repository's full
+  history and your own commits stay agent-accessible. Decline it to keep history hidden; the
+  working tree stays claimed either way.
+- **Traverse-only parents** (`[y/N]`) — where the project sits under a directory the sandbox
+  account cannot enter (a `700` home), grants `u:ai-tools:--x` on each blocking parent you own:
+  enter only, never list or read. It widens access above the project, hence the No default.
 
-## Re-claiming: drift and skip-lists
+### Re-claiming: drift and skip-lists
 
 ```bash
 ai-tools --project-claim        # from inside the project; idempotent
 ```
 
-A re-claim is a quiet no-op when nothing is missing, and repairs what is. Files moved
-into the tree from outside (`mv` keeps their old group and inherits no ACL) surface as
-*interior permission drift* — listed with owner and mode, repaired under the same proceed
-confirm and secret gate as a first claim. Hits under skip-listed directory names
-(`node_modules`, build output — the trees claim deliberately leaves alone) are reported
-separately with their remedies:
+A re-claim repairs what is missing. Files moved into the tree from outside (`mv` keeps their old
+group and inherits no ACL) surface as *interior permission drift* — listed with owner and mode,
+repaired under the same proceed confirm and secret gate as a first claim. Hits under skip-listed
+directory names (`node_modules`, build output — the trees a claim deliberately leaves alone) are
+reported separately with their remedies:
 
 ```bash
-# /etc/ai-tools/operator.conf — reopen a source dir that shares a skipped name
+# /etc/ai-tools/operator.conf -- reopen a source dir that shares a skipped name
 SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE="tools/bin"
 ```
 
-then re-claim; or `ai-tools --reclaim --full` for ownership alone. To keep a subtree out
-of the agent's reach on purpose, make it owner-only (`chmod 700`) or add a `!`-exclusion
-line for it in `~/.config/ai-tools/allowed-projects` — both stop it being re-reported, and
-the claim skips an owner-only path outright rather than granting it, telling you how many
-it left alone.
+then run `ai-tools --project-claim` again. For ownership alone, without touching the ACLs or
+the label, `ai-tools --reclaim --full`. To keep a subtree out of the
+agent's reach on purpose, make it owner-only (`chmod 700`) or add a `!`-exclusion line for it in
+`~/.config/ai-tools/allowed-projects`. Both stop it being re-reported, and the claim skips an
+owner-only path outright rather than granting it, telling you how many it left alone.
 
 ### Sealing a path created after the claim
-
-`chmod 700` (or `600` for a file) is all you need to do:
 
 ```bash
 chmod -R go-rwx path/to/dir
@@ -107,10 +174,9 @@ created inside a claimed tree inherits the project's default ACL at `mkdir`, and
 `660` in group `ai-tools` by setgid inheritance — grants your `chmod` *masks* but does not
 remove, and a numeric `chmod` does not clear a directory's setgid bit at all. Left alone they
 are dormant rather than gone, and widening the mode later would bring them back over everything
-inside. So every pass over a claimed tree strips that residue from an owner-only path instead of
-merely skipping it: the `group:ai-tools` ACL entries, the setgid bit, and the `ai-tools` group
-owner. Nothing else is touched — your mode bits, ownership and any other ACL entry are left as
-they are.
+inside. So every pass over a claimed tree strips that residue from an owner-only path: the
+`group:ai-tools` ACL entries, the setgid bit, and the `ai-tools` group owner. Your mode bits,
+ownership and any other ACL entry are left as they are.
 
 The setgid pass runs at every session start and the ACL pass at every claim, so a path you seal
 is cleaned up at the next of either. To do it immediately:
@@ -130,82 +196,97 @@ For a seal that does not depend on a mode at all, add a `!` exclusion for the pa
 `~/.config/ai-tools/allowed-projects`: an excluded subtree is skipped by every walk whatever its
 mode.
 
-## Sandbox clones are secured before they open
+## Work in a sandbox clone
 
 ```bash
-ai-tools --sandbox-create /path/to/repo
+ai-tools --sandbox-create ~/src/repo
 ```
 
-The clone is born owner-only (`umask 077`), so checked-in credentials in the tip commit
-are unreadable to the sandbox account from the first instant. The lockdown gate runs
-next; only past it is the clone opened to the agent group, labelled, and registered —
-with the locked paths kept private. Declining (or a failed lockdown) stops fail-closed:
-the clone stays on disk, private and unregistered, with a guard `CLAUDE.md` inside.
+The clone is born owner-only (`umask 077`), so checked-in credentials in the tip commit are
+unreadable to the sandbox account from the first instant. The lockdown gate runs next; only past
+it is the clone opened to the agent group, labelled, and registered, with the locked paths kept
+private. Declining, or a failed lockdown, stops fail-closed: the clone stays on disk, private
+and unregistered, with a guard `CLAUDE.md` inside.
 
 ```bash
 ai-tools --sandbox-create /var/opt/ai-tools/sandbox-projects/<name>   # resume
 ```
 
-Pointing `--sandbox-create` at the existing clone path resumes exactly where it stopped:
-gate, then normalize + label + register, removing the guard on success.
+Pointing `--sandbox-create` at the existing clone path resumes where it stopped: gate, then
+normalize, label and register, removing the guard on success. The day-to-day cycle — the
+per-repo branch, pushing it, merging it back — is documented on the host in
+`/var/opt/ai-tools/README.md`.
 
-## Recovery and reversal
+## Take a project out of service
 
 ```bash
-ai-tools --lockdown /path/to/project    # lock secret-named files, any time
-ai-tools --reclaim  /path/to/project    # hand agent-written files back to you
-ai-tools --project-unclaim              # revert a claim; the directory stays on disk
+ai-tools --project-disable ~/src/api    # park it: no session may start here
+ai-tools --project-enable  ~/src/api    # put it back
 ```
 
-`--lockdown` runs the same scan-and-lock on demand — after adding a credential file to a
-claimed tree, or before re-running a stopped claim. `--reclaim` returns agent-written
-files to `<you>:ai-tools` (including the `.git` tree the per-session sweeps skip); run it
-before an ACL-unaware backup so plain ownership carries your access into the copy, and
-add `--full` to include the heavy skipped trees. `--sandbox-remove` deletes a
-clone and its registration, warning about unpushed commits first; the remote branch stays
-for others to merge.
+Both edit **your line, in place**. The entry keeps its position and its end-of-line comment, so
+an `allowed-projects` you maintain as an ordered, documented file comes back exactly as it was:
 
-### What a claim and an unclaim do to permissions
+```text
+# projects
+  /home/you/src/api   # payments, dev stage      ->    !/home/you/src/api   # payments, dev stage
+  /home/you/src/web                                     /home/you/src/web
+```
 
-Claiming grants the agent access through a POSIX ACL and group ownership; unclaiming takes
-it back. Neither is a round trip, so it is worth seeing the actual modes before you run
-either half:
+Disabling changes the registry and nothing else: the group, the ACLs, the setgid bits and the
+SELinux label all stay, so re-enabling grants nothing that was not already granted and neither
+command runs a secret scan. Prefixing the line with `!` by hand does the same thing — the verbs
+make the edit the file has always supported.
 
-| before claim | while claimed | after unclaim |
-|---|---|---|
-| `600`, `700` | *never opened* — sealed | *unchanged* |
-| `640`, `644`, `660`, `664` | `660` | `640` |
-| `750`, `755`, `775` | `770` | `750` |
+One consequence is worth knowing before you park a project a session is still writing to: while
+it is disabled the **ownership handback stops restoring files** written under it, because the
+root helpers resolve a path's owner through the same allowlist. Stop the session first, or
+re-enable and run `ai-tools --reclaim` afterwards.
 
-Two things stand out. **Owner-only paths are never opened.** A file or directory with no
-group or other bits (`600`, `700`) is your standing "keep this private" signal, and the
-claim never grants it — a sealed directory takes its whole subtree with it — and strips the
-sandbox residue it inherited, so the seal holds even if the mode is widened later
-(*Sealing a path created after the claim*, above). This is what makes
-the advice in *Recovery* below work: a `700 <you>:<you>` directory keeps the agent out,
-because if the claim granted it, the raised ACL mask would give the agent write on that
-directory and with it the ability to unlink what is inside. The claim reports how many
-paths it left alone.
+Two refusals keep a `!` line unambiguous:
 
-**World access is removed at claim time and never comes back.** The claim sets
-`other::---` on every path it touches, so `644` becomes `660` immediately; unclaiming then
-drops group write and leaves `640`. If a tree needs to stay world-readable, it is not a
-candidate for an in-place claim — use a sandbox clone.
+- `--project-enable` refuses an exclusion **inside** a claimed project. That line is a
+  *carve-out* — a subtree you withheld from the agent — and lifting it would hand that subtree
+  over. Delete it yourself if that is what you mean.
+- `--project-disable` refuses a project **nested inside** another claimed project, because the
+  line it would write could not later be told apart from such a carve-out. Unclaim the nested
+  project, or park the one above it.
 
-The rest of what unclaim does not restore: **every** extended ACL is cleared, including
-entries that predated the claim and had nothing to do with ai-tools; directory setgid is
-removed whether or not the claim set it; the group owner becomes whoever you hand the tree
-to. Nothing records a tree's pre-claim state, so no command can put any of it back. **Back
-up first** — that is the only real safeguard, which is why both the claim and the forced
-unclaim say so before asking.
+Launching in a parked project refuses and names the way back:
 
-> Watching a claim with `ls -l` can mislead: a POSIX ACL shows the **mask** in the group
-> bits, not the group's own permission, and the only visible hint is the trailing `+`. Use
-> `getfacl -e` to see effective access.
+```text
+claude: /home/you/src/api: this project is disabled in your approved projects list
+claude: re-enable it with:  ai-tools --project-enable
+```
 
-### Which path you gave it
+## Release a project
 
-The path is classified against the allowlist, and the five outcomes are distinct:
+```bash
+ai-tools --project-unclaim ~/src/api
+```
+
+Reverts the SELinux label, drops both registries, and — behind its own confirm — hands the tree
+back to your group with the agent's write removed. The directory stays on disk.
+
+Four separate routes into the tree come off, and it is worth knowing which does what:
+
+- **The group owner.** `chgrp` moves every eligible path from `ai-tools` to your group. This is
+  the one that closes the standing route: clearing the ACL alone would leave the agent its
+  access through the group bits of a tree still group-owned by `ai-tools`.
+- **The ACLs.** `setfacl -b` clears every extended ACL — the `g:ai-tools:rwX` entry, the
+  `user:<you>` entry, and the default ACL that new files inherited from the directory.
+- **Group write.** `chmod` drops it (`660` → `640`), and on directories also the setgid bit the
+  claim set, so new files stop being born in the agent's group.
+- **The SELinux label.** `ai_tools_project_t` reverts to the tree's default type, so on an
+  enforcing host the confined domain cannot reach the tree whatever the file modes say. The
+  allowlist entry goes with it: no session starts there, and the ownership handback stops.
+
+The order is handled for you and matters: the label first, then the file hand-back **while the
+allowlist entry is still present** — `ai-tools-unclaim` refuses a target the allowlist does not
+name — and the registry entries last. Per path it is ACL, then group, then mode, so no masked
+ACL grant survives and `chmod` acts on clean bits.
+
+The path is classified against the allowlist first, and the five outcomes are distinct:
 
 | what you pointed at | what happens |
 |---|---|
@@ -215,54 +296,220 @@ The path is classified against the allowlist, and the five outcomes are distinct
 | a path the allowlist does not cover, carrying no ai-tools permissions | refused — nothing here was ever claimed |
 | a path the allowlist does not cover, still carrying ai-tools permissions | reported, and `--force` offered |
 
-### `--force`: a copy that was never unclaimed
+### Keeping your place across a release
 
-Copy or move a claimed project (`cp -a`, `rsync -a`, `mv`, `tar -p`) and the copy carries
-the ai-tools group, ACLs, and setgid bits with it — but no allowlist entry names it, so
-the normal unclaim refuses. `--force` handles exactly that tree:
+```bash
+ai-tools --project-unclaim --keep-entry ~/src/api   # files handed back; the line stays, parked
+# ... release ...
+ai-tools --project-claim ~/src/api                  # offers to re-enable it, in place
+```
+
+A common rhythm is to unclaim before a production release, so the tree carries clean ordinary
+permissions, then claim again for the next development stage. A plain unclaim deletes the line,
+so the later claim appends a new one at the end of the file; `--keep-entry` parks it instead.
+
+The claim then finds the parked entry, shows it, and asks (default **No**) whether to re-enable
+it before claiming — it never appends a second line over an exclusion that would go on winning.
+Answer yes and the project is claimed again with its line, and its comment, where they were.
+
+### A copy that was never unclaimed
 
 ```bash
 ai-tools --project-unclaim --force --dry-run /backup/staging/proj   # list, change nothing
 ai-tools --project-unclaim --force /backup/staging/proj             # apply
 ```
 
-It swaps the allowlist gate for a per-path one rather than removing a gate: a path is
-touched **only** while it still carries ai-tools ownership, group, or an ai-tools ACL
-entry. Run it on a directory that was never claimed and it changes nothing at all — which
-is what makes a mistyped path harmless. What it does to a path it *accepts* is identical
-to a normal unclaim.
+Copy or move a claimed project (`cp -a`, `rsync -a`, `mv`, `tar -p`) and the copy carries the
+ai-tools group, ACLs, and setgid bits with it, while no allowlist entry names it — so the normal
+unclaim refuses. `--force` handles exactly that tree.
 
-It does **not** relax anything else. The protected-paths backstop still refuses system
-directories and home roots; the owner guard still skips files belonging to anyone else; a
-hardlinked file is still refused (its inode is reachable from outside the tree, and
-`chgrp`/`chmod` act on the inode — a locally-cloned `.git` hits this in bulk and the count
-is reported); secret-named and `!`-excluded paths are still skipped. On a registered
-project `--force` is refused outright.
+It swaps the allowlist gate for a per-path one rather than removing a gate: a path is touched
+**only** while it still carries ai-tools ownership, group, or an ai-tools ACL entry. Run it on a
+directory that was never claimed and it changes nothing at all, which is what makes a mistyped
+path harmless. What it does to a path it *accepts* is identical to a normal unclaim.
+
+It relaxes nothing else. The protected-paths backstop still refuses system directories and home
+roots; the owner guard still skips files belonging to anyone else; a hardlinked file is still
+refused (its inode is reachable from outside the tree, and `chgrp`/`chmod` act on the inode — a
+locally-cloned `.git` hits this in bulk, and the count is reported); secret-named and
+`!`-excluded paths are still skipped. On a registered project `--force` is refused outright.
 
 Two flags pair with it. `--full` extends the walk into the skip-listed heavy trees
-(`node_modules`, `.venv`, caches), where residue survives a copy exactly as it does
-elsewhere; without it those paths are reported but left alone. `--dry-run` lists every
-path that would change, with ownership and mode, and changes nothing.
+(`node_modules`, `.venv`, caches), where residue survives a copy exactly as it does elsewhere;
+without it those paths are reported and left alone. `--dry-run` lists every path that would
+change, with ownership and mode, and changes nothing.
 
-### Scripting it
-
-Normalizing a copy before a backup or a deployment is the case that needs no terminal:
+### Scripting an unclaim
 
 ```bash
 ai-tools --project-unclaim --force -y --group builders /backup/staging/proj
 ```
 
-`-y` pre-answers the confirm — an explicit per-invocation flag, never ambient state — and
-`--group` names the target group outright. Supply `--group` in any unclaim, forced or not:
-without it the command asks whether to hand back and whose group to use, and a run with no
-terminal quietly takes the invoking user's group. A script should say which group it means.
+Normalizing a copy before a backup or a deployment is the case that needs no terminal. `-y`
+pre-answers the confirm — an explicit per-invocation flag, never ambient state — and `--group`
+names the target group outright. Supply `--group` in any unclaim, forced or not: without it the
+command asks whether to hand back and whose group to use, and a run with no terminal takes the
+invoking user's group. A script should say which group it means.
+
+## Delete a project
+
+```bash
+ai-tools --project-remove ~/src/oldproject
+```
+
+Does what an unclaim does **and deletes the directory**. There is no undo and nothing is moved
+to a trash location, so the command is deliberately hard to reach by accident.
+
+It acts only on a path with an **exact** entry in `allowed-projects` — registration is what
+authorizes the deletion, and there is no `--force` to get around that. A parked (`!`) entry
+counts, since it records "not right now" rather than "not mine", and you get one extra
+confirmation naming that state. An ancestor of claimed projects, a path *inside* one, an
+unregistered path, and a project that **contains** another claimed project are each refused —
+the last because deleting it would take the nested one with it and leave that project registered
+at a path that no longer exists.
+
+Before anything changes it checks that the whole tree is deletable by you:
+
+```text
+WARNING: this tree cannot be fully deleted
+    take ownership of the tree first, then re-run the removal:
+      ai-tools --reclaim --full ~/src/oldproject
+```
+
+That check keeps a removal from stopping partway and leaving an unregistered fragment behind. It
+also reports uncommitted changes, unpushed commits, and a repository with no upstream at all —
+reported rather than refused, since deleting a scratch repository on purpose is legitimate.
+
+Then it asks twice: a confirmation that defaults to **No**, and the project's name typed out.
+Neither can be answered by a run with no terminal, so nothing is deleted unattended unless you
+pass `-y` — and with `-y` a path argument is required, so an unattended removal cannot inherit
+the directory it happened to start in.
+
+Teardown removes the SELinux label and both registries first and deletes last. If the deletion
+fails, the project is already deregistered, so what remains is out of the agent's reach and you
+can remove it by hand.
+
+## Claim for another operator
+
+```bash
+ai-tools --project-claim --for svc-ci /srv/projects/api
+```
+
+A service account that runs an agent usually has no password, so it cannot authenticate the root
+helpers a claim needs — and a claim performed by a human lands in the *human's* registry, which
+is not the one that account's launch gate reads. `--for` closes both: the allowlist entry goes
+into `svc-ci`'s registry, so `ai-tools-setfacl` grants `user:svc-ci`, the ownership handback
+restores files to them, and their agent may launch there. You run it once; that account never
+meets a password prompt.
+
+It applies to `--project-claim`, `--project-create`, `--project-unclaim`, `--project-remove`,
+`--project-enable`, `--project-disable`, `--lockdown`, `--reclaim` and `--list`, and is refused —
+rather than ignored — on anything else.
+
+### Two verbs also act as that operator
+
+`--project-create` and `--project-remove` write the **filesystem** as the operator they act for,
+not just a registry: the create makes the tree so that account owns it, and the remove deletes a
+tree only its owner can delete. Both therefore need permission for **you** to act as that
+account (`sudo -u svc-ci`), which is a separate sudoers question from the `ai-tools-*` helper
+grants. A host can grant every helper and still restrict which accounts you may become, so the
+check runs before anything is created:
+
+```text
+ai-tools: --project-create --for svc-ci acts on the filesystem AS svc-ci, and you hold no
+sudo grant to run mkdir as that account.
+
+  Run it as svc-ci, or create the project without --for and hand it over:
+
+    ai-tools --project-create /srv/projects/api
+    sudo chown -R svc-ci /srv/projects/api
+    ai-tools --project-claim --for svc-ci /srv/projects/api
+```
+
+Ownership carries weight here: the two helpers that grant the agent its access act only on paths
+held by the resolved operator or the sandbox account, so a claim *for* an operator over a tree
+that operator does not own grants nothing. The claim refuses such a tree up front and names the
+`chown`.
+
+### Put it where that account can reach
+
+The create runs its `mkdir` as the target, so **the parent must be a directory that account can
+write** — your own home is usually the one place it is not:
+
+```text
+mkdir: cannot create directory '/home/you/projects/api': Permission denied
+```
+
+A shared location fixes it. On a stock install the clone area
+(`/var/opt/ai-tools/sandbox-projects`) carries a `g:ai-ops:rwX` ACL, so every enrolled operator
+can create there; any other directory works as long as both accounts can. This is the
+reachability rule the claim enforces for the sandbox account, arriving one layer earlier.
+
+## Lock secrets and take ownership back, any time
+
+```bash
+ai-tools --lockdown /path/to/project    # lock secret-named files
+ai-tools --reclaim  /path/to/project    # hand agent-written files back to you
+```
+
+`--lockdown` runs the same scan-and-lock a claim runs, on demand — after adding a credential
+file to a claimed tree, or before re-running a stopped claim.
+
+`--reclaim` is the on-demand form of something that already runs by itself. Files the agent
+writes are born owned by `ai-tools`, and the agent's hooks hand each one back to you as the
+session goes — per tool call and per turn, through the handback socket. `--reclaim` walks the
+whole project and offers every remaining `ai-tools`-owned path to the same root helper
+(`ai-tools-chown`), with the same checks, so it catches what a session left behind: files from a
+session that was killed, and the `.git` tree the per-turn passes skip. `--full` adds the heavy
+skipped trees (`node_modules`, `.venv`, caches).
+
+The project stays claimed and the agent keeps its access; only the owner on those files moves.
+Run it before an ACL-unaware backup, so plain ownership carries your access into the copy.
+
+`--sandbox-remove` deletes a clone and its registration, warning about unpushed commits first;
+the remote branch stays for others to merge.
+
+## What a claim and an unclaim do to permissions
+
+Claiming grants the agent access through a POSIX ACL and group ownership; unclaiming takes it
+back. Neither is a round trip, so it is worth seeing the actual modes before you run either half:
+
+| before claim | while claimed | after unclaim |
+|---|---|---|
+| `600`, `700` | *never opened* — sealed | *unchanged* |
+| `640`, `644`, `660`, `664` | `660` | `640` |
+| `750`, `755`, `775` | `770` | `750` |
+
+**Owner-only paths are never opened.** A file or directory with no group or other bits
+(`600`, `700`) is your standing "keep this private" signal: the claim leaves it alone — a sealed
+directory takes its whole subtree with it — and strips the sandbox residue it inherited, so the
+seal holds even if the mode is widened later. This is what makes a `700 <you>:<you>` directory
+keep the agent out: were the claim to grant it, the raised ACL mask would give the agent write on
+that directory and with it the ability to unlink what is inside. The claim reports how many paths
+it left alone.
+
+**World access is removed at claim time and does not come back.** The claim sets `other::---` on
+every path it touches, so `644` becomes `660` immediately, and unclaiming then drops group write
+and leaves `640`. A tree that needs to stay world-readable is not a candidate for an in-place
+claim — use a sandbox clone.
+
+The rest of what an unclaim does not restore: **every** extended ACL is cleared, including
+entries that predated the claim and had nothing to do with ai-tools; directory setgid is removed
+whether or not the claim set it; the group owner becomes whoever you hand the tree to. Nothing
+records a tree's pre-claim state, so no command can put any of it back. **Back up first** — that
+is the only real safeguard, which is why both the claim and the forced unclaim say so before
+asking.
+
+> Watching a claim with `ls -l` can mislead: a POSIX ACL shows the **mask** in the group bits,
+> not the group's own permission, and the only visible hint is the trailing `+`. Use
+> `getfacl -e` to see effective access.
 
 ## Where the security boundary actually is
 
-The allowlist (`~/.config/ai-tools/allowed-projects`) gates where sessions *launch* and
-which written files get ownership handed back — it is not a read boundary. Once any
-session runs, ordinary file permissions plus the SELinux `ai_tools_project_t` label are
-what confine it, which is why every flow above locks secrets down *before* granting group
-access, and why declining a lockdown always fails closed. The invariants live in
+The allowlist (`~/.config/ai-tools/allowed-projects`) gates where sessions *launch* and which
+written files get ownership handed back. It is not a read boundary: once a session runs, ordinary
+file permissions plus the SELinux `ai_tools_project_t` label are what confine it, which is why
+every flow above locks secrets down *before* granting group access, and why declining a lockdown
+fails closed. The invariants are in
 [`CLAUDE.md` — Security model](../CLAUDE.md#security-model--what-sandbox_user-can-and-cannot-do);
-the per-component mechanism in [`.claude/rules/`](../.claude/rules/).
+the per-component mechanism is in [`.claude/rules/`](../.claude/rules/).

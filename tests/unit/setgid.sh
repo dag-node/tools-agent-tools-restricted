@@ -56,6 +56,20 @@ else
     skip "owner guard" "user 'nobody' not present"
 fi
 
+# (A4) the owner-guard skip is REPORTED, not silent. This is the half that matters to the CLI:
+# a walk that normalized nothing must not be indistinguishable from one that had nothing to do,
+# which is what let a claim over a tree owned by a third party close with a clean ✓.
+if ${foreign}; then
+    guard_err="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null || true)"
+    if grep -q 'owned by neither' <<<"${guard_err}"; then
+        pass "a third-party-owned dir is reported on stderr"
+    else
+        fail "the owner-guard skip was silent (stderr: ${guard_err})"
+    fi
+else
+    skip "owner-guard reporting" "user 'nobody' not present"
+fi
+
 # (B) a path NOT under any allowed project is left untouched (no setgid).
 out="${TESTDIR}/outside"; mkdir -p "${out}/sub"; chmod -R 0770 "${out}"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${out}"
@@ -144,6 +158,28 @@ if ${have_acl}; then
     fi
 else
     skip "sealed dir ACL strip" "setfacl unavailable"
+fi
+
+# ── The project root itself owned by a third party ───────────────────────────
+# (E) The case that decides whether a claim granted anything at all: every directory below an
+# unreachable root inherits nothing, so the agent cannot enter the tree. It gets its own wording
+# rather than folding into the count, because "1 directory skipped" reads as a detail while this
+# is the whole outcome.
+p3="${TESTDIR}/proj3"
+mkdir -p "${p3}/sub"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${p3}"
+chmod -R 0770 "${p3}"
+mk_allowlist "${p3}"
+if id nobody >/dev/null 2>&1; then
+    chown nobody:nobody "${p3}"
+    root_err="$(setsid "${HELPER}" "${p3}" < /dev/null 2>&1 >/dev/null || true)"
+    if grep -q 'the project directory itself is owned by neither' <<<"${root_err}"; then
+        pass "a third-party-owned project root is reported as granting no access"
+    else
+        fail "a third-party-owned project root was not called out (stderr: ${root_err})"
+    fi
+else
+    skip "third-party project root" "user 'nobody' not present"
 fi
 
 finish

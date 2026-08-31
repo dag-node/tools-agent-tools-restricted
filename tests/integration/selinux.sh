@@ -44,7 +44,12 @@ fi
 # When neither tool is present we cannot tell, so the whole check skips rather than guess.
 module_loaded() {
     if command -v semodule >/dev/null 2>&1; then
-        semodule -l 2>/dev/null | grep -qx 'ai_tools'
+        # Captured, not piped into `grep -q`: an early-exiting reader makes semodule die of
+        # SIGPIPE, which this file's pipefail reports as "module absent" -- see the note on
+        # ai_tools_selinux_group_loaded (selinux-groups.lib.sh).
+        local modules
+        modules="$(semodule -l 2>/dev/null || true)"
+        grep -qx 'ai_tools' <<<"${modules}"
     elif command -v seinfo >/dev/null 2>&1; then
         seinfo -t ai_tools_t >/dev/null 2>&1
     else

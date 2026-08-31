@@ -29,6 +29,20 @@ readonly FILE_TIMEOUT="${AI_TOOLS_TEST_FILE_TIMEOUT:-600}"
 [[ "${EUID}" -eq 0 ]] || { echo "error: run with sudo (tests need root)" >&2; exit 1; }
 [[ -n "${SUDO_USER:-}" ]] || { echo "error: invoke via sudo, not as root directly" >&2; exit 1; }
 
+# Each test file's stdout is a pipe here (tee), so the harness's own tty test cannot see the
+# terminal reading this run. Pass the verdict down instead, and colour this file's own headline
+# from the same answer.
+if [[ -t 1 ]]; then export AI_TOOLS_TEST_COLOR=1; fi
+if [[ "${AI_TOOLS_TEST_COLOR:-0}" == "1" ]]; then
+    _C_PASS=$'\033[32m' _C_FAIL=$'\033[31m' _C_OFF=$'\033[0m'
+else
+    _C_PASS='' _C_FAIL='' _C_OFF=''
+fi
+# The harness prefixes the result word with a colour escape, so the summary's grep allows one
+# before FAIL. Anchored without it, the summary would silently come back empty on a coloured run.
+_FAIL_RE="^[[:space:]]*($(printf '\033')\[[0-9;]*m)?FAIL"
+readonly _FAIL_RE
+
 rc=0
 declare -a _failed=()                 # "category/file" of each test file that failed
 declare -a _nocoverage=()             # green files with zero PASSes; categories with no files
@@ -63,7 +77,7 @@ run_dir() {
         if [[ "${st}" -ne 0 ]]; then
             rc=1
             _failed+=("${name}")
-            { printf '\n%s\n' "${name}"; grep -E '^[[:space:]]*FAIL' "${out}" || true; } >> "${_summary}"
+            { printf '\n%s\n' "${name}"; grep -E "${_FAIL_RE}" "${out}" || true; } >> "${_summary}"
         else
             # A green exit proves coverage only when something PASSed: classify from the
             # harness finish() line (the only line matching this shape).
@@ -108,5 +122,9 @@ if [[ ${#_nocoverage[@]} -gt 0 ]]; then
     fi
 fi
 
-printf '\n══════ overall: %s ══════\n' "$([[ ${rc} -eq 0 ]] && echo PASS || echo FAIL)"
+if [[ ${rc} -eq 0 ]]; then
+    printf '\n══════ overall: %sPASS%s ══════\n' "${_C_PASS}" "${_C_OFF}"
+else
+    printf '\n══════ overall: %sFAIL%s ══════\n' "${_C_FAIL}" "${_C_OFF}"
+fi
 exit "${rc}"

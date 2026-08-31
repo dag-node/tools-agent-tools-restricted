@@ -279,6 +279,13 @@ wrapper refuses to launch with an excluded CWD, and `ai-tools-chown` skips owner
 restoration on excluded paths. Keep the two in sync — a plain `!`-path also covers its
 contents; globs match as-is.
 
+**The refusal distinguishes the two things a `!` line means**, applying the same test the CLI
+does (see [cli](cli.rule.md)): a line naming the CWD with an approved project **strictly above**
+it is a carve-out — a subtree withheld from that project — and the remedy is to edit that line;
+one with no approved project above it is a project that was **parked**, and the refusal names
+`ai-tools --project-enable` instead. Both refuse identically; what differs is the way back, and
+an operator told only "excluded" is left to work out which of the two they are standing in.
+
 ## PATH ordering
 
 Every agent wrapper lives in `/usr/local/bin`, which `path-dedup.sh`

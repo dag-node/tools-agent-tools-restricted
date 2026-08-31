@@ -49,16 +49,26 @@ export AI_TOOLS_MSG_FULLWIDTH=1
 # (no fail-open stub anywhere); see safe-paths.rule.md.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 
-# Print error lines to stderr (framed by ai_tools_msg_error), then pause for Enter when
-# stdin is a tty.
+# How the ai-tools CLI is named in the guidance screens: the bare command where PATH
+# resolves it (both binaries are on an operator's PATH, so the absolute path reads as a
+# second, unrelated tool), the absolute path on a host whose PATH does not.
+CLI_CMD="$(ai_tools_cmd_display "${AI_TOOLS_CLI}")"
+readonly CLI_CMD
+
+# Pause for Enter when stdin is a tty, so a refusal is read before the window closes.
 # A bare terminal: user reads the error and presses Enter to dismiss.
 # An IDE console (Rider, etc.) that closes on exit: the pause keeps it open.
 # A script/pipe: stdin is not a tty, so the read is skipped.
-die() {
-    ai_tools_msg_error "$@"
+pause_if_tty() {
     if [[ -t 0 ]]; then
         read -r -p "Press Enter to close..." < /dev/tty 2>/dev/null || true
     fi
+}
+
+# Print error lines to stderr (framed by ai_tools_msg_error), pause, and exit 1.
+die() {
+    ai_tools_msg_error "$@"
+    pause_if_tty
     exit 1
 }
 
@@ -247,16 +257,40 @@ while IFS= read -r entry || [[ -n "${entry}" ]]; do
     fi
 done < "${ALLOWLIST}"
 
-# Exclusions are checked first and override allows (mirrors ai-tools-chown).
+# Exclusions are checked first and override allows (mirrors ai-tools-chown). Two shapes reach
+# this, and they are DIFFERENT situations for the operator standing here, so they are reported
+# apart: a line naming this very directory is a project someone PARKED -- `ai-tools
+# --project-disable`, or the same edit by hand -- and the way back is one command, while a line
+# covering it from above (a parent, or a glob) is a subtree deliberately withheld from a project,
+# where the remedy is to edit that line rather than to re-enable anything. Telling an operator
+# their parked project is merely "excluded" leaves them to work out which of the two they are in.
 if [[ "${#excluded[@]}" -gt 0 ]]; then
     for pat in "${excluded[@]}"; do
         pat="${pat%/}"                         # normalise: strip trailing slash
         if [[ "${cwd}" == ${pat} ]]; then
-            die "claude: $(pwd): excluded by '!' rule in approved projects list"
+            # A line naming this very directory is one of two things, and the same test the CLI
+            # applies separates them: an approved project STRICTLY ABOVE makes this a subtree
+            # withheld from it, while none makes it a project that was parked. Exact-match alone
+            # cannot tell them apart -- a carve-out names its own path too.
+            # Guarded on the count, not written as "${allowed[@]:-}": an EMPTY array expands
+            # that way to one empty element, and "${dir}/"* is then the pattern /* -- which
+            # matches every absolute path, so a parked project with no approved entries at all
+            # would report as carved out of nothing.
+            if [[ "${#allowed[@]}" -gt 0 ]]; then
+                for dir in "${allowed[@]}"; do
+                    [[ "${cwd}" == "${dir}/"* ]] || continue
+                    die "claude: $(pwd): excluded by '!' rule in approved projects list" \
+                        "claude: it is carved out of the approved project ${dir}; edit ${ALLOWLIST} to change that"
+                done
+            fi
+            die "claude: $(pwd): this project is disabled in your approved projects list" \
+                "claude: no session starts here until it is re-enabled -- its files, group and label are untouched" \
+                "claude: re-enable it with:  ${CLI_CMD} --project-enable"
         fi
         # For plain paths (no glob), also exclude directory contents
         if [[ "${pat}" != *'*'* && "${cwd}" == "${pat}/"* ]]; then
-            die "claude: $(pwd): excluded by '!' rule in approved projects list"
+            die "claude: $(pwd): excluded by '!' rule in approved projects list" \
+                "claude: an entry above this directory carves it out; edit ${ALLOWLIST} to change that"
         fi
     done
 fi
@@ -271,23 +305,19 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
     done
 fi
 if [[ "${approved}" != true ]]; then
-    declare -a blk=(
-        "Two ways to make the project available to ai-tools sandboxed agent:"
-        ""
-        "  1) Create sandbox -- isolated shallow branch copy in sandbox-projects:"
-        "       ${AI_TOOLS_CLI} --sandbox-create"
-        ""
-        "  2) Claim in place -- grant permissions to work inside this directory:"
-        "       ${AI_TOOLS_CLI} --project-claim"
-        ""
-        "Note: --project-claim changes group ownership to ai-tools."
-        "See 'ai-tools --help' for more info about these options."
-    )
-    ai_tools_msg_block "This directory is not accessible to sandbox user" "${blk[@]}"
-    # Default Cancel: an unattended/piped run (no tty) takes option 3 and refuses to launch.
+    # The block says what the screen is about; the MENU states the options, once (each with
+    # the consequence that distinguishes it -- option 1 does not start a session here).
+    ai_tools_msg_block "Set up this project for the sandboxed agent" \
+        "The agent has no access here yet. Choose how it should work on this project."
+    # No terminal: take Cancel and refuse to launch, without asking. The menu itself carries
+    # no default (it re-asks, then gives up), so the safe outcome of an unattended or piped
+    # run is decided HERE, by the have_tty branch, rather than by a default index.
     sel=3
     if have_tty; then
-        sel="$(ai_tools_msg_pick 3 "Create sandbox" "Claim in place" "Cancel")"
+        sel="$(ai_tools_msg_pick none \
+            "Create sandbox"$'\t'"work in an isolated copy; the session runs there, not here" \
+            "Claim here"$'\t'"work in this directory; its group becomes ai-tools" \
+            "Cancel"$'\t'"change nothing")" || sel=3
     fi
     case "${sel}" in
         1)
@@ -295,8 +325,8 @@ if [[ "${approved}" != true ]]; then
             # agent runs IN the clone, so the wrapper points the user there and stops; it does
             # not launch in this directory.
             if "${AI_TOOLS_CLI}" --sandbox-create "${cwd}"; then
-                ai_tools_msg_notice "claude: sandbox ready -- cd into the clone path shown above, then run claude there"
-                if [[ -t 0 ]]; then read -r -p "Press Enter to close..." < /dev/tty 2>/dev/null || true; fi
+                ai_tools_msg_notice "claude: sandbox ready -- cd into the clone path shown above, then start your agent there"
+                pause_if_tty
                 exit 0
             fi
             die "claude: sandbox creation did not complete -- see the output above"
@@ -315,8 +345,18 @@ if [[ "${approved}" != true ]]; then
                 || die "claude: ${cwd}: still not accessible -- the claim did not complete"
             ;;
         *)
-            die "claude: ${cwd} is not accessible to the sandbox" \
-                "       run one of the listed commands, then start claude again"
+            # Cancel -- also the no-terminal path and an unanswered menu. The screen above
+            # carried no commands, so the cancel path names both itself: PLAIN and below the
+            # frame, since a wrapping emitter would break a command across lines
+            # (messaging.rule.md).
+            ai_tools_msg_error "claude: no session started -- ${cwd} is not set up for the agent."
+            printf '\n' >&2
+            printf '  %-30s %s\n' \
+                "${CLI_CMD} --sandbox-create" "isolated copy under the sandbox area" \
+                "${CLI_CMD} --project-claim"  "claim this directory in place" >&2
+            printf '\nRun one of these, then start your agent again.\n' >&2
+            pause_if_tty
+            exit 1
             ;;
     esac
 fi
@@ -381,18 +421,18 @@ if ${own_gap} || ${label_gap}; then
     if ${own_gap}; then
         blk2+=(
             "Recommended -- an isolated shallow branch copy in sandbox-projects:"
-            "       ${AI_TOOLS_CLI} --sandbox-create"
+            "       ${CLI_CMD} --sandbox-create"
             "Allow access -- claim this directory in place (give access to ai-tools; needs sudo):"
-            "       ${AI_TOOLS_CLI} --project-claim"
+            "       ${CLI_CMD} --project-claim"
         )
     else
         blk2+=(
             "Claim it -- applies the SELinux label; needs sudo for the relabel:"
-            "       ${AI_TOOLS_CLI} --project-claim"
+            "       ${CLI_CMD} --project-claim"
         )
     fi
-    blk2+=( "" "Both default to the current directory. See 'ai-tools --help' for what each does." )
-    ai_tools_msg_block "This project is not fully claimed" "${blk2[@]}"
+    blk2+=( "" "Both default to the current directory. See '${CLI_CMD} --help' for what each does." )
+    ai_tools_msg_block "Finish setting up this project for the agent" "${blk2[@]}"
     claim_ok=false
     ai_tools_msg_confirm "Claim it in place now?" "${claim_default}" && claim_ok=true
     if ${claim_ok}; then
@@ -412,12 +452,12 @@ if ${own_gap} || ${label_gap}; then
             # `sudo ai-tools-relabel` and prompts for your password. Re-running the claim
             # (NOT `sudo ai-tools` -- the CLI refuses to run as root) re-attempts it.
             die "claude: ${cwd}: SELinux label still missing -- the claim did not complete" \
-                "       re-run: ${AI_TOOLS_CLI} --project-claim ${cwd}" \
+                "       re-run: ${CLI_CMD} --project-claim ${cwd}" \
                 "       (enter your password when it prompts for the SELinux relabel)"
         fi
     else
         die "claude: refusing to launch -- ${cwd} is not fully claimed for the sandbox" \
-            "       run one of the commands above, then start claude again"
+            "       run one of the commands above, then start your agent again"
     fi
 elif ${safe_gap}; then
     # Ownership and label hold; the git safe.directory entry is the one piece missing. Offer to

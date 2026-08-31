@@ -22,6 +22,10 @@
 # directory, an unset variable, a symlink swapped in -- that can point the cleanup at something
 # else. It runs no `sudo rm`: nothing it does needs root to undo.
 #
+# The single exception is --for-drill, which is opt-in for exactly that reason: it creates one
+# project in the shared clone area, owned by another operator, and deletes it again through
+# --project-remove. Nothing else this script does reaches outside the workspace.
+#
 # Nothing installed is modified: no unit started, stopped or enabled, no package state, no
 # control-plane file, no policy, and no shared runtime state -- notably the updater's last-run
 # stamp, which is READ and never written, because a check worth having is not worth breaking the
@@ -40,26 +44,47 @@
 # session is actually running; without the flag the section still exercises everything that is
 # reversible (the dry run, the refusals, the trail). Run it when no session holds work you want.
 #
-# usage: tests/manual/verify-live-flows.sh [--keep] [--stop-all-drill]
+# A SECOND OPT-IN COVERS --for. --project-create/--project-remove are the two verbs that touch the
+# filesystem AS the operator they act for (`sudo -u <target>`), so proving them needs a second
+# enrolled operator and a Runas grant -- neither of which this script may manufacture. With
+# --for-drill it uses one that ALREADY exists on the host, and skips with the reason otherwise.
+#
+# It is the one section that writes OUTSIDE the workspace, and both halves of that are forced by
+# what it is testing: the tree is created as the OTHER operator, who cannot write inside this
+# operator's home, so it goes in the shared clone area (/var/opt/ai-tools/sandbox-projects, the one
+# place on a stock install both reach) and is deleted again by the --project-remove that follows.
+# That is also why it is opt-in: the tree is owned by that account, so if the removal does not
+# complete, clearing the remains needs a privilege this script deliberately never takes -- it says
+# so and prints the command.
+#
+# usage: tests/manual/verify-live-flows.sh [--keep] [--stop-all-drill] [--for-drill]
 #   --keep             leave the workspace and its registry entries in place for inspection
 #   --stop-all-drill   also TERMINATE EVERY RUNNING AGENT SESSION, to prove the incident ladder's stop
 #                      rung on this host. Destructive by design; see section 8.
+#   --for-drill        also drive --project-create/--project-remove --for another enrolled operator
+#                      (section 3b). Needs a second operator to already exist; skipped if none does.
 
 set -uo pipefail          # deliberately NOT -e: a failing check must be recorded, not fatal
 
 KEEP=false
 STOP_ALL_DRILL=false
+FOR_DRILL=false
 for a in "$@"; do
     case "${a}" in
         --keep)           KEEP=true ;;
         --stop-all-drill) STOP_ALL_DRILL=true ;;
-        -h|--help) sed -n '3,46p' "$0"; exit 0 ;;
+        --for-drill)      FOR_DRILL=true ;;
+        -h|--help) sed -n '3,65p' "$0"; exit 0 ;;
         *) printf 'unknown option: %s (see --help)\n' "${a}" >&2; exit 2 ;;
     esac
 done
 
 readonly CLI=/usr/local/bin/ai-tools
 readonly SANDBOX_GROUP=ai-tools
+# The shared clone area: root-owned, carrying g:ai-ops:rwX plus a default ACL from the install, and
+# deliberately outside the protected-paths set. Section 3b needs a parent BOTH operators can write,
+# because --project-create --for runs its mkdir as the target.
+readonly SANDBOX_ROOT=/var/opt/ai-tools/sandbox-projects
 readonly STAMP=/var/opt/ai-tools/state/nvm-update.status
 ME="$(id -un)"; MY_GROUP="$(id -gn)"
 readonly ME MY_GROUP
@@ -352,6 +377,141 @@ check "the seal strips a setgid bit it may clear (2700 -> 700)" \
       test "$(mode_of "${SEALED_OWN}")" = 700
 check "  and leaves that dir's group alone (it was never the agent's)" \
       test "$(group_of "${SEALED_OWN}")" = "${MY_GROUP}"
+fi
+
+# ── 2b. disable / enable: the park-and-restore round trip, on the REAL registry ───────────────
+# Runs while the project is still claimed, and needs no sudo at all: the pair edits one line of
+# this operator's own allowlist. That is exactly why it belongs in a live run rather than only in
+# the hermetic suites -- what it proves is that the edit lands in the FILE the launch gate reads,
+# at the position the operator left it, and comes back byte-identical.
+section "2b. ai-tools --project-disable / --project-enable"
+AL="${HOME}/.config/ai-tools/allowed-projects"
+if [[ ! -r "${AL}" ]]; then
+    skip "the park/restore round trip (no readable allowlist at ${AL})"
+elif ! ${TREE_CLAIMED}; then
+    skip "the park/restore round trip (the claim did not complete, so there is no entry to park)"
+else
+    AL_BEFORE="$(cat "${AL}")"
+    AL_LINE_BEFORE="$(grep -nxF "${PROJ}" "${AL}" | cut -d: -f1 | head -n1)"
+    DIS_OUT="$("${CLI}" --project-disable "${PROJ}" 2>&1)"; DIS_RC=$?
+    check "the disable completes (rc=${DIS_RC})" test "${DIS_RC}" -eq 0
+    if grep -qxF "!${PROJ}" "${AL}"; then
+        pass "the entry is parked in the operator's real allowlist"
+    else
+        fail "the entry was not parked: $(printf '%s' "${DIS_OUT}" | tail -2 | tr '\n' ' ')"
+    fi
+    AL_LINE_AFTER="$(grep -nxF "!${PROJ}" "${AL}" | cut -d: -f1 | head -n1)"
+    check "it kept its line number (${AL_LINE_BEFORE:-?} -> ${AL_LINE_AFTER:-?})" \
+          test "${AL_LINE_BEFORE:-x}" = "${AL_LINE_AFTER:-y}"
+    # The consequence an operator has to be told about, since it is the one that costs data:
+    # while parked, the handback no longer restores files written under this path.
+    check "the disable says the ownership handback stops" grep -qi 'handback' <<<"${DIS_OUT}"
+
+    # A parked project is not an unclaimed one, and the verbs that would silently no-op say so.
+    REC_OUT="$("${CLI}" --reclaim "${PROJ}" 2>&1)"; REC_RC=$?
+    if [[ "${REC_RC}" -ne 0 ]] && ! grep -qi 'not a claimed project' <<<"${REC_OUT}"; then
+        pass "--reclaim over the parked project does not report it as unclaimed"
+    else
+        fail "--reclaim called the parked project unclaimed: $(printf '%s' "${REC_OUT}" | tail -2 | tr '\n' ' ')"
+    fi
+
+    ENA_OUT="$("${CLI}" --project-enable "${PROJ}" 2>&1)"; ENA_RC=$?
+    if [[ "${ENA_RC}" -eq 0 ]]; then
+        pass "the enable completes"
+    else
+        fail "the enable failed (rc=${ENA_RC}): $(printf '%s' "${ENA_OUT}" | tail -2 | tr '\n' ' ')"
+    fi
+    if [[ "$(cat "${AL}")" == "${AL_BEFORE}" ]]; then
+        pass "the round trip left the allowlist byte-identical"
+    else
+        fail "the round trip changed the allowlist -- diff it against what you had"
+    fi
+fi
+
+# ── 3b. --for on --project-create / --project-remove (opt-in) ─────────────────────────────────
+# The two verbs that act on the FILESYSTEM as the operator they run for, which is a sudoers
+# question of its own (Runas), separate from the ai-tools helper grants. Nothing hermetic can
+# prove it: it needs a second enrolled operator, and enrolling one would modify the host.
+#
+# So this uses one that already exists, and is opt-in because the tree it builds is owned by that
+# account -- if the removal does not complete, clearing it needs a privilege this script never
+# takes. Without --for-drill the section still reports whether the host COULD run it.
+section "3b. --for on --project-create / --project-remove"
+OTHER_OP=""
+if [[ -r /etc/ai-tools/operator.conf ]]; then
+    while IFS= read -r cand; do
+        [[ -n "${cand}" && "${cand}" != "${ME}" && "${cand}" != "ai-tools" && "${cand}" != root ]] || continue
+        id -u "${cand}" >/dev/null 2>&1 || continue
+        OTHER_OP="${cand}"; break
+    done < <(sed -n 's/^[[:space:]]*OPERATORS[[:space:]]*=[[:space:]]*//p' /etc/ai-tools/operator.conf \
+             | tr -d '"'"'"'"' | tr ',' ' ' | tr ' ' '\n')
+fi
+if [[ -z "${OTHER_OP}" ]]; then
+    skip "--for create/remove (no second enrolled operator on this host)"
+    note "enrol one with: sudo ai-tools-admin operator add <user>   -- then re-run with --for-drill"
+elif ! ${FOR_DRILL}; then
+    skip "--for create/remove (would act for ${OTHER_OP}; re-run with --for-drill)"
+    note "the run would create a tree owned by ${OTHER_OP} and delete it again"
+else
+    # WHERE the project goes is the first thing this drill teaches. --project-create --for runs
+    # `mkdir` AS the target, so the parent must be a directory that operator can write -- and the
+    # invoker's own home is exactly what that is not (0700, and owned by someone else). Putting it
+    # there fails with a bare "Permission denied" from mkdir, which is the same reachability rule
+    # the claim enforces for the sandbox account, arriving one layer earlier.
+    #
+    # The shared sandbox area is the one place on a stock install that both operators reach: it
+    # carries g:ai-ops:rwX plus a default ACL, applied at install, and is deliberately outside the
+    # protected-paths set. If this host has not got it, the drill skips rather than inventing a
+    # location.
+    if [[ ! -d "${SANDBOX_ROOT}" ]]; then
+        skip "--for create/remove (${SANDBOX_ROOT} does not exist on this host)"
+    elif [[ ! -w "${SANDBOX_ROOT}" ]]; then
+        skip "--for create/remove (${SANDBOX_ROOT} is not writable by ${ME}; the ai-ops ACL is what makes it shared)"
+    else
+        FOR_PROJ="${SANDBOX_ROOT}/for-drill-$$-${OTHER_OP}"
+        note "the project goes in the shared area, not the workspace: it is created AS ${OTHER_OP},"
+        note "who cannot write inside ${HOME}"
+        sudo_why "creating a project AS ${OTHER_OP} (sudo -u), and its claim's root steps"
+        FC_OUT="$("${CLI}" --project-create --for "${OTHER_OP}" "${FOR_PROJ}" 2>&1)"; FC_RC=$?
+        printf '%s\n' "${FC_OUT}" | sed 's/^/        /'
+        if grep -qi 'holds no sudo grant to run' <<<"${FC_OUT}"; then
+            # The refusal this section exists to be able to see: helper grants are not a Runas
+            # grant, and a host can give every ai-tools helper and still restrict which accounts
+            # you may act as. It must fire BEFORE anything is created.
+            pass "the Runas refusal fires up front, naming the account and the command"
+            check "and nothing was created" test ! -e "${FOR_PROJ}"
+        elif [[ "${FC_RC}" -ne 0 ]]; then
+            fail "the create failed (rc=${FC_RC}) -- see the output above"
+            note "a bare 'Permission denied' from mkdir means ${OTHER_OP} cannot write ${SANDBOX_ROOT}"
+            skip "the rest of the --for drill (there is no tree to act on)"
+        else
+            pass "the create completes"
+            check "the tree exists"                test -d "${FOR_PROJ}"
+            check "and it is owned by ${OTHER_OP}" test "$(stat -c '%U' "${FOR_PROJ}" 2>/dev/null)" = "${OTHER_OP}"
+            note "ownership is the point: a claim FOR an operator over a tree they do not own grants nothing"
+
+            # The cross-operator half of the enable/disable pair: the invoker cannot even read
+            # that registry, so both go through the ai-tools-allowlist root helper.
+            for pair_verb in --project-disable --project-enable; do
+                PAIR_OUT="$("${CLI}" "${pair_verb}" --for "${OTHER_OP}" "${FOR_PROJ}" 2>&1)"; PAIR_RC=$?
+                if [[ "${PAIR_RC}" -eq 0 ]]; then
+                    pass "${pair_verb} --for ${OTHER_OP} completes (through the root helper)"
+                else
+                    fail "${pair_verb} --for failed (rc=${PAIR_RC}): $(printf '%s' "${PAIR_OUT}" | tail -2 | tr '\n' ' ')"
+                fi
+            done
+
+            sudo_why "deleting that project AS ${OTHER_OP}"
+            FR_OUT="$("${CLI}" --project-remove --for "${OTHER_OP}" -y "${FOR_PROJ}" 2>&1)"; FR_RC=$?
+            printf '%s\n' "${FR_OUT}" | sed 's/^/        /'
+            if [[ "${FR_RC}" -eq 0 ]] && [[ ! -e "${FOR_PROJ}" ]]; then
+                pass "the remove completes and the tree is gone"
+            else
+                fail "the removal did not complete (rc=${FR_RC}) -- clear it yourself:"
+                note "sudo rm -rf ${FOR_PROJ}    # owned by ${OTHER_OP}, outside this workspace"
+            fi
+        fi
+    fi
 fi
 
 # ── 3. unclaim: classification, then the real thing ──────────────────────────────────────────

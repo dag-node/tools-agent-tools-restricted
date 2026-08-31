@@ -163,6 +163,20 @@ else
     skip "owner guard" "user 'nobody' not present"
 fi
 
+# (B5) the owner-guard skip is REPORTED, not silent -- the half the CLI reads. A walk that
+# granted nothing must not be indistinguishable from one that had nothing to grant, which is
+# what let a claim over a tree owned by a third party close with a clean ✓.
+if ${foreign}; then
+    guard_err="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null || true)"
+    if grep -q 'owned by neither' <<<"${guard_err}"; then
+        pass "a third-party-owned path is reported on stderr"
+    else
+        fail "the owner-guard skip was silent (stderr: ${guard_err})"
+    fi
+else
+    skip "owner-guard reporting" "user 'nobody' not present"
+fi
+
 # (C) a path NOT under any allowed project is left untouched.
 out="${TESTDIR}/outside"; mkdir -p "${out}"
 setsid "${HELPER}" "${out}" < /dev/null > /dev/null 2>&1 || true
@@ -183,5 +197,24 @@ else
 fi
 if ! g "${proj}/.git/.env.local"; then pass "a secret-named path inside .git stays skipped under --with-git"
 else fail "a secret inside .git was ACL'd under --with-git"; fi
+
+# (E) the project ROOT owned by a third party: every path below it is then unreachable through
+# it, so this is the whole outcome of the claim rather than one skipped path, and it says so.
+p2="${TESTDIR}/proj2"
+mkdir -p "${p2}/sub"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${p2}"
+chmod -R 0770 "${p2}"
+mk_allowlist "${p2}"
+if id nobody >/dev/null 2>&1; then
+    chown nobody:nobody "${p2}"
+    root_err="$(setsid "${HELPER}" "${p2}" < /dev/null 2>&1 >/dev/null || true)"
+    if grep -q 'the project directory itself is owned by neither' <<<"${root_err}"; then
+        pass "a third-party-owned project root is reported as granting no access"
+    else
+        fail "a third-party-owned project root was not called out (stderr: ${root_err})"
+    fi
+else
+    skip "third-party project root" "user 'nobody' not present"
+fi
 
 finish

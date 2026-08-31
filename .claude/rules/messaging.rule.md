@@ -20,10 +20,11 @@ carries no secrets and operator, agent, and root principals all source it, exact
 <line...>`, the convenience emitters `ai_tools_msg_{error,warn,notice,info,success}`,
 the flow-block opener `ai_tools_msg_headline <title> <fd> <line...>`,
 `ai_tools_msg_wrap <width> <text>` for callers that need wrapped-but-unframed text to
-embed elsewhere, the two question renderers `ai_tools_msg_pick` and
-`ai_tools_msg_confirm` — every menu and every yes/no prompt in the project renders and
-defaults through them — and the umbrella banner `ai_tools_msg_banner` (with its
-`ai_tools_msg_version` helper).
+embed elsewhere, the three question renderers `ai_tools_msg_pick`,
+`ai_tools_msg_confirm` and `ai_tools_msg_challenge` — every menu, every yes/no prompt, and
+every typed-name challenge in the project renders and
+defaults through them — the command renderer `ai_tools_cmd_display`, and the umbrella banner
+`ai_tools_msg_banner` (with its `ai_tools_msg_version` helper).
 
 ## What the library guarantees
 
@@ -90,11 +91,45 @@ right border intact rather than breaking, so a long, non-separable command is ne
 mangled. Every line still begins with `#`, so the block stays a paste-safe comment; a user
 copying a command selects the command text after the `# ` prefix.
 
-`ai_tools_msg_pick <default_index> <label...>` is the question companion: it draws a
-numbered menu under a block, echoes the chosen 1-based index, and returns the default on
-empty input, an out-of-range number, or no terminal — so an unattended or piped run takes
-the safe default (typically Cancel) and never blocks on input. It draws on `/dev/tty` and
+`ai_tools_msg_pick <default_index|none> <label...>` is the question companion: it draws a
+numbered menu under a block and echoes the chosen 1-based index. It draws on `/dev/tty` and
 emits only the index on stdout, so the caller reads it with `$(...)`.
+
+A label is `<label>` or `<label><TAB><consequence>`: the labels align on a column computed
+from the longest one, drawn bold against a dim consequence, so each option states what it does
+and what it costs **on one line**. That is where a screen's options are stated — **once**. A
+block above a menu says what the screen is *about*; a block that also lists the options makes
+the reader match two renderings of the same three choices, which is what made the launch
+wrapper's screen read as a wall of text.
+
+The first argument picks one of two answering modes:
+
+- **A default index** — that option is annotated `(default)` and is the answer on empty input,
+  an out-of-range number, or no terminal, so an unattended or piped run takes the safe default
+  and never blocks. Returns 0.
+- **`none`** — there is no default. Empty or out-of-range input **re-asks** (three attempts,
+  each miss saying what is expected), and closed input (Ctrl-D), no terminal, or three
+  unanswered attempts return **non-zero with nothing on stdout**. The library declines to
+  answer for the user; the caller decides what an unanswered menu means.
+
+Anything else is a caller error (`return 2`), never an assumed answer — the same rule
+`ai_tools_msg_confirm` applies to its default.
+
+**`none` does not weaken the safe-default rule; it moves where that rule is satisfied.** The
+guarantee is that an unattended run never blocks and never lands on the unsafe side, and a
+caller using `none` meets it in its own `have_tty` branch — `claude.sh` decides Cancel there
+and never reaches the menu, so no terminal means no session, decided by the caller rather than
+by an index. A caller that cannot state that outcome itself has no business using `none`.
+
+## `ai_tools_cmd_display` — a command the user can type
+
+`ai_tools_cmd_display <abs-path>` renders a command for **printing**: the bare name
+(`ai-tools`) when `command -v` resolves that name to the same absolute path on this PATH, and
+the absolute path otherwise. A printed command is meant to be typed, and `/usr/local/bin/ai-tools
+--project-claim` beside a `claude` the operator just ran reads as a second, unrelated tool; the
+resolve check is what keeps the short form honest, so a host whose PATH does not carry the
+directory still gets a command that works. Every site that prints a component's own path for
+the user to run goes through it.
 
 ## `ai_tools_msg_confirm` — the single yes/no prompt
 
@@ -145,12 +180,44 @@ Because the no-terminal path is legitimate here rather than degraded, that helpe
 path gave consent (`flag`, `prompt`, `fallback-prompt`, `no-tty`) rather than only the answer. Full
 reasoning: [docs/session-stop.md](../../docs/session-stop.md).
 
+## `ai_tools_msg_challenge` — the typed-name challenge
+
+`ai_tools_msg_challenge <question> <expected>` draws the question, reads one line from
+`/dev/tty`, and returns 0 only on an **exact** match with `<expected>`. A mismatch, empty
+input, closed input (Ctrl-D), and **no terminal** all return non-zero.
+
+**It takes no default, and that is the mechanism rather than an omission.** A confirm exists so
+that Enter can mean something, which is why it must state which way it falls; a challenge exists
+so the answer costs something a reflex cannot supply, which leaves an absent answer with only one
+reading. That also settles the unattended case without a rule of its own — a run with no terminal
+cannot type a name, so it declines — and it is what makes a destructive verb behind one
+unreachable from cron by construction, without depending on a `-y` convention.
+
+`<expected>` is **echoed in the prompt**: this is a deliberateness check, not a secret, and hiding
+what to type would make it a guessing game. It is the caller's job to have already printed what is
+about to happen; the challenge only asks the user to re-type the name of the thing.
+
+**A mistyped answer is recorded, and it is treated as untrusted input.** The trail for a
+destructive verb is worth more showing what was typed than showing only that something was, so a
+mismatch logs the answer — through the shared allowlist sanitizer (`ai_tools_log_sanitize`) and
+clamped to a bounded length, the same treatment every other untrusted string reaching a log sink
+or a terminal gets ([logging](logging.rule.md)). Without that sanitizer — the logger is loaded
+best-effort here — the answer is **omitted** rather than recorded raw; the decision itself is
+recorded either way.
+
+Where a caller pre-answers it (`ai-tools --project-remove -y`), that is the same explicit
+per-invocation flag rule as a default-NO confirm, and the flag is the auditable decision.
+
 ## Decision audit trail
 
-`ai_tools_msg_confirm` and `ai_tools_msg_pick` are the project's two decision points, so
+`ai_tools_msg_confirm`, `ai_tools_msg_pick` and `ai_tools_msg_challenge` are the project's three
+decision points, so
 each records its outcome through the shared logger ([logging](logging.rule.md)): one INFO
 line naming the question and the answer (`confirm: <question> -> yes|no (answered | default
-| assume-yes | no-tty-default)`) or the menu choice (`menu: chose <n>/<N> (<label>)`). This
+| assume-yes | no-tty-default)`) or the menu choice (`menu: chose <n>/<N> (<label>)`). A menu
+that ends **without** a choice is audited too, naming which way it ended (`menu: no terminal
+and no default -- no answer`, `menu: input closed -- no answer`, `menu: no answer after 3
+attempts`), so the trail distinguishes a declined menu from one never drawn. This
 gives every user action taken through this library **one consistent trail** at the single
 chokepoint, rather than each call site logging its own outcome (or, as before, mostly not).
 It lands in journald always and in the root-only file sink under the caller's
@@ -204,13 +271,20 @@ the exit status of the operation whose outcome they report.
 ## Where it is wired
 
 - **`claude.sh`** routes its central `die()` through `ai_tools_msg_error`, so every fatal
-  refusal is framed at one chokepoint; converts its standalone `safe.directory` NOTICE
-  prose; and frames **both** guidance screens with `ai_tools_msg_block` — the not-accessible
-  screen (title "This directory is not accessible to sandbox user", options `a)` create
-  sandbox / `b)` claim in place) and the not-fully-claimed screen (per-gap bullets kept).
-  Neither repeats paths: the claim/clone commands default to the current directory. The
-  not-accessible screen drives an `ai_tools_msg_pick` menu — **1)** Create sandbox, **2)**
-  Claim in place, **3)** Cancel (the default, so an unattended/piped run refuses safely).
+  refusal is framed at one chokepoint; converts its standalone `safe.directory` NOTICE prose;
+  and frames **both** guidance screens with `ai_tools_msg_block`. Titles name the action, not
+  the refusal ("Set up this project for the sandboxed agent", "Finish setting up this project
+  for the agent"), and commands print as bare names through `ai_tools_cmd_display`. Neither
+  screen repeats paths: the claim/clone commands default to the current directory.
+
+  The **setup** screen carries one line of prose and **no commands**; its options live in the
+  `ai_tools_msg_pick none` menu below it, each with the consequence that distinguishes it —
+  **1)** Create sandbox (*the session runs in the copy, not here*), **2)** Claim here (*its
+  group becomes `ai-tools`*), **3)** Cancel. Because the block names no command, the Cancel
+  path — which is also the no-terminal and unanswered-menu path — prints both commands itself,
+  plain and below the frame. The **finish-setup** screen keeps its per-gap bullets, its
+  embedded `--sandbox-create` command (its prompt is a yes/no confirm offering only the claim,
+  so the alternative has nowhere else to appear), and its severity-based default.
 - **`ai-tools.sh`** routes `die()` and `warn()` through the error/warning emitters, and
   builds the `--project-claim` / `--sandbox-create` flows from `ai_tools_msg_headline`
   blocks (Review, Secret lockdown, `.git` history, Reachability, Apply — see

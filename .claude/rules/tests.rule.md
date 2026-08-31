@@ -187,10 +187,34 @@ departs the installed-helper pattern the other way: it runs a `TESTDIR` copy of
 fixture `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the
 three-way match, `vX.Y.Z-rc.N` compares its base and relaxes only the `%changelog` match,
 any other dashed tag is refused, a missing `%changelog` entry is fatal for every form.
-`man.sh` is a pure text-sync check: the long-option sets of the CLI's `usage()` heredoc
-and the `ai-tools(1)` man page must match in both directions (see [cli](cli.rule.md)),
-validated from the repo sources (or the installed pair outside a checkout) without
-executing the CLI.
+`cli-verbs.sh` is the same shape one layer in: a pure text check that the CLI's four
+**gating tables** — `OPERATOR_VERBS`, `ROOT_ALLOWED_VERBS`, `BOOTSTRAP_EXEMPT_VERBS`,
+`FOR_ALLOWED_VERBS` — still describe the verbs it dispatches. The failure it exists for is
+silent and one-directional: a verb added to the dispatcher and forgotten in `OPERATOR_VERBS`
+runs for an unenrolled caller, with nothing to say so until a root helper refuses it midway. So
+every dispatched verb must be classified — operator-acting, or in the informational set the test
+names — no verb may be both operator-acting and root-allowed, no table may name a verb the
+dispatcher no longer has, and the help must list exactly what the dispatcher accepts. Its last
+check asserts required **content** rather than consistency: `--help` and `--version` must be in
+`BOOTSTRAP_EXEMPT_VERBS`, because a CLI that cannot print its own usage on an unprovisioned host
+leaves the gate's refusal as the only route to the provisioning command — a regression visible
+only on the host nobody develops against.
+
+`man.sh` is a pure text-sync check between the CLI's `usage()` heredoc and the `ai-tools(1)`
+man page, validated from the repo sources (or the installed pair outside a checkout) without
+executing the CLI. The two are not copies — the help is orientation, the page is the reference
+(see [cli](cli.rule.md)) — so it asserts three relations rather than set equality: the **verb**
+sets match in both directions, every option the help names is documented, and every option the
+page documents is one a CLI **parser** accepts. The last is the direction with teeth: what goes
+stale is an option outliving its parser, whereas requiring the help to name every documented
+option is what previously made slimming the help impossible.
+
+`sandbox.sh` closes with `tree_is_pristine`, which is not a sandbox helper but belongs to the same
+class: a pure decision with a security consequence. `--project-create` skips the secret scan, the
+git-history prompt and the proceed confirm when it returns 0, so every way it could wrongly say yes
+is a way to grant an agent access to a tree nothing scanned — which is why the claim re-derives it
+from the tree rather than trusting the caller's hint, and why the cases driven here are the states
+that must read as **not** pristine (any file beyond the README, one nested deeper, any commit).
 
 `conf.sh` and `providers.sh` are the library pair behind the provider seam (see
 [providers](providers.rule.md)). `conf.sh` pins the shared `KEY=value` grammar every
@@ -336,7 +360,13 @@ is refused rather than fetched as-is, since one manifest for every version reads
 while checking a release it never looked at; and the template charset admits nothing that could
 carry a shell metacharacter or a traversal into `curl`. It also pins the public pin path, which `ai-tools --status` reads to report verification
 state: an agent name becomes a path component, so a name that could escape the pin directory must
-yield nothing. The label record written beside it is covered the same way — the shared path guard,
+yield nothing. Its pin-reuse section covers the shortcut the unattended callers take (see
+[updater](updater.rule.md)), where the failure direction is the opposite of the rest of the file: a
+reused verdict is indistinguishable downstream from a fresh one, so each assertion drives a way the
+predicate could answer a question it was not asked — a changed checksum, version, or inputs digest,
+and a pin recording no digest at all. The whole section is guarded on the deployed library carrying
+the predicate, because an absent function exits 127, which every negative case would otherwise read
+as a correct refusal. The label record written beside it is covered the same way — the shared path guard,
 a `RESULT` outside the vocabulary refused rather than filed (an unrecognised value reads as "never
 relabelled", which is a different report from the one it meant to make), a reason that is not a
 token dropped rather than written where the reader's charset clamp would silently lose it, and a
@@ -359,6 +389,16 @@ ship prebuilt — registry↔filesystem lockstep: every registered group has a `
 **no committed** `.pp` (source-only, so a compiled dev copy left tracked is caught); and no policy
 module on disk is missing from the registry. The lockstep half reads git track-state, so it needs
 the checkout.
+
+It closes with the registry's one impure accessor, `ai_tools_selinux_group_loaded`, whose failure
+mode is a **race** rather than a wrong answer: `semodule -l` needs several writes to deliver a
+few hundred module names, so reading it as `semodule -l | grep -qx` lets grep exit on the match
+and leaves the writer to die of SIGPIPE, which `pipefail` reports as 141 — a loaded module read as
+absent, about half the time. `semodule` is stubbed as a shell function emitting one line per
+`printf`, so a single-write listing cannot hide the regression, and the probe is driven 25 times
+because one green run says nothing about a race. The same shape reached production twice (the
+`.TH` check in `man.sh` failed at random on the EL container runners for exactly this reason), so
+each remaining `semodule -l` probe now captures the listing before matching it.
 
 **`integration`** — checks that need a completed install and the running system
 (`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`, `cli.sh`,
@@ -441,13 +481,24 @@ check per swap vector.
 
 ## Quirks
 
+- **The result word carries a colour escape.** `harness.sh` colours `PASS` green, `SKIP` yellow
+  and `FAIL` red when stdout is a terminal or `AI_TOOLS_TEST_COLOR=1`. `run.sh` and `install.sh`
+  both set that variable, because each pipes the suite through `tee` and the harness's own tty test
+  then reads false while a terminal is still watching. Only the word is wrapped, so a grep on a
+  result *message* is unaffected; a grep anchored on the *word* must allow the escape, as
+  `run.sh`'s failure summary (`_FAIL_RE`) does. Anchored without it the summary comes back empty on
+  a coloured run, while the suite still reports the failure and exits non-zero.
 - **Setgid bits survive numeric `chmod`.** GNU coreutils `chmod` with an octal mode does
   not clear a directory's setgid/setuid bit; a testdir under a setgid parent inherits it.
   Assertions on the rwx bits use `perm()` (low 3 octal digits), not raw `stat %a`.
 - **The wrapper prompts on `/dev/tty`, not stdin.** `</dev/null` does not suppress it;
   `setsid` (no controlling tty) does, so the wrapper takes its non-interactive default.
 - **The wrapper keys off `${HOME}`** for the allowlist, so its test mocks the allowlist by
-  pointing `HOME` at a `/tmp` testdir — no helper override needed there.
+  pointing `HOME` at a `/tmp` testdir — no helper override needed there. **The CLI does not**: it
+  resolves the invoking user's home through `getent passwd`, so that nothing in the environment
+  can redirect a registry write. A test that drives both against one fixture must therefore set
+  `HOME` *and* `AI_TOOLS_ALLOWLIST`; setting only the first steers the wrapper while the CLI
+  quietly edits the operator's real allowlist.
 - **The wrapper detects a controlling terminal by opening `/dev/tty`,** not by the node's
   permission bits (which read `rw` even with no controlling tty). Under `setsid` the open
   fails, so every wrapper invocation in a test cleanly skips the claim prompt instead of

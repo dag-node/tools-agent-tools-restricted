@@ -3,7 +3,9 @@
 # /usr/local/bin/ai-tools
 # Project-lifecycle CLI for the ai-tools Claude Code sandbox. Runs AS the invoking operator (not
 # as root, not as the sandbox account). It writes the operator-owned allowlist
-# (~/.config/ai-tools/allowed-projects) directly, and reaches the root-owned bits
+# (~/.config/ai-tools/allowed-projects) directly -- through conf.lib.sh's allowlist-editing
+# functions, the one implementation shared with the ai-tools-allowlist root helper and install.sh
+# -- and reaches the root-owned bits
 # -- the git safe.directory list in /opt/ai-tools/.gitconfig, the SELinux label, the ACL, and
 # secret lockdown -- through the sudo root helpers (no NOPASSWD: the operator is prompted for a
 # password; the sandbox account holds no grant).
@@ -31,11 +33,23 @@
 # Commands (each confirms before applying and reports the result):
 #   --project-claim   [path]  claim a project in place -- grant the agent access (idempotent;
 #                             default: cwd); -y/--yes pre-answers its proceed prompt (delegated)
-#   --project-create  [path]  alias for --project-claim (kept for back-compat)
+#   --project-create  <path>  create a NEW project directory (one mkdir, git init, README.md)
+#                             and claim it; refuses a path that already exists and one whose
+#                             parent does not, and takes no cwd default -- the cwd always exists
 #   --project-unclaim [path]  release a project -- revoke the agent's access and hand the tree
 #                             back to your own group (or a named user's), the agent's write
-#                             removed; the directory is left on disk
-#   --project-remove  [path]  alias for --project-unclaim (kept for back-compat)
+#                             removed; the directory is left on disk. --keep-entry parks the
+#                             allowlist line in place instead of deleting it
+#   --project-disable [path]  park a claimed project: put a '!' on its allowlist line, in place,
+#                             so no session starts there. Registry-only -- permissions, ACLs and
+#                             the label are untouched
+#   --project-enable  [path]  take that '!' back off. Refuses an exclusion INSIDE a claimed
+#                             project (a carve-out, not a parked project): lifting one would hand
+#                             the agent a subtree its operator withheld
+#   --project-remove  [path]  release a project AND delete its directory (default: cwd); acts
+#                             only on an exact allowlist entry -- allow or parked -- has no
+#                             --force, and confirms twice: a default-NO prompt and a typed-name
+#                             challenge
 #   --sandbox-create [path]   shallow-clone a repo into the sandbox area (private,
 #                             umask 077), lock down tip-commit secrets, then grant
 #                             the agent access and register -- fail-closed: an
@@ -164,9 +178,29 @@ readonly ROOT_ALLOWED_VERBS=(--audit --status --list --providers --stop)
 # invalidate; --stop ends sessions already running, and needs nothing from the toolchain to do it
 # -- the gate keys on ONE agent's launcher symlink, so leaving --stop behind it would put the
 # incident ladder's last rung out of reach on a host that enables a different agent, or that lost
-# that symlink while sessions were running). --list and --providers describe a toolchain that has
-# to exist first and stay behind the gate.
-readonly BOOTSTRAP_EXEMPT_VERBS=(--status --audit --stop)
+# that symlink while sessions were running). --help, --version and the bare invocation describe
+# the CLI rather than the toolchain -- usage() and AI_TOOLS_VERSION read no installed state -- and
+# gating them leaves a caller who cannot print the usage with only the gate's own message to find
+# the provisioning command by. The short forms and "" are listed so verb_in matches every spelling
+# the dispatcher accepts. --list and --providers describe a toolchain that has to exist first and
+# stay behind the gate.
+readonly BOOTSTRAP_EXEMPT_VERBS=(--status --audit --stop --help -h --version -V "")
+# OPERATOR_VERBS -- what only an enrolled operator may run. The criterion is ACTS AS AN OPERATOR:
+# the verb resolves the caller's identity out of OPERATORS somewhere below it (the root helpers do,
+# via operator.lib.sh), so an unenrolled caller would otherwise get through the registry writes and
+# the confirm prompts only to be refused by the first helper that resolves an owner. Its complement
+# is the informational set -- --help/--version/--list/--providers/--status/--audit/--stop -- which
+# stays open so an unenrolled user can still read usage and inspect the host.
+readonly OPERATOR_VERBS=(--project-claim --project-create --project-unclaim --project-remove
+                         --project-enable --project-disable
+                         --sandbox-create --sandbox-push --sandbox-remove
+                         --lockdown --reclaim --relabel)
+# FOR_ALLOWED_VERBS -- what --for accepts: the verbs whose whole effect is decided by WHICH
+# operator's allowlist covers the path. Elsewhere the flag is REFUSED rather than ignored (see
+# require_for_target).
+readonly FOR_ALLOWED_VERBS=(--project-claim --project-create --project-unclaim --project-remove
+                            --project-enable --project-disable
+                            --lockdown --reclaim --list)
 
 # verb_in <verb> <name>... -- true when <verb> is one of the named verbs.
 verb_in() {
@@ -452,17 +486,56 @@ root_helper_reachable() { [[ "${INVOKING_USER}" == "root" ]] || command -v sudo 
 # that failed for its own reasons -- an unreachable sudoers backend, a host that refuses -l
 # outright. Only the first is read as a missing grant; the second falls open like any other
 # answer that cannot be read. LC_ALL=C pins the wording of the one text match.
+# An optional <runas> asks the same question about `sudo -u <runas> <bin>` -- the form run_as_owner
+# uses -- so a host whose sudoers restricts Runas to root is read here rather than at the call site,
+# where it would abort a create half-way through a tree.
 sudo_grant_missing() {
-    local bin="$1" answer
+    local bin="$1" runas="${2:-}" answer
+    local -a probe=(-n -l)
+    [[ -n "${runas}" ]] && probe+=(-u "${runas}")
     [[ "${INVOKING_USER}" == "root" ]] && return 1
     command -v sudo >/dev/null 2>&1 || return 1
-    answer="$(LC_ALL=C sudo -n -l "${bin}" 2>&1)" && return 1
+    answer="$(LC_ALL=C sudo "${probe[@]}" "${bin}" 2>&1)" && return 1
     [[ "${answer}" == *"password is required"* ]] && return 1
     if [[ -z "${answer//[[:space:]]/}" ]]; then
         LC_ALL=C sudo -n -l >/dev/null 2>&1 && return 0
         return 1
     fi
     [[ "${answer}" == *"not allowed to execute"* || "${answer}" == *"may not run sudo"* ]]
+}
+
+# ── Reacting to a root step that did not apply ───────────────────────────────────
+# Every root helper authenticates on its own, and nothing can be pre-authenticated for a flow: a
+# hardened sudoers may set timestamp_timeout=0, where a credential is never cached and every
+# invocation prompts, so there is no credential to obtain up front. One mistyped password therefore
+# costs a full round of attempts PER STEP -- a claim asks nine times, an unclaim over three nested
+# projects twenty-seven -- each round re-asking for something the operator authorized once, and the
+# last arriving long after the flow has already reported the earlier failures.
+#
+# The reaction is to ask ONCE whether to attempt the rest. Default NO, which is also the
+# no-terminal answer. It is asked rather than inferred because a mistyped password and an absent
+# grant are indistinguishable at this point and call for opposite actions; and it is asked once per
+# RUN rather than per step or per project, so an ancestor unclaim does not re-ask for each project.
+#
+# The decision covers only which steps are ATTEMPTED. What a partial result means is the caller's
+# to report, and the callers differ: for a claim, stopping leaves less access, so it stops
+# completely; for an unclaim or a removal, the registry drops proceed regardless, because those are
+# the steps that move to less access.
+ROOT_STEP_FAILURES=0
+_root_step_asked=false
+_root_step_carry_on=1
+note_root_failure() {
+    ROOT_STEP_FAILURES=$(( ROOT_STEP_FAILURES + 1 ))
+    if ! ${_root_step_asked}; then
+        _root_step_asked=true
+        say ""
+        if confirm "That step needed root and did not apply. Try the remaining steps? (each one asks for your password again)" n; then
+            _root_step_carry_on=0
+        else
+            _root_step_carry_on=1
+        fi
+    fi
+    return "${_root_step_carry_on}"
 }
 
 # confirm <prompt> <y|n>  -- the shared yes/no prompt (ai_tools_msg_confirm; see
@@ -519,35 +592,134 @@ require_sandbox_clone() {
         || die "not a git clone: ${d} -- if it is a stray directory, remove it by hand"
 }
 
+# run_as_owner <cmd> [args...]  -- run <cmd> as the operator this run acts FOR. Without --for that
+# is the invoker, so the command runs directly and nothing is prefixed; with --for it is the
+# target, and the command runs under `sudo -u <target> -H`. The seam every step that must touch
+# the filesystem AS AN OWNER goes through.
+#
+# It grants nothing new. `sudo -u <target>` rides the caller's GENERAL sudo grant -- the separate
+# authority axis CLAUDE.md names, which nothing in this project writes or records -- so an operator
+# who reaches it could already act as that account. The sandbox account holds no sudo rule and runs
+# under PR_SET_NO_NEW_PRIVS, which drops sudo's SUID bit, so it reaches none of this.
+#
+# -H is load-bearing rather than tidiness: without it (and without sudoers' always_set_home) sudo
+# leaves HOME pointing at the INVOKER's home, so a command that reads a dotfile -- git above all --
+# would configure the target's tree from the invoker's settings.
+run_as_owner() {
+    if [[ -z "${FOR_OPERATOR}" ]]; then "$@"; return; fi
+    sudo -u "${OWNER_USER}" -H -- "$@"
+}
+
 # ── Registry helpers (the only mutating filesystem writes besides clones) ─────────
 # allowed-projects: one absolute path per line; '!'-prefixed lines are exclusions.
 # safe.directory: git refuses to operate in a dir it does not own, and the clone is
 # owned by the projects user, so the sandbox account (which runs git as the agent)
 # needs an explicit entry per registered path.
 
+# Every edit below goes through conf.lib.sh's allowlist-editing functions -- the one
+# implementation of a registry change, shared with the ai-tools-allowlist root helper (a --for run)
+# and install.sh (de-registering its own checkout). What stays here is the CLI's half: which
+# principal performs the write, and what the operator is told about it.
+
+# allow_state <dir>  -- `listed` / `disabled` / `absent` for the registry THIS run reads (the
+# invoker's, or a --for target's snapshot). See ai_tools_conf_allowlist_state for what each means
+# and why an exclusion outranks an allow entry.
+allow_state() { ai_tools_conf_allowlist_state "${ALLOWLIST}" "$1"; }
+
+# disabled_note <dir>  -- print the raw '!' line(s) parking <dir>, indented, for a message that has
+# just called it disabled. What the operator needs next is the line itself, verbatim.
+disabled_note() {
+    local -a lines=(); local raw
+    ai_tools_conf_allowlist_exclusion_lines lines "${ALLOWLIST}" "$1" || return 0
+    for raw in "${lines[@]}"; do say "      ${C_BOLD}${raw}${C_RST}"; done
+}
+
+# retag_allow <dir> <enable|disable>  -- park or restore <dir> in place, through the root helper on
+# a --for run and directly otherwise. Both directions report their own failure with the command
+# that repeats it; the library verifies the resulting state, so a "done" here means the file says
+# so. Returns non-zero if the state did not change as asked.
+retag_allow() {
+    local dir="$1" op="$2" rc=0 done_word="disabled"
+    [[ "${op}" == enable ]] && done_word="re-enabled in place"
+    if [[ -n "${FOR_OPERATOR}" ]]; then
+        if sudo "${ALLOWLIST_BIN}" --operator "${FOR_OPERATOR}" "--${op}" "${dir}" >/dev/null; then
+            snapshot_allowlist
+            say "    allowed-projects: ${done_word} for ${FOR_OPERATOR}"
+            return 0
+        fi
+        warn "could not ${op} ${dir} in ${FOR_OPERATOR}'s allowed-projects -- run:"
+        say  "      ${C_BOLD}sudo ${ALLOWLIST_BIN} --operator ${FOR_OPERATOR} --${op} ${dir}${C_RST}"
+        return 1
+    fi
+    "ai_tools_conf_allowlist_${op}" "${ALLOWLIST}" "${dir}" || rc=$?
+    if (( rc )); then
+        warn "could not ${op} ${dir} in allowed-projects -- the file was not changed. Edit the line by hand:"
+        [[ "${op}" == enable ]] && disabled_note "${dir}"
+        return 1
+    fi
+    say "    allowed-projects: ${done_word}"
+}
+
+# offer_reenable <dir> <what>  -- the shared disabled-project gate: report that <dir> is parked,
+# show the line, ask (default NO) whether to un-park it, and return 0 only once it is listed again.
+# Every verb that needs the project REACHABLE goes through it, because the root helpers resolve a
+# path's owner through the same allow/exclude matcher the launch gate uses: while the '!' stands,
+# ai-tools-unclaim, -chown, -setfacl and -setgid resolve no owner and exit 0 having done NOTHING,
+# and ai-tools-lockdown refuses outright. Proceeding over that would report steps as applied that
+# never ran -- the one thing these flows may not do.
+# <what> is named in the message; a THIRD argument makes a declined confirm return non-zero
+# instead of aborting the command, for the one caller whose remaining work is still worth doing.
+offer_reenable() {
+    local dir="$1" what="$2" decline_returns="${3:-}"
+    refuse_carveout "${dir}" "${what}"
+    headline_warn "This project is disabled" \
+        "An exclusion line in allowed-projects parks ${dir}. While it stands the agent cannot launch there, and the root helpers resolve no owner for it -- so ${what} would report steps it did not apply. Re-enabling changes nothing else: the project keeps its permissions, its ACLs and its label."
+    disabled_note "${dir}"
+    say ""
+    if ! confirm "Re-enable this project (delete the '!' from that line)?" n; then
+        [[ -n "${decline_returns}" ]] || die "aborted -- ${dir} stays disabled and nothing was changed"
+        return 1
+    fi
+    retag_allow "${dir}" enable
+}
+
 reg_allow() {
-    local dir="$1"
+    local dir="$1" rc=0
     # A --for run edits a registry in a home this operator cannot even read, so the write goes
-    # through the root helper (which re-reads the real file and applies its own idempotency), and
-    # the snapshot is refreshed so the rest of this run sees the entry it just added.
+    # through the root helper (which re-reads the real file and applies the same library rules),
+    # and the snapshot is refreshed so the rest of this run sees the entry it just added.
     if [[ -n "${FOR_OPERATOR}" ]]; then
         if sudo "${ALLOWLIST_BIN}" --operator "${FOR_OPERATOR}" --add "${dir}" >/dev/null; then
             snapshot_allowlist
             say "    allowed-projects: added for ${FOR_OPERATOR}"
-        else
-            die "could not add ${dir} to ${FOR_OPERATOR}'s allowed-projects"
+            return 0
         fi
-        return 0
+        # rc 2 from the helper is the disabled refusal below, reported the same way; anything else
+        # is a write that did not happen.
+        if [[ "$(allow_state "${dir}")" == disabled ]]; then
+            offer_reenable "${dir}" "the claim" \
+                || die "allowed-projects not updated -- ${dir} is still disabled"
+            return 0
+        fi
+        die "could not add ${dir} to ${FOR_OPERATOR}'s allowed-projects"
     fi
     [[ -f "${ALLOWLIST}" ]] || die "allowlist not found at ${ALLOWLIST} -- run install first"
-    # Match through the shared grammar, not a raw line: a hand-added entry with a comment or
-    # quotes is already listed, and appending would duplicate it (conf.lib.sh).
-    if ai_tools_conf_allowlist_has_entry "${ALLOWLIST}" "${dir}"; then
-        say "    allowed-projects: already listed"
-    else
-        printf '%s\n' "${dir}" >> "${ALLOWLIST}"
-        say "    allowed-projects: added"
-    fi
+    local before; before="$(allow_state "${dir}")"
+    ai_tools_conf_allowlist_add "${ALLOWLIST}" "${dir}" || rc=$?
+    case "${rc}" in
+        0) if [[ "${before}" == listed ]]; then
+               say "    allowed-projects: already listed"
+           else
+               say "    allowed-projects: added"
+           fi ;;
+        2) # DISABLED. cmd_project_claim answers this up front, so reaching it here means another
+           # caller (or a file changed under a running flow) -- the backstop that keeps the rule in
+           # the library rather than in one caller: a second, positive line would leave the '!'
+           # winning at the launch gate while the claim reported success.
+           offer_reenable "${dir}" "the claim" \
+               || die "allowed-projects not updated -- ${dir} is still disabled" ;;
+        *) die "could not add ${dir} to allowed-projects -- it is not registered" ;;
+    esac
 }
 
 # allow_escape <text>  -- escape <text> so it matches literally inside a sed `\|^...$|` address:
@@ -572,18 +744,38 @@ unreg_allow() {
         return 0
     fi
     [[ -f "${ALLOWLIST}" ]] || return 0
-    # Delete the RAW line(s) whose grammar entry matches ${dir}, not a line rebuilt from ${dir}:
-    # a hand-added entry may carry a comment or quotes (conf.lib.sh), and anchoring on ${dir}
-    # alone would miss it -- the same blind spot that used to leave the entry (and the agent's
-    # access) behind on unclaim.
-    local -a lines=() raw
-    if ai_tools_conf_allowlist_matching_lines lines "${ALLOWLIST}" "${dir}"; then
+    # The library deletes every RAW line naming ${dir} -- allow AND exclusion -- matched through the
+    # shared grammar rather than rebuilt from the path, so an entry carrying a comment or quotes is
+    # not missed (the blind spot that used to leave the entry, and the agent's access, behind on
+    # unclaim), and a project the operator had parked leaves no '!' behind to disable whatever is
+    # claimed at that path next.
+    local -a lines=() excl=(); local raw before
+    before="$(allow_state "${dir}")"
+    ai_tools_conf_allowlist_matching_lines  lines "${ALLOWLIST}" "${dir}" || true
+    ai_tools_conf_allowlist_exclusion_lines excl  "${ALLOWLIST}" "${dir}" || true
+    lines+=("${excl[@]}")
+    # This entry is the agent's LAUNCH GATE, so the removal is verified by re-reading the file
+    # rather than trusted from an exit status (the library does that itself): an entry that survives
+    # a "removal" leaves the project launchable while the caller carries on as though it did not --
+    # and for --project-remove the very next step would delete the tree out from under a
+    # registration that is still standing, which is the state its teardown order exists to prevent.
+    #
+    # Reported and fatal, never silent. The rewrite lands a temporary file in the allowlist's own
+    # DIRECTORY, so it fails on a config dir this operator cannot write even when the allowlist
+    # itself is writable -- which under `set -e` used to abort the whole command with sed's bare I/O
+    # error and its exit status, telling the operator nothing about what was left registered.
+    if ! ai_tools_conf_allowlist_remove "${ALLOWLIST}" "${dir}"; then
+        warn "could not remove ${dir} from allowed-projects -- a line naming it survived. While an allow line stands the agent can still launch there, and a '!' line left behind parks the path against a future claim. Remove it by hand:"
         for raw in "${lines[@]}"; do
-            sed -i "\|^$(allow_escape "${raw}")$|d" "${ALLOWLIST}"
+            printf "      %ssed -i '\\\\|^%s\$|d' %s%s\n" \
+                "${C_BOLD}" "$(allow_escape "${raw}")" "${ALLOWLIST}" "${C_RST}"
         done
-        say "    allowed-projects: removed"
-    else
+        die "allowed-projects not updated -- ${dir} is still registered"
+    fi
+    if [[ "${before}" == absent ]]; then
         say "    allowed-projects: not listed"
+    else
+        say "    allowed-projects: removed"
     fi
 }
 
@@ -609,6 +801,7 @@ reg_safedir() {
     else
         warn "could not register git safe.directory -- run it by hand:"
         say  "      ${C_BOLD}sudo ${SAFEDIR_BIN} ${dir}${C_RST}"
+        return 1
     fi
 }
 
@@ -633,6 +826,7 @@ unreg_safedir() {
     else
         warn "could not remove git safe.directory -- run it by hand:"
         say  "      ${C_BOLD}sudo ${SAFEDIR_BIN} --remove ${dir}${C_RST}"
+        return 1
     fi
 }
 
@@ -640,20 +834,22 @@ unreg_safedir() {
 # git tracks the executable bit deterministically for BOTH co-writers, regardless of
 # either user's global git config. Repo-LOCAL (not the shared /opt/ai-tools/.gitconfig,
 # which is the agent's global): the setting must be shared by the projects user and the
-# agent, and .git is reclaimed to the projects user, who can write it. Idempotent and
-# quiet when already set; a no-op (with a note) when <dir> is not a git work tree.
+# agent, and .git is reclaimed to the owner, who can write it. Every git call runs through
+# run_as_owner: under --for the tree belongs to the target operator, and the invoking user
+# may not even traverse it. Idempotent and quiet when already set; a no-op (with a note)
+# when <dir> is not a git work tree.
 # Orthogonal to the ACL hardening -- filemode governs only the exec bit, never group/
 # other permission bits -- but claimed in the same git-config step as safe.directory.
 reg_filemode() {
     local dir="$1"
-    if ! git -C "${dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if ! run_as_owner git -C "${dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         say "    git core.filemode: not a git work tree -- skipped"
         return 0
     fi
-    if [[ "$(git -C "${dir}" config --local --get core.filemode 2>/dev/null)" == "true" ]]; then
+    if [[ "$(run_as_owner git -C "${dir}" config --local --get core.filemode 2>/dev/null)" == "true" ]]; then
         say "    git core.filemode: already true"
     else
-        if git -C "${dir}" config --local core.filemode true; then
+        if run_as_owner git -C "${dir}" config --local core.filemode true; then
             say "    git core.filemode: set true"
         else
             warn "git core.filemode: could not set (continuing)"
@@ -793,7 +989,9 @@ reg_ownership() {
     if sudo "${SETGID_BIN}" "${dir}"; then
         say "    ownership: set group ${SANDBOX_GROUP} + setgid on the project directories"
     else
-        warn "ownership: could not set group/setgid on ${dir} -- run: sudo ${SETGID_BIN} ${dir}"
+        warn "ownership: could not set group/setgid on ${dir} -- run it by hand:"
+        say  "      ${C_BOLD}sudo ${SETGID_BIN} ${dir}${C_RST}"
+        return 1
     fi
 }
 
@@ -813,19 +1011,17 @@ agent_can_traverse() {
     return 1
 }
 
-# grantable_ancestor <dir>  -- 0 if reg_reach may grant traverse on <dir>: the project's OWNER owns
-# it and it is not a protected system directory (the safe-paths backstop). Fail-closed when the
-# predicate is unavailable, so a broken install never widens a directory it cannot vet.
+# grantable_ancestor <dir>  -- 0 if reg_reach may grant traverse on <dir>. The rule itself lives in
+# safe-paths.lib.sh (ai_tools_traverse_grant_allowed), single-sourced with the two new project
+# verbs; this is the call site. Fail-closed when the predicate is unavailable, so a broken install
+# never widens a directory it cannot vet.
 #
-# On a --for run the owner is the target, whose directories the invoker may not be able to setfacl;
-# the grant is still offered, because the alternative -- declining a reachable path outright --
-# would report a working project as unreachable. An unprivileged setfacl that is refused falls to
-# reg_reach's per-path warning, which prints the exact command to run as the owner or as root.
+# On a --for run the owner is the target, whose directories the invoker cannot setfacl unprivileged;
+# reg_reach applies the grant through the runas seam instead.
 grantable_ancestor() {
     local p="$1"
-    declare -F ai_tools_protected_path_match >/dev/null 2>&1 || return 1
-    if ai_tools_protected_path_match "${p}" >/dev/null 2>&1; then return 1; fi
-    [[ "$(stat -c '%U' "${p}" 2>/dev/null || true)" == "${OWNER_USER}" ]]
+    declare -F ai_tools_traverse_grant_allowed >/dev/null 2>&1 || return 1
+    ai_tools_traverse_grant_allowed "${p}" "${OWNER_USER}"
 }
 
 # reach_scan <dir>  -- detect the traverse gap between the sandbox account and <dir>:
@@ -862,13 +1058,14 @@ reach_scan() {
 reg_reach() {
     local dir="$1" a
     if [[ -n "${REACH_BLOCKED}" ]]; then
-        local why
-        if ! declare -F ai_tools_protected_path_match >/dev/null 2>&1; then
-            why="the safe-paths backstop is not loaded, so ancestors cannot be vetted"
-        elif ai_tools_protected_path_match "${REACH_BLOCKED}" >/dev/null 2>&1; then
-            why="a protected system directory"
+        local why blocked_owner
+        blocked_owner="$(stat -c '%U' "${REACH_BLOCKED}" 2>/dev/null || echo '?')"
+        if ! declare -F ai_tools_traverse_grant_allowed >/dev/null 2>&1; then
+            why="the safe-paths traverse rule is not loaded, so ancestors cannot be vetted"
+        elif [[ "${blocked_owner}" != "${OWNER_USER}" ]]; then
+            why="owned by ${blocked_owner}, not by ${OWNER_USER}"
         else
-            why="owned by $(stat -c '%U' "${REACH_BLOCKED}" 2>/dev/null || echo '?'), not by ${OWNER_USER}"
+            why="a protected system directory"
         fi
         headline_warn "WARNING: project unreachable for the sandbox account" \
             "the sandbox account cannot traverse ${REACH_BLOCKED} (${why}), so it cannot reach ${dir}; an isolated clone under the sandbox area is the way in:"
@@ -876,22 +1073,59 @@ reg_reach() {
         return 0
     fi
     if (( ${#REACH_GRANT[@]} == 0 )); then return 0; fi
+
     headline_warn "WARNING: parent directories block the agent" \
         "the sandbox account must be able to traverse every parent directory to reach the project; the grant below is traverse-only (enter, never list or read): u:${SANDBOX_USER}:--x"
     for a in "${REACH_GRANT[@]}"; do say "      ${a}"; done
+
+    # The owner's own HOME ROOT is the one entry in that list whose consequence has to be stated,
+    # and what to state is a CONDITION rather than an assertion of exposure. `--x` conveys no
+    # listing of the directory and nothing at all about the files in it -- each file's own mode
+    # and ACL still decides, and the sandbox account is neither their owner nor in their group.
+    # So the grant opens nothing; it makes already-world-readable entries REACHABLE. Under
+    # umask 077 that set is empty; under the RHEL default 022 it is the 644 skel files and
+    # anything else written world-readable. Which of those this host is, is a question with a
+    # one-line answer, so the prompt names the command instead of guessing.
+    local owner_home includes_home=false
+    owner_home="$(getent passwd "${OWNER_USER}" 2>/dev/null | cut -d: -f6)"
+    if [[ -n "${owner_home}" ]]; then
+        for a in "${REACH_GRANT[@]}"; do
+            [[ "${a}" == "${owner_home%/}" ]] && { includes_home=true; break; }
+        done
+    fi
+    if ${includes_home}; then
+        say ""
+        say "  ${owner_home} is ${OWNER_USER}'s home directory. Traverse conveys no listing of it"
+        say "  and no access to the files in it -- each file's own mode and ACL still decides."
+        say "  What it makes reachable is whatever there is already world-readable; this lists it:"
+        say ""
+        say "      ${C_BOLD}find ${owner_home} -maxdepth 1 -perm -o+r${C_RST}"
+        say ""
+    fi
+
+    # Default NO, and deliberately not pre-answerable: the grant widens access ABOVE the project,
+    # so neither AI_TOOLS_ASSUME_YES (which only fast-tracks default-YES questions) nor the claim's
+    # own -y reaches it. A run with no terminal therefore declines, and prints the commands so the
+    # refusal is actionable rather than merely recorded.
     if confirm "Grant the sandbox account traverse-only access on them?" n; then
         local failed=false
         for a in "${REACH_GRANT[@]}"; do
-            if setfacl -m "u:${SANDBOX_USER}:--x" "${a}" 2>/dev/null; then
+            # A --for run's ancestors belong to the TARGET, so an unprivileged setfacl by the
+            # invoker fails on every one of them; run_as_owner applies it as the owner instead.
+            if run_as_owner setfacl -m "u:${SANDBOX_USER}:--x" "${a}" 2>/dev/null; then
                 say "    reach: u:${SANDBOX_USER}:--x ${a}"
             else
                 failed=true
-                warn "reach: could not grant on ${a} -- run: setfacl -m u:${SANDBOX_USER}:--x ${a}"
+                warn "reach: could not grant on ${a} -- run it as ${OWNER_USER} or as root:"
+                say  "      ${C_BOLD}setfacl -m u:${SANDBOX_USER}:--x ${a}${C_RST}"
             fi
         done
         ${failed} || ok "parent directories traversable by the sandbox account"
     else
         say "    reach: left as-is -- the agent may be unable to enter ${dir}"
+        have_tty || for a in "${REACH_GRANT[@]}"; do
+            say "      ${C_BOLD}setfacl -m u:${SANDBOX_USER}:--x ${a}${C_RST}"
+        done
     fi
 }
 
@@ -945,7 +1179,11 @@ run_lockdown() {
 # the path and the optional flag in any order.
 run_relabel() {
     local d="$1"; shift
-    sudo "${RELABEL_BIN}" "$@" "${d}"
+    # stdout suppressed: the helper narrates its own success ("labelled <path> ai_tools_project_t"),
+    # which lands unindented in the middle of a flow block whose result lines are all indented, and
+    # says what the caller is about to say anyway. stderr is kept -- that is where a failure
+    # explains itself.
+    sudo "${RELABEL_BIN}" "$@" "${d}" >/dev/null
 }
 
 # run_reclaim <dir> [--full]  -- hand agent-written files under <dir> back to the operator via
@@ -1144,6 +1382,7 @@ claim_relabel() {
     else
         warn "could not apply the SELinux label -- run it by hand:"
         say  "      ${C_BOLD}sudo ${RELABEL_BIN} ${d}${C_RST}"
+        return 1
     fi
 }
 
@@ -1165,6 +1404,7 @@ claim_setfacl() {
     else
         warn "could not apply the project ACL -- run it by hand:"
         say  "      ${C_BOLD}sudo ${SETFACL_BIN}${flag} ${d}${C_RST}"
+        return 1
     fi
 }
 
@@ -1260,6 +1500,54 @@ under_skip_listed_name() {
     return 1
 }
 
+# tree_is_pristine <dir>  -- 0 when <dir> holds nothing but what --project-create just put there:
+# no file outside .git except README.md, and a git repository with no commits. Cheap and
+# unprivileged.
+#
+# It is re-derived here rather than trusted from the caller, because what it gates is the secret
+# scan: a stale or planted CLAIM_FRESH_TREE must not be able to skip that on a tree with content
+# in it. Both halves are the actual preconditions -- no files means no secret-named files, and no
+# commits means no history -- so the answer is a property of the tree, not a claim about it.
+tree_is_pristine() {
+    local d="$1"
+    [[ -z "$(find "${d}" -path "${d}/.git" -prune -o ! -type d ! -path "${d}/README.md" \
+                 -print -quit 2>/dev/null)" ]] || return 1
+    [[ -d "${d}/.git" ]] || return 0
+    ! git -C "${d}" rev-parse --verify --quiet HEAD >/dev/null 2>&1
+}
+
+# require_claimable_owner <dir>  -- die unless <dir> is held by the operator this run acts FOR or
+# by the sandbox account. The two root helpers that grant the agent its access -- ai-tools-setgid
+# and ai-tools-setfacl -- act only on those two owners, so a project root held by anyone else
+# takes neither the group/setgid change nor the ACL, while the allowlist entry, the git
+# safe.directory entry and the SELinux label all still apply. The claim would close with its ✓
+# having granted nothing, and the agent could not enter the tree.
+#
+# The case this exists for is a --for claim: `mkdir ~/proj && ai-tools --project-claim --for svc
+# ~/proj` resolves the owner to svc, so every inode in the tree fails the helpers' guard. This is
+# the CLI-side front line for the count those helpers now report; the refusal names the chown that
+# fixes it, because transferring a tree recursively needs an authority this CLI does not hold.
+require_claimable_owner() {
+    local d="$1" owner
+    owner="$(stat -c '%U' "${d}" 2>/dev/null)" || die "cannot read the owner of ${d}"
+    [[ "${owner}" == "${OWNER_USER}" || "${owner}" == "${SANDBOX_USER}" ]] && return 0
+
+    # The remedy is a command, so it prints plain and ahead of die(), whose emitter would wrap it
+    # across lines (messaging.rule.md).
+    printf '\n' >&2
+    printf '  %s\n' "Give the tree to ${OWNER_USER}, then re-run the claim:" "" \
+                    "    sudo chown -R ${OWNER_USER} ${d}" >&2
+    printf '\n' >&2
+    local -a why=(
+        "this project directory is owned by ${owner}, and the claim grants it to ${OWNER_USER}."
+        "The claim's setgid and ACL steps act only on paths held by ${OWNER_USER} or ${SANDBOX_USER}, so here they would apply nothing while the registries and the SELinux label still would -- a claim that reports success and leaves the agent unable to enter the project."
+    )
+    [[ -n "${FOR_OPERATOR}" ]] && why+=(
+        "You are claiming for ${FOR_OPERATOR}, so the tree has to belong to ${FOR_OPERATOR} rather than to you."
+    )
+    die "${why[@]}"
+}
+
 cmd_project_claim() {
     # -y/--yes pre-answers the claim's own proceed prompt ("Apply the pending steps IN
     # PLACE?", default NO) -- an explicit per-invocation flag, passed by a caller that
@@ -1280,6 +1568,25 @@ cmd_project_claim() {
     # Refuse to claim a protected system directory before it ever reaches the allowlist. The
     # safe-paths guard is guaranteed loaded (the top-level source fails closed otherwise).
     ai_tools_assert_safe_target "${d}" "project claim" || exit 3
+    # Before any registry write: a root the access-granting helpers cannot act on makes the whole
+    # claim a no-op they would report only as a count on stderr.
+    require_claimable_owner "${d}"
+
+    # A PARKED project is answered here, ahead of the flow, rather than at the registry write it
+    # would otherwise reach last. Two reasons it belongs up front: the exclusion decides whether
+    # any of the steps below can apply at all -- while it stands the root helpers resolve no owner
+    # and do nothing -- and the proceed confirm is what a run with no terminal answers first, so a
+    # check behind it would never be reached by exactly the runs that most need telling. Declining
+    # aborts the claim with nothing written.
+    if [[ "$(allow_state "${d}")" == disabled ]]; then
+        offer_reenable "${d}" "the claim" \
+            || die "allowed-projects not updated -- ${d} is still disabled"
+    fi
+
+    # A tree --project-create just made, verified rather than taken on trust (tree_is_pristine).
+    # Three of this flow's questions are answerable from that fact alone; each is marked below.
+    local fresh=false
+    if [[ "${CLAIM_FRESH_TREE:-}" == "${d}" ]] && tree_is_pristine "${d}"; then fresh=true; fi
 
     local listed safedir filemode owngap acl labelled git
     # project_state prints seven SPACE-separated tokens; this script's global IFS is
@@ -1355,6 +1662,12 @@ cmd_project_claim() {
     local -a head=("${d}")
     if [[ "${owngap}" == true ]] || ${need_acl} || ${need_label} || (( ${#drift[@]} )); then
         heavy=true
+    fi
+    # NOT said on a pristine tree: every sentence below is false for one. There are no previous
+    # permissions to modify, nothing that is not reversible, and nothing to back up -- the tree was
+    # empty a moment ago. A warning that is routinely untrue is what teaches an operator to click
+    # through the ones that are not, so silence is the more careful choice here.
+    if ${heavy} && ! ${fresh}; then
         head+=("claiming in place grants the agent group access to this whole tree")
         # Said plainly, before the confirm that authorizes it: the steps below rewrite metadata
         # across the tree, and unclaim NORMALIZES rather than restores (setfacl -b clears ACLs
@@ -1399,6 +1712,11 @@ cmd_project_claim() {
             || ${need_acl} || ${need_git} || ${need_label} || (( ${#drift[@]} )); then
         need_gate=true
     fi
+    # The gate's whole job is to find secret-named files before access is granted. A tree whose
+    # only file is the README this command wrote a moment ago provably has none, and the scan is
+    # not free: ai-tools-lockdown has no NOPASSWD rule, so it costs the operator a sudo PASSWORD
+    # prompt to search a directory the tool itself just created.
+    if ${fresh}; then need_gate=false; fi
 
     say ""
     say "  pending:"
@@ -1410,7 +1728,10 @@ cmd_project_claim() {
     ${need_label} && say "    - apply SELinux ai_tools_project_t label"
     (( ${#drift[@]} )) && say "    - re-apply group ${SANDBOX_GROUP} + ACL to ${#drift[@]} drifted path(s) -- details below"
     ${need_gate} && say "    - scan for secret-named files and lock them down -- you will confirm"
-    ${need_git} && say "    - normalize .git so the agent can access git history -- you will be asked"
+    if ${need_git}; then
+        if ${fresh}; then say "    - normalize .git so the agent can access git history"
+        else say "    - normalize .git so the agent can access git history -- you will be asked"; fi
+    fi
     (( ${#REACH_GRANT[@]} )) && say "    - grant traverse-only access on ${#REACH_GRANT[@]} parent path(s) -- you will be asked"
 
     if (( ${#drift[@]} )); then
@@ -1432,7 +1753,11 @@ cmd_project_claim() {
     # place now?" confirmation, so a delegated claim does not ask the same question
     # twice. The scoped opt-ins below (secret lockdown, .git history, ancestor traversal)
     # still ask on their own terms.
-    if ${heavy}; then
+    # Skipped for a pristine tree along with the warnings it exists to authorize: with nothing
+    # pre-existing to expose, this asks the operator to approve the command they just typed, and
+    # its own subject ("apply the pending steps IN PLACE") describes a tree that has no contents
+    # to apply them to.
+    if ${heavy} && ! ${fresh}; then
         ${ASSUME_YES} || confirm "Apply the pending steps above IN PLACE?" n \
             || die "aborted"
     fi
@@ -1455,12 +1780,21 @@ cmd_project_claim() {
     # before exposing the repo's full git history.
     local do_git=false
     if ${need_git}; then
-        headline_warn "WARNING: git history exposure" \
-            "normalizing .git lets the agent read this repo's full git history"
-        if confirm "Normalize .git so the agent can access git history here?" y; then
+        if ${fresh}; then
+            # Inferred, not asked. The question is about exposing history, and a repository with
+            # no commits has none; normalizing is meanwhile the outcome the operator wants either
+            # way, since it is what keeps THEIR later commits readable by the agent. Asking would
+            # offer a choice between one real option and one that costs them something for nothing.
             do_git=true
+            say "    .git: normalizing for shared history (new repository -- no history to expose)"
         else
-            say "    .git: left as-is (history not accessible to the agent)"
+            headline_warn "WARNING: git history exposure" \
+                "normalizing .git lets the agent read this repo's full git history"
+            if confirm "Normalize .git so the agent can access git history here?" y; then
+                do_git=true
+            else
+                say "    .git: left as-is (history not accessible to the agent)"
+            fi
         fi
     fi
 
@@ -1469,23 +1803,228 @@ cmd_project_claim() {
     # ── Apply block: the approved steps run back to back, each reporting one result
     # line; the closing ✓ is the claim's completion. ──
     headline "Applying claim steps" "${d}"
-    [[ "${safedir}" == true  ]] || reg_safedir "${d}"
-    ${need_filemode} && reg_filemode "${d}"
-    if [[ "${owngap}" == true ]]; then
-        reg_ownership "${d}"
-    elif (( ${#drift[@]} )); then
-        reg_ownership "${d}" force
+
+    # A failed step asks once before the next is attempted (note_root_failure). Stopping is the
+    # safe direction here -- fewer steps applied -- and costs nothing, since the claim is
+    # idempotent and a re-run does exactly what is still missing.
+    local stopped=false
+    if [[ "${safedir}" != true ]]; then
+        reg_safedir "${d}" || note_root_failure || stopped=true
     fi
-    { ${need_acl} || ${do_git} || (( ${#drift[@]} )); } && claim_setfacl "${d}" "${do_git}"
-    ${need_label} && claim_relabel "${d}"
+    ${need_filemode} && reg_filemode "${d}"
+    if ! ${stopped}; then
+        if [[ "${owngap}" == true ]]; then
+            reg_ownership "${d}" || note_root_failure || stopped=true
+        elif (( ${#drift[@]} )); then
+            reg_ownership "${d}" force || note_root_failure || stopped=true
+        fi
+    fi
+    if ! ${stopped} && { ${need_acl} || ${do_git} || (( ${#drift[@]} )); }; then
+        claim_setfacl "${d}" "${do_git}" || note_root_failure || stopped=true
+    fi
+    if ! ${stopped} && ${need_label}; then
+        claim_relabel "${d}" || note_root_failure || stopped=true
+    fi
     say ""
+
+    # A claim whose access-granting steps did not apply has NOT claimed anything, and must not say
+    # it has. This is the owner guard's rule at the other end of the flow: no ✓ over a project the
+    # agent cannot work in. The registry entries stand, so a re-run applies exactly what is
+    # missing -- which is why stopping early costs nothing.
+    if (( ROOT_STEP_FAILURES )); then
+        headline_warn "WARNING: the claim did not complete" \
+            "${d} is registered, but ${ROOT_STEP_FAILURES} step(s) that grant the agent access did not apply, so it cannot work there yet. Each is named above with the command that applies it. Re-running the claim is the simpler route -- it is idempotent and does only what is still missing:"
+        say "      ${C_BOLD}ai-tools --project-claim ${d}${C_RST}"
+        ai_tools_log_warn "claim of ${d} incomplete -- ${ROOT_STEP_FAILURES} root step(s) did not apply"
+        exit 1
+    fi
     ok "claimed ${d}"
     ai_tools_log_info "claimed project ${d}"
 }
 
-# cmd_project_create [path]  -- back-compat alias for cmd_project_claim. Claiming is
-# idempotent now, so "create" and "claim" are the same operation.
-cmd_project_create() { cmd_project_claim "$@"; }
+# cmd_project_create <path> [-y]  -- create a NEW project directory and claim it: ONE mkdir, an
+# empty git repository, a README.md, then the ordinary claim flow on the result. The parent
+# directory must already exist; see the refusal below for why it is not created.
+#
+# It REFUSES a path that already exists, which is the sharp line between this verb and
+# --project-claim: a create that quietly claimed whatever was already there would make the two
+# interchangeable, and the operation that grants an agent access to a tree is not one to arrive at
+# by a typo. Recovering a half-finished create is therefore --project-claim on the new directory,
+# never a re-run of this.
+#
+# <path> is REQUIRED and has no cwd default, unlike every other verb here: the cwd always exists,
+# so a defaulted create could only ever refuse.
+#
+# Every filesystem step goes through run_as_owner, so a create for another operator produces a
+# TARGET-owned tree. That is not tidiness -- the claim's setgid and ACL helpers act only on paths
+# the resolved operator or the sandbox account holds, so a tree born owned by the invoker is one
+# require_claimable_owner then refuses.
+cmd_project_create() {
+    # No -y: this verb asks nothing that a flag could pre-answer. Its own confirmation would be a
+    # request to approve the command just typed over a tree that does not exist yet, and the claim
+    # that follows infers the rest from the tree being empty (see tree_is_pristine). The one
+    # question that can still appear -- the traverse grant on an ancestor -- widens access ABOVE
+    # the project and is deliberately answerable by nothing but a person at a terminal.
+    local a path=""
+    for a in "$@"; do
+        case "${a}" in
+            -*) die "unknown --project-create option: ${a}" \
+                    "       it takes a path and nothing else; see: man ai-tools" ;;
+            *)  if [[ -z "${path}" ]]; then path="${a}"
+                else die "--project-create takes a single path"; fi ;;
+        esac
+    done
+    [[ -n "${path}" ]] || die "--project-create needs a path: it creates a NEW project directory." \
+        "To claim a directory that already exists, use: ai-tools --project-claim [path]"
+
+    local d
+    d="$(realpath -m -- "${path}" 2>/dev/null)" || die "cannot resolve the path: ${path}"
+    if [[ -e "${d}" ]]; then
+        die "this path already exists: ${d}" \
+            "--project-create only ever creates. Claim what is already there instead:" \
+            "       ai-tools --project-claim ${d}"
+    fi
+
+    # ONE directory is created -- the final component, never a path of them. The parent has to
+    # exist already, and a parent that does not is refused rather than built.
+    #
+    # This is the verb's main safety property, not a limitation of it. `mkdir -p` turns a mistyped
+    # path into a silently manufactured tree: `--project-create ~/Devlopment/app` would create the
+    # typo, create the project inside it, claim it, and report success, leaving the operator with
+    # a working project nobody meant to make in a directory nobody meant to make. Requiring the
+    # parent means a typo surfaces as a refusal that names the missing directory. It also removes
+    # every question that a multi-component create raises: which components were created, which to
+    # vet against the backstop, and what to remove when a later step fails.
+    local parent="${d%/*}"; [[ -n "${parent}" ]] || parent=/
+    if [[ ! -d "${parent}" ]]; then
+        die "the parent directory does not exist: ${parent}" \
+            "--project-create creates ONE directory, not a path of them, so a mistyped path is refused here rather than created. Check the path; if it is right, create the parent yourself and re-run:" \
+            "       mkdir -p ${parent}"
+    fi
+
+    # The backstop on the target. Only one directory is created, so this is the whole surface: it
+    # refuses a create that would MANUFACTURE a protected directory (`/efi` or `/lost+found` on a
+    # host without one). It does not refuse a project nested INSIDE a protected tree -- descendants
+    # pass by design here exactly as they do for a claim, or no project under a home would work.
+    ai_tools_assert_safe_target "${d}" "project create" || exit 3
+
+    # Reachability pre-flight. The parent exists by now, so this scans the project's real ancestry:
+    # a blocker no grant may cover means the sandbox account could never enter this project, so the
+    # create is refused BEFORE anything exists rather than leaving a directory to clean up. A
+    # blocker the predicate DOES permit is not a refusal -- it becomes the claim's own traverse
+    # opt-in below, which offers the grant and the exact setfacl for anything it cannot apply.
+    reach_scan "${d}"
+    if [[ -n "${REACH_BLOCKED}" ]]; then
+        # State the blocker and why no grant covers it, and stop there. The claim's own version of
+        # this refusal points at --sandbox-create, which does not apply here: that verb clones an
+        # EXISTING repository into the sandbox area, and this verb's whole subject is a project
+        # that does not exist yet, so there is nothing to name as its source.
+        local why blocked_owner
+        blocked_owner="$(stat -c '%U' "${REACH_BLOCKED}" 2>/dev/null || true)"
+        if [[ -z "${blocked_owner}" ]]; then
+            why="its owner cannot be read from here"
+        elif [[ "${blocked_owner}" != "${OWNER_USER}" ]]; then
+            why="it belongs to ${blocked_owner}, not to ${OWNER_USER}"
+        else
+            why="it is a protected system directory"
+        fi
+        headline_warn "WARNING: the agent could not reach a project here" \
+            "the sandbox account cannot traverse ${REACH_BLOCKED} (${why}), so it could not enter a project created at ${d}. Nothing has been created. Create the project somewhere the sandbox account can reach: every parent directory has to be one it can already enter, or one you own and can grant traverse on."
+
+        # One alternative is offered, and only after it has been CHECKED on this host rather than
+        # assumed: the owner's home is the usual reachable location, but whether it is depends on
+        # the ancestry above it, which differs per host. A suggestion that cannot be verified is
+        # not made at all.
+        local home_dir candidate
+        home_dir="$(getent passwd "${OWNER_USER}" 2>/dev/null | cut -d: -f6)"
+        if [[ -n "${home_dir}" && -d "${home_dir}" ]]; then
+            candidate="${home_dir%/}/${d##*/}"
+            reach_scan "${candidate}"
+            if [[ -z "${REACH_BLOCKED}" && ! -e "${candidate}" ]]; then
+                say ""
+                say "  this location is reachable:"
+                say "      ${C_BOLD}ai-tools --project-create ${candidate}${C_RST}"
+            fi
+        fi
+        die "project create stopped -- the agent could not reach a project at that location"
+    fi
+
+    # ── Apply. Deliberately ONE block, not a review followed by an apply: this verb takes no
+    # confirmation, so a pending list would announce three steps whose result lines follow
+    # immediately underneath -- the same information twice -- and the claim below opens with a
+    # pending list of its own, which made the pair read as one repeated block. ──
+    headline "Create project" "${d}" \
+        "Creating the directory, an empty git repository in it, and a README.md, then claiming it so the sandbox account can work there."
+    # Mode 0750 EXPLICITLY, not whatever the caller's umask yields. Under a umask of 077 -- the
+    # /etc/login.defs default on many hosts, and what a PAM session hands this command -- a new
+    # directory is born 0700, which ai-tools-setgid and ai-tools-setfacl both honour as the
+    # operator's standing SEAL and leave alone. The claim would then report a NOTICE and grant
+    # nothing, producing a registered project the agent can never enter: the one outcome this
+    # verb exists to avoid.
+    #
+    # The seal is a statement about a path the operator restricted deliberately. A umask is not
+    # that -- it is a default for every new file, carrying no intent about a directory created a
+    # moment ago BY a command whose whole purpose is to give the agent somewhere to work. So the
+    # mode is set rather than inherited, and it is not asked about: for anyone who typed
+    # --project-create the answer is the same, and declining would yield a project that cannot be
+    # worked in.
+    #
+    # 0750 rather than 0770: the agent's write access comes from the claim's ACL
+    # (g:SANDBOX_GROUP:rwX, which raises the mask), so group write here would only widen the tree
+    # to the OPERATOR's primary group -- shared on some hosts -- for no gain. It is also the mode
+    # an unclaim normalizes a directory back to. `mkdir -m` applies the mode after creation, so
+    # the umask cannot mask it.
+    local umask_would_be
+    printf -v umask_would_be '%04o' "$(( 0777 & ~0$(umask) ))"
+    run_as_owner mkdir -m 0750 -- "${d}" || die "could not create ${d}"
+    say "    created ${d}"
+    # Said only where it is news: on a permissive umask these modes are unremarkable, but on a
+    # host whose umask would have sealed what this verb creates, the operator is told what was
+    # done and why. Printed once, covering the directory and everything seeded into it below.
+    if (( (8#${umask_would_be} & 077) == 0 )); then
+        say "    ${C_DIM}modes set to 0750/0640 -- your umask ($(umask)) would have made them${C_RST}"
+        say "    ${C_DIM}owner-only, which the agent cannot read${C_RST}"
+    fi
+    ai_tools_log_info "created project directory ${d}"
+
+    # Plain `git init`, so the operator's own init.defaultBranch decides the branch name rather
+    # than this tool holding an opinion about it. run_as_owner passes -H, so it is the TARGET's
+    # git config that is read on a --for run.
+    if run_as_owner git init -q -- "${d}"; then
+        # git builds .git under the caller's umask, so on an 077 host it is born 0700/0600 --
+        # owner-only, which ai-tools-setfacl's --with-git pass skips as a seal, taking the whole
+        # subtree with it. The claim below reports that it is normalizing .git for shared history,
+        # so leaving it sealed would make that line untrue. g+rX only: group read, and traverse on
+        # directories. The agent's WRITE access comes from the claim's ACL, exactly as for the
+        # work tree, so nothing here grants more than reachability.
+        run_as_owner chmod -R g+rX -- "${d}/.git" \
+            || warn "could not open .git for the agent -- git history may stay out of its reach"
+        say "    git: initialized an empty repository"
+    else
+        warn "git init failed -- the directory is created but is not a git repository"
+    fi
+
+    # The basename verbatim, with no prettifying: a project skeleton is a different feature and
+    # would need an opinion this tool should not hold. Written through `tee` as the owner, since a
+    # shell redirect here would create the file as the INVOKER on a --for run.
+    if printf '# %s\n' "${d##*/}" | run_as_owner tee -- "${d}/README.md" >/dev/null; then
+        # tee creates under the caller's umask (0600 on an 077 host), and an owner-only file is
+        # one ai-tools-setfacl leaves alone -- so the first file this verb writes for the project
+        # would be the one file in it the agent cannot read. 0640 is the mode the claim's ACL
+        # expects to raise, and the one an unclaim normalizes a file back to.
+        run_as_owner chmod 0640 -- "${d}/README.md" \
+            || warn "could not set the mode on README.md -- the agent may not be able to read it"
+        say "    wrote README.md"
+    else
+        warn "could not write ${d}/README.md (continuing)"
+    fi
+
+    # The claim runs unchanged on the new tree -- one implementation of what claiming means.
+    # CLAIM_FRESH_TREE names the tree this run created; the claim VERIFIES that independently
+    # before it acts on it, so this is a hint and never an authorization.
+    CLAIM_FRESH_TREE="${d}"
+    cmd_project_claim "${d}"
+}
 
 # positive_project_entries  -- print each allowed-projects entry that names a real,
 # resolvable project directory (canonicalized), one per line, skipping blanks, comments,
@@ -1502,6 +2041,124 @@ positive_project_entries() {
         dir="$(realpath -e "${entry}" 2>/dev/null)" || continue
         printf '%s\n' "${dir}"
     done < "${ALLOWLIST}"
+}
+
+# project_entries  -- every entry the per-project verbs may act on: the positive ones above PLUS
+# the projects a '!' line parks. A disabled project is still a project the operator registered, so
+# a verb that classifies against this list answers "this is your project, and it is disabled"
+# instead of "not a claimed project" -- which is what --project-unclaim and --project-remove used
+# to say about a tree the operator had deliberately parked, sending them to look for a claim that
+# was there all along. Ordering follows the file, deduplicated, so a path carrying both an allow
+# line and an exclusion (the pair a claim over a parked project used to create) appears once.
+#
+# An exclusion naming a path INSIDE a listed project is a carve-out, not a disabled project, and is
+# left out: it names a subtree the operator withheld from the agent, and no per-project verb has
+# ever taken one as a target.
+project_entries() {
+    local entry dir
+    [[ -f "${ALLOWLIST}" ]] || return 0
+    local -A seen_dirs=()
+    while IFS= read -r entry || [[ -n "${entry}" ]]; do
+        ai_tools_conf_path_entry "${entry}" || continue
+        entry="${_ai_tools_conf_value}"
+        entry="${entry#\!}"
+        dir="$(realpath -e "${entry}" 2>/dev/null)" || continue
+        [[ -n "${seen_dirs[${dir}]:-}" ]] && continue
+        seen_dirs["${dir}"]=1
+        printf '%s\n' "${dir}"
+    done < "${ALLOWLIST}"
+}
+
+# inside_listed_project <path>  -- 0 when a listed project is STRICTLY above <path>. This is what
+# separates a CARVE-OUT from a PARKED PROJECT, the two things a '!' line can mean: an exclusion
+# under a listed project withholds a subtree from the agent and is working exactly as intended,
+# while one no listed project contains is a project taken out of service. Strictly above, because a
+# path carrying both an allow line and an exclusion is parked (the exclusion wins at the launch
+# gate) rather than carved out of itself. covered_by_project cannot answer this -- it honours
+# exclusions, so it says "no" for every excluded path, which is every path that asks.
+inside_listed_project() {
+    local p="$1" e
+    while IFS= read -r e; do
+        [[ -n "${e}" ]] || continue
+        [[ "${p}" == "${e}/"* ]] && return 0
+    done < <(positive_project_entries)
+    return 1
+}
+
+# refuse_carveout <dir> <verb>  -- stop a re-enable that would delete a carve-out. Lifting an
+# exclusion is the one registry edit in this file that WIDENS what the agent reaches, and on a
+# subtree an operator withheld from a project that is the whole point of the line. So the enabling
+# paths -- the verb and the claim's prompt -- act only on a parked PROJECT, and a carve-out is
+# refused back to the editor it was written in. Disabling needs no such guard: it moves the other
+# way, and a path with no entry of its own is already refused for having nothing to park.
+refuse_carveout() {
+    local d="$1" verb="$2" parent=""
+    inside_listed_project "${d}" || return 0
+    local e
+    while IFS= read -r e; do
+        [[ -n "${e}" ]] || continue
+        if [[ "${d}" == "${e}/"* ]] && (( ${#e} > ${#parent} )); then parent="${e}"; fi
+    done < <(positive_project_entries)
+    printf '\n' >&2
+    disabled_note "${d}" >&2
+    printf '\n' >&2
+    die "this is an excluded path inside a claimed project, not a disabled project: ${d}" \
+        "the project is: ${parent}" \
+        "That line withholds this subtree from the agent, and ${verb} would hand it over. If that is what you mean, delete the '!' line yourself -- allowed-projects is yours to edit."
+}
+
+# refuse_nested_park <dir> <verb>  -- the other half of keeping a '!' line unambiguous. Parking a
+# project that sits INSIDE another listed project would write a line indistinguishable from a
+# carve-out (an operator's exclusion withholding a subtree), and nothing in the file could tell the
+# two apart afterwards -- so re-enabling it later could only be a guess, on an edit that WIDENS what
+# the agent reaches. No verb writes that line: with this refusal in place, every exclusion inside a
+# listed project is a carve-out by construction, which is exactly what refuse_carveout relies on.
+# The operator can still park a nested project by hand; the tool simply will not do it for them.
+refuse_nested_park() {
+    local d="$1" verb="$2" parent="" e
+    inside_listed_project "${d}" || return 0
+    while IFS= read -r e; do
+        [[ -n "${e}" ]] || continue
+        if [[ "${d}" == "${e}/"* ]] && (( ${#e} > ${#parent} )); then parent="${e}"; fi
+    done < <(positive_project_entries)
+    die "this project is nested inside another claimed project: ${d}" \
+        "the project above it is: ${parent}" \
+        "Parking it would write a '!' line that cannot be told apart from an exclusion withholding a subtree from ${parent}, so ${verb} declines to write one. Either unclaim this project (ai-tools --project-unclaim ${d}), or park the one above it (ai-tools --project-disable ${parent})."
+}
+
+# blocking_exclusion <dir>  -- print the raw exclusion line that keeps <dir> out of reach without
+# naming it: a parked ancestor, or a glob that matches. This is the gap between what the FILE says
+# about an entry and what the LAUNCH GATE does with it -- a project can carry a clean allow line
+# and still be unreachable -- so the verbs that report a state consult it and say which line is
+# responsible, rather than reporting "enabled" over a path no session can enter.
+blocking_exclusion() {
+    local d="$1" raw entry val
+    [[ -f "${ALLOWLIST}" ]] || return 1
+    while IFS= read -r raw || [[ -n "${raw}" ]]; do
+        ai_tools_conf_path_entry "${raw}" || continue
+        entry="${_ai_tools_conf_value}"
+        [[ "${entry}" == '!'* ]] || continue
+        val="${entry:1}"; val="${val%/}"
+        [[ "$(realpath -e "${val}" 2>/dev/null || printf '%s' "${val}")" == "${d}" ]] && continue
+        # SC2053: the unquoted RHS is the operator-owned glob pattern (see shellcheck.rule.md).
+        if [[ "${d}" == ${val} ]] || { [[ "${val}" != *'*'* ]] && [[ "${d}" == "${val}/"* ]]; }; then
+            printf '%s\n' "${raw}"; return 0
+        fi
+    done < "${ALLOWLIST}"
+    return 1
+}
+
+# report_still_blocked <dir>  -- after an enable, or over a project that already reads as listed,
+# say so when something else still parks it. Informational: the entry IS what the operator asked
+# for, and the remaining block is a line they wrote elsewhere and must edit themselves.
+report_still_blocked() {
+    local d="$1" raw
+    raw="$(blocking_exclusion "${d}")" || return 0
+    say ""
+    warn "another exclusion still covers this path, so no session can start here:"
+    say  "      ${C_BOLD}${raw}${C_RST}"
+    say  "  ${C_DIM}it parks an ancestor or matches as a glob, so it is not this project's own entry;"
+    say  "  edit that line in ${ALLOWLIST} to lift it.${C_RST}"
 }
 
 # covered_by_project <dir>  -- 0 when <dir> is at or under a positive allowed-projects entry in the
@@ -1529,37 +2186,118 @@ covered_by_project() {
     return "${covered}"
 }
 
-# unclaim_one <dir> <group|""> <hint> [helper-flag...]  -- revert one claimed project. Order
+# not_covered_die <dir>  -- the shared refusal for a per-project verb whose target no allowlist
+# entry covers. It separates the two ways that happens, because the remedies have nothing in
+# common: a DISABLED project is registered and parked, so the fix is one command and the helpers
+# would refuse it anyway (they resolve a path's owner through the same matcher, where an exclusion
+# wins); anything else was never claimed. The old message said "not a claimed project" for both,
+# which for a parked project is the one thing that is not true about it.
+not_covered_die() {
+    local d="$1"
+    if [[ "$(allow_state "${d}")" == disabled ]]; then
+        printf '\n' >&2
+        disabled_note "${d}" >&2
+        printf '\n' >&2
+        die "this project is disabled: ${d}" \
+            "an exclusion line parks it, so no session runs there and the root helpers act on nothing." \
+            "Re-enable it first:  ai-tools --project-enable ${d}"
+    fi
+    die "not a claimed project: ${d}" \
+        "it is not at or under any project in your allowed-projects" \
+        "       list your registered projects with: ai-tools --list"
+}
+
+# unclaim_one <dir> <group|""> <hint> <drop|park> [helper-flag...]  -- revert one claimed project. Order
 # matters: revert
 # the SELinux label first (keeps the invariant "labelled => allowlisted"), then run the
 # filesystem hand-back WHILE THE ALLOWLIST ENTRY IS STILL PRESENT (ai-tools-unclaim refuses a
 # target not in allowed-projects), and only then drop the two registries. <group> empty means
 # "unregister only, leave permissions"; <hint> non-empty prints the manual hand-back command
-# (used when the hand-back was wanted but could not run). Best-effort throughout: a step warns
-# with its manual command and never aborts the pass.
+# (used when the hand-back was wanted but could not run); the fourth argument is what becomes of
+# the allowlist line (see below). Best-effort throughout: a step warns with its manual command and
+# never aborts the pass.
 unclaim_one() {
-    local d="$1" group="$2" hint="$3"; shift 3
+    local d="$1" group="$2" hint="$3" registry="$4"; shift 4
     local flags=""; (( $# )) && flags=" $*"
+    local stopped=false handback_missing=false
+
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
-        run_relabel "${d}" --remove \
-            || warn "could not revert SELinux label -- run: sudo ${RELABEL_BIN} --remove ${d}"
+        if ! run_relabel "${d}" --remove; then
+            warn "could not revert the SELinux label -- run it by hand:"
+            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove ${d}${C_RST}"
+            note_root_failure || stopped=true
+        fi
     fi
+
+    # The filesystem hand-back is the step that actually revokes the agent's access to the FILES,
+    # so a failure here is the one an operator must not be able to miss: everything else this
+    # function does is registry work, which stops the agent launching here but leaves the tree
+    # group-owned by it. Recorded rather than merely warned about, and reported in the close.
     if [[ -n "${group}" ]]; then
-        if run_unclaim "${d}" "${group}" "$@"; then
+        if ${stopped}; then
+            handback_missing=true
+            warn "the files were NOT handed back -- run it by hand:"
+            say  "      ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} ${group}${flags}${C_RST}"
+        elif run_unclaim "${d}" "${group}" "$@"; then
             ok "handed ${d} back to group ${group}, agent write access removed"
         else
+            handback_missing=true
             warn "could not hand the files back -- run it by hand:"
             say  "      ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} ${group}${flags}${C_RST}"
+            note_root_failure || stopped=true
         fi
     elif [[ -n "${hint}" ]]; then
+        handback_missing=true
         say  "      run it later with: ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} <group>${flags}${C_RST}"
     fi
-    unreg_safedir "${d}"
-    unreg_allow "${d}"
+
+    # The registry drops run REGARDLESS of the decision above, and that is the difference from a
+    # claim: dropping them is what moves to LESS access -- the agent can no longer launch here --
+    # so stopping short of them would be the unsafe direction. Only the safe.directory removal,
+    # which is cleanup and needs its own authentication, is skipped once the operator has said to
+    # stop; ai-tools --list reports the entry it leaves behind.
+    ${stopped} || unreg_safedir "${d}" || note_root_failure || true
+    # <registry> decides what happens to the allowlist line, never WHETHER it stops mattering:
+    # both dispositions end with no session able to start here. `drop` deletes it; `park` prefixes
+    # it with '!' in place, keeping its position and comment for an operator whose allowed-projects
+    # is an ordered, commented document and who unclaims between development stages. Parking runs
+    # AFTER the hand-back for the same reason dropping does -- the helpers resolve this path's
+    # owner through the allowlist, and an exclusion stops them as surely as a missing entry.
+    if [[ "${registry}" == park ]]; then
+        retag_allow "${d}" disable || warn "the allowlist entry could not be parked -- it is still active"
+    else
+        unreg_allow "${d}"
+    fi
+
+    # No bare ✓ over an unclaim whose hand-back did not run. A claim that under-applies leaves the
+    # agent with too little access, which is merely inconvenient; an unclaim that under-applies
+    # leaves it with access the operator has just been told was removed.
+    if ${handback_missing}; then
+        headline_warn "WARNING: deregistered, but the files were not handed back" \
+            "${d} is out of allowed-projects, so no session can launch there. Its files still carry group ${SANDBOX_GROUP}, so an agent session that can reach the path keeps its access to them. The command above completes the reversal."
+        ai_tools_log_warn "unclaimed ${d} (registries dropped; filesystem hand-back did NOT run)"
+        return 1
+    fi
     ok "unclaimed ${d}"
     ai_tools_log_info "unclaimed project ${d}"
+}
+
+# undeletable_scan <dir>  -- print every directory under <dir> the ACTING OWNER can neither write
+# nor traverse, one per line, capped. Read-only and run AS that owner, so it answers the question
+# the removal actually depends on: rm -rf needs write+execute on a directory to unlink what is in
+# it, and the realistic blocker is a sandbox-owned 0700 directory a session left behind.
+#
+# This is the pre-flight that keeps --project-remove from having the one failure mode a
+# destructive verb must not have: a tree deleted down to the first directory it cannot enter, with
+# no registry entry left to find the remains by. Under-reporting is not the safe direction here --
+# unlike residue_scan, whose gate only decides what to OFFER -- so the walk reports a directory it
+# cannot descend rather than skipping it silently.
+undeletable_scan() {
+    local d="$1"
+    run_as_owner find "${d}" -xdev -type d '(' -not -writable -o -not -executable ')' \
+        -print 2>/dev/null | head -n 50
 }
 
 # residue_scan <dir>  -- fill RESIDUE and RESIDUE_SKIPPED with every path under <dir> that still
@@ -1773,6 +2511,7 @@ cmd_project_unclaim() {
     # group outright, so a script never depends on the prompt's no-tty fallback -- and it works in
     # both modes.
     local a path="" force=false full=false dry=false assume_yes=false group_opt="" want_group=false
+    local registry=drop
     for a in "$@"; do
         if ${want_group}; then group_opt="${a}"; want_group=false; continue; fi
         case "${a}" in
@@ -1782,8 +2521,9 @@ cmd_project_unclaim() {
             -y|--yes)     assume_yes=true ;;
             --group)      want_group=true ;;
             --group=*)    group_opt="${a#--group=}" ;;
+            --keep-entry) registry=park ;;
             -*) die "unknown --project-unclaim option: ${a}" \
-                    "       allowed: --force, --full, -n/--dry-run, -y/--yes, --group <group>" ;;
+                    "       allowed: --force, --full, --keep-entry, -n/--dry-run, -y/--yes, --group <group>" ;;
             *)  if [[ -z "${path}" ]]; then path="${a}"
                 else die "--project-unclaim takes a single path"; fi ;;
         esac
@@ -1796,15 +2536,24 @@ cmd_project_unclaim() {
         die "-n/--dry-run applies to --force only" \
             "       a registered project's unclaim previews itself: it lists what it will do and asks before acting"
     fi
+    # --force reaches a tree the allowlist does not name, so there is no line to park. Refused
+    # rather than ignored: the flag's whole purpose is what happens to an entry.
+    if [[ "${registry}" == park ]] && ${force}; then
+        die "--keep-entry cannot be combined with --force" \
+            "       --force unclaims a tree that has no allowed-projects entry, so there is nothing to keep"
+    fi
 
     local d; d="$(resolve_dir "${path:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
 
-    # Classify d: exact entry, ancestor of entries, descendant of one, or unrelated.
+    # Classify d: exact entry, ancestor of entries, descendant of one, or unrelated. A DISABLED
+    # project counts as an entry here (project_entries, not positive_project_entries): it is a
+    # project this operator registered and then parked, and calling it "not a claimed project"
+    # sent them looking for a claim that was there all along.
     local -a entries=() targets=()
     local e
     while IFS= read -r e; do [[ -n "${e}" ]] && entries+=("${e}"); done \
-        < <(positive_project_entries)
+        < <(project_entries)
     local mode=unrelated nearest=""
     for e in "${entries[@]:-}"; do
         [[ "${e}" == "${d}" ]] && { mode=exact; targets=("${d}"); break; }
@@ -1858,6 +2607,26 @@ cmd_project_unclaim() {
             "unclaiming it the normal way, which reverts the whole registered tree."
     fi
 
+    # A parked target is answered BEFORE this verb asks its own question, because it decides what
+    # the run can DO rather than being a step inside it: ai-tools-unclaim resolves this path's
+    # owner through the allowlist, where an exclusion wins, so on a disabled project the hand-back
+    # would exit 0 having handed nothing back -- and the flow would close with a ✓ over files that
+    # still carry the agent's group.
+    #
+    # Declining does NOT abort. That would be the one wrong answer here: the registry reversal is
+    # what moves to less access, so a decline keeps it and gives up only the part that genuinely
+    # cannot run -- the hand-back, which is then reported as not having run (the run exits non-zero
+    # and prints the command that completes it), exactly as it is for a hand-back that was wanted
+    # and failed. The verb's rule is unchanged; what "reversal" means is the <registry> disposition
+    # below -- the entry is DROPPED, or PARKED under --keep-entry, and both end with no session
+    # able to start there.
+    local -a handback_blocked=()
+    local t
+    for t in "${targets[@]}"; do
+        [[ "$(allow_state "${t}")" == disabled ]] || continue
+        offer_reenable "${t}" "the unclaim" decline-returns || handback_blocked+=("${t}")
+    done
+
     if [[ "${mode}" == exact ]]; then
         section "Unclaim project"
         say "  ${d}"
@@ -1873,6 +2642,16 @@ cmd_project_unclaim() {
         ${assume_yes} || confirm "Unclaim ALL ${#targets[@]} projects listed above?" n || die "aborted"
     fi
 
+    # --keep-entry ends by PARKING each target's line, so it takes the same refusal
+    # --project-disable does: a nested project's parked line would be indistinguishable from a
+    # carve-out. Checked before any target is touched, so the run refuses whole rather than
+    # unclaiming some and stopping.
+    if [[ "${registry}" == park ]]; then
+        for t in "${targets[@]}"; do
+            refuse_nested_park "${t}" "--keep-entry"
+        done
+    fi
+
     # Filesystem hand-back: decided ONCE for the whole batch.
     local hb_group hb_hint
     resolve_handback_group "${group_opt}"
@@ -1881,9 +2660,26 @@ cmd_project_unclaim() {
     local -a helper_flags=()
     ${full} && helper_flags=(--full)
 
+    local incomplete=0
     for t in "${targets[@]}"; do
-        unclaim_one "${t}" "${hb_group}" "${hb_hint}" "${helper_flags[@]}"
+        # A target whose exclusion was left standing takes the registry-only path: no group means
+        # unclaim_one skips the hand-back, and the hint is what it prints in its place.
+        local t_group="${hb_group}" t_hint="${hb_hint}" b
+        for b in "${handback_blocked[@]:-}"; do
+            [[ "${b}" == "${t}" ]] || continue
+            t_group=""; t_hint="re-enable it (ai-tools --project-enable ${t}), then: ai-tools --reclaim --full ${t}"
+            break
+        done
+        unclaim_one "${t}" "${t_group}" "${t_hint}" "${registry}" "${helper_flags[@]}" \
+            || incomplete=$(( incomplete + 1 ))
     done
+
+    # An incomplete reversal is an outcome a script has to be able to see, so it reaches the exit
+    # status rather than only the terminal. The registries are dropped either way, which is why
+    # this reports rather than aborts.
+    if (( incomplete )); then
+        ai_tools_log_warn "unclaim finished with ${incomplete} of ${#targets[@]} project(s) not fully reversed"
+    fi
 
     # Mixed tree: the registered projects are done, but ai-tools residue can still sit elsewhere
     # under this path (another copy, a leftover from a tree that was never registered). Reported
@@ -1902,6 +2698,230 @@ cmd_project_unclaim() {
             say "   ${C_BOLD}ai-tools --project-unclaim --force --dry-run ${d}${C_RST}"
         fi
     fi
+    (( incomplete == 0 ))
+}
+
+# cmd_project_remove [path] [-y]  -- unclaim a project AND delete its directory (default: cwd).
+# --project-unclaim stays the non-destructive reversal, and is what these refusals point at.
+#
+# AUTHORIZATION IS THE REGISTRY ENTRY, and only an EXACT one. There is no --force: the flag exists
+# on unclaim to reach a tree the allowlist does not name, and "delete a tree nothing registered"
+# is not an operation this verb should offer at all -- that is `--project-unclaim --force` followed
+# by an rm the operator types themselves, where the destructive step is theirs.
+#
+# This verb sits OUTSIDE the "every refusal moves to less access" table in CLAUDE.md, and the
+# difference is worth naming rather than letting it read as an exception: the predicates in that
+# table decide what a session may REACH, so their safe direction is to grant less. This one decides
+# what is DESTROYED, so its safe direction is to do nothing -- which is why its gate is an exact
+# registry entry plus a typed confirmation rather than one of the launch predicates.
+#
+# Teardown order is registries first, deletion last. A failure at the deletion therefore leaves an
+# UNREGISTERED tree -- less access, not more -- recoverable with an ordinary rm. The reverse order
+# would leave a half-deleted tree the agent still reaches. The filesystem hand-back that
+# --project-unclaim performs is deliberately NOT run: it is a full-tree chgrp/chmod pass over files
+# about to be deleted.
+cmd_project_remove() {
+    local a path="" assume_yes=false
+    for a in "$@"; do
+        case "${a}" in
+            -y|--yes) assume_yes=true ;;
+            --force) die "--project-remove has no --force: a registry entry is what authorizes a deletion here." \
+                         "To reverse a claim on an unregistered tree, and then remove it yourself:" \
+                         "       ai-tools --project-unclaim --force ${path:-<path>}" ;;
+            # Deliberately does NOT enumerate the options the way the other verbs' refusals do:
+            # the only one this verb has pre-answers both the confirmation and the typed-name
+            # challenge, and a caller who has just mistyped a flag is not who that is for. It is
+            # documented in ai-tools(1), where reaching it is a deliberate act.
+            -*) die "unknown --project-remove option: ${a}" \
+                    "       the options this verb takes are in: man ai-tools" ;;
+            *)  if [[ -z "${path}" ]]; then path="${a}"
+                else die "--project-remove takes a single path"; fi ;;
+        esac
+    done
+    # An unattended run must never delete whatever directory it happened to start in, so the one
+    # mode that can proceed without a terminal has to name its target explicitly.
+    if ${assume_yes} && [[ -z "${path}" ]]; then
+        die "--project-remove -y needs a path." \
+            "-y pre-answers the confirmation and the typed-name challenge, so an unattended run must say which project it means rather than inheriting the current directory."
+    fi
+
+    local d; d="$(resolve_dir "${path:-$PWD}")"
+    [[ -d "${d}" ]] || die "not a directory: ${d}"
+    ai_tools_assert_safe_target "${d}" "project remove" || exit 3
+
+    # ── Classification: an EXACT entry, and nothing else, is a removal target. ──
+    # The entry may be a parked one (project_entries): a '!' line is the same line, written by the
+    # same operator, and it records "not right now" rather than "not mine" -- so it authorizes the
+    # removal exactly as an active entry does. Requiring the operator to re-enable a project first
+    # would be the worse rule: it makes a tree they mean to delete launchable on the way out.
+    local -a entries=() nested=()
+    local e
+    while IFS= read -r e; do [[ -n "${e}" ]] && entries+=("${e}"); done \
+        < <(project_entries)
+    local exact=false nearest=""
+    for e in "${entries[@]:-}"; do
+        [[ "${e}" == "${d}" ]] && exact=true
+        [[ "${e}" == "${d}/"* ]] && nested+=("${e}")
+        if [[ "${d}" == "${e}/"* ]] && (( ${#e} > ${#nearest} )); then nearest="${e}"; fi
+    done
+
+    if ! ${exact}; then
+        if (( ${#nested[@]} )); then
+            printf '\n' >&2
+            printf '    %s\n' "${nested[@]}" >&2
+            printf '\n' >&2
+            die "this is not a claimed project, but ${#nested[@]} claimed project(s) are nested under it: ${d}" \
+                "--project-remove deletes one registered project, never a directory that merely contains some. Reverse the claims first:" \
+                "       ai-tools --project-unclaim ${d}"
+        fi
+        if [[ -n "${nearest}" ]]; then
+            die "this path is inside a claimed project, not a project itself: ${d}" \
+                "       the claimed project is: ${nearest}" \
+                "       remove that instead: ai-tools --project-remove ${nearest}"
+        fi
+        die "not a claimed project: ${d}" \
+            "--project-remove deletes only a registered project -- the registry entry is what authorizes the deletion. See what is registered with: ai-tools --list" \
+            "To reverse a claim on an unregistered tree, and then remove it yourself:" \
+            "       ai-tools --project-unclaim --force ${d}"
+    fi
+
+    # An exact entry that CONTAINS other claimed projects. rm -rf would take them with it, leaving
+    # each one's allowlist entry, safe.directory line and SELinux label pointing at nothing -- and
+    # on a shared host one of them may belong to another operator. Refused rather than cascaded:
+    # this verb deletes one project, and the nested ones are their own decisions.
+    #
+    # The check sees only the registry THIS run reads (the invoker's, or the --for target's
+    # snapshot), since an allowlist is 0600 in a 0700 directory. A project another operator
+    # registered under this path is therefore not visible here.
+    if (( ${#nested[@]} )); then
+        printf '\n' >&2
+        printf '    %s\n' "${nested[@]}" >&2
+        printf '\n' >&2
+        die "this project contains ${#nested[@]} other claimed project(s), listed above: ${d}" \
+            "Deleting it would delete them too, leaving each one registered, git-trusted and SELinux-labelled at a path that no longer exists. Remove or unclaim those first, then re-run this."
+    fi
+
+    # ── Deletability pre-flight: read-only, run as the acting owner. ──
+    # The PARENT first, and separately, because `rm -rf <d>` finishes by unlinking <d> from the
+    # directory that contains it -- which needs write+execute THERE, on a directory that is not
+    # part of the project and so is not covered by the walk below. Missing it produces the worst
+    # outcome this verb has: rm descends, deletes every file successfully, and fails only on the
+    # top directory, leaving an empty husk that is already deregistered. Its remedy is not
+    # --reclaim either, since the parent was never the project's to reclaim.
+    local rm_parent="${d%/*}"; [[ -n "${rm_parent}" ]] || rm_parent=/
+    if [[ -z "$(run_as_owner find "${rm_parent}" -maxdepth 0 -writable -executable 2>/dev/null)" ]]; then
+        die "the parent directory is not writable by ${OWNER_USER}: ${rm_parent}" \
+            "Removing ${d} means unlinking it from that directory, and ${OWNER_USER} cannot write there. Nothing has been changed. To release the project and leave the files where they are, use:" \
+            "       ai-tools --project-unclaim ${d}"
+    fi
+
+    local -a undeletable=()
+    mapfile -t undeletable < <(undeletable_scan "${d}")
+    if (( ${#undeletable[@]} )); then
+        headline_warn "WARNING: this tree cannot be fully deleted" \
+            "${#undeletable[@]} director(ies) under ${d} cannot be written or entered by ${OWNER_USER}, so a removal would stop partway and leave the rest behind -- unregistered, and harder to find than it is now. Nothing has been changed."
+        path_listing "director(ies)" "${undeletable[@]}"
+        say ""
+        say "  take ownership of the tree first, then re-run the removal:"
+        say "      ${C_BOLD}ai-tools --reclaim --full ${d}${C_RST}"
+        die "project remove stopped -- the tree is not fully deletable by ${OWNER_USER}"
+    fi
+
+    # ── Git safety report: what deleting this loses. Reported, never refused -- a scratch
+    # repository with uncommitted work is a legitimate thing to delete on purpose. ──
+    if git -C "${d}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        local dirty upstream ahead
+        dirty="$(git -C "${d}" status --porcelain 2>/dev/null | wc -l)"
+        (( dirty )) && warn "${dirty} uncommitted change(s) in this repository"
+        if upstream="$(git -C "${d}" rev-parse --abbrev-ref '@{u}' 2>/dev/null)"; then
+            ahead="$(git -C "${d}" rev-list --count "${upstream}..HEAD" 2>/dev/null || echo 0)"
+            (( ahead )) && warn "${ahead} commit(s) not pushed to ${upstream}"
+        else
+            warn "no upstream is configured -- every commit in this repository is local"
+        fi
+    fi
+
+    # A parked project gets its own notice and its own default-NO confirm, BEFORE the deletion
+    # warning below: the operator parked this tree deliberately, so "you disabled this on purpose"
+    # is a different question from "this deletes everything", and answering the second does not
+    # answer the first. Nothing is re-enabled -- the removal needs no launch gate open, and the
+    # allowlist line goes with the tree.
+    if [[ "$(allow_state "${d}")" == disabled ]]; then
+        headline_warn "This project is disabled" \
+            "An exclusion line in allowed-projects parks ${d}, so it was taken out of service rather than released. Removing it deletes the directory and both lines."
+        disabled_note "${d}"
+        say ""
+        if ! ${assume_yes}; then
+            confirm "Continue removing this disabled project?" n || die "aborted"
+        fi
+    fi
+
+    # ── Confirmation: the block states what is lost, then a default-NO confirm, then the typed
+    # name. Neither is pre-answered by AI_TOOLS_ASSUME_YES -- that only fast-tracks default-YES
+    # questions, and the challenge has no default to fast-track -- so the ONLY thing that answers
+    # them ahead of time is this command's own -y, an auditable per-invocation decision. With no
+    # terminal both decline independently. ──
+    headline_warn "WARNING: this deletes the project directory" \
+        "${d} and everything in it is deleted. This is NOT reversible: there is no undo, and the tree is not moved to a trash location. To release the project and keep the files, use ai-tools --project-unclaim instead."
+    if ! ${assume_yes}; then
+        confirm "Delete this project directory and everything in it?" n || die "aborted"
+        ai_tools_msg_challenge "  Confirm the project to delete" "${d##*/}" \
+            || die "aborted -- the name did not match"
+    fi
+
+    # ── Apply: registries first, deletion last. ──
+    headline "Removing the project" "${d}"
+    # The two cleanup steps authenticate separately, so a wrong password would otherwise cost a
+    # round of attempts for each; note_root_failure asks once instead. Neither can stop the
+    # removal: what they clean up are registry entries pointing at a path that is about to stop
+    # existing, and refusing to delete over them would leave the tree in place -- MORE access,
+    # not less. ai-tools --list reports whatever is left behind.
+    local cleanup_stopped=false
+    if command -v sudo >/dev/null 2>&1 \
+            && command -v getenforce >/dev/null 2>&1 \
+            && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
+        if ! run_relabel "${d}" --remove; then
+            warn "could not revert the SELinux label -- run it by hand:"
+            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove ${d}${C_RST}"
+            note_root_failure || cleanup_stopped=true
+        fi
+    fi
+    ${cleanup_stopped} || unreg_safedir "${d}" || note_root_failure || true
+    unreg_allow "${d}"
+
+    if ! run_as_owner rm -rf -- "${d}"; then
+        warn "the deletion did not complete -- the project is already unregistered, so it is out of the agent's reach; remove what is left by hand:"
+        say  "      ${C_BOLD}rm -rf ${d}${C_RST}"
+        die "project remove incomplete -- paths were left behind"
+    fi
+    if [[ -e "${d}" ]]; then
+        warn "paths were left behind under ${d} -- the project is already unregistered; remove them by hand:"
+        say  "      ${C_BOLD}rm -rf ${d}${C_RST}"
+        die "project remove incomplete -- paths were left behind"
+    fi
+
+    say ""
+    ai_tools_log_info "removed project ${d}"
+    # The tree is gone either way, but a green ✓ is this project's report card and there is no
+    # reading of it that covers "and two cleanup steps failed". So the check mark is reserved for
+    # a clean run, and a run with failures closes by stating both facts and exits non-zero, which
+    # is also what lets a script tell the two apart.
+    if (( ROOT_STEP_FAILURES )); then
+        warn "removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run."
+        say  "  Each is named above with the command that completes it. Registry entries left"
+        say  "  behind now point at a path that no longer exists; this lists every entry that"
+        say  "  needs attention, across all your projects:"
+        say  ""
+        say  "      ${C_BOLD}ai-tools --list${C_RST}"
+        ai_tools_log_warn "removed ${d} with ${ROOT_STEP_FAILURES} cleanup step(s) incomplete"
+    else
+        ok "removed ${d}"
+    fi
+    # The shell that started here is now sitting in a directory that no longer exists, where most
+    # commands fail with a confusing error. Said plainly, since the cause is this command.
+    [[ "${PWD}" == "${d}" || "${PWD}" == "${d}/"* ]] \
+        && say "  ${C_DIM}your shell is still in the deleted directory -- cd somewhere else${C_RST}"
+    (( ROOT_STEP_FAILURES == 0 ))
 }
 
 # sandbox_finalize <dst>  -- the access-granting tail of every sandbox create, run only
@@ -1928,8 +2948,20 @@ sandbox_finalize() {
     normalize_clone "${dst}" "${SECRET_GATE_LOCKED[@]}"
     say "    access: group ${SANDBOX_GROUP} rwX + setgid dirs (locked secrets stay private)"
     relabel_clone "${dst}"
-    reg_safedir "${dst}"
+    # A clone exists to run git in, so a missing safe.directory is not cosmetic here: the agent's
+    # git refuses to operate in a tree it sees as someone else's ("dubious ownership"), and the
+    # clone would be ready for everything except its purpose. Reported at the close rather than
+    # letting the ✓ stand for it. (Also `|| true`: reg_safedir now signals failure, and this call
+    # is not conditional, so under set -e a bare call would abort the create.)
+    local safedir_ok=true
+    reg_safedir "${dst}" || safedir_ok=false
     say ""
+    if ! ${safedir_ok}; then
+        headline_warn "WARNING: the clone is not git-ready" \
+            "${dst} is created, secured and registered, but git safe.directory could not be added, so the agent's git will refuse to operate in it. The command above adds the entry; nothing else about the clone needs redoing."
+        ai_tools_log_warn "sandbox ${dst} registered without a git safe.directory entry"
+        return 1
+    fi
     ok "sandbox ready: ${dst}"
     ai_tools_log_info "sandbox secured and registered: ${dst}"
 
@@ -2172,7 +3204,11 @@ cmd_sandbox_remove() {
 
     rm -rf "${d}"
     unreg_allow "${d}"
-    unreg_safedir "${d}"
+    # `|| true`: the clone is already gone, so a safe.directory entry that could not be removed is
+    # a stale line pointing at nothing -- reported by ai-tools --list, and not a reason to abort a
+    # removal that has already happened. unreg_safedir signals failure now, and a bare call under
+    # set -e would do exactly that.
+    unreg_safedir "${d}" || true
     ok "removed ${d} and unregistered it"
     ai_tools_log_info "removed sandbox ${d} and unregistered it"
     say "  ${C_DIM}remote branch left intact -- others may still merge it${C_RST}"
@@ -2193,10 +3229,7 @@ cmd_lockdown() {
     done
     d="$(resolve_dir "${d:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
-    covered_by_project "${d}" \
-        || die "not a claimed project: ${d}" \
-               "it is not at or under any project in your allowed-projects" \
-               "       list your registered projects with: ai-tools --list"
+    covered_by_project "${d}" || not_covered_die "${d}"
     # No readable-path pre-check: /usr/local/libexec/ai-tools is 750 root:root, so the
     # projects user cannot even stat the helper -- only sudo (as root) can reach it.
     # If it is genuinely missing, sudo reports it and run_lockdown returns non-zero.
@@ -2210,6 +3243,102 @@ cmd_lockdown() {
     else
         die "lockdown failed for ${d}"
     fi
+}
+
+# ── Enable / disable a claimed project ───────────────────────────────────────────
+# The pair that makes parking a project a supported operation rather than a text edit the tools
+# misread. Both are pure REGISTRY edits: the tree keeps its group, its ACLs, its setgid bits and
+# its SELinux label, so disabling costs nothing to undo and re-enabling grants nothing that was
+# not already granted -- which is why neither runs the claim's secret gate, and why disable takes
+# no confirmation (it moves to LESS access; the launch gate simply stops opening).
+#
+# What disabling changes is everything downstream of the allowlist, and the report says so: no
+# session starts there, and the root helpers -- which resolve a path's owner through the same
+# allow/exclude matcher -- stop acting on it, so the ownership handback no longer restores files
+# written there. That last one is the consequence an operator has to know before parking a project
+# a session is still writing to.
+#
+# The operator may still do this with an editor; that workflow is untouched, and these verbs edit
+# the same line the same way (conf.lib.sh's allowlist editing). What they add is a name for the
+# operation, the consequences printed once, and a state the rest of the CLI now understands.
+
+# cmd_project_disable [path]  -- park a claimed project: prefix its allowed-projects line with '!'.
+cmd_project_disable() {
+    local d="" a
+    for a in "$@"; do
+        case "${a}" in
+            -*) die "unknown --project-disable option: ${a} (it takes a path only)" ;;
+            *)  if [[ -z "${d}" ]]; then d="${a}"; else die "--project-disable takes a single path"; fi ;;
+        esac
+    done
+    d="$(resolve_dir "${d:-$PWD}")"
+    [[ -d "${d}" ]] || die "not a directory: ${d}"
+
+    case "$(allow_state "${d}")" in
+        disabled)
+            section "Disable project"
+            say "  ${d}"
+            say "    allowed-projects: already disabled"
+            disabled_note "${d}"
+            return 0 ;;
+        absent)
+            die "not a claimed project: ${d}" \
+                "there is no allowed-projects entry to disable. List what is registered with: ai-tools --list" \
+                "To register it: ai-tools --project-claim ${d}" ;;
+    esac
+
+    refuse_nested_park "${d}" "--project-disable"
+    section "Disable project"
+    say "  ${d}"
+    retag_allow "${d}" disable || die "allowed-projects not updated -- ${d} is still enabled"
+    ai_tools_log_info "project disabled: ${d} (owner ${OWNER_USER})"
+    say ""
+    say "  ${C_DIM}no session can start here until it is re-enabled, and the ownership handback no"
+    say "  longer restores files written under it. The files, their group, ACLs and label are"
+    say "  unchanged.${C_RST}"
+    say "  re-enable it with: ${C_BOLD}ai-tools --project-enable ${d}${C_RST}"
+}
+
+# cmd_project_enable [path]  -- restore a parked project: delete the '!' from its line.
+cmd_project_enable() {
+    local d="" a
+    for a in "$@"; do
+        case "${a}" in
+            -*) die "unknown --project-enable option: ${a} (it takes a path only)" ;;
+            *)  if [[ -z "${d}" ]]; then d="${a}"; else die "--project-enable takes a single path"; fi ;;
+        esac
+    done
+    d="$(resolve_dir "${d:-$PWD}")"
+    [[ -d "${d}" ]] || die "not a directory: ${d}"
+
+    case "$(allow_state "${d}")" in
+        listed)
+            section "Enable project"
+            say "  ${d}"
+            say "    allowed-projects: already enabled"
+            report_still_blocked "${d}"
+            return 0 ;;
+        absent)
+            # Deliberately not an implicit claim: claiming runs a secret scan and grants the agent
+            # access to the tree, which is a different decision from lifting a '!' the operator
+            # put there.
+            die "not a claimed project: ${d}" \
+                "there is no allowed-projects entry to enable. List what is registered with: ai-tools --list" \
+                "To register it: ai-tools --project-claim ${d}" ;;
+    esac
+
+    refuse_carveout "${d}" "--project-enable"
+    section "Enable project"
+    say "  ${d}"
+    retag_allow "${d}" enable || die "allowed-projects not updated -- ${d} is still disabled"
+    ai_tools_log_info "project enabled: ${d} (owner ${OWNER_USER})"
+    report_still_blocked "${d}"
+    # A project parked long enough may have drifted out of a fully claimed state; the claim is
+    # idempotent and reports what is missing, so point at it rather than re-deriving that here.
+    say ""
+    say "  ${C_DIM}sessions may start here again. If the project was parked across an upgrade or a"
+    say "  permission change, re-run the claim to reconcile it:${C_RST}"
+    say "  ${C_BOLD}ai-tools --project-claim ${d}${C_RST}"
 }
 
 # cmd_reclaim [--full] [path]  -- hand agent-written files under the project (default: cwd) back to
@@ -2228,10 +3357,7 @@ cmd_reclaim() {
     done
     d="$(resolve_dir "${d:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
-    covered_by_project "${d}" \
-        || die "not a claimed project: ${d}" \
-               "it is not at or under any project in your allowed-projects" \
-               "       list your registered projects with: ai-tools --list"
+    covered_by_project "${d}" || not_covered_die "${d}"
     section "Reclaim agent-written files"
     say "  ${d}${C_DIM}$(${full} && printf ' (--full: incl. node_modules, .venv, ...)')${C_RST}"
     say "  ${C_DIM}-> ${OWNER_USER}:${SANDBOX_GROUP} (secret-named files stay ${OWNER_USER}:${OWNER_GROUP} 600)${C_RST}"
@@ -2246,7 +3372,10 @@ cmd_reclaim() {
 # helper (sudo, no password: the dedicated fixed-path rule). Two steps, in this order:
 #   1. VERIFY the entrypoint against the checksum its vendor signed and record it in that agent's
 #      pin, which ai-tools-run compares the binary against at launch. Needs the host online, and
-#      fails soft when it cannot reach the vendor; a MISMATCH fails the command.
+#      fails soft when it cannot reach the vendor; a MISMATCH fails the command. This route always
+#      re-fetches: the unattended callers may answer from an unchanged pin instead
+#      (AI_TOOLS_ENTRYPOINT_PIN_REUSE, see updater.rule.md), and sudo scrubs the environment, so
+#      the operator's on-demand verb cannot inherit that shortcut.
 #   2. RELABEL it to ai_tools_exec_t. An nvm-update installs a fresh agent binary that npm leaves
 #      mislabelled (bin_t), so the domain transition stops firing and ai-tools-run refuses to
 #      launch (fail-closed) until the label is restored.
@@ -2891,7 +4020,18 @@ cmd_list() {
         shown=1
         if [[ "${entry}" == '!'* ]]; then
             excl="${entry:1}"
-            printf '  %-8s %s\n' "exclude" "${excl}"
+            # Two different things wear a '!', and telling them apart is the whole reason this
+            # report has a `disabled` row: an exclusion INSIDE a listed project is a carve-out (a
+            # subtree withheld from the agent, working exactly as intended), while one that no
+            # listed project contains is a PARKED PROJECT -- the operator took it out of service
+            # and will want it back. A carve-out needs no remedy; a parked project is shown with
+            # the verb that restores it, in place.
+            if ! _has_glob "${excl}" && [[ -d "${excl}" ]] && ! inside_listed_project "${excl}"; then
+                printf '  %-8s %-50s %s\n' "disabled" "${excl}" "${C_DIM}no session may start here${C_RST}"
+                say "           ${C_DIM}re-enable: ai-tools --project-enable ${excl}${C_RST}"
+            else
+                printf '  %-8s %s\n' "exclude" "${excl}"
+            fi
             # A stale exclusion excludes nothing. Flag a non-glob '!' path that no longer exists;
             # a glob exclusion is valid as written (it need not resolve today), so leave it.
             if ! _has_glob "${excl}" && ! realpath -e "${excl}" >/dev/null 2>&1; then
@@ -2951,73 +4091,57 @@ cmd_list() {
     list_maintenance_note
 }
 
-# usage() is paired with the ai-tools(1) man page (src/usr/local/share/man/man1/
-# ai-tools.1): tests/unit/man.sh asserts the two long-option sets match, so an option
-# added, renamed, or removed here changes the man page in the same commit.
+# usage() is ORIENTATION, not reference: the verbs, one line each, and the three flags that cross
+# verbs. Every per-verb option lives in ai-tools(1), so there is one reference surface for options
+# and one operational surface for finding a verb -- rather than two copies of the same list, which
+# is what this text had become (it was longer than the command summary it introduced).
+#
+# The two are paired by tests/unit/man.sh, which asserts: the VERB sets match in both directions,
+# every long option named here is documented in the page, and every option the page's OPTIONS
+# section documents is one a CLI parser actually accepts. So a verb added, renamed, or removed here
+# changes the page in the same commit, and an option that outlives its parser fails the suite.
+#
+# The layout is load-bearing for that test: a verb line is indented FOUR spaces and starts with its
+# long option, while the cross-verb flag lines are indented two. Keep descriptions free of long
+# options, or they read as verbs.
 usage() {
     cat <<EOF
-ai-tools -- manage Claude Code sandbox projects (run as the projects user)
+ai-tools -- manage the projects a sandboxed coding agent may work in
 
-  ai-tools --project-claim [-y] [path]  claim a project in place: grant the agent access (default: cwd)
-  ai-tools --project-create  [path]  alias for --project-claim (back-compat)
-  ai-tools --project-unclaim [path]  release a project: revoke agent access, return the tree to your group
-  ai-tools --project-remove  [path]  alias for --project-unclaim (back-compat)
-  ai-tools --sandbox-create [path]   shallow-clone a repo into the sandbox area
-  ai-tools --sandbox-push   [path]   push the sandbox clone's commits to its branch
-  ai-tools --sandbox-remove [path]   remove a sandbox clone and unregister it
-  ai-tools --lockdown [path] [-n|-y] lock down secret files (sudo; default: cwd)
-  ai-tools --reclaim [--full] [path] take back ownership of agent files; project stays claimed (sudo; default: cwd)
-  ai-tools --stop                    terminate every agent session and all it spawned (sudo)
-  ai-tools --relabel                 re-verify and relabel the agent entrypoints (sudo)
-  ai-tools --providers               list installed agents/integrations and which are enabled
-  ai-tools --audit [--since <when>]  report what refused, was rejected or stranded (sudo; default: 7 days)
-  ai-tools --status                  report service health (handback socket, relabel watcher, updater)
-  ai-tools --list                    list registered projects
-  ai-tools --version
-  ai-tools --help
+  Projects
+    --project-create <path>     create a new project directory, init git, and claim it
+    --project-claim [path]      claim an existing project in place
+    --project-unclaim [path]    release a project; the directory stays on disk
+    --project-remove [path]     release a project AND delete its directory
+    --project-disable [path]    park a project: no session may start in it
+    --project-enable [path]     un-park a project disabled earlier
+  Sandbox clones
+    --sandbox-create [path]     shallow-clone a repo into the sandbox area
+    --sandbox-push [path]       push the clone's commits to its branch
+    --sandbox-remove [path]     remove a clone and unregister it
+  Maintenance
+    --lockdown [path]           lock down secret-named files
+    --reclaim [path]            take back ownership of agent-written files
+    --relabel                   re-verify and relabel the agent entrypoints
+  Reports
+    --status                    service health, and whether anything needs attention
+    --list                      registered projects, real and sandbox
+    --providers                 installed agents and integrations, and which are enabled
+    --audit                     what has refused, been rejected, or been stranded
+    --version                   the installed version
+    --help                      this summary
+  Incident
+    --stop                      terminate every agent session on this host
 
-  --project-claim options: -y/--yes (pre-answer the proceed prompt; the secret-lockdown,
-                      .git-history, and ancestor-traversal questions still ask)
-  --project-unclaim options: --group <group> (hand back to <group> without prompting),
-                      --full (also cover node_modules, .venv, ...), -y/--yes (pre-answer
-                      the confirm), --force (normalize a COPY of a claimed project that is
-                      not registered; acts only on paths still carrying ai-tools ownership,
-                      group, or ACL), -n/--dry-run (with --force: list, change nothing)
-  --sandbox-create options: --from <ref> (branch/ref to fork from; default: current branch),
-                      --branch <name> (full sandbox branch to create/track; default:
-                      sandbox/<leaf of --from>; any valid git ref), --dir <name> (sandbox
-                      directory name; default: repo basename), -y/--yes (skip the create confirm)
-  --lockdown options: -n/--dry-run (preview only), -y/--yes (skip confirmation)
-  --reclaim options:  --full (also reclaim node_modules, .venv, ... not just the work tree + .git)
-  --stop options:     -n/--dry-run (list what would be terminated, change nothing), -y/--yes
-                      (skip the confirmation, which DEFAULTS TO YES here: an unattended stop
-                      that declines is a stop that failed), --force (kill immediately, no
-                      grace period -- the current turn's unsaved work is lost), --all
-                      (accepted and inert; every run already terminates every session).
-                      It takes NO path: there is no per-project form, because a session is
-                      attributed to a project by the account being stopped. To finish one
-                      session cleanly use /exit inside it, which runs its session-end
-                      handback. Exits 1 if anything survived, 2 on a path, 4 declined.
-  --audit options:    --since <when> (anything date(1) parses: '2 days ago', '2026-08-01';
-                      default: 7 days ago). Exits non-zero when anything is reported, so it
-                      is usable from cron or a login banner without parsing its output.
+  -y/--yes        pre-answer a command's own confirmation (never its scoped opt-ins)
+  -n/--dry-run    show what would change, change nothing
+  --for <op>      act on another enrolled operator's projects instead of your own
 
-  Runs as an operator, without sudo -- the CLI invokes sudo itself for the steps that need
-  it. Root is accepted for the verbs that write no operator state (--audit, --status,
-  --list, --providers, --stop); every other verb writes operator-owned state and refuses
-  root. A caller holding no sudo grant for a verb's root helper is told so before sudo
-  prompts, with the command an operator who does hold one can run instead; --stop needs no
-  such grant (%ai-ops carries a NOPASSWD rule for its bare form).
+  Run as an operator, without sudo -- the CLI invokes sudo itself for the steps that
+  need it. Root may run only the verbs that write no operator state.
 
-  --for <operator>    act on another enrolled operator's projects instead of your own: the
-                      entry lands in THEIR allowed-projects, so the tree is granted to them and
-                      their agent launches there. For a service account that runs an agent but
-                      has no password to authenticate a claim of its own. Accepted on
-                      --project-claim/-create, --project-unclaim/-remove, --lockdown,
-                      --reclaim and --list; not with --project-unclaim --force.
-                      Enrol the target first: sudo ai-tools-admin operator add <operator>
-
-Sandbox workflow: /var/opt/ai-tools/README.md
+  Every option, exit code and example:  man ai-tools
+  Sandbox workflow:                     /var/opt/ai-tools/README.md
 EOF
 }
 
@@ -3037,11 +4161,9 @@ require_bootstrap() {
 # dispatch below. On execution BASH_SOURCE[0] equals $0, so this is a no-op and the CLI proceeds.
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] || return 0
 
-# The two diagnostics meant to run WHEN things may be broken bypass the provisioning gate
-# (BOOTSTRAP_EXEMPT_VERBS): cmd_status reports the unprovisioned state itself instead of being
-# blocked by it, and --audit reads a record of what already happened, which an install that never
-# finished does not invalidate -- a failed provisioning is precisely when that record is worth
-# reading. Every other command stays gated.
+# The verbs meant to run WHEN things may be broken bypass the provisioning gate. Which ones, and
+# what each of them reads on a host whose install never finished, is at BOOTSTRAP_EXEMPT_VERBS
+# above. Every other command stays gated.
 verb_in "${1:-}" "${BOOTSTRAP_EXEMPT_VERBS[@]}" || require_bootstrap
 
 # require_operator -- refuse a command that acts as an operator unless the invoking user is
@@ -3111,9 +4233,22 @@ require_sudo_access() {
         --audit)                            bin="${AUDIT_BIN}"    what="reading the refusal trail" ;;
         --lockdown)                         bin="${LOCKDOWN_BIN}" what="locking down secret files"; delegable=true ;;
         --reclaim)                          bin="${RECLAIM_BIN}"  what="reclaiming agent-written files"; delegable=true ;;
-        --project-claim|--project-create)   bin="${LOCKDOWN_BIN}" what="claiming a project"; delegable=true ;;
-        --project-unclaim|--project-remove) bin="${UNCLAIM_BIN}"  what="unclaiming a project"; delegable=true ;;
+        --project-claim)                    bin="${LOCKDOWN_BIN}" what="claiming a project"; delegable=true ;;
+        # A create skips the secret gate (its tree is empty by construction), so the first helper
+        # it reaches is the safe.directory registration, not the lockdown scan.
+        --project-create)                   bin="${SAFEDIR_BIN}"  what="creating a project"; delegable=true ;;
+        --project-unclaim)                  bin="${UNCLAIM_BIN}"  what="unclaiming a project"; delegable=true ;;
+        # --project-remove runs no ai-tools-unclaim: it deletes the tree instead of handing it
+        # back, so the first helper it reaches is the safe.directory de-registration.
+        --project-remove)                   bin="${SAFEDIR_BIN}"  what="removing a project"; delegable=true ;;
         --sandbox-create)                   bin="${LOCKDOWN_BIN}" what="creating a sandbox clone" ;;
+        # The enable/disable pair edits ONE line of the caller's own registry and reaches no root
+        # helper at all, so a plain run is not probed: refusing it for a missing grant would deny a
+        # no-sudo service account the one pair of verbs it needs no help with. Only the --for form
+        # needs one, where ai-tools-allowlist performs the edit on another operator's file.
+        --project-enable|--project-disable)
+            [[ -n "${FOR_OPERATOR}" ]] || return 0
+            bin="${ALLOWLIST_BIN}" what="enabling or disabling a project for ${FOR_OPERATOR}" ;;
         # --sandbox-push/-remove and the informational verbs reach no helper that can refuse the
         # command: the only sudo either of the sandbox pair makes is unreg_allow's safedir removal,
         # which already warns and carries on rather than failing the verb.
@@ -3158,10 +4293,16 @@ require_sudo_access() {
         local source_dir clone_dir
         source_dir="$(handover_target "$@")"
         clone_dir="${SANDBOX_ROOT}/$(basename "${source_dir}")"
+        # The chown is not optional bookkeeping: the clone is created by whoever runs the first
+        # command, and a claim FOR another operator over a tree that operator does not own grants
+        # nothing (require_claimable_owner refuses it). Three commands, because the middle one is
+        # the only thing that makes the third do anything.
         advice+=( "    ai-tools --sandbox-create ${source_dir}" \
+                  "    sudo chown -R ${INVOKING_USER} ${clone_dir}" \
                   "    ai-tools --project-claim --for ${INVOKING_USER} ${clone_dir}" "" \
                   "--sandbox-create takes no --for: the clone is made with the git credentials of" \
-                  "whoever runs it. The second command registers it for ${INVOKING_USER}." )
+                  "whoever runs it, so it is born owned by them. The chown hands it to" \
+                  "${INVOKING_USER}, and the claim registers it for ${INVOKING_USER}." )
     else
         local rest=""; (( $# )) && rest="$(printf ' %q' "$@")"
         advice+=( "    ai-tools ${verb}${rest}" )
@@ -3177,6 +4318,57 @@ require_sudo_access() {
     printf '\n' >&2
     die "${what} needs root, and ${INVOKING_USER} holds no sudo grant for ${bin##*/}." \
         "Membership of ai-ops does not carry a general sudo grant."
+}
+
+# require_runas_target <verb> [verb-args...] -- refuse a --for run whose filesystem steps cannot be
+# performed AS the target. A no-op without --for, and a no-op for every verb that touches the
+# filesystem only through a root helper.
+#
+# --project-create and --project-remove build and destroy a tree as an OWNER, through run_as_owner
+# i.e. `sudo -u <target>`. That is a different sudoers question from the one require_sudo_access
+# asks: a host can grant every ai-tools helper and still restrict Runas to root, and there each
+# verb would fail at the worst moment -- the create after making the directory and before claiming
+# it, the remove after unregistering the project and before deleting it. Probing first is what
+# keeps "refused before anything changes" true on such a host.
+#
+# --project-claim runs steps as the acting operator too -- its traverse ACL, its drift probe, its
+# core.filemode pin -- and is not probed here. Each of those warns and continues on its own, so a
+# claim on a Runas-restricted host loses those steps individually and leaves no part-built tree.
+# Probing would refuse the whole claim over one step the rest does not need.
+#
+# Each command the run actually executes is probed rather than one representative, for the reason
+# require_sudo_access gives: a sudoers permitting some and not others is then answered accurately.
+# `sudo -n -l -u <target> <cmd>` cannot prompt, so this costs no password, and it runs before
+# require_for_target's snapshot -- the run's first real sudo -- like every other refusal here.
+require_runas_target() {
+    local verb="${1:-}"
+    [[ -n "${FOR_OPERATOR}" ]] || return 0
+    local -a needed=()
+    case "${verb}" in
+        --project-create) needed=(mkdir git tee chmod setfacl) ;;
+        --project-remove) needed=(find rm) ;;
+        *) return 0 ;;
+    esac
+    local name resolved blocked=""
+    for name in "${needed[@]}"; do
+        resolved="$(command -v -- "${name}" 2>/dev/null)" || continue   # absent: its own call site reports it
+        if sudo_grant_missing "${resolved}" "${FOR_OPERATOR}"; then blocked="${resolved}"; break; fi
+    done
+    [[ -n "${blocked}" ]] || return 0
+
+    # Printed plain and ahead of die(), whose emitter would wrap a command across lines.
+    local -a advice=("Run it as ${FOR_OPERATOR} instead.")
+    if [[ "${verb}" == --project-create ]]; then
+        advice=("Run it as ${FOR_OPERATOR}, or create the project without --for and hand it over:" "" \
+                "    ai-tools --project-create <path>" \
+                "    sudo chown -R ${FOR_OPERATOR} <path>" \
+                "    ai-tools --project-claim --for ${FOR_OPERATOR} <path>")
+    fi
+    printf '\n' >&2
+    printf '  %s\n' "${advice[@]}" >&2
+    printf '\n' >&2
+    die "${verb} --for ${FOR_OPERATOR} acts on the filesystem AS ${FOR_OPERATOR}, and ${INVOKING_USER} holds no sudo grant to run ${blocked##*/} as that account." \
+        "This is a separate sudoers question from the ai-tools helpers: a host can grant every one of those and still restrict which accounts you may act as."
 }
 
 # snapshot_allowlist -- point ALLOWLIST at a private copy of the --for target's registry, read
@@ -3220,13 +4412,9 @@ snapshot_allowlist() {
 require_for_target() {
     local verb="${1:-}"; shift || true
     [[ -n "${FOR_OPERATOR}" ]] || return 0
-    case "${verb}" in
-        --project-claim|--project-create|--project-unclaim|--project-remove|\
-        --lockdown|--reclaim|--list) ;;
-        *) die "--for is not accepted on ${verb}" \
-               "it applies to: --project-claim, --project-create, --project-unclaim," \
-               "       --project-remove, --lockdown, --reclaim, --list" ;;
-    esac
+    verb_in "${verb}" "${FOR_ALLOWED_VERBS[@]}" \
+        || die "--for is not accepted on ${verb}" \
+               "it applies to: $(join_words "${FOR_ALLOWED_VERBS[@]}")"
     # --force reaches a tree NO allowlist names, so ai-tools-unclaim cannot resolve its owner from
     # an entry and binds the walk to the INVOKING uid instead -- the guard that stops one operator
     # rewriting another's files. Honouring --for there would have the CLI name one operator while
@@ -3258,16 +4446,18 @@ require_for_target() {
 
 # Gate the operator-acting commands up front; the informational ones (--help/--version/--list/
 # --providers) stay open so an unenrolled user can still read usage and inspect the host.
-case "${1:-}" in
-    --project-claim|--project-create|--project-unclaim|--project-remove|\
-    --sandbox-create|--sandbox-push|--sandbox-remove|\
-    --lockdown|--reclaim|--relabel) require_operator ;;
-esac
+if verb_in "${1:-}" "${OPERATOR_VERBS[@]}"; then require_operator; fi
 
 # Refuse a verb whose root helper this caller has no sudo grant for, before require_for_target --
 # whose snapshot is a --for run's first sudo. Both gates keep the same ordering rule: a command
 # that is going to be refused must not prompt for a password first.
 require_sudo_access "$@"
+
+# And refuse a --for run that cannot perform its filesystem steps AS the target -- a separate
+# sudoers question from the helper grants above, and one that would otherwise surface partway
+# through building a tree. Same ordering rule: ahead of the snapshot, which is the first sudo that
+# can prompt.
+require_runas_target "$@"
 
 # Validate a --for run and re-point the registry at the target, after require_operator: acting for
 # another operator is an operator action, so the invoker must be enrolled before the target is even
@@ -3279,7 +4469,9 @@ case "${1:-}" in
     --project-claim)   shift; cmd_project_claim   "$@" ;;
     --project-create)  shift; cmd_project_create  "$@" ;;
     --project-unclaim) shift; cmd_project_unclaim "$@" ;;
-    --project-remove)  shift; cmd_project_unclaim "$@" ;;
+    --project-remove)  shift; cmd_project_remove  "$@" ;;
+    --project-enable)  shift; cmd_project_enable  "$@" ;;
+    --project-disable) shift; cmd_project_disable "$@" ;;
     --sandbox-create) shift; cmd_sandbox_create "$@" ;;
     --sandbox-push)   shift; cmd_sandbox_push   "${1:-}" ;;
     --sandbox-remove) shift; cmd_sandbox_remove "${1:-}" ;;

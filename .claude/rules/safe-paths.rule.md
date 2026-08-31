@@ -44,7 +44,7 @@ mount points, and `/tmp`/`/lost+found`. The sandbox's own working areas — `/op
 `/var/opt/ai-tools/sandbox-projects` — are reached as *descendants* of listed entries, so they
 work without a carve-out.
 
-## Two functions
+## Two functions, plus a narrower third
 
 - `ai_tools_protected_path_match <abspath>` — the pure predicate: prints the matching entry
   and returns 0 when protected, 1 otherwise. Normalizes a trailing slash.
@@ -54,13 +54,41 @@ work without a carve-out.
   plain lines otherwise; see [messaging](messaging.rule.md)), logs it at `WARNING`, and returns
   non-zero so the caller aborts before acting. A safe target returns 0 silently.
 
+### `ai_tools_traverse_grant_allowed <path> <owner>` — the traverse-grant rule
+
+A second predicate, for a strictly weaker operation, single-sourced here and used by `reg_reach`
+(via `grantable_ancestor`) and by both new project verbs through it. It returns 0 when `<path>` is
+a directory `<owner>` holds and it either matches no protected path **or** matches only as
+`<owner>`'s own home root — resolved from `getent`, so a path that merely looks like `/home/<name>`
+is not admitted on its shape. Every system directory, `/home` itself, and any other account's home
+root stay refused, as does a missing path, a non-directory, or an unnamed owner.
+
+**This does not weaken the backstop; it sits beside it.** The two vet different operations, and the
+size of the operation is the whole justification. A claim, an unclaim, a lockdown or an elevated
+walk rewrites group, mode and ACLs across a **tree**, and `ai_tools_protected_path_match` still
+refuses a home root as the target of any of them. A traverse grant is one `u:SANDBOX_USER:--x`
+entry on **one directory**: search permission on that directory alone, conveying no listing of it
+and nothing whatever about the files inside, whose own modes and ACLs still decide — and the
+sandbox account is neither their owner nor in their group. Reusing the target backstop for it made
+every project at `/home/<user>/<proj>` report permanently unreachable, with a sandbox clone the
+only way in.
+
+What the grant conveys is therefore a **condition**, not exposure: it makes already-world-readable
+entries *reachable*. Under `umask 077` that set is empty; under the RHEL default `022` it is the
+`644` skel files and anything else written world-readable. Which of those a host is has a one-line
+answer, so the prompt states the condition and names `find <home> -maxdepth 1 -perm -o+r` rather
+than asserting either outcome. The prompt is default-NO, is not pre-answered by
+`AI_TOOLS_ASSUME_YES` or by a verb's `-y`, and a run with no terminal declines and prints the
+`setfacl` commands (see [cli](cli.rule.md), [messaging](messaging.rule.md)).
+
 ## Where the guard runs
 
 Two layers, both fail-closed:
 
 - **Front line** — `claude.sh` refuses to *launch* a session in a protected CWD, and
-  `ai-tools --project-claim` (`cmd_project_claim`) and `--project-unclaim`
-  (`cmd_project_unclaim`) both refuse a protected directory as their target, so a mis-entered
+  `ai-tools --project-claim` (`cmd_project_claim`), `--project-create` (`cmd_project_create`),
+  `--project-remove` (`cmd_project_remove`) and `--project-unclaim`
+  (`cmd_project_unclaim`) each refuse a protected directory as their target, so a mis-entered
   allowlist neither starts a session nor claims/unclaims a system tree where the handback would
   act. Unclaim guards each *modification target* (in ancestor mode the search root may be a
   protected path such as `/home` while the projects nested under it are not). Its `--force`
@@ -69,6 +97,11 @@ Two layers, both fail-closed:
   directory is refused in both modes. A protected path can never legitimately be a claimed
   project, so the only cleanup a stray hand-edited entry needs is a registry/label edit, which
   `ai-tools --list` reports.
+  `--project-create` asserts on the directory it would make, which is the whole surface there
+  since only the final component is ever created: it refuses a create that would *manufacture* a
+  protected directory (`/efi` or `/lost+found` on a host without one). It does not refuse a project
+  nested *inside* a protected tree — descendants pass by design, exactly as for a claim, or no
+  project under a home would work.
   `--sandbox-remove`/`--sandbox-push` add a second front-line for the destructive `rm -rf`:
   `require_sandbox_clone` calls the backstop **and** requires a direct-child clone of
   `SANDBOX_ROOT` that is a git worktree, so the shared clone-area root — a *descendant* of the

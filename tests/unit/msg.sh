@@ -5,7 +5,11 @@
 # exceeds 80 columns, every framed line is a '#' comment (paste-safe), the wrap never
 # ends a line on a tie-word (preposition/article/conjunction) and never splits a single
 # token (paths survive), and plain mode keeps a phrase on one line so the test suite's
-# substring greps still match. Pure formatting -- no root, no install dependency: the
+# substring greps still match. The two question renderers carry decisions rather than
+# formatting, so each is driven to its answer-less end: a menu with no default must yield
+# NOTHING on stdout and a non-zero status on every path that fails to get an index (no
+# terminal, closed input, three unanswered attempts), or a caller would read an unanswered
+# menu as a chosen option. Pure formatting -- no root, no install dependency: the
 # library carries no token substitution, so the repo source IS the deployed artifact. The
 # test validates the source of truth directly (so it never reports a false failure against a
 # not-yet-redeployed installed copy), falling back to the installed path outside a checkout.
@@ -158,6 +162,91 @@ else
     fail "ai_tools_msg_pick did not default without a tty (got '${sel}')"
 fi
 
+# ── ai_tools_msg_pick, no-default mode ────────────────────────────────────────────
+# `none` is the mode that refuses to answer for the user: every way it can fail to get a
+# valid index must yield NOTHING on stdout and a non-zero status, so a caller cannot mistake
+# an unanswered menu for a chosen option (the claude wrapper reads that as Cancel).
+
+# (12b) No terminal: non-zero, nothing on stdout -- the caller decides, the lib does not.
+nd_rc=0
+nd_sel="$(setsid bash -c 'source "'"${LIB}"'"; ai_tools_msg_pick none a b c' </dev/null 2>/dev/null)" \
+    || nd_rc=$?
+if [[ "${nd_rc}" != 0 && -z "${nd_sel}" ]]; then
+    pass "ai_tools_msg_pick none refuses (non-zero, no output) with no terminal"
+else
+    fail "ai_tools_msg_pick none answered without a tty (rc=${nd_rc}, out='${nd_sel}')"
+fi
+
+# (12c) An invalid first argument is a caller error, never an assumed answer.
+ba_rc=0
+bad_sel="$(bash -c 'source "'"${LIB}"'"; ai_tools_msg_pick 7 a b c' 2>/dev/null)" || ba_rc=$?
+if [[ "${ba_rc}" == 2 && -z "${bad_sel}" ]]; then
+    pass "ai_tools_msg_pick rejects a default outside 1..N (rc=2, no output)"
+else
+    fail "ai_tools_msg_pick accepted an out-of-range default (rc=${ba_rc}, out='${bad_sel}')"
+fi
+
+# (12d) With a terminal: empty input RE-ASKS and, after three attempts, gives up -- while a
+# valid index is echoed. Both need a real controlling terminal (the menu is drawn on
+# /dev/tty), so they run under a `script` pty; the probe writes its result to a file, since
+# everything the pty carries is one stream. A host with no pty available skips rather than
+# misreports. Each run is bounded by `timeout`, so a regression that blocks on the read
+# fails the check instead of hanging the suite.
+mktestdir
+probe="${TESTDIR}/pick-probe.sh"
+cat > "${probe}" <<EOF
+source "${LIB}"
+rc=0
+sel="\$(ai_tools_msg_pick none "Create sandbox"\$'\t'"an isolated copy" \\
+    "Claim here"\$'\t'"in place" "Cancel"\$'\t'"change nothing")" || rc=\$?
+printf '%s' "\${sel}" > "${TESTDIR}/sel"
+printf '%s' "\${rc}"  > "${TESTDIR}/rc"
+EOF
+# pick_probe <input> -- run the probe under a pty with <input> on its stdin; echoes
+# "<rc>:<selection>", or "nopty" when a pseudo-terminal cannot be allocated.
+pick_probe() {
+    : > "${TESTDIR}/sel"; : > "${TESTDIR}/rc"
+    if ! printf '%b' "$1" | timeout 20 script -qec "bash ${probe}" /dev/null >/dev/null 2>&1; then
+        [[ -s "${TESTDIR}/rc" ]] || { printf 'nopty'; return; }
+    fi
+    printf '%s:%s' "$(cat "${TESTDIR}/rc")" "$(cat "${TESTDIR}/sel")"
+}
+if ! command -v script >/dev/null 2>&1; then
+    skip "ai_tools_msg_pick none interactive cases" "script(1) not available for a pty"
+else
+    empty_res="$(pick_probe '\n\n\n')"
+    valid_res="$(pick_probe '\n9\n2\n')"
+    if [[ "${empty_res}" == nopty || "${valid_res}" == nopty ]]; then
+        skip "ai_tools_msg_pick none interactive cases" "no pseudo-terminal available here"
+    elif [[ "${empty_res}" == "1:" ]]; then
+        pass "ai_tools_msg_pick none re-asks and gives up (non-zero, no output) after 3 empties"
+    else
+        fail "ai_tools_msg_pick none did not give up on empty input (got '${empty_res}')"
+    fi
+    if [[ "${valid_res}" == nopty ]]; then
+        :   # already reported above
+    elif [[ "${valid_res}" == "0:2" ]]; then
+        pass "ai_tools_msg_pick none re-asks past empty/out-of-range input and takes the valid index"
+    else
+        fail "ai_tools_msg_pick none did not accept the valid index after two misses (got '${valid_res}')"
+    fi
+fi
+
+# ── ai_tools_cmd_display: a command the user can type ──────────────────────────────
+# (12e) The bare name only where PATH resolves it to that SAME absolute path; the absolute
+# path otherwise, so a host with an unexpected PATH still gets a command that works.
+mkdir -p "${TESTDIR}/bin" "${TESTDIR}/elsewhere"
+printf '#!/bin/sh\n' > "${TESTDIR}/bin/ai-tools-probe"
+cp "${TESTDIR}/bin/ai-tools-probe" "${TESTDIR}/elsewhere/ai-tools-probe"
+chmod 0755 "${TESTDIR}/bin/ai-tools-probe" "${TESTDIR}/elsewhere/ai-tools-probe"
+on_path="$(PATH="${TESTDIR}/bin:${PATH}" ai_tools_cmd_display "${TESTDIR}/bin/ai-tools-probe")"
+shadowed="$(PATH="${TESTDIR}/bin:${PATH}" ai_tools_cmd_display "${TESTDIR}/elsewhere/ai-tools-probe")"
+if [[ "${on_path}" == "ai-tools-probe" && "${shadowed}" == "${TESTDIR}/elsewhere/ai-tools-probe" ]]; then
+    pass "ai_tools_cmd_display shortens only what PATH resolves to that same path"
+else
+    fail "ai_tools_cmd_display wrong (on-path='${on_path}', shadowed='${shadowed}')"
+fi
+
 # (13) Caller-IFS independence: the claude wrapper sets IFS=$'\n\t' (no space). The wrap must
 # still split on spaces and wrap, not collapse the line into one over-wide unbreakable unit.
 ifs_over="$(IFS=$'\n\t'; AI_TOOLS_MSG_BOX=1 ai_tools_msg ERROR 1 \
@@ -237,7 +326,96 @@ else
     fail "confirm hint notation drifted from [Y/n] (default: Yes) / [y/N] (default: No)"
 fi
 
-# (19) Include guard: a consumer that sources the lib directly AND through
+# ── ai_tools_msg_challenge: the typed-name challenge ───────────────────────────────
+# The interactive branch needs a controlling terminal, which this suite does not allocate (every
+# prompt assertion in this file drives the no-tty path under setsid, for the same reason). What
+# IS drivable is the half that carries the guarantee: with no terminal the challenge must decline,
+# since a destructive verb behind one has to be unreachable from cron by construction.
+
+# (19) No terminal -- and therefore no possible answer -- declines. It has no default to fall
+# back on, which is what distinguishes it from a confirm.
+ch_rc=0; _confirm 'ai_tools_msg_challenge "Delete?" myproj' || ch_rc=$?
+if [[ "${ch_rc}" != 0 ]]; then
+    pass "challenge declines with no terminal (no default to fall back on)"
+else
+    fail "challenge returned success with no terminal (rc=${ch_rc})"
+fi
+
+# (20) A missing <expected> is a caller error, never an assumed match -- the same rule the
+# confirm's required default follows.
+chm_rc=0; _confirm 'ai_tools_msg_challenge "Delete?"' || chm_rc=$?
+if [[ "${chm_rc}" != 0 ]]; then
+    pass "challenge rejects a missing expected value (rc=${chm_rc})"
+else
+    fail "challenge accepted a missing expected value"
+fi
+
+# (21) The prompt states what to type: the value is a deliberateness check, not a secret, so
+# hiding it would only make the challenge a guessing game.
+if grep -qF '[type %s to confirm]' "${LIB}"; then
+    pass "challenge prompt echoes the value to type"
+else
+    fail "challenge prompt no longer states what to type"
+fi
+
+# (22) With a terminal: an exact answer matches, anything else does not, and the answer -- which
+# is untrusted input reaching a log sink -- is sanitized before it is recorded. Same `script` pty
+# harness as the pick cases above, and the same graceful skip where no pty can be allocated. The
+# audit line is captured by stubbing the logger AFTER sourcing, so the real sanitizer still runs.
+chprobe="${TESTDIR}/challenge-probe.sh"
+cat > "${chprobe}" <<EOF
+source "${LIB}"
+ai_tools_log() { shift; printf '%s\n' "\$*" >> "${TESTDIR}/audit"; }
+rc=0
+ai_tools_msg_challenge "Delete myproj?" myproj || rc=\$?
+printf '%s' "\${rc}" > "${TESTDIR}/chrc"
+EOF
+# challenge_probe <input> -- run the probe under a pty with <input> on its stdin; echoes the
+# challenge's exit status, or "nopty" when a pseudo-terminal cannot be allocated.
+challenge_probe() {
+    : > "${TESTDIR}/chrc"; : > "${TESTDIR}/audit"
+    if ! printf '%b' "$1" | timeout 20 script -qec "bash ${chprobe}" /dev/null >/dev/null 2>&1; then
+        [[ -s "${TESTDIR}/chrc" ]] || { printf 'nopty'; return; }
+    fi
+    cat "${TESTDIR}/chrc"
+}
+if ! command -v script >/dev/null 2>&1; then
+    skip "ai_tools_msg_challenge interactive cases" "script(1) not available for a pty"
+else
+    match_rc="$(challenge_probe 'myproj\n')"
+    if [[ "${match_rc}" == nopty ]]; then
+        skip "ai_tools_msg_challenge interactive cases" "no pseudo-terminal available here"
+    else
+        if [[ "${match_rc}" == 0 ]]; then
+            pass "challenge accepts the exact expected value"
+        else
+            fail "challenge rejected the exact expected value (rc=${match_rc})"
+        fi
+
+        # A near miss is still a miss: the point of the challenge is that only the exact name
+        # counts, so a prefix must not pass.
+        near_rc="$(challenge_probe 'mypro\n')"
+        if [[ "${near_rc}" != 0 ]]; then
+            pass "challenge rejects a near miss (rc=${near_rc})"
+        else
+            fail "challenge accepted a value that is not the expected one"
+        fi
+
+        # The untrusted-input case: an answer carrying a terminal escape is recorded through the
+        # shared allowlist sanitizer, so no raw control byte reaches the root-owned trail an
+        # operator later cats. The decision itself is recorded either way.
+        esc_rc="$(challenge_probe '\033[31mBAD\n')"
+        audit="$(cat "${TESTDIR}/audit" 2>/dev/null || true)"
+        if [[ "${esc_rc}" != 0 ]] && grep -q 'challenge:' <<<"${audit}" \
+                && ! grep -q $'\033' <<<"${audit}" && grep -qF '?[31mBAD' <<<"${audit}"; then
+            pass "a mistyped challenge answer is recorded with its control bytes sanitized"
+        else
+            fail "the challenge logged an unsanitized answer (audit: $(cat -v <<<"${audit}"))"
+        fi
+    fi
+fi
+
+# (23) Include guard: a consumer that sources the lib directly AND through
 # safe-paths.lib.sh must survive the re-source under set -e (readonly constants).
 if bash -c 'set -euo pipefail; source "'"${LIB}"'"; source "'"${LIB}"'"'; then
     pass "a second source of msg.lib.sh is a no-op (include guard)"

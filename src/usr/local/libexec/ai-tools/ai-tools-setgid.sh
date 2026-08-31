@@ -42,7 +42,9 @@ source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
 readonly GROUP="@SANDBOX_GROUP@"
 # Two identities may legitimately hold a project tree's dirs: the resolved operator and the sandbox
 # account. A directory belonging to a third party (root, another developer) is left untouched --
-# normalization must not pull a foreign dir into the agent's group. Matched by numeric UID;
+# normalization must not pull a foreign dir into the agent's group -- and COUNTED, so a walk that
+# normalized nothing is reported rather than silent; the project root hitting the guard is called
+# out on its own, since it means the whole claim granted no access. Matched by numeric UID;
 # PROJECTS_UID is the resolved operator (set below).
 SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
 readonly SANDBOX_UID
@@ -161,7 +163,10 @@ _safe_setgid() {
         < <(stat -c '%d:%i %u %G %a' "${dir}" 2>/dev/null) || return 1
     # Owner guard: only the projects user's or the sandbox account's own dirs are
     # eligible (re-verified TOCTOU-safe on the pinned inode below); skip anything else.
-    [[ "${owner_uid}" == "${PROJECTS_UID}" || "${owner_uid}" == "${SANDBOX_UID}" ]] || return 1
+    # Return 3, not 1, so the walk can tell a third-party owner from a stat failure and
+    # report it: a walk that touches nothing must not be indistinguishable from one that
+    # had nothing to do.
+    [[ "${owner_uid}" == "${PROJECTS_UID}" || "${owner_uid}" == "${SANDBOX_UID}" ]] || return 3
     # Nothing to do when already group GROUP and already setgid -- unless the dir is owner-only,
     # where that state is inherited residue the pinned-fd path below strips.
     if [[ "${grp}" == "${GROUP}" ]] && (( (0${mode} & 02000) != 0 )) \
@@ -179,10 +184,11 @@ _safe_setgid() {
         return 1
     fi
     # Owner guard (checked on the pinned inode, TOCTOU-safe): only the projects user's
-    # or the sandbox account's own dirs are eligible; anything else is left untouched.
+    # or the sandbox account's own dirs are eligible; anything else is left untouched
+    # and reported (3, as above).
     if [[ "${got_uid}" != "${PROJECTS_UID}" && "${got_uid}" != "${SANDBOX_UID}" ]]; then
         exec {fd}<&-
-        return 1
+        return 3
     fi
     # Group and mode come from the pinned inode, so the seal decision and the strip act on the
     # same directory the mutation would. A sealed dir is left out of the agent's group and its
@@ -223,7 +229,8 @@ find "${expr[@]}" 2>/dev/null \
     | { declare -a skip=()
         _under_skip() { local p; for p in "${skip[@]:-}"; do
             [[ -n "${p}" && ( "$1" == "${p}" || "$1" == "${p}/"* ) ]] && return 0; done; return 1; }
-        declare -i sealed=0 foreign=0 rc=0
+        declare -i sealed=0 foreign=0 thirdparty=0 rc=0
+        declare root_thirdparty=false
         while IFS= read -r -d '' d; do
             _under_skip "${d}" && continue
             if _is_excluded "${d}" || _is_secret_name "${d}"; then
@@ -234,11 +241,31 @@ find "${expr[@]}" 2>/dev/null \
                 sealed=$(( sealed + 1 ))
                 skip+=("${d}")          # a sealed dir takes its subtree with it
                 if (( ${AI_TOOLS_RESIDUE_SURFACE:-0} )); then foreign=$(( foreign + 1 )); fi
+            elif (( rc == 3 )); then
+                thirdparty=$(( thirdparty + 1 ))
+                # The project ROOT is the case that decides whether the claim did anything at
+                # all: every directory below it inherits nothing, so the agent cannot enter the
+                # tree. Called out separately from the count for that reason.
+                [[ "${d}" == "${canonical}" ]] && root_thirdparty=true
             fi
         done
         # The counts are local to this subshell (pipe); report them here.
         if (( sealed )); then
             ai_tools_log_info "left ${sealed} owner-only path(s) under ${canonical} out of the agent's reach"
+        fi
+        # Surfaced, never silent: the owner guard is the one skip that can leave a claim having
+        # granted NOTHING while every other step succeeds -- an operator-owned tree claimed for a
+        # different operator hits it on every directory. A count on stderr is what turns that from
+        # an invisible no-op into something the claim can report.
+        if (( thirdparty )); then
+            ai_tools_log_warn "left ${thirdparty} director(ies) under ${canonical} untouched: owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@"
+            if ${root_thirdparty}; then
+                printf 'ai-tools-setgid: the project directory itself is owned by neither %s nor %s -- nothing was normalized, and the agent gets no access to this tree\n' \
+                    "${PROJECTS_USER}" "@SANDBOX_USER@" >&2
+            else
+                printf 'ai-tools-setgid: left %d director(ies) owned by neither %s nor %s untouched -- the agent gets no access to them\n' \
+                    "${thirdparty}" "${PROJECTS_USER}" "@SANDBOX_USER@" >&2
+            fi
         fi
         # Surfaced, never silent: a setgid the operator may have set on purpose is the one piece
         # of residue this walk declines to remove, so the operator has to hear that it stayed.

@@ -94,11 +94,37 @@ repository's git history
 .RB ( .git )
 is a separate opt-in prompt.
 .TP
-.B \-\-project\-create
-Alias for
-.BR \-\-project\-claim .
+.B \-\-project\-create \fIpath\fR
+Create a
+.I new
+project directory and claim it: one
+.BR mkdir ,
+an empty git repository, a
+.B README.md
+carrying the directory's own name, then the ordinary claim flow on the result.
+The
+.I path
+is required and must
+.I not
+exist \(em claiming a directory that already exists is
+.BR \-\-project\-claim ,
+and keeping the two apart is what stops the operation that grants an agent access
+to an existing tree from being reachable by a typo. Its parent
+.I must
+exist: only the final component is created, so a mistyped path is refused rather
+than manufactured. Every filesystem step runs as the operator the run acts for, so
+a create under
+.B \-\-for
+produces a tree that operator owns. A refusal leaves nothing behind.
+.IP
+It takes no options and asks no confirmation of its own: the tree it makes is empty,
+so the claim that follows infers the answers its prompts would otherwise ask for \(em
+there are no pre-existing permissions to warn about, no secret-named files to scan a
+brand-new directory for, and no git history to expose in a repository with no commits.
+The one question that can still appear is the traverse grant on a parent directory,
+which widens access above the project and is answered only by a person at a terminal.
 .TP
-.B \-\-project\-unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-n\fR] [\fB\-y\fR] [\fB\-\-group\fI g\fR] [\fIpath\fR]
+.B \-\-project\-unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-\-keep\-entry\fR] [\fB\-n\fR] [\fB\-y\fR] [\fB\-\-group\fI g\fR] [\fIpath\fR]
 Reverse a claim: revert the SELinux label, drop both registries, and \(em behind
 its own confirm \(em revoke the agent's access, handing the tree back to your own
 group (or a named user's group) with the agent's write removed. The directory
@@ -123,10 +149,127 @@ claim leaves it out of the agent's reach to begin with. The previous permissions
 recorded nowhere, so the operation is
 .BR "not reversible" .
 Back up first.
+.RS
 .TP
-.B \-\-project\-remove
-Alias for
-.BR \-\-project\-unclaim .
+.B \-\-keep\-entry
+Park the
+.B allowed\-projects
+line instead of deleting it: the files are handed back exactly as they otherwise would be, and
+the entry is left in place with a
+.B !
+in front of it, as
+.B \-\-project\-disable
+writes it. For an operator whose allowed-projects is an ordered, commented document and who
+unclaims between development stages \(em to hand a tree back with clean permissions before a
+release, then claim it again for the next one \(em this keeps the project's line where it was,
+comment and all, so the later
+.B \-\-project\-claim
+restores it in place rather than appending a new line at the end.
+.IP
+Refused with
+.BR \-\-force ,
+which unclaims a tree the allowlist does not name, so there is no line to keep. Refused also for a
+project nested inside another claimed project, for the reason
+.B \-\-project\-disable
+gives.
+.RE
+.TP
+.B \-\-project\-remove \fR[\fB\-y\fR] [\fIpath\fR]
+Release a project
+.I and
+delete its directory (default: the current directory). Use
+.B \-\-project\-unclaim
+to release one and keep the files.
+.IP
+The authorization is an
+.I exact
+.B allowed\-projects
+entry and nothing else: there is no
+.BR \-\-force ,
+an ancestor or a path inside a project is refused, and so is a project that
+contains another claimed project \(em deleting it would take that one with it and
+leave it registered at a path that no longer exists. A read-only pre-flight refuses
+up front if any directory is not deletable by the acting owner, so a removal never
+stops partway through a tree. Teardown removes the SELinux label and both
+registries before deleting, so a failed deletion leaves an unregistered tree rather
+than a half-deleted one.
+.IP
+It confirms twice \(em a default-NO prompt, then a typed-name challenge \(em and
+neither is answered by a run with no terminal, so nothing is deleted unattended
+without
+.BR \-y ,
+which additionally requires an explicit
+.IR path .
+.TP
+.B \-\-project\-disable \fR[\fIpath\fR]
+Park a claimed project (default: the current directory): its
+.B allowed\-projects
+line is prefixed with
+.BR ! ,
+which the launch gate reads as an exclusion, so no session starts there until it is
+re-enabled. This is the same edit an operator makes by hand, and it edits the same
+line \(em in place, keeping its position and any comment \(em so the two workflows
+agree and a park-and-restore round trip leaves the file as it was.
+.IP
+It is a registry change and
+.I only
+a registry change: the tree keeps its group, its ACLs, its setgid bits and its
+SELinux label, so nothing has to be re-applied when it comes back. What stops
+along with the launches is every root helper that resolves a path's owner through
+the allowlist \(em so while a project is disabled the ownership handback does
+.I not
+restore files written under it, and
+.BR \-\-lockdown ", " \-\-reclaim " and " \-\-project\-unclaim
+decline to act on it. Disabling a project a session is still writing to therefore
+leaves that session's files owned by the sandbox account; stop the session first, or
+re-enable and
+.B \-\-reclaim
+afterwards.
+.IP
+A path the allowlist does not name is refused rather than parked: there is no entry
+to disable, and inventing one would register a project without claiming it. A
+project already disabled succeeds and says so.
+.IP
+A project
+.I nested
+inside another claimed project is also refused. The
+.B !
+line it would write is indistinguishable from an exclusion withholding a subtree from the project
+above it, and nothing in the file could tell the two apart afterwards \(em so re-enabling it later
+could only be a guess, on an edit that widens what the agent reaches. The refusal names the two
+ways to get the intended effect: unclaim the nested project, or park the one above it. Editing the
+line by hand is unaffected; the tool simply will not write that one for you.
+.TP
+.B \-\-project\-enable \fR[\fIpath\fR]
+Restore a project disabled earlier (default: the current directory): the
+.B !
+is deleted from its line, in place. Sessions may start there again.
+.IP
+It grants nothing that was not already granted \(em the tree's permissions never
+changed \(em so it runs no secret scan and asks nothing. A path the allowlist does
+not name is refused and points at
+.BR \-\-project\-claim :
+claiming scans for secrets before granting an agent access to a tree, which is a
+different decision from lifting a
+.B !
+the operator put there. A project already enabled succeeds and says so.
+.IP
+An exclusion
+.I inside
+a claimed project is a carve-out \(em a subtree its operator withheld from the agent \(em not a
+disabled project, and is refused for that reason: lifting it would hand that subtree over. No verb
+writes such a line (see
+.BR \-\-project\-disable ),
+so one in the file was written by hand and is edited by hand.
+.IP
+Where the project's own entry is clean but something else still parks it \(em an exclusion on an
+ancestor, or a glob that matches \(em the command says so and shows the line responsible, rather
+than reporting a project enabled that no session can enter.
+.IP
+.B \-\-project\-claim
+on a disabled project neither claims over it nor duplicates its entry: it reports
+the exclusion, shows the line, and offers this same re-enable behind a default-NO
+confirm.
 .TP
 .B \-\-sandbox\-create \fR[\fIpath\fR] [\fB\-\-from\fR \fIref\fR] [\fB\-\-branch\fR \fIname\fR] [\fB\-\-dir\fR \fIname\fR] [\fB\-y\fR|\fB\-\-yes\fR]
 Shallow-clone the repository at
@@ -286,18 +429,16 @@ and which pass ended it are all recorded in
 and journald. What each outcome means, the kernel invariants the stop rests on, and what it
 cannot undo:
 .IR /usr/share/doc/ai\-tools/session\-stop.md .
+.RS
 .TP
 .B \-\-all
-For
-.BR \-\-stop :
-accepted and inert. Every run already terminates every agent session, so this flag exists
+Accepted and inert. Every run already terminates every agent session, so this flag exists
 only so that a script spelling the intent out is not refused for being explicit.
 .TP
 .B \-\-force
-For
-.BR \-\-stop :
-skip the grace period and kill immediately. The current turn's unsaved work is lost, and
+Skip the grace period and kill immediately. The current turn's unsaved work is lost, and
 the trail records that no process was given the chance to flush anything.
+.RE
 .TP
 .B \-\-relabel
 Reconcile the enabled agents' entrypoints after a toolchain change, for when the
@@ -377,6 +518,16 @@ skip the confirmation.
 For
 .BR \-\-project\-unclaim :
 pre-answer the confirm. It never answers the hand-back or skip-listed questions.
+For
+.BR \-\-project\-remove :
+pre-answer
+.I both
+the confirmation and the typed-name challenge \(em the only thing that does, since
+.B AI_TOOLS_ASSUME_YES
+never answers a default-NO question and the challenge has no default at all. It
+then requires an explicit
+.IR path ,
+so an unattended removal cannot inherit the current directory.
 .TP
 .BR \-n ", " \-\-dry\-run
 For
@@ -465,6 +616,18 @@ since the ownership helpers resolve a project's owner from the
 .B OPERATORS
 list.
 .IP
+.B \-\-project\-create
+and
+.B \-\-project\-remove
+write the filesystem
+.I as
+.IR operator ,
+so they additionally need a
+.BR sudo (8)
+grant to run as that account \(em a separate question from the ai-tools helper
+grants, and one a host can answer differently. It is checked before the run
+starts rather than partway through.
+.IP
 Accepted on
 .BR \-\-project\-claim ", " \-\-project\-create ", " \-\-project\-unclaim ,
 .BR \-\-project\-remove ", " \-\-lockdown ", " \-\-reclaim ", and " \-\-list ;
@@ -484,7 +647,11 @@ The operation failed.
 For
 .B \-\-stop
 this is the specific case that a process was still running after the kill:
-re-run it.
+re-run it. For
+.B \-\-project\-remove
+it also covers a removal that left paths behind: the project is already
+unregistered by then, so what remains is out of the agent's reach and can be
+deleted by hand.
 .TP
 .B 2
 The command line was rejected.
@@ -550,6 +717,24 @@ Claim a specific tree, taking every default:
 .RS 4
 .EX
 ai\-tools \-\-project\-claim \-y ~/src/myproject
+.EE
+.RE
+.PP
+Start a new project: create the directory, initialize git, and claim it. The parent
+must already exist, and the directory must not:
+.PP
+.RS 4
+.EX
+ai\-tools \-\-project\-create ~/src/newproject
+.EE
+.RE
+.PP
+Release a project and delete its directory. It confirms, then asks you to type the
+project's name; the files are not recoverable afterwards:
+.PP
+.RS 4
+.EX
+ai\-tools \-\-project\-remove ~/src/oldproject
 .EE
 .RE
 .PP

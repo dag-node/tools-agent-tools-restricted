@@ -22,9 +22,23 @@ declare -i _pass=0 _fail=0 _skip=0
 # Byte-wise under a forced C locale, so it is locale-independent and neutralizes multi-byte
 # sequences too. (An individual test may still hex-render a value for a better diagnostic.)
 _san() { local LC_ALL=C; printf '%s' "${1//[^[:print:]]/?}"; }
-pass()    { printf '  PASS  %s\n' "$(_san "$*")";            _pass=$(( _pass + 1 )); }
-fail()    { printf '  FAIL  %s\n' "$(_san "$*")" >&2;        _fail=$(( _fail + 1 )); }
-skip()    { printf '  SKIP  %s  (%s)\n' "$(_san "$1")" "$(_san "$2")"; _skip=$(( _skip + 1 )); }
+
+# Colour on the RESULT WORD only, so a long run reads at a glance. Enabled when stdout is a
+# terminal, or when AI_TOOLS_TEST_COLOR=1 -- run.sh and install.sh set that because they pipe this
+# output through tee, which makes the tty test false while a terminal is still reading it. These
+# are fixed constants chosen here, never interpolated from a test, so _san's guarantee that no
+# test-supplied byte reaches the terminal as an escape is unchanged. Messages stay uncoloured, so a
+# grep for a result message keeps matching; a grep anchored on the WORD must allow the prefix (see
+# run.sh's failure summary).
+if [[ -t 1 || "${AI_TOOLS_TEST_COLOR:-0}" == "1" ]]; then
+    _C_PASS=$'\033[32m' _C_FAIL=$'\033[31m' _C_SKIP=$'\033[33m' _C_OFF=$'\033[0m'
+else
+    _C_PASS='' _C_FAIL='' _C_SKIP='' _C_OFF=''
+fi
+
+pass()    { printf '  %sPASS%s  %s\n' "${_C_PASS}" "${_C_OFF}" "$(_san "$*")";            _pass=$(( _pass + 1 )); }
+fail()    { printf '  %sFAIL%s  %s\n' "${_C_FAIL}" "${_C_OFF}" "$(_san "$*")" >&2;        _fail=$(( _fail + 1 )); }
+skip()    { printf '  %sSKIP%s  %s  (%s)\n' "${_C_SKIP}" "${_C_OFF}" "$(_san "$1")" "$(_san "$2")"; _skip=$(( _skip + 1 )); }
 section() { printf '\n── %s\n' "$(_san "$*")"; }
 
 # perm <path>: the rwx permission bits only, as octal (masks setgid/setuid/sticky). GNU

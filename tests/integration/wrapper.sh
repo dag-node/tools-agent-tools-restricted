@@ -54,7 +54,7 @@ run_wrapper() {  # $1 = cwd
 # (0) Operator gate: the wrapper refuses anyone not in the ai-ops group BEFORE it reaches the
 #     allowlist. The sandbox account is never an ai-ops member (ai-tools-run enforces this), so
 #     running the wrapper as it must be refused with the operator message -- and must NOT reach
-#     the allowlist gate ("not accessible"), proving the gate short-circuits first. The
+#     the allowlist gate ("no session started"), proving the gate short-circuits first. The
 #     subsequent operator runs (1)-(3), which DO reach the allowlist, are the positive case.
 gate_out="$( cd "${home}" && setsid sudo -u "${SANDBOX_USER}" -- env HOME="${home}" \
     "${wrapper}" --version --gate-probe < /dev/null 2>&1 || true )"
@@ -63,7 +63,7 @@ if printf '%s' "${gate_out}" | grep -qE "not an ai-tools operator|member of the 
 else
     fail "wrapper did NOT refuse a non-operator at the ai-ops gate (output: ${gate_out})"
 fi
-if printf '%s' "${gate_out}" | grep -qE "not accessible|allowlist not found"; then
+if printf '%s' "${gate_out}" | grep -qE "no session started|allowlist not found"; then
     fail "wrapper reached the allowlist gate as a non-operator -- the ai-ops gate must run first"
 else
     pass "wrapper short-circuits at the ai-ops gate before the allowlist check"
@@ -76,15 +76,26 @@ if [[ ! -L "/opt/ai-tools/bin/claude" ]]; then
     skip "wrapper allowlist-gate cases (1)-(3)" "toolchain not provisioned -- run: sudo ai-tools-bootstrap"
 else
 
-# (1) An unapproved cwd is blocked at the allowlist gate. With no tty the picker takes its
-#     default (Cancel), and the refusal reads "... is not accessible to the sandbox" (or
-#     "allowlist not found" when the list file is missing). That phrase proves the BLOCK and
-#     is deliberately distinct from the approved-but-not-claimed path's "not fully claimed".
+# (1) An unapproved cwd is blocked at the allowlist gate. With no tty the wrapper never
+#     draws the menu at all -- it takes Cancel in its own have_tty branch -- and the refusal
+#     reads "no session started -- ... is not set up for the agent" (or "allowlist not found"
+#     when the list file is missing). That phrase proves the BLOCK and is deliberately
+#     distinct from the approved-but-not-claimed path's "not fully claimed".
 out="$(run_wrapper "${unapproved}")"
-if printf '%s' "${out}" | grep -qE "not accessible|allowlist not found"; then
+if printf '%s' "${out}" | grep -qE "no session started|allowlist not found"; then
     pass "wrapper blocks execution from an unapproved directory"
 else
     fail "wrapper did NOT block an unapproved directory (output: ${out})"
+fi
+
+# (1a) Cancelling names BOTH commands. The screen the menu sits under carries none (it states
+#      each choice once, in the menu), so the refusal is the only place they appear -- an
+#      operator who cancels, or whose run has no terminal, must still be told what to run.
+if printf '%s' "${out}" | grep -qF -- '--sandbox-create' \
+        && printf '%s' "${out}" | grep -qF -- '--project-claim'; then
+    pass "the cancel path names both --sandbox-create and --project-claim"
+else
+    fail "the cancel path did not name both setup commands (output: ${out})"
 fi
 
 # (1b) The print-and-exit pass-through: a SOLE --version from that same unapproved cwd is
@@ -93,7 +104,7 @@ fi
 #      version. Asserts the refusal is absent and a version string came back.
 pv_out="$( cd "${unapproved}" && setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
     "${wrapper}" --version < /dev/null 2>&1 || true )"
-if printf '%s' "${pv_out}" | grep -qE "not accessible|allowlist not found"; then
+if printf '%s' "${pv_out}" | grep -qE "no session started|allowlist not found"; then
     fail "sole --version was gated on the CWD -- the pass-through regressed (output: ${pv_out})"
 elif printf '%s' "${pv_out}" | grep -qE '[0-9]+\.[0-9]+\.[0-9]+'; then
     pass "sole --version passes through from an unapproved cwd and prints the version"
@@ -103,9 +114,10 @@ fi
 
 # (2) An approved cwd passes the allowlist gate. It then stops at the downstream claim guard
 #     (the temp dir is approved but not group-claimed) -- that path says "not fully claimed",
-#     never "not accessible", so asserting the allowlist refusal is ABSENT still distinguishes it.
+#     never "no session started", so asserting the allowlist refusal is ABSENT still
+#     distinguishes it.
 out2="$(run_wrapper "${approved}")"
-if printf '%s' "${out2}" | grep -qE "not accessible|allowlist not found"; then
+if printf '%s' "${out2}" | grep -qE "no session started|allowlist not found"; then
     fail "wrapper incorrectly blocked an approved directory (output: ${out2})"
 else
     pass "wrapper passes the allowlist gate for an approved directory"
@@ -119,6 +131,72 @@ if printf '%s' "${out_excl}" | grep -qi "excluded by"; then
     pass "wrapper refuses a '!'-excluded subdir of an approved project"
 else
     fail "wrapper did NOT refuse a '!'-excluded CWD (output: ${out_excl})"
+fi
+
+# (2c) The two halves of --project-disable meet HERE, and nowhere else: the verb's whole promise
+#      is that a parked project cannot be launched in, and that is this gate's decision, not the
+#      CLI's. Both sides are covered apart -- the CLI writes the line (tests/integration/cli.sh),
+#      the wrapper honours a '!' CWD (2b above) -- so what this asserts is that they agree about
+#      the same file: the CLI's own edit, read back by the deployed wrapper.
+#
+#      Driven through the CLI as the operator against this fixture registry, so nothing here
+#      touches the operator's real one (see the note on the two lookup routes below). The pair
+#      edits one line of the caller's own allowlist and reaches no root helper, so there is no
+#      password prompt.
+cli=/usr/local/bin/ai-tools
+if [[ ! -x "${cli}" ]]; then
+    skip "disabled project refused at launch" "${cli} not installed"
+else
+    # The two readers reach the same file by DIFFERENT routes, and a test that steers only one of
+    # them silently drives the operator's real registry: the wrapper keys its allowlist off
+    # ${HOME}, while the CLI resolves the invoking user's home through `getent passwd` -- on
+    # purpose, so nothing in the environment can redirect a registry write. So the CLI is pointed
+    # at the fixture with AI_TOOLS_ALLOWLIST, the root-only hook the rest of the suite uses, and
+    # HOME is kept as well so both agree on the file.
+    fixture_allowlist="${home}/.config/ai-tools/allowed-projects"
+    run_cli() {  # $@ = CLI args, run as the operator against the fixture registry
+        setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
+            AI_TOOLS_ALLOWLIST="${fixture_allowlist}" \
+            "${cli}" "$@" < /dev/null 2>&1 || true
+    }
+    # The park assertion is ANCHORED to a whole line. A substring test for "!${approved}" also
+    # matches the fixture's own carve-out line (!${approved}/secret), so it would pass whether or
+    # not the verb did anything -- and then the launch assertion below fails with no clue why.
+    disable_out="$(run_cli --project-disable "${approved}")"
+    if grep -qi 'unknown command' <<<"${disable_out}"; then
+        # A deployed CLI older than this test: an environment fact, not a defect to report as one.
+        skip "disabled project refused at launch" "the installed ai-tools has no --project-disable"
+    elif ! grep -qxF "!${approved}" "${fixture_allowlist}"; then
+        fail "--project-disable did not park the entry: $(printf '%s' "${disable_out}" | awk 'NF' | tail -3 | tr '\n' ' ')"
+    else
+        pass "--project-disable parks the approved project in the wrapper's own allowlist"
+
+        out_disabled="$(run_wrapper "${approved}")"
+        if printf '%s' "${out_disabled}" | grep -qi "disabled"; then
+            pass "the launch gate refuses a project the CLI disabled (the verb's whole promise)"
+        else
+            fail "wrapper did NOT refuse a CLI-disabled project (output: ${out_disabled})"
+        fi
+        # The refusal has to name the way back, or the operator's next move is a claim over a
+        # project that is already claimed -- which is what the not-yet-claimed screen would invite.
+        if printf '%s' "${out_disabled}" | grep -qF -- '--project-enable'; then
+            pass "and it names --project-enable rather than offering a claim"
+        else
+            fail "the refusal did not name --project-enable: ${out_disabled}"
+        fi
+
+        # And back: re-enabling must restore the launch, or the pair is a one-way door. This is
+        # the same assertion as (2) above, made after a park/restore round trip rather than on a
+        # fresh allowlist -- so an edit that left the line subtly different (moved, requoted,
+        # duplicated) shows up as a project that no longer launches.
+        enable_out="$(run_cli --project-enable "${approved}")"
+        out_reenabled="$(run_wrapper "${approved}")"
+        if printf '%s' "${out_reenabled}" | grep -qE "no session started|allowlist not found|excluded by|disabled"; then
+            fail "wrapper still blocked the project after --project-enable (enable: $(printf '%s' "${enable_out}" | awk 'NF' | tail -2 | tr '\n' ' ')) (launch: ${out_reenabled})"
+        else
+            pass "the launch gate accepts it again after --project-enable"
+        fi
+    fi
 fi
 
 # (3) End-to-end symlink resolution on that same approved run: the deployed

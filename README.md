@@ -79,15 +79,24 @@ sudo ai-tools-bootstrap
 #    ai-ops membership (the sudo rules and ownership hand-back).
 sudo ai-tools-admin operator add "$(id -un)"
 
-# 3. Claim an existing project and launch. `claude` inside an unclaimed project walks you
-#    through claiming it; the claim refuses system paths and home roots. `ai-tools --help`
-#    lists every command.
-cd ~/path/to/your/project     # an existing directory you want the agent to work in
-claude                        # first run here: the wrapper offers to claim it, then launches
+# 3. Make a project and launch in it. --project-create makes the directory, initializes a
+#    git repository, and claims it -- one command, no prompts, nothing pre-existing to
+#    review. `ai-tools --help` lists every command.
+ai-tools --project-create ~/src/demo
+cd ~/src/demo && claude
 ```
 
-To claim without launching — or to script it — use `ai-tools --project-claim <path>`,
-which claims an existing directory in place.
+To use a tree you already have, `ai-tools --project-claim <path>` claims it in place. That one
+reviews what it is about to open: it walks the tree, scans for secret-named files before
+granting anything, and asks before exposing git history — so it prompts where the create does
+not. Running `claude` inside an unclaimed directory offers the same choice interactively, and
+both refuse system paths and home roots.
+
+Reversing is `ai-tools --project-unclaim` (hands the files back, keeps the directory) or
+`ai-tools --project-remove` (deletes it too, behind a typed-name confirmation). To take a
+project out of service without releasing it — no session starts there, while its permissions
+and label stay as they are — `ai-tools --project-disable`, and `--project-enable` to put it
+back. All of it is in [docs/project-lifecycle.md](docs/project-lifecycle.md).
 
 ### Upgrading
 

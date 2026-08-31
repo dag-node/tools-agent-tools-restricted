@@ -58,12 +58,17 @@
 # (commands on one line, long ones overflowing the right border). ai_tools_msg_headline
 # opens a self-contained flow block: a wide titled box carrying the block's summary,
 # with details printed plain below it by the caller. ai_tools_msg_pick draws
-# a numbered menu under such a block and echoes the chosen index, defaulting safely when no
-# terminal is present -- the question companion to a block. ai_tools_msg_confirm is the
+# a numbered menu under such a block and echoes the chosen index -- the question companion to
+# a block: with a default index it answers safely when no terminal is present, and with `none`
+# it re-asks and then gives up (non-zero) rather than answering for the user.
+# ai_tools_cmd_display renders a command for a user to TYPE: the bare name where PATH
+# resolves it to that same absolute path, the absolute path otherwise. ai_tools_msg_confirm is the
 # single yes/no prompt: the standard bracketed hint with the default spelled out --
 # "[Y/n] (default: Yes): " / "[y/N] (default: No): " -- on /dev/tty, returning the default
 # when no terminal answers, so every yes/no question in the project renders and defaults
-# one way. See each function.
+# one way. ai_tools_msg_challenge is the third decision point: a typed-name challenge with
+# no default at all, so a mismatch, an empty answer, and an absent terminal are all "no" --
+# what a confirm cannot express and a destructive verb needs. See each function.
 #
 # This library is REQUIRED by its consumers (bare-sourced under set -e, like
 # safe-paths.lib.sh): ai_tools_msg_confirm carries yes/no decisions, so there is no
@@ -78,8 +83,9 @@
 if [[ -n "${_AI_TOOLS_MSG_LIB_LOADED:-}" ]]; then return 0; fi
 readonly _AI_TOOLS_MSG_LIB_LOADED=1
 
-# Decision audit trail. ai_tools_msg_confirm and ai_tools_msg_pick below record every
-# yes/no answer and menu choice through the shared logger (log.lib.sh), so every user
+# Decision audit trail. ai_tools_msg_confirm, ai_tools_msg_pick and ai_tools_msg_challenge below
+# record every yes/no answer, menu choice and typed challenge through the shared logger
+# (log.lib.sh), so every user
 # action taken through this library leaves ONE consistent trail: journald always, and the
 # root-only file sink (/var/log/ai-tools/<component>.log) when a root caller set
 # AI_TOOLS_LOG_FILE. The logger is sourced from the SIBLING file -- resolved relative to
@@ -335,36 +341,123 @@ ai_tools_msg_block() {
     } >&2 2>/dev/null || true
 }
 
-# ai_tools_msg_pick <default_index> <label...> -- present a numbered menu and echo the
-# chosen 1-based index on stdout. The <default_index> option is annotated "(default)" and
-# is the answer on empty input, an out-of-range number, or no terminal -- so an unattended
-# or piped run takes the safe default (typically Cancel). The menu is drawn on /dev/tty;
-# only the chosen index reaches stdout, so the caller reads it with $(...). Pairs with a
-# preceding ai_tools_msg_block that lays out what each option does.
+# ai_tools_msg_pick <default_index|none> <label...> -- present a numbered menu and echo the
+# chosen 1-based index on stdout. Each label is "<label>" or "<label><TAB><consequence>":
+# the labels are column-aligned on the longest one and the consequence follows, so an option
+# states what it does and what it costs on one line. The menu is drawn on /dev/tty; only the
+# chosen index reaches stdout, so the caller reads it with $(...). Pairs with a preceding
+# ai_tools_msg_block that says what the screen is about -- the OPTIONS are stated here, once.
+#
+# Two answering modes, chosen by the first argument:
+#   <default_index>  that option is annotated "(default)" and is the answer on empty input,
+#                    an out-of-range number, or no terminal -- an unattended or piped run
+#                    takes the safe default (typically Cancel) and never blocks. Returns 0.
+#   none             there is no default: empty or out-of-range input RE-ASKS (three
+#                    attempts), and closed input, no terminal, or three unanswered attempts
+#                    return NON-ZERO with nothing on stdout -- the library gives up rather
+#                    than answering for the user, and the caller decides what that means.
+# A first argument that is neither is a caller error (return 2), never an assumed answer.
 ai_tools_msg_pick() {
     local def="$1"; shift
-    local n=$# i choice
+    local n=$# i choice rc
+    if [[ "${def}" != none ]] \
+            && { [[ ! "${def}" =~ ^[0-9]+$ ]] || (( def < 1 || def > n )); }; then
+        printf 'ai_tools_msg_pick: default must be none or 1..%d, got %s\n' "${n}" "${def}" >&2
+        return 2
+    fi
+    # Split each option into its label and (optional) consequence, and measure the label
+    # column. Parameter expansion, not read/IFS: the lib is sourced into callers with their
+    # own IFS (see ai_tools_msg_wrap).
+    local -a labels=() cons=()
+    local opt lw=0
+    for (( i = 1; i <= n; i++ )); do
+        opt="${!i}"
+        labels[i]="${opt%%$'\t'*}"
+        cons[i]=""
+        [[ "${opt}" == *$'\t'* ]] && cons[i]="${opt#*$'\t'}"
+        (( ${#labels[i]} > lw )) && lw=${#labels[i]}
+    done
+    # Presentation only, and only on /dev/tty: the label reads bold against a dim
+    # consequence, so the options carry a hierarchy rather than reading as one wall.
+    local bold=$'\033[1m' dim=$'\033[2m' rst=$'\033[0m'
+    if [[ "${AI_TOOLS_MSG_PLAIN:-}" == 1 ]]; then bold=""; dim=""; rst=""; fi
+    local prompt list=""
+    if [[ "${def}" == none ]]; then
+        for (( i = 1; i <= n; i++ )); do
+            if   (( i == 1 )); then list="1"
+            elif (( i == n )); then list+=" or ${i}"
+            else                    list+=", ${i}"
+            fi
+        done
+        prompt="Enter ${list}: "
+    else
+        prompt="Enter number (default ${def}): "
+    fi
     {
         printf 'Select an option:\n'
         for (( i = 1; i <= n; i++ )); do
-            if (( i == def )); then
-                printf '%d) %s (default)\n' "${i}" "${!i}"
+            local lab="${labels[i]}" pad
+            [[ "${def}" != "${i}" ]] || lab+=" (default)"
+            pad=$(( lw - ${#lab} )); (( pad < 0 )) && pad=0
+            if [[ -n "${cons[i]}" ]]; then
+                printf '  %d) %s%s%s%*s  %s%s%s\n' "${i}" "${bold}" "${lab}" "${rst}" \
+                    "${pad}" '' "${dim}" "${cons[i]}" "${rst}"
             else
-                printf '%d) %s\n' "${i}" "${!i}"
+                printf '  %d) %s%s%s\n' "${i}" "${bold}" "${lab}" "${rst}"
             fi
         done
-        printf 'Enter number (default %d): ' "${def}"
     # 2>/dev/null BEFORE > /dev/tty (as in ai_tools_msg_confirm): redirections apply left to
     # right, and with no controlling terminal it is the > /dev/tty open that fails, so stderr
     # must already be silenced or the shell leaks the ENXIO complaint to the caller.
     } 2>/dev/null > /dev/tty || {
-        _ai_tools_msg_audit "menu: no terminal, took default ${def}/${n} (${!def})"
+        if [[ "${def}" == none ]]; then
+            _ai_tools_msg_audit "menu: no terminal and no default -- no answer"
+            return 1
+        fi
+        _ai_tools_msg_audit "menu: no terminal, took default ${def}/${n} (${labels[def]})"
         printf '%s' "${def}"; return 0
     }
-    IFS= read -r choice < /dev/tty 2>/dev/null || choice=""
-    [[ "${choice}" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= n )) || choice="${def}"
-    _ai_tools_msg_audit "menu: chose ${choice}/${n} (${!choice})"
-    printf '%s' "${choice}"
+    # The menu is drawn once; a re-ask repeats the prompt line alone.
+    for (( i = 0; i < 3; i++ )); do
+        printf '%s' "${prompt}" 2>/dev/null > /dev/tty || true
+        rc=0; IFS= read -r choice < /dev/tty 2>/dev/null || rc=$?
+        if (( rc != 0 )) && [[ -z "${choice}" ]]; then     # Ctrl-D / closed input
+            [[ "${def}" == none ]] || break
+            _ai_tools_msg_audit "menu: input closed -- no answer"
+            return 1
+        fi
+        if [[ "${choice}" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= n )); then
+            _ai_tools_msg_audit "menu: chose ${choice}/${n} (${labels[choice]})"
+            printf '%s' "${choice}"; return 0
+        fi
+        [[ "${def}" == none ]] || break                   # a default answers on first miss
+        # A silent re-prompt reads as a wedged terminal, so a miss says what is expected.
+        # `if`, not `&&`: a false test as the loop body's last command would abort a
+        # `set -e` caller.
+        if (( i < 2 )); then
+            printf '%sEnter one of the numbers listed above.%s\n' "${dim}" "${rst}" \
+                2>/dev/null > /dev/tty || true
+        fi
+    done
+    if [[ "${def}" == none ]]; then
+        _ai_tools_msg_audit "menu: no answer after 3 attempts"
+        return 1
+    fi
+    _ai_tools_msg_audit "menu: chose ${def}/${n} (${labels[def]}) (default)"
+    printf '%s' "${def}"
+}
+
+# ai_tools_cmd_display <abs-path> -- echo how a command should be PRINTED to the user: the
+# bare name when `command -v` resolves it to that same absolute path on this PATH, and the
+# absolute path otherwise. A printed command is meant to be typed, so `ai-tools --status`
+# reads better than /usr/local/bin/ai-tools --status -- but only where the short form runs
+# the same program, so a host with an unexpected PATH still gets a command that works.
+ai_tools_cmd_display() {
+    local path="${1:-}" name resolved
+    [[ "${path}" == /* ]] || { printf '%s' "${path}"; return 0; }
+    name="${path##*/}"
+    resolved="$(command -v -- "${name}" 2>/dev/null)" || resolved=""
+    if [[ "${resolved}" == "${path}" ]]; then printf '%s' "${name}"; else printf '%s' "${path}"; fi
 }
 
 # ai_tools_msg_confirm <question> <y|n> -- the yes/no companion to ai_tools_msg_pick,
@@ -407,6 +500,52 @@ ai_tools_msg_confirm() {
     # One audit line per decision, at the single yes/no chokepoint (see log.lib.sh sink).
     _ai_tools_msg_audit "confirm: ${question} -> ${result} (${how})"
     [[ "${result}" == "yes" ]]
+}
+
+# ai_tools_msg_challenge <question> <expected> -- the third decision renderer, beside
+# ai_tools_msg_confirm and ai_tools_msg_pick: a typed-name challenge. It draws <question>, reads
+# one line from /dev/tty, and returns 0 only when that line matches <expected> EXACTLY. Anything
+# else -- a mismatch, empty input, closed input, or no controlling terminal -- returns non-zero.
+#
+# It has no default, and that is the point rather than an omission. A confirm exists to let Enter
+# mean something, so it must state which way it falls; a challenge exists to make the answer cost
+# something a reflex cannot supply, so an absent answer can only be "no". That also settles the
+# unattended case without a rule of its own: a run with no terminal cannot type a name, so it
+# declines, and a destructive command behind one is unreachable from cron by construction.
+#
+# <expected> is echoed in the prompt: this is a deliberateness check, not a secret, and hiding
+# what to type would only make it a guessing game.
+ai_tools_msg_challenge() {
+    local question="$1" expected="${2:?ai_tools_msg_challenge: expected value is required}"
+    local resp how result typed
+    # 2>/dev/null BEFORE > /dev/tty, for the reason ai_tools_msg_confirm documents: with no
+    # controlling terminal it is the open that fails, and its complaint must not reach stderr.
+    if printf '%s [type %s to confirm]: ' "${question}" "${expected}" 2>/dev/null > /dev/tty; then
+        IFS= read -r resp < /dev/tty 2>/dev/null || resp=""
+        how="answered"
+    else
+        resp=""; how="no-tty"
+    fi
+    # Compared literally: the right side is quoted, so <expected> is a value and never a pattern.
+    if [[ "${resp}" == "${expected}" ]]; then result="match"; else result="no-match"; fi
+    # Same audit trail as the other two decision points (see log.lib.sh sink), and the one that
+    # records a MISTYPED answer -- the trail for a destructive verb is worth more when it shows
+    # what was actually typed than when it shows only that something was.
+    #
+    # That value is untrusted input, so it is treated like every other untrusted string this
+    # project logs: reduced to printable ASCII by the shared allowlist sanitizer (a crafted answer
+    # must not inject a terminal escape into a session that cats the root-owned log, forge a line,
+    # or reorder the audit text) and clamped to a bounded length, since a pasted answer is
+    # unbounded. Fail-safe: with the logger -- and so the sanitizer -- unavailable, the answer is
+    # omitted rather than recorded raw. The decision itself is still recorded either way.
+    if [[ "${result}" == "no-match" && "${how}" == "answered" ]] \
+            && declare -F ai_tools_log_sanitize >/dev/null 2>&1; then
+        typed="$(ai_tools_log_sanitize "${resp}")"
+        _ai_tools_msg_audit "challenge: ${question} -> ${result} (${how}, typed '${typed:0:64}')"
+    else
+        _ai_tools_msg_audit "challenge: ${question} -> ${result} (${how})"
+    fi
+    [[ "${result}" == "match" ]]
 }
 
 # ── Umbrella brand banner ──────────────────────────────────────────────────────

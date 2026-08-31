@@ -154,7 +154,8 @@ only launch sessions and have them claimed for it — by asking sudo about that 
 
 Register projects with the `ai-tools` CLI, run as your own user (no sudo):
 
-    ai-tools --project-create /path/to/project    # a real project
+    ai-tools --project-claim /path/to/project     # an existing directory, claimed in place
+    ai-tools --project-create /path/to/new        # a new project directory, created and claimed
     ai-tools --sandbox-create /path/to/repo       # an isolated shallow clone
     ai-tools --lockdown /path/to/project          # revoke agent access to secrets (sudo)
 

@@ -149,6 +149,14 @@ and every way that predicate can fail resolves to *less* access — never more �
 There is no input whose corruption, absence, or tampering widens what the agent gets, so the
 sandbox cannot improve its own position by breaking something.
 
+One CLI verb sits **outside** this table rather than as an exception to it: `ai-tools
+--project-remove` decides what is *destroyed*, not what a session may reach, so its safe direction
+is inaction rather than less access. Its authorization is correspondingly different — an exact
+`allowed-projects` entry (allow or `!`-parked) plus a typed-name confirmation, not one of the
+predicates below — and it
+holds the same shape of guarantee: it deletes nothing unattended, and a failure leaves an
+unregistered tree rather than a half-deleted one. See [cli](.claude/rules/cli.rule.md).
+
 | decision | its predicate | what a failure yields |
 |---|---|---|
 | where a session may start | the canonicalized allowlist + the protected-paths backstop | no launch |
@@ -217,7 +225,12 @@ The invariants the agent operates under:
   home root (`/home/<user>` — a whole home as a target would hand the agent its dotfiles
   and keys) — defense in depth against a system directory mistakenly added to
   `allowed-projects`. Matching is exact-or-ancestor, so real projects nested under an
-  operator home or the sandbox-clone area pass. See
+  operator home or the sandbox-clone area pass. A **second, narrower predicate**
+  (`ai_tools_traverse_grant_allowed`) vets the one operation that is not a target at all — a
+  traverse-only `--x` ACL on a single ancestor directory, which conveys no read of it and nothing
+  about the files inside — and permits the acting operator's **own** home root there, refusing
+  every system directory, `/home` itself, and any other account's home root. It is an addition;
+  the backstop above is unchanged for every target that reaches it. See
   [safe-paths](.claude/rules/safe-paths.rule.md).
 
 ### What is expected of the agent where a control leaves a choice

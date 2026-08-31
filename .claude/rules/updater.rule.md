@@ -374,7 +374,7 @@ The work splits by principal, which is what keeps the network off the launch pat
 cannot read the entrypoint at all (the toolchain is `0750` sandbox-owned), so the verification runs
 as **root**, and its result travels to the launch as a **pin**:
 `/var/opt/ai-tools/state/entrypoint-pin.d/<agent>`, in the shared `KEY=value` grammar
-(`AGENT`, `VERSION`, `SHA256`, `VERIFIED`, `SOURCE`). Its directory is root-owned and not
+(`AGENT`, `VERSION`, `SHA256`, `VERIFIED`, `INPUTS`, `SOURCE`). Its directory is root-owned and not
 group-writable inside the `0750 root:SANDBOX_GROUP` state root — the same two independent layers
 (DAC, plus `usr_t` under enforcing) that bound the last-run stamp — so the account the pin
 constrains can read it and cannot write it. It is read back defensively: symlink refused, bounded
@@ -391,6 +391,32 @@ than as a wrong verdict.
 There is deliberately **no manifest cache**. Every fetch happens at a moment the host is already
 online (immediately after an update downloaded the package), and the pin is what makes the launch
 offline-safe, so a cache would add an input to reason about for no availability gained.
+
+### Answering from the pin, and the one caller that never does
+
+An unattended run may answer from the existing pin instead of refetching. It does so only when
+every input to the verdict is unchanged: the installed version, the entrypoint's own bytes, and an
+`INPUTS` digest over the manifest URL template, the signing key's path **and content**, and the
+declared fingerprints. A pin recording no `INPUTS` is never reused, so an unrecordable digest costs
+a re-verification. `ai_tools_entrypoint_pin_reusable` is the predicate, unit-tested over that truth
+table.
+
+This is worth doing because the repeat runs are frequent and the cost is not: one upgrade can fire
+the `.path` watcher several times, the agent package's `%post` runs on every package update, and on
+an air-gapped host each of those spends two connection timeouts per agent to reach "unable to
+verify" and leave the pin exactly as it was.
+
+What it gives up is a vendor **republishing or withdrawing** a release it already signed, which
+goes unnoticed until something else changes. What it keeps is everything that makes the pin a
+tamper gate: a modified entrypoint changes its checksum and a rotated key or repointed manifest
+changes the digest, and either takes the full path.
+
+`AI_TOOLS_ENTRYPOINT_PIN_REUSE=1` selects it, and the two unattended callers set it — the
+`ai-tools-relabel.service` unit and the agent package's `%post`. **`ai-tools --relabel` never
+does**, and by construction rather than by convention: the operator reaches the helper through the
+`%ai-ops` sudo rule, which scrubs the environment, so the on-demand verb re-checks the vendor's
+signature every time — the behaviour it documents and the one an operator runs it for.
+`ai-tools-bootstrap` leaves it unset too, so a fresh provision always verifies in full.
 
 ### Three outcomes, and only one of them is tamper
 

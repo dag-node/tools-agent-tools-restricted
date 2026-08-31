@@ -121,13 +121,16 @@ else
     readonly C_BOLD='' C_DIM='' C_GRN='' C_YEL='' C_RED='' C_RST=''
 fi
 
-say()     { printf '%s\n' "$*"; }
-section() { printf '\n%s── %s ──%s\n' "${C_BOLD}" "$*" "${C_RST}"; }
-ok()      { printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$*"; }
+# Each emitter pins IFS locally before "$*": this script runs under IFS=$'\n\t', where the join
+# character is a NEWLINE, so a call passing more than one word would break its message across
+# lines. Same guard as the CLI's join_words.
+say()     { local IFS=' '; printf '%s\n' "$*"; }
+section() { local IFS=' '; printf '\n%s── %s ──%s\n' "${C_BOLD}" "$*" "${C_RST}"; }
+ok()      { local IFS=' '; printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$*"; }
 # log: a dim checklist bullet for each deployed file / action.
-log()     { printf '  %s+%s %s\n' "${C_DIM}" "${C_RST}" "$*"; }
-warn()    { printf '  %s!%s %s\n' "${C_YEL}" "${C_RST}" "$*" >&2; }
-die()     { printf '%sinstall: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; exit 1; }
+log()     { local IFS=' '; printf '  %s+%s %s\n' "${C_DIM}" "${C_RST}" "$*"; }
+warn()    { local IFS=' '; printf '  %s!%s %s\n' "${C_YEL}" "${C_RST}" "$*" >&2; }
+die()     { local IFS=' '; printf '%sinstall: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; exit 1; }
 
 # Shared message formatter, sourced from the SOURCE TREE (the installed copy may not exist
 # yet -- this script installs it). Frames interactive prompts in the '#' box and carries
@@ -1841,7 +1844,10 @@ do_install() {
             section "Verify"
             section "Installed files"
             do_summary
-            "${SCRIPT_DIR}/tests/run.sh" all \
+            # do_install's log tee makes the suite's own tty test false. This script answered
+            # that question at startup, before the redirect, so hand the answer down: C_GRN is
+            # set only on a terminal, and the log copy has its escapes stripped by the tee's sed.
+            AI_TOOLS_TEST_COLOR="${C_GRN:+1}" "${SCRIPT_DIR}/tests/run.sh" all \
                 || warn "test suite reported failures -- review the output above"
         else
             log "test suite skipped -- run it any time with: sudo ${SCRIPT_DIR}/tests/run.sh all"
@@ -1918,15 +1924,20 @@ do_uninstall() {
     section "Registration"
     # Optionally remove this project from the allowlist (default: keep)
     local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
-    if [[ -f "${allowlist}" ]] && grep -qxF "${SCRIPT_DIR}" "${allowlist}"; then
+    # Membership and the removal both go through conf.lib.sh -- the same editing functions the CLI
+    # and the ai-tools-allowlist helper use. A raw `grep -qxF` plus a hand-escaped `sed` was the
+    # third implementation of this edit in the tree, and the narrowest: it saw only a line spelled
+    # exactly as ${SCRIPT_DIR}, so an entry carrying a comment or quotes read as absent and the
+    # question was never asked.
+    if [[ -f "${allowlist}" ]] \
+            && [[ "$(ai_tools_conf_allowlist_state "${allowlist}" "${SCRIPT_DIR}")" != absent ]]; then
         if confirm_boxed "Keep registration" y \
                 "Keep this project in allowed-projects?" "  ${SCRIPT_DIR}"; then
             log "allowed-projects: kept"
-        else
-            local escaped
-            escaped="$(printf '%s' "${SCRIPT_DIR}" | sed 's/[\\|]/\\&/g')"
-            sed -i "\|^${escaped}$|d" "${allowlist}"
+        elif ai_tools_conf_allowlist_remove "${allowlist}" "${SCRIPT_DIR}"; then
             log "allowed-projects: removed"
+        else
+            warn "could not remove ${SCRIPT_DIR} from ${allowlist} -- it is still registered"
         fi
     fi
 

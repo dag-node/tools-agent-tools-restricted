@@ -436,4 +436,166 @@ check_entry "an interior # needs no quotes"        '/home/me/proj#2'        '/ho
 # so a typo cannot silently shorten an allowlist entry into a broader one.
 check_entry "an unmatched quote is taken as-is"    '/home/me/project'       '"/home/me/project'
 
+# --- Allowlist editing: the one implementation of a registry change ---------------------------
+# Three components write allowed-projects (the CLI on the operator's own file, ai-tools-allowlist
+# on another operator's, install.sh on its own checkout), and this is what all three call. The
+# file is the LAUNCH GATE, so each assertion below is about a way an edit could leave the gate
+# saying something other than what the caller was told:
+#   * the three-state read, where a DISABLED project used to read as absent;
+#   * add refusing to append under a winning '!' (the duplicate-pair bug);
+#   * remove taking BOTH line kinds, so no '!' is left to park the next claim at that path;
+#   * enable/disable preserving position, indentation and comment -- their reason to exist
+#     rather than being an add+remove pair, for an operator whose allowlist is an ordered,
+#     commented document;
+#   * enable collapsing a duplicate pair to ONE live entry;
+#   * an unwritable directory REPORTED (rc 1) rather than aborting the caller under set -e.
+section "conf: allowlist editing (unit)"
+
+if ! declare -F ai_tools_conf_allowlist_state >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf_allowlist_add >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf_allowlist_remove >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf_allowlist_enable >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf_allowlist_disable >/dev/null 2>&1; then
+    fail "${LIB} defines no allowlist editing functions"
+    finish; exit
+fi
+
+AL="${TESTDIR}/allowed-projects"
+P1="${TESTDIR}/p1"; P2="${TESTDIR}/p2"; SUB="${TESTDIR}/p1/vendor"
+mkdir -p "${P1}" "${P2}" "${SUB}"
+
+# seed_al <line>... : rewrite the fixture allowlist with the given raw lines.
+seed_al() { printf '%s\n' "$@" > "${AL}"; }
+
+# state_is <expected> <path> <desc>
+state_is() {
+    local got; got="$(ai_tools_conf_allowlist_state "${AL}" "$2")"
+    if [[ "${got}" == "$1" ]]; then pass "$3"; else fail "$3: state is '${got}', expected '$1'"; fi
+}
+
+# rc_is <expected-rc> <desc> <command...>
+rc_is() {
+    local want="$1" desc="$2"; shift 2
+    local rc=0; "$@" || rc=$?
+    if [[ "${rc}" -eq "${want}" ]]; then pass "${desc}"; else fail "${desc}: rc ${rc}, expected ${want}"; fi
+}
+
+# --- the three-state read ---
+seed_al "# header" "" "${P1}   # a comment" "!${SUB}"
+state_is listed   "${P1}"  "an allow line reads as listed"
+state_is disabled "${SUB}" "an exclusion reads as disabled"
+state_is absent   "${P2}"  "a path with no line reads as absent"
+# An exclusion OUTRANKS an allow line, exactly as it does at the launch gate: with both present
+# no session starts there, so 'disabled' is the only honest answer.
+seed_al "${P1}" "!${P1}"
+state_is disabled "${P1}" "an exclusion outranks an allow line for the same path"
+
+# --- add ---
+seed_al "# header"
+rc_is 0 "add appends an absent path"            ai_tools_conf_allowlist_add "${AL}" "${P1}"
+state_is listed "${P1}" "the added path reads as listed"
+rc_is 0 "add is idempotent for a listed path"   ai_tools_conf_allowlist_add "${AL}" "${P1}"
+if [[ "$(grep -cxF "${P1}" "${AL}")" == 1 ]]; then
+    pass "add did not duplicate the line"
+else
+    fail "add duplicated the line ($(grep -cxF "${P1}" "${AL}") copies)"
+fi
+seed_al "# header" "!${P1}"
+rc_is 2 "add REFUSES a disabled path"           ai_tools_conf_allowlist_add "${AL}" "${P1}"
+state_is disabled "${P1}" "the refused add left the path disabled"
+if [[ "$(grep -cF "${P1}" "${AL}")" == 1 ]]; then
+    pass "the refused add wrote no second line"
+else
+    fail "the refused add appended over the exclusion: $(grep -c . "${AL}") lines"
+fi
+
+# --- remove: BOTH line kinds ---
+seed_al "# header" "${P1}" "!${P1}" "${P2}"
+rc_is 0 "remove drops a path"                   ai_tools_conf_allowlist_remove "${AL}" "${P1}"
+state_is absent "${P1}" "the removed path reads as absent"
+if grep -qF "${P1}" "${AL}"; then
+    fail "remove left a line naming the path: $(grep -F "${P1}" "${AL}")"
+else
+    pass "remove took the allow line AND the exclusion"
+fi
+state_is listed "${P2}" "remove left the other project alone"
+rc_is 0 "removing an absent path succeeds"      ai_tools_conf_allowlist_remove "${AL}" "${P1}"
+
+# --- disable / enable: in place, keeping position and comment ---
+seed_al "# header" "  ${P1}   # payments, dev stage" "${P2}"
+before="$(cat "${AL}")"
+rc_is 0 "disable parks a listed project"        ai_tools_conf_allowlist_disable "${AL}" "${P1}"
+state_is disabled "${P1}" "the parked project reads as disabled"
+if [[ "$(sed -n '2p' "${AL}")" == "  !${P1}   # payments, dev stage" ]]; then
+    pass "disable kept the line's position, indentation and comment"
+else
+    fail "disable rewrote the line: '$(sed -n '2p' "${AL}")'"
+fi
+rc_is 0 "disable is idempotent"                 ai_tools_conf_allowlist_disable "${AL}" "${P1}"
+rc_is 0 "enable restores a parked project"      ai_tools_conf_allowlist_enable  "${AL}" "${P1}"
+state_is listed "${P1}" "the restored project reads as listed"
+if [[ "$(cat "${AL}")" == "${before}" ]]; then
+    pass "a park/restore round trip leaves the file byte-identical"
+else
+    fail "the round trip changed the file:"$'\n'"$(cat "${AL}")"
+fi
+rc_is 0 "enable is idempotent"                  ai_tools_conf_allowlist_enable "${AL}" "${P1}"
+
+# Neither verb invents an entry: enabling or disabling a path the file does not name would
+# register a project without claiming it (no secret scan, no ACL, no label).
+seed_al "# header" "${P2}"
+rc_is 2 "enable refuses an absent path"         ai_tools_conf_allowlist_enable  "${AL}" "${P1}"
+rc_is 2 "disable refuses an absent path"        ai_tools_conf_allowlist_disable "${AL}" "${P1}"
+if [[ "$(cat "${AL}")" == "# header"$'\n'"${P2}" ]]; then
+    pass "both refusals left the file untouched"
+else
+    fail "a refusal wrote to the file:"$'\n'"$(cat "${AL}")"
+fi
+
+# --- enable collapses the duplicate pair to ONE live entry ---
+# The pair the old append-over-an-exclusion bug created. Un-parking the '!' line while an allow
+# line already exists would leave two live entries for one path; the earliest position survives.
+seed_al "# header" "!${P1}   # parked" "${P2}" "${P1}"
+rc_is 0 "enable collapses a duplicate pair"     ai_tools_conf_allowlist_enable "${AL}" "${P1}"
+state_is listed "${P1}" "the collapsed path reads as listed"
+if [[ "$(grep -cF "${P1}" "${AL}")" == 1 && "$(sed -n '2p' "${AL}")" == "${P1}   # parked" ]]; then
+    pass "one entry survives, in the earliest position, with its comment"
+else
+    fail "collapse left $(grep -cF "${P1}" "${AL}") line(s):"$'\n'"$(cat "${AL}")"
+fi
+
+# --- a write that cannot happen is REPORTED, not fatal ---
+# The rewrite lands its temporary file in the allowlist's own directory, so an unwritable config
+# directory fails even when the file itself is writable. Under set -e that used to abort the caller
+# with a bare I/O error; it must return 1 and leave the file as it was.
+#
+# Driven AS THE PROJECTS USER, which is who runs the CLI: this suite runs as root, and root ignores
+# a directory's write bit, so the very write the case is about would succeed and the assertion
+# would pass for the wrong reason -- or, as written first, fail. The library is sourced fresh in
+# that shell, since the check is about the caller's own credentials.
+if ! command -v runuser >/dev/null 2>&1; then
+    skip "unwritable config directory" "runuser unavailable"
+else
+    ro="${TESTDIR}/ro"; mkdir -p "${ro}"
+    printf '%s\n' "${P1}" > "${ro}/allowed-projects"
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ro}"
+    chmod 0500 "${ro}"
+    rc=0
+    # shellcheck disable=SC2016  # $1..$3 are the inner shell's positionals, passed after `_`
+    runuser -u "${PROJECTS_USER}" -- bash -c '
+        source "$1" || exit 9
+        ai_tools_conf_allowlist_disable "$2" "$3"' _ "${LIB}" "${ro}/allowed-projects" "${P1}" || rc=$?
+    chmod 0700 "${ro}"
+    if [[ "${rc}" -eq 1 ]]; then
+        pass "an unwritable config directory is reported (rc 1), not fatal"
+    else
+        fail "an unwritable config directory returned rc ${rc}, expected 1"
+    fi
+    if [[ "$(cat "${ro}/allowed-projects")" == "${P1}" ]]; then
+        pass "the failed edit left the allowlist unchanged"
+    else
+        fail "the failed edit modified the allowlist: $(cat "${ro}/allowed-projects")"
+    fi
+fi
+
 finish
