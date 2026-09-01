@@ -570,19 +570,40 @@ for kind in skills subagents; do
     [ -d %{_datadir}/ai-tools/${kind} ] && command -v bash >/dev/null 2>&1 || continue
     AI_TOOLS_ASSUME_YES=1 bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools ai-tools ${kind}; ai_tools_remove_retired_assets /opt/ai-tools ${kind}; ai_tools_link_asset_readme %{_datadir}/ai-tools/${kind}/README.md /opt/ai-tools/${kind} ai-tools" 2>/dev/null || :
 done
-# Operator binding + toolchain are per-operator / network steps a scriptlet must not do; direct
-# the operator to them. ai-tools-bootstrap installs the Node toolchain; ai-tools-admin operator
-# add binds an operator (OPERATORS list + ai-ops membership + linger + allowlist seed).
-cat <<'EOF'
-ai-tools-base installed. To finish setup:
-  sudo ai-tools-bootstrap                      # install nvm + Node + Claude Code (network)
-  sudo ai-tools-admin operator add <your-user> # bind an operator (ai-ops, OPERATORS, linger)
-EOF
-# operator.conf is %config(noreplace): an edited file is kept and this version's copy is parked as
-# .rpmnew. rpm's own warning names that file but not what to do with it, and ignoring it costs
-# silently -- an option this version adds simply never appears on the host.
+# Direct the operator to the per-operator / network steps a scriptlet must not take itself.
+# Each is gated on the state it would create rather than on install-vs-upgrade, so an upgrade
+# names only what this host still owes, a step undone since an earlier run included. An operator
+# is two facts -- ai-ops membership and a name in OPERATORS (cli.rule.md) -- so either one
+# missing asks for `operator add`, which writes both. OPERATORS ships holding the literal
+# @PROJECTS_USER@ token, which the name-character class excludes. A gate that cannot read its
+# input prints its hint.
+_at_toolchain=1
+_at_operator=1
+_at_merge=0
+if [ -d /opt/ai-tools/.nvm ]; then
+    _at_toolchain=0
+fi
+if [ -n "$(getent group ai-ops 2>/dev/null | cut -d: -f4)" ] \
+   && grep -Eq '^[[:space:]]*OPERATORS[[:space:]]*=[[:space:]]*"?[A-Za-z0-9_]' \
+        /etc/ai-tools/operator.conf 2>/dev/null; then
+    _at_operator=0
+fi
+# operator.conf is config(noreplace), so an edited file is kept and this version's copy parked as
+# .rpmnew. Ignoring it costs silently: an option this version adds never reaches the host.
 if [ -f /etc/ai-tools/operator.conf.rpmnew ]; then
-    echo "  sudo ai-tools-admin postupgrade              # operator.conf.rpmnew is waiting"
+    _at_merge=1
+fi
+if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ]; then
+    echo "ai-tools-base: steps this host still needs:"
+    if [ "${_at_toolchain}" = 1 ]; then
+        echo "  sudo ai-tools-bootstrap                      # install nvm + Node + Claude Code (network)"
+    fi
+    if [ "${_at_operator}" = 1 ]; then
+        echo "  sudo ai-tools-admin operator add <your-user> # bind an operator (ai-ops, OPERATORS, linger)"
+    fi
+    if [ "${_at_merge}" = 1 ]; then
+        echo "  sudo ai-tools-admin postupgrade              # operator.conf.rpmnew is waiting"
+    fi
 fi
 
 %preun -n ai-tools-base
