@@ -4,12 +4,13 @@ paths:
   - "src/usr/local/libexec/ai-tools/ai-tools-admin.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-dotnet.sh"
   - "src/usr/local/share/man/man1/ai-tools.1"
+  - "src/usr/local/share/man/man8/ai-tools-admin.8"
 ---
 
 # Command grammar
 
 The shape every command in this project takes: `ai-tools`, `ai-tools-admin`, `ai-tools-dotnet`,
-and `ai-tools(1)`. What each command *does* is in the rule for its component —
+`ai-tools(1)` and `ai-tools-admin(8)`. What each command *does* is in the rule for its component —
 [cli](cli.rule.md) for the project lifecycle, [confinement](confinement.rule.md) for the SELinux
 group verbs, [dotnet](dotnet.rule.md) for the .NET integration. This rule covers only how a
 command is spelled and how it projects onto an HTTP surface.
@@ -100,7 +101,10 @@ carries no `/admin` prefix (below). There are two typed commands:
 | Binary | Caller | Holds |
 |---|---|---|
 | `ai-tools` | the invoking operator, unprivileged; refuses the sandbox account | project lifecycle and the reports |
-| `ai-tools-admin` | root, enforced by `EUID -eq 0` | host administration |
+| `ai-tools-admin` | root, enforced by `EUID -eq 0` before any command dispatches | host administration |
+
+`--help` and `--version` are answered ahead of that root check, since they read no host state and
+change nothing, so the first thing an operator meets is the command surface rather than a refusal.
 
 A command requiring root belongs on `ai-tools-admin` rather than in a binary of its own, so an
 administrator learns one name and one grammar. Each additional top-level name costs a
@@ -232,15 +236,17 @@ on the HTTP side. Neither needs a path segment.
 
 ## Where the surface stands
 
-Four commands carry a `%{_sbindir}` symlink so `sudo <name>` resolves through `secure_path`:
-`ai-tools`, `ai-tools-admin`, `ai-tools-bootstrap` and `ai-tools-dotnet`. Three of the four are
-root-only, so the last two fold into `ai-tools-admin` as verbs:
+`ai-tools-admin` conforms: `operators [list|add|remove]`, `selinux groups [list|enable|disable]`,
+`system post-upgrade`, `--help`/`-h`, `--version`. `ai-tools-admin(8)` documents that surface and
+`tests/unit/man.sh` holds the page, the helper's `usage()` and its dispatch arms in agreement, so a
+command renamed in one of the three fails the suite rather than going stale in the others.
+
+Two commands still diverge. Four names carry a `%{_sbindir}` symlink so `sudo <name>` resolves
+through `secure_path` — `ai-tools`, `ai-tools-admin`, `ai-tools-bootstrap` and `ai-tools-dotnet` —
+and three of the four are root-only, so the last two fold into `ai-tools-admin` as verbs:
 
 | Its spelling | Under this grammar |
 |---|---|
-| `ai-tools-admin operator add\|remove\|list` | `operators add\|remove\|list` |
-| `ai-tools-admin selinux list-groups\|enable-group\|disable-group` | `selinux groups list\|enable\|disable` |
-| `ai-tools-admin postupgrade` | `system post-upgrade` |
 | `sudo ai-tools-bootstrap` | `system bootstrap` |
 | `sudo ai-tools-dotnet setup` | `dotnet bootstrap` |
 | `sudo ai-tools-dotnet install-tools <pkg...>` | `dotnet tools install <pkg...>` |
@@ -253,7 +259,7 @@ symlinks with the move, in both `install.sh` and the RPM. `ai-tools-admin` ships
 the toolchain it installs exists. `system bootstrap` belongs to base and `dotnet bootstrap` to the
 integration package that owns the domain.
 
-`ai-tools-admin` dispatches a fixed `case` over its own subcommands, so the discovery seam that
+`ai-tools-admin` dispatches a fixed `case` over its own commands, so the discovery seam that
 lets a provider package contribute `dotnet` is the work that carries that domain in, and the
 `--scope full` opt-in on `system bootstrap` depends on it: base can only run each enabled
 integration's `bootstrap` once there is a seam to find one through.

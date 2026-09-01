@@ -31,7 +31,7 @@ operators list).
   the launcher. Everything deeper stays `o=0`.
 - The launch wrapper ships system-wide as **`/usr/local/bin/claude`** (`root:root
   0755`), rpm-owned. `path-dedup.sh`, wired into each operator's dotfiles by
-  `ai-tools-admin operator add`, ranks `/usr/local/bin` (Tier 1) above the nvm shim,
+  `ai-tools-admin operators add`, ranks `/usr/local/bin` (Tier 1) above the nvm shim,
   so it shadows any nvm-managed `claude`.
 - The wrapper checks `ai-ops` membership first and frames a `msg.lib` refusal for a
   non-operator, instead of leaking a raw `sudo` denial.
@@ -71,7 +71,7 @@ operators list).
   per-operator owner).
 - Sudoers grants are **group** rules: `%ai-ops ALL=(ai-tools:ai-tools) NOPASSWD:
   /opt/ai-tools/bin/ai-tools-run`. The per-operator-line form is gone.
-- **Operator management is a symmetric root helper, `ai-tools-admin operator
+- **Operator management is a symmetric root helper, `ai-tools-admin operators
   add|remove|list`** (run via `sudo`), replacing the one-shot `ai-tools-enroll`. It is a
   root helper, not an `ai-tools` CLI verb, because the CLI is unprivileged and refuses
   root while this edits host config (sudoers group, `ai-ops`, `OPERATORS`); the
@@ -150,7 +150,7 @@ boundary-mode constants the installer/spec assert.
   verb leaves stale entries on unclaim and re-introduces agent-triggered control-plane writes.)
 - **(B) operator.conf format** → `OPERATORS="alice bob svc-ci"`, one list for human and
   service accounts alike (they share `ai-tools`); home/group derived via `getent`.
-- **(C) operator lifecycle** → `ai-tools-admin operator add|remove|list`; `add` with no
+- **(C) operator lifecycle** → `ai-tools-admin operators add|remove|list`; `add` with no
   arg offers `$SUDO_USER`, with an arg enrols that user or service account.
 - **(D) per-operator isolation** → private `state/<operator>/` for agent state, private
   `/tmp` per session via `PrivateTmp`.

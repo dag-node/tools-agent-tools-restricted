@@ -133,7 +133,7 @@ caller="$(id -un "${caller_uid}" 2>/dev/null)" \
     || die "the sandbox account may not manage an allowlist -- nothing changed"
 
 ai_tools_load_operators 2>/dev/null \
-    || die "no operators configured -- run: sudo ai-tools-admin operator add <user>"
+    || die "no operators configured -- run: sudo ai-tools-admin operators add <user>"
 
 _is_operator() {
     local want="$1" op
@@ -157,7 +157,7 @@ _is_operator "${caller}" \
     || die "root is not an operator -- nothing changed"
 _is_operator "${OPERATOR}" \
     || die "${OPERATOR} is not a configured ai-tools operator -- enrol it first with:
-       sudo ai-tools-admin operator add ${OPERATOR}"
+       sudo ai-tools-admin operators add ${OPERATOR}"
 
 target_home="$(getent passwd "${OPERATOR}" 2>/dev/null | cut -d: -f6)" \
     || die "cannot resolve ${OPERATOR} -- nothing changed"

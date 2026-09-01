@@ -31,7 +31,7 @@ readonly AI_TOOLS_SELINUX_PACKAGE_DIR="/usr/share/selinux/packages/ai-tools"
 # The stability field is 'experimental' or 'stable': 'experimental' groups are
 # unaudited drafts whose rule set has not been verified under permissive against a
 # real workload, so a consumer that enables one warns and confirms first (see
-# ai-tools-admin selinux enable-group); a 'stable' group is a single, reasoned rule
+# ai-tools-admin selinux groups enable); a 'stable' group is a single, reasoned rule
 # that has been tested. Add a group as 'experimental' until it earns 'stable'.
 # shellcheck disable=SC2034  # iterated by consumers via the accessors below
 readonly AI_TOOLS_SELINUX_GROUPS=(

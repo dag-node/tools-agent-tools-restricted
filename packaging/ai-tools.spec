@@ -259,6 +259,9 @@ install -m 0750 src%{ai_bindir}/ai-tools-handback-client.py %{buildroot}%{ai_bin
 # ships. brp-compress may gzip it (hence the %%files glob).
 install -d -m 0755 %{buildroot}%{ai_mandir}/man1
 install -m 0644 src%{ai_mandir}/man1/ai-tools.1             %{buildroot}%{ai_mandir}/man1/ai-tools.1
+# ai-tools-admin(8): section 8 because every command it documents refuses a non-root caller.
+install -d -m 0755 %{buildroot}%{ai_mandir}/man8
+install -m 0644 src%{ai_mandir}/man8/ai-tools-admin.8       %{buildroot}%{ai_mandir}/man8/ai-tools-admin.8
 # operator.conf(5): the host options and the shared KEY=value grammar they are written in.
 install -d -m 0755 %{buildroot}%{ai_mandir}/man5
 install -m 0644 src%{ai_mandir}/man5/operator.conf.5        %{buildroot}%{ai_mandir}/man5/operator.conf.5
@@ -327,7 +330,7 @@ install -m 0440 src%{_sysconfdir}/sudoers.d/ai-tools %{buildroot}%{_sysconfdir}/
 
 # ── base: host-config template. The @PROJECTS_USER@ token stays literal at build (the
 #    operator is a runtime identity), so stage the template with OPERATORS emptied;
-#    `ai-tools-admin operator add` fills it in place. %config(noreplace) keeps the
+#    `ai-tools-admin operators add` fills it in place. %config(noreplace) keeps the
 #    operator's OPERATORS/SKIP_* edits across upgrades. ──
 install -d -m 0755 %{buildroot}%{_sysconfdir}/ai-tools
 sed 's/^OPERATORS=.*/OPERATORS=""/' src%{_sysconfdir}/ai-tools/operator.conf \
@@ -338,7 +341,7 @@ chmod 0644 %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 # Staged here, shipped in the ai-tools-selinux subpackage (which also carries the load/unload
 # scriptlets and the GPL licence text -- see its %%package block).
 # The core (loaded on install) plus each STABLE optional group. Only stable groups ship
-# prebuilt: they are toggled per host with `ai-tools-admin selinux enable-group <name>`,
+# prebuilt: they are toggled per host with `ai-tools-admin selinux groups enable <name>`,
 # which semodule-loads the prebuilt .pp from this directory (no source tree or
 # selinux-policy-devel needed). EXPERIMENTAL groups are NOT shipped -- they are compiled and
 # verified from a source checkout on demand (install-selinux.sh enable-group + the avc loop);
@@ -532,7 +535,7 @@ chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 # keep_existing semantics), so a fresh install or upgrade self-heals a missing guard while an
 # existing -- possibly operator-customised -- file is never clobbered. This runs on every
 # transition, not fresh-install only, so a file lost to an earlier package's config handling is
-# restored. No operator is bound yet at %post time (that is `ai-tools-admin operator add`, run
+# restored. No operator is bound yet at %post time (that is `ai-tools-admin operators add`, run
 # after this), so the .gitconfig email uses the hostname -f fallback.
 if [ ! -f /opt/ai-tools/.gitignore ]; then
     install -m 0640 -o root -g ai-tools \
@@ -574,7 +577,7 @@ done
 # Each is gated on the state it would create rather than on install-vs-upgrade, so an upgrade
 # names only what this host still owes, a step undone since an earlier run included. An operator
 # is two facts -- ai-ops membership and a name in OPERATORS (cli.rule.md) -- so either one
-# missing asks for `operator add`, which writes both. OPERATORS ships holding the literal
+# missing asks for `operators add`, which writes both. OPERATORS ships holding the literal
 # @PROJECTS_USER@ token, which the name-character class excludes. A gate that cannot read its
 # input prints its hint.
 _at_toolchain=1
@@ -596,13 +599,13 @@ fi
 if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ]; then
     echo "ai-tools-base: steps this host still needs:"
     if [ "${_at_toolchain}" = 1 ]; then
-        echo "  sudo ai-tools-bootstrap                      # install nvm + Node + Claude Code (network)"
+        echo "  sudo ai-tools-bootstrap                       # install nvm + Node + Claude Code (network)"
     fi
     if [ "${_at_operator}" = 1 ]; then
-        echo "  sudo ai-tools-admin operator add <your-user> # bind an operator (ai-ops, OPERATORS, linger)"
+        echo "  sudo ai-tools-admin operators add <your-user> # bind an operator (ai-ops, OPERATORS, linger)"
     fi
     if [ "${_at_merge}" = 1 ]; then
-        echo "  sudo ai-tools-admin postupgrade              # operator.conf.rpmnew is waiting"
+        echo "  sudo ai-tools-admin system post-upgrade       # operator.conf.rpmnew is waiting"
     fi
 fi
 
@@ -668,13 +671,13 @@ fi
 %post -n ai-tools-selinux
 # Load the core module into the RUNNING policy and apply contexts. Core only -- the stable
 # optional groups ship prebuilt alongside it but stay OFF, toggled per host with
-# `ai-tools-admin selinux enable-group <name>` (experimental groups are not shipped).
+# `ai-tools-admin selinux groups enable <name>` (experimental groups are not shipped).
 #
 # `semodule -i` loads into the RUNNING policy, not just the module store: the entrypoint is
 # labelled by the restorecon below only once the module's types exist in the kernel, and
 # ai-tools-run's preflight refuses to launch (`mislabel`) while it is unlabelled. The default
 # module priority puts this in the same slot selinux/install-selinux.sh and `ai-tools-admin
-# selinux enable-group` address, so one host holds one copy of each module and a package upgrade
+# selinux groups enable` address, so one host holds one copy of each module and a package upgrade
 # always supersedes what it replaces.
 #
 # After relabelling the daemon binary, refresh an already-active handback socket (an upgrade): the
@@ -706,7 +709,7 @@ fi
 
 %postun -n ai-tools-selinux
 # On final erase only, unload every loaded ai_tools module -- the core, any stable optional group
-# enabled with `ai-tools-admin selinux enable-group`, and any EXPERIMENTAL group compiled from a
+# enabled with `ai-tools-admin selinux groups enable`, and any EXPERIMENTAL group compiled from a
 # source checkout. Enumerated rather than named: a .pp is erased with the package, but the
 # compiled module persists in the policy store until removed, and a module built from source was
 # never in the rpm database at all. Leaving one loaded would keep a domain alive for files the
@@ -806,13 +809,13 @@ for kind in skills:skills subagents:agents; do
 done
 # settings.json is %config(noreplace), so a host that tuned its permission rules keeps them and rpm
 # parks this version's copy as .rpmnew. Choosing between the two is the operator's call, made
-# through `ai-tools-admin postupgrade` -- a scriptlet does not edit a config file. Say so here,
+# through `ai-tools-admin system post-upgrade` -- a scriptlet does not edit a config file. Say so here,
 # because leaving it costs silently: a hook this version ships installs its body and its data, and
 # nothing invokes it until its DECLARATION reaches settings.json.
 if [ -f /opt/ai-tools/.claude/settings.json.rpmnew ]; then
     echo "ai-tools: settings.json.rpmnew is waiting -- this version's hook declarations are not in"
     echo "  your settings.json yet, so the hooks they declare never run. Merge them with:"
-    echo "    sudo ai-tools-admin postupgrade"
+    echo "    sudo ai-tools-admin system post-upgrade"
 fi
 
 %preun -n ai-tools-agents-claude-code-restricted
@@ -859,6 +862,7 @@ fi
 %{_sbindir}/ai-tools
 %attr(0644, root, root) %{ai_mandir}/man1/ai-tools.1*
 %attr(0644, root, root) %{ai_mandir}/man5/operator.conf.5*
+%attr(0644, root, root) %{ai_mandir}/man8/ai-tools-admin.8*
 %attr(0750, root, ai-tools) %{ai_bindir}/ai-tools-handback-client
 %dir %attr(0751, root, ai-tools) %{ai_libdir}
 %attr(0644, root, root) %{ai_libdir}/log.lib.sh
@@ -1005,6 +1009,24 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Tue Sep 01 2026 dagnode <tools@dagnode.com> - 0.15.0-1
+- CHANGED: The ai-tools-admin commands are spelled as a resource grammar, so the names an
+  administrator types are 'operators add <user>', 'operators remove <user>', 'operators'
+  (which lists them), 'selinux groups', 'selinux groups enable <name>', 'selinux groups
+  disable <name>', and 'system post-upgrade'. The old spellings -- operator add, selinux
+  list-groups, selinux enable-group, selinux disable-group, postupgrade -- are gone and are
+  not aliased. Update any script, cron job or runbook that calls them. What each command does
+  is unchanged.
+- NEW: 'ai-tools-admin --help' and '-h' print the command summary, and '--version' prints the
+  installed version. The tool previously answered a wrong command with a one-line error and had
+  no way to show its surface at all. Both answer any caller rather than only root, so reading
+  what the tool does needs no sudo.
+- NEW: ai-tools-admin(8) documents every command, its arguments, the exit codes and the files
+  each one touches, with worked examples. 'man ai-tools-admin'.
+- CHANGED: A rejected command line exits 2 rather than 1, so an unattended caller can tell a
+  command nobody can type correctly from an operation that ran and failed. Exit 0 and exit 1
+  keep their meanings.
+
 * Mon Aug 31 2026 dagnode <tools@dagnode.com> - 0.14.0-1
 - NEW: 'ai-tools --project-create <path>' creates a project: one directory, an empty git
   repository, a README.md naming it, then the ordinary claim on the result. It was an alias for

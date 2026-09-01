@@ -63,7 +63,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Running .NET (CoreCLR) under confinement: the dotnet integration files ↔ the `tmpmap`/`apphost`/`netcore` SELinux groups, project-type→group map, denial breakdown | `lib/ai-tools/session-env.d/dotnet.env.sh`, `lib/ai-tools/filters.d/dotnet.rules`, `ai-tools-dotnet.sh`, `selinux/policy/ai_tools_{tmpmap,apphost,netcore}.te` | [dotnet](.claude/rules/dotnet.rule.md) |
 | Management CLI, project lifecycle, relabel, acting for another operator (`--for`) | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel,allowlist}.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
 | Terminating sessions that are already running (`--stop`) — the incident ladder's stop rung; takes no target, exempts nothing, restores the user manager | `ai-tools-stop.sh` | [cli](.claude/rules/cli.rule.md) + [docs/session-stop.md](docs/session-stop.md) |
-| How every command is spelled: bare-word commands, plural collections, verb after noun, and the REST projection each maps onto | `bin/ai-tools.sh`, `ai-tools-admin.sh`, `ai-tools-dotnet.sh`, `ai-tools.1` | [cli-grammar](.claude/rules/cli-grammar.rule.md) |
+| How every command is spelled: bare-word commands, plural collections, verb after noun, and the REST projection each maps onto | `bin/ai-tools.sh`, `ai-tools-admin.sh`, `ai-tools-dotnet.sh`, `ai-tools.1`, `ai-tools-admin.8` | [cli-grammar](.claude/rules/cli-grammar.rule.md) |
 | Protected-paths backstop (refuse system dirs as targets) | `safe-paths.lib.sh` + the wrapper/CLI/elevated helpers | [safe-paths](.claude/rules/safe-paths.rule.md) |
 | Shared logging library | `log.lib.sh` | [logging](.claude/rules/logging.rule.md) |
 | User-facing message formatting (box, wrap, ties) | `msg.lib.sh` + its consumers | [messaging](.claude/rules/messaging.rule.md) |
@@ -123,7 +123,7 @@ sandbox account can never hold the operator grant.
 
 ### An operator is two facts; provisioning needs a third this project does not grant
 
-`ai-tools-admin operator add` writes both facts that make an operator: membership of `ai-ops`
+`ai-tools-admin operators add` writes both facts that make an operator: membership of `ai-ops`
 (the rules above, and the launch wrapper's own gate) and a name in `OPERATORS`
 (`/etc/ai-tools/operator.conf`, from which `operator.lib.sh` resolves each path's owner). An
 account holding only those two runs agent sessions on the projects claimed for it, and is a

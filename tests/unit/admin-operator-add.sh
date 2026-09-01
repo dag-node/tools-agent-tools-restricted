@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/admin-operator-add.sh
-# Unit test for report_operator_role -- the lines `ai-tools-admin operator add` prints to say which
+# Unit test for report_operator_role -- the lines `ai-tools-admin operators add` prints to say which
 # of the two operator shapes the enrolment just produced: one that can claim projects, or one whose
 # projects another operator claims for it.
 #
@@ -27,10 +27,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HELPER="/usr/local/libexec/ai-tools/ai-tools-admin"
 [[ -r "${HELPER}" ]] || HELPER="${ROOT}/src/usr/local/libexec/ai-tools/ai-tools-admin.sh"
 
-section "ai-tools-admin operator add: the sudo-grant report (unit)"
+section "ai-tools-admin operators add: the sudo-grant report (unit)"
 
 if [[ ! -r "${HELPER}" ]]; then
-    skip "operator add report" "helper not readable (neither installed nor in a checkout)"
+    skip "operators add report" "helper not readable (neither installed nor in a checkout)"
     finish; exit
 fi
 

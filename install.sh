@@ -75,7 +75,7 @@ readonly SANDBOX_GROUP="ai-tools"
 # routes -- the invoking SUDO_USER, --operator, and the prompt -- which must refuse alike or the
 # route decides the outcome.
 #
-# Root is the one that matters: `ai-tools-admin operator add` refuses it outright and this script
+# Root is the one that matters: `ai-tools-admin operators add` refuses it outright and this script
 # reaches the same end state by a different route (the @PROJECTS_USER@ substitution plus
 # `usermod -aG ai-ops`), producing a host nobody can provision -- the CLI refuses root every
 # mutating verb, --for refuses root as a target, and operator.lib.sh resolves path owners from
@@ -571,7 +571,7 @@ offer_selinux() {
         # ai-tools-admin is the shipped entry point and is deployed by now, so name it rather
         # than the checkout path an installed host may not keep.
         if command -v ai-tools-admin >/dev/null 2>&1; then
-            say "    ${C_DIM}manage them with: sudo ai-tools-admin selinux list-groups${C_RST}"
+            say "    ${C_DIM}manage them with: sudo ai-tools-admin selinux groups${C_RST}"
         else
             say "    ${C_DIM}manage them with: sudo ${selinux_script} {install|remove|list-groups}${C_RST}"
         fi
@@ -679,6 +679,7 @@ do_summary() {
     _chk /usr/local/bin/ai-tools
     _chk /usr/local/share/man/man1/ai-tools.1
     _chk /usr/local/share/man/man5/operator.conf.5
+    _chk /usr/local/share/man/man8/ai-tools-admin.8
     _chk /var/opt/ai-tools
     _chk /var/opt/ai-tools/sandbox-projects
     _chk /var/opt/ai-tools/README.md
@@ -1059,7 +1060,7 @@ do_install() {
         /usr/local/lib/ai-tools/filters.d/dotnet.rules
 
     # SELinux policy packages (prebuilt): stage the core plus each STABLE optional group under the
-    # canonical package dir, so the installed ai-tools-admin can `selinux enable-group` a prebuilt
+    # canonical package dir, so the installed ai-tools-admin can `selinux groups enable` a prebuilt
     # module without a source checkout (parity with the RPM). Only stable groups ship prebuilt;
     # experimental groups are compiled and verified from source on demand, so they are not staged.
     # Keep this list in step with the stable set in selinux-groups.lib.sh. install-selinux.sh
@@ -1174,7 +1175,7 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh" \
         /usr/local/libexec/ai-tools/ai-tools-bootstrap
 
-    # Host administration: ai-tools-admin operator add|remove|list manages the OPERATORS list and
+    # Host administration: ai-tools-admin operators add|remove|list manages the OPERATORS list and
     # ai-ops membership. This dev install binds the invoking user as the sole operator inline below.
     log "/usr/local/libexec/ai-tools/ai-tools-admin"
     install_subst 750 root root \
@@ -1289,6 +1290,14 @@ do_install() {
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/share/man/man1/ai-tools.1" \
         /usr/local/share/man/man1/ai-tools.1
+
+    # ai-tools-admin(8). Section 8 because every command it documents refuses a non-root
+    # caller. Version-substituted and command-synced with the helper's usage() the same way.
+    log "/usr/local/share/man/man8/ai-tools-admin.8"
+    install -d -o root -g root -m 755 /usr/local/share/man/man8
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/share/man/man8/ai-tools-admin.8" \
+        /usr/local/share/man/man8/ai-tools-admin.8
 
     # operator.conf(5). Documents the shared KEY=value grammar and every host option, so an
     # operator reading the config has a manual rather than only its inline comments.
@@ -1821,6 +1830,7 @@ do_install() {
     say "  configure and read up:"
     say "    ${C_BOLD}/etc/ai-tools/operator.conf${C_RST}                  ${C_DIM}# host options, each documented inline${C_RST}"
     say "    ${C_BOLD}man ai-tools${C_RST}                                 ${C_DIM}# the CLI${C_RST}"
+    say "    ${C_BOLD}man ai-tools-admin${C_RST}                           ${C_DIM}# the root-only host commands${C_RST}"
     say "    ${C_BOLD}man 5 operator.conf${C_RST}                          ${C_DIM}# every host option${C_RST}"
     say ""
     suggest_lint_tools
@@ -1898,6 +1908,7 @@ do_uninstall() {
     rm -f /usr/local/bin/ai-tools
     rm -f /usr/local/share/man/man1/ai-tools.1
     rm -f /usr/local/share/man/man5/operator.conf.5
+    rm -f /usr/local/share/man/man8/ai-tools-admin.8
     rm -f /usr/local/bin/claude
     # Units, after the stop/disable above. Globs cover the handback socket+service and
     # the relabel path+service in one sweep, plus the updater service+timer.

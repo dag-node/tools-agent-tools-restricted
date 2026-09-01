@@ -74,9 +74,9 @@ surface for tasks that reach into system context, all **disabled by default**:
 core and load on any installed host with no toolchain:
 
 ```bash
-sudo ai-tools-admin selinux list-groups
-sudo ai-tools-admin selinux enable-group tmpmap
-sudo ai-tools-admin selinux disable-group tmpmap
+sudo ai-tools-admin selinux groups
+sudo ai-tools-admin selinux groups enable tmpmap
+sudo ai-tools-admin selinux groups disable tmpmap
 ```
 
 **Experimental** groups are unaudited drafts: their rule set has not been verified under

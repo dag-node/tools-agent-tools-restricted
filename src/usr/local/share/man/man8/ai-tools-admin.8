@@ -1,0 +1,269 @@
+.\" ai-tools-admin(8) -- host administration for Agent Tools Restricted.
+.\" Kept in sync with the helper's own usage() text by tests/unit/man.sh, which
+.\" compares the command sets of both; @AI_TOOLS_VERSION@ is substituted at
+.\" deploy time (install.sh install_subst / the RPM %prep), like the helper.
+.TH AI-TOOLS-ADMIN 8 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
+.SH NAME
+ai-tools-admin \- administer the host a sandboxed coding agent runs on
+.SH SYNOPSIS
+.B ai-tools-admin
+.I command
+.RI [ argument ]
+.br
+.B ai-tools-admin
+.BR \-\-help | \-\-version
+.SH DESCRIPTION
+.B ai-tools-admin
+administers the host state the sandbox rests on: who is enrolled as an
+operator, which optional SELinux policy groups are loaded, and the
+configuration files an upgrade leaves to reconcile.
+Every command runs as root and refuses any other caller, which is what
+separates it from
+.BR ai-tools (1)
+\(em the project-lifecycle CLI, run as your own login user, which refuses root
+for every command that writes an operator's registries.
+.PP
+A command is a bare word and
+.B \-\-
+introduces an option, so a collection takes its verb after the noun
+.RB ( "operators add" ,
+.BR "selinux groups enable" ).
+A collection named on its own lists what it holds.
+A domain named on its own
+.RB ( selinux ,
+.BR system )
+prints its commands, since every verb it owns changes the host.
+.PP
+Commands that write a file back it up first, name each path they touched, and
+state each yes/no question's default in the prompt
+.RB ( "[Y/n] (default: Yes)" );
+plain Enter \(em and any run without a terminal \(em takes that default.
+.SS Operators
+An operator is a login user, a person or a rootless service account, that
+drives the sandbox through the shared
+.B ai-tools
+account.
+Enrolment writes two facts:
+a name in
+.B OPERATORS
+in
+.BR operator.conf (5),
+from which the root helpers resolve who owns a path, and membership of the
+.B ai-ops
+group, which the
+.BR sudoers (5)
+grant and the launch wrapper both gate on.
+.PP
+Claiming a project needs a third fact this command cannot write: a general
+.BR sudo (8)
+grant, which the host's own sudoers decides.
+.B "operators add"
+reports which of the two shapes the enrolment produced \(em an account that
+can claim projects as well as launch sessions, or one that launches sessions
+on projects another operator claimed for it with
+.BR "ai\-tools \-\-project\-claim \-\-for" .
+.PP
+Group membership applies to new login sessions, so an operator enrolled from
+an already-open shell starts a new one before launching an agent.
+.SS SELinux groups
+The core policy module confines every session to the
+.B ai_tools_t
+domain and covers a repository workload: files, git, HTTPS.
+The optional groups widen that domain for one workload each, are disabled by
+default, and are loaded per host.
+.B "selinux groups enable"
+loads the module the base package ships prebuilt, needing no source tree and
+no
+.BR selinux\-policy\-devel .
+.PP
+Only groups marked
+.I stable
+ship prebuilt.
+A group marked
+.I experimental
+is an unaudited draft and is refused here, with a pointer to the source
+checkout that compiles and verifies it.
+.SH COMMANDS
+.TP
+.B operators
+List the enrolled operators, one per line.
+This is what a bare
+.B operators
+runs, and
+.B "operators list"
+is the same command spelled in full.
+.TP
+.B operators add \fR[\fIuser\fR]
+Enrol
+.IR user ,
+defaulting to
+.BR $SUDO_USER .
+Appends the name to
+.BR OPERATORS ,
+adds the account to
+.BR ai\-ops ,
+seeds an empty allowlist at
+.IR ~/.config/ai\-tools/allowed\-projects ,
+enables
+.BR loginctl (1)
+linger for the sandbox account, and offers to source the PATH ordering
+fragment from the account's
+.I ~/.bashrc
+and
+.IR ~/.bash_profile .
+Idempotent: a re-run reconciles each of those and reports what was already in
+place.
+Refuses root and the sandbox account.
+.TP
+.B operators remove \fIuser\fR
+Withdraw
+.IR user 's
+enrolment: drops the name from
+.B OPERATORS
+and the account from
+.BR ai\-ops .
+Leaves the account's own allowlist and configuration on disk, so re-enrolling
+restores the projects it had.
+.TP
+.B selinux groups
+Report the core module and every optional group with its state
+.RB ( [LOADED] / [disabled] ),
+its stability, and what it covers.
+Reports that there is nothing to manage when SELinux is disabled.
+.TP
+.B selinux groups enable \fIname\fR
+Load the prebuilt module for
+.IR name .
+Prints the group list when
+.I name
+is not a registered group, and refuses an
+.I experimental
+group with the source-checkout command that compiles it.
+Loading a group widens what SELinux permits and does not lift the session's
+namespace filter.
+.TP
+.B selinux groups disable \fIname\fR
+Unload the module for
+.IR name .
+Works for any loaded group, stable or experimental.
+.TP
+.B system post-upgrade
+Reconcile the
+.I <file>.rpmnew
+copies an upgrade leaves beside the configuration files this stack owns.
+Each file gets the treatment its content calls for: the agent's
+.I settings.json
+has the hook declarations it lacks merged in, with its permission rules left
+as written;
+.BR operator.conf (5)
+is reported and never rewritten;
+.I /etc/sudoers.d/ai\-tools
+is shown only.
+Every treatment shows the difference first, confirms, and writes a dated
+backup before changing anything.
+Idempotent, and a no-op when no
+.I .rpmnew
+file is waiting.
+.SH OPTIONS
+Both options read no host state and change nothing, so both answer any caller
+rather than only root, and each ignores any further argument.
+.TP
+.BR \-\-help ", " \-h
+Print the command summary and exit.
+.TP
+.B \-\-version
+Print the installed version and exit.
+.SH EXIT STATUS
+.TP
+.B 0
+The command completed.
+An idempotent command that found nothing left to do lands here, as does a
+command that had nothing to manage because SELinux is disabled.
+.TP
+.B 1
+The operation failed.
+.TP
+.B 2
+The command line was rejected \(em an unknown command, a missing argument, or
+a domain named with no command after it.
+Nothing was changed.
+.SH ENVIRONMENT
+.TP
+.B AI_TOOLS_ASSUME_YES
+Set to
+.B 1
+to answer every question whose default is already
+.I yes
+without prompting, for unattended runs.
+A question defaulting to
+.I no
+still prompts, so this never turns a refusal into consent.
+.PP
+Host settings are not environment variables: they live in
+.BR operator.conf (5),
+which is root-owned so that a session cannot widen what it is given.
+.SH FILES
+.TP
+.I /etc/ai-tools/operator.conf
+Operator registry and host options.
+.B operators
+edits the
+.B OPERATORS
+line in place and leaves every other setting as written.
+.TP
+.I ~/.config/ai-tools/allowed-projects
+The enrolled account's own allowlist of project paths, seeded empty by
+.BR "operators add" .
+.TP
+.I /usr/share/selinux/packages/ai-tools
+The prebuilt policy modules
+.B "selinux groups enable"
+loads.
+.TP
+.I /etc/sudoers.d/ai-tools
+The grant that lets an operator launch a sandboxed session.
+.B "system post-upgrade"
+shows changes to it and never writes it.
+.SH EXAMPLES
+Enrol yourself on a freshly installed host:
+.PP
+.RS 4
+.EX
+sudo ai\-tools\-admin operators add "$(id \-un)"
+.EE
+.RE
+.PP
+Claim a project for a passwordless service account you enrolled earlier:
+.PP
+.RS 4
+.EX
+sudo ai\-tools\-admin operators add svc\-agent
+ai\-tools \-\-project\-claim \-\-for svc\-agent ~/src/myproject
+.EE
+.RE
+.PP
+See which policy groups are loaded, then widen the domain for a .NET build:
+.PP
+.RS 4
+.EX
+sudo ai\-tools\-admin selinux groups
+sudo ai\-tools\-admin selinux groups enable tmpmap
+.EE
+.RE
+.PP
+Reconcile the configuration files an upgrade left behind:
+.PP
+.RS 4
+.EX
+sudo ai\-tools\-admin system post\-upgrade
+.EE
+.RE
+.SH SEE ALSO
+.BR ai\-tools (1),
+.BR operator.conf (5),
+.BR semodule (8),
+.BR sudoers (5).
+.PP
+Running one sandbox for several operators \(em what each account gets, and
+what stays private to it:
+.I /usr/share/doc/ai\-tools/multi\-operator.md

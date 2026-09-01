@@ -66,7 +66,7 @@ else
     if grep -qxF "${hook} record" <<<"${got}"; then
         pass "settings.json declares the Bash tool-call record (${hook} record)"
     else
-        fail "settings.json does not declare '${hook} record' -- the agent's Bash calls are unrecorded (merge the shipped hook declarations into the kept settings.json: sudo ai-tools-admin postupgrade)"
+        fail "settings.json does not declare '${hook} record' -- the agent's Bash calls are unrecorded (merge the shipped hook declarations into the kept settings.json: sudo ai-tools-admin system post-upgrade)"
     fi
 
     # (0a-ii) The token-saving filter hook is declared on both Bash events. Losing it costs
@@ -82,7 +82,7 @@ else
     for ev in PreToolUse PostToolUse; do
         got="$(jq -r --arg e "${ev}" '[.hooks[$e][]?.hooks[]?.command] | join("\n")' "${settings}" 2>/dev/null)"
         if ! grep -qxF "${want_filter[$ev]}" <<<"${got}"; then
-            fail "settings.json ${ev} does not declare '${want_filter[$ev]}' -- Bash output is unfiltered (merge the shipped hook declarations into the kept settings.json: sudo ai-tools-admin postupgrade)"
+            fail "settings.json ${ev} does not declare '${want_filter[$ev]}' -- Bash output is unfiltered (merge the shipped hook declarations into the kept settings.json: sudo ai-tools-admin system post-upgrade)"
             filter_ok=false
         fi
     done
