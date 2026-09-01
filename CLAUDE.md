@@ -63,6 +63,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Running .NET (CoreCLR) under confinement: the dotnet integration files ↔ the `tmpmap`/`apphost`/`netcore` SELinux groups, project-type→group map, denial breakdown | `lib/ai-tools/session-env.d/dotnet.env.sh`, `lib/ai-tools/filters.d/dotnet.rules`, `ai-tools-dotnet.sh`, `selinux/policy/ai_tools_{tmpmap,apphost,netcore}.te` | [dotnet](.claude/rules/dotnet.rule.md) |
 | Management CLI, project lifecycle, relabel, acting for another operator (`--for`) | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel,allowlist}.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
 | Terminating sessions that are already running (`--stop`) — the incident ladder's stop rung; takes no target, exempts nothing, restores the user manager | `ai-tools-stop.sh` | [cli](.claude/rules/cli.rule.md) + [docs/session-stop.md](docs/session-stop.md) |
+| How every command is spelled: bare-word commands, plural collections, verb after noun, and the REST projection each maps onto | `bin/ai-tools.sh`, `ai-tools-admin.sh`, `ai-tools-dotnet.sh`, `ai-tools.1` | [cli-grammar](.claude/rules/cli-grammar.rule.md) |
 | Protected-paths backstop (refuse system dirs as targets) | `safe-paths.lib.sh` + the wrapper/CLI/elevated helpers | [safe-paths](.claude/rules/safe-paths.rule.md) |
 | Shared logging library | `log.lib.sh` | [logging](.claude/rules/logging.rule.md) |
 | User-facing message formatting (box, wrap, ties) | `msg.lib.sh` + its consumers | [messaging](.claude/rules/messaging.rule.md) |
@@ -292,6 +293,15 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   directions are ACL-based, so the operator stays **out** of `SANDBOX_GROUP` and its access
   does not hinge on the ownership handback's timing. Detail in
   [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md).
+- **A command is a bare word; `--` introduces an option** — the surface is resource-oriented and
+  maps 1:1 onto a REST API: a plural noun for a collection, the verb after it, `list` as the
+  zero-argument default, and a singular `selinux`/`system` domain in front where one is needed.
+  The binary is the privilege boundary, so a root-only command is a verb on `ai-tools-admin`
+  rather than a binary of its own, and the domains it dispatches are **contributed by provider
+  packages and discovered** — base cannot enumerate integrations it ships without. A contributed
+  command passes the same trust predicate as every other provider input. `ai-tools` keeps its
+  `--verb` spelling until the domain model behind `projects` settles. Detail in
+  [cli-grammar](.claude/rules/cli-grammar.rule.md).
 - **Logging** — components log through `log.lib.sh` to journald (always) and root-only
   `/var/log/ai-tools/*.log` (root writers only). Detail in
   [logging](.claude/rules/logging.rule.md).
