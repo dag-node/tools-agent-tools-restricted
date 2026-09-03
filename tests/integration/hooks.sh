@@ -159,13 +159,13 @@ fi
 # (a confinement property, and the reason this suite keeps its live-chain fixtures under $HOME
 # rather than /tmp). It is OPTIONAL: a host without it is a supported install state, so its
 # absence is not a failure -- it only means per-session /tmp isolation must come from the
-# deferred PrivateTmp launch path instead (see the testsuite-gap-audit memory TODO). This check
-# only REPORTS the posture; it never fails. On a host that does polyinstantiate, it also flags an
-# unexpected loss of one of the two entries as a note rather than an error.
+# deferred PrivateTmp launch path instead. This check only REPORTS the posture, so every outcome
+# but the polyinstantiated one emits `note`: each names a state the project supports, and `skip`
+# would put it in run.sh's no-coverage notice, which reports what a run left unverified.
 section "/tmp isolation posture (pam_namespace, optional)"
 readonly NSCONF="/etc/security/namespace.conf"
 if [[ ! -r "${NSCONF}" ]]; then
-    skip "/tmp isolation posture" "pam_namespace not configured (supported; isolation relies on the deferred PrivateTmp path)"
+    note "/tmp isolation posture" "pam_namespace not configured -- supported; per-session /tmp isolation relies on the deferred PrivateTmp path"
 else
     has_tmp=false; has_vartmp=false
     awk -v d=/tmp     '!/^[[:space:]]*#/ && $1==d && $3 ~ /level|context|user/ {exit 0} END{exit 1}' "${NSCONF}" && has_tmp=true
@@ -173,9 +173,9 @@ else
     if ${has_tmp} && ${has_vartmp}; then
         pass "pam_namespace polyinstantiates /tmp and /var/tmp per session (isolation active)"
     elif ${has_tmp} || ${has_vartmp}; then
-        skip "/tmp isolation posture" "only one of /tmp,/var/tmp is polyinstantiated (partial; supported host state)"
+        note "/tmp isolation posture" "only one of /tmp,/var/tmp is polyinstantiated -- partial, and a supported host state"
     else
-        skip "/tmp isolation posture" "namespace.conf present but no /tmp,/var/tmp entries (supported; deferred PrivateTmp path)"
+        note "/tmp isolation posture" "namespace.conf carries no /tmp,/var/tmp entries -- supported; per-session /tmp isolation relies on the deferred PrivateTmp path"
     fi
 fi
 
@@ -204,7 +204,16 @@ if [[ -r "${REAL_ALLOWLIST}" ]]; then
     done < "${REAL_ALLOWLIST}"
 fi
 if ! ${covered}; then
-    skip "handback hooks" "run-dir ${REPO} is not in the real allowlist -- run this suite from a claimed project"
+    # install.sh strips its own checkout from the allowlist on every run (a control-plane repo
+    # registered as a project would let the sandbox modify future installs), so this suite run as
+    # that install's verification phase always lands here. Name that cause where it applies: the
+    # generic reason reads as a mistake the operator made, and sends them to re-claim a directory
+    # the next install deregisters again.
+    if [[ -f "${REPO}/install.sh" && -f "${REPO}/src/usr/local/bin/ai-tools.sh" ]]; then
+        skip "handback hooks" "${REPO} is the install checkout, which install.sh deregisters by design -- run this suite from a claimed project to cover the live chain"
+    else
+        skip "handback hooks" "run-dir ${REPO} is not in the real allowlist -- run this suite from a claimed project"
+    fi
     finish; exit
 fi
 

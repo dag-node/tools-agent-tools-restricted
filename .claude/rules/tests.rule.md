@@ -29,9 +29,15 @@ the enforcing-host full-install gate (`sudo AI_TOOLS_TEST_STRICT=1 tests/run.sh 
 container selftest stays lenient because SELinux is legitimately absent there, so
 `selinux.sh`'s all-skip is a documented limitation, not a broken prerequisite.
 
+The harness carries a fourth emitter for that reason. `skip` records a check that could not
+run, and reaching the notice is the point of it. `note` records which supported state a host is
+in — `hooks.sh`'s `/tmp` posture, where `pam_namespace` polyinstantiation is optional and its
+absence is a documented deployment — and increments no counter, so it stays out of the notice.
+`AI_TOOLS_TEST_STRICT=1` then fails a run only where a check was left unrun.
+
 ```
 tests/
-  lib/harness.sh   result counters, perm(), check_file(), the /tmp testdir + dummy-allowlist fixtures, teardown
+  lib/harness.sh   pass/fail/skip/note, perm(), check_file(), the /tmp testdir + dummy-allowlist fixtures, teardown
   run.sh           dispatcher; aggregates by exit status
   unit/            hermetic helper-logic tests
   integration/     full-install checks (needs a deployed, running system)
