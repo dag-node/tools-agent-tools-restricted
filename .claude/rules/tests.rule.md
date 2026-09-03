@@ -293,7 +293,13 @@ the account, since an administrator acts on that line at the moment of the decis
 function and the helper is **sourced** rather than run (its root check and its dispatch are
 guarded for exactly that), so one function is driven with no host to administer and nothing
 written anywhere; each case runs in its own `bash`, because the helper and the harness both
-declare `SANDBOX_USER` readonly.
+declare `SANDBOX_USER` readonly. Its second section covers the enrolment's other edit — the guard
+line that sources the PATH dedup, which is what ranks the wrapper above the nvm shims — by driving
+`wire_init_file` against fixture files in the testdir. Two of the three assertions are about a file
+the command **creates**: `~/.bash_profile` is what bash reads at login, so the fixture home is run
+through a real `bash -l` to assert the account's `.bashrc` is still read through it, and a file the
+operator already has keeps its content and takes one guard line however often the accumulating
+`operator add` runs.
 
 `services.sh` pins the service-health registry (`services.lib.sh`) that `ai-tools --status` and
 the launch wrapper's pre-launch warning share. Two properties carry weight beyond the accessors.
