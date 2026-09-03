@@ -31,14 +31,17 @@ _san() { local LC_ALL=C; printf '%s' "${1//[^[:print:]]/?}"; }
 # grep for a result message keeps matching; a grep anchored on the WORD must allow the prefix (see
 # run.sh's failure summary).
 if [[ -t 1 || "${AI_TOOLS_TEST_COLOR:-0}" == "1" ]]; then
-    _C_PASS=$'\033[32m' _C_FAIL=$'\033[31m' _C_SKIP=$'\033[33m' _C_OFF=$'\033[0m'
+    _C_PASS=$'\033[32m' _C_FAIL=$'\033[31m' _C_SKIP=$'\033[33m' _C_NOTE=$'\033[2m' _C_OFF=$'\033[0m'
 else
-    _C_PASS='' _C_FAIL='' _C_SKIP='' _C_OFF=''
+    _C_PASS='' _C_FAIL='' _C_SKIP='' _C_NOTE='' _C_OFF=''
 fi
 
 pass()    { printf '  %sPASS%s  %s\n' "${_C_PASS}" "${_C_OFF}" "$(_san "$*")";            _pass=$(( _pass + 1 )); }
 fail()    { printf '  %sFAIL%s  %s\n' "${_C_FAIL}" "${_C_OFF}" "$(_san "$*")" >&2;        _fail=$(( _fail + 1 )); }
 skip()    { printf '  %sSKIP%s  %s  (%s)\n' "${_C_SKIP}" "${_C_OFF}" "$(_san "$1")" "$(_san "$2")"; _skip=$(( _skip + 1 )); }
+# note <subject> <detail>: report which supported state a host is in. Increments no counter, so
+# it stays out of run.sh's no-coverage notice; a check that could not run emits skip instead.
+note()    { printf '  %sNOTE%s  %s  (%s)\n' "${_C_NOTE}" "${_C_OFF}" "$(_san "$1")" "$(_san "$2")"; }
 section() { printf '\n── %s\n' "$(_san "$*")"; }
 
 # perm <path>: the rwx permission bits only, as octal (masks setgid/setuid/sticky). GNU

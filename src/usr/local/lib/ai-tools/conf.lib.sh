@@ -184,6 +184,13 @@ ai_tools_conf_list() {
 # overwriting the evidence of the last. A same-day second copy takes a `-N` counter, so a .bak
 # is never overwritten -- an operator who ran the installer twice in a day is exactly the one
 # who needs the first copy.
+#
+# The two kinds accumulate differently, because they record different things. A .bak records that
+# a run replaced the file, so each one is distinct evidence and every rewrite writes one. A
+# .shipped records the baseline that was on offer, so ai_tools_conf_reference reuses an existing
+# copy whose content already matches and dates a new one only for a baseline the directory does
+# not hold. A host re-running the installer against an unchanged source tree therefore keeps one
+# copy per DIFFERENT baseline it was offered, rather than one per run.
 
 # ai_tools_conf_sidecar_path <path> <kind> : print an UNUSED sidecar path for <path>. Returns 1
 #   without printing when the day's namespace is exhausted, so a caller never silently reuses a
@@ -225,12 +232,20 @@ ai_tools_conf_backup() {
     printf '%s' "${target}"
 }
 
-# ai_tools_conf_reference <deployed> <shipped> : copy the <shipped> baseline next to <deployed>
-#   as a fresh dated .shipped and print that path. The copy takes the DEPLOYED file's owner and
-#   mode, not the source tree's. Returns 1 printing nothing when no copy was made.
+# ai_tools_conf_reference <deployed> <shipped> : print the .shipped sidecar beside <deployed> that
+#   holds the <shipped> baseline, copying it to a fresh dated path when no existing sidecar matches
+#   it byte for byte. The copy takes the DEPLOYED file's owner and mode, not the source tree's.
+#   Returns 1 and prints no path when the baseline is absent or the copy fails.
 ai_tools_conf_reference() {
-    local deployed="$1" shipped="$2" target
+    local deployed="$1" shipped="$2" target existing
     [[ -f "${shipped}" ]] || return 1
+    for existing in "${deployed}".*.shipped; do
+        [[ -f "${existing}" ]] || continue
+        if cmp -s "${existing}" "${shipped}"; then
+            printf '%s' "${existing}"
+            return 0
+        fi
+    done
     target="$(ai_tools_conf_sidecar_path "${deployed}" shipped)" || return 1
     cp "${shipped}" "${target}" 2>/dev/null || return 1
     _ai_tools_conf_match_perms "${target}" "${deployed}"

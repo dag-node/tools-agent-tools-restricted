@@ -311,11 +311,15 @@ Two sidecar files serve two different recoveries, and neither substitutes for th
 | `settings.json.<YYYYMMDD>.shipped` | a merge could **not** run — absent `jq`, malformed JSON, a result that does not parse | "what was I supposed to get?" — the baseline to merge from by hand, since an RPM-installed host has no source checkout to copy from |
 
 Each failure direction leaves the deployed file byte-identical and warns, naming which check
-refused. Both sidecars are date-stamped and neither overwrites an earlier copy, so successive
-installs read as a history of what each one offered rather than only the most recent; a no-op run
-writes neither. The suffix is deliberately not `.rpmnew` — no rpm transaction produced it, and
-rpm's suffix would both claim a provenance it lacks and hand the file to the tooling that
-sweeps rpm leftovers.
+refused. Both sidecars are date-stamped and neither overwrites an earlier copy, and a no-op run
+writes neither. They differ in what a repeat run produces, because they record different things:
+a `.bak` records that a run replaced the file, so every rewrite writes one, while a `.shipped`
+records the baseline that was on offer, so a refusal resolves to the copy already beside the file
+when its content matches and dates a new one only for a baseline the directory does not hold. A
+host re-running the installer therefore holds one `.shipped` per **different** baseline it was
+offered. The suffix is deliberately not `.rpmnew` — no rpm transaction produced it, and rpm's
+suffix would both claim a provenance it lacks and hand the file to the tooling that sweeps rpm
+leftovers.
 
 **On an RPM host the same merge runs on request.** `settings.json` is `%config(noreplace)`, so an
 upgrade keeps a file the host edited and parks this version's copy as `settings.json.rpmnew`. A
