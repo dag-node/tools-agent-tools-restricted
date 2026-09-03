@@ -217,10 +217,22 @@ if [[ "${ref}" == "${cfg}.${stamp}.shipped" && "$(perm "${ref}")" == 640 ]]; the
 else
     fail "reference path/mode wrong: ${ref} mode $(perm "${ref}" 2>/dev/null)"
 fi
-if [[ "$(ai_tools_conf_reference "${cfg}" "${baseline}")" != "${ref}" ]]; then
-    pass "a second reference copy does not overwrite the first"
+# A repeated offer of the SAME baseline resolves to the copy already there, so a host re-running
+# the installer against an unchanged source tree collects one sidecar rather than one per run.
+if [[ "$(ai_tools_conf_reference "${cfg}" "${baseline}")" == "${ref}" && "$(cat "${ref}")" == SHIPPED ]]; then
+    pass "an unchanged baseline reuses the copy beside the file"
 else
-    fail "reference copy was overwritten"
+    fail "an unchanged baseline did not resolve to ${ref}"
+fi
+
+# A DIFFERENT baseline is a different answer to "what was I supposed to get?", so it takes its own
+# dated copy and leaves the earlier one readable.
+printf 'SHIPPED v2\n' > "${baseline}"
+second_ref="$(ai_tools_conf_reference "${cfg}" "${baseline}")"
+if [[ "${second_ref}" != "${ref}" && "$(cat "${ref}")" == SHIPPED && "$(perm "${second_ref}")" == 640 ]]; then
+    pass "a changed baseline adds a copy rather than overwriting the first"
+else
+    fail "changed-baseline copy wrong: ${second_ref}"
 fi
 
 # Absent inputs produce no copy and no path -- a caller must never act on a name that was not made.
