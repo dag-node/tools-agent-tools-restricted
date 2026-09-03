@@ -210,7 +210,8 @@ and stability from one place — `selinux-groups.lib.sh`, so they cannot disagre
   (`ai_tools_<group>.pp`) alongside the core in `/usr/share/selinux/packages/ai-tools/`, and
   `sudo ai-tools-admin selinux enable-group <name>` `semodule`-loads the prebuilt `.pp` on an
   installed host, needing no source tree or `selinux-policy-devel`. `list-groups`/`disable-group`
-  round it out (`disable-group` works for any loaded group).
+  round it out (`disable-group` works for any loaded group). The spelling these subcommands take
+  is set by [cli-grammar](cli-grammar.rule.md).
 - **Experimental** groups are unaudited drafts and are **not shipped prebuilt**;
   `ai-tools-admin enable-group` refuses one and points at the source workflow rather than
   loading an unaudited module. They are compiled and verified from a source checkout —

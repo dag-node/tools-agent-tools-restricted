@@ -21,6 +21,10 @@ root-write-only) through the `ai-tools-safedir` root helper (`sudo`), alongside 
 root operations. It refuses to run as the sandbox account (the agent must not manage its own
 allowlist).
 
+How its commands are **spelled** — and why this one binary keeps option-spelled verbs while the
+rest of the project uses bare words — is in [cli-grammar](cli-grammar.rule.md). This rule covers
+what each verb does.
+
 **Root runs the verbs that write no operator-owned state, and no others.** That criterion is what
 the root refusal protects: a registry written by root names an owner whose own launch gate cannot
 read it. `ROOT_ALLOWED_VERBS` — `--audit`, `--status`, `--list`, `--providers`, `--stop` — is the

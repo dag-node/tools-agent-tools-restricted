@@ -20,6 +20,9 @@ native host it built — reaches past the repo-only base domain. None of it is r
 Code agent itself, so all of it lives in **optional policy groups**, off by default, loaded only
 where .NET is brought up. On a DAC-only host (no SELinux) none of this applies.
 
+`ai-tools-dotnet`'s own subcommands are spelled to the standard in
+[cli-grammar](cli-grammar.rule.md), which also sets where a root-only integration command lives.
+
 ## The three .NET policy groups
 
 Each is a separate, composable group ([confinement](confinement.rule.md) covers the group
