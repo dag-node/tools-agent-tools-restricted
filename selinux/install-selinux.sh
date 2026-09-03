@@ -126,14 +126,18 @@ _list() {
     printf '[%s]' "${joined}"
 }
 
-# _group_cmd <verb>: the command an operator on THIS host should run to manage a policy group.
-# ai-tools-admin is the shipped entry point and is on PATH once the package is installed, so
-# prefer it; a source checkout with nothing installed yet falls back to this script's own path.
+# _group_cmd <enable|disable> [name]: the command an operator on THIS host should run to manage a
+# policy group. ai-tools-admin is the shipped entry point and is on PATH once the package is
+# installed, so prefer it; a source checkout with nothing installed yet falls back to this
+# script's own path. The two front doors spell the action differently -- the shipped one follows
+# the command grammar (.claude/rules/cli-grammar.rule.md) while this developer-only script keeps
+# its hyphenated verb -- so each branch renders its own spelling from the same action.
 _group_cmd() {
+    local verb="$1" name="${2:-<name>}"
     if command -v ai-tools-admin >/dev/null 2>&1; then
-        printf 'sudo ai-tools-admin selinux %s' "$1"
+        printf 'sudo ai-tools-admin selinux groups %s %s' "${verb}" "${name}"
     else
-        printf 'sudo %s %s' "$0" "$1"
+        printf 'sudo %s %s-group %s' "$0" "${verb}" "${name}"
     fi
 }
 sayx()    { printf '%s\n' "$*" >&2; }
@@ -304,7 +308,7 @@ prompt_groups() {
         # under this script's IFS=$'\n\t' glues them with a NEWLINE -- so the command would land
         # unindented on its own line. Keep the note and its (indented) command as separate lines.
         sayx "    ${C_DIM}this step only adds or rebuilds modules; remove one with:${C_RST}"
-        sayx "      ${C_DIM}$(_group_cmd 'disable-group <name>')${C_RST}"
+        sayx "      ${C_DIM}$(_group_cmd disable)${C_RST}"
     fi
     sayx ""
 
@@ -325,7 +329,7 @@ prompt_groups() {
         # (stability) tag matches list-groups so the stable/experimental split is visible per row.
         if ai_tools_selinux_group_loaded "${name}"; then
             printf '    %s[LOADED]%s %s %s(%s)%s -- %s\n' "${C_GRN}" "${C_RST}" "${name}" "${C_DIM}" "${stability}" "${C_RST}" "${desc}" >&2
-            sayx "        already enabled; to remove it: $(_group_cmd "disable-group ${name}")"
+            sayx "        already enabled; to remove it: $(_group_cmd disable "${name}")"
             # A loaded group is still offered, because from a source checkout the operator may be
             # iterating on its .te/.fc and want to rebuild + reload it in place. A yes recompiles
             # FROM SOURCE (build_pp below), not a prebuilt reuse -- that is the point of offering

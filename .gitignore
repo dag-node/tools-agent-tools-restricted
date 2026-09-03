@@ -1,10 +1,11 @@
 .idea/
 .env/
-# Scratch space for work-in-progress notes, issue drafts, and design docs not yet promoted
-# into the tree (docs/, .claude/rules/) or a tracker.
+# Work-in-progress notes, issue drafts and design docs live in the sibling repository
+# `tools-agent-tools-restricted-wip`. This directory holds only an untracked pointer to it
+# (wip/CLAUDE.md); nothing in this tree references anything under it.
 wip/
 # Compiled policy packages are build artifacts. Only the STABLE ones ship prebuilt so a
-# normal install and `ai-tools-admin selinux enable-group` need no selinux-policy-devel
+# normal install and `ai-tools-admin selinux groups enable` need no selinux-policy-devel
 # toolchain -- the core (ai_tools.pp) and each stable optional group (currently tmpmap).
 # EXPERIMENTAL groups are deliberately NOT committed: they are compiled and verified from
 # source on demand (selinux/install-selinux.sh enable-group + the avc bring-up loop), so a

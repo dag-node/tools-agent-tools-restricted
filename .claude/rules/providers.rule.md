@@ -220,8 +220,8 @@ the directive for the same reason, which is why a newly shipped hook is installe
 uninvoked until its declaration is merged ([claude-settings](claude-settings.rule.md)).
 
 The cost is that reconciling the `.rpmnew` is manual, so it is signposted rather than automated:
-each package's `%post` prints the pointer whenever one is present, and `sudo ai-tools-admin
-postupgrade` names the options the new version documents that the file does not mention, shows the
+each package's `%post` prints the pointer whenever one is present, and `sudo ai-tools-admin system
+post-upgrade` names the options the new version documents that the file does not mention, shows the
 difference, and offers to clear the copy. Against this file it writes nothing. An additive merge
 could append an option block the file lacks, but it could never correct the prose of one already
 there, so `operator.conf(5)` is the single current statement of what an option means and the file

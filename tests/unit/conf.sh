@@ -304,7 +304,7 @@ fi
 # A commented-out DEFAULT and an indented EXAMPLE look alike to a naive scan, and the difference
 # decides what an upgrade reports. operator.conf documents its own grammar with lines like
 # `#   KEY=value`, so counting those as mentions makes the minimally seeded file
-# `ai-tools-admin operator add` writes look like it already knows every option there is.
+# `ai-tools-admin operators add` writes look like it already knows every option there is.
 example_conf="${TESTDIR}/example.conf"
 cat > "${example_conf}" <<'CONF'
 # Grammar, by example:

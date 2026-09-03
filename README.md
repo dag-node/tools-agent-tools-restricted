@@ -77,7 +77,7 @@ sudo ai-tools-bootstrap
 
 # 2. Enrol yourself as an operator: records you in /etc/ai-tools/operator.conf and grants
 #    ai-ops membership (the sudo rules and ownership hand-back).
-sudo ai-tools-admin operator add "$(id -un)"
+sudo ai-tools-admin operators add "$(id -un)"   # every host command: man ai-tools-admin
 
 # 3. Make a project and launch in it. --project-create makes the directory, initializes a
 #    git repository, and claims it -- one command, no prompts, nothing pre-existing to
@@ -297,7 +297,7 @@ The privilege model and every guard above are specified in
     cd tools-agent-tools-restricted
     # steps 1-3: PATH fragment, the ai-tools account, nvm + Node + claude
     sudo ./install.sh install                   # step 4: helpers, units, sudoers, CLI
-    sudo ai-tools-admin operator add <user>     # enrol yourself as an operator
+    sudo ai-tools-admin operators add <user>    # enrol yourself as an operator
 
 `install.sh` stops unless the sandbox account and `/opt/ai-tools/bin` already exist —
 steps 1–3 create them (once the package is deployed, `sudo ai-tools-bootstrap` does both

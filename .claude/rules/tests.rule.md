@@ -96,7 +96,7 @@ override — the same limitation as `AI_TOOLS_ALLOWLIST`. The journald sink is u
 every line is still queryable by its per-component tag.
 
 `AI_TOOLS_POSTUPGRADE_ROOT` is the fourth hook of that family and the widest in reach:
-`ai-tools-admin postupgrade` reconciles a fixed registry of absolute control-plane paths, and
+`ai-tools-admin system post-upgrade` reconciles a fixed registry of absolute control-plane paths, and
 this prefixes every one of them, so `unit/postupgrade.sh` drives the real command against a
 fixture tree in its testdir. It carries the same standing as the three above — the helper is
 reachable only as root, `sudo` strips the name, and a caller who could set it may already edit
@@ -206,14 +206,26 @@ check asserts required **content** rather than consistency: `--help` and `--vers
 leaves the gate's refusal as the only route to the provisioning command — a regression visible
 only on the host nobody develops against.
 
-`man.sh` is a pure text-sync check between the CLI's `usage()` heredoc and the `ai-tools(1)`
-man page, validated from the repo sources (or the installed pair outside a checkout) without
-executing the CLI. The two are not copies — the help is orientation, the page is the reference
-(see [cli](cli.rule.md)) — so it asserts three relations rather than set equality: the **verb**
-sets match in both directions, every option the help names is documented, and every option the
-page documents is one a CLI **parser** accepts. The last is the direction with teeth: what goes
-stale is an option outliving its parser, whereas requiring the help to name every documented
-option is what previously made slimming the help impossible.
+`man.sh` is a pure text-sync check over both of this project's man pages and the `usage()`
+heredoc of the command each documents — `ai-tools(1)` against the CLI, `ai-tools-admin(8)`
+against the admin helper — validated from the repo sources (or the installed pair outside a
+checkout) and executing neither command, since the CLI's bootstrap gate fail-closes on an
+unprovisioned host and the helper refuses a non-root caller. In each pair the help is
+orientation and the page is the reference (see [cli](cli.rule.md)), so it asserts relations
+rather than set equality. For `ai-tools(1)`: the **verb** sets match in both directions, every
+option the help names is documented, and every option the page documents is one a CLI **parser**
+accepts. The last is the direction with teeth: what goes stale is an option outliving its parser,
+whereas requiring the help to name every documented option is what previously made slimming the
+help impossible.
+
+`ai-tools-admin(8)` gets the same relations over a surface spelled in bare words rather than long
+options ([cli-grammar](cli-grammar.rule.md)), so what is compared is the whole **command path** —
+`selinux groups enable`, three tokens. The parser direction becomes a dispatch check: the helper
+splits its dispatch across nested `case` statements, one per domain and collection, so a whole
+path never appears in a single arm and each token of a documented path must be an arm somewhere in
+the helper. That is what catches a page still naming a command after the dispatch renamed it,
+without pinning where in the nesting the arm sits. Both pages are then checked for a non-empty
+`.TH` version field.
 
 `sandbox.sh` closes with `tree_is_pristine`, which is not a sandbox helper but belongs to the same
 class: a pure decision with a security consequence. `--project-create` skips the secret scan, the
@@ -281,7 +293,7 @@ flag does **not** decide: a `SUDO_USER=root` invocation naming a usable operator
 while the same invocation naming nobody is refused, so the flag chooses who is enrolled and never
 how the script was invoked.
 
-`postupgrade.sh` is that same reconciliation seen from the RPM side: `ai-tools-admin postupgrade`
+`postupgrade.sh` is that same reconciliation seen from the RPM side: `ai-tools-admin system post-upgrade`
 end to end, from dispatch through the registry to each treatment (see
 [providers](providers.rule.md) and [claude-settings](claude-settings.rule.md)). It asserts which
 treatment each file got — the settings JSON merged with its permission rules intact and a dated
@@ -295,7 +307,7 @@ directory, `boundary/providers.sh` and `boundary/filters.sh` cover `operator.con
 `boundary/sudo.sh` covers the grant, so no input this command reads is agent-writable.
 
 `admin-operator-add.sh` pins the other reported decision that command makes: the line
-`operator add` closes with, naming which of the two operator shapes the enrolment produced. The
+`operators add` closes with, naming which of the two operator shapes the enrolment produced. The
 verdict is read out of `sudo -l -U`, so what the file drives is the direction that misleads — a
 sudo which fails for its own reasons must read as *undetermined* rather than as a verdict about
 the account, since an administrator acts on that line at the moment of the decision and a false
@@ -393,8 +405,8 @@ library is agent-writable) is in `boundary/access.sh`.
 `selinux-groups.sh` pins the optional-group registry (`selinux-groups.lib.sh`, shared by
 `ai-tools-admin selinux` and `install-selinux.sh`): the four-field accessors (including the
 `stability` field, guarding the regression where a fourth pipe field bleeds into the reason), the
-validity predicate the `enable-group` gate depends on (an unknown name is rejected), and the
-`is_experimental` predicate agreeing with the field (it decides whether `enable-group` loads a
+validity predicate the `selinux groups enable` gate depends on (an unknown name is rejected), and the
+`is_experimental` predicate agreeing with the field (it decides whether `selinux groups enable` loads a
 shipped module or refuses and points to the source workflow). And — because only **stable** groups
 ship prebuilt — registry↔filesystem lockstep: every registered group has a `.te` source; a
 **stable** group additionally has a **committed** `.pp` while an **experimental** group must have

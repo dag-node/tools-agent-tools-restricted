@@ -93,7 +93,7 @@ caller's identity from that list (`operator.lib.sh`, inside the root helpers); w
 unenrolled user proceeds through the registry writes and confirm prompts only to be refused by the
 first helper that resolves owner (`ai-tools-lockdown`: "not in allowed projects for current
 operator"), after partial state was written and rolled back. The gate replaces that with one
-up-front message pointing at `sudo ai-tools-admin operator add <user>`. `operator.conf` is `644`,
+up-front message pointing at `sudo ai-tools-admin operators add <user>`. `operator.conf` is `644`,
 so the unprivileged CLI reads `OPERATORS` directly, and enrollment there takes effect on the next
 command — no re-login, unlike the `ai-ops` group the admin verb also grants (which the launch
 wrapper needs and which does require a fresh login). The **informational** commands
@@ -305,11 +305,11 @@ file sink being the authoritative one.
   whole section is **omitted** when that list is not readable unprivileged (common — the policy store
   is root-only on many hosts): every line it prints needs the module list, so a section that could
   only say "cannot read" is not shown at all (inspect groups with
-  `sudo ai-tools-admin selinux list-groups`). When the `dotnet` integration is enabled under **Enforcing** it
+  `sudo ai-tools-admin selinux groups`). When the `dotnet` integration is enabled under **Enforcing** it
   warns of the two disjoint policy groups a full .NET workflow wants but that are not loaded:
   `tmpmap` (restore/build mmap of `/tmp`, `EACCES` without it) and `apphost` (executable/host
   projects — `dotnet run`, ASP.NET Core, `xunit.v3` — whose memfd exec is denied without it), each
-  with its own enable command: `ai-tools-admin selinux enable-group tmpmap` for the stable one, the
+  with its own enable command: `ai-tools-admin selinux groups enable tmpmap` for the stable one, the
   source `install-selinux.sh enable-group apphost` for the experimental one. These are the
   dependencies [providers](providers.rule.md) documents, surfaced where the operator checks status.
 - `--audit [--since <when>]` — report what has refused, been rejected, been stranded, or been

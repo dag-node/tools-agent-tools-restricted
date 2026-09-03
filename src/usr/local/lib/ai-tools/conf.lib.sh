@@ -389,7 +389,7 @@ ai_tools_conf_keys() {
             # ...but only when written hard against the `#` or one space in. A comment indented
             # further is illustrative prose: operator.conf's header documents the grammar with
             # lines like `#   KEY=value`, so counting those would make the minimally seeded file
-            # `ai-tools-admin operator add` writes report every documented key as new.
+            # `ai-tools-admin operators add` writes report every documented key as new.
             [[ "${line}" != "  "* ]] || continue
             line="${line#"${line%%[![:space:]]*}"}"
         fi

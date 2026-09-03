@@ -32,7 +32,7 @@ claude restricted — always resolves ahead of the nvm-managed `claude`. It is
 sourced per-account: only the operator shells wired for it get the ordering,
 and every other account on the host keeps its stock PATH.
 
-`sudo ai-tools-admin operator add <user>` offers to wire the source line into your
+`sudo ai-tools-admin operators add <user>` offers to wire the source line into your
 `~/.bashrc` and `~/.bash_profile`. To wire it by hand, add it to **both** files
 (non-login interactive shells read only `~/.bashrc`, login shells `~/.bash_profile`),
 after your nvm init:
@@ -171,7 +171,7 @@ install directory is never auto-registered as a project.
 
 Enrol each further login user as an operator (ai-ops membership, allowlist seed):
 
-    sudo ai-tools-admin operator add <user>     # defaults to $SUDO_USER
+    sudo ai-tools-admin operators add <user>     # defaults to $SUDO_USER
 
 It reports which shape the enrolment produced — whether the account can claim projects, or
 only launch sessions and have them claimed for it — by asking sudo about that account.

@@ -330,7 +330,7 @@ No rpm directive resolves the split on its own, because rpm has no vocabulary fo
 subtree of a file: plain `%config` would install the shipped file and move the host's aside to
 `.rpmsave`, reverting the permission rules the file was kept for, while `%config(noreplace)` alone
 leaves a newly shipped hook declared nowhere. The merge therefore runs on request —
-**`sudo ai-tools-admin postupgrade`**, through the same `conf.lib.sh` entry point — and the agent
+**`sudo ai-tools-admin system post-upgrade`**, through the same `conf.lib.sh` entry point — and the agent
 package's `%post` prints that pointer whenever a `.rpmnew` is present. No scriptlet edits a config
 file.
 
