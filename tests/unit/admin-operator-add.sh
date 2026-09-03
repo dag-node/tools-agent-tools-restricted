@@ -105,4 +105,60 @@ else
     fail "a host without sudo should report the host limit, got: ${out}"
 fi
 
+# --- wire_init_file: the PATH dedup reaches the operator's bash init ---
+# The guard line is what ranks /usr/local/bin (the wrapper) above the nvm shims, so a shell that
+# never sources it resolves `claude` to the nvm-managed binary instead. Driven against fixture
+# files in TESTDIR: the function takes the file as an argument, so no real home is touched.
+section "ai-tools-admin operator add: bash init wiring (unit)"
+
+mktestdir
+DEDUP_LINE="/usr/local/lib/ai-tools/path-dedup.sh"
+
+# wire_file <file> [login-chain] : source the helper in a fresh shell and wire one fixture file.
+wire_file() {
+    bash -c '
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        source "$1"
+        declare -F wire_init_file >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
+        wire_init_file "$2" "$3" "$4" "${5-}"
+    ' _ "${HELPER}" "$1" "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${2-}" 2>&1 || true
+}
+
+out="$(wire_file "${TESTDIR}/.bashrc")"
+if [[ "${out}" == *"NO SUCH FUNCTION"* ]]; then
+    fail "sourcing ${HELPER} did not define wire_init_file"
+    finish; exit
+fi
+if grep -qF "${DEDUP_LINE}" "${TESTDIR}/.bashrc"; then
+    pass "a created .bashrc carries the dedup guard line"
+else
+    fail "a created .bashrc has no guard line: $(cat "${TESTDIR}/.bashrc")"
+fi
+
+# A created .bash_profile opens with the .bashrc source EL's skel carries. bash reads
+# .bash_profile ALONE at login, so one holding only the guard line leaves a login shell without
+# the account's own init -- its nvm init among it, which the dedup is placed after.
+wire_file "${TESTDIR}/.bash_profile" login-chain >/dev/null
+printf 'export AI_TOOLS_TEST_MARKER=from_bashrc\n' >> "${TESTDIR}/.bashrc"
+marker="$(HOME="${TESTDIR}" bash -lc 'printf "%s" "${AI_TOOLS_TEST_MARKER:-unset}"' 2>/dev/null || true)"
+if [[ "${marker}" == "from_bashrc" ]]; then
+    pass "a login shell reads .bashrc through the created .bash_profile"
+else
+    fail "the created .bash_profile left a login shell without .bashrc (marker '${marker}')"
+fi
+
+# An init file the operator already has is appended to, never replaced, and a second run adds
+# nothing: `operator add` is accumulating and idempotent, and this runs on every re-enrolment.
+# shellcheck disable=SC2016  # the fixture's ${HOME} is init-file text, expanded by the shell reading it
+printf '# my own bashrc\nexport NVM_DIR="${HOME}/.nvm"\n' > "${TESTDIR}/.bashrc"
+wire_file "${TESTDIR}/.bashrc" >/dev/null
+out="$(wire_file "${TESTDIR}/.bashrc")"
+if [[ "$(grep -cF "${DEDUP_LINE}" "${TESTDIR}/.bashrc")" == 1 \
+        && "${out}" == *"already present"* ]] && grep -qF '# my own bashrc' "${TESTDIR}/.bashrc"; then
+    pass "an existing init file keeps its content and takes one guard line"
+else
+    fail "re-wiring changed an existing file:"$'\n'"$(cat "${TESTDIR}/.bashrc")"
+fi
+
 finish

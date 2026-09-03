@@ -43,6 +43,11 @@ after your nvm init:
     # ai-tools PATH dedup (must follow nvm init)
     [[ -f /usr/local/lib/ai-tools/path-dedup.sh ]] && source /usr/local/lib/ai-tools/path-dedup.sh
 
+Those two files are bash's, and `operator add` names your login shell when it
+reads something else. The fragment sources cleanly under zsh, so the same line
+goes in `~/.zshrc` and `~/.zprofile`; a shell that reads no bash (fish) takes
+the same tier ordering in its own syntax.
+
 nvm must be sourced **before** path-dedup: nvm prepends its versioned bin dir
 to `$PATH`, and path-dedup then restructures it into Tier 4, behind the T1
 system bins (which include the wrapper) and T2 `~/.local/bin`. path-dedup.sh
@@ -118,12 +123,29 @@ into it). `sudo ai-tools-bootstrap` does both in one idempotent command. Then ru
     sudo ./install.sh install
 
 The script asks which account to enrol as the operator, offering the invoking `SUDO_USER`
-as the default — answer No to name another, such as a purpose-made provisioning account.
-A non-interactive run and a plain Enter both take `SUDO_USER`. `root` is refused at either
-route, including the one that reaches it by accident: `sudo` from a root shell sets
-`SUDO_USER=root`, and the resulting host has an operator the CLI refuses every project verb.
+as the default — answer No to name another. A non-interactive run and a plain Enter both
+take `SUDO_USER`. `root` is refused at either route, including the one that reaches it by
+accident: `sudo` from a root shell sets `SUDO_USER=root`, and the resulting host has an
+operator the CLI refuses every project verb.
 
-Name the account up front to skip the question — what an unattended install uses:
+**Enrolling your own login account is the usual choice.** Agent-written files are handed
+back to it, so an editor or IDE working in a claimed project keeps seeing its own files,
+and a login that can already `sudo` holds what claiming needs. Enrol a different account
+when this host is being set up for someone else, or when a dedicated provisioning account
+owns the projects. Create one before installing:
+
+    sudo useradd -m -s /bin/bash op && sudo usermod -aG wheel op
+
+`useradd` creates the login account the script enrols; `usermod -aG wheel` is this host's
+general sudo grant, which nothing in this project writes (see below). Naming an account
+that does not exist yet refuses the install and prints this same command.
+
+The question is asked once per account. A re-install whose invoking account already holds
+both facts — a name in `OPERATORS` and `ai-ops` membership — reports whose host it is
+working on and re-asserts that enrolment without prompting.
+
+Name the account up front to skip the question — what an unattended install uses, and how
+to enrol a different account on a host that already has one:
 
     sudo ./install.sh install --operator op
 
@@ -136,7 +158,9 @@ Enrolment writes the two facts that make an operator — `ai-ops` membership and
 `OPERATORS`. **Claiming a project needs a general sudo grant as well**, which nothing here
 writes; the host's own sudoers decides it. An operator without one launches agent sessions,
 and another operator claims for it with `ai-tools --project-claim --for <operator>`. A host
-needs at least one operator holding the grant, so enrol one that does.
+needs at least one operator holding the grant, so enrol one that does — a service account
+holding none is enrolled after the install with `ai-tools-admin`, rather than named at this
+prompt.
 
 The script deploys the static `%ai-ops` sudoers drop-in, the helpers and the system
 units, creates the approved-projects allowlist with format documentation, installs the

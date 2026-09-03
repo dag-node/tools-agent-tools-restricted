@@ -98,6 +98,24 @@ operator_refusal() {
     fi
 }
 
+# operator_create_hint <name> -- print on stderr how to bring <name> into existence as an operator
+# account. Called from the two refusal sites where the name is a usable choice that has simply not
+# been created yet, so the command arrives at the point the reader is blocked rather than in a box
+# every install draws. Emits with printf rather than warn(), which is defined further down: this
+# runs from the entry-point validation as well, before the emitters exist.
+#
+# The two halves are separate decisions. `useradd` creates the normal login account this script
+# enrols. `usermod -aG wheel` is this host's general sudo grant, which install.sh never writes:
+# claim, unclaim, lockdown and reclaim reach root helpers carrying no NOPASSWD rule, so a host
+# needs at least one operator holding that grant, and which accounts hold it is the
+# administrator's decision.
+operator_create_hint() {
+    local name="$1"
+    printf '    create one, then re-run this install:\n' >&2
+    printf '    sudo useradd -m -s /bin/bash %s && sudo usermod -aG wheel %s\n' "${name}" "${name}" >&2
+    printf '    the wheel half is this host'"'"'s general sudo grant, which this script does not write\n' >&2
+}
+
 # The install runs its verification suite as SUDO_USER, so that variable is required whichever
 # account is enrolled: --operator decides WHO is enrolled, never how this script was invoked.
 : "${SUDO_USER:?error: SUDO_USER not set -- invoke via sudo, not as root directly}"
@@ -106,6 +124,9 @@ OPERATOR_REFUSAL="$(operator_refusal "${PROJECTS_USER}")"
 [[ -z "${OPERATOR_REFUSAL}" ]] \
     || { echo "error: ${OPERATOR_REFUSAL}" >&2
          echo "       name a normal login account: sudo ./install.sh --operator <account>" >&2
+         if [[ -n "${PROJECTS_USER}" ]] && ! id "${PROJECTS_USER}" &>/dev/null; then
+             operator_create_hint "${PROJECTS_USER}"
+         fi
          exit 1; }
 unset OPERATOR_REFUSAL
 PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"
@@ -1821,8 +1842,8 @@ do_install() {
         say "    ${C_BOLD}sudo ai-tools-bootstrap${C_RST}"
         say ""
     fi
-    say "  verify the timer (in ${SANDBOX_USER}'s --user instance):"
-    say "    ${C_BOLD}sudo systemctl --user -M ${SANDBOX_USER}@.host list-timers nvm-update.timer${C_RST}"
+    say "  check the install (run as ${PROJECTS_USER}, no sudo):"
+    say "    ${C_BOLD}ai-tools --status${C_RST}                             ${C_DIM}# every managed unit, and what to run for a broken one${C_RST}"
     say ""
     say "  register projects with the ai-tools CLI (run as ${PROJECTS_USER}, no sudo):"
     say "    ${C_BOLD}ai-tools --project-claim /path/to/project${C_RST}     ${C_DIM}# claim a project in place${C_RST}"
@@ -1980,43 +2001,75 @@ do_uninstall() {
 # ── dispatch ───────────────────────────────────────────────────────────────────
 
 # ── The operator this install enrols ─────────────────────────────────────────────
-# choose_operator -- name the operator explicitly instead of adopting SUDO_USER unannounced.
+# operator_is_enrolled <account> -- succeed when <account> already holds both facts that make an
+# operator on this host: a name in OPERATORS (/etc/ai-tools/operator.conf) and membership of
+# ai-ops. An unreadable or untrusted config, or a name holding only one of the two, fails the
+# test, so a host whose enrolment is absent or half-written reaches the prompt below.
+operator_is_enrolled() {
+    local account="$1" conf=/etc/ai-tools/operator.conf name
+    local -a operators=()
+    [[ -n "${account}" ]] || return 1
+    ai_tools_conf_is_trusted "${conf}" || return 1
+    ai_tools_conf_list operators "${conf}" OPERATORS || return 1
+    for name in "${operators[@]}"; do
+        [[ "${name}" == "${account}" ]] || continue
+        id -nG "${account}" 2>/dev/null | tr ' ' '\n' | grep -qxF ai-ops && return 0
+        return 1
+    done
+    return 1
+}
+
+# choose_operator -- name the operator this install enrols, rather than adopting SUDO_USER
+# unannounced.
 #
-# One account comes out of this install holding both facts that make an operator: ai-ops
-# membership and a name in OPERATORS. Which account that is was previously decided by whoever
-# happened to type sudo, which is right often enough that the decision was never visible -- and
-# wrong for the two shapes an administrator actually picks between: enrolling a purpose-made
-# provisioning account, and installing on behalf of someone else.
+# This install enrols ONE account with both facts that make an operator: ai-ops membership and a
+# name in OPERATORS. The prompt defaults to SUDO_USER, so a plain Enter and a non-interactive run
+# both enrol the invoking account; answering No reads a name and refuses it through
+# operator_refusal, the same predicate the entry-point validation applies.
 #
-# The prompt defaults to SUDO_USER, so a non-interactive run and a plain Enter both keep the
-# previous behaviour. Answering No reads a name, refused through operator_refusal -- the same
-# decision the entry applies, since a typed name reaches it by a different route.
+# Two routes skip the prompt. `--operator <account>` pre-answers it, which an unattended install
+# uses and which lets the refusals be driven without a terminal. An invoking account
+# operator_is_enrolled reports as an operator has answered it on an earlier run, and a re-install
+# re-asserts that enrolment whichever way it is answered, so the run logs the account and proceeds.
+# `--operator` still names a different account on such a host.
 #
-# `--operator <account>` answers the question ahead of time: the entry has already refused an
-# unusable name, so there is nothing left to ask and the prompt is skipped. That is what an
-# unattended install uses, and what lets the refusals be driven without a terminal.
+# The default is the usual answer: the invoking account reached this script through sudo, so it
+# holds the grant a claim needs, and the ownership handback restores agent-written files to it,
+# which keeps an editor or IDE working in a claimed project seeing its own files. The prompt offers
+# accounts of that same shape, because one operator comes out of this install and a host whose only
+# operator holds no sudo grant can register no project.
 #
-# It states what enrolment does NOT confer: a claim additionally needs a general sudo grant that
-# this script cannot write, so an account without one launches sessions and has its projects
-# claimed for it with `ai-tools --project-claim --for`.
+# So the prompt states what enrolment does not confer: `ai-tools-admin` enrols an account holding
+# no grant later, and a grant-holding operator claims its projects with the CLI's `--for` switch.
+# The prompt names that switch alone, without the claim verb carrying it, so respelling the verb in
+# the resource grammar leaves no stale command here, and writes the switch's target as a
+# placeholder -- the account enrolled here runs such a claim more often than it receives one.
+#
+# operator_create_hint prints the useradd command, from the two sites that refuse an unresolvable
+# name, keeping it out of the prompt every install draws.
 choose_operator() {
     local candidate attempts=3 refusal
     if [[ -n "${OPERATOR_OPT}" ]]; then
         log "enrolling ${PROJECTS_USER} (${PROJECTS_HOME}, group ${PROJECTS_GROUP}) -- named with --operator"
         return 0
     fi
+    if operator_is_enrolled "${PROJECTS_USER}"; then
+        log "${PROJECTS_USER} (${PROJECTS_HOME}, group ${PROJECTS_GROUP}) is already an operator -- enrolment re-asserted"
+        log "name another account with: sudo ./install.sh install --operator <account>"
+        return 0
+    fi
     confirm_boxed "Operator" y "Enrol ${PROJECTS_USER}?" \
-        "This install enrols ONE operator: the account is added to the ai-ops group and to" \
-        "OPERATORS in /etc/ai-tools/operator.conf, and the sandbox area is prepared for it." \
+        "This install enrols ONE operator." \
         "" \
-        "  ${PROJECTS_USER}   (the account that invoked sudo)" \
+        "The chosen account joins the ai-ops group, is listed in OPERATORS (/etc/ai-tools/operator.conf), and gets its sandbox area prepared." \
         "" \
-        "Answer No to name a different account -- a purpose-made provisioning account, or the" \
-        "colleague this host is being set up for." \
+        "  Default:  ${PROJECTS_USER}   (the account that invoked sudo)" \
         "" \
-        "Claiming projects also needs a general sudo grant, which this script does not write." \
-        "An operator without one launches agent sessions; another operator claims for it with" \
-        "ai-tools --project-claim --for <operator>." \
+        "Enrolling your own login account is the usual choice: agent-written files are handed back to it, so an editor or IDE working in a claimed project keeps seeing its own files." \
+        "" \
+        "Answer No to enrol a different account instead -- the colleague this host is being set up for, or a dedicated provisioning account. Enrol one that holds the sudo grant below." \
+        "" \
+        "Note: claiming a project needs a general sudo grant, which this script does not write, and this host needs at least one operator holding one. An account holding none launches agent sessions but claims nothing: enrol it later with ai-tools-admin, and claim its projects from a grant-holding operator with the --for <account> switch." \
         && return 0
 
     while (( attempts-- > 0 )); do
@@ -2026,6 +2079,9 @@ choose_operator() {
         refusal="$(operator_refusal "${candidate}")"
         if [[ -n "${refusal}" ]]; then
             warn "${refusal}"
+            if [[ -n "${candidate}" ]] && ! id "${candidate}" &>/dev/null; then
+                operator_create_hint "${candidate}"
+            fi
         else
             PROJECTS_USER="${candidate}"
             PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"

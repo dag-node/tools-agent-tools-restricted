@@ -399,6 +399,12 @@ verify_agent_labels() {
                       warn "    Update the agent package; its manifest is stale." ;;
                 none) warn "${subject}: ${detail} is not installed -- nothing to label" ;;
                 skip) warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
+                # The per-agent verdict closing that agent's lines: `ok` and `none` restate the
+                # per-path arms above, so only `failed` prints, naming the agent those lines omit.
+                agent)
+                    if [[ "${detail}" == failed ]]; then
+                        warn "${subject}: labelling did not complete -- see its lines above"
+                    fi ;;
                 # A verdict this renderer does not know is REPORTED, not dropped. Silently
                 # ignoring one turns a labelling result into no output at all, which reads as
                 # "nothing happened" for the one path whose label decides whether a session is

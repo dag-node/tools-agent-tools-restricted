@@ -217,10 +217,22 @@ if [[ "${ref}" == "${cfg}.${stamp}.shipped" && "$(perm "${ref}")" == 640 ]]; the
 else
     fail "reference path/mode wrong: ${ref} mode $(perm "${ref}" 2>/dev/null)"
 fi
-if [[ "$(ai_tools_conf_reference "${cfg}" "${baseline}")" != "${ref}" ]]; then
-    pass "a second reference copy does not overwrite the first"
+# A repeated offer of the SAME baseline resolves to the copy already there, so a host re-running
+# the installer against an unchanged source tree collects one sidecar rather than one per run.
+if [[ "$(ai_tools_conf_reference "${cfg}" "${baseline}")" == "${ref}" && "$(cat "${ref}")" == SHIPPED ]]; then
+    pass "an unchanged baseline reuses the copy beside the file"
 else
-    fail "reference copy was overwritten"
+    fail "an unchanged baseline did not resolve to ${ref}"
+fi
+
+# A DIFFERENT baseline is a different answer to "what was I supposed to get?", so it takes its own
+# dated copy and leaves the earlier one readable.
+printf 'SHIPPED v2\n' > "${baseline}"
+second_ref="$(ai_tools_conf_reference "${cfg}" "${baseline}")"
+if [[ "${second_ref}" != "${ref}" && "$(cat "${ref}")" == SHIPPED && "$(perm "${second_ref}")" == 640 ]]; then
+    pass "a changed baseline adds a copy rather than overwriting the first"
+else
+    fail "changed-baseline copy wrong: ${second_ref}"
 fi
 
 # Absent inputs produce no copy and no path -- a caller must never act on a name that was not made.
@@ -443,6 +455,7 @@ check_entry "an unmatched quote is taken as-is"    '/home/me/project'       '"/h
 # saying something other than what the caller was told:
 #   * the three-state read, where a DISABLED project used to read as absent;
 #   * add refusing to append under a winning '!' (the duplicate-pair bug);
+#   * add opening a line of its own, so a file that runs to EOF mid-line keeps that entry;
 #   * remove taking BOTH line kinds, so no '!' is left to park the next claim at that path;
 #   * enable/disable preserving position, indentation and comment -- their reason to exist
 #     rather than being an add+remove pair, for an operator whose allowlist is an ordered,
@@ -500,6 +513,14 @@ if [[ "$(grep -cxF "${P1}" "${AL}")" == 1 ]]; then
 else
     fail "add duplicated the line ($(grep -cxF "${P1}" "${AL}") copies)"
 fi
+# A hand-edited registry can run to EOF part-way through its last line, and the readers keep that
+# entry, so the append opens a line of its own for the new one. Written straight it would join the
+# two paths into a third naming no project, taking the entry above it off the launch gate.
+printf '%s\n%s' "# header" "${P2}" > "${AL}"
+rc_is 0 "add opens a line for an entry that runs to EOF" ai_tools_conf_allowlist_add "${AL}" "${P1}"
+state_is listed "${P1}" "the added path reads as listed"
+state_is listed "${P2}" "the entry that ran to EOF is still listed"
+
 seed_al "# header" "!${P1}"
 rc_is 2 "add REFUSES a disabled path"           ai_tools_conf_allowlist_add "${AL}" "${P1}"
 state_is disabled "${P1}" "the refused add left the path disabled"

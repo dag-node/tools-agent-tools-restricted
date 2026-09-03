@@ -208,35 +208,61 @@ seed_allowlist() {
     rm -f "${tmp}"
 }
 
-# wire_dedup <user>: offer (interactively) to source the ai-tools PATH dedup from the operator's
-# ~/.bashrc and ~/.bash_profile after their nvm init, so /usr/local/bin (the claude wrapper)
-# wins over the nvm shim in every shell. This wiring is the dedup's only delivery: the file
-# lives in the ai-tools lib dir, not /etc/profile.d, so unwired accounts keep their stock PATH.
-# Edits the operator's home, so it asks first and never rewrites non-interactively; a piped run
-# prints the line to add.
+# The line an operator's bash init carries: sources the PATH dedup when it is installed, and
+# leaves the shell's own PATH standing when it is not.
 readonly DEDUP_GUARD='[[ -f /usr/local/lib/ai-tools/path-dedup.sh ]] && source /usr/local/lib/ai-tools/path-dedup.sh || true'
+
+# wire_init_file <file> <user> <group> [login-chain] : add the guard line to one bash init file,
+# creating it owned by the account when it is absent. Idempotent -- a file already naming the
+# fragment is left as it is. `login-chain` seeds a created file with the `. ~/.bashrc` block EL's
+# skel carries, which the caller passes for ~/.bash_profile alone: bash reads that file by itself
+# at login, so one holding only the guard line would leave a login shell without the account's own
+# .bashrc, its nvm init among it. Top-level so tests/unit/admin-operator-add.sh drives it against
+# its own fixture files, apart from the prompt in wire_dedup.
+wire_init_file() {
+    local f="$1" user="$2" group="$3" seed="${4-}"
+    if [[ ! -e "${f}" ]]; then
+        install -o "${user}" -g "${group}" -m 644 /dev/null "${f}" || return 1
+        [[ "${seed}" == login-chain ]] && printf '%s\n' \
+            "# Created by ai-tools-admin: read this account's .bashrc at login." \
+            'if [ -f ~/.bashrc ]; then' '    . ~/.bashrc' 'fi' >> "${f}"
+    fi
+    if grep -qF '/usr/local/lib/ai-tools/path-dedup.sh' "${f}"; then
+        log "PATH dedup already present in ${f}"; return 0
+    fi
+    grep -qF 'NVM_DIR' "${f}" \
+        || log "note: NVM_DIR not found in ${f} -- path-dedup still works, but it is meant to follow your nvm init"
+    printf '\n# Added by ai-tools-admin: source the ai-tools PATH dedup (must follow nvm init).\n%s\n' \
+        "${DEDUP_GUARD}" >> "${f}"
+    log "wired PATH dedup into ${f}"
+}
+
+# wire_dedup <user>: offer (interactively) to source the ai-tools PATH dedup from the operator's
+# ~/.bashrc and ~/.bash_profile after their nvm init, so /usr/local/bin (the claude wrapper) wins
+# over the nvm shim in the operator's bash shells. This wiring is the dedup's only delivery: the
+# file lives in the ai-tools lib dir, not /etc/profile.d, so unwired accounts keep their stock
+# PATH. Those two files are what bash reads, so an account that logs in through another shell is
+# told where its own ordering stands. Edits the operator's home, so it asks first and never
+# rewrites non-interactively; a piped run prints the line to add.
 wire_dedup() {
-    local user="$1" home group bashrc bashprof f
+    local user="$1" home group login_shell bashrc bashprof
     home="$(getent passwd "${user}" | cut -d: -f6)"
+    login_shell="$(getent passwd "${user}" | cut -d: -f7)"
     group="$(id -gn "${user}")"
     [[ -n "${home}" && -d "${home}" ]] || return 0
     bashrc="${home}/.bashrc"; bashprof="${home}/.bash_profile"
-    _wire_one() {
-        f="$1"
-        [[ -e "${f}" ]] || install -o "${user}" -g "${group}" -m 644 /dev/null "${f}"
-        if grep -qF '/usr/local/lib/ai-tools/path-dedup.sh' "${f}"; then
-            log "PATH dedup already present in ${f}"; return
-        fi
-        grep -qF 'NVM_DIR' "${f}" \
-            || log "note: NVM_DIR not found in ${f} -- path-dedup still works, but it is meant to follow your nvm init"
-        printf '\n# Added by ai-tools-admin: source the ai-tools PATH dedup (must follow nvm init).\n%s\n' \
-            "${DEDUP_GUARD}" >> "${f}"
-        log "wired PATH dedup into ${f}"
-    }
+    # The two files below govern bash. Another login shell reads its own, so the operator hears
+    # which ordering their sessions actually get, at the moment the wiring is offered.
+    case "${login_shell}" in
+        */bash|'') ;;
+        *) log "note: ${user}'s login shell is ${login_shell}, which reads its own init files rather than ${bashrc} or ${bashprof}."
+           log "      rank /usr/local/bin ahead of the nvm shims there too, so that typing claude reaches the ai-tools wrapper in that shell" ;;
+    esac
     if [[ -t 0 && -e /dev/tty ]]; then
         if ai_tools_msg_confirm \
             "Wire the ai-tools PATH dedup into ${bashrc} and ${bashprof}?" y; then
-            _wire_one "${bashrc}"; _wire_one "${bashprof}"
+            wire_init_file "${bashrc}"   "${user}" "${group}"
+            wire_init_file "${bashprof}" "${user}" "${group}" login-chain
         else
             log "skipped PATH dedup; add this line after your nvm init in ${bashrc} and ${bashprof}:"
             log "  ${DEDUP_GUARD}"

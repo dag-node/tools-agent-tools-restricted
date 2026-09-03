@@ -4,11 +4,15 @@
 # entries of an operator shell and orders them so the root-owned system tiers
 # win first-match. That places /usr/local/bin/claude — the wrapper that
 # launches claude restricted — ahead of any nvm-managed claude, so typing
-# `claude` always enters the sandbox. Sourced per-account: `ai-tools-admin
-# operators add` wires it into the operator's ~/.bashrc and ~/.bash_profile
-# after their nvm init (it must follow anything that prepends to PATH), which
-# scopes the reorder to the operators who need it — root and unrelated
-# accounts keep their stock PATH. The sandbox session needs no sourcing:
+# `claude` runs the wrapper wherever this fragment is sourced.
+# `ai-tools-admin operators add` appends that source line to the operator's
+# ~/.bashrc and ~/.bash_profile, below their nvm init, since it must follow
+# anything that prepends to PATH. The fragment lives in the ai-tools lib dir
+# rather than /etc/profile.d, so root and unrelated accounts keep their stock
+# PATH. Both files belong to bash: `operators add` reads the account's login
+# shell and, for any other, reports which init file the operator adds the
+# ordering to. ai-tools-run pins the session PATH as a unit property, so a
+# sandbox session takes its order from the unit.
 # ai-tools-run pins the session PATH as a unit property.
 #
 # PATH is first-match-wins: an early directory shadows every later one. The
