@@ -43,7 +43,7 @@ after your nvm init:
     # ai-tools PATH dedup (must follow nvm init)
     [[ -f /usr/local/lib/ai-tools/path-dedup.sh ]] && source /usr/local/lib/ai-tools/path-dedup.sh
 
-Those two files are bash's, and `operator add` names your login shell when it
+Those two files are bash's, and `operators add` names your login shell when it
 reads something else. The fragment sources cleanly under zsh, so the same line
 goes in `~/.zshrc` and `~/.zprofile`; a shell that reads no bash (fish) takes
 the same tier ordering in its own syntax.

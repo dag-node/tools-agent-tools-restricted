@@ -13,7 +13,6 @@
 # shell and, for any other, reports which init file the operator adds the
 # ordering to. ai-tools-run pins the session PATH as a unit property, so a
 # sandbox session takes its order from the unit.
-# ai-tools-run pins the session PATH as a unit property.
 #
 # PATH is first-match-wins: an early directory shadows every later one. The
 # order below puts the least-writable directories first, so a user- or

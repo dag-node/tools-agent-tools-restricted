@@ -321,7 +321,7 @@ line that sources the PATH dedup, which is what ranks the wrapper above the nvm 
 the command **creates**: `~/.bash_profile` is what bash reads at login, so the fixture home is run
 through a real `bash -l` to assert the account's `.bashrc` is still read through it, and a file the
 operator already has keeps its content and takes one guard line however often the accumulating
-`operator add` runs.
+`operators add` runs.
 
 `services.sh` pins the service-health registry (`services.lib.sh`) that `ai-tools --status` and
 the launch wrapper's pre-launch warning share. Two properties carry weight beyond the accessors.
