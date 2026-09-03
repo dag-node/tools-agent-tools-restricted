@@ -800,7 +800,7 @@ fi
 # ── --project-disable / --project-enable: parking a project in place ─────────────────────────
 # The pair edits ONE line of the operator's own allowlist and reaches no root helper, so the whole
 # lifecycle is drivable here as the projects user over the fixture registry. What is asserted is
-# what the flat-file model rests on (see the state note in wip/issues): the line is edited IN
+# what the flat-file model rests on (the three entry states, in cli.rule.md): the line is edited IN
 # PLACE, a parked project is not an unlisted one, and neither verb ever invents or lifts a line it
 # cannot attribute -- since lifting the wrong '!' hands the agent a subtree its operator withheld.
 section "ai-tools --project-disable / --project-enable"

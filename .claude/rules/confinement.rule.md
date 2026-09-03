@@ -208,12 +208,12 @@ and stability from one place — `selinux-groups.lib.sh`, so they cannot disagre
 
 - **Stable** groups (a single, tested rule, e.g. `tmpmap`) ship **prebuilt**
   (`ai_tools_<group>.pp`) alongside the core in `/usr/share/selinux/packages/ai-tools/`, and
-  `sudo ai-tools-admin selinux enable-group <name>` `semodule`-loads the prebuilt `.pp` on an
-  installed host, needing no source tree or `selinux-policy-devel`. `list-groups`/`disable-group`
-  round it out (`disable-group` works for any loaded group). The spelling these subcommands take
-  is set by [cli-grammar](cli-grammar.rule.md).
+  `sudo ai-tools-admin selinux groups enable <name>` `semodule`-loads the prebuilt `.pp` on an
+  installed host, needing no source tree or `selinux-policy-devel`. A bare `selinux groups` lists
+  them and `selinux groups disable <name>` rounds it out, working for any loaded group. The
+  spelling these commands take is set by [cli-grammar](cli-grammar.rule.md).
 - **Experimental** groups are unaudited drafts and are **not shipped prebuilt**;
-  `ai-tools-admin enable-group` refuses one and points at the source workflow rather than
+  `ai-tools-admin selinux groups enable` refuses one and points at the source workflow rather than
   loading an unaudited module. They are compiled and verified from a source checkout —
   `sudo selinux/install-selinux.sh enable-group <name>` (which compiles from `.te`/`.fc`, then
   loads) plus the `avc/` bring-up loop. Promoting one to stable means marking it `stable` in the

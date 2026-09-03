@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/postupgrade.sh
-# Hermetic unit test for `ai-tools-admin postupgrade`: the reconciliation of the .rpmnew copies an
-# upgrade leaves beside the %config(noreplace) files this stack owns.
+# Hermetic unit test for `ai-tools-admin system post-upgrade`: the reconciliation of the .rpmnew
+# copies an upgrade leaves beside the %config(noreplace) files this stack owns.
 #
 # Worth pinning because the command edits an operator-owned control-plane file and because its
 # three treatments are what lets an operator predict it. The assertions therefore ask, per file,
@@ -27,12 +27,12 @@ readonly HELPER="/usr/local/libexec/ai-tools/ai-tools-admin"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SHIPPED_SETTINGS="${REPO_ROOT}/src/opt/ai-tools/agents/claude-code/settings.json"
 
-section "ai-tools-admin postupgrade: .rpmnew reconciliation (unit)"
+section "ai-tools-admin system post-upgrade: .rpmnew reconciliation (unit)"
 
 if [[ ! -x "${HELPER}" ]]; then
-    skip "postupgrade" "not installed at ${HELPER}"; finish; exit
+    skip "system post-upgrade" "not installed at ${HELPER}"; finish; exit
 elif [[ ! -r "${SHIPPED_SETTINGS}" ]]; then
-    skip "postupgrade" "needs the shipped settings.json from the checkout"; finish; exit
+    skip "system post-upgrade" "needs the shipped settings.json from the checkout"; finish; exit
 elif ! command -v jq >/dev/null 2>&1; then
     fail "jq is missing -- it is a package dependency of the agent package"; finish; exit
 fi
@@ -51,7 +51,7 @@ reset_root() {
 
 # Run the deployed command against the fixture root and echo everything it said.
 run_pu() {
-    setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" postupgrade < /dev/null 2>&1 || true
+    setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade < /dev/null 2>&1 || true
 }
 
 # The sidecars the run left beside a file, as a count -- a keyval file must gain none.
@@ -69,7 +69,7 @@ declares() {
 }
 
 # ── (A) Nothing waiting ───────────────────────────────────────────────────────────────────────
-# Doubles as the probe for a deployed helper that predates the subcommand: it dies on an unknown
+# Doubles as the probe for a deployed helper that predates the command: it dies on an unknown
 # subcommand instead of reporting a reconciled host.
 reset_root
 cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
@@ -77,7 +77,7 @@ printf 'OPERATORS="root"\n' > "${CONF}"
 before="$(md5sum "${SETTINGS}" "${CONF}")"
 out="$(run_pu)"
 if [[ "${out}" != *"no .rpmnew"* ]]; then
-    skip "postupgrade" "deployed ai-tools-admin predates the subcommand -- re-run sudo ./install.sh install"
+    skip "system post-upgrade" "deployed ai-tools-admin predates the command -- re-run sudo ./install.sh install"
     finish; exit
 fi
 if [[ "$(md5sum "${SETTINGS}" "${CONF}")" == "${before}" ]]; then
@@ -226,9 +226,9 @@ fi
 
 # ── (G) Dispatch ─────────────────────────────────────────────────────────────────────────────
 reset_root
-if out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" postupgrade extra \
+if out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade extra \
         < /dev/null 2>&1)"; then
-    fail "accepted an argument the subcommand does not take"
+    fail "accepted an argument the command does not take"
 elif [[ "${out}" == *"takes no arguments"* ]]; then
     pass "an argument is refused with the usage, not silently ignored"
 else

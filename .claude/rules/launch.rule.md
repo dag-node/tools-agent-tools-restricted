@@ -20,14 +20,14 @@ agent-specific inputs live in that agent's own rule —
 
 Each `ai-tools-agents-*` package ships one wrapper into `/usr/local/bin`, `root:root 0755`,
 rpm-owned, running as the invoking operator. `path-dedup.sh`, wired into the operator's
-dotfiles by `ai-tools-admin operator add`, ranks `/usr/local/bin` (Tier 1) above the nvm
+dotfiles by `ai-tools-admin operators add`, ranks `/usr/local/bin` (Tier 1) above the nvm
 shims, so a wrapper shadows the nvm-managed launcher of the same name on the operator's
 PATH. Whatever else a wrapper does, these five gates are what the security model rests on,
 and every one of them refuses toward *less* access:
 
 1. **Operator gate first** — a caller not in the `ai-ops` operators group is refused before
    anything else happens, with a framed `msg.lib` message naming the
-   `ai-tools-admin operator add` fix rather than leaking the raw `sudo` denial the
+   `ai-tools-admin operators add` fix rather than leaking the raw `sudo` denial the
    `%ai-ops` rule would otherwise produce.
 2. **Protected-paths backstop, then the allowlist**, both on the `realpath -e`-canonicalized
    CWD. A session starts only inside an allowed project and never in a CWD carved out by a
@@ -293,7 +293,7 @@ Every agent wrapper lives in `/usr/local/bin`, which `path-dedup.sh`
 shims it leaves in Tier 4 — so `/usr/local/bin/<launcher>` resolves ahead of the
 nvm-managed binary of the same name and typing the launcher always enters the sandboxed
 launch path. The fragment is
-sourced per-account: `ai-tools-admin operator add` offers to add the guard line to the
+sourced per-account: `ai-tools-admin operators add` offers to add the guard line to the
 operator's `~/.bashrc` and `~/.bash_profile` **after** their nvm init, the one position
 where the ordering holds (the dedup must follow anything that prepends to PATH, and
 non-login interactive shells read `~/.bashrc` only). Per-account wiring scopes the reorder

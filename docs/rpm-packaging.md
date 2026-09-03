@@ -96,7 +96,7 @@ performs the rename inside the same transaction and nothing has to be removed by
 
 Removing the packages moves an edited `/etc/ai-tools/operator.conf` to `operator.conf.rpmsave`
 and a fresh install writes an empty one, dropping the operator list (re-add with
-`ai-tools-admin operator add`); an in-place upgrade keeps it via `%config(noreplace)`. What else
+`ai-tools-admin operators add`); an in-place upgrade keeps it via `%config(noreplace)`. What else
 survives an erase is in [Preservation on erase](#preservation-on-erase). `dnf reinstall` requires
 the *same* version already installed and is not the way to move between versions.
 
@@ -153,7 +153,7 @@ modified after an operator is added.
 
 ## Operator administration
 
-`ai-tools-admin operator add|remove|list` (`/usr/local/libexec/ai-tools/ai-tools-admin`,
+`ai-tools-admin operators add|remove|list` (`/usr/local/libexec/ai-tools/ai-tools-admin`,
 root, run via `sudo`) manages the operators -- the login users (a human or a rootless
 service account) that drive the sandbox through the shared `ai-tools` account. It is a
 root helper rather than an `ai-tools` CLI verb, because it edits host config (the
@@ -182,7 +182,7 @@ ship with the package, so adding an operator is a membership change, not a sudoe
 
 The `%post` of `ai-tools-base` does **not** bind an operator: it is per-operator, which a
 non-interactive scriptlet cannot do. `%post` installs cleanly and unenrolled and prints the
-ordered `sudo ai-tools-bootstrap` then `sudo ai-tools-admin operator add <user>` directives.
+ordered `sudo ai-tools-bootstrap` then `sudo ai-tools-admin operators add <user>` directives.
 
 ## Bootstrap
 
@@ -228,10 +228,10 @@ nvm-update timer maintains the tree from then on.
   file owned by them is unpacked. `Requires(pre): shadow-utils`. The `ai-ops` group
   ships empty; operators are added to it per host.
 - `%post` runs `%systemd_post ai-tools-handback.socket`, applies the shared-area ACLs, and
-  prints the ordered `ai-tools-bootstrap` then `ai-tools-admin operator add`
+  prints the ordered `ai-tools-bootstrap` then `ai-tools-admin operators add`
   directives. Loading the SELinux policy is NOT base's job — that scriptlet lives with the
   payload in `ai-tools-selinux`. It does not bind an operator or provision the toolchain and its update
-  timer — those belong to `ai-tools-admin operator add` and `ai-tools-bootstrap`.
+  timer — those belong to `ai-tools-admin operators add` and `ai-tools-bootstrap`.
 - `%preun` runs `%systemd_preun ai-tools-handback.socket`.
 - `%postun` runs `%systemd_postun_with_restart ai-tools-handback.socket`.
 
@@ -264,8 +264,8 @@ stable groups are shipped but stay **off**, toggled per host by an operator who 
 boundary:
 
 ```bash
-sudo ai-tools-admin selinux list-groups
-sudo ai-tools-admin selinux enable-group tmpmap
+sudo ai-tools-admin selinux groups
+sudo ai-tools-admin selinux groups enable tmpmap
 ```
 
 That helper `semodule`-loads the prebuilt `.pp` from the package directory. The
@@ -290,17 +290,17 @@ rather than packaged files:
 - `/opt/ai-tools/.nvm` (nvm and Node) and `/var/opt/ai-tools` (sandbox clones),
   which are unpackaged runtime data;
 - each operator's `~/.config/ai-tools/{allowed-projects,secret-patterns}`, which
-  the package never owns — `ai-tools-admin operator add` seeds the allowlist and they
+  the package never owns — `ai-tools-admin operators add` seeds the allowlist and they
   survive erase untouched.
 
 `operator.conf` ships as `%config(noreplace)` with an empty `OPERATORS=""` baseline and is
-edited in place by `ai-tools-admin operator add|remove`. `%config(noreplace)` keeps the
+edited in place by `ai-tools-admin operators add|remove`. `%config(noreplace)` keeps the
 edited copy across an **upgrade** (`dnf upgrade`, or `dnf install ./*.rpm` of a higher
 version), so the host's operators persist. An **erase** is different: rpm saves the modified
 config as `operator.conf.rpmsave` and removes the tracked file, so a remove-then-install
 cycle drops the operator list — the fresh install lays down the empty baseline. Upgrade in
 place rather than `dnf remove` + install; if a `.rpmsave` was left behind, re-add operators
-with `ai-tools-admin operator add` (see the README "Upgrading" note).
+with `ai-tools-admin operators add` (see the README "Upgrading" note).
 
 ## Tests
 

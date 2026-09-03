@@ -3561,7 +3561,7 @@ cmd_providers() {
         # Read the loaded module list FIRST. If it is not readable unprivileged (common: the policy
         # store is root-only on many hosts), omit the whole section rather than print a section that
         # only says "cannot read" -- the group/dependency reporting below all needs this list, so
-        # without it there is nothing accurate to show. `sudo ai-tools-admin selinux list-groups` is
+        # without it there is nothing accurate to show. `sudo ai-tools-admin selinux groups` is
         # where an operator inspects policy groups.
         local modules
         { modules="$(semodule -l 2>/dev/null)" && [[ -n "${modules}" ]]; } || return 0
@@ -3584,7 +3584,7 @@ cmd_providers() {
             fi
         done
         (( loaded_any )) || say "    ${C_DIM}(no optional groups loaded)${C_RST}"
-        say "    ${C_DIM}toggle with: sudo ai-tools-admin selinux enable-group <name>${C_RST}"
+        say "    ${C_DIM}toggle with: sudo ai-tools-admin selinux groups enable <name>${C_RST}"
 
         # dotnet <-> tmpmap: dotnet restore/build mmaps a shared-memory file under /tmp, which
         # needs the 'tmpmap' group. Under enforcing, if dotnet is enabled but tmpmap is not loaded
@@ -3595,7 +3595,7 @@ cmd_providers() {
             say ""
             say "  ${C_YEL}dotnet is enabled but the 'tmpmap' SELinux group is not loaded:${C_RST}"
             say "  ${C_YEL}dotnet restore/build will fail under enforcing (EACCES on mmap of /tmp).${C_RST}"
-            say "  fix: sudo ai-tools-admin selinux enable-group tmpmap"
+            say "  fix: sudo ai-tools-admin selinux groups enable tmpmap"
         fi
         # dotnet <-> apphost: executable/host projects run their apphost/JIT code from an
         # anonymous memfd file, which needs the 'apphost' group -- disjoint from tmpmap (that
@@ -4182,7 +4182,7 @@ require_operator() {
         for op in "${ops[@]}"; do [[ "${op}" == "${INVOKING_USER}" ]] && return 0; done
     fi
     die "you (${INVOKING_USER}) are not a configured ai-tools operator -- add your name to OPERATORS in ${conf} with:" \
-        "       sudo ai-tools-admin operator add ${INVOKING_USER}"
+        "       sudo ai-tools-admin operators add ${INVOKING_USER}"
 }
 
 # handover_target [args...] -- the project path to name in a handed-over command. Naming it
@@ -4438,7 +4438,7 @@ require_for_target() {
         done
     fi
     ${found} || die "${FOR_OPERATOR} is not a configured ai-tools operator -- enrol it first with:" \
-        "       sudo ai-tools-admin operator add ${FOR_OPERATOR}"
+        "       sudo ai-tools-admin operators add ${FOR_OPERATOR}"
     OWNER_GROUP="$(id -gn "${FOR_OPERATOR}" 2>/dev/null)" \
         || die "cannot resolve the primary group of ${FOR_OPERATOR}"
     snapshot_allowlist

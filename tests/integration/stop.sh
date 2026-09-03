@@ -33,7 +33,7 @@ section "session stop: the kill path against real processes (integration)"
 
 readonly STOP_HELPER="/usr/local/libexec/ai-tools/ai-tools-stop"
 if [[ ! -r "${STOP_HELPER}" ]]; then
-    skip "session stop" "ai-tools-stop is not installed -- run: sudo ai-tools-admin postupgrade"
+    skip "session stop" "ai-tools-stop is not installed -- run: sudo ai-tools-admin system post-upgrade"
     finish; exit
 fi
 

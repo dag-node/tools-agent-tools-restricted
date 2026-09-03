@@ -6,13 +6,18 @@
 # linger; the loaded optional SELinux policy groups) while the ai-tools CLI is unprivileged and
 # refuses to run as root.
 #
-#   sudo ai-tools-admin operator add [user]           # default: $SUDO_USER
-#   sudo ai-tools-admin operator remove <user>
-#   sudo ai-tools-admin operator list
-#   sudo ai-tools-admin selinux list-groups                # show core + optional group state
-#   sudo ai-tools-admin selinux enable-group <name>        # load a prebuilt (stable) group
-#   sudo ai-tools-admin selinux disable-group <name>       # unload one
-#   sudo ai-tools-admin postupgrade                        # reconcile the .rpmnew files upgrades leave
+#   sudo ai-tools-admin operators                          # list (the zero-argument default)
+#   sudo ai-tools-admin operators add [user]               # default: $SUDO_USER
+#   sudo ai-tools-admin operators remove <user>
+#   sudo ai-tools-admin selinux groups                     # show core + optional group state
+#   sudo ai-tools-admin selinux groups enable <name>       # load a prebuilt (stable) group
+#   sudo ai-tools-admin selinux groups disable <name>      # unload one
+#   sudo ai-tools-admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
+#
+# The spelling is the project's command grammar (.claude/rules/cli-grammar.rule.md): a bare-word
+# command, a plural collection, the verb after the noun, `list` as the zero-argument default, and
+# a singular domain (`selinux`, `system`) where one is needed. `--` introduces an option and
+# never a command, which here is `--help`/`-h` and `--version`.
 #
 # An operator is a login user (a human or a rootless service account) that drives the sandbox
 # through the shared ai-tools account. `add` is accumulating and idempotent: it appends the
@@ -22,17 +27,17 @@
 # membership (drops the name from OPERATORS and ai-ops), leaving the user's own allowlist and config.
 # `list` prints the current operators.
 #
-# `selinux` toggles the optional policy groups (systemd/pkgmgmt/netadmin/podman/tmpmap/apphost/netcore), all off
+# `selinux groups` toggles the optional policy groups (systemd/pkgmgmt/netadmin/podman/tmpmap/apphost/netcore), all off
 # by default. It loads the PREBUILT ai_tools_<group>.pp shipped in the base package via semodule --
 # no source tree or selinux-policy-devel needed on the host. The group set, descriptions, and
 # per-group stability are single-sourced from selinux-groups.lib.sh, shared with
 # selinux/install-selinux.sh (the source-tree authoring tool that instead COMPILES a group; this
 # operator helper only loads a shipped one). Only STABLE groups ship prebuilt (currently tmpmap);
-# enable-group of an EXPERIMENTAL (unaudited) group is refused with a pointer to the source
+# `groups enable` of an EXPERIMENTAL (unaudited) group is refused with a pointer to the source
 # compile-and-verify workflow (install-selinux.sh + the avc bring-up loop), since this tool will
-# not load an unaudited module. disable-group works for any loaded group, stable or not.
+# not load an unaudited module. `groups disable` works for any loaded group, stable or not.
 #
-# `postupgrade` reconciles the `<file>.rpmnew` copies an upgrade leaves beside the
+# `system post-upgrade` reconciles the `<file>.rpmnew` copies an upgrade leaves beside the
 # %config(noreplace) files this stack owns. rpm keeps what the host edited and parks the new
 # version alongside it; choosing between the two is a judgement about the operator's own
 # configuration, so it happens here, when the operator asks, and never in a scriptlet. Each file
@@ -54,14 +59,67 @@ readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 readonly SELINUX_GROUPS_LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 
+# Substituted at deploy time (install.sh install_subst from packaging/VERSION; the RPM from
+# %{version}), and left as the literal token in the checkout -- which `--version` reports as
+# `dev`, the same value and the same fallback the CLI uses.
+AI_TOOLS_VERSION="@AI_TOOLS_VERSION@"
+[[ "${AI_TOOLS_VERSION}" == @*@ ]] && AI_TOOLS_VERSION="dev"
+readonly AI_TOOLS_VERSION
+
 die() { printf 'ai-tools-admin: error: %s\n' "$*" >&2; exit 1; }
 log() { printf 'ai-tools-admin: %s\n' "$*"; }
+
+# reject <message>: the command line was rejected. Exit 2 separates a command nobody can type
+# correctly from an operation that ran and failed (`die`, exit 1), which is the split
+# ai-tools-admin(8) documents and the one ai-tools(1) already uses.
+reject() {
+    printf 'ai-tools-admin: %s\n' "$*" >&2
+    printf "try 'ai-tools-admin --help'\n" >&2
+    exit 2
+}
+
+# usage: the command surface, grouped by domain. Orientation rather than reference -- every
+# option, exit code and example is in ai-tools-admin(8), and tests/unit/man.sh holds the two in
+# agreement on the command set.
+usage() {
+    cat <<EOF
+ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, upgrades
+
+  Operators
+    operators                        the enrolled operators
+    operators add [user]             enrol an operator (default: \$SUDO_USER)
+    operators remove <user>          withdraw an operator's enrolment
+  SELinux
+    selinux groups                   the core module and the optional groups
+    selinux groups enable <name>     load a prebuilt optional group
+    selinux groups disable <name>    unload a loaded group
+  System
+    system post-upgrade              reconcile the .rpmnew files an upgrade leaves
+
+    --version                        the installed version
+    --help                           this summary
+
+  Run every command through sudo: each one administers the host and refuses a
+  non-root caller. The project lifecycle is the unprivileged ai-tools CLI, which
+  you run as yourself.
+
+  Every command, exit code and example:  man ai-tools-admin
+EOF
+}
 
 # Executed, this administers a host and needs root. Sourced -- by tests/unit/admin-operator-add.sh,
 # which drives one function with sudo stubbed -- it asserts nothing about the host and only
 # defines, stopping at the matching guard above the dispatch. Everything between the two is
 # definitions, so the executed path still refuses a non-root caller before any action.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    # --help and --version read no host state and change nothing, so they answer any caller and
+    # are handled here, ahead of the root check: an operator meeting the tool gets the command
+    # surface rather than a refusal naming sudo without saying what to run under it. Both ignore
+    # any further argument.
+    case "${1:-}" in
+        --help|-h) usage; exit 0 ;;
+        --version) printf 'ai-tools-admin %s\n' "${AI_TOOLS_VERSION}"; exit 0 ;;
+    esac
     [[ "${EUID}" -eq 0 ]] || die "run as root (sudo)"
 fi
 
@@ -72,7 +130,7 @@ fi
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/selinux-groups.lib.sh
 . "${SELINUX_GROUPS_LIB}" || die "cannot source ${SELINUX_GROUPS_LIB}"
 
-# The shared config grammar, sidecar handling, and hook-declaration merge that `postupgrade`
+# The shared config grammar, sidecar handling, and hook-declaration merge that `system post-upgrade`
 # drives. Required, not optional: a reconcile that silently skipped its merge would leave a
 # shipped hook uninvoked while reporting success.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
@@ -231,7 +289,7 @@ report_operator_role() {
 
 op_add() {
     local user="${1:-${SUDO_USER:-}}"
-    [[ -n "${user}" ]] || die "usage: ai-tools-admin operator add <user>  (or run via sudo so SUDO_USER is set)"
+    [[ -n "${user}" ]] || reject "operators add: name a user, or run it through sudo so SUDO_USER is set"
     [[ "${user}" != "${SANDBOX_USER}" ]] || die "an operator must not be the sandbox account ${SANDBOX_USER}"
     [[ "${user}" != "root" ]]            || die "an operator must be a normal login user, not root"
     id "${user}" &>/dev/null || die "no such user: ${user}"
@@ -278,7 +336,7 @@ op_add() {
 
 op_remove() {
     local user="${1:-}"
-    [[ -n "${user}" ]] || die "usage: ai-tools-admin operator remove <user>"
+    [[ -n "${user}" ]] || reject "operators remove: name the user to withdraw"
     ai_tools_load_operators || true
     if ! in_list "${user}"; then
         log "${user} is not an operator; nothing to remove"
@@ -302,12 +360,12 @@ op_list() {
     fi
 }
 
-# ── selinux: optional policy-group management ────────────────────────────────────────
+# ── selinux groups: optional policy-group management ─────────────────────────────────
 # These load/unload the PREBUILT ai_tools_<group>.pp shipped in the base package; the group
 # set and text come from selinux-groups.lib.sh. Distinct from selinux/install-selinux.sh,
 # which compiles a group from source in a repo checkout -- this runs on any installed host.
 
-# require_selinux: guard shared by every selinux subcommand. Returns 1 (caller exits 0 --
+# require_selinux: guard shared by every selinux command. Returns 1 (caller exits 0 --
 # nothing to manage) when SELinux is disabled; dies when semodule is absent (a real gap).
 require_selinux() {
     if [[ "$(getenforce 2>/dev/null)" == "Disabled" ]]; then
@@ -330,8 +388,8 @@ _selinux_usage_groups() {
 
 sel_enable() {
     local name="${1:-}"
-    [[ $# -le 1 ]] || die "one group name at a time (usage: ai-tools-admin selinux enable-group <name>)"
-    [[ -n "${name}" && "${name}" != -* ]] || die "usage: ai-tools-admin selinux enable-group <name>"
+    [[ $# -le 1 ]] || reject "selinux groups enable: one group name at a time"
+    [[ -n "${name}" && "${name}" != -* ]] || reject "selinux groups enable: name the group to load"
     require_selinux || return 0
     if ! ai_tools_selinux_group_valid "${name}"; then
         log "unknown group '${name}'. Available groups:"; _selinux_usage_groups
@@ -366,8 +424,8 @@ sel_enable() {
 
 sel_disable() {
     local name="${1:-}"
-    [[ $# -le 1 ]] || die "one group name at a time (usage: ai-tools-admin selinux disable-group <name>)"
-    [[ -n "${name}" && "${name}" != -* ]] || die "usage: ai-tools-admin selinux disable-group <name>"
+    [[ $# -le 1 ]] || reject "selinux groups disable: one group name at a time"
+    [[ -n "${name}" && "${name}" != -* ]] || reject "selinux groups disable: name the group to unload"
     require_selinux || return 0
     if ! ai_tools_selinux_group_valid "${name}"; then
         log "unknown group '${name}'. Available groups:"; _selinux_usage_groups
@@ -402,12 +460,12 @@ sel_list() {
         if ai_tools_selinux_group_loaded "${name}"; then state='[LOADED]  '; else state='[disabled]'; fi
         printf '    %s %-9s %-15s %s\n' "${state}" "${name}" "(${stability})" "${desc}"
     done
-    printf '\n  toggle       : sudo ai-tools-admin selinux enable-group <name> | disable-group <name>\n'
+    printf '\n  toggle       : sudo ai-tools-admin selinux groups enable <name> | disable <name>\n'
     printf '  experimental : not shipped prebuilt -- enable from a source checkout with\n'
     printf '                 sudo selinux/install-selinux.sh enable-group <name>\n'
 }
 
-# ── postupgrade: reconcile the .rpmnew files an upgrade leaves ───────────────────────────────
+# ── system post-upgrade: reconcile the .rpmnew files an upgrade leaves ───────────────────────
 # rpm keeps an operator-modified %config(noreplace) file and parks the package's copy beside it as
 # <file>.rpmnew. Choosing between the two is a judgement call about the operator's own
 # configuration, so no scriptlet makes it: this is the explicit, interactive command that does, and
@@ -537,7 +595,7 @@ _pu_review() {
 }
 
 postupgrade() {
-    [[ $# -eq 0 ]] || die "usage: ai-tools-admin postupgrade   (takes no arguments)"
+    [[ $# -eq 0 ]] || reject "system post-upgrade: takes no arguments"
     local entry file kind label found=0
     local root="${AI_TOOLS_POSTUPGRADE_ROOT:-}"
 
@@ -561,42 +619,59 @@ postupgrade() {
     log "done. this command is idempotent -- re-run it at any time."
 }
 
+# ── dispatch ─────────────────────────────────────────────────────────────────────────────────
+# One arm per name in the grammar's two shapes: `<collection> [verb]`, where the absent verb is
+# `list`, and `<domain> <collection|verb>`. A bare collection lists; a bare domain prints its own
+# commands, since a domain has no reading that a default could safely take and every verb under
+# one of these mutates the host.
+
+operators_dispatch() {
+    local verb="${1:-list}"; [[ $# -eq 0 ]] || shift
+    case "${verb}" in
+        list)   op_list   "$@" ;;
+        add)    op_add    "$@" ;;
+        remove) op_remove "$@" ;;
+        *)      reject "unknown command 'operators ${verb}' (list|add|remove)" ;;
+    esac
+}
+
+selinux_groups_dispatch() {
+    local verb="${1:-list}"; [[ $# -eq 0 ]] || shift
+    case "${verb}" in
+        list)    sel_list ;;
+        enable)  sel_enable  "$@" ;;
+        disable) sel_disable "$@" ;;
+        *)       reject "unknown command 'selinux groups ${verb}' (list|enable|disable)" ;;
+    esac
+}
+
 selinux_dispatch() {
-    [[ $# -ge 1 ]] || die "usage: ai-tools-admin selinux <list-groups|enable-group|disable-group> [name]"
-    local sub="$1"; shift
-    case "${sub}" in
-        list-groups)    sel_list ;;
-        enable-group)   sel_enable  "$@" ;;
-        disable-group)  sel_disable "$@" ;;
-        *) die "unknown selinux subcommand '${sub}' (list-groups|enable-group|disable-group)" ;;
+    [[ $# -ge 1 ]] || reject "selinux owns one collection: 'selinux groups [list|enable|disable]'"
+    local resource="$1"; shift
+    case "${resource}" in
+        groups) selinux_groups_dispatch "$@" ;;
+        *)      reject "unknown command 'selinux ${resource}' (groups)" ;;
+    esac
+}
+
+system_dispatch() {
+    [[ $# -ge 1 ]] || reject "system takes a verb: 'system post-upgrade'"
+    local verb="$1"; shift
+    case "${verb}" in
+        post-upgrade) postupgrade "$@" ;;
+        *)            reject "unknown command 'system ${verb}' (post-upgrade)" ;;
     esac
 }
 
 # Sourced rather than executed (see the note at the root check): stop here with every function
-# defined and nothing dispatched, so the caller's arguments are not read as a subcommand.
+# defined and nothing dispatched, so the caller's arguments are not read as a command.
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] || return 0
 
-# Dispatch: `operator <add|remove|list>` | `selinux <list-groups|enable-group|disable-group>`.
-[[ $# -ge 1 ]] || die "usage: ai-tools-admin <operator|selinux|postupgrade> ..."
+# --help/-h and --version are answered above, before the root check.
+[[ $# -ge 1 ]] || { usage >&2; exit 2; }
 case "$1" in
-    postupgrade)
-        shift
-        postupgrade "$@"
-        ;;
-    operator)
-        shift
-        [[ $# -ge 1 ]] || die "usage: ai-tools-admin operator <add|remove|list> [user]"
-        sub="$1"; shift
-        case "${sub}" in
-            add)    op_add    "$@" ;;
-            remove) op_remove "$@" ;;
-            list)   op_list   "$@" ;;
-            *)      die "unknown operator subcommand '${sub}' (add|remove|list)" ;;
-        esac
-        ;;
-    selinux)
-        shift
-        selinux_dispatch "$@"
-        ;;
-    *) die "unknown subcommand '$1' (operator|selinux|postupgrade)" ;;
+    operators) shift; operators_dispatch "$@" ;;
+    selinux)   shift; selinux_dispatch   "$@" ;;
+    system)    shift; system_dispatch    "$@" ;;
+    *) printf 'ai-tools-admin: unknown command: %s\n\n' "$1" >&2; usage >&2; exit 2 ;;
 esac

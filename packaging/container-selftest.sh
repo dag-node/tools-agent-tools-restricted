@@ -52,7 +52,7 @@ phase() {
 }
 
 # as_operator <cmd...> : run a command in a fresh login shell of the operator, so it picks
-# up the ai-ops group membership `operator add` just granted (a stale shell would not).
+# up the ai-ops group membership `operators add` just granted (a stale shell would not).
 as_operator() { runuser -l "${OPERATOR}" -c "$*"; }
 
 # ── environment dump ─────────────────────────────────────────────────────────
@@ -120,8 +120,8 @@ phase "nvm-update.timer enabled in the ai-tools --user instance" \
     test -L /opt/ai-tools/.config/systemd/user/timers.target.wants/nvm-update.timer
 
 # ── operator enrolment ───────────────────────────────────────────────────────
-phase "ai-tools-admin operator add ${OPERATOR}" \
-    ai-tools-admin operator add "${OPERATOR}"
+phase "ai-tools-admin operators add ${OPERATOR}" \
+    ai-tools-admin operators add "${OPERATOR}"
 
 phase "${OPERATOR} is in ai-ops + listed in operator.conf" \
     bash -c "id -nG '${OPERATOR}' | tr ' ' '\n' | grep -qx ai-ops && grep -q '${OPERATOR}' /etc/ai-tools/operator.conf"

@@ -448,7 +448,7 @@ if [[ -r /etc/ai-tools/operator.conf ]]; then
 fi
 if [[ -z "${OTHER_OP}" ]]; then
     skip "--for create/remove (no second enrolled operator on this host)"
-    note "enrol one with: sudo ai-tools-admin operator add <user>   -- then re-run with --for-drill"
+    note "enrol one with: sudo ai-tools-admin operators add <user>   -- then re-run with --for-drill"
 elif ! ${FOR_DRILL}; then
     skip "--for create/remove (would act for ${OTHER_OP}; re-run with --for-drill)"
     note "the run would create a tree owned by ${OTHER_OP} and delete it again"

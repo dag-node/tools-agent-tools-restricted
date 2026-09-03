@@ -5,7 +5,7 @@
 # win first-match. That places /usr/local/bin/claude — the wrapper that
 # launches claude restricted — ahead of any nvm-managed claude, so typing
 # `claude` always enters the sandbox. Sourced per-account: `ai-tools-admin
-# operator add` wires it into the operator's ~/.bashrc and ~/.bash_profile
+# operators add` wires it into the operator's ~/.bashrc and ~/.bash_profile
 # after their nvm init (it must follow anything that prepends to PATH), which
 # scopes the reorder to the operators who need it — root and unrelated
 # accounts keep their stock PATH. The sandbox session needs no sourcing:

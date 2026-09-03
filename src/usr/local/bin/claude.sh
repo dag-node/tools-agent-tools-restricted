@@ -168,7 +168,7 @@ if [[ " $(id -nG 2>/dev/null) " != *" ${OPERATORS_GROUP} "* ]]; then
     else
         die "claude: ${_user} is not an ai-tools operator -- not a member of the ${OPERATORS_GROUP} group" \
             "       an administrator can grant access with:" \
-            "         sudo ai-tools-admin operator add ${_user}"
+            "         sudo ai-tools-admin operators add ${_user}"
     fi
 fi
 

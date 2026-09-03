@@ -40,7 +40,7 @@ operators, and prose distinguishes them by naming the grant rather than by inven
   account that runs an agent is this shape, and "service account" describes its intent — the host
   records nothing that distinguishes it from any other grant-less operator.
 
-`operator.conf` is managed in place at runtime by `ai-tools-admin operator add|remove`. Its
+`operator.conf` is managed in place at runtime by `ai-tools-admin operators add|remove`. Its
 source template carries one substitution token, `OPERATORS="@PROJECTS_USER@"`, and the two
 install paths treat it differently: the RPM rewrites the line to `OPERATORS=""` at build
 (`packaging/ai-tools.spec`), so a packaged host ships with nobody enrolled, while `install.sh`
