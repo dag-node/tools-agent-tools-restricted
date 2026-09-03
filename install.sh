@@ -1833,8 +1833,8 @@ do_install() {
         say "    ${C_BOLD}sudo ai-tools-bootstrap${C_RST}"
         say ""
     fi
-    say "  verify the timer (in ${SANDBOX_USER}'s --user instance):"
-    say "    ${C_BOLD}sudo systemctl --user -M ${SANDBOX_USER}@.host list-timers nvm-update.timer${C_RST}"
+    say "  check the install (run as ${PROJECTS_USER}, no sudo):"
+    say "    ${C_BOLD}ai-tools --status${C_RST}                             ${C_DIM}# every managed unit, and what to run for a broken one${C_RST}"
     say ""
     say "  register projects with the ai-tools CLI (run as ${PROJECTS_USER}, no sudo):"
     say "    ${C_BOLD}ai-tools --project-claim /path/to/project${C_RST}     ${C_DIM}# claim a project in place${C_RST}"
