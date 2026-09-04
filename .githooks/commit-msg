@@ -26,3 +26,12 @@ if git stripspace --strip-comments <"${msg_file}" | grep -qiE 'bump version'; th
         echo "  (Not blocking this commit; the release build enforces it at tag time.)" >&2
     fi
 fi
+
+# The writing standard covers a commit message like any other artifact, and the pre-commit hook
+# beside this one reads only the staged files. Reports and never blocks, like the check above.
+prose_check="${repo_root}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py"
+if command -v python3 >/dev/null 2>&1 && [[ -r "${prose_check}" ]]; then
+    if ! python3 "${prose_check}" --message "${msg_file}" >&2; then
+        echo "  (not blocking this commit)" >&2
+    fi
+fi

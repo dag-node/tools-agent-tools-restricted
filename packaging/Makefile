@@ -88,8 +88,10 @@ check-version:
 changelog:
 	@bash $(CURDIR)/changelog-draft.sh
 
-# Opt in (once per clone) to the local git hooks in .githooks -- currently a non-blocking
-# commit-msg reminder to complete the %changelog on a "bump version" commit. Also silence
+# Opt in (once per clone) to the local git hooks in .githooks -- a non-blocking commit-msg
+# reminder to complete the %changelog on a "bump version" commit, and a non-blocking pre-commit
+# report of the prose figures the ai-tools-technical-docs skill rules out in the lines a commit
+# adds. Also silence
 # git's ignored-hook advice: the sandbox account commits under the SELinux ai_tools_t domain,
 # which has no execute on the project-tree ai_tools_project_t label, so git skips the hook and
 # nags about it on every agent commit. That skip is the confinement working (the operator, who

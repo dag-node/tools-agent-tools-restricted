@@ -28,10 +28,12 @@ See the root `README.md`'s manual install steps if you're working without the RP
 
 Optional, recommended for regular contributors:
 
-    make -C packaging hooks          # enable the local git hooks (a non-blocking changelog reminder)
+    make -C packaging hooks          # enable the local git hooks (non-blocking reminders)
 
 A per-clone developer opt-in: it sets `core.hooksPath` to `.githooks` and quiets git's
-ignored-hook advice for sandbox-account commits. None of this ships in the RPM — the
+ignored-hook advice for sandbox-account commits. Two hooks come with it, and neither blocks a
+commit: a `commit-msg` changelog reminder, and a `pre-commit` prose report over the lines the
+commit adds (`prose-check.py`, shipped with the `ai-tools-technical-docs` skill). None of this ships in the RPM — the
 package builds only from `src/`, `docs/`, the spec, and the compiled policy.
 
 ## Running the tests
