@@ -12,8 +12,8 @@
 # Runs as ai-tools. Reads the hook JSON on stdin for .cwd (the allowlisted project
 # root claude launched in) and sweeps there. Each path is handed to the root
 # validator ai-tools-chown (via the handback socket bridge), which independently
-# re-checks the allowlist and the agent-owned guard -- so this sweep can reach
-# nothing the precise hook could not.
+# re-checks the allowlist and the agent-owned guard -- so this sweep's reach
+# is exactly the precise hook's.
 #
 # Three modes, selected by $1:
 #
@@ -41,7 +41,7 @@
 #
 #   session-end   -- SessionEnd hook, fires once when the process exits
 #                 gracefully. Removes the clean-exit marker (.session-active) and
-#                 does nothing else. That marker is written at session-start and
+#                 stops there. That marker is written at session-start and
 #                 cleared here; if it instead SURVIVES into the next session-start,
 #                 the previous session was killed before this ran (tokens
 #                 exhausted, crash, closed terminal). A surviving marker widens the
@@ -93,7 +93,7 @@ readonly MARKER="${HOOK_DIR}/.sweep-marker"
 # as MARKER.
 readonly ACTIVE_MARKER="${HOOK_DIR}/.session-active"
 
-# The handback socket every CHOWN runs over. When it is down the reclaim/sweep can hand nothing
+# The handback socket every CHOWN runs over. When it is down the reclaim/sweep can hand back no path
 # back, so each pass checks it first and reports the stranded work rather than a count of failed
 # calls -- the failure mode that let a dead socket report a reassuring "Reclaimed N".
 readonly HANDBACK_SOCKET="/run/ai-tools/handback.sock"
@@ -129,7 +129,7 @@ fi
 
 # Operator identity (PROJECTS_USER) from /etc/ai-tools/operator.conf via the shared resolver,
 # used only to render the reconcile command in the interrupted-session NOTICE below. Sweeping
-# itself needs no operator identity -- it finds @SANDBOX_USER@-owned paths and the root
+# itself does not need an operator identity -- it finds @SANDBOX_USER@-owned paths and the root
 # validator re-checks ownership. Best-effort: an unenrolled/missing config leaves PROJECTS_USER
 # empty, degrading only the suggested command's owner field.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
@@ -147,12 +147,12 @@ fi
 # emits. No PROJECT/.git -> echo 0. Used by the session-end reclaim and the session-start pass.
 reclaim_git_tree() {
     local proj="$1" n=0 path
-    # Socket down: nothing can be handed back -- report zero, not a count of failed calls.
+    # Socket down: no path can be handed back -- report zero, not a count of failed calls.
     [[ -S "${HANDBACK_SOCKET}" ]] || { printf '0'; return 0; }
     if [[ -n "${proj}" && -d "${proj}/.git" ]]; then
         while IFS= read -r -d '' path; do
             # Count CONFIRMED handbacks (client exit 0), not attempts, so the reported total
-            # reflects what actually changed owner. The client writes nothing to stdout, so
+            # reflects what changed owner. The client's stdout stays empty, so
             # using it as the `if` condition cannot corrupt this function's captured count, and
             # its stderr (MSG relays) still reaches the session.
             if /usr/local/bin/ai-tools-handback-client CHOWN "${path}"; then
@@ -187,7 +187,7 @@ if [[ "${MODE}" == "session-end" ]]; then
 fi
 
 # Directory-skip selector from the shared library (single source of truth, shared with
-# ai-tools-setgid / ai-tools-lockdown). A missing lib leaves a stub that skips nothing.
+# ai-tools-setgid / ai-tools-lockdown). A missing lib leaves a stub that descends everywhere.
 readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../../usr/local/lib/ai-tools/skip-dirs.lib.sh
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
@@ -197,7 +197,7 @@ source "${SKIP_DIRS_LIB}" 2>/dev/null \
 # both .cwd and -- in session-start mode -- .source from the captured payload.
 payload="$(cat 2>/dev/null)" || exit 0
 
-# The session's working dir (allowlisted project root). No cwd -> nothing to do.
+# The session's working dir (allowlisted project root). No cwd -> exit without acting.
 dir="$(jq -r '.cwd // empty' <<<"${payload}" 2>/dev/null)" || exit 0
 [[ -n "${dir}" && -d "${dir}" ]] || exit 0
 
@@ -273,7 +273,7 @@ fi
 
 # A large sweep is the skip-list signal: hundreds of agent-owned paths per pass usually
 # means a build or dependency tree is handed back over and over. Journald-only (routine,
-# nothing to act on in-session); the operator tunes the skip categories.
+# no action for the operator in-session); the operator tunes the skip categories.
 if [[ "${swept}" -ge 200 ]]; then
     ai_tools_log_info "${MODE} sweep: handed back ${swept} paths -- a recurring build tree can be skipped via SKIP_ARTIFACT_DIRS in /etc/ai-tools/operator.conf (reference: /usr/local/lib/ai-tools/skip-dirs.lib.sh)"
 fi
@@ -289,12 +289,12 @@ mv -f "${newref}" "${MARKER}" 2>/dev/null || rm -f "${newref}" 2>/dev/null || tr
 # additionalContext JSON this script emits on stdout. No PROJECT/.git -> echo 0.
 reclaim_git_tree() {
     local proj="$1" n=0 path
-    # Socket down: nothing can be handed back -- report zero, not a count of failed calls.
+    # Socket down: no path can be handed back -- report zero, not a count of failed calls.
     [[ -S "${HANDBACK_SOCKET}" ]] || { printf '0'; return 0; }
     if [[ -n "${proj}" && -d "${proj}/.git" ]]; then
         while IFS= read -r -d '' path; do
             # Count CONFIRMED handbacks (client exit 0), not attempts, so the reported total
-            # reflects what actually changed owner. The client writes nothing to stdout, so
+            # reflects what changed owner. The client's stdout stays empty, so
             # using it as the `if` condition cannot corrupt this function's captured count, and
             # its stderr (MSG relays) still reaches the session.
             if /usr/local/bin/ai-tools-handback-client CHOWN "${path}"; then
@@ -309,7 +309,7 @@ reclaim_git_tree() {
 # count_git_agent_owned PROJECT -- number of @SANDBOX_USER@-owned paths under PROJECT/.git (0 if
 # there is no such tree). Used only when the socket is down, to tell whether there is stranded
 # git work to warn about, so a dead socket surfaces what it could NOT reclaim instead of the
-# reclaim silently doing nothing.
+# reclaim silently skipping its walk.
 count_git_agent_owned() {
     local proj="$1"
     [[ -n "${proj}" && -d "${proj}/.git" ]] || { printf '0'; return 0; }
@@ -343,7 +343,7 @@ if [[ "${unbounded}" -eq 1 ]]; then
     # cross-project mixed ownership the agent should relay, with the manual reconcile for
     # stragglers the helper could not reach (excluded or quarantined paths). The routine
     # post-git-activity reclaim runs on essentially every session-start (the per-turn sweeps
-    # always skip .git) and has already repaired ownership, so there is nothing for the user
+    # always skip .git) and has already repaired ownership, so there is no action for the user
     # to act on; injecting additionalContext would only force a TUI re-render that clobbers
     # claude's startup banner. It therefore stays journald-only.
     total_found=$((git_found + prev_found))
@@ -366,7 +366,7 @@ if [[ "${unbounded}" -eq 1 ]]; then
     fi
   else
     # Socket DOWN: the reclaim cannot run. If agent-owned .git objects are stranded, surface
-    # that with the fix, instead of silently reclaiming nothing and reporting a reassuring
+    # that with the fix, instead of silently reclaiming no path and reporting a reassuring
     # count -- the exact condition that produced a misleading "Reclaimed N". Count the strand
     # under this session's project and, if a prior session was killed elsewhere, that project too.
     stranded="$(count_git_agent_owned "${dir}")"
