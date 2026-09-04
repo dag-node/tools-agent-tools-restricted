@@ -226,7 +226,7 @@ file sink being the authoritative one.
   The traverse grant still asks — it widens access *above* the project, on directories that do
   exist and do have contents.
 
-  **Every path it seeds comes out group-readable, whatever the host umask.** A new directory, `git init`'s
+  **No path it seeds is left owner-only, whatever the host umask.** A new directory, `git init`'s
   `.git`, and the `README.md` are all born under the caller's umask, so on an `077` host they come
   out `0700`/`0600` — and an owner-only path is one `ai-tools-setgid` and `ai-tools-setfacl` honour
   as the operator's standing **seal** and skip, taking a directory's subtree with it. A create that

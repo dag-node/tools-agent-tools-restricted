@@ -85,7 +85,7 @@ ai_tools_selinux_group_valid() {
 # writing -- it then dies of SIGPIPE, and under the `set -o pipefail` every consumer of this
 # library runs with, the pipeline reports 141 for a probe that SUCCEEDED. The module reads as
 # absent at random, and each caller acts on that: no label registered, no group reported
-# loaded. A here-string is fully written before grep starts, so nothing can exit early on it.
+# loaded. A here-string is fully written before grep starts, so no reader can exit early on it.
 ai_tools_selinux_group_loaded() {
     local modules
     modules="$(semodule -l 2>/dev/null || true)"

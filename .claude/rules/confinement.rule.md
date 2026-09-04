@@ -82,7 +82,7 @@ is loaded), classified by `ai_tools_confinement_module_present`. It is **not** r
 module store with `semodule -l`: `ai-tools-run` runs as the sandbox account, which cannot read
 the root-only store, so that read is a systematic false "no" — which on the unresolved-label
 branch below would fail *open* (launch DAC-only where the module is loaded). The
-`matchpathcon` probe reads the world-readable file-contexts, runs unprivileged, and the agent
+`matchpathcon` probe reads the world-readable file-contexts, does not need privilege, and the agent
 cannot influence it (file-contexts and the shim are root-owned). It logs the inputs on
 every launch (journald, `ai-tools-run` tag). `ai-tools-run` performs that probing and I/O;
 the launch-vs-refuse decision is the pure `ai_tools_confinement_verdict`

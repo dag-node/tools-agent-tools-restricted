@@ -25,7 +25,7 @@
 # unchanged for every target that reaches it.
 #
 # Sourced (not executed) so every consumer shares ONE list and ONE matcher. Deployed
-# 644 root:root (world-readable; carries no secrets; the operator wrapper, the CLI, and the
+# 644 root:root (world-readable, and it must not hold a secret; the operator wrapper, the CLI, and the
 # root helpers all read it) like msg.lib.sh / log.lib.sh.
 
 # shellcheck disable=SC2034  # consumed by the sourcing scripts and the test suite
@@ -67,16 +67,16 @@ ai_tools_protected_path_match() {
 
 # ai_tools_traverse_grant_allowed <path> <owner_user>
 # Return 0 when a TRAVERSE-ONLY ACL (u:SANDBOX_USER:--x) may be granted on <path>: it is a
-# directory <owner_user> owns, and it either matches no protected path or matches ONLY as
+# directory <owner_user> owns, and it either misses every protected path or matches ONLY as
 # <owner_user>'s own home root. Return 1 for every system directory, for /home itself, and for
 # any other user's home root.
 #
 # This is a SECOND, NARROWER predicate beside the target backstop above, not a relaxation of it.
 # ai_tools_protected_path_match still refuses a home root as the TARGET of a claim, an unclaim, a
-# lockdown or any elevated walk, and nothing here changes that. What differs is the operation
+# lockdown or any elevated walk, and this predicate leaves that unchanged. What differs is the operation
 # being vetted: a claim rewrites group, mode and ACLs across a whole tree, while this grants one
 # `--x` entry on one directory -- search permission on that directory alone, conveying no listing
-# of it and nothing at all about the files inside, whose own modes and ACLs still decide. Refusing
+# of it and no access at all to the files inside, whose own modes and ACLs still decide. Refusing
 # an operator's own home root for THAT is what made every project at /home/<user>/<proj>
 # permanently unreachable, with a sandbox clone the only way in.
 #

@@ -15,7 +15,7 @@ paths:
 
 Every refusal, notice, and warning the user reads is rendered through one shared
 library, `/usr/local/lib/ai-tools/msg.lib.sh` (`644 root:root`, world-readable — it
-holds only code and operator, agent, and root principals all source it, exactly like
+must not hold a secret, and operator, agent, and root principals all source it, exactly like
 [logging](logging.rule.md)'s `log.lib.sh`). It exposes `ai_tools_msg <severity> <fd>
 <line...>`, the convenience emitters `ai_tools_msg_{error,warn,notice,info,success}`,
 the flow-block opener `ai_tools_msg_headline <title> <fd> <line...>`,

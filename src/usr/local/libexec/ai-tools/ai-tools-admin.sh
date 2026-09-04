@@ -108,11 +108,11 @@ EOF
 }
 
 # Executed, this administers a host and needs root. Sourced -- by tests/unit/admin-operator-add.sh,
-# which drives one function with sudo stubbed -- it asserts nothing about the host and only
+# which drives one function with sudo stubbed -- it does not assert anything about the host and only
 # defines, stopping at the matching guard above the dispatch. Everything between the two is
 # definitions, so the executed path still refuses a non-root caller before any action.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    # --help and --version read no host state and change nothing, so they answer any caller and
+    # --help and --version read no host state and leave the host as it is, so they answer any caller and
     # are handled here, ahead of the root check: an operator meeting the tool gets the command
     # surface rather than a refusal naming sudo without saying what to run under it. Both ignore
     # any further argument.
@@ -148,7 +148,7 @@ export AI_TOOLS_MSG_FULLWIDTH=1
 # Edits ONLY the OPERATORS line in an existing file, preserving every other setting the
 # operator maintains there (the SKIP_* categories; template: src/etc/ai-tools/operator.conf,
 # reference: skip-dirs.lib.sh); seeds a minimal file when absent. 644: world-readable (the
-# agent hooks and the root helpers both read it; it carries no secret) and root-write-only,
+# agent hooks and the root helpers both read it; it is free of secrets) and root-write-only,
 # so the agent cannot rewrite the identity root hands files back to.
 write_operators() {
     install -d -o root -g root -m 755 /etc/ai-tools
@@ -287,7 +287,7 @@ wire_dedup() {
 # never refuses: it names the --for command that claims on the account's behalf.
 #
 # A non-zero answer is a refusal only while sudo is answering at all -- for a command no rule
-# matches, `sudo -l` exits non-zero and prints NOTHING, so there is no message separating that from
+# matches, `sudo -l` exits non-zero with EMPTY output, so there is no message separating that from
 # a sudo which failed for its own reasons (an unreachable sudoers backend, a host that refuses -l).
 # It is separated by a second probe, the same way the CLI's sudo_grant_missing does it: listing the
 # account's whole rule set, which succeeds for anyone this command has just enrolled, since the
@@ -347,7 +347,7 @@ op_add() {
     # The sandbox account needs a systemd --user instance without an interactive login: its
     # nvm-update timer and each ai-tools-run session unit run there, and it has no login shell, so
     # only linger keeps that instance alive. An operator runs claude from its own active login,
-    # so it needs no linger here; enabling operator linger for other reasons is host policy.
+    # so it does not need linger here; enabling operator linger for other reasons is host policy.
     log "enabling linger for ${SANDBOX_USER}"
     loginctl enable-linger "${SANDBOX_USER}"  2>/dev/null || log "warn: could not enable linger for ${SANDBOX_USER}"
 
@@ -392,7 +392,7 @@ op_list() {
 # which compiles a group from source in a repo checkout -- this runs on any installed host.
 
 # require_selinux: guard shared by every selinux command. Returns 1 (caller exits 0 --
-# nothing to manage) when SELinux is disabled; dies when semodule is absent (a real gap).
+# no policy to manage) when SELinux is disabled; dies when semodule is absent (a real gap).
 require_selinux() {
     if [[ "$(getenforce 2>/dev/null)" == "Disabled" ]]; then
         log "SELinux is disabled on this host -- no policy groups to manage"
@@ -500,7 +500,7 @@ sel_list() {
 #
 # The treatment follows the file's CONTENT, rather than one generic merge covering all three:
 #   json    hook DECLARATIONS merge additively -- they are control plane, and a declaration the
-#           file lacks means a shipped hook installs but nothing invokes it. The permission arrays
+#           file lacks means a shipped hook installs but no event invokes it. The permission arrays
 #           are the host's and stay exactly as written (claude-settings.rule.md).
 #   keyval  reported, never rewritten. An absent key already means its default, so a stale file
 #           costs knowledge rather than behaviour, and its layout is the operator's own prose.
@@ -579,7 +579,7 @@ _pu_json() {
     log "  merged. the previous file is saved as ${_ai_tools_conf_merge_backup}"
 
     # Offer the cleanup against what is actually left. Once the permission rules match too, the
-    # .rpmnew has nothing further to say and keeping it only invites a second look later.
+    # .rpmnew has no difference left to report and keeping it only invites a second look later.
     if command -v diff >/dev/null 2>&1 && diff -q "${deployed}" "${rpmnew}" >/dev/null 2>&1; then
         log "  ${deployed} now matches the shipped file exactly."
         _pu_cleanup "${rpmnew}" y
@@ -690,7 +690,7 @@ system_dispatch() {
 }
 
 # Sourced rather than executed (see the note at the root check): stop here with every function
-# defined and nothing dispatched, so the caller's arguments are not read as a command.
+# defined and no command dispatched, so the caller's arguments are not read as a command.
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] || return 0
 
 # --help/-h and --version are answered above, before the root check.

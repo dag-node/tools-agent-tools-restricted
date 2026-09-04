@@ -16,18 +16,18 @@
 # The allowlist is the LAUNCH GATE: an entry here is what lets that operator's agent start in
 # the directory, and what makes the ownership handback restore files to them. Editing another
 # operator's gate stays inside the trust model's "%ai-ops operators are trusted" boundary, but
-# it is not something the sandbox account may ever reach, so the helper is 750 root:root, holds
+# it is not something the sandbox account may ever reach, so the helper is 750 root:root, and holds
 # NO NOPASSWD grant (the invoking human authenticates, like ai-tools-lockdown/-setfacl/-relabel),
 # and every mutation is logged with both the caller and the target.
 #
 # Every gate below resolves to LESS access on failure, never more:
-#   - no SUDO_UID (a bare root call, or an unclean sudo context)  -> refuse, change nothing
-#   - the CALLER is not in OPERATORS                              -> refuse, change nothing
-#   - the TARGET is not in OPERATORS                              -> refuse, change nothing
-#   - the target is the sandbox account or root                   -> refuse, change nothing
-#   - the path is not a real directory, or is a protected system  -> refuse, change nothing
+#   - no SUDO_UID (a bare root call, or an unclean sudo context)  -> refuse, write no entry
+#   - the CALLER is not in OPERATORS                              -> refuse, write no entry
+#   - the TARGET is not in OPERATORS                              -> refuse, write no entry
+#   - the target is the sandbox account or root                   -> refuse, write no entry
+#   - the path is not a real directory, or is a protected system  -> refuse, write no entry
 #     directory (safe-paths backstop)
-#   - a required library will not load                            -> refuse, change nothing
+#   - a required library will not load                            -> refuse, write no entry
 # A refused run leaves the target's allowlist byte-identical, so a failure can only ever leave
 # the agent with fewer places to launch than the operator intended, never more.
 #
@@ -122,7 +122,7 @@ fi
 # ── Caller gate ──────────────────────────────────────────────────────────────────
 # The identity that authorizes this edit is the operator who invoked sudo, resolved from the
 # kernel-supplied SUDO_UID rather than from SUDO_USER (a name is spoofable through the
-# environment; the uid sudo sets is not). A direct root call carries no such context and is
+# environment; the uid sudo sets is not). A direct root call arrives without that context and is
 # refused rather than defaulting to some operator.
 caller_uid="${SUDO_UID:-}"
 [[ -n "${caller_uid}" ]] \
@@ -176,7 +176,7 @@ readonly caller allowlist target_home target_group
 
 # ── print ────────────────────────────────────────────────────────────────────────
 # Read-only, and the only action that does not require a path. An absent allowlist prints
-# nothing and succeeds: "this operator has approved no projects" is a complete answer, and the
+# an empty list and succeeds: "this operator has approved no projects" is a complete answer, and the
 # caller (the CLI's snapshot) treats an empty list exactly as it treats a file of comments.
 if [[ "${ACTION}" == print ]]; then
     [[ -r "${allowlist}" ]] || exit 0
@@ -230,7 +230,7 @@ case "${ACTION}" in
         printf 'ai-tools-allowlist: added %s for %s\n' "${canonical}" "${OPERATOR}"
         ;;
     remove)
-        # A missing allowlist has nothing to remove -- report it and succeed, so an unclaim that
+        # A missing allowlist has no entry to remove -- report it and succeed, so an unclaim that
         # runs twice is not an error. The library drops the exclusion line too, so de-registering
         # a project the operator had parked leaves no '!' behind to park whatever is claimed at
         # that path next.
@@ -248,7 +248,7 @@ case "${ACTION}" in
         printf 'ai-tools-allowlist: removed %s for %s\n' "${canonical}" "${OPERATOR}"
         ;;
     enable)
-        # The one action that WIDENS the target's launch gate. It adds no line: the '!' comes off
+        # The one action that WIDENS the target's launch gate. It does not append a line: the '!' comes off
         # the line the operator wrote, in place, and a path the file does not name is refused
         # rather than registered -- registering one is a claim, which scans for secrets first.
         rc=0; ai_tools_conf_allowlist_enable "${allowlist}" "${canonical}" || rc=$?

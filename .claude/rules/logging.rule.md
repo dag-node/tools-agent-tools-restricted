@@ -7,8 +7,8 @@ paths:
 # Operation logging
 
 The sandbox components log through one shared library,
-`/usr/local/lib/ai-tools/log.lib.sh` (`644 root:root`, world-readable — it holds only code
-and every principal sources it). It exposes `ai_tools_log <level>` and
+`/usr/local/lib/ai-tools/log.lib.sh` (`644 root:root`, world-readable, and it must not hold a secret;
+every principal sources it). It exposes `ai_tools_log <level>` and
 `ai_tools_log_{debug,info,warn,error}`, writing to two sinks:
 
 - **journald** — always, via `logger` with a per-component `SyslogIdentifier`

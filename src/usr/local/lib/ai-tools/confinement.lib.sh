@@ -60,7 +60,7 @@ _AI_TOOLS_CONFINEMENT_LIB_LOADED=1
 #     declared that unacceptable, so it refuses instead. Both are DAC-only LAUNCH exits with
 #     require unset.
 # An "ok" launches: confined when the transition is verified (enforcing, correct label, covered
-# manager); DAC-only when the kernel is not enforcing or the module is absent -- nothing to verify,
+# manager); DAC-only when the kernel is not enforcing or the module is absent -- no transition to verify,
 # and require is unset (with require=yes those two DAC-only launches become refusals).
 # ai_tools_confinement_module_present <matchpathcon-type>
 # Classify the `module` verdict input from a probe of a CORE-module-owned path (e.g.
@@ -78,7 +78,7 @@ ai_tools_confinement_verdict() {
     local enforce="$1" module="$2" want="$3" have="$4" mgrdom="$5" require="${6:-no}"
 
     if [[ "${enforce}" != "Enforcing" ]]; then
-        # DAC-only launch: nothing to verify -- unless the operator declared SELinux mandatory.
+        # DAC-only launch: no transition to verify -- unless the operator declared SELinux mandatory.
         [[ "${require}" == "yes" ]] && { printf 'require-not-enforcing'; return 1; }
         printf 'ok'; return 0
     fi

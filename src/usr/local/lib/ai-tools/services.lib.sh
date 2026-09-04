@@ -30,7 +30,7 @@
 # stamp reports on, which is the more valuable target by far. (On an enforcing host the confined
 # ai_tools_t session can write neither: both resolve to usr_t, which the domain may only read.)
 #
-# Sourced, not executed. Deployed 644 root:root -- it holds only code, and the two principals that
+# Sourced, not executed. Deployed 644 root:root -- it must not hold a secret, and the two principals that
 # source it (the operator launch wrapper and the unprivileged CLI) both need to read a system unit's
 # is-active/is-enabled, which any user may.
 
@@ -110,8 +110,8 @@ ai_tools_service_stamp_field() {
 }
 
 # ai_tools_service_unit_property <unit> <property>  -- PRINT one systemd property of a SYSTEM unit,
-# or an empty string. ALWAYS returns 0. A system unit's properties are world-readable, so this runs
-# unprivileged; a sandbox-user unit's are not reachable from here at all and are read from a stamp
+# or an empty string. ALWAYS returns 0. A system unit's properties are world-readable, so this does
+# not need privilege; a sandbox-user unit's are not reachable from here at all and are read from a stamp
 # instead. The value is clamped to the same display-safe charset as a stamp field: it reaches the
 # operator's terminal, and while systemd is a trusted writer, one reader for both records means one
 # place where that guarantee is made.

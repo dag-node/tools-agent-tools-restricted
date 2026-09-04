@@ -5,7 +5,7 @@
 #
 #   1. PIN   -- verify it against the checksum its vendor signed and record the result, which the
 #              launch shim compares against (entrypoint-verify.lib.sh). Runs on every host,
-#              including the DAC-only one where step 2 has nothing to do.
+#              including the DAC-only one where step 2 has no label to apply.
 #   2. LABEL -- apply the SELinux file-context rules each agent declares and restore the labels on
 #              what they match: its launcher binary -> ai_tools_exec_t, so its exec fires the ->
 #              ai_tools_t domain transition, and its config directory -> ai_tools_home_t, so the
@@ -15,7 +15,7 @@
 # Why both live in one helper, and why a mismatch fails the run while an unverifiable entrypoint
 # does not: .claude/rules/updater.rule.md.
 #
-# It names no agent: each ai-tools-agents-* package declares its own paths (entrypoint_fcontext
+# It is agent-agnostic: each ai-tools-agents-* package declares its own paths (entrypoint_fcontext
 # and config_dir in its manifest under /usr/local/lib/ai-tools/agents.d), and this helper
 # registers them as local file-context rules. The labelling body lives in relabel.lib.sh, shared
 # with selinux/install-selinux.sh's verify pass so the two cannot drift.
@@ -61,7 +61,7 @@ die() { ai_tools_log_error "$*"; printf 'ai-tools-relabel-agent: error: %s\n' "$
 [[ "${EUID}" -eq 0 ]] || die "must run as root (via sudo)"
 
 # The labelling body + the manifest resolver it reads. REQUIRED: without them this helper can
-# resolve no agent and would silently label nothing, leaving the next launch to fail closed on a
+# resolve no agent and would silently label no file, leaving the next launch to fail closed on a
 # mislabelled entrypoint with no explanation. Bare source under set -e.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/relabel.lib.sh
 source /usr/local/lib/ai-tools/relabel.lib.sh
@@ -111,7 +111,7 @@ fi
 # pin_agent_entrypoint <agent> : verify one agent's installed entrypoint against its vendor's
 #   signed release manifest and record the result. Returns 1 only on a mismatch.
 #
-#   AI_TOOLS_ENTRYPOINT_PIN_REUSE=1 lets a run answer from the existing pin when nothing that
+#   AI_TOOLS_ENTRYPOINT_PIN_REUSE=1 lets a run answer from the existing pin when no input that
 #   decides the verdict has changed, skipping two network fetches and a gpgv per agent. It is
 #   OPT-IN, and the two unattended callers are what it is for: the ai-tools-relabel.path watcher,
 #   which an upgrade can fire several times for one change, and the agent package's %post. An
@@ -134,7 +134,7 @@ pin_agent_entrypoint() {
     fi
     # The installed version, read from the package metadata beside the entrypoint. It is
     # sandbox-owned, so it is accepted only in semver shape -- and claiming a different version
-    # buys nothing: every candidate manifest is signed, so a false claim yields a checksum that
+    # gains the caller no advantage: every candidate manifest is signed, so a false claim yields a checksum that
     # does not match rather than one that does.
     version="$(_installed_agent_version "${entrypoint}")"
     if [[ -z "${version}" ]]; then
@@ -174,7 +174,7 @@ pin_agent_entrypoint() {
 
 # _installed_agent_version <entrypoint> : print the MAJOR.MINOR.PATCH the package beside the
 #   entrypoint declares, walking up to the nearest package.json the way ai-tools-run does for the
-#   launch banner. Bounded read; anything not semver-shaped yields nothing.
+#   launch banner. Bounded read; anything not semver-shaped yields an empty string.
 _installed_agent_version() {
     local dir="${1%/*}" declared
     for _ in 1 2 3; do
@@ -223,7 +223,7 @@ record_label_outcome() {
 
 if (( status == 2 )); then
     say "SELinux confinement inactive -- no agent labelling needed"
-    # Recorded rather than left silent: on a DAC-only host there is nothing to label and nothing to
+    # Recorded rather than left silent: on a DAC-only host there is no entrypoint to label and no fault to
     # fix, which is a different report from "this vantage point cannot tell".
     for label_agent in "${enabled_agents[@]:-}"; do
         [[ -n "${label_agent}" ]] || continue

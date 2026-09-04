@@ -6,7 +6,7 @@
 #
 # ai-tools-run sources this when `dotnet` is enabled in /etc/ai-tools/operator.conf
 # (AI_TOOLS_INTEGRATIONS). It self-gates on a host dotnet, so it is inert on a host without
-# one even when enabled -- this integration packages no runtime.
+# one even when enabled -- this integration does not ship a runtime of its own.
 #
 # One state root backs it, provisioned by `sudo ai-tools-dotnet setup` -- every integration keeps
 # its sandbox-side state under /opt/ai-tools/integrations/<name>, so no toolchain adds a dotdir to
@@ -32,7 +32,7 @@
 [[ -x /usr/bin/dotnet ]] || return 0
 
 # The host SDK/runtime tree at its RPM path, or wherever the muxer resolves to. The muxer is
-# already on the session PATH, so PATH itself needs no dotnet entry.
+# already on the session PATH, so PATH itself does not need a dotnet entry.
 dotnet_root=/usr/lib64/dotnet
 [[ -d "${dotnet_root}" ]] || dotnet_root="$(dirname -- "$(readlink -f /usr/bin/dotnet)")"
 

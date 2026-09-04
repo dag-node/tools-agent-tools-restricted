@@ -3,8 +3,8 @@
 # /usr/local/libexec/ai-tools/ai-tools-dotnet
 # Provision and inspect the dotnet integration for the ai-tools sandbox. Root/sudo helper.
 #
-# The .NET SDK/runtime itself is the HOST's RPM-managed dotnet (this integration adds no runtime
-# and carries no dotnet RPM dependency). This helper sets up the sandbox-side directories and
+# The .NET SDK/runtime itself is the HOST's RPM-managed dotnet (this integration does not ship
+# a runtime of its own, and does not take a dotnet RPM dependency). This helper sets up the sandbox-side directories and
 # SELinux labels the session-env fragment (session-env.d/dotnet.env.sh) relies on, and installs
 # shared global tools an operator wants available to every project. "Modifications require sudo":
 # the tools dir is root-owned and read-only to the agent, so only this helper changes it.
@@ -77,7 +77,7 @@ selinux_active() {
 
 # label_state <path> : give <path> the label the base policy already maps it to. No `semanage`:
 # the integrations root carries a STATIC rule in ai_tools.fc, so every integration's state is
-# covered by one base-owned rule and a new toolchain adds no policy of its own. A failure is
+# covered by one base-owned rule and a new toolchain does not add policy of its own. A failure is
 # fatal -- a silently unlabelled dir breaks the integration only later, inside a confined
 # session, as an opaque denial.
 label_state() {

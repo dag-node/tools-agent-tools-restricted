@@ -150,7 +150,7 @@ rationale is single-sourced here, and each consumer carries a one-line pointer t
 ## Design notes
 
 - **Deployed `644 root:root`**, world-readable like `msg.lib.sh`/`log.lib.sh`: the operator
-  wrapper, the CLI, and the root helpers read one list; it holds only patterns. The lib directory
+  wrapper, the CLI, and the root helpers read one list; it must not hold a secret. The lib directory
   `/usr/local/lib/ai-tools` is `0751 root:SANDBOX_GROUP`, so an operator who is not a
   `SANDBOX_GROUP` member (the multi-operator default) traverses in to source the `644` libs by
   path without listing the directory — the world-execute bit is what makes the world-readable

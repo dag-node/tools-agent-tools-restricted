@@ -10,7 +10,7 @@
 # anything that prepends to PATH. The fragment lives in the ai-tools lib dir
 # rather than /etc/profile.d, so root and unrelated accounts keep their stock
 # PATH. Both files are bash's, so `operators add` reports a login shell that
-# reads neither. The sandbox account needs no wiring: ai-tools-run pins the
+# reads neither. The sandbox account takes its PATH elsewhere: ai-tools-run pins the
 # session PATH as a unit property.
 #
 # PATH is first-match-wins, so the order below runs least-writable first and
@@ -54,7 +54,7 @@ _dedup_path() {
 
     # Opt-in: report missing directories, each at most once per shell process
     # (_PATH_DEDUP_WARNED is not exported, so every new shell starts clean).
-    # `|| [[ -n ... ]]` keeps the last entry: tr emits no trailing newline.
+    # `|| [[ -n ... ]]` keeps the last entry: tr leaves off the trailing newline.
     if [[ "${PATH_DEDUP_WARN-}" == "1" ]]; then
         local entry
         while IFS= read -r entry || [[ -n "${entry}" ]]; do

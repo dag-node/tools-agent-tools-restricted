@@ -517,7 +517,7 @@ ai_tools_unlabel_agent_paths() {
 
 # ai_tools_project_labelled <dir>: 0 if <dir>'s root currently carries
 # ai_tools_project_t. A cheap, read-only state check for idempotent callers -- it
-# inspects the live label, leaves the policy alone, and runs unprivileged.
+# inspects the live label, leaves the policy alone, and does not need privilege.
 ai_tools_project_labelled() {
     local ctx
     ctx="$(ls -Zd "$1" 2>/dev/null | awk '{print $1}')" || return 1

@@ -19,7 +19,7 @@
 #
 # Fail SOFT, deliberately -- the opposite of the fail-closed rule the security gates follow.
 # Filtering is a pure output path: a missing library, absent jq, a malformed event, a rule that
-# does not apply all end the same way, with this hook emitting nothing and the command running
+# does not apply all end the same way, with this hook emitting no output and the command running
 # exactly as the agent wrote it. There is no state in which failing here denies, alters or hides
 # anything, so refusing would only trade tokens for lost work.
 #
@@ -45,8 +45,8 @@ hook_input="$(cat)" || exit 0
 
 case "${event}" in
 pre-tool-use)
-    # One jq pass covers both the tool check and the extraction; a non-Bash event yields nothing.
-    # The matcher in settings.json already scopes this to Bash -- the check costs no extra fork
+    # One jq pass covers both the tool check and the extraction; a non-Bash event yields an empty result.
+    # The matcher in settings.json already scopes this to Bash -- the check does not add a fork
     # and keeps the script correct wherever it is wired.
     agent_command="$(jq -r 'if .tool_name == "Bash" then (.tool_input.command // empty) else empty end' \
         <<< "${hook_input}" 2>/dev/null)" || exit 0
@@ -95,7 +95,7 @@ post-tool-use)
         filtered_stdout="${filtered_stdout%x}"
         filtered_stderr="$(printf '%s' "${raw_stderr}" | ai_tools_filter_strip_noise && printf x)" || exit 0
         filtered_stderr="${filtered_stderr%x}"
-        # Nothing to say when the output carried no noise, which is the common case.
+        # No line to emit when the output carried no noise, which is the common case.
         [[ "${filtered_stdout}" != "${raw_stdout}" || "${filtered_stderr}" != "${raw_stderr}" ]] || exit 0
         jq -c --arg out "${filtered_stdout}" --arg err "${filtered_stderr}" \
             '{hookSpecificOutput: {hookEventName: "PostToolUse",

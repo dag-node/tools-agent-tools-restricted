@@ -9,9 +9,9 @@
 # what lets the operator co-write the tree -- work tree, and .git under --with-git -- without
 # joining @SANDBOX_GROUP@ and without waiting on the ownership handback.
 #
-# Owner-only paths are never granted. When a path's mode carries no group and no other bits
+# Owner-only paths are never granted. When a path's mode grants neither group nor other bits
 # (0600, 0700), no grant is applied to it -- not group:@SANDBOX_GROUP@:rwX (the agent's) nor
-# user:<operator>:rwX (the operator's) -- a directory gets no default ACL, the mask is not
+# user:<operator>:rwX (the operator's) -- a directory is given no default ACL, the mask is not
 # recalculated, and the mode bits are untouched. That mode is the operator's standing decision to
 # keep the path out of the sandbox account's reach, and a claim does not overrule it. What the
 # walk does instead is STRIP the sandbox residue such a path still carries (owner-only.lib.sh),
@@ -76,7 +76,7 @@ readonly ACL_BASE="group:${GROUP}:rwX,other::---"
 # Two identities may legitimately hold a project tree's files: the resolved operator and the
 # sandbox account. A file belonging to a third party (root, another developer) is left untouched --
 # claim must not pull a foreign file into the agent's group, even one the operator placed in the
-# tree -- and COUNTED, so a walk that granted nothing is reported rather than silent; the project
+# tree -- and COUNTED, so a walk that granted no path is reported rather than silent; the project
 # root hitting the guard is called out on its own, since it means the claim granted no access at
 # all. Matched by numeric UID; PROJECTS_UID is the resolved operator (set below).
 SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
@@ -95,7 +95,7 @@ fi
 
 # Directory-skip selector from the shared library (single source of truth, also used by
 # session-hook.sh and ai-tools-setgid). A missing lib (broken install) leaves a stub that
-# skips nothing -- a slower but correct walk.
+# descends everywhere -- a slower but correct walk.
 readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/skip-dirs.lib.sh
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
@@ -117,7 +117,7 @@ _is_secret_name() {
     ai_tools_is_secret_basename "$(basename -- "$1")"
 }
 
-# Without setfacl (or on a filesystem without ACL support) there is nothing to do --
+# Without setfacl (or on a filesystem without ACL support) there is no ACL to apply --
 # warn once and exit cleanly (best-effort, mirrors the other helpers' fail-soft).
 command -v setfacl >/dev/null 2>&1 \
     || { ai_tools_log_warn "setfacl not found -- skipping ACL normalization for ${TARGET}"; exit 0; }
@@ -145,7 +145,7 @@ canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
 # Refuse the whole pass if the project root is a protected system directory.
 ai_tools_assert_safe_target "${canonical}" "ACL grant" || exit 3
 
-# Resolve the operator that owns this project (operator.lib.sh); no owner -> do nothing. The guard
+# Resolve the operator that owns this project (operator.lib.sh); no owner -> exit without acting. The guard
 # below then acts only on paths the resolved operator or the sandbox account hold.
 ai_tools_resolve_owner "${canonical}" || exit 0
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
@@ -214,7 +214,7 @@ _safe_setfacl() {
     # Owner guard (checked on the pinned inode, TOCTOU-safe): only the projects user's
     # or the sandbox account's own files are eligible; anything else is left untouched.
     # Returns 3, not 1, so the walk can tell a third-party owner from a stat failure and
-    # report it: a walk that grants nothing must not read as one that had nothing to grant.
+    # report it: a walk that granted no path must not read as one with no path to grant.
     if [[ "${got_uid}" != "${PROJECTS_UID}" && "${got_uid}" != "${SANDBOX_UID}" ]]; then
         exec {fd}<&-
         return 3
@@ -225,7 +225,7 @@ _safe_setfacl() {
     # shows `-rw-------` and only the trailing `+` hints anything changed. Strip the residue the
     # path carries instead (owner-only.lib.sh), and report it: an owner-only .git under
     # --with-git is a deliberate no-op the operator has to be told about, not a share that
-    # quietly did nothing.
+    # quietly skipped.
     if ai_tools_is_owner_only "${got_mode}"; then
         ai_tools_strip_sandbox_residue "${fd}" "${got_ftype}" "${got_grp}" "${got_mode}" \
             "${PROJECTS_GROUP:-}" || true
@@ -312,7 +312,7 @@ find "${expr[@]}" 2>/dev/null \
                 "${owneronly}" >&2
         fi
         # Surfaced for the same reason as the setgid walk's: the owner guard is the one skip
-        # that can leave a claim reporting success having granted nothing.
+        # that can leave a claim reporting success having granted no access.
         if (( thirdparty )); then
             ai_tools_log_warn "left ${thirdparty} path(s) under ${canonical} untouched: owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@"
             if ${root_thirdparty}; then
