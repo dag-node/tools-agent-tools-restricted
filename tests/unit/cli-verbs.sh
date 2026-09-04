@@ -10,7 +10,7 @@
 #   FOR_ALLOWED_VERBS      does --for apply -- elsewhere the flag is refused, not ignored
 #
 # The failure this exists for is silent and one-directional: a verb ADDED to the dispatcher and
-# forgotten in OPERATOR_VERBS is one an unenrolled user runs, and nothing at runtime says so --
+# forgotten in OPERATOR_VERBS is one an unenrolled user runs, and no runtime message says so --
 # the verb simply works, until a root helper refuses it midway. The reverse (a table naming a verb
 # the dispatcher no longer has) is dead configuration that reads as coverage. So membership is
 # asserted in both directions, and every dispatched verb must be classified one way or the other:
@@ -34,7 +34,7 @@ if [[ ! -r "${CLI}" ]]; then
 fi
 
 # INFORMATIONAL -- the verbs deliberately open to any caller: they read, or (in --stop's case) act
-# through a helper that requires root anyway and takes no operator-owned state. This list is the
+# through a helper that requires root anyway and does not take operator-owned state. This list is the
 # test's half of the contract, so a verb added to neither this nor OPERATOR_VERBS fails below with
 # the choice spelled out.
 readonly INFORMATIONAL=(--help --version --list --providers --status --audit --stop)

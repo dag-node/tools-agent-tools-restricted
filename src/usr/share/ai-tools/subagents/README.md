@@ -37,9 +37,10 @@ x-ai-tools-updated: 2026-07-15
 ```
 
 The invocation name stays stable (`ai-tools-reference-architect`); the version and date ride
-in frontmatter, RFC-draft style — a monotonic `x-ai-tools-version` bumped on every change,
-plus the `x-ai-tools-updated` date. On install or bootstrap a newer shipped version is offered
-as an update and an unchanged one is a no-op; overwriting an existing managed asset asks first
-and defaults to keep, so a copy you tuned on the host is never discarded silently.
+in frontmatter, RFC-draft style — a monotonic `x-ai-tools-version` bumped once per release in
+which the subagent changed, plus the `x-ai-tools-updated` date. On install or bootstrap a newer
+shipped version is offered as an update and an unchanged one is a no-op; overwriting an existing
+managed asset asks first and defaults to keep, so a copy you tuned on the host survives the
+upgrade.
 
 Mechanism and invariants: `.claude/rules/shipped-assets.rule.md`.

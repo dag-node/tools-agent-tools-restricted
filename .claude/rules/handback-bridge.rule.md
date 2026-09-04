@@ -55,8 +55,8 @@ context (`ai_tools_handback_t`). The SELinux installer therefore relabels the da
 - `SYMLINK ARG` → `ai-tools-launcher-symlink ARG`
 
 Each root helper re-validates the path against the allowlist and the
-`SANDBOX_USER`-owned guard independently, so the daemon is a thin dispatcher that adds
-no trust of its own.
+`SANDBOX_USER`-owned guard independently, so the daemon dispatches without adding
+trust of its own.
 
 ## Logging
 

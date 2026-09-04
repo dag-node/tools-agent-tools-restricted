@@ -13,7 +13,7 @@
 #
 # TERMINAL (the target fd is a tty): the text is wrapped and drawn in a titled box whose
 # every line begins with '#', so the whole block is a shell comment -- if a user
-# copy-pastes it into a prompt nothing executes. Two frame classes give the reader a
+# copy-pastes it into a prompt it executes as a comment. Two frame classes give the reader a
 # visual hierarchy: the severity ALERTS (ai_tools_msg_*) frame within 50 columns -- a
 # narrow box reads as an inline alert -- while the structural boxes (ai_tools_msg_block,
 # ai_tools_msg_headline) frame within 80, so a wide box reads as a section headline or a
@@ -354,7 +354,7 @@ ai_tools_msg_block() {
 #                    takes the safe default (typically Cancel) and never blocks. Returns 0.
 #   none             there is no default: empty or out-of-range input RE-ASKS (three
 #                    attempts), and closed input, no terminal, or three unanswered attempts
-#                    return NON-ZERO with nothing on stdout -- the library gives up rather
+#                    return NON-ZERO with empty stdout -- the library gives up rather
 #                    than answering for the user, and the caller decides what that means.
 # A first argument that is neither is a caller error (return 2), never an assumed answer.
 ai_tools_msg_pick() {
@@ -568,7 +568,7 @@ _AI_TOOLS_BANNER_ART=(
 # version NUMBER (starts with a digit, or a lone 'v' + digit: 0.1.0, v1.2) is rendered with
 # exactly one leading 'v'. Any other build id -- a `git describe` like 'proj-v1-144-gABCDEF',
 # or the literal 'dev' -- is printed VERBATIM, since 'v'-prefixing it would read as
-# 'vproj-...'. An empty or 'unknown'/'none' value prints nothing, so the caller drops the
+# 'vproj-...'. An empty or 'unknown'/'none' value is printed as an empty string, so the caller drops the
 # meta entirely. Echoes the display string on stdout; always succeeds.
 ai_tools_msg_version() {
     local v="${1:-}"
@@ -589,7 +589,7 @@ ai_tools_msg_version() {
 # sibling repo sources this lib and calls it with its own subtitle, so the brand reads the
 # same across surfaces and repos.
 #
-# Printed ONLY on a terminal ([ -t 1 ]); on a pipe/redirect/capture it prints nothing, so a
+# Printed ONLY on a terminal ([ -t 1 ]); on a pipe/redirect/capture it stays silent, so a
 # tee'd install log, a piped run, or a `--version` scrape is never polluted with escape codes
 # or box-drawing glyphs. Colour is emitted once past that gate (there is a terminal to read
 # it). Always returns success.

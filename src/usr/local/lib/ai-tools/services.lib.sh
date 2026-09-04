@@ -6,7 +6,7 @@
 # warning (critical system units only), so the detection and the canonical purpose/remedy text live
 # here ONCE and each consumer only formats -- no duplicated service knowledge.
 #
-# Pure data + detection: this library renders nothing (no msg.lib dependency). A consumer sources it,
+# Pure data + detection: this library does not render output (no msg.lib dependency). A consumer sources it,
 # scans, and formats the result however it likes (a framed warn at launch, a plain table in --status).
 #
 # Detection is two-sourced, by scope. A system unit is queried live (`systemctl is-active`, which
@@ -19,18 +19,18 @@
 # in some state, so a unit an optional package never installed is reported as such rather than as
 # something this host merely cannot see.
 #
-# A STAMP IS NOT TRUSTED INPUT, and nothing here pretends otherwise. Its writer is the sandbox
+# A STAMP IS NOT TRUSTED INPUT, and no reader here treats it as such. Its writer is the sandbox
 # account, so that account can state any outcome it likes; the mode on the file and its directory
 # bound WHAT it can touch (one inode's contents -- not the directory, not another file, not a
 # symlink out of the tree), never whether the contents are true. Two things make that acceptable
-# rather than a hole. The stamp gates NOTHING: it is rendered in one status report, is never
+# rather than a hole. The stamp gates NO DECISION: it is rendered in one status report, is never
 # evaluated, and every value is read through ai_tools_service_stamp_field, which clamps it to a
 # short safe-charset token so no control byte or escape sequence reaches the operator's terminal.
 # And it is never the weakest link -- an agent able to write it can already write the toolchain the
 # stamp reports on, which is the more valuable target by far. (On an enforcing host the confined
 # ai_tools_t session can write neither: both resolve to usr_t, which the domain may only read.)
 #
-# Sourced, not executed. Deployed 644 root:root -- it carries no secrets, and the two principals that
+# Sourced, not executed. Deployed 644 root:root -- it must not hold a secret, and the two principals that
 # source it (the operator launch wrapper and the unprivileged CLI) both need to read a system unit's
 # is-active/is-enabled, which any user may.
 
@@ -57,7 +57,7 @@ readonly _AI_TOOLS_SERVICES_LIB_LOADED=1
 #   stamp_mode = what that stamp says ABOUT THIS UNIT -- two units can share one stamp and read
 #               different things from it, which is how the timer gets a verdict of its own:
 #               result   -- the run's RESULT is this unit's verdict (it IS the unit that ran),
-#                           including a run that correctly did nothing (RESULT=skipped).
+#                           including a run that correctly declined to act (RESULT=skipped).
 #               fired    -- only the RECENCY of a SYSTEMD-STARTED run matters: such a run,
 #                           successful or not, is proof this unit triggered it, so a failed run
 #                           leaves the trigger healthy. A run the operator started by hand is not
@@ -94,7 +94,7 @@ ai_tools_service_field() {
 }
 
 # ai_tools_service_stamp_field <stamp-path> <KEY>  -- PRINT the value of KEY from a last-run stamp
-# file, or nothing; ALWAYS returns 0. A stamp is written by an UNPRIVILEGED sandbox-account job and
+# file, or an empty string; ALWAYS returns 0. A stamp is written by an UNPRIVILEGED sandbox-account job and
 # read by the operator's terminal, so the read is defensive on every axis a writer controls: a
 # symlink or non-regular path is refused outright (the file is never followed somewhere else), only
 # the first 4 KiB is examined (an unbounded line cannot exhaust the reader), the line must match an
@@ -110,8 +110,8 @@ ai_tools_service_stamp_field() {
 }
 
 # ai_tools_service_unit_property <unit> <property>  -- PRINT one systemd property of a SYSTEM unit,
-# or nothing. ALWAYS returns 0. A system unit's properties are world-readable, so this needs no
-# privilege; a sandbox-user unit's are not reachable from here at all and are read from a stamp
+# or an empty string. ALWAYS returns 0. A system unit's properties are world-readable, so this does
+# not need privilege; a sandbox-user unit's are not reachable from here at all and are read from a stamp
 # instead. The value is clamped to the same display-safe charset as a stamp field: it reaches the
 # operator's terminal, and while systemd is a trusted writer, one reader for both records means one
 # place where that guarantee is made.
@@ -126,15 +126,15 @@ ai_tools_service_unit_property() {
 }
 
 # ai_tools_service_stamp_age <stamp-path> [key]  -- PRINT the whole seconds since the timestamp the
-# stamp records under <key> (default FINISHED), or NOTHING when that cannot be determined (no stamp,
-# no such key, an unparseable value, or no date(1)). ALWAYS returns 0. Consumers must treat
-# "nothing" as "age unknown" and never as "old": a missing age must not manufacture a 'stale'
+# stamp records under <key> (default FINISHED), or an EMPTY STRING when that cannot be determined
+# (no stamp, no such key, an unparseable value, or no date(1)). ALWAYS returns 0. Consumers must
+# treat the empty string as "age unknown" and never as "old": a missing age must not manufacture a 'stale'
 # verdict out of an absence.
 # The key is a parameter because more than one record in this grammar carries a time an operator
 # reads as an age -- the updater's stamp (FINISHED) and an entrypoint pin (VERIFIED) -- and both
 # must age through one implementation rather than two that can drift.
 # The value reaches date(1) only after ai_tools_service_stamp_field's charset clamp, and as a single
-# argument, so a hostile stamp can make this fail to parse but nothing more.
+# argument, so a hostile stamp can make this fail to parse and no worse.
 ai_tools_service_stamp_age() {
     local stamp="$1" key="${2:-FINISHED}" finished stamped now
     finished="$(ai_tools_service_stamp_field "${stamp}" "${key}")"
@@ -155,9 +155,9 @@ ai_tools_service_stamp_age() {
 # registry ships with an OPTIONAL package, so absence is a normal state, not a fault to chase.
 # The account's own ~/.config/systemd/user is deliberately NOT searched: it sits in a home the
 # operator cannot traverse. Every unit named here is shipped to the system-wide directory, so the
-# omission costs nothing.
+# omission leaves the report complete.
 # AI_TOOLS_USER_UNIT_DIRS overrides the ':'-separated search path, so a test does not depend on
-# which optional packages the host has. It widens nothing -- the value decides only what a
+# which optional packages the host has. It does not widen access -- the value decides only what a
 # read-only report says, and its reader already runs as the operator, who can read these paths
 # anyway. IFS is pinned for the split: this library is sourced into scripts that set their own.
 _ai_tools_user_unit_installed() {
@@ -176,8 +176,8 @@ _ai_tools_user_unit_installed() {
 # exit status). ai_tools_service_state_of below takes a whole record and is what consumers call.
 #   active  -- the unit is running (is-active), or its stamp records a recent healthy run.
 #   skipped -- the last run ended in a transient condition it did not cause and could not fix (the
-#              updater offline: the registry was unreachable, so nothing changed and the previous
-#              toolchain stays). Not a fault -- there is nothing for an operator to do, and calling
+#              updater offline: the registry was unreachable, so the toolchain was left alone and
+#              the previous version stays). Not a fault -- there is no action for an operator, and calling
 #              it FAILED spends attention a real fault then competes with -- but not a claim of
 #              health either, so it stays distinct from 'active' and keeps AGEING: a host that is
 #              offline once reads skipped, one that has been offline for days reads 'stale'.
@@ -189,9 +189,9 @@ _ai_tools_user_unit_installed() {
 #              point: a schedule that quietly stops firing leaves every recorded run successful and
 #              would otherwise read as a permanent, and increasingly wrong, OK.
 #   absent  -- the unit is not installed on this host (e.g. relabel.path on a base-only install,
-#              or the nvm-update pair without the nodejs integration) -- nothing to warn about.
+#              or the nvm-update pair without the nodejs integration) -- no fault to warn about.
 #   unknown -- not checkable here: systemctl missing, or a sandbox-user unit that is installed but
-#              publishes no stamp (or has not run since the stamp was introduced).
+#              does not publish a stamp (or has not run since the stamp was introduced).
 ai_tools_service_state() {
     local unit="$1" scope="$2" stamp="${3:-}" stamp_mode="${4:-result}" max_age="${5:-}"
     # A sandbox-user unit's live state needs that account's own bus, which the operator cannot
@@ -211,7 +211,7 @@ ai_tools_service_state() {
         # 'fired' reads recency alone: a run happened, so whatever triggers it is working, and its
         # outcome belongs to the unit that ran (reported separately, in 'result' mode).
         # Only a run SYSTEMD started is evidence about the trigger. A run the operator did by hand
-        # says nothing about the schedule, and counting it would report a dead timer as healthy for
+        # is no evidence about the schedule, and counting it would report a dead timer as healthy for
         # the whole grace window -- and, worse, suppress the staleness that is the only way a
         # stopped schedule shows up at all. A stamp whose TRIGGER is anything else (a hand run, or
         # one written before this field existed) declines the judgment rather than guessing either
@@ -249,11 +249,11 @@ ai_tools_service_state() {
     # A Type=oneshot service is 'inactive' whenever it is HEALTHY -- it runs, does its work and
     # exits -- so is-active cannot judge it and would read every successful run as 'down'. Its
     # verdict is the result of its last run instead, which is also the only way a run that failed
-    # hours ago is still visible. Read from the unit's own type, so a oneshot added later needs no
+    # hours ago is still visible. Read from the unit's own type, so a oneshot added later does not need a
     # registry field: the property is what makes is-active meaningless, not this unit's identity.
     if [[ "$(ai_tools_service_unit_property "${unit}" Type)" == oneshot ]]; then
-        # Never run: nothing to report, and Result reads 'success' on a unit that has done
-        # nothing, which would otherwise be an OK no run has earned.
+        # Never run: no result to report, and Result reads 'success' on a unit that has not
+        # run at all, which would otherwise be an OK no run has earned.
         [[ -n "$(ai_tools_service_unit_property "${unit}" ExecMainStartTimestamp)" ]] \
             || { printf 'unknown'; return 0; }
         if [[ "$(ai_tools_service_unit_property "${unit}" Result)" == success ]]; then
@@ -284,7 +284,7 @@ ai_tools_service_state_of() {
 # a problem (down, failed, stale). The single definition of "broken", so the scanner's set and the
 # CLI's report cannot drift apart. 'unknown' is deliberately NOT one: it says the vantage point
 # cannot tell, which is not the same as a fault. Nor is 'skipped': it reports a run that correctly
-# did nothing, and it becomes 'stale' on its own if the condition persists -- so the escalation is
+# declined to act, and it becomes 'stale' on its own if the condition persists -- so the escalation is
 # the grace window's job, not this predicate's.
 ai_tools_service_needs_attention() {
     case "$1" in down|failed|stale) return 0 ;; *) return 1 ;; esac

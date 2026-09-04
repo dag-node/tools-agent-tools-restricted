@@ -36,8 +36,8 @@
 # and additive: ai_tools_log is unchanged, a caller passing no fields takes the identical path,
 # and a host whose logger(1) predates `--journald` falls back to it. A key=value MESSAGE is only
 # conventionally structured -- every consumer re-parses it and a value containing the delimiter
-# is ambiguous -- whereas the native protocol delimits each field itself, so a field value needs
-# no escaping and cannot forge a sibling field. Detail: .claude/rules/logging.rule.md.
+# is ambiguous -- whereas the native protocol delimits each field itself, so a field value cannot
+# forge a sibling field, and escaping is unnecessary. Detail: .claude/rules/logging.rule.md.
 #
 # Scope is a CALLER convention, not enforced here: log the privileged operations the
 # hooks and sudo helpers perform, the CLI's workflow milestones (project / sandbox
@@ -188,11 +188,11 @@ _ai_tools_log_write_file() {
 #
 # WHY BOTH. A key=value MESSAGE is only conventionally structured: every consumer has to
 # re-parse it, and a value containing the delimiter is ambiguous. journald's native protocol
-# delimits each field itself, so a field VALUE needs no escaping and cannot forge a sibling
+# delimits each field itself, so a field VALUE cannot forge a sibling, and escaping is unnecessary
 # field. The MESSAGE stays the authoritative human rendering and the fields are the machine
 # one; callers pass both, and the two are expected to agree.
 #
-# OPT-IN, and identical to ai_tools_log when unused: a caller that passes no fields, or a host
+# OPT-IN, and identical to ai_tools_log when unused: a caller that passes fields, or a host
 # whose logger(1) predates `--journald`, takes exactly the plain path above. The fallback is
 # decided by ATTEMPTING the native write and falling back on its exit status rather than by
 # probing logger's capabilities, so there is no cached verdict to go stale and no fork spent on

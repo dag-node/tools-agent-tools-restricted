@@ -8,7 +8,7 @@
 # launch (tests/unit/claude-endpoint.sh), the same split claude-prompt.lib.sh makes.
 #
 # Why a dedicated file, not operator.conf: one of the four values is a bearer token
-# (ANTHROPIC_AUTH_TOKEN), and operator.conf is 644 world-readable ("carries no secret"). The
+# (ANTHROPIC_AUTH_TOKEN), and operator.conf is 644 world-readable and must never hold a secret. The
 # endpoint file lives at /etc/ai-tools/endpoints/ mode 640 root:@SANDBOX_GROUP@ instead -- readable
 # by root and the sandbox account (which needs the token) but NOT world, and NOT by the operator
 # (who is not in @SANDBOX_GROUP@), so the credential does not leak. operator.conf only holds the
@@ -83,7 +83,7 @@ _ai_tools_endpoint_is_local() {
 # ai_tools_claude_resolve_endpoint_setenv <out-array-name> <operator-conf> : append the
 #   --setenv= options that route this session at a custom endpoint to the named array, reading the
 #   endpoint file operator.conf's CLAUDE_BASE_URL_FILE points at. Returns:
-#     0  applied (out holds the valid options) or nothing to apply (not configured / inert file).
+#     0  applied (out holds the valid options) or no option to apply (not configured / inert file).
 #     1  a configured option is invalid, or the pointer names a missing/untrusted file. The caller
 #        must REFUSE the launch rather than route the session with a partial or wrong endpoint.
 #   As a deliberate side effect it EXPORTS ANTHROPIC_AUTH_TOKEN into the caller's environment when a
@@ -144,7 +144,7 @@ ai_tools_claude_resolve_endpoint_setenv() {
     ai_tools_conf_read "${file_canon}" ANTHROPIC_MODEL 2>/dev/null && model="${_ai_tools_conf_value}"
     ai_tools_conf_read "${file_canon}" ANTHROPIC_DEFAULT_HAIKU_MODEL 2>/dev/null && haiku="${_ai_tools_conf_value}"
 
-    # A fully inert file (nothing uncommented) is the shipped default: no endpoint, launch normally.
+    # A fully inert file (no option uncommented) is the shipped default: no endpoint, launch normally.
     if [[ -z "${base_url}" && -z "${auth_token}" && -z "${model}" && -z "${haiku}" ]]; then
         return 0
     fi

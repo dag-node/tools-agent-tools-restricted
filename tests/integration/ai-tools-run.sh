@@ -38,7 +38,7 @@ fi
 
 # The claude-code session env. These pins are agent-specific, so they live in that agent's
 # session-env fragment rather than in the agent-agnostic shim; ai-tools-run sources it last,
-# after every enabled integration, so nothing can override them. Each one is load-bearing:
+# after every enabled integration, so no fragment can override them. Each one is load-bearing:
 #   DISABLE_AUTOUPDATER  the node tree is read-only to the agent, so the in-session auto-updater
 #                        would fail every launch (+ AVC); updates are the timer's job
 #   CLAUDE_CONFIG_DIR    unpinned, the state file lands under the 2751 home root where the agent
@@ -238,9 +238,9 @@ else
     fi
 
     # The complementary property -- an UNPINNED entrypoint must NOT be refused, or an air-gapped
-    # host would stop launching -- is deliberately NOT driven here. Nothing else about that run is
+    # host would stop launching -- is deliberately NOT driven here. No other part of that run is
     # invalid, so the shim would go on to start a real session, which this file's design forbids.
-    # It is covered where it costs nothing: the pure verdict returns `unpinned` rather than
+    # It is covered where it does not cost a session: the pure verdict returns `unpinned` rather than
     # `mismatch` (tests/unit/entrypoint-verify.sh), and only `mismatch` reaches the refusal above.
 fi
 
@@ -258,7 +258,7 @@ fi
 
 # The re-check must sit AFTER the session-env fragments, not with the earlier validation -- its
 # whole value is the width of the window it leaves (launch.rule.md). Asserted by line order,
-# because nothing about the code's behaviour reveals where it runs.
+# because no behaviour of the code reveals where it runs.
 crun_recheck_line="$(grep -n 'entrypoint_identity' "${CRUN}" | tail -n1 | cut -d: -f1)"
 crun_launch_line="$(grep -n '^systemd-run --user --pty --quiet' "${CRUN}" | head -n1 | cut -d: -f1)"
 if [[ -z "${crun_recheck_line}" || -z "${crun_launch_line}" ]]; then

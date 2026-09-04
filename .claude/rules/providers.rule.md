@@ -57,7 +57,7 @@ the operator (see [ownership-and-hooks](ownership-and-hooks.rule.md)). That hand
 
 - **`handback=hooks`** — the agent runs the hooks itself, per tool call and per turn (Claude
   Code's `PostToolUse`/`Stop`/`SessionStart`/`SessionEnd` entries in `settings.json`).
-  `ai-tools-run` adds nothing.
+  `ai-tools-run` leaves the handback to the agent.
 - **anything else** (`handback=none`, an unrecognized value, an absent key) — no driver, so
   `ai-tools-run` sweeps the project itself once the session exits: every `SANDBOX_USER`-owned path
   under the project directory (heavy trees skipped, `.git` walked — the `reclaim` selector in
@@ -65,12 +65,12 @@ the operator (see [ownership-and-hooks](ownership-and-hooks.rule.md)). That hand
   per session rather than per turn; the end state is the same.
 
 `ai_tools_agent_sweeps_at_exit <declaration>` is the pure verdict, and it is an **allowlist**:
-only the exact literal `hooks` switches the sweep off, so an agent that declares nothing gets the
+only the exact literal `hooks` switches the sweep off, so an agent that declares any other value gets the
 sweep — a redundant walk is the recoverable error, an operator tree left sandbox-owned is not.
 
 The sweep only chooses which paths to **offer**; each one still passes `ai-tools-chown`'s
-allowlist, exclusion, secret, and born-owner re-validation as root, so it reaches nothing the
-hooks could reach. It runs from an `EXIT` trap, so an interrupted shim (Ctrl-C, `SIGTERM`) still
+allowlist, exclusion, secret, and born-owner re-validation as root, so it cannot reach a path the
+hooks could not. It runs from an `EXIT` trap, so an interrupted shim (Ctrl-C, `SIGTERM`) still
 converges; a `SIGKILL` leaves the tree to the next session's sweep or `ai-tools --reclaim`.
 
 ## `entrypoint_fcontext` and `config_dir` — the agent declares its own paths
@@ -127,7 +127,7 @@ Three properties keep this a declaration rather than a lever:
   only that whoever served one served the other — npm's own weakness, and the reason
   [updater](updater.rule.md) defers pinning the registry signing key. Both the manifest and the key
   are plain rpm-owned files (`0644 root:root`, **not** `%config`), so they change only when a signed
-  package installs new ones; nothing on the host rewrites them, and the pin ultimately rests on the
+  package installs new ones; no host process rewrites them, and the pin ultimately rests on the
   package signature.
 - **The fingerprint is declared apart from the keyring** and asserted against `gpgv`'s output, so a
   keyring swapped for another *valid* key is still refused. It is a list because a vendor key
@@ -136,7 +136,7 @@ Three properties keep this a declaration rather than a lever:
 - **A template with no `{version}` slot is refused**, not fetched as-is. One manifest for every
   version would read as "verified" while checking a release it never looked at.
 
-An agent declaring none of them is simply unverified — the state every agent is in until its vendor
+An agent declaring none of them is unverified — the state every agent is in until its vendor
 publishes something to check against.
 
 **These fields identify the signer, not the release, so they do not track versions.** One key signs
@@ -212,9 +212,9 @@ choice between them decides what `dnf update` does on a running host:
 | `%config` | the package's | the host's, as `.rpmsave` | the host's settings stop applying |
 | `%config(noreplace)` | the host's | the package's, as `.rpmnew` | the new version's options stay dormant |
 
-`operator.conf` takes `%config(noreplace)`, so an upgrade enables nothing the host did not ask for.
+`operator.conf` takes `%config(noreplace)`, so an upgrade enables only what the host asked for.
 A host that set `AI_TOOLS_FILTERS=` to turn filtering off still has it off afterwards; under
-`%config` that line would move to a file nothing reads and filtering would come back on. A dormant
+`%config` that line would move to a file no resolver reads and filtering would come back on. A dormant
 option is recoverable at any time, and a silently reverted setting is not. `settings.json` takes
 the directive for the same reason, which is why a newly shipped hook is installed but stays
 uninvoked until its declaration is merged ([claude-settings](claude-settings.rule.md)).
@@ -222,7 +222,7 @@ uninvoked until its declaration is merged ([claude-settings](claude-settings.rul
 The cost is that reconciling the `.rpmnew` is manual, so it is signposted rather than automated:
 each package's `%post` prints the pointer whenever one is present, and `sudo ai-tools-admin system
 post-upgrade` names the options the new version documents that the file does not mention, shows the
-difference, and offers to clear the copy. Against this file it writes nothing. An additive merge
+difference, and offers to clear the copy. It leaves this file unchanged. An additive merge
 could append an option block the file lacks, but it could never correct the prose of one already
 there, so `operator.conf(5)` is the single current statement of what an option means and the file
 points at the man page rather than restating it.
@@ -252,8 +252,8 @@ gates each kind:
   "enable all").
 - **a listed name with no installed manifest** → reported and skipped, never guessed.
 
-A `default_enable=yes` is the shipping package's claim that its provider widens no host surface
-beyond the sandbox (Claude Code); a surface-widening one ships `default_enable=no` and is enabled
+A `default_enable=yes` is the shipping package's claim that its provider leaves host surface
+unchanged beyond the sandbox (Claude Code); a surface-widening one ships `default_enable=no` and is enabled
 only when an operator names it (dotnet). This is the fail-closed default-when-unset rule.
 
 ## The sandbox cannot widen its own surface
@@ -296,7 +296,7 @@ and asserts none of it is agent-writable (catching the agent trying to break it)
 - `ai_tools_enabled_integrations` — prints one enabled installed integration name per line.
 - `ai_tools_agent_manifest_field <name> <key>` — one further field of a trusted manifest, for a
   caller that has already resolved which agent it has. The name is allowlisted to a plain
-  identifier before it becomes a path, so it addresses nothing outside the manifest directory.
+  identifier before it becomes a path, so it cannot address a file outside the manifest directory.
 
 - `ai_tools_provider_gate <conf-key>` — how a kind's enabled set is being decided (`allowlist` /
   `baseline` / `untrusted`), read-only and side-effect free. The resolvers read it, and so does
@@ -309,8 +309,8 @@ stderr, and to journald when `log.lib.sh` is loadable.
 
 `conf.lib.sh` is a **required** dependency: without it `providers.lib.sh` can neither parse a
 manifest nor tell a trusted input from a planted one, and guessing either is the fail-open this
-seam exists to prevent. It therefore returns non-zero and defines nothing, so every consumer loads
-it as `source … && declare -F <resolver>` and resolves no providers when that fails — Node-only for
+seam exists to prevent. It therefore returns non-zero and does not define any resolver, so every consumer loads
+it as `source … && declare -F <resolver>` and falls back when that fails — Node-only for
 `ai-tools-bootstrap`, npm-only for `nvm-update`, no integration env for `ai-tools-run`.
 
 ## The `session-env.d` seam
@@ -326,13 +326,13 @@ This is where per-agent environment lives, rather than as manifest fields: an ag
 arbitrary `KEY=value` shell, and a fragment is a mechanism the seam already has.
 
 The seam is **best-effort**, not the fail-closed tier `msg.lib`/`confinement.lib` hold: a missing
-or untrusted lib, directory, or fragment yields no integration env and leaves the confined launch
+or untrusted lib, directory, or fragment leaves the integration env empty and the confined launch
 unaffected, because the integration env is additive, not load-bearing. "Fail closed" here means
 *no integration*, which is always a safe answer. Everything it sources is gated by the trust rules
 above; a fragment self-gates on its host tool, so it is inert on a host without the toolchain even
 when enabled.
 
-A fragment runs in `ai-tools-run`'s own scope, so it appends to the two arrays and nothing else: it
+A fragment runs in `ai-tools-run`'s own scope, so it appends to the two arrays and stops there: it
 must not exec, prompt, read stdin (the loop feeding it is on a process substitution), or depend on
 the caller's environment, and it unsets its own temporaries. The **agent** fragment
 (`source_session_env_fragment "${agent_name}"`) is sourced by a direct call in `ai-tools-run`'s main
@@ -423,8 +423,8 @@ correctness wart rather than a hole, and a naming convention (`ai-tools-agents-<
 `ai-tools-integration-<name>`, so the clash is visible where it would be made) the lightest
 mechanism that answers it. No enforcement code.
 
-**An agent is an npm package on the sandbox's Node toolchain.** `npm_package` is effectively
-required (a manifest naming none provisions nothing), `ai-tools-bootstrap`/`nvm-update` install it
+**An agent is an npm package on the sandbox's Node toolchain.** `npm_package` is in practice
+required (a manifest lacking it does not provision an agent), `ai-tools-bootstrap`/`nvm-update` install it
 with `npm install -g`, and `ai-tools-run` accepts an executable only under
 `/opt/ai-tools/.nvm/versions/node/<semver>/bin/`. That assumption lives in exactly two places —
 **provisioning** (which command installs the agent and where its launcher lands) and **exec
@@ -455,7 +455,7 @@ what it would leave alone:
 
   What every rule must keep is the property the current one carries: an absolute, `..`-free path
   whose launcher an **enabled manifest claims**, decided only by input the agent cannot write — so
-  nothing the agent drops beside a launcher starts a session.
+  a file the agent drops beside a launcher cannot start a session.
 - **A provisioning branch** for that runtime (`dotnet tool install --tool-path` in place of
   `npm install -g`), invoked from the same enabled-agent loop `ai-tools-bootstrap` and
   `nvm-update` already run.

@@ -81,7 +81,7 @@ refuses() {
     fi
 }
 
-# (1) No sudo context. A direct root call carries no operator identity, so there is nobody to
+# (1) No sudo context. A direct root call does not carry an operator identity, so there is nobody to
 # authorize the edit; defaulting to some operator is exactly the fail-open this refuses.
 refuses "refuses a bare root call (no SUDO_UID)" "no SUDO_UID" \
     "" --operator "${PROJECTS_USER}" --add "${proj}"
@@ -91,7 +91,7 @@ refuses "refuses a caller that is not a configured operator" "not a configured a
     0 --operator "${PROJECTS_USER}" --add "${proj}"
 
 # (3) The target must be enrolled: ai-tools-setfacl and the handback helpers resolve a path's owner
-# over OPERATORS, so an entry for an unenrolled name is a launch gate nothing can act on.
+# over OPERATORS, so an entry for an unenrolled name is a launch gate no helper can act on.
 refuses "refuses an unenrolled target operator" "not a configured ai-tools operator" \
     "${OPERATOR_UID}" --operator "definitely-not-an-operator" --add "${proj}"
 
@@ -210,7 +210,7 @@ else
 fi
 
 # Neither verb may INVENT an entry: registering a project is a claim, which scans for secrets
-# before granting access. --enable reports and succeeds (nothing to lift); --disable refuses,
+# before granting access. --enable reports and succeeds (no exclusion to lift); --disable refuses,
 # since a caller asking to park an unregistered path has the wrong path or the wrong verb.
 # Compared whole-file, not by substring: every fixture entry lives UNDER ${TESTDIR}, so a
 # substring test matches the line that is legitimately there and inverts the assertion.

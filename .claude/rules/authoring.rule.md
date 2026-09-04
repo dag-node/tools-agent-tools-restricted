@@ -18,7 +18,7 @@ one-file-per-rule mapping.
   domain is a few specific files (the handback daemon/client/units), a recursive tree
   where the domain is a directory (`.claude/**`), or a single file where the domain is one
   library (`log.lib.sh`). There is no uniform template to force.
-- **`paths:` matches what the rule actually describes** — neither over-claiming (a broad
+- **`paths:` matches what the rule describes** — neither over-claiming (a broad
   glob that also sweeps in unrelated files: audit logs, build artifacts, generated output)
   nor pointing at a file that does not exist in the repo.
 - **A file may belong to several domains.** Its path then appears in several rules, and

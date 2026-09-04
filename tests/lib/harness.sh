@@ -93,8 +93,8 @@ require_root() {
 # root: under sudo it is the operator who invoked it; run DIRECTLY as an unprivileged user (which
 # the pure library suites support -- they stub what they drive and build fixtures they own) the
 # invoker is that user; run as root with no sudo context there is no unprivileged identity to
-# derive and nothing to guess from, so refuse -- fixtures would be built root-owned and every
-# owner guard under test would skip them, passing the suite while proving nothing.
+# derive and no default to guess from, so refuse -- fixtures would be built root-owned and every
+# owner guard under test would skip them, passing the suite while proving no property.
 if [[ -n "${SUDO_USER:-}" ]]; then
     PROJECTS_USER="${SUDO_USER}"
 elif [[ "${EUID}" -ne 0 ]]; then
@@ -140,7 +140,7 @@ trap _teardown EXIT
 # root-only hook, exactly like AI_TOOLS_ALLOWLIST / AI_TOOLS_OPERATOR_CONF: sudo strips it
 # and the live handback daemon execs helpers with its own environment, so only a root
 # caller execing a helper directly (this suite) redirects it. The journald sink still
-# carries every line under its per-component tag, so nothing is lost. A helper the LIVE
+# carries every line under its per-component tag, so no line is lost. A helper the LIVE
 # daemon execs (integration/handback.sh) keeps the real dir -- the daemon does not inherit
 # this -- matching the AI_TOOLS_ALLOWLIST limitation. Registered for teardown.
 _test_logdir="$(mktemp -d /tmp/ai-tools-testlog.XXXXXX)"

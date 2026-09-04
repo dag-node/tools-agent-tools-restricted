@@ -19,7 +19,7 @@ different file set and a different question (what the harness may run), not beca
 are unrelated.
 
 `ai-tools-agents-claude-code-restricted` ships the wrapper, the manifest, the session-env fragment,
-the two resolver libraries, and the agent's config directory. It adds no sudoers rule: it inherits
+the two resolver libraries, and the agent's config directory. It does not add a sudoers rule: it inherits
 the single `%ai-ops` grant on the shared shim.
 
 ## What the manifest declares
@@ -32,7 +32,7 @@ the single `%ai-ops` grant on the shared shim.
 | `npm_package` | `@anthropic-ai/claude-code` | `ai-tools-bootstrap`, `nvm-update` — what to install |
 | `launcher` | `claude` | `ai-tools-launcher-symlink` (which link it may write), `ai-tools-run` (which executables may start a session) |
 | `display_name` | `Claude Code` | the launch banner, the unit description |
-| `handback` | `hooks` | `ai-tools-run` — this agent converges the tree itself, so the shim adds no session-end sweep |
+| `handback` | `hooks` | `ai-tools-run` — this agent converges the tree itself, so the shim does not add a session-end sweep |
 | `config_dir` | `.claude` | the control-plane mode/label/seeding set, and `→ ai_tools_home_t` |
 | `skills_dir` / `subagents_dir` | `skills` / `agents` | where shared assets are symlinked in ([shipped-assets](shipped-assets.rule.md)) |
 | `entrypoint_fcontext` | a regex ending `…/@anthropic-ai/claude-code/bin/claude\.exe` | `ai-tools-relabel-agent` — which file takes `ai_tools_exec_t` |
@@ -60,9 +60,9 @@ Which link a component addresses is a deliberate choice per component, not an in
 | `ai-tools-launcher-symlink` | writes **[1]**, validated as **[2]** | the only writable control-plane link; `/opt/ai-tools/bin` is `0551`, so the sandbox reaches it only through this root helper |
 | `claude.sh` | reads **[1]**, one `readlink` to **[2]** | full resolution would traverse the `700` package directory as the *operator*, an EACCES that aborts the wrapper silently under `set -e` |
 | `ai-tools-run` | re-validates **[2]**, execs it | **[2]** is the allowlist shape: an exact `MAJOR.MINOR.PATCH` directory plus one path component an enabled manifest claims |
-| the SELinux transition | fires on **[3]** | `execve` resolves symlinks; the label that matters is the one on the inode actually executed |
+| the SELinux transition | fires on **[3]** | `execve` resolves symlinks; the label that matters is the one on the inode that is executed |
 
-The one-hop constraint in `claude.sh` exists solely to avoid that EACCES. It carries no coupling to
+The one-hop constraint in `claude.sh` exists solely to avoid that EACCES. It does not carry any coupling to
 sudoers matching, which targets the fixed path `/opt/ai-tools/bin/ai-tools-run`.
 
 **[3] is a hardlink, not the package's only name for the binary.** The npm package declares the
@@ -99,7 +99,7 @@ and they reach **[3]** two different ways:
   `entrypoint_fcontext` as a local `semanage fcontext` rule and relabels the files a
   `find -regex` over that pattern returns (`relabel.lib.sh`).
 
-The two strategies agree only while the pattern describes where the package actually puts its
+The two strategies agree only while the pattern describes where the package puts its
 executable. The guarantee that does **not** depend on that agreement is the important one: a label
 the transition would not honour is caught by the preflight on the resolved inode, so the failure is
 a refused launch, never an unconfined session.
@@ -109,7 +109,7 @@ a refused launch, never an unconfined session.
 `ai-tools-relabel-agent` closes the gap between them without changing which side applies the label.
 The declared pattern stays the **apply** mechanism, because a `semanage fcontext` rule is what makes
 a type survive a later `restorecon`; resolution is the **check**, so the helper's exit status answers
-the question the operator actually asked — will the next launch be confined?
+the question the operator asked — will the next launch be confined?
 
 For each enabled agent it resolves `/opt/ai-tools/bin/<launcher>` the same way the preflight does
 (`realpath -e`, as root), applies the declared rule, and reconciles the two through the pure
@@ -118,10 +118,10 @@ For each enabled agent it resolves `/opt/ai-tools/bin/<launcher>` the same way t
 | state | verdict | outcome |
 |---|---|---|
 | the launcher resolves to a file the pattern covers | `ok` | labelled and verified |
-| nothing resolves and the pattern matched nothing | `none` | the agent is not provisioned; nothing to label |
+| the launcher does not resolve and the pattern does not match a file | `none` | the agent is not provisioned; no entrypoint to label |
 | the launcher **resolves** to a file the pattern does **not** cover | `stale` | **reported and the run exits non-zero** |
 
-`stale` is the case a repackaged upstream produces — the pattern matches nothing while the chain
+`stale` is the case a repackaged upstream produces — the pattern does not match the file while the chain
 still resolves, so the preflight's verdict is `unverifiable` and the launch is refused. The relabel
 names that cause and says the fix is upstream of it (update the agent package, whose manifest has
 stopped describing where its own executable installs), rather than reporting success and sending the
@@ -157,7 +157,7 @@ It gates in this order, each step refusing before the next can matter:
    unreadable package directory), one `readlink`, then string-only validation that the target is an
    absolute, `..`-free path matching the versioned shape.
 4. **Print-and-exit short-circuit** — `--version`/`-v`/`--help`/`-h` as the *sole* argument skips
-   every CWD gate and runs with the sandbox home as `WorkingDirectory`. Such a run touches no
+   every CWD gate and runs with the sandbox home as `WorkingDirectory`. Such a run stays out of the
    working tree, so no project grant is implied.
 5. **Protected-paths backstop**, then the **allowlist** (exclusions first, since `!` overrides
    allows), both on the `realpath`-canonicalized CWD.
@@ -186,7 +186,7 @@ and safety guidance) or `--system-prompt-file <path>` (mode `replace`).
 - Claude Code reads the file **verbatim** — not processed, not comment-stripped — so it holds prompt
   text only. The shipped default is therefore **empty**, `0640 root:SANDBOX_GROUP` (a custom prompt
   may be proprietary, so not world-readable; the wrapper only `stat`s it as the operator, and the
-  confined binary reads it as the sandbox account). Uncommenting the pointer alone changes nothing.
+  confined binary reads it as the sandbox account). Uncommenting the pointer alone leaves the launch unchanged.
 - **`replace` sets the request's `system` field, not the whole model context.** It does not remove
   the tool definitions or the `CLAUDE.md` context Claude Code injects as `<system-reminder>` blocks;
   those ride in separate request fields. "Only the file reaches the model" is not reachable through
@@ -219,7 +219,7 @@ is never read, so the file cannot inject unrecognised environment.
   token with control bytes, options with no anchoring `ANTHROPIC_BASE_URL`, or a missing/untrusted
   pointer file — the fragment `exit`s the launch, which is clean because it is sourced before the
   unit is created and before the sweep trap is installed. A fully inert file (the shipped default)
-  applies nothing; a non-local endpoint with no token warns but still applies.
+  is applied as-is; a non-local endpoint with no token warns but still applies.
 - **Precedence.** These are process environment variables, so a Claude Code settings `env` block
   (authoritatively `/etc/claude-code/managed-settings.json`) setting the same name wins. The shipped
   settings set no `ANTHROPIC_*` key, so the endpoint file governs by default and

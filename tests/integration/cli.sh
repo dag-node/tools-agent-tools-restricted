@@ -39,7 +39,7 @@ done
 
 # (1b) The verbs that write no operator state are the carve-out: --audit needs root by
 # construction (its trail is 700 root:root), and refusing it left the verb unreachable from BOTH
-# sides on a host whose only operator holds no general sudo grant. Asserted on the refusal text
+# sides on a host whose only operator does not hold a general sudo grant. Asserted on the refusal text
 # rather than the exit status: --audit and --status both exit non-zero to REPORT something, which
 # is not a refusal.
 for verb in --audit --status --list --providers; do
@@ -139,9 +139,9 @@ if command -v runuser >/dev/null 2>&1; then
     fi
 
     # (6) --project-unclaim classifies its target against allowed-projects: a directory that no
-    # entry covers AND that carries no ai-tools ownership or group is REFUSED, before any
+    # entry covers AND that has no ai-tools ownership or group is REFUSED, before any
     # registry/filesystem change. The testdir path is not in the (real) allowlist and is freshly
-    # created, so it classifies as unrelated-and-clean -- the one outcome with nothing to offer
+    # created, so it classifies as unrelated-and-clean -- the one outcome with no remedy to offer
     # (a tree carrying the fingerprint is instead pointed at --force).
     # Runs as an OPERATOR (conf lists the projects user) so classification runs past the operator
     # gate; under setsid so any prompt takes its non-interactive default rather than blocking.
@@ -203,7 +203,7 @@ if command -v runuser >/dev/null 2>&1; then
     }
 
     # (6c) --project-create is a real verb, not an alias, so its refusals are asserted where the
-    # old alias had none. Every one of them must leave NOTHING behind -- no directory, no registry
+    # old alias had none. Every one of them must leave NO RESIDUE behind -- no directory, no registry
     # entry -- which is what makes "recover with --project-claim" the only recovery path it needs.
     : > "${emptyal}"
     create_cli() {
@@ -246,7 +246,7 @@ if command -v runuser >/dev/null 2>&1; then
 
     # The protected-paths backstop on the target: a create must not be able to MANUFACTURE a
     # protected directory. Exits 3, the backstop's own code. Driven against a protected path this
-    # host does not have; if it has all of them there is nothing to assert and the case skips.
+    # host does not have; if it has all of them there is no path to assert and the case skips.
     protected=""
     for p in /efi /lost+found /libx32 /lib32 /srv /media; do
         [[ -e "${p}" ]] || { protected="${p}"; break; }
@@ -271,7 +271,7 @@ if command -v runuser >/dev/null 2>&1; then
     fi
 
     # THE HAPPY PATH. Every assertion above is a refusal, which together can be satisfied by a
-    # verb that does nothing at all -- so the one run that has to actually work is asserted too,
+    # verb that acts on no path at all -- so the one run that has to actually work is asserted too,
     # end to end and unattended. It runs under setsid with NO -y (the verb has none): a create
     # that still asked something would block here and be killed by the file timeout, which is the
     # regression this also guards.
@@ -281,7 +281,7 @@ if command -v runuser >/dev/null 2>&1; then
     newproj="${crwork}/newproject"
     # The exit status depends on whether this environment can authenticate for the claim's root
     # helpers. Under setsid there is no terminal to type a password at, so the claim reports that
-    # it could not finish and exits 1; where the suite's sudo needs no password it exits 0. Both
+    # it could not finish and exits 1; where the suite's sudo does not require a password it exits 0. Both
     # are correct, and both are asserted -- what must never happen is the third outcome this
     # replaced, where every root step failed and the flow still closed on a success mark.
     out="$(create_cli "${newproj}")" && rc=0 || rc=$?
@@ -309,13 +309,13 @@ if command -v runuser >/dev/null 2>&1; then
         fail "--project-create did not register the project: $(cat "${emptyal}")"
     fi
     # The tree it makes is owned by the operator, which is what the claim's own owner guard
-    # requires -- a create that produced a root-owned tree would claim nothing and say so.
+    # requires -- a create that produced a root-owned tree would claim no path and say so.
     if [[ "$(stat -c '%U' "${newproj}")" == "${PROJECTS_USER}" ]]; then
         pass "--project-create leaves the tree owned by the operator it acts for"
     else
         fail "the created tree is owned by $(stat -c '%U' "${newproj}"), not ${PROJECTS_USER}"
     fi
-    # The secret scan is skipped on a tree with nothing in it, so a create must never reach
+    # The secret scan is skipped on an empty tree, so a create must never reach
     # ai-tools-lockdown. Asserted on that helper specifically, NOT on the absence of any password
     # prompt: the claim legitimately sudo's for safedir, setgid, setfacl and relabel, since group
     # ownership cannot be changed to a group the operator is not in without root.
@@ -326,7 +326,7 @@ if command -v runuser >/dev/null 2>&1; then
         fail "--project-create ran the secret scan on a tree it had just created: $(brief "${out}" 'lockdown|secret-named')"
     fi
 
-    # Nothing it seeds may be owner-only. Under a umask of 077 the directory would be born 0700,
+    # No path it seeds may be owner-only. Under a umask of 077 the directory would be born 0700,
     # README.md 0600, and .git 0700/0600 -- and an owner-only path is one the claim's helpers
     # honour as a seal and skip, so the verb would produce a registered project whose README the
     # agent cannot read and whose git it cannot use, having reported that it normalized both.
@@ -351,7 +351,7 @@ if command -v runuser >/dev/null 2>&1; then
     fi
 
     # (6d) --project-remove deletes, so every assertion here is that it did NOT. Its authorization
-    # is an exact allowlist entry and nothing else: there is no --force, and an unattended run
+    # is an exact allowlist entry alone: there is no --force, and an unattended run
     # never reaches the deletion because both the default-NO confirm and the typed-name challenge
     # decline with no terminal (these run under setsid, so that is the path being driven).
     remove_cli() {
@@ -378,7 +378,7 @@ if command -v runuser >/dev/null 2>&1; then
     rmother="${rmwork}/rm-other"; mkdir -p "${rmother}"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmproj}" "${rmother}"
 
-    # An unregistered path is refused: the registry entry is the authorization, so a tree nothing
+    # An unregistered path is refused: the registry entry is the authorization, so a tree no registry names
     # claimed is not this verb's to delete.
     printf '%s\n' "${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
     out="$(remove_cli "${rmother}")" && rc=0 || rc=$?
@@ -507,7 +507,7 @@ if command -v runuser >/dev/null 2>&1; then
     done
 
     # -y must not bypass the classification. The scripted-removal mistake is a -y run pointed at a
-    # path that is not a claimed project; the flag pre-answers the two prompts and nothing else.
+    # path that is not a claimed project; the flag pre-answers the two prompts alone.
     printf '%s\n' "${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
     out="$(remove_cli -y "${rmother}")" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && [[ -d "${rmother}" ]]; then
@@ -660,7 +660,7 @@ EOF
 
     # (9) --sandbox-remove refuses a target that is not a real clone, BEFORE any rm -rf:
     # the shared clone-area root itself (require_sandbox_clone: not a direct-child clone) and a
-    # path outside SANDBOX_ROOT. The refusal precedes the removal, so nothing is deleted.
+    # path outside SANDBOX_ROOT. The refusal precedes the removal, so no path is deleted.
     sroot="/var/opt/ai-tools/sandbox-projects"
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${oconf}" setsid "${CLI}" --sandbox-remove "${sroot}" 2>&1)" && rc=0 || rc=$?
@@ -748,7 +748,7 @@ if command -v runuser >/dev/null 2>&1; then
             setsid -w "${CLI}" "$@" 2>&1
     }
 
-    # (1) An unenrolled target is refused, naming the enrolment command. Nothing may be written for
+    # (1) An unenrolled target is refused, naming the enrolment command. No entry may be written for
     # a name the ownership helpers cannot later resolve to an owner.
     out="$(run_for --project-claim --for definitely-not-an-operator "${fproj}")" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'not a configured ai-tools operator' <<<"${out}"; then
@@ -771,7 +771,7 @@ if command -v runuser >/dev/null 2>&1; then
     fi
 
     # (3) Refused, not ignored, on a verb it does not apply to -- a --sandbox-create that silently
-    # cloned as the invoker would leave the tree owned by the wrong operator with nothing to show.
+    # cloned as the invoker would leave the tree owned by the wrong operator with no output to show.
     out="$(run_for --sandbox-create --for "${PROJECTS_USER}" "${fproj}")" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'for is not accepted on' <<<"${out}"; then
         pass "--for is refused on a verb that does not accept it (not silently ignored)"
@@ -798,7 +798,7 @@ if command -v runuser >/dev/null 2>&1; then
 fi
 
 # ── --project-disable / --project-enable: parking a project in place ─────────────────────────
-# The pair edits ONE line of the operator's own allowlist and reaches no root helper, so the whole
+# The pair edits ONE line of the operator's own allowlist and does not reach a root helper, so the whole
 # lifecycle is drivable here as the projects user over the fixture registry. What is asserted is
 # what the flat-file model rests on (the three entry states, in cli.rule.md): the line is edited IN
 # PLACE, a parked project is not an unlisted one, and neither verb ever invents or lifts a line it
@@ -910,7 +910,7 @@ else
     fi
 
     # (7) The other half of keeping a '!' unambiguous: parking a NESTED project would write a line
-    # nothing could later tell apart from that carve-out, so no verb writes one.
+    # no reader could later tell apart from that carve-out, so no verb writes one.
     pd_seed "# projects" "${pd_proj}" "${pd_nested}"
     out="$(pd_cli --project-disable "${pd_nested}")" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'nested inside another claimed project' <<<"${out}"; then
@@ -925,7 +925,7 @@ else
     fi
 
     # (8) The per-project verbs must not call a parked project unclaimed: on an excluded path the
-    # root helpers resolve no owner and do NOTHING, so a run that got that far would report steps
+    # root helpers resolve no owner and act on NO PATH, so a run that got that far would report steps
     # it never applied. (A host may also refuse earlier for a missing sudo grant -- that is a
     # different, correct refusal; what must not appear is "not a claimed project".)
     pd_seed "# projects" "!${pd_proj}"
@@ -942,13 +942,13 @@ else
     # records "not right now", not "not mine", and making the operator re-enable a tree they mean
     # to delete would make it launchable on the way out. So the verb must get past classification
     # -- reaching its own disabled confirm -- rather than refusing as unregistered. It must also
-    # delete NOTHING here: with no terminal the confirm and the typed-name challenge both decline,
+    # delete NO PATH here: with no terminal the confirm and the typed-name challenge both decline,
     # which is the property that keeps a destructive verb out of an unattended run.
     out="$(pd_cli --project-remove "${pd_proj}")" && rc=0 || rc=$?
     if grep -qi 'not a claimed project' <<<"${out}"; then
         fail "--project-remove refused a parked project as unregistered: $(brief "${out}")"
     elif grep -qi 'holds no sudo grant' <<<"${out}"; then
-        # A host whose operator holds no general sudo grant refuses ahead of classification. That
+        # A host whose operator does not hold a general sudo grant refuses ahead of classification. That
         # is a different, correct refusal, and it is not what this case is about.
         skip "--project-remove over a parked project" "no sudo grant for the removal helper here"
     elif [[ ${rc} -ne 0 ]] && grep -qi 'disabled' <<<"${out}"; then
@@ -964,7 +964,7 @@ else
 
     # (10) --keep-entry is about what becomes of an ENTRY, so it is refused where there is none to
     # keep: --force is the mode that reaches a tree the allowlist does not name. Refused rather
-    # than ignored, since a flag silently doing nothing is how an operator learns the wrong model.
+    # than ignored, since a flag that silently skips its work is how an operator learns the wrong model.
     out="$(pd_cli --project-unclaim --keep-entry --force "${pd_proj}")" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'keep-entry cannot be combined with --force' <<<"${out}"; then
         pass "--keep-entry with --force is refused (there is no entry to keep)"
@@ -1091,7 +1091,7 @@ else
 
     # (5) An unparseable --since is REFUSED, never widened to "everything": a typo that silently
     #     reported all of history would read as a catastrophe, and one that silently reported
-    #     nothing would read as all-clear. Both are worse than an error.
+    #     an empty result would read as all-clear. Both are worse than an error.
     out="$(AI_TOOLS_LOG_DIR="${audit_dir}" "${audit_bin}" --since 'not a date' 2>&1)" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'not understood' <<<"${out}"; then
         pass "--audit refuses a --since value date(1) cannot parse"
@@ -1099,7 +1099,7 @@ else
         fail "--audit accepted an unparseable --since (rc=${rc}): ${out}"
     fi
 
-    # (6) The DEPLOYED CLI reaches the helper. (1)-(5) drive the helper directly, so nothing so
+    # (6) The DEPLOYED CLI reaches the helper. (1)-(5) drive the helper directly, so no case so
     #     far would notice a verb that was never wired into the dispatch. Asserted through the
     #     help text rather than by running the verb, which sudo-prompts (no NOPASSWD rule).
     #     The usage()/man-page pairing itself is covered from source in unit/man.sh; what this

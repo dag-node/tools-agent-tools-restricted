@@ -8,7 +8,7 @@
 # so it is a command run once by the operator -- never an RPM scriptlet, which must succeed
 # offline and inside build chroots. The scheduled nvm-update timer maintains the tree afterwards.
 #
-# Agent-agnostic: it installs no hardcoded agent. Which agents to provision -- their npm package
+# Agent-agnostic: it does not install a hardcoded agent. Which agents to provision -- their npm package
 # and launcher name -- comes from the per-package manifests under
 # /usr/local/lib/ai-tools/agents.d, gated by operator.conf AI_TOOLS_AGENTS (providers.lib.sh).
 # With no manifests deployed yet it provisions Node alone; a re-run after an ai-tools-agents-*
@@ -64,7 +64,7 @@ resolve_nvm_version() {
 # seed a safe default (ai-tools@<domain-or-hostname>); this is the one interactive point both
 # install flows share (an RPM %post cannot prompt), so the operator can adopt their own git
 # identity, keep the default, or edit the file by hand. Runs only when the control plane is
-# present (the gitconfig exists) -- a bootstrap that precedes install.sh has nothing to
+# present (the gitconfig exists) -- a bootstrap that precedes install.sh has no gitconfig to
 # configure and skips. Past that gate msg.lib is deployed, so it is REQUIRED like every other
 # prompting consumer (a missing lib is a broken install and dies, not a silent skip); an
 # unattended run keeps the default via msg.lib's no-tty path.
@@ -126,9 +126,9 @@ configure_git_identity() {
 
 # seed_managed_assets_step: (re)seed the ai-tools-managed agents/skills from the pristine datadir
 # copies into the config directory of each agent that uses that asset format. The directories come
-# from the manifests (control-plane.lib.sh), so this names no path of its own. Runs only when the
+# from the manifests (control-plane.lib.sh), so this helper does not hardcode a path itself. Runs only when the
 # control plane is present (a config dir and the /usr/share/ai-tools pristine copies exist) and
-# the seeder lib is deployed; a bootstrap that precedes install.sh has nothing to seed and skips.
+# the seeder lib is deployed; a bootstrap that precedes install.sh has no source to seed and skips.
 # Past that gate msg.lib is deployed, so the update confirm requires it like every other prompting
 # consumer. Same non-overwrite and version rules as install.sh -- only ai-tools-* assets carrying
 # x-ai-tools-managed are touched, and an existing one updates only on confirm (default keep). See
@@ -181,7 +181,7 @@ command -v curl >/dev/null 2>&1 || die "curl is required to fetch nvm"
 # Run from a neutral, world-traversable directory. The sudo -u ${SANDBOX_USER} steps below
 # inherit this process's CWD; invoked from an operator's private dir (e.g. ~/Downloads, mode
 # 0700) the sandbox account cannot traverse back into it, so nvm/npm's internal `find` warns
-# "Failed to restore initial working directory". Nothing here depends on CWD (every path is
+# "Failed to restore initial working directory". No step here depends on CWD (every path is
 # absolute), and / is always reachable, so move off the caller's directory up front.
 cd /
 
@@ -222,7 +222,7 @@ done
 # re-run picks up the agents. Its stderr warns of an enabled-but-uninstalled agent.
 _providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
 _agent_packages=(); _agent_launchers=()
-# Guarded load: providers.lib.sh returns non-zero and defines nothing when its own dependency
+# Guarded load: providers.lib.sh returns non-zero and leaves its resolvers undefined when its own dependency
 # (conf.lib.sh, the shared KEY=value grammar) is missing, so probe the resolver rather than assume
 # the source succeeded -- a bare `source` under set -e would abort the provision instead of falling
 # back to Node-only.
@@ -309,7 +309,7 @@ fi
 #    launcher is present. Runs as root: the agent cannot create top-level entries in the home
 #    root. bin is the locked control-plane dir (0551 root:ai-tools); root writes the symlinks
 #    here, and install.sh / the RPM repoint them through the root symlink helper afterwards.
-#    Agent runtime state needs no seeding: ai-tools-run pins CLAUDE_CONFIG_DIR to the
+#    Agent runtime state is not seeded here: ai-tools-run pins CLAUDE_CONFIG_DIR to the
 #    group-writable .claude dir, where claude creates its own state files (.claude.json
 #    included).
 if [[ ${#_agent_launchers[@]} -gt 0 ]]; then

@@ -22,7 +22,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 # Read-only (sources a world-readable lib, reads repo files); no root needed, like man.sh.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# Installed copy first, then the source tree (the lib carries no token substitution, so the two
+# Installed copy first, then the source tree (the lib does not carry a token substitution, so the two
 # are identical); the lockstep half needs the checkout regardless.
 LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 [[ -r "${LIB}" ]] || LIB="${ROOT}/src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
@@ -100,7 +100,7 @@ fi
 # services.sh and `semanage` in relabel.sh), emitting one printf per line the way a C program with
 # a 4 KiB stdio buffer does -- a single-write listing would deliver everything before any reader
 # could exit and hide the regression. The probe is driven repeatedly because one passing run
-# proves nothing about a race.
+# is no evidence about a race.
 semodule() {
     [[ "${1:-}" == -l ]] || return 1
     printf '%s\n' abrt accountsd acct afs aiccu aide ajaxterm ai_tools ai_tools_tmpmap

@@ -23,7 +23,7 @@ domain transition that confines it, and the `/tmp` model. Launch mechanics
 `RestrictNamespaces=yes` installs a seccomp filter blocking creation and joining of
 every namespace type for the entire session process tree. This is the minimal
 allow-list, and the set the agent needs is empty: an unprivileged process (the agent
-holds no capabilities) can only ever create a *user* namespace by itself, since every
+holds an empty capability set) can only ever create a *user* namespace by itself, since every
 other type (`cgroup`/`ipc`/`mnt`/`net`/`pid`/`uts`) requires `CAP_SYS_ADMIN`, reachable
 only *through* a user namespace. Blocking `user` blocks all the rest transitively;
 `=yes` makes that explicit and, unlike a `~user` denylist, fail-closes against any
@@ -39,7 +39,7 @@ see ESC-001 in `ai_tools.te`). SELinux type enforcement survives into any namesp
 the residual risk is kernel-CVE surface, not file-access bypass.
 
 System-wide user namespaces stay enabled (Firefox and rootless Podman need them); the
-filter is per-session and touches no sysctl, so other workloads are unaffected. One
+filter is per-session and leaves every sysctl alone, so other workloads are unaffected. One
 trade-off: `=yes` is incompatible with running unprivileged `bubblewrap` *inside* the
 session (bwrap must create user+mnt namespaces), which the deferred bwrap phase must
 resolve.
@@ -81,8 +81,8 @@ core-owned path (`/opt/ai-tools/.config` resolves to `ai_tools_home_t` only when
 is loaded), classified by `ai_tools_confinement_module_present`. It is **not** read from the
 module store with `semodule -l`: `ai-tools-run` runs as the sandbox account, which cannot read
 the root-only store, so that read is a systematic false "no" — which on the unresolved-label
-branch below would fail *open* (launch DAC-only where the module is actually loaded). The
-`matchpathcon` probe reads the world-readable file-contexts, needs no privilege, and the agent
+branch below would fail *open* (launch DAC-only where the module is loaded). The
+`matchpathcon` probe reads the world-readable file-contexts, does not need privilege, and the agent
 cannot influence it (file-contexts and the shim are root-owned). It logs the inputs on
 every launch (journald, `ai-tools-run` tag). `ai-tools-run` performs that probing and I/O;
 the launch-vs-refuse decision is the pure `ai_tools_confinement_verdict`
@@ -119,12 +119,12 @@ its default `usr_t`/`bin_t`/`lib_t`, and `ai_tools.te` grants `manage_*_pattern`
 types — `ai_tools_project_t`, `ai_tools_home_t`, `ai_tools_tmp_t`. None of them appears in the exec
 chain: the versioned launcher symlink is `bin_t`, the agent's package directory `lib_t`, and the
 entrypoint `ai_tools_exec_t`, on which `ai_tools_t` holds `execute_no_trans` plus what
-`application_domain` gives (entrypoint/read/getattr) and nothing more.
+`application_domain` gives (entrypoint/read/getattr), and no other permission.
 
 So on an enforcing host with the module loaded, `ai_tools_t` can neither write the entrypoint, nor
 unlink or rename over it (no `add_name`/`remove_name` on a `lib_t` directory), nor repoint the
 `bin_t` symlink — even though DAC alone would allow all three, since the account owns that tree.
-This is the layer that makes the exec root effectively read-only to the agent, and it is why the
+This is the layer that makes the exec root read-only to the agent, and it is why the
 launch-time entrypoint re-check in [launch](launch.rule.md) is a **DAC-only** concern. The residual
 is the unconfined `--user` manager: anything the agent persuades that manager to run executes
 outside `ai_tools_t`, which is why `~/.config/systemd/user` must stay root-owned.
@@ -248,7 +248,7 @@ independent properties meet at that boundary:
 - **Degradation.** The weak dependency is what `ai_tools_confinement_verdict` already expects: a
   host without the subpackage has no module in the store, which is the intentional DAC-only
   deployment that launches, not the half-installed state that refuses. Dropping the policy costs
-  confinement and nothing else.
+  confinement alone.
 
 The load and unload scriptlets live in the subpackage, with the payload, so no cross-subpackage
 ordering question arises. `%post` runs `semodule -i` — into the running kernel policy, not only the
@@ -257,7 +257,7 @@ at the default module priority, the same slot `install-selinux.sh` and `ai-tools
 host holds one copy of each module. A load that fails is **reported with `semodule`'s own message**
 and the command that repeats it, rather than swallowed: every type the entrypoint and project labels
 name comes from this module, so a load that did not happen surfaces later as a relabel that cannot
-register its rules and a launch that fail-closes, with nothing naming this as the cause. The
+register its rules and a launch that fail-closes, with no message naming this as the cause. The
 transaction still completes — the remedy is a re-run, not a rollback. After the module load, `%post` also `restorecon`s the trees
 that carry `ai_tools*` types (the handback daemon among them) and, when the handback socket is
 already active — an upgrade — refreshes the live listener: `restorecon` fixes the daemon binary's

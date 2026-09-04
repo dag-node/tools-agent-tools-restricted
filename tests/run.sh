@@ -3,7 +3,7 @@
 # tests/run.sh [unit|integration|boundary|all]
 # Test dispatcher. Runs the chosen category's test files and aggregates pass/fail by exit
 # status. On any failure it reprints the failing files' FAIL lines as an end-of-run summary,
-# so a long run needs no scrolling; an all-green run prints no summary. Run via sudo: every
+# so a long run does not need scrolling; an all-green run omits the summary. Run via sudo: every
 # category needs root (unit/integration set arbitrary ownership and run the deployed helpers;
 # boundary drops to the agent via `sudo -u`).
 #
@@ -110,7 +110,7 @@ if [[ "${rc}" -ne 0 ]]; then
     cat "${_summary}"
 fi
 
-# No-coverage notice: green-by-status files that proved nothing, and empty categories.
+# No-coverage notice: green-by-status files with no assertion behind them, and empty categories.
 # Lenient by default; AI_TOOLS_TEST_STRICT=1 (the full-install CI gate) fails the run, so a
 # broken prerequisite cannot hide behind skips.
 if [[ ${#_nocoverage[@]} -gt 0 ]]; then

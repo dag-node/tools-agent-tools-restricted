@@ -14,11 +14,11 @@ directories the maintenance walks skip.
 .PP
 Every option is optional, and the shipped file sets only
 .BR OPERATORS .
-An absent key keeps its default, so a fresh install needs no edits and a file
+An absent key keeps its default, so a fresh install runs unedited and a file
 written for an earlier version keeps working unchanged when a new option
 appears. Anything the file does not say falls back to that default \(em the
 fail-closed direction \(em so a session receives exactly what is enabled here
-and nothing more.
+and no other key.
 .PP
 Edit it as root; it is owned by
 .B root
@@ -148,7 +148,7 @@ must resolve under
 be root-owned and not group/other-writable, and hold readable text \(em that
 directory is the one location the confined session is granted read on. Its
 .B full contents are sent to the model verbatim
-(nothing is stripped), so it must contain only prompt text. A
+(no markup is stripped), so it must contain only prompt text. A
 configured prompt that cannot be applied
 .B refuses
 the launch rather than silently reverting to the default, so a broken value fails
@@ -205,7 +205,7 @@ The token belongs in that file, which ships
 (not world-readable), never in this file. Each uncommented option is validated at
 launch and a configured-but-invalid one
 .B refuses
-the launch (fail closed); a localhost endpoint needs no token. These become
+the launch (fail closed); a localhost endpoint does not need a token. These become
 process environment variables, over which a Claude Code settings
 .B env
 block \(em authoritatively

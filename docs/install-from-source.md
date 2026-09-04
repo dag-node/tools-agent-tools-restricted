@@ -45,7 +45,7 @@ after your nvm init:
 
 Those two files are bash's, and `operators add` names your login shell when it
 reads something else. The fragment sources cleanly under zsh, so the same line
-goes in `~/.zshrc` and `~/.zprofile`; a shell that reads no bash (fish) takes
+goes in `~/.zshrc` and `~/.zprofile`; a shell that does not read bash (fish) takes
 the same tier ordering in its own syntax.
 
 nvm must be sourced **before** path-dedup: nvm prepends its versioned bin dir
@@ -137,7 +137,7 @@ owns the projects. Create one before installing:
     sudo useradd -m -s /bin/bash op && sudo usermod -aG wheel op
 
 `useradd` creates the login account the script enrols; `usermod -aG wheel` is this host's
-general sudo grant, which nothing in this project writes (see below). Naming an account
+general sudo grant, which this project does not write (see below). Naming an account
 that does not exist yet refuses the install and prints this same command.
 
 The question is asked once per account. A re-install whose invoking account already holds
@@ -155,7 +155,7 @@ enrolled**: the script still runs as `sudo`, and its verification suite still ru
 invoking `SUDO_USER`.
 
 Enrolment writes the two facts that make an operator — `ai-ops` membership and a name in
-`OPERATORS`. **Claiming a project needs a general sudo grant as well**, which nothing here
+`OPERATORS`. **Claiming a project needs a general sudo grant as well**, which this project does not
 writes; the host's own sudoers decides it. An operator without one launches agent sessions,
 and another operator claims for it with `ai-tools --project-claim --for <operator>`. A host
 needs at least one operator holding the grant, so enrol one that does — a service account

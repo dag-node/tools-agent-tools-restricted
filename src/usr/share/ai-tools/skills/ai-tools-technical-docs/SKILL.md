@@ -3,7 +3,7 @@ name: ai-tools-technical-docs
 # ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the name above is stable.
 x-ai-tools-managed: true
 x-ai-tools-status: draft
-x-ai-tools-version: 3
+x-ai-tools-version: 2
 x-ai-tools-updated: 2026-09-04
 description: >
   Technical writing standard for every software engineering artifact. Use when writing or
@@ -123,6 +123,18 @@ State what the reader can rely on. Prefer "X is available when ⟨condition⟩" 
 ⟨condition⟩" where both state the same fact. Describe what a component does rather than what it
 does not do.
 
+**A rewrite changes the wording, not the claim.** Where a sentence states a security boundary —
+what a mode permits, what a file may hold, who may act — carry that boundary through the edit
+unchanged: keep the same subject, the same sets, and the same modality (`must`, `only`, `never`).
+Where the new wording cannot hold the claim, keep the sentence as it stands.
+
+Swapping the set is how it goes wrong. `carries no secret` and `contains only settings` are different
+propositions: the first says the contents and the secrets do not intersect, the second says the
+contents are settings — and a setting can be a token, so the second does not imply the first. Only
+the first justifies the `644` mode it was written to justify. Turning a negation positive is sound
+over a set provably disjoint from the one the negation excluded, and nowhere else; where that does
+not hold, keep the negation and write it with `does not`.
+
 Keep this structural: no praise, no intensifiers, no tone words, and never overstate a
 guarantee. No single sentence looks upbeat; across a corpus the effect accumulates, and the
 documentation reads as capable and dependable.
@@ -130,14 +142,16 @@ documentation reads as capable and dependable.
 **Write a negation with `does not`.** Fronting the quantifier instead — `writes no entry`,
 `takes no argument` — attaches the negative to the object instead of the verb. It reads formal
 to archaic, and it is the determiner statutes are built from (*no person shall*, *no warranty is
-given*). It is also the shorter form, and clarity outranks brevity: the razor takes the fewest
-words that stay clear.
+given*). The fronted form is the shorter one, and the longer one wins anyway: the razor takes the
+fewest words that stay clear.
 
-- In style: `does not write any entries`, `does not take any path arguments`
-- Off style: `writes no entry`, `takes no path argument`
+- In style: `does not write any entries`, `does not take a path argument`
+- Off style: `writes no entries`, `takes no path argument`
 
-Pluralize an indefinite object under `any`. A single instance takes its article — `does not
-write an entry` — and so does a definite one: `does not increment the counter`.
+**The object's number follows the code, not a preference.** `does not take any path arguments`
+and `does not take a path argument` are different claims about arity — a variadic parameter
+against a single one — so the signature decides which is true. A definite object keeps its
+article: `does not increment the counter`.
 
 The same applies to `nothing` as a subject or object, which the checklist already catches: name
 the absent input instead.
@@ -272,7 +286,7 @@ point of the prose is to name that constraint.
 
 Judge each file on its own. A header at a good altitude stays as it is, and a change that merely
 touches a file edits only the passages it invalidates. On a header that has grown past its
-purpose, expand it first to surface what actually matters, then reduce to purpose and the
+purpose, expand it first to surface what matters, then reduce to purpose and the
 load-bearing why.
 
 ### Self-contained
@@ -280,14 +294,21 @@ load-bearing why.
 Prose is read without the conversation that produced it. Name the concrete mechanism; leave out
 session shorthand, internal labels, ticket tags, and "as discussed" back-references.
 
-### Resolve conflicts against the code, while writing
+### Resolve a doc/code conflict while writing, in the right direction
 
-Where a doc and the code disagree, resolve it then, against the code — do not default to
-either side, and do not commit a known inconsistency. Ask when the correct behaviour is
-genuinely unclear.
+Where a doc and the code disagree, resolve it then — do not default to either side, and do not
+commit a known inconsistency. Which side moves depends on what the prose is doing:
 
-While a migration is in progress, describe the target state as current. Where that forces a
-mention of something not yet built, record the dependency and keep writing to the target.
+- **A description of behaviour** — a file header, a doc comment, most rule prose. The code decides
+  what it says, and the stale side is not reliably the prose.
+- **An invariant** — a `CLAUDE.md` guarantee, a stated MUST, a security property. The prose stands
+  and the code is the defect: raise it. Rewriting the invariant to match retires a guarantee by
+  editing prose.
+- **A migration in progress** — the prose leads and the code follows: describe the target state as
+  current, and record the dependency where that forces a mention of something not yet built. The
+  gap is expected, so it is recorded rather than resolved away in either direction.
+
+Ask when which of the three applies is genuinely unclear, rather than committing a guess.
 
 ## The three axes
 
@@ -393,15 +414,9 @@ advisory.
 `*.rule.md` holds the principles common to its domain plus the cross-file story. A file header
 holds that file's local mechanism.
 
-**The code is true for behaviour, and invariants have to hold.** Code, header, and rule describe
-one system at three altitudes, each in the present tense, and touching any of them obligates
-reconciling the others at the time of writing.
-
-Where a description disagrees with the code, the code decides what the description says — the
-stale side is not reliably the prose. Where the **code** contradicts an invariant a `CLAUDE.md`
-or a rule states, that is a defect in the code: raise it, and leave the invariant standing.
-Rewriting the invariant to match would retire a guarantee by editing prose. Ask when the correct
-behaviour is genuinely unclear, rather than committing a guess.
+**Code, header, and rule describe one system at three altitudes**, each in the present tense, so
+touching any of them obligates reconciling the others at the time of writing — in the direction
+*Resolve a doc/code conflict* sets.
 
 Each tier states the system as it now is. What changed belongs to the changelog and to git.
 
@@ -570,18 +585,30 @@ Scan the finished text for each of these, since every one is checkable:
     size of its code says the code stopped being self-descriptive, and prose that is merely
     short has not thereby passed.)
 
-**Run the checkable ones.** `prose-check.py` ships beside this file and greps items 2, 3, 4, 5,
+**A finding names a symptom. Fix the claim, not the token.** Every rule here is about what a
+sentence claims, so the repair restates the claim — from the code, or from the invariant, in the
+direction *Resolve a doc/code conflict* sets — and writes the sentence again from that. Editing
+around the flagged word keeps the shape and costs something else: `grants nothing` redrafted as
+`confers no authority` clears the grep, trades a domain term for a legal one, and still fronts the
+quantifier — while re-reading the code gives `uses a grant the caller already holds`. The same
+move settles the questions a rule cannot answer in the abstract, arity among them.
+
+**Run the checkable ones.** `prose-check.py` ships beside this file and reports items 2, 3, 4, 5,
 7 and 9 plus the `does not` rule, so the pass is a command rather than an act of attention:
 
 ```bash
 python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py <file>...
 ```
 
-It reports and never blocks. Two of its checks are near-exact; the rest (`--all`) report correct
-prose often enough to need a reader on every hit. Quoted and backticked spans are skipped, so a
-document may quote the prose it warns against; mark anything else deliberate with
-`prose-check: allow` on the line. Run it before committing prose, and on the commit message
-too — the universal rules cover that artifact like any other.
+It reads rejoined sentences, reports, and does not block. Items 4 and 9 and the `does not` rule
+run by default and are near-exact. `--all` adds the shape checks, each of which greps a sub-shape
+of its rule, because the rules themselves are about meaning: a word stem repeated across the pivot
+is the mirror in item 3 and the restated head noun in item 2, and an absolute in a sentence with
+no subordinating conjunction has nowhere for item 5's guard clause to be. Those four still want a
+reader on every hit. Quoted, backticked, and fenced spans are skipped, so a document may quote the
+prose it warns against; mark anything else deliberate with `prose-check: allow` on the line. Run
+it before committing prose, and on the commit message too — the universal rules cover that
+artifact like any other.
 
 When in doubt: describe what the code does, name the mechanism that does it, and use fewer
 words.

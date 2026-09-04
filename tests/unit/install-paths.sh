@@ -15,7 +15,7 @@
 # A path carrying a shell variable (a loop over asset kinds) cannot be resolved statically; its
 # longest literal prefix directory is checked instead, which still catches a whole tree moving.
 #
-# Pure text + filesystem: no root, no install, nothing executed. Validates the repo sources; it
+# Pure text + filesystem: no root, no install, no command executed. Validates the repo sources; it
 # skips outside a checkout, where there is no src/ to compare against.
 
 set -euo pipefail

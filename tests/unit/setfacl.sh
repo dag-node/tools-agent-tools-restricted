@@ -4,7 +4,7 @@
 # Hermetic unit tests for the deployed ai-tools-setfacl helper: the group-permission ACL it
 # applies at project claim, the opt-in --with-git .git normalization (group + setgid + ACL),
 # its owner guard, and its secret/exclusion/skip-list skips. Runs the installed helper against a
-# /tmp testdir with a dummy allowlist (AI_TOOLS_ALLOWLIST); reads and writes nothing outside
+# /tmp testdir with a dummy allowlist (AI_TOOLS_ALLOWLIST); reads and does not write a path outside
 # the testdir.
 
 set -euo pipefail
@@ -35,7 +35,7 @@ if ! setfacl -m g:"${SANDBOX_GROUP}":rwX "${proj}" 2>/dev/null; then
 fi
 setfacl -b "${proj}" 2>/dev/null || true       # undo the probe entry
 
-# Fixtures (a fresh /tmp dir inherits no setgid and no default ACL, so any ACL afterwards
+# Fixtures (a fresh /tmp dir does not inherit setgid and no default ACL, so any ACL afterwards
 # is attributable to the helper).
 ( umask 077; : > "${proj}/sub_restricted" )    # 600: group locked out
 mv "${proj}/sub_restricted" "${proj}/restricted"
@@ -133,7 +133,7 @@ fi
 # (A5) the operator-named grant mirrors the group grant -- the operator's umask-independent
 # access to agent-written files, so it co-writes without SANDBOX_GROUP membership.
 # Asserted on a group-accessible file: an owner-only one is skipped outright (A2), so it would
-# prove nothing about the operator grant.
+# prove no property of the operator grant.
 if grep -qE "^default:user:${PROJECTS_USER}:rwx" <<<"${droot}" && u "${proj}/world"; then
     pass "operator gains user:${PROJECTS_USER}:rwX (access + default), no group membership needed"
 else
@@ -164,7 +164,7 @@ else
 fi
 
 # (B5) the owner-guard skip is REPORTED, not silent -- the half the CLI reads. A walk that
-# granted nothing must not be indistinguishable from one that had nothing to grant, which is
+# granted no path must not be indistinguishable from one with no path to grant, which is
 # what let a claim over a tree owned by a third party close with a clean ✓.
 if ${foreign}; then
     guard_err="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null || true)"

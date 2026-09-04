@@ -83,7 +83,7 @@ RUN set -eux; \
 
 # A non-root login user to enrol as the operator. The NOPASSWD drop-in is TEST-ONLY (lets the
 # unattended selftest run the operator's password-prompting sudo helpers); it does NOT relax the
-# agent's confinement -- the sandbox account holds no sudo grant, which the selftest re-checks.
+# agent's confinement -- the sandbox account does not hold a sudo grant, which the selftest re-checks.
 RUN useradd -m -s /bin/bash tester \
     && printf 'tester ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/zz-test-operator \
     && chmod 0440 /etc/sudoers.d/zz-test-operator

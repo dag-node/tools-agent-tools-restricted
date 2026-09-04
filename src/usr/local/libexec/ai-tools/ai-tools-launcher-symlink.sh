@@ -3,10 +3,10 @@
 # /usr/local/libexec/ai-tools/ai-tools-launcher-symlink
 # Atomically repoints an agent's stable launcher symlink -- /opt/ai-tools/bin/<launcher> -- at a
 # versioned binary under the sandbox account's nvm. Idempotent: it skips the repoint (and its log
-# line) when the link already points at the target and that target's entrypoint needs no relabel,
+# line) when the link already points at the target and that target's entrypoint is already labelled,
 # so the daily same-version updater run is a quiet no-op.
 #
-# It names no agent: the launcher is the TARGET's own basename, accepted only when an ENABLED
+# It is agent-agnostic: the launcher is the TARGET's own basename, accepted only when an ENABLED
 # agent manifest claims it -- the same allowlist ai-tools-run builds -- so the link it writes is
 # always <bin>/<launcher> for a declared launcher, and never differs from the binary it points at.
 #
@@ -49,7 +49,7 @@ readonly LINK="${BIN_DIR}/${LAUNCHER}"
 # ...and that name must belong to an ENABLED agent: without this, any binary sitting in a
 # versioned bin/ could be given a stable link in the locked control-plane dir. An unresolvable
 # allowlist REFUSES rather than degrading to "allow anything", so probe the resolver rather than
-# assume the source succeeded (providers.lib.sh defines nothing when its dependency is missing).
+# assume the source succeeded (providers.lib.sh leaves its resolvers undefined when its dependency is missing).
 readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/providers.lib.sh
 if ! source "${PROVIDERS_LIB}" 2>/dev/null \
@@ -71,7 +71,7 @@ done < <(ai_tools_enabled_agents 2>/dev/null)
 [[ -d "${BIN_DIR}" ]] || err "${BIN_DIR} missing"
 
 # Idempotency guard. The repoint is also the sole trigger for the ai-tools-relabel.path watcher
-# (the rename below changes an entry in the watched bin directory), so skipping it when nothing
+# (the rename below changes an entry in the watched bin directory), so skipping it when no change
 # changed must not skip a pending relabel: entrypoint_relabel_pending reports whether the binary
 # the link resolves to still needs its ai_tools_exec_t label -- true for a freshly (re)minted
 # entrypoint, including a same-version reinstall. Any uncertainty answers "pending", so the
@@ -92,7 +92,7 @@ entrypoint_relabel_pending() {
 }
 
 # Skip the repoint only when the stable link already points at TARGET AND no relabel is
-# pending: nothing to do, so the daily no-op timer run stops churning the symlink and the
+# pending: no work to do, so the daily no-op timer run stops churning the symlink and the
 # log. Otherwise fall through to the atomic repoint below.
 if [[ "$(readlink -- "${LINK}" 2>/dev/null || true)" == "${TARGET}" ]] \
    && ! entrypoint_relabel_pending; then
@@ -111,7 +111,7 @@ mv -Tf "${tmp}" "${LINK}"
 ai_tools_log_info "repointed ${LINK} -> ${TARGET}"
 printf 'ai-tools-launcher-symlink: %s -> %s\n' "${LINK}" "${TARGET}"
 
-# This helper does NOT relabel the new entrypoint: it runs in ai_tools_handback_t, which holds
+# This helper does NOT relabel the new entrypoint: it runs in ai_tools_handback_t, which is granted
 # no relabel rights by design (ai_tools.te), so the privilege stays off the agent-reachable
 # domain. The rename above instead trips the root-side ai-tools-relabel.path watcher, which
 # watches the bin DIRECTORY and so fires for whichever agent's link moved; `ai-tools --relabel`

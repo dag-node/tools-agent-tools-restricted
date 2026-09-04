@@ -11,7 +11,7 @@
 #   sudo ./install.sh install              deploy all files, enable timer
 #   sudo ./install.sh uninstall            remove deployed files, disable timer
 #   sudo ./install.sh check-perms          run the permissions test (tests/integration/perms.sh; also part of the suite offered at the end of an interactive install)
-#   sudo ./install.sh install --operator op      enrol the named account, asking nothing
+#   sudo ./install.sh install --operator op      enrol the named account, asking no question
 #
 # Project registration lives in the `ai-tools` CLI (/usr/local/bin/ai-tools), run
 # as the projects user, not in install.sh:
@@ -71,7 +71,7 @@ readonly SANDBOX_USER="ai-tools"
 readonly SANDBOX_GROUP="ai-tools"
 
 # operator_refusal <name> -- echo why <name> cannot be the operator this install enrols, or
-# nothing when it can. The single home for that decision, because a name now reaches it by three
+# an empty string when it can. The single home for that decision, because a name now reaches it by three
 # routes -- the invoking SUDO_USER, --operator, and the prompt -- which must refuse alike or the
 # route decides the outcome.
 #
@@ -201,7 +201,7 @@ source "${MANAGED_ASSETS_LIB}" || {
 #   * the shared inline yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh),
 # all on the controlling terminal, BYPASSING the do_install log tee that captures
 # stdout+stderr. msg.lib.sh prints a blank line BEFORE every box, so prompts self-separate.
-# Non-interactive runs draw nothing and take <y|n>, the safe default for the question.
+# Non-interactive runs draw no box and take <y|n>, the safe default for the question.
 confirm_boxed() {
     local title="$1" def="$2" question="$3"; shift 3
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
@@ -365,7 +365,7 @@ user_systemctl() {
 # `loginctl enable-linger` returns before the manager is up, so the enablement below would
 # otherwise race it. Readiness is asked of the system manager (`is-active user@<uid>.service`)
 # rather than probed through the account's own bus: that is the authoritative answer to "is the
-# manager running", it needs no bus connection, and a bus probe answers a different and narrower
+# manager running", it does not need a bus connection, and a bus probe answers a different and narrower
 # question -- whether root can currently reach that account's bus -- which is not what gates
 # provisioning. Starting user@<uid>.service first is the documented, idempotent way to have the
 # manager exist at all for a nologin account.
@@ -409,7 +409,7 @@ lockdown_nvm_permissions() {
 
 # Point /opt/ai-tools/bin/<launcher> at each enabled agent's versioned binary directly, without
 # running nvm-update.service (which also prunes old Node versions). Which launchers those are
-# comes from the agent manifests, so this installer names no agent. Emits a warning and returns
+# comes from the agent manifests, so this installer is agent-agnostic. Emits a warning and returns
 # when the sandbox nvm tree or a launcher is not yet installed.
 bootstrap_launcher_symlinks() {
     local ai_nvm_dir="/opt/ai-tools/.nvm"
@@ -610,7 +610,7 @@ offer_selinux() {
 # Suggest lint tools the sandboxed agent can use in its sessions (shellcheck for shell
 # sources, rpmlint for RPM specs, yamllint for YAML/workflows) when the host lacks them.
 # A tool counts as present by its binary (any install method: package, pip, manual) or by
-# its package name, so nothing already usable is re-suggested. Print-only, and strictly
+# its package name, so a tool already usable is never re-suggested. Print-only, and strictly
 # from the repos ALREADY enabled -- it neither installs anything nor enables EPEL (which
 # carries all three on EL); a tool no enabled repo provides is silently dropped from the
 # suggestion. Any packaged version serves; no pinning.
@@ -777,7 +777,7 @@ do_summary() {
 # brand mark is single-sourced; the installer only supplies its subtitle, the package
 # version (AI_TOOLS_VERSION, the same value `ai-tools --version` reports -- not the noisy
 # git-describe), and the "installer" mode word (this is the install phase, not the running
-# app). The renderer prints nothing when stdout is not a terminal.
+# app). The renderer stays silent when stdout is not a terminal.
 print_banner() {
     ai_tools_msg_banner \
         'Agent Tools Restricted — run coding agents with limited system access' \
@@ -803,7 +803,7 @@ do_install() {
     # Proceed gate -- everything above is print-only; the first change to the host
     # (including the install log itself) happens only past this point. Two questions:
     # Enter proceeds through the first, but the second defaults to CANCEL, so an
-    # accidental double-Enter installs nothing. Interactive only -- an unattended run
+    # accidental double-Enter does not install anything. Interactive only -- an unattended run
     # (CI, container self-test) proceeds as before.
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
         if ! confirm_boxed "Review install" y "Proceed with the install?" \
@@ -935,7 +935,7 @@ do_install() {
         /usr/local/lib/ai-tools/secret-patterns.lib.sh
 
     # Seal primitives (owner-only predicate + residue strip): read only by the root helpers
-    # that walk a claimed tree, but carries no secrets -- 644 root:root, like msg/log/
+    # that walk a claimed tree, but must not hold a secret -- 644 root:root, like msg/log/
     # safe-paths. Substituted: the strip is keyed on the sandbox group's name.
     log "/usr/local/lib/ai-tools/owner-only.lib.sh"
     install_subst 644 root root \
@@ -944,7 +944,7 @@ do_install() {
 
     # Skip-dir list/selector: sourced by the root helpers, by session-hook.sh (as the
     # agent), and by the operator-run CLI (the claim drift scan) -- 644 root:root, like
-    # msg/log/safe-paths. It carries no secrets: the names are documented. No tokens to
+    # msg/log/safe-paths. It must not hold a secret: the names are documented. No tokens to
     # substitute.
     log "/usr/local/lib/ai-tools/skip-dirs.lib.sh"
     install -o root -g root -m 644 \
@@ -1097,7 +1097,7 @@ do_install() {
 
     # Logger library: 644 root:root -- world-readable. Sourced by the root helpers, by
     # the hooks (run as ai-tools), and by the CLI (run as the projects user, NOT in
-    # SANDBOX_GROUP), so every principal must read it; it holds no secrets. No tokens.
+    # SANDBOX_GROUP), so every principal must read it; it must not hold a secret. No tokens.
     log "/usr/local/lib/ai-tools/log.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/log.lib.sh" \
@@ -1105,7 +1105,7 @@ do_install() {
 
     # Message formatter: 644 root:root -- world-readable. Sourced by the operator wrapper
     # and CLI, by the hooks (run as ai-tools), and by ai-tools-run, so every principal must
-    # read it; it holds no secrets. No tokens to substitute.
+    # read it; it must not hold a secret. No tokens to substitute.
     log "/usr/local/lib/ai-tools/msg.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/msg.lib.sh" \
@@ -1113,7 +1113,7 @@ do_install() {
 
     # Operator-identity resolver: 644 root:root -- world-readable. Sourced by the root helpers
     # (which run in ai_tools_handback_t) AND the agent hooks (ai_tools_t); both read it to
-    # resolve the operator from /etc/ai-tools/operator.conf, and it holds no secrets. No tokens.
+    # resolve the operator from /etc/ai-tools/operator.conf, and it must not hold a secret. No tokens.
     log "/usr/local/lib/ai-tools/operator.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/operator.lib.sh" \
@@ -1121,7 +1121,7 @@ do_install() {
 
     # Protected-paths backstop: 644 root:root -- world-readable. Sourced by the operator
     # wrapper and CLI AND the root helpers, so every principal that resolves a target path
-    # reads the same list; it holds no secrets. No tokens to substitute.
+    # reads the same list; it must not hold a secret. No tokens to substitute.
     log "/usr/local/lib/ai-tools/safe-paths.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/safe-paths.lib.sh" \
@@ -1295,7 +1295,7 @@ do_install() {
         /usr/lib/systemd/system/ai-tools-relabel.service
 
     # Project-lifecycle CLI. Runs AS the projects user (never root, never ai-tools)
-    # and needs no privilege: it only edits allowed-projects and the git
+    # and does not need privilege: it only edits allowed-projects and the git
     # safe.directory list, both writable by the projects user. 755 root:root --
     # world-executable (the in-script guard refuses to run as root or ai-tools),
     # root-owned so the agent cannot tamper with it.
@@ -1436,7 +1436,7 @@ do_install() {
     # Host config. The root helpers and the agent hooks resolve the operators from this file
     # at runtime (via operator.lib.sh) instead of substituting an identity into each helper, so
     # the helper files are identical on every host. 644 root:root: world-readable -- both the
-    # agent (ai_tools_t hooks) and the root helpers (ai_tools_handback_t) read it, and it carries
+    # agent (ai_tools_t hooks) and the root helpers (ai_tools_handback_t) read it, and it must not hold
     # no secret -- and root-write-only, so the agent cannot rewrite the identity root hands files
     # back to. Seeded from the src/etc template with the invoking user as the sole operator; an
     # EXISTING file is kept by default (keep_existing prompt; unattended installs always keep)
@@ -1832,7 +1832,7 @@ do_install() {
 
     # offer_selinux is the single labelling point: it relabels through install-selinux.sh on both
     # the accept path (install action) and the declined-but-loaded path (relabel action), so a
-    # SELinux-active host relabels exactly once here, in one tool's consistent output. Nothing to
+    # SELinux-active host relabels exactly once here, in one tool's consistent output. No step to
     # do afterwards.
     offer_selinux
 
@@ -1868,8 +1868,8 @@ do_install() {
             warn "until it is; for a full pass run sudo ai-tools-bootstrap first, then re-test"
             warn "with: sudo ${SCRIPT_DIR}/tests/run.sh all"
         fi
-        # The section header prints only when the suite actually runs, so a skip leaves
-        # no empty "Verify" heading in the transcript.
+        # The section header prints only when the suite runs, so a skip avoids an
+        # empty "Verify" heading in the transcript.
         if confirm_boxed "Run test suite" y "Run it now?" \
                 "Run the full test suite (incl. the permissions check) now to verify the install?"; then
             section "Verify"
@@ -1915,7 +1915,7 @@ do_uninstall() {
     section "Removing files"
     log "system files"
     # Remove the helper and library trees whole: they hold only deployed files, never
-    # operator or agent state, so a dir-level removal leaves nothing behind and never
+    # operator or agent state, so a dir-level removal does not leave a file behind and never
     # drifts out of sync with the install list the way an enumerated rm would.
     rm -rf /usr/local/libexec/ai-tools
     # Sweep the pre-0.10.0 helper location too, in case an uninstall follows an install that
@@ -2037,12 +2037,12 @@ operator_is_enrolled() {
 # holds the grant a claim needs, and the ownership handback restores agent-written files to it,
 # which keeps an editor or IDE working in a claimed project seeing its own files. The prompt offers
 # accounts of that same shape, because one operator comes out of this install and a host whose only
-# operator holds no sudo grant can register no project.
+# operator does not hold a sudo grant can register no project.
 #
 # So the prompt states what enrolment does not confer: `ai-tools-admin` enrols an account holding
 # no grant later, and a grant-holding operator claims its projects with the CLI's `--for` switch.
 # The prompt names that switch alone, without the claim verb carrying it, so respelling the verb in
-# the resource grammar leaves no stale command here, and writes the switch's target as a
+# the resource grammar leaves behind no stale command here, and writes the switch's target as a
 # placeholder -- the account enrolled here runs such a claim more often than it receives one.
 #
 # operator_create_hint prints the useradd command, from the two sites that refuse an unresolvable

@@ -10,7 +10,7 @@
 # NOTHING on stdout and a non-zero status on every path that fails to get an index (no
 # terminal, closed input, three unanswered attempts), or a caller would read an unanswered
 # menu as a chosen option. Pure formatting -- no root, no install dependency: the
-# library carries no token substitution, so the repo source IS the deployed artifact. The
+# library does not carry a token substitution, so the repo source IS the deployed artifact. The
 # test validates the source of truth directly (so it never reports a false failure against a
 # not-yet-redeployed installed copy), falling back to the installed path outside a checkout.
 
@@ -167,7 +167,7 @@ fi
 # valid index must yield NOTHING on stdout and a non-zero status, so a caller cannot mistake
 # an unanswered menu for a chosen option (the claude wrapper reads that as Cancel).
 
-# (12b) No terminal: non-zero, nothing on stdout -- the caller decides, the lib does not.
+# (12b) No terminal: non-zero, empty stdout -- the caller decides, the lib does not.
 nd_rc=0
 nd_sel="$(setsid bash -c 'source "'"${LIB}"'"; ai_tools_msg_pick none a b c' </dev/null 2>/dev/null)" \
     || nd_rc=$?

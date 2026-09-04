@@ -58,7 +58,7 @@ work without a carve-out.
 
 A second predicate, for a strictly weaker operation, single-sourced here and used by `reg_reach`
 (via `grantable_ancestor`) and by both new project verbs through it. It returns 0 when `<path>` is
-a directory `<owner>` holds and it either matches no protected path **or** matches only as
+a directory `<owner>` holds and it either misses every protected path **or** matches only as
 `<owner>`'s own home root — resolved from `getent`, so a path that merely looks like `/home/<name>`
 is not admitted on its shape. Every system directory, `/home` itself, and any other account's home
 root stay refused, as does a missing path, a non-directory, or an unnamed owner.
@@ -68,7 +68,7 @@ size of the operation is the whole justification. A claim, an unclaim, a lockdow
 walk rewrites group, mode and ACLs across a **tree**, and `ai_tools_protected_path_match` still
 refuses a home root as the target of any of them. A traverse grant is one `u:SANDBOX_USER:--x`
 entry on **one directory**: search permission on that directory alone, conveying no listing of it
-and nothing whatever about the files inside, whose own modes and ACLs still decide — and the
+and no access whatever to the files inside, whose own modes and ACLs still decide — and the
 sandbox account is neither their owner nor in their group. Reusing the target backstop for it made
 every project at `/home/<user>/<proj>` report permanently unreachable, with a sandbox clone the
 only way in.
@@ -116,7 +116,7 @@ launch wrapper (matching its `die`); a load failure (below) uses the same codes.
 
 **`ai-tools-stop` is not a consumer, and the reason is instructive.** It loaded this library while
 it took a per-project target, to vet that caller-supplied path — advisorily, since it only
-*selected processes* by the path and never wrote to it. It now takes no path at all: what it
+*selected processes* by the path and never wrote to it. It does not take a path at all: what it
 terminates is decided by cgroup-slice membership, so there is no caller-supplied path to vet and
 the library is not loaded. A helper comes into scope here by *taking an argument that names a
 path*, which is the same rule that keeps `ai-tools-dotnet` out.
@@ -150,7 +150,7 @@ rationale is single-sourced here, and each consumer carries a one-line pointer t
 ## Design notes
 
 - **Deployed `644 root:root`**, world-readable like `msg.lib.sh`/`log.lib.sh`: the operator
-  wrapper, the CLI, and the root helpers read one list; it carries no secrets. The lib directory
+  wrapper, the CLI, and the root helpers read one list; it must not hold a secret. The lib directory
   `/usr/local/lib/ai-tools` is `0751 root:SANDBOX_GROUP`, so an operator who is not a
   `SANDBOX_GROUP` member (the multi-operator default) traverses in to source the `644` libs by
   path without listing the directory — the world-execute bit is what makes the world-readable

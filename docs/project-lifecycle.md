@@ -50,7 +50,7 @@ modes are in [what a claim and an unclaim do to permissions](#what-a-claim-and-a
 
 **Create a sandbox clone** when the tree, its history, or its surroundings should stay out of
 reach: the clone is shallow (`--depth=1`), so the agent never sees the origin's history, and it
-lives under the already-isolated sandbox area, so nothing above it needs a grant. The agent's
+lives under the already-isolated sandbox area, so no ancestor above it needs a grant. The agent's
 commits go to a dedicated branch you push and merge back yourself.
 
 Running `claude` in an unregistered directory offers the same choice interactively.
@@ -64,7 +64,7 @@ ai-tools --project-create ~/src/newproject
 Creates the directory, initializes an empty git repository in it, writes a `README.md` naming
 it, then runs the ordinary claim on the result.
 
-It asks nothing. A tree that did not exist a moment ago has no pre-existing permissions to warn
+It does not ask any questions. A tree that did not exist a moment ago has no pre-existing permissions to warn
 about, no secret-named files worth a `sudo` password to scan for, and no git history to expose,
 so the questions a claim asks about an existing tree are answered by the tree being empty. The
 one prompt that can still appear is the traverse grant on a parent directory, which widens
@@ -77,7 +77,7 @@ sets the modes rather than inheriting them — `0750` for the directory, `0640` 
 ```text
     created /home/you/src/newproject
     modes 0750/0640 -- this host's umask (0077) would have made what this
-    creates owner-only, which the claim honours as a seal and grants nothing on
+    creates owner-only, which the claim honours as a seal and leaves untouched
 ```
 
 Owner-only (`700`/`600`) is how you seal a path *away* from the agent, and the claim honours it
@@ -233,8 +233,8 @@ an `allowed-projects` you maintain as an ordered, documented file comes back exa
   /home/you/src/web                                     /home/you/src/web
 ```
 
-Disabling changes the registry and nothing else: the group, the ACLs, the setgid bits and the
-SELinux label all stay, so re-enabling grants nothing that was not already granted and neither
+Disabling changes the registry alone: the group, the ACLs, the setgid bits and the
+SELinux label all stay, so re-enabling restores the entry alone and neither
 command runs a secret scan. Prefixing the line with `!` by hand does the same thing — the verbs
 make the edit the file has always supported.
 
@@ -293,7 +293,7 @@ The path is classified against the allowlist first, and the five outcomes are di
 | a claimed project | unclaimed |
 | a directory with claimed projects nested under it | they are listed, one confirm covers all, each is unclaimed outermost-first |
 | a path *inside* a claimed project | refused, naming the nearest claimed parent and the command that works |
-| a path the allowlist does not cover, carrying no ai-tools permissions | refused — nothing here was ever claimed |
+| a path the allowlist does not cover, carrying no ai-tools permissions | refused — no part of this tree was ever claimed |
 | a path the allowlist does not cover, still carrying ai-tools permissions | reported, and `--force` offered |
 
 ### Keeping your place across a release
@@ -325,10 +325,10 @@ unclaim refuses. `--force` handles exactly that tree.
 
 It swaps the allowlist gate for a per-path one rather than removing a gate: a path is touched
 **only** while it still carries ai-tools ownership, group, or an ai-tools ACL entry. Run it on a
-directory that was never claimed and it changes nothing at all, which is what makes a mistyped
+directory that was never claimed and it leaves every path as it found it, which is what makes a mistyped
 path harmless. What it does to a path it *accepts* is identical to a normal unclaim.
 
-It relaxes nothing else. The protected-paths backstop still refuses system directories and home
+Every other gate stands. The protected-paths backstop still refuses system directories and home
 roots; the owner guard still skips files belonging to anyone else; a hardlinked file is still
 refused (its inode is reachable from outside the tree, and `chgrp`/`chmod` act on the inode — a
 locally-cloned `.git` hits this in bulk, and the count is reported); secret-named and
@@ -337,7 +337,7 @@ locally-cloned `.git` hits this in bulk, and the count is reported); secret-name
 Two flags pair with it. `--full` extends the walk into the skip-listed heavy trees
 (`node_modules`, `.venv`, caches), where residue survives a copy exactly as it does elsewhere;
 without it those paths are reported and left alone. `--dry-run` lists every path that would
-change, with ownership and mode, and changes nothing.
+change, with ownership and mode, and applies none of them.
 
 ### Scripting an unclaim
 
@@ -345,7 +345,7 @@ change, with ownership and mode, and changes nothing.
 ai-tools --project-unclaim --force -y --group builders /backup/staging/proj
 ```
 
-Normalizing a copy before a backup or a deployment is the case that needs no terminal. `-y`
+Normalizing a copy before a backup or a deployment is the case that runs without a terminal. `-y`
 pre-answers the confirm — an explicit per-invocation flag, never ambient state — and `--group`
 names the target group outright. Supply `--group` in any unclaim, forced or not: without it the
 command asks whether to hand back and whose group to use, and a run with no terminal takes the
@@ -357,7 +357,7 @@ invoking user's group. A script should say which group it means.
 ai-tools --project-remove ~/src/oldproject
 ```
 
-Does what an unclaim does **and deletes the directory**. There is no undo and nothing is moved
+Does what an unclaim does **and deletes the directory**. There is no undo, and no file is moved
 to a trash location, so the command is deliberately hard to reach by accident.
 
 It acts only on a path with an **exact** entry in `allowed-projects` — registration is what
@@ -381,7 +381,7 @@ also reports uncommitted changes, unpushed commits, and a repository with no ups
 reported rather than refused, since deleting a scratch repository on purpose is legitimate.
 
 Then it asks twice: a confirmation that defaults to **No**, and the project's name typed out.
-Neither can be answered by a run with no terminal, so nothing is deleted unattended unless you
+Neither can be answered by a run with no terminal, so a delete needs an operator at the prompt unless you
 pass `-y` — and with `-y` a path argument is required, so an unattended removal cannot inherit
 the directory it happened to start in.
 
@@ -428,7 +428,7 @@ sudo grant to run mkdir as that account.
 
 Ownership carries weight here: the two helpers that grant the agent its access act only on paths
 held by the resolved operator or the sandbox account, so a claim *for* an operator over a tree
-that operator does not own grants nothing. The claim refuses such a tree up front and names the
+that operator does not own leaves the agent without access. The claim refuses such a tree up front and names the
 `chown`.
 
 ### Put it where that account can reach
@@ -494,7 +494,7 @@ and leaves `640`. A tree that needs to stay world-readable is not a candidate fo
 claim — use a sandbox clone.
 
 The rest of what an unclaim does not restore: **every** extended ACL is cleared, including
-entries that predated the claim and had nothing to do with ai-tools; directory setgid is removed
+entries that predated the claim and were unrelated to ai-tools; directory setgid is removed
 whether or not the claim set it; the group owner becomes whoever you hand the tree to. Nothing
 records a tree's pre-claim state, so no command can put any of it back. **Back up first** — that
 is the only real safeguard, which is why both the claim and the forced unclaim say so before

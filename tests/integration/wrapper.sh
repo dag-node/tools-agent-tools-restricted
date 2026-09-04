@@ -99,7 +99,7 @@ else
 fi
 
 # (1b) The print-and-exit pass-through: a SOLE --version from that same unapproved cwd is
-#      deliberately NOT gated -- it carries no project surface, so the wrapper launches the
+#      deliberately NOT gated -- it does not carry a project surface, so the wrapper launches the
 #      confined session with the sandbox home as WorkingDirectory and claude prints its
 #      version. Asserts the refusal is absent and a version string came back.
 pv_out="$( cd "${unapproved}" && setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
@@ -139,9 +139,9 @@ fi
 #      the wrapper honours a '!' CWD (2b above) -- so what this asserts is that they agree about
 #      the same file: the CLI's own edit, read back by the deployed wrapper.
 #
-#      Driven through the CLI as the operator against this fixture registry, so nothing here
+#      Driven through the CLI as the operator against this fixture registry, so no step here
 #      touches the operator's real one (see the note on the two lookup routes below). The pair
-#      edits one line of the caller's own allowlist and reaches no root helper, so there is no
+#      edits one line of the caller's own allowlist and does not reach a root helper, so there is no
 #      password prompt.
 cli=/usr/local/bin/ai-tools
 if [[ ! -x "${cli}" ]]; then
@@ -150,7 +150,7 @@ else
     # The two readers reach the same file by DIFFERENT routes, and a test that steers only one of
     # them silently drives the operator's real registry: the wrapper keys its allowlist off
     # ${HOME}, while the CLI resolves the invoking user's home through `getent passwd` -- on
-    # purpose, so nothing in the environment can redirect a registry write. So the CLI is pointed
+    # purpose, so no environment variable can redirect a registry write. So the CLI is pointed
     # at the fixture with AI_TOOLS_ALLOWLIST, the root-only hook the rest of the suite uses, and
     # HOME is kept as well so both agree on the file.
     fixture_allowlist="${home}/.config/ai-tools/allowed-projects"

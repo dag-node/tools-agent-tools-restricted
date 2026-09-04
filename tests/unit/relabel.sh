@@ -68,7 +68,7 @@ fi
 
 # ── Reconciling the declared rule against the INSTALLED entrypoint ────────────────────────────
 # The label is applied from the manifest's declared pattern, but the SELinux transition fires on
-# the inode the launcher symlink resolves to -- so the two can disagree, and did nothing about it
+# the inode the launcher symlink resolves to -- so the two can disagree, and this file covered neither side of it
 # the relabel would report success while every launch fail-closed on an unlabelled entrypoint.
 # ai_tools_entrypoint_reconcile_verdict is the pure decision that closes that: `stale` is the
 # verdict that must make a relabel FAIL, because it is the one cause a rerun cannot clear. Pinned
@@ -140,7 +140,7 @@ fi
 # (file_contexts.subs_dist `/var/opt /opt`), or a module not loaded -- is a hard failure instead
 # of a false success. This pins the predicate that gate rests on. A genuinely-labelled path needs
 # an enforcing SELinux host, so the positive case (label applies AND verifies) lives in
-# integration/selinux.sh; here the negative is hermetic -- a plain /tmp dir carries no project
+# integration/selinux.sh; here the negative is hermetic -- a plain /tmp dir does not carry a project
 # type on any host, SELinux or not, so the predicate must report false for it.
 section "relabel: project-label verification predicate (unit)"
 if declare -F ai_tools_project_labelled >/dev/null 2>&1; then
@@ -162,7 +162,7 @@ fi
 
 # ── Reporting WHY a file-context rule was refused ─────────────────────────────────────────────
 # semanage's stderr is the only account of why a rule did not land, and "could not register its
-# entrypoint file-context rule" names no cause on its own -- an operator reading it has nothing to
+# entrypoint file-context rule" does not name a cause on its own -- an operator reading it has no next step to
 # act on, and the condition (a policy store another transaction holds, a type the loaded policy
 # does not define) needs different remedies. So the reason is collected for the caller to log.
 # The stream split is the load-bearing part: the caller parses this library's STDOUT as verdict
@@ -339,7 +339,7 @@ if [[ ! -x "${RELABEL_BIN}" ]]; then
 elif [[ "${EUID}" -ne 0 ]]; then
     skip "relabel allowlist gate" "needs root (the helper refuses a non-root caller first)"
 elif ! command -v getenforce >/dev/null 2>&1 || [[ "$(getenforce 2>/dev/null)" == Disabled ]]; then
-    # The helper reports "SELinux inactive" and exits 0 BEFORE the gate, so there is nothing to
+    # The helper reports "SELinux inactive" and exits 0 BEFORE the gate, so there is no state to
     # assert here on a DAC-only host.
     skip "relabel allowlist gate" "SELinux inactive -- the helper exits before the gate"
 else

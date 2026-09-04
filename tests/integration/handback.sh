@@ -140,7 +140,7 @@ fi
 #
 # The whole privilege bridge rests on the daemon rejecting bad input and the helper
 # re-validating the allowlist. Drive the real client AS the sandbox account and prove a
-# request it must NOT honour changes nothing. The client exits non-zero and relays the
+# request it must NOT honour does not change a path. The client exits non-zero and relays the
 # daemon's ERR reason on any rejection.
 section "Handback bridge: input validation + allowlist boundary (negative)"
 

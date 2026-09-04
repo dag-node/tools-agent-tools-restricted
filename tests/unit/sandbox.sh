@@ -58,7 +58,7 @@ fi
 
 # ── sandbox_default_branch ────────────────────────────────────────────────────────────────────
 # The default is sandbox/<leaf>, leaf = the from-ref's last component, with NO host/operator
-# identity -- so it is stable and leaks nothing regardless of who or where runs it.
+# identity -- so it is stable whoever runs it and wherever.
 def_is() {  # def_is <from> <expected>
     local got; got="$(call sandbox_default_branch "$1")" \
         && [[ "${got}" == "$2" ]] \
@@ -109,7 +109,7 @@ fi
 # The predicate --project-create's flow rests on, and the reason it is pinned here rather than
 # left to the CLI test: what it gates is the SECRET SCAN. A claim skips that scan, the git-history
 # prompt, and the proceed confirm when this returns 0, so every way it could wrongly say yes is a
-# way to grant an agent access to a tree nothing scanned. It must answer for the tree as it is on
+# way to grant an agent access to a tree no scan has covered. It must answer for the tree as it is on
 # disk -- never for what a caller asserts about it -- so the cases below are the states that must
 # read as NOT pristine.
 section "tree_is_pristine: the precondition behind --project-create's skipped prompts (unit)"

@@ -20,7 +20,7 @@
 # It never adopts anything that already exists. Every path is one it created inside that fresh
 # workspace, and removal refuses any path that is not inside it, so there is no input -- a stale
 # directory, an unset variable, a symlink swapped in -- that can point the cleanup at something
-# else. It runs no `sudo rm`: nothing it does needs root to undo.
+# else. It runs no `sudo rm`: no step it takes needs root to undo.
 #
 # The single exception is --for-drill, which is opt-in for exactly that reason: it creates one
 # project in the shared clone area, owned by another operator, and deletes it again through
@@ -139,7 +139,7 @@ readonly OUTSIDE="${WORKSPACE}/hardlink-target"
 
 # safe_rm <path>: remove a path ONLY if every rail holds -- non-empty, absolute, strictly inside
 # the workspace mktemp created for this run, and not a symlink (which rm -r would follow into by
-# name if the path were swapped). Unprivileged, always: nothing here may need root to undo, and a
+# name if the path were swapped). Unprivileged, always: no step here may need root to undo, and a
 # `sudo rm -rf` in a cleanup path is exactly the shape of accident this guards against. A path it
 # refuses is reported for the operator to look at, never forced.
 safe_rm() {
@@ -212,8 +212,8 @@ trap cleanup EXIT
 #
 # EVERY MODE IS PINNED, none inherited from the invoking shell's umask. Under a umask of 077 the
 # project ROOT is born 700 -- owner-only -- and the claim then correctly seals the whole tree and
-# grants nothing, so the ordinary half of this fixture (the half that must be opened up) silently
-# stops existing and every later check has nothing to act on. What the fixture is FOR is the
+# does not grant access, so the ordinary half of this fixture (the half that must be opened up) silently
+# stops existing and every later check has no path to act on. What the fixture is FOR is the
 # contrast between a sealed path and an ordinary one, so both sides are stated outright.
 section "Fixture"
 mkdir "${PROJ}"                                # fails if it exists; it cannot, mktemp just made ${WORKSPACE}
@@ -239,7 +239,7 @@ note "modes pinned: project 755, src 755, files 644; prod-files 700 holding a 60
 # A sealed directory whose setgid belongs to a THIRD group -- the one piece of residue a claim
 # keeps rather than strips, so the Review block has to say so. "Third" is relative to the claim's
 # rule (neither the sandbox group nor the owner's own primary group), so one of the operator's own
-# SECONDARY groups qualifies -- and chgrp to a group you are in needs no privilege, which keeps
+# SECONDARY groups qualifies -- and chgrp to a group you are in does not need privilege, which keeps
 # this script's own sudo use at zero. Without such a group the case is skipped, never faked with
 # root.
 THIRD_GROUP=""
@@ -261,7 +261,7 @@ note "fixture built"
 # ── 1. claim ─────────────────────────────────────────────────────────────────────────────────
 # AI_TOOLS_ASSUME_YES answers the default-YES questions (secret lockdown, .git normalization);
 # -y answers the claim's own default-NO proceed prompt. The reachability opt-in is default-NO and
-# stays declined, which is right here: nothing launches a session.
+# stays declined, which is right here: no step launches a session.
 section "1. ai-tools --project-claim"
 sudo_why "the claim's root steps: the secret scan and lockdown, then group+setgid, the ACL walk, and the SELinux label"
 CLAIM_OUT="$(AI_TOOLS_ASSUME_YES=1 "${CLI}" --project-claim -y "${PROJ}" 2>&1)"; CLAIM_RC=$?
@@ -335,7 +335,7 @@ BEFORE="$(mode_of "${SEALED_SBX}") $(group_of "${SEALED_SBX}")"
 BEFORE_ACL="$(getfacl -c -- "${SEALED_SBX}" 2>/dev/null | tr '\n' ',')"
 BEFORE_OWN="$(mode_of "${SEALED_OWN}") $(group_of "${SEALED_OWN}")"
 note "sealed fixtures: ${BEFORE} (inherited group + default ACL), ${BEFORE_OWN} (setgid)"
-# The residue has to actually be there, or "nothing was stripped" proves nothing about stripping.
+# The residue has to actually be there, or "nothing was stripped" does not prove a property of stripping.  prose-check: allow
 [[ "${BEFORE}" == "700 ${SANDBOX_GROUP}" ]] \
     || fail "sandbox-grouped seal fixture is '${BEFORE}', want '700 ${SANDBOX_GROUP}' -- the checks below cannot mean anything"
 [[ "${BEFORE_OWN}" == "2700 ${MY_GROUP}" ]] \
@@ -380,7 +380,7 @@ check "  and leaves that dir's group alone (it was never the agent's)" \
 fi
 
 # ── 2b. disable / enable: the park-and-restore round trip, on the REAL registry ───────────────
-# Runs while the project is still claimed, and needs no sudo at all: the pair edits one line of
+# Runs while the project is still claimed, and does not need sudo at all: the pair edits one line of
 # this operator's own allowlist. That is exactly why it belongs in a live run rather than only in
 # the hermetic suites -- what it proves is that the edit lands in the FILE the launch gate reads,
 # at the position the operator left it, and comes back byte-identical.
@@ -577,7 +577,7 @@ fi
 # ── 4. unclaim --force on the unregistered copy ──────────────────────────────────────────────
 section "4. ai-tools --project-unclaim --force (unregistered copy)"
 # --force acts on the ai-tools fingerprint, so the copy must carry one. Establish that FIRST:
-# without it the command correctly refuses ("nothing to unclaim here"), and asserting anything
+# without it the command correctly refuses ("nothing to unclaim here"), and asserting anything  prose-check: allow
 # past that point measures the fixture, not the flag. The two checks after the apply would even
 # PASS on such a copy -- no abort, group already the operator's -- which is the worst outcome a
 # check can have.
@@ -603,7 +603,7 @@ else
     check "the copy is normalized to ${MY_GROUP}" test "$(group_of "${COPY}/src")" = "${MY_GROUP}"
 fi
 
-# ── 5. --sandbox-create flag validation (parses only; nothing is created) ────────────────────
+# ── 5. --sandbox-create flag validation (parses only; no clone is created) ────────────────────
 section "5. ai-tools --sandbox-create flag validation"
 for flag in --from --branch --dir; do
     OUT="$("${CLI}" --sandbox-create "${flag}" -oops 2>&1)"; RC=$?
@@ -755,7 +755,7 @@ else
     TASKS_BEFORE="$(session_task_count)"
     note "sandbox slice holds ${TASKS_BEFORE} task(s) outside the user manager's init.scope"
 
-    # The dry run changes nothing, and says so. Safe whether or not a session is running.
+    # The dry run does not change a path, and says so. Safe whether or not a session is running.
     sudo_why "--stop --dry-run enumerates the sandbox account's cgroups"
     OUT="$("${CLI}" --stop --dry-run 2>&1)"; RC=$?
     printf '%s\n' "${OUT}" | sed 's/^/        /'

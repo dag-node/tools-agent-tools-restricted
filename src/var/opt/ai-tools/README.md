@@ -36,7 +36,7 @@ ai-tools --sandbox-create [path] \
 `--branch` takes any valid git ref, so the `sandbox/<leaf>` default is only a
 convention — use `--branch hotfix/urgent`, a flat `--branch mywork`, or any other
 shape. Nothing downstream depends on the name (`--sandbox-push` tracks the clone's
-upstream, not a naming pattern). The default deliberately carries no host or operator
+upstream, not a naming pattern). The default deliberately omits host and operator
 identity; on a shared remote, pass `--branch` to disambiguate concurrent sandboxes.
 
 ## Why this is the boundary

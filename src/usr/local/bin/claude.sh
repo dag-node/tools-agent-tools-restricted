@@ -275,7 +275,7 @@ if [[ "${#excluded[@]}" -gt 0 ]]; then
             # Guarded on the count, not written as "${allowed[@]:-}": an EMPTY array expands
             # that way to one empty element, and "${dir}/"* is then the pattern /* -- which
             # matches every absolute path, so a parked project with no approved entries at all
-            # would report as carved out of nothing.
+            # would report as carved out of an empty set.
             if [[ "${#allowed[@]}" -gt 0 ]]; then
                 for dir in "${allowed[@]}"; do
                     [[ "${cwd}" == "${dir}/"* ]] || continue
@@ -309,7 +309,7 @@ if [[ "${approved}" != true ]]; then
     # the consequence that distinguishes it -- option 1 does not start a session here).
     ai_tools_msg_block "Set up this project for the sandboxed agent" \
         "The agent has no access here yet. Choose how it should work on this project."
-    # No terminal: take Cancel and refuse to launch, without asking. The menu itself carries
+    # No terminal: take Cancel and refuse to launch, without asking. The menu itself has
     # no default (it re-asks, then gives up), so the safe outcome of an unattended or piped
     # run is decided HERE, by the have_tty branch, rather than by a default index.
     sel=3
@@ -368,7 +368,7 @@ fi
 # chgrp or a relabel itself, it only detects, offers, and (on consent) calls the CLI:
 #   ownership  -- group not ai-tools, or no group-execute. The sandbox user runs with
 #                 this dir as its cwd, and Node's posix_spawn then fails EACCES on every
-#                 child (hooks, the Bash tool): the session starts but can do nothing.
+#                 child (hooks, the Bash tool): the session starts but cannot spawn a child.
 #                 FATAL. Closing it grants the agent recursive group access to this real
 #                 tree (a chgrp) -- the heavy LAST-RESORT path; the clean alternative is
 #                 an isolated sandbox clone, recommended first.
@@ -462,7 +462,7 @@ if ${own_gap} || ${label_gap}; then
 elif ${safe_gap}; then
     # Ownership and label hold; the git safe.directory entry is the one piece missing. Offer to
     # register it via the SAFEDIR_BIN sudo helper -- the path reg_safedir uses (see
-    # ai-tools-safedir for the 644/sudo model). Defaults YES (a restrict-nothing change for a
+    # ai-tools-safedir for the 644/sudo model). Defaults YES (a change that takes away no access, for a
     # tree already approved to launch in); a non-interactive launch prints the command instead.
     ai_tools_msg_notice \
         "claude: ${cwd} is not in git safe.directory; git will report \"dubious ownership\" here until it is registered."
@@ -512,7 +512,7 @@ fi
 # dedicated NOTICE in ai-tools-run (services.lib marks it preflight=shim), so it is NOT repeated
 # here. Unlike the safe-paths load above, a health warning is NOT a security gate, so it must never
 # fail the launch closed: a missing lib skips the warning. The print-and-exit path exec'd earlier,
-# so this reaches only a real project launch, and it prints nothing on a healthy host. Each down
+# so this reaches only a real project launch, and it stays silent on a healthy host. Each down
 # service names its consequence (framed) and its exact remedy (plain, below the box so the command
 # stays copy-pasteable -- see messaging.rule.md).
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/services.lib.sh
@@ -538,7 +538,7 @@ export AI_TOOLS_AGENT_EXEC="${CLAUDE_REAL}"
 export AI_TOOLS_PROJECT_DIR="${cwd}"
 # prompt_args (if any) precede "$@": the operator.conf-sourced flag sits before the operator's own
 # arguments. A per-invocation system-prompt flag is detected earlier and suppresses prompt_args, so
-# the two never collide here. The ${arr[@]+"..."} form expands to nothing (not an empty word) when
+# the two never collide here. The ${arr[@]+"..."} form expands to no word at all (not an empty word) when
 # prompt_args is empty, safe under set -u.
 exec sudo -u ai-tools -g ai-tools -- /opt/ai-tools/bin/ai-tools-run \
     ${prompt_args[@]+"${prompt_args[@]}"} "$@"

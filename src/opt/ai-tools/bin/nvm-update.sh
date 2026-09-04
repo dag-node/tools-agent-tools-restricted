@@ -22,9 +22,9 @@
 #   0  the toolchain is current.
 #   1  a fault on this host: something is broken or untrustworthy and it will still be broken on a
 #      retry (no nvm, no curl, an unset alias, a failed signature check).
-#   3  transient: the registry could not be reached, so NOTHING was changed and the previous,
+#   3  transient: the registry could not be reached, so the toolchain was left alone and the previous,
 #      trusted toolchain stays active and installed. The unit retries this one; the stamp records
-#      it as `skipped` rather than a failure, because an offline host has nothing to fix.
+#      it as `skipped` rather than a failure, because an offline host has no fault to fix.
 # The split is deliberately coarse. It is not a diagnosis of why the registry was unreachable -- a
 # disconnected laptop and a registry outage are one state from here -- only of whether a retry is
 # the right response and whether an operator should be alarmed now. A transient condition that
@@ -62,8 +62,8 @@ die()  { echo "ERROR: $*" >&2; printf '%s\n' "$*" | systemd-cat -t "nvm-update-a
 
 # skip <reason-token> <message> : end the run as TRANSIENT (see the header) -- the counterpart to
 # die for a condition this host did not cause and cannot fix, where the correct outcome is that
-# nothing changed. It is a notice, not an error: it exits EXIT_TRANSIENT, so the unit retries it,
-# and records <reason-token> in the stamp, so `ai-tools --status` can say WHY a run did nothing
+# the toolchain is left alone. It is a notice, not an error: it exits EXIT_TRANSIENT, so the unit retries it,
+# and records <reason-token> in the stamp, so `ai-tools --status` can say WHY a run made no change
 # instead of reporting a failure the operator would go looking for.
 skip() { _run_skip_reason="$1"; shift
          echo "SKIP : $*" >&2; printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p notice 2>/dev/null || true
@@ -72,8 +72,8 @@ skip() { _run_skip_reason="$1"; shift
 # write_stamp <exit-code>: record this run's outcome where the operator can read it, in the
 # KEY=value grammar services.lib.sh parses (RESULT, EXIT_CODE, FINISHED, TRIGGER, NODE, and REASON
 # on a skip). RESULT is the exit status classified for a reader: ok / failed / `skipped` for the
-# transient case, which is reported as a run that correctly did nothing rather than as a fault --
-# an offline host has nothing for an operator to fix, and calling it FAILED spends attention that
+# transient case, which is reported as a run that correctly declined to act rather than as a fault --
+# an offline host has no fault for an operator to fix, and calling it FAILED spends attention that
 # a real fault then has to compete with. Installed
 # as the EXIT trap, so it records EVERY exit path -- a die, an uncaught set -e failure, and a clean
 # run alike; without it a failed run is visible only in the sandbox account's journal, which the
@@ -81,9 +81,9 @@ skip() { _run_skip_reason="$1"; shift
 # into a failed unit, so every step tolerates failure and the function always returns 0.
 #
 # TRIGGER says whether SYSTEMD started this run, which is what makes the run evidence about the
-# TIMER rather than only about the update: nvm-update.timer publishes no state an operator session
-# can reach, so `ai-tools --status` infers its health from a run having happened -- and a run this
-# script did by hand proves nothing about a schedule. systemd sets INVOCATION_ID for every unit it
+# TIMER rather than only about the update: no state nvm-update.timer publishes is reachable from an operator
+# session, so `ai-tools --status` infers its health from a run having happened -- and a run this
+# script did by hand is no evidence about a schedule. systemd sets INVOCATION_ID for every unit it
 # starts, so its presence separates the two. A run started by hand THROUGH the manager
 # (`systemctl --user start nvm-update.service`) is indistinguishable from a triggered one and
 # counts as `unit`; the inference is bounded to systemd-started runs, not to scheduled ones.
@@ -93,7 +93,7 @@ skip() { _run_skip_reason="$1"; shift
 # above) -- but it also means the file must already exist, so an absent one is a broken/partial
 # install and is reported as such rather than silently skipped. A single write of the whole text
 # keeps the window in which a reader sees a partial stamp negligible; should one land there anyway,
-# the reader finds no parseable RESULT and reports the unit unknown, never a wrong verdict.
+# the reader sees an unparseable RESULT and reports the unit unknown, never a wrong verdict.
 write_stamp() {
     local rc="$1" result=failed node_version=unknown trigger=manual reason="" text
     case "${rc}" in
@@ -220,7 +220,7 @@ verify_agent_entrypoints() {
 
 # agent_package_version <entrypoint>: print the MAJOR.MINOR.PATCH the package beside the entrypoint
 # declares, walking up to the nearest package.json. Bounded read; anything not semver yields
-# nothing, so a crafted value cannot become part of a URL.
+# an empty string, so a crafted value cannot become part of a URL.
 agent_package_version() {
     local dir="${1%/*}" declared
     for _ in 1 2 3; do
@@ -352,7 +352,7 @@ main() {
         command -v curl >/dev/null 2>&1 || die "curl required to resolve the latest version"
         # The `|| true` is load-bearing, the same way the emitters' is. A BARE assignment takes the
         # exit status of its command substitution, so under `set -e -o pipefail` a registry this host
-        # cannot reach (or a grep that matches nothing) aborts the updater ON THIS LINE -- silently,
+        # cannot reach (or a grep with no match) aborts the updater ON THIS LINE -- silently,
         # since nvm's own error is discarded above and the die below never runs. Absorbing the status
         # here is what lets the emptiness be REPORTED, by the check that was always meant to.
         target_version="$(
@@ -360,7 +360,7 @@ main() {
                 | grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+' \
                 | sort -V | tail -1
         )" || true
-        # Transient, not a fault: nothing here is broken, the registry simply was not reachable, and
+        # Transient, not a fault: no component here is broken, the registry was not reachable, and
         # the host keeps the toolchain it already has. See the header's exit-status contract.
         [[ -n "${target_version}" ]] \
             || skip offline "could not resolve the latest v${major} from nvm ls-remote (registry unreachable) -- keeping ${current_version}; nothing was changed"
@@ -380,8 +380,8 @@ main() {
 
     # The enabled agents -- their npm packages (installed below) and their launchers (repointed
     # at the end) -- come from the manifests via providers.lib.sh, the same seam
-    # ai-tools-bootstrap uses, so this updater names no agent. Guarded load: providers.lib.sh
-    # returns non-zero and defines nothing when its own dependency (conf.lib.sh, the shared
+    # ai-tools-bootstrap uses, so this updater is agent-agnostic. Guarded load: providers.lib.sh
+    # returns non-zero and does not define its resolvers when its own dependency (conf.lib.sh, the shared
     # KEY=value grammar) is missing, so probe the resolver rather than assume the source
     # succeeded -- a bare `source` under set -e would abort the run instead of degrading. A
     # missing lib is a broken install (root-owned, so not agent action): existing agents keep
@@ -428,7 +428,7 @@ main() {
     prune_versions "${node_alias}"
 
     # Refresh the stable launcher symlink each wrapper resolves with one readlink hop -- one per
-    # enabled agent, from the same manifest-resolved set installed above, so the updater names no
+    # enabled agent, from the same manifest-resolved set installed above, so the updater stays agent-agnostic, naming no
     # agent here either. A launcher missing from the new version (an agent whose install failed,
     # or one an operator dropped from AI_TOOLS_AGENTS) is skipped rather than failing the run.
     # /opt/ai-tools/bin is locked 0551 (root:ai-tools) so this process -- running as ai-tools --
@@ -443,7 +443,7 @@ main() {
             continue
         fi
         # Not activated: leaving the stable symlink where it is keeps the previously verified and
-        # pinned version in use, so the next launch works and this run changed nothing for it.
+        # pinned version in use, so the next launch works and this run left it as it was.
         if [[ -n "${entrypoint_blocked[${launcher}]:-}" ]]; then
             warn "not repointing ${AI_TOOLS_BIN}/${launcher}: its new entrypoint is unverified (see above); the previously verified version stays active"
             continue
@@ -462,8 +462,8 @@ main() {
     log "Done. Active: $(nvm version "${node_alias}")"
 
     # Reported LAST, after every agent that did verify has been repointed, so one unverifiable
-    # agent never strands another. TRANSIENT rather than failed: nothing is broken and nothing
-    # changed for that agent. It goes through the stamp because that is the only channel an
+    # agent never strands another. TRANSIENT rather than failed: no component is broken and that
+    # agent is left as it was. It goes through the stamp because that is the only channel an
     # operator session can read at all -- see the stamp's own section in this file's header.
     (( entrypoint_unverified == 0 )) \
         || skip unverified "${entrypoint_unverified} agent entrypoint(s) could not be verified against their vendor's signed release manifest -- not activated; the previously verified version stays in use"

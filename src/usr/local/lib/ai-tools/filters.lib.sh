@@ -10,7 +10,7 @@
 # the agent may run: the harness re-evaluates its own permission rules on the rewritten command,
 # so a rewrite can neither reach past a deny rule nor silence a prompt. Every failure direction
 # here -- an untrusted rules file, an unparseable line, a command the engine does not fully
-# understand -- yields NO rewrite, which costs tokens and changes nothing else.
+# understand -- yields NO rewrite, which costs tokens and changes the command in no other way.
 #
 # ── Rules are data ───────────────────────────────────────────────────────────────────────────
 # One rule set per package, /usr/local/lib/ai-tools/filters.d/<name>.rules, root-owned and
@@ -22,7 +22,7 @@
 #               wrap -- prepend <payload> as a wrapper command (rtk and the like)
 #   blocking    words that cancel the rule when the command already carries one, so a rule never
 #               overrides a flag the agent chose; commas and whitespace both separate, and a
-#               lone `-` means "nothing blocks this rule"
+#               lone `-` means "no flag blocks this rule"
 #   payload     verbatim shell text, inserted as written -- root-owned data, so unlike the
 #               agent's command it may carry quotes
 #
@@ -50,9 +50,9 @@
 #   key present -> exactly the named sets; an EMPTY value is the kill switch, no filtering at all
 #                  -- ai_tools_filter_enabled is that verdict, and an adapter gates its noise
 #                  strip on it too, so the switch really does turn off every transform
-# An untrusted operator.conf or filters.d is ignored, which likewise yields no filtering. Rule
+# An untrusted operator.conf or filters.d is ignored, which likewise leaves the command unfiltered. Rule
 # sets are not gated on provider enablement: a rule is inert unless the agent runs the command it
-# matches, so the gate would buy nothing and this runs on every Bash call.
+# matches, so the gate would have no effect and this runs on every Bash call.
 
 # Include guard: an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and
 # trips the sourcing shell's set -e.
@@ -62,8 +62,9 @@ fi
 
 # conf.lib.sh is REQUIRED: it carries the trust predicate that decides whether a rules file may be
 # read at all, and the grammar AI_TOOLS_FILTERS is written in. Without it this file can neither
-# tell a root-owned rule set from a planted one nor read the kill switch, so it defines NOTHING
-# and returns non-zero -- the adapter's `source ... && declare -F` guard then filters nothing.
+# tell a root-owned rule set from a planted one nor read the kill switch, so it defines NO FUNCTION
+# and returns non-zero -- the adapter's `source ... && declare -F` guard then leaves the command
+# unfiltered.
 # shellcheck source=SCRIPTDIR/conf.lib.sh
 if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
         || ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1 \
@@ -219,7 +220,7 @@ ai_tools_filter_rules_load() {
     local set_name
     for set_name in "${rule_sets[@]}"; do
         # Allowlist the name before it becomes a path, as the manifest resolver does: rule-set
-        # names are plain identifiers, so nothing here can address a file outside filters.d.
+        # names are plain identifiers, so no value here can address a file outside filters.d.
         [[ "${set_name}" =~ ^[A-Za-z0-9._-]+$ && "${set_name}" != *..* ]] || continue
         [[ -e "${AI_TOOLS_FILTERS_DIR}/${set_name}.rules" ]] || continue
         _ai_tools_filter_load_file "${AI_TOOLS_FILTERS_DIR}/${set_name}.rules" || true
@@ -228,7 +229,7 @@ ai_tools_filter_rules_load() {
 }
 
 # ai_tools_filter_rewrite <command> : print the rewritten command and return 0 when a loaded rule
-#   applies and actually changes it; return 1 printing nothing otherwise (the pass-through case,
+#   applies and actually changes it; return 1 printing no command otherwise (the pass-through case,
 #   which is every failure direction). Call ai_tools_filter_rules_load first.
 ai_tools_filter_rewrite() {
     local command="${1-}"
@@ -259,7 +260,7 @@ ai_tools_filter_rewrite() {
 # ai_tools_filter_strip_noise : copy stdin to stdout with terminal control noise removed -- ANSI
 #   CSI and OSC sequences, stray escapes, and carriage-return redraws collapsed to the final state
 #   a terminal would have shown. Byte-level noise only: no line is dropped, truncated, reordered
-#   or summarized, so nothing the model would have read is lost. The one real cost is a line that
+#   or summarized, so every line the model would have read survives. The one real cost is a line that
 #   uses a carriage return as data rather than as a redraw (CR-only line endings), which keeps
 #   only its last segment.
 ai_tools_filter_strip_noise() {

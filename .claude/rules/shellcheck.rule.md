@@ -39,8 +39,8 @@ The `source` directives are lint-only; the runtime load gates. A missing critica
 fails closed. `conf.lib.sh` shows the three shapes that takes, chosen by what the consumer
 loses without it: `providers.lib.sh` **requires** it (without the shared grammar and the
 trust predicate it can neither parse a manifest nor tell a trusted input from a planted
-one), so it returns non-zero and defines nothing, and each consumer loads it as
-`source … && declare -F <resolver>` and resolves no providers on failure;
+one), so it returns non-zero and does not define any resolver, and each consumer loads it as
+`source … && declare -F <resolver>` and falls back on failure;
 `operator.lib.sh` fails closed *by consequence* — no parser means no operators resolved,
 and "no owner" already stops a handback; `skip-dirs.lib.sh` fails **soft**, keeping its
 compiled-in defaults, because a skip list is a walk-cost optimization and not an access
@@ -64,8 +64,8 @@ fail-closed (`exit 1` if it will not load) rather than degrade to emitting a pat
 
 ## Accepted findings
 
-These stay reported and are correct as written; the rationale lives here so the code carries
-no per-line disable for them.
+These stay reported and are correct as written; the rationale lives here so the code does not need
+a per-line disable for them.
 
 - **SC2053** — unquoted right-hand side of `==` in `[[ ]]`. The secret-name and
   protected-path loops match a value against a *pattern* (`[[ "${base}" == ${pat} ]]`), and

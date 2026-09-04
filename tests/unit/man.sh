@@ -231,7 +231,7 @@ check_admin_page() {
     # splits its dispatch across nested `case` statements -- one per domain and collection -- so
     # a whole path never appears in a single arm. Each TOKEN of a documented path must therefore
     # be an arm somewhere in the helper, which catches the rename (`postupgrade` -> `post-upgrade`
-    # leaves the old token matching nothing) without asserting where in the nesting it sits.
+    # leaves the old token matching no heading) without asserting where in the nesting it sits.
     arms="$(grep -oE '^[[:space:]]+[a-z][a-z0-9-]*\)' "${ADMIN}" | tr -d ' )' | sort -u)"
     if [[ -z "${arms}" || -z "${man_cmds}" ]]; then
         fail "could not extract the dispatch arms or the man command set"

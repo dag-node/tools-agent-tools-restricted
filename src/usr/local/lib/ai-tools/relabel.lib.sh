@@ -138,7 +138,7 @@ _ai_tools_is_sandbox() { [[ "$1/" == "${AI_TOOLS_SANDBOX_ROOT}/"* ]]; }
 # -- is one a plain `restorecon` deliberately PRESERVES. Only `-F` resets those to the project
 # type. Skipping it leaves such a file unreadable to the confined agent (ai_tools_t), whose startup
 # workspace walk then denies on every one -- a per-file AVC that setroubleshootd amplifies into a
-# host-wide CPU flood. `-F` rewrites nothing already correct (restorecon compares before it writes,
+# host-wide CPU flood. `-F` does not rewrite a path that is already correct (restorecon compares before it writes,
 # so it is idempotent on a matching context and costs the same walk either way), so forcing pays
 # only for the drifted files it fixes.
 #
@@ -159,7 +159,7 @@ ai_tools_label_project() {
     # Post-condition: verify the achieved label, do not trust restorecon's exit code. restorecon
     # exits 0 whenever it could WRITE a context -- including when the context it wrote is the wrong
     # type because no fcontext rule matched the path (a rule keyed on a prefix that libselinux
-    # aliases away, e.g. `/var/opt` -> `/opt` via file_contexts.subs_dist, matches nothing and
+    # aliases away, e.g. `/var/opt` -> `/opt` via file_contexts.subs_dist, does not match a path and
     # leaves the tree on its default type). Left unchecked that is a silent mislabel the confined
     # agent cannot use; treat it as a hard failure the caller reports rather than a false success.
     ai_tools_project_labelled "${dir}" || return 1
@@ -184,7 +184,7 @@ ai_tools_unlabel_project() {
 # `semanage fcontext` entries rather than carried in the base policy module:
 #
 #   entrypoint_fcontext -> ai_tools_exec_t   the launcher binary. Without this label its exec
-#                                            fires no domain transition and the session would run
+#                                            does not perform a domain transition and the session would run
 #                                            unconfined (ai-tools-run refuses to launch instead).
 #   config_dir          -> ai_tools_home_t   the agent's control-plane directory. Without it the
 #                                            confined session cannot write its own state (the
@@ -229,9 +229,9 @@ _ai_tools_entrypoint_path_reportable() {
 # ai_tools_entrypoint_reconcile_verdict <installed-path> <covered> <matched>: pure verdict, no I/O
 #   -- reconcile what an agent's manifest DECLARES against what its package actually INSTALLED,
 #   and print one of:
-#     ok     the declared rule governs the installed entrypoint (or nothing is installed and the
+#     ok     the declared rule governs the installed entrypoint (or no entrypoint is installed and the
 #            rule matched a file anyway -- another Node version's copy, mid-upgrade)
-#     none   nothing is installed and nothing matched: the agent is simply not provisioned yet
+#     none   no entrypoint is installed and the rule matched no file: the agent is not provisioned yet
 #     stale  an entrypoint IS installed and the declared rule does not cover it
 #   <installed-path> is the file the agent's launcher symlink resolves to, empty when it does not
 #   resolve; <covered> is whether that file was among the pattern's matches; <matched> is whether
@@ -260,7 +260,7 @@ ai_tools_entrypoint_reconcile_verdict() {
 
 # _ai_tools_entrypoint_policy_active: succeed when there is an ai_tools_exec_t to assign, i.e.
 #   SELinux is on, the labelling tools are present, and the ai_tools module is loaded. Where it
-#   fails there is nothing to label and that is not an error -- the SELinux layer is optional.
+#   fails there is no entrypoint to label and that is not an error -- the SELinux layer is optional.
 _ai_tools_entrypoint_policy_active() {
     ai_tools_relabel_available || return 1
     command -v semanage >/dev/null 2>&1 || return 1
@@ -334,7 +334,7 @@ _ai_tools_entrypoint_paths() {
 #   the three cannot disagree about which file is the entrypoint. Runs as root, which can traverse
 #   the 0750 toolchain the chain ends in.
 #
-#   Prints nothing and returns non-zero when the agent declares no usable launcher name, the link
+#   Prints an empty string and returns non-zero when the agent does not declare a usable launcher name, the link
 #   does not resolve (the agent is not provisioned -- the ordinary pre-bootstrap state), or the
 #   result is not reportable. The launcher name is allowlisted to one plain component before it
 #   becomes a path, the same guard ai_tools_agent_manifest_field applies to an agent name, so a
@@ -370,7 +370,7 @@ _ai_tools_verify_label() {
 #
 #   The declared pattern stays the mechanism that APPLIES the label, because a `semanage fcontext`
 #   rule is what makes the type survive a later restorecon -- resolution alone would relabel an
-#   inode nothing keeps labelled. Resolution is what CHECKS the result, so this helper's exit
+#   inode no rule keeps labelled. Resolution is what CHECKS the result, so this helper's exit
 #   status answers the question the operator actually asked: will the next launch be confined?
 _ai_tools_label_agent_entrypoint() {
     local agent="$1" pattern path status=0 matched=no installed covered=no
@@ -399,8 +399,8 @@ _ai_tools_label_agent_entrypoint() {
     done < <(_ai_tools_entrypoint_paths "${pattern}")
 
     case "$(ai_tools_entrypoint_reconcile_verdict "${installed}" "${covered}" "${matched}")" in
-        # 3, not 0: the rule registered and nothing failed, but no file took the type because none
-        # is installed yet. The caller reports that as "nothing to label" rather than as labels
+        # 3, not 0: the rule registered and no step failed, but no file took the type because none
+        # is installed yet. The caller reports that as "nothing to label" rather than as labels  prose-check: allow
         # applied, which on an unprovisioned host is the difference between a true report and a
         # green line for work that did not happen.
         none)  printf 'none %s its entrypoint\n' "${agent}"
@@ -448,7 +448,7 @@ _ai_tools_label_agent_config_dir() {
 #     stale <agent> <installed-path>   an entrypoint IS installed and the agent's declared rule
 #                                      does not cover it, so no relabel can label it -- the
 #                                      agent package's manifest has to be updated
-#     skip  <agent> <reason...>        nothing to apply, or a declaration was refused
+#     skip  <agent> <reason...>        no rule to apply, or a declaration was refused
 #     agent <agent> <ok|failed|none>   that agent's whole outcome, closing its lines: every path it
 #                                      declares took its type, one of them did not, or neither is
 #                                      installed to label. This is what ai-tools-relabel-agent
@@ -457,7 +457,7 @@ _ai_tools_label_agent_config_dir() {
 #                                      toolchain they cannot read.
 #   Returns 0 when every path it managed is correctly labelled, 1 when one is not, a rule could
 #   not be registered, or a declaration is stale, and 2 when the SELinux layer is inactive
-#   (nothing to do).
+#   (no work to do).
 ai_tools_label_agent_paths() {
     _ai_tools_entrypoint_policy_active || return 2
     declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 2
@@ -483,9 +483,9 @@ ai_tools_label_agent_paths() {
 
 # ai_tools_unlabel_agent_paths <agent>: drop that agent's declared file-context rules and restore
 #   default labels on what they matched -- the erase-time counterpart, so a removed agent package
-#   leaves no rule behind for types its host may no longer define. Reads the manifest, so it runs
+#   leaves behind no rule for types its host may stop defining. Reads the manifest, so it runs
 #   while that package's files are still present (rpm %preun). Returns 2 when the SELinux layer is
-#   inactive, 1 when the agent declares nothing usable, 0 otherwise.
+#   inactive, 1 when the agent does not declare a usable value, 0 otherwise.
 ai_tools_unlabel_agent_paths() {
     local agent="$1" pattern config_dir path dropped=1
     _ai_tools_entrypoint_policy_active || return 2
@@ -517,7 +517,7 @@ ai_tools_unlabel_agent_paths() {
 
 # ai_tools_project_labelled <dir>: 0 if <dir>'s root currently carries
 # ai_tools_project_t. A cheap, read-only state check for idempotent callers -- it
-# inspects the live label, makes no policy change, and needs no privilege.
+# inspects the live label, leaves the policy alone, and does not need privilege.
 ai_tools_project_labelled() {
     local ctx
     ctx="$(ls -Zd "$1" 2>/dev/null | awk '{print $1}')" || return 1

@@ -8,7 +8,7 @@
 # security-critical properties -- credential names match, matching is case-insensitive, and
 # environment/name-anchored .NET configs match while plain configs and build artifacts the
 # toolchain must read do NOT (a false positive quarantines a build input and breaks the
-# build). Run as root via sudo (the suite contract); needs no privilege of its own.
+# build). Run as root via sudo (the suite contract); does not need privilege of its own.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"

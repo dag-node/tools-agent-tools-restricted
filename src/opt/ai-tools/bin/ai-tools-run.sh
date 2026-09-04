@@ -19,7 +19,7 @@
 # re-resolves it immediately before the launch. What that window is, and why it is a DAC-only
 # concern, are in launch.rule.md.
 #
-# It names no agent. Which executables may launch, what environment each session gets, and
+# It is agent-agnostic. Which executables may launch, what environment each session gets, and
 # whether the session's ownership handback needs driving from here come from the root-owned
 # provider manifests under /usr/local/lib/ai-tools/agents.d and the session-env fragments under
 # /usr/local/lib/ai-tools/session-env.d.
@@ -182,7 +182,7 @@ resolve_entrypoint() {
 #   size, and ctime at nanosecond precision. Each of the three ways a same-uid process can swap an
 #   entrypoint moves it: a symlink repoint and a rename-over both land a different inode, and an
 #   in-place write bumps ctime (which no unprivileged caller can roll back -- utimes(2) sets atime
-#   and mtime, never ctime). Prints nothing when the path cannot be stat'd, which compares unequal.
+#   and mtime, never ctime). Prints an empty string when the path cannot be stat'd, which compares unequal.
 entrypoint_identity() {
     stat -c '%d:%i:%s:%z' -- "$1" 2>/dev/null || true
 }
@@ -230,11 +230,11 @@ if command -v getenforce >/dev/null 2>&1; then
         expected_label="$(matchpathcon -n "${entrypoint_path}" 2>/dev/null | awk -F: '{print $3}' || true)"
         actual_label="$(stat -c '%C' -- "${entrypoint_path}" 2>/dev/null | awk -F: '{print $3}' || true)"
         # Module presence for the verdict, WITHOUT reading the root-only module store: this runs as
-        # @SANDBOX_USER@, so `semodule -l` returns nothing -- a systematic false "no" that, on the
+        # @SANDBOX_USER@, so `semodule -l` returns an empty list -- a systematic false "no" that, on the
         # unresolved-label branch, would fail OPEN (launch DAC-only where a half-installed host must
         # refuse). A CORE-owned path resolves to an ai_tools_* type IFF the core module's
         # file-contexts are live, and matchpathcon reads the world-readable file-contexts from the
-        # path string, so the probe needs no privilege and the agent cannot influence it. This
+        # path string, so the probe does not need privilege and the agent cannot influence it. This
         # distinguishes a half-installed host (module live, entrypoint unlabelled -> refuse) from a
         # DAC-only host (module absent -> launch), which the store read could not from this account.
         module_present="$(ai_tools_confinement_module_present \
@@ -313,7 +313,7 @@ fi
 # ownership". This is NOT a confinement boundary -- DAC, the ai_tools_t type, and the project's
 # user:<operator> ACL keep the operator's access intact regardless -- so a down socket WARNS and
 # proceeds rather than refusing the launch (a refusal would trade availability for a non-security
-# convenience). Skipped for a diagnostic run with no project directory, which writes nothing to
+# convenience). Skipped for a diagnostic run with no project directory, which writes to no project under
 # hand back. The reconcile commands are printed plain, below the frame, so they stay paste-safe.
 readonly HANDBACK_SOCKET="/run/ai-tools/handback.sock"
 if [[ -n "${session_working_directory}" && ! -S "${HANDBACK_SOCKET}" ]]; then
@@ -325,7 +325,7 @@ if [[ -n "${session_working_directory}" && ! -S "${HANDBACK_SOCKET}" ]]; then
 fi
 
 # ── Session environment ──────────────────────────────────────────────────────────────────────
-# A service unit is spawned by the user manager with ITS OWN environment, so nothing crosses
+# A service unit is spawned by the user manager with ITS OWN environment, so no variable crosses
 # into the session unless named here. Only terminal-, locale-, and connectivity-shaping
 # variables are forwarded by name; the operator's API keys, tokens, SSH_AUTH_SOCK, and cloud
 # credentials stay out by construction, independent of sudo's env_reset/env_keep.
@@ -401,12 +401,12 @@ session_environment_options+=( "--setenv=PATH=${session_path}" )
 #
 # The walk only chooses which paths to OFFER: each one goes through the handback socket to
 # ai-tools-chown, which re-validates the allowlist, the exclusions, and the born-owner guard as
-# root, so this reaches nothing the hooks could not.
+# root, so this sweep cannot reach a path the hooks could not.
 readonly HANDBACK_CLIENT="/usr/local/bin/ai-tools-handback-client"
 
 # Directory-skip selector, shared with the hooks and the root helpers. Fail-SOFT by its own
 # design -- a skip list is walk cost, not an access boundary -- so a missing lib leaves a stub
-# that skips nothing: a slower, more thorough sweep, never a narrower one.
+# that descends everywhere: a slower, more thorough sweep, never a narrower one.
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/skip-dirs.lib.sh
 source "${AI_TOOLS_LIB_DIR}/skip-dirs.lib.sh" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
@@ -418,13 +418,13 @@ sweep_project_ownership() {
     [[ -n "${session_working_directory}" && -d "${session_working_directory}" ]] || return 0
     [[ -x "${HANDBACK_CLIENT}" ]] || return 0
     # A down socket fails every CHOWN, so skip the walk and record that once, rather than logging
-    # a reassuring count of calls that changed nothing (the failure mode this whole change fixes).
+    # a reassuring count of calls that changed no ownership (the failure mode this whole change fixes).
     if [[ ! -S "${HANDBACK_SOCKET}" ]]; then
         audit warning "session-end sweep skipped: handback socket ${HANDBACK_SOCKET} is down -- files under ${session_working_directory} stay @SANDBOX_USER@-owned (reclaim with: ai-tools --reclaim ${session_working_directory})"
         return 0
     fi
     # The "reclaim" consumer omits the heavy dependency/build trees but WALKS .git -- the tree
-    # the per-turn hooks skip, and which nothing else on this path would reach.
+    # the per-turn hooks skip, and which no other pass on this path would reach.
     ai_tools_skip_find_expr reclaim '' "${session_working_directory}"
     # Count CONFIRMED handbacks (client exit 0), not attempts, so the audit line reflects what
     # actually changed owner; a non-zero exit is either a routine skip (a path the root helper

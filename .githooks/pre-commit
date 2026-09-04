@@ -8,8 +8,10 @@
 # prose occasionally, and a hook that refuses a commit over a style call is a hook developers
 # turn off. It reports, the author decides.
 #
-# Only the added lines are read, so the ~650 findings already in the tree stay out of every
-# commit until a sweep addresses them.
+# Only the added lines are read. The tree is clean on these checks, so a hit here is something
+# this commit introduces. A sentence split across a changed and an unchanged line is
+# joined from the changed half alone, which is the one shape that reports a false hit; re-run the
+# checker over the whole file before rewriting.
 #
 # Not installed automatically -- enable once per clone with `make -C packaging hooks`
 # (sets core.hooksPath to .githooks).

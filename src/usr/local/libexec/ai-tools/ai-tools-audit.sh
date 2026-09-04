@@ -8,7 +8,7 @@
 # The detections already exist and are already recorded -- what they lacked was a
 # reader, and a detection nobody reads is decoration.
 #
-# It INVENTS no detection and parses no per-case wording. The root-only file sink already
+# It does not invent a detection, nor parse per-case wording. The root-only file sink already
 # encodes severity in its line format (`<ts> <LEVEL> [<pid>] <msg>`, written by log.lib.sh and,
 # in the same format, by the handback daemon), so a finding is simply a line at NOTICE or above.
 # That is what keeps this from drifting: a helper that adds a new warning is reported here the
@@ -22,7 +22,7 @@
 # own account of itself, reportable but not proof, and are shown in a separately titled section
 # rather than mixed into the first (see .claude/rules/logging.rule.md).
 #
-# Root-only: the file sink is unreadable to anyone else, so there is nothing for a non-root
+# Root-only: the file sink is unreadable to anyone else, so there is no trail for a non-root
 # caller to do here. Reached through `sudo ai-tools --audit` with no NOPASSWD grant, like
 # ai-tools-lockdown and ai-tools-reclaim.
 #
@@ -45,7 +45,7 @@ readonly DEFAULT_SINCE='7 days ago'
 
 readonly SANDBOX_USER='@SANDBOX_USER@'
 
-# Shared leveled logger. This helper WRITES no audit line of its own -- reading a trail is not
+# Shared leveled logger. This helper does not write an audit line of its own -- reading a trail is not
 # an event worth adding to it -- but it uses the sanitizer, which reduces a log line to
 # safe-for-display characters before it reaches the operator's terminal. That is load-bearing
 # here, not decorative: every line this command prints came from a file recording
@@ -97,7 +97,7 @@ readonly SINCE_DISPLAY
 # ── The authoritative source: the root-only file sink ────────────────────────────────────────
 # collect_file_findings -- PRINT one `<component>|<timestamp>|<level>|<message>` per finding.
 # Two passes by design: a cheap severity grep over the whole file, then a date comparison only
-# on the lines that survived it. Findings are rare, so the expensive half runs on almost nothing.
+# on the lines that survived it. Findings are rare, so the expensive half runs on almost no line.
 collect_file_findings() {
     local log_file component line entry_timestamp entry_level entry_epoch entry_message
     for log_file in "${AI_TOOLS_LOG_DIR}"/*.log; do
@@ -123,7 +123,7 @@ collect_file_findings() {
 # ai-tools-run recorded, in the same shape as a file finding so it collapses through the same
 # renderer: a refusal that recurs on every launch attempt would otherwise flood the report
 # exactly as the handback lines did. Filtered by the sandbox account's uid as every documented query is: the tag alone
-# attributes nothing, and here the legitimate writer IS the account under scrutiny -- which is
+# does not establish identity, and here the legitimate writer IS the account under scrutiny -- which is
 # exactly why these are reported apart from the file sink's evidence.
 collect_launch_refusals() {
     local sandbox_uid line entry_timestamp entry_message
@@ -149,11 +149,11 @@ collect_launch_refusals() {
 # one line per occurrence -- the handback daemon's refusals alone run to hundreds over a week on
 # a host that exercises them -- and a report that lists each one buries the single ERROR that
 # needs acting on under a wall of a condition already understood. That is the same reason INFO
-# is out of scope entirely: an audit nobody finishes reading reports nothing.
+# is out of scope entirely: an audit nobody finishes reading is one nobody acts on.
 #
 # Findings are grouped by their message with digit runs replaced by `#`, so occurrences that
 # differ only in a pid, a count, or a timestamp collapse into one line carrying the number of
-# times it happened and the most recent example in full. Nothing is hidden -- the count states
+# times it happened and the most recent example in full. No occurrence is hidden -- the count states
 # what was folded, and the underlying files are named above.
 #
 # Ordering is by severity first and recency second, because those are the two questions actually

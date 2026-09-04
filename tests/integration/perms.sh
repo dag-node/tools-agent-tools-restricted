@@ -80,16 +80,16 @@ check_file /usr/local/lib/ai-tools/npm-verify.lib.sh         root              r
 check_file /usr/local/lib/ai-tools/entrypoint-verify.lib.sh  root              root              644
 check_file /usr/local/lib/ai-tools/keys/claude-code.asc      root              root              644
 # Shared KEY=value grammar + the trust predicate: 644 root:root -- world-readable, sourced by
-# operator.lib.sh, skip-dirs.lib.sh and providers.lib.sh; carries no secrets.
+# operator.lib.sh, skip-dirs.lib.sh and providers.lib.sh; does not carry secrets.
 check_file /usr/local/lib/ai-tools/conf.lib.sh               root              root              644
 # Provider/agent resolver: 644 root:root -- world-readable, sourced by ai-tools-bootstrap and
-# nvm-update (both run as the sandbox account) to read the agent manifests; carries no secrets.
+# nvm-update (both run as the sandbox account) to read the agent manifests; does not carry secrets.
 check_file /usr/local/lib/ai-tools/providers.lib.sh          root              root              644
 # Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by
-# ai-tools-admin and selinux/install-selinux.sh (both root); read-only data, carries no secrets.
+# ai-tools-admin and selinux/install-selinux.sh (both root); read-only data, does not carry secrets.
 check_file /usr/local/lib/ai-tools/selinux-groups.lib.sh     root              root              644
 # Command-filter engine: 644 root:root -- world-readable, sourced by an agent's filter hook, which
-# runs AS the agent on every Bash call; read-only data plus pure logic, carries no secrets.
+# runs AS the agent on every Bash call; read-only data plus pure logic, does not carry secrets.
 check_file /usr/local/lib/ai-tools/filters.lib.sh            root              root              644
 # Service-health registry: 644 root:root -- world-readable, sourced by the operator launch wrapper
 # and the CLI (--status); read-only data, no secrets.
@@ -166,7 +166,7 @@ check_file /opt/ai-tools/.claude/settings.json               root              "
 # ai-tools is a group-writer for its own state but cannot unlink/replace the root-owned control
 # files above. Owned by ai-tools, or without the sticky bit, the agent could delete and recreate
 # them. The set of directories comes from the manifests (control-plane.lib.sh), so a second agent
-# is covered here without editing this list; a host with none asserts nothing and says so.
+# is covered here without editing this list; a host with none skips and says so.
 # The SHARED asset roots: base-owned, agent-readable, NOT agent-writable. Every agent symlinks
 # into them, so a writable root here would let one session rewrite the instructions -- or the
 # delegate definitions -- every agent and every future session reads.
@@ -283,12 +283,12 @@ check_file /var/opt/ai-tools/README.md                        root              
 check_file /var/opt/ai-tools/state                            root              "${SANDBOX_GROUP}" 750
 check_file_optional /var/opt/ai-tools/state/nvm-update.status "${SANDBOX_USER}" ai-ops            640
 # The entrypoint pins. root:root and not group-writable, unlike the stamp beside them: a stamp
-# reports and gates nothing, while a pin is what the launch compares the agent binary against, so
+# reports and does not gate a launch, while a pin is what the launch compares the agent binary against, so
 # the account it constrains must not be able to write it.
 check_file /var/opt/ai-tools/state/entrypoint-pin.d           root              root              755
 check_file /var/opt/ai-tools/state/entrypoint-label.d         root              root              755
 # Sandbox-area operator ACL: ai-ops reaches the area without SANDBOX_GROUP membership -- traverse
-# on the outer dir, rwX + default on sandbox-projects. The agent (not in ai-ops) gains nothing.
+# on the outer dir, rwX + default on sandbox-projects. The agent (not in ai-ops) does not gain access.
 if ! command -v getfacl >/dev/null 2>&1; then
     skip "sandbox-area ai-ops ACL" "getfacl not available"
 elif getfacl -p /var/opt/ai-tools 2>/dev/null | grep -qE '^group:ai-ops:r-x' \
@@ -340,7 +340,7 @@ fi
 # env_keep surface: ai-tools-run re-validates AI_TOOLS_AGENT_EXEC/AI_TOOLS_PROJECT_DIR (ai-tools-run.sh test),
 # which is the real defense, but the drop-in's per-command env_keep should pass through ONLY
 # those two -- a widened list would smuggle attacker-influenced env into the launch path. Pin it:
-# every env_keep in the file names exactly AI_TOOLS_AGENT_EXEC and AI_TOOLS_PROJECT_DIR, nothing else.
+# every env_keep in the file names exactly AI_TOOLS_AGENT_EXEC and AI_TOOLS_PROJECT_DIR, and no other name.
 if [[ -r /etc/sudoers.d/ai-tools ]]; then
     ek_extra="$(grep -oE 'env_keep[[:space:]]*\+?=[[:space:]]*"[^"]*"' /etc/sudoers.d/ai-tools \
         | grep -oE '"[^"]*"' | tr -d '"' | tr ' ' '\n' \

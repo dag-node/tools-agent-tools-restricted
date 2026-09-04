@@ -80,7 +80,7 @@ sudo ai-tools-bootstrap
 sudo ai-tools-admin operators add "$(id -un)"   # every host command: man ai-tools-admin
 
 # 3. Make a project and launch in it. --project-create makes the directory, initializes a
-#    git repository, and claims it -- one command, no prompts, nothing pre-existing to
+#    git repository, and claims it -- one command, no prompts, no pre-existing content to
 #    review. `ai-tools --help` lists every command.
 ai-tools --project-create ~/src/demo
 cd ~/src/demo && claude
@@ -100,7 +100,7 @@ back. All of it is in [docs/project-lifecycle.md](docs/project-lifecycle.md).
 
 ### Upgrading
 
-Upgrade in place with ordinary DNF — never `dnf remove` first:
+Upgrade in place with ordinary DNF, without a `dnf remove` first:
 
 ```bash
 sudo dnf upgrade --refresh 'ai-tools*'
@@ -110,8 +110,8 @@ sudo dnf upgrade --refresh 'ai-tools*'
 predate a just-published release, so a plain `dnf upgrade` may report "Nothing to do" on a
 stale cache even when `dnf list` (a newer cache) already shows the new version. This moves
 every **installed** ai-tools package to the new version, and a host running `dnf-automatic`
-does the same unattended once its cache refreshes on schedule. What it does **not** do is add a package you don't
-already have: DNF never pulls a new weak dependency onto an existing install. So a host first
+does the same unattended once its cache refreshes on schedule. What it does **not** do is add a package
+you don't already have, because DNF leaves a new weak dependency off an existing install. So a host first
 installed before 0.10.0 — when the SELinux policy split into its own `ai-tools-selinux`
 package — keeps upgrading *without* confinement until you add it once:
 
@@ -185,7 +185,7 @@ of what it can ever send:
 - **Shared skills, one copy** — the documentation and engineering-judgment skills the project
   ships live once in `/opt/ai-tools/skills`; each agent's config directory holds a symlink per
   skill, so a skill is authored and updated in one place however many agents read it, and an
-  agent-specific skill is simply a real directory that the linker never displaces. See
+  agent-specific skill is a real directory, which the linker keeps in place. See
   `/usr/share/ai-tools/skills/README.md`.
 - **Operation logging** — the `sudo` helpers, the lifecycle hooks, the `ai-tools`
   CLI, and `install.sh` log through one library to **journald** (always, leveled and
@@ -194,11 +194,11 @@ of what it can ever send:
 - **A working stop** — `ai-tools --stop` terminates every agent session on the host and
   everything it spawned, with no password to answer, so an unattended detector can reach it too. (To finish a session you are done with, use `/exit` inside it, which lets
   it run its own ownership handback.) Sessions are found and killed by **cgroup**, so a child that
-  called `setsid(2)` or double-forked goes with them, and success means verified gone from the
-  kernel's view rather than from systemd's. It takes no path and no authorization input, and
-  exempts no cgroup — a stop path the session can put itself outside of is not a stop path — so the
-  sandbox account's own user manager is terminated too and restarted afterwards. The session takes
-  no part in any of it: the account it runs as can neither invoke, read nor alter the helper. What
+  called `setsid(2)` or double-forked goes with them, and success means the kernel reports the
+  processes gone, not systemd. It does not take a path or an authorization input, and sweeps every cgroup
+  under the sandbox account, so the account's own user manager is terminated too and restarted afterwards —
+  a session cannot put itself outside the sweep. The session does not take part in any of it: the
+  account it runs as can neither invoke, read nor alter the helper. What
   each outcome means and what a stop cannot undo are in
   [docs/session-stop.md](docs/session-stop.md).
 - **Auto-updating** — a `systemd --user` timer in `${SANDBOX_USER}`'s own instance keeps
@@ -221,7 +221,7 @@ Each of those refusals is tested from both ends: once that the refusal fires, an
 > files get ownership restored — it is not a kernel-enforced read boundary. The CWD is
 > canonicalized before it is checked, so a symlink cannot slip a path past it. Once running
 > as `${SANDBOX_USER}`, ordinary Unix permissions plus the `ai_tools_t` SELinux type govern
-> access; that is what actually isolates the agent from other users' files. A per-session
+> access; that is the boundary isolating the agent from other users' files. A per-session
 > `bubblewrap` mount namespace to make the allowlist a true access boundary is proposed but
 > not yet implemented.
 
@@ -234,8 +234,8 @@ in [`CLAUDE.md`](CLAUDE.md#boundaries-and-non-goals).
 
 The agent binary itself is verified against the checksum its vendor **signed**, using a key shipped
 in the package rather than downloaded, and the verified value is pinned where the sandbox account
-cannot write it — so a binary modified after installation refuses to launch. It needs no per-release
-maintenance and no network at launch; what it checks, what each failure means, and how it behaves on
+cannot write it — so a binary modified after installation refuses to launch. It does not need any
+per-release maintenance and does not reach the network at launch; what it checks, what each failure means, and how it behaves on
 an air-gapped host are in
 [docs/entrypoint-verification.md](docs/entrypoint-verification.md).
 
@@ -253,7 +253,7 @@ spec is in [`docs/naming-conventions.md`](docs/naming-conventions.md).
 | Sandbox user | `SANDBOX_USER` / `@SANDBOX_USER@` | `ai-tools` | the unprivileged service account Claude Code runs as |
 | …its group | `SANDBOX_GROUP` / `@SANDBOX_GROUP@` | `ai-tools` | the sandbox user's group |
 
-The package and `install.sh` resolve these automatically — you never type them. The
+The package and `install.sh` resolve these automatically — you do not type them. The
 `@…@` token form is what the shipped templates carry; the RPM `%prep` and `install.sh`
 substitute it to `ai-tools` at build/deploy time, and the RPM creates the account from a
 `sysusers.d` entry (`u ai-tools …`) with no prompt, so the name is **not** an install-time
@@ -394,12 +394,12 @@ privileged action is attributable at the socket layer. Root-only log files: `cho
 
 The optional confinement layer puts the session in its own domain, `ai_tools_t`, on top of the
 file permissions that already isolate it. It ships **prebuilt and enforcing**, so a normal
-install loads it without a policy toolchain, and it is a second boundary rather than the only
+install loads it without a policy toolchain, and it is a second boundary, not the only
 one — a host without it is still confined by DAC.
 
 The one thing an operator meets in practice is a **stale label after a Node upgrade**. A freshly
-installed agent binary is born with the default type, so its exec fires no domain transition —
-and rather than run the session unconfined, `ai-tools-run` **refuses to launch** and says so. The
+installed agent binary is born with the default type, so its exec does not perform a domain
+transition — and rather than run the session unconfined, `ai-tools-run` **refuses to launch** and says so. The
 post-upgrade watcher normally relabels it for you; when it has not, the fix is one command:
 
 ```bash
@@ -424,7 +424,7 @@ Policy layout, the optional policy groups, and the bring-up loop:
 
 - **Bugs and feature requests** — [GitHub Issues](https://github.com/dag-node/tools-agent-tools-restricted/issues).
   The templates ask for the environment details and journald excerpts that make a report actionable.
-- **Security vulnerabilities** — never a public issue. See [`SECURITY.md`](SECURITY.md) for
+- **Security vulnerabilities** — not a public issue. See [`SECURITY.md`](SECURITY.md) for
   private reporting channels and what is in scope.
 - **Contributing** — [`CONTRIBUTING.md`](CONTRIBUTING.md): development setup, test categories,
   the lint baseline, branch and PR conventions, and the Contributor License Agreement.
@@ -439,7 +439,7 @@ See [`LICENSE`](LICENSE) for the full text. Releases through 0.9.x were publishe
 **Claude Code is separate.** This license covers this repository's own source — the
 sandboxing, install, and CLI machinery. `ai-tools-bootstrap` installs Claude Code
 (`@anthropic-ai/claude-code`) from npm at your own bootstrap step; it is a separate
-Anthropic product under its own terms, never vendored or redistributed here.
+Anthropic product under its own terms, which this repository neither vendors nor redistributes.
 See [Anthropic's Claude Code](https://github.com/anthropics/claude-code).
 
 The SELinux policy modules under [`selinux/policy/`](selinux/policy) are `GPL-2.0-or-later`,

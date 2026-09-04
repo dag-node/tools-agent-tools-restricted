@@ -78,7 +78,7 @@ benign — the sandbox's own processes doing socket/FIFO IPC in their own tmp/ho
 the file management the base already grants.
 
 `netcore` §2 is the boundary: **execute on `ai_tools_project_t`** is on-disk native code the sandbox
-wrote, run as a new process image. It confers no new privilege (`execmem` already concedes
+wrote, run as a new process image. It does not grant a new privilege (`execmem` already concedes
 in-process native code, and `execute_no_trans` keeps the child in `ai_tools_t` with no entrypoint to
 a more privileged domain), but it is the reason the whole `netcore` module is off by default and
 `experimental`. `execmod` covers an R2R image relocated in place.

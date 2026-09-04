@@ -11,7 +11,7 @@
 # is passed through unchanged (no false positives on ordinary paths). The daemon is exercised
 # on the same bytes so the two trails share one contract. The deferred control/bidi *detector*
 # (retained, unused) is pinned lightly so it does not rot before the quarantine sink is built.
-# Run as root via sudo (the suite contract); needs no privilege of its own.
+# Run as root via sudo (the suite contract); does not need privilege of its own.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -38,7 +38,7 @@ is_printable_ascii() { local LC_ALL=C; [[ "$1" != *[^[:print:]]* ]]; }
 # on a regression, still hold the very control/bidi byte the sanitizer was meant to remove;
 # printing it straight to stderr (which run.sh tees to a terminal) would re-introduce the
 # terminal injection this test exists to prevent -- and `printf %q` still passes a printable
-# bidi code point through raw. od is safe and diagnostic, trusting nothing under test.
+# bidi code point through raw. od is safe and diagnostic, trusting no value under test.
 hx() { printf '%s' "$1" | od -An -tx1 | tr -s ' \n' ' '; }
 
 # Vectors from raw bytes so construction is locale-independent. DANGER mixes ASCII controls,

@@ -3,7 +3,7 @@
 # shellcheck disable=SC2034  # boundary-mode constants, read by install.sh and the perms test
 # /usr/local/lib/ai-tools/control-plane.lib.sh
 # Canonical boundary-mode constants for the /opt/ai-tools control plane. The control plane is
-# owned root:ai-tools permanently -- the RPM ships it that way and nothing re-owns it to a person
+# owned root:ai-tools permanently -- the RPM ships it that way and no step re-owns it to a person
 # -- so the agent (group ai-tools) reaches its state while root owns the locked control files.
 # This file is *sourced* (never executed) so the installer and the test suite assert the same
 # boundary modes the spec %files declares, from one source. See ownership-and-hooks.rule.md.
@@ -42,7 +42,7 @@ readonly CP_HOME=/opt/ai-tools
 #                          state, one directory per integration named for its manifest
 #                          (integrations/<name>/...). Base owns the root and its single SELinux
 #                          file-context rule; each integration package owns its own directory and
-#                          chooses the modes inside it, so a new toolchain adds no policy and no
+#                          chooses the modes inside it, so a new toolchain brings neither policy nor
 #                          dotdir at the home root.
 #   CP_SHARED_SKILLS / CP_SHARED_SUBAGENTS
 #                          the one place each SHARED asset kind lives, agent-agnostic: the base
@@ -58,7 +58,7 @@ readonly CP_SHARED_SUBAGENTS="${CP_HOME}/subagents"
 readonly CP_INTEGRATIONS="${CP_HOME}/integrations"
 
 # Which agents are installed and enabled, and what each declares, comes from the provider
-# manifests. Loaded best-effort: without it the resolver below yields nothing, which leaves a
+# manifests. Loaded best-effort: without it the resolver below yields an empty set, which leaves a
 # caller asserting no agent config directory rather than guessing a path.
 # shellcheck source=SCRIPTDIR/providers.lib.sh
 source "${BASH_SOURCE[0]%/*}/providers.lib.sh" 2>/dev/null || true
@@ -77,7 +77,7 @@ ai_tools_apply_mode() {
 # ai_tools_agent_config_dir_valid <name> : pure check -- succeed when <name> is usable as an
 #   agent's config directory: ONE path component under the home, no traversal, no separator. The
 #   value reaches root helpers as a path and a `semanage fcontext` pattern, so a manifest names a
-#   directory beneath the home and can address nothing else.
+#   directory beneath the home and cannot address a path outside it.
 ai_tools_agent_config_dir_valid() {
     local name="${1:-}"
     [[ -n "${name}" ]] || return 1
@@ -89,7 +89,7 @@ ai_tools_agent_config_dir_valid() {
 #   every ENABLED agent declares in <manifest-field> (skills_dir, subagents_dir) -- a single
 #   component inside that agent's config directory, so the agent names WHERE its own product
 #   expects a kind of asset while the layout under the home stays ours. An agent that declares
-#   none takes no links of that kind: the shared assets are in the Claude Code format, so an
+#   none is given no links of that kind: the shared assets are in the Claude Code format, so an
 #   agent that cannot read that format simply does not ask.
 ai_tools_agent_asset_dirs() {
     declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 0

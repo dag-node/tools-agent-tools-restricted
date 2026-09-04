@@ -43,7 +43,7 @@ readonly GROUP="@SANDBOX_GROUP@"
 # Two identities may legitimately hold a project tree's dirs: the resolved operator and the sandbox
 # account. A directory belonging to a third party (root, another developer) is left untouched --
 # normalization must not pull a foreign dir into the agent's group -- and COUNTED, so a walk that
-# normalized nothing is reported rather than silent; the project root hitting the guard is called
+# normalized no directory is reported rather than silent; the project root hitting the guard is called
 # out on its own, since it means the whole claim granted no access. Matched by numeric UID;
 # PROJECTS_UID is the resolved operator (set below).
 SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
@@ -62,7 +62,7 @@ fi
 
 # Directory-skip selector from the shared library (single source of truth, also used by
 # session-hook.sh and ai-tools-lockdown). A missing lib (broken install) leaves a stub that
-# skips nothing -- a slower but correct walk.
+# descends everywhere -- a slower but correct walk.
 readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/skip-dirs.lib.sh
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
@@ -107,7 +107,7 @@ canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
 # Refuse the whole pass if the project root is a protected system directory.
 ai_tools_assert_safe_target "${canonical}" "setgid normalization" || exit 3
 
-# Resolve the operator that owns this project (operator.lib.sh); no owner -> do nothing. The
+# Resolve the operator that owns this project (operator.lib.sh); no owner -> exit without acting. The
 # owner-guard below then acts only on dirs the resolved operator or the sandbox account hold.
 ai_tools_resolve_owner "${canonical}" || exit 0
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
@@ -164,10 +164,10 @@ _safe_setgid() {
     # Owner guard: only the projects user's or the sandbox account's own dirs are
     # eligible (re-verified TOCTOU-safe on the pinned inode below); skip anything else.
     # Return 3, not 1, so the walk can tell a third-party owner from a stat failure and
-    # report it: a walk that touches nothing must not be indistinguishable from one that
-    # had nothing to do.
+    # report it: a walk that touched no directory must not be indistinguishable from one
+    # with no directory to touch.
     [[ "${owner_uid}" == "${PROJECTS_UID}" || "${owner_uid}" == "${SANDBOX_UID}" ]] || return 3
-    # Nothing to do when already group GROUP and already setgid -- unless the dir is owner-only,
+    # No work to do when already group GROUP and already setgid -- unless the dir is owner-only,
     # where that state is inherited residue the pinned-fd path below strips.
     if [[ "${grp}" == "${GROUP}" ]] && (( (0${mode} & 02000) != 0 )) \
             && ! ai_tools_is_owner_only "${mode}"; then
@@ -209,7 +209,7 @@ _safe_setgid() {
     [[ "${grp}" != "${GROUP}" ]] && { chgrp -- "${GROUP}" "/proc/self/fd/${fd}"; regrouped=1; }
     chmod -- g+s "/proc/self/fd/${fd}"
     exec {fd}<&-
-    # Record the actual change (the early return above logs nothing for a no-op dir).
+    # Record the change (the early return above stays silent for a no-op dir).
     if (( regrouped )); then
         ai_tools_log_info "normalized ${dir} (group ${grp} -> ${GROUP}, +setgid)"
     else
@@ -244,7 +244,7 @@ find "${expr[@]}" 2>/dev/null \
             elif (( rc == 3 )); then
                 thirdparty=$(( thirdparty + 1 ))
                 # The project ROOT is the case that decides whether the claim did anything at
-                # all: every directory below it inherits nothing, so the agent cannot enter the
+                # all: every directory below it inherits neither, so the agent cannot enter the
                 # tree. Called out separately from the count for that reason.
                 [[ "${d}" == "${canonical}" ]] && root_thirdparty=true
             fi
@@ -254,7 +254,7 @@ find "${expr[@]}" 2>/dev/null \
             ai_tools_log_info "left ${sealed} owner-only path(s) under ${canonical} out of the agent's reach"
         fi
         # Surfaced, never silent: the owner guard is the one skip that can leave a claim having
-        # granted NOTHING while every other step succeeds -- an operator-owned tree claimed for a
+        # granted NO ACCESS AT ALL while every other step succeeds -- an operator-owned tree claimed for a
         # different operator hits it on every directory. A count on stderr is what turns that from
         # an invisible no-op into something the claim can report.
         if (( thirdparty )); then

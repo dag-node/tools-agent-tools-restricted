@@ -20,7 +20,7 @@ policy_module(ai_tools_netcore, 0.1.0)
 ##     `dotnet test` reports it cannot connect and multi-node MSBuild hangs on its worker
 ##     pipes. This section transitions and manages them, adds getsid(2)
 ##     (process getsession), reads /proc/sys/net, and lets the runner connect(2) the
-##     ephemeral TCP port its test host binds (xUnit/VSTest). It widens no trust
+##     ephemeral TCP port its test host binds (xUnit/VSTest). It does not widen trust
 ##     boundary: creating a socket or FIFO in the sandbox's own tmp/home, or reaching its
 ##     own child over loopback, is the same benign class as the file/dir management the
 ##     base already grants.
@@ -29,7 +29,7 @@ policy_module(ai_tools_netcore, 0.1.0)
 ##     project tree -- the apphost, a testhost, R2R-mapped assemblies under `dotnet
 ##     exec` -- needs execute on ai_tools_project_t files, which the base grants nowhere.
 ##     This IS a boundary: on-disk native code the sandbox wrote, executed as a new
-##     process image. It confers no new PRIVILEGE (execmem already concedes in-process
+##     process image. It does not grant a new PRIVILEGE (execmem already concedes in-process
 ##     native code, and execute_no_trans keeps the child in ai_tools_t with no entrypoint
 ##     to a more privileged domain), but it is the reason the whole module is off by
 ##     default and experimental. execmod covers an R2R image relocated in place.

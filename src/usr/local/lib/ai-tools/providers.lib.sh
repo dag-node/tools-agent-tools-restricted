@@ -12,8 +12,8 @@
 # Both inputs are DATA -- parsed via conf.lib.sh, never sourced -- so a malformed or tampered file
 # cannot execute code in the scripts that read it (the same posture as operator.lib.sh /
 # skip-dirs.lib.sh). conf.lib.sh also carries the KEY=value grammar, so a manifest and
-# operator.conf read identically; a load failure there leaves this file defining NOTHING and
-# returning non-zero, so a consumer resolves no providers rather than guessing.
+# operator.conf read identically; a load failure there leaves this file defining NO RESOLVER and
+# returning non-zero, so a consumer falls back rather than guessing.
 #
 # Manifest -- /usr/local/lib/ai-tools/{agents,integrations}.d/<name>.conf, one per installed
 # member package. <name> (the basename) is the token an operator writes in AI_TOOLS_AGENTS /
@@ -29,8 +29,8 @@
 #   key absent   -> enabled = installed providers with default_enable=yes (the safe baseline)
 #   conf unreadable/malformed/UNTRUSTED -> treated as absent (safe baseline, never "enable all")
 #   a listed name with no installed manifest -> reported and skipped, never guessed
-# A default_enable=yes on a manifest is the shipping package's claim that its provider widens no
-# host surface beyond the sandbox; a surface-widening one ships default_enable=no and is enabled
+# A default_enable=yes on a manifest is the shipping package's claim that its provider leaves
+# host surface unchanged beyond the sandbox; a surface-widening one ships default_enable=no and is enabled
 # only when an operator names it. The operator's explicit list always overrides the default.
 #
 # ── The sandbox cannot widen its own surface ─────────────────────────────────────────────────
@@ -52,8 +52,8 @@ fi
 
 # Shared KEY=value grammar + the trust predicate. REQUIRED: without it this file cannot parse a
 # manifest or tell a trusted input from a planted one, and guessing either would be exactly the
-# fail-open this seam exists to prevent. Return non-zero and define nothing, so the consumer's
-# `source ... && declare -F ...` guard resolves no providers.
+# fail-open this seam exists to prevent. Return non-zero and define no resolver, so the consumer's
+# `source ... && declare -F ...` guard then falls back.
 # shellcheck source=SCRIPTDIR/conf.lib.sh
 if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
         || ! declare -F ai_tools_conf_read >/dev/null 2>&1 \
@@ -167,7 +167,7 @@ _ai_tools_provider_dir_trusted() {
 # _ai_tools_warn_uninstalled <manifest-dir> <conf-key> <active> <list> : report each
 #   explicitly-requested (allowlisted) name that has no <name>.conf in the manifest dir -- never
 #   guessed into a package name. The baseline case (no allowlist) can only enable manifests that
-#   exist, so it has nothing to warn.
+#   exist, so it has no name to warn about.
 _ai_tools_warn_uninstalled() {
     local dir="$1" conf_key="$2" active="$3" list="$4"
     [[ "${active}" == yes ]] || return 0

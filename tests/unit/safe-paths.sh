@@ -9,7 +9,7 @@
 # a real project nested under an operator home or the sandbox-clone area passes. Also checks the assert emits a refusal and returns
 # non-zero on a protected target and is silent + zero on a safe one, and pins the second,
 # narrower predicate beside it -- ai_tools_traverse_grant_allowed, which admits the acting
-# operator's own home root for a traverse-only ACL and nothing else. Run as root via sudo
+# operator's own home root for a traverse-only ACL and no other path. Run as root via sudo
 # (the suite contract); the only case needing privilege (a foreign-owned fixture) skips without
 # it, so the file also runs directly as an operator.
 
@@ -154,7 +154,7 @@ else
     skip "own home root" "${PROJECTS_HOME} is not a /home/<user> home root"
 fi
 
-# (10) Fail closed on inputs that name nothing: a missing path, a file rather than a directory,
+# (10) Fail closed on inputs that name no directory: a missing path, a file rather than a directory,
 #      and an empty owner all refuse rather than default to granting.
 closed_ok=true
 : > "${TESTDIR}/afile"

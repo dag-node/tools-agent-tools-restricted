@@ -12,10 +12,10 @@
 #   - handback sweeps: a skipped tree's files are NOT reclaimed, so they stay agent-owned
 #     (harmless -- world-readable and regenerable). To have a tree's contents handed back to
 #     the operator, remove it from the skip list (or run `ai-tools --reclaim --full`).
-#   - setgid/ACL normalization: a skipped tree receives no setgid bit or ACL.
+#   - setgid/ACL normalization: a skipped tree is given neither a setgid bit nor an ACL.
 #   - secret lockdown: a skipped tree is not scanned for secret-named files.
 #
-# Sourced, not executed. Deployed 644 root:root -- it carries no secrets (the names are
+# Sourced, not executed. Deployed 644 root:root -- it must not hold a secret (the names are
 # documented) and three principals source it: the root helpers, the hooks (as the agent),
 # and the unprivileged CLI (the claim drift scan classifies hits under these names).
 # The matcher skips DIRECTORIES only
@@ -50,7 +50,7 @@ AI_TOOLS_SKIP_CACHE_DIRS=(__pycache__)                     # regenerable caches
 # commas or whitespace between items, quotes optional, inline comments honored. Parsed, never
 # sourced, so a malformed/tampered config cannot execute code in the privileged helpers;
 # AI_TOOLS_OPERATOR_CONF is the same root-only test hook. A PRESENT key replaces its category's
-# default (an empty value therefore means "skip nothing in this category").
+# default (an empty value therefore means "skip no directory in this category").
 #
 # The load is fail-SOFT, unlike the provider gating: a skip list is a walk-cost optimization, not
 # an access boundary (see the header), so a missing conf.lib.sh leaves the compiled-in defaults in
@@ -75,7 +75,7 @@ fi
 # Build the skip set for a consumer from the LIB-OWNED per-consumer defaults below, and
 # expose it two ways: AI_TOOLS_SKIP_NAMES (the flat directory-name list) and
 # AI_TOOLS_SKIP_FIND_EXPR (a find fragment "( -type d ( -name a -o -name b ) ) -prune -o",
-# empty when nothing is skipped). Splice the fragment into a find between the start dir and
+# empty when no directory is skipped). Splice the fragment into a find between the start dir and
 # the action predicates. The consumer only names itself -- the lib supplies the categories
 # AND whether .git is skipped. The optional second arg (true|false) overrides the .git
 # default for that one call; consumers do not normally pass it ('' keeps the default).
@@ -92,10 +92,10 @@ fi
 #   setgid        heavy + .git.  Claim-time normalization; .git normalized separately by
 #   setfacl       setfacl --with-git.
 #   unclaim       heavy + .git.  Unclaim reversal; .git reverted in its own pass.
-#   lockdown      heavy + .git.  Secret sweep; .git object names are hashes -- nothing to match.
+#   lockdown      heavy + .git.  Secret sweep; .git object names are hashes -- no name to match.
 #   reclaim       heavy only.    On-demand reclaim WALKS .git (the one tree the per-session
 #                 sweeps leave behind).
-#   reclaim-full  nothing.       Reclaim the entire tree, heavy trees and .git included.
+#   reclaim-full  none.          Reclaim the entire tree, heavy trees and .git included.
 ai_tools_skip_find_expr() {
     local consumer="${1:?ai_tools_skip_find_expr: consumer required}" skip_git_arg="${2:-}"
     local root="${3:-}"

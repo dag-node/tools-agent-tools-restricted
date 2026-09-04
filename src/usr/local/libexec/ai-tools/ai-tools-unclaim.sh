@@ -33,12 +33,12 @@
 #   default      the whole tree is authorized by its allowlist entry, and every eligible path
 #                in it is reverted.
 #   --unlisted   the tree is in NO allowlist (a claimed project copied or moved elsewhere and
-#                never unclaimed), so it carries no authorization of its own. The membership
+#                never unclaimed), so it does not carry authorization of its own. The membership
 #                check is replaced by a per-path residue gate (_is_residue): a path is touched
 #                only while it still bears the ai-tools fingerprint -- owned by the sandbox
 #                account, grouped to it, or carrying its named ACL entry. A path that was
 #                never part of a claim is left byte-for-byte as it is, so running this on the
-#                wrong directory changes nothing. This mode additionally hands sandbox-OWNED
+#                wrong directory leaves it exactly as it was. This mode additionally hands sandbox-OWNED
 #                inodes back to the invoking operator (ai-tools-reclaim, which normally does
 #                that, refuses an unlisted path) and resets a leftover ai_tools_project_t
 #                label. --full extends the walk into the skip-listed heavy trees, where
@@ -56,7 +56,7 @@
 # This is the one refusal here that leaves MORE access than acting would: the inode keeps its
 # group, so after the project is deregistered the agent still holds those files through it. That
 # is accepted rather than resolved, because the alternative is worse -- the second name is outside
-# the tree and this pass authorizes nothing out there, and for the common case (`git clone
+# the tree and this pass does not authorize a change out there, and for the common case (`git clone
 # --local`, which hardlinks .git/objects to the source repo) acting would silently rewrite the
 # ORIGIN's objects. What the guard owes the operator instead is disclosure: refusals are counted,
 # reported to the terminal with what they leave behind, and handed the `find -links +1` that lists
@@ -69,16 +69,16 @@
 # to git history.
 #
 # NOT a round trip. The reversal normalizes; it does not restore. `setfacl -b` clears every
-# extended ACL -- including entries that predate the claim and have nothing to do with the
+# extended ACL -- including entries that predate the claim and are unrelated to the
 # agent -- and group write comes off, so a path the claim opened lands on 640 (750 when the
 # owner has execute) under the target group. What it does NOT do is put back the world bits:
 # the claim's ACL walk set other::--- on every path it touched, so 644 and 664 both arrive
 # here as 660 and leave as 640. An owner-only path (0600/0700) is the exception at both ends
-# -- the claim skips it as out of the agent's reach, so there is nothing to reverse and it
-# passes through unchanged. No prior state is recorded anywhere, so nothing can restore it;
+# -- the claim skips it as out of the agent's reach, so there is no change to reverse and it
+# passes through unchanged. No prior state is recorded anywhere, so no pass can restore it;
 # the CLI says so before it asks and tells the operator to back up first.
 #
-# Idempotent: re-running on an already-unclaimed tree clears nothing new, regroups to the
+# Idempotent: re-running on an already-unclaimed tree finds no ACL left to clear, regroups to the
 # same group, and removes an already-absent write bit -- all no-ops.
 #
 # Deploy:
@@ -137,7 +137,7 @@ if ! source "${LOG_LIB}" 2>/dev/null; then
 fi
 
 # Directory-skip selector (shared single source of truth). A missing lib leaves a stub that
-# skips nothing -- a slower but correct walk.
+# descends into every directory -- a slower but correct walk.
 readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/skip-dirs.lib.sh
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
@@ -202,7 +202,7 @@ if ${UNLISTED}; then
     [[ "${caller}" == "${AI_TOOLS_OPERATORS[0]}" ]] && is_primary=primary
     ALLOWLIST="$(_ai_tools_operator_allowlist "${caller}" "${is_primary}")"
 else
-    # Resolve the operator that owns this project (operator.lib.sh); no owner -> do nothing. The guard
+    # Resolve the operator that owns this project (operator.lib.sh); no owner -> exit without acting. The guard
     # below then acts only on paths the resolved operator or the sandbox account hold.
     ai_tools_resolve_owner "${canonical}" || exit 0
     ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}"
@@ -269,7 +269,7 @@ fi
 # the three is what makes the gate safe to run outside the allowlist: a partially handed-back tree
 # can retain any one of them alone, and testing only the group would leave an ai-tools-OWNED file
 # untouched, where the agent keeps access through the user bits. Read from the pinned fd, so it
-# describes the same inode the mutation acts on. Only the uid/gid arms cost nothing; the ACL read
+# describes the same inode the mutation acts on. Only the uid/gid arms are free; the ACL read
 # runs only when both miss.
 _is_residue() {
     local fd="$1" uid="$2" gid="$3"
@@ -309,7 +309,7 @@ _safe_unclaim() {
             ;;
         *) exec {fd}<&-; return 1 ;;            # never touch symlinks/fifos/devices
     esac
-    # Residue gate (--unlisted only): outside the allowlist the tree carries no authorization
+    # Residue gate (--unlisted only): outside the allowlist the tree does not carry authorization
     # of its own, so a path is touched ONLY while it still bears the ai-tools fingerprint. A
     # path that never belonged to a claim is left byte-for-byte as it is.
     if ${UNLISTED} && ! _is_residue "${fd}" "${got_uid}" "${got_gid}"; then
@@ -356,7 +356,7 @@ _safe_unclaim() {
 # Walk the project's directories and files (one filesystem; heavy trees skipped unless --full).
 # A '!'-excluded or secret-named directory has its whole subtree skipped; an excluded or
 # secret regular file is skipped on its own. find runs WITHOUT -L, so a symlink is listed but
-# never descended: a symlink loop inside the tree is unreachable by construction and needs no
+# never descended: a symlink loop inside the tree is unreachable by construction and needs neither
 # cycle detection, and -xdev keeps the walk off other filesystems and bind mounts.
 if ${FULL}; then
     # --full: the skip list is a walk-cost optimization, and residue hidden in a skipped tree
@@ -391,7 +391,7 @@ find "${expr[@]}" 2>/dev/null \
         # operator asked to change that keeps the group it has -- so after the project is
         # deregistered those inodes still carry the agent's group, which is the one thing an
         # unclaim is for. The refusal is still right (the inode is reachable from outside the tree,
-        # and this pass authorizes nothing out there), so what the operator needs is to be told
+        # and this pass does not authorize a change out there), so what the operator needs is to be told
         # plainly and handed the command that lists them, not a silent difference between counts.
         if (( hardlinked )); then
             ai_tools_log_warn "left ${hardlinked} hardlinked file(s) under ${canonical} untouched -- they keep group @SANDBOX_GROUP@"
@@ -440,7 +440,7 @@ fi
 
 # SELinux label reset (--unlisted only): a tree that was MOVED rather than copied keeps the
 # ai_tools_project_t label it was claimed with. No fcontext rule names the new path, so
-# ai-tools-relabel --remove has nothing to remove; a forced restorecon resets the tree to the
+# ai-tools-relabel --remove has no rule to remove; a forced restorecon resets the tree to the
 # default its location resolves to. Gated on the root actually carrying the label, so a tree
 # that never had it is not relabelled as a side effect of unclaiming. Best-effort: a label
 # left behind is a defence-in-depth gap, not an access grant -- the DAC reversal above has

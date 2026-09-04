@@ -71,7 +71,7 @@ run_ld() {  # <cwd> <outfile> [args...]
     ( cd "${cwd}" && "${HELPER}" "$@" ) < /dev/null > "${out}" 2>&1 && LD_RC=0 || LD_RC=$?
 }
 
-# (1) Dry-run reports the secret but changes nothing.
+# (1) Dry-run reports the secret but does not change a path.
 out="${TESTDIR}/dry"
 run_ld "${proj}" "${out}" --dry-run
 if [[ "$(stat -c '%U:%G' "${proj}/.env")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" && "$(perm "${proj}/.env")" == 644 ]] \
@@ -105,7 +105,7 @@ if [[ "${LD_RC}" -ne 0 ]]; then
 fi
 
 # (2a) Secret file -> <you>:<you> 600. The owner's OWN group, not the sandbox group: at 600 the
-#      group grants nothing either way, but leaving it as SANDBOX_GROUP would hand the file back
+#      group does not grant access either way, but leaving it as SANDBOX_GROUP would hand the file back
 #      to the agent the moment the mode was widened. Same target ai-tools-chown uses on write.
 if [[ "$(stat -c '%U:%G' "${proj}/.env")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" && "$(perm "${proj}/.env")" == 600 ]]; then
     pass "secret file -> ${PROJECTS_USER}:${PROJECTS_GROUP} 600 (agent read revoked)"
@@ -120,7 +120,7 @@ else
     fail "secret dir ended $(stat -c '%U:%G' "${proj}/secrets") $(perm "${proj}/secrets")"
 fi
 
-# (2c) A locked secret keeps no sandbox ACL entry: chmod 600 masks the inherited entry but does
+# (2c) A locked secret does not keep a sandbox ACL entry: chmod 600 masks the inherited entry but does
 #      not remove it, so widening the mode later would re-expose the secret.
 if ${residue_acl}; then
     if getfacl -c -- "${proj}/residue.key" 2>/dev/null | grep -q "^group:${SANDBOX_GROUP}:"; then
