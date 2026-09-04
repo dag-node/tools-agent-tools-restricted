@@ -10,7 +10,8 @@
 #
 # Three modes. `--staged` reads the added lines of the git index, which is what a pre-commit
 # hook runs; `--message` reads a commit message, an artifact this standard covers like any
-# other; named paths are read whole, for a sweep.
+# other; named paths are read whole, for a sweep. `--staged` sees only the added half of a
+# sentence an edit split, so a hit it reports alone is worth re-checking against the whole file.
 # Source files contribute their comments and docstrings, Markdown and man pages every line. The
 # patterns match English, so they carry to any codebase.
 #
