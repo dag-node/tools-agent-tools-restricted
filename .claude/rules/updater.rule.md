@@ -164,7 +164,7 @@ permissions around it bound **what it can touch**, never whether the contents ar
   `install.sh` for the dev flow) and only ever **rewritten in place** by the updater. The added
   surface is therefore exactly one inode's contents.
 
-That the contents are forgeable is accepted, on two grounds. The stamp is **advisory** — it is
+That the contents are forgeable is accepted, on two grounds. **No decision reads the stamp** — it is
 rendered in one status report and never evaluated, and every value is read defensively
 (`ai_tools_service_stamp_field`: a symlink is refused, only the first 4 KiB is examined, and a
 value must be a short `[A-Za-z0-9:+._-]` token or it reads as no value at all), so no control byte

@@ -401,7 +401,7 @@ session_environment_options+=( "--setenv=PATH=${session_path}" )
 #
 # The walk only chooses which paths to OFFER: each one goes through the handback socket to
 # ai-tools-chown, which re-validates the allowlist, the exclusions, and the born-owner guard as
-# root, so this sweep's reach is exactly the hooks' own.
+# root, so this sweep cannot reach a path the hooks could not.
 readonly HANDBACK_CLIENT="/usr/local/bin/ai-tools-handback-client"
 
 # Directory-skip selector, shared with the hooks and the root helpers. Fail-SOFT by its own

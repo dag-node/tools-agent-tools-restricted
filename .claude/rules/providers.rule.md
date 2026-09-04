@@ -69,8 +69,8 @@ only the exact literal `hooks` switches the sweep off, so an agent that declares
 sweep — a redundant walk is the recoverable error, an operator tree left sandbox-owned is not.
 
 The sweep only chooses which paths to **offer**; each one still passes `ai-tools-chown`'s
-allowlist, exclusion, secret, and born-owner re-validation as root, so its reach is exactly the
-hooks' own. It runs from an `EXIT` trap, so an interrupted shim (Ctrl-C, `SIGTERM`) still
+allowlist, exclusion, secret, and born-owner re-validation as root, so it cannot reach a path the
+hooks could not. It runs from an `EXIT` trap, so an interrupted shim (Ctrl-C, `SIGTERM`) still
 converges; a `SIGKILL` leaves the tree to the next session's sweep or `ai-tools --reclaim`.
 
 ## `entrypoint_fcontext` and `config_dir` — the agent declares its own paths

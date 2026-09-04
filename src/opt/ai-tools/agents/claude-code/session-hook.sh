@@ -12,8 +12,8 @@
 # Runs as ai-tools. Reads the hook JSON on stdin for .cwd (the allowlisted project
 # root claude launched in) and sweeps there. Each path is handed to the root
 # validator ai-tools-chown (via the handback socket bridge), which independently
-# re-checks the allowlist and the agent-owned guard -- so this sweep's reach
-# is exactly the precise hook's.
+# re-checks the allowlist and the agent-owned guard -- so this sweep cannot reach
+# a path the precise hook could not.
 #
 # Three modes, selected by $1:
 #

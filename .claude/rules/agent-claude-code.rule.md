@@ -118,7 +118,7 @@ For each enabled agent it resolves `/opt/ai-tools/bin/<launcher>` the same way t
 | state | verdict | outcome |
 |---|---|---|
 | the launcher resolves to a file the pattern covers | `ok` | labelled and verified |
-| the launcher does not resolve and the pattern does not match a file | `none` | the agent is not provisioned |
+| the launcher does not resolve and the pattern does not match a file | `none` | the agent is not provisioned; no entrypoint to label |
 | the launcher **resolves** to a file the pattern does **not** cover | `stale` | **reported and the run exits non-zero** |
 
 `stale` is the case a repackaged upstream produces — the pattern does not match the file while the chain

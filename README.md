@@ -195,8 +195,8 @@ of what it can ever send:
   everything it spawned, with no password to answer, so an unattended detector can reach it too. (To finish a session you are done with, use `/exit` inside it, which lets
   it run its own ownership handback.) Sessions are found and killed by **cgroup**, so a child that
   called `setsid(2)` or double-forked goes with them, and success means the kernel reports the
-  processes gone, not systemd. It does not accept any arguments and sweeps every cgroup under the
-  sandbox account, so the account's own user manager is terminated too and restarted afterwards —
+  processes gone, not systemd. It does not take a path or an authorization input, and sweeps every cgroup
+  under the sandbox account, so the account's own user manager is terminated too and restarted afterwards —
   a session cannot put itself outside the sweep. The session does not take part in any of it: the
   account it runs as can neither invoke, read nor alter the helper. What
   each outcome means and what a stop cannot undo are in
