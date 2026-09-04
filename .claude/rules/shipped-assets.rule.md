@@ -108,8 +108,11 @@ x-ai-tools-version: 1
 x-ai-tools-updated: 2026-07-15
 ```
 
-`x-ai-tools-version` is a monotonic integer; **every change to a shipped asset bumps it and sets
-`x-ai-tools-updated`**. `x-ai-tools-managed: true` is the provenance marker the seeder gates on.
+`x-ai-tools-version` is a monotonic integer, bumped **once per repository release in which the
+asset changed**, together with `x-ai-tools-updated`. A development cycle that edits an asset
+several times ships one increment: a host installs released packages only, so the version the
+seeder compares against a live copy tracks releases, and the first edit of a cycle is the one that
+bumps it. `x-ai-tools-managed: true` is the provenance marker the seeder gates on.
 `x-ai-tools-status` tracks the RFC-draft lifecycle (`draft` while an asset is still being refined).
 A single version is installed at a time, so the stable name always resolves to the latest.
 

@@ -12,7 +12,7 @@
 # themselves is never claimed or overwritten. Seeded copies are root:SANDBOX_GROUP (files 640,
 # dirs 750) in their shared root -- locked from the agent, updated only through the root-run
 # installer or `ai-tools-bootstrap`. Versioning is RFC-draft: the marker
-# `x-ai-tools-version` is a monotonic integer bumped on every change, and a newer shipped version
+# `x-ai-tools-version` is a monotonic integer bumped once per release, and a newer shipped version
 # is what drives the update offer. This file is *sourced* (never executed); its consumers
 # (install.sh, ai-tools-bootstrap) run as root and have already sourced msg.lib.sh. See
 # shipped-assets.rule.md.
