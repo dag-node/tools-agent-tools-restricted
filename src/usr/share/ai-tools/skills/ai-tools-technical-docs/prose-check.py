@@ -156,7 +156,12 @@ FENCE = re.compile(r"^\s*(```|~~~)")
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
 
-LINE_COMMENT = re.compile(r"^\s*(#(?!!)|//+|\*(?!/))\s?")
+LINE_COMMENT = re.compile(r"^\s*(#(?!!)|//+)\s?")
+BLOCK_MARGIN = re.compile(r"^\s*\*(?!/)\s?")  # the ` * ` margin inside a /* */ block
+# `/*` opens a comment only when a space, a second `*`, or the line end follows. A shell `case`
+# pattern (`/*|./*|../*)`) begins the same way, and reading one as a comment opener swallows every
+# line to the next `*/` -- which in a shell script is the rest of the file.
+BLOCK_OPEN = re.compile(r"^\s*/\*(\s|\*|$)")
 TRIPLE_QUOTE = re.compile(r'"""|\'\'\'')
 
 
@@ -169,16 +174,17 @@ def source_prose(line, state):
     """
     if state:  # inside a docstring or a /* */ block; state holds its closing delimiter
         end = line.find(state)
-        if end < 0:
-            return LINE_COMMENT.sub("", line), state
-        return LINE_COMMENT.sub("", line[:end]), None
+        body = line if end < 0 else line[:end]
+        if state == "*/":
+            body = BLOCK_MARGIN.sub("", body)
+        return body, (state if end < 0 else None)
     stripped = line.strip()
     quote = TRIPLE_QUOTE.match(stripped)
     if quote:
         delimiter = quote.group(0)
         body = stripped[len(delimiter):]
         return (body.split(delimiter)[0], None) if delimiter in body else (body, delimiter)
-    if stripped.startswith("/*"):
+    if BLOCK_OPEN.match(line):
         body = stripped[2:]
         return (body.split("*/")[0], None) if "*/" in body else (body, "*/")
     return (LINE_COMMENT.sub("", line), None) if LINE_COMMENT.match(line) else (None, None)
