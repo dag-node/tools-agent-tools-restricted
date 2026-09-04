@@ -572,6 +572,13 @@ Scan the finished text for each of these, since every one is checkable:
     size of its code says the code stopped being self-descriptive, and prose that is merely
     short has not thereby passed.)
 
+**A finding names a symptom. Fix the claim, not the token.** Every rule here is about what a
+sentence claims, so the repair starts at the code and writes the sentence again from it. Editing
+around the flagged word keeps the shape and costs something else: `grants nothing` redrafted as
+`confers no authority` clears the grep, trades a domain term for a legal one, and still fronts the
+quantifier — while re-reading the code gives `uses a grant the caller already holds`. The same
+move settles the questions a rule cannot answer in the abstract, arity among them.
+
 **Run the checkable ones.** `prose-check.py` ships beside this file and reports items 2, 3, 4, 5,
 7 and 9 plus the `does not` rule, so the pass is a command rather than an act of attention:
 
