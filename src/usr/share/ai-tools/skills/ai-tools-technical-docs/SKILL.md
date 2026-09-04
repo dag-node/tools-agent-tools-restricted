@@ -130,14 +130,16 @@ documentation reads as capable and dependable.
 **Write a negation with `does not`.** Fronting the quantifier instead — `writes no entry`,
 `takes no argument` — attaches the negative to the object instead of the verb. It reads formal
 to archaic, and it is the determiner statutes are built from (*no person shall*, *no warranty is
-given*). It is also the shorter form, and clarity outranks brevity: the razor takes the fewest
-words that stay clear.
+given*). The fronted form is the shorter one, and the longer one wins anyway: the razor takes the
+fewest words that stay clear.
 
-- In style: `does not write any entries`, `does not take any path arguments`
-- Off style: `writes no entry`, `takes no path argument`
+- In style: `does not write any entries`, `does not take a path argument`
+- Off style: `writes no entries`, `takes no path argument`
 
-Pluralize an indefinite object under `any`. A single instance takes its article — `does not
-write an entry` — and so does a definite one: `does not increment the counter`.
+**The object's number follows the code, not a preference.** `does not take any path arguments`
+and `does not take a path argument` are different claims about arity — a variadic parameter
+against a single one — so the signature decides which is true. A definite object keeps its
+article: `does not increment the counter`.
 
 The same applies to `nothing` as a subject or object, which the checklist already catches: name
 the absent input instead.
@@ -272,7 +274,7 @@ point of the prose is to name that constraint.
 
 Judge each file on its own. A header at a good altitude stays as it is, and a change that merely
 touches a file edits only the passages it invalidates. On a header that has grown past its
-purpose, expand it first to surface what actually matters, then reduce to purpose and the
+purpose, expand it first to surface what matters, then reduce to purpose and the
 load-bearing why.
 
 ### Self-contained

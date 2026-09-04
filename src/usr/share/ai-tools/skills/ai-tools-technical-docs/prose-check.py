@@ -11,8 +11,8 @@
 # Three modes. `--staged` reads the added lines of the git index, which is what a pre-commit
 # hook runs; `--message` reads a commit message, an artifact this standard covers like any
 # other; named paths are read whole, for a sweep.
-# Shell files contribute their comment lines, Markdown and man pages every line. The patterns
-# match English, so they carry to any codebase.
+# Source files contribute their comments and docstrings, Markdown and man pages every line. The
+# patterns match English, so they carry to any codebase.
 #
 # Checks read rejoined SENTENCES rather than raw lines. Wrapped prose puts the guard clause of an
 # absolute on the next line, and the shape checks compare the two halves of a pivot, so both need
@@ -77,8 +77,8 @@ def suggest(name, match, static_hint):
     """What to write instead, derived from the match where the fix is mechanical."""
     if name == "fronted-quantifier":
         verb, obj = match.group(1), match.group(2)
-        # `a` or `any` is the author's call: a single instance keeps its article, several
-        # pluralize under `any`, and an uncountable object takes neither.
+        # `a` or `any` is a claim about arity, so the code decides: one parameter takes the
+        # article, a variadic one pluralizes under `any`, an uncountable object takes neither.
         return f"`does not {base_form(verb)} a/any {obj}`"
     return static_hint
 
@@ -92,7 +92,7 @@ ABSOLUTE = re.compile(r"\b(never|always|cannot)\b")
 MIRROR_PIVOT = re.compile(r"\b(rather than|instead of)\b")
 DEFINITIONAL_PIVOT = re.compile(r"\b(?:is|are) not (?:a|an|the)\b")
 
-# Four characters is the shortest prefix that separates the stems this repository actually uses
+# Four characters is the shortest prefix that separates the stems this repository uses
 # (`stop`/`stay`, `read`/`real`) while still tying `costs` to `costing` and `control` to
 # `controls`. Words of three letters or fewer carry no stem worth matching.
 WORD = re.compile(r"[a-z][a-z-]{3,}")
@@ -114,7 +114,7 @@ def mirrored(sentence, pivot):
     """True when a word stem repeats across `pivot`, which is the mirror the rule names.
 
     `costs you a label rather than costing the sweep a target` repeats `cost`; `shipped in the
-    package rather than downloaded` shares no stem and is a plain contrast.
+    package rather than downloaded` does not share a stem and is a plain contrast.
     """
     match = pivot.search(sentence)
     if not match:
@@ -155,21 +155,51 @@ FENCE = re.compile(r"^\s*(```|~~~)")
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
 
-def prose_text(path, line):
-    """The prose a line carries, or None when it carries none.
+LINE_COMMENT = re.compile(r"^\s*(#(?!!)|//+|\*(?!/))\s?")
+TRIPLE_QUOTE = re.compile(r'"""|\'\'\'')
 
-    A commit message inverts the script rule -- its body is prose and its `#` lines are the
-    template git strips -- so it is passed under its own path and tested here. A script comment
-    sheds its `#` so the sentences rejoin cleanly.
+
+def source_prose(line, state):
+    """The prose a source line carries, and the block state after it.
+
+    A source file contributes its comments AND its docstrings: `#`, `//`, a `/* */` block, and a
+    triple-quoted Python string are all places the artifacts this standard covers live. The marker
+    is dropped so the sentences rejoin cleanly.
     """
-    if path == MESSAGE:
-        return None if line.lstrip().startswith("#") else line
-    if path.endswith(PROSE_WHOLE_FILE):
-        return line
-    stripped = line.lstrip()
-    if not stripped.startswith("#") or stripped.startswith("#!"):
-        return None
-    return stripped[1:]
+    if state:  # inside a docstring or a /* */ block; state holds its closing delimiter
+        end = line.find(state)
+        if end < 0:
+            return LINE_COMMENT.sub("", line), state
+        return LINE_COMMENT.sub("", line[:end]), None
+    stripped = line.strip()
+    quote = TRIPLE_QUOTE.match(stripped)
+    if quote:
+        delimiter = quote.group(0)
+        body = stripped[len(delimiter):]
+        return (body.split(delimiter)[0], None) if delimiter in body else (body, delimiter)
+    if stripped.startswith("/*"):
+        body = stripped[2:]
+        return (body.split("*/")[0], None) if "*/" in body else (body, "*/")
+    return (LINE_COMMENT.sub("", line), None) if LINE_COMMENT.match(line) else (None, None)
+
+
+def prose_lines(source):
+    """Yield (path, line number, raw line, prose or None), holding block state per file.
+
+    A document or man page contributes every line. A commit message inverts the source rule -- its
+    body is prose and its `#` lines are the template git strips.
+    """
+    last_path, state = None, None
+    for path, number, line in source:
+        if path != last_path:
+            last_path, state = path, None
+        if path == MESSAGE:
+            yield path, number, line, None if line.lstrip().startswith("#") else line
+        elif path.endswith(PROSE_WHOLE_FILE):
+            yield path, number, line, line
+        else:
+            text, state = source_prose(line, state)
+            yield path, number, line, text
 
 
 def block_sentences(path, lines):
@@ -199,8 +229,7 @@ def sentences(source):
     file. Fenced code in a document is skipped: it is not the author's prose.
     """
     block_path, block, fenced = None, [], False
-    for path, number, line in source:
-        text = prose_text(path, line)
+    for path, number, line, text in prose_lines(source):
         if text is not None and path.endswith(PROSE_WHOLE_FILE):
             if FENCE.match(line):
                 fenced = not fenced
