@@ -27,15 +27,15 @@ see [updater](updater.rule.md)) and the `HOME`/`PATH`/`CLAUDE_CONFIG_DIR` pins (
 The two arrays sort a Bash command into one of three observable outcomes: **runs
 without asking** (`allow`), **asks first** (unlisted — the default), or **refused**
 (`deny`). None of this is a capability boundary — whatever runs still executes as
-`SANDBOX_USER` confined by `ai_tools_t`, and a tool absent from the host simply fails
+`SANDBOX_USER` confined by `ai_tools_t`, and a tool absent from the host fails
 to resolve. The lists manage the **operator-visibility surface**: what is silent, what
 is mediated by a prompt, and what the agent must raise with the operator in
-conversation. JSON carries no comments, so the per-entry rationale lives here.
+conversation. JSON does not carry comments, so the per-entry rationale lives here.
 
 ### Runs without asking (`allow`)
 
 An entry earns its place by being **frequent** and **inspection-only**: it discloses
-nothing beyond what the harness's dedicated read tools (Read/Grep/Glob) already access
+only what the harness's dedicated read tools (Read/Grep/Glob) already access
 without any Bash prompt, or it processes data already in hand.
 
 **Project VCS state** — the working set every session touches:
@@ -61,11 +61,11 @@ without any Bash prompt, or it processes data already in hand.
 ### A rewritten command is what these rules match
 
 The `PreToolUse` filter hook may narrow a Bash command before it runs
-([filters](filters.rule.md)). It returns no permission decision, so the three outcomes above are
+([filters](filters.rule.md)). It does not return a permission decision, so the three outcomes above are
 decided on the **rewritten** command. Two consequences bound what a rule may do:
 
 - A rule that only inserts arguments after the leading words leaves every entry here matching as
-  written — `Bash(git log *)` covers `git log --format=… -- src/x.c`, so a narrowing rule needs no
+  written — `Bash(git log *)` covers `git log --format=… -- src/x.c`, so a narrowing rule does not need a new
   allow entry of its own.
 - A rule that changes the leading command word is matched as that new command, and an entry broad
   enough to cover a general-purpose wrapper (`Bash(<wrapper> *)`) is broader than the
@@ -98,7 +98,7 @@ work deleted from the tree.
 | `git push --force*` | The remote's history for every other clone. The pattern also covers `--force-with-lease`, which narrows the race but still overwrites. |
 | `git push -f *` | The short spelling of the same. |
 | `git reset --hard*` | The working tree and index, including changes never committed. |
-| `git clean -f*` | Untracked files — the ones no commit and no reflog can bring back. |
+| `git clean -f*` | Untracked files, which no commit and no reflog can bring back. |
 
 The criterion is **destruction with no undo**, so the refusal holds regardless of target: a
 scratch branch and `main` are denied alike, because a deny rule matches a command string and
@@ -219,7 +219,7 @@ and hook declarations. Layering and override are under "Control-plane integrity"
 
 Both put more of a session in front of the operator watching it: `showThinkingSummaries` re-shows
 the thinking blocks Claude Code hides by default, and `verbose` shows Bash and command output in
-full rather than truncated. They cost terminal space and nothing else — the session's authority is
+full rather than truncated. They cost terminal space alone — the session's authority is
 identical either way — and what they buy is that the operator confirming an action sees the
 reasoning that produced it and the output it produced, which is the difference between approving a
 command string and approving what the command did.
@@ -336,9 +336,9 @@ file.
 
 The command runs the merge on a throwaway copy first, so the list it shows is the exact set of
 declarations the real merge adds rather than a promise of one. It then confirms, writes the dated
-`.bak`, names that backup, and offers to drop the `.rpmnew` against what is actually left: the
+`.bak`, names that backup, and offers to drop the `.rpmnew` against what is left: the
 cleanup prompt defaults to yes once the two files match, and to no while the permission rules still
-differ. A refusal on this path needs no `.shipped` sidecar — the `.rpmnew` is that baseline, and
+differ. A refusal on this path does not need a `.shipped` sidecar — the `.rpmnew` is that baseline, and
 the throwaway copy is where the refused merge's own copy lands and is discarded.
 
 `jq` is a hard runtime dependency of every hook this agent ships, not a convenience: each
@@ -353,10 +353,10 @@ filtering. The agent package `Requires: jq` for that reason.
   only on operator-owned ones; a deny rule matches the command string, not the target's
   owner, so it would break the valid majority to suppress an occasional EPERM — and that
   EPERM is informative (it names the file as the operator's; the agent asks instead of
-  retrying). A deny here also reduces no surface: mode changes are reachable through
+  retrying). A deny here also leaves the surface unchanged: mode changes are reachable through
   `install -m`, `cp -p`, `setfacl`, `os.chmod`, …, and the abuse-shaped forms
   (`777`/`o+w`/`+s`) are already reverted by the handback's world-bit stripping while
-  setuid on a sandbox-owned file escalates nothing. The same reasoning keeps a
+  setuid on a sandbox-owned file does not grant a new privilege. The same reasoning keeps a
   "safe subset" like `chmod +x *` out of `allow`: the allow list stays inspection-only
   so its criterion stays crisp.
 - **Filtering `allow` to the host's installed tools** (at install or after): an entry for
@@ -376,7 +376,7 @@ filtering. The agent package `Requires: jq` for that reason.
 
 ## Deferred
 
-The deny list and optional-group enablement are kept in sync **by hand** — nothing links
+The deny list and optional-group enablement are kept in sync **by hand** — no code links
 `enable-group` to relaxing the matching deny entry, so a group enabled on its own has no
 effect at the tooling layer. A durable fix derives the deny set from the loaded policy
 groups, or has `enable-group` adjust `settings.json`, so the two layers cannot drift.

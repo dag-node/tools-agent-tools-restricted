@@ -29,7 +29,7 @@ CLI spelling with an unambiguous URI on the other side.
 | `list` is the **zero-argument default** on a collection | `ai-tools-admin operators` lists them |
 | A bare noun with no `list` yet prints its verbs | it MUST NOT default to a **mutating** verb |
 | A global, one-shot or infrastructure-level action goes top-level or under `system` | `system post-upgrade`, `system bootstrap` |
-| Switches are **descriptive and long** | `--dry-run`, not `-n`; new surface adds no short flags |
+| Switches are **descriptive and long** | `--dry-run`, not `-n`; new surface does not add short flags |
 | `--help` and `--version` stay options | both `-h` and `--help` print the full help and ignore other arguments |
 
 Verb-noun ordering is a **convention rather than a rule with one correct answer**: clig.dev
@@ -87,7 +87,7 @@ command takes yet. `ai-tools-bootstrap` and `ai-tools-dotnet setup` already hold
 the name is what obligates it.
 
 **Scope defaults to the minimum that works.** A bare `bootstrap` does the recommended minimal
-setup, so an operator running it for the first time chooses nothing. Widening it — `system
+setup, so an operator running it for the first time does not choose a scope. Widening it — `system
 bootstrap` reaching every enabled integration rather than the toolchain alone — is an explicit
 opt-in, projecting as a request field (`{"scope": "full"}`) rather than a second command. The
 switch spelling is open; `--scope full` follows the descriptive-long-switch rule, while a bare
@@ -104,7 +104,7 @@ carries no `/admin` prefix (below). There are two typed commands:
 | `ai-tools-admin` | root, enforced by `EUID -eq 0` before any command dispatches | host administration |
 
 `--help` and `--version` are answered ahead of that root check, since they read no host state and
-change nothing, so the first thing an operator meets is the command surface rather than a refusal.
+leave the host as it is, so the first thing an operator meets is the command surface rather than a refusal.
 
 A command requiring root belongs on `ai-tools-admin` rather than in a binary of its own, so an
 administrator learns one name and one grammar. Each additional top-level name costs a
@@ -147,7 +147,7 @@ one changes a security contract rather than a user surface.
 ## When a resource takes the `system` domain
 
 `ai-tools-admin` refuses a non-root caller, which already tells the reader the surface is
-privileged, so `system` marks no privilege and most resources do without it. A resource takes the
+privileged, so `system` does not mark privilege and most resources do without it. A resource takes the
 prefix when either test holds:
 
 - its name **collides** with a resource a public API would plausibly expose, or
@@ -160,11 +160,11 @@ first-class administration concern owned by the SELinux domain.
 
 **Being admin-only is not a test, and neither is returning more detail.** `operators` and the
 anticipated `proxies`, `mcps` and `services` are all admin-managed and all stay flat, since their
-names collide with nothing. A richer response for a privileged caller is a **view**, never a
+names are unambiguous on their own. A richer response for a privileged caller is a **view**, never a
 prefix.
 
 Depth is the second reason not to over-prefix: Azure caps a URI at collection/item/collection and
-Zalando limits nesting to one level. A custom method costs nothing against that budget, so
+Zalando limits nesting to one level. A custom method does not add a level against that budget, so
 `selinux groups enable <name>` projects to `/selinux/groups/{name}:enable` — a prefix, one
 collection, one item. Adding `system` on top would deepen the **path** for a command an operator
 types to unblock a build.
@@ -198,7 +198,7 @@ action is side-effect free, in which case `GET`.
 
 | Form | Reads as |
 |---|---|
-| `/system/entrypoints:relabel` | a custom method on the **collection** — the action takes no identifier |
+| `/system/entrypoints:relabel` | a custom method on the **collection** — the action does not take an identifier |
 | `/system/entrypoints/{agent}:relabel` | a custom method on **one instance** |
 | `/system/entrypoints/relabel` | a sub-resource *named* `relabel`, which corrupts the hierarchy |
 
@@ -255,7 +255,7 @@ and three of the four are root-only, so the last two fold into `ai-tools-admin` 
 
 `ai-tools-bootstrap` and `ai-tools-dotnet` lose their standalone names and their `%{_sbindir}`
 symlinks with the move, in both `install.sh` and the RPM. `ai-tools-admin` ships in
-`ai-tools-base` and needs nothing provisioned to run, so a host reaches `system bootstrap` before
+`ai-tools-base` and runs on an unprovisioned host, so a host reaches `system bootstrap` before
 the toolchain it installs exists. `system bootstrap` belongs to base and `dotnet bootstrap` to the
 integration package that owns the domain.
 
@@ -285,7 +285,7 @@ keeping every name (`ai-tools project-claim`) settles both and commits to no hie
 
 ## Why not
 
-- **A deprecation alias beside a renamed command.** The repo carries no migration shims: the code
+- **A deprecation alias beside a renamed command.** The repo does not carry migration shims: the code
   reflects the final state and dev hosts are cleaned by hand. A renamed command is renamed.
 - **`--` as a marker for an unsettled surface.** It reads as an option, which is the collision
   itself. Projects gating an unstable surface use an explicit namespace instead — `kubectl alpha`,

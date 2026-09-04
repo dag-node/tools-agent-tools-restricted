@@ -43,7 +43,7 @@ and every one of them refuses toward *less* access:
    root writes `/opt/ai-tools/bin` (`0551 root:SANDBOX_GROUP`). `ai-tools-run` re-validates
    it regardless, so a wrapper is never the only thing checking.
 4. **Print-and-exit short-circuit** — `--version`/`-v`/`--help`/`-h` as the *sole* argument
-   skips the CWD gates (backstop, allowlist, claim): such a run touches no working tree, so
+   skips the CWD gates (backstop, allowlist, claim): such a run stays out of the working tree, so
    no project grant is implied. It still launches the same validated binary confined as
    `SANDBOX_USER`, with the sandbox home as `WorkingDirectory`.
 5. **`exec sudo -u SANDBOX_USER -g SANDBOX_GROUP -- /opt/ai-tools/bin/ai-tools-run`**,
@@ -59,7 +59,7 @@ endpoint) are that agent's rule to document, not this one's.
 ## The `ai-tools-run` service shim (launch mechanics)
 
 `ai-tools-run` (`/opt/ai-tools/bin/ai-tools-run`, `0550 root:SANDBOX_GROUP`, not writable by
-the agent) is **`ai-tools-base`-owned and names no agent**. One shim confines every agent, so
+the agent) is **`ai-tools-base`-owned and agent-agnostic**. One shim confines every agent, so
 an `ai-tools-agents-*` package ships only its wrapper, its manifest, and its session-env
 fragment, and inherits the single `%ai-ops` sudoers grant rather than adding one — the grant
 surface does not grow with the number of agents.
@@ -76,7 +76,7 @@ accepted only at `${AI_TOOLS_NVM_DIR}/versions/node/<semver>/bin/<launcher>` —
 `<launcher>` is the `launcher` of an agent that `operator.conf` enables (see
 [providers](providers.rule.md)). A binary the sandbox account drops beside the launcher
 therefore cannot start a session, because no manifest claims it. A `..` component is refused
-before the match, and the resolution fails closed: with no enabled agent, nothing launches.
+before the match, and the resolution fails closed: with no enabled agent, the launch is refused.
 
 **What is checked is what is exec'd.** That validated path is the versioned launcher *symlink*; the
 file `execve` transitions on is what it resolves to. The shim resolves it once, requires the target
@@ -116,7 +116,7 @@ does), so the umask is set as a unit property, authoritative over the per-comman
 sudoers `umask`.
 
 **Environment is an explicit allowlist.** The user manager spawns the service with
-its own environment, not `ai-tools-run`'s, so nothing crosses into the session unless
+its own environment, not `ai-tools-run`'s, so a variable crosses into the session only when
 it is named. `ai-tools-run` forwards only terminal-, locale-, and connectivity-shaping
 variables **by name** (`FORWARDED_ENVIRONMENT_VARIABLES`: `TERM`/`COLORTERM`, the
 `LANG`/`LANGUAGE`/`LC_*` set, `XDG_RUNTIME_DIR`, and the upper- and lower-case proxy
@@ -133,11 +133,11 @@ and is not relocated into the agent-writable project tree.
 
 Everything **agent-specific** — a config directory, a compile cache, an autoupdater
 switch — is pinned by that agent's own session-env fragment rather than here, so the shim
-names no agent (see [providers](providers.rule.md), and
+stays agent-agnostic (see [providers](providers.rule.md), and
 [agent-claude-code](agent-claude-code.rule.md) for the pins Claude Code makes and why each
 is load-bearing).
 
-**Enabled providers extend that allowlist, and nothing else may.** Every enabled provider —
+**Enabled providers extend that allowlist, and they are its only extension.** Every enabled provider —
 each integration *and* the agent itself — may contribute session env and a PATH tail through a
 root-owned fragment `/usr/local/lib/ai-tools/session-env.d/<name>.env.sh`, which `ai-tools-run`
 sources: integrations first, **the agent last**, so the agent's own pins (its config directory,
@@ -149,12 +149,12 @@ so the base tiers (root-owned, least-writable first) always precede any addition
 fragments are sourced **as `SANDBOX_USER`, before the unit is created**, which is why each one —
 and the directory holding it, and the libraries doing the sourcing — must be root-owned and
 non-group-writable. A failing check skips that fragment and logs it; an installed-but-disabled
-provider contributes nothing. Fragments are additive, so a skipped one costs the session that
+provider does not contribute a fragment. Fragments are additive, so a skipped one costs the session that
 provider's environment and leaves every property in this section intact.
 
-**A session-end ownership sweep for agents that carry no hooks.** The shim reads the resolved
+**A session-end ownership sweep for agents that do not carry hooks.** The shim reads the resolved
 agent's `handback` declaration (see [providers](providers.rule.md)): `handback=hooks` means the
-agent converges the tree itself and the shim adds nothing, and any other declaration makes the
+agent converges the tree itself and the shim stays out of it, and any other declaration makes the
 shim sweep the project once the session exits, offering each `SANDBOX_USER`-owned path to
 `ai-tools-chown` through the handback socket. The sweep is installed as an `EXIT` trap before the
 launch, so it also runs on an interrupted shim.
@@ -162,7 +162,7 @@ launch, so it also runs on an interrupted shim.
 **A handback-socket preflight, warn-not-block.** Every agent's ownership handback — the per-turn
 hooks and this session-end sweep alike — runs over `/run/ai-tools/handback.sock`. If it is down,
 every `CHOWN` fails and the tree silently rots into "dubious ownership". Before launch (when a
-project directory is set — a bare `--version`/`--help` run writes nothing), the shim checks the
+project directory is set — a bare `--version`/`--help` run writes to no project), the shim checks the
 socket and, if absent, emits a framed NOTICE naming the fix (`systemctl enable --now
 ai-tools-handback.socket`, then `ai-tools --reclaim <project>`) and **proceeds**. This is not a
 confinement boundary — DAC, `ai_tools_t`, and the project `user:<operator>` ACL keep the operator's
@@ -181,7 +181,7 @@ it, so the wrapper does **not** repeat it), `ai-tools-relabel.path` is `wrapper`
 preflights partition the units and never double-warn. This is best-effort and non-blocking like the
 socket check: a health warning is not a security gate, so a missing `services.lib.sh` skips the
 warning rather than failing the launch closed (unlike the `safe-paths` load, which does), and a
-healthy host prints nothing. The print-and-exit path exec'd earlier, so a bare `--version`/`--help`
+healthy host stays silent. The print-and-exit path exec'd earlier, so a bare `--version`/`--help`
 never triggers it.
 
 **`WorkingDirectory` is the validated project directory.** A transient unit defaults
@@ -245,9 +245,8 @@ doing one thing, and the helper's other form, `--remove <agent>` (the agent pack
 step), stays reachable by root alone. The helper is `750 root:root`, owned and
 writable by root alone. It is an operators-group grant, keeping the root privilege on the
 operator side beside the launch rule. The automatic post-upgrade relabel runs through the
-root-side `ai-tools-relabel.path` watcher, which needs no sudo rule. The toolchain update
-runs as `SANDBOX_USER` in its own `systemd --user` instance, so it needs no sudo rule
-either.
+root-side `ai-tools-relabel.path` watcher, and the toolchain update runs as `SANDBOX_USER` in its
+own `systemd --user` instance, so neither one needs a sudo rule.
 
 The third rule runs **as root** for the same structural reason and is scoped the same way:
 `ai-tools --stop` terminates every running agent session, which means signalling the sandbox
@@ -257,7 +256,7 @@ fall outside it and meet sudo's ordinary prompt. Where this rule differs is that
 launch one: both are in [docs/session-stop.md](../../docs/session-stop.md), which owns this
 component ([cli](cli.rule.md) holds its CLI contract).
 
-`SANDBOX_USER` holds no sudo rights in this file. Two `ai-tools-run` preflights enforce the
+`SANDBOX_USER` does not hold any sudo rights in this file. Two `ai-tools-run` preflights enforce the
 account boundary the sudoers model assumes: it refuses to launch unless it runs **as**
 `SANDBOX_USER` (a direct or sudo invocation landing as root or another user fails closed), and
 it refuses if `SANDBOX_USER` is ever a member of `ai-ops` (so the sandbox account can never
@@ -303,6 +302,6 @@ the `. ~/.bashrc` block EL's skel carries, since bash reads that file alone at l
 account's own init — its nvm init among it — stays read at login, and the guard line follows it.
 Per-account wiring scopes the reorder
 to the operators who launch the agent: root and accounts unrelated to ai-tools keep their
-stock PATH, and ai-tools ships nothing into `/etc/profile.d`, keeping the host's
-every-login-shell code surface untouched. The sandbox account needs no wiring:
+stock PATH, and ai-tools does not install any file into `/etc/profile.d`, keeping the host's
+every-login-shell code surface untouched. The sandbox account takes its PATH elsewhere:
 `ai-tools-run` pins the session PATH as a unit property, on the same Tier-1-first ordering.

@@ -57,7 +57,7 @@ interactive point both install flows share: the RPM `%post` (and `install.sh`) s
 default (`ai-tools@<domain-or-hostname>`) but `%post` cannot prompt, so the operator adopts
 their own git identity, keeps the default, or edits the file by hand here. It runs only when
 the control plane is present (the gitconfig exists) — a bootstrap that precedes control-plane
-install has nothing to configure and skips; past that gate `msg.lib` is deployed, so the
+install skips; past that gate `msg.lib` is deployed, so the
 prompt requires it and fails closed like any other, no fallback (see
 [messaging](messaging.rule.md)).
 
@@ -80,8 +80,8 @@ in a **last-run stamp**, `/var/opt/ai-tools/state/nvm-update.status`, which
 `ai-tools --status` reads through `services.lib.sh` (see [cli](cli.rule.md)).
 
 The stamp is the second of two independent records, and deliberately so: the first is what the run
-*says* (its `log`/`warn`/`die` output, which the unit routes to the journal), and a run can fail in
-a way that says nothing at all. `nvm-update.sh`'s emitters therefore write to stdout/stderr **before**
+*says* (its `log`/`warn`/`die` output, which the unit routes to the journal), and a run can fail
+silently. `nvm-update.sh`'s emitters therefore write to stdout/stderr **before**
 their best-effort `systemd-cat` copy, and guard that copy — under `set -e` with `pipefail` a bare
 `printf | systemd-cat` pipeline whose `systemd-cat` fails aborts the updater, and aborts it silently,
 because the line explaining why comes after the statement that failed. A logger never decides the
@@ -92,7 +92,7 @@ fate of the operation it reports on, here as in `log.lib.sh` (see [logging](logg
 never turns a successful update into a failed unit, and a host whose stamp is absent gets a warning
 naming the reinstall that restores it, while the report states the unit as unknown rather than
 guessing. The whole text goes out in a single write, so the window in which a reader could see a
-partial stamp is negligible; one that lands there anyway carries no parseable `RESULT` and reads as
+partial stamp is negligible; one that lands there anyway does not carry a parseable `RESULT` and reads as
 unknown, never as a wrong verdict. The content is the shared `KEY=value` grammar:
 `RESULT=ok|skipped|failed`, `EXIT_CODE`, `FINISHED` (UTC, ISO-8601), `TRIGGER=unit|manual`, `NODE`,
 and `REASON` on a skip.
@@ -102,10 +102,10 @@ and `REASON` on a skip.
 `RESULT` is the run's exit status classified for a reader, and the classification is the updater's
 own (`nvm-update.sh`'s exit codes: `0` current, `1` a fault on this host, `3` transient). The third
 exists because the most common way this job does not update anything is not a fault at all: the
-host was offline at the timer's daily window, so the registry could not be reached, nothing was
-changed, and the previous trusted toolchain stays active. That run exits `3`, records
+host was offline at the timer's daily window, so the registry could not be reached, the toolchain
+was left alone, and the previous trusted version stays active. That run exits `3`, records
 `RESULT=skipped` with a `REASON` token, and reports as `SKIPPED` rather than `FAILED` — there is
-nothing for an operator to fix, and a red line that means "your laptop was disconnected" spends
+no fault for an operator to fix, and a red line that means "your laptop was disconnected" spends
 attention that a real fault then has to compete with.
 
 The split is coarse by intent. It does not diagnose *why* the registry was unreachable — a
@@ -114,8 +114,7 @@ whether a retry is the right response (the unit retries `3` and not `1`; see
 [the retry policy](#retrying-a-transient-failure) below) and whether an operator should be alarmed
 now. What keeps `skipped` from becoming a way to hide a real problem is that it does not stop the
 clock: the stamp still ages, and a condition that persists past the record's 48h grace reports
-`STALE`, the same escalation a schedule that stopped firing gets. Offline once is nothing to act
-on; offline for a week is a toolchain that has stopped advancing.
+`STALE`, the same escalation a schedule that stopped firing gets. Offline once is routine; offline for a week is a toolchain that has stopped advancing.
 
 ### Retrying a transient failure
 
@@ -130,14 +129,14 @@ missed while the manager was not running; a window taken by a run that then fail
 systemd stamps a timer when it elapses and not when the service succeeds. Ordering on
 `network-online.target` is not a path either — it gates unit startup, while this unit is started by a
 daily timer on a machine that has typically been up for days — so the unit is not ordered against it
-and connectivity is handled where it actually arises, in the run's own exit status.
+and connectivity is handled where it arises, in the run's own exit status.
 
 The daily window is the host's local time; an operator moves it with `sudo systemctl --user -M
 ai-tools@.host edit nvm-update.timer`.
 
 Each field has a distinct reader. `RESULT` and `EXIT_CODE` are the service's verdict. `FINISHED`
 carries two: it dates that verdict, and its **age** is what `nvm-update.timer` — which can
-otherwise report nothing at all — infers its own health from, since a run systemd started proves
+otherwise report only `?` — infers its own health from, since a run systemd started proves
 the timer fired (see [cli](cli.rule.md) for the `stamp_mode`/`max_age` fields that express this).
 `TRIGGER` is what makes that inference sound: only a systemd-started run is evidence about a
 *schedule*, so it records whether `INVOCATION_ID` — set by systemd for every unit it starts — was
@@ -148,7 +147,7 @@ the manager (`systemctl --user start nvm-update.service`) is indistinguishable f
 and counts as `unit`: the inference is bounded to systemd-started runs, not to scheduled ones.
 `NODE` lets `ai-tools --status` report the active Node version without reading the `700` toolchain,
 which the operator cannot. `REASON` is written only on a skip and says which transient condition
-ended the run (`offline`), so the report can state why a run did nothing instead of leaving the
+ended the run (`offline`), so the report can state why a run made no change instead of leaving the
 operator to infer it.
 
 ### What the stamp is trusted for
@@ -165,8 +164,8 @@ permissions around it bound **what it can touch**, never whether the contents ar
   `install.sh` for the dev flow) and only ever **rewritten in place** by the updater. The added
   surface is therefore exactly one inode's contents.
 
-That the contents are forgeable is accepted, on two grounds. The stamp **gates nothing** — it is
-rendered in one status report, is never evaluated, and every value is read defensively
+That the contents are forgeable is accepted, on two grounds. The stamp is **advisory** — it is
+rendered in one status report and never evaluated, and every value is read defensively
 (`ai_tools_service_stamp_field`: a symlink is refused, only the first 4 KiB is examined, and a
 value must be a short `[A-Za-z0-9:+._-]` token or it reads as no value at all), so no control byte
 or escape sequence can reach the operator's terminal through it and a corrupt stamp degrades the
@@ -191,7 +190,7 @@ live session still runs from.
 `/opt/ai-tools/bin` is `0551` and not group-writable (see
 [ownership-and-hooks](ownership-and-hooks.rule.md)), so `SANDBOX_USER` reaches a stable
 launcher symlink only through a root helper. `ai-tools-launcher-symlink` takes one argument and
-**names no agent**. It validates the path is exactly
+**is agent-agnostic**. It validates the path is exactly
 `…/node/v<MAJOR>.<MINOR>.<PATCH>/bin/<launcher>` and exists, takes `<launcher>` from that path's
 own basename, and accepts it only when an **enabled agent manifest claims that launcher** — the
 same allowlist `ai-tools-run` matches an executable against (see [providers](providers.rule.md)).
@@ -202,14 +201,14 @@ set of enabled agents. An allowlist it cannot resolve **refuses** rather than ad
 The updater (one call per enabled agent) and `install.sh` are the only callers; the updater
 reaches it through the [handback bridge](handback-bridge.rule.md) `SYMLINK` verb. The helper
 repoints the symlink but does not relabel the new entrypoint — it runs in the handback domain,
-which holds no relabel rights.
+which does not hold any relabel rights.
 
 ## Post-upgrade entrypoint relabel
 
 A freshly installed entrypoint is born the default type (`bin_t`/`lib_t`), so the
 `→ ai_tools_t` domain transition fires only once it carries `ai_tools_exec_t`.
-`ai-tools-relabel-agent` applies that label, and it **names no agent**: the base policy
-carries no entrypoint rule, so for each *enabled* agent the helper reads the path pattern that
+`ai-tools-relabel-agent` applies that label, and it is **agent-agnostic**: the base policy
+does not carry an entrypoint rule, so for each *enabled* agent the helper reads the path pattern that
 agent's manifest declares (`entrypoint_fcontext`, see [providers](providers.rule.md)), registers
 it as a local `semanage fcontext` rule mapping it to `ai_tools_exec_t`, restorecons every file it
 matches, and verifies each took the type. It runs as root (a domain that holds relabel), is
@@ -217,7 +216,7 @@ idempotent, and no-ops when SELinux is off or the `ai_tools` module is not insta
 then no `ai_tools_exec_t` to assign, the same condition `ai-tools-run` keys on.
 
 The type is pinned in `relabel.lib.sh` and a declared pattern is accepted only when it can match
-nothing outside the sandbox toolchain root (no traversal, no alternation, an anchored literal
+no path outside the sandbox toolchain root (no traversal, no alternation, an anchored literal
 head), so a manifest chooses **which** file is its entrypoint, never what label a file gets. The
 whole body lives in `relabel.lib.sh`, shared with `install-selinux.sh`'s verify pass.
 
@@ -248,14 +247,14 @@ agent's verification line (see [cli](cli.rule.md)).
 It exists because **the operator can observe neither the label nor the run that applies it**. The
 entrypoint is in a toolchain they cannot traverse, `matchpathcon` computes only what a label should
 be, and two of the three callers — an rpm `%post` and `ai-tools --relabel` — are not units, so
-nothing systemd records covers them. A run that fails leaves its account in a journal the operator
+no systemd record covers them. A run that fails leaves its account in a journal the operator
 does not read; the pin, written earlier in the same run, is left standing and green.
 
 The record is written by `ai-tools-relabel-agent` from a per-agent verdict the labelling library
 closes each agent's report with (`agent <name> <ok|failed|none>`, see `relabel.lib.sh`), so one
-place decides an agent's outcome and one place files it. `none` — nothing installed to label —
+place decides an agent's outcome and one place files it. `none` — no entrypoint installed to label —
 is filed as `skipped`, not `ok`: before `ai-tools-bootstrap` provisions the toolchain there is
-nothing to label, and reporting that as labels applied would show green for work that did not
+no entrypoint to label, and reporting that as labels applied would show green for work that did not
 happen. It is written on the DAC-only path too, where the run exits early because there is no
 `ai_tools_exec_t` to assign, so that host reports "nothing to label" rather than "cannot tell".
 Writing it is best-effort and never changes the outcome of the relabel it describes.
@@ -263,7 +262,7 @@ Writing it is best-effort and never changes the outcome of the relabel it descri
 The helper then **reconciles** what it applied against what is installed: it resolves
 `/opt/ai-tools/bin/<launcher>` the way the launch preflight does and reports `stale` — non-zero —
 when an entrypoint is installed at a path the declared pattern does not cover, instead of the
-`none`/success a pattern matching nothing would otherwise produce. So a relabel that exits 0 means
+`none`/success a pattern matching no path would otherwise produce. So a relabel that exits 0 means
 the next launch will not fail closed on the entrypoint label, and a manifest that has stopped
 describing its own package is named as the cause rather than diagnosed as a missing install. It
 never labels the resolved path: the files that take `ai_tools_exec_t` stay exactly those the
@@ -279,7 +278,7 @@ run it after an upgrade, both as root, never `SANDBOX_USER`:
   repoints, atomically (`mv -T` over the old link), so the rename lands as a change in that
   directory whichever agent's launcher moved — and triggers `ai-tools-relabel.service` (a root
   oneshot in the system instance), which relabels **every** enabled agent's entrypoint, so a Node
-  bump needs no operator action and one watch covers any number of agents. Only root writes that
+  bump runs without operator action and one watch covers any number of agents. Only root writes that
   directory, so a trigger is always a control-plane change, and the service is idempotent, so an
   unrelated one costs a no-op pass. `ai-tools-launcher-symlink` is idempotent too: it
   skips the repoint (and so the watcher) only when the link is already current **and** it has
@@ -287,7 +286,7 @@ run it after an upgrade, both as root, never `SANDBOX_USER`:
   needed relabel — a version bump, or a same-version reinstall that reminted the entrypoint at
   `bin_t` — always fires, while a daily no-op run stops churning the link. The repoint is the
   sole trigger: the sandbox
-  updater holds no relabel rights and reaches root only through the handback bridge, whose
+  updater does not hold any relabel rights and reaches root only through the handback bridge, whose
   domain deliberately holds none either, so a repoint that does not land (handback down in a
   manual run) leaves the relabel to `ai-tools-run`'s fail-closed preflight and the operator's
   `ai-tools --relabel`. The watcher is **enabled by default** on install through the shipped
@@ -297,7 +296,7 @@ run it after an upgrade, both as root, never `SANDBOX_USER`:
   unit does not start it, so the `ai-tools-integration-nodejs` `%posttrans` starts it — the twin of
   `ai-tools-base`'s `%posttrans` starting the handback socket — making the watcher live on a fresh
   install without a reboot; it is also restarted across upgrades (`%postun_with_restart`), so it
-  needs no manual bootstrap. Should it be down
+  runs without a manual bootstrap. Should it be down
   anyway, `services.lib.sh` surfaces it before the next Node bump would fail-close a launch on a
   mislabelled entrypoint: proactively at launch (`claude.sh` warns, warn-not-block, from the same
   registry) and in `ai-tools --status` (see [cli](cli.rule.md)).
@@ -307,7 +306,7 @@ run it after an upgrade, both as root, never `SANDBOX_USER`:
   is the comprehensive source-tree sweep.
 
 The relabel runs outside the handback domain by design: `ai_tools_handback_t` is
-agent-reachable and holds no relabel rights (`ai_tools.te`), so the privilege stays off
+agent-reachable and does not hold any relabel rights (`ai_tools.te`), so the privilege stays off
 the agent's reach. The watcher is best-effort; `ai-tools-run`'s fail-closed preflight (see
 [confinement](confinement.rule.md)) is the backstop — when SELinux is enforcing and the
 module is installed, it refuses to launch a session whose entrypoint is not
@@ -368,7 +367,7 @@ SELinux the vector is closed outright — see [confinement](confinement.rule.md)
 `entrypoint-verify.lib.sh` closes it by comparing the installed entrypoint against a checksum the
 **vendor signed**. The three optional manifest fields that declare where to find it — and why the
 signing key is shipped rather than fetched — are in [providers](providers.rule.md); the library
-itself names no agent.
+itself is agent-agnostic.
 
 The work splits by principal, which is what keeps the network off the launch path. The operator
 cannot read the entrypoint at all (the toolchain is `0750` sandbox-owned), so the verification runs
@@ -445,7 +444,7 @@ relabel, and so inside an rpm `%post` that must succeed offline.
 ### Why the pin lives in the relabel helper
 
 `ai-tools-relabel-agent` verifies and pins **before** it labels, on every host — including the
-DAC-only one, where the labelling half has nothing to do. Both halves answer one question, *the
+DAC-only one, where the labelling half has no label to apply. Both halves answer one question, *the
 entrypoint changed, reconcile it*, and they share the three things that would otherwise be
 duplicated: the **trigger** (`ai-tools-relabel.path` watches the launcher directory, so it fires on
 exactly the event that changes an entrypoint), the **privilege** (root, which the sandbox-account
@@ -464,7 +463,7 @@ it is reported first).
 
 **Pinning the registry signing key.** Fetching the keys each run detects a mirror or cache
 that serves a tampered package without the real signature, but not a fully compromised primary
-registry that serves a forged package, signature, and matching keys together. npm exposes no
+registry that serves a forged package, signature, and matching keys together. npm does not expose any
 configuration to pin the signing key for `npm audit signatures`, so pinning requires replacing
 it with a bespoke verification against a hardcoded key — which forgoes npm's maintained
 verifier and the free transitive-tree coverage, and must track npm's key rotation (the endpoint

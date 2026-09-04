@@ -151,12 +151,12 @@ with the manual `sudo chown -R --from=SANDBOX_USER <you>:SANDBOX_GROUP <project>
 for anything the helper could not reach (the command is kept on its own line, outside the
 frame, so it stays copy-pasteable). The routine post-git-activity reclaim runs on nearly
 every `session-start` and has already repaired ownership, so it stays journald-only:
-injecting it would force a TUI re-render that clobbers claude's startup banner with nothing
-for the user to act on. The surfaced NOTICE is framed through `msg.lib.sh` (see
+injecting it would force a TUI re-render that clobbers claude's startup banner with a line
+the user cannot act on. The surfaced NOTICE is framed through `msg.lib.sh` (see
 [messaging](messaging.rule.md)).
 
 Every pass checks the handback socket before acting, since a socket that is down fails every
-`CHOWN` and would otherwise report a reassuring count of calls that changed nothing. So the
+`CHOWN` and would otherwise report a reassuring count of calls that changed no ownership. So the
 sweeps and the reclaim count **confirmed** handbacks (client exit 0), not attempts; a down socket
 makes each pass skip its walk and record the stranded count, and the `session-start` pass — the
 one the operator reads — surfaces a distinct `SessionStart` NOTICE naming the fix (`systemctl
@@ -180,10 +180,10 @@ untouched, so normalization never pulls a foreign-held dir into the agent's grou
 `SANDBOX_USER`-owned paths" rule.
 
 **That skip is counted and reported, never silent.** It is the one skip that can leave a claim
-having granted *nothing* while every other step succeeds, so each walk (`ai-tools-setgid`,
+granting the agent *no access at all* while every other step succeeds, so each walk (`ai-tools-setgid`,
 `ai-tools-setfacl`) counts the paths its owner guard declined and closes with the count on stderr,
 the **project root** called out on its own — every directory below an unreachable root inherits
-nothing, so that case is the whole outcome of the claim rather than one skipped path. The CLI's
+neither the group nor the ACL, so that case is the whole outcome of the claim rather than one skipped path. The CLI's
 front line for the same condition is `require_claimable_owner`, which refuses such a claim before
 its first registry write (see [cli](cli.rule.md)).
 
@@ -207,7 +207,7 @@ in many codebases, so skipping them is a per-host perf opt-in (`SKIP_ARTIFACT_DI
 obj"`), with root-relative exemptions for same-named source dirs
 (`SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE`; every walk passes its root to the selector).
 "Skip" means omitted from the walk, not hidden from the agent — a skipped tree's files
-simply stay agent-owned. A Stop sweep that hands back an unusually large batch logs a
+stay agent-owned. A Stop sweep that hands back an unusually large batch logs a
 journald hint naming the artifact opt-in.
 
 Setgid handles group *ownership* inheritance; a POSIX ACL handles *permission* inheritance in
@@ -267,7 +267,7 @@ resolve the `claude` symlink — but no write, and it is not the dir owner, so i
 edit `nvm-update.sh` in place, `unlink`/replace it, or swap the symlink. The `o+x` bit
 (search without read) lets an operator `readlink` a known `bin/<launcher>` path
 without listing or writing the directory — the one concession that distinguishes `0551`
-from a bare `0550`. No sticky bit is needed because nothing here is group-writable; only
+from a bare `0550`. No sticky bit is needed because no path here is group-writable; only
 root can change it. Repointing a launcher symlink at a new toolchain version is delegated to
 the `ai-tools-launcher-symlink` root helper (see [updater](updater.rule.md)).
 

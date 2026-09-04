@@ -35,7 +35,7 @@ so it would block the agent's atomic-rename re-edits. To prevent unlink/replace 
 operator's own secrets, place them in a dir the agent cannot write (`700 <you>:<you>`) and
 `!`-exclude it — the allowlist is not a read boundary.
 
-`ai-tools-setfacl` makes that recipe hold: a path whose mode carries no group and no other
+`ai-tools-setfacl` makes that recipe hold: a path whose mode grants neither group nor other
 bits (`0600`, `0700`) is never granted — no `group:SANDBOX_GROUP:rwX` entry, no
 `user:<operator>:rwX` entry, no default ACL on a directory, no mask recalculation, mode bits
 untouched — and a skipped directory takes its subtree with it. Widening the mode and
@@ -80,7 +80,7 @@ Both root helpers source `/usr/local/lib/ai-tools/secret-patterns.lib.sh` (root-
 `ai-tools-chown` and `ai-tools-lockdown` never drift apart. The library carries a built-in
 default list identical to the shipped `secret-patterns` seed
 (`src/home/user/.config/ai-tools/secret-patterns`); if the config file is missing or
-empty the defaults apply, so classification never degrades to "match nothing". A failure
+empty the defaults apply, so classification never degrades to an empty pattern set. A failure
 to source the library is fail-closed: `ai-tools-chown` exits non-zero and skips that
 path's handback (it stays `SANDBOX_USER`-owned) rather than handing a possible secret back
 as an ordinary file. `ai-tools-chown` runs in `ai_tools_handback_t` (inherited from the
@@ -143,10 +143,10 @@ projects user cannot stat the helper — only `sudo`, as root, can reach it.
 
 `ai-tools --sandbox-create` runs this lockdown directly after a shallow clone and
 **before** the clone is opened to the agent group or registered, since the tip commit may
-still hold credential files (the clone is born owner-only via `umask 077`, so nothing is
+still hold credential files (the clone is born owner-only via `umask 077`, so no file is
 group-readable in the interim — see [cli](cli.rule.md)). If the user declines or lockdown
 fails, the create stops fail-closed — the clone stays private and unregistered — and the
-CLI drops a guard `CLAUDE.md` into the clone instructing the agent to do nothing until
+CLI drops a guard `CLAUDE.md` into the clone instructing the agent to wait until
 lockdown runs (any existing `CLAUDE.md` is preserved via `git mv` to `CLAUDE.md.bak`);
 re-running `--sandbox-create` on the clone path resumes the gate and, on success, removes
 the guard and restores the original. The guard carries a sentinel comment

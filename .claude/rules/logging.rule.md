@@ -7,8 +7,8 @@ paths:
 # Operation logging
 
 The sandbox components log through one shared library,
-`/usr/local/lib/ai-tools/log.lib.sh` (`644 root:root`, world-readable — it carries no
-secrets and every principal sources it). It exposes `ai_tools_log <level>` and
+`/usr/local/lib/ai-tools/log.lib.sh` (`644 root:root`, world-readable — it holds only code
+and every principal sources it). It exposes `ai_tools_log <level>` and
 `ai_tools_log_{debug,info,warn,error}`, writing to two sinks:
 
 - **journald** — always, via `logger` with a per-component `SyslogIdentifier`
@@ -19,7 +19,7 @@ secrets and every principal sources it). It exposes `ai_tools_log <level>` and
   `-allowlist`, `-launcher-symlink`, `-lockdown`, `-relabel`, `-relabel-agent`, `-dotnet`,
   `-handback` and `ai-tools-install`; the sandbox account's uid for `ai-tools-run` and
   `-hook`; the operator's for `ai-tools`. Add `-p warning` to filter by level. The uid is not
-  decoration — see "A tag attributes nothing, `_UID` does" below.
+  decoration — see "A tag is not an identity, `_UID` is" below.
 - **`/var/log/ai-tools/<component>.log`** — only when the caller sets `AI_TOOLS_LOG_FILE`,
   which only the root writers do. The directory is `700 root:root`, each file
   `600 root:root`: the root helpers append as root, while `SANDBOX_USER` — neither the dir
@@ -32,14 +32,14 @@ secrets and every principal sources it). It exposes `ai_tools_log <level>` and
   (`ai-tools-handback`, root, Python) writes it directly (not through this library, which it
   does not source), recording the bridge's own events (rejected peers, malformed/refused
   requests, helper timeouts, one line per served request) in the same
-  `<ts> <LEVEL> [<pid>] <msg>` format. The agent-side client writes no file (DAC), only
+  `<ts> <LEVEL> [<pid>] <msg>` format. The agent-side client does not write a file (DAC), only
   journald. The directory path defaults to `/var/log/ai-tools` but
   honors an `AI_TOOLS_LOG_DIR` override — a root-only test hook (sudo strips it, the
   handback daemon execs with its own environment), so the test suite points a run's file
   logs at a throwaway dir instead of the production trail (see
   [tests](tests.rule.md)); no production principal can redirect it.
 
-## A tag attributes nothing, `_UID` does
+## A tag is not an identity, `_UID` is
 
 The syslog identifier is chosen by whoever writes the line, and `ai_tools_t` may write
 `/dev/log` — that is how the hooks reach journald at all. So a session can emit
@@ -57,7 +57,7 @@ the CLI. `ai-tools-run` prints its own recipe in exactly that form
 Two tags have no separating filter, because the agent **is** their legitimate writer:
 `ai-tools-hook` and `ai-tools-run` both run as the sandbox account, so a forged line under either
 carries the same `_UID` as a real one. Their journal lines are the session's own account of what
-happened — evidence to reconcile, not proof of it. The trail that carries no such doubt is the
+happened — evidence to reconcile, not proof of it. The trail free of that doubt is the
 file sink above: `700 root:root`, root writers only, which the agent can neither read nor append
 to. Where a journald line and the file sink disagree, the file sink is what happened.
 
@@ -75,7 +75,7 @@ What is logged is a caller convention, not enforced by the library: the privileg
 operations the hooks and helpers perform, the CLI's workflow milestones (project/sandbox
 created, pushed, removed, locked down), and the full install transcript (`do_install` tees
 a colour-stripped copy to `install.log`). Routine per-path sweep churn is `DEBUG` only and
-is emitted only when a path actually changes. A message placed before its operation is
+is emitted only when a path changes. A message placed before its operation is
 present-tense `DEBUG`; one after a completed unit of work is past-tense `INFO`. Both sinks
 are best-effort — a failed write is swallowed, so logging never aborts or alters the exit
 status of the operation it describes.
@@ -152,7 +152,7 @@ Seq or Vector reading the journal):
 
 A `key=value` `MESSAGE` is only *conventionally* structured — every consumer re-parses it, and a
 value containing the delimiter is ambiguous. The native protocol delimits each field itself, so
-a value needs no escaping and cannot forge a sibling. That difference is why the two renderings
+a value does not need escaping and cannot forge a sibling. That difference is why the two renderings
 are reduced differently, below. Emission goes through `ai_tools_log_structured`, an **opt-in**
 extension of this library: a caller passing no fields, or a host whose `logger(1)` predates
 `--journald`, takes the plain path and is byte-identical to before. The fallback is decided by
@@ -165,7 +165,7 @@ regardless, and refusing them here means a caller never believes it did.
 the first **two** words of the command's **first line**, each capped at 128 characters (a longer
 one marked `~`), plus the count of words on that line — never the command line itself. Taking
 only the first line excludes a here-doc body by construction rather than by a length cap: `cat >
-f <<'EOF'` followed by a credential records `cmd="cat >" argc=4` and nothing of the payload. A
+f <<'EOF'` followed by a credential records `cmd="cat >" argc=4` and no part of the payload. A
 full command line would make the trail carry unbounded file content, which is why the bound is
 stated here rather than left to the hook.
 
@@ -179,7 +179,7 @@ deliberately permits those three, because in prose they are ordinary text; in a 
 they are *structure*, so a leading word of `git" argc=0 cwd=/etc/passwd` would otherwise render
 as `cmd="git" argc=0" argc=8` and hand a reader the planted `argc`. Reducing them to `?` makes
 the line's shape unforgeable while leaving it readable, and the variable-length part is emitted
-**last**, so nothing the agent controls precedes a field a reader trusts.
+**last**, so no agent-controlled value precedes a field a reader trusts.
 
 The **structured fields need none of that narrowing** — the protocol delimits them — so they
 keep what the `MESSAGE` reduces: a path containing a space stays a path containing a space, where
@@ -204,7 +204,7 @@ been written, so a degraded host's log volume is unchanged — only its level ri
 
 **Volume is within journald's budget by a wide margin.** Rate limiting applies per sending unit
 — here the session's own transient user service — at the upstream default of 10000 messages per
-30s, orders of magnitude above any tool-call rate, so an `INFO` per call needs no drop-in and no
+30s, orders of magnitude above any tool-call rate, so an `INFO` per call does not need a drop-in or a
 lowered level.
 
 **Concurrent sessions separate without trusting the agent.** All sessions run as one account, so

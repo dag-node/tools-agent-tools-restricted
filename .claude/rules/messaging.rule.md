@@ -15,7 +15,7 @@ paths:
 
 Every refusal, notice, and warning the user reads is rendered through one shared
 library, `/usr/local/lib/ai-tools/msg.lib.sh` (`644 root:root`, world-readable — it
-carries no secrets and operator, agent, and root principals all source it, exactly like
+holds only code and operator, agent, and root principals all source it, exactly like
 [logging](logging.rule.md)'s `log.lib.sh`). It exposes `ai_tools_msg <severity> <fd>
 <line...>`, the convenience emitters `ai_tools_msg_{error,warn,notice,info,success}`,
 the flow-block opener `ai_tools_msg_headline <title> <fd> <line...>`,
@@ -43,7 +43,7 @@ defaults through them — the command renderer `ai_tools_cmd_display`, and the u
   overflows its own line intact rather than breaking mid-token, so copy-paste survives.
 - **The frame is paste-safe.** On a terminal the text is drawn in a titled box whose
   every line — top rule, content, bottom rule — begins with `#`, so the whole block is a
-  shell comment: pasted into a prompt by accident, nothing executes. The border character
+  shell comment: pasted into a prompt by accident, it executes as a comment. The border character
   is `#`, not `|`, for exactly this reason.
 - **Uniform width on demand.** A box sizes to its content by default; `AI_TOOLS_MSG_FULLWIDTH=1`
   pins it to its class's fixed frame (alerts 50 columns, blocks/headlines 80), so a
@@ -109,7 +109,7 @@ The first argument picks one of two answering modes:
   and never blocks. Returns 0.
 - **`none`** — there is no default. Empty or out-of-range input **re-asks** (three attempts,
   each miss saying what is expected), and closed input (Ctrl-D), no terminal, or three
-  unanswered attempts return **non-zero with nothing on stdout**. The library declines to
+  unanswered attempts return **non-zero with empty stdout**. The library declines to
   answer for the user; the caller decides what an unanswered menu means.
 
 Anything else is a caller error (`return 2`), never an assumed answer — the same rule
@@ -186,7 +186,7 @@ reasoning: [docs/session-stop.md](../../docs/session-stop.md).
 `/dev/tty`, and returns 0 only on an **exact** match with `<expected>`. A mismatch, empty
 input, closed input (Ctrl-D), and **no terminal** all return non-zero.
 
-**It takes no default, and that is the mechanism rather than an omission.** A confirm exists so
+**It does not take a default, and that is the mechanism rather than an omission.** A confirm exists so
 that Enter can mean something, which is why it must state which way it falls; a challenge exists
 so the answer costs something a reflex cannot supply, which leaves an absent answer with only one
 reading. That also settles the unattended case without a rule of its own — a run with no terminal
@@ -280,7 +280,7 @@ the exit status of the operation whose outcome they report.
   The **setup** screen carries one line of prose and **no commands**; its options live in the
   `ai_tools_msg_pick none` menu below it, each with the consequence that distinguishes it —
   **1)** Create sandbox (*the session runs in the copy, not here*), **2)** Claim here (*its
-  group becomes `ai-tools`*), **3)** Cancel. Because the block names no command, the Cancel
+  group becomes `ai-tools`*), **3)** Cancel. Because the block does not name a command, the Cancel
   path — which is also the no-terminal and unanswered-menu path — prints both commands itself,
   plain and below the frame. The **finish-setup** screen keeps its per-gap bullets, its
   embedded `--sandbox-create` command (its prompt is a yes/no confirm offering only the claim,
@@ -306,7 +306,7 @@ the exit status of the operation whose outcome they report.
   confinement`, …) — framing the context, then the shared inline yes/no prompt — all on
   `/dev/tty`, because `do_install` tees stdout+stderr to the install log and a prompt must
   reach the real terminal. Consecutive prompts separate via the lib's leading blank before
-  each box; a non-interactive run draws nothing and takes the default. A closing
+  each box; a non-interactive run takes the default without drawing one. A closing
   `confirm_boxed` gates the whole verification phase, which runs **last — after the
   optional SELinux bring-up** so it sees the final labelled state: the installed-files
   summary (`do_summary`), then the full test suite (`tests/run.sh all`), which includes
