@@ -1,7 +1,7 @@
 # Entrypoint verification
 
 How `ai-tools` proves that the agent binary it is about to run is the one its vendor published, what
-you have to do about it (almost always nothing), and what each failure means.
+you have to do about it (almost always none), and what each failure means.
 
 ## The short version
 
@@ -11,7 +11,7 @@ two ways:
 - **At update time**, against a checksum the vendor **signed**, using a signing key shipped in the
   `ai-tools` package rather than downloaded.
 - **At launch time**, against a **pin**: a small root-owned file recording the checksum that was
-  verified. The launch does no network I/O and needs no key — it hashes the binary and compares.
+  verified. The launch does not perform network I/O and does not read a key — it hashes the binary and compares.
 
 If the binary changes after it was verified, the next launch refuses. That is the whole point: it
 catches tampering that **persists** — modify the binary once, and every future session for every
@@ -74,7 +74,7 @@ does not — it identifies the **signer**, not the release.
 | the key + fingerprint | who is allowed to sign a release | the `ai-tools` **package** (`0644 root:root`, not a config file) | the vendor rotates its signing key — years, not releases | a signed package update (`dnf update`) |
 | the pin | what *this* installed binary hashes to | `/var/opt/ai-tools/state/entrypoint-pin.d/<agent>` | every agent update | root, automatically, via the watcher above |
 
-One key signs every Claude Code release. So the static half needs no maintenance, and the
+One key signs every Claude Code release. So the static half does not need upkeep, and the
 per-version half is derived automatically.
 
 **A key rotation is not an outage.** Until the package carrying the new key reaches your host,
@@ -86,9 +86,9 @@ where neither works.
 
 | you see | it means | do |
 |---|---|---|
-| nothing | the normal case | nothing |
-| `entrypoint verified … and pinned` after an update | working as intended | nothing |
-| `could not verify … pin unchanged` | the host could not reach the vendor, or no manifest exists for that release | nothing; it re-verifies on the next update. If it persists, check egress to `downloads.claude.ai` |
+| no output | the normal case | no action |
+| `entrypoint verified … and pinned` after an update | working as intended | no action |
+| `could not verify … pin unchanged` | the host could not reach the vendor, or no manifest exists for that release | no action; it re-verifies on the next update. If it persists, check egress to `downloads.claude.ai` |
 | `signed by a key the pinned keyring does not hold` | the vendor rotated its signing key | `sudo dnf update 'ai-tools-agents-*'` |
 | a launch refused: `does not match the checksum its vendor signed` | **the binary changed after it was verified** | treat the toolchain as tampered: `sudo ai-tools-bootstrap`, and investigate if it recurs |
 | a launch refused: `carries no verified checksum` | you set `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes` and this entrypoint was never pinned | `ai-tools --relabel` (needs the host online) |
@@ -142,7 +142,7 @@ across sessions and across operators indefinitely.
   detection. On a DAC-only host it is the only check there is.
 - It proves the binary is a **genuine** vendor release, not the **newest** one. Rolling back to an
   older signed release still verifies.
-- It says nothing about what the agent *does* once running. That is the sandbox's job: the confined
+- It does not make any claim about what the agent *does* once running. That is the sandbox's job: the confined
   account, the project allowlist, and the ownership handback.
 
 ## See also

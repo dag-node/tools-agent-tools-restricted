@@ -50,11 +50,11 @@ ai-tools --stop --dry-run    # list what would be terminated, change nothing
 ```
 
 Run it as yourself, not under `sudo` — the CLI reaches the root helper on its own, and the bare
-form needs no password at all (§2, *Who may stop what*). The `--dry-run` and `--force` forms fall
+form runs without a password at all (§2, *Who may stop what*). The `--dry-run` and `--force` forms fall
 outside that grant, so those prompt. Root may run the command too.
 
 Add `-y`/`--yes` to skip the confirmation, `--force` to skip the ten-second grace period and kill
-immediately. `--all` is accepted and does nothing — every run already terminates every session, and
+immediately. `--all` is accepted and has no effect — every run already terminates every session, and
 the flag exists only so a script that spells the intent out is not refused for being explicit. The
 full grammar and every exit code are in `ai-tools(1)`.
 
@@ -86,13 +86,13 @@ missing one costs you a label rather than costing the stop a target.
 
 **Agent sessions and the account's own plumbing are counted separately.** The slice holds more than
 sessions: the account's `systemd --user` and its `init.scope`, a dbus broker, and a login session
-scope for every `sudo -u` that crossed `pam_systemd`. All of them are terminated — nothing is
+scope for every `sudo -u` that crossed `pam_systemd`. All of them are terminated — no cgroup is
 exempt — but they are listed after the agent sessions and marked `(account plumbing)`, and the
 headline gives the two counts apart:
 
 ```
 1 agent session(s) will be terminated, with everything they spawned. … 3 unit(s) of the
-ai-tools account's own plumbing (marked below) go with them -- nothing in the account's
+ai-tools account's own plumbing (marked below) go with them -- no cgroup in the account's
 slice is exempt -- and its user manager is restarted afterwards.
 
             SESSION                              PROCS  PROJECT
@@ -104,8 +104,8 @@ slice is exempt -- and its user manager is restarted afterwards.
 
 The split is **advisory, exactly like attribution, and for the same reason**: a unit name inside the
 delegated subtree is the delegatee's to choose, so a session can name itself out of the agent class.
-It gains nothing by doing so — both classes are enumerated, listed and killed identically, and
-nothing here is consulted to decide what a stop reaches. What the split buys is that the line you
+That gains it no exemption: both classes are enumerated, listed and killed identically, and the sweep
+consults neither class to decide what it reaches. What the split buys is that the line you
 read first during an incident does not tell you four agents were running when one was.
 
 Only agent sessions produce a `--reclaim` line, because only they have a project to hand back. The
@@ -115,7 +115,7 @@ the protected-paths backstop refuses — so listing it offered a remedy that can
 ### A second run is not silent
 
 Running `--stop` again straight after a successful one is **not** a no-op, and that follows from
-sparing nothing rather than being a defect in it. The user manager the first run restored is itself
+sweeping every cgroup rather than being a defect in it. The user manager the first run restored is itself
 inside the swept slice, so the second run finds it, terminates it, and restarts it again:
 
 ```
@@ -145,15 +145,15 @@ which pass ended it, because that is the most useful line in the trail afterward
 
 | Exit | Meaning | What to do |
 |---|---|---|
-| 0 | stopped and verified gone, or nothing was running | reclaim the projects it names (below) |
+| 0 | stopped and verified gone, or no session was running | reclaim the projects it names (below) |
 | 1 | something survived `SIGKILL` | see *A process survived* below |
-| 2 | usage — an unknown option, or a path (this command takes no target) | run `ai-tools --stop` |
-| 4 | you declined at the confirmation | nothing was stopped |
+| 2 | usage — an unknown option, or a path (this command does not take a target) | run `ai-tools --stop` |
+| 4 | you declined at the confirmation | no session was stopped |
 | 5 | the helper could not run (no cgroup v2, no sandbox account) | a broken host, not a failed stop |
 
 Exit 0 means precisely this: every session that existed when the command enumerated was terminated
-and verified gone, and a final re-enumeration found nothing still live. It does **not** mean none
-can start afterwards — see *Residual failure modes* in §2 — and it says **nothing about the user
+and verified gone, and a final re-enumeration found no process still live. It does **not** mean none
+can start afterwards — see *Residual failure modes* in §2 — and it makes **no claim about the user
 manager**, whose restoration is reported separately and never folded into this status.
 
 ### After a stop: reclaim
@@ -181,7 +181,8 @@ what it has done, stop first and investigate second — that ordering is the poi
 
 A task only outlives `SIGKILL` while blocked in an uninterruptible kernel call (`D` state): a hung
 NFS mount, a wedged block device, a stalled page fault. Worth knowing before you escalate: such a
-task holds no CPU, executes no instructions and can start nothing new — it is stopped in every
+task is off the run queue: it consumes no CPU, does not execute a further instruction, and cannot start a
+process — it is stopped in every
 sense that matters — but only the I/O completing or a reboot clears it from the process table.
 
 ```
@@ -234,12 +235,12 @@ judged by one question: **can the monitored system decline, evade, or disarm it?
 | # | Invariant | Where it comes from | What would break it |
 |---|---|---|---|
 | I1 | A process cannot leave the cgroup it is in, and a child inherits it across `fork()`. Membership survives `setsid(2)` and the double fork that re-parents to PID 1. | `cgroups(7)`; a task moves only when something writes a `cgroup.procs` | a kernel that lets a task rewrite its own membership |
-| I2 | Every process of the sandbox account lives under that account's per-user slice, `user-<uid>.slice`. | `systemd-logind(8)` places user processes there; the account has no login shell, so nothing else creates one | a process escaping to another slice — needs the user manager, which SELinux denies and DAC-only leaves as a residual |
-| I3 | `SIGKILL` is neither catchable nor blockable, and `cgroup.kill` (Linux ≥ 5.14) delivers it to a whole cgroup **atomically** — one write freezes the cgroup and kills every member including descendants. | `signal(7)`; `cgroups(7)` | nothing in userspace |
+| I2 | Every process of the sandbox account lives under that account's per-user slice, `user-<uid>.slice`. | `systemd-logind(8)` places user processes there; the account has no login shell, so no other path creates one | a process escaping to another slice — needs the user manager, which SELinux denies and DAC-only leaves as a residual |
+| I3 | `SIGKILL` is neither catchable nor blockable, and `cgroup.kill` (Linux ≥ 5.14) delivers it to a whole cgroup **atomically** — one write freezes the cgroup and kills every member including descendants. | `signal(7)`; `cgroups(7)` | no userspace mechanism |
 | I4 | The kernel answers "is anything alive here" itself: `cgroup.events`' `populated` field is 1 while the cgroup **or any descendant** holds a live process. | cgroup v2 interface files | a threaded subtree, where `cgroup.procs` reads fail — handled by corroborating with `cgroup.threads` |
-| I5 | Only root may signal across accounts and write `cgroup.kill`. The sandbox account holds no `sudo` rule, and the session runs under `PR_SET_NO_NEW_PRIVS`, which drops `sudo`'s SUID bit outright. | the sudoers drop-in; `ai-tools-run`'s unit properties | an operator adding a rule for the sandbox account |
-| I6 | The set of sessions terminated is decided by cgroup-slice membership alone — no input the account can write reaches that decision, because the command takes no target and no authorization argument. | this command's own grammar | adding a per-project form scoped by anything the account reports |
-| I7 | `/proc` and `/sys` reads plus bash builtins need no external binary. The kill path calls `sleep` and nothing else. | the helper's own construction | — |
+| I5 | Only root may signal across accounts and write `cgroup.kill`. The sandbox account does not hold a `sudo` rule, and the session runs under `PR_SET_NO_NEW_PRIVS`, which drops `sudo`'s SUID bit outright. | the sudoers drop-in; `ai-tools-run`'s unit properties | an operator adding a rule for the sandbox account |
+| I6 | The set of sessions terminated is decided by cgroup-slice membership alone — no input the account can write reaches that decision, because the command accepts neither a target nor an authorization argument. | this command's own grammar | adding a per-project form scoped by anything the account reports |
+| I7 | `/proc` and `/sys` reads plus bash builtins need no external binary. The kill path calls `sleep` alone. | the helper's own construction | — |
 
 Two of these carry the whole design. **I1 is why discovery is by cgroup**: a process group is
 broken by `setsid(2)` and a ppid walk is broken by the double fork, so neither can enumerate what a
@@ -253,7 +254,7 @@ host, including other operators'. That is deliberate, and it is not a widening: 
 an authorization input, so an operator could always end everyone's sessions. What changed is that
 there is no longer a *politer* form beside it, because the politer form was not a control.
 
-**It needs no password, and that is the requirement the grant answers.** The `%ai-ops` drop-in
+**It runs without a password, and that is the requirement the grant answers.** The `%ai-ops` drop-in
 carries a NOPASSWD rule for the helper's bare form, so the command runs with no prompt:
 
 ```
@@ -267,7 +268,7 @@ during exactly the incidents it exists for. The bare command is the whole of wha
 because the confirmation defaults yes and proceeds with no terminal (§1). The trailing `""` pins
 the rule to that zero-argument form and therefore withholds `--force` (which drops the grace period
 and the current turn's unsaved work with it) and `--dry-run` (a detector does not preview); both
-stay behind a general sudo grant. Since the helper takes no target and no authorization input, the
+stay behind a general sudo grant. Since the helper does not take a target or an authorization input, the
 rule has no argument surface at all — the narrowest shape a NOPASSWD rule can have.
 
 Root reaches the same command directly (`ai-tools --stop` is one of the verbs that write no
@@ -297,17 +298,17 @@ systemd **delegates** the per-user subtree to the account — that is what lets 
 create units at all — and delegation permits the delegatee to move its own tasks between cgroups
 *inside* that subtree. Containment holds at the delegation boundary, not within it.
 
-On a host with the SELinux module loaded this is closed outright: `ai_tools_t` is granted nothing
+On a host with the SELinux module loaded this is closed outright: `ai_tools_t` is granted no permission
 on `cgroup_t` (only a `dontaudit … getattr`), so a session can neither write a `cgroup.procs` nor
 create a cgroup, and it has no `connectto` on the user runtime socket, so it cannot reach its own
 user manager to ask for a unit either. **On a DAC-only host both are reachable**, since the account
 owns the delegated cgroup files and its own bus socket.
 
-This is why the sweep **spares nothing** — not the account's own `systemd --user`, not its
-`init.scope`. An exemption is a destination: any cgroup left out is one a session on a DAC-only
-host can move into, whether it is named or identified by exact path. Sparing nothing means there is
+This is why the sweep **covers every cgroup** — the account's own `systemd --user` and its
+`init.scope` included. An exemption is a destination: any cgroup left out is one a session on a DAC-only
+host can move into, whether it is named or identified by exact path. Covering every cgroup means there is
 nowhere to move to, and a unit the session asks its manager to create is still inside the slice
-being swept. It also means **no unit name appears in the helper at all**, so there is nothing here
+being swept. It also means **no unit name appears in the helper at all**, so there is no name here
 to differ between EL9, EL10 and Fedora.
 
 The cost is that the user manager is terminated too, and `SIGKILL` leaves `user@<uid>.service`
@@ -320,19 +321,18 @@ A final sweep re-enumerates after the run and reports a cgroup that became live 
 verified empty (`AI_TOOLS_RESULT=reappeared`) — that is what a mid-run launch looks like from here.
 Re-running is the remedy; the command is idempotent.
 
-Attribution is best-effort, and now carries no weight: a `WorkingDirectory` is read from the
+Attribution is best-effort and display-only: a `WorkingDirectory` is read from the
 account's own user manager, so a rogue unit can misreport it — and all that buys is a wrong label
-in the table and a missing `--reclaim` line. It cannot affect what is terminated, because nothing
-is selected by it.
+in the table and a missing `--reclaim` line. It cannot affect what is terminated, because the sweep does not consult it.
 
 ### Residual failure modes
 
 Stated so the guarantee is bounded honestly rather than overstated.
 
 - **Uninterruptible sleep.** A `D`-state task cannot be reaped until its syscall returns; the run
-  reports it as surviving, which is honest. It executes nothing meanwhile.
+  reports it as surviving, which is honest. It stays off the CPU meanwhile.
 - **The helper itself is `SIGKILL`ed mid-run.** An `EXIT` trap narrows the *audit* gap (it covers
-  every signal bash can handle) but nothing narrows the *state* gap. The remedy is that the command
+  every signal bash can handle) but no mechanism narrows the *state* gap. The remedy is that the command
   is idempotent: run it again. A watchdog would be a second privileged daemon for a case a rerun
   already answers.
 - **The launch/stop window.** A session launched after the final sweep is outside the command's
@@ -349,16 +349,16 @@ Stated so the guarantee is bounded honestly rather than overstated.
 - **Kernel below 5.14 or a cgroup-v1-only host.** Without `cgroup.kill` the fallback re-collects
   and re-signals in a loop, narrowing the fork window without closing it. With no cgroup v2
   hierarchy at all the helper **refuses** (exit 5) and names the manual command, rather than
-  reporting that nothing is running. Both supported EL targets are unified and ≥ 5.14.
+  reporting that no session is running. Both supported EL targets are unified and ≥ 5.14.
 - **Both log sinks unavailable.** The stop still succeeds or correctly fails; the record is lost.
   The two sinks fail independently.
 
 ### What the monitored system can do about it
 
 Nothing, and this is asserted from the agent's own vantage in `tests/boundary/access.sh`: the
-sandbox account cannot read, write or execute the helper and holds no `sudo` rule to reach root
+sandbox account cannot read, write or execute the helper and does not hold a `sudo` rule to reach root
 by. There is no authorization input left for it to aim at, either — the command takes none. The kill
-is delivered by root to a cgroup, and nothing inside the cgroup takes part in it.
+is delivered by root to a cgroup, and no process inside the cgroup takes part in it.
 
 **No name buys anything, because no name is spared.** One cgroup is matched by name at all — the
 manager unit, `user@<uid>.service`, by *exact path* — and it is not an exemption: it is descended
@@ -444,7 +444,7 @@ off. It is discovery, consent, verification, restoration, and the record.
   between. Each pass re-reads the cgroup.
 - **Validate a pid's start time immediately before signalling it** (`/proc/<pid>/stat` field 22),
   so a pid recycled between collection and kill is skipped rather than signalled blind. This is the
-  pre-5.14 path; `cgroup.kill` signals no pids at all.
+  pre-5.14 path; `cgroup.kill` does not signal any pid.
 - **Every liveness read fails closed.** Only one failure means "empty": the file not existing, i.e.
   the cgroup was removed, which is what a completed kill looks like. A permission-unreadable
   `cgroup.procs` reports LIVE. A threaded cgroup — whose `cgroup.procs` read fails while live
@@ -466,8 +466,8 @@ two project-wide conventions are inverted, and each is inverted for that reason 
    ends the shell just as abruptly wherever a name or an argument is read unset — so a value a
    caller may legitimately not have passed is defaulted where it is read, rather than left to abort
    a run mid-way. What is guaranteed is independence from *this project's* libraries, and now
-   absolutely: **no project library is load-bearing here at all.** The command takes no input that
-   decides which sessions to stop, so there is nothing left for one to gate. `log.lib.sh` and
+   absolutely: **no project library is load-bearing here at all.** The command does not take any input that
+   decides which sessions to stop, so there is no input left for a library to gate. `log.lib.sh` and
    `msg.lib.sh` load best-effort for output quality; `safe-paths.lib.sh` and `operator.lib.sh` are
    not loaded, having existed here only to vet and authorize a caller-supplied target. It is not
    independence from the base system and does not pretend to be — which externals a run touches and
@@ -493,7 +493,7 @@ Each of these looks like a defect to a fresh reader, and each is deliberate. If 
 | The user manager is restarted, not spared | the exemption it would need costs more than the restart does (§2) |
 | The restart never changes the exit status | the invariant is that the *stop* happened; the manager is a separate fact (§2) |
 | Liveness comes from cgroups only | systemd never decides whether something is running (§3) |
-| Attribution is best-effort and display-only | it selects nothing, so a misreported project costs a label, never a target (§2) |
+| Attribution is best-effort and display-only | the sweep does not consult it, so a misreported project costs a label, not a target (§2) |
 | Agent sessions and account plumbing are counted apart, advisorily | the class comes from a unit name, so it is the account's word — but it labels a row, never selects one, and the alternative was telling an operator four "agent sessions" were running when one was (§1) |
 | A second run terminates and restarts the manager again | idempotence is in end state; a silent rerun costs either an exemption or a name-decided sweep (§1) |
 

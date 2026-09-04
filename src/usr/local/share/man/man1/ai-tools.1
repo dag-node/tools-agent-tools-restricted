@@ -66,7 +66,7 @@ in
 .BR operator.conf (5).
 A general
 .BR sudo (8)
-grant is neither of them \(em the host's own sudoers decides it, and nothing in
+grant is neither of them \(em the host's own sudoers decides it, and no file in
 this package writes or records it.
 .PP
 An operator holding only the two launches agent sessions and reads the reports.
@@ -115,9 +115,9 @@ exist: only the final component is created, so a mistyped path is refused rather
 than manufactured. Every filesystem step runs as the operator the run acts for, so
 a create under
 .B \-\-for
-produces a tree that operator owns. A refusal leaves nothing behind.
+produces a tree that operator owns. A refusal removes the directory it made.
 .IP
-It takes no options and asks no confirmation of its own: the tree it makes is empty,
+It does not take options, and asks for no confirmation of its own: the tree it makes is empty,
 so the claim that follows infers the answers its prompts would otherwise ask for \(em
 there are no pre-existing permissions to warn about, no secret-named files to scan a
 brand-new directory for, and no git history to expose in a repository with no commits.
@@ -184,7 +184,7 @@ to release one and keep the files.
 The authorization is an
 .I exact
 .B allowed\-projects
-entry and nothing else: there is no
+entry alone: there is no
 .BR \-\-force ,
 an ancestor or a path inside a project is refused, and so is a project that
 contains another claimed project \(em deleting it would take that one with it and
@@ -195,7 +195,7 @@ registries before deleting, so a failed deletion leaves an unregistered tree rat
 than a half-deleted one.
 .IP
 It confirms twice \(em a default-NO prompt, then a typed-name challenge \(em and
-neither is answered by a run with no terminal, so nothing is deleted unattended
+neither is answered by a run with no terminal, so a delete needs an operator at the prompt
 without
 .BR \-y ,
 which additionally requires an explicit
@@ -214,7 +214,7 @@ agree and a park-and-restore round trip leaves the file as it was.
 It is a registry change and
 .I only
 a registry change: the tree keeps its group, its ACLs, its setgid bits and its
-SELinux label, so nothing has to be re-applied when it comes back. What stops
+SELinux label, so no step has to be re-applied when it comes back. What stops
 along with the launches is every root helper that resolves a path's owner through
 the allowlist \(em so while a project is disabled the ownership handback does
 .I not
@@ -235,7 +235,7 @@ A project
 inside another claimed project is also refused. The
 .B !
 line it would write is indistinguishable from an exclusion withholding a subtree from the project
-above it, and nothing in the file could tell the two apart afterwards \(em so re-enabling it later
+above it, and no field in the file could tell the two apart afterwards \(em so re-enabling it later
 could only be a guess, on an edit that widens what the agent reaches. The refusal names the two
 ways to get the intended effect: unclaim the nested project, or park the one above it. Editing the
 line by hand is unaffected; the tool simply will not write that one for you.
@@ -245,8 +245,8 @@ Restore a project disabled earlier (default: the current directory): the
 .B !
 is deleted from its line, in place. Sessions may start there again.
 .IP
-It grants nothing that was not already granted \(em the tree's permissions never
-changed \(em so it runs no secret scan and asks nothing. A path the allowlist does
+It restores the entry alone \(em the tree's permissions never
+changed \(em so it does not run a secret scan and does not prompt. A path the allowlist does
 not name is refused and points at
 .BR \-\-project\-claim :
 claiming scans for secrets before granting an agent access to a tree, which is a
@@ -301,7 +301,7 @@ never rewritten. Default:
 .IR sandbox/ <leaf>,
 where <leaf> is the last component of
 .BR \-\-from .
-The default carries no host, machine, or operator identity.
+The default omits host, machine, and operator identity.
 .TP
 .B \-\-dir \fIname\fR
 Directory name for the clone under the sandbox area (default: the repository's base name).
@@ -401,7 +401,7 @@ fails the command says so and names the fix, and the next launch needs it before
 start a session. Success means every session that existed at enumeration was terminated
 and verified gone from its
 .BR cgroup ;
-it does not mean none can start afterwards, and it says nothing about the manager.
+it does not mean none can start afterwards, and it does not describe the manager.
 .IP
 The report counts agent sessions apart from the account's own plumbing \(em its user manager, its
 dbus broker, and a login session scope per
@@ -409,9 +409,9 @@ dbus broker, and a login session scope per
 that crossed pam_systemd. All are terminated; the plumbing is listed after the sessions and marked
 .IR "(account plumbing)" ,
 so the headline does not report four units of scaffolding as four agent sessions. The split is
-presentational \(em it labels and orders rows and decides which get a reclaim command, and selects
-nothing. Because the restarted manager is itself inside the swept slice, running the command twice
-in a row is not silent: the second run reports no agent session, then terminates and restarts the
+presentational \(em it labels and orders rows and decides which get a reclaim command, without
+selecting any target. Because the restarted manager is itself inside the swept slice, running the command twice
+in a row is not silent: the second run reports zero agent sessions, then terminates and restarts the
 manager again. It is idempotent in end state, not in what it prints.
 .IP
 Exit status carries the outcome:
@@ -473,7 +473,7 @@ group that its build needs is not loaded.
 .TP
 .B \-\-audit \fR[\fB\-\-since\fI when\fR]
 Report what has refused, been rejected, been stranded, or been flagged since a given
-time \(em the detections the sandbox already records but that nothing previously read
+time \(em the detections the sandbox already records but that no command reads
 back. Needs
 .BR sudo :
 the trail it reads is
@@ -495,7 +495,7 @@ toolchain auto-update timer and update service \(em as OK, SKIPPED, DOWN, FAILED
 STALE, or not-installed \(em then, per agent whose package declares one, whether its
 entrypoint carries a verified checksum. Read-only. Exits non-zero when anything is reported broken,
 so it can be run unattended from a monitor or a cron job. SKIPPED is not broken: it
-reports a run that correctly did nothing, such as an update that could not reach the
+reports a run that correctly declined to act, such as an update that could not reach the
 package registry, and turns STALE if the condition persists.
 .TP
 .B \-\-list
@@ -535,7 +535,7 @@ For
 report what would be locked, and what would be stripped from the paths you have
 already sealed by mode, without changing anything. For
 .BR "\-\-project\-unclaim \-\-force" :
-list every path that would change, with ownership and mode, and change nothing.
+list every path that would change, with ownership and mode, and apply none of them.
 A registered project's unclaim previews itself, so this pairs with
 .B \-\-force
 only.
@@ -575,7 +575,7 @@ act on a tree the allowlist does
 cover \(em a claimed project copied or moved elsewhere and never unclaimed. It
 replaces the allowlist gate with a per-path one: a path is touched only while it
 still carries ai-tools ownership, group, or an ai-tools ACL entry, so running it
-on a directory that was never claimed changes nothing. It does
+on a directory that was never claimed leaves it untouched. It does
 .B not
 relax the protected-paths backstop, the owner guard, the hardlink guard, or the
 secret and exclusion skips, and it is refused on a registered project.
@@ -633,13 +633,13 @@ Accepted on
 .BR \-\-project\-remove ", " \-\-lockdown ", " \-\-reclaim ", and " \-\-list ;
 refused elsewhere rather than ignored. It cannot be combined with
 .BR "\-\-project\-unclaim \-\-force" ,
-whose tree carries no allowlist entry naming an owner and is therefore bound to
+whose tree has no allowlist entry naming an owner and is therefore bound to
 the invoking operator.
 .SH EXIT STATUS
 .TP
 .B 0
 The command completed.
-A dry run that printed its plan, and an idempotent verb that found nothing left
+A dry run that printed its plan, and an idempotent verb that found no work left
 to do, both land here.
 .TP
 .B 1
@@ -667,7 +667,7 @@ every elevated helper refuses it, whatever the allowlist says.
 .B 5
 .B \-\-stop
 could not run at all: it was not invoked as root, the sandbox account has no
-uid, or the host exposes no cgroup v2 hierarchy.
+uid, or the host has no cgroup v2 hierarchy.
 No session was signalled.
 .TP
 .B 130

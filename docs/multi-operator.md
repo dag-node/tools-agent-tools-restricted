@@ -48,7 +48,7 @@ operators list).
   to the operator whose **allowlist contains the path** (`opX:ai-tools`; secret-named
   files `opX:opX 600`). When more than one operator lists the same path, the tie-break is
   the **nearest parent directory's owner**, provided that owner is an operator whose
-  allowlist covers the path — the on-disk project owner wins. The control plane needs no
+  allowlist covers the path — the on-disk project owner wins. The control plane does not need
   restore.
 - **`safe.directory` edits go through a root helper.** `.gitconfig` stays `root:ai-tools 644`
   (world-readable so the agent reads `safe.directory` and the operator and launch wrapper read it
@@ -81,7 +81,7 @@ operators list).
   name to `OPERATORS`, adds it to `ai-ops`, seeds that user's allowlist, and ensures the
   sandbox account's linger. `remove` reverses it (drops from `OPERATORS` and `ai-ops`, leaves
   the user's own allowlist/config). `list` prints the current operators. An operator runs
-  `claude` from its own active login, so it needs no linger of its own; the toolchain timer
+  `claude` from its own active login, so it does not need linger of its own; the toolchain timer
   is enabled once in `ai-tools`'s instance, not per operator.
 
 ## Permission mapping (single-operator → multi-operator)
@@ -98,7 +98,7 @@ Ownership cells use the shell-variable identities from
 | `bin/ai-tools-run` | `PROJECTS_USER:SANDBOX_GROUP 0550` | `root:SANDBOX_GROUP 0550` | unchanged surface — `sudo` transitions to `ai-tools` first, so the exec check is the group bit. |
 | `bin/nvm-update.sh` | `PROJECTS_USER:SANDBOX_GROUP 0550` | `root:SANDBOX_GROUP 0550` | run as `ai-tools` by its own timer; group-x. |
 | `bin/claude` (symlink) | `PROJECTS_USER:SANDBOX_GROUP` | `root:SANDBOX_GROUP` | owner irrelevant for readlink; root-owned = agent still can't swap it. |
-| `.claude` | `PROJECTS_USER:SANDBOX_GROUP 3770` | `root:SANDBOX_GROUP 3770` | unchanged (`o=0`): operators get nothing; agent group-writes its state, sticky blocks unlink of root-owned control files. |
+| `.claude` | `PROJECTS_USER:SANDBOX_GROUP 3770` | `root:SANDBOX_GROUP 3770` | unchanged (`o=0`): operators get no access; agent group-writes its state, sticky blocks unlink of root-owned control files. |
 | `.claude/{settings.json,hooks}` | `PROJECTS_USER:SANDBOX_GROUP 640/750` | `root:SANDBOX_GROUP 640/750` | unchanged; only the agent reads these. |
 | `.claude/.claude.json` | `SANDBOX_USER:SANDBOX_GROUP` (agent-created via the `CLAUDE_CONFIG_DIR` pin) | moves into `state/<operator>/` | agent-owned state, saved atomically (temp + rename), so it lives where the agent holds directory write; the enforced boundary is the root-owned `settings.json`. |
 | `.gitconfig` | `PROJECTS_USER:SANDBOX_GROUP 640` | `root:SANDBOX_GROUP 644` | agent reads `safe.directory`; world-readable so the operator and wrapper read it without `ai-tools` group membership; root-write-only. Operators register entries through the `ai-tools-safedir` root helper (`sudo`), not by writing the file. |

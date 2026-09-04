@@ -26,7 +26,7 @@ their sessions.
 | the list | `AI_TOOLS_OPERATORS` (array) | "the operators" |
 | operators group | literal `ai-ops` | "the operators group" / `ai-ops` |
 
-Being an operator is those two facts and nothing else: `ai-ops` membership and a name in
+Being an operator is exactly those two facts: `ai-ops` membership and a name in
 `OPERATORS`. **A general sudo grant is a separate host-level axis, not part of the term** — the
 host's own sudoers decides it, and this project neither writes nor records it. Both shapes are
 operators, and prose distinguishes them by naming the grant rather than by inventing a role:
@@ -38,7 +38,7 @@ operators, and prose distinguishes them by naming the grant rather than by inven
 - an operator **without** one launches sessions and reads the reports. Projects are claimed for it
   by the first shape, with `ai-tools --project-claim --for <operator>`. A passwordless service
   account that runs an agent is this shape, and "service account" describes its intent — the host
-  records nothing that distinguishes it from any other grant-less operator.
+  does not record any field that distinguishes it from any other grant-less operator.
 
 `operator.conf` is managed in place at runtime by `ai-tools-admin operators add|remove`. Its
 source template carries one substitution token, `OPERATORS="@PROJECTS_USER@"`, and the two
@@ -97,7 +97,7 @@ that resolution alone — a helper's walk still resolves each path's own owner.
 ### Sandbox user — the unprivileged service account the agent runs as
 
 The dedicated, no-login system account (`ai-tools`) that Claude Code executes
-as. Owns nothing of an operator's; holds no sudo rights and is not in `ai-ops`.
+as. Owns none of an operator's files; does not hold sudo rights and is not in `ai-ops`.
 
 | Facet | Shell variable | Install-time token | Prose term |
 |-------|----------------|--------------------|------------|

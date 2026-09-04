@@ -129,7 +129,7 @@ restores the projects it had.
 Report the core module and every optional group with its state
 .RB ( [LOADED] / [disabled] ),
 its stability, and what it covers.
-Reports that there is nothing to manage when SELinux is disabled.
+Reports that there is no policy to manage when SELinux is disabled.
 .TP
 .B selinux groups enable \fIname\fR
 Load the prebuilt module for
@@ -165,7 +165,7 @@ Idempotent, and a no-op when no
 .I .rpmnew
 file is waiting.
 .SH OPTIONS
-Both options read no host state and change nothing, so both answer any caller
+Both options read no host state and leave the host as it is, so both answer any caller
 rather than only root, and each ignores any further argument.
 .TP
 .BR \-\-help ", " \-h
@@ -177,8 +177,8 @@ Print the installed version and exit.
 .TP
 .B 0
 The command completed.
-An idempotent command that found nothing left to do lands here, as does a
-command that had nothing to manage because SELinux is disabled.
+An idempotent command that found no work left lands here, as does a
+command with no policy to manage because SELinux is disabled.
 .TP
 .B 1
 The operation failed.
