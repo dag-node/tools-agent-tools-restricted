@@ -367,7 +367,7 @@ allow ai_tools_t self:process execmem;   # V8 JIT (writable+executable code page
 # cp, mv, install). Without setfscreate that call returns EACCES and libselinux prints a stderr
 # "failed to set default file creation context" warning on every such command. The grant only
 # lets the domain preset the label the files_tmp_filetrans type_transition already assigns, so it
-# widens no producible label -- the file is ai_tools_tmp_t either way; this just silences the noise.
+# does not widen the producible label -- the file is ai_tools_tmp_t either way; this just silences the noise.
 allow ai_tools_t self:process setfscreate;
 allow ai_tools_t self:fifo_file rw_fifo_file_perms;
 allow ai_tools_t self:unix_stream_socket create_stream_socket_perms;
@@ -416,7 +416,7 @@ dontaudit ai_tools_t config_home_t:file { getattr ioctl open read };
 dontaudit ai_tools_t container_file_t:file { open read };
 dontaudit ai_tools_t sendmail_exec_t:file execute;
 
-# (4) Benign device/fs probe noise -- denying these changes no behaviour (callers
+# (4) Benign device/fs probe noise -- denying these leaves behaviour unchanged (callers
 # fall back), so silence rather than grant.
 # fs_t:filesystem getattr is ALLOWED above (find -xdev needs statfs()).
 dontaudit ai_tools_t { cgroup_t tmpfs_t }:filesystem getattr;
@@ -442,8 +442,8 @@ init_dontaudit_getattr_initctl(ai_tools_t)
 # client can keylog/screenshot/inject into every window), so opening this path would hand
 # the agent the whole desktop, and reaching the cookie would breach the §2 home boundary.
 # The supported in-sandbox clipboard path is OSC 52 -- a terminal escape on the already-
-# allowed pty -- which needs no socket and no policy grant. So this is silenced, NOT
-# allowed, and is deliberately NOT an optional group: enabling it would buy nothing.
+# allowed pty -- which requires neither a socket nor a policy grant. So this is silenced, NOT
+# allowed, and is deliberately NOT an optional group: enabling it would buy no capability.
 # (connectto is peer-label-based, so it can only target the peer process type, not the
 # socket path; on a host with a confined X server the peer would be xserver_t.)
 dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
@@ -496,7 +496,7 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 #            service with RestrictNamespaces=yes, whose seccomp filter blocks
 #            clone(CLONE_NEWUSER) (and all namespace creation) for the session process
 #            tree. seccomp runs before the LSM hook, so this is the enforcing layer;
-#            it is per-session and needs no sysctl. (System-wide alternative, rejected:
+#            it is per-session and does not need a sysctl. (System-wide alternative, rejected:
 #            user.max_user_namespaces=0 -- breaks Firefox + rootless Podman host-wide.)
 #            SECOND LAYER, if the base policy ever adds the permission: keep it a
 #            VISIBLE denial by simply NOT allowing it to ai_tools_t -- do not add an

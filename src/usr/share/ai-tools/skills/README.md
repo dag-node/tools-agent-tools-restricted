@@ -51,7 +51,7 @@ root. A real directory always wins: the linker never displaces one, so a name th
 exactly as you left it. This is also how an agent-specific *override* of a shared skill works —
 same name, real directory, no link. (The one thing that is converted to a link is an
 `x-ai-tools-managed` copy that is byte-identical to the shared skill: that is the project's own
-copy from the older per-agent layout, so nothing is lost. An edited one is kept.)
+copy from the older per-agent layout, so no content is lost. An edited one is kept.)
 
 ## Versioning: stable name, RFC-draft frontmatter
 

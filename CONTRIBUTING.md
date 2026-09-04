@@ -74,8 +74,8 @@ Commit messages follow `type(scope): summary` (`feat`, `fix`, `docs`, `test`, `c
 ### AI-assisted commits
 
 Commits in this repository frequently carry a `Co-Authored-By` trailer naming an AI
-model. This records how the change was produced. It asserts no copyright: model output
-is not separately copyrightable and Anthropic claims no rights in it. Every commit is
+model. This records how the change was produced. It does not assert copyright: model output
+is not separately copyrightable and Anthropic does not claim rights in it. Every commit is
 authored, reviewed, and signed off by a human contributor, whose CLA covers the
 contribution in full.
 

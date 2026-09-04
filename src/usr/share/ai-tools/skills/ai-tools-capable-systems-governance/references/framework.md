@@ -113,7 +113,7 @@ acquire additional infrastructure, compute, or accounts.
 Any persistence, replication, migration, or resource acquisition MUST carry verifiable authorization
 from the control plane. The verifying code and the verifying key MUST be outside the system's write
 and read boundary respectively; verification performed by the system, or against a key it can reach,
-provides no assurance.
+does not provide assurance.
 
 **Enforced form:** ephemeral compute, and no write access to its own deployment, scheduler,
 artifacts, prompts, or tool definitions.

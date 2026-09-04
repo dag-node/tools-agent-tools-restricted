@@ -71,8 +71,8 @@
 
 # The INTEGRATION state root: one directory per integration (integrations/<name>/...), holding
 # the sandbox-side state a host toolchain needs -- a package cache the agent writes, shared tools
-# it only executes. ONE rule covers every integration present or future, so a new toolchain adds
-# no policy: ai_tools_home_t grants the domain the access, and the DAC modes each integration
+# it only executes. ONE rule covers every integration present or future, so a new toolchain
+# does not need policy of its own: ai_tools_home_t grants the domain the access, and the DAC modes each integration
 # sets inside its own directory are the enforced read/write boundary.
 /opt/ai-tools/integrations(/.*)?  gen_context(system_u:object_r:ai_tools_home_t,s0)
 

@@ -24,7 +24,7 @@ required. The "One-line test" and the anti-patterns below double as the review p
 
 When concerns pull against each other, resolve them in this order:
 
-1. **Correctness** — it has to do the right thing; a fast, elegant wrong answer is worth nothing.
+1. **Correctness** — it has to do the right thing; a fast, elegant wrong answer is worthless.
 2. **Security** — get the boundary right before the speed. An input that reaches a log, a shell, a
    query, or the filesystem is untrusted until proven otherwise.
 3. **Performance** — then make it fast: avoid needless work, allocations, and chatty round-trips;
@@ -77,7 +77,7 @@ understands in one pass — the code is the best documentation.
   correctness gate.)
 - **Sanitize with a fail-closed allowlist, not a blocklist.** Permit a known-safe subset and reject
   everything else by construction. A blocklist is open-ended and never provably complete; an
-  allowlist needs no maintenance to stay safe. Prefer the simple, foolproof rule over exhaustive
+  allowlist does not need maintenance to stay safe. Prefer the simple, foolproof rule over exhaustive
   enumeration.
 - **Lightest mechanism that works.** Resolve an inconsistency at write-time against ground truth
   (the code) rather than building tooling to police it later; reach for a lint/CI gate only for a
@@ -101,7 +101,7 @@ understands in one pass — the code is the best documentation.
 - **Scope a change to what it requires.** Touch only what the change needs — reconcile the doc
   passages it actually invalidates, don't ride unsolicited cross-cutting refactors or new doc
   sections along with a fix. Raise a broader idea separately.
-- **Trace, don't guess.** When something "does nothing" with no error, observe the running behaviour
+- **Trace, don't guess.** When something silently fails to act, observe the running behaviour
   (a trace, an exit code, a log) before theorising — silent no-ops (a swallowed error, a mis-set
   flag) don't reveal themselves by inspection.
 
