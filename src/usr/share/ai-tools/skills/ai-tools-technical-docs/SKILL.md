@@ -282,14 +282,21 @@ load-bearing why.
 Prose is read without the conversation that produced it. Name the concrete mechanism; leave out
 session shorthand, internal labels, ticket tags, and "as discussed" back-references.
 
-### Resolve conflicts against the code, while writing
+### Resolve a doc/code conflict while writing, in the right direction
 
-Where a doc and the code disagree, resolve it then, against the code — do not default to
-either side, and do not commit a known inconsistency. Ask when the correct behaviour is
-genuinely unclear.
+Where a doc and the code disagree, resolve it then — do not default to either side, and do not
+commit a known inconsistency. Which side moves depends on what the prose is doing:
 
-While a migration is in progress, describe the target state as current. Where that forces a
-mention of something not yet built, record the dependency and keep writing to the target.
+- **A description of behaviour** — a file header, a doc comment, most rule prose. The code decides
+  what it says, and the stale side is not reliably the prose.
+- **An invariant** — a `CLAUDE.md` guarantee, a stated MUST, a security property. The prose stands
+  and the code is the defect: raise it. Rewriting the invariant to match retires a guarantee by
+  editing prose.
+- **A migration in progress** — the prose leads and the code follows: describe the target state as
+  current, and record the dependency where that forces a mention of something not yet built. The
+  gap is expected, so it is recorded rather than resolved away in either direction.
+
+Ask when which of the three applies is genuinely unclear, rather than committing a guess.
 
 ## The three axes
 
@@ -395,15 +402,9 @@ advisory.
 `*.rule.md` holds the principles common to its domain plus the cross-file story. A file header
 holds that file's local mechanism.
 
-**The code is true for behaviour, and invariants have to hold.** Code, header, and rule describe
-one system at three altitudes, each in the present tense, and touching any of them obligates
-reconciling the others at the time of writing.
-
-Where a description disagrees with the code, the code decides what the description says — the
-stale side is not reliably the prose. Where the **code** contradicts an invariant a `CLAUDE.md`
-or a rule states, that is a defect in the code: raise it, and leave the invariant standing.
-Rewriting the invariant to match would retire a guarantee by editing prose. Ask when the correct
-behaviour is genuinely unclear, rather than committing a guess.
+**Code, header, and rule describe one system at three altitudes**, each in the present tense, so
+touching any of them obligates reconciling the others at the time of writing — in the direction
+*Resolve a doc/code conflict* sets.
 
 Each tier states the system as it now is. What changed belongs to the changelog and to git.
 
@@ -573,7 +574,8 @@ Scan the finished text for each of these, since every one is checkable:
     short has not thereby passed.)
 
 **A finding names a symptom. Fix the claim, not the token.** Every rule here is about what a
-sentence claims, so the repair starts at the code and writes the sentence again from it. Editing
+sentence claims, so the repair restates the claim — from the code, or from the invariant, in the
+direction *Resolve a doc/code conflict* sets — and writes the sentence again from that. Editing
 around the flagged word keeps the shape and costs something else: `grants nothing` redrafted as
 `confers no authority` clears the grep, trades a domain term for a legal one, and still fronts the
 quantifier — while re-reading the code gives `uses a grant the caller already holds`. The same
