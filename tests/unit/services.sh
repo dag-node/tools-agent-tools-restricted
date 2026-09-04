@@ -14,9 +14,9 @@
 #     stale past max_age, a failed one stays failed at any age, an unknown age never manufactures
 #     staleness, and 'fired' mode reads the recency of a SYSTEMD-STARTED run alone -- letting one
 #     stamp yield two verdicts, a healthy trigger beside the failed run it started, while a run the
-#     operator did by hand (which proves nothing about a schedule) is declined in both directions;
+#     operator did by hand (which is no evidence about a schedule) is declined in both directions;
 #   * the 'skipped' verdict for a run that correctly did NOTHING -- the updater finding the
-#     registry unreachable, where the previous toolchain stays and there is nothing to fix. It must
+#     registry unreachable, where the previous toolchain stays and there is no fault to fix. It must
 #     not alarm (needs_attention says no, so --status stays green and exits zero) and must not
 #     claim health either, so it stays distinct from active, still ages into 'stale' when the
 #     condition persists, and leaves the TRIGGER's own verdict untouched in 'fired' mode;
@@ -30,7 +30,7 @@
 #     that each reported record still carries its remedy command or the empty remedy whose commands
 #     the consumer composes.
 #
-# systemctl is stubbed as a shell FUNCTION (which overrides the PATH lookup), so the test needs no
+# systemctl is stubbed as a shell FUNCTION (which overrides the PATH lookup), so the test does not need an
 # executable shim -- and works where /tmp is mounted noexec. The stamp fixtures are written with
 # known content in the test's own /tmp testdir; no real unit, no real stamp, no root.
 
@@ -38,7 +38,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# Installed copy first, then the source tree (the lib carries no token substitution, so identical).
+# Installed copy first, then the source tree (the lib does not carry a token substitution, so identical).
 LIB="/usr/local/lib/ai-tools/services.lib.sh"
 [[ -r "${LIB}" ]] || LIB="${ROOT}/src/usr/local/lib/ai-tools/services.lib.sh"
 section "services: registry accessors + state mapping + scan filters (unit)"
@@ -83,7 +83,7 @@ else
 fi
 
 # A record that omits the trailing stamp field yields the empty string, not an unbound-variable
-# abort -- the state resolver keys on that emptiness to mean "publishes no stamp".
+# abort -- the state resolver keys on that emptiness to mean "does not publish a stamp".
 if [[ -z "$(ai_tools_service_field "unit-y|system|critical|none|why|how" 7)" ]]; then
     pass "an absent trailing field reads as empty"
 else
@@ -102,7 +102,7 @@ else
 fi
 
 # The update service's stamp path is the one the updater writes; a drift between the two would
-# leave --status permanently reporting 'unknown' with nothing to say why.
+# leave --status permanently reporting 'unknown' with no reason to say why.
 svc_rec="$(grep '^nvm-update\.service|' <<<"${recs}")"
 if [[ "$(ai_tools_service_field "${svc_rec}" 7)" == /var/opt/ai-tools/state/nvm-update.status ]]; then
     pass "nvm-update.service names the updater's stamp path"
@@ -154,7 +154,7 @@ fi
 # Such a unit is 'inactive' whenever it is healthy, so is-active would report every successful run
 # as DOWN and -- worse -- report a run that FAILED hours ago the same way, hiding it behind a
 # remedy that does not apply. ai-tools-relabel.service is the case that matters: it is triggered by
-# a .path watcher whose own health says nothing about whether the relabel it started succeeded.
+# a .path watcher whose own health is no evidence about whether the relabel it started succeeded.
 ONESHOT=ai-tools-relabel.service
 _SVC_STATE=( [${ONESHOT}]=down )
 
@@ -317,7 +317,7 @@ else
     fail "an old failed run was reported stale"
 fi
 
-# A run that did nothing because it COULD not (the updater with an unreachable registry) is its own
+# A run that made no change because it COULD not (the updater with an unreachable registry) is its own
 # verdict, between success and fault. Reporting it as FAILED would send an operator after a host
 # that is fine; reporting it as OK would claim an update that never happened. So it must read
 # 'skipped', must not count as needing attention -- or a disconnected laptop makes --status exit
@@ -333,7 +333,7 @@ else
         ai_tools_service_needs_attention skipped && echo yes || echo no))"
 fi
 
-# The escalation is the grace window's job: offline once is nothing to act on, offline for a week
+# The escalation is the grace window's job: offline once calls for no action, offline for a week
 # is a toolchain that has stopped advancing, and only the age can tell those apart.
 mk_stamp "RESULT=skipped" "EXIT_CODE=3" "FINISHED=$(at_age $(( 13 * DAY )))" "REASON=offline"
 if [[ "$(ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")" == stale ]]; then
@@ -342,7 +342,7 @@ else
     fail "an old skipped run did not go stale"
 fi
 
-# 'fired' mode: the trigger's verdict is the recency of a SYSTEMD-STARTED run, and nothing else. A
+# 'fired' mode: the trigger's verdict is the recency of a SYSTEMD-STARTED run, and no other input. A
 # RECENT run that failed still proves the timer fired, so the timer is healthy while the service it
 # started is not -- the two must not collapse into one verdict, or a failing service would also
 # condemn a working schedule.
@@ -504,7 +504,7 @@ else
     fail "wrapper scan found nothing down when relabel.path is down"
 fi
 
-# --- (D) all healthy -> the wrapper scan reports nothing ---
+# --- (D) all healthy -> the wrapper scan does not report fault ---
 _SVC_STATE=( [ai-tools-handback.socket]=active [ai-tools-relabel.path]=active [nvm-update.timer]=active )
 if ai_tools_services_scan wrapper; then
     fail "wrapper scan reported a down service on a healthy host: [${AI_TOOLS_SERVICES_DOWN[*]}]"
@@ -514,7 +514,7 @@ fi
 
 # --- (E) a FAILED unit is reported by the 'all' scan, and by neither system-scope filter ---
 # Driven through a fixture registry (the record array is plain data) so the assertion depends on
-# this test's own stamp rather than the host's real one. This is the last section; nothing after it
+# this test's own stamp rather than the host's real one. This is the last section; no case after it
 # reads the registry. The wrapper/system filters must stay clean: only a sandbox-user unit can be
 # 'failed', so the launch wrapper's warning still speaks only of units that are not running.
 mk_stamp 'RESULT=failed' 'EXIT_CODE=1' 'FINISHED=2026-08-17T05:50:59Z'

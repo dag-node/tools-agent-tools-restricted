@@ -19,7 +19,7 @@
 #
 # The impure half (ai_tools_entrypoint_release_verify) needs the vendor's live endpoint, gpgv, and
 # a 300 MB hash, so it is not driven here; its status contract is exercised where it is wired in.
-# Run as root via sudo (the suite's convention), though nothing here needs it.
+# Run as root via sudo (the suite's convention), though no case here needs it.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -225,7 +225,7 @@ else
         fail "the label record did not read back as RESULT=failed with its reason and a LABELLED age"
     fi
 
-    # A reason is a token, never prose: the accessors' charset clamp admits no spaces, so a value
+    # A reason is a token, never prose: the accessors' charset clamp does not admit spaces, so a value
     # carrying any would read as absent and the record would lose the field silently. It is dropped
     # at write time instead, leaving a record whose every field can be read back.
     if ai_tools_entrypoint_label_write claude-code failed "rule not registered; id" \
@@ -238,14 +238,14 @@ fi
 
 # ── Pin reuse: answering from the pin instead of refetching the signed manifest ───────────────
 # The unattended callers (the relabel watcher, the agent package's %post) may skip the fetch and
-# the gpgv when nothing that decides the verdict has changed. Every assertion below targets a way
+# the gpgv when no input that decides the verdict has changed. Every assertion below targets a way
 # that shortcut could answer a question it was not asked -- which is the only way it can fail
 # open, since a reused verdict is indistinguishable from a fresh one to everything downstream.
 section "entrypoint-verify: pin reuse (unit)"
 
 # Asserted only when the deployed library actually carries the predicate. Without this guard an
 # absent function exits 127, which every negative case below would read as a correct refusal --
-# the section would report green while testing nothing at all.
+# the section would report green while testing no behaviour at all.
 if ! declare -F ai_tools_entrypoint_pin_reusable >/dev/null 2>&1 \
         || ! declare -F ai_tools_entrypoint_inputs_digest >/dev/null 2>&1; then
     skip "pin reuse" "the installed ${LIB} carries no pin-reuse predicate -- reinstall to cover it"

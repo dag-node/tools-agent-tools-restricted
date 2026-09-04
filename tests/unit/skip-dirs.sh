@@ -5,7 +5,7 @@
 # the per-consumer skip sets the lib owns, the optional skip_git override, the operator.conf
 # category overrides (parsed, not sourced), and the -type d matcher that skips DIRECTORIES
 # only -- so a file sharing a skipped name is still walked. Sources the deployed library and
-# exercises a /tmp testdir; needs no privilege of its own. Run as root via sudo (suite contract).
+# exercises a /tmp testdir; does not require privilege of its own. Run as root via sudo (suite contract).
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -40,7 +40,7 @@ for consumer in sweep setgid setfacl unclaim lockdown; do
 done
 ${handback_ok} && pass "sweep/setgid/setfacl/unclaim/lockdown skip .git + heavy trees"
 
-# reclaim WALKS .git but skips the heavy trees; reclaim-full skips nothing.
+# reclaim WALKS .git but skips the heavy trees; reclaim-full descends everywhere.
 if [[ " $(names_for reclaim) " != *" .git "* && " $(names_for reclaim) " == *" node_modules "* ]]; then
     pass "reclaim walks .git but skips the heavy trees"
 else

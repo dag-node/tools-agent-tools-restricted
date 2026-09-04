@@ -27,7 +27,7 @@
 #      counterpart left to compare an operator's edit against.
 #
 # Drives the INSTALLED library against fixtures in its own /tmp testdir: every root is an argument,
-# so nothing reads or writes /usr/share/ai-tools, /opt/ai-tools, or any live asset. Needs root --
+# so no case reads or writes /usr/share/ai-tools, /opt/ai-tools, or any live asset. Needs root --
 # the seeder chowns what it places and the withdrawal creates a 0700 root:root directory.
 
 set -euo pipefail

@@ -13,7 +13,7 @@
 # cannot put any of them into that state in the first place. Both halves must hold: the runtime
 # check catches a host someone has already broken, this catches the agent trying to break it.
 #
-# Probe-only (test -w / test -x); nothing is written, created, or unlinked. Run as root via sudo;
+# Probe-only (test -w / test -x); no file is written, created, or unlinked. Run as root via sudo;
 # drops to the agent per check.
 
 set -euo pipefail

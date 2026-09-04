@@ -24,7 +24,7 @@ readonly SOCK="/run/ai-tools/handback.sock"
 
 # ── settings.json declares the hooks + Bash deny rules ───────────────────────────
 # perms.sh pins settings.json's owner/mode and access.sh pins that the agent cannot write it,
-# but nothing asserts the file still DECLARES the handback hooks and the deny rules -- an install
+# but no case asserts the file still DECLARES the handback hooks and the deny rules -- an install
 # that shipped an empty or stale settings.json would disable handback + secret quarantine with
 # every permission check still green. Pin the security-load-bearing content here. This runs
 # independently of the live daemon below (it needs only the file), so a socket-down host still
@@ -287,7 +287,7 @@ fi
 # for -- it is unbounded and routinely carries file content -- so the fixture writes a
 # recognisable secret through one and the assertion is that it never reaches the journal.
 # Driven as the agent, since that is the account that writes these lines and the uid they must
-# file under. A host without journald skips: an absent line proves nothing either way.
+# file under. A host without journald skips: an absent line is evidence either way.
 section "PostToolUse tool-call record (content bound)"
 if ! command -v journalctl >/dev/null 2>&1; then
     skip "tool-call record" "journalctl not available to read the trail back"

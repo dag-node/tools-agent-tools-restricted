@@ -12,7 +12,7 @@
 #
 # The strip also answers ai-tools-lockdown's --dry-run, so one section pins the two properties
 # that makes it worth doing here rather than in a caller: the preview names exactly what the
-# apply removes, and it touches nothing.
+# apply removes, and it does not touch a path.
 #
 # It also pins the three platform behaviours the design rests on (see "platform assumptions"),
 # so a change in coreutils/acl semantics fails here rather than silently unsealing trees.
@@ -201,7 +201,7 @@ strip "${TESTDIR}/f2" "regular file" "${SBX}" "${PROJECTS_GROUP}"
     && pass "a file's setgid bit is left untouched (an sgid binary is not silently altered)" \
     || fail "a file's setgid bit was cleared: $(stat -c '%a' "${TESTDIR}/f2")"
 
-# ── idempotence: a clean sealed path has nothing to strip ─────────────────────────────────
+# ── idempotence: a clean sealed path has no residue to strip ─────────────────────────────────
 strip "${TESTDIR}/d" directory "${PROJECTS_GROUP}" "${PROJECTS_GROUP}"
 [[ "${STRIP_RC}" -eq 1 ]] \
     && pass "a already-stripped path reports nothing to do (idempotent, silent on re-runs)" \

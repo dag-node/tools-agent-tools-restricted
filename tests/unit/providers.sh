@@ -121,7 +121,7 @@ fi
 
 # --- Manifest field accessor: what ai-tools-run reads once it has resolved an agent -----------
 # The name becomes a path, so it is allowlisted to plain identifiers: anything else must resolve
-# nothing rather than address a file outside the manifest directory.
+# an empty result rather than address a file outside the manifest directory.
 printf 'npm_package=@anthropic-ai/claude-code\nlauncher=claude\ndisplay_name=Claude Code\ndefault_enable=yes\n' \
     > "${agents_dir}/claude-code.conf"
 if [[ "$(ai_tools_agent_manifest_field claude-code display_name || true)" == "Claude Code" ]]; then

@@ -9,7 +9,7 @@
 # manifest allowlist (without it, any binary sitting in a versioned bin/ could be given a stable
 # link in the control-plane directory).
 #
-# Refusal cases touch nothing; the happy path targets the symlink's CURRENT target, so it is
+# Refusal cases touch no path; the happy path targets the symlink's CURRENT target, so it is
 # idempotent -- and when no relabel is pending it skips the repoint entirely (reporting "already
 # current") rather than churning the link. Run as root via sudo.
 

@@ -16,7 +16,7 @@
 # readonly. sudo is stubbed as a shell FUNCTION, which overrides the PATH lookup, so no executable
 # shim is needed (and the test works where /tmp is noexec) and no real sudoers is consulted. The
 # helper is SOURCED, not run: its root check and its dispatch are guarded for exactly this, so one
-# function is driven with no host to administer and nothing written anywhere.
+# function is driven with no host to administer and no state written anywhere.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -62,7 +62,7 @@ if [[ "${out}" == *"NO SUCH FUNCTION"* ]]; then
     finish; exit
 fi
 
-# 1. The grant is there: sudo answers for the claim helper, and the account needs nothing further.
+# 1. The grant is there: sudo answers for the claim helper, and the account does not need a further step.
 if [[ "${out}" == *"holds a general sudo grant"* && "${out}" != *"--for"* ]]; then
     pass "a listed claim helper reports the grant, with no --for advice"
 else
@@ -88,7 +88,7 @@ else
     fail "an unanswering sudo must not read as a missing grant, got: ${out}"
 fi
 
-# 4. No sudo at all: nothing on the host can claim, which is a statement about the host rather than
+# 4. No sudo at all: no account on the host can claim, which is a statement about the host rather than
 #    about this account, and the enrolment it just did still stands.
 out="$(bash -c '
     set -euo pipefail
@@ -148,8 +148,8 @@ else
     fail "the created .bash_profile left a login shell without .bashrc (marker '${marker}')"
 fi
 
-# An init file the operator already has is appended to, never replaced, and a second run adds
-# nothing: `operator add` is accumulating and idempotent, and this runs on every re-enrolment.
+# An init file the operator already has is appended to, never replaced, and a second run leaves
+# the file as it found it: `operator add` is accumulating and idempotent, and this runs on every re-enrolment.
 # shellcheck disable=SC2016  # the fixture's ${HOME} is init-file text, expanded by the shell reading it
 printf '# my own bashrc\nexport NVM_DIR="${HOME}/.nvm"\n' > "${TESTDIR}/.bashrc"
 wire_file "${TESTDIR}/.bashrc" >/dev/null

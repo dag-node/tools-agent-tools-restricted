@@ -10,7 +10,7 @@
 # A closing section covers the CLI-side decision that feeds this helper,
 # ai-tools.sh's resolve_handback_group, because it has TWO results (the group, and the hint that
 # no hand-back can run) and therefore returns both as globals in its caller's shell rather than on
-# stdout. Nothing about that is visible from a `$(...)` capture -- which is how it regressed: the
+# stdout. No part of that is visible from a `$(...)` capture -- which is how it regressed: the
 # capture's subshell dropped the second result, and reading it back under `set -u` aborted every
 # unclaim before it touched anything. So the assertion is made from a real caller.
 
@@ -115,7 +115,7 @@ else
     skip "owner guard" "user 'nobody' not present"
 fi
 
-# (F) an unknown target group is rejected (helper exits non-zero, nothing changed).
+# (F) an unknown target group is rejected (helper exits non-zero, no path changed).
 if ! "${HELPER}" "${proj}" "no_such_group_$$" < /dev/null > /dev/null 2>&1; then
     pass "an unknown target group is rejected"
 else
@@ -225,7 +225,7 @@ if [[ -r "${operator_conf}" ]] && grep -qE "^[[:space:]]*OPERATORS=.*\b${PROJECT
     fi
 
     # (O) fails closed with no invoking operator: the identity that bounds the walk cannot be
-    # resolved, so nothing is touched. env -u SUDO_UID reproduces a direct root call.
+    # resolved, so no path is touched. env -u SUDO_UID reproduces a direct root call.
     noop="${TESTDIR}/noop"
     mkdir -p "${noop}"; : > "${noop}/f"; chmod 0660 "${noop}/f"
     chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${noop}"
@@ -297,7 +297,7 @@ else
     if ! out="$(resolve_hb "${PROJECTS_GROUP}")"; then
         skip "resolve_handback_group" "CLI not sourceable or helper absent (partial install?)"
     else
-        # --group names the group outright: it is published as-is, with no hint (nothing is wrong).
+        # --group names the group outright: it is published as-is, with no hint (the state is correct).
         if [[ "${out}" == "${PROJECTS_GROUP}|" ]]; then
             pass "an explicit --group reaches the caller as the hand-back group, with no hint"
         else

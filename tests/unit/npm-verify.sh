@@ -4,7 +4,7 @@
 # Unit test for the npm signature verifier (npm-verify.lib.sh). Drives the PURE decision
 # ai_tools_npm_verdict over a truth table of `npm audit signatures --json` shapes -- the
 # fail-closed contract nvm-update.sh and ai-tools-bootstrap gate the stable-launcher repoint
-# on. The pure verdict touches no npm, no filesystem, and no privilege, so this runs with no
+# on. The pure verdict touches neither npm nor the filesystem, and does not need privilege, so this runs with no
 # registry, no network, and no root risk: a regression in the verdict (a tamper read as
 # "unable to verify", an inverted gate, a format change read as a false OK) fails here.
 #
@@ -12,7 +12,7 @@
 # that function operates on the SANDBOX-owned (agent-writable) global npm tree and must run as
 # the sandbox account, never root -- and this suite runs as root. Instead it asserts the
 # function's fail-closed root-refusal backstop (as root it returns "unable to verify" and
-# touches nothing). The real end-to-end audit is covered as the sandbox account, out of this
+# does not touch a path). The real end-to-end audit is covered as the sandbox account, out of this
 # root-run unit suite. `node` (the pure verdict's JSON parser) is real, resolved from the sandbox
 # toolchain rather than from PATH -- see toolchain_node. Run as root via sudo.
 
@@ -22,7 +22,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 readonly LIB="/usr/local/lib/ai-tools/npm-verify.lib.sh"
 section "npm-verify: signature-verification verdict truth table (unit)"
 
-# toolchain_node: PRINT the path to the sandbox toolchain's node, or nothing. node is the pure
+# toolchain_node: PRINT the path to the sandbox toolchain's node, or an empty string. node is the pure
 # verdict's JSON parser but it lives ONLY in the sandbox account's nvm tree, never on root's PATH --
 # and this suite runs as root, so resolving it from PATH alone skips the whole file on a fully
 # provisioned host and strict mode then flags it as no coverage. Resolve it the way the launch

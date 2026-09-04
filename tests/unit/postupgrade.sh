@@ -131,8 +131,8 @@ else
     fail "dropped a .rpmnew that still had a difference to review"
 fi
 
-# The command claims to be idempotent, and an operator re-runs it: a second pass merges nothing
-# and writes no second backup.
+# The command claims to be idempotent, and an operator re-runs it: a second pass does not merge a declaration
+# and does not write a second backup.
 out="$(run_pu)"
 shopt -s nullglob
 baks_again=( "${SETTINGS}".*.bak )
@@ -156,7 +156,7 @@ else
     fail "a current file was rewritten, backed up, or lost its .rpmnew"
 fi
 
-# ── (D) The cleanup prompt defaults to yes only once nothing is left ─────────────────────────
+# ── (D) The cleanup prompt defaults to yes only once no difference is left ─────────────────────────
 reset_root
 jq . "${SHIPPED_SETTINGS}" > "${SETTINGS}.rpmnew"
 cp "${SETTINGS}.rpmnew" "${TESTDIR}/canonical.json"

@@ -5,7 +5,7 @@
 # against REAL processes in a REAL cgroup, on the running kernel.
 #
 # WHAT THIS COVERS THAT THE UNIT TEST CANNOT. unit/stop.sh pins enumeration and liveness against a
-# fixture tree of ordinary files; nothing there is a process and nothing is signalled. The property
+# fixture tree of ordinary files; no entry there is a process and no process is signalled. The property
 # this helper exists for -- a stop that is reported as done HAS happened, including everything the
 # session spawned -- is a kernel property, and the three ways a child escapes a process-tree walk
 # (a plain fork, setsid(2), and the double fork that re-parents the child away from the session)
@@ -86,8 +86,8 @@ if ! declare -F end_session >/dev/null 2>&1; then
 fi
 
 # Aim the walk at the fixture. The manager-service special case is pointed at a name that does not
-# exist, so nothing in the fixture is descended-into rather than emitted. There is no exemption to
-# neutralize: the helper spares no cgroup.
+# exist, so no cgroup in the fixture is descended-into rather than emitted. There is no exemption to
+# neutralize: the helper does not spare a cgroup.
 # shellcheck disable=SC2034  # all three are read by the sourced helper
 SANDBOX_SLICE="${FIXTURE_SLICE}"
 # shellcheck disable=SC2034
@@ -304,7 +304,7 @@ if grep -q "${TESTDIR}/project" <<< "${MAIN_OUTPUT}"; then
 else
     fail "no reclaim guidance for the stopped project: ${MAIN_OUTPUT}"
 fi
-# The manager restore is part of the command, not an optional extra: the sweep spares nothing, so
+# The manager restore is part of the command, not an optional extra: the sweep covers every cgroup, so
 # a run that kills without restoring leaves the host unable to start the next session.
 if [[ -e "${RESTORE_MARKER}" ]]; then
     pass "the run restores the user manager it necessarily terminated"

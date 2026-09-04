@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/boundary/sudo.sh
-# Boundary: the sandbox account holds NO sudo rights -- the first security-model invariant in
+# Boundary: the sandbox account is granted NO sudo rights -- the first security-model invariant in
 # CLAUDE.md. The three NOPASSWD rules in sudoers.d/ai-tools all belong to the PROJECTS
 # user -- one dropping privilege to the sandbox account, two running a fixed-path helper as root;
 # the agent runs AS the sandbox account and can invoke none of them. Asserts that at runtime
@@ -18,7 +18,7 @@ readonly SUDOERS="/etc/sudoers.d/ai-tools"
 section "Agent sudo rights (the sandbox account has none)"
 
 # (1) Runtime: what sudo would let the sandbox account run. The invariant is that the agent can
-# run NOTHING via sudo -- so assert the canonical "not allowed to run sudo" message positively,
+# run NO COMMAND via sudo -- so assert the canonical "not allowed to run sudo" message positively,
 # not merely the absence of the two known targets. A negative check (no ai-tools-run / no relabel)
 # would pass a rogue drop-in granting the agent some OTHER command (e.g. ALL=(ALL) NOPASSWD:ALL);
 # the positive form fails on any grant at all. (-n: never prompt.)
@@ -42,7 +42,7 @@ fi
 # (3) Static: the privilege-lowering grant uses the operators group (%ai-ops) as principal and
 # drops to the sandbox account. Exactly one such drop rule exists (ai-tools-run); the other rule
 # targets root (the relabel helper), not the sandbox account. Confirms the rule lowers privilege
-# (never raises the agent's), so even invoked it hands the caller nothing it does not already have.
+# (never raises the agent's), so even invoked it hands the caller no capability it does not already have.
 if [[ -r "${SUDOERS}" ]]; then
     n="$(grep -cE "^[[:space:]]*%ai-ops[[:space:]]+ALL=\(${SANDBOX_USER}:" "${SUDOERS}" || true)"
     if [[ "${n}" -eq 1 ]]; then
