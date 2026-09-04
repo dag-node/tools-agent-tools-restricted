@@ -8,12 +8,23 @@
 #
 #     python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py <file>...
 #
-# Three modes. `--staged` reads the added lines of the git index, which is what a pre-commit
-# hook runs; `--message` reads a commit message, an artifact this standard covers like any
-# other; named paths are read whole, for a sweep. `--staged` sees only the added half of a
-# sentence an edit split, so a hit it reports alone is worth re-checking against the whole file.
+# Four modes. `--staged` reads the added lines of the git index, which is what a pre-commit hook
+# runs; `--message` reads a commit message, an artifact this standard covers like any other; named
+# paths are read whole, for a sweep; `--kept` compares the two sides of a diff, and enforces a
+# different rule -- see its own heading below. `--staged` sees only the added half of a sentence an
+# edit split, so a hit it reports alone is worth re-checking against the whole file.
 # Source files contribute their comments and docstrings, Markdown and man pages every line. The
 # patterns match English, so they carry to any codebase.
+#
+# `--kept`: A REWRITE CHANGES THE WORDING, NOT THE CLAIM.
+# Every other check reports how a sentence is written. This one reports a rewrite that changed
+# what a sentence CLAIMS, which is a defect of a different kind: the prose still has to state the
+# same security boundary afterwards. The usual way it goes wrong is a swapped set --
+# `carries no secret` becomes `contains only settings`, which reads better and stops justifying
+# the 644 mode it was written to justify, because a setting can be a token. Whether two sets are
+# disjoint is not something a regex can decide, so this reports the security term a rewrite
+# dropped and leaves the judgement to a reader. It compares one hunk at a time, so a term that
+# merely moved to another hunk of the same file reports as dropped; check the file before acting.
 #
 # Checks read rejoined SENTENCES rather than raw lines. Wrapped prose puts the guard clause of an
 # absolute on the next line, and the shape checks compare the two halves of a pivot, so both need
@@ -145,6 +156,14 @@ EXTRA_CHECKS = [
 
 PROSE_WHOLE_FILE = (".md", ".1", ".5", ".8")
 
+# Terms that mark a sentence as stating a SECURITY BOUNDARY rather than describing behaviour.
+# A rewrite that drops one of these has probably changed the claim; see the `--kept` heading above.
+INVARIANT_TERMS = re.compile(
+    r"\b(secret|secrets|credential|credentials|token|password|privilege|privileged|sudo"
+    r"|world-readable|root-only|owner-only|unprivileged|untrusted|trusted|forge|forged|tamper"
+    r"|escalate|escalation|fail-closed|fail closed|confine|confined|allowlist|refuses|refuse"
+    r"|0[0-7]{3}|[0-7]{3,4} root:)\b", re.I)
+
 
 MESSAGE = "<message>"  # the path a commit message is reported under
 
@@ -275,6 +294,56 @@ def staged_lines():
             yield path, number, line[1:]
 
 
+def diff_hunks(revisions):
+    """Yield (path, removed prose lines, added prose lines) for each hunk of a diff."""
+    command = ["git", "diff", "--no-color", "--diff-filter=M", "-U0"]
+    command += revisions.split() if revisions else ["--cached"]
+    diff = subprocess.run(command, capture_output=True, text=True, check=False).stdout
+    path, removed, added = None, [], []
+    for line in diff.splitlines():
+        if line.startswith("diff --git") or line.startswith("@@"):
+            if path:
+                yield path, removed, added
+            removed, added = [], []
+        elif line.startswith("+++ b/"):
+            path = line[6:]
+        elif line.startswith("-") and not line.startswith("---") and path:
+            removed.append(line[1:])
+        elif line.startswith("+") and not line.startswith("+++") and path:
+            added.append(line[1:])
+    if path:
+        yield path, removed, added
+
+
+def _singular(term):
+    return term[:-1] if term.endswith("s") and not term.endswith("ss") else term
+
+
+def invariant_terms(path, lines):
+    """The invariant vocabulary the prose among these lines uses, lowercased."""
+    found = set()
+    for line in lines:
+        text, _ = (line, None) if path.endswith(PROSE_WHOLE_FILE) else source_prose(line, None)
+        if text:
+            # Singular and plural are one term: `carries no secrets` restated as `must not hold a
+            # secret` keeps the claim, and reporting that as a drop trains a reader to ignore it.
+            found.update(_singular(match.group(0).lower())
+                         for match in INVARIANT_TERMS.finditer(text))
+    return found
+
+
+def kept_findings(revisions):
+    """Report a security term a hunk removed from prose without restating it.
+
+    Reports the drop; whether the new wording still rules out the same thing is the reader's call.
+    """
+    for path, removed, added in diff_hunks(revisions):
+        dropped = invariant_terms(path, removed) - invariant_terms(path, added)
+        for term in sorted(dropped):
+            context = next((line.strip() for line in removed if term in line.lower()), "")
+            yield path, term, context
+
+
 def file_lines(paths):
     """Yield (path, line number, line) for every line of every readable path."""
     for path in paths:
@@ -322,8 +391,22 @@ def main():
                         help="check a commit message; template comments skipped")
     parser.add_argument("--all", action="store_true",
                         help="add the shape checks")
+    parser.add_argument("--kept", metavar="REVISIONS", nargs="?", const="",
+                        help="report an invariant term a rewrite dropped (default: the index)")
     parser.add_argument("paths", nargs="*", help="files to read whole")
     args = parser.parse_args()
+
+    if args.kept is not None:
+        count = 0
+        for path, term, context in kept_findings(args.kept):
+            count += 1
+            print(f"{path}: dropped [{term}] -- restate it, or confirm the new wording still "
+                  f"rules out the same thing")
+            print(f"    - {context[:110]}")
+        if count:
+            print(f"\n{count} dropped term(s). A rewrite changes the wording, not the claim. "
+                  f"A term that only moved to another hunk reports here too.")
+        return 1 if count else 0
 
     modes = [args.staged, bool(args.message), bool(args.paths)]
     if sum(1 for mode in modes if mode) != 1:

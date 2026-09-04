@@ -123,6 +123,18 @@ State what the reader can rely on. Prefer "X is available when ⟨condition⟩" 
 ⟨condition⟩" where both state the same fact. Describe what a component does rather than what it
 does not do.
 
+**A rewrite changes the wording, not the claim.** Where a sentence states a security boundary —
+what a mode permits, what a file may hold, who may act — carry that boundary through the edit
+unchanged: keep the same subject, the same sets, and the same modality (`must`, `only`, `never`).
+Where the new wording cannot hold the claim, keep the sentence as it stands.
+
+Swapping the set is how it goes wrong. `carries no secret` and `contains only settings` are different
+propositions: the first says the contents and the secrets do not intersect, the second says the
+contents are settings — and a setting can be a token, so the second does not imply the first. Only
+the first justifies the `644` mode it was written to justify. Turning a negation positive is sound
+over a set provably disjoint from the one the negation excluded, and nowhere else; where that does
+not hold, keep the negation and write it with `does not`.
+
 Keep this structural: no praise, no intensifiers, no tone words, and never overstate a
 guarantee. No single sentence looks upbeat; across a corpus the effect accumulates, and the
 documentation reads as capable and dependable.
