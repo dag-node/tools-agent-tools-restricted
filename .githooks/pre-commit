@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
+# pre-commit hook: report the prose figures the ai-tools-technical-docs skill rules out, in the
+# lines this commit ADDS. Reuses the checker the skill ships (prose-check.py beside its
+# SKILL.md), so the hook and a full pass apply one set of patterns.
+#
+# Never blocks, matching the commit-msg reminder beside it: the default checks report correct
+# prose occasionally, and a hook that refuses a commit over a style call is a hook developers
+# turn off. It reports, the author decides.
+#
+# Only the added lines are read, so the ~650 findings already in the tree stay out of every
+# commit until a sweep addresses them.
+#
+# Not installed automatically -- enable once per clone with `make -C packaging hooks`
+# (sets core.hooksPath to .githooks).
+set -euo pipefail
+
+command -v python3 >/dev/null 2>&1 || exit 0
+repo_root="$(git rev-parse --show-toplevel)"
+checker="${repo_root}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py"
+[[ -r "${checker}" ]] || exit 0
+
+if ! python3 "${checker}" --staged; then
+    echo "  (not blocking this commit)" >&2
+fi
+exit 0
