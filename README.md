@@ -80,7 +80,7 @@ sudo ai-tools-bootstrap
 sudo ai-tools-admin operators add "$(id -un)"   # every host command: man ai-tools-admin
 
 # 3. Make a project and launch in it. --project-create makes the directory, initializes a
-#    git repository, and claims it -- one command, no prompts, nothing pre-existing to
+#    git repository, and claims it -- one command, no prompts, no pre-existing content to
 #    review. `ai-tools --help` lists every command.
 ai-tools --project-create ~/src/demo
 cd ~/src/demo && claude

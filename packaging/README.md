@@ -64,7 +64,7 @@ tag/`VERSION`/`%changelog` mismatch surfaces locally before you tag.
 
 ## Scope
 
-A container validates packaging and dependency resolution, the install scriptlets, the `bootstrap` toolchain, operator enrolment, project claim, the test suite's DAC and `systemd` parts, and a DAC-confined launch. It does **not** validate SELinux-enforcing confinement: `getenforce` reports `Disabled` in a container, so `%post` skips `semodule` and the `ai_tools_t` domain transition never fires. This harness is the fast, repeatable pre-check; the enforcing-host `dnf install` + `sudo tests/run.sh all` remains the real gate. ⚠️ The test image also adds a NOPASSWD sudoers drop-in for the operator user — convenience for the unattended run, not part of the shipped model; the sandbox account `ai-tools` still holds no sudo grant, which the selftest re-checks.
+A container validates packaging and dependency resolution, the install scriptlets, the `bootstrap` toolchain, operator enrolment, project claim, the test suite's DAC and `systemd` parts, and a DAC-confined launch. It does **not** validate SELinux-enforcing confinement: `getenforce` reports `Disabled` in a container, so `%post` skips `semodule` and the `ai_tools_t` domain transition never fires. This harness is the fast, repeatable pre-check; the enforcing-host `dnf install` + `sudo tests/run.sh all` remains the real gate. ⚠️ The test image also adds a NOPASSWD sudoers drop-in for the operator user — convenience for the unattended run, not part of the shipped model; the sandbox account `ai-tools` still does not hold a sudo grant, which the selftest re-checks.
 
 ## Files
 

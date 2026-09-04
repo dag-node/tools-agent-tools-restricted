@@ -32,7 +32,7 @@ fail() { FAIL=$((FAIL + 1)); printf '\033[1;31m[FAIL]\033[0m %s\n' "$*"; }
 label_of() { stat -c '%C' "$1" 2>/dev/null | awk -F: '{print $3}'; }
 
 ########################################
-# Preflight: must be confined -- otherwise this reproduces nothing
+# Preflight: must be confined -- otherwise this reproduces the denial
 ########################################
 ctx="$(id -Z 2>/dev/null || true)"
 case "${ctx}" in

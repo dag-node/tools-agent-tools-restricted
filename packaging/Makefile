@@ -43,7 +43,7 @@ POLICY_PP = $(or $(shell git -C $(ROOT) ls-files 'selinux/policy/*.pp' 2>/dev/nu
 #
 # A wildcard is exact here: .gitignore covers *.pp alone, so every policy source in the tree is
 # tracked. install-selinux.sh is not source in this sense -- it loads and installs a compiled
-# module rather than controlling compilation, and holds no refpolicy content (it is AGPL-3.0-only,
+# module rather than controlling compilation, and does not carry refpolicy content (it is AGPL-3.0-only,
 # per its SPDX header).
 POLICY_SRC = $(patsubst $(ROOT)/%,%,$(wildcard $(ROOT)/selinux/policy/*.te \
                                                $(ROOT)/selinux/policy/*.if \
@@ -84,7 +84,7 @@ check-version:
 	@bash $(CURDIR)/check-version.sh $(TAG)
 
 # Draft a %changelog block for the current VERSION from commits since the last tag, to stdout
-# for curation (see change-docs). Prints nothing to the spec -- paste and edit the result.
+# for curation (see change-docs). Writes no line to the spec -- paste and edit the result.
 changelog:
 	@bash $(CURDIR)/changelog-draft.sh
 
@@ -130,9 +130,9 @@ rpmtest-fedora:
 	$(OCI) run --rm -t --systemd=always --ulimit core=0 ai-tools-rpmtest:fedora
 
 # The tarball asserts its own GPL compliance: a .pp travels only with the policy source it was
-# compiled from. Both lists are globs, and a glob that matches nothing yields a tarball that looks
+# compiled from. Both lists are globs, and a glob that does not match a file yields a tarball that looks
 # well-formed and conveys a GPL binary with no source, so the counts are checked rather than
-# assumed -- comparing the archive against the inputs, so adding a policy module needs no edit here.
+# assumed -- comparing the archive against the inputs, so adding a policy module does not need an edit here.
 dist:
 	tar czf $(TARBALL) -C $(ROOT) \
 	    --transform 's,^,$(NAME)-$(VERSION)/,' \

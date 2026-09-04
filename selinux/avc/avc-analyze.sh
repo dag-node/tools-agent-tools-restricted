@@ -109,7 +109,7 @@ readonly BOUNDARY_NAMED_RE='(user_home_t|user_home_dir_t|home_root_t|config_home
 #                                                core dontaudit's it regardless)
 # tmpmap is handled separately below (_g2): its type, ai_tools_tmp_t, is core-granted
 # for read/write, so it is matched on the `map` PERMISSION, not the type alone.
-# apphost is handled separately below (_g3): the core grants nothing on tmpfs_t:file, so
+# apphost is handled separately below (_g3): the core does not grant a permission on tmpfs_t:file, so
 # the whole memfd surface the .NET JIT/apphost touches (write to size it, map, and the
 # defining execute) is that group -- matched on the tmpfs_t:file TYPE.
 # netcore is handled separately below (_g4): the .NET runtime's sockets/FIFOs under

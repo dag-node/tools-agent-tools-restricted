@@ -5,7 +5,7 @@
 # CURATE before pasting into ai-tools.spec -- a changelog is not a commit log: prune
 # no-user-impact commits and rewrite subjects into reader-facing, upgrade-oriented prose
 # (see the change-docs standard). This removes the blank-page burden; it does not replace the
-# editing pass. It writes nothing and stages nothing.
+# editing pass. It does not write a file and does not stage a change.
 #
 # Usage: packaging/changelog-draft.sh   (or: make -C packaging changelog)
 set -euo pipefail
@@ -22,7 +22,7 @@ range="${anchor:+${anchor}..}HEAD"
 
 # Attribute the draft to the packager already named in the spec's %changelog (the identity the
 # entry will be pasted next to), not the committer's git identity. Fall back to git config only
-# when the spec carries no entry yet.
+# when the spec does not carry an entry yet.
 packager="$(awk '
     /^%changelog/ { in_log = 1; next }
     in_log && /^\*/ {

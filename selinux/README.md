@@ -145,7 +145,7 @@ sudo bash selinux/avc/avc-analyze.sh  # splits denials into NEW vs EXPECTED BOUN
 ```
 
 `avc-testsuite.sh` **aborts unless it is running in `ai_tools_t`** — running it
-unconfined would log nothing and the empty result would look like success. It
+unconfined would log no denial and the empty result would look like success. It
 writes a start marker (`selinux/avc/.avc-last-run`); `avc-analyze.sh` reads it so
 `ausearch -ts` starts at exactly the right instant. The analyzer classifies each
 denial: **EXPECTED BOUNDARY** ones (the `user_home_t` / `config_home_t` /
@@ -243,7 +243,7 @@ user's home, container storage, a non-`http` port, the MTA) and confirms each is
 refused.
 
 The catch: the boundary accesses are `dontaudit`'d, so under enforcing they are
-blocked **silently** — `ausearch` shows nothing and an empty log looks like the
+blocked **silently** — `ausearch` reports an empty result and that looks like the
 probe never ran. So the run-mode half brackets the probe with `semodule -DB` …
 `semodule -B`, which disables/re-enables dontaudit **system-wide** for the window,
 making those denials visible. A trap restores dontaudit on any exit, including
@@ -268,7 +268,7 @@ GROUP-DISABLED** (only an optional group would allow them — `enable-group <nam
 *not* a core change), and **NEW** (a real gap to review). Group-surface denials
 (`rpm_exec_t`, `systemd_systemctl_exec_t`, `firewalld_t`, …) land in the second
 bucket instead of being misreported as NEW. A clean verification shows entries in
-the two EXPECTED buckets and **nothing** under NEW or "ran (group enabled?)".
+the two EXPECTED buckets and **no entry** under NEW or "ran (group enabled?)".
 
 ## After a Node upgrade
 
@@ -279,7 +279,7 @@ agent safe while it waits to be relabelled.
 
 The daily `nvm-update` timer relabels the new entrypoint automatically: after delegating the
 sandbox update it runs `ai-tools-relabel-agent` as root (a dedicated NOPASSWD rule).
-That helper names no agent — for each enabled agent it applies the entrypoint file-context that
+That helper is agent-agnostic — for each enabled agent it applies the entrypoint file-context that
 agent's own manifest declares (`entrypoint_fcontext`, mapped to the `ai_tools_exec_t` this module
 defines), `restorecon`s every binary it matches, and verifies the type. So a normal upgrade keeps
 the agent confined across version bumps with no manual step, and a second agent is labelled by

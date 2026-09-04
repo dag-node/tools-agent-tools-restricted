@@ -96,7 +96,7 @@ packages build on this layer.
 #
 # Scriptlet tools are named explicitly rather than via %%{?selinux_requires}: that macro bakes
 # the BUILD host's selinux-policy version into a Requires (uninstallable on the older EL of a
-# noarch build) and pulls policycoreutils-python-utils, which nothing here uses. semodule and
+# noarch build) and pulls policycoreutils-python-utils, which no scriptlet here uses. semodule and
 # restorecon come from policycoreutils; getenforce from libselinux-utils.
 %package -n ai-tools-selinux
 Summary:        SELinux confinement policy for the ai-tools sandbox
@@ -142,7 +142,7 @@ Requires:       gzip
 # dnf treat that as a RENAME and hand the shared files over in one transaction. Without it a host
 # on the old name cannot resolve `dnf update` at all: the installed ai-tools-nodejs pins
 # `ai-tools-base = <its own version>`, the only upgrade candidate for the base is the new version,
-# and nothing obsoletes the old name to break the deadlock -- so the whole transaction fails and
+# and no package obsoletes the old name to break the deadlock -- so the whole transaction fails and
 # the operator is pushed into a manual erase that drops their operator.conf. The bound is the
 # version the rename landed in, so a future package reusing the old name is never obsoleted.
 Provides:       ai-tools-nodejs = %{version}-%{release}
@@ -230,7 +230,7 @@ grep -rlZ '@AI_TOOLS_VERSION@' src \
 %install
 # The /opt control plane and the /var trees ship root:ai-tools and stay that way: root (not the
 # agent) owns the locked control files while the agent reaches its state through group ai-tools.
-# Nothing re-owns them to a person -- the operators drive the shared ai-tools account and reach
+# No step re-owns them to a person -- the operators drive the shared ai-tools account and reach
 # the launcher through an o+x search bit, so the agent is never the owner of a locked dir.
 
 # ── base: root helpers ───────────────────────────────────────────────────────
@@ -562,7 +562,7 @@ fi
 # AI_TOOLS_ASSUME_YES answers the update confirm here rather than letting it fall through to its
 # default. The outcome is the same either way -- the default IS yes, and a scriptlet has no tty to
 # answer with -- but the prompt is written to /dev/tty, which succeeds when dnf runs on a terminal,
-# so without this the operator is shown a question that nothing can answer and that is then decided
+# so without this the operator is shown a question that no one can answer and that is then decided
 # without them. Pre-answering skips drawing it, and the decision audits as `assume-yes` rather than
 # `default`, which is what actually happened. It cannot widen anything: the variable fast-tracks a
 # question whose default is already yes and never flips a default-NO one (see msg.lib.sh).
@@ -689,7 +689,7 @@ fi
 #
 # A failed load is REPORTED rather than swallowed: every type the entrypoint and the project
 # labels name comes from this module, so a load that did not happen surfaces later as a relabel
-# that cannot register its rules and a launch that fail-closes, with nothing naming this as the
+# that cannot register its rules and a launch that fail-closes, with no message naming this as the
 # cause. The transaction still completes -- the remedy is a re-run, not a rollback.
 if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/null 2>&1; then
     _semodule_error=$(semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp 2>&1) || {
@@ -724,7 +724,7 @@ fi
 # enabled in the sandbox account's own instance by ai-tools-bootstrap, which is where that
 # instance is brought up with linger -- a scriptlet cannot reliably reach it.
 %systemd_post ai-tools-relabel.path
-# Create the updater's last-run stamp (%ghost, so rpm owns the path but ships no content). The
+# Create the updater's last-run stamp (%ghost, so rpm owns the path without shipping content). The
 # state directory is root-owned and not group-writable on purpose, so nvm-update.sh can only
 # REWRITE this inode, never create it -- which is exactly what keeps the surface to one file. Owned
 # by the sandbox account (the writer) with group ai-ops (the readers). Idempotent; an existing
@@ -773,7 +773,7 @@ fi
 
 %post -n ai-tools-agents-claude-code-restricted
 # Register this agent's SELinux entrypoint file-context and label whatever it matches. The base
-# policy names no agent (see selinux/policy/ai_tools.fc): the pattern comes from this package's
+# policy is agent-agnostic (see selinux/policy/ai_tools.fc): the pattern comes from this package's
 # own manifest, and the helper maps it to the base's ai_tools_exec_t as a local rule, so a
 # session's domain transition fires. Offline and idempotent; it no-ops when SELinux or the
 # ai_tools module is inactive, and when the toolchain is not provisioned yet (a fresh install --
@@ -811,7 +811,7 @@ done
 # parks this version's copy as .rpmnew. Choosing between the two is the operator's call, made
 # through `ai-tools-admin system post-upgrade` -- a scriptlet does not edit a config file. Say so here,
 # because leaving it costs silently: a hook this version ships installs its body and its data, and
-# nothing invokes it until its DECLARATION reaches settings.json.
+# no event invokes it until its DECLARATION reaches settings.json.
 if [ -f /opt/ai-tools/.claude/settings.json.rpmnew ]; then
     echo "ai-tools: settings.json.rpmnew is waiting -- this version's hook declarations are not in"
     echo "  your settings.json yet, so the hooks they declare never run. Merge them with:"
@@ -896,7 +896,7 @@ fi
 %{_presetdir}/85-ai-tools.preset
 # Plain %config (replace on upgrade), NOT noreplace: the file is host-identical by
 # construction (@SANDBOX_*@ substituted to the constant ai-tools at %build, %ai-ops literal),
-# so it carries no operator config to preserve. Replace guarantees the guardrail -- including
+# so it does not hold operator config to preserve. Replace guarantees the guardrail -- including
 # the sudoers path of the root relabel-agent rule -- always matches the shipped version instead
 # of drifting under noreplace: on the unmodified host rpm sees on-disk == prior-packaged and
 # replaces silently; on a hand-edited host it parks the old file as .rpmsave (ignored by sudo,

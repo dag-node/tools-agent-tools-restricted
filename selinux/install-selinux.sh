@@ -5,7 +5,7 @@
 # up independently and refined via the audit2allow loop in README.md.
 #
 # The core module ships PREBUILT (ai_tools.pp) and ENFORCING, so a normal install
-# needs no toolchain -- it loads the shipped package and labels the tree. To go
+# does not require a toolchain -- it loads the shipped package and labels the tree. To go
 # permissive instead (to observe before blocking), uncomment `permissive
 # ai_tools_t;` in ai_tools.te and recompile; the installer detects the mode from
 # the source and reports it.
@@ -128,7 +128,7 @@ _list() {
 
 # _group_cmd <enable|disable> [name]: the command an operator on THIS host should run to manage a
 # policy group. ai-tools-admin is the shipped entry point and is on PATH once the package is
-# installed, so prefer it; a source checkout with nothing installed yet falls back to this
+# installed, so prefer it; a source checkout with no install yet falls back to this
 # script's own path. The two front doors spell the action differently -- the shipped one follows
 # the command grammar (.claude/rules/cli-grammar.rule.md) while this developer-only script keeps
 # its hyphenated verb -- so each branch renders its own spelling from the same action.
@@ -362,7 +362,7 @@ source "${RELABEL_LIB}" || die "missing label library: ${RELABEL_LIB}"
 # cannot write its own state) -- and confirm what they match took the type. The work is
 # ai_tools_label_agent_paths (relabel.lib.sh), the same body the always-installed
 # ai-tools-relabel-agent helper runs, so this sweep and the post-upgrade relabel cannot drift;
-# this wrapper only renders the report in the installer's voice. It names no agent: the paths
+# this wrapper only renders the report in the installer's voice. It is agent-agnostic: the paths
 # come from the manifests under /usr/local/lib/ai-tools/agents.d.
 verify_agent_labels() {
     local report="" status=0 verdict subject detail wanted bad=0 labelled=0
@@ -389,7 +389,7 @@ verify_agent_labels() {
                       warn "    chase with: sudo restorecon -nv '${subject}'" 
                       warn "            and: sudo semanage fcontext -C -l" ;;
                 # The declared rule does not cover the entrypoint the agent's launcher actually
-                # resolves to, so nothing this sweep applies can label it and the session would
+                # resolves to, so no rule this sweep applies can label it and the session would
                 # be refused. Counted as `bad`: the install must not report a confined host.
                 stale) bad=1
                       warn "${subject}: its installed entrypoint is"
@@ -407,8 +407,8 @@ verify_agent_labels() {
                     fi ;;
                 # A verdict this renderer does not know is REPORTED, not dropped. Silently
                 # ignoring one turns a labelling result into no output at all, which reads as
-                # "nothing happened" for the one path whose label decides whether a session is
-                # confined -- and leaves nothing to diagnose from.
+                # "no change" for the one path whose label decides whether a session is
+                # confined -- and leaves the operator no detail to diagnose from.
                 *)    warn "unrecognized labelling result: ${verdict} ${subject} ${detail} ${wanted}"
                       warn "    the entrypoint label is unconfirmed; check: sudo ai-tools --relabel" ;;
             esac
@@ -417,14 +417,14 @@ verify_agent_labels() {
     # A path that restorecon left mislabelled is an unrecoverable gap (the module is loaded but
     # the transition would not fire, or the agent cannot write its state), so fail the install
     # here rather than proceed to the optional groups with a broken core. A missing path
-    # (toolchain not provisioned yet) stays a warning -- there is nothing to label.
+    # (toolchain not provisioned yet) stays a warning -- there is no entrypoint to label.
     [[ "${bad}" -eq 0 ]] \
         || die "an agent path is not correctly labelled (see above) -- the session would be refused, or run UNCONFINED"
     # Nothing labelled has two very different causes, and the bare message named neither. An
     # EMPTY report means no enabled agent was iterated at all -- the manifests resolved to
-    # nothing -- which is a configuration problem: the entrypoint keeps whatever type it has, and
+    # no file -- which is a configuration problem: the entrypoint keeps whatever type it has, and
     # a launch fail-closes at ai-tools-run's transition preflight. A non-empty report that
-    # labelled nothing has already printed its own per-path none/skip reason above.
+    # labelled no file has already printed its own per-path none/skip reason above.
     if [[ "${labelled}" -eq 0 ]]; then
         if [[ -z "${report}" ]]; then
             warn "no agent resolved from the manifests, so no entrypoint was labelled."
@@ -437,7 +437,7 @@ verify_agent_labels() {
         fi
     fi
     # Printed while the install is still running, so it states WHEN it applies: an operator who
-    # reads "exit and relaunch" mid-install has nothing to relaunch yet.
+    # reads "exit and relaunch" mid-install has no session to relaunch yet.
     log "once this install finishes: a session already running keeps its OLD context, so exit"
     log "  and relaunch it, then confirm with:  ps -eo label,cmd | grep '[c]laude'  (expect ai_tools_t)"
 }
@@ -476,7 +476,7 @@ _restore_one() { restorecon -FR "$1" 2>/dev/null || true; }
 # _label_sandbox_clones: apply the static ai_tools_project_t label (ai_tools.fc) to every existing
 # sandbox clone, then REPORT and VERIFY each one. The per-project loop below skips sandbox paths
 # (they carry no dynamic semanage rule -- the static rule covers them), so without this an operator
-# sees no evidence the clones were relabelled even though they are the trees the agent runs in.
+# is shown no evidence the clones were relabelled even though they are the trees the agent runs in.
 # The label is verified, not assumed: restorecon exits 0 even when it writes the WRONG type -- e.g.
 # an fcontext rule made unreachable because libselinux aliases its path prefix away
 # (file_contexts.subs_dist `/var/opt /opt`) -- so each clone's achieved label is checked and a
@@ -563,7 +563,7 @@ case "${ACTION}" in
 
   install)
     section "Core module"
-    # The core module ships prebuilt, so a normal install needs no toolchain. Offer
+    # The core module ships prebuilt, so a normal install does not require a toolchain. Offer
     # a from-source rebuild (needs selinux-policy-devel) for anyone who edited the
     # .te/.fc -- default no. With no prebuilt package present we must build anyway.
     _recompile=0
