@@ -3,7 +3,7 @@ name: ai-tools-technical-docs
 # ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the name above is stable.
 x-ai-tools-managed: true
 x-ai-tools-status: draft
-x-ai-tools-version: 3
+x-ai-tools-version: 2
 x-ai-tools-updated: 2026-09-04
 description: >
   Technical writing standard for every software engineering artifact. Use when writing or
@@ -570,18 +570,22 @@ Scan the finished text for each of these, since every one is checkable:
     size of its code says the code stopped being self-descriptive, and prose that is merely
     short has not thereby passed.)
 
-**Run the checkable ones.** `prose-check.py` ships beside this file and greps items 2, 3, 4, 5,
+**Run the checkable ones.** `prose-check.py` ships beside this file and reports items 2, 3, 4, 5,
 7 and 9 plus the `does not` rule, so the pass is a command rather than an act of attention:
 
 ```bash
 python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py <file>...
 ```
 
-It reports and never blocks. Two of its checks are near-exact; the rest (`--all`) report correct
-prose often enough to need a reader on every hit. Quoted and backticked spans are skipped, so a
-document may quote the prose it warns against; mark anything else deliberate with
-`prose-check: allow` on the line. Run it before committing prose, and on the commit message
-too — the universal rules cover that artifact like any other.
+It reads rejoined sentences, reports, and does not block. Items 4 and 9 and the `does not` rule
+run by default and are near-exact. `--all` adds the shape checks, each of which greps a sub-shape
+of its rule, because the rules themselves are about meaning: a word stem repeated across the pivot
+is the mirror in item 3 and the restated head noun in item 2, and an absolute in a sentence with
+no subordinating conjunction has nowhere for item 5's guard clause to be. Those four still want a
+reader on every hit. Quoted, backticked, and fenced spans are skipped, so a document may quote the
+prose it warns against; mark anything else deliberate with `prose-check: allow` on the line. Run
+it before committing prose, and on the commit message too — the universal rules cover that
+artifact like any other.
 
 When in doubt: describe what the code does, name the mechanism that does it, and use fewer
 words.
