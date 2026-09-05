@@ -334,7 +334,7 @@ file sink being the authoritative one.
   to reconcile against the first rather than to rely on alone (see [logging](logging.rule.md)).
   This is the split that keeps an agent-writable trail from being presented as proof.
 
-  **It reports events, not current state.** Each line is something that *happened* between
+  **It reports events, never current state.** Each line is something that *happened* between
   two points in time; a condition recorded here may have been resolved since. That distinction is
   load-bearing and the report states it, because the failure mode is specific and easy: a dated
   `ERROR` read as a standing fault sends an operator to fix something already fixed, and erodes
@@ -383,7 +383,7 @@ file sink being the authoritative one.
   - **Every cgroup under the account is swept, including its own `systemd --user` and
     `init.scope`.** An exemption is a cgroup a session can move into on a DAC-only host. The manager
     is **restarted afterwards** (`restore_user_manager`), as a step that runs after verification and
-    is reported on its own, so it does not change what the command says about the stop. One consequence to keep:
+    is reported on its own — it never changes what the command says about the stop. One consequence to keep:
     a **rerun is therefore not silent**, since the restored manager is back inside the swept slice.
     The command is idempotent in *end state*, not in what it reports, and buying a silent rerun
     would cost either an exemption or a name-decided sweep.
