@@ -61,11 +61,16 @@ marker (this one is maintained by the project), `x-ai-tools-status` the lifecycl
 while it is still being refined), and `x-ai-tools-version` a monotonic integer.
 
 A shipped skill takes one version bump per release in which it changed, along with a new
-`x-ai-tools-updated`. On the
-next install or bootstrap a newer version is **offered** as an update (default: keep, so Enter
-leaves your copy as it is) and an unchanged one is a quiet no-op. One version is installed at a
-time, so the stable name always resolves to the current text and cross-references between skills
-never churn.
+`x-ai-tools-updated`. On the next install or bootstrap a newer version prompts, **defaulting to
+update**: Enter takes the new text, and so does any run without a terminal — an RPM scriptlet
+included. An unchanged version is a quiet no-op. One version is installed at a time, so the stable
+name always resolves to the current text and cross-references between skills never churn.
+
+**To keep an edit of your own across upgrades, delete the `x-ai-tools-managed: true` line.** The
+seeder claims only a file carrying that marker, so one without it is yours and is left alone
+(reported as `kept (operator's own, not ai-tools-managed)`). Editing a managed copy in place
+instead means the next release replaces it, and no copy of the old text is kept — answering `n`
+at the prompt defers that, it does not settle it.
 
 ## Your own skills stay yours
 
