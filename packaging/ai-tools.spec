@@ -166,9 +166,9 @@ Requires:       ai-tools-base = %{version}-%{release}
 %description -n ai-tools-integration-dotnet
 Integrates a host-managed .NET toolchain into a sandbox session: a session-env fragment that
 exports DOTNET_ROOT and a sandbox-writable NuGet cache when the dotnet integration is enabled
-(operator.conf AI_TOOLS_INTEGRATIONS), and the ai-tools-dotnet helper to provision that cache and
-shared global tools. The .NET SDK/runtime itself is the host's RPM-managed dotnet; this package
-adds no runtime and is inert until enabled on a host that has dotnet installed.
+(operator.conf AI_TOOLS_INTEGRATIONS), and the `dotnet` domain of ai-tools-admin to provision that
+cache and shared global tools. The .NET SDK/runtime itself is the host's RPM-managed dotnet; this
+package adds no runtime and is inert until enabled on a host that has dotnet installed.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ai-tools-agents umbrella: the AI coding agents that run confined in the sandbox. A thin
@@ -290,6 +290,11 @@ done
 install -d -m 0755 %{buildroot}%{ai_libdir}/agents.d
 install -d -m 0755 %{buildroot}%{ai_libdir}/integrations.d
 install -d -m 0755 %{buildroot}%{ai_libdir}/session-env.d
+# Contributed ai-tools-admin command domains, keyed by name the same way: admin-commands.d/<name>,
+# an executable ai-tools-admin execs after checking that it and this directory are root-owned and
+# not group- or other-writable. Base owns the directory and does not put a file in it; each
+# provider package ships the domain named for itself.
+install -d -m 0755 %{buildroot}%{ai_libdir}/admin-commands.d
 # Token-saving command-filter rule sets, keyed by name the same way: filters.d/<name>.rules. Base
 # owns the directory and ships core.rules, the set every host gets; a package with commands of its
 # own ships one beside it. An agent's filter hook reads them through filters.lib.sh.
@@ -427,17 +432,17 @@ install -m 0644 src%{_userunitdir}/nvm-update.timer     %{buildroot}%{_userunitd
 install -m 0644 src%{_unitdir}/ai-tools-relabel.path    %{buildroot}%{_unitdir}/ai-tools-relabel.path
 install -m 0644 src%{_unitdir}/ai-tools-relabel.service %{buildroot}%{_unitdir}/ai-tools-relabel.service
 
-# ── integration-dotnet: session-env fragment + manifest + provisioning helper ─
-# The .NET SDK/runtime is the host's; this ships only the sandbox-side glue. The env fragment
-# (session-env.d) and manifest (integrations.d) drop into the base-owned dirs; the ai-tools-dotnet
-# helper is administrator-typed, so it gets a %{_sbindir} symlink like ai-tools-admin.
+# ── integration-dotnet: session-env fragment + manifest + admin command ──────
+# The .NET SDK/runtime is the host's; this ships only the sandbox-side glue. Every file drops into
+# a base-owned directory: the env fragment (session-env.d), the manifest (integrations.d), and the
+# command fragment carrying this package's `dotnet` domain of ai-tools-admin (admin-commands.d),
+# whose basename is the domain token an administrator types.
 install -m 0644 src%{ai_libdir}/session-env.d/dotnet.env.sh %{buildroot}%{ai_libdir}/session-env.d/dotnet.env.sh
 install -m 0644 src%{ai_libdir}/integrations.d/dotnet.conf  %{buildroot}%{ai_libdir}/integrations.d/dotnet.conf
 # Its command-filter rules (SDK verbosity), which are .NET knowledge and so ship with the .NET
 # package rather than in the base's core.rules.
 install -m 0644 src%{ai_libdir}/filters.d/dotnet.rules      %{buildroot}%{ai_libdir}/filters.d/dotnet.rules
-install -m 0750 src%{ai_libexecdir}/ai-tools-dotnet.sh         %{buildroot}%{ai_libexecdir}/ai-tools-dotnet
-ln -s %{ai_libexecdir}/ai-tools-dotnet %{buildroot}%{_sbindir}/ai-tools-dotnet
+install -m 0750 src%{ai_libdir}/admin-commands.d/dotnet.sh  %{buildroot}%{ai_libdir}/admin-commands.d/dotnet
 # Ghost this helper's operation log alongside the base helpers' (the /var/log/ai-tools dir itself
 # is base-owned), so it carries the package's context and is removed with the package.
 touch %{buildroot}/var/log/ai-tools/dotnet.log
@@ -753,19 +758,23 @@ systemctl start ai-tools-relabel.path 2>/dev/null || :
 
 %post -n ai-tools-integration-dotnet
 # Create + SELinux-label the sandbox-side dotnet dirs (writable NuGet cache, read-only shared
-# tools) the session-env fragment relies on. Offline + idempotent; the helper recognizes a host
+# tools) the session-env fragment relies on. Offline + idempotent; the command recognizes a host
 # with no enforcing ai-tools policy and skips labelling there rather than failing. Not the network
-# tool install -- that stays the operator's `sudo ai-tools-dotnet install-tools`.
+# tool install -- that stays the operator's `sudo ai-tools-admin dotnet tools install`.
+#
+# The command fragment is exec'd at its own path rather than through ai-tools-admin: this package
+# ships it, so its presence is what the guard tests, and the dispatch would add a discovery step
+# to reach a file already known here.
 #
 # The failure is NOT swallowed: a half-provisioned integration that looks installed surfaces later
-# as an opaque denial inside a confined session. The helper logs the cause (journald +
+# as an opaque denial inside a confined session. The command logs the cause (journald +
 # /var/log/ai-tools/dotnet.log) and the scriptlet reports the remedy and exits non-zero, so rpm
 # records a scriptlet failure against this package alone -- the transaction still completes, which
 # is what a weakly-pulled optional integration should do to the rest of the stack.
-if [ -x %{ai_libexecdir}/ai-tools-dotnet ]; then
-    %{ai_libexecdir}/ai-tools-dotnet setup >/dev/null || {
+if [ -x %{ai_libdir}/admin-commands.d/dotnet ]; then
+    %{ai_libdir}/admin-commands.d/dotnet bootstrap >/dev/null || {
         echo "ai-tools-integration-dotnet: provisioning failed; see 'journalctl -t ai-tools-dotnet'" >&2
-        echo "ai-tools-integration-dotnet: fix the cause and re-run: sudo ai-tools-dotnet setup" >&2
+        echo "ai-tools-integration-dotnet: fix the cause and re-run: sudo ai-tools-admin dotnet bootstrap" >&2
         exit 1
     }
 fi
@@ -886,6 +895,7 @@ fi
 %dir %attr(0755, root, root) %{ai_libdir}/agents.d
 %dir %attr(0755, root, root) %{ai_libdir}/integrations.d
 %dir %attr(0755, root, root) %{ai_libdir}/session-env.d
+%dir %attr(0755, root, root) %{ai_libdir}/admin-commands.d
 %dir %attr(0755, root, root) %{ai_libdir}/filters.d
 %attr(0644, root, root) %{ai_libdir}/filters.d/core.rules
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/ai-tools-run
@@ -975,8 +985,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/session-env.d/dotnet.env.sh
 %attr(0644, root, root) %{ai_libdir}/integrations.d/dotnet.conf
 %attr(0644, root, root) %{ai_libdir}/filters.d/dotnet.rules
-%attr(0750, root, root) %{ai_libexecdir}/ai-tools-dotnet
-%{_sbindir}/ai-tools-dotnet
+%attr(0750, root, root) %{ai_libdir}/admin-commands.d/dotnet
 %ghost %attr(0600, root, root) /var/log/ai-tools/dotnet.log
 
 %files -n ai-tools-agents
@@ -1028,6 +1037,35 @@ fi
   AI_TOOLS_NVM_VERSION and AI_TOOLS_NODE_MAJOR settings it reads and its re-run after enabling
   another agent. A host installed from source keeps the old /usr/sbin/ai-tools-bootstrap symlink
   until it is removed by hand; an RPM upgrade removes it.
+- CHANGED: The dotnet integration is administered through 'sudo ai-tools-admin dotnet <verb>':
+  'dotnet bootstrap' (was 'ai-tools-dotnet setup'), 'dotnet tools install <pkg...>' (was
+  'install-tools'), and 'dotnet status'. The standalone 'ai-tools-dotnet' command is gone and is
+  not aliased, and its /usr/sbin symlink goes with it, so ai-tools and ai-tools-admin are the only
+  two commands this stack puts on your PATH. Update any script or runbook that calls it. What each
+  command does is unchanged, including the journal tag and log file it writes
+  ('journalctl -t ai-tools-dotnet', /var/log/ai-tools/dotnet.log). A host installed from source
+  keeps the old /usr/sbin/ai-tools-dotnet symlink and the helper it points at until both are
+  removed by hand; an RPM upgrade removes them.
+- NEW: An installed provider package can add its own command domain to ai-tools-admin, which is
+  how 'dotnet' arrives above. 'ai-tools-admin --help' lists the domains this host has, each with a
+  line describing it, and every domain answers its own --help. Installing a package is what makes
+  its commands exist -- enabling the provider in operator.conf is a separate question, and still
+  decides what a session gets.
+- NEW: A contributed command is checked before it runs, and every check refuses rather than
+  guesses. It and its directory must be root-owned and writable by neither group nor other, and one
+  file failing that refuses every contributed command on the host: only root may write there, so a
+  file that is not root's alone is one something else can rewrite between runs. A packaged command
+  installs in the correct state, so the remedy is to reinstall the package owning it ('rpm -qf'
+  names it) and find out how the file changed -- not to re-permission it in place. Each command
+  must also declare the domain it is installed as, the least ai-tools-admin interface version it
+  needs, and the verbs it answers; one claiming a name ai-tools-admin already uses is refused
+  rather than merged. Writing an integration of your own: the declaration is three comment lines,
+  documented in .claude/rules/providers.rule.md, and a floor of 1.0 stays valid for every
+  ai-tools-admin that implements 1.x.
+- NEW: 'sudo ai-tools-admin system bootstrap --scope full' provisions the toolchain and then runs
+  the setup of every integration enabled in operator.conf, so a host that also runs .NET is
+  provisioned in one command. A bare 'system bootstrap' is unchanged and still does the minimum
+  that works: the toolchain and the enabled agents.
 - CHANGED: The %ai-ops sudoers drop-in is down to two rules, the session lifecycle: launch a
   session, and stop every session. The passwordless rule for the relabel helper is removed, so an
   operator who holds no general sudo grant can launch and stop sessions and cannot run the

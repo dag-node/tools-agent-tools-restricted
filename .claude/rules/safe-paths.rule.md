@@ -119,7 +119,7 @@ it took a per-project target, to vet that caller-supplied path — advisorily, s
 *selected processes* by the path and never wrote to it. It does not take a path at all: what it
 terminates is decided by cgroup-slice membership, so there is no caller-supplied path to vet and
 the library is not loaded. A helper comes into scope here by *taking an argument that names a
-path*, which is the same rule that keeps `ai-tools-dotnet` out.
+path*, which is the same rule that keeps the `dotnet` admin command out.
 [docs/session-stop.md](../../docs/session-stop.md).
 
 ## Load failure fails closed
@@ -134,8 +134,8 @@ broken or mis-permissioned install yields a refusal, not an unguarded operation.
   the likely cause (an untraversable lib dir, a missing or unreadable lib), then exit (`1` for
   the wrapper's `die`, `3` for the CLI), so an operator reads why the launch or claim stopped.
 The backstop guards *caller-supplied* paths, so it scopes to the helpers that take one. A root
-helper whose targets are fixed literals compiled into it — `ai-tools-dotnet`, which only ever
-touches only its own `/opt/ai-tools/integrations/dotnet` tree — has no path to validate and does not
+command whose targets are fixed literals compiled into it — `ai-tools-admin dotnet`, which only
+ever touches its own `/opt/ai-tools/integrations/dotnet` tree — has no path to validate and does not
 load the library; giving a helper an argument that names a path is what brings it into scope here.
 
 - **Root helpers** bare-`source` the library under `set -e`: an unreadable lib aborts the

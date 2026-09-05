@@ -2,15 +2,15 @@
 paths:
   - "src/usr/local/bin/ai-tools.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-admin.sh"
-  - "src/usr/local/libexec/ai-tools/ai-tools-dotnet.sh"
+  - "src/usr/local/lib/ai-tools/admin-commands.d/**"
   - "src/usr/local/share/man/man1/ai-tools.1"
   - "src/usr/local/share/man/man8/ai-tools-admin.8"
 ---
 
 # Command grammar
 
-The shape every command in this project takes: `ai-tools`, `ai-tools-admin`, `ai-tools-dotnet`,
-`ai-tools(1)` and `ai-tools-admin(8)`. What each command *does* is in the rule for its component —
+The shape every command in this project takes: `ai-tools`, `ai-tools-admin` (its own commands and
+the ones provider packages contribute), `ai-tools(1)` and `ai-tools-admin(8)`. What each command *does* is in the rule for its component —
 [cli](cli.rule.md) for the project lifecycle, [confinement](confinement.rule.md) for the SELinux
 group verbs, [dotnet](dotnet.rule.md) for the .NET integration. This rule covers only how a
 command is spelled and how it projects onto an HTTP surface.
@@ -83,15 +83,16 @@ place — an existing account, an installed Node version, a labelled directory �
 configuration the operator has since changed alone, so the command is safe to run again after a
 partial failure, after enabling a provider, or from a script that cannot know the host's state.
 Returning a component to its defaults is destructive and belongs to a separate verb, which no
-command takes yet. `system bootstrap` and `ai-tools-dotnet setup` already hold this contract;
-the name is what obligates it.
+command takes yet. `system bootstrap` and `dotnet bootstrap` both hold this contract; the name is
+what obligates it.
 
 **Scope defaults to the minimum that works.** A bare `bootstrap` does the recommended minimal
 setup, so an operator running it for the first time does not choose a scope. Widening it — `system
 bootstrap` reaching every enabled integration rather than the toolchain alone — is an explicit
-opt-in, projecting as a request field (`{"scope": "full"}`) rather than a second command. The
-switch spelling is open; `--scope full` follows the descriptive-long-switch rule, while a bare
-positional `full` would collide with the resource identifiers every other verb takes there.
+opt-in, `--scope full`, projecting as a request field (`{"scope": "full"}`) rather than a second
+command. It is a switch rather than a bare positional `full`, which would sit where every other
+verb takes a resource identifier, and it is spelled in full per the descriptive-long-switch rule.
+`--scope minimal` names the default explicitly and is what a bare run takes.
 
 ## Which binary a command lives on
 
@@ -121,6 +122,14 @@ provider, the same token it takes in `agents.d`/`integrations.d` and in `operato
 dotnet integration owns `dotnet`, so `dotnet bootstrap` and `dotnet tools install <pkg>` are
 `ai-tools-admin` commands on a host that installed it and absent on one that did not.
 
+A contributed command is **root-only** like every other command on this binary, which is why it
+lives here rather than in a binary of its own. A domain is an executable at
+`/usr/local/lib/ai-tools/admin-commands.d/<name>`, whose basename is the token; `ai-tools-admin`
+**execs** it with the remaining arguments rather than sourcing it, so each fragment keeps its own
+`set -euo pipefail`, root guard and logging and cannot collide with the dispatcher's function
+names. The mechanism — the trust predicate, the manifest key behind each
+domain's help line, and what a provider package ships — is in [providers](providers.rule.md).
+
 Four rules bind that surface:
 
 - **A base name wins.** A provider contributing `system` or `status` MUST be refused rather than
@@ -128,15 +137,22 @@ Four rules bind that surface:
 - **A contributed command MUST pass the same trust predicate as every other provider input** —
   root-owned, not group- or other-writable, in a directory holding the same
   ([providers](providers.rule.md)). Here it stops the sandbox account planting a command root
-  would run.
+  would run, and one entry failing it refuses every contributed command rather than that entry
+  alone.
+- **A contributed command MUST declare its interface** — the domain it is installed as, the least
+  `ai-tools-admin` version it needs, and the verbs it answers. That declaration is what a provider
+  writes once and what base reads instead of probing; its keys and the version rule are in
+  [providers](providers.rule.md).
 - **Installation, not enablement, decides whether the command exists.** `AI_TOOLS_INTEGRATIONS`
   gates what a confined **session** receives; an administrator configuring a provider is a
   different question, and a command that vanished until the provider was enabled would make
   bootstrap-then-enable and enable-then-bootstrap differ. What the command *reports* still names
   the enablement state. `system bootstrap` at full scope reads the **enabled** set instead, since
   "everything this host runs" is what enablement means.
-- **`--help` lists what this host has.** The domain list is the installed, trusted set, so the help
-  an administrator reads and the commands that dispatch cannot disagree.
+- **`--help` lists what this host has.** The domain list is the installed, trusted set, and the
+  dispatch reads the same list, so the help an administrator reads and the commands that run cannot
+  disagree. It is answered ahead of the root check like the rest of `--help`, which is why the
+  directory is world-readable while each fragment inside it is not.
 
 **The root helpers under `/usr/local/libexec/ai-tools/` are outside this grammar.**
 `ai-tools-chown`, `ai-tools-setfacl`, `ai-tools-unclaim` and the rest are invoked by the CLI over
@@ -237,36 +253,32 @@ on the HTTP side. Neither needs a path segment.
 ## Where the surface stands
 
 `ai-tools-admin` conforms: `operators [list|add|remove]`, `selinux groups [list|enable|disable]`,
-`system bootstrap`, `system entrypoints relabel`, `system post-upgrade`, `--help`/`-h`,
-`--version`. `ai-tools-admin(8)` documents that surface and `tests/unit/man.sh` holds the page, the
-helper's `usage()` and its dispatch arms in agreement, so a command renamed in one of the three
-fails the suite rather than going stale in the others.
+`system bootstrap [--scope minimal|full]`, `system entrypoints relabel`, `system post-upgrade`,
+`--help`/`-h`, `--version`, plus one domain per installed provider — `dotnet bootstrap`,
+`dotnet tools install <pkg...>`, `dotnet status`. `ai-tools-admin(8)` documents the base surface and
+`tests/unit/man.sh` holds the page, the helper's `usage()` and its dispatch arms in agreement, so a
+command renamed in one of the three fails the suite rather than going stale in the others. A
+contributed domain is outside that pairing by construction — its commands exist only where the
+package is installed — so the page documents the **seam**, `--help` lists the domains this host has,
+and each domain answers its own `--help`.
 
-One command still diverges. Three names carry a `%{_sbindir}` symlink so `sudo <name>` resolves
-through `secure_path` — `ai-tools`, `ai-tools-admin` and `ai-tools-dotnet` — and `ai-tools-dotnet`
-is root-only, so it folds into `ai-tools-admin` as verbs:
+Two names carry a `%{_sbindir}` symlink so `sudo <name>` resolves through `secure_path`:
+`ai-tools` and `ai-tools-admin`. Every other command in this project is a verb of one of them,
+reached at a fixed path the dispatch knows — the root helpers under `/usr/local/libexec/ai-tools/`
+(the provisioning helper among them, exec'd by `system bootstrap`) and the contributed command
+fragments under `/usr/local/lib/ai-tools/admin-commands.d/`.
 
-| Its spelling | Under this grammar |
-|---|---|
-| `sudo ai-tools-dotnet setup` | `dotnet bootstrap` |
-| `sudo ai-tools-dotnet install-tools <pkg...>` | `dotnet tools install <pkg...>` |
-| `sudo ai-tools-dotnet status` | `dotnet status` |
-| `ai-tools --project-claim`, `--sandbox-create`, `--status`, … | blocked on the domain model below |
-
-`ai-tools-dotnet` loses its standalone name and its `%{_sbindir}` symlink with the move, in both
-`install.sh` and the RPM, the way `ai-tools-bootstrap` did: the provisioning helper keeps its name
-and its `/usr/local/libexec/ai-tools` path, and `system bootstrap` execs it there. `ai-tools-admin`
-ships in `ai-tools-base` and runs on an unprovisioned host, so a host reaches `system bootstrap`
-before the toolchain it installs exists. `system bootstrap` is a base command dispatched from a
-fixed `case`, where `dotnet bootstrap` is a domain the integration package contributes; the
-provisioning helper behind `system bootstrap` still ships in `ai-tools-integration-nodejs`, so the
-command reports which package to install when the helper is not executable there — the same shape
+`ai-tools-admin` ships in `ai-tools-base` and runs on an unprovisioned host, so a host reaches
+`system bootstrap` before the toolchain it installs exists. That is why the two `bootstrap`s sit on
+different mechanisms: `system bootstrap` is a base command dispatched from a fixed `case`, while
+`dotnet bootstrap` is a domain the integration package contributes. Each dispatches to a file its
+own package may not have shipped, so each reports which package to install when it is not
+executable — `system bootstrap`'s helper ships in `ai-tools-integration-nodejs`, the same shape
 `system entrypoints relabel` takes.
 
-`ai-tools-admin` dispatches a fixed `case` over its own commands, so the discovery seam that
-lets a provider package contribute `dotnet` is the work that carries that domain in, and the
-`--scope full` opt-in on `system bootstrap` depends on it: base can only run each enabled
-integration's `bootstrap` once there is a seam to find one through.
+`--scope full` rests on that seam: base can only run each enabled integration's `bootstrap` because
+there is a seam to find one through, and it iterates the **enabled** set where the dispatch reads
+the installed one.
 
 **The `ai-tools` conversion needs a domain model this project does not yet state.** Naming
 `projects` and `sandboxes` as collections is a claim the code does not make: `allowed-projects` is

@@ -727,8 +727,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh
     _chk /usr/local/lib/ai-tools/integrations.d/dotnet.conf
     _chk /usr/local/lib/ai-tools/filters.d/dotnet.rules
-    _chk /usr/local/libexec/ai-tools/ai-tools-dotnet
-    _chk /usr/sbin/ai-tools-dotnet
+    _chk /usr/local/lib/ai-tools/admin-commands.d/dotnet
     _chk /usr/local/lib/ai-tools/control-plane.lib.sh
     _chk /usr/local/lib/ai-tools/managed-assets.lib.sh
     _chk /usr/local/lib/ai-tools/relabel.lib.sh
@@ -1060,10 +1059,18 @@ do_install() {
     # in the integration step below when this from-source install includes it.
     install -d -o root -g root -m 755 /usr/local/lib/ai-tools/integrations.d
     install -d -o root -g root -m 755 /usr/local/lib/ai-tools/session-env.d
+    # The contributed-command directory, base-owned like the three above and load-bearing for the
+    # same reason, one step further out: ai-tools-admin execs what it finds here AS ROOT, so only
+    # root writes it. 0755 root:root carries that (write is owner-only) and keeps the directory
+    # listable, which is what `ai-tools-admin --help` reads: it is answered ahead of the root check
+    # and names this host's contributed domains for any caller. Each fragment inside is 0750
+    # root:root, so the domain names are readable and the fragments themselves are not.
+    install -d -o root -g root -m 755 /usr/local/lib/ai-tools/admin-commands.d
 
     # dotnet integration data files (optional; inert without a host dotnet). The session-env
     # fragment ai-tools-run sources when dotnet is enabled, and the manifest providers.lib.sh reads.
-    # The ai-tools-dotnet helper is installed with the other libexec helpers below. No secrets.
+    # The manifest also carries the summary `ai-tools-admin --help` prints for the command domain
+    # this package contributes, laid down below. No secrets.
     log "/usr/local/lib/ai-tools/session-env.d/dotnet.env.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/session-env.d/dotnet.env.sh" \
@@ -1078,6 +1085,15 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.d/dotnet.rules" \
         /usr/local/lib/ai-tools/filters.d/dotnet.rules
+    # The `dotnet` domain of ai-tools-admin: the command that creates the sandbox NuGet cache and
+    # shared tools dir, installs global tools, and reports the integration's state. 750 root:root,
+    # like every other root-executed helper -- ai-tools-admin execs it after checking that both it
+    # and its directory are root-owned and not group- or other-writable. The basename is the domain
+    # token, so this file IS the `dotnet` in `sudo ai-tools-admin dotnet bootstrap`.
+    log "/usr/local/lib/ai-tools/admin-commands.d/dotnet"
+    install_subst 750 root root \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh" \
+        /usr/local/lib/ai-tools/admin-commands.d/dotnet
 
     # SELinux policy packages (prebuilt): stage the core plus each STABLE optional group under the
     # canonical package dir, so the installed ai-tools-admin can `selinux groups enable` a prebuilt
@@ -1202,27 +1218,18 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-admin.sh" \
         /usr/local/libexec/ai-tools/ai-tools-admin
 
-    # dotnet integration provisioning helper (optional integration; administrator-typed like
-    # bootstrap/admin). Creates the sandbox NuGet cache + shared tools dir and installs global
-    # tools -- run `sudo ai-tools-dotnet setup` to provision, then enable `dotnet` in operator.conf.
-    log "/usr/local/libexec/ai-tools/ai-tools-dotnet"
-    install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-dotnet.sh" \
-        /usr/local/libexec/ai-tools/ai-tools-dotnet
-
-    # Put the human-facing admin commands where `sudo <name>` resolves them. The sudo-helpers
+    # Put the one human-facing admin command where `sudo <name>` resolves it. The sudo-helpers
     # under /usr/local/libexec/ai-tools/ are invoked by the daemon, by sudoers and by
     # ai-tools-admin at fixed paths and stay hidden there -- provisioning among them, reached as
-    # `ai-tools-admin system bootstrap` -- but ai-tools-admin is typed by an administrator and
+    # `ai-tools-admin system bootstrap` -- and so do the contributed command fragments, reached as
+    # `ai-tools-admin <provider> <verb>`. ai-tools-admin itself is typed by an administrator and
     # documented as a bare command. sudo resolves a bare command against
     # the sudoers secure_path, which on stock EL is /sbin:/bin:/usr/sbin:/usr/bin -- it does
-    # NOT include /usr/local/sbin -- so the symlinks live in /usr/sbin (also on root's shell
-    # PATH). The targets keep their canonical /usr/local/libexec/ai-tools/ path (sudoers, perms
+    # NOT include /usr/local/sbin -- so the symlink lives in /usr/sbin (also on root's shell
+    # PATH). The target keeps its canonical /usr/local/libexec/ai-tools/ path (sudoers, perms
     # checks, docs reference it).
     log "/usr/sbin/ai-tools-admin -> /usr/local/libexec/ai-tools/ai-tools-admin"
     ln -sfn /usr/local/libexec/ai-tools/ai-tools-admin /usr/sbin/ai-tools-admin
-    log "/usr/sbin/ai-tools-dotnet -> /usr/local/libexec/ai-tools/ai-tools-dotnet"
-    ln -sfn /usr/local/libexec/ai-tools/ai-tools-dotnet /usr/sbin/ai-tools-dotnet
     # The ai-tools CLI gets the same secure_path symlink for the OPPOSITE reason: it must
     # never run under sudo, and without the symlink `sudo ai-tools` dies with sudo's
     # "command not found" (/usr/local/bin is not in secure_path) before the CLI's own
