@@ -30,10 +30,11 @@ Environment=NVM_NODE_ALIAS=default
 Environment=NVM_NODE_MAJOR=22
 # AI_TOOLS_GLOBAL_TOOLS is intentionally unset: the managed tool set defaults to npm plus each
 # enabled agent's npm package, resolved from the agent manifests (providers.lib.sh), so the unit
-# carries no hardcoded agent. Set it here only to override that set for a bespoke deployment.
+# does not hardcode an agent. Set it here only to override that set for a bespoke deployment.
 
-# Retry a TRANSIENT failure (exit 3: the registry was unreachable, nothing was changed), so a host
-# that reconnects within the window updates itself instead of waiting for tomorrow's timer.
+# Retry a TRANSIENT failure (exit 3: the registry was unreachable, the toolchain was left
+# unchanged), so a host that reconnects within the window updates itself instead of waiting for
+# tomorrow's timer.
 # RestartPreventExitStatus=1 is what keeps that from being a retry loop over a real fault: exit 1 is
 # the updater's "this host is broken and will still be broken on a retry" -- no nvm, no curl, an
 # unset alias, a FAILED SIGNATURE CHECK -- and none of those should churn against the registry. An

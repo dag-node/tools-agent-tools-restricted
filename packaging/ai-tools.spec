@@ -1068,13 +1068,13 @@ fi
   that works: the toolchain and the enabled agents.
 - CHANGED: The %ai-ops sudoers drop-in is down to two rules, the session lifecycle: launch a
   session, and stop every session. The passwordless rule for the relabel helper is removed, so an
-  operator who holds no general sudo grant can launch and stop sessions and cannot run the
+  operator without a general sudo grant can launch and stop sessions, and cannot run the
   reconcile by hand. Nothing else changes for them: the post-upgrade relabel still runs on its own
   through the root-side watcher and the agent package's install scriptlet.
 - NEW: 'ai-tools-admin --help' and '-h' print the command summary, and '--version' prints the
   installed version. The tool previously answered a wrong command with a one-line error and had
-  no way to show its surface at all. Both answer any caller rather than only root, so reading
-  what the tool does needs no sudo.
+  no way to show its surface at all. Both answer any caller rather than only root, so any
+  account can read what the tool does without sudo.
 - NEW: ai-tools-admin(8) documents every command, its arguments, the exit codes and the files
   each one touches, with worked examples, 'system entrypoints relabel' among them.
   'man ai-tools-admin'.

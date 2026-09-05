@@ -12,11 +12,13 @@
 #   2. run ai-tools-stop as ROOT (`ai-tools --stop`, which terminates every running agent
 #      session; see the security note below)
 #
-# One rule serves every agent: ai-tools-run is the shared confinement shim and names no agent,
-# so a second agent package ships its own wrapper and needs no new sudoers grant.
+# One rule serves every agent: the rule names ai-tools-run, the shared confinement shim, which is
+# agent-agnostic. A second agent package ships its own wrapper and inherits this grant rather than
+# adding one.
 #
 # The sandbox toolchain update runs as @SANDBOX_USER@ in its own systemd --user instance
-# (nvm-update.service), writing the shared .nvm tree directly, so it needs no sudo rule here.
+# (nvm-update.service), writing the shared .nvm tree directly, so it does not need a sudo rule
+# here.
 # The post-upgrade entrypoint relabel fires as root through the ai-tools-relabel.path watcher, and
 # an administrator reconciles on demand with `sudo ai-tools-admin system entrypoints relabel`, so
 # that helper does not appear in this file either.
@@ -40,7 +42,7 @@
 #     and exec it directly; AI_TOOLS_PROJECT_DIR carries the validated project dir and becomes the
 #     transient unit's WorkingDirectory (units default to /). These two are the whole
 #     wrapper-to-shim contract -- the agent's identity is derived from the executable path against
-#     the installed manifests, so it needs no variable of its own here.
+#     the installed manifests, so it does not need a variable of its own here.
 #
 # SECURITY NOTES:
 #   - NOPASSWD is intentional: both commands here are called non-interactively (ai-tools-run from a
@@ -53,8 +55,8 @@
 #     convenience -- an unattended detector cannot answer a password prompt. The same trailing `""`
 #     pins it to the ZERO-ARGUMENT form, which grants the bare command (all automation needs, since
 #     the confirmation defaults YES with no terminal) and withholds --force and --dry-run. The
-#     helper takes no target and no authorization input, so the rule has no argument surface at
-#     all. Why it is granted this way, and what it widens: docs/session-stop.md.
+#     helper does not take a target or an authorization input, so the rule does not expose any
+#     argument surface. Why it is granted this way, and what it widens: docs/session-stop.md.
 #   - The first rule DROPS privilege; the agent runs AS @SANDBOX_USER@ and cannot invoke an
 #     ai-ops rule, so no rule here grants the agent anything -- including the root rule, which
 #     @SANDBOX_USER@ cannot reach.

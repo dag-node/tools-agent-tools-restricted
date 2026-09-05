@@ -42,6 +42,10 @@
 # absolute on the next line, and the shape checks compare the two halves of a pivot, so both need
 # the whole sentence to report anything worth reading.
 #
+# One default check carries a second condition for the same reason the `--all` ones do:
+# `unbacked-cost` needs a cost word AND no frequency and no bounded operation in the sentence,
+# either of which is what a reader checks the claim against.
+#
 # `--all` adds the shape checks. Each one greps a sub-shape of its rule -- the half a regex can
 # see -- because the rules themselves are about meaning: "an absolute with no guard in the same
 # sentence" and "a clause mirrored across a pivot" are not properties of any word list. A
@@ -96,11 +100,39 @@ FRONTED_QUANTIFIER = re.compile(
 FRONTED_QUANTIFIER_INFLECTED = re.compile(
     r"\b(?!having\b|during\b)([a-z]{3,}(?:ed|ing))" + _QUANTIFIED_OBJECT)
 
+# A subordinating conjunction is how a guard clause attaches, so a sentence carrying one has
+# somewhere for the guard to be and is left to the reader. The absolute and the cost check share
+# it.
+GUARD = re.compile(r"\b(so|because|since|unless|when|while|until|once|only|if|where|after"
+                   r"|before|without|through|via|whenever|as long as)\b")
+
+# The second way a cost claim states its backing: a frequency or a bounded operation as the
+# sentence's own subject, where no conjunction appears. `a single write of the whole text keeps
+# the window negligible` names what makes it small.
+COST_BACKING = re.compile(r"\b(single|one|per|bounded|scoped|cached|amortized|idempotent|no-op)\b",
+                          re.I)
+
+# A cost claim is an absolute in another vocabulary, and unbacked in the same way. `fast` and
+# `slow` stay out of it: both live in compounds that are domain terms (`fast-track`, `fail-fast`),
+# where the compound is the common case rather than the exception.
+COST = re.compile(r"\b(cheap|cheaply|negligible|negligibly|near-zero|inexpensive|costly"
+                  r"|meaningful overhead|no overhead)\b", re.I)
+
+
+def unbacked_cost(sentence):
+    """A cost claim in a sentence that does not name a frequency or a bounded operation."""
+    match = COST.search(sentence)
+    if not match or GUARD.search(sentence) or COST_BACKING.search(sentence):
+        return None
+    return match
+
+
 # Each entry is (name, pattern, hint). The hint is what to write instead, since a report naming
 # only the defect leaves the reader to rediscover the fix on every hit.
 DEFAULT_CHECKS = [
     ("fronted-quantifier", FRONTED_QUANTIFIER, None),  # hint derived; see suggest()
     ("nothing", re.compile(r"\bnothing\b"), "name the absent input"),
+    ("unbacked-cost", unbacked_cost, "name the frequency or the bounded operation"),
 ]
 
 # Third-person singular endings that need more than a dropped "s".
@@ -130,10 +162,6 @@ def suggest(name, match, static_hint):
     return static_hint
 
 
-# A subordinating conjunction is how a guard clause attaches, so a sentence carrying one has
-# somewhere for the guard to be and is left to the reader.
-GUARD = re.compile(r"\b(so|because|since|unless|when|while|until|once|only|if|where|after"
-                   r"|before|without|through|via|whenever|as long as)\b")
 ABSOLUTE = re.compile(r"\b(never|always|cannot)\b")
 
 MIRROR_PIVOT = re.compile(r"\b(rather than|instead of)\b")
