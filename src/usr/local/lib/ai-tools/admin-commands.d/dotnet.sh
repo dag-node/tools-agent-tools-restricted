@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
+# ai-tools-admin-command: dotnet
+# ai-tools-admin-api-min-version: 1.0
+# ai-tools-admin-verbs: bootstrap tools status
 # /usr/local/lib/ai-tools/admin-commands.d/dotnet
 # The `dotnet` domain of ai-tools-admin: provision and inspect the dotnet integration. A command
 # fragment, contributed by ai-tools-integration-dotnet and exec'd by ai-tools-admin, so the base
 # package dispatches this domain without knowing the integration exists (providers.rule.md).
+#
+# The three `ai-tools-admin-*` lines above are the seam's interface declaration, read by
+# ai-tools-admin before it runs anything here: the domain this file is installed as, the least
+# interface version it needs from that tool, and the top-level verbs it answers. They stay within
+# the first 20 lines, and `verbs` stays in step with the dispatch at the foot of this file --
+# `system bootstrap --scope full` reads that list to decide whether this integration has
+# provisioning to do, rather than running the command to find out.
 #
 # The .NET SDK/runtime itself is the HOST's RPM-managed dotnet (this integration does not ship a
 # runtime of its own, and does not take a dotnet RPM dependency). This command sets up the
@@ -84,7 +94,7 @@ ai-tools-admin dotnet -- the .NET toolchain: its sandbox state and shared tools
 EOF
 }
 
-# --help reads no host state and leaves the host as it is, so it answers any caller and is handled
+# --help leaves the host as it is and does not read its state, so it answers any caller and is handled
 # ahead of the root check -- ai-tools-admin's own rule, applied one level down.
 case "${1:-}" in
     --help|-h) usage; exit 0 ;;

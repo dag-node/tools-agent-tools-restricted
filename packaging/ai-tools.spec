@@ -1048,11 +1048,20 @@ fi
   removed by hand; an RPM upgrade removes them.
 - NEW: An installed provider package can add its own command domain to ai-tools-admin, which is
   how 'dotnet' arrives above. 'ai-tools-admin --help' lists the domains this host has, each with a
-  line describing it, and every domain answers its own --help. A contributed command is run only
-  while it and its directory are root-owned and writable by neither group nor other, and one
-  claiming a name ai-tools-admin already uses is refused rather than merged; either refusal is
-  reported. Installing a package is what makes its commands exist -- enabling the provider in
-  operator.conf is a separate question, and still decides what a session gets.
+  line describing it, and every domain answers its own --help. Installing a package is what makes
+  its commands exist -- enabling the provider in operator.conf is a separate question, and still
+  decides what a session gets.
+- NEW: A contributed command is checked before it runs, and every check refuses rather than
+  guesses. It and its directory must be root-owned and writable by neither group nor other, and one
+  file failing that refuses every contributed command on the host: only root may write there, so a
+  file that is not root's alone is one something else can rewrite between runs. A packaged command
+  installs in the correct state, so the remedy is to reinstall the package owning it ('rpm -qf'
+  names it) and find out how the file changed -- not to re-permission it in place. Each command
+  must also declare the domain it is installed as, the least ai-tools-admin interface version it
+  needs, and the verbs it answers; one claiming a name ai-tools-admin already uses is refused
+  rather than merged. Writing an integration of your own: the declaration is three comment lines,
+  documented in .claude/rules/providers.rule.md, and a floor of 1.0 stays valid for every
+  ai-tools-admin that implements 1.x.
 - NEW: 'sudo ai-tools-admin system bootstrap --scope full' provisions the toolchain and then runs
   the setup of every integration enabled in operator.conf, so a host that also runs .NET is
   provisioned in one command. A bare 'system bootstrap' is unchanged and still does the minimum

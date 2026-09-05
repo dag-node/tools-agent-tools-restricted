@@ -137,7 +137,12 @@ Four rules bind that surface:
 - **A contributed command MUST pass the same trust predicate as every other provider input** —
   root-owned, not group- or other-writable, in a directory holding the same
   ([providers](providers.rule.md)). Here it stops the sandbox account planting a command root
-  would run.
+  would run, and one entry failing it refuses every contributed command rather than that entry
+  alone.
+- **A contributed command MUST declare its interface** — the domain it is installed as, the least
+  `ai-tools-admin` version it needs, and the verbs it answers. That declaration is what a provider
+  writes once and what base reads instead of probing; its keys and the version rule are in
+  [providers](providers.rule.md).
 - **Installation, not enablement, decides whether the command exists.** `AI_TOOLS_INTEGRATIONS`
   gates what a confined **session** receives; an administrator configuring a provider is a
   different question, and a command that vanished until the provider was enabled would make

@@ -101,6 +101,13 @@ readonly ADMIN_COMMANDS_DIR="${AI_TOOLS_ADMIN_COMMANDS_DIR:-/usr/local/lib/ai-to
 # shadow a command an administrator relies on. `status` is reserved before it is implemented: a
 # name a provider could take first is not a name base can take back.
 readonly -a BASE_COMMANDS=(operators selinux system status)
+# What an administrator does about a contributed command that is not root's alone. Stated once and
+# shared by every message that reports one, so the dispatch, the full-scope bootstrap and the help
+# give one answer. It is deliberately NOT "chmod it": a packaged command installs root-owned and
+# unwritable by anyone else, so a file in that state is either one installed by hand or a change
+# somebody made to this host -- and a mode fixed in place would re-bless content that whoever could
+# write the file may already have rewritten.
+readonly ADMIN_COMMANDS_TAMPER_REMEDY="a packaged command installs root-owned and unwritable by anyone else, so reinstall the package owning it -- 'rpm -qf <path>' names it -- and look into how the file came to be writable; a command installed by hand is yours to correct"
 # Root-only helpers, 750 root:root, reached directly rather than through sudo: this tool already
 # refuses a non-root caller. Both ship in ai-tools-integration-nodejs, which the metapackage pulls
 # in weakly, so each command checks for its helper and names that package when it is absent. The
@@ -174,18 +181,21 @@ EOT
 # the provider manifest's admin_summary key (data, parsed not sourced), rather than each fragment
 # being executed to ask it what it is; a provider that declares none still gets its line.
 usage_domains() {
-    local -a domains=()
-    mapfile -t domains < <(admin_domains)
+    admin_domains
     printf '\n'
-    [[ "${#domains[@]}" -gt 0 ]] || return 0
+    [[ "${#ADMIN_DOMAINS[@]}" -gt 0 ]] || return 0
     printf '  Providers\n'
     local domain summary
-    for domain in "${domains[@]}"; do
+    for domain in "${ADMIN_DOMAINS[@]}"; do
         summary=""
         declare -F ai_tools_provider_manifest_field >/dev/null 2>&1 \
             && summary="$(ai_tools_provider_manifest_field "${domain}" admin_summary || true)"
         printf '    %-32s %s\n' "${domain} <command>" "${summary}"
     done
+    # What the help shows and what runs stay one answer: while the set-wide gate holds these back,
+    # the listing says so rather than offering a command that refuses.
+    admin_commands_trusted \
+        || printf "    (refused: a file in that directory is not root's alone -- see the warning above)\n"
     printf '\n'
 }
 
@@ -203,8 +213,10 @@ is_base_command() {
     return 1
 }
 
-# admin_domains: print each contributed domain this host has, one per line, in filename order.
-# Data-only stdout, so it is safe in $(...); every refusal goes to stderr.
+# admin_domains: resolve the contributed domains this host has into ADMIN_DOMAINS, in filename
+# order, and record in ADMIN_COMMANDS_TAMPERED whether any entry failed the trust predicate. Both
+# results are globals rather than stdout because the caller must see the second one, and a $(...)
+# capture would leave it behind in a subshell. Every refusal goes to stderr.
 #
 # A fragment is honored only while ai_tools_conf_is_trusted holds for it AND for the directory
 # holding it -- a group-writable directory lets a non-root writer unlink a root-owned file and put
@@ -213,10 +225,21 @@ is_base_command() {
 # it is ever joined to a path, so a separator or a traversal cannot address a file outside the
 # directory. The dispatch and --help both read this one function, so what an administrator is told
 # and what runs cannot disagree.
+#
+# The two rejections are different findings and are counted apart. A name this seam does not
+# recognize (a README, a backup, a base name) is a file that is not a command, and the set around it
+# is unaffected. A file that group or other may write is a broken assumption about the directory
+# itself -- that only root decides what is run from it -- and it is what ADMIN_COMMANDS_TAMPERED
+# carries to the gate below.
+ADMIN_DOMAINS=()
+ADMIN_COMMANDS_TAMPERED=0
 admin_domains() {
+    ADMIN_DOMAINS=()
+    ADMIN_COMMANDS_TAMPERED=0
     [[ -d "${ADMIN_COMMANDS_DIR}" ]] || return 0
     if ! ai_tools_conf_is_trusted "${ADMIN_COMMANDS_DIR}"; then
-        warn "ignoring every contributed command: ${ADMIN_COMMANDS_DIR} is not root-owned or is writable by group/other"
+        warn "ignoring every contributed command: ${ADMIN_COMMANDS_DIR} is a symlink, is not root-owned, or is writable by group/other"
+        ADMIN_COMMANDS_TAMPERED=1
         return 0
     fi
     local fragment domain
@@ -232,32 +255,207 @@ admin_domains() {
             continue
         fi
         if ! ai_tools_conf_is_trusted "${fragment}"; then
-            warn "skipping the '${domain}' command: ${fragment} is not root-owned or is writable by group/other"
+            warn "refusing ${fragment}: it is a symlink, is not root-owned, or is writable by group/other, so what it runs is not root's decision alone"
+            ADMIN_COMMANDS_TAMPERED=1
             continue
         fi
-        printf '%s\n' "${domain}"
+        ADMIN_DOMAINS+=( "${domain}" )
     done
+}
+
+# admin_commands_trusted: the SET-WIDE gate, applied before any contributed command is run.
+#
+# Per-file skipping already keeps a mis-permissioned fragment from being executed, and this refuses
+# its neighbours as well. The reason is what the failure means rather than what it reaches: only
+# root may write this directory, so a fragment inside it that group or other may write is a file the
+# sandbox account can rewrite between one run and the next, sitting where root looks for commands.
+# Running the entries that still pass would leave that file in place and the administrator with no
+# reason to act. Base's own commands are untouched by this, so the host stays administrable while
+# the finding is dealt with (ADMIN_COMMANDS_TAMPER_REMEDY).
+admin_commands_trusted() {
+    (( ADMIN_COMMANDS_TAMPERED == 0 ))
+}
+
+# admin_command_check <domain>: succeed when the fragment carrying <domain> conforms to the
+# interface this tool dispatches, publishing its declared verbs in ADMIN_COMMAND_VERBS; otherwise
+# set _admin_command_reason to what is wrong. A reason rather than a message, so the two callers can
+# act differently on it -- an administrator's own command stops, while `system bootstrap --scope
+# full` names it and carries on to the next integration.
+#
+# Where the trust checks above decide WHO wrote the file, this decides whether the file is a command
+# of this seam at all. It is a conformance contract, not a security boundary: what stops a file the
+# agent wrote is the trust predicate, and what this stops is a file that was never meant to be run
+# this way. It is declarative and static -- a fragment is read, never executed, to find out what it
+# is, so a report is built by reading alone, without forking or running the fragment.
+#
+# A conforming fragment is a script (`#!`) carrying three declarations in its first 20 lines. The
+# whole block is the interface: a third-party integration writes it once, and every check below
+# reads it rather than running anything.
+#
+#   # ai-tools-admin-command: <domain>              the domain it is installed as
+#   # ai-tools-admin-api-min-version: <maj>.<min>   the least this tool must implement for it to run
+#   # ai-tools-admin-verbs: <verb> ...              the top-level verbs it answers (this project's
+#                                                   list grammar: commas and whitespace separate)
+#
+# Each earns its place:
+#   * the COMMAND line makes the fragment self-identifying, so a root-owned executable that merely
+#     ends up in this directory -- a stray tool, an editor's backup, one provider's command copied
+#     under another provider's name -- does not claim to be a command here and is not run as one.
+#   * the API-MIN-VERSION line is version skew made visible, and it is a FLOOR rather than a
+#     stamp of what the fragment was written on. A fragment ships in a package that upgrades
+#     independently of base, and a third party does not re-declare it for every release of this
+#     project, so what it states is what it NEEDS: `1.0` means "any ai-tools-admin implementing 1.0
+#     or later can run me", and it keeps being true as this tool moves forward.
+#   * the VERBS line is a capability list base READS rather than probes. `system bootstrap --scope
+#     full` asks whether a provider has a `bootstrap` before running anything, so an integration
+#     that contributes other commands is reported as having no provisioning to do rather than as
+#     having failed. It is NOT argument validation -- what a verb accepts is the fragment's own
+#     dispatch to answer, and a base that second-guessed it would drift out of agreement with it.
+#
+# There is no date and no "written against" version in the block: the package that installs the
+# fragment carries both, and a hand-maintained copy of either would drift from it.
+#
+# ADMIN_COMMAND_API is what this tool implements, and it is the only version base holds. A fragment
+# runs when its declared floor is one this tool satisfies -- the same comparison Apache httpd makes
+# between a module's Module Magic Number and its own (AP_MODULE_MAGIC_AT_LEAST), and the same shape
+# as every plugin host that takes a floor from its plugins (Chrome's minimum_chrome_version,
+# Jenkins' jenkins.version baseline, a VS Code extension's engines.vscode):
+#
+#   the MAJOR must match      a different major is a different contract, and neither side can guess
+#                             at the other's, so the refusal names both versions
+#   the MINOR must be at      a minor revision only ADDS, so a fragment that needs 1.0 runs on 1.7;
+#   least the declared one    one that needs 1.7 does not run here until base catches up
+#
+# That leaves one number to maintain and puts retirement in the major digit, where a reader already
+# expects it, rather than in a second constant saying the same thing. It is also what lets a third
+# party declare a floor once and leave it alone: everything valid at 1.0 keeps dispatching however
+# far the minor advances.
+#
+# How the version moves, since that is the question every later change to this seam asks:
+#   * base learns to CALL something new -- a `reset` or `update` verb invoked the way `system
+#     bootstrap --scope full` invokes `bootstrap` -- is ADDITIVE. A fragment that does not declare
+#     the verb is skipped, exactly as one without `bootstrap` is, so this takes a MINOR bump.
+#   * base changes what it REQUIRES -- a new mandatory declaration, a different invocation -- is
+#     still a MINOR bump while base keeps honouring the old shape (the new key optional, the old
+#     invocation still answered). It is a MAJOR bump only when base drops that compatibility path,
+#     which is the single change that refuses a working third-party command.
+#   * a provider adding a verb TO ITSELF moves neither digit. `dotnet reset` is typed directly and
+#     asks base for no behaviour, so the interface grows only when base starts invoking something.
+readonly ADMIN_COMMAND_API="1.0"
+_admin_command_reason=""
+ADMIN_COMMAND_VERBS=()
+admin_command_check() {
+    local domain="$1"
+    local fragment="${ADMIN_COMMANDS_DIR}/${domain}"
+    local head_bytes header declared_floor declared_major declared_minor declared_verbs verb
+    local base_major="${ADMIN_COMMAND_API%%.*}" base_minor="${ADMIN_COMMAND_API##*.}"
+    _admin_command_reason=""
+    ADMIN_COMMAND_VERBS=()
+    if [[ ! -x "${fragment}" ]]; then
+        _admin_command_reason="${fragment} is not executable -- reinstall the package that ships it"
+        return 1
+    fi
+    head_bytes="$(head -c 2 "${fragment}" 2>/dev/null || true)"
+    if [[ "${head_bytes}" != '#!' ]]; then
+        _admin_command_reason="${fragment} is not a script -- a contributed command is an interpreted file"
+        return 1
+    fi
+    # Captured before matching, never piped into `grep`/`head`: an early-exiting reader leaves the
+    # writer to die of SIGPIPE, which pipefail reports as a failed probe (see
+    # ai_tools_selinux_group_loaded). Every read below works on this one string.
+    header="$(head -n 20 "${fragment}" 2>/dev/null || true)"
+    if ! grep -qxF -- "# ai-tools-admin-command: ${domain}" <<<"${header}"; then
+        _admin_command_reason="${fragment} does not declare '# ai-tools-admin-command: ${domain}' in its first 20 lines -- reinstall the package that ships it"
+        return 1
+    fi
+
+    declared_floor="$(_admin_command_field "${header}" api-min-version)"
+    if [[ -z "${declared_floor}" ]]; then
+        _admin_command_reason="${fragment} declares no '# ai-tools-admin-api-min-version: <major>.<minor>' -- reinstall the package that ships it"
+        return 1
+    fi
+    if [[ ! "${declared_floor}" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
+        _admin_command_reason="${fragment} declares the interface floor $(printf '%q' "${declared_floor}"), which is not <major>.<minor>"
+        return 1
+    fi
+    declared_major="${BASH_REMATCH[1]}"; declared_minor="${BASH_REMATCH[2]}"
+    if (( declared_major != base_major )); then
+        _admin_command_reason="${fragment} needs contributed-command interface ${declared_floor}, and this ai-tools-admin implements ${ADMIN_COMMAND_API} -- a different major is a different contract, so upgrade whichever of the two is behind"
+        return 1
+    fi
+    if (( declared_minor > base_minor )); then
+        _admin_command_reason="${fragment} needs contributed-command interface ${declared_floor}, and this ai-tools-admin implements ${ADMIN_COMMAND_API} -- upgrade ai-tools-base"
+        return 1
+    fi
+
+    declared_verbs="$(_admin_command_field "${header}" verbs)"
+    # One list grammar across this project: commas and whitespace both separate (conf.lib.sh).
+    ai_tools_conf_split ADMIN_COMMAND_VERBS "${declared_verbs}"
+    if [[ "${#ADMIN_COMMAND_VERBS[@]}" -eq 0 ]]; then
+        _admin_command_reason="${fragment} declares no '# ai-tools-admin-verbs: <verb> ...' -- a command that answers nothing is not one"
+        return 1
+    fi
+    for verb in "${ADMIN_COMMAND_VERBS[@]}"; do
+        [[ "${verb}" =~ ^[a-z][a-z0-9-]*$ ]] && continue
+        _admin_command_reason="${fragment} declares $(printf '%q' "${verb}") among its verbs, and a verb is a bare lower-case word"
+        return 1
+    done
+    return 0
+}
+
+# _admin_command_field <header> <key>: the value of one `# ai-tools-admin-<key>: ` line, empty when
+# absent. First occurrence wins, so a later line cannot quietly override the declaration a reader
+# saw first. Works on the captured header string, so no read reaches the file again.
+_admin_command_field() {
+    local values
+    values="$(sed -n "s/^# ai-tools-admin-$2:[[:space:]]*\\(.*[^[:space:]]\\)[[:space:]]*\$/\\1/p" <<<"$1")"
+    printf '%s' "${values%%$'\n'*}"
+}
+
+# admin_command_has_verb <verb>: succeed when the verb list published by the last
+# admin_command_check holds <verb>. Read after that call, never instead of it.
+admin_command_has_verb() {
+    local wanted="$1" verb
+    for verb in "${ADMIN_COMMAND_VERBS[@]}"; do
+        [[ "${verb}" == "${wanted}" ]] && return 0
+    done
+    return 1
+}
+
+# admin_command_has_verb <verb>: succeed when the verb list published by the last
+# admin_command_check holds <verb>. Read after that call, never instead of it.
+admin_command_has_verb() {
+    local wanted="$1" verb
+    for verb in "${ADMIN_COMMAND_VERBS[@]}"; do
+        [[ "${verb}" == "${wanted}" ]] && return 0
+    done
+    return 1
 }
 
 # contributed_dispatch <name> [args...]: exec the fragment carrying <name>, with the remaining
 # arguments. An exec rather than a source: the fragment keeps its own set -euo pipefail, its own
 # root guard and its own logging, and cannot collide with this tool's function names.
 #
-# Membership in admin_domains is the gate, so <name> is never interpolated into a path before it
+# Membership of ADMIN_DOMAINS is the gate, so <name> is never interpolated into a path before it
 # has matched a discovered domain. Reached only from the top-level default arm, which is what makes
 # a base name unreachable here twice over: its own arm matched first, and admin_domains refuses a
 # fragment claiming one.
 contributed_dispatch() {
     local domain="$1"; shift
-    local domains; domains="$(admin_domains)"
-    if ! grep -qxF -- "${domain}" <<<"${domains}"; then
+    admin_domains
+    local known found=no
+    for known in "${ADMIN_DOMAINS[@]}"; do
+        [[ "${known}" == "${domain}" ]] && { found=yes; break; }
+    done
+    if [[ "${found}" != yes ]]; then
         printf 'ai-tools-admin: unknown command: %s\n\n' "${domain}" >&2
         usage >&2
         exit 2
     fi
-    local fragment="${ADMIN_COMMANDS_DIR}/${domain}"
-    [[ -x "${fragment}" ]] || die "${fragment} is not executable -- reinstall the package that ships it"
-    exec "${fragment}" "$@"
+    admin_commands_trusted \
+        || die "refusing every contributed command while ${ADMIN_COMMANDS_DIR} holds a file that is not root's alone (named above) -- ${ADMIN_COMMANDS_TAMPER_REMEDY}"
+    admin_command_check "${domain}" || die "${_admin_command_reason}"
+    exec "${ADMIN_COMMANDS_DIR}/${domain}" "$@"
 }
 
 # The shared config grammar, sidecar handling, and hook-declaration merge that `system post-upgrade`
@@ -709,11 +907,31 @@ bootstrap_integrations() {
         log "no integration is enabled in ${OPERATOR_CONF} -- nothing further to provision"
         return 0
     fi
-    local domains; domains="$(admin_domains)"
-    local integration failed=0
+    admin_domains
+    admin_commands_trusted \
+        || die "refusing every contributed command while ${ADMIN_COMMANDS_DIR} holds a file that is not root's alone (named above); the toolchain itself is provisioned -- ${ADMIN_COMMANDS_TAMPER_REMEDY}"
+    local integration known known_domain failed=0
     for integration in "${enabled[@]}"; do
-        if ! grep -qxF -- "${integration}" <<<"${domains}"; then
-            log "${integration}: contributes no bootstrap command -- nothing to provision"
+        known=no
+        for known_domain in "${ADMIN_DOMAINS[@]}"; do
+            [[ "${known_domain}" == "${integration}" ]] && { known=yes; break; }
+        done
+        if [[ "${known}" != yes ]]; then
+            log "${integration}: contributes no command -- nothing to provision"
+            continue
+        fi
+        # The same gates an administrator's own `ai-tools-admin <domain> bootstrap` passes, so a
+        # fragment reached from here is vetted exactly as one that is typed.
+        if ! admin_command_check "${integration}"; then
+            warn "${integration}: ${_admin_command_reason}"
+            failed=1
+            continue
+        fi
+        # Read from the declaration rather than learned by running it: an integration whose
+        # commands are something other than provisioning has no work here, and running its
+        # fragment to find that out would report a rejected command line as a failed provision.
+        if ! admin_command_has_verb bootstrap; then
+            log "${integration}: declares no bootstrap verb -- nothing to provision"
             continue
         fi
         log "provisioning the ${integration} integration"

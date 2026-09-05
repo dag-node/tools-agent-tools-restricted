@@ -398,6 +398,14 @@ that one list:
   `AI_TOOLS_INTEGRATIONS` decides what a confined *session* receives and an administrator
   configuring a provider is a different question — what a command *reports* still names the
   enablement state.
+- **One untrusted entry refuses the whole set.** Per-file skipping alone would run the entries that
+  still pass and leave a root-executable file the sandbox account can rewrite sitting where root
+  looks for commands, with no finding obliging anyone to act. Base's own commands are unaffected, so
+  the host stays administrable, and the refusal names the remedy: a packaged command installs
+  root-owned and unwritable by anyone else, so that state is either a command installed by hand or a
+  change to the host — `rpm -qf` names the package to reinstall, and how the file came to be
+  writable is worth knowing. Re-permissioning it in place is **not** the remedy: it would re-bless
+  content whoever could write the file may already have rewritten.
 - **The summary is manifest data.** `--help` prints each domain with the `admin_summary` from that
   provider's manifest, read through `ai_tools_provider_manifest_field` (which applies the trust
   predicate and the same name allowlist as `ai_tools_agent_manifest_field`). No fragment is
@@ -411,6 +419,50 @@ that one list:
 The 0750 fragment mode and the world-readable directory answer two different questions: the agent
 must not read or run a root command, while `--help` — answered ahead of the root check — must list
 the same domains for any caller that the dispatch would accept.
+
+### The interface a contributed command declares
+
+Trust decides *who wrote* a fragment; the declaration decides whether the file is a command of this
+seam at all. It is a **conformance contract, not a security boundary** — what stops a file the agent
+wrote is the trust predicate — and it is read, never executed, so a report is built by reading alone,
+without forking or running the fragment. A conforming fragment is a script (`#!`) carrying three declarations
+in its first 20 lines:
+
+| declaration | what it states |
+|---|---|
+| `# ai-tools-admin-command: <domain>` | the domain it is installed as |
+| `# ai-tools-admin-api-min-version: <major>.<minor>` | the least interface version it needs from `ai-tools-admin` |
+| `# ai-tools-admin-verbs: <verb> ...` | the top-level verbs it answers (the shared list grammar) |
+
+Each does work base would otherwise have to guess at:
+
+- **`command`** makes a fragment self-identifying, so a root-owned executable that merely ends up in
+  the directory — a stray tool, an editor's backup, one provider's command copied under another
+  provider's name — does not claim to be a command and is not run as one.
+- **`api-min-version`** is a **floor**, not a stamp of what the fragment was built against: a
+  provider ships in a package that upgrades independently of base and does not re-declare it per
+  release, so `1.0` means "any `ai-tools-admin` implementing 1.0 or later can run me" and stays true
+  as this project moves. `ADMIN_COMMAND_API` is the single version base holds, and the comparison is
+  the one Apache httpd makes against a module's Module Magic Number: the **major must match** (a
+  different major is a different contract) and the **minor must be at least** the declared floor.
+  Retirement therefore lives in the major digit rather than in a second constant. A minor revision
+  only adds — base learning to *call* a new verb is additive, since a fragment that does not declare
+  it is skipped — so a breaking change is the only thing that moves the major, and a provider adding
+  a verb *to itself* moves neither digit.
+- **`verbs`** is a capability list base **reads rather than probes**: `system bootstrap --scope full`
+  asks whether a provider has a `bootstrap` before running anything, so an integration whose commands
+  are something else is reported as having no provisioning to do rather than as having failed. It is
+  not argument validation — what a verb accepts is the fragment's own dispatch to answer, and a base
+  second-guessing it would drift out of agreement with it.
+
+There is deliberately no date and no "written against" version: the package that installs the
+fragment carries both, and a hand-maintained copy of either would drift from it.
+
+Beyond the declaration, a contributed command holds the conventions every command on this binary
+does — it refuses a non-root caller, answers `--help` ahead of that refusal, exits `0`/`1`/`2` on
+the same split `ai-tools-admin(8)` documents, and keeps a `bootstrap` idempotent and answerable
+without a terminal, since full-scope provisioning runs it unattended. Those are behaviour rather
+than text, so they are contracted here and asserted by the provider's own tests.
 
 ## dotnet integration (`ai-tools-integration-dotnet`)
 
