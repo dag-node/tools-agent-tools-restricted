@@ -329,7 +329,7 @@ fi
 #     ai-tools-run refuses to launch (it would run UNCONFINED) until the entrypoint carries
 #     ai_tools_exec_t. Bootstrap runs as root (a domain that holds relabel) and has just minted
 #     the entrypoint, so it relabels here rather than leaving the first launch to fail with a
-#     manual `ai-tools --relabel`. Gated on the helper being deployed: a bootstrap that precedes
+#     manual `ai-tools-admin system entrypoints relabel`. Gated on the helper being deployed: a bootstrap that precedes
 #     the control plane has no helper yet (install.sh / the RPM relabel then). The helper is
 #     idempotent and no-ops when SELinux or the ai_tools module is inactive, so this is safe on a
 #     DAC-only host; best-effort -- a relabel gap degrades to ai-tools-run's refusal, not a failed
@@ -337,7 +337,7 @@ fi
 _relabel_helper=/usr/local/libexec/ai-tools/ai-tools-relabel-agent
 if [[ -x "${_relabel_helper}" ]]; then
     "${_relabel_helper}" \
-        || log "warn: entrypoint relabel did not complete -- run 'ai-tools --relabel' before launching claude"
+        || log "warn: entrypoint relabel did not complete -- run 'sudo ai-tools-admin system entrypoints relabel' before launching claude"
 fi
 
 # 4. Capture the control plane's initial state in a root-private git repo so drift is reviewable.

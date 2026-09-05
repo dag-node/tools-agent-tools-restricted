@@ -276,7 +276,7 @@ Two properties of the current channel shape the design:
 
 ## Quirks
 
-- **`ai-tools --relabel` reports `stale`, not `not installed`, for a moved entrypoint.** The relabel
+- **`ai-tools-admin system entrypoints relabel` reports `stale`, not `not installed`, for a moved entrypoint.** The relabel
   applies a declared pattern but post-conditions on the resolved inode, so its exit status agrees
   with the launch preflight's verdict. A `none` line therefore means the agent genuinely is not
   provisioned.

@@ -327,8 +327,8 @@ The `ai-tools-relabel.path` watcher sees the repoint (it watches the `bin` direc
 watch covers every agent) and runs `ai-tools-relabel-agent` (root) to restore
 `ai_tools_exec_t` on each enabled agent's new entrypoint, so the SELinux domain transition keeps
 firing. Until the entrypoint is relabelled,
-`ai-tools-run` fail-closes (refuses to launch rather than run unconfined); `ai-tools
---relabel` is the manual fallback.
+`ai-tools-run` fail-closes (refuses to launch rather than run unconfined);
+`sudo ai-tools-admin system entrypoints relabel` is the manual fallback.
 
 On launch the wrapper resolves the symlink one hop via `readlink`, exports it as
 `AI_TOOLS_AGENT_EXEC`, and `ai-tools-run` re-validates it against the nvm versioned-binary pattern
@@ -403,12 +403,12 @@ transition — and rather than run the session unconfined, `ai-tools-run` **refu
 post-upgrade watcher normally relabels it for you; when it has not, the fix is one command:
 
 ```bash
-ai-tools --relabel        # relabels every enabled agent's entrypoint and config directory
+sudo ai-tools-admin system entrypoints relabel   # relabels every enabled agent's entrypoint and config directory
 ```
 
 Two things worth knowing before reaching for `restorecon` yourself: the agent entrypoints and
 each agent's config directory are labelled from rules the **agent's own manifest** declares, so
-`ai-tools --relabel` (or `sudo selinux/install-selinux.sh relabel`) applies them in the right
+`sudo ai-tools-admin system entrypoints relabel` (or `sudo selinux/install-selinux.sh relabel`) applies them in the right
 order, and a bare recursive `restorecon` over `/opt/ai-tools` can leave a hardlinked entrypoint
 mislabelled — which the launch will then refuse. To inspect a denial:
 

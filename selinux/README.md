@@ -22,7 +22,7 @@ underneath — both layers must allow an access.
 The core module ships **prebuilt** (`ai_tools.pp`) and **enforcing**, so a normal
 install loads it with no toolchain. A missing transition **fails closed**: if an agent's
 entrypoint loses its label (a Node upgrade before the relabel lands), `ai-tools-run` refuses to
-launch rather than start an unconfined session, and names `ai-tools --relabel` as the fix. The
+launch rather than start an unconfined session, and names `ai-tools-admin system entrypoints relabel` as the fix. The
 layer as a whole is still optional — a host that never installs the module runs DAC-only, which
 the launch preflight recognises and allows.
 
@@ -277,8 +277,8 @@ A freshly installed `claude.exe` is mislabelled (`bin_t`), so the
 it refuses to launch rather than run unconfined — so a mislabelled entrypoint keeps the
 agent safe while it waits to be relabelled.
 
-The daily `nvm-update` timer relabels the new entrypoint automatically: after delegating the
-sandbox update it runs `ai-tools-relabel-agent` as root (a dedicated NOPASSWD rule).
+The daily `nvm-update` timer relabels the new entrypoint automatically: the repoint it makes
+triggers the root-side `ai-tools-relabel.path` watcher, which runs `ai-tools-relabel-agent` as root.
 That helper is agent-agnostic — for each enabled agent it applies the entrypoint file-context that
 agent's own manifest declares (`entrypoint_fcontext`, mapped to the `ai_tools_exec_t` this module
 defines), `restorecon`s every binary it matches, and verifies the type. So a normal upgrade keeps
@@ -289,7 +289,7 @@ Relabel by hand only if you upgraded Node some other way, or if the timer's rela
 (`ai-tools-run` will be refusing to launch and pointing you here):
 
 ```bash
-ai-tools --relabel
+sudo ai-tools-admin system entrypoints relabel
 ```
 
 To re-apply **all** labels after changing the policy (entrypoint + home-state + every

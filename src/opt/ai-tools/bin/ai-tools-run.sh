@@ -31,7 +31,7 @@
 #     `ai-tools-run` syslog tag -- where the useful records are:
 #         sudo journalctl -t ai-tools-run _UID=<sandbox uid> -n 50 --no-pager
 #   * A refusal names the fix. The common ones are a stale SELinux label after a Node upgrade
-#     (`ai-tools --relabel`) and a stopped user manager (`loginctl enable-linger`).
+#     (`ai-tools-admin system entrypoints relabel`) and a stopped user manager (`loginctl enable-linger`).
 #   * The ownership handback socket is checked before launch: if it is down the session still
 #     starts (it is a data-ownership convenience, not a confinement boundary) but a NOTICE names
 #     the fix, and the session-end sweep skips its walk rather than tallying failed hand-backs.
@@ -266,7 +266,7 @@ if command -v getenforce >/dev/null 2>&1; then
             audit warning "REFUSED: entrypoint mislabelled (${actual_label:-none}, want ai_tools_exec_t)"
             refuse "refusing to launch -- ${entrypoint_path} is mislabelled \"${actual_label:-none}\"" \
                    "(expected ai_tools_exec_t), so no domain transition fires and the session would run UNCONFINED (relabel is required after upgrade)." \
-                   "Fix:  ai-tools --relabel" ;;
+                   "Fix:  sudo ai-tools-admin system entrypoints relabel" ;;
         manager-domain)
             audit warning "REFUSED: manager domain ${manager_domain} has no domtrans to ai_tools_t"
             refuse "refusing to launch -- the systemd --user manager runs in domain \"${manager_domain}\", which no domtrans_pattern in ai_tools.te covers, so the session would run UNCONFINED.  Add the source and rebuild:" \
@@ -275,7 +275,7 @@ if command -v getenforce >/dev/null 2>&1; then
         unverifiable)
             audit warning "REFUSED: ai_tools module present but file-contexts inactive (expected=${expected_label:-none})"
             refuse "refusing to launch -- the ai_tools SELinux module is installed but no file-context maps ${entrypoint_path} to ai_tools_exec_t, so the transition cannot be verified and the session would run UNCONFINED (fail closed on a half-installed host)." \
-                   "The agent's entrypoint rule comes from its own manifest; register it:  ai-tools --relabel" \
+                   "The agent's entrypoint rule comes from its own manifest; register it:  sudo ai-tools-admin system entrypoints relabel" \
                    "Or bring the whole layer up:  sudo selinux/install-selinux.sh install" \
                    "Or make this a DAC-only host:  sudo semodule -r ai_tools   (or run SELinux permissive)" ;;
         require-not-enforcing)
@@ -552,7 +552,7 @@ case "${entrypoint_pin_verdict}" in
             audit warning "REFUSED: entrypoint unverified (${entrypoint_pin_verdict}) and AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set"
             refuse 'refusing to launch -- AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set in operator.conf, but this entrypoint carries no verified checksum.' \
                    'Pin it (this fetches the vendor'"'"'s signed release manifest, so the host must be online):' \
-                   '  ai-tools --relabel'
+                   '  sudo ai-tools-admin system entrypoints relabel'
         fi ;;
 esac
 

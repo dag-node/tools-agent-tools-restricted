@@ -219,7 +219,7 @@ sandbox-side in its session-env fragment) — are in
 runs as the invoking user. `/opt/ai-tools` has no `nosuid`, so the switch to
 `SANDBOX_USER` takes effect and the binary is owned by `SANDBOX_USER`.
 
-## Sudoers grants (the three `%ai-ops` rules)
+## Sudoers grants (the two `%ai-ops` rules)
 
 The drop-in (`/etc/sudoers.d/ai-tools`) is a **static** `%ai-ops` group rule the
 package ships unchanged — membership in the `ai-ops` operators group (managed by
@@ -227,34 +227,37 @@ package ships unchanged — membership in the `ai-ops` operators group (managed 
 
 ```
 %ai-ops  ALL=(SANDBOX_USER:SANDBOX_GROUP) NOPASSWD: /opt/ai-tools/bin/ai-tools-run
-%ai-ops  ALL=(root)                       NOPASSWD: /usr/local/libexec/ai-tools/ai-tools-relabel-agent ""
 %ai-ops  ALL=(root)                       NOPASSWD: /usr/local/libexec/ai-tools/ai-tools-stop ""
 ```
+
+The two are the **session lifecycle**, which is what scopes the drop-in: one rule starts a session
+and one ends every session, and a privileged operation that is neither belongs outside this file.
 
 The first rule **drops** privilege to the lower-privileged `SANDBOX_USER`; the agent runs
 *as* `SANDBOX_USER`, which is not in `ai-ops` and has no rule of its own, so it can invoke
 neither. `ai-tools-run` is a fixed-path target (no glob); the versioned binary is exec'd by
 `ai-tools-run` after it re-validates `AI_TOOLS_AGENT_EXEC`.
 
-The second rule runs **as root**: `ai-tools --relabel` uses it to restore `ai_tools_exec_t`
-on each enabled agent's entrypoint after a Node upgrade, which needs the `unconfined_t` that root
-holds (see [updater](updater.rule.md)). The grant is scoped to exactly that action — a
-**fixed, non-glob path**, plus the trailing `""` that pins it to the **zero-argument** form, since
-a command listed without arguments permits *any* (`sudoers(5)`). So it resolves to one program
-doing one thing, and the helper's other form, `--remove <agent>` (the agent package's erase-time
-step), stays reachable by root alone. The helper is `750 root:root`, owned and
-writable by root alone. It is an operators-group grant, keeping the root privilege on the
-operator side beside the launch rule. The automatic post-upgrade relabel runs through the
-root-side `ai-tools-relabel.path` watcher, and the toolchain update runs as `SANDBOX_USER` in its
-own `systemd --user` instance, so neither one needs a sudo rule.
+The second rule runs **as root**: `ai-tools --stop` terminates every running agent session, which
+means signalling the sandbox account's cgroups. It is scoped by a **fixed, non-glob path** plus the
+trailing `""` that pins it to the **zero-argument** form, since a command listed without arguments
+permits *any* (`sudoers(5)`) — so the `""` grants the **bare** command only, and `--force` and
+`--dry-run` fall outside it and meet sudo's ordinary prompt. The helper is `750 root:root`, owned
+and writable by root alone. NOPASSWD is this rule's *purpose* rather than a convenience, and what
+that trades is a security question rather than a launch one: both are in
+[docs/session-stop.md](../../docs/session-stop.md), which owns this component
+([cli](cli.rule.md) holds its CLI contract).
 
-The third rule runs **as root** for the same structural reason and is scoped the same way:
-`ai-tools --stop` terminates every running agent session, which means signalling the sandbox
-account's cgroups, and the `""` pin grants the **bare** command only — so `--force` and `--dry-run`
-fall outside it and meet sudo's ordinary prompt. Where this rule differs is that NOPASSWD is its
-*purpose* rather than a convenience, and what that trades is a security question rather than a
-launch one: both are in [docs/session-stop.md](../../docs/session-stop.md), which owns this
-component ([cli](cli.rule.md) holds its CLI contract).
+**The entrypoint relabel is reached three ways, and none of them is a rule here.** After a Node
+upgrade the agent binary carries the wrong label, so a launch fail-closes until it is restored,
+which needs the `unconfined_t` that root holds (see [updater](updater.rule.md)): the automatic
+reconcile runs through the root-side `ai-tools-relabel.path` watcher, the agent package's `%post`
+runs it as root, and an administrator runs `sudo ai-tools-admin system entrypoints relabel` through
+the host's own general sudo grant. The toolchain update likewise runs as `SANDBOX_USER` in its own
+`systemd --user` instance. The consequence for the account shape `--for` exists to serve is stated
+plainly: an `ai-ops` operator holding no general sudo grant reaches the launch and the stop, and
+does not reach the on-demand relabel — a reconcile the two root-side routes above already perform
+without them.
 
 `SANDBOX_USER` does not hold any sudo rights in this file. Two `ai-tools-run` preflights enforce the
 account boundary the sudoers model assumes: it refuses to launch unless it runs **as**

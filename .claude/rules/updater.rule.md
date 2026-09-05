@@ -29,7 +29,7 @@ Node (`AI_TOOLS_NODE_MAJOR`, default 22), and each enabled agent's npm package a
 (the enabled set resolved via [providers](providers.rule.md)), points
 `/opt/ai-tools/bin/<launcher>` at each versioned binary, relabels the freshly
 installed entrypoint (`ai-tools-relabel-agent`, gated on that helper being deployed, so
-the first launch after a fresh provision is confined without a manual `ai-tools --relabel`),
+the first launch after a fresh provision is confined without a manual `ai-tools-admin system entrypoints relabel`),
 and captures the initial control plane in a root-private git repo. It is the one network
 step, so it is an operator command rather than an RPM scriptlet (which must succeed
 offline). It is idempotent: an
@@ -246,7 +246,7 @@ agent's verification line (see [cli](cli.rule.md)).
 
 It exists because **the operator can observe neither the label nor the run that applies it**. The
 entrypoint is in a toolchain they cannot traverse, `matchpathcon` computes only what a label should
-be, and two of the three callers — an rpm `%post` and `ai-tools --relabel` — are not units, so
+be, and two of the three callers — an rpm `%post` and `ai-tools-admin system entrypoints relabel` — are not units, so
 no systemd record covers them. A run that fails leaves its account in a journal the operator
 does not read; the pin, written earlier in the same run, is left standing and green.
 
@@ -289,7 +289,7 @@ run it after an upgrade, both as root, never `SANDBOX_USER`:
   updater does not hold any relabel rights and reaches root only through the handback bridge, whose
   domain deliberately holds none either, so a repoint that does not land (handback down in a
   manual run) leaves the relabel to `ai-tools-run`'s fail-closed preflight and the operator's
-  `ai-tools --relabel`. The watcher is **enabled by default** on install through the shipped
+  `ai-tools-admin system entrypoints relabel`. The watcher is **enabled by default** on install through the shipped
   systemd preset — `%systemd_post ai-tools-relabel.path` applies `85-ai-tools.preset`, which lists
   it beside the handback socket; without that explicit line the distribution's `disable *` default
   would leave `%systemd_post` a no-op (the same enablement the socket needs). Enabling a `.path`
@@ -300,10 +300,12 @@ run it after an upgrade, both as root, never `SANDBOX_USER`:
   anyway, `services.lib.sh` surfaces it before the next Node bump would fail-close a launch on a
   mislabelled entrypoint: proactively at launch (`claude.sh` warns, warn-not-block, from the same
   registry) and in `ai-tools --status` (see [cli](cli.rule.md)).
-- **On demand**, through `ai-tools --relabel` (see [cli](cli.rule.md)), which runs the
-  same helper via the `%ai-ops` NOPASSWD sudo rule (the relabel rule in
-  `sudoers.d/ai-tools`; see [launch](launch.rule.md)). `install-selinux.sh relabel`
-  is the comprehensive source-tree sweep.
+- **On demand**, through `sudo ai-tools-admin system entrypoints relabel`, which runs the same
+  helper as root. It is an administrator command rather than an operator one: it carries no
+  `%ai-ops` NOPASSWD rule and is reached through the host's own general sudo grant, the axis
+  [CLAUDE.md](../../CLAUDE.md) names (see [cli-grammar](cli-grammar.rule.md) for the spelling and
+  [launch](launch.rule.md) for what the drop-in does and does not hold). `install-selinux.sh
+  relabel` is the comprehensive source-tree sweep.
 
 The relabel runs outside the handback domain by design: `ai_tools_handback_t` is
 agent-reachable and does not hold any relabel rights (`ai_tools.te`), so the privilege stays off
@@ -311,7 +313,7 @@ the agent's reach. The watcher is best-effort; `ai-tools-run`'s fail-closed pref
 [confinement](confinement.rule.md)) is the backstop — when SELinux is enforcing and the
 module is installed, it refuses to launch a session whose entrypoint is not
 `ai_tools_exec_t`, so a watcher relabel that does not land degrades to a refused launch the
-operator clears with `ai-tools --relabel`, never an unconfined session.
+operator clears with `ai-tools-admin system entrypoints relabel`, never an unconfined session.
 
 ## `loginctl enable-linger`
 
@@ -411,10 +413,12 @@ tamper gate: a modified entrypoint changes its checksum and a rotated key or rep
 changes the digest, and either takes the full path.
 
 `AI_TOOLS_ENTRYPOINT_PIN_REUSE=1` selects it, and the two unattended callers set it — the
-`ai-tools-relabel.service` unit and the agent package's `%post`. **`ai-tools --relabel` never
-does**, and by construction rather than by convention: the operator reaches the helper through the
-`%ai-ops` sudo rule, which scrubs the environment, so the on-demand verb re-checks the vendor's
-signature every time — the behaviour it documents and the one an operator runs it for.
+`ai-tools-relabel.service` unit and the agent package's `%post`. **`ai-tools-admin system
+entrypoints relabel` never does**, and by construction rather than by convention: the command
+clears the variable before it execs the helper, so the on-demand route re-checks the vendor's
+signature however it was invoked — the behaviour it documents and the one an administrator runs it
+for. (`sudo` scrubbing the environment says the same thing for the usual invocation; the unset is
+what carries the guarantee when root runs the command directly.)
 `ai-tools-bootstrap` leaves it unset too, so a fresh provision always verifies in full.
 
 ### Three outcomes, and only one of them is tamper
@@ -449,9 +453,9 @@ entrypoint changed, reconcile it*, and they share the three things that would ot
 duplicated: the **trigger** (`ai-tools-relabel.path` watches the launcher directory, so it fires on
 exactly the event that changes an entrypoint), the **privilege** (root, which the sandbox-account
 updater does not have), and the **timing**. Splitting them would buy one name at the cost of a
-second `%ai-ops` sudoers rule and a second unit for a step that must run at the same instant anyway
-— so `--relabel` keeps its established name and its scope is stated to be the whole reconciliation,
-not the SELinux half alone.
+second unit and a second command for a step that must run at the same instant anyway — so
+`system entrypoints relabel` keeps `relabel` as its verb and its scope is stated to be the whole
+reconciliation, not the SELinux half alone.
 
 The costs of that folding are bounded rather than absent, and both are handled where they arise: a
 networked step now sits inside an otherwise-local verb (which is why it fails soft and connects with

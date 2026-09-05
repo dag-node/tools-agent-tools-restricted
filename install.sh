@@ -600,7 +600,7 @@ offer_selinux() {
         # leave the agent entrypoint mislabelled (bin_t) -- which fail-closes the launch -- so the
         # filesystem labels must be re-applied to match it. This is the single relabel on the
         # decline path; the accept path above already relabels inside install-selinux.sh install.
-        "${selinux_script}" relabel || warn "relabel did not complete -- run: sudo ai-tools --relabel"
+        "${selinux_script}" relabel || warn "relabel did not complete -- run: sudo ai-tools-admin system entrypoints relabel"
     else
         log "skipped -- the sandbox runs without SELinux confinement until you run:"
         say "    ${C_BOLD}sudo ${selinux_script} install${C_RST}"
@@ -1181,8 +1181,8 @@ do_install() {
         /usr/local/libexec/ai-tools/ai-tools-relabel
 
     # SELinux entrypoint-relabel helper. 750 root:root -- run AS root: automatically by the
-    # ai-tools-relabel.path watcher after a Node upgrade, and on demand by `ai-tools --relabel`
-    # (the second %ai-ops NOPASSWD rule); never by ai-tools. No @-substitution needed (no
+    # ai-tools-relabel.path watcher after a Node upgrade, and on demand by
+    # `sudo ai-tools-admin system entrypoints relabel`; never by ai-tools. No @-substitution needed (no
     # placeholders), but install_subst keeps the deploy path uniform with the other helpers.
     log "/usr/local/libexec/ai-tools/ai-tools-relabel-agent"
     install_subst 750 root root \

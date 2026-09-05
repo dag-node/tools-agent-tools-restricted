@@ -194,7 +194,7 @@ else
     fail "a non-service unit was judged as a oneshot"
 fi
 
-# The registry entry, and the remedy it names. `ai-tools --relabel` does the same work through a
+# The registry entry, and the remedy it names. `ai-tools-admin system entrypoints relabel` does the same work through a
 # different path, which leaves this unit's recorded failure standing -- so the remedy has to be the
 # one that both re-runs the work and clears what the report reads.
 relabel_rec=""

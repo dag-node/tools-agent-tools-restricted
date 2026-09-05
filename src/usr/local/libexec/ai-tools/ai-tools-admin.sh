@@ -12,6 +12,7 @@
 #   sudo ai-tools-admin selinux groups                     # show core + optional group state
 #   sudo ai-tools-admin selinux groups enable <name>       # load a prebuilt (stable) group
 #   sudo ai-tools-admin selinux groups disable <name>      # unload one
+#   sudo ai-tools-admin system entrypoints relabel         # verify + relabel the agent entrypoints
 #   sudo ai-tools-admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
 #
 # The spelling is the project's command grammar (.claude/rules/cli-grammar.rule.md): a bare-word
@@ -37,6 +38,14 @@
 # compile-and-verify workflow (install-selinux.sh + the avc bring-up loop), since this tool will
 # not load an unaudited module. `groups disable` works for any loaded group, stable or not.
 #
+# `system entrypoints relabel` reconciles each enabled agent's entrypoint after a toolchain change,
+# through the root helper ai-tools-relabel-agent: it verifies the binary against the checksum its
+# vendor signed and records the result in that agent's pin, then restores ai_tools_exec_t so the
+# domain transition fires and ai-tools-run stops fail-closing on the launch. It clears
+# AI_TOOLS_ENTRYPOINT_PIN_REUSE before the exec, so this route always re-fetches the vendor's signed
+# manifest: the unattended callers (ai-tools-relabel.service, the agent package's %post) may answer
+# from an unchanged pin, and an administrator asking for a reconcile is asking for the fetch.
+#
 # `system post-upgrade` reconciles the `<file>.rpmnew` copies an upgrade leaves beside the
 # %config(noreplace) files this stack owns. rpm keeps what the host edited and parks the new
 # version alongside it; choosing between the two is a judgement about the operator's own
@@ -58,6 +67,10 @@ readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 readonly SELINUX_GROUPS_LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
+# Root-only entrypoint reconcile helper, 750 root:root. Reached directly rather than through sudo:
+# this tool already refuses a non-root caller. The ai-tools-relabel.path watcher, ai-tools-bootstrap
+# and the agent package's %post run the same helper as root themselves.
+readonly RELABEL_ENTRYPOINT_BIN="/usr/local/libexec/ai-tools/ai-tools-relabel-agent"
 
 # Substituted at deploy time (install.sh install_subst from packaging/VERSION; the RPM from
 # %{version}), and left as the literal token in the checkout -- which `--version` reports as
@@ -83,7 +96,7 @@ reject() {
 # agreement on the command set.
 usage() {
     cat <<EOF
-ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, upgrades
+ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, entrypoints, upgrades
 
   Operators
     operators                        the enrolled operators
@@ -94,6 +107,7 @@ ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, upgra
     selinux groups enable <name>     load a prebuilt optional group
     selinux groups disable <name>    unload a loaded group
   System
+    system entrypoints relabel       verify and relabel the agent entrypoints
     system post-upgrade              reconcile the .rpmnew files an upgrade leaves
 
     --version                        the installed version
@@ -491,6 +505,22 @@ sel_list() {
     printf '                 sudo selinux/install-selinux.sh enable-group <name>\n'
 }
 
+# ── system entrypoints relabel: reconcile each enabled agent's entrypoint ─────────────────────
+# Two steps in the helper, in this order: VERIFY the binary against the checksum its vendor signed
+# and record it in that agent's pin, which ai-tools-run compares the binary against at launch; then
+# RELABEL it to ai_tools_exec_t, which an nvm-update leaves as bin_t so the domain transition stops
+# firing. Takes no path -- the helper resolves the entrypoints from the agent manifests.
+entrypoints_relabel() {
+    [[ $# -eq 0 ]] || reject "system entrypoints relabel: takes no arguments"
+    [[ -x "${RELABEL_ENTRYPOINT_BIN}" ]] || die "${RELABEL_ENTRYPOINT_BIN} not found -- reinstall ai-tools-base"
+    log "reconciling the agent entrypoints (verify, then relabel)"
+    # Cleared, not merely left unset: the guarantee that this command re-fetches the vendor's signed
+    # manifest holds however it was invoked, rather than resting on sudo scrubbing the environment
+    # (updater.rule.md). The unattended callers set it themselves.
+    unset AI_TOOLS_ENTRYPOINT_PIN_REUSE
+    exec "${RELABEL_ENTRYPOINT_BIN}"
+}
+
 # ── system post-upgrade: reconcile the .rpmnew files an upgrade leaves ───────────────────────
 # rpm keeps an operator-modified %config(noreplace) file and parks the package's copy beside it as
 # <file>.rpmnew. Choosing between the two is a judgement call about the operator's own
@@ -680,12 +710,24 @@ selinux_dispatch() {
     esac
 }
 
-system_dispatch() {
-    [[ $# -ge 1 ]] || reject "system takes a verb: 'system post-upgrade'"
+system_entrypoints_dispatch() {
+    # No `list` yet, so a bare `system entrypoints` names its verb rather than running one: relabel
+    # re-fetches a signed manifest and rewrites a pin, which is not a reading a default may take.
+    [[ $# -ge 1 ]] || reject "system entrypoints takes a verb: 'system entrypoints relabel'"
     local verb="$1"; shift
     case "${verb}" in
+        relabel) entrypoints_relabel "$@" ;;
+        *)       reject "unknown command 'system entrypoints ${verb}' (relabel)" ;;
+    esac
+}
+
+system_dispatch() {
+    [[ $# -ge 1 ]] || reject "system takes a resource or a verb: 'system entrypoints relabel', 'system post-upgrade'"
+    local name="$1"; shift
+    case "${name}" in
+        entrypoints)  system_entrypoints_dispatch "$@" ;;
         post-upgrade) postupgrade "$@" ;;
-        *)            reject "unknown command 'system ${verb}' (post-upgrade)" ;;
+        *)            reject "unknown command 'system ${name}' (entrypoints|post-upgrade)" ;;
     esac
 }
 

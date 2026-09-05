@@ -790,7 +790,7 @@ fi
 if [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
     AI_TOOLS_ENTRYPOINT_PIN_REUSE=1 %{ai_libexecdir}/ai-tools-relabel-agent >/dev/null || {
         echo "ai-tools-agents-claude-code-restricted: entrypoint labelling failed; see 'journalctl -t ai-tools-relabel-agent'" >&2
-        echo "ai-tools-agents-claude-code-restricted: fix the cause and re-run: sudo ai-tools --relabel" >&2
+        echo "ai-tools-agents-claude-code-restricted: fix the cause and re-run: sudo ai-tools-admin system entrypoints relabel" >&2
         exit 1
     }
 fi
@@ -1009,7 +1009,7 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
-* Tue Sep 01 2026 dagnode <tools@dagnode.com> - 0.15.0-1
+* Sat Sep 05 2026 dagnode <tools@dagnode.com> - 0.15.0-1
 - CHANGED: The ai-tools-admin commands are spelled as a resource grammar, so the names an
   administrator types are 'operators add <user>', 'operators remove <user>', 'operators'
   (which lists them), 'selinux groups', 'selinux groups enable <name>', 'selinux groups
@@ -1017,12 +1017,24 @@ fi
   list-groups, selinux enable-group, selinux disable-group, postupgrade -- are gone and are
   not aliased. Update any script, cron job or runbook that calls them. What each command does
   is unchanged.
+- CHANGED: The entrypoint reconcile is now 'sudo ai-tools-admin system entrypoints relabel'.
+  'ai-tools --relabel' is gone and is not aliased; running it prints the new command and exits 2.
+  Update any script, cron job or runbook that calls it. What the command does is unchanged: it
+  verifies each agent binary against the checksum its vendor signed, pins the result, then
+  restores the SELinux label. The command moved because it runs as root, and root commands live on
+  ai-tools-admin.
+- CHANGED: The %ai-ops sudoers drop-in is down to two rules, the session lifecycle: launch a
+  session, and stop every session. The passwordless rule for the relabel helper is removed, so an
+  operator who holds no general sudo grant can launch and stop sessions and cannot run the
+  reconcile by hand. Nothing else changes for them: the post-upgrade relabel still runs on its own
+  through the root-side watcher and the agent package's install scriptlet.
 - NEW: 'ai-tools-admin --help' and '-h' print the command summary, and '--version' prints the
   installed version. The tool previously answered a wrong command with a one-line error and had
   no way to show its surface at all. Both answer any caller rather than only root, so reading
   what the tool does needs no sudo.
 - NEW: ai-tools-admin(8) documents every command, its arguments, the exit codes and the files
-  each one touches, with worked examples. 'man ai-tools-admin'.
+  each one touches, with worked examples, 'system entrypoints relabel' among them.
+  'man ai-tools-admin'.
 - CHANGED: A rejected command line exits 2 rather than 1, so an unattended caller can tell a
   command nobody can type correctly from an operation that ran and failed. Exit 0 and exit 1
   keep their meanings.

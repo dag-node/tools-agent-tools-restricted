@@ -49,7 +49,7 @@ _AI_TOOLS_CONFINEMENT_LIB_LOADED=1
 #
 # Fail-closed once confinement is EXPECTED (enforcing with the module installed). Refusals:
 #   - mislabel: the entrypoint is not ai_tools_exec_t, so no transition fires -- relabel it
-#     (ai-tools --relabel), usually after a Node upgrade.
+#     (ai-tools-admin system entrypoints relabel), usually after a Node upgrade.
 #   - manager-domain: the --user manager runs in a domain no ai_tools.te domtrans_pattern covers.
 #     Advisory -- an unreadable ("") manager domain does not block. Unchanged under require.
 #   - unverifiable: the module is installed but its file-contexts are not live (staged and not

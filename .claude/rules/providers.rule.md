@@ -105,7 +105,7 @@ Two constraints keep that from being a label-anything primitive, and both live i
   the sandbox home. `tests/unit/relabel.sh` drives both predicates.
 
 The rule's lifecycle follows the package: applied by the agent package's `%post` (and by
-`install.sh`, `ai-tools-bootstrap`, the relabel watcher, and `ai-tools --relabel`), dropped by its
+`install.sh`, `ai-tools-bootstrap`, the relabel watcher, and `ai-tools-admin system entrypoints relabel`), dropped by its
 `%preun` on final erase via `ai-tools-relabel-agent --remove <agent>`.
 
 ## `release_manifest_url` / `release_key` / `release_fingerprint` — the agent declares its own provenance
