@@ -422,16 +422,6 @@ admin_command_has_verb() {
     return 1
 }
 
-# admin_command_has_verb <verb>: succeed when the verb list published by the last
-# admin_command_check holds <verb>. Read after that call, never instead of it.
-admin_command_has_verb() {
-    local wanted="$1" verb
-    for verb in "${ADMIN_COMMAND_VERBS[@]}"; do
-        [[ "${verb}" == "${wanted}" ]] && return 0
-    done
-    return 1
-}
-
 # contributed_dispatch <name> [args...]: exec the fragment carrying <name>, with the remaining
 # arguments. An exec rather than a source: the fragment keeps its own set -euo pipefail, its own
 # root guard and its own logging, and cannot collide with this tool's function names.
