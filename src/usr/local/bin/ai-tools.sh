@@ -1079,9 +1079,9 @@ reg_reach() {
     for a in "${REACH_GRANT[@]}"; do say "      ${a}"; done
 
     # The owner's own HOME ROOT is the one entry in that list whose consequence has to be stated,
-    # and what to state is a CONDITION rather than an assertion of exposure. `--x` does not convey a
-    # listing of the directory, nor any access to the files in it -- each file's own mode
-    # and ACL still decides, and the sandbox account is neither their owner nor in their group.
+    # and what to state is a CONDITION rather than an assertion of exposure. `--x` permits traversal
+    # and neither a listing of the directory nor any access to the files in it -- each file's own
+    # mode and ACL still decides, and the sandbox account is neither their owner nor in their group.
     # So the grant does not open a file; it makes already-world-readable entries REACHABLE. Under
     # umask 077 that set is empty; under the RHEL default 022 it is the 644 skel files and
     # anything else written world-readable. Which of those this host is, is a question with a
@@ -1095,8 +1095,8 @@ reg_reach() {
     fi
     if ${includes_home}; then
         say ""
-        say "  ${owner_home} is ${OWNER_USER}'s home directory. Traverse conveys no listing of it"
-        say "  and no access to the files in it -- each file's own mode and ACL still decides."
+        say "  ${owner_home} is ${OWNER_USER}'s home directory. Traversal does not list it and"
+        say "  does not open the files in it -- each file's own mode and ACL still decides."
         say "  What it makes reachable is whatever there is already world-readable; this lists it:"
         say ""
         say "      ${C_BOLD}find ${owner_home} -maxdepth 1 -perm -o+r${C_RST}"
@@ -3248,8 +3248,8 @@ cmd_lockdown() {
 # ── Enable / disable a claimed project ───────────────────────────────────────────
 # The pair that makes parking a project a supported operation rather than a text edit the tools
 # misread. Both are pure REGISTRY edits: the tree keeps its group, its ACLs, its setgid bits and
-# its SELinux label, so disabling changes the registry alone and re-enabling restores the entry
-# alone -- which is why neither runs the claim's secret gate, and why disable does not ask for
+# its SELinux label, so disabling changes the registry alone and re-enabling does not grant any
+# access that was not already granted -- which is why neither runs the claim's secret gate, and why disable does not ask for
 # confirmation (it moves to LESS access; the launch gate stops opening).
 #
 # What disabling changes is everything downstream of the allowlist, and the report says so: no

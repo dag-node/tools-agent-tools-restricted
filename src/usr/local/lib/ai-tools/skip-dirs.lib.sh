@@ -15,7 +15,7 @@
 #   - setgid/ACL normalization: a skipped tree is given neither a setgid bit nor an ACL.
 #   - secret lockdown: a skipped tree is not scanned for secret-named files.
 #
-# Sourced, not executed. Deployed 644 root:root -- it must not hold a secret (the names are
+# Sourced, not executed. Deployed 644 root:root -- it does not carry any secrets (the names are
 # documented) and three principals source it: the root helpers, the hooks (as the agent),
 # and the unprivileged CLI (the claim drift scan classifies hits under these names).
 # The matcher skips DIRECTORIES only

@@ -935,7 +935,7 @@ do_install() {
         /usr/local/lib/ai-tools/secret-patterns.lib.sh
 
     # Seal primitives (owner-only predicate + residue strip): read only by the root helpers
-    # that walk a claimed tree, but must not hold a secret -- 644 root:root, like msg/log/
+    # that walk a claimed tree, but does not carry any secrets -- 644 root:root, like msg/log/
     # safe-paths. Substituted: the strip is keyed on the sandbox group's name.
     log "/usr/local/lib/ai-tools/owner-only.lib.sh"
     install_subst 644 root root \
@@ -944,7 +944,7 @@ do_install() {
 
     # Skip-dir list/selector: sourced by the root helpers, by session-hook.sh (as the
     # agent), and by the operator-run CLI (the claim drift scan) -- 644 root:root, like
-    # msg/log/safe-paths. It must not hold a secret: the names are documented. No tokens to
+    # msg/log/safe-paths. It does not carry any secrets: the names are documented. No tokens to
     # substitute.
     log "/usr/local/lib/ai-tools/skip-dirs.lib.sh"
     install -o root -g root -m 644 \
@@ -1097,7 +1097,7 @@ do_install() {
 
     # Logger library: 644 root:root -- world-readable. Sourced by the root helpers, by
     # the hooks (run as ai-tools), and by the CLI (run as the projects user, NOT in
-    # SANDBOX_GROUP), so every principal must read it; it must not hold a secret. No tokens.
+    # SANDBOX_GROUP), so every principal must read it; it does not carry any secrets. No tokens.
     log "/usr/local/lib/ai-tools/log.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/log.lib.sh" \
@@ -1105,7 +1105,7 @@ do_install() {
 
     # Message formatter: 644 root:root -- world-readable. Sourced by the operator wrapper
     # and CLI, by the hooks (run as ai-tools), and by ai-tools-run, so every principal must
-    # read it; it must not hold a secret. No tokens to substitute.
+    # read it; it does not carry any secrets. No tokens to substitute.
     log "/usr/local/lib/ai-tools/msg.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/msg.lib.sh" \
@@ -1113,7 +1113,7 @@ do_install() {
 
     # Operator-identity resolver: 644 root:root -- world-readable. Sourced by the root helpers
     # (which run in ai_tools_handback_t) AND the agent hooks (ai_tools_t); both read it to
-    # resolve the operator from /etc/ai-tools/operator.conf, and it must not hold a secret. No tokens.
+    # resolve the operator from /etc/ai-tools/operator.conf, and it does not carry any secrets. No tokens.
     log "/usr/local/lib/ai-tools/operator.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/operator.lib.sh" \
@@ -1121,7 +1121,7 @@ do_install() {
 
     # Protected-paths backstop: 644 root:root -- world-readable. Sourced by the operator
     # wrapper and CLI AND the root helpers, so every principal that resolves a target path
-    # reads the same list; it must not hold a secret. No tokens to substitute.
+    # reads the same list; it does not carry any secrets. No tokens to substitute.
     log "/usr/local/lib/ai-tools/safe-paths.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/safe-paths.lib.sh" \

@@ -462,8 +462,9 @@ if ${own_gap} || ${label_gap}; then
 elif ${safe_gap}; then
     # Ownership and label hold; the git safe.directory entry is the one piece missing. Offer to
     # register it via the SAFEDIR_BIN sudo helper -- the path reg_safedir uses (see
-    # ai-tools-safedir for the 644/sudo model). Defaults YES (a change that takes away no access, for a
-    # tree already approved to launch in); a non-interactive launch prints the command instead.
+    # ai-tools-safedir for the 644/sudo model). Defaults YES (an additive change -- one entry in
+    # git's trust list -- on a tree already approved to launch in); a non-interactive launch prints
+    # the command instead.
     ai_tools_msg_notice \
         "claude: ${cwd} is not in git safe.directory; git will report \"dubious ownership\" here until it is registered."
     if have_tty; then

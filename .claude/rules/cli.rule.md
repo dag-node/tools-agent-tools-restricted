@@ -150,7 +150,7 @@ because the enforcement point it sits in front of is.
 Failing *closed* here would invert that: refusing on an unparsed message subtracts access sudo
 would have granted, turning a diagnostic into an access decision that can only ever take away —
 a `wheel` operator whose sudo answered in a locale the match did not cover would lose a command
-they hold the grant for. The cost of the direction chosen is bounded, and is not a security cost:
+they hold the grant for. The cost of the direction chosen is bounded, and is never a security one:
 on a host where the answer cannot be read, the operator meets sudo's own message, which is the
 behaviour this gate exists to improve on rather than to guarantee.
 
@@ -368,7 +368,7 @@ file sink being the authoritative one.
   **[docs/session-stop.md](../../docs/session-stop.md)**, which is this component's single source
   of truth:
 
-  - **Sessions are found and killed by cgroup**, not by process tree, and liveness is read from
+  - **Sessions are found and killed by cgroup**, never by process tree, and liveness is read from
     the kernel. systemd supplies one thing only — a unit's `WorkingDirectory` — and that is
     **display**: it labels a row and names a `--reclaim`, without selecting any target. The report's
     split between agent sessions and the account's own plumbing (its user manager, dbus, login
@@ -678,8 +678,8 @@ this split exists to prevent.
 own line, in place** — position, indentation and end-of-line comment survive — which is their
 reason to exist rather than being an add/remove pair: an ordered, commented allowlist comes back
 exactly as it was. Both are **registry-only**: group, ACLs, setgid and the SELinux label are
-untouched, so re-enabling restores the entry alone and neither verb runs the secret
-gate. Neither invents an entry — a path the file does not name is refused, naming
+untouched, so re-enabling does not grant any access that was not already granted, and neither
+verb runs the secret gate. Neither invents an entry — a path the file does not name is refused, naming
 `--project-claim`, because registering a project is a claim and a claim scans for secrets first.
 
 What disabling costs is everything downstream of the allowlist, and the verb says so: the root
@@ -929,8 +929,8 @@ refused with `--force`, which reaches a tree no entry names. `--force` **swaps o
 another, and removes neither**: the helper's allowlist-membership
 check is replaced by a per-path residue predicate, so on a tree that was never claimed it leaves
 every path as it found it, and what it does to a path it *accepts* is identical to a registered
-unclaim — the reversal is specified and tested once. Every other gate stands (protected paths, owner guard,
-hardlink guard, secret/`!` skips), and is refused on a registered project. The CLI's
+unclaim — the reversal is specified and tested once. `--force` does not relax any other gate
+(protected paths, owner guard, hardlink guard, secret/`!` skips), and is refused on a registered project. The CLI's
 classification is the front line; `ai-tools-unclaim`'s own gate is the last line, the same
 two-layer split as the rest of this section — so the CLI may never be the only thing standing
 between a caller and a tree. Mechanism, and why an unlisted tree resolves its owner
@@ -968,7 +968,7 @@ of the secret-name and `!`-exclusion skips. `ai-tools-unclaim` additionally refu
 that does not resolve **at or under a registered project** (`allowed-projects`) — a silent
 no-op, matching `ai-tools-setgid`/`-setfacl` — so it never rewrites a tree outside the
 allowlist. This is why the CLI runs the hand-back before dropping the entry: the helper is the
-last-line backstop for "unclaim leaves permissions on an unlisted directory untouched", and the
+last-line backstop for "unclaim never modifies permissions on an unlisted directory", and the
 CLI's classification is the front-line gate. This is the claim-side partner to
 `ai-tools-chown`'s "act only on `SANDBOX_USER`-owned paths" rule
 ([ownership-and-hooks](ownership-and-hooks.rule.md)): claim never pulls a foreign-owned file

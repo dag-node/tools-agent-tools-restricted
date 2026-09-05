@@ -10,9 +10,9 @@
 # joining @SANDBOX_GROUP@ and without waiting on the ownership handback.
 #
 # Owner-only paths are never granted. When a path's mode grants neither group nor other bits
-# (0600, 0700), no grant is applied to it -- not group:@SANDBOX_GROUP@:rwX (the agent's) nor
-# user:<operator>:rwX (the operator's) -- a directory is given no default ACL, the mask is not
-# recalculated, and the mode bits are untouched. That mode is the operator's standing decision to
+# (0600, 0700), the walk does not apply either grant to it -- group:@SANDBOX_GROUP@:rwX (the
+# agent's) or user:<operator>:rwX (the operator's) -- does not set a default ACL on a directory,
+# does not recalculate the mask, and leaves the mode bits untouched. That mode is the operator's standing decision to
 # keep the path out of the sandbox account's reach, and a claim does not overrule it. What the
 # walk does instead is STRIP the sandbox residue such a path still carries (owner-only.lib.sh),
 # so the seal does not rest on the mode alone staying put.
@@ -76,7 +76,7 @@ readonly ACL_BASE="group:${GROUP}:rwX,other::---"
 # Two identities may legitimately hold a project tree's files: the resolved operator and the
 # sandbox account. A file belonging to a third party (root, another developer) is left untouched --
 # claim must not pull a foreign file into the agent's group, even one the operator placed in the
-# tree -- and COUNTED, so a walk that granted no path is reported rather than silent; the project
+# tree -- and COUNTED, so a walk that skipped every path is reported rather than silent; the project
 # root hitting the guard is called out on its own, since it means the claim granted no access at
 # all. Matched by numeric UID; PROJECTS_UID is the resolved operator (set below).
 SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
@@ -214,7 +214,8 @@ _safe_setfacl() {
     # Owner guard (checked on the pinned inode, TOCTOU-safe): only the projects user's
     # or the sandbox account's own files are eligible; anything else is left untouched.
     # Returns 3, not 1, so the walk can tell a third-party owner from a stat failure and
-    # report it: a walk that granted no path must not read as one with no path to grant.
+    # report it. Without that split, a claim whose every path was foreign-owned closes with the
+    # same clean report as one that had no path to grant.
     if [[ "${got_uid}" != "${PROJECTS_UID}" && "${got_uid}" != "${SANDBOX_UID}" ]]; then
         exec {fd}<&-
         return 3

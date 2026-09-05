@@ -96,8 +96,8 @@ _listed() {
         | grep -qxF "$1"
 }
 
-# _confirm_cwd <question>: a shared-confirm gate (default yes -- registering safe.directory is a
-# convenience that takes away no access) that fires only when the path was defaulted from the current
+# _confirm_cwd <question>: a shared-confirm gate (default yes -- registering safe.directory is an
+# additive change to git's trust list) that fires only when the path was defaulted from the current
 # directory AND a terminal is present, so a bare interactive `sudo ai-tools-safedir` confirms
 # before registering/dropping cwd. When an explicit path was given (the tooling passes one) or
 # the run is non-interactive, it is a no-op, which keeps the helper from double-prompting after

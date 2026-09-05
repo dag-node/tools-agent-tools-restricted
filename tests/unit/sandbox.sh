@@ -58,7 +58,8 @@ fi
 
 # ── sandbox_default_branch ────────────────────────────────────────────────────────────────────
 # The default is sandbox/<leaf>, leaf = the from-ref's last component, with NO host/operator
-# identity -- so it is stable whoever runs it and wherever.
+# identity -- so it is stable whoever runs it and wherever, and does not leak either into the
+# branch name.
 def_is() {  # def_is <from> <expected>
     local got; got="$(call sandbox_default_branch "$1")" \
         && [[ "${got}" == "$2" ]] \

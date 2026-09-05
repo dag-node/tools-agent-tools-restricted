@@ -245,7 +245,7 @@ Restore a project disabled earlier (default: the current directory): the
 .B !
 is deleted from its line, in place. Sessions may start there again.
 .IP
-It restores the entry alone \(em the tree's permissions never
+It does not grant any access that was not already granted \(em the tree's permissions never
 changed \(em so it does not run a secret scan and does not prompt. A path the allowlist does
 not name is refused and points at
 .BR \-\-project\-claim :
@@ -301,7 +301,7 @@ never rewritten. Default:
 .IR sandbox/ <leaf>,
 where <leaf> is the last component of
 .BR \-\-from .
-The default omits host, machine, and operator identity.
+The default does not carry any host, machine, or operator identity.
 .TP
 .B \-\-dir \fIname\fR
 Directory name for the clone under the sandbox area (default: the repository's base name).

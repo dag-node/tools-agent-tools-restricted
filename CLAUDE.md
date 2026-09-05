@@ -119,7 +119,7 @@ root-side `ai-tools-relabel.path` watcher, so neither needs a sudo rule. The age
 rule grants it anything — including the two root rules, which `SANDBOX_USER` cannot reach.
 `ai-tools-run` additionally refuses to launch
 unless it runs as `SANDBOX_USER`, and refuses if `SANDBOX_USER` appears in `ai-ops`, so the
-sandbox account does not hold the operator grant.
+sandbox account can never hold the operator grant.
 
 ### An operator is two facts; provisioning needs a third this project does not grant
 
@@ -132,7 +132,7 @@ passwordless service account takes.
 
 Claim, unclaim, lockdown, reclaim, and sandbox-create reach root helpers carrying **no** NOPASSWD
 rule, so each needs a **general sudo grant** as well. That grant is a third, independent axis:
-this project does not install it, record it, or infer it from the other two — `ai-tools-admin`
+this project does not install it or record it, and cannot infer it from the other two — `ai-tools-admin`
 writes `operator.conf` and the group, not sudoers, and the RPM enrols nobody at all. The CLI answers
 for it by asking `sudo` before the verb's first prompt (see [cli](.claude/rules/cli.rule.md)).
 
@@ -148,7 +148,7 @@ The invariants below are instances of one property, stated once here rather than
 each: **every input that decides what a session may do passes a single predicate for its kind,
 and every way that predicate can fail resolves to *less* access — never more — and is reported.**
 Corrupting, removing, or tampering with one of these inputs therefore narrows what the session
-gets.
+gets, so the sandbox cannot improve its own position by breaking one.
 
 `ai-tools --project-remove` sits **outside** this table: it decides what is *destroyed*, not what a
 session may reach, so its safe direction is inaction. Its authorization is correspondingly
@@ -178,8 +178,8 @@ The invariants the agent operates under:
   `PR_SET_NO_NEW_PRIVS`, which drops `sudo`'s SUID bit, so `sudo` is inoperative from
   inside the session by construction.
 - **`SANDBOX_USER` has no login shell and no password.**
-- **Every `%ai-ops` rule names one fixed-path program** — not a shell, not a glob.
-  `ai-tools-run` is `root:SANDBOX_GROUP` and not writable by the agent; the two root
+- **Every `%ai-ops` rule names one fixed-path program** — never an arbitrary shell or binary,
+  and never a glob. `ai-tools-run` is `root:SANDBOX_GROUP` and not writable by the agent; the two root
   helpers are `750 root:root` and pinned to their zero-argument form. The agent itself, *as*
   `SANDBOX_USER`, does not hold any sudo rule.
 - **The control-plane files are not agent-writable** — `settings.json`, the hooks,
@@ -197,7 +197,8 @@ The invariants the agent operates under:
   permissions plus the `ai_tools_t` SELinux type govern reads/writes. Those filesystem
   permissions are the enforced isolation boundary. The CWD and every allowlist entry are
   canonicalized (`realpath`) before matching, so a symlink or `..` resolves to its real target
-  before the gate sees it ([launch](.claude/rules/launch.rule.md)). (A per-session `bubblewrap` mount
+  before the gate sees it and cannot smuggle a path past it
+  ([launch](.claude/rules/launch.rule.md)). (A per-session `bubblewrap` mount
   namespace to make the allowlist a true access boundary is a deferred proposal; see
   [Boundaries and non-goals](#boundaries-and-non-goals) and memory.)
 - **The ownership handback touches only `SANDBOX_USER`-owned inodes and cannot be
@@ -218,7 +219,7 @@ The invariants the agent operates under:
   decision, so the harness re-runs its full permission pipeline on the **rewritten** command — an
   `allow` entry must still match it and a `deny` entry still overrides. The rules are root-owned
   data, apply only to a command whose shape is fully parsed, and resolve to the command as written
-  in every failure direction. This layer trades tokens, not access.
+  in every failure direction. This layer trades tokens, never access.
 - **A protected-paths backstop refuses system directories as targets.** Independently of
   the allowlist, the launch wrapper, the claim CLI, and every elevated helper that takes a
   caller-supplied path refuse to act on a system directory (`/`, `/etc`, `/var`, `/usr`, `/home`, `/opt/ai-tools`, …) or a user
@@ -241,10 +242,10 @@ between them is not, and this is what the agent does there:
 
 - **Accept a stop or a restriction immediately** — not after finishing the current step.
 - **Report a gap in the sandbox instead of using it.** A reachable way around a control is a
-  finding to raise, not a route to take.
+  finding to raise, never a route to take.
 - **Do not misrepresent what ran, what failed, or what was skipped.**
-- **Do not work to widen the grant.** Ask the operator for an authority the work needs, instead of
-  arranging the state that would confer it.
+- **Do not work to widen the grant.** Ask the operator for an authority the work needs; never
+  arrange the state that would confer it.
 
 The host's safety rests on the enforced invariants above; these four describe the agent's conduct
 where a control leaves a choice, and each one names the enforced control it sits beside in

@@ -164,8 +164,8 @@ _safe_setgid() {
     # Owner guard: only the projects user's or the sandbox account's own dirs are
     # eligible (re-verified TOCTOU-safe on the pinned inode below); skip anything else.
     # Return 3, not 1, so the walk can tell a third-party owner from a stat failure and
-    # report it: a walk that touched no directory must not be indistinguishable from one
-    # with no directory to touch.
+    # report it. Without that split, a walk whose every directory was foreign-owned reports the
+    # same as one that had no directory to touch.
     [[ "${owner_uid}" == "${PROJECTS_UID}" || "${owner_uid}" == "${SANDBOX_UID}" ]] || return 3
     # No work to do when already group GROUP and already setgid -- unless the dir is owner-only,
     # where that state is inherited residue the pinned-fd path below strips.

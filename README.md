@@ -424,7 +424,7 @@ Policy layout, the optional policy groups, and the bring-up loop:
 
 - **Bugs and feature requests** — [GitHub Issues](https://github.com/dag-node/tools-agent-tools-restricted/issues).
   The templates ask for the environment details and journald excerpts that make a report actionable.
-- **Security vulnerabilities** — not a public issue. See [`SECURITY.md`](SECURITY.md) for
+- **Security vulnerabilities** — never a public issue. See [`SECURITY.md`](SECURITY.md) for
   private reporting channels and what is in scope.
 - **Contributing** — [`CONTRIBUTING.md`](CONTRIBUTING.md): development setup, test categories,
   the lint baseline, branch and PR conventions, and the Contributor License Agreement.
