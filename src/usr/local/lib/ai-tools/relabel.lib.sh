@@ -348,13 +348,21 @@ ai_tools_agent_entrypoint_path() {
     printf '%s\n' "${resolved}"
 }
 
+# _ai_tools_live_type <path> : print the TYPE field of the label <path> carries right now, or an
+#   empty string when it cannot be read. The one place a live label is read, shared by the verify
+#   pass below and by the read-only report at the end of this file, so "what type is on this file"
+#   has one answer however it is asked. Needs to traverse the 0750 toolchain, so in practice root.
+_ai_tools_live_type() {
+    stat -c '%C' -- "$1" 2>/dev/null | awk -F: '{print $3}'
+}
+
 # _ai_tools_verify_label <path> <wanted-type> : restore the label on <path> and report the
 #   outcome as one status line (see ai_tools_label_agent_paths). Returns non-zero when the path
 #   did not take the type.
 _ai_tools_verify_label() {
     local path="$1" wanted="$2" context
     restorecon -F "${path}" 2>/dev/null || true
-    context="$(stat -c '%C' -- "${path}" 2>/dev/null | awk -F: '{print $3}')"
+    context="$(_ai_tools_live_type "${path}")"
     if [[ "${context}" == "${wanted}" ]]; then
         printf 'ok %s\n' "${path}"
         return 0
@@ -513,6 +521,72 @@ ai_tools_unlabel_agent_paths() {
         dropped=0
     fi
     return "${dropped}"
+}
+
+# ai_tools_agent_label_report: PRINT the type each enabled agent's own paths carry RIGHT NOW --
+#   its installed entrypoint and its config directory -- against the types this library pins for
+#   them. One status line per path, whitespace-separated in a fixed field order so a caller reads
+#   it with a plain `read`, and rendered in the caller's own voice:
+#     ok   <agent> <what> <path> <type>            it carries the type the base pins for it
+#     bad  <agent> <what> <path> <actual> <wanted> it does not -- the session would break or run
+#                                                  unconfined
+#     none <agent> <what>                          declared, but not installed (the pre-bootstrap
+#                                                  state)
+#   <what> is one token, `entrypoint` or `config-directory`, so the field after it is always the
+#   path and a caller never has to count words.
+#   Returns 0 when every path it could inspect carries its type, 1 when one does not, and 2 when
+#   the SELinux layer is inactive, which yields an empty report and is not a fault.
+#
+#   READ-ONLY, which is the whole difference from ai_tools_label_agent_paths above: it calls
+#   neither _ai_tools_fcontext, nor restorecon, nor ai_tools_relabel_lock, so it answers a status
+#   question without changing the state it reports on. It also answers a different question: the
+#   relabel reports what its own run ACHIEVED, while this reports the type on the file now,
+#   however long ago that run was.
+#
+#   The path is resolved through the launcher symlink (ai_tools_agent_entrypoint_path), the same
+#   resolution the launch preflight performs, so what is inspected is the inode a session execs,
+#   which a declared pattern can have stopped describing.
+ai_tools_agent_label_report() {
+    _ai_tools_entrypoint_policy_active || return 2
+    declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 2
+    local agent entrypoint config_dir path context status=0
+    while IFS=$'\t' read -r agent _ _; do
+        [[ -n "${agent}" ]] || continue
+        entrypoint="$(ai_tools_agent_entrypoint_path "${agent}" || true)"
+        if [[ -z "${entrypoint}" ]]; then
+            printf 'none %s entrypoint\n' "${agent}"
+        else
+            context="$(_ai_tools_live_type "${entrypoint}")"
+            if [[ "${context}" == "${AI_TOOLS_ENTRYPOINT_TYPE}" ]]; then
+                printf 'ok %s entrypoint %s %s\n' "${agent}" "${entrypoint}" "${context}"
+            else
+                printf 'bad %s entrypoint %s %s %s\n' "${agent}" "${entrypoint}" \
+                    "${context:-unknown}" "${AI_TOOLS_ENTRYPOINT_TYPE}"
+                status=1
+            fi
+        fi
+
+        config_dir="$(ai_tools_agent_manifest_field "${agent}" config_dir || true)"
+        if [[ -z "${config_dir}" ]] \
+                || ! declare -F ai_tools_agent_config_dir_valid >/dev/null 2>&1 \
+                || ! ai_tools_agent_config_dir_valid "${config_dir}"; then
+            continue
+        fi
+        path="${CP_HOME}/${config_dir}"
+        if [[ ! -d "${path}" ]]; then
+            printf 'none %s config-directory\n' "${agent}"
+            continue
+        fi
+        context="$(_ai_tools_live_type "${path}")"
+        if [[ "${context}" == "${AI_TOOLS_AGENT_CONFIG_TYPE}" ]]; then
+            printf 'ok %s config-directory %s %s\n' "${agent}" "${path}" "${context}"
+        else
+            printf 'bad %s config-directory %s %s %s\n' "${agent}" "${path}" \
+                "${context:-unknown}" "${AI_TOOLS_AGENT_CONFIG_TYPE}"
+            status=1
+        fi
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+    return "${status}"
 }
 
 # ai_tools_project_labelled <dir>: 0 if <dir>'s root currently carries

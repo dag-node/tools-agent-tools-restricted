@@ -16,6 +16,7 @@
 #   sudo ai-tools-admin system bootstrap --scope full      # ... and every enabled integration
 #   sudo ai-tools-admin system entrypoints relabel         # verify + relabel the agent entrypoints
 #   sudo ai-tools-admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
+#   sudo ai-tools-admin status                             # the host's health, read as root
 #   sudo ai-tools-admin dotnet bootstrap                   # a domain a provider package contributes
 #
 # The spelling is the project's command grammar (.claude/rules/cli-grammar.rule.md): a bare-word
@@ -69,6 +70,14 @@
 # AI_TOOLS_ENTRYPOINT_PIN_REUSE before the exec, so this route always re-fetches the vendor's signed
 # manifest: the unattended callers (ai-tools-relabel.service, the agent package's %post) may answer
 # from an unchanged pin, and an administrator asking for a reconcile is asking for the fetch.
+#
+# `status` reports this host's health as root: the same resource `ai-tools --status` reports to an
+# operator, completed with the three readings that vantage point prints as `?` -- the sandbox
+# account's own `systemd --user` units, whose bus root reaches over the machine transport; the
+# entrypoint pin, in a state directory a non-operator has no traverse bit on; and the SELinux type
+# each agent path carries right now, inside a 0750 toolchain. Every verdict comes from the same
+# services.lib.sh registry both reports and the launch wrapper's pre-launch warning read, so the
+# two commands differ in what each is allowed to see and agree on what they both see.
 #
 # `system post-upgrade` reconciles the `<file>.rpmnew` copies an upgrade leaves beside the
 # %config(noreplace) files this stack owns. rpm keeps what the host edited and parks the new
@@ -162,6 +171,8 @@ ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, the t
     system bootstrap [--scope full]  provision the sandbox account and its toolchain
     system entrypoints relabel       verify and relabel the agent entrypoints
     system post-upgrade              reconcile the .rpmnew files an upgrade leaves
+  Health
+    status                           this host's services, entrypoints and live labels
 EOF
     usage_domains
     cat <<'EOT'
@@ -410,16 +421,6 @@ _admin_command_field() {
     local values
     values="$(sed -n "s/^# ai-tools-admin-$2:[[:space:]]*\\(.*[^[:space:]]\\)[[:space:]]*\$/\\1/p" <<<"$1")"
     printf '%s' "${values%%$'\n'*}"
-}
-
-# admin_command_has_verb <verb>: succeed when the verb list published by the last
-# admin_command_check holds <verb>. Read after that call, never instead of it.
-admin_command_has_verb() {
-    local wanted="$1" verb
-    for verb in "${ADMIN_COMMAND_VERBS[@]}"; do
-        [[ "${verb}" == "${wanted}" ]] && return 0
-    done
-    return 1
 }
 
 # admin_command_has_verb <verb>: succeed when the verb list published by the last
@@ -1113,6 +1114,242 @@ postupgrade() {
     log "done. this command is idempotent -- re-run it at any time."
 }
 
+# ── status ───────────────────────────────────────────────────────────────────────────────────
+# `ai-tools --status` read from root's vantage -- one resource reported twice, not a second report.
+# Which readings root adds and why the two agree is .claude/rules/cli.rule.md; what this file
+# contributes is the rendering, in the plain bracket-token idiom the rest of this tool uses. The
+# verdicts come from services.lib.sh and relabel.lib.sh, which emit data and leave every consumer
+# to format it.
+readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
+readonly RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
+readonly ENTRYPOINT_VERIFY_LIB="/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
+readonly LAUNCHER_LINK_DIR="/opt/ai-tools/bin"
+
+# st <state> <text>: one report line, state in a bracket token so a scan down the left column finds
+# what needs attention. The vocabulary is the CLI's -- OK, DOWN, FAILED, STALE, SKIPPED, n/a, ? --
+# because an administrator reads both reports about one host and a second set of words for the same
+# states would read as a second set of facts.
+st()      { printf '    %-13s %s\n' "[$1]" "$2"; }
+detail()  { printf '                  %s\n' "$*"; }
+heading() { printf '\n  %s\n\n' "$*"; }
+
+# status_services: every unit in the shared registry, with its consequence and remedy where one
+# needs attention. Prints the count of units needing attention on stdout... no: it sets
+# STATUS_PROBLEMS, because the rendering IS this function's stdout.
+STATUS_PROBLEMS=0
+status_services() {
+    heading "Services"
+    local rec unit scope stamp mode state age when exit_code reason remedy uid
+    while IFS= read -r rec; do
+        unit="$(ai_tools_service_field "${rec}" 1)"
+        scope="$(ai_tools_service_field "${rec}" 2)"
+        stamp="$(ai_tools_service_field "${rec}" 7)"
+        mode="$(ai_tools_service_field "${rec}" 8)"
+        state="$(ai_tools_service_state_of "${rec}")"
+        age=""; when=""
+        if [[ -n "${stamp}" ]]; then
+            age="$(ai_tools_service_fmt_age "$(ai_tools_service_stamp_age "${stamp}")")"
+            [[ -n "${age}" ]] && when="last run ${age}"
+        fi
+        case "${state}" in
+            active)  st OK "${unit}${when:+  ${when}}" ;;
+            down)    st DOWN "${unit}" ;;
+            skipped) reason="$(ai_tools_service_stamp_field "${stamp}" REASON)"
+                     st SKIPPED "${unit}  ${when:-last run at an unknown time}${reason:+, ${reason}} -- nothing was changed" ;;
+            failed)  if [[ -n "${stamp}" ]]; then
+                         exit_code="$(ai_tools_service_stamp_field "${stamp}" EXIT_CODE)"
+                         st FAILED "${unit}  ${when:-last run at an unknown time}, exit ${exit_code:-?}"
+                     else
+                         exit_code="$(ai_tools_service_unit_property "${unit}" ExecMainStatus "${scope}")"
+                         st FAILED "${unit}  its last run exited ${exit_code:-non-zero}"
+                     fi ;;
+            stale)   st STALE "${unit}  ${when:-last run long ago}" ;;
+            absent)  st "n/a" "${unit}  not installed" ;;
+            # Not a fault report -- it says only that even this vantage point could not tell, and
+            # is not counted, the same rule the operator view follows. The two scopes fail for
+            # different reasons and say so: a system unit is unreadable only where there is no
+            # systemctl at all, while a sandbox-user one means root reached neither that account's
+            # manager (no machine transport, no timeout(1), or no answer inside the probe's
+            # window) nor a last-run stamp.
+            *)       if [[ "${scope}" == system ]]; then
+                         st "?" "${unit}  systemctl is unavailable here"
+                     else
+                         st "?" "${unit}  neither its manager nor a last-run stamp could be read"
+                     fi ;;
+        esac
+        ai_tools_service_needs_attention "${state}" || continue
+        STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+        detail "$(ai_tools_service_field "${rec}" 5)"
+        # A sandbox-user unit's commands name the sandbox ACCOUNT, and services.lib.sh is deployed
+        # with no @SANDBOX_USER@ substitution, so they are composed here -- the same split the CLI
+        # makes, and the reason the registry's remedy field is empty for those units.
+        if [[ "${scope}" != system ]]; then
+            detail "sudo systemctl --user -M ${SANDBOX_USER}@.host status ${unit}"
+            uid="$(id -u "${SANDBOX_USER}" 2>/dev/null || true)"
+            [[ -n "${uid}" ]] \
+                && detail "sudo journalctl _SYSTEMD_USER_UNIT=${unit} _UID=${uid} -n 50 --no-pager"
+            detail "sudo systemctl --user -M ${SANDBOX_USER}@.host restart ${unit}"
+        fi
+        remedy="$(ai_tools_service_field "${rec}" 6)"
+        [[ -n "${remedy}" ]] && detail "${remedy}"
+    done < <(ai_tools_service_records)
+    return 0
+}
+
+# status_entrypoints: per enabled agent, the two halves of the entrypoint reconciliation -- the pin
+# ai_tools_entrypoint_pin_write leaves, and the type its paths carry now. Reported together because
+# they fail independently: verification can succeed while labelling does not, leaving a green pin
+# written by the very run whose labelling failed.
+#
+# Only two states here count toward the exit status, and both stop the next launch: an unpinned
+# entrypoint where AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set, and a mislabelled path. Unpinned
+# without that setting is a supported state -- an air-gapped host, a release published without a
+# manifest -- so it is reported and left uncounted.
+status_entrypoints() {
+    heading "Entrypoints"
+    # Three libraries answer this section between them, and a partial load must report that rather
+    # than reach an undefined function -- which under `set -e` would abort the whole report over
+    # the section it could not give.
+    if ! declare -F ai_tools_enabled_agents      >/dev/null 2>&1 \
+            || ! declare -F ai_tools_agent_manifest_field  >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_pin_path   >/dev/null 2>&1; then
+        st "?" "the provider or entrypoint libraries are unavailable -- no agent could be resolved"
+        return 0
+    fi
+
+    local agent pin version age strict=no seen=0
+    declare -F ai_tools_entrypoint_verify_required >/dev/null 2>&1 \
+        && ai_tools_entrypoint_verify_required && strict=yes
+    while IFS=$'\t' read -r agent _ _; do
+        [[ -n "${agent}" ]] || continue
+        seen=1
+        # Verification compares the binary against the checksum in the vendor's signed release
+        # manifest, which an agent's package names in release_manifest_url. An agent whose package
+        # omits that key is reported as such rather than as perpetually unverified.
+        if [[ -z "$(ai_tools_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" ]]; then
+            st "n/a" "${agent}  its package declares no signed release manifest to verify against"
+            continue
+        fi
+        pin="$(ai_tools_entrypoint_pin_path "${agent}" 2>/dev/null || true)"
+        version="$(ai_tools_service_stamp_field "${pin}" VERSION)"
+        if [[ -n "${version}" ]]; then
+            age="$(ai_tools_service_fmt_age "$(ai_tools_service_stamp_age "${pin}" VERIFIED)")"
+            st VERIFIED "${agent}  ${version}${age:+, ${age}}"
+        elif [[ -e "${pin}" ]]; then
+            st unverified "${agent}  its pin is present and carries no version this reader accepts"
+            detail "sudo ai-tools-admin system entrypoints relabel   (rewrites the pin)"
+        elif [[ "${strict}" == yes ]]; then
+            st UNVERIFIED "${agent}  this host requires verification, so its sessions will not launch"
+            detail "sudo ai-tools-admin system entrypoints relabel   (fetches the vendor's signed manifest)"
+            STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+        else
+            st unverified "${agent}  no pin -- launches are not blocked"
+        fi
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+    [[ "${seen}" -eq 1 ]] || st "n/a" "no agent is enabled in ${OPERATOR_CONF}"
+    status_labels
+}
+
+# status_labels: render ai_tools_agent_label_report -- the live SELinux type of each enabled
+# agent's own paths, which that function's header specifies. It closes status_entrypoints rather
+# than opening a section of its own, so each agent's pin and its labels read together.
+status_labels() {
+    # Base ships this library beside this tool, so a missing report means a broken or half-upgraded
+    # install rather than an optional piece -- said as a reading that could not be made, since that
+    # is what it is from the reader's side.
+    if ! declare -F ai_tools_agent_label_report >/dev/null 2>&1; then
+        st "?" "live labels: ${RELABEL_LIB} did not load its report -- reinstall ai-tools-base"
+        return 0
+    fi
+    local report verdict agent what path actual wanted rc=0
+    report="$(ai_tools_agent_label_report)" || rc=$?
+    if [[ "${rc}" -eq 2 ]]; then
+        st "n/a" "SELinux confinement is inactive here -- there is no agent label to carry"
+        return 0
+    fi
+    [[ -n "${report}" ]] || return 0
+    while read -r verdict agent what path actual wanted; do
+        case "${verdict}" in
+            ok)   st labelled "${agent}  its ${what} is ${actual} -- ${path}" ;;
+            bad)  st "NOT LABELLED" "${agent}  its ${what} is '${actual}', NOT ${wanted} -- ${path}"
+                  detail "its next session refuses to launch rather than run unconfined"
+                  detail "sudo ai-tools-admin system entrypoints relabel"
+                  STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+            none) st "n/a" "${agent}  its ${what} is not installed -- nothing to label" ;;
+        esac
+    done <<< "${report}"
+    return 0
+}
+
+# status: the host report. Exits non-zero when something is broken, so it is usable from a monitor
+# or a cron check without parsing this output -- the same contract `ai-tools --status` offers, and
+# the reason `?` and `n/a` are never counted: a reading this vantage point could not make must not
+# make a healthy host alarm every night.
+status() {
+    [[ $# -eq 0 ]] || reject "status: takes no arguments"
+    STATUS_PROBLEMS=0
+    # Ahead of the library load, so a report that cannot be given still says what was asked for:
+    # the refusal below then reads as this command failing rather than as an unattributed error.
+    printf '\nai-tools host status\n'
+
+    # Loaded here rather than beside the other libraries: no other command reads any of them, and
+    # relabel.lib.sh pulls in the provider and control-plane libraries behind it. Each is
+    # best-effort and its section reports what it could not read, EXCEPT the service registry --
+    # without it there is no report to give, and a clean bill this tool cannot support is worse
+    # than a refusal.
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/services.lib.sh
+    source "${SERVICES_LIB}" 2>/dev/null || true
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/relabel.lib.sh
+    source "${RELABEL_LIB}" 2>/dev/null || true
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/entrypoint-verify.lib.sh
+    source "${ENTRYPOINT_VERIFY_LIB}" 2>/dev/null || true
+    if ! declare -F ai_tools_service_records   >/dev/null 2>&1 \
+            || ! declare -F ai_tools_service_state_of >/dev/null 2>&1 \
+            || ! declare -F ai_tools_service_fmt_age  >/dev/null 2>&1; then
+        die "the service registry (${SERVICES_LIB}) is unavailable -- reinstall ai-tools-base"
+    fi
+    # Root reaching the sandbox account's own manager is what this report adds over the operator's.
+    ai_tools_service_sandbox_account "${SANDBOX_USER}"
+
+    heading "Version"
+    printf '    %-13s %s\n' "ai-tools" "${AI_TOOLS_VERSION}"
+    # Node's version comes from whichever registry record publishes one, so the loop reads the
+    # registry rather than a unit name, and a host whose updater has not run yet omits the line.
+    local rec node_ver=""
+    while IFS= read -r rec; do
+        node_ver="$(ai_tools_service_stamp_field "$(ai_tools_service_field "${rec}" 7)" NODE)"
+        [[ -n "${node_ver}" && "${node_ver}" != unknown ]] && break
+        node_ver=""
+    done < <(ai_tools_service_records)
+    [[ -n "${node_ver}" ]] \
+        && printf '    %-13s %s\n' "node" "${node_ver} (as of the last toolchain update)"
+
+    heading "Provisioning"
+    # The launcher directory holding a link is bootstrap's last artifact, and the same sentinel the
+    # CLI's own gate keys on, so both answer this question the same way.
+    if compgen -G "${LAUNCHER_LINK_DIR}/*" >/dev/null 2>&1; then
+        st OK "the toolchain is provisioned"
+    else
+        st MISSING "no launcher in ${LAUNCHER_LINK_DIR} -- the toolchain is not provisioned"
+        detail "sudo ai-tools-admin system bootstrap"
+        STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+    fi
+
+    status_services
+    status_entrypoints
+
+    # Pointers, not duplication: the reports that own the detail this one deliberately does not.
+    heading "More"
+    printf '    %s\n' \
+        "ai-tools --status        the same host, read from an operator's vantage" \
+        "ai-tools --providers     installed agents and integrations, and which are enabled" \
+        "sudo ai-tools-admin selinux groups   the core module and the optional groups" \
+        "sudo ai-tools-admin --help           every command this host has"
+    printf '\n'
+
+    [[ "${STATUS_PROBLEMS}" -eq 0 ]]
+}
+
 # ── dispatch ─────────────────────────────────────────────────────────────────────────────────
 # One arm per name in the grammar's two shapes: `<collection> [verb]`, where the absent verb is
 # `list`, and `<domain> <collection|verb>`. A bare collection lists; a bare domain prints its own
@@ -1180,6 +1417,7 @@ case "$1" in
     operators) shift; operators_dispatch "$@" ;;
     selinux)   shift; selinux_dispatch   "$@" ;;
     system)    shift; system_dispatch    "$@" ;;
+    status)    shift; status             "$@" ;;
     # Anything else is either a domain a provider package contributed or an unknown command, and
     # only the discovered set tells the two apart. Base names are matched above, so a fragment
     # cannot shadow one however it is named.

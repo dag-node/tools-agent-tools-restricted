@@ -341,6 +341,22 @@ After an update, **new** Claude sessions resolve the repointed `bin/claude` syml
 the new Node version. A **running** session stays pinned to the version it launched with for
 its whole lifetime by design.
 
+## Health checks
+
+```bash
+ai-tools --status            # as yourself
+sudo ai-tools-admin status   # as root, the same host with the readings you cannot make
+```
+
+Both report the installed version, whether the toolchain is provisioned, every managed systemd
+unit, and — per enabled agent — whether its binary is pinned to a checksum its vendor signed and
+what SELinux label its paths carry. Each prints `?` where its caller cannot reach the answer, so
+running the second as root fills in the sandbox account's own `systemd --user` units, the
+entrypoint pin, and the live SELinux label. Both exit non-zero when something needs attention, so
+either runs from `cron` or a monitor without parsing its output.
+
+Details and exit codes: `man ai-tools` and `man ai-tools-admin`.
+
 ## Operation logging
 
 Start here — one command answers "has anything gone wrong lately?":

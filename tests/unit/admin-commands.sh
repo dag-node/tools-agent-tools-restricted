@@ -391,14 +391,26 @@ else
     fail "no report for the fragment claiming a base name: ${out}"
 fi
 
-# `status` is reserved before it is implemented, so a provider cannot take the name first.
+# `status` was reserved before it was implemented, and now that base answers it the reservation is
+# what makes the shadowing attempt land on BASE's command rather than the fragment's. The exit
+# status is not asserted: the real report exits non-zero on a host with something broken, and this
+# is a check about which code ran, not about this host's health.
 reset_fixtures
 write_fragment status
 run_admin status
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 2 ]]; then
-    pass "a fragment claiming the reserved 'status' name is refused"
+if [[ ! -f "${MARKER}" && "${out}" == *"ai-tools host status"* ]]; then
+    pass "a fragment claiming 'status' is refused and base's own command answers instead"
 else
-    fail "a fragment claimed 'status' (exit ${STATUS})"
+    fail "a fragment reached the dispatch for 'status' (exit ${STATUS}): ${out}"
+fi
+
+# The base command does not take an argument, and refuses one rather than ignoring it: a report
+# that dropped what it was asked about would read as an answer to the question.
+run_admin status --everything
+if [[ "${STATUS}" -eq 2 && "${out}" == *"takes no arguments"* ]]; then
+    pass "status refuses an argument with exit 2 rather than reporting on the whole host"
+else
+    fail "status accepted an argument (exit ${STATUS}): ${out}"
 fi
 
 # Every name the top-level dispatch answers must be reserved, or a provider could contribute a

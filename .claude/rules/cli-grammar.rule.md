@@ -185,8 +185,16 @@ Zalando limits nesting to one level. A custom method does not add a level agains
 collection, one item. Adding `system` on top would deepen the **path** for a command an operator
 types to unblock a build.
 
+**Both tests are about actions, so a read takes neither.** `status` is host-wide and reads as
+infrastructure, which would put it under `system` — but it only reads, and it does not take a
+resource identifier, which makes it a **singleton resource**. The same AIP-121 preference that
+keeps a report out of `:status` keeps it out of a `system` prefix: `GET /status` is the whole
+projection and `status` the whole command. A prefix would deepen the path and group a read with
+the four `system` commands, each of which provisions or rewrites the host.
+
 In one line: acts on instances of a named resource → `[domain] <resource> <verb>`; global,
-one-shot or infrastructure-level → `system <verb>`.
+one-shot or infrastructure-level **action** → `system <verb>`; a host-wide **read** → a bare
+singular noun.
 
 ## The REST projection
 
@@ -240,10 +248,13 @@ ever one resource. `/admin/status` and `/status` collide exactly.
 
 A privileged caller seeing more is a **view**, in either of two forms that leave the URI alone:
 field-level shaping by privilege, or an explicit `view` parameter with `BASIC` and `FULL`
-(AIP-157). The CLI already does the first with no privilege check in it: `ai-tools --status`
-prints `?` where it *cannot read* — the root-owned pin directory it cannot traverse, the sandbox
-account's `systemd --user` manager it cannot query — and the same command as root completes those
-reads ([cli](cli.rule.md)). One resource, degrading by privilege.
+(AIP-157). This surface does the first: `ai-tools --status` and `ai-tools-admin status` report
+**one resource from two vantages**, and each prints `?` for a reading its caller lacks the
+privilege to make. Two
+commands exist because the binary is the privilege boundary
+([Which binary a command lives on](#which-binary-a-command-lives-on)), not because there are two
+sets of facts — which holds because the privilege is tested at each read rather than at the
+dispatch. The readings, and the mechanism behind that, are in [cli](cli.rule.md).
 
 An audience prefix is warranted where the surfaces are separate products with separate
 authentication on separate deployments. This host runs one auth model — Unix identity plus `sudo`
@@ -254,7 +265,7 @@ on the HTTP side. Neither needs a path segment.
 
 `ai-tools-admin` conforms: `operators [list|add|remove]`, `selinux groups [list|enable|disable]`,
 `system bootstrap [--scope minimal|full]`, `system entrypoints relabel`, `system post-upgrade`,
-`--help`/`-h`, `--version`, plus one domain per installed provider — `dotnet bootstrap`,
+`status`, `--help`/`-h`, `--version`, plus one domain per installed provider — `dotnet bootstrap`,
 `dotnet tools install <pkg...>`, `dotnet status`. `ai-tools-admin(8)` documents the base surface and
 `tests/unit/man.sh` holds the page, the helper's `usage()` and its dispatch arms in agreement, so a
 command renamed in one of the three fails the suite rather than going stale in the others. A

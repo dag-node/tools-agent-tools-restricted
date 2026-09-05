@@ -366,6 +366,21 @@ unit with no `Type` is still judged by `is-active`, and that the launch wrapper'
 select `ai-tools-relabel.service` (the `.path` already carries that warning). `systemctl` is stubbed
 as a shell function, so no real unit is touched.
 
+Its last section covers the **live reading a root caller adds** — the machine transport
+`ai-tools-admin status` reaches a sandbox-user unit through ([cli](cli.rule.md)). The verdict that
+reading feeds is the pure `ai_tools_service_stamp_verdict`, split out from the probing for exactly
+this reason (the same split `ai_tools_confinement_verdict` makes for the launch decision), so the
+whole truth table is driven with no manager to query and no privilege to hold — a test cannot fake
+root, `EUID` being readonly. Every case is one of two claims, and both are one-directional. A live
+reading may only **add** an answer where the stamp declined to give one, so a caller whose live
+reading is `unknown` — every unprivileged one — reports exactly what it reported before the
+transport existed; and a live `active` is **not** a clean bill, since for a timer it says the
+schedule is loaded rather than that runs are happening, so the stamp still decides freshness and a
+`stale` or `skipped` verdict survives it. The probe's own gate is asserted from the side that
+matters: with no sandbox account named, and (off a root run) for a non-root caller, it is not
+offered at all — while the **system** scope stays readable by any caller, since reading that one as
+privileged would silently stop the launch wrapper's pre-launch warning from checking anything.
+
 `relabel.sh` pins the other manifest-supplied decision with a security consequence: the
 entrypoint file-context predicate (`relabel.lib.sh`). A declared pattern becomes a `semanage`
 rule granting `ai_tools_exec_t`, the confined domain's exec entrypoint, so the test drives every
@@ -394,6 +409,20 @@ A third pins the per-agent verdict each agent's report closes with, which is wha
 table. Two entries carry the weight — a path that is not installed yet must read as "nothing to
 label" rather than as labels applied, and must not fail the run, or every host would report green
 before provisioning and non-zero after it.
+
+A fourth covers the **read-only** live-label report `ai-tools-admin status` renders, which answers a
+different question from the relabel beside it: what type each agent path carries now, rather than
+what the last run achieved. Two properties carry the weight. It must not write — a status command
+that relabelled the host it is reporting on would change the state it describes, and would need a
+policy-store lock to do it — so `restorecon` and `semanage` are stubbed to leave a marker on disk
+(both run inside a `$(...)` where a failed assertion would not survive) and the section is judged
+on the markers still being absent. And the **field order** is a contract: the consumer reads each
+line with a plain `read`, so an unreadable label must report `unknown` rather than an empty field
+that would shift every later field left, rendering a type where a path belongs in a report whose
+whole job is to be believed. `CP_HOME` is a readonly constant, so the config directory cannot be
+moved into the testdir; the fixture agent's name is one no package ships, which makes that half
+report deterministically as not installed and leaves the entrypoint half to carry the type
+comparisons.
 
 `entrypoint-verify.sh` pins the pure half of the entrypoint verifier (`entrypoint-verify.lib.sh`,
 see [updater](updater.rule.md)). Every assertion targets a way the gate could fail **open**: an

@@ -324,6 +324,107 @@ else
     skip "per-agent labelling outcome" "ai_tools_label_agent_paths not defined by ${LIB}"
 fi
 
+# ── The read-only live-label report ──────────────────────────────────────────────────────────
+# `ai-tools-admin status` reports the type each agent path carries RIGHT NOW, which is a different
+# claim from the one the relabel records: that says what the last run achieved, an event that may be
+# hours old, while this says what is true at the moment it is asked. Two properties carry the
+# weight. It must be READ-ONLY -- a status command that relabelled the host it is reporting on would
+# change the state it is describing, and would need a policy-store lock to do it -- so both writers
+# are stubbed to fail the test loudly if they are ever reached. And its FIELD ORDER is a contract:
+# the consumer reads each line with a plain `read`, so a path arriving one field out would be
+# rendered as a type and a type as a path, in a report whose whole job is to be believed.
+section "relabel: the read-only live-label report (unit)"
+if ! declare -F ai_tools_agent_label_report >/dev/null 2>&1; then
+    skip "live-label report" "ai_tools_agent_label_report not defined by ${LIB}"
+else
+    mktestdir
+    # CP_HOME is a readonly constant, so the config directory cannot be moved into the testdir.
+    # `.some-agent` is a name no package ships, so `${CP_HOME}/.some-agent` is absent on every host
+    # and that half reports deterministically as not installed -- which is a case worth asserting
+    # anyway, and leaves the entrypoint half to carry the type comparisons.
+    _ai_tools_entrypoint_policy_active() { return 0; }
+    ai_tools_enabled_agents() { printf 'some-agent\t\t\n'; }
+    ai_tools_agent_manifest_field() { [[ "$2" == config_dir ]] && printf '.some-agent'; return 0; }
+    ai_tools_agent_config_dir_valid() { return 0; }
+    # A write is what this report must never make, and both writers run in a `$(...)` subshell
+    # where a failed assertion would not survive -- so each leaves a marker on disk instead, and
+    # the whole section is judged on the markers still being absent at the end.
+    WROTE="${TESTDIR}/a-writer-ran"
+    restorecon() { printf 'restorecon %s\n' "$*" >> "${WROTE}"; }
+    semanage()   { printf 'semanage %s\n'   "$*" >> "${WROTE}"; }
+
+    # report_has <expected-line> <why> ; entrypoint path and live types come from the stubs.
+    report_has() {
+        local expected="$1" why="$2" got
+        got="$(ai_tools_agent_label_report || true)"
+        if grep -qxF -- "${expected}" <<<"${got}"; then
+            pass "${why}"
+        else
+            fail "${why}: no line '${expected}' in '${got//$'\n'/ | }'"
+        fi
+    }
+
+    ai_tools_agent_entrypoint_path() { printf '/opt/toolchain/claude\n'; }
+    _ai_tools_live_type() { printf 'ai_tools_exec_t'; }
+    report_has 'ok some-agent entrypoint /opt/toolchain/claude ai_tools_exec_t' \
+        "a path carrying its pinned type reports ok, in the order agent, what, path, type"
+    report_has 'none some-agent config-directory' \
+        "a config directory that is not installed reports 'none' with no path to render"
+
+    _ai_tools_live_type() {
+        case "$1" in /opt/toolchain/claude) printf 'usr_t' ;; *) printf 'ai_tools_home_t' ;; esac
+    }
+    rc=0; out="$(ai_tools_agent_label_report)" || rc=$?
+    if [[ "${rc}" -eq 1 ]] \
+            && grep -qx 'bad some-agent entrypoint /opt/toolchain/claude usr_t ai_tools_exec_t' <<<"${out}"; then
+        pass "an entrypoint carrying the wrong type reports bad, with the type it has and the one it needs"
+    else
+        fail "a mislabelled entrypoint was not reported (rc=${rc}): ${out//$'\n'/ | }"
+    fi
+
+    # A label the read does not resolve prints as 'unknown', keeping the field count: an empty
+    # field would shift every later field left in a line the consumer splits on whitespace.
+    # Captured before matching, never piped: the report exits non-zero on a mislabelled path and
+    # `pipefail` would fail the whole pipeline whatever grep found.
+    _ai_tools_live_type() { return 0; }
+    out="$(ai_tools_agent_label_report || true)"
+    if grep -qx 'bad some-agent entrypoint /opt/toolchain/claude unknown ai_tools_exec_t' <<<"${out}"; then
+        pass "an unreadable label reports 'unknown' rather than an empty field"
+    else
+        fail "an unreadable label did not keep the field count: ${out//$'\n'/ | }"
+    fi
+
+    # Not provisioned: ai_tools_agent_entrypoint_path returns non-zero because the launcher symlink
+    # does not resolve. It is the ordinary pre-bootstrap state and must not read as a fault, or
+    # every host reports a problem before it is set up.
+    ai_tools_agent_entrypoint_path() { return 1; }
+    _ai_tools_live_type() { printf 'ai_tools_home_t'; }
+    rc=0; out="$(ai_tools_agent_label_report)" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qx 'none some-agent entrypoint' <<<"${out}"; then
+        pass "an entrypoint that is not installed reports 'none' and is not a fault"
+    else
+        fail "an uninstalled entrypoint was misreported (rc=${rc}): ${out//$'\n'/ | }"
+    fi
+
+    _ai_tools_entrypoint_policy_active() { return 1; }
+    rc=0; out="$(ai_tools_agent_label_report)" || rc=$?
+    if [[ "${rc}" -eq 2 && -z "${out}" ]]; then
+        pass "an inactive SELinux layer returns 2 with no report, not a wall of failures"
+    else
+        fail "an inactive SELinux layer was misreported (rc=${rc}): ${out//$'\n'/ | }"
+    fi
+
+    if [[ ! -e "${WROTE}" ]]; then
+        pass "the whole report ran read-only -- no restorecon, no semanage, no policy-store lock"
+    else
+        fail "the report wrote to the host: $(tr '\n' '|' < "${WROTE}")"
+    fi
+
+    unset -f _ai_tools_entrypoint_policy_active ai_tools_enabled_agents \
+             ai_tools_agent_manifest_field ai_tools_agent_config_dir_valid \
+             ai_tools_agent_entrypoint_path _ai_tools_live_type restorecon semanage
+fi
+
 # ── The deployed helper's allowlist gate ─────────────────────────────────────────────────────
 # ai-tools-relabel grants a project the type the confined domain may work in, so the gate deciding
 # WHICH paths get it is the one thing here worth driving through the real helper. Only the REFUSAL
