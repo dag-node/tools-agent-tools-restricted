@@ -58,7 +58,7 @@ work without a carve-out.
 
 A second predicate, for a strictly weaker operation, single-sourced here and used by `reg_reach`
 (via `grantable_ancestor`) and by both new project verbs through it. It returns 0 when `<path>` is
-a directory `<owner>` holds and it either misses every protected path **or** matches only as
+a directory `<owner>` holds and it either does not match any protected path **or** matches only as
 `<owner>`'s own home root — resolved from `getent`, so a path that merely looks like `/home/<name>`
 is not admitted on its shape. Every system directory, `/home` itself, and any other account's home
 root stay refused, as does a missing path, a non-directory, or an unnamed owner.
@@ -67,13 +67,13 @@ root stay refused, as does a missing path, a non-directory, or an unnamed owner.
 size of the operation is the whole justification. A claim, an unclaim, a lockdown or an elevated
 walk rewrites group, mode and ACLs across a **tree**, and `ai_tools_protected_path_match` still
 refuses a home root as the target of any of them. A traverse grant is one `u:SANDBOX_USER:--x`
-entry on **one directory**: search permission on that directory alone, conveying no listing of it
-and no access whatever to the files inside, whose own modes and ACLs still decide — and the
+entry on **one directory**: search permission on that directory alone, which permits traversal and
+neither a listing of it nor any access to the files inside, whose own modes and ACLs still decide — and the
 sandbox account is neither their owner nor in their group. Reusing the target backstop for it made
 every project at `/home/<user>/<proj>` report permanently unreachable, with a sandbox clone the
 only way in.
 
-What the grant conveys is therefore a **condition**, not exposure: it makes already-world-readable
+The grant therefore creates a **condition**, not exposure: it makes already-world-readable
 entries *reachable*. Under `umask 077` that set is empty; under the RHEL default `022` it is the
 `644` skel files and anything else written world-readable. Which of those a host is has a one-line
 answer, so the prompt states the condition and names `find <home> -maxdepth 1 -perm -o+r` rather
@@ -150,7 +150,7 @@ rationale is single-sourced here, and each consumer carries a one-line pointer t
 ## Design notes
 
 - **Deployed `644 root:root`**, world-readable like `msg.lib.sh`/`log.lib.sh`: the operator
-  wrapper, the CLI, and the root helpers read one list; it must not hold a secret. The lib directory
+  wrapper, the CLI, and the root helpers read one list; it does not carry any secrets. The lib directory
   `/usr/local/lib/ai-tools` is `0751 root:SANDBOX_GROUP`, so an operator who is not a
   `SANDBOX_GROUP` member (the multi-operator default) traverses in to source the `644` libs by
   path without listing the directory — the world-execute bit is what makes the world-readable

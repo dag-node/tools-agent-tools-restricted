@@ -1,7 +1,7 @@
 # Entrypoint verification
 
 How `ai-tools` proves that the agent binary it is about to run is the one its vendor published, what
-you have to do about it (almost always none), and what each failure means.
+you have to do about it (almost always nothing), and what each failure means. <!-- prose-check: allow: the reader is the actor; "nothing" is the action they take -->
 
 ## The short version
 
@@ -74,7 +74,7 @@ does not — it identifies the **signer**, not the release.
 | the key + fingerprint | who is allowed to sign a release | the `ai-tools` **package** (`0644 root:root`, not a config file) | the vendor rotates its signing key — years, not releases | a signed package update (`dnf update`) |
 | the pin | what *this* installed binary hashes to | `/var/opt/ai-tools/state/entrypoint-pin.d/<agent>` | every agent update | root, automatically, via the watcher above |
 
-One key signs every Claude Code release. So the static half does not need upkeep, and the
+One key signs every Claude Code release. So the static half does not need maintenance, and the
 per-version half is derived automatically.
 
 **A key rotation is not an outage.** Until the package carrying the new key reaches your host,

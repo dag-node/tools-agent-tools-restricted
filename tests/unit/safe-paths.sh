@@ -89,8 +89,7 @@ fi
 
 # ── The traverse-grant predicate ─────────────────────────────────────────────
 # ai_tools_traverse_grant_allowed vets a strictly weaker operation than the target backstop
-# above: one `u:ai-tools:--x` entry on ONE directory, which conveys search permission and no
-# read. It therefore admits the acting operator's OWN home root, which the backstop refuses as a
+# above: one `u:ai-tools:--x` entry on ONE directory, which grants search permission and not read. It therefore admits the acting operator's OWN home root, which the backstop refuses as a
 # target -- so these assertions are about the difference between the two, and (2b) above still
 # stands unchanged. What keeps the carve-out from becoming a hole is the owner argument: it is
 # checked before the home-root exemption, so the exemption reaches exactly one account's home.

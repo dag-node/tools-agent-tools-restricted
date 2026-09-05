@@ -269,8 +269,8 @@ fi
 # the three is what makes the gate safe to run outside the allowlist: a partially handed-back tree
 # can retain any one of them alone, and testing only the group would leave an ai-tools-OWNED file
 # untouched, where the agent keeps access through the user bits. Read from the pinned fd, so it
-# describes the same inode the mutation acts on. Only the uid/gid arms are free; the ACL read
-# runs only when both miss.
+# describes the same inode the mutation acts on. The uid and gid checks read values the caller
+# already holds; the ACL read (`getfacl`) runs only when both miss.
 _is_residue() {
     local fd="$1" uid="$2" gid="$3"
     [[ "${uid}" == "${SANDBOX_UID}" ]] && return 0

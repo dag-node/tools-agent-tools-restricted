@@ -49,7 +49,8 @@ readonly LINK="${BIN_DIR}/${LAUNCHER}"
 # ...and that name must belong to an ENABLED agent: without this, any binary sitting in a
 # versioned bin/ could be given a stable link in the locked control-plane dir. An unresolvable
 # allowlist REFUSES rather than degrading to "allow anything", so probe the resolver rather than
-# assume the source succeeded (providers.lib.sh leaves its resolvers undefined when its dependency is missing).
+# assume the source succeeded (providers.lib.sh returns non-zero without defining a resolver when
+# its dependency is missing).
 readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/providers.lib.sh
 if ! source "${PROVIDERS_LIB}" 2>/dev/null \

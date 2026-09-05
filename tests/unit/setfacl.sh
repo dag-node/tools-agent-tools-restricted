@@ -163,9 +163,8 @@ else
     skip "owner guard" "user 'nobody' not present"
 fi
 
-# (B5) the owner-guard skip is REPORTED, not silent -- the half the CLI reads. A walk that
-# granted no path must not be indistinguishable from one with no path to grant, which is
-# what let a claim over a tree owned by a third party close with a clean ✓.
+# (B5) the owner-guard skip is REPORTED, not silent -- the half the CLI reads. Without the report,
+# a claim over a tree owned by a third party closes with a clean ✓ while granting no path at all.
 if ${foreign}; then
     guard_err="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null || true)"
     if grep -q 'owned by neither' <<<"${guard_err}"; then

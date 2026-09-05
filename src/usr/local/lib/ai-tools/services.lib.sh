@@ -30,7 +30,7 @@
 # stamp reports on, which is the more valuable target by far. (On an enforcing host the confined
 # ai_tools_t session can write neither: both resolve to usr_t, which the domain may only read.)
 #
-# Sourced, not executed. Deployed 644 root:root -- it must not hold a secret, and the two principals that
+# Sourced, not executed. Deployed 644 root:root -- it does not carry any secrets, and the two principals that
 # source it (the operator launch wrapper and the unprivileged CLI) both need to read a system unit's
 # is-active/is-enabled, which any user may.
 

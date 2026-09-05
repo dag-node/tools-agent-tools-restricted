@@ -684,8 +684,8 @@ end_session() {
 # indefinitely, and a stop that hangs while attributing sessions is a stop that did not happen,
 # which is the one outcome this file exists to prevent. Both calls therefore run under a short
 # `timeout`, and every way that can fail -- the manager not answering, `timeout` itself absent --
-# leaves attribution empty, which refuses the SCOPED form and sends the operator to --all. --all does
-# not need attribution at all, so the undeclinable form cannot be delayed by this at all.
+# returns an empty WorkingDirectory, which refuses the SCOPED form and sends the operator to
+# --all. --all does not read one at all, so the undeclinable form cannot be delayed by this.
 unit_working_directory() {
     local raw
     raw="$(timeout 5 systemctl --user -M "${SANDBOX_USER}@.host" show --property=WorkingDirectory "$1" 2>/dev/null)"

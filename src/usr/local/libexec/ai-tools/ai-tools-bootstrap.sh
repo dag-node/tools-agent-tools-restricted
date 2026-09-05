@@ -222,7 +222,7 @@ done
 # re-run picks up the agents. Its stderr warns of an enabled-but-uninstalled agent.
 _providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
 _agent_packages=(); _agent_launchers=()
-# Guarded load: providers.lib.sh returns non-zero and leaves its resolvers undefined when its own dependency
+# Guarded load: providers.lib.sh returns non-zero without defining a resolver when its own dependency
 # (conf.lib.sh, the shared KEY=value grammar) is missing, so probe the resolver rather than assume
 # the source succeeded -- a bare `source` under set -e would abort the provision instead of falling
 # back to Node-only.

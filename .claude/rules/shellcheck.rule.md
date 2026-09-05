@@ -40,7 +40,8 @@ fails closed. `conf.lib.sh` shows the three shapes that takes, chosen by what th
 loses without it: `providers.lib.sh` **requires** it (without the shared grammar and the
 trust predicate it can neither parse a manifest nor tell a trusted input from a planted
 one), so it returns non-zero and does not define any resolver, and each consumer loads it as
-`source … && declare -F <resolver>` and falls back on failure;
+`source … && declare -F <resolver>` and does not resolve any provider on failure — `ai-tools-bootstrap`
+provisions Node alone, `ai-tools-launcher-symlink` refuses to repoint;
 `operator.lib.sh` fails closed *by consequence* — no parser means no operators resolved,
 and "no owner" already stops a handback; `skip-dirs.lib.sh` fails **soft**, keeping its
 compiled-in defaults, because a skip list is a walk-cost optimization and not an access

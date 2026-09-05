@@ -4,7 +4,7 @@ name: ai-tools-engineering-principles
 x-ai-tools-managed: true
 x-ai-tools-status: draft
 x-ai-tools-version: 2
-x-ai-tools-updated: 2026-08-25
+x-ai-tools-updated: 2026-09-05
 description: "Use when introducing a new feature (to set its shape before coding), when validating or reviewing a feature implementation against these defaults, or when choosing an approach, architecture, or how much machinery a problem warrants — in any language. Consult it at both ends: before building a feature and when checking the result. Sets the default engineering judgment: resolve trade-offs in the order security, then performance; write in a pragmatic, low-ceremony style (simple, explicit, terse-but-readable, POCO/DTO-first, no speculative abstraction); fail closed on critical components; sanitize with an allowlist not a blocklist; reach for the lightest mechanism that works; spend context and tokens deliberately (amortize discovery through persistent docs, isolate noisy fan-out work, and never downgrade planning to a weaker model); keep humans in the loop for irreversible or outward-facing actions. For prose style defer to ai-tools-technical-docs. Trigger on 'add/implement a feature', 'design this', 'how should I build/structure this', 'which approach', 'review/validate this implementation', 'is this over-engineered', or any design/architecture decision."
 ---
 
@@ -101,9 +101,9 @@ understands in one pass — the code is the best documentation.
 - **Scope a change to what it requires.** Touch only what the change needs — reconcile the doc
   passages it actually invalidates, don't ride unsolicited cross-cutting refactors or new doc
   sections along with a fix. Raise a broader idea separately.
-- **Trace, don't guess.** When something silently fails to act, observe the running behaviour
-  (a trace, an exit code, a log) before theorising — silent no-ops (a swallowed error, a mis-set
-  flag) don't reveal themselves by inspection.
+- **Trace, don't guess.** When a call reports success and the expected effect is missing, observe the running
+  behaviour (a trace, an exit code, a log) before theorising — a silent no-op (a swallowed error,
+  a mis-set flag) does not reveal itself by inspection.
 
 ## Routing
 
