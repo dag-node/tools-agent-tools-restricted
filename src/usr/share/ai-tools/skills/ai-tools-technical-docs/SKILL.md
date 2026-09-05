@@ -101,6 +101,13 @@ sentence is about:
 | what a person will do | drop it | `never run dnf remove first` predicts a human action; `upgrade in place, without a dnf remove first` is the instruction |
 | what a third-party tool does | drop it | `DNF never pulls a new weak dependency` is a claim about someone else's code; `DNF leaves a new weak dependency off an existing install` states the behaviour |
 
+**A claim about cost is the same shape.** "cheap", "negligible", "near-zero cost" state how often
+something runs or how much work it does. Name the frequency or the bounded operation, which the
+code answers; a measurement is host-dependent and is rarely what the sentence meant.
+
+- In style: `runs once per (re)start, not per connection`
+- Off style: `adds no meaningful overhead`
+
 ### Name the absent input rather than writing "nothing"
 
 - In style: `The helper does not take a path argument, so the path validator is not loaded.`
@@ -688,7 +695,8 @@ Scan the finished text for each of these, since every one is checkable:
 3. A clause mirrored on "rather than" or "not … but", where one plain sentence carries the fact.
 4. "nothing" — or "everything", "anything" — as the subject or object of a verb, where naming the
    thing would state the scope.
-5. "never", "always", or "cannot" with no guard named in the same sentence.
+5. "never", "always", or "cannot" with no guard named in the same sentence; "cheap",
+   "negligible", or "near-zero cost" with no frequency or bounded operation named in it.
 6. A behaviour introduced by what it prevents rather than by what it does.
 7. History in reference prose: "now", "used to", "previously", "was changed", a date.
 8. A fact stated in full in more than one place from the same perspective.
@@ -709,7 +717,9 @@ python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py <file>...
 ```
 
 It reads rejoined sentences, reports, and does not block. Items 4 and 9 and the `does not` rule
-run by default and are near-exact. `--all` adds the shape checks, each of which greps a sub-shape
+run by default and are near-exact, as does item 5's cost half — it reports a cost word only where
+the sentence does not name a frequency or a bounded operation, so one already stated concretely
+stays silent. `--all` adds the shape checks, each of which greps a sub-shape
 of its rule, because the rules themselves are about meaning: a word stem repeated across the pivot
 is the mirror in item 3 and the restated head noun in item 2, and an absolute in a sentence with
 no subordinating conjunction has nowhere for item 5's guard clause to be. It also carries the two

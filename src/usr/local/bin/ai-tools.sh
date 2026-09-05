@@ -1517,8 +1517,8 @@ under_skip_listed_name() {
 }
 
 # tree_is_pristine <dir>  -- 0 when <dir> holds only what --project-create just put there:
-# no file outside .git except README.md, and a git repository with no commits. Cheap and
-# unprivileged.
+# no file outside .git except README.md, and a git repository with no commits. One `find` that
+# stops at the first hit and one `git rev-parse`, unprivileged.
 #
 # It is re-derived here rather than trusted from the caller, because what it gates is the secret
 # scan: a stale or planted CLAIM_FRESH_TREE must not be able to skip that on a tree with content

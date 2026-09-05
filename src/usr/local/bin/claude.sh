@@ -375,7 +375,7 @@ fi
 #   label      -- under SELinux enforcing, the tree must carry ai_tools_project_t or the
 #                 agent (ai_tools_t) cannot read/write it: again the session starts but
 #                 every file op is denied. FATAL. The relabel needs root, so the claim
-#                 runs it via sudo. Cheap -- no clone needed.
+#                 runs it via sudo. It relabels in place, so no clone is needed.
 #   safe.dir   -- cwd absent from ai-tools' git safe.directory. git refuses to operate
 #                 ("dubious ownership"). Non-fatal; only git, no ownership/label change.
 readonly GITCONFIG="/opt/ai-tools/.gitconfig"

@@ -46,7 +46,8 @@ NoNewPrivileges=yes
 # not this set.  The set only bounds a hypothetical daemon-code compromise (no
 # setuid, no module load, no ptrace, no CAP_SYS_ADMIN).
 CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_FSETID CAP_DAC_OVERRIDE
-# Systemd sandboxing -- narrow the blast radius further at near-zero cost.  The
+# Systemd sandboxing -- narrow the blast radius further.  The manager applies
+# these once per handler process, at spawn.  The
 # helpers are bash + coreutils + find + realpath + (best-effort) restorecon.
 #   RestrictAddressFamilies/IPAddressDeny: the daemon only ever touches AF_UNIX.
 #   ProtectKernel*/ProtectControlGroups/ProtectClock: no business with kernel
@@ -76,8 +77,9 @@ CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_FSETID CAP_DAC_OVERRIDE
 #     write under sbin in ai_tools_handback_t would raise) if a future edit adds a local import.
 #   PYTHONUNBUFFERED        -- flush stdout (the response socket) and stderr (journal) without
 #     buffering, so an audit line is never stranded in a buffer if a handler is killed.
-#   PYTHONFAULTHANDLER      -- dump a C-level traceback to stderr (journal) on a fatal signal;
-#     cheap crash diagnostics for a root daemon holding CAP_DAC_OVERRIDE.
+#   PYTHONFAULTHANDLER      -- dump a C-level traceback to stderr (journal) on a fatal signal,
+#     written only when one arrives: crash diagnostics for a root daemon holding
+#     CAP_DAC_OVERRIDE.
 # PYTHONOPTIMIZE is deliberately NOT set: it strips asserts and would alter runtime semantics
 # for no meaningful gain on a per-connection script.
 Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONFAULTHANDLER=1

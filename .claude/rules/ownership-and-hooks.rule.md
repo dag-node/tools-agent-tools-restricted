@@ -93,9 +93,8 @@ trees (agent-owned from before) out of the result:
 find <project> <skip-expr> -prune -o -user SANDBOX_USER -print
 ```
 
-This is a cheap way for the operator (or the agent) to see what the agent changed this
-session, distinct from `git status` in that it also surfaces untracked and `.gitignore`d
-writes.
+This one `find` shows the operator (or the agent) what the agent changed this session,
+distinct from `git status` in that it also surfaces untracked and `.gitignore`d writes.
 
 ## `SessionStart` — the unbounded recovery pass
 
