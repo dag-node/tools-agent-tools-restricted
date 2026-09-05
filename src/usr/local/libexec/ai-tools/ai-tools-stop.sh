@@ -271,7 +271,8 @@ resolve_run_context() {
     SANDBOX_UID="$(id -u "${SANDBOX_USER}" 2>/dev/null)"
     if [[ -z "${SANDBOX_UID}" ]]; then
         say_error "ai-tools-stop: cannot resolve the uid of ${SANDBOX_USER}, so no cgroup can be located" \
-                  "the sandbox account is missing -- reprovision with: sudo ai-tools-bootstrap"
+                  "the sandbox account is missing -- reprovision with:" \
+                  "  sudo ai-tools-admin system bootstrap"
         log_event error "REFUSED: ${SANDBOX_USER} has no uid; cannot locate any session cgroup"
         exit 5
     fi

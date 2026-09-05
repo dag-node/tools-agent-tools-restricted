@@ -19,8 +19,8 @@ copy is ever forked per agent — `tests/integration/perms.sh` fails if one is.
 
 1. Create `src/usr/share/ai-tools/skills/ai-tools-<name>/SKILL.md` with the frontmatter below (copy a
    sibling; the `ai-tools-` prefix is the shipped namespace and must match the `name:` field).
-2. Reinstall (`sudo ./install.sh install`) or `sudo ai-tools-bootstrap`. The skill is seeded into
-   `/opt/ai-tools/skills/` and linked into each agent's own skills directory.
+2. Reinstall (`sudo ./install.sh install`) or `sudo ai-tools-admin system bootstrap`. The skill is
+   seeded into `/opt/ai-tools/skills/` and linked into each agent's own skills directory.
 3. Invoke it in a session as `/ai-tools-<name>`.
 
 ```yaml

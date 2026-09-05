@@ -70,7 +70,8 @@ agent, or that lost the symlink while sessions were live.
 
 `--help`, `--version` and the bare invocation are exempt because they describe **the CLI** rather
 than the toolchain: `usage()` and `AI_TOOLS_VERSION` read no installed state. The gate's own
-refusal names `ai-tools-bootstrap` as the command to run next, so gating the usage would leave that
+refusal names `sudo ai-tools-admin system bootstrap` as the command to run next, so gating the
+usage would leave that
 message as the only place an operator could find it. `tests/unit/cli-verbs.sh` pins the membership,
 since the gate is one line far from the table it reads and the failure appears only on an
 unprovisioned host.

@@ -246,8 +246,8 @@ install -m 0750 src%{ai_libexecdir}/ai-tools-handback.py %{buildroot}%{ai_libexe
 # base helper that is not daemon- or sudoers-invoked by fixed path, so it gets a symlink in
 # %{_sbindir}: sudo resolves a bare command against the sudoers secure_path, which on stock
 # EL is /sbin:/bin:/usr/sbin:/usr/bin and does NOT include /usr/local/sbin. The target keeps
-# its canonical %{ai_libexecdir} path. ai-tools-bootstrap gets the same treatment in the
-# ai-tools-integration-nodejs subpackage.
+# its canonical %{ai_libexecdir} path. Provisioning is a verb on it (`system bootstrap`) rather
+# than a name of its own.
 install -d -m 0755 %{buildroot}%{_sbindir}
 ln -s %{ai_libexecdir}/ai-tools-admin %{buildroot}%{_sbindir}/ai-tools-admin
 
@@ -412,10 +412,9 @@ find %{buildroot}%{_datadir}/ai-tools/subagents %{buildroot}%{_datadir}/ai-tools
 for h in ai-tools-launcher-symlink ai-tools-relabel-agent ai-tools-bootstrap; do
     install -m 0750 src%{ai_libexecdir}/${h}.sh %{buildroot}%{ai_libexecdir}/${h}
 done
-# ai-tools-bootstrap is administrator-typed (documented as a bare command); symlinked in
-# %{_sbindir} so `sudo ai-tools-bootstrap` resolves via secure_path, mirroring
-# ai-tools-admin in the base subpackage.
-ln -s %{ai_libexecdir}/ai-tools-bootstrap %{buildroot}%{_sbindir}/ai-tools-bootstrap
+# All three are reached at their %{ai_libexecdir} paths and do not get a %{_sbindir} symlink,
+# because an administrator does not type any of them: provisioning is
+# `sudo ai-tools-admin system bootstrap`, which execs the helper there.
 install -m 0550 src/opt/ai-tools/bin/nvm-update.sh %{buildroot}/opt/ai-tools/bin/nvm-update.sh
 
 # ── integration-nodejs: toolchain update units + post-upgrade relabel watcher ─
@@ -431,7 +430,7 @@ install -m 0644 src%{_unitdir}/ai-tools-relabel.service %{buildroot}%{_unitdir}/
 # ── integration-dotnet: session-env fragment + manifest + provisioning helper ─
 # The .NET SDK/runtime is the host's; this ships only the sandbox-side glue. The env fragment
 # (session-env.d) and manifest (integrations.d) drop into the base-owned dirs; the ai-tools-dotnet
-# helper is administrator-typed, so it gets a %{_sbindir} symlink like ai-tools-bootstrap/-admin.
+# helper is administrator-typed, so it gets a %{_sbindir} symlink like ai-tools-admin.
 install -m 0644 src%{ai_libdir}/session-env.d/dotnet.env.sh %{buildroot}%{ai_libdir}/session-env.d/dotnet.env.sh
 install -m 0644 src%{ai_libdir}/integrations.d/dotnet.conf  %{buildroot}%{ai_libdir}/integrations.d/dotnet.conf
 # Its command-filter rules (SDK verbosity), which are .NET knowledge and so ship with the .NET
@@ -599,7 +598,7 @@ fi
 if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ]; then
     echo "ai-tools-base: steps this host still needs:"
     if [ "${_at_toolchain}" = 1 ]; then
-        echo "  sudo ai-tools-bootstrap                       # install nvm + Node + Claude Code (network)"
+        echo "  sudo ai-tools-admin system bootstrap          # install nvm + Node + Claude Code (network)"
     fi
     if [ "${_at_operator}" = 1 ]; then
         echo "  sudo ai-tools-admin operators add <your-user> # bind an operator (ai-ops, OPERATORS, linger)"
@@ -960,7 +959,6 @@ fi
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-launcher-symlink
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-relabel-agent
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-bootstrap
-%{_sbindir}/ai-tools-bootstrap
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/nvm-update.sh
 # The updater's last-run stamp: rewritten by nvm-update.sh on every exit, read by
 # `ai-tools --status` (the base's state directory above owns the placement). Owned by the sandbox
@@ -1023,6 +1021,13 @@ fi
   verifies each agent binary against the checksum its vendor signed, pins the result, then
   restores the SELinux label. The command moved because it runs as root, and root commands live on
   ai-tools-admin.
+- CHANGED: Provisioning is now 'sudo ai-tools-admin system bootstrap'. The standalone
+  'ai-tools-bootstrap' command is gone and is not aliased, and its /usr/sbin symlink goes with it.
+  Update any script, kickstart or runbook that calls it -- the %post banner and the install
+  output already print the new spelling. What the command does is unchanged, including the
+  AI_TOOLS_NVM_VERSION and AI_TOOLS_NODE_MAJOR settings it reads and its re-run after enabling
+  another agent. A host installed from source keeps the old /usr/sbin/ai-tools-bootstrap symlink
+  until it is removed by hand; an RPM upgrade removes it.
 - CHANGED: The %ai-ops sudoers drop-in is down to two rules, the session lifecycle: launch a
   session, and stop every session. The passwordless rule for the relabel helper is removed, so an
   operator who holds no general sudo grant can launch and stop sessions and cannot run the

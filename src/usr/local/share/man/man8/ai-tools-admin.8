@@ -15,9 +15,9 @@ ai-tools-admin \- administer the host a sandboxed coding agent runs on
 .SH DESCRIPTION
 .B ai-tools-admin
 administers the host state the sandbox rests on: who is enrolled as an
-operator, which optional SELinux policy groups are loaded, which agent binary
-each session is allowed to start, and the configuration files an upgrade leaves
-to reconcile.
+operator, which optional SELinux policy groups are loaded, the toolchain the
+agents run on, which agent binary each session is allowed to start, and the
+configuration files an upgrade leaves to reconcile.
 Every command runs as root and refuses any other caller, which is what
 separates it from
 .BR ai-tools (1)
@@ -84,6 +84,21 @@ A group marked
 .I experimental
 is an unaudited draft and is refused here, with a pointer to the source
 checkout that compiles and verifies it.
+.SS The toolchain
+The agents run on a Node toolchain owned by the sandbox account, under
+.IR /opt/ai\-tools .
+.B "system bootstrap"
+installs it: the account and its home if they are absent, then nvm, Node, and
+each enabled agent's npm package.
+It is the first command to run on a new host, and the one that installs
+software over the network \(em which is why no install scriptlet runs it for
+you: a scriptlet has to succeed offline and inside a build chroot.
+.PP
+It is idempotent, so it is also the command to re-run after enabling another
+agent in
+.BR operator.conf (5):
+an existing account, nvm install or Node version is reused rather than rebuilt.
+A scheduled timer maintains the toolchain afterwards.
 .SS Entrypoints
 An entrypoint is the agent binary a session execs.
 A toolchain update installs a fresh one, which leaves it carrying the wrong
@@ -162,6 +177,26 @@ Unload the module for
 .IR name .
 Works for any loaded group, stable or experimental.
 .TP
+.B system bootstrap
+Provision the sandbox account and the toolchain the enabled agents run on.
+Creates the
+.B ai-tools
+account and its
+.I /opt/ai-tools
+home when they are absent, installs nvm and Node as that account, installs each
+agent enabled in
+.BR operator.conf (5),
+points each launcher at the binary it installed, and enables the update timer.
+Offers to set the sandbox account's git commit identity, keeping the seeded
+default without a terminal.
+.B Reaches the network,
+for the nvm installer and the npm packages.
+Idempotent: a re-run reuses an existing account, nvm install and Node version,
+and provisions whatever is newly enabled.
+Takes no argument: the agents come from
+.BR operator.conf (5)
+and the installed manifests.
+.TP
 .B system entrypoints relabel
 Reconcile every enabled agent's entrypoint, in two steps.
 It verifies the binary against the checksum its vendor signed and records the
@@ -235,6 +270,19 @@ without prompting, for unattended runs.
 A question defaulting to
 .I no
 still prompts, so this never turns a refusal into consent.
+.TP
+.B AI_TOOLS_NVM_VERSION
+Pin the nvm release
+.B "system bootstrap"
+installs
+.RI ( vX.Y.Z ).
+Unset, it installs the latest release, resolved at run time.
+.TP
+.B AI_TOOLS_NODE_MAJOR
+The Node major version
+.B "system bootstrap"
+installs.
+Defaults to 22.
 .PP
 Host settings are not environment variables: they live in
 .BR operator.conf (5),
@@ -252,6 +300,12 @@ line in place and leaves every other setting as written.
 The enrolled account's own allowlist of project paths, seeded empty by
 .BR "operators add" .
 .TP
+.I /opt/ai-tools
+The sandbox account's home, holding the nvm tree, the installed agents and the
+launchers
+.B "system bootstrap"
+points at them.
+.TP
 .I /usr/share/selinux/packages/ai-tools
 The prebuilt policy modules
 .B "selinux groups enable"
@@ -262,11 +316,25 @@ The grant that lets an operator launch a sandboxed session.
 .B "system post-upgrade"
 shows changes to it and never writes it.
 .SH EXAMPLES
-Enrol yourself on a freshly installed host:
+Bring a freshly installed host up: provision the toolchain, then enrol
+yourself.
 .PP
 .RS 4
 .EX
+sudo ai\-tools\-admin system bootstrap
 sudo ai\-tools\-admin operators add "$(id \-un)"
+.EE
+.RE
+.PP
+Provision an agent you enabled after the first run \(em edit
+.B AI_TOOLS_AGENTS
+in
+.BR operator.conf (5),
+then re-run the same command:
+.PP
+.RS 4
+.EX
+sudo ai\-tools\-admin system bootstrap
 .EE
 .RE
 .PP

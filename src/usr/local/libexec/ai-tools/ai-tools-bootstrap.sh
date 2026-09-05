@@ -16,8 +16,10 @@
 #
 # Idempotent: an existing account, nvm install, or Node version is reused, not rebuilt.
 #
-# Run as root (it creates a user and execs npm as @SANDBOX_USER@):
-#       sudo ai-tools-bootstrap
+# Run as root (it creates a user and execs npm as @SANDBOX_USER@) through the command that reaches
+# it, which is what an administrator types:
+#       sudo ai-tools-admin system bootstrap
+# ai-tools-admin execs it at the path below; it does not have a name on PATH of its own.
 # nvm defaults to its latest GitHub release (resolved at run time, so it does not rot); set
 # AI_TOOLS_NVM_VERSION=vX.Y.Z to pin it, or AI_TOOLS_NODE_MAJOR to choose the Node line.
 #

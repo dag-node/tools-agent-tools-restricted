@@ -123,7 +123,8 @@ while IFS=$'\t' read -r manifest_agent_name _ manifest_launcher; do
 done < <(ai_tools_enabled_agents 2>/dev/null)
 (( ${#agent_name_by_launcher[@]} > 0 )) \
     || refuse 'no agent is enabled on this host -- nothing can launch' \
-              'enable one in /etc/ai-tools/operator.conf (AI_TOOLS_AGENTS), then: sudo ai-tools-bootstrap'
+              'enable one in /etc/ai-tools/operator.conf (AI_TOOLS_AGENTS), then provision it:' \
+              '  sudo ai-tools-admin system bootstrap'
 
 agent_executable_path="${AI_TOOLS_AGENT_EXEC:-}"
 [[ "${agent_executable_path}" != *"/../"* ]] \
@@ -190,7 +191,8 @@ entrypoint_identity() {
 session_exec_path="$(resolve_entrypoint)" \
     || refuse "the launcher does not resolve to an executable inside ${entrypoint_version_root}" \
               "resolved from:  ${agent_executable_path}" \
-              'reprovision the toolchain:  sudo ai-tools-bootstrap'
+              'reprovision the toolchain:' \
+              '  sudo ai-tools-admin system bootstrap'
 session_exec_identity="$(entrypoint_identity "${session_exec_path}")"
 
 # ── Session working directory ────────────────────────────────────────────────────────────────
@@ -546,7 +548,7 @@ case "${entrypoint_pin_verdict}" in
         refuse 'the agent entrypoint does not match the checksum its vendor signed for the installed version -- refusing to start the session' \
                "entrypoint:  ${session_exec_path}" \
                'The binary changed after it was verified. Treat this toolchain as tampered and reprovision it:' \
-               '  sudo ai-tools-bootstrap' ;;
+               '  sudo ai-tools-admin system bootstrap' ;;
     ok) ;;
     *)  if [[ "${require_entrypoint_verify}" == yes ]]; then
             audit warning "REFUSED: entrypoint unverified (${entrypoint_pin_verdict}) and AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set"
@@ -563,7 +565,8 @@ if [[ "$(resolve_entrypoint || true)" != "${session_exec_path}" \
            "entrypoint:  ${session_exec_path}" \
            'A toolchain update running at the same moment explains this: rerun the launch.' \
            'If it repeats with no update running, treat the toolchain as untrusted:' \
-           'reprovision it:  sudo ai-tools-bootstrap'
+           'reprovision it:' \
+           '  sudo ai-tools-admin system bootstrap'
 fi
 
 # ExecStart is the RESOLVED entrypoint, not the launcher symlink: the manager's execve performs the
@@ -588,6 +591,6 @@ if (( session_exit_status != 0 && SECONDS - session_start_seconds < 5 )); then
         "ai-tools-run: the session exited with status ${session_exit_status} almost immediately." \
         "If it ended with no output, the sandbox toolchain may be incompletely" \
         "installed -- reprovision it as root, then relaunch:"
-    printf '  sudo ai-tools-bootstrap\n' >&2
+    printf '  sudo ai-tools-admin system bootstrap\n' >&2
 fi
 exit "${session_exit_status}"

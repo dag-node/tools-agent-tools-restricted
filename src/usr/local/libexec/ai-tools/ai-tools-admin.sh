@@ -12,6 +12,7 @@
 #   sudo ai-tools-admin selinux groups                     # show core + optional group state
 #   sudo ai-tools-admin selinux groups enable <name>       # load a prebuilt (stable) group
 #   sudo ai-tools-admin selinux groups disable <name>      # unload one
+#   sudo ai-tools-admin system bootstrap                   # provision the sandbox account's toolchain
 #   sudo ai-tools-admin system entrypoints relabel         # verify + relabel the agent entrypoints
 #   sudo ai-tools-admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
 #
@@ -37,6 +38,15 @@
 # `groups enable` of an EXPERIMENTAL (unaudited) group is refused with a pointer to the source
 # compile-and-verify workflow (install-selinux.sh + the avc bring-up loop), since this tool will
 # not load an unaudited module. `groups disable` works for any loaded group, stable or not.
+#
+# `system bootstrap` provisions the sandbox account and the Node toolchain the enabled agents run
+# on, through the root helper ai-tools-bootstrap. It is the first command an administrator runs on
+# a new host, and the one that installs software over the network, which is why it is a command
+# rather than an RPM scriptlet: a scriptlet must succeed offline and inside a build chroot.
+# Idempotent -- an existing account, nvm install or Node version is reused -- so it is also the
+# re-run after enabling an agent in operator.conf. The bare form does the minimal provision; a
+# scope switch that also reaches the enabled integrations arrives with the contributed-domain
+# dispatch.
 #
 # `system entrypoints relabel` reconciles each enabled agent's entrypoint after a toolchain change,
 # through the root helper ai-tools-relabel-agent: it verifies the binary against the checksum its
@@ -67,10 +77,13 @@ readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 readonly SELINUX_GROUPS_LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
-# Root-only entrypoint reconcile helper, 750 root:root. Reached directly rather than through sudo:
-# this tool already refuses a non-root caller. The ai-tools-relabel.path watcher, ai-tools-bootstrap
-# and the agent package's %post run the same helper as root themselves.
+# Root-only helpers, 750 root:root, reached directly rather than through sudo: this tool already
+# refuses a non-root caller. Both ship in ai-tools-integration-nodejs, which the metapackage pulls
+# in weakly, so each command checks for its helper and names that package when it is absent. The
+# ai-tools-relabel.path watcher, ai-tools-bootstrap and the agent package's %post run the relabel
+# helper as root themselves.
 readonly RELABEL_ENTRYPOINT_BIN="/usr/local/libexec/ai-tools/ai-tools-relabel-agent"
+readonly BOOTSTRAP_BIN="/usr/local/libexec/ai-tools/ai-tools-bootstrap"
 
 # Substituted at deploy time (install.sh install_subst from packaging/VERSION; the RPM from
 # %{version}), and left as the literal token in the checkout -- which `--version` reports as
@@ -96,7 +109,7 @@ reject() {
 # agreement on the command set.
 usage() {
     cat <<EOF
-ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, entrypoints, upgrades
+ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, the toolchain, upgrades
 
   Operators
     operators                        the enrolled operators
@@ -107,6 +120,7 @@ ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, entry
     selinux groups enable <name>     load a prebuilt optional group
     selinux groups disable <name>    unload a loaded group
   System
+    system bootstrap                 provision the sandbox account and its toolchain
     system entrypoints relabel       verify and relabel the agent entrypoints
     system post-upgrade              reconcile the .rpmnew files an upgrade leaves
 
@@ -505,6 +519,21 @@ sel_list() {
     printf '                 sudo selinux/install-selinux.sh enable-group <name>\n'
 }
 
+# ── system bootstrap: provision the sandbox account and its toolchain ────────────────────────
+# Execs the provisioning helper, which creates the @SANDBOX_USER@ account and its /opt/ai-tools
+# home if they are absent, installs nvm and Node as that account, then installs each enabled
+# agent's npm package and points its launcher at the result. The helper keeps its own name, path
+# and output; what this command changes is how an administrator reaches it.
+#
+# The provisioning logic stays a separate file rather than moving in here: it is long, runs
+# unattended from the container selftest, and reaches the network, none of which this dispatcher
+# does.
+system_bootstrap() {
+    [[ $# -eq 0 ]] || reject "system bootstrap: takes no arguments"
+    [[ -x "${BOOTSTRAP_BIN}" ]] || die "${BOOTSTRAP_BIN} not found -- install ai-tools-integration-nodejs"
+    exec "${BOOTSTRAP_BIN}"
+}
+
 # ── system entrypoints relabel: reconcile each enabled agent's entrypoint ─────────────────────
 # Two steps in the helper, in this order: VERIFY the binary against the checksum its vendor signed
 # and record it in that agent's pin, which ai-tools-run compares the binary against at launch; then
@@ -512,7 +541,7 @@ sel_list() {
 # firing. Takes no path -- the helper resolves the entrypoints from the agent manifests.
 entrypoints_relabel() {
     [[ $# -eq 0 ]] || reject "system entrypoints relabel: takes no arguments"
-    [[ -x "${RELABEL_ENTRYPOINT_BIN}" ]] || die "${RELABEL_ENTRYPOINT_BIN} not found -- reinstall ai-tools-base"
+    [[ -x "${RELABEL_ENTRYPOINT_BIN}" ]] || die "${RELABEL_ENTRYPOINT_BIN} not found -- install ai-tools-integration-nodejs"
     log "reconciling the agent entrypoints (verify, then relabel)"
     # Cleared, not merely left unset: the guarantee that this command re-fetches the vendor's signed
     # manifest holds however it was invoked, rather than resting on sudo scrubbing the environment
@@ -722,12 +751,13 @@ system_entrypoints_dispatch() {
 }
 
 system_dispatch() {
-    [[ $# -ge 1 ]] || reject "system takes a resource or a verb: 'system entrypoints relabel', 'system post-upgrade'"
+    [[ $# -ge 1 ]] || reject "system takes a resource or a verb: 'system bootstrap', 'system entrypoints relabel', 'system post-upgrade'"
     local name="$1"; shift
     case "${name}" in
+        bootstrap)    system_bootstrap "$@" ;;
         entrypoints)  system_entrypoints_dispatch "$@" ;;
         post-upgrade) postupgrade "$@" ;;
-        *)            reject "unknown command 'system ${name}' (entrypoints|post-upgrade)" ;;
+        *)            reject "unknown command 'system ${name}' (bootstrap|entrypoints|post-upgrade)" ;;
     esac
 }
 

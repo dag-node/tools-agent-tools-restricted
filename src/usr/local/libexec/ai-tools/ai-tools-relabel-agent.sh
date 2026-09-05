@@ -202,7 +202,7 @@ fi
 # Reported before any labelling outcome: an entrypoint that is not the binary its vendor published
 # is a more serious finding than any label, and the remedy is different in kind.
 (( pin_failures == 0 )) \
-    || die "${pin_failures} agent entrypoint(s) do NOT match the checksum their vendor signed for the installed version -- treat the toolchain as tampered; reprovision it (sudo ai-tools-bootstrap) and, if it recurs, investigate before launching a session"
+    || die "${pin_failures} agent entrypoint(s) do NOT match the checksum their vendor signed for the installed version -- treat the toolchain as tampered; reprovision it (sudo ai-tools-admin system bootstrap) and, if it recurs, investigate before launching a session"
 
 # Collect the report first, so the lib's return code survives (2 = the SELinux layer is not
 # active here, which is a supported deployment and not a failure).

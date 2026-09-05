@@ -182,7 +182,7 @@ fi
 if [[ ! -L "${CLAUDE_LINK}" ]]; then
     die "ERROR: claude symlink not found at ${CLAUDE_LINK}" \
         "       the sandbox toolchain is not provisioned yet -- provision it with:" \
-        "         sudo ai-tools-bootstrap"
+        "         sudo ai-tools-admin system bootstrap"
 fi
 
 # Resolve the stable symlink ONE hop -- it points directly at the versioned

@@ -30,8 +30,8 @@ Agent Tools Restricted runs autonomous coding agents under a dedicated, unprivil
 - **SELinux targeted policy, enforcing** — recommended; the session is confined in
   `ai_tools_t`. With SELinux disabled the system runs in a documented DAC-only
   posture.
-- **Network access once** for `ai-tools-bootstrap` (fetches nvm, Node, and the agent
-  npm package); day-to-day operation and updates run from a systemd timer.
+- **Network access once** for `ai-tools-admin system bootstrap` (fetches nvm, Node, and
+  the agent npm package); day-to-day operation and updates run from a systemd timer.
 - Optional: **podman** to run the container test harness (`packaging/README.md`).
 
 > [!WARNING]
@@ -73,7 +73,7 @@ step 3:
 
 ```bash
 # 1. Install Node.js, nvm, and Claude Code (from npm) and enable the update timer (network).
-sudo ai-tools-bootstrap
+sudo ai-tools-admin system bootstrap
 
 # 2. Enrol yourself as an operator: records you in /etc/ai-tools/operator.conf and grants
 #    ai-ops membership (the sudo rules and ownership hand-back).
@@ -130,7 +130,7 @@ via `sudo` and wraps the session in a confined `systemd --user` service. Launche
 unclaimed project it prompts you to claim it first; the claim and every elevated helper
 refuse system directories and home roots (the
 [safe-paths backstop](.claude/rules/safe-paths.rule.md)). [From source](#from-source)
-is the manual equivalent of the package install plus `ai-tools-bootstrap`.
+is the manual equivalent of the package install plus `ai-tools-admin system bootstrap`.
 
 ## Why
 
@@ -300,8 +300,8 @@ The privilege model and every guard above are specified in
     sudo ai-tools-admin operators add <user>    # enrol yourself as an operator
 
 `install.sh` stops unless the sandbox account and `/opt/ai-tools/bin` already exist —
-steps 1–3 create them (once the package is deployed, `sudo ai-tools-bootstrap` does both
-in one idempotent command). The four steps, the full source→deploy file map, and
+steps 1–3 create them (once the package is deployed, `sudo ai-tools-admin system bootstrap`
+does both in one idempotent command). The four steps, the full source→deploy file map, and
 `sudo ./install.sh uninstall` are in
 [docs/install-from-source.md](docs/install-from-source.md); registering projects is the
 same as the package path — see
@@ -437,7 +437,7 @@ See [`LICENSE`](LICENSE) for the full text. Releases through 0.9.x were publishe
 `AGPL-3.0-or-later`; from 0.10.0 the project is `AGPL-3.0-only`.
 
 **Claude Code is separate.** This license covers this repository's own source — the
-sandboxing, install, and CLI machinery. `ai-tools-bootstrap` installs Claude Code
+sandboxing, install, and CLI machinery. `ai-tools-admin system bootstrap` installs Claude Code
 (`@anthropic-ai/claude-code`) from npm at your own bootstrap step; it is a separate
 Anthropic product under its own terms, which this repository neither vendors nor redistributes.
 See [Anthropic's Claude Code](https://github.com/anthropics/claude-code).
