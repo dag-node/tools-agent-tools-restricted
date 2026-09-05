@@ -169,9 +169,14 @@ The reconcile that clears this runs on its own after an update, through the
 watcher and the agent package's install scriptlet.
 .B "system entrypoints relabel"
 is the command an administrator runs when neither did \(em an out-of-band
-upgrade, or a watcher that was down \(em and when
-.B "ai-tools --status"
+upgrade, or a watcher that was down \(em and when either
+.B status
+or
+.B "ai\-tools \-\-status"
 reports an entrypoint unverified or not labelled.
+.B status
+is the one that answers from the labels themselves rather than from the last
+reconciliation's record.
 .SH COMMANDS
 .TP
 .B operators
@@ -315,6 +320,48 @@ backup before changing anything.
 Idempotent, and a no-op when no
 .I .rpmnew
 file is waiting.
+.TP
+.B status
+Report this host's health: the installed version, whether the toolchain is
+provisioned, each managed
+.BR systemd (1)
+unit, and \(em per enabled agent \(em both halves of the entrypoint
+reconciliation: whether the binary is pinned to a checksum its vendor signed,
+and what SELinux type its paths carry.
+.RS
+.PP
+It is the same report
+.B "ai\-tools \-\-status"
+gives an operator, completed with the three readings that vantage point cannot
+make and prints as
+.BR ? :
+the sandbox account's own
+.B "systemd \-\-user"
+units, read live over the machine transport; the entrypoint pin, which sits in
+a state directory a non-operator cannot traverse; and the SELinux type each
+agent path carries, inside a toolchain only root can enter.
+Every verdict comes from the registry both reports read, so the two differ in
+what each is allowed to see and never in what either says about the same unit.
+.PP
+The label reading is the one this command alone can give.
+.B "ai\-tools \-\-status"
+reports what the last reconciliation
+.IR achieved ,
+an event that may be hours old; this reports the type the file carries now, so
+a label that has drifted since \(em an out-of-band
+.BR restorecon ,
+a package that reinstalled the binary \(em is visible without running the
+reconcile.
+.PP
+Read-only: it registers no file-context rule, relabels nothing, and takes no
+lock, so it does not change the state it is reporting on.
+Takes no argument.
+Exits non-zero when anything needs attention, so it runs from a monitor or a
+.BR cron (8)
+job without parsing its output; a reading it could not make is reported as
+.B ?
+and never counted, so an unqueryable unit does not alarm a healthy host.
+.RE
 .SH OPTIONS
 Both options read no host state and leave the host as it is, so both answer any caller
 rather than only root, and each ignores any further argument.

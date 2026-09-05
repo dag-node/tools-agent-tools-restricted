@@ -425,13 +425,21 @@ readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_NAMES=(); AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
-# Service-health registry (services.lib.sh): the single source `ai-tools --status` and the launch
-# wrapper's pre-launch health warning share, so the two never disagree on which units matter or how
-# to fix one. Best-effort -- only --status reads it, and it degrades to a "registry unavailable"
-# notice rather than failing any command.
+# Service-health registry (services.lib.sh): the single source `ai-tools --status`, the launch
+# wrapper's pre-launch health warning and `ai-tools-admin status` share, so no two of them disagree
+# on which units matter, what one is doing, or how to fix it. Best-effort -- only --status reads
+# it, and it degrades to a "registry unavailable" notice rather than failing any command.
 readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/services.lib.sh
 source "${SERVICES_LIB}" 2>/dev/null || true
+# The account whose `systemd --user` units the registry may read live. Naming it widens nothing on
+# its own -- the probe still needs root and a working machine transport, and every failure falls
+# back to the stamp -- so this CLI as an operator reports exactly what it always did, while
+# `sudo ai-tools --status` completes the reads an operator cannot. One resource, degrading by
+# privilege, which is what keeps this report and the root one from being two answers.
+if declare -F ai_tools_service_sandbox_account >/dev/null 2>&1; then
+    ai_tools_service_sandbox_account "${SANDBOX_USER}"
+fi
 
 # ── Reaching a root helper ───────────────────────────────────────────────────────
 # Most verbs do work only root can do, through a helper in /usr/local/libexec/ai-tools (750
@@ -3622,18 +3630,14 @@ list_maintenance_note() {
     say "  ai-tools --lockdown <path>          lock down secret-named files"
 }
 
-# status_fmt_age <seconds>  -- render an age the way an operator reads it ("3 days ago"), not as a
-# duration to be mentally subtracted from now. Coarsens with distance: the exact minute matters for
-# a run that just happened and not at all for one from last week. Empty input prints an empty string, so a
-# caller can drop the clause entirely when the age is unknown.
+# status_fmt_age <seconds>  -- render an age the way an operator reads it ("3 days ago"). The
+# wording is single-sourced in services.lib.sh beside the age it formats, so this report and
+# `ai-tools-admin status` cannot describe the same stamp two ways; this stays a local name because
+# the report calls it on nearly every line. Fail-soft, like the rest of that library's use here: a
+# missing lib drops the relative clause rather than the line.
 status_fmt_age() {
-    local s="${1:-}"
-    [[ "${s}" =~ ^[0-9]+$ ]] || return 0
-    if   [[ "${s}" -lt 90      ]]; then printf 'just now'
-    elif [[ "${s}" -lt 5400    ]]; then printf '%d min ago'  "$(( s / 60 ))"
-    elif [[ "${s}" -lt 172800  ]]; then printf '%d hours ago' "$(( s / 3600 ))"
-    else                                printf '%d days ago'  "$(( s / 86400 ))"
-    fi
+    declare -F ai_tools_service_fmt_age >/dev/null 2>&1 || return 0
+    ai_tools_service_fmt_age "${1:-}"
 }
 
 # status_sandbox_unit_commands <unit>  -- print the three commands that inspect and re-run a unit
@@ -3749,8 +3753,10 @@ status_entrypoint_pins() {
 # The label itself stays unreadable from here -- the entrypoint lives in a 0750 toolchain this
 # account cannot traverse, and matchpathcon computes only what a label SHOULD be -- so this reports
 # the root-written record instead, through the same stamp accessors as the pin. It reports an EVENT:
-# what the last run could do, and when. Confirming the labels are right NOW is
-# `ai-tools-admin system entrypoints relabel`, which the failure line names.
+# what the last run could do, and when. Reading the labels themselves needs root, which
+# `ai-tools-admin status` does (read-only) and `ai-tools-admin system entrypoints relabel` does
+# while repairing them; the failure line names the second, which is the one that also clears the
+# recorded failure this reads.
 #
 # Returns non-zero only for a recorded failure, which is the one state that stops a launch.
 status_entrypoint_label() {

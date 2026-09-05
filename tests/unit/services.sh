@@ -546,4 +546,93 @@ else
     pass "neither the wrapper nor the system filter can select a failed sandbox-user unit"
 fi
 
+# ── the live reading a ROOT caller adds, and what it may and may not override ───────────────────
+# `ai-tools-admin status` reaches the sandbox account's own manager over the machine transport,
+# which the operator cannot; the verdict that reading feeds into is the pure function below, so it
+# is driven here over its whole truth table with no manager to query and no privilege to hold.
+#
+# Every case is one of two claims. A live reading may only ADD an answer where the stamp declined
+# to give one -- so an unprivileged caller, whose live reading is always `unknown`, reports exactly
+# what it reported before this transport existed. And a live `active` is not a clean bill: for a
+# timer it says the schedule is loaded, not that runs are happening, so the stamp still decides
+# freshness and a stale or skipped run survives it.
+section "services: the live reading, and the verdict it feeds (unit)"
+
+if ! declare -F ai_tools_service_stamp_verdict >/dev/null 2>&1; then
+    skip "live-reading verdict" "the deployed library predates ai_tools_service_stamp_verdict"
+else
+    # verdict <expected> <label> <live> <mode> <result> <trigger> <age> <max_age>
+    verdict() {
+        local expected="$1" label="$2"; shift 2
+        local got; got="$(ai_tools_service_stamp_verdict "$@")"
+        if [[ "${got}" == "${expected}" ]]; then
+            pass "${label}"
+        else
+            fail "${label}: expected '${expected}', got '${got}'"
+        fi
+    }
+
+    # The manager wins where it is decisive. A stamp records a run that has already ended, so it
+    # cannot improve on "this unit is failed/stopped right now" -- and reporting a healthy last run
+    # over a stopped unit is the misreport the live probe exists to remove.
+    verdict failed "a live FAILED unit overrides a stamp recording a healthy recent run" \
+        failed result ok unit 60 172800
+    verdict down "a live DOWN unit overrides a stamp recording a healthy recent run" \
+        down result ok unit 60 172800
+
+    # The three places the stamp declines: each was a flat 'unknown' before, and each is where the
+    # live reading is worth having.
+    verdict active "an unreadable stamp resolves to the live reading, not to unknown" \
+        active result "" "" "" 172800
+    verdict active "'fired' mode declines a hand-started run and falls back to the live reading" \
+        active fired ok hand 60 172800
+    verdict active "'fired' mode with no usable age falls back to the live reading" \
+        active fired ok unit "" 172800
+
+    # The same three with no transport -- an operator, or a root caller whose probe could not
+    # complete. This is the direction that must not change: adding a reading must never remove one.
+    verdict unknown "an unreachable manager leaves an unreadable stamp reading unknown" \
+        unknown result "" "" "" 172800
+    verdict unknown "an unreachable manager leaves a hand-started run reading unknown" \
+        unknown fired ok hand 60 172800
+    verdict unknown "an unrecognised RESULT word still declines rather than guessing" \
+        unknown result mystery unit 60 172800
+
+    # A live 'active' is not authoritative, and these are the cases that prove it: the stamp still
+    # decides freshness and still reports a run that declined to act.
+    verdict stale "a live-active unit whose runs stopped is still STALE" \
+        active result ok unit 200000 172800
+    verdict stale "a live-active TIMER whose runs stopped is still STALE" \
+        active fired ok unit 200000 172800
+    verdict skipped "a live-active unit whose last run did nothing still reports SKIPPED" \
+        active result skipped unit 60 172800
+    verdict failed "a stamped failure is reported with no transport at all" \
+        unknown result failed unit 60 172800
+
+    # And the probe's own gate. Both refusals resolve to the stamp-only reading above, which is the
+    # direction every failure in this path takes.
+    _AI_TOOLS_SERVICE_SANDBOX_ACCOUNT=""
+    if _ai_tools_service_systemctl sandbox-user; then
+        fail "the live probe was offered with no sandbox account named"
+    else
+        pass "no sandbox account named: the live probe is not offered"
+    fi
+    ai_tools_service_sandbox_account ai-tools
+    if [[ "${EUID}" -eq 0 ]]; then
+        skip "non-root live probe" "this run is root, which is the vantage the probe is for"
+    elif _ai_tools_service_systemctl sandbox-user; then
+        fail "the live probe was offered to a non-root caller"
+    else
+        pass "a non-root caller is not offered the live probe, whatever account is named"
+    fi
+    # A system unit's state is world-readable, so that scope is offered to every caller -- the
+    # asymmetry is the point, and reading it as privileged would silently stop the launch
+    # wrapper's pre-launch warning from checking anything.
+    if _ai_tools_service_systemctl system; then
+        pass "a system unit stays readable by any caller"
+    else
+        fail "the system scope was refused (is systemctl absent from this host?)"
+    fi
+fi
+
 finish

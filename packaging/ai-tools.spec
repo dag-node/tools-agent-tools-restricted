@@ -1081,6 +1081,21 @@ fi
 - CHANGED: A rejected command line exits 2 rather than 1, so an unattended caller can tell a
   command nobody can type correctly from an operation that ran and failed. Exit 0 and exit 1
   keep their meanings.
+- NEW: 'sudo ai-tools-admin status' reports the same host 'ai-tools --status' does, and completes
+  the three readings an operator cannot make and sees as '?': the sandbox account's own systemd
+  --user units, read live; each agent's entrypoint pin, which lives in a directory only root can
+  enter; and the SELinux type each agent path carries. That last one is what no other command
+  gives -- 'ai-tools --status' reports what the last relabel achieved, which may be hours old,
+  while this reports the label on the file now, so a label that has drifted since is visible
+  without running the reconcile. It is read-only and relabels nothing, takes no argument, and
+  exits non-zero when something needs attention, so it runs from a monitor or a cron job without
+  parsing its output.
+- CHANGED: 'sudo ai-tools --status' now resolves the sandbox account's systemd --user units live
+  instead of reporting them from their last-run stamp, so root sees the same verdicts either way.
+  Run as yourself the command is unchanged. A live reading only ever adds an answer: a unit that
+  is stopped or failed is reported as such outright, while one that is running is still checked
+  against its last-run stamp, so a timer that is loaded but has stopped firing still reports
+  STALE rather than OK.
 
 * Mon Aug 31 2026 dagnode <tools@dagnode.com> - 0.14.0-1
 - NEW: 'ai-tools --project-create <path>' creates a project: one directory, an empty git
