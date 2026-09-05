@@ -77,6 +77,16 @@ not_writable /usr/local/lib/ai-tools/integrations.d \
 not_writable /usr/local/lib/ai-tools/session-env.d \
     "plant a session-env fragment ai-tools-run would source"
 
+# The contributed-command directory carries the same reasoning at the highest privilege in this
+# file: ai-tools-admin execs what it finds here AS ROOT. Writable, the agent would not be widening
+# its own session -- it would be writing a command an administrator runs as root. Its fragments are
+# 0750 root:root, so the agent cannot read one either; what it may see is the domain names, which
+# `ai-tools-admin --help` prints to any caller.
+not_writable /usr/local/lib/ai-tools/admin-commands.d \
+    "plant a command ai-tools-admin would exec as root"
+not_writable /usr/local/lib/ai-tools/admin-commands.d/dotnet \
+    "rewrite a command ai-tools-admin execs as root"
+
 # The shipped manifests and fragment themselves.
 not_writable /usr/local/lib/ai-tools/agents.d/claude-code.conf \
     "repoint the agent package the toolchain installs"
@@ -108,10 +118,10 @@ not_writable /opt/ai-tools/bin \
 not_writable /opt/ai-tools/integrations \
     "create or replace an integration's entire state tree"
 
-# The dotnet integration's split of its own state: shared tools READ-ONLY (only the sudo helper
+# The dotnet integration's split of its own state: shared tools READ-ONLY (only the root command
 # writes them), the NuGet restore cache WRITABLE (the agent restores into it every build). Both
 # halves are asserted -- a read-only cache breaks the integration just as surely as a writable
-# tools dir breaks the boundary. Absent until `sudo ai-tools-dotnet setup` has run.
+# tools dir breaks the boundary. Absent until `sudo ai-tools-admin dotnet bootstrap` has run.
 not_writable /opt/ai-tools/integrations/dotnet/tools \
     "put an executable of its own on the session PATH"
 

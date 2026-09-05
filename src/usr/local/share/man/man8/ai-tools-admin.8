@@ -99,6 +99,48 @@ agent in
 .BR operator.conf (5):
 an existing account, nvm install or Node version is reused rather than rebuilt.
 A scheduled timer maintains the toolchain afterwards.
+.PP
+A bare run provisions the toolchain and the agents, which is what a first host
+needs.
+.B "\-\-scope full"
+goes on to run the setup of every enabled integration, each through the domain
+it contributes, so provisioning a host that also runs .NET is one command
+rather than one per layer.
+.SS Commands a provider package contributes
+.B ai-tools-admin
+ships in the base package, which is installed before a host knows which agent and
+integration packages it will add, so the command set below is not the whole
+surface.
+A provider package contributes a domain named for itself \(em an executable it
+drops in
+.I /usr/local/lib/ai-tools/admin-commands.d
+\(em and this command discovers it.
+The
+.B dotnet
+domain works this way:
+.B "dotnet bootstrap"
+creates and labels the sandbox-side .NET state,
+.B "dotnet tools install"
+adds shared global tools, and
+.B "dotnet status"
+reports the host SDKs and what the sandbox has.
+They exist on a host that installed
+.BR ai\-tools\-integration\-dotnet ,
+and not on one that did not.
+.PP
+.B \-\-help
+lists the domains this host has, with a line describing each, so what it prints
+and what dispatches are one list.
+.B "<domain> \-\-help"
+prints that domain's own commands.
+.PP
+Installing a provider is what makes its commands exist; enabling it in
+.BR operator.conf (5)
+is what gives a session the provider itself.
+A contributed command is run only while it and its directory are root-owned and
+writable by neither group nor other, and one claiming a command this page
+documents is refused rather than merged; either refusal is reported and leaves
+the command surface smaller.
 .SS Entrypoints
 An entrypoint is the agent binary a session execs.
 A toolchain update installs a fresh one, which leaves it carrying the wrong
@@ -177,7 +219,7 @@ Unload the module for
 .IR name .
 Works for any loaded group, stable or experimental.
 .TP
-.B system bootstrap
+.B system bootstrap \fR[\fB\-\-scope full\fR]
 Provision the sandbox account and the toolchain the enabled agents run on.
 Creates the
 .B ai-tools
@@ -193,9 +235,29 @@ default without a terminal.
 for the nvm installer and the npm packages.
 Idempotent: a re-run reuses an existing account, nvm install and Node version,
 and provisions whatever is newly enabled.
-Takes no argument: the agents come from
+Which agents it installs comes from
 .BR operator.conf (5)
-and the installed manifests.
+and the installed manifests, so it names none of them itself.
+.RS
+.TP
+.B \-\-scope \fIminimal\fB|\fIfull
+How far to provision.
+.I minimal
+\(em the default, and what a bare
+.B "system bootstrap"
+does \(em is the toolchain and the enabled agents.
+.I full
+additionally runs the
+.B bootstrap
+of every integration enabled in
+.BR operator.conf (5),
+through the domain each one contributes, so a host is provisioned end to end in
+one command.
+Each integration is attempted and every failure named before the command exits
+non-zero; an enabled integration that does not contribute a
+.B bootstrap
+is reported and skipped.
+.RE
 .TP
 .B system entrypoints relabel
 Reconcile every enabled agent's entrypoint, in two steps.
@@ -306,6 +368,10 @@ launchers
 .B "system bootstrap"
 points at them.
 .TP
+.I /usr/local/lib/ai-tools/admin-commands.d
+The command domains installed provider packages contribute, one executable per
+domain, named for the provider.
+.TP
 .I /usr/share/selinux/packages/ai-tools
 The prebuilt policy modules
 .B "selinux groups enable"
@@ -335,6 +401,16 @@ then re-run the same command:
 .RS 4
 .EX
 sudo ai\-tools\-admin system bootstrap
+.EE
+.RE
+.PP
+Provision the toolchain and every integration enabled on this host, then see
+what the .NET one has:
+.PP
+.RS 4
+.EX
+sudo ai\-tools\-admin system bootstrap \-\-scope full
+sudo ai\-tools\-admin dotnet status
 .EE
 .RE
 .PP

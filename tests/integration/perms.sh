@@ -39,14 +39,12 @@ check_file /usr/local/libexec/ai-tools/ai-tools-relabel-agent    root           
 # 750 root:root).
 check_file /usr/local/libexec/ai-tools/ai-tools-bootstrap        root              root              750
 check_file /usr/local/libexec/ai-tools/ai-tools-admin           root              root              750
-# dotnet integration provisioning helper (optional integration): 750 root:root, sudo-invoked.
-check_file /usr/local/libexec/ai-tools/ai-tools-dotnet          root              root              750
-# The sudo-PATH symlinks in /usr/sbin, for the helpers an administrator types (sudoers
+# The sudo-PATH symlink in /usr/sbin, for the one command an administrator types (sudoers
 # secure_path on stock EL excludes /usr/local/sbin, so `sudo ai-tools-admin` resolves here).
 # check_file lstat()s the link itself (777 is a symlink's fixed mode); -e inside it also catches
-# a dangling link. ai-tools-bootstrap does not have one: it is reached only as a verb.
+# a dangling link. Nothing else has one: the provisioning helper and every contributed command
+# are reached as verbs of this one.
 check_file /usr/sbin/ai-tools-admin                           root              root              777
-check_file /usr/sbin/ai-tools-dotnet                          root              root              777
 # Lib dir: root-owned, group ai-tools, 0751. The agent enters via group to read the skip
 # list; world-execute lets an operator (not a SANDBOX_GROUP member) traverse in to source the
 # 644 world-readable libs by path without listing the dir. No write but root.
@@ -105,6 +103,12 @@ check_file /usr/local/lib/ai-tools/services.lib.sh           root              r
 check_file /usr/local/lib/ai-tools/agents.d                  root              root              755
 check_file /usr/local/lib/ai-tools/integrations.d            root              root              755
 check_file /usr/local/lib/ai-tools/session-env.d              root              root              755
+# The contributed-command directory takes that same reasoning at the highest privilege here:
+# ai-tools-admin execs what it finds inside AS ROOT, so a non-root writer would be choosing a root
+# command. Root-owned with no group or other write is what the dispatch's trust check requires;
+# world-READ is what lets `ai-tools-admin --help`, answered ahead of its own root check, list this
+# host's domains for any caller.
+check_file /usr/local/lib/ai-tools/admin-commands.d          root              root              755
 # The command-filter rule-set directory carries the same reasoning one step further out: its files
 # decide what every command in a session becomes, so a non-root writer here could reshape the
 # commands the agent runs and the transcript the operator reads. Base owns the directory and
@@ -118,6 +122,10 @@ check_file /usr/local/lib/ai-tools/agents.d/claude-code.conf root              r
 # manifest providers.lib.sh reads and the session-env fragment ai-tools-run sources when enabled.
 check_file /usr/local/lib/ai-tools/integrations.d/dotnet.conf   root            root              644
 check_file /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh  root            root              644
+# The `dotnet` domain of ai-tools-admin, contributed by the same package: 750 root:root like every
+# other root-executed helper, so the agent can neither read nor run it, and root-owned so the
+# dispatch's trust check admits it.
+check_file /usr/local/lib/ai-tools/admin-commands.d/dotnet      root            root              750
 check_file /usr/local/lib/ai-tools/filters.d/dotnet.rules       root            root              644
 # The claude-code agent's own session-env fragment, shipped by its agent package. ai-tools-run
 # sources it last, so these pins outrank an integration's -- and 644 root:root is what makes it

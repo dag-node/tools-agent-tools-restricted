@@ -59,11 +59,11 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Governance posture: enforced vs dispositional, proportionality, the agent's own conduct and the controls beside it | `usr/share/ai-tools/skills/ai-tools-capable-systems-governance/**` | [governance](.claude/rules/governance.rule.md) |
 | Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secret-handling.rule.md) |
 | Toolchain provisioning + Node/claude updater, symlink repoint, post-upgrade entrypoint reconciliation (signed-release verification + relabel) | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `ai-tools-launcher-symlink.sh`, `ai-tools-relabel-agent.sh`, `entrypoint-verify.lib.sh`, `keys/**`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
-| Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, the `session-env.d` session-env seam, and the dotnet integration | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,session-env}.d/**`, `ai-tools-dotnet.sh`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
-| Running .NET (CoreCLR) under confinement: the dotnet integration files ↔ the `tmpmap`/`apphost`/`netcore` SELinux groups, project-type→group map, denial breakdown | `lib/ai-tools/session-env.d/dotnet.env.sh`, `lib/ai-tools/filters.d/dotnet.rules`, `ai-tools-dotnet.sh`, `selinux/policy/ai_tools_{tmpmap,apphost,netcore}.te` | [dotnet](.claude/rules/dotnet.rule.md) |
+| Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, the `session-env.d` and `admin-commands.d` seams, and the dotnet integration | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,session-env,admin-commands}.d/**`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
+| Running .NET (CoreCLR) under confinement: the dotnet integration files ↔ the `tmpmap`/`apphost`/`netcore` SELinux groups, project-type→group map, denial breakdown | `lib/ai-tools/session-env.d/dotnet.env.sh`, `lib/ai-tools/filters.d/dotnet.rules`, `lib/ai-tools/admin-commands.d/dotnet.sh`, `selinux/policy/ai_tools_{tmpmap,apphost,netcore}.te` | [dotnet](.claude/rules/dotnet.rule.md) |
 | Management CLI, project lifecycle, relabel, acting for another operator (`--for`) | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel,allowlist}.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
 | Terminating sessions that are already running (`--stop`) — the incident ladder's stop rung; it sweeps every session in the account's cgroup and restores the user manager | `ai-tools-stop.sh` | [cli](.claude/rules/cli.rule.md) + [docs/session-stop.md](docs/session-stop.md) |
-| How every command is spelled: bare-word commands, plural collections, verb after noun, and the REST projection each maps onto | `bin/ai-tools.sh`, `ai-tools-admin.sh`, `ai-tools-dotnet.sh`, `ai-tools.1`, `ai-tools-admin.8` | [cli-grammar](.claude/rules/cli-grammar.rule.md) |
+| How every command is spelled: bare-word commands, plural collections, verb after noun, and the REST projection each maps onto | `bin/ai-tools.sh`, `ai-tools-admin.sh`, `lib/ai-tools/admin-commands.d/**`, `ai-tools.1`, `ai-tools-admin.8` | [cli-grammar](.claude/rules/cli-grammar.rule.md) |
 | Protected-paths backstop (refuse system dirs as targets) | `safe-paths.lib.sh` + the wrapper/CLI/elevated helpers | [safe-paths](.claude/rules/safe-paths.rule.md) |
 | Shared logging library | `log.lib.sh` | [logging](.claude/rules/logging.rule.md) |
 | User-facing message formatting (box, wrap, ties) | `msg.lib.sh` + its consumers | [messaging](.claude/rules/messaging.rule.md) |
@@ -317,7 +317,11 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   rather than adding one. See [launch](.claude/rules/launch.rule.md).
 - **Root sudo-helpers** live under `/usr/local/libexec/ai-tools/` (`chown`, `setgid`, `setfacl`,
   `unclaim`, `safedir`, `reclaim`, `allowlist`, `launcher-symlink`, `lockdown`, `relabel`,
-  `bootstrap`, `relabel-agent`, `admin`, `dotnet`); shared libraries under `/usr/local/lib/ai-tools/`
+  `bootstrap`, `relabel-agent`, `admin`); a provider package's own root command is instead a
+  **contributed `ai-tools-admin` domain**, an executable at
+  `/usr/local/lib/ai-tools/admin-commands.d/<name>` that the dispatcher execs once it and its
+  directory pass the provider trust predicate (`dotnet` is the one installed today).
+  **Shared libraries** live under `/usr/local/lib/ai-tools/`
   (`conf`, `secret-patterns`, `skip-dirs`, `owner-only`, `safe-paths`, `relabel`, `operator`, `control-plane`,
   `confinement`, `npm-verify`, `entrypoint-verify`, `managed-assets`, `providers`, `selinux-groups`, `filters`, `services`,
   `msg`, `log`, and the claude-code pair `claude-prompt`/`claude-endpoint`),

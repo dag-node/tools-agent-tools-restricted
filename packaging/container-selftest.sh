@@ -108,6 +108,13 @@ phase "safedir + reclaim helpers present (the late spec additions)" \
 phase "provisioning helper present at the path ai-tools-admin execs" \
     test -x /usr/local/libexec/ai-tools/ai-tools-bootstrap
 
+# The contributed-command seam, end to end on a real install: ai-tools-integration-dotnet ships a
+# command fragment and no name on PATH, so this is the one phase that proves discovery, the trust
+# check and the exec all line up on packaged files. `dotnet status` is read-only and works on a
+# host with no .NET, which it reports.
+phase "contributed command domain dispatches (dotnet status)" \
+    ai-tools-admin dotnet status
+
 # ── toolchain provisioning (network) ─────────────────────────────────────────
 # Run at runtime, not build: under a live systemd, bootstrap enables the sandbox account's
 # linger and the nvm-update.timer in its own --user instance. Idempotent (reuses an existing

@@ -13,8 +13,10 @@
 #   sudo ai-tools-admin selinux groups enable <name>       # load a prebuilt (stable) group
 #   sudo ai-tools-admin selinux groups disable <name>      # unload one
 #   sudo ai-tools-admin system bootstrap                   # provision the sandbox account's toolchain
+#   sudo ai-tools-admin system bootstrap --scope full      # ... and every enabled integration
 #   sudo ai-tools-admin system entrypoints relabel         # verify + relabel the agent entrypoints
 #   sudo ai-tools-admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
+#   sudo ai-tools-admin dotnet bootstrap                   # a domain a provider package contributes
 #
 # The spelling is the project's command grammar (.claude/rules/cli-grammar.rule.md): a bare-word
 # command, a plural collection, the verb after the noun, `list` as the zero-argument default, and
@@ -44,9 +46,21 @@
 # a new host, and the one that installs software over the network, which is why it is a command
 # rather than an RPM scriptlet: a scriptlet must succeed offline and inside a build chroot.
 # Idempotent -- an existing account, nvm install or Node version is reused -- so it is also the
-# re-run after enabling an agent in operator.conf. The bare form does the minimal provision; a
-# scope switch that also reaches the enabled integrations arrives with the contributed-domain
-# dispatch.
+# re-run after enabling an agent in operator.conf. The bare form does the minimal provision;
+# `--scope full` then runs each ENABLED integration's own `bootstrap` through the seam below, so a
+# host is provisioned end to end in one command without base naming an integration.
+#
+# Beyond those, the command set is EXTENSIBLE rather than enumerated: this tool ships in
+# ai-tools-base, which is installed before anyone knows which provider packages a host will add, so
+# a provider contributes a domain of its own as an executable fragment at
+# /usr/local/lib/ai-tools/admin-commands.d/<name> and this tool discovers it. The basename is the
+# domain token -- the same name the provider takes in agents.d/integrations.d and in operator.conf.
+# Dispatch is an exec, not a source, so a fragment keeps its own set -euo pipefail, root guard and
+# logging. A fragment is honored only while it passes the same trust predicate as every other
+# provider input (root-owned, not group/other-writable, and so is its directory), and one claiming
+# a name base owns is refused rather than merged; both refusals are reported. INSTALLATION, not
+# enablement, decides whether a command exists -- what a command reports still names the enablement
+# state, and `system bootstrap --scope full` reads the enabled set instead.
 #
 # `system entrypoints relabel` reconciles each enabled agent's entrypoint after a toolchain change,
 # through the root helper ai-tools-relabel-agent: it verifies the binary against the checksum its
@@ -77,6 +91,16 @@ readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 readonly SELINUX_GROUPS_LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
+readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
+# Where a provider package drops the command fragment carrying its own domain. The environment
+# override is a ROOT-ONLY test hook of the same standing as AI_TOOLS_POSTUPGRADE_ROOT (sudo strips
+# the name and this tool is reachable only as root), so tests/unit/admin-commands.sh drives the
+# dispatch against a fixture tree. Unset in production.
+readonly ADMIN_COMMANDS_DIR="${AI_TOOLS_ADMIN_COMMANDS_DIR:-/usr/local/lib/ai-tools/admin-commands.d}"
+# The names base owns. A contributed fragment claiming one is refused, so no installed package can
+# shadow a command an administrator relies on. `status` is reserved before it is implemented: a
+# name a provider could take first is not a name base can take back.
+readonly -a BASE_COMMANDS=(operators selinux system status)
 # Root-only helpers, 750 root:root, reached directly rather than through sudo: this tool already
 # refuses a non-root caller. Both ship in ai-tools-integration-nodejs, which the metapackage pulls
 # in weakly, so each command checks for its helper and names that package when it is absent. The
@@ -92,8 +116,11 @@ AI_TOOLS_VERSION="@AI_TOOLS_VERSION@"
 [[ "${AI_TOOLS_VERSION}" == @*@ ]] && AI_TOOLS_VERSION="dev"
 readonly AI_TOOLS_VERSION
 
-die() { printf 'ai-tools-admin: error: %s\n' "$*" >&2; exit 1; }
-log() { printf 'ai-tools-admin: %s\n' "$*"; }
+die()  { printf 'ai-tools-admin: error: %s\n' "$*" >&2; exit 1; }
+log()  { printf 'ai-tools-admin: %s\n' "$*"; }
+# warn: a refusal that narrows what this tool will do -- a contributed command skipped, an
+# integration that would not provision. stderr, so the domain list on stdout stays data-only.
+warn() { printf 'ai-tools-admin: warning: %s\n' "$*" >&2; }
 
 # reject <message>: the command line was rejected. Exit 2 separates a command nobody can type
 # correctly from an operation that ran and failed (`die`, exit 1), which is the split
@@ -107,6 +134,11 @@ reject() {
 # usage: the command surface, grouped by domain. Orientation rather than reference -- every
 # option, exit code and example is in ai-tools-admin(8), and tests/unit/man.sh holds the two in
 # agreement on the command set.
+#
+# Two heredocs with the contributed domains between them, by design: the FIRST one is the base
+# command set, and it is exactly what man.sh reads (it stops at the first EOF). The block between
+# them is whatever this host installed, so the page documents the seam rather than any one domain
+# -- a domain a package contributes cannot be documented by the package that does not ship it.
 usage() {
     cat <<EOF
 ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, the toolchain, upgrades
@@ -120,10 +152,12 @@ ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, the t
     selinux groups enable <name>     load a prebuilt optional group
     selinux groups disable <name>    unload a loaded group
   System
-    system bootstrap                 provision the sandbox account and its toolchain
+    system bootstrap [--scope full]  provision the sandbox account and its toolchain
     system entrypoints relabel       verify and relabel the agent entrypoints
     system post-upgrade              reconcile the .rpmnew files an upgrade leaves
-
+EOF
+    usage_domains
+    cat <<'EOT'
     --version                        the installed version
     --help                           this summary
 
@@ -132,8 +166,116 @@ ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, the t
   you run as yourself.
 
   Every command, exit code and example:  man ai-tools-admin
-EOF
+EOT
 }
+
+# usage_domains: the domain line each installed provider contributes, so the help an administrator
+# reads and the commands that dispatch cannot disagree -- both read admin_domains. The summary is
+# the provider manifest's admin_summary key (data, parsed not sourced), rather than each fragment
+# being executed to ask it what it is; a provider that declares none still gets its line.
+usage_domains() {
+    local -a domains=()
+    mapfile -t domains < <(admin_domains)
+    printf '\n'
+    [[ "${#domains[@]}" -gt 0 ]] || return 0
+    printf '  Providers\n'
+    local domain summary
+    for domain in "${domains[@]}"; do
+        summary=""
+        declare -F ai_tools_provider_manifest_field >/dev/null 2>&1 \
+            && summary="$(ai_tools_provider_manifest_field "${domain}" admin_summary || true)"
+        printf '    %-32s %s\n' "${domain} <command>" "${summary}"
+    done
+    printf '\n'
+}
+
+# ── contributed command domains ──────────────────────────────────────────────────────────────
+# The seam that lets a provider package add a domain to this tool. Base cannot enumerate the
+# integrations it ships without, so the domain list is DISCOVERED -- and every way that discovery
+# can fail leaves the command surface smaller, never wider.
+
+# is_base_command <name>: succeed when base owns <name>.
+is_base_command() {
+    local candidate="$1" reserved
+    for reserved in "${BASE_COMMANDS[@]}"; do
+        [[ "${candidate}" == "${reserved}" ]] && return 0
+    done
+    return 1
+}
+
+# admin_domains: print each contributed domain this host has, one per line, in filename order.
+# Data-only stdout, so it is safe in $(...); every refusal goes to stderr.
+#
+# A fragment is honored only while ai_tools_conf_is_trusted holds for it AND for the directory
+# holding it -- a group-writable directory lets a non-root writer unlink a root-owned file and put
+# its own in that name, which here would be a command root then executes. A name base owns is
+# refused rather than merged, and a basename that is not a bare lower-case word is skipped before
+# it is ever joined to a path, so a separator or a traversal cannot address a file outside the
+# directory. The dispatch and --help both read this one function, so what an administrator is told
+# and what runs cannot disagree.
+admin_domains() {
+    [[ -d "${ADMIN_COMMANDS_DIR}" ]] || return 0
+    if ! ai_tools_conf_is_trusted "${ADMIN_COMMANDS_DIR}"; then
+        warn "ignoring every contributed command: ${ADMIN_COMMANDS_DIR} is not root-owned or is writable by group/other"
+        return 0
+    fi
+    local fragment domain
+    for fragment in "${ADMIN_COMMANDS_DIR}"/*; do
+        [[ -f "${fragment}" ]] || continue
+        domain="${fragment##*/}"
+        if [[ ! "${domain}" =~ ^[a-z][a-z0-9-]*$ ]]; then
+            warn "skipping $(printf '%q' "${fragment}"): a contributed command is named for its provider, in bare lower-case"
+            continue
+        fi
+        if is_base_command "${domain}"; then
+            warn "refusing ${fragment}: '${domain}' is a command ai-tools-admin owns and no package may replace it"
+            continue
+        fi
+        if ! ai_tools_conf_is_trusted "${fragment}"; then
+            warn "skipping the '${domain}' command: ${fragment} is not root-owned or is writable by group/other"
+            continue
+        fi
+        printf '%s\n' "${domain}"
+    done
+}
+
+# contributed_dispatch <name> [args...]: exec the fragment carrying <name>, with the remaining
+# arguments. An exec rather than a source: the fragment keeps its own set -euo pipefail, its own
+# root guard and its own logging, and cannot collide with this tool's function names.
+#
+# Membership in admin_domains is the gate, so <name> is never interpolated into a path before it
+# has matched a discovered domain. Reached only from the top-level default arm, which is what makes
+# a base name unreachable here twice over: its own arm matched first, and admin_domains refuses a
+# fragment claiming one.
+contributed_dispatch() {
+    local domain="$1"; shift
+    local domains; domains="$(admin_domains)"
+    if ! grep -qxF -- "${domain}" <<<"${domains}"; then
+        printf 'ai-tools-admin: unknown command: %s\n\n' "${domain}" >&2
+        usage >&2
+        exit 2
+    fi
+    local fragment="${ADMIN_COMMANDS_DIR}/${domain}"
+    [[ -x "${fragment}" ]] || die "${fragment} is not executable -- reinstall the package that ships it"
+    exec "${fragment}" "$@"
+}
+
+# The shared config grammar, sidecar handling, and hook-declaration merge that `system post-upgrade`
+# drives, and the trust predicate every contributed command is vetted with. Required, not optional:
+# a reconcile that silently skipped its merge would leave a shipped hook uninvoked while reporting
+# success, and a dispatch that could not tell a trusted fragment from a planted one would exec
+# whatever it found. Loaded BEFORE the block below, unlike the other libraries, because --help
+# lists this host's contributed domains and that list is drawn through this predicate.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
+. "${CONF_LIB}" || die "cannot source ${CONF_LIB}"
+
+# Provider resolver: the manifest key behind each domain's summary line, and the enabled-integration
+# list `system bootstrap --scope full` iterates. Optional at load and gated at each use -- without
+# it every installed fragment still dispatches (its own presence is what decides that), a domain is
+# listed without its summary, and full-scope bootstrap REFUSES rather than guessing which
+# integrations this host runs.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/providers.lib.sh
+source "${PROVIDERS_LIB}" 2>/dev/null || true
 
 # Executed, this administers a host and needs root. Sourced -- by tests/unit/admin-operator-add.sh,
 # which drives one function with sudo stubbed -- it does not assert anything about the host and only
@@ -157,12 +299,6 @@ fi
 # Optional SELinux policy-group registry + predicates, shared with install-selinux.sh.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/selinux-groups.lib.sh
 . "${SELINUX_GROUPS_LIB}" || die "cannot source ${SELINUX_GROUPS_LIB}"
-
-# The shared config grammar, sidecar handling, and hook-declaration merge that `system post-upgrade`
-# drives. Required, not optional: a reconcile that silently skipped its merge would leave a
-# shipped hook uninvoked while reporting success.
-# shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
-. "${CONF_LIB}" || die "cannot source ${CONF_LIB}"
 
 # Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like the
 # operator lib above: a valid install ships it, so there is no fallback.
@@ -528,10 +664,65 @@ sel_list() {
 # The provisioning logic stays a separate file rather than moving in here: it is long, runs
 # unattended from the container selftest, and reaches the network, none of which this dispatcher
 # does.
+#
+# Scope defaults to the MINIMUM that works, and a bare run takes that default: the toolchain and
+# the enabled agents, which is what a first host needs. `--scope full` also reaches every enabled integration, through each one's
+# own contributed `bootstrap` -- which is why full scope needed the seam above before it could
+# exist. It is spelled as a switch rather than a positional word because every other verb here
+# takes a resource identifier in that slot.
 system_bootstrap() {
-    [[ $# -eq 0 ]] || reject "system bootstrap: takes no arguments"
+    local scope=minimal
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --scope)
+                [[ $# -ge 2 ]] || reject "system bootstrap: --scope takes a value (minimal|full)"
+                scope="$2"; shift 2 ;;
+            *)  reject "system bootstrap: unknown argument '$1' (--scope minimal|full)" ;;
+        esac
+    done
+    case "${scope}" in
+        minimal|full) ;;
+        *) reject "system bootstrap: unknown scope '${scope}' (minimal|full)" ;;
+    esac
     [[ -x "${BOOTSTRAP_BIN}" ]] || die "${BOOTSTRAP_BIN} not found -- install ai-tools-integration-nodejs"
-    exec "${BOOTSTRAP_BIN}"
+    # Minimal scope has no step after the helper, so it hands the process over rather than
+    # wrapping it: the helper's exit status is this command's, unmediated.
+    [[ "${scope}" == full ]] || exec "${BOOTSTRAP_BIN}"
+    "${BOOTSTRAP_BIN}" || die "the toolchain bootstrap failed -- no integration was reached"
+    bootstrap_integrations
+}
+
+# bootstrap_integrations: run the `bootstrap` of each ENABLED integration that contributes one.
+# Enablement, not installation, is what "everything this host runs" means, so this reads the
+# enabled set where the dispatch reads the installed one.
+#
+# Every integration is attempted and each failure named before the command exits non-zero: an
+# administrator provisioning a host wants every outcome, not the first one that went wrong. An
+# enabled integration that does not contribute a command fragment is reported and skipped -- base
+# cannot assume any particular package is installed.
+bootstrap_integrations() {
+    declare -F ai_tools_enabled_integrations >/dev/null 2>&1 \
+        || die "the provider resolver is unavailable, so the enabled integrations cannot be resolved -- the toolchain itself is provisioned; re-run without --scope to confirm"
+    local -a enabled=()
+    mapfile -t enabled < <(ai_tools_enabled_integrations)
+    if [[ "${#enabled[@]}" -eq 0 ]]; then
+        log "no integration is enabled in ${OPERATOR_CONF} -- nothing further to provision"
+        return 0
+    fi
+    local domains; domains="$(admin_domains)"
+    local integration failed=0
+    for integration in "${enabled[@]}"; do
+        if ! grep -qxF -- "${integration}" <<<"${domains}"; then
+            log "${integration}: contributes no bootstrap command -- nothing to provision"
+            continue
+        fi
+        log "provisioning the ${integration} integration"
+        if ! "${ADMIN_COMMANDS_DIR}/${integration}" bootstrap; then
+            warn "${integration}: its bootstrap failed -- the cause is above, and in its own log"
+            failed=1
+        fi
+    done
+    (( failed == 0 )) || die "one or more integrations did not provision"
 }
 
 # ── system entrypoints relabel: reconcile each enabled agent's entrypoint ─────────────────────
@@ -771,5 +962,8 @@ case "$1" in
     operators) shift; operators_dispatch "$@" ;;
     selinux)   shift; selinux_dispatch   "$@" ;;
     system)    shift; system_dispatch    "$@" ;;
-    *) printf 'ai-tools-admin: unknown command: %s\n\n' "$1" >&2; usage >&2; exit 2 ;;
+    # Anything else is either a domain a provider package contributed or an unknown command, and
+    # only the discovered set tells the two apart. Base names are matched above, so a fragment
+    # cannot shadow one however it is named.
+    *) contributed_dispatch "$@" ;;
 esac

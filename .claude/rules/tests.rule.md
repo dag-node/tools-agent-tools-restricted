@@ -102,6 +102,13 @@ fixture tree in its testdir. It carries the same standing as the three above —
 reachable only as root, `sudo` strips the name, and a caller who could set it may already edit
 those files outright — and is unset in production, where the registry paths stand as written.
 
+`AI_TOOLS_ADMIN_COMMANDS_DIR` (`ai-tools-admin`) belongs to that family too, and redirects the
+directory the admin dispatch discovers its contributed command domains in, so
+`unit/admin-commands.sh` drives the real dispatch against fixture fragments in its testdir instead
+of the host's own. It carries the same standing as `AI_TOOLS_POSTUPGRADE_ROOT` — the tool is
+reachable only as root, `sudo` strips the name, and a caller who could set it may already write the
+directory it redirects.
+
 `AI_TOOLS_ENTRYPOINT_PIN_DIR` (`entrypoint-verify.lib.sh`) is the fifth, and it carries more weight
 than the others: the production pin decides whether a session may launch at all, so a test that
 wrote a deliberately wrong checksum into it would refuse every launch on the host until the next
@@ -306,6 +313,20 @@ the pair is already deployed: `boundary/access.sh` covers `settings.json` and th
 directory, `boundary/providers.sh` and `boundary/filters.sh` cover `operator.conf`, and
 `boundary/sudo.sh` covers the grant, so no input this command reads is agent-writable.
 
+`admin-commands.sh` pins the seam that lets a provider package add a domain to `ai-tools-admin`
+(see [providers](providers.rule.md)). What it drives is a dispatch that **execs a file as root**, so
+every assertion targets a way discovery could widen the surface: a group-writable or non-root-owned
+fragment, a group-writable directory, a fragment claiming a base name (`system`, and the reserved
+`status`), and a basename outside the domain charset are each driven and asserted to leave the
+command surface smaller, with the refusal reported — and a path-shaped command name must read as an
+unknown command rather than reaching an exec, since membership of the discovered set is the gate
+and not the string. The positive half is the same contract from the other side: a trusted fragment
+is exec'd with the remaining arguments intact, and `--help` lists exactly what dispatches, summary
+included, because a help and a dispatch that disagree is the failure one discovery function exists
+to prevent. Fixtures are root-owned by construction — anything else is untrusted, which is the
+point — and the deployed helper reads them through `AI_TOOLS_ADMIN_COMMANDS_DIR`. Its boundary half
+is in `boundary/providers.sh`: the agent cannot write the directory or any fragment in it.
+
 `admin-operator-add.sh` pins the other reported decision that command makes: the line
 `operators add` closes with, naming which of the two operator shapes the enrolment produced. The
 verdict is read out of `sudo -l -U`, so what the file drives is the direction that misleads — a
@@ -485,13 +506,16 @@ not under `_UID=0`. That is the boundary half of the documented query form (see
 sender cannot set, not the tag. A host with no journald skips: an absent line is not evidence.
 `providers.sh` asserts
 the deployed half of "the sandbox cannot widen its own surface": none of `operator.conf`,
-`conf.lib.sh`, `providers.lib.sh`, the three provider directories, the manifests and fragments
-in them, or the `ai-tools-run` shim and the `bin` directory holding it is agent-writable, while
+`conf.lib.sh`, `providers.lib.sh`, the four provider directories, the manifests, fragments and
+contributed commands in them, or the `ai-tools-run` shim and the `bin` directory holding it is
+agent-writable, while
 the NuGet restore cache the dotnet integration needs
 **is** — both directions matter, since a read-only cache breaks the integration as surely as a
-writable tools dir breaks the boundary. It is the counterpart to `unit/providers.sh`, which
-asserts the runtime refusal; this one asserts the agent cannot reach the state that refusal
-exists to catch. `filters.sh` is the same pair for the command filters: the engine, `filters.d`
+writable tools dir breaks the boundary. `admin-commands.d` and the `dotnet` command in it are the
+highest-privilege pair in that list: what a writable one would buy is not a wider session but a
+command `ai-tools-admin` runs as root. It is the counterpart to `unit/providers.sh` and
+`unit/admin-commands.sh`, which assert the runtime refusals; this one asserts the agent cannot
+reach the state those refusals exist to catch. `filters.sh` is the same pair for the command filters: the engine, `filters.d`
 and the rule sets in it, `operator.conf`, and the agent-side hook body are all asserted
 non-agent-writable — the engine because it is sourced as the agent on every Bash call, the rule
 sets because they decide what every command in a session becomes. These probe **DAC and

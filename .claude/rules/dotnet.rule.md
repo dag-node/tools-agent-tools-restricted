@@ -3,7 +3,7 @@ paths:
   - "src/usr/local/lib/ai-tools/session-env.d/dotnet.env.sh"
   - "src/usr/local/lib/ai-tools/filters.d/dotnet.rules"
   - "src/usr/local/lib/ai-tools/integrations.d/dotnet.conf"
-  - "src/usr/local/libexec/ai-tools/ai-tools-dotnet.sh"
+  - "src/usr/local/lib/ai-tools/admin-commands.d/**"
   - "selinux/policy/ai_tools_tmpmap.te"
   - "selinux/policy/ai_tools_apphost.te"
   - "selinux/policy/ai_tools_netcore.te"
@@ -20,8 +20,11 @@ native host it built — reaches past the repo-only base domain. None of it is r
 Code agent itself, so all of it lives in **optional policy groups**, off by default, loaded only
 where .NET is brought up. On a DAC-only host (no SELinux) none of this applies.
 
-`ai-tools-dotnet`'s own subcommands are spelled to the standard in
-[cli-grammar](cli-grammar.rule.md), which also sets where a root-only integration command lives.
+The integration's own commands are the `dotnet` domain of `ai-tools-admin` — `dotnet bootstrap`,
+`dotnet tools install <pkg...>`, `dotnet status`. They are spelled to the standard in
+[cli-grammar](cli-grammar.rule.md), and reach that surface through the contributed-command seam in
+[providers](providers.rule.md), which is what puts a root-only integration command on the base
+binary rather than on one of its own.
 
 ## The three .NET policy groups
 

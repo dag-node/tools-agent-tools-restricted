@@ -5,7 +5,7 @@ paths:
   - "src/usr/local/lib/ai-tools/agents.d/**"
   - "src/usr/local/lib/ai-tools/integrations.d/**"
   - "src/usr/local/lib/ai-tools/session-env.d/**"
-  - "src/usr/local/libexec/ai-tools/ai-tools-dotnet.sh"
+  - "src/usr/local/lib/ai-tools/admin-commands.d/**"
 ---
 
 # Provider manifests, enablement, and integrations
@@ -36,18 +36,23 @@ execute code in the privileged scripts that read it:
   symlinked in — see [shipped-assets](shipped-assets.rule.md)), `default_enable`, and — optionally
   — the three release-verification fields below.
 - integrations: `default_enable`.
+- either kind: `admin_summary`, the one-line description `ai-tools-admin --help` prints for the
+  command domain this package contributes (below). Optional; a package that does not contribute a
+  domain has no use for it, and a domain whose manifest omits it is still listed.
 
 Either kind may also ship `session-env.d/<name>.env.sh`, keyed by the same `<name>` — one flat
-namespace across both kinds, so a provider name is unique host-wide. A package with commands of
+namespace across both kinds, so a provider name is unique host-wide. A package with root-only
+administration of its own additionally ships `admin-commands.d/<name>`, keyed the same way, which
+is the `<name>` domain of `ai-tools-admin`. A package with commands of
 its own may additionally ship `filters.d/<name>.rules`, keyed the same way, carrying the
 token-saving rules for those commands (see [filters](filters.rule.md)). That set is read by an
 agent's filter hook rather than by `ai-tools-run`, and it is not gated on provider enablement — a
 rule is inert unless the agent runs the command it matches — so it is a rule-set name rather than
 a provider capability.
 
-`ai-tools-base` owns the three directories (`agents.d`, `integrations.d`, `session-env.d`), ships
-`providers.lib.sh`, and owns the `ai-tools-run` shim that reads them; each member package ships
-only its own files into them.
+`ai-tools-base` owns the four directories (`agents.d`, `integrations.d`, `session-env.d`,
+`admin-commands.d`), ships `providers.lib.sh`, and owns both readers — the `ai-tools-run` shim and
+the `ai-tools-admin` dispatcher; each member package ships only its own files into them.
 
 ## The `handback` capability — which side converges ownership
 
@@ -272,17 +277,27 @@ the trail), never silently:
 | a manifest directory | that whole provider kind is refused |
 | one manifest | that one provider is skipped |
 | `session-env.d` or a fragment | that fragment is not sourced |
+| `admin-commands.d` | no contributed command dispatches at all |
+| one command fragment | that one domain is not a command |
 | `/usr/local/lib/ai-tools` itself | no integration env at all (`ai-tools-run`'s bootstrap check) |
 
 Trust bootstraps on the lib directory, which `ai-tools-run` checks inline before sourcing anything
 from it — the predicate that checks everything else lives inside it. `0751 root:SANDBOX_GROUP` on
 that directory is therefore load-bearing, not housekeeping, and
-`tests/integration/perms.sh` asserts it along with the three provider directories.
+`tests/integration/perms.sh` asserts it along with the four provider directories.
 
-This is enforced from both ends, and both halves are required: `tests/unit/providers.sh` drives
-each untrusted state through the resolver and asserts it fails closed (catching a host someone has
-already broken), while `tests/boundary/providers.sh` probes the deployed surface **as the agent**
-and asserts none of it is agent-writable (catching the agent trying to break it).
+The last two rows carry the predicate one step further out than the rest of this table: what they
+gate is not what a confined session receives but what **root executes**, since `ai-tools-admin`
+execs a fragment as root. The reader there is root rather than `SANDBOX_USER`, so the reason for the
+check is not that the reading process is confined — it is that the file it would run sits in a
+directory the sandbox account can reach, and a planted or replaced fragment would be a root command
+of the agent's choosing.
+
+This is enforced from both ends, and both halves are required: `tests/unit/providers.sh` and
+`tests/unit/admin-commands.sh` drive each untrusted state through the resolver and the dispatch and
+assert each fails closed (catching a host someone has already broken), while
+`tests/boundary/providers.sh` probes the deployed surface **as the agent** and asserts none of it is
+agent-writable (catching the agent trying to break it).
 
 ## Resolution
 
@@ -359,6 +374,44 @@ properties of that pattern belong to the seam rather than to any one provider:
 The endpoint's own keys, validation, precedence, and the boundary it does *not* claim are in
 [agent-claude-code](agent-claude-code.rule.md).
 
+## The `admin-commands.d` seam
+
+The same shape one privilege level up: a provider package contributes its own **domain of
+`ai-tools-admin`**, so `ai-tools-base` dispatches administration for integrations it ships without.
+The spelling that surface takes — bare-word domains, the verb after the noun, and which names base
+keeps — is in [cli-grammar](cli-grammar.rule.md); the mechanism is here.
+
+A domain is an executable at `/usr/local/lib/ai-tools/admin-commands.d/<name>`, `0750 root:root`,
+in a `0755 root:root` directory base owns. The basename is the domain token, the same `<name>` the
+provider takes in `agents.d`/`integrations.d` and in `operator.conf`, so a host has one name for a
+provider everywhere. `ai-tools-admin` discovers the set, and both its dispatch and its `--help` read
+that one list:
+
+- **Dispatch is an `exec`, not a `source`.** The fragment runs as its own process with the remaining
+  arguments, keeping its own `set -euo pipefail`, root guard and logging, and cannot collide with
+  the dispatcher's function names. It is also what keeps a fragment runnable directly — the dotnet
+  package's `%post` execs its own at that path rather than through the dispatcher.
+- **The gate is integrity, not enablement.** `ai_tools_conf_is_trusted` must hold for the fragment
+  and for the directory; a basename outside `[a-z][a-z0-9-]*` is skipped before it is joined to a
+  path; and a fragment claiming a base name is refused rather than merged. Every refusal is reported
+  and leaves the command surface smaller. **Installation** is what makes a command exist, since
+  `AI_TOOLS_INTEGRATIONS` decides what a confined *session* receives and an administrator
+  configuring a provider is a different question — what a command *reports* still names the
+  enablement state.
+- **The summary is manifest data.** `--help` prints each domain with the `admin_summary` from that
+  provider's manifest, read through `ai_tools_provider_manifest_field` (which applies the trust
+  predicate and the same name allowlist as `ai_tools_agent_manifest_field`). No fragment is
+  executed to ask it what it is, so building the help reads manifests alone and does not run
+  contributed code.
+- **`system bootstrap --scope full` iterates the enabled set** and runs each enabled integration's
+  own `bootstrap` through this seam, reporting an enabled integration that contributes none. That is
+  the one place the two gates meet: installation decides the command exists, enablement decides it
+  is run.
+
+The 0750 fragment mode and the world-readable directory answer two different questions: the agent
+must not read or run a root command, while `--help` — answered ahead of the root check — must list
+the same domains for any caller that the dispatch would accept.
+
 ## dotnet integration (`ai-tools-integration-dotnet`)
 
 Integrates a **host-managed** .NET toolchain (RPM `dotnet`, at `/usr/bin/dotnet` +
@@ -383,24 +436,28 @@ so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS`.
   verbosity has no environment-variable form, so it belongs in a command rule rather than in the
   fragment above; quiet verbosity keeps errors and warnings. The banner is left to `DOTNET_NOLOGO`
   (the fragment above), so no rule carries `--nologo`. See [filters](filters.rule.md).
-- `ai-tools-dotnet` (root/sudo helper) `setup` creates that state root and its three
+- `admin-commands.d/dotnet` is this package's contributed domain, so its administration is spelled
+  `sudo ai-tools-admin dotnet <verb>`. `dotnet bootstrap` creates that state root and its three
   directories: the NuGet cache and the SDK's CLI home are agent-**writable** (`2770`, setgid),
-  the shared tools are **read-only** to the agent (`0755`, sudo-only writes). It applies **no**
+  the shared tools are **read-only** to the agent (`0755`, root-only writes). It applies **no**
   SELinux policy of its own — the base's static rule on `integrations(/.*)?` already maps the
   whole tree to `ai_tools_home_t`, so the type grants `ai_tools_t` the access (write on the
-  cache, exec on the tools) while the DAC modes are the enforced read/write boundary. `setup`
-  also drops the local fcontext rules earlier versions added for the old home-root dotdirs. `install-tools <pkg...>` installs shared global tools;
-  `status` reports host SDKs/runtimes, and reads enablement through `ai_tools_enabled_integrations`
-  so it reports the same verdict `ai-tools-run` reaches.
+  cache, exec on the tools) while the DAC modes are the enforced read/write boundary. It
+  also drops the local fcontext rules earlier versions added for the old home-root dotdirs.
+  `dotnet tools install <pkg...>` installs shared global tools;
+  `dotnet status` reports host SDKs/runtimes, and reads enablement through
+  `ai_tools_enabled_integrations` so it reports the same verdict `ai-tools-run` reaches. Its
+  journald tag and log file stay `ai-tools-dotnet`/`dotnet.log` — the log identity is what an
+  operator queries, and what moved is the typed command.
 - Every step **fails loudly**. A directory it cannot create, or a label it cannot apply on a host
   that supports labelling, exits non-zero with the cause logged through `log.lib.sh` to journald and
   `/var/log/ai-tools/dotnet.log` (see [logging](logging.rule.md)) — a half-provisioned integration
   that looks installed surfaces later as an opaque denial inside a confined session. The genuine
   no-ops are recognized as such: `selinux_active` gates the labelling on SELinux being enabled,
   `policycoreutils` present, and the `ai_tools` module loaded, and skips with a logged line
-  otherwise. The RPM `%post` runs `setup`, reports the remedy and exits non-zero on failure (rpm
-  records a scriptlet failure against this package while the transaction completes — the right
-  blast radius for a weakly-pulled optional integration); `%postun` drops the fcontexts and
+  otherwise. The RPM `%post` runs `dotnet bootstrap`, reports the remedy and exits non-zero on
+  failure (rpm records a scriptlet failure against this package while the transaction completes —
+  the right blast radius for a weakly-pulled optional integration); `%postun` drops the fcontexts and
   `restorecon`s what stays behind on final erase.
 
 The state root's label comes from the base's static rule on `integrations(/.*)?`; the CLR runs on
