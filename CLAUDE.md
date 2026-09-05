@@ -36,7 +36,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
   it describes via `paths:` frontmatter, so it loads when you open a matching file under
   `src/` (or `selinux/`). See the component map below. A rule and its source file's header
   overlap by design and are bidirectionally coupled: changing either obligates reconciling
-  the other, resolving any conflict against the code instead of defaulting to one side. Adding,
+  the other, resolving any conflict against the code, never defaulting to one side. Adding,
   moving, or renaming a source file a rule documents obligates updating that rule's `paths:`
   in the same change — the file→rule auto-load is only as complete as `paths:`, and a
   documented file left out of it silently stops loading its rule.
@@ -133,7 +133,7 @@ passwordless service account takes.
 Claim, unclaim, lockdown, reclaim, and sandbox-create reach root helpers carrying **no** NOPASSWD
 rule, so each needs a **general sudo grant** as well. That grant is a third, independent axis:
 this project does not install it or record it, and cannot infer it from the other two — `ai-tools-admin`
-writes `operator.conf` and the group, not sudoers, and the RPM enrols nobody at all. The CLI answers
+writes `operator.conf` and the group, never sudoers, and the RPM enrols nobody at all. The CLI answers
 for it by asking `sudo` before the verb's first prompt (see [cli](.claude/rules/cli.rule.md)).
 
 **A host needs at least one operator holding that grant.** Without one, no project can be claimed
@@ -162,7 +162,7 @@ deletes only after that confirmation, and a failure leaves the tree in place, un
 | where a session may start | the canonicalized allowlist + the protected-paths backstop | no launch |
 | which executable may start it | a launcher an enabled manifest claims, at a semver path in the toolchain | no launch |
 | whether it will be confined | the pre-launch SELinux transition probe (fail-closed once confinement is expected; an operator can require it outright via `AI_TOOLS_REQUIRE_SELINUX`) | no launch |
-| which providers it gets | `ai_tools_conf_is_trusted` on every manifest, directory, and fragment | the default-enabled baseline, not "enable all" |
+| which providers it gets | `ai_tools_conf_is_trusted` on every manifest, directory, and fragment | the default-enabled baseline, never "enable all" |
 | which paths handback may touch | born-`SANDBOX_USER` ownership, re-checked race-safely as root | the path is left alone |
 | which toolchain may be activated | npm registry signature verification | the previous, trusted version stays |
 | which agent binary may start a session | its checksum against the vendor's signed release manifest, verified with a key the package ships and recorded in a root-owned pin | a mismatch refuses the launch; where the operator required verification, an unverifiable release stays inactive |
