@@ -72,12 +72,12 @@
 # from an unchanged pin, and an administrator asking for a reconcile is asking for the fetch.
 #
 # `status` reports this host's health as root: the same resource `ai-tools --status` reports to an
-# operator, completed with the three readings that vantage point cannot make and prints as `?` --
-# the sandbox account's own `systemd --user` units over the machine transport, the entrypoint pin
-# inside a state directory a non-operator cannot traverse, and the SELinux type each agent path
-# carries right now inside a 0750 toolchain. Every verdict comes from the same services.lib.sh
-# registry both reports and the launch wrapper's pre-launch warning read, so the two commands
-# differ in what each is allowed to see and never in what either believes.
+# operator, completed with the three readings that vantage point prints as `?` -- the sandbox
+# account's own `systemd --user` units, whose bus root reaches over the machine transport; the
+# entrypoint pin, in a state directory a non-operator has no traverse bit on; and the SELinux type
+# each agent path carries right now, inside a 0750 toolchain. Every verdict comes from the same
+# services.lib.sh registry both reports and the launch wrapper's pre-launch warning read, so the
+# two commands differ in what each is allowed to see and agree on what they both see.
 #
 # `system post-upgrade` reconciles the `<file>.rpmnew` copies an upgrade leaves beside the
 # %config(noreplace) files this stack owns. rpm keeps what the host edited and parks the new
@@ -1115,23 +1115,11 @@ postupgrade() {
 }
 
 # ── status ───────────────────────────────────────────────────────────────────────────────────
-# The same host report `ai-tools --status` gives an operator, completed with the three readings
-# that vantage point cannot make and prints as `?`: the sandbox account's `systemd --user` units
-# live over the machine transport, the entrypoint pin inside a state directory a non-operator
-# cannot traverse, and the SELinux type each agent path carries RIGHT NOW inside a 0750 toolchain.
-#
-# One resource, degrading by privilege -- not a second report. Every verdict here comes from the
-# same services.lib.sh registry the operator view and the launch wrapper's pre-launch warning read,
-# and the live probes are offered by that library to any caller that can make them, so what
-# separates the two commands is what each is allowed to see and never what either believes. What
-# does differ is the rendering, which is this tool's plain bracket-token idiom rather than the
-# CLI's coloured one -- the registry states in its own header that it renders nothing and each
-# consumer formats for itself.
-#
-# The label reading is the one worth being precise about. `ai-tools --status` reports the last
-# reconciliation's recorded OUTCOME, an event that may be hours old; this reports the live type,
-# so a label that drifted since -- an out-of-band `restorecon`, a package that reinstalled the
-# binary -- is visible here and nowhere else short of running the reconcile.
+# `ai-tools --status` read from root's vantage -- one resource reported twice, not a second report.
+# Which readings root adds and why the two agree is .claude/rules/cli.rule.md; what this file
+# contributes is the rendering, in the plain bracket-token idiom the rest of this tool uses. The
+# verdicts come from services.lib.sh and relabel.lib.sh, which emit data and leave every consumer
+# to format it.
 readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
 readonly RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
 readonly ENTRYPOINT_VERIFY_LIB="/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
@@ -1209,14 +1197,14 @@ status_services() {
 }
 
 # status_entrypoints: per enabled agent, the two halves of the entrypoint reconciliation -- the pin
-# the verification writes, and the type its paths carry now. Reported together because they fail
-# independently: verification can succeed while labelling does not, leaving a green pin written by
-# the very run whose labelling failed.
+# ai_tools_entrypoint_pin_write leaves, and the type its paths carry now. Reported together because
+# they fail independently: verification can succeed while labelling does not, leaving a green pin
+# written by the very run whose labelling failed.
 #
-# Neither half is a fault on its own. An unpinned entrypoint is a legitimate state -- an air-gapped
-# host, a release the vendor published no manifest for -- and counts only where the operator
-# required verification, which is exactly when it will refuse a launch. A host with no SELinux
-# layer has no type to carry and is reported as such.
+# Only two states here count toward the exit status, and both stop the next launch: an unpinned
+# entrypoint where AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set, and a mislabelled path. Unpinned
+# without that setting is a supported state -- an air-gapped host, a release published without a
+# manifest -- so it is reported and left uncounted.
 status_entrypoints() {
     heading "Entrypoints"
     # Three libraries answer this section between them, and a partial load must report that rather
@@ -1235,8 +1223,9 @@ status_entrypoints() {
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         seen=1
-        # An agent whose package declares no release manifest has no published checksum to verify
-        # against, so it is reported as having none rather than as perpetually unverified.
+        # Verification compares the binary against the checksum in the vendor's signed release
+        # manifest, which an agent's package names in release_manifest_url. An agent whose package
+        # omits that key is reported as such rather than as perpetually unverified.
         if [[ -z "$(ai_tools_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" ]]; then
             st "n/a" "${agent}  its package declares no signed release manifest to verify against"
             continue
@@ -1261,10 +1250,9 @@ status_entrypoints() {
     status_labels
 }
 
-# status_labels: the live SELinux type of each enabled agent's own paths -- the reading that
-# distinguishes this report from the operator's, which can only report what the last reconciliation
-# achieved. A mislabelled entrypoint is the one state here that stops the next launch, so it is the
-# one that counts toward the exit status.
+# status_labels: render ai_tools_agent_label_report -- the live SELinux type of each enabled
+# agent's own paths, which that function's header specifies. It closes status_entrypoints rather
+# than opening a section of its own, so each agent's pin and its labels read together.
 status_labels() {
     # Base ships this library beside this tool, so a missing report means a broken or half-upgraded
     # install rather than an optional piece -- said as a reading that could not be made, since that
@@ -1325,8 +1313,8 @@ status() {
 
     heading "Version"
     printf '    %-13s %s\n' "ai-tools" "${AI_TOOLS_VERSION}"
-    # Node's version comes from whichever registry record publishes one, so no unit is named here
-    # and a host whose updater has not run yet simply omits the line.
+    # Node's version comes from whichever registry record publishes one, so the loop reads the
+    # registry rather than a unit name, and a host whose updater has not run yet omits the line.
     local rec node_ver=""
     while IFS= read -r rec; do
         node_ver="$(ai_tools_service_stamp_field "$(ai_tools_service_field "${rec}" 7)" NODE)"

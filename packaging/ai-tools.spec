@@ -1087,9 +1087,9 @@ fi
   enter; and the SELinux type each agent path carries. That last one is what no other command
   gives -- 'ai-tools --status' reports what the last relabel achieved, which may be hours old,
   while this reports the label on the file now, so a label that has drifted since is visible
-  without running the reconcile. It is read-only and relabels nothing, takes no argument, and
-  exits non-zero when something needs attention, so it runs from a monitor or a cron job without
-  parsing its output.
+  without running the reconcile. It reads the labels and does not relabel, it does not take an
+  argument, and it exits non-zero when something needs attention, so it runs from a monitor or a
+  cron job without parsing its output.
 - CHANGED: 'sudo ai-tools --status' now resolves the sandbox account's systemd --user units live
   instead of reporting them from their last-run stamp, so root sees the same verdicts either way.
   Run as yourself the command is unchanged. A live reading only ever adds an answer: a unit that

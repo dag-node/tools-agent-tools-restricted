@@ -406,18 +406,13 @@ file sink being the authoritative one.
   A unit in the sandbox account's own `systemd --user` manager is not queryable from the operator's
   session at all, so its state comes from a **last-run stamp** it publishes where the operator can
   read it (`nvm-update.service`, see [updater](updater.rule.md)) and stays `?` where it publishes
-  none. **A root caller reads it live instead**, over the machine transport, and gets that reading
-  through this same command: `services.lib.sh` tests the caller's own capability rather than which
-  command is asking, so `sudo ai-tools --status` resolves a unit exactly as `ai-tools-admin status`
-  does and the two views cannot disagree (below, and [cli-grammar](cli-grammar.rule.md)). The live
-  reading only ever **adds** an answer: a `failed` or `down` unit is reported outright, since a
-  stamp records a run that has already ended and cannot improve on a fact about the manager now,
-  while an `active` one is not a clean bill — for a timer it says the schedule is loaded, not that
-  runs are happening — so the stamp still decides freshness and a `STALE` or `SKIPPED` verdict
-  survives it. Every way the probe can fail (no transport, no `timeout`, a manager past the probe's
-  own window) falls back to the stamp, so the unprivileged report reads exactly as it did before
-  there was a transport to ask. One live fact about that manager *is* readable unprivileged —
-  whether the unit **file** is installed —
+  none. **A root caller reads it live**, over the machine transport, and gets that reading through
+  this same command: `services.lib.sh` gates the probe on the caller's own capability, so whichever
+  command asks, `sudo ai-tools --status` resolves a unit exactly as `ai-tools-admin status` does
+  (*The root vantage*, below). How a live reading and a stamp compose into one verdict —
+  which of the two decides a state, and which decides freshness — is
+  `ai_tools_service_stamp_verdict`'s contract, stated there. One live fact about that manager *is*
+  readable unprivileged — whether the unit **file** is installed —
   and it is checked first, so a unit an optional package never shipped (the `nvm-update` pair
   without the nodejs integration) reads as not-installed rather than as one this host cannot see,
   and a stamp an uninstall left behind cannot make a gone unit look present. A run that **correctly
@@ -565,33 +560,31 @@ option outliving its parser.
 reports. The root command reports the same host and adds the three readings the operator's prints
 as `?`:
 
-| reading | why the operator cannot make it | what root does |
+| reading | what blocks the operator | what root does |
 |---|---|---|
 | a sandbox-user unit's state | that account's bus needs the machine transport, which is authorized for root alone | `systemctl --user -M <account>@.host`, through the shared registry |
-| an entrypoint pin | the state directory is root-owned and a non-operator cannot traverse it | reads it, through the same stamp accessors |
-| an agent path's SELinux type | the entrypoint sits in a `0750` toolchain the operator cannot enter | `stat`s the label itself |
+| an entrypoint pin | the state directory is root-owned, without a traverse bit for a non-operator | reads it, through the same stamp accessors |
+| an agent path's SELinux type | the entrypoint sits in a `0750` toolchain owned by the sandbox account | `stat`s the label itself |
 
 **What keeps them one resource is where the privilege is tested.** `services.lib.sh` offers a live
-reading to whichever caller can make one, so the capability is checked at the read and never at the
-dispatch: `sudo ai-tools --status` resolves a unit exactly as `ai-tools-admin status` does, and an
-unprivileged run of either reports the same `?`. Two commands exist because the binary is the
+reading to whichever caller can make one, so the capability is checked at each read rather than at
+the dispatch: `sudo ai-tools --status` resolves a unit exactly as `ai-tools-admin status` does, and
+an unprivileged run of either reports the same `?`. Two commands exist because the binary is the
 privilege boundary ([cli-grammar](cli-grammar.rule.md)), not because there are two sets of facts.
 The **rendering** does differ — this CLI's coloured report against the admin tool's plain
-bracket-token table — which is the registry's own contract: it renders nothing and each consumer
-formats for itself, the same way the launch wrapper's pre-launch warning does.
+bracket-token table — which is the registry's own contract: it emits records and leaves every
+consumer to format them, the same way the launch wrapper's pre-launch warning does.
 
 The third reading is the one no other command gives. `--status` reports what the last
 reconciliation *achieved*, an event that may be hours old; `ai_tools_agent_label_report` reports
 the type each path carries **now**, so a label that drifted since — an out-of-band `restorecon`, a
 package that reinstalled the binary — is visible without running the reconcile. It is
-**read-only**, which is what makes it safe from a report: it registers no file-context rule, runs
-no `restorecon`, and takes no policy-store lock, so it never changes the state it describes. That
-is its whole difference from `ai_tools_label_agent_paths`, which the reconcile uses and which
-answers the other question.
+**read-only**, which is what makes it safe to call from a report, and its whole difference from
+`ai_tools_label_agent_paths`; that function's header states which calls each one makes.
 
 The report is otherwise the same contract as `--status`: it exits non-zero when something needs
-attention, so it runs unattended without parsing its output, and `?` and `n/a` are never counted —
-a reading this vantage could not make must not alarm a healthy host.
+attention, so it runs unattended without parsing its output, and `?` and `n/a` do not count toward
+that status — a reading this vantage could not make must not alarm a healthy host.
 
 ## Acting for another operator (`--for`)
 

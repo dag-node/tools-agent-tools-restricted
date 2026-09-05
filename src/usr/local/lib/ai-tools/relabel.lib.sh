@@ -535,18 +535,17 @@ ai_tools_unlabel_agent_paths() {
 #   <what> is one token, `entrypoint` or `config-directory`, so the field after it is always the
 #   path and a caller never has to count words.
 #   Returns 0 when every path it could inspect carries its type, 1 when one does not, and 2 when
-#   the SELinux layer is inactive (nothing to report, and not a fault).
+#   the SELinux layer is inactive, which yields an empty report and is not a fault.
 #
-#   READ-ONLY, which is the whole difference from ai_tools_label_agent_paths above: it registers no
-#   file-context rule, runs no restorecon, and takes no policy-store lock, so it answers a status
-#   question without changing the state it is reporting on. That is what makes it safe to run from
-#   a report -- and it is a genuinely different question, since the relabel reports what its own run
-#   ACHIEVED while this reports what is true now, however long ago the last run was and whatever has
-#   happened since.
+#   READ-ONLY, which is the whole difference from ai_tools_label_agent_paths above: it calls
+#   neither _ai_tools_fcontext, nor restorecon, nor ai_tools_relabel_lock, so it answers a status
+#   question without changing the state it reports on. It also answers a different question: the
+#   relabel reports what its own run ACHIEVED, while this reports the type on the file now,
+#   however long ago that run was.
 #
 #   The path is resolved through the launcher symlink (ai_tools_agent_entrypoint_path), the same
-#   resolution the launch preflight performs, so what is inspected is the inode a session would
-#   actually exec rather than whatever a declared pattern happens to match.
+#   resolution the launch preflight performs, so what is inspected is the inode a session execs,
+#   which a declared pattern can have stopped describing.
 ai_tools_agent_label_report() {
     _ai_tools_entrypoint_policy_active || return 2
     declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 2

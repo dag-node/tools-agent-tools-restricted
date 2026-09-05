@@ -432,11 +432,11 @@ source "${SKIP_DIRS_LIB}" 2>/dev/null \
 readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/services.lib.sh
 source "${SERVICES_LIB}" 2>/dev/null || true
-# The account whose `systemd --user` units the registry may read live. Naming it widens nothing on
-# its own -- the probe still needs root and a working machine transport, and every failure falls
-# back to the stamp -- so this CLI as an operator reports exactly what it always did, while
-# `sudo ai-tools --status` completes the reads an operator cannot. One resource, degrading by
-# privilege, which is what keeps this report and the root one from being two answers.
+# The account whose `systemd --user` units the registry may read live. Naming it does not by itself
+# enable the probe: _ai_tools_service_systemctl still requires root and a working machine
+# transport, and refuses this CLI run as an operator. So an operator's report is unchanged, while
+# `sudo ai-tools --status` completes the reads that need root -- one resource, degrading by
+# privilege, which is what keeps this report and `ai-tools-admin status` from being two answers.
 if declare -F ai_tools_service_sandbox_account >/dev/null 2>&1; then
     ai_tools_service_sandbox_account "${SANDBOX_USER}"
 fi

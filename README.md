@@ -344,26 +344,18 @@ its whole lifetime by design.
 ## Health checks
 
 ```bash
-ai-tools --status                # as yourself
-sudo ai-tools-admin status       # as root, the same host with the rest of the readings
+ai-tools --status            # as yourself
+sudo ai-tools-admin status   # as root, the same host with the readings you cannot make
 ```
 
 Both report the installed version, whether the toolchain is provisioned, every managed systemd
 unit, and — per enabled agent — whether its binary is pinned to a checksum its vendor signed and
-what SELinux label its paths carry. They are one report read from two vantages, not two reports:
-the verdicts come from one registry, so they cannot disagree about a unit.
+what SELinux label its paths carry. Each prints `?` where its caller cannot reach the answer, so
+running the second as root fills in the sandbox account's own `systemd --user` units, the
+entrypoint pin, and the live SELinux label. Both exit non-zero when something needs attention, so
+either runs from `cron` or a monitor without parsing its output.
 
-What the operator's cannot see, it prints as `?`, and the root one completes: the sandbox
-account's own `systemd --user` units (their bus is reachable only by root), the entrypoint pin
-(its directory is not traversable by a non-operator), and the SELinux type each agent path
-carries (the toolchain is `0750`). That last is the one only root can answer — `ai-tools --status`
-reports what the last relabel *achieved*, which may be hours old, while `ai-tools-admin status`
-reads the label on the file now. It is read-only and repairs nothing;
-`sudo ai-tools-admin system entrypoints relabel` is what fixes a bad one.
-
-Both exit non-zero when something needs attention, so either runs from `cron` or a monitor without
-parsing its output. A reading a command could not make is reported and never counted, so an
-unqueryable unit does not alarm a healthy host.
+Details and exit codes: `man ai-tools` and `man ai-tools-admin`.
 
 ## Operation logging
 

@@ -382,8 +382,8 @@ else
         fail "a mislabelled entrypoint was not reported (rc=${rc}): ${out//$'\n'/ | }"
     fi
 
-    # A path the read cannot resolve is 'unknown', never an empty field that would shift every
-    # later field left in a line the consumer splits on whitespace.
+    # A label the read does not resolve prints as 'unknown', keeping the field count: an empty
+    # field would shift every later field left in a line the consumer splits on whitespace.
     # Captured before matching, never piped: the report exits non-zero on a mislabelled path and
     # `pipefail` would fail the whole pipeline whatever grep found.
     _ai_tools_live_type() { return 0; }
@@ -394,8 +394,9 @@ else
         fail "an unreadable label did not keep the field count: ${out//$'\n'/ | }"
     fi
 
-    # Not provisioned: the launcher symlink resolves to nothing. It is the ordinary pre-bootstrap
-    # state and must not read as a fault, or every host reports a problem before it is set up.
+    # Not provisioned: ai_tools_agent_entrypoint_path returns non-zero because the launcher symlink
+    # does not resolve. It is the ordinary pre-bootstrap state and must not read as a fault, or
+    # every host reports a problem before it is set up.
     ai_tools_agent_entrypoint_path() { return 1; }
     _ai_tools_live_type() { printf 'ai_tools_home_t'; }
     rc=0; out="$(ai_tools_agent_label_report)" || rc=$?

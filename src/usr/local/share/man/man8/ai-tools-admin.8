@@ -175,8 +175,9 @@ or
 .B "ai\-tools \-\-status"
 reports an entrypoint unverified or not labelled.
 .B status
-is the one that answers from the labels themselves rather than from the last
-reconciliation's record.
+answers from the labels themselves, where
+.B "ai\-tools \-\-status"
+answers from the last reconciliation's record.
 .SH COMMANDS
 .TP
 .B operators
@@ -332,8 +333,8 @@ and what SELinux type its paths carry.
 .PP
 It is the same report
 .B "ai\-tools \-\-status"
-gives an operator, completed with the three readings that vantage point cannot
-make and prints as
+gives an operator, completed with the three readings that vantage point lacks
+the privilege for and prints as
 .BR ? :
 the sandbox account's own
 .B "systemd \-\-user"
@@ -353,9 +354,10 @@ a label that has drifted since \(em an out-of-band
 a package that reinstalled the binary \(em is visible without running the
 reconcile.
 .PP
-Read-only: it registers no file-context rule, relabels nothing, and takes no
-lock, so it does not change the state it is reporting on.
-Takes no argument.
+Read-only: it reads the labels and does not relabel, register a file-context
+rule, or take the policy-store lock, so it does not change the state it reports
+on.
+It does not take an argument.
 Exits non-zero when anything needs attention, so it runs from a monitor or a
 .BR cron (8)
 job without parsing its output; a reading it could not make is reported as

@@ -19,18 +19,13 @@
 # in some state, so a unit an optional package never installed is reported as such rather than as
 # something this host merely cannot see.
 #
-# A ROOT caller can read what the operator cannot, and does, through the same functions. The
-# machine transport (`systemctl --user -M <account>@.host`) reaches that manager over the system
-# bus where root is authorized, so the live reading a system unit gets is offered for a
-# sandbox-user unit too -- gated on the caller's own capability rather than on which command is
-# asking, so `ai-tools-admin status`, `sudo ai-tools --status` and any later consumer resolve the
-# same unit to the same verdict and only an unprivileged vantage reports it as unknown. Two rules
-# keep that from being a second, competing detector. Every way the probe can fail -- no transport,
-# no root, a wedged manager past AI_TOOLS_SERVICE_LIVE_TIMEOUT -- falls back to the stamp reading
-# this library has always given, so a live probe adds an answer and never removes one. And the
-# stamp still decides FRESHNESS: a timer reported `active` has a schedule loaded, which is not the
-# same as runs still happening, so an active unit whose stamp has aged past max_age is still
-# 'stale'.
+# A ROOT caller reads that manager too, through these same functions. The machine transport
+# (`systemctl --user -M <account>@.host`) reaches it over the system bus, where root is authorized,
+# so the live reading a system unit gets is offered for a sandbox-user unit as well. The gate is
+# _ai_tools_service_systemctl, which tests the CALLER's capability and not which command is asking:
+# `ai-tools-admin status`, `sudo ai-tools --status` and any later consumer therefore resolve one
+# unit to one verdict, and an unprivileged vantage reports it as unknown. How a live reading and a
+# stamp compose into that verdict is ai_tools_service_stamp_verdict, below.
 #
 # A STAMP IS NOT TRUSTED INPUT, and no reader here treats it as such. Its writer is the sandbox
 # account, so that account can state any outcome it likes; the mode on the file and its directory
@@ -182,9 +177,9 @@ ai_tools_service_unit_property() {
 }
 
 # _ai_tools_service_live_state <unit> <scope>  -- PRINT active|down|failed|unknown from the unit's
-# LIVE state in <scope>'s manager, or 'unknown' when that manager cannot be reached from here.
-# ALWAYS returns 0. It reports only what is running now and knows nothing of stamps or freshness;
-# the caller composes those.
+# LIVE state in <scope>'s manager, or 'unknown' where _ai_tools_service_systemctl refuses that
+# scope. ALWAYS returns 0. It reports what is running now; the stamp and the freshness window are
+# read by ai_tools_service_stamp_verdict.
 #
 # A Type=oneshot service is 'inactive' whenever it is HEALTHY -- it runs, does its work and exits --
 # so is-active cannot judge it and would read every successful run as 'down'. Its verdict is the
@@ -289,23 +284,22 @@ _ai_tools_user_unit_installed() {
 #
 # <live> is what the unit's own manager says right now, or `unknown` where it could not be reached
 # -- which is every unprivileged caller. It is authoritative for `failed` and `down`: those are
-# facts about the manager now, and a stamp recording a run that has already ended cannot improve on
-# them. `active` is NOT authoritative, because for a timer it says the schedule is loaded rather
+# facts about the manager now, which a stamp -- a record of a run that has already ended -- does
+# not revise. `active` is NOT authoritative, because for a timer it says the schedule is loaded rather
 # than that runs are happening; it becomes the answer only where the stamp declines to give one,
 # and it never overrides staleness.
 #
-# The three places the stamp declines are where a live reading earns its keep, and each was
-# previously a flat `unknown`:
+# The stamp declines in three places, and each falls back to <live>:
 #   * 'fired' mode reads recency alone -- a run happened, so whatever triggers it is working, and
 #     its outcome belongs to the unit that ran (reported separately, in 'result' mode). Only a run
-#     SYSTEMD started is evidence about the trigger: a run the operator did by hand is no evidence
-#     about a schedule, and counting it would report a dead timer as healthy for the whole grace
-#     window and suppress the staleness that is the only way a stopped schedule shows up at all. So
-#     a TRIGGER that is not `unit` declines, as does an unparseable age.
-#   * 'result' mode declines a RESULT word it does not recognise, rather than guessing a verdict
+#     SYSTEMD started is evidence about the trigger: a run the operator did by hand is evidence
+#     about the updater alone, and counting it would report a dead timer as healthy for the whole
+#     grace window and suppress the staleness that is the only way a stopped schedule surfaces. So
+#     a TRIGGER other than `unit` declines, as does an unparseable age.
+#   * 'result' mode declines a RESULT word outside its vocabulary, rather than guessing a verdict
 #     out of one.
-# Where the live reading is `unknown` too, the answer is `unknown` -- which is exactly what this
-# printed before there was a transport to ask.
+# An unprivileged caller's <live> is `unknown`, so all three yield `unknown` for it -- the reading
+# a caller with no transport has always had.
 #
 # Staleness is judged FIRST of the remaining cases, and for a skipped run as much as a successful
 # one: "the registry was unreachable" is a fine answer once and a stopped toolchain after a week,
@@ -388,8 +382,8 @@ ai_tools_service_state() {
     if ! command -v systemctl >/dev/null 2>&1; then
         printf 'unknown'; return 0
     fi
-    # Installed at all? Asked before the live reading, so a unit no package shipped is reported as
-    # absent rather than as one whose manager had nothing to say about it.
+    # Installed at all? Asked before the live reading, so a unit that no package installed reports
+    # 'absent' rather than taking the live reading's verdict on a unit that is not there.
     if ! systemctl cat -- "${unit}" >/dev/null 2>&1; then
         printf 'absent'; return 0
     fi

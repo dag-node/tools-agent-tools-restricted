@@ -404,8 +404,8 @@ else
     fail "a fragment reached the dispatch for 'status' (exit ${STATUS}): ${out}"
 fi
 
-# The base command takes no argument, and says so rather than ignoring one: a report that quietly
-# dropped what it was asked about would read as an answer to the question.
+# The base command does not take an argument, and refuses one rather than ignoring it: a report
+# that dropped what it was asked about would read as an answer to the question.
 run_admin status --everything
 if [[ "${STATUS}" -eq 2 && "${out}" == *"takes no arguments"* ]]; then
     pass "status refuses an argument with exit 2 rather than reporting on the whole host"

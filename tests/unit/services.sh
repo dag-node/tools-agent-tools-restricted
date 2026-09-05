@@ -589,8 +589,9 @@ else
     verdict active "'fired' mode with no usable age falls back to the live reading" \
         active fired ok unit "" 172800
 
-    # The same three with no transport -- an operator, or a root caller whose probe could not
-    # complete. This is the direction that must not change: adding a reading must never remove one.
+    # The same three with no transport -- an operator, or a root caller whose probe did not
+    # complete. Each takes the stamp-only verdict, so a caller that gains a live reading gains an
+    # answer and keeps every answer it had.
     verdict unknown "an unreachable manager leaves an unreadable stamp reading unknown" \
         unknown result "" "" "" 172800
     verdict unknown "an unreachable manager leaves a hand-started run reading unknown" \
