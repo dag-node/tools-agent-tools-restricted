@@ -98,7 +98,7 @@ domain does not block). When SELinux is enforcing but the label does **not** res
 verdict splits on module presence: **module present** (the core file-contexts are live but the
 entrypoint carries no `ai_tools_exec_t` rule — the agent's fcontext was never registered) means
 confinement is installed yet the transition is unverifiable, so it refuses (`unverifiable`, →
-`ai-tools --relabel` / `install-selinux.sh install`) rather than launch DAC-only and silently drop
+`ai-tools-admin system entrypoints relabel` / `install-selinux.sh install`) rather than launch DAC-only and silently drop
 confinement; **module absent** means the SELinux layer was never installed here, so it launches
 (an intentional DAC-only deployment, cleared for a staged host with `semodule -r ai_tools` or
 permissive mode). The check is a no-op where SELinux is not enforcing, so DAC-only and permissive

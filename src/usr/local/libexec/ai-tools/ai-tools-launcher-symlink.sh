@@ -115,6 +115,6 @@ printf 'ai-tools-launcher-symlink: %s -> %s\n' "${LINK}" "${TARGET}"
 # This helper does NOT relabel the new entrypoint: it runs in ai_tools_handback_t, which is granted
 # no relabel rights by design (ai_tools.te), so the privilege stays off the agent-reachable
 # domain. The rename above instead trips the root-side ai-tools-relabel.path watcher, which
-# watches the bin DIRECTORY and so fires for whichever agent's link moved; `ai-tools --relabel`
+# watches the bin DIRECTORY and so fires for whichever agent's link moved; `ai-tools-admin system entrypoints relabel`
 # is the on-demand path. A label still wrong at launch makes ai-tools-run fail closed.
 # See .claude/rules/updater.rule.md.

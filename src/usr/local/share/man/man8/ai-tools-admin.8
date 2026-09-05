@@ -15,8 +15,9 @@ ai-tools-admin \- administer the host a sandboxed coding agent runs on
 .SH DESCRIPTION
 .B ai-tools-admin
 administers the host state the sandbox rests on: who is enrolled as an
-operator, which optional SELinux policy groups are loaded, and the
-configuration files an upgrade leaves to reconcile.
+operator, which optional SELinux policy groups are loaded, which agent binary
+each session is allowed to start, and the configuration files an upgrade leaves
+to reconcile.
 Every command runs as root and refuses any other caller, which is what
 separates it from
 .BR ai-tools (1)
@@ -83,6 +84,20 @@ A group marked
 .I experimental
 is an unaudited draft and is refused here, with a pointer to the source
 checkout that compiles and verifies it.
+.SS Entrypoints
+An entrypoint is the agent binary a session execs.
+A toolchain update installs a fresh one, which leaves it carrying the wrong
+SELinux label, so the domain transition stops firing and the next launch
+refuses rather than running the session unconfined.
+.PP
+The reconcile that clears this runs on its own after an update, through the
+.B ai-tools-relabel.path
+watcher and the agent package's install scriptlet.
+.B "system entrypoints relabel"
+is the command an administrator runs when neither did \(em an out-of-band
+upgrade, or a watcher that was down \(em and when
+.B "ai-tools --status"
+reports an entrypoint unverified or not labelled.
 .SH COMMANDS
 .TP
 .B operators
@@ -146,6 +161,28 @@ namespace filter.
 Unload the module for
 .IR name .
 Works for any loaded group, stable or experimental.
+.TP
+.B system entrypoints relabel
+Reconcile every enabled agent's entrypoint, in two steps.
+It verifies the binary against the checksum its vendor signed and records the
+result in that agent's pin, which the launch compares the binary against; then
+it restores the entrypoint's
+.B ai_tools_exec_t
+SELinux label.
+The verification needs the host online and
+.B fails soft
+when it cannot reach the vendor, so a disconnected host still gets its label
+back; a checksum
+.B mismatch
+fails the command, an entrypoint that is not the binary its vendor published
+being a more serious finding than any label.
+This command always re-fetches the vendor's signed manifest, where the
+unattended callers may answer from an unchanged pin.
+Takes no argument: the entrypoints come from the installed agent manifests.
+See
+.I /usr/share/doc/ai\-tools/entrypoint\-verification.md
+and
+.BR operator.conf (5).
 .TP
 .B system post-upgrade
 Reconcile the
@@ -258,6 +295,15 @@ Reconcile the configuration files an upgrade left behind:
 sudo ai\-tools\-admin system post\-upgrade
 .EE
 .RE
+.PP
+Put the agent entrypoints back in order after a toolchain update, when a launch
+refuses over the label:
+.PP
+.RS 4
+.EX
+sudo ai\-tools\-admin system entrypoints relabel
+.EE
+.RE
 .SH SEE ALSO
 .BR ai\-tools (1),
 .BR operator.conf (5),
@@ -267,3 +313,7 @@ sudo ai\-tools\-admin system post\-upgrade
 Running one sandbox for several operators \(em what each account gets, and
 what stays private to it:
 .I /usr/share/doc/ai\-tools/multi\-operator.md
+.PP
+How an entrypoint is verified against its vendor's signed release, what the pin
+holds, and what a launch does with each outcome:
+.I /usr/share/doc/ai\-tools/entrypoint\-verification.md

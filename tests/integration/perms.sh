@@ -29,9 +29,9 @@ check_file /usr/local/libexec/ai-tools/ai-tools-lockdown         root           
 # SANDBOX_USER grant); same surface as lockdown.
 check_file /usr/local/libexec/ai-tools/ai-tools-relabel          root              root              750
 # SELinux agent-relabel helper: 750 root:root -- run AS root automatically by the
-# ai-tools-relabel.path watcher and on demand by `ai-tools --relabel` (the %ai-ops NOPASSWD
-# rule), never by the agent. The grant is pinned to its zero-argument form, so the root rule
-# cannot be parameterized.
+# ai-tools-relabel.path watcher and on demand by `sudo ai-tools-admin system entrypoints relabel`,
+# never by the agent. It carries no NOPASSWD rule: the admin command reaches it through the host's
+# own general sudo grant, so the %ai-ops drop-in holds the session lifecycle alone.
 check_file /usr/local/libexec/ai-tools/ai-tools-relabel-agent    root              root              750
 # Toolchain bootstrap + operator administration: 750 root:root -- run by the operator via sudo,
 # never by the agent (no SANDBOX_USER grant, and /usr/local/libexec/ai-tools is 750 root:root).
@@ -351,19 +351,27 @@ if [[ -r /etc/sudoers.d/ai-tools ]]; then
         fail "sudoers env_keep names unexpected variable(s): ${ek_extra//$'\n'/ } -- widened launch env surface"
     fi
 
-    # Both root rules must be pinned to their helper's ZERO-ARGUMENT form. The trailing "" is what
-    # keeps each a grant to run one program one way: sudoers(5) reads a command listed with no
-    # arguments at all as permitting ANY, so a dropped "" silently turns a narrow root rule into
-    # `--remove <agent>` (relabel) or `--force` (stop) without a password. tests/unit/helper-path.sh
-    # pins the same two lines in the SOURCE; this asserts what the install actually deployed.
-    for _rule_helper in ai-tools-relabel-agent ai-tools-stop; do
-        if grep -qE "^%ai-ops[[:space:]]+.*NOPASSWD:[[:space:]]*/usr/local/libexec/ai-tools/${_rule_helper}[[:space:]]+\"\"[[:space:]]*$" \
-                /etc/sudoers.d/ai-tools; then
-            pass "sudoers grants ${_rule_helper} in its zero-argument form only"
-        else
-            fail "sudoers rule for ${_rule_helper} is missing or not pinned to the zero-argument form"
-        fi
-    done
+    # The root rule must be pinned to its helper's ZERO-ARGUMENT form. The trailing "" is what keeps
+    # it a grant to run one program one way: sudoers(5) reads a command listed with no arguments at
+    # all as permitting ANY, so a dropped "" silently turns a narrow root rule into `--force`
+    # without a password. tests/unit/helper-path.sh pins the same line in the SOURCE; this asserts
+    # what the install actually deployed.
+    if grep -qE "^%ai-ops[[:space:]]+.*NOPASSWD:[[:space:]]*/usr/local/libexec/ai-tools/ai-tools-stop[[:space:]]+\"\"[[:space:]]*$" \
+            /etc/sudoers.d/ai-tools; then
+        pass "sudoers grants ai-tools-stop in its zero-argument form only"
+    else
+        fail "sudoers rule for ai-tools-stop is missing or not pinned to the zero-argument form"
+    fi
+
+    # And the drop-in holds the session lifecycle ALONE. The entrypoint relabel is an
+    # ai-tools-admin command reached through the host's own general sudo grant, so a %ai-ops rule
+    # naming its helper would hand every operator a passwordless root command the model no longer
+    # accounts for.
+    if grep -qE "^%ai-ops.*ai-tools-relabel-agent" /etc/sudoers.d/ai-tools; then
+        fail "sudoers grants %ai-ops a rule for ai-tools-relabel-agent -- the drop-in holds the session lifecycle only"
+    else
+        pass "sudoers grants %ai-ops no rule for ai-tools-relabel-agent"
+    fi
 fi
 
 finish

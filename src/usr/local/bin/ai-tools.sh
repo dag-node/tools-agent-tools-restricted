@@ -11,7 +11,7 @@
 # password; the sandbox account has no grant).
 #
 # Four preflight gates run before dispatch: require_bootstrap (provisioned install); for the
-# operator-acting commands (--project-*/--sandbox-*/--lockdown/--reclaim/--relabel),
+# operator-acting commands (--project-*/--sandbox-*/--lockdown/--reclaim),
 # require_operator -- the invoking user must be in OPERATORS in operator.conf, since the root
 # helpers resolve the caller's identity from that list; require_sudo_access, which refuses a verb
 # whose root helper this caller does not hold a sudo grant for, before sudo prompts for a password it
@@ -61,8 +61,6 @@
 #   --reclaim [--full] [path] take back ownership of agent-written files -- the project stays
 #                             claimed and the agent keeps access; the on-demand ownership
 #                             handback, e.g. before an ACL-unaware backup (sudo; default: cwd)
-#   --relabel                 reconcile the enabled agents' entrypoints -- verify each against its
-#                             vendor's signed release checksum and pin it, then relabel (sudo)
 #   --providers               report the installed agents/integrations, which are enabled,
 #                             and why (read-only; resolved through providers.lib.sh)
 #   --status                  report ai-tools service health (read-only; services.lib.sh)
@@ -125,13 +123,6 @@ readonly SETGID_BIN="/usr/local/libexec/ai-tools/ai-tools-setgid"
 # removes group write. Needs root to chgrp to an arbitrary group and to act on files the
 # projects user does not own.
 readonly UNCLAIM_BIN="/usr/local/libexec/ai-tools/ai-tools-unclaim"
-# Root-only entrypoint-relabel helper, same sudo (no NOPASSWD) model. Restores
-# ai_tools_exec_t on the claude.exe entrypoint(s) after a Node auto-upgrade leaves them
-# mislabelled; needs root (the projects user runs as unconfined_t, which can relabel, but
-# only via sudo as the helper is 750 root:root). --relabel is the one caller that goes through
-# sudo; the ai-tools-relabel.path watcher, ai-tools-bootstrap, and the agent package's %post all
-# reach the same helper as root.
-readonly RELABEL_ENTRYPOINT_BIN="/usr/local/libexec/ai-tools/ai-tools-relabel-agent"
 # Root-only git safe.directory helper, same sudo (no NOPASSWD) model as lockdown/relabel/
 # setfacl/unclaim. /opt/ai-tools/.gitconfig is root-owned 644: world-readable (the agent reads
 # safe.directory on startup) but root-write-only, so neither the operator nor the agent writes it
@@ -194,7 +185,7 @@ readonly BOOTSTRAP_EXEMPT_VERBS=(--status --audit --stop --help -h --version -V 
 readonly OPERATOR_VERBS=(--project-claim --project-create --project-unclaim --project-remove
                          --project-enable --project-disable
                          --sandbox-create --sandbox-push --sandbox-remove
-                         --lockdown --reclaim --relabel)
+                         --lockdown --reclaim)
 # FOR_ALLOWED_VERBS -- what --for accepts: the verbs whose whole effect is decided by WHICH
 # operator's allowlist covers the path. Elsewhere the flag is REFUSED rather than ignored (see
 # require_for_target).
@@ -257,6 +248,23 @@ while (( $# )); do
 done
 set -- "${_forless_args[@]}"
 unset _forless_args
+
+# ── A verb that moved to ai-tools-admin ──────────────────────────────────────────
+# --relabel is spelled correctly, worked in an earlier release, and is printed as the remedy in
+# release notes that stay published, so the usage()-plus-"unknown command" a stranger gets would
+# read as a typo. It is a pointer and not an alias: the command reconciles a root-owned pin and a
+# file context, so it runs as root, which this CLI refuses.
+#
+# It answers ahead of every gate below on purpose. The bootstrap gate would otherwise send an
+# unprovisioned host to the provisioning command, and the root guard would answer `sudo ai-tools
+# --relabel` -- the spelling the older docs printed -- with a list of the verbs root may run, none
+# of which reconciles an entrypoint. Exit 2 is the documented code for a rejected command
+# line (ai-tools(1)).
+if [[ "${1:-}" == "--relabel" ]]; then
+    echo "ai-tools: --relabel is now a root command:" >&2
+    echo "              sudo ai-tools-admin system entrypoints relabel" >&2
+    exit 2
+fi
 
 # ── Root and the verbs that write no operator state ──────────────────────────────
 # Root may run the verbs that write no registry -- the four reports, plus --stop -- and no other.
@@ -3368,38 +3376,6 @@ cmd_reclaim() {
     ai_tools_log_info "reclaim run for ${d}$(${full} && printf ' (full)')"
 }
 
-# cmd_relabel  -- reconcile each enabled agent's entrypoint after a toolchain change, via the root
-# helper (sudo, no password: the dedicated fixed-path rule). Two steps, in this order:
-#   1. VERIFY the entrypoint against the checksum its vendor signed and record it in that agent's
-#      pin, which ai-tools-run compares the binary against at launch. Needs the host online, and
-#      fails soft when it cannot reach the vendor; a MISMATCH fails the command. This route always
-#      re-fetches: the unattended callers may answer from an unchanged pin instead
-#      (AI_TOOLS_ENTRYPOINT_PIN_REUSE, see updater.rule.md), and sudo scrubs the environment, so
-#      the operator's on-demand verb cannot inherit that shortcut.
-#   2. RELABEL it to ai_tools_exec_t. An nvm-update installs a fresh agent binary that npm leaves
-#      mislabelled (bin_t), so the domain transition stops firing and ai-tools-run refuses to
-#      launch (fail-closed) until the label is restored.
-# Takes no path -- the helper resolves the entrypoints from the agent manifests.
-#
-# The verb keeps the name it had when relabelling was its only step; why the two are one command
-# is in .claude/rules/cli.rule.md.
-cmd_relabel() {
-    [[ "$#" -eq 0 ]] || die "--relabel takes no arguments"
-    section "Reconcile the agent entrypoints (after a toolchain change)"
-    say "  Verifies each agent binary against the checksum its vendor signed, then relabels"
-    say "  it so the sandbox can confine the session; until then the agent refuses to launch."
-    command -v sudo >/dev/null 2>&1 \
-        || die "sudo not found -- cannot reconcile; run as root: ${RELABEL_ENTRYPOINT_BIN}"
-    # Reaches the helper through the dedicated fixed-path NOPASSWD rule (the same one the
-    # nvm-update timer uses), so this runs as root without a password prompt.
-    if sudo "${RELABEL_ENTRYPOINT_BIN}"; then
-        ok "entrypoints reconciled -- exit any running session and relaunch"
-        ai_tools_log_info "reconciled the agent entrypoints (verify + relabel)"
-    else
-        die "reconcile failed -- see the message above"
-    fi
-}
-
 # cmd_audit -- report what has refused, been rejected, been stranded or been flagged since a
 # given time. A thin pass-through to the root helper, which does the reading and the rendering:
 # the trail is 700 root:root, so there is no use this unprivileged CLI could make of
@@ -3644,7 +3620,6 @@ list_maintenance_note() {
     say "  ai-tools --project-unclaim <path>   release a project (revoke agent access)"
     say "  ai-tools --reclaim [--full] <path>  take back ownership; project stays claimed"
     say "  ai-tools --lockdown <path>          lock down secret-named files"
-    say "  ai-tools --relabel                  re-verify and relabel the agent entrypoints"
 }
 
 # status_fmt_age <seconds>  -- render an age the way an operator reads it ("3 days ago"), not as a
@@ -3743,14 +3718,15 @@ status_entrypoint_pins() {
             # Readable but carrying no VERSION the clamped reader will accept. Distinct from both
             # states above and from a missing pin, because the remedy is to rewrite it -- and it is
             # never read as verified, since the version check above is what gates that line.
-            printf '  %-28s %sunverified%s %s(pin present but unreadable -- rewrite it: ai-tools --relabel)%s\n' \
+            printf '  %-28s %sunverified%s %s(pin present but unreadable)%s\n' \
                 "${agent}" "${C_DIM}" "${C_RST}" "${C_DIM}" "${C_RST}"
+            say "      ${C_BOLD}sudo ai-tools-admin system entrypoints relabel${C_RST} ${C_DIM}(rewrites the pin)${C_RST}"
         else
             unpinned=$(( unpinned + 1 ))
             if [[ "${strict}" == yes ]]; then
                 printf '  %-28s %sUNVERIFIED%s\n' "${agent}" "${C_YEL}" "${C_RST}"
                 say "      this host requires verification, so its sessions will not launch"
-                say "      ${C_BOLD}ai-tools --relabel${C_RST} ${C_DIM}(needs network -- it fetches the vendor's signed manifest)${C_RST}"
+                say "      ${C_BOLD}sudo ai-tools-admin system entrypoints relabel${C_RST} ${C_DIM}(needs network -- it fetches the vendor's signed manifest)${C_RST}"
             else
                 printf '  %-28s %sunverified%s %s(no pin -- launches are not blocked)%s\n' \
                     "${agent}" "${C_DIM}" "${C_RST}" "${C_DIM}" "${C_RST}"
@@ -3773,8 +3749,8 @@ status_entrypoint_pins() {
 # The label itself stays unreadable from here -- the entrypoint lives in a 0750 toolchain this
 # account cannot traverse, and matchpathcon computes only what a label SHOULD be -- so this reports
 # the root-written record instead, through the same stamp accessors as the pin. It reports an EVENT:
-# what the last run could do, and when. Confirming the labels are right NOW is `ai-tools --relabel`,
-# which the failure line names.
+# what the last run could do, and when. Confirming the labels are right NOW is
+# `ai-tools-admin system entrypoints relabel`, which the failure line names.
 #
 # Returns non-zero only for a recorded failure, which is the one state that stops a launch.
 status_entrypoint_label() {
@@ -3799,7 +3775,7 @@ status_entrypoint_label() {
         # No record at all: this host has not run a reconciliation since the record was introduced,
         # or the state directory is unreadable from this account. It says only that, and never
         # counts against the exit status -- the same rule the unqueryable units follow.
-        *)       printf '  %-28s %s? (no labelling recorded -- run: ai-tools --relabel)%s\n' \
+        *)       printf '  %-28s %s? (no labelling recorded -- run: sudo ai-tools-admin system entrypoints relabel)%s\n' \
                      "" "${C_DIM}" "${C_RST}" ;;
     esac
     return 0
@@ -4122,7 +4098,6 @@ ai-tools -- manage the projects a sandboxed coding agent may work in
   Maintenance
     --lockdown [path]           lock down secret-named files
     --reclaim [path]            take back ownership of agent-written files
-    --relabel                   re-verify and relabel the agent entrypoints
   Reports
     --status                    service health, and whether anything needs attention
     --list                      registered projects, real and sandbox
@@ -4253,13 +4228,13 @@ require_sudo_access() {
         # command: the only sudo either of the sandbox pair makes is unreg_allow's safedir removal,
         # which already warns and carries on rather than failing the verb.
         #
-        # --relabel and --stop need no entry: they are the privileged verbs that WORK for an
-        # account holding no general grant, since %ai-ops carries a dedicated NOPASSWD rule for
-        # each of their helpers. Probing either is harmless -- `sudo -n -l <helper>` answers exit 0
-        # for those rules even though the drop-in pins each to its helper's zero-argument form (the
-        # trailing ""), because the probe does not pass an operand. Listing them here would only ever
-        # produce "grant present", so they stay out and the verbs reach sudo directly, which
-        # reports a missing drop-in itself.
+        # --stop is deliberately absent from this table: it is the privileged verb that WORKS for an
+        # account holding no general grant, since %ai-ops carries a dedicated NOPASSWD rule for its
+        # helper. Probing it
+        # is harmless -- `sudo -n -l <helper>` answers exit 0 for that rule even though the drop-in
+        # pins it to the helper's zero-argument form (the trailing ""), because the probe does not
+        # pass an operand. An entry here would only ever produce "grant present", so it stays out and
+        # the verb reaches sudo directly, which reports a missing drop-in itself.
         # The pin also means --stop's FLAGGED forms fall outside the rule and meet sudo's ordinary
         # prompt (deliberate; docs/session-stop.md). This probe could not report that either: it
         # asks about the helper, while what a flag changes is whether the rule matches the command
@@ -4477,7 +4452,6 @@ case "${1:-}" in
     --sandbox-remove) shift; cmd_sandbox_remove "${1:-}" ;;
     --lockdown)       shift; cmd_lockdown "$@" ;;
     --reclaim)        shift; cmd_reclaim "$@" ;;
-    --relabel)        shift; cmd_relabel "$@" ;;
     --providers)      shift; cmd_providers "$@" ;;
     --audit)          shift; cmd_audit "$@" ;;
     --stop)           shift; cmd_stop "$@" ;;

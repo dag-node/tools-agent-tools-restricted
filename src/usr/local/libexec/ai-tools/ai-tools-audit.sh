@@ -237,7 +237,7 @@ if (( LAUNCH_REFUSAL_COUNT > 0 )); then
 fi
 
 printf '\n  %s\n' "Current state is a different question, asked elsewhere:"
-printf '  %s\n'   "    ai-tools --status    service health and entrypoint verification, live"
-printf '  %s\n'   "    ai-tools --relabel   re-verify and relabel the agent entrypoints now"
-printf '  %s\n'   "    journalctl -t ai-tools-chown _UID=0    the full ownership trail" 
+printf '    %-45s %s\n' "ai-tools --status"                               "service health and verification, live"
+printf '    %-45s %s\n' "sudo ai-tools-admin system entrypoints relabel"  "re-verify and relabel the entrypoints"
+printf '    %-45s %s\n' "journalctl -t ai-tools-chown _UID=0"             "the full ownership trail"
 exit 1

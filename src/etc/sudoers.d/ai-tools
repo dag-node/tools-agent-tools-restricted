@@ -1,26 +1,25 @@
 # /etc/sudoers.d/ai-tools
-# Grants the ai-ops operators group (the login users that drive the sandbox) three NOPASSWD
-# rules. The first DROPS privilege to @SANDBOX_USER@; the other two run a fixed-path helper as
-# root. @SANDBOX_USER@ itself has NO rule here, and the agent runs AS @SANDBOX_USER@, so no rule
-# grants the agent anything.
+# Grants the ai-ops operators group (the login users that drive the sandbox) two NOPASSWD rules,
+# which are the session lifecycle: start one, end them all. The first DROPS privilege to
+# @SANDBOX_USER@; the second runs a fixed-path helper as root. @SANDBOX_USER@ itself has NO rule
+# here, and the agent runs AS @SANDBOX_USER@, so no rule grants the agent anything.
 #   1. execute ai-tools-run as @SANDBOX_USER@ (an agent's wrapper resolves the versioned
 #      executable, exports it as AI_TOOLS_AGENT_EXEC, then calls ai-tools-run which wraps the
 #      session in a systemd transient service (--user --pty) with RestrictNamespaces=yes +
 #      UMask=0007; NoNewPrivileges is intentionally ABSENT -- the session itself runs under NNP
 #      because RestrictNamespaces forces PR_SET_NO_NEW_PRIVS, but ai-tools-run must not set NNP
 #      at the scope it occupies before exec, or sudo's own PAM authentication breaks)
-#   2. run ai-tools-relabel-agent as ROOT (the manual `ai-tools --relabel` fallback that
-#      restores ai_tools_exec_t on the agent entrypoint; see the security note below)
-#   3. run ai-tools-stop as ROOT (`ai-tools --stop`, which terminates every running agent
-#      session; with rule 1 these are the session lifecycle -- start one, end them all)
+#   2. run ai-tools-stop as ROOT (`ai-tools --stop`, which terminates every running agent
+#      session; see the security note below)
 #
 # One rule serves every agent: ai-tools-run is the shared confinement shim and names no agent,
 # so a second agent package ships its own wrapper and needs no new sudoers grant.
 #
 # The sandbox toolchain update runs as @SANDBOX_USER@ in its own systemd --user instance
 # (nvm-update.service), writing the shared .nvm tree directly, so it needs no sudo rule here.
-# The post-upgrade entrypoint relabel fires automatically through the root-side
-# ai-tools-relabel.path watcher; this relabel rule is the operator's on-demand fallback.
+# The post-upgrade entrypoint relabel fires as root through the ai-tools-relabel.path watcher, and
+# an administrator reconciles on demand with `sudo ai-tools-admin system entrypoints relabel`, so
+# that helper does not appear in this file either.
 #
 # A group rule (`%ai-ops`) covers every operator from one static drop-in: the package ships it,
 # and membership in ai-ops (managed by ai-tools-admin) is what grants access, so there is no
@@ -44,20 +43,11 @@
 #     the installed manifests, so it needs no variable of its own here.
 #
 # SECURITY NOTES:
-#   - NOPASSWD is intentional: every command here is called non-interactively (ai-tools-run from a
-#     launch wrapper, the relabel from a timer-driven or scripted update flow, the stop from a
-#     detector with no human present).
+#   - NOPASSWD is intentional: both commands here are called non-interactively (ai-tools-run from a
+#     launch wrapper, the stop from a detector with no human present).
 #   - ai-tools-run is at a fixed, non-glob path (550 root:@SANDBOX_GROUP@, not writable by
 #     @SANDBOX_USER@). The versioned agent binary is not a direct sudo target; ai-tools-run
 #     exec's it after re-validating AI_TOOLS_AGENT_EXEC against the enabled agents' launchers.
-#   - ai-tools-relabel-agent runs AS ROOT: restoring ai_tools_exec_t on the new agent
-#     entrypoint needs unconfined_t, which root holds. The grant is scoped to that one action --
-#     a FIXED, non-glob path, and the trailing `""` pins it to the ZERO-ARGUMENT form (a command
-#     listed with no arguments at all would instead permit any, per sudoers(5)). The helper's
-#     other form, `--remove <agent>`, is therefore reachable by root alone: it is an erase-time
-#     step for the agent package's scriptlet, not an operator action. The helper is 750 root:root,
-#     writable by root alone. This is an operator grant, keeping the root privilege on the
-#     operator side rather than in the agent-reachable handback domain.
 #   - ai-tools-stop runs AS ROOT: a session lives in the sandbox account's cgroups, and only root
 #     may signal across accounts and write cgroup.kill. NOPASSWD is the point of the rule, not a
 #     convenience -- an unattended detector cannot answer a password prompt. The same trailing `""`
@@ -66,8 +56,8 @@
 #     helper takes no target and no authorization input, so the rule has no argument surface at
 #     all. Why it is granted this way, and what it widens: docs/session-stop.md.
 #   - The first rule DROPS privilege; the agent runs AS @SANDBOX_USER@ and cannot invoke an
-#     ai-ops rule, so no rule here grants the agent anything -- including the two root rules,
-#     which @SANDBOX_USER@ cannot reach.
+#     ai-ops rule, so no rule here grants the agent anything -- including the root rule, which
+#     @SANDBOX_USER@ cannot reach.
 #   - @SANDBOX_USER@ has no login shell and no other sudo rights, and is not a member of ai-ops.
 #
 # Syntax check before deploy:  visudo -c -f /etc/sudoers.d/ai-tools
@@ -76,5 +66,4 @@ Defaults!/opt/ai-tools/bin/ai-tools-run umask=0007,umask_override
 Defaults!/opt/ai-tools/bin/ai-tools-run env_keep += "AI_TOOLS_AGENT_EXEC AI_TOOLS_PROJECT_DIR"
 
 %ai-ops ALL=(@SANDBOX_USER@:@SANDBOX_GROUP@) NOPASSWD: /opt/ai-tools/bin/ai-tools-run
-%ai-ops ALL=(root) NOPASSWD: /usr/local/libexec/ai-tools/ai-tools-relabel-agent ""
 %ai-ops ALL=(root) NOPASSWD: /usr/local/libexec/ai-tools/ai-tools-stop ""

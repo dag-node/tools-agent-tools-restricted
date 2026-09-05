@@ -410,7 +410,7 @@ verify_agent_labels() {
                 # "no change" for the one path whose label decides whether a session is
                 # confined -- and leaves the operator no detail to diagnose from.
                 *)    warn "unrecognized labelling result: ${verdict} ${subject} ${detail} ${wanted}"
-                      warn "    the entrypoint label is unconfirmed; check: sudo ai-tools --relabel" ;;
+                      warn "    the entrypoint label is unconfirmed; check: sudo ai-tools-admin system entrypoints relabel" ;;
             esac
         done <<< "${report}"
     fi
@@ -431,7 +431,7 @@ verify_agent_labels() {
             warn "  Nothing here grants ai_tools_exec_t, so a session refuses to launch until it is."
             warn "  Check which agents are enabled:  ai-tools --providers"
             warn "  and that a manifest is installed: ls -l /usr/local/lib/ai-tools/agents.d/"
-            warn "  Re-apply once one resolves:      sudo ai-tools --relabel"
+            warn "  Re-apply once one resolves:      sudo ai-tools-admin system entrypoints relabel"
         else
             warn "no agent path took a label this run -- see the per-path reason above"
         fi

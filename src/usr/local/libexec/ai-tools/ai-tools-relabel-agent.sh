@@ -29,8 +29,9 @@
 #
 # Runs as root (a domain that holds relabel), never the sandbox account. Three callers drive the
 # default form: ai-tools-bootstrap at provision time, the ai-tools-relabel.path watcher after an
-# upgrade, and `ai-tools --relabel` on demand. The operators' sudo grant covers the ZERO-ARGUMENT
-# form only, so --remove is reachable by root alone. The domain story -- the watcher, the
+# upgrade, and `ai-tools-admin system entrypoints relabel` on demand. Every one of them is already
+# root, so this helper carries no %ai-ops sudoers rule and its 750 root:root mode is the whole
+# gate. The domain story -- the watcher, the
 # ai-tools-run fail-closed backstop, and why the relabel privilege stays off the agent-reachable
 # handback domain -- is in .claude/rules/updater.rule.md.
 #
@@ -69,7 +70,7 @@ declare -F ai_tools_label_agent_paths >/dev/null 2>&1 \
     || die "relabel.lib.sh is incomplete -- reinstall ai-tools-base"
 
 # Serialize against the other callers of this helper before touching the policy store: the agent
-# package's %post, the ai-tools-relabel.path watcher, and `ai-tools --relabel` all run it, and an
+# package's %post, the ai-tools-relabel.path watcher, and `ai-tools-admin system entrypoints relabel` all run it, and an
 # upgrade drives two of them at once. Taken here so it covers --remove as well, which writes the
 # same store. Proceeding unserialized is reported, not fatal (see relabel.lib.sh).
 ai_tools_relabel_lock
@@ -114,9 +115,9 @@ fi
 #   AI_TOOLS_ENTRYPOINT_PIN_REUSE=1 lets a run answer from the existing pin when no input that
 #   decides the verdict has changed, skipping two network fetches and a gpgv per agent. It is
 #   OPT-IN, and the two unattended callers are what it is for: the ai-tools-relabel.path watcher,
-#   which an upgrade can fire several times for one change, and the agent package's %post. An
-#   operator running `ai-tools --relabel` reaches this helper through sudo, which scrubs the
-#   environment, so that command re-checks the vendor's signature every time -- the behaviour it
+#   which an upgrade can fire several times for one change, and the agent package's %post.
+#   `ai-tools-admin system entrypoints relabel` clears the variable before it execs this helper, so
+#   the on-demand command re-checks the vendor's signature every time -- the behaviour it
 #   documents. What reuse gives up, and what it keeps, are in updater.rule.md.
 pin_agent_entrypoint() {
     local agent="$1" entrypoint url_template key_file fingerprints version checksum rc=0

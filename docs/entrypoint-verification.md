@@ -91,9 +91,9 @@ where neither works.
 | `could not verify … pin unchanged` | the host could not reach the vendor, or no manifest exists for that release | no action; it re-verifies on the next update. If it persists, check egress to `downloads.claude.ai` |
 | `signed by a key the pinned keyring does not hold` | the vendor rotated its signing key | `sudo dnf update 'ai-tools-agents-*'` |
 | a launch refused: `does not match the checksum its vendor signed` | **the binary changed after it was verified** | treat the toolchain as tampered: `sudo ai-tools-bootstrap`, and investigate if it recurs |
-| a launch refused: `carries no verified checksum` | you set `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes` and this entrypoint was never pinned | `ai-tools --relabel` (needs the host online) |
+| a launch refused: `carries no verified checksum` | you set `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes` and this entrypoint was never pinned | `sudo ai-tools-admin system entrypoints relabel` (needs the host online) |
 
-`ai-tools --relabel` reconciles the entrypoint: it verifies and pins it, then fixes its SELinux
+`sudo ai-tools-admin system entrypoints relabel` reconciles the entrypoint: it verifies and pins it, then fixes its SELinux
 label. Both are answers to "the toolchain changed"; it is the same command you already run when a
 Node upgrade leaves the entrypoint mislabelled.
 

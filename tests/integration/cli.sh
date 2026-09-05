@@ -26,9 +26,8 @@ if [[ ! -x "${CLI}" ]]; then
 fi
 
 # (1a) Every verb that WRITES OPERATOR-OWNED STATE must refuse root before the first write. One
-# per family, since the guard keys on the verb: a claim, a clone, a per-project helper verb, and
-# the host-wide relabel.
-for verb in --project-claim --project-unclaim --sandbox-create --lockdown --reclaim --relabel; do
+# per family, since the guard keys on the verb: a claim, a clone, and the per-project helper verbs.
+for verb in --project-claim --project-unclaim --sandbox-create --lockdown --reclaim; do
     out="$("${CLI}" "${verb}" 2>&1)" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'do not run as root' <<<"${out}"; then
         pass "CLI refuses root on ${verb} (would write registries with the wrong owner)"
@@ -61,6 +60,18 @@ if [[ ${rc} -eq 2 ]] && grep -qi 'unknown --stop option' <<<"${out}"; then
     pass "CLI accepts root on --stop (reached the option loop, no session signalled)"
 else
     fail "CLI did not admit root to --stop's option loop (rc=${rc}): ${out}"
+fi
+
+# (1b') --relabel moved to ai-tools-admin, and the pointer that says so answers AHEAD of the
+# principal guard. Driven as ROOT for exactly that reason: this is the caller who typed the
+# `sudo ai-tools --relabel` the older release notes print, and a pointer sitting behind the guard
+# would answer them with the list of verbs root may run instead. Exit 2 is the documented code for
+# a rejected command line.
+out="$("${CLI}" --relabel 2>&1)" && rc=0 || rc=$?
+if [[ ${rc} -eq 2 ]] && grep -q 'ai-tools-admin system entrypoints relabel' <<<"${out}"; then
+    pass "CLI points root at the moved relabel command, ahead of the principal guard"
+else
+    fail "CLI did not point at 'ai-tools-admin system entrypoints relabel' (rc=${rc}): ${out}"
 fi
 
 # (1c) --for stays refused for root in EITHER argument order: root is not in OPERATORS, so an

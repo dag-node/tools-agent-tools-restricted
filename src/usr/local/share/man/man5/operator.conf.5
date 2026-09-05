@@ -127,7 +127,7 @@ host that has not yet run a relabel, one whose vendor published no manifest for
 the installed release, and any air\-gapped host.
 .B Set:
 only a verified entrypoint may start a session. Pin one with
-.BR "ai\-tools \-\-relabel" ,
+.BR "sudo ai\-tools\-admin system entrypoints relabel" ,
 which fetches the vendor's signed manifest and so needs the host online.
 .TP
 .BI CLAUDE_SYSTEM_PROMPT_FILE= path

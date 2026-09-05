@@ -455,7 +455,7 @@ main() {
         # here would strand a completed update over a symlink the operator can repoint by hand.
         # The scheduled timer run has the socket up and repoints normally.
         if ! /usr/local/bin/ai-tools-handback-client SYMLINK "${versioned_launcher}"; then
-            warn "failed to repoint ${AI_TOOLS_BIN}/${launcher} via handback SYMLINK -- the toolchain is updated but the stable symlink may be stale; repoint it as root: ln -sfn ${versioned_launcher} ${AI_TOOLS_BIN}/${launcher} && ai-tools --relabel"
+            warn "failed to repoint ${AI_TOOLS_BIN}/${launcher} via handback SYMLINK -- the toolchain is updated but the stable symlink may be stale; repoint it as root: ln -sfn ${versioned_launcher} ${AI_TOOLS_BIN}/${launcher} && ai-tools-admin system entrypoints relabel"
         fi
     done
 

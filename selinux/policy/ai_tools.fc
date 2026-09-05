@@ -12,7 +12,7 @@
 # so a manifest chooses which file is its entrypoint, never what type a file gets.
 #
 # The relabel runs at provision time (ai-tools-bootstrap), on the ai-tools-relabel.path watcher
-# after a Node upgrade reinstalls the binary mislabelled, and on demand via `ai-tools --relabel`.
+# after a Node upgrade reinstalls the binary mislabelled, and on demand via `ai-tools-admin system entrypoints relabel`.
 # Until it lands, ai-tools-run fail-closes (refuses to launch) rather than run unconfined.
 #
 # The rest of the nvm node tree is left to its default usr_t/bin_t/lib_t -- READ-ONLY

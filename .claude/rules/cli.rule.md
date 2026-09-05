@@ -87,7 +87,7 @@ provider; the sentinel it needs is a launcher symlink for *any* enabled agent, w
 ## Operator preflight
 
 A second gate, `require_operator`, runs before dispatch for the **operator-acting** commands
-(`--project-*`, `--sandbox-*`, `--lockdown`, `--reclaim`, `--relabel`) and refuses when the
+(`--project-*`, `--sandbox-*`, `--lockdown`, `--reclaim`) and refuses when the
 invoking user is not listed in `OPERATORS` in `operator.conf`. Those commands resolve the
 caller's identity from that list (`operator.lib.sh`, inside the root helpers); without the gate an
 unenrolled user proceeds through the registry writes and confirm prompts only to be refused by the
@@ -118,12 +118,12 @@ follows — so a caller holding a password is never asked for it on a verb no ru
 probed on the **first** helper it reaches (a `--for` run on `ai-tools-allowlist`, whose snapshot
 precedes the verb's own helper), so a host granting some helpers and not others is answered
 accurately rather than through one representative. `--sandbox-push`, `--sandbox-remove`, and the
-informational verbs reach no helper that can refuse the command, and are not probed. Neither are
-`--relabel` and `--stop`, the privileged verbs an operator without a general grant can already run
-through the `%ai-ops` rules for their helpers: probing either answers "grant present" every time,
-so the entry would carry no information. (`--stop`'s rule covers its bare form only, so its flagged
-forms do meet sudo's ordinary prompt — see [docs/session-stop.md](../../docs/session-stop.md). The
-probe could not have reported that either: it asks about a helper, not about a command line.)
+informational verbs reach no helper that can refuse the command, and are not probed. Neither is
+`--stop`, the privileged verb an operator without a general grant can already run through the
+`%ai-ops` rule for its helper: probing it answers "grant present" every time, so the entry would
+carry no information. (That rule covers the bare form only, so `--stop`'s flagged forms do meet
+sudo's ordinary prompt — see [docs/session-stop.md](../../docs/session-stop.md). The probe could
+not have reported that either: it asks about a helper, not about a command line.)
 
 The probe is `sudo -n -l <helper>`, which cannot prompt. An operator holding a general grant gets
 exit 0 and the command echoed back, whether or not a credential is cached — listing an allowed
@@ -276,22 +276,6 @@ file sink being the authoritative one.
   run on demand before an ACL-unaware backup so ownership (not the ACL) carries the operator's
   access into the copy. `--full` includes the skipped heavy trees (`node_modules`, `.venv`, …). See
   [ownership-and-hooks](ownership-and-hooks.rule.md).
-- `--relabel` — restore `ai_tools_exec_t` on every enabled agent's entrypoint after a Node
-  upgrade, via `ai-tools-relabel-agent`. The manual counterpart to the automatic post-upgrade
-  relabel the `nvm-update` timer runs (see [updater](updater.rule.md)); for an out-of-band
-  upgrade or if the timer's relabel failed and `ai-tools-run` is fail-closing on the launch.
-  **The verb reconciles the entrypoint, of which the label is one half.** It first verifies each
-  agent's entrypoint against the checksum its vendor signed and pins the result — the half that also
-  runs on a DAC-only host, and the operator-facing way to pin an entrypoint the watcher was offline
-  for. That step, its three outcomes, and why it is not a command of its own are in
-  [updater](updater.rule.md).
-
-  It then applies each agent's **declared** `entrypoint_fcontext` pattern and reconciles the result
-  against the entrypoint that agent's launcher symlink resolves to — the inode the launch
-  preflight checks. An entrypoint that is installed where the declaration does not reach exits
-  non-zero naming that cause, so this command never reports success on a host whose next launch
-  will fail closed. See [agent-claude-code](agent-claude-code.rule.md) for the reconciliation and
-  what each verdict looks like to an operator.
 - `--providers` — read-only report of the installed agents and integrations, which of them a
   session gets, and why. It resolves through `providers.lib.sh` (see
   [providers](providers.rule.md)) rather than re-reading `operator.conf`, so the report and the
@@ -339,7 +323,7 @@ file sink being the authoritative one.
   load-bearing and the report states it, because the failure mode is specific and easy: a dated
   `ERROR` read as a standing fault sends an operator to fix something already fixed, and erodes
   trust in the trail on the first false alarm. Confirming what is true *now* is `--status`'s job
-  (and `--relabel`'s), and the report closes by naming them rather than implying it answered that
+  (and `ai-tools-admin system entrypoints relabel`'s), and the report closes by naming them rather than implying it answered that
   question itself. The command deliberately does **not** re-verify a finding: knowing how to
   re-check each condition is exactly the per-detection knowledge it refuses to carry.
 
@@ -489,7 +473,7 @@ advancing surfaces. The account's own
   context means `stat`ing a file under `/opt/ai-tools/.nvm`, which `ai-tools-bootstrap` creates
   `0750 SANDBOX_USER:SANDBOX_GROUP` — the operator is not in that group and cannot traverse it, and
   `matchpathcon` computes only what a label *should* be, not what it is. So the record carries the
-  same caveat as the rest of this report: it is an event, and `ai-tools --relabel` is what confirms
+  same caveat as the rest of this report: it is an event, and `ai-tools-admin system entrypoints relabel` is what confirms
   the labels now. A mislabel that arises after it still stops the next launch with the fault and the
   command that clears it.
 
@@ -499,9 +483,9 @@ advancing surfaces. The account's own
   watcher was `OK` and the relabel it fired had failed. A `Type=oneshot` service is inactive
   whenever it is healthy, so it is judged by the result of its last run rather than by `is-active`
   (see `services.lib.sh`), and its remedy is `systemctl start ai-tools-relabel.service`: that
-  re-runs the work *and* clears the recorded failure the report reads, which `ai-tools --relabel`
+  re-runs the work *and* clears the recorded failure the report reads, which `ai-tools-admin system entrypoints relabel`
   does not. The two records answer different questions — the label record covers every caller
-  (an rpm `%post`, the watcher, `--relabel`), while the unit covers a watcher run that failed before
+  (an rpm `%post`, the watcher, `system entrypoints relabel`), while the unit covers a watcher run that failed before
   it reached any labelling at all.
 
   Every command for such a unit goes through root, and the CLI composes them rather than the
@@ -535,6 +519,15 @@ advancing surfaces. The account's own
 - `--version` (the deploy-stamped package version; `dev` from a raw source tree), `--help`.
 - `--for <operator>` — a **modifier**, not a command: run the verb on behalf of another enrolled
   operator (see *Acting for another operator* below).
+
+**`--relabel` prints the new command and exits 2.** The entrypoint reconcile is
+`sudo ai-tools-admin system entrypoints relabel` ([updater](updater.rule.md) owns what it does,
+[cli-grammar](cli-grammar.rule.md) why it is spelled that way): it runs as root, which this CLI
+refuses, so it is not an alias. The pointer answers **ahead of every gate**, which is where its
+value is — the bootstrap gate would send an unprovisioned host to the provisioning command, and the
+root guard would answer `sudo ai-tools --relabel`, the spelling the older release notes print, with
+a list of the verbs root may run, none of which reconciles an entrypoint. It exits **2**, the
+documented code for a rejected command line.
 
 The CLI ships a man page, `ai-tools(1)`
 (`src/usr/local/share/man/man1/ai-tools.1` → `/usr/local/share/man/man1/`, deployed by
@@ -1005,15 +998,11 @@ otherwise), so the grant adds it no access.
 The CLI itself is unprivileged. Eight of its root operations — `ai-tools-lockdown`,
 `ai-tools-relabel`, `ai-tools-setfacl`, `ai-tools-setgid`, `ai-tools-unclaim`, `ai-tools-safedir`,
 `ai-tools-reclaim`, and `ai-tools-allowlist` — run via `sudo` with **no** NOPASSWD grant by design,
-so sudo prompts for the projects user's password; the sandbox account has no grant for any. Two are
-the exception — `--relabel` → `ai-tools-relabel-agent` and `--stop` → `ai-tools-stop` — each with a
-dedicated fixed-path NOPASSWD rule of its own
-(see [launch](launch.rule.md)), so each runs **as root without a prompt**, kept safe by being a
+so sudo prompts for the projects user's password; the sandbox account has no grant for any. One is
+the exception — `--stop` → `ai-tools-stop` — carrying a dedicated fixed-path NOPASSWD rule
+(see [launch](launch.rule.md)), so it runs **as root without a prompt**, kept safe by being a
 fixed path the projects user cannot modify and granted only in its zero-argument form (the rule's
-trailing `""`). `ai-tools --relabel` is that rule's only consumer: the `ai-tools-relabel.path`
-watcher and the agent package's `%post` both reach the same helper as root and need no rule, and
-the `nvm-update` timer runs as the sandbox account, which `ai-tools-run` refuses to launch for if
-it ever appears in `ai-ops`. `ai-tools-setfacl` and `ai-tools-unclaim` need root
+trailing `""`). `ai-tools-setfacl` and `ai-tools-unclaim` need root
 (`CAP_FOWNER`) to act on files the projects user does not own (e.g. agent-written files from
 a prior session); `ai-tools-setgid` needs root to `chgrp` the project's directories to
 `SANDBOX_GROUP` — a group the operator is not a member of (multi-operator), so the change is not

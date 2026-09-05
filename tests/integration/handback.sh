@@ -49,7 +49,7 @@ if [[ -z "${_exe}" ]]; then
 elif [[ "${_module_loaded}" != yes ]] || ! command -v matchpathcon >/dev/null 2>&1; then
     skip "claude.exe entrypoint label" "ai_tools SELinux module not installed"
 elif [[ "$(matchpathcon -n "${_exe}" 2>/dev/null)" != *ai_tools_exec_t* ]]; then
-    fail "no file-context maps ${_exe} to ai_tools_exec_t -- the claude-code entrypoint rule is not registered, so ai-tools-run refuses to launch. Fix: sudo ai-tools --relabel"
+    fail "no file-context maps ${_exe} to ai_tools_exec_t -- the claude-code entrypoint rule is not registered, so ai-tools-run refuses to launch. Fix: sudo ai-tools-admin system entrypoints relabel"
 elif [[ "$(stat -c '%C' "${_exe}" 2>/dev/null)" == *:ai_tools_exec_t:* ]]; then
     pass "claude.exe labelled ai_tools_exec_t (entrypoint transition fires)"
 else
