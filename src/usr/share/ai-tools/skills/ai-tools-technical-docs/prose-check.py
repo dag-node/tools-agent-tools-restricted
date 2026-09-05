@@ -210,6 +210,23 @@ EXTRA_CHECKS = [
 
 PROSE_WHOLE_FILE = (".md", ".1", ".5", ".8")
 
+# How to read a path, when --prose or --source has said: True reads every line, False reads only
+# comments and docstrings, None leaves the extension above to decide.
+#
+# The extension rule fails in one direction without saying so, which is what the override answers:
+# a path it does not recognize is read as SOURCE, so a document keeps only its `#` headings and the
+# run reports zero findings for a file whose body it never read. That is what a caller gets for a
+# copy whose name lost its extension -- a baseline written to a temp path, a revision from
+# `git show` -- and zero findings reads as clean.
+_FORCE_WHOLE_FILE = None
+
+
+def is_prose_file(path):
+    """Whether to read every line of `path` as prose, rather than only its comments."""
+    if _FORCE_WHOLE_FILE is not None:
+        return _FORCE_WHOLE_FILE
+    return path.endswith(PROSE_WHOLE_FILE)
+
 # Terms that mark a sentence as stating a SECURITY BOUNDARY rather than describing behaviour.
 # A rewrite that drops one of these has probably changed the claim; see the `--kept` heading above.
 # The access-control nouns are here for the same reason as the secrets: `grants nothing on` rewritten
@@ -290,7 +307,7 @@ def prose_lines(source):
             last_path, state = path, None
         if path == MESSAGE:
             yield path, number, line, None if line.lstrip().startswith("#") else line
-        elif path.endswith(PROSE_WHOLE_FILE):
+        elif is_prose_file(path):
             yield path, number, line, line
         else:
             text, state = source_prose(line, state)
@@ -325,7 +342,7 @@ def sentences(source):
     """
     block_path, block, fenced = None, [], False
     for path, number, line, text in prose_lines(source):
-        if text is not None and path.endswith(PROSE_WHOLE_FILE):
+        if text is not None and is_prose_file(path):
             if FENCE.match(line):
                 fenced = not fenced
                 text = None
@@ -391,7 +408,7 @@ def _singular(term):
 def hunk_prose(path, lines):
     """The prose each of these diff lines carries, skipping the ones that carry none."""
     for line in lines:
-        text, _ = (line, None) if path.endswith(PROSE_WHOLE_FILE) else source_prose(line, None)
+        text, _ = (line, None) if is_prose_file(path) else source_prose(line, None)
         if text:
             yield text
 
@@ -468,7 +485,7 @@ def author_prose(path, text):
     so documents drop it too. A comment keeps its quoted text, because a message template quoted
     in a comment is prose this standard covers.
     """
-    span = QUOTED_SPAN if path.endswith(PROSE_WHOLE_FILE) else BACKTICK_SPAN
+    span = QUOTED_SPAN if is_prose_file(path) else BACKTICK_SPAN
     # " -- " rather than a space: a removed span must still separate the words around it, or
     # `takes \x60--for\x60 no target` fuses into a phrase the patterns then match.
     return span.sub(" -- ", text)
@@ -495,8 +512,16 @@ def main():
     parser.add_argument("--kept", metavar="REVISIONS", nargs="?", const="",
                         help="report a claim a rewrite dropped, narrowed, or weakened "
                              "(default: the index)")
+    reading = parser.add_mutually_exclusive_group()
+    reading.add_argument("--prose", dest="force", action="store_const", const=True,
+                         help="read every line as prose, whatever the extension")
+    reading.add_argument("--source", dest="force", action="store_const", const=False,
+                         help="read comments and docstrings only, whatever the extension")
     parser.add_argument("paths", nargs="*", help="files to read whole")
     args = parser.parse_args()
+
+    global _FORCE_WHOLE_FILE
+    _FORCE_WHOLE_FILE = args.force
 
     if args.kept is not None:
         count = 0

@@ -723,6 +723,21 @@ against; mark anything else deliberate with `prose-check: allow` on the line, or
 Run it before committing prose, and on the commit message too — the universal rules cover that
 artifact like any other.
 
+**A file's extension decides how it is read, and `--prose` / `--source` override that.** A `.md`
+page or a man page contributes every line; anything else contributes its comments and docstrings.
+A path the extension rule does not recognize is read as source, so a **document copy whose name
+lost its extension** keeps only its `#` headings and reports zero findings for a file whose body
+the run never read — and zero findings reads as clean. Pass `--prose` for such a copy, `--source`
+for the reverse.
+
+That is what checking **what a branch added** needs, so a pre-existing finding does not mask a new
+one. Write each changed file's pre-change revision to a temp path, check both, and compare the
+sorted findings:
+
+```bash
+git show "HEAD:$f" > /tmp/base && python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --all --prose /tmp/base
+```
+
 When in doubt: describe what the code does, name the mechanism that does it, and use fewer
 words.
 
