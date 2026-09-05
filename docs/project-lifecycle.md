@@ -76,8 +76,8 @@ sets the modes rather than inheriting them — `0750` for the directory, `0640` 
 
 ```text
     created /home/you/src/newproject
-    modes 0750/0640 -- this host's umask (0077) would have made what this
-    creates owner-only, which the claim honours as a seal and leaves untouched
+    modes set to 0750/0640 -- your umask (0077) would have made them
+    owner-only, which the agent cannot read
 ```
 
 Owner-only (`700`/`600`) is how you seal a path *away* from the agent, and the claim honours it
@@ -234,8 +234,8 @@ an `allowed-projects` you maintain as an ordered, documented file comes back exa
 ```
 
 Disabling changes the registry alone: the group, the ACLs, the setgid bits and the
-SELinux label all stay, so re-enabling restores the entry alone and neither
-command runs a secret scan. Prefixing the line with `!` by hand does the same thing — the verbs
+SELinux label all stay, so re-enabling does not grant any access that was not already
+granted, and neither command runs a secret scan. Prefixing the line with `!` by hand does the same thing — the verbs
 make the edit the file has always supported.
 
 One consequence is worth knowing before you park a project a session is still writing to: while
@@ -328,7 +328,7 @@ It swaps the allowlist gate for a per-path one rather than removing a gate: a pa
 directory that was never claimed and it leaves every path as it found it, which is what makes a mistyped
 path harmless. What it does to a path it *accepts* is identical to a normal unclaim.
 
-Every other gate stands. The protected-paths backstop still refuses system directories and home
+`--force` does not relax any other gate. The protected-paths backstop still refuses system directories and home
 roots; the owner guard still skips files belonging to anyone else; a hardlinked file is still
 refused (its inode is reachable from outside the tree, and `chgrp`/`chmod` act on the inode — a
 locally-cloned `.git` hits this in bulk, and the count is reported); secret-named and
