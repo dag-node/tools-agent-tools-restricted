@@ -4,7 +4,7 @@ name: ai-tools-technical-docs
 x-ai-tools-managed: true
 x-ai-tools-status: draft
 x-ai-tools-version: 2
-x-ai-tools-updated: 2026-09-04
+x-ai-tools-updated: 2026-09-05
 description: >
   Technical writing standard for every software engineering artifact. Use when writing or
   editing README and usage guides, CLAUDE.md / AGENTS.md, *.rule.md, file and module headers,
@@ -85,12 +85,32 @@ each one true, in the same sentence.
 - In style: `launch() exits non-zero when the service account appears in the admin group.`
 - Off style: `The service account is never an administrator.`
 
-Where no guard exists, describe the behaviour without the absolute.
+Where no guard exists, describe the behaviour without the absolute. **The fix is to name the
+guard, not to delete the absolute** — an absolute a guard does back is the claim, and dropping it
+to `not` swaps a universal for a single instance. Which of the two applies is decided by what the
+sentence is about:
+
+| The absolute is about | Do | Why |
+|---|---|---|
+| this system, with a guard in the code | keep it, and name the guard beside it | it states the guarantee; `never a glob` and `not a glob` are different claims about a sudoers rule |
+| the conduct required of a reader or an agent | keep it | a prohibition is the content of the sentence |
+| what a person will do | drop it | `never run dnf remove first` predicts a human action; `upgrade in place, without a dnf remove first` is the instruction |
+| what a third-party tool does | drop it | `DNF never pulls a new weak dependency` is a claim about someone else's code; `DNF leaves a new weak dependency off an existing install` states the behaviour |
 
 ### Name the absent input rather than writing "nothing"
 
 - In style: `The helper does not take a path argument, so the path validator is not loaded.`
 - Off style: `There is nothing left to check, and nothing to trust.`
+
+The defect is the hiding, not the word: `nothing is exempt` in a file that terminates processes
+leaves the reader to work out the scope of a sweep, where `no cgroup under the account is exempt`
+states it. Name the thing, and the same goes for `everything`, `anything`, and `all of them`.
+
+**Where the actor is a person, `nothing` is often the right word and the replacement is not.**
+"what you have to do about it (almost always nothing)" is an action the reader takes; `none` reads
+as a count of some set the sentence never named. Keep the sentence and mark the line
+`prose-check: allow` — in Markdown as `<!-- prose-check: allow -->`, which the checker reads and
+the rendered page does not show.
 
 ### Domain vocabulary points at a mechanism
 
@@ -101,6 +121,24 @@ vocabulary: point at the mechanism it names, or choose a plainer word.
 
 Prefer plain verbs — returns, creates, loads, stores, deletes, parses, validates, caches,
 retries, logs, skips, reads, writes, starts, stops, maps, serializes, emits, forwards.
+
+**A term of art in the reader's domain is a domain term, however ordinary it looks.**
+*maintenance*, *permission*, *mask*, *grant*, *traverse*, *weak dependency* have settled meanings
+in systems and operations prose, so they stay fixed under *Consistent domain terms* below. Keep
+them: substituting a near-synonym (*upkeep* for *maintenance*) costs the reader a term they
+already know.
+
+**Some verbs name no operation.** *convey*, *leverage*, *utilize*, *facilitate*, *handle* describe
+an unspecified relationship, so a reader cannot check them against the code. Say which operation it
+is: **permits** or **grants** for an access decision, **transmits**, **sends**, or **routes** for a
+message, **displays**, **renders**, or **shows** for output, **states**, **describes**, or
+**specifies** for an explanation. `--x` on a directory *permits traversal*; it does not *convey*
+anything. A word with a settled meaning in one domain keeps it there — `convey` is the GPL's own
+term for distributing a work, and licensing prose is where it belongs.
+
+*attribution* is the same case as a noun: name the thing. An **audit trail** or **provenance**
+records who acted, a **root cause** explains why something failed, an **attribute** or **field** is
+data on an object, and a **label** is what a row in a report carries.
 
 ### Name real mechanisms
 
@@ -123,17 +161,10 @@ State what the reader can rely on. Prefer "X is available when ⟨condition⟩" 
 ⟨condition⟩" where both state the same fact. Describe what a component does rather than what it
 does not do.
 
-**A rewrite changes the wording, not the claim.** Where a sentence states a security boundary —
-what a mode permits, what a file may hold, who may act — carry that boundary through the edit
-unchanged: keep the same subject, the same sets, and the same modality (`must`, `only`, `never`).
-Where the new wording cannot hold the claim, keep the sentence as it stands.
-
-Swapping the set is how it goes wrong. `carries no secret` and `contains only settings` are different
-propositions: the first says the contents and the secrets do not intersect, the second says the
-contents are settings — and a setting can be a token, so the second does not imply the first. Only
-the first justifies the `644` mode it was written to justify. Turning a negation positive is sound
-over a set provably disjoint from the one the negation excluded, and nowhere else; where that does
-not hold, keep the negation and write it with `does not`.
+Turning a negation positive is sound over a set provably disjoint from the one the negation
+excluded, and nowhere else; where that does not hold, keep the negation and write it with `does
+not`. Editing prose that already exists is governed by *Rewriting existing prose* below, which is
+the section to read before touching a sentence someone else wrote.
 
 Keep this structural: no praise, no intensifiers, no tone words, and never overstate a
 guarantee. No single sentence looks upbeat; across a corpus the effect accumulates, and the
@@ -323,6 +354,83 @@ forward-compatible" is purpose, spec style, and present tense at once. Friction 
 when purpose is written as **history** or as a **predicted human action**. A "so that
 ⟨invariant⟩" clause on a fact about what the code does is one way to attach it — see the limit
 on it under *Rationale is the payload*.
+
+---
+
+# Rewriting existing prose
+
+Every rule above governs a first draft, where the claim is in the writer's head and only the words
+are in question. Editing prose that already exists is a different operation: the claim is already in
+the sentence, and the job of the edit is to keep it. The rules for that are collected here, because
+a rewrite pass reads one section and then changes several hundred sentences.
+
+**A rewrite changes the wording, not the claim.** What remains states what the original stated —
+same subject, same set, same number, same modality — and does not add anything the original did not
+say. Where
+the new wording cannot carry the claim, leave the sentence unchanged: a style rule that cannot be
+applied without retiring a guarantee does not apply.
+
+## Rewrite from the source, not from the flagged token
+
+A finding names a symptom, and every rule here is about the claim, so:
+
+1. Open what the sentence describes — the code, or the invariant it states.
+2. Settle any disagreement between the two in the direction *Resolve a doc/code conflict* sets.
+3. Write the sentence again from that source.
+4. Leave the reported token out of the result.
+
+Substituting a synonym for that token instead clears the check and keeps the defect:
+
+| `grants nothing` becomes | and | |
+|---|---|---|
+| `confers no authority` | the grep is clear, a domain term is now a legal one, and the quantifier is still fronted | ✗ |
+| `granted no path` | both default checks are clear, and the same figure sits in another inflection for a later pass to find | ✗ |
+| `uses a grant the caller already holds` | read off the code in one pass | ✓ |
+
+Reading the source also answers what no rule decides in the abstract — arity among them.
+
+## Carry four things through every edit
+
+Check each one before accepting a rewrite. A change that moves any of them has changed the claim.
+
+- **The set.** Rewrite over the set the original named. `carries no secrets` → `does not carry any
+  secrets`, never `contains only settings`: a setting can be a token, so the second stops justifying
+  the `644` mode the first was written to justify.
+- **The number.** Keep a plural plural and a singular singular. `does not carry any secrets` says
+  the contents and the secrets do not intersect; `must not hold a secret` says one of them is absent.
+- **The modality.** Keep `never`, `always`, `cannot`, `only`, and `must` where the original used
+  one, and name the guard that backs it in the same sentence. Do not trade an absolute for `not`;
+  *Back an absolute with its check* has the cases where the absolute itself goes.
+- **Every fact, and no new ones.** Account for each fact in the old sentence before deleting it.
+  `stable, and leaks nothing regardless of who runs it` → `stable whoever runs it` drops a
+  disclosure claim. No vocabulary check sees that, so read the two versions side by side.
+
+## Keep the sentence and raise the finding
+
+Leave a sentence as it stands, and report the conflict, when it states any of:
+
+- a **security boundary** — what a mode permits, what a file may hold, who may act, what a refusal
+  refuses;
+- an **invariant in an always-loaded layer** — a root `CLAUDE.md`, a rule file, a prohibition
+  addressed to an agent; a weakened guarantee is still read as a guarantee;
+- an **identity or disclosure claim** — what a value leaks, what an output carries.
+
+"This rewrite would weaken an invariant" is a finding: report it and leave the sentence as it
+stands. Readability is not a reason to weaken a guarantee.
+
+## Run the checks a rewrite needs
+
+Run both, on the files the pass touched and on the diff it produced:
+
+```bash
+python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --all <file>...
+python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --kept <base>
+```
+
+`--all` catches a figure moved into an inflection the default checks leave alone. `--kept` compares
+the two sides of the diff and reports a dropped term, a narrowed number, and a weakened modality —
+three of the four above. The fourth, a dropped fact, has no check, so read for it. Both modes
+report and neither decides: whether two sets are disjoint is not a question a regex answers.
 
 ---
 
@@ -574,7 +682,8 @@ Scan the finished text for each of these, since every one is checkable:
 1. A sentence whose subject is an abstract noun rather than a component, command, or person.
 2. `is not a` / `is no` used to define rather than to describe.
 3. A clause mirrored on "rather than" or "not … but", where one plain sentence carries the fact.
-4. "nothing" as the subject or object of a verb.
+4. "nothing" — or "everything", "anything" — as the subject or object of a verb, where naming the
+   thing would state the scope.
 5. "never", "always", or "cannot" with no guard named in the same sentence.
 6. A behaviour introduced by what it prevents rather than by what it does.
 7. History in reference prose: "now", "used to", "previously", "was changed", a date.
@@ -585,13 +694,8 @@ Scan the finished text for each of these, since every one is checkable:
     size of its code says the code stopped being self-descriptive, and prose that is merely
     short has not thereby passed.)
 
-**A finding names a symptom. Fix the claim, not the token.** Every rule here is about what a
-sentence claims, so the repair restates the claim — from the code, or from the invariant, in the
-direction *Resolve a doc/code conflict* sets — and writes the sentence again from that. Editing
-around the flagged word keeps the shape and costs something else: `grants nothing` redrafted as
-`confers no authority` clears the grep, trades a domain term for a legal one, and still fronts the
-quantifier — while re-reading the code gives `uses a grant the caller already holds`. The same
-move settles the questions a rule cannot answer in the abstract, arity among them.
+**A finding names a symptom. Fix the claim, not the token** — the procedure is *Rewrite from the
+source* above, and it applies to a first draft's own findings as much as to a rewrite pass.
 
 **Run the checkable ones.** `prose-check.py` ships beside this file and reports items 2, 3, 4, 5,
 7 and 9 plus the `does not` rule, so the pass is a command rather than an act of attention:
@@ -604,10 +708,15 @@ It reads rejoined sentences, reports, and does not block. Items 4 and 9 and the 
 run by default and are near-exact. `--all` adds the shape checks, each of which greps a sub-shape
 of its rule, because the rules themselves are about meaning: a word stem repeated across the pivot
 is the mirror in item 3 and the restated head noun in item 2, and an absolute in a sentence with
-no subordinating conjunction has nowhere for item 5's guard clause to be. Those four still want a
-reader on every hit. Quoted, backticked, and fenced spans are skipped, so a document may quote the
-prose it warns against; mark anything else deliberate with `prose-check: allow` on the line. Run
-it before committing prose, and on the commit message too — the universal rules cover that
+no subordinating conjunction has nowhere for item 5's guard clause to be. It also carries the two
+checks a rewrite needs a reader for — the `does not` rule in its past and participle inflections,
+and the verbs that name no operation. Every `--all` check wants a reader on each hit. `--kept` is
+the rewrite mode, described under *Run the checks a rewrite needs*.
+
+Quoted, backticked, and fenced spans are skipped, so a document may quote the prose it warns
+against; mark anything else deliberate with `prose-check: allow` on the line, or
+`<!-- prose-check: allow -->` in Markdown, where the marker then stays out of the rendered page.
+Run it before committing prose, and on the commit message too — the universal rules cover that
 artifact like any other.
 
 When in doubt: describe what the code does, name the mechanism that does it, and use fewer

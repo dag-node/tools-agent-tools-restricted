@@ -19,20 +19,32 @@
 # `--kept`: A REWRITE CHANGES THE WORDING, NOT THE CLAIM.
 # Every other check reports how a sentence is written. This one reports a rewrite that changed
 # what a sentence CLAIMS, which is a defect of a different kind: the prose still has to state the
-# same security boundary afterwards. The usual way it goes wrong is a swapped set --
-# `carries no secret` becomes `contains only settings`, which reads better and stops justifying
-# the 644 mode it was written to justify, because a setting can be a token. Whether two sets are
-# disjoint is not something a regex can decide, so this reports the security term a rewrite
-# dropped and leaves the judgement to a reader. It compares one hunk at a time, so a term that
-# merely moved to another hunk of the same file reports as dropped; check the file before acting.
+# same security boundary afterwards. Three shapes, each a way an edit reads as tidying and lands
+# somewhere weaker:
+#
+#   dropped    a security or access-control term the added prose does not restate. The usual case
+#              is a swapped set -- `carries no secrets` becomes `contains only settings`, which
+#              reads better and stops justifying the 644 mode it was written to justify, because a
+#              setting can be a token.
+#   narrowed   a plural noun restated in the singular. `does not carry any secrets` says the
+#              contents and the secrets do not intersect; `must not hold a secret` says one of
+#              them is absent, which is a smaller claim and a weaker justification for the mode.
+#   weakened   a modality the added prose drops. `never a glob` restated as `not a glob` swaps a
+#              universal for a single instance; `only`, `always`, `cannot` and `must not` go the
+#              same way.
+#
+# Whether the new wording still rules out the same thing is a question about two sets, which a
+# regex cannot decide, so all three report and leave the judgement to a reader. It compares one
+# hunk at a time, so a term that merely moved to another hunk of the same file reports as dropped;
+# check the file before acting.
 #
 # Checks read rejoined SENTENCES rather than raw lines. Wrapped prose puts the guard clause of an
 # absolute on the next line, and the shape checks compare the two halves of a pivot, so both need
 # the whole sentence to report anything worth reading.
 #
-# `--all` adds the four shape checks. Each one greps a sub-shape of its rule -- the half a regex
-# can see -- because the rules themselves are about meaning: "an absolute with no guard in the
-# same sentence" and "a clause mirrored across a pivot" are not properties of any word list. A
+# `--all` adds the shape checks. Each one greps a sub-shape of its rule -- the half a regex can
+# see -- because the rules themselves are about meaning: "an absolute with no guard in the same
+# sentence" and "a clause mirrored across a pivot" are not properties of any word list. A
 # vocabulary grep for them reported correct prose on most of what it flagged when it was sampled
 # against this repository, so each check now carries a second condition:
 #
@@ -45,8 +57,17 @@
 #   history            the past-tense markers only. `no longer` describes a current state as often
 #                      as a change, so it is left to the reader.
 #
+# Two more sit here because a REWRITE is what produces them, and both report ordinary English on
+# some of what they flag:
+#
+#   fronted-quantifier-inflected  the default `does not` check in the past and participle forms,
+#                      where a redraft moves the figure to escape the default check.
+#   vague-verb         a verb naming no operation. `convey` is exempt in a sentence about
+#                      licensing, which is the one place it is a term of art.
+#
 # A line carrying `prose-check: allow` is skipped, which is how a style guide keeps the labelled
-# bad examples it has to contain.
+# bad examples it has to contain. In Markdown the marker goes in an HTML comment
+# (`<!-- prose-check: allow -->`), which the substring match finds and the rendered page omits.
 
 import argparse
 import re
@@ -55,15 +76,25 @@ import sys
 
 ALLOW_MARKER = "prose-check: allow"
 
-# Any third-person verb before `no`, rather than a list of them: an enumerated list finds only
-# the verbs whoever wrote it thought of, and this construction takes every transitive verb in the
-# language. Two exclusions keep the suggestion honest. `is`/`was`/`has` carry the existential
-# "there is no X", which reads plainly and has no mechanical rewrite; `means`/`implies` negate a
-# following clause rather than an object, so "no operator means no ownership" wants "means there
-# is no ownership" instead. The object stop-list drops the fixed adverbials.
+# Any verb before `no`, rather than a list of them: an enumerated list finds only the verbs
+# whoever wrote it thought of, and this construction takes every transitive verb in the language.
+# A particle may sit between the verb and the quantifier (`takes away no access`).
+# Exclusions keep the suggestion honest. `is`/`was`/`has`/`had` carry the existential "there is no
+# X", which reads plainly and has no mechanical rewrite; `means`/`implies` negate a following
+# clause rather than an object, so "no operator means no ownership" wants "means there is no
+# ownership" instead. The object stop-list drops the fixed adverbials.
+_QUANTIFIED_OBJECT = (r"(?:\s+(?:away|back|up|out|off|down|over|through))?"
+                      r"\s+no\s+(?!longer\b|one\b|matter\b|doubt\b)([a-z][a-z-]*)")
 FRONTED_QUANTIFIER = re.compile(
-    r"\b(?!is\b|was\b|has\b|means\b|implies\b)([a-z]{3,}s)"
-    r"\s+no\s+(?!longer\b|one\b|matter\b|doubt\b)([a-z][a-z-]*)")
+    r"\b(?!is\b|was\b|has\b|had\b|means\b|implies\b)([a-z]{3,}s)" + _QUANTIFIED_OBJECT)
+
+# The same shape in the other two inflections, which is where a REWRITE puts it: `grants nothing`
+# redrafted as `granted no path` clears both default checks and keeps the figure, and a participle
+# (`conveying no listing`) does the same. It sits in `--all` rather than the default set because a
+# reduced relative clause -- `a line carrying no prose` -- is ordinary English, so this one wants a
+# reader on every hit. A rewrite pass runs `--all` for exactly this reason.
+FRONTED_QUANTIFIER_INFLECTED = re.compile(
+    r"\b(?!having\b|during\b)([a-z]{3,}(?:ed|ing))" + _QUANTIFIED_OBJECT)
 
 # Each entry is (name, pattern, hint). The hint is what to write instead, since a report naming
 # only the defect leaves the reader to rediscover the fix on every hit.
@@ -92,6 +123,10 @@ def suggest(name, match, static_hint):
         # `a` or `any` is a claim about arity, so the code decides: one parameter takes the
         # article, a variadic one pluralizes under `any`, an uncountable object takes neither.
         return f"`does not {base_form(verb)} a/any {obj}`"
+    if name == "fronted-quantifier-inflected":
+        # A past tense or a participle sits in a clause whose subject and tense the rewrite has to
+        # keep, so naming the shape is honest where guessing a base form is not.
+        return f"attach the negation to the verb, not to `{match.group(2)}`"
     return static_hint
 
 
@@ -142,11 +177,30 @@ def unbacked_absolute(sentence):
     return match if match and not GUARD.search(sentence) else None
 
 
+# Verbs that name no operation a reader can find. `convey` is the one with a legitimate home: it
+# is the GPL's own term for distributing a work, so a sentence about licensing keeps it and every
+# other sentence wants the operation -- permits, transmits, states, shows.
+VAGUE_VERB = re.compile(r"\b(convey|conveys|conveyed|conveying|upkeep|leverage|leverages"
+                        r"|leveraged|utilize|utilizes|utilized|facilitate|facilitates"
+                        r"|facilitated)\b", re.I)
+LICENSING = re.compile(r"\b(GPL|AGPL|licen[cs]|copyright|corresponding source)", re.I)
+
+
+def vague_verb(sentence):
+    """A vague verb, except `convey` where the sentence is about licensing."""
+    match = VAGUE_VERB.search(sentence)
+    if match and match.group(0).lower().startswith("convey") and LICENSING.search(sentence):
+        return None
+    return match
+
+
 EXTRA_CHECKS = [
     ("mirrored-clause", lambda s: mirrored(s, MIRROR_PIVOT),
      "state the fact once, in one direction"),
     ("definitional", lambda s: mirrored(s, DEFINITIONAL_PIVOT), "describe the mechanism"),
     ("unbacked-absolute", unbacked_absolute, "name the guard in the same sentence"),
+    ("fronted-quantifier-inflected", FRONTED_QUANTIFIER_INFLECTED, None),  # hint from suggest()
+    ("vague-verb", vague_verb, "name the operation: permits, transmits, states, shows"),
     ("history", re.compile(r"\b(used to|previously|was changed|formerly)\b"),
      "state current behaviour"),
     ("filler", re.compile(r"\b(simply|obviously|clearly|basically|naturally|effectively"
@@ -158,11 +212,26 @@ PROSE_WHOLE_FILE = (".md", ".1", ".5", ".8")
 
 # Terms that mark a sentence as stating a SECURITY BOUNDARY rather than describing behaviour.
 # A rewrite that drops one of these has probably changed the claim; see the `--kept` heading above.
+# The access-control nouns are here for the same reason as the secrets: `grants nothing on` rewritten
+# as `leaves untouched` reads better and stops saying anything about access.
 INVARIANT_TERMS = re.compile(
     r"\b(secret|secrets|credential|credentials|token|password|privilege|privileged|sudo"
     r"|world-readable|root-only|owner-only|unprivileged|untrusted|trusted|forge|forged|tamper"
     r"|escalate|escalation|fail-closed|fail closed|confine|confined|allowlist|refuses|refuse"
+    r"|grant|grants|granted|permission|permissions|acl|acls|ownership|setgid|readable|writable"
     r"|0[0-7]{3}|[0-7]{3,4} root:)\b", re.I)
+
+# The nouns among those terms, which are the ones whose NUMBER carries a claim: a set of secrets
+# either intersects the file's contents or it does not. A verb's inflection carries none, so
+# `grants nothing` restated as `nothing to grant` is a rewrite rather than a narrowing.
+NARROWABLE_TERMS = re.compile(
+    r"\b(secrets?|credentials?|tokens?|passwords?|privileges?|permissions?|acls?)\b", re.I)
+
+# Modality is part of the claim, not part of the wording. `never a glob` restated as `not a glob`
+# swaps a universal for a single instance, and `carries no secrets` restated as `must not hold a
+# secret` swaps a fact for an obligation; both read as tidying and both retire what the sentence
+# guaranteed. Reported when the removed prose carried one and the added prose does not.
+MODALITY = re.compile(r"\b(never|always|cannot|must not|only)\b", re.I)
 
 
 MESSAGE = "<message>"  # the path a commit message is reported under
@@ -319,29 +388,61 @@ def _singular(term):
     return term[:-1] if term.endswith("s") and not term.endswith("ss") else term
 
 
-def invariant_terms(path, lines):
-    """The invariant vocabulary the prose among these lines uses, lowercased."""
-    found = set()
+def hunk_prose(path, lines):
+    """The prose each of these diff lines carries, skipping the ones that carry none."""
     for line in lines:
         text, _ = (line, None) if path.endswith(PROSE_WHOLE_FILE) else source_prose(line, None)
         if text:
-            # Singular and plural are one term: `carries no secrets` restated as `must not hold a
-            # secret` keeps the claim, and reporting that as a drop trains a reader to ignore it.
-            found.update(_singular(match.group(0).lower())
-                         for match in INVARIANT_TERMS.finditer(text))
+            yield text
+
+
+def vocabulary(path, lines, pattern, singularize=False):
+    """The matches of `pattern` in the prose among these lines, lowercased."""
+    found = set()
+    for text in hunk_prose(path, lines):
+        found.update(_singular(match.group(0).lower()) if singularize else match.group(0).lower()
+                     for match in pattern.finditer(text))
     return found
 
 
-def kept_findings(revisions):
-    """Report a security term a hunk removed from prose without restating it.
+def context_line(lines, needle):
+    """The first of these lines carrying `needle`, for the report."""
+    return next((line.strip() for line in lines if needle in line.lower()), "")
 
-    Reports the drop; whether the new wording still rules out the same thing is the reader's call.
+
+# What each kind of `--kept` finding asks the reader to do.
+KEPT_HINTS = {
+    "dropped": "restate it, or confirm the new wording still rules out the same thing",
+    "narrowed": "the plural WAS the claim -- keep the set, not one member of it",
+    "weakened": "modality is part of the claim -- restore it, or say why the weaker form holds",
+}
+
+
+def kept_findings(revisions):
+    """Report the three ways a rewrite changes a claim while looking like a wording change.
+
+    Each is reported, not decided: whether the new wording still rules out the same thing is a
+    question about two sets, which a regex cannot answer.
     """
     for path, removed, added in diff_hunks(revisions):
-        dropped = invariant_terms(path, removed) - invariant_terms(path, added)
-        for term in sorted(dropped):
-            context = next((line.strip() for line in removed if term in line.lower()), "")
-            yield path, term, context
+        was, now = (vocabulary(path, side, NARROWABLE_TERMS) for side in (removed, added))
+        singular_was, singular_now = (vocabulary(path, side, INVARIANT_TERMS, singularize=True)
+                                      for side in (removed, added))
+
+        for term in sorted(singular_was - singular_now):
+            yield path, "dropped", term, context_line(removed, term)
+
+        # A plural restated in the singular narrows the set the sentence is about. `does not carry
+        # any secrets` says the contents and the secrets do not intersect; `must not hold a secret`
+        # says one of them is absent. Only the first justifies the world-readable mode it was
+        # written to justify, so the number is the claim rather than a matter of taste.
+        for term in sorted(was - now):
+            if _singular(term) != term and _singular(term) in now:
+                yield path, "narrowed", f"{term} -> {_singular(term)}", context_line(removed, term)
+
+        for word in sorted(vocabulary(path, removed, MODALITY)
+                           - vocabulary(path, added, MODALITY)):
+            yield path, "weakened", word, context_line(removed, word)
 
 
 def file_lines(paths):
@@ -392,19 +493,19 @@ def main():
     parser.add_argument("--all", action="store_true",
                         help="add the shape checks")
     parser.add_argument("--kept", metavar="REVISIONS", nargs="?", const="",
-                        help="report an invariant term a rewrite dropped (default: the index)")
+                        help="report a claim a rewrite dropped, narrowed, or weakened "
+                             "(default: the index)")
     parser.add_argument("paths", nargs="*", help="files to read whole")
     args = parser.parse_args()
 
     if args.kept is not None:
         count = 0
-        for path, term, context in kept_findings(args.kept):
+        for path, kind, detail, context in kept_findings(args.kept):
             count += 1
-            print(f"{path}: dropped [{term}] -- restate it, or confirm the new wording still "
-                  f"rules out the same thing")
+            print(f"{path}: {kind} [{detail}] -- {KEPT_HINTS[kind]}")
             print(f"    - {context[:110]}")
         if count:
-            print(f"\n{count} dropped term(s). A rewrite changes the wording, not the claim. "
+            print(f"\n{count} finding(s). A rewrite changes the wording, not the claim. "
                   f"A term that only moved to another hunk reports here too.")
         return 1 if count else 0
 
