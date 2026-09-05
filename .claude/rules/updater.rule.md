@@ -21,10 +21,12 @@ per-package manifests, not hardcoded; see [providers](providers.rule.md). After 
 versioned `claude` symlink is repointed through a root helper and the new entrypoint is
 relabelled for the SELinux transition.
 
-## Toolchain provisioning (`ai-tools-bootstrap`)
+## Toolchain provisioning (`system bootstrap`)
 
-`ai-tools-bootstrap` provisions the toolchain the updater then maintains: run once as root,
-it creates the `SANDBOX_USER` account and its `/opt/ai-tools` home if absent, installs nvm,
+`sudo ai-tools-admin system bootstrap` provisions the toolchain the updater then maintains. The
+command execs the root helper `ai-tools-bootstrap`, which keeps its name and its
+`/usr/local/libexec/ai-tools` path; what follows is that helper's work.
+It creates the `SANDBOX_USER` account and its `/opt/ai-tools` home if absent, installs nvm,
 Node (`AI_TOOLS_NODE_MAJOR`, default 22), and each enabled agent's npm package as `SANDBOX_USER`
 (the enabled set resolved via [providers](providers.rule.md)), points
 `/opt/ai-tools/bin/<launcher>` at each versioned binary, relabels the freshly

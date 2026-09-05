@@ -18,8 +18,8 @@
 #   ai-tools --project-create <dir>        register a real project
 #   ai-tools --sandbox-create <dir>        shallow-clone a repo into the sandbox area
 #
-# Prerequisites (one-time manual steps before running install; `sudo ai-tools-bootstrap`
-# does both in one idempotent command):
+# Prerequisites (one-time manual steps before running install;
+# `sudo ai-tools-admin system bootstrap` does both in one idempotent command):
 #   - ai-tools OS user created at /opt/ai-tools  (README step 2)
 #   - nvm + Node v22 + claude installed as ai-tools  (README step 3)
 
@@ -418,7 +418,7 @@ bootstrap_launcher_symlinks() {
 
     if [[ ! -s "${ai_nvm_dir}/nvm.sh" ]]; then
         warn "ai-tools: nvm not found at ${ai_nvm_dir}/nvm.sh -- launcher symlinks skipped"
-        warn "         provision the toolchain: sudo ai-tools-bootstrap"
+        warn "         provision the toolchain: sudo ai-tools-admin system bootstrap"
         return
     fi
 
@@ -431,7 +431,7 @@ bootstrap_launcher_symlinks() {
 
     if [[ -z "${node_version}" || "${node_version}" == "N/A" ]]; then
         warn "ai-tools: nvm 'default' alias not set -- launcher symlinks skipped"
-        warn "         provision the toolchain: sudo ai-tools-bootstrap"
+        warn "         provision the toolchain: sudo ai-tools-admin system bootstrap"
         return
     fi
 
@@ -449,7 +449,7 @@ bootstrap_launcher_symlinks() {
     fi
     if (( ${#launchers[@]} == 0 )); then
         warn "ai-tools: no enabled agent to link -- launcher symlinks skipped"
-        warn "         check the agents in /etc/ai-tools/operator.conf, then: sudo ai-tools-bootstrap"
+        warn "         check the agents in /etc/ai-tools/operator.conf, then: sudo ai-tools-admin system bootstrap"
         return
     fi
 
@@ -468,7 +468,7 @@ bootstrap_launcher_symlinks() {
         versioned_launcher="${ai_nvm_dir}/versions/node/${node_version}/bin/${launcher}"
         if [[ ! -x "${versioned_launcher}" ]]; then
             warn "ai-tools: ${launcher} not found at ${versioned_launcher} -- its symlink is skipped"
-            warn "         provision the toolchain: sudo ai-tools-bootstrap"
+            warn "         provision the toolchain: sudo ai-tools-admin system bootstrap"
             continue
         fi
         if /usr/local/libexec/ai-tools/ai-tools-launcher-symlink "${versioned_launcher}"; then
@@ -684,7 +684,6 @@ do_summary() {
     _chk /usr/local/libexec/ai-tools/ai-tools-relabel-agent
     _chk /usr/local/libexec/ai-tools/ai-tools-bootstrap
     _chk /usr/local/libexec/ai-tools/ai-tools-admin
-    _chk /usr/sbin/ai-tools-bootstrap
     _chk /usr/sbin/ai-tools-admin
     _chk /usr/sbin/ai-tools
     _chk /usr/local/libexec/ai-tools/ai-tools-handback
@@ -767,7 +766,7 @@ do_summary() {
         _gcname="$(git config --file "${_gc}" user.name 2>/dev/null || true)"
         _gcemail="$(git config --file "${_gc}" user.email 2>/dev/null || true)"
         printf '\n  sandbox git identity : %s <%s>\n' "${_gcname:-?}" "${_gcemail:-?}"
-        printf '  %sset it with sudo ai-tools-bootstrap; verify %s afterwards%s\n' \
+        printf '  %sset it with sudo ai-tools-admin system bootstrap; verify %s afterwards%s\n' \
             "${C_DIM}" "${_gc}" "${C_RST}"
     fi
     printf '\n'
@@ -1211,16 +1210,15 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-dotnet.sh" \
         /usr/local/libexec/ai-tools/ai-tools-dotnet
 
-    # Put the two human-facing admin commands where `sudo <name>` resolves them. The
-    # sudo-helpers under /usr/local/libexec/ai-tools/ are invoked by the daemon and sudoers by
-    # fixed path and stay hidden there, but ai-tools-bootstrap and ai-tools-admin are typed by
-    # an administrator and documented as bare commands. sudo resolves a bare command against
+    # Put the human-facing admin commands where `sudo <name>` resolves them. The sudo-helpers
+    # under /usr/local/libexec/ai-tools/ are invoked by the daemon, by sudoers and by
+    # ai-tools-admin at fixed paths and stay hidden there -- provisioning among them, reached as
+    # `ai-tools-admin system bootstrap` -- but ai-tools-admin is typed by an administrator and
+    # documented as a bare command. sudo resolves a bare command against
     # the sudoers secure_path, which on stock EL is /sbin:/bin:/usr/sbin:/usr/bin -- it does
     # NOT include /usr/local/sbin -- so the symlinks live in /usr/sbin (also on root's shell
     # PATH). The targets keep their canonical /usr/local/libexec/ai-tools/ path (sudoers, perms
     # checks, docs reference it).
-    log "/usr/sbin/ai-tools-bootstrap -> /usr/local/libexec/ai-tools/ai-tools-bootstrap"
-    ln -sfn /usr/local/libexec/ai-tools/ai-tools-bootstrap /usr/sbin/ai-tools-bootstrap
     log "/usr/sbin/ai-tools-admin -> /usr/local/libexec/ai-tools/ai-tools-admin"
     ln -sfn /usr/local/libexec/ai-tools/ai-tools-admin /usr/sbin/ai-tools-admin
     log "/usr/sbin/ai-tools-dotnet -> /usr/local/libexec/ai-tools/ai-tools-dotnet"
@@ -1839,7 +1837,7 @@ do_install() {
     section "Install complete -- next steps"
     if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 ]]; then
         say "  provision the sandbox toolchain (nvm + Node + claude) -- required before launch:"
-        say "    ${C_BOLD}sudo ai-tools-bootstrap${C_RST}"
+        say "    ${C_BOLD}sudo ai-tools-admin system bootstrap${C_RST}"
         say ""
     fi
     say "  check the install (run as ${PROJECTS_USER}, no sudo):"
@@ -1865,7 +1863,7 @@ do_install() {
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
         if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 ]]; then
             warn "toolchain not provisioned -- the wrapper/handback/SELinux checks skip or fail"
-            warn "until it is; for a full pass run sudo ai-tools-bootstrap first, then re-test"
+            warn "until it is; for a full pass run sudo ai-tools-admin system bootstrap first, then re-test"
             warn "with: sudo ${SCRIPT_DIR}/tests/run.sh all"
         fi
         # The section header prints only when the suite runs, so a skip avoids an
@@ -1921,8 +1919,7 @@ do_uninstall() {
     # Sweep the pre-0.10.0 helper location too, in case an uninstall follows an install that
     # never ran the migration. Guarded to a real dir so a Fedora sbin->bin symlink is left alone.
     [ -d /usr/local/sbin/ai-tools ] && [ ! -L /usr/local/sbin/ai-tools ] && rm -rf /usr/local/sbin/ai-tools
-    rm -f /usr/sbin/ai-tools-bootstrap         # sudo-PATH symlinks -> /usr/local/libexec/ai-tools/...
-    rm -f /usr/sbin/ai-tools-admin
+    rm -f /usr/sbin/ai-tools-admin             # sudo-PATH symlinks -> /usr/local/libexec/ai-tools/...
     rm -f /usr/sbin/ai-tools                   # secure_path symlink -> /usr/local/bin/ai-tools
     rm -rf /usr/local/lib/ai-tools
     rm -f /usr/local/bin/ai-tools-handback-client

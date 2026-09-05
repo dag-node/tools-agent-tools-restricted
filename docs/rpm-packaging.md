@@ -182,12 +182,14 @@ ship with the package, so adding an operator is a membership change, not a sudoe
 
 The `%post` of `ai-tools-base` does **not** bind an operator: it is per-operator, which a
 non-interactive scriptlet cannot do. `%post` installs cleanly and unenrolled and prints the
-ordered `sudo ai-tools-bootstrap` then `sudo ai-tools-admin operators add <user>` directives.
+ordered `sudo ai-tools-admin system bootstrap` then `sudo ai-tools-admin operators add <user>`
+directives.
 
 ## Bootstrap
 
-`ai-tools-bootstrap` (`/usr/local/libexec/ai-tools/ai-tools-bootstrap`, root, run via
-`sudo`; shipped by `ai-tools-integration-nodejs`) creates the `ai-tools` system account
+`sudo ai-tools-admin system bootstrap` (which execs
+`/usr/local/libexec/ai-tools/ai-tools-bootstrap`, shipped by `ai-tools-integration-nodejs`)
+creates the `ai-tools` system account
 and its `/opt/ai-tools` home when absent, then installs nvm, Node, and each **enabled**
 agent's npm package under `/opt/ai-tools` as the sandbox account, and points
 `/opt/ai-tools/bin/<launcher>` at each versioned binary. It does not take arguments, and is agent-agnostic: the enabled set, each agent's npm package, and its launcher come from the
@@ -214,7 +216,7 @@ reaches the download URL.
 Bootstrap fetches from the network (`nvm` from GitHub, packages from npm), so it
 is a command run once after install, never an RPM scriptlet: scriptlets are
 non-interactive, must succeed offline and inside build chroots, and must be
-reproducible. `%post` prints the `sudo ai-tools-bootstrap` directive; the
+reproducible. `%post` prints the `sudo ai-tools-admin system bootstrap` directive; the
 nvm-update timer maintains the tree from then on.
 
 ## Scriptlets
@@ -227,10 +229,10 @@ nvm-update timer maintains the tree from then on.
   file owned by them is unpacked. `Requires(pre): shadow-utils`. The `ai-ops` group
   ships empty; operators are added to it per host.
 - `%post` runs `%systemd_post ai-tools-handback.socket`, applies the shared-area ACLs, and
-  prints the ordered `ai-tools-bootstrap` then `ai-tools-admin operators add`
+  prints the ordered `ai-tools-admin system bootstrap` then `ai-tools-admin operators add`
   directives. Loading the SELinux policy is NOT base's job — that scriptlet lives with the
   payload in `ai-tools-selinux`. It does not bind an operator or provision the toolchain and its update
-  timer — those belong to `ai-tools-admin operators add` and `ai-tools-bootstrap`.
+  timer — those belong to `ai-tools-admin operators add` and `ai-tools-admin system bootstrap`.
 - `%preun` runs `%systemd_preun ai-tools-handback.socket`.
 - `%postun` runs `%systemd_postun_with_restart ai-tools-handback.socket`.
 
@@ -243,7 +245,7 @@ diverge, or an install leaves the entrypoint unlabelled and an erase leaves the 
 
 `ai-tools-integration-nodejs`: `%post`/`%preun`/`%postun` manage the system `ai-tools-relabel.path`
 watcher with the systemd macros. The `nvm-update` service and timer ship in
-`%{_userunitdir}` (`/usr/lib/systemd/user/`); `ai-tools-bootstrap` enables the timer in
+`%{_userunitdir}` (`/usr/lib/systemd/user/`); `system bootstrap` enables the timer in
 `ai-tools`'s own `--user` instance once it has provisioned the toolchain.
 
 `ai-tools-agents-claude-code-restricted`: `%post` applies the entrypoint file-context and, when

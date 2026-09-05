@@ -73,7 +73,7 @@ fi
 # needs the provisioned toolchain's bin/claude symlink; without it every run stops at
 # "claude symlink not found" before the gate under test.
 if [[ ! -L "/opt/ai-tools/bin/claude" ]]; then
-    skip "wrapper allowlist-gate cases (1)-(3)" "toolchain not provisioned -- run: sudo ai-tools-bootstrap"
+    skip "wrapper allowlist-gate cases (1)-(3)" "toolchain not provisioned -- run: sudo ai-tools-admin system bootstrap"
 else
 
 # (1) An unapproved cwd is blocked at the allowlist gate. With no tty the wrapper never

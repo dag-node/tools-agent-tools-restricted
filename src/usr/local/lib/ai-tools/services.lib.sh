@@ -80,7 +80,7 @@ _AI_TOOLS_SERVICES=(
   "ai-tools-handback.socket|system|critical|shim|the privilege bridge every ownership hand-back runs over; without it, files the agent writes stay ai-tools-owned and git reports \"dubious ownership\"|sudo systemctl enable --now ai-tools-handback.socket|||"
   "ai-tools-relabel.path|system|critical|wrapper|the watcher that re-labels the agent entrypoint after a Node auto-upgrade repoints its symlink; without it, a post-upgrade launch fail-closes on a mislabelled binary|sudo systemctl enable --now ai-tools-relabel.path|||"
   "ai-tools-relabel.service|system|critical|none|the relabel run the watcher triggers, which gives a freshly installed agent entrypoint its ai_tools_exec_t type; without a run that succeeded the entrypoint can carry the wrong type and the next launch fail-closes|sudo systemctl start ai-tools-relabel.service|||"
-  "nvm-update.timer|sandbox-user|maintenance|none|the sandbox account's toolchain auto-update schedule; without it, Node and the agent packages stop receiving updates|sudo ai-tools-bootstrap|/var/opt/ai-tools/state/nvm-update.status|fired|172800"
+  "nvm-update.timer|sandbox-user|maintenance|none|the sandbox account's toolchain auto-update schedule; without it, Node and the agent packages stop receiving updates|sudo ai-tools-admin system bootstrap|/var/opt/ai-tools/state/nvm-update.status|fired|172800"
   "nvm-update.service|sandbox-user|maintenance|none|the toolchain update run the timer triggers; without a recent successful run, Node and the agent packages stop receiving updates||/var/opt/ai-tools/state/nvm-update.status|result|172800"
 )
 

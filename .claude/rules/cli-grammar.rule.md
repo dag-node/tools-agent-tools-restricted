@@ -83,7 +83,7 @@ place — an existing account, an installed Node version, a labelled directory �
 configuration the operator has since changed alone, so the command is safe to run again after a
 partial failure, after enabling a provider, or from a script that cannot know the host's state.
 Returning a component to its defaults is destructive and belongs to a separate verb, which no
-command takes yet. `ai-tools-bootstrap` and `ai-tools-dotnet setup` already hold this contract;
+command takes yet. `system bootstrap` and `ai-tools-dotnet setup` already hold this contract;
 the name is what obligates it.
 
 **Scope defaults to the minimum that works.** A bare `bootstrap` does the recommended minimal
@@ -237,27 +237,31 @@ on the HTTP side. Neither needs a path segment.
 ## Where the surface stands
 
 `ai-tools-admin` conforms: `operators [list|add|remove]`, `selinux groups [list|enable|disable]`,
-`system post-upgrade`, `--help`/`-h`, `--version`. `ai-tools-admin(8)` documents that surface and
-`tests/unit/man.sh` holds the page, the helper's `usage()` and its dispatch arms in agreement, so a
-command renamed in one of the three fails the suite rather than going stale in the others.
+`system bootstrap`, `system entrypoints relabel`, `system post-upgrade`, `--help`/`-h`,
+`--version`. `ai-tools-admin(8)` documents that surface and `tests/unit/man.sh` holds the page, the
+helper's `usage()` and its dispatch arms in agreement, so a command renamed in one of the three
+fails the suite rather than going stale in the others.
 
-Two commands still diverge. Four names carry a `%{_sbindir}` symlink so `sudo <name>` resolves
-through `secure_path` — `ai-tools`, `ai-tools-admin`, `ai-tools-bootstrap` and `ai-tools-dotnet` —
-and three of the four are root-only, so the last two fold into `ai-tools-admin` as verbs:
+One command still diverges. Three names carry a `%{_sbindir}` symlink so `sudo <name>` resolves
+through `secure_path` — `ai-tools`, `ai-tools-admin` and `ai-tools-dotnet` — and `ai-tools-dotnet`
+is root-only, so it folds into `ai-tools-admin` as verbs:
 
 | Its spelling | Under this grammar |
 |---|---|
-| `sudo ai-tools-bootstrap` | `system bootstrap` |
 | `sudo ai-tools-dotnet setup` | `dotnet bootstrap` |
 | `sudo ai-tools-dotnet install-tools <pkg...>` | `dotnet tools install <pkg...>` |
 | `sudo ai-tools-dotnet status` | `dotnet status` |
 | `ai-tools --project-claim`, `--sandbox-create`, `--status`, … | blocked on the domain model below |
 
-`ai-tools-bootstrap` and `ai-tools-dotnet` lose their standalone names and their `%{_sbindir}`
-symlinks with the move, in both `install.sh` and the RPM. `ai-tools-admin` ships in
-`ai-tools-base` and runs on an unprovisioned host, so a host reaches `system bootstrap` before
-the toolchain it installs exists. `system bootstrap` belongs to base and `dotnet bootstrap` to the
-integration package that owns the domain.
+`ai-tools-dotnet` loses its standalone name and its `%{_sbindir}` symlink with the move, in both
+`install.sh` and the RPM, the way `ai-tools-bootstrap` did: the provisioning helper keeps its name
+and its `/usr/local/libexec/ai-tools` path, and `system bootstrap` execs it there. `ai-tools-admin`
+ships in `ai-tools-base` and runs on an unprovisioned host, so a host reaches `system bootstrap`
+before the toolchain it installs exists. `system bootstrap` is a base command dispatched from a
+fixed `case`, where `dotnet bootstrap` is a domain the integration package contributes; the
+provisioning helper behind `system bootstrap` still ships in `ai-tools-integration-nodejs`, so the
+command reports which package to install when the helper is not executable there — the same shape
+`system entrypoints relabel` takes.
 
 `ai-tools-admin` dispatches a fixed `case` over its own commands, so the discovery seam that
 lets a provider package contribute `dotnet` is the work that carries that domain in, and the

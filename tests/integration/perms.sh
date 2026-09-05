@@ -33,16 +33,18 @@ check_file /usr/local/libexec/ai-tools/ai-tools-relabel          root           
 # never by the agent. It carries no NOPASSWD rule: the admin command reaches it through the host's
 # own general sudo grant, so the %ai-ops drop-in holds the session lifecycle alone.
 check_file /usr/local/libexec/ai-tools/ai-tools-relabel-agent    root              root              750
-# Toolchain bootstrap + operator administration: 750 root:root -- run by the operator via sudo,
-# never by the agent (no SANDBOX_USER grant, and /usr/local/libexec/ai-tools is 750 root:root).
+# Toolchain bootstrap + operator administration: 750 root:root. ai-tools-admin runs as root via
+# sudo; the provisioning helper is exec'd by its `system bootstrap` command at this fixed path.
+# Neither is reachable by the agent (no SANDBOX_USER grant, and /usr/local/libexec/ai-tools is
+# 750 root:root).
 check_file /usr/local/libexec/ai-tools/ai-tools-bootstrap        root              root              750
 check_file /usr/local/libexec/ai-tools/ai-tools-admin           root              root              750
 # dotnet integration provisioning helper (optional integration): 750 root:root, sudo-invoked.
 check_file /usr/local/libexec/ai-tools/ai-tools-dotnet          root              root              750
-# Their sudo-PATH symlinks in /usr/sbin (sudoers secure_path on stock EL excludes
-# /usr/local/sbin, so `sudo ai-tools-bootstrap` resolves here). check_file lstat()s the
-# link itself (777 is a symlink's fixed mode); -e inside it also catches a dangling link.
-check_file /usr/sbin/ai-tools-bootstrap                       root              root              777
+# The sudo-PATH symlinks in /usr/sbin, for the helpers an administrator types (sudoers
+# secure_path on stock EL excludes /usr/local/sbin, so `sudo ai-tools-admin` resolves here).
+# check_file lstat()s the link itself (777 is a symlink's fixed mode); -e inside it also catches
+# a dangling link. ai-tools-bootstrap does not have one: it is reached only as a verb.
 check_file /usr/sbin/ai-tools-admin                           root              root              777
 check_file /usr/sbin/ai-tools-dotnet                          root              root              777
 # Lib dir: root-owned, group ai-tools, 0751. The agent enters via group to read the skip

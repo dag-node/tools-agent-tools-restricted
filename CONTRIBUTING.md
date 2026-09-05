@@ -22,7 +22,7 @@ carries an `SPDX-License-Identifier` stating which applies.
 From a source checkout:
 
     sudo ./install.sh install        # deploys the wrapper, helpers, systemd units
-    sudo ai-tools-bootstrap          # provisions the sandbox account's Node toolchain
+    sudo ai-tools-admin system bootstrap          # provisions the sandbox account's Node toolchain
 
 See the root `README.md`'s manual install steps if you're working without the RPM.
 

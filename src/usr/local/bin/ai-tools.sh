@@ -3807,7 +3807,7 @@ cmd_status() {
     if [[ -L "${CLAUDE_LINK}" ]]; then
         ok "toolchain provisioned"
     else
-        say "  ${C_YEL}not provisioned${C_RST} -- run: ${C_BOLD}sudo ai-tools-bootstrap${C_RST}"
+        say "  ${C_YEL}not provisioned${C_RST} -- run: ${C_BOLD}sudo ai-tools-admin system bootstrap${C_RST}"
     fi
 
     section "Services"
@@ -4128,7 +4128,7 @@ EOF
 require_bootstrap() {
     [[ -L "${CLAUDE_LINK}" ]] && return 0
     die "the sandbox is not provisioned (no ${CLAUDE_LINK}) -- provision it with:" \
-        "       sudo ai-tools-bootstrap"
+        "       sudo ai-tools-admin system bootstrap"
 }
 
 # When this file is SOURCED rather than executed (tests/unit/sandbox.sh loads it to exercise the

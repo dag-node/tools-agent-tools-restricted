@@ -99,7 +99,7 @@ or git credential, so it physically cannot reach the remote — `ai-tools
 
 The operator supplies only the **transport** (network) credentials. The commits
 themselves keep the author/committer identity from `/opt/ai-tools/.gitconfig` — the
-sandbox account's git identity, set at install by `ai-tools-bootstrap` (which offers
+sandbox account's git identity, set at install by `ai-tools-admin system bootstrap` (which offers
 to adopt your identity, keep a default, or edit it) — **not** the pushing operator's.
 So attribution on the pushed work reflects that configured identity regardless of who
 pushes; set it at install if you care what name lands on the commits.

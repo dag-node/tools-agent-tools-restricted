@@ -1,8 +1,8 @@
 # Install from source
 
 The manual path — four root steps a checkout installs with, no RPM. The package install
-(see the README) automates all of it; `sudo ai-tools-bootstrap` automates steps 2–3 once
-`install.sh` has deployed it, and `install.sh` automates everything from step 4 on.
+(see the README) automates all of it; `sudo ai-tools-admin system bootstrap` automates steps 2–3
+once `install.sh` has deployed it, and `install.sh` automates everything from step 4 on.
 
 Set the recurring identities once, in the shell you run these steps in, so every command
 pastes verbatim (the full naming spec is in
@@ -83,9 +83,9 @@ actually takes effect.
 
 ## 3. Install nvm + Node + claude as SANDBOX_USER (root, once)
 
-`ai-tools-bootstrap` does steps 2 and 3 in one idempotent command once the package is
-installed — it creates the account, installs the toolchain, seeds the symlink, and enables
-the `nvm-update.timer`. The manual equivalent:
+`sudo ai-tools-admin system bootstrap` does steps 2 and 3 in one idempotent command once the
+package is installed — it creates the account, installs the toolchain, seeds the symlink, and
+enables the `nvm-update.timer`. The manual equivalent:
 
     # cd first: the block runs as ${SANDBOX_USER}, which cannot occupy your home as cwd
     sudo -u "${SANDBOX_USER}" bash -c '
@@ -109,16 +109,16 @@ the `nvm-update.timer`. The manual equivalent:
     '
 
 Once `install.sh` (step 4) has run, `/opt/ai-tools/bin` is locked `0551 root:ai-tools` and
-only root maintains the symlink: instead of the `ln` above, run `sudo ai-tools-bootstrap`
-(idempotent -- it provisions whatever is missing and seeds the symlink through the root
-helper), or re-run `sudo ./install.sh install`.
+only root maintains the symlink: instead of the `ln` above, run
+`sudo ai-tools-admin system bootstrap` (idempotent -- it provisions whatever is missing and
+seeds the symlink through the root helper), or re-run `sudo ./install.sh install`.
 
 ## 4. Run the install script (root, once)
 
 Everything from here on is fully automated by `install.sh`. **Complete steps 2 and 3
 first** — the account must exist (else the script stops with `ai-tools user not found`)
 and `/opt/ai-tools/bin` must exist (step 3 creates it; the script writes `nvm-update.sh`
-into it). `sudo ai-tools-bootstrap` does both in one idempotent command. Then run:
+into it). `sudo ai-tools-admin system bootstrap` does both in one idempotent command. Then run:
 
     sudo ./install.sh install
 
