@@ -52,7 +52,8 @@ CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_FSETID CAP_DAC_OVERRIDE
 #   ProtectKernel*/ProtectControlGroups/ProtectClock: no business with kernel
 #     tunables, modules, cgroups, or the clock.
 #   LockPersonality/MemoryDenyWriteExecute/RestrictRealtime: standard exploit-
-#     mitigation hardening; the helpers JIT nothing and need no W+X pages.
+#     mitigation hardening; the helpers do not compile code at runtime and do
+#     not need W+X pages.
 #   MemoryMax/TasksMax: cap a single handler so an unbounded-stderr or fan-out
 #     bug is contained by the cgroup rather than the host.
 # RestrictSUIDSGID is intentionally NOT set: ai-tools-setgid must chmod g+s, which

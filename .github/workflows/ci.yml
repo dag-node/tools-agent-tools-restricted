@@ -114,7 +114,7 @@ jobs:
       # `if: always()` so a failed selftest still surfaces the RPMs that caused it --
       # those are exactly the artifacts needed to debug the failure. The rpmbase image
       # is still cached (only the final test container was --rm'd); when even the image
-      # build failed there is nothing to extract, hence the image-exists guard.
+      # build failed that image is absent, hence the image-exists guard.
       - name: Extract dev RPMs
         if: always()
         run: |
@@ -232,7 +232,7 @@ jobs:
           echo "rpm_release=${rpm_release}" >> "$GITHUB_OUTPUT"
 
       # Validate the release prerequisites BEFORE building or publishing anything, so a
-      # misconfigured secret fails the job while nothing has shipped -- rather than after the
+      # misconfigured secret fails the job before any artifact ships -- rather than after the
       # GitHub Release is already public, where a hard failure only strands a half-published
       # release. Signing is MANDATORY: every published RPM must carry a verifiable dag-node
       # signature, so a missing or unusable secret fails the release here instead of shipping
@@ -286,7 +286,7 @@ jobs:
           sudo podman info --format 'runtime={{.Host.OCIRuntime.Name}} {{.Host.OCIRuntime.Version}}' 2>/dev/null || true
 
       # Build the matching-EL images once, up front. Both the signing selftest below and the
-      # release-RPM extraction reuse these cached images, so nothing is built twice. rpmbase-elN,
+      # release-RPM extraction reuse these cached images, so each image is built once. rpmbase-elN,
       # not rpmtest-rockyN: the `needs: rpm-selftest` dependency above already ran and passed the
       # full selftest on this exact commit.
       - name: Build EL RPM images
@@ -298,8 +298,8 @@ jobs:
       # Prove the ENTIRE signing chain -- key, passphrase, rpmsign, and signature verification --
       # on a throwaway RPM inside each matching-EL container, BEFORE any release RPM is built or
       # published. A wrong passphrase or a container where rpmsign silently no-ops (the 0.6.1
-      # failure mode) fails the job here, while nothing is public. The signing key is a step-scoped
-      # env var, never baked into an image layer or build cache.
+      # failure mode) fails the job here. The signing key is a step-scoped env var, never baked
+      # into an image layer or build cache.
       # --entrypoint bypasses the image's /sbin/init (a bare command is ignored init arguments --
       # the container would boot the selftest instead); the assertion proves sign-rpms.sh ran.
       - name: Prove the signing chain end-to-end (in-container)

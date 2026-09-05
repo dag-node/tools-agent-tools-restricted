@@ -29,8 +29,8 @@
 # exists at that moment, but the fix does not survive the next recreation.
 # restorecon here makes the correct ai_tools_run_t label a property of every
 # start instead of a one-time external repair: it runs only when this unit
-# (re)starts -- not per connection -- and is a cheap, idempotent no-op once the
-# label already matches policy, so it adds no meaningful overhead.
+# (re)starts -- not per connection -- and walks /run/ai-tools comparing each
+# context against policy, relabelling only on a mismatch.
 #
 # Accept=yes: one ai-tools-handback@.service instance per connection; each
 # serves exactly one request and exits.  The listening socket (and /run/ai-tools)

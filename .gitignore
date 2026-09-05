@@ -2,7 +2,7 @@
 .env/
 # Work-in-progress notes, issue drafts and design docs live in the sibling repository
 # `tools-agent-tools-restricted-wip`. This directory holds only an untracked pointer to it
-# (wip/CLAUDE.md); nothing in this tree references anything under it.
+# (wip/CLAUDE.md), and the tracked files do not reference any path under it.
 wip/
 # Compiled policy packages are build artifacts. Only the STABLE ones ship prebuilt so a
 # normal install and `ai-tools-admin selinux groups enable` need no selinux-policy-devel
