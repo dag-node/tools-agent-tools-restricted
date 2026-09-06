@@ -290,7 +290,7 @@ prompt_groups() {
     # some experimental -- so the caveat names the experimental subset instead of the whole set.
     section "Optional policy groups (all default: disabled)" >&2
     sayx "  Core alone covers project/home/tmp files, git, coreutils, HTTPS to the"
-    sayx "  Anthropic API, and the sudo->helper calls. Enable a group only when a task"
+    sayx "  Anthropic API, and the handback socket. Enable a group only when a task"
     sayx "  must reach into system context. Each is tagged stable or experimental below;"
     sayx "  an experimental group is an unaudited draft -- audit it under permissive (the"
     sayx "  avc-denials harness) before relying on it."
