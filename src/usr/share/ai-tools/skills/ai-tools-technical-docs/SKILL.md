@@ -3,8 +3,8 @@ name: ai-tools-technical-docs
 # ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the name above is stable.
 x-ai-tools-managed: true
 x-ai-tools-status: draft
-x-ai-tools-version: 2
-x-ai-tools-updated: 2026-09-05
+x-ai-tools-version: 3
+x-ai-tools-updated: 2026-09-06
 description: >
   Technical writing standard for every software engineering artifact.
 
@@ -297,6 +297,11 @@ Restating in full is warranted only when the **perspective** changes:
 The same perspective covered twice means one copy is redundant. Choose the surface whose
 reader needs the detail, write it there, and point at it from the others.
 
+**Keep a declared registry in one place.** Where code declares a table — of groups, verdicts,
+options, or exit codes — name the registry in prose and leave the rows in that declaration. Do
+not copy a row into a header or a rule file: a copied row goes stale the moment the table
+changes, and the table changes in the other file.
+
 ### Prose covers purpose and why; the code shows what
 
 A reader should follow *how* something works from the code alone. Prose carries the intent and
@@ -318,6 +323,11 @@ Two habits do most of the work:
 - Merge sentences that share a subject.
 - Cut any fact already carried by this file, by the code below it, or by the domain rule that
   owns it. Each fact has one home.
+
+**Write the shape, not the count.** A count of what the code declares — four log levels, two
+buckets, seven options — goes stale on the next addition, and it goes stale in a file far from
+the one that changed. Name the set instead: *the log levels the writer emits* holds however many
+the code grows to.
 
 **Length is a symptom, never a budget.** Prose that approaches the size of the code it describes
 usually means the code has stopped being self-descriptive; the fix is to make the code say it.
@@ -400,6 +410,11 @@ Substituting a synonym for that token instead clears the check and keeps the def
 
 Reading the source also answers what no rule decides in the abstract — arity among them.
 
+**Review the whole sentence, not only the flagged token.** A check highlights one word, yet the
+rest of the sentence came from the same pass and is equally likely to be wrong. Before moving on,
+re-read the count, the mechanism name, and the fail direction that stand beside the token. Do not
+treat a corrected token as evidence that the sentence has been reviewed.
+
 ## Carry four things through every edit
 
 Check each one before accepting a rewrite. A change that moves any of them has changed the claim.
@@ -408,7 +423,8 @@ Check each one before accepting a rewrite. A change that moves any of them has c
   secrets`, never `contains only settings`: a setting can be a token, so the second stops justifying
   the `644` mode the first was written to justify.
 - **The number.** Keep a plural plural and a singular singular. `does not carry any secrets` says
-  the contents and the secrets do not intersect; `must not hold a secret` says one of them is absent.
+  the contents and the secrets do not intersect, where the narrowed `must not hold a secret` says
+  only that one of them is absent.
 - **The modality.** Keep `never`, `always`, `cannot`, `only`, and `must` where the original used
   one, and name the guard that backs it in the same sentence. Do not trade an absolute for `not`;
   *Back an absolute with its check* has the cases where the absolute itself goes.
@@ -442,6 +458,15 @@ python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --kept <base
 the two sides of the diff and reports a dropped term, a narrowed number, and a weakened modality —
 three of the four above. The fourth, a dropped fact, has no check, so read for it. Both modes
 report and neither decides: whether two sets are disjoint is not a question a regex answers.
+
+Two points about running the checks:
+
+- **For a multi-part change, baseline each pass at the tip of the previous part.** `--kept`
+  accepts any revision range, so `--kept <rev>` reports only the findings belonging to the part
+  in hand, rather than every change since the branch point.
+- **When comparing an `--all` run from before an edit with one from after, compare the finding
+  text rather than whole lines.** An edit shifts line numbers, and a line-wise `comm` then treats
+  every finding that merely moved as new.
 
 ---
 
@@ -525,6 +550,13 @@ advisory.
   "previously", and dates of discovery. Git carries that.
 - Attach purpose as the guarantee a behaviour provides.
 - Describe the system, rather than predicting what a person will do with it.
+- **Name the fail direction from the branch that decides it.** State what happens when an input
+  is missing, unreadable, or untrusted, and whether that outcome increases or decreases access.
+  Do not write "fails closed" from the shape of a sentence — over code that defaults open, it
+  documents a property the implementation lacks. Where access increases, record the reason the
+  code or the design already gives, never one composed to fit: an opening with no reason on
+  record, or one contradicting a guarantee stated elsewhere, is a finding to raise with the
+  operator, and *Resolve a doc/code conflict* has which side moves.
 - Where the system acts on its own, name the visibility or override path — log, notice,
   confirmation, review point — in the same place, and say who confirms an irreversible or
   outward-facing action.
@@ -532,6 +564,17 @@ advisory.
 **Altitude across tiers.** A root `CLAUDE.md` holds global invariants and routes to the rest. A
 `*.rule.md` holds the principles common to its domain plus the cross-file story. A file header
 holds that file's local mechanism.
+
+Put a fact in the always-loaded layer only where it holds across the whole project and a reader
+needs it in every session. Send a domain's mechanism to that domain's document **even where it
+qualifies an invariant the router states** — write the qualification at invariant altitude and
+point at the document that carries how it works. A file mode, a test path, a `file:line`
+reference, or a verdict token is the mark of a domain document rather than of a router, and
+`prose-check.py` reports each of them there.
+
+State that boundary inside the router itself. A rule scoped to `*.rule.md` paths does not load
+while the router is open, so a constraint on the router must be written in the router to be
+present in the sessions that edit it.
 
 **Code, header, and rule describe one system at three altitudes**, each in the present tense, so
 touching any of them obligates reconciling the others at the time of writing — in the direction
@@ -654,6 +697,12 @@ Use structured templates so fields survive into the journal or the log store.
 
 # Anti-patterns
 
+**Label every example of prose this standard rules out.** A document that has to contain bad
+prose marks it as bad — an *Off style* prefix, a ✗ column, or the imperative it violates stated
+first. Never leave a defect standing as a neutral description of what some wording achieves: read
+without the surrounding argument, an unlabelled example is followed as an instance of the
+standard.
+
 ## Rhetorical figures
 
 Name the figure and it becomes greppable. Each of these is a *shape*, not a word, so a
@@ -680,6 +729,7 @@ vocabulary filter cannot see any of them.
 | `Improved reliability / Various fixes` | `Fixed HttpClient retry on 429; corrected timezone parsing in date fields` |
 | Changelog entry describing the mechanism | Entry describing what the caller or operator gains |
 | Commit body as long as the diff | Two short paragraphs: the why, and where the detail lives |
+| Correcting the flagged token and committing the sentence | Rewriting the whole sentence from the source it describes |
 | Rambling multi-sentence doc comment | One-line contract; a second sentence for a real precondition |
 | Bulleted list narrating each behaviour | Connected prose; bullets for true enumerations |
 | Slogan or abstract principle | The observable outcome, or the concrete rule that produces it |
@@ -705,19 +755,30 @@ Scan the finished text for each of these, since every one is checkable:
     sentences sharing a subject — merge them. (Length is the symptom, not the test: prose the
     size of its code says the code stopped being self-descriptive, and prose that is merely
     short has not thereby passed.)
+11. A person predicted rather than a system described: "if you want", "you should", "users
+    will", "a host that wants it enforced".
+12. Domain mechanism in the always-loaded layer: a file mode, a test path, or a `file:line`
+    reference in a root `CLAUDE.md` or `AGENTS.md`.
+
+**Before committing, name the file each behavioural sentence was read from.** Not as a citation
+in the prose — as a check made while editing. Open the code during this edit, and do not let a
+recollection stand for a reading.
 
 **A finding names a symptom. Fix the claim, not the token** — the procedure is *Rewrite from the
 source* above, and it applies to a first draft's own findings as much as to a rewrite pass.
 
 **Run the checkable ones.** `prose-check.py` ships beside this file and reports items 2, 3, 4, 5,
-7 and 9 plus the `does not` rule, so the pass is a command rather than an act of attention:
+7, 9, 11 and 12 plus the `does not` rule, so the pass is a command rather than an act of
+attention:
 
 ```bash
 python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py <file>...
 ```
 
-It reads rejoined sentences, reports, and does not block. Items 4 and 9 and the `does not` rule
-run by default and are near-exact, as does item 5's cost half — it reports a cost word only where
+It reads rejoined sentences, reports, and does not block. Items 4, 9, 11 and 12 and the `does
+not` rule run by default and are near-exact — item 11 on a short vocabulary of person-naming
+subjects, item 12 only in a root `CLAUDE.md` or `AGENTS.md`, where each of its three marks names
+one thing — as does item 5's cost half — it reports a cost word only where
 the sentence does not name a frequency or a bounded operation, so one already stated concretely
 stays silent. `--all` adds the shape checks, each of which greps a sub-shape
 of its rule, because the rules themselves are about meaning: a word stem repeated across the pivot

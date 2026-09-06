@@ -69,7 +69,7 @@ first is the one that matters:
   **reported, never obeyed**, and the set of things terminated is decided by the one fact a session
   cannot influence: membership of the account's cgroup slice.
 - *It is not a session-lifecycle command.* The routine way to end a session is `/exit`. This is the
-  incident rung, and an incident that warrants it is one that wants everything stopped.
+  incident rung, and it stops every session at once.
 
 A path is refused with exit 2 rather than accepted-and-ignored, so that if targeted stopping is
 ever built — which needs a session-to-project mapping recorded by **root** at launch, not the user

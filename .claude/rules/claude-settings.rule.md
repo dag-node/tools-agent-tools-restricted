@@ -142,8 +142,8 @@ file-read baseline, and the harness's safe-read auto-approval means an unlisted 
 silently (see "Asks first"). `deny` is the one settings layer that overrides that
 auto-approval, so the set ships denied. This is stronger mediation than a prompt, not
 weaker: the agent that genuinely needs one must ask the operator in conversation, with
-its reasoning, instead of the operator approving a bare command string. A host that
-wants one silent removes the deny entry in its settings layer.
+its reasoning, instead of the operator approving a bare command string. A settings
+layer that drops the deny entry returns that command to the silent auto-approval.
 
 | Entry | What it discloses |
 |---|---|
