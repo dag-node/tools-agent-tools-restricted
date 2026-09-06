@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 policy_module(ai_tools_apphost, 0.1.0)
 
-## ai_tools OPTIONAL GROUP: apphost  [DEFAULT: DISABLED, EXPERIMENTAL]
+## ai_tools OPTIONAL GROUP: apphost  [DEFAULT: DISABLED]
 ##
 ## Grants ai_tools_t map + execute on tmpfs (memfd) files, so the .NET host may
 ## execute code from an anonymous in-memory file. .NET creates an executable
@@ -35,21 +35,10 @@ policy_module(ai_tools_apphost, 0.1.0)
 ## SECCOMP: memfd_create passes the session's @system-service SystemCallFilter (only
 ## namespace syscalls are filtered), so SELinux is the operative gate for this path.
 ##
-## EXPERIMENTAL: the permission set below is the bring-up hypothesis. Verify it under
-## permissive against a real executable build/run (selinux/avc) and trim to the
-## observed minimum before promoting to stable; the graduation step is scoping the
-## grant to a private memfd type via a tmpfs type_transition rather than the shared
-## tmpfs_t.
-##
-## Enable:  sudo selinux/install-selinux.sh enable-group apphost
-## Disable: sudo selinux/install-selinux.sh disable-group apphost
-##
-## When a task needs this group and it is not loaded, surface to the user:
-##   "dotnet run / ASP.NET Core / xunit.v3 requires the SELinux 'apphost' policy group.
-##    ! sudo selinux/install-selinux.sh enable-group apphost
-##    Why: .NET executes its apphost and JIT'd code from an anonymous memfd file;
-##         ai_tools_t has execmem but not execute on a tmpfs file mapping, so the
-##         mapping fails EACCES. This adds map+execute on tmpfs (memfd) files."
+## The permission set below is a bring-up hypothesis: verify it under permissive against a
+## real executable build and run, then trim it to the observed minimum. The graduation
+## step is scoping the grant to a private memfd type through a tmpfs type_transition
+## rather than the shared tmpfs_t it names today.
 
 require {
     type ai_tools_t;

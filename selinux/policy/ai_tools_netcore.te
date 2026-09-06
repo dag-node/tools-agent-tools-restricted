@@ -1,15 +1,13 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 policy_module(ai_tools_netcore, 0.1.0)
 
-## ai_tools OPTIONAL GROUP: netcore  [DEFAULT: DISABLED, EXPERIMENTAL]
+## ai_tools OPTIONAL GROUP: netcore  [DEFAULT: DISABLED]
 ##
-## Everything the .NET (CoreCLR) runtime needs beyond repo-only work, kept OUT of the
-## base module because none of it is required for the Claude Code agent itself -- it
-## loads only where .NET is brought up, alongside the dotnet integration
-## (AI_TOOLS_INTEGRATIONS=dotnet). It pairs with two existing groups: tmpmap (mmap of the
-## /tmp shm mutex for NuGet restore and build) and apphost (memfd exec for the JIT and
-## apphost creation). Enable all three for a full build-test-run .NET workflow. The
-## project-type -> group map and the denial breakdown live in .claude/rules/dotnet.rule.md.
+## Everything the .NET (CoreCLR) runtime needs beyond repo-only work, kept OUT of the base
+## module because the agent itself requires none of it -- it loads only where .NET is
+## brought up, alongside the dotnet integration. It pairs with two sibling groups: tmpmap
+## (mmap of the /tmp shm mutex for NuGet restore and build) and apphost (memfd exec for the
+## JIT and apphost creation); a full build-test-run .NET workflow needs all three.
 ##
 ## Two sections, at two risk levels:
 ##
@@ -32,16 +30,7 @@ policy_module(ai_tools_netcore, 0.1.0)
 ##     process image. It does not grant a new PRIVILEGE (execmem already concedes in-process
 ##     native code, and execute_no_trans keeps the child in ai_tools_t with no entrypoint
 ##     to a more privileged domain), but it is the reason the whole module is off by
-##     default and experimental. execmod covers an R2R image relocated in place.
-##
-## Enable:  sudo selinux/install-selinux.sh enable-group netcore
-## Disable: sudo selinux/install-selinux.sh disable-group netcore
-##
-## When a task needs this group and it is not loaded, surface to the user:
-##   "dotnet test / running a built .NET binary requires the SELinux 'netcore' group.
-##    ! sudo selinux/install-selinux.sh enable-group netcore
-##    Why: the .NET runtime's diagnostic sockets/FIFOs, and executing a host it built in
-##         the project tree, are denied by the base module. This adds both."
+##     default. execmod covers an R2R image relocated in place.
 
 require {
     type ai_tools_t;

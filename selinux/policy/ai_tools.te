@@ -1,50 +1,25 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 policy_module(ai_tools, 0.5.0)
 
-## ============================================================
-## POLICY GROUP DEFAULTS -- this core module covers repo-only work.
-## All optional groups are DISABLED by default. Enable them only when
-## tasks require reaching into system context beyond project files.
-##
-## Group     Default    Surface added
-## --------  ---------  ----------------------------------------------------
-## systemd   disabled   systemctl, journalctl, systemd unit file reads
-## pkgmgmt   disabled   rpm (rpm_exec_t), dnf RPM database (rpm_var_lib_t)
-## netadmin  disabled   firewall-cmd D-Bus (firewalld_t), nmcli D-Bus (NM_t)
-## podman    disabled   podman/buildah exec (container_runtime_exec_t),
-##                      container image/layer storage (container_file_t)
-##
-## Manage groups via install-selinux.sh:
-##   sudo selinux/install-selinux.sh list-groups
-##   sudo selinux/install-selinux.sh enable-group  <name>
-##   sudo selinux/install-selinux.sh disable-group <name>
-##
-## When a task fails because a group is not loaded the agent will surface:
-##   "Enable the '<name>' policy group (why: <reason>):
-##    ! sudo selinux/install-selinux.sh enable-group <name>"
-## ============================================================
-
 ########################################
 #
-# ai_tools -- confine the Claude Code sandbox agent (the ai-tools UID) to its own
-# domain (ai_tools_t) with a path boundary: it may modify approved project dirs
-# (ai_tools_project_t), its own config/state (ai_tools_home_t), and private temp
-# (ai_tools_tmp_t), but NOT other user files (e.g. other projects under /home,
-# still user_home_t), and it may NOT read other domains' process state or the
-# invoking user's home/config.
+# ai_tools -- confine an agent session running as the sandbox account (the ai-tools
+# UID) to its own domain, ai_tools_t, with a path boundary. The domain manages three
+# types: approved project directories (ai_tools_project_t), the agent's own config and
+# state (ai_tools_home_t), and its private temp (ai_tools_tmp_t). Other users' files
+# keep user_home_t and no rule grants access to them; the same holds for other domains'
+# process state and for the invoking user's home and config.
 #
-# SHIPS PERMISSIVE. Loading this module changes NOTHING about what is allowed --
-# it only LOGS what ai_tools_t does. The single `permissive ai_tools_t;` line at
-# the bottom is the on/off switch; remove it (and reload) to enforce. See
-# selinux/README.md.
+# SHIPS ENFORCING. The `permissive ai_tools_t;` line at the foot of this file is the
+# switch, and it is commented out; uncomment it and reload to observe without blocking.
+# install-selinux.sh reads this source to report which mode a build carries.
 #
-# v0.2.0 folds in the first audit2allow bring-up pass. The guiding rule was the
-# opposite of `audit2allow | tee policy`: a raw audit2allow dump asks to allow
-# everything observed, including ~45 daemon /proc reads, listing the user's home,
-# and writing usr_t. Those are NOT granted here -- they are the boundary. Each is
-# dontaudit'd (with the reason) so it stays silently denied under enforcing. Only
-# the accesses the agent genuinely needs to function are allowed, via refpolicy
-# interfaces wherever one exists.
+# The optional ai_tools_<group> modules that widen this surface are all off by default and
+# are declared once, in selinux-groups.lib.sh (installed at
+# /usr/local/lib/ai-tools/): each group's name, description, the reason it is off, and a
+# stability field that decides whether it ships prebuilt and which front door may enable
+# it. That registry is the single source both front doors read, and a group's stability
+# changes there as it is audited, so no list of group names is kept in this file.
 #
 ########################################
 
@@ -140,8 +115,8 @@ files_type(ai_tools_run_t)
 
 # The handback privilege bridge daemon.  Runs as root (system manager service),
 # accepts one connection per instance, authenticates via SO_PEERCRED, then
-# calls the existing root helpers.  Starts permissive until the AVC log is clean
-# on the live box; see the bring-up loop in selinux/README.md.
+# calls the existing root helpers.  Enforcing: its rule set is the one the bring-up
+# confirmed, and no `permissive ai_tools_handback_t;` line is declared.
 type ai_tools_handback_t;
 type ai_tools_handback_exec_t;
 init_daemon_domain(ai_tools_handback_t, ai_tools_handback_exec_t)
@@ -382,10 +357,11 @@ dev_read_urand(ai_tools_t)
 #
 # Everything below is dontaudit, NOT allow. A raw `audit2allow` of the bring-up
 # logs proposed allowing all of it; granting any of it would widen the agent past
-# its purpose. dontaudit keeps each one silently denied under enforcing AND stops
-# it spamming the audit log so real new denials stay visible. If any turns out to
-# be functionally required, it will resurface as a hard failure (not a log line)
-# and can be reconsidered then -- on its own merits, not because a tool probed it.
+# its purpose. What denies each one is the absence of an allow rule; the dontaudit
+# only suppresses the audit record, so the access stays refused under enforcing and
+# stops flooding the log, which keeps a real new denial visible. If one turns out to
+# be functionally required, it resurfaces as a hard failure rather than a log line
+# and is reconsidered then -- on its own merits, not because a tool probed it.
 ########################################
 
 # (1) Reading OTHER domains' process state. The bring-up logged ~45 distinct
