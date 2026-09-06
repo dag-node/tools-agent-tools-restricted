@@ -193,8 +193,8 @@ The invariants the agent operates under:
 - **`SANDBOX_USER` has no login shell and no password.**
 - **Every `%ai-ops` rule names one fixed-path program** — never an arbitrary shell or binary,
   and never a glob. `ai-tools-run` is `root:SANDBOX_GROUP` and not writable by the agent;
-  `ai-tools-stop` is `750 root:root` and pinned to its zero-argument form. The agent itself, *as*
-  `SANDBOX_USER`, does not hold any sudo rule.
+  `ai-tools-stop` is root-owned and root-only, and pinned to its zero-argument form. The agent
+  itself, *as* `SANDBOX_USER`, does not hold any sudo rule.
 - **The control-plane files are not agent-writable** — `settings.json`, the hooks,
   `nvm-update.sh`, and `ai-tools-run` are `root:SANDBOX_GROUP` with no group write;
   each agent's config directory (`/opt/ai-tools/<config_dir>`, `.claude` for Claude Code — the
@@ -340,9 +340,10 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   `msg`, `log`, and the claude-code pair `claude-prompt`/`claude-endpoint`),
   plus `path-dedup.sh`,
   the PATH-ordering fragment `ai-tools-admin` wires into operator dotfiles (see
-  [launch](.claude/rules/launch.rule.md)). That directory is `0751 root:SANDBOX_GROUP` and its
-  contents `root`-owned and non-group-writable — load-bearing, since the sandbox account sources
-  several of these libraries (see the provider-seam invariant below).
+  [launch](.claude/rules/launch.rule.md)). That directory and its contents are `root`-owned and
+  non-group-writable, and the sandbox group reads them — load-bearing, since the sandbox account
+  sources several of these libraries (the modes are in
+  [providers](.claude/rules/providers.rule.md); see the provider-seam invariant below).
 
 ### Documentation register
 
