@@ -22,7 +22,9 @@
 # same security boundary afterwards. Three shapes, each a way an edit reads as tidying and lands
 # somewhere weaker:
 #
-#   dropped    a security or access-control term the added prose does not restate. The usual case
+#   dropped    a security or access-control term the added prose does not restate -- a noun
+#              (`secret`, `privilege`, `permission`) or the verb naming the operation the sentence
+#              permits or refuses (`read`, `execute`, `map`). The usual case
 #              is a swapped set -- `carries no secrets` becomes `contains only settings`, which
 #              reads better and stops justifying the 644 mode it was written to justify, because a
 #              setting can be a token.
@@ -45,6 +47,12 @@
 # One default check carries a second condition for the same reason the `--all` ones do:
 # `unbacked-cost` needs a cost word AND no frequency and no bounded operation in the sentence,
 # either of which is what a reader checks the claim against.
+#
+# One default check reads the PATH as well as the sentence:
+#
+#   invariant-altitude a file mode, a test path, or a `file:line` reference in a root CLAUDE.md or
+#                      AGENTS.md. Each is the mark of a domain rule rather than of a document that
+#                      holds global invariants and routes to the rest.
 #
 # `--all` adds the shape checks. Each one greps a sub-shape of its rule -- the half a regex can
 # see -- because the rules themselves are about meaning: "an absolute with no guard in the same
@@ -127,12 +135,29 @@ def unbacked_cost(sentence):
     return match
 
 
+# A person as the subject of a prediction, where reference prose describes the system instead.
+# Two shapes: a reader handed a choice (`if you want`, `you should`), and a system given a
+# preference (`a host that wants it enforced`), which writes an install invariant as something
+# someone opted into.
+#
+# The vocabulary is small on purpose, because a default check runs on every file and three
+# neighbouring registers are correct: `a reader should` in an advisory document, `you can set X`
+# in a man page, and `the reader` or `the caller` naming a FUNCTION rather than a person -- so the
+# subjects here are the two that name a person outright, and the modals are the two that predict
+# rather than instruct.
+PREDICTED_ACTION = re.compile(
+    r"\b(?:if you (?:want|need|prefer|wish)"
+    r"|you (?:should|will)"
+    r"|(?:that|who) wants?"
+    r"|(?:users?|operators?) will)\b", re.I)
+
 # Each entry is (name, pattern, hint). The hint is what to write instead, since a report naming
 # only the defect leaves the reader to rediscover the fix on every hit.
 DEFAULT_CHECKS = [
     ("fronted-quantifier", FRONTED_QUANTIFIER, None),  # hint derived; see suggest()
     ("nothing", re.compile(r"\bnothing\b"), "name the absent input"),
     ("unbacked-cost", unbacked_cost, "name the frequency or the bounded operation"),
+    ("predicted-action", PREDICTED_ACTION, "state what the system does, or give the instruction"),
 ]
 
 # Third-person singular endings that need more than a dropped "s".
@@ -259,11 +284,19 @@ def is_prose_file(path):
 # A rewrite that drops one of these has probably changed the claim; see the `--kept` heading above.
 # The access-control nouns are here for the same reason as the secrets: `grants nothing on` rewritten
 # as `leaves untouched` reads better and stops saying anything about access.
+#
+# The access VERBS are here for a third reason: each one names the operation a sentence permits or
+# refuses, so a rewrite that drops one changes which operation the sentence is about. The defect
+# this reports, stated as the check sees it -- removed `may not read other users' files`, added `no
+# rule grants access to them` -- keeps the vocabulary of access while retiring the claim about
+# reading, which is why the other two kinds stay silent on it.
 INVARIANT_TERMS = re.compile(
     r"\b(secret|secrets|credential|credentials|token|password|privilege|privileged|sudo"
     r"|world-readable|root-only|owner-only|unprivileged|untrusted|trusted|forge|forged|tamper"
     r"|escalate|escalation|fail-closed|fail closed|confine|confined|allowlist|refuses|refuse"
     r"|grant|grants|granted|permission|permissions|acl|acls|ownership|setgid|readable|writable"
+    r"|read|reads|write|writes|execute|executes|search|searches|traverse|traverses|list|lists"
+    r"|append|appends|relabel|relabels|connect|connects|map|maps"
     r"|0[0-7]{3}|[0-7]{3,4} root:)\b", re.I)
 
 # The nouns among those terms, which are the ones whose NUMBER carries a claim: a set of secrets
@@ -430,6 +463,14 @@ def diff_hunks(revisions):
 
 
 def _singular(term):
+    """The unmarked form of a term, so an inflection alone does not read as a dropped claim.
+
+    The `-es` endings need more than a dropped `s`, the same ones `base_form` names: `searches`
+    reduced to `searche` would never match the `search` on the other side of the diff, and the
+    verb would report as dropped on every rewrite that only changed its number.
+    """
+    if term.endswith(_ES_ENDINGS):
+        return term[:-2]
     return term[:-1] if term.endswith("s") and not term.endswith("ss") else term
 
 
@@ -519,13 +560,50 @@ def author_prose(path, text):
     return span.sub(" -- ", text)
 
 
-def findings(source, checks):
+# The always-loaded layer: a root CLAUDE.md or AGENTS.md, which holds global invariants and routes
+# to the rest. Every mark below is ordinary in the domain document it routes to and is altitude
+# drift here, so this check reads the PATH and is scoped to these two names rather than joining
+# the shape checks.
+INVARIANT_LAYER = ("CLAUDE.md", "AGENTS.md")
+
+# A file:line reference, a test path, and a file mode -- bare, backticked, or carrying its owner.
+# These read the RAW sentence: a backticked span is the signal here, not the noise `author_prose`
+# blanks everywhere else.
+#
+# Each mark names one thing, which is what keeps the check readable. Counting backticked
+# identifiers instead -- three in a sentence as the mark of mechanism -- reports the register a
+# router is written in: a document naming an account, a group and a shim in one invariant is
+# routing, not drifting, so the count reports the file rather than a passage in it.
+MECHANISM_MARK = re.compile(r"`[^`]+:\d+`"
+                            r"|\btests?/[\w./-]+"
+                            r"|\b0[0-7]{3}\b|`[0-7]{3,4}`|\b[0-7]{3,4} [a-z][\w-]*:")
+
+
+def invariant_altitude(path, sentence):
+    """A mark of domain mechanism in a router file, where the invariant belongs without it."""
+    return MECHANISM_MARK.search(sentence) if path.endswith(INVARIANT_LAYER) else None
+
+
+# Checks that read the path as well as the sentence, and the sentence unblanked. They run by
+# default: each mark names one thing, so the report is near-exact, and the hook that runs the
+# default set is where a writer is standing when the mechanism goes in.
+PATH_CHECKS = [
+    ("invariant-altitude", invariant_altitude,
+     "state the invariant here; the mechanism belongs in the domain's rule, with a pointer"),
+]
+
+
+def findings(source, checks, path_checks=()):
     for path, number, sentence in sentences(source):
         subject = author_prose(path, sentence)
         for name, check, hint in checks:
             match = check.search(subject) if hasattr(check, "search") else check(subject)
             if match:
                 yield path, number, name, match.group(0), suggest(name, match, hint), sentence
+        for name, check, hint in path_checks:
+            match = check(path, sentence)
+            if match:
+                yield path, number, name, match.group(0), hint, sentence
 
 
 def main():
@@ -576,7 +654,7 @@ def main():
         source = file_lines(args.paths)
 
     count = 0
-    for path, number, name, token, hint, text in findings(source, checks):
+    for path, number, name, token, hint, text in findings(source, checks, PATH_CHECKS):
         count += 1
         print(f"{path}:{number}: {name} [{token}] -- {hint}")
         print(f"    {text[:110]}")
