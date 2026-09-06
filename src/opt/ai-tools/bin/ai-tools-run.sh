@@ -241,9 +241,11 @@ if command -v getenforce >/dev/null 2>&1; then
     [[ -n "${manager_pid}" ]] && manager_domain="$(tr -d '\000' < "/proc/${manager_pid}/attr/current" 2>/dev/null | awk -F: '{print $3}' || true)"
 
     # AI_TOOLS_REQUIRE_SELINUX: the operator's declaration that confinement is mandatory here,
-    # read only while ai_tools_conf_is_trusted holds for the root-owned operator.conf, so an
-    # untrusted or absent file yields "no" rather than a dropped requirement. What it turns into a
-    # refusal: confinement.rule.md.
+    # read only while ai_tools_conf_is_trusted holds for operator.conf. An untrusted or absent
+    # file yields "no", the default posture, so the refusals it would otherwise produce --
+    # require-not-enforcing and require-inactive -- stay DAC-only launches; the package installs
+    # operator.conf 0644 root:root, so a file failing that check is a misconfigured host.
+    # What the switch turns into a refusal: confinement.rule.md.
     require_selinux=no
     operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
     if ai_tools_conf_is_trusted "${operator_conf}" 2>/dev/null \

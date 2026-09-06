@@ -6,9 +6,12 @@ policy_module(ai_tools, 0.5.0)
 # ai_tools -- confine an agent session running as the sandbox account (the ai-tools
 # UID) to its own domain, ai_tools_t, with a path boundary. The domain manages three
 # types: approved project directories (ai_tools_project_t), the agent's own config and
-# state (ai_tools_home_t), and its private temp (ai_tools_tmp_t). Other users' files
-# keep user_home_t and no rule grants access to them; the same holds for other domains'
-# process state and for the invoking user's home and config.
+# state (ai_tools_home_t), and its private temp (ai_tools_tmp_t). Other users' files keep
+# user_home_t, on which the domain holds directory traversal only -- enough to reach a
+# project nested under a home, and not to list what else is there. Other domains' process
+# state and the invoking user's config files are refused as well. THE BOUNDARY section
+# below states each refusal with its reason, including the one carve-out
+# (~/.config/ai-tools) that the root helper reads on the agent's behalf.
 #
 # SHIPS ENFORCING. The `permissive ai_tools_t;` line at the foot of this file is the
 # switch, and it is commented out; uncomment it and reload to observe without blocking.

@@ -175,8 +175,15 @@ so intentional DAC-only hosts are untouched. `require` tightens those two exits 
 `manager-domain` advisory stays advisory under `require`, since it targets the `/proc` read rather
 than a DAC-only launch. The switch is read only while `ai_tools_conf_is_trusted` holds for
 `operator.conf` (root-owned, non-group/other-writable, not a symlink), so the agent can neither set
-nor clear it, and an untrusted or absent file yields `no`, never a dropped requirement. The
-posture rides in the per-launch audit line (`require=yes|no`).
+nor clear it.
+
+`require` is the one input whose read failure resolves toward *more* access: an untrusted or
+absent file yields `no`, which is the default posture, so the two refusals it would otherwise
+produce — `require-not-enforcing` and `require-inactive` — stay DAC-only launches instead. The
+package installs `operator.conf` as `0644 root:root` and `tests/integration/perms.sh` asserts that
+ownership and mode, so a file failing `ai_tools_conf_is_trusted` is a misconfigured host rather
+than a state this model covers. The agent cannot produce it: the file and the directory holding it
+are root-owned. The posture rides in the per-launch audit line (`require=yes|no`).
 
 ## `/tmp` model
 
