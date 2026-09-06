@@ -155,13 +155,10 @@ agent_handback="$(ai_tools_agent_manifest_field "${agent_name}" handback || true
 
 # ── Entrypoint resolution: verify and exec the same inode ────────────────────────────────────
 # The path validated above is the versioned launcher SYMLINK; the file execve actually transitions
-# on is what it resolves to. Resolve it ONCE here and use that single path for both the SELinux
-# label preflight and the unit's ExecStart, so the file this shim checks is the file the manager
-# runs -- rather than checking one path and handing systemd another to re-resolve at exec time.
-#
-# Containment: the resolved path must stay inside the SAME semver version directory the launcher
-# was accepted at -- a property string-matching cannot carry across a symlink, so a link repointed
-# at another version's tree, or out of the toolchain, is refused rather than exec'd.
+# on is what it resolves to. Resolve it ONCE here and use that single path for the label
+# preflight and for the unit's ExecStart, so the manager is never handed a link to re-resolve
+# after the checks have run. The resolved target must stay inside the SAME semver version
+# directory the launcher was accepted at. Why both properties are load-bearing: launch.rule.md.
 #
 # Frozen at the validated version: node_version is re-assigned to "n/a" further down when it fails
 # the banner's display pattern, and the pre-launch re-check must resolve against the SAME root the
@@ -231,14 +228,10 @@ if command -v getenforce >/dev/null 2>&1; then
     if command -v matchpathcon >/dev/null 2>&1; then
         expected_label="$(matchpathcon -n "${entrypoint_path}" 2>/dev/null | awk -F: '{print $3}' || true)"
         actual_label="$(stat -c '%C' -- "${entrypoint_path}" 2>/dev/null | awk -F: '{print $3}' || true)"
-        # Module presence for the verdict, WITHOUT reading the root-only module store: this runs as
-        # @SANDBOX_USER@, so `semodule -l` returns an empty list -- a systematic false "no" that, on the
-        # unresolved-label branch, would fail OPEN (launch DAC-only where a half-installed host must
-        # refuse). A CORE-owned path resolves to an ai_tools_* type IFF the core module's
-        # file-contexts are live, and matchpathcon reads the world-readable file-contexts from the
-        # path string, so the probe does not need privilege and the agent cannot influence it. This
-        # distinguishes a half-installed host (module live, entrypoint unlabelled -> refuse) from a
-        # DAC-only host (module absent -> launch), which the store read could not from this account.
+        # Module presence for the verdict, probed from a CORE-owned path rather than read from the
+        # root-only module store, which this account cannot read. The classifier's contract
+        # (confinement.lib.sh) states what the probe means; why the store read would fail OPEN
+        # here is in confinement.rule.md.
         module_present="$(ai_tools_confinement_module_present \
             "$(matchpathcon -n /opt/ai-tools/.config 2>/dev/null | awk -F: '{print $3}' || true)")"
     fi
@@ -247,11 +240,10 @@ if command -v getenforce >/dev/null 2>&1; then
     manager_pid="$(pgrep -u "${UID}" -f 'systemd --user' 2>/dev/null | head -n1 || true)"
     [[ -n "${manager_pid}" ]] && manager_domain="$(tr -d '\000' < "/proc/${manager_pid}/attr/current" 2>/dev/null | awk -F: '{print $3}' || true)"
 
-    # AI_TOOLS_REQUIRE_SELINUX: the operator's declaration, from the trusted root-owned operator.conf,
-    # that confinement is mandatory here -- when set it turns the two DAC-only LAUNCH exits into
-    # refusals (require-not-enforcing / require-inactive). The agent cannot set it: operator.conf is
-    # root-owned and this reads it only while ai_tools_conf_is_trusted holds, so an untrusted or
-    # absent file yields "no" (the DAC-capable default), never a dropped requirement.
+    # AI_TOOLS_REQUIRE_SELINUX: the operator's declaration that confinement is mandatory here,
+    # read only while ai_tools_conf_is_trusted holds for the root-owned operator.conf, so an
+    # untrusted or absent file yields "no" rather than a dropped requirement. What it turns into a
+    # refusal: confinement.rule.md.
     require_selinux=no
     operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
     if ai_tools_conf_is_trusted "${operator_conf}" 2>/dev/null \
@@ -309,14 +301,12 @@ if command -v semodule >/dev/null 2>&1; then
 fi
 
 # ── Handback socket preflight (warn, do not block) ───────────────────────────────────────────
-# The ownership handback -- the per-turn hooks (handback=hooks) and this shim's session-end sweep
-# alike -- reaches ai-tools-chown as root over the handback socket. If it is down, every CHOWN
-# fails and files this session writes stay @SANDBOX_USER@-owned, surfacing later as git "dubious
-# ownership". This is NOT a confinement boundary -- DAC, the ai_tools_t type, and the project's
-# user:<operator> ACL keep the operator's access intact regardless -- so a down socket WARNS and
-# proceeds rather than refusing the launch (a refusal would trade availability for a non-security
-# convenience). Skipped for a diagnostic run with no project directory, which writes to no project under
-# hand back. The reconcile commands are printed plain, below the frame, so they stay paste-safe.
+# Every agent's ownership handback reaches ai-tools-chown as root over this socket. If it is down,
+# every CHOWN fails and files this session writes stay @SANDBOX_USER@-owned, surfacing later as
+# git "dubious ownership" -- an availability cost rather than a confinement one, so a down socket
+# WARNS and proceeds (launch.rule.md carries that trade). Skipped for a diagnostic run with no
+# project directory. The reconcile commands are printed plain, below the frame, so they stay
+# paste-safe.
 readonly HANDBACK_SOCKET="/run/ai-tools/handback.sock"
 if [[ -n "${session_working_directory}" && ! -S "${HANDBACK_SOCKET}" ]]; then
     audit warning "handback socket ${HANDBACK_SOCKET} absent at launch -- ownership handback will not run this session"
@@ -395,11 +385,9 @@ fi
 session_environment_options+=( "--setenv=PATH=${session_path}" )
 
 # ── Session-end ownership sweep (agents that carry no handback hooks) ────────────────────────
-# Files the agent writes are born @SANDBOX_USER@-owned and are returned to the operator by the
-# ownership handback. An agent whose manifest declares handback=hooks drives that itself, per
-# turn (Claude Code's PostToolUse/Stop/SessionStart hooks); an agent that declares anything else
-# has no driver, and the operator's tree would silently stay sandbox-owned. For those the shim
-# sweeps once, after the session ends -- slower to converge than per-turn hooks, same end state.
+# An agent whose manifest declares handback=hooks returns its writes to the operator per turn, and
+# the shim stays out of it; an agent that declares anything else has no driver, so the shim sweeps
+# once after the session ends -- slower to converge than per-turn hooks, same end state.
 #
 # The walk only chooses which paths to OFFER: each one goes through the handback socket to
 # ai-tools-chown, which re-validates the allowlist, the exclusions, and the born-owner guard as
@@ -490,13 +478,11 @@ declare -a working_directory_option=()
 [[ -n "${session_working_directory}" ]] \
     && working_directory_option=( "--working-directory=${session_working_directory}" )
 
-# The session's own stdout/stderr are the terminal (--pty), so the per-unit journal is empty on a
-# clean run -- filtering by _SYSTEMD_USER_UNIT shows "No entries". The launch diagnostics (versions,
-# confinement inputs, refusals) are logged under the `ai-tools-run` tag as root: the sandbox account
-# is deliberately not in systemd-journal, so an operator reads them via sudo. Point at that tag,
-# where the records actually are, rather than the empty per-unit filter. `-n 50 --no-pager` shows the
-# recent records plainly -- `-e` (jump to end) leaves the pager padding the screen above short output
-# with `~`, which reads as confusing blank lines.
+# Point the operator at the `ai-tools-run` tag rather than at _SYSTEMD_USER_UNIT, which shows "No
+# entries" for the reason the operating notes above give. The read needs sudo because the sandbox
+# account is deliberately not in systemd-journal. `-n 50 --no-pager` shows the recent records
+# plainly -- `-e` (jump to end) leaves the pager padding the screen above short output with `~`,
+# which reads as confusing blank lines.
 if [[ -t 1 ]]; then
     printf 'Running as unit: %s\n' "${session_unit_name}"
     printf '%s  launch log: sudo journalctl -t ai-tools-run _UID=%s -n 50 --no-pager%s\n\n' \
@@ -514,14 +500,10 @@ fi
 # reads, the session-env fragments, the banner -- is time in which a concurrent process running as
 # this same account could swap the file out from under the check. Re-resolve and re-stat here, at
 # the last instruction before the launch, so the window such a process would have to win is the
-# systemd-run round trip rather than the whole preflight.
+# systemd-run round trip rather than the whole preflight. Both the path and the identity are
+# compared, for the reasons entrypoint_identity states above. This NARROWS the race rather than
+# closing it, and the deployment it is for is the DAC-only one -- launch.rule.md carries why.
 #
-# This NARROWS the race; it does not close it. Only an exec root the agent cannot write removes it,
-# which is exactly what the SELinux types give: on an enforcing host with the module loaded the nvm
-# tree is read-only to ai_tools_t and there is no move to make, so this check is for the DAC-only
-# deployment, where it is the only observer of a swap. Both the path and the identity are compared:
-# a repoint changes the path, a rename-over keeps it and changes the inode, an in-place write keeps
-# both and changes ctime.
 # The pin is checked in the same breath, this being the one place where hashing the file and
 # starting it are adjacent. A MISMATCH means the binary changed after root verified it, and refuses;
 # an UNPINNED entrypoint launches unless the operator required otherwise. Why those two outcomes
