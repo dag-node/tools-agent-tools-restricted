@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 policy_module(ai_tools_systemd, 0.1.0)
 
-## ai_tools OPTIONAL GROUP: systemd  [DEFAULT: DISABLED]
-##
-## Grants ai_tools_t permission to execute systemctl and journalctl, and to read systemd
-## unit files, so the agent can check service status, inspect journal logs, list units, or
-## query timer state. systemctl is labelled systemd_systemctl_exec_t, on which the core
-## module does not grant execute.
-##
-## The rule set below covers the exec and the unit-file reads. systemctl then talks to
-## PID 1 over D-Bus, which needs socket permissions that surface only once the exec is
-## permitted, so a bring-up pass against a real workload is what completes this module.
+# ai_tools OPTIONAL GROUP: systemd  [DEFAULT: DISABLED]
+#
+# Grants ai_tools_t permission to execute systemctl and journalctl, and to read systemd
+# unit files, so the agent can check service status, inspect journal logs, list units, or
+# query timer state. systemctl is labelled systemd_systemctl_exec_t, on which the core
+# module does not grant execute.
+#
+# The rule set below covers the exec and the unit-file reads. systemctl then talks to
+# PID 1 over D-Bus, which needs socket permissions that surface only once the exec is
+# permitted, so a bring-up pass against a real workload is what completes this module.
 
 require {
     type ai_tools_t;

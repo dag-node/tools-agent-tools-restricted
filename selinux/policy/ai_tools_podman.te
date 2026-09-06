@@ -1,21 +1,21 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 policy_module(ai_tools_podman, 0.1.0)
 
-## ai_tools OPTIONAL GROUP: podman  [DEFAULT: DISABLED]
-##
-## Grants ai_tools_t permission to execute the podman/buildah container runtime
-## (container_runtime_exec_t) and read container image and layer storage
-## (container_file_t, which the core module dontaudits to keep its log quiet).
-##
-## This grant is necessary and not sufficient: rootless podman creates user, mnt, pid,
-## ipc, net and uts namespaces, and every session runs under a seccomp filter that blocks
-## namespace creation outright, so podman stays blocked with this module loaded. Lifting
-## that filter re-opens the user-namespace escape the sandbox closes deliberately, which
-## is why this group is not a partial relaxation of it.
-##
-## Its surface is wide beyond the two rules below -- overlayfs mounts, user-namespace
-## setup, netns creation, newuidmap/newgidmap -- so a bring-up pass judges each denial a
-## podman run produces on its own merits rather than folding in what audit2allow proposes.
+# ai_tools OPTIONAL GROUP: podman  [DEFAULT: DISABLED]
+#
+# Grants ai_tools_t permission to execute the podman/buildah container runtime
+# (container_runtime_exec_t) and read container image and layer storage
+# (container_file_t, which the core module dontaudits to keep its log quiet).
+#
+# This grant is necessary and not sufficient: rootless podman creates user, mnt, pid,
+# ipc, net and uts namespaces, and every session runs under a seccomp filter that blocks
+# namespace creation outright, so podman stays blocked with this module loaded. Lifting
+# that filter re-opens the user-namespace escape the sandbox closes deliberately, which
+# is why this group is not a partial relaxation of it.
+#
+# Its surface is wide beyond the two rules below -- overlayfs mounts, user-namespace
+# setup, netns creation, newuidmap/newgidmap -- so a bring-up pass judges each denial a
+# podman run produces on its own merits rather than folding in what audit2allow proposes.
 
 require {
     type ai_tools_t;

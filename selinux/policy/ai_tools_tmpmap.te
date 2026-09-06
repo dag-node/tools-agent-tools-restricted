@@ -1,20 +1,20 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 policy_module(ai_tools_tmpmap, 0.1.0)
 
-## ai_tools OPTIONAL GROUP: tmpmap  [DEFAULT: DISABLED]
-##
-## Grants ai_tools_t the `map` permission on ai_tools_tmp_t files, so a sandbox process
-## may mmap(2) a file it created under /tmp. The core module grants `map` on the two
-## writable project/home types only (ai_tools.te), withholding it on the tmp type, so any
-## MAP_SHARED/MAP_PRIVATE of a /tmp file fails EACCES. That blocks dotnet restore/build
-## (it mmaps /tmp/.dotnet/shm/<session>/NuGet-Migrations), git run inside a /tmp working
-## tree, SQLite, and anything else that memory-maps a scratch file.
-##
-## This is mmap-at-all, NOT execute-from-/tmp: a PROT_EXEC file mapping also needs
-## `file execute`, which ai_tools_t holds on ai_tools_home_t (the hook scripts) and not on
-## ai_tools_tmp_t, and /tmp is mounted noexec -- a mount option no allow rule overrides --
-## so this grant does not run code from /tmp. It is separate from the core because it
-## widens the surface around world-writable /tmp.
+# ai_tools OPTIONAL GROUP: tmpmap  [DEFAULT: DISABLED]
+#
+# Grants ai_tools_t the `map` permission on ai_tools_tmp_t files, so a sandbox process
+# may mmap(2) a file it created under /tmp. The core module grants `map` on the two
+# writable project/home types only (ai_tools.te), withholding it on the tmp type, so any
+# MAP_SHARED/MAP_PRIVATE of a /tmp file fails EACCES. That blocks dotnet restore/build
+# (it mmaps /tmp/.dotnet/shm/<session>/NuGet-Migrations), git run inside a /tmp working
+# tree, SQLite, and anything else that memory-maps a scratch file.
+#
+# This is mmap-at-all, NOT execute-from-/tmp: a PROT_EXEC file mapping also needs
+# `file execute`, which ai_tools_t holds on ai_tools_home_t (the hook scripts) and not on
+# ai_tools_tmp_t, and /tmp is mounted noexec -- a mount option no allow rule overrides --
+# so this grant does not run code from /tmp. It is separate from the core because it
+# widens the surface around world-writable /tmp.
 
 require {
     type ai_tools_t;

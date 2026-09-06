@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 policy_module(ai_tools_pkgmgmt, 0.1.0)
 
-## ai_tools OPTIONAL GROUP: pkgmgmt  [DEFAULT: DISABLED]
-##
-## Grants ai_tools_t permission to execute the rpm binary (rpm_exec_t) and read the RPM
-## database (rpm_var_lib_t), so the agent can query packages. dnf is bin_t and already
-## executable from the core module; this group adds the rpm binary type and the shared
-## database both rpm and dnf query.
-##
-## Installing or removing a package needs root as well as these rules, and the sandbox
-## account does not hold any sudo rule reaching dnf -- so this group grants query access
-## in practice, and widening it is an operator decision taken in sudoers, not here.
+# ai_tools OPTIONAL GROUP: pkgmgmt  [DEFAULT: DISABLED]
+#
+# Grants ai_tools_t permission to execute the rpm binary (rpm_exec_t) and read the RPM
+# database (rpm_var_lib_t), so the agent can query packages. dnf is bin_t and already
+# executable from the core module; this group adds the rpm binary type and the shared
+# database both rpm and dnf query.
+#
+# Installing or removing a package needs root as well as these rules, and the sandbox
+# account does not hold any sudo rule reaching dnf -- so this group grants query access
+# in practice, and widening it is an operator decision taken in sudoers, not here.
 
 require {
     type ai_tools_t;
