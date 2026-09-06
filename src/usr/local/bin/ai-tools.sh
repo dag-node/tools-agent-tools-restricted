@@ -1673,7 +1673,7 @@ cmd_project_claim() {
 
     # ── Review block: the flow headline, the pending-step overview, and the drift
     # reports, so the proceed confirm that closes it covers exactly what was just
-    # shown. Every later block is announced here with a "you will be asked" marker. ──
+    # shown. Every later block is announced here with a `you will be asked` marker. ──
     local heavy=false
     local -a head=("${d}")
     if [[ "${owngap}" == true ]] || ${need_acl} || ${need_label} || (( ${#drift[@]} )); then

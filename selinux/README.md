@@ -160,7 +160,7 @@ denial: **EXPECTED BOUNDARY** ones (the `user_home_t` / `config_home_t` /
 non-`http_port_t` accesses `ai_tools.te` already `dontaudit`s) must stay denied,
 and only the **NEW** ones are candidates to fold in.
 
-The same thing by hand, if you prefer:
+The same thing by hand:
 
 ```bash
 sudo ausearch -m AVC -su ai_tools_t -ts recent              # inspect raw denials
