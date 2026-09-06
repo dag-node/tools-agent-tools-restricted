@@ -6,8 +6,8 @@ policy_module(ai_tools_netadmin, 0.1.0)
 # Grants ai_tools_t D-Bus send_msg permission to firewalld and NetworkManager. Both
 # binaries (/usr/bin/firewall-cmd, /usr/bin/nmcli) are bin_t and already executable from
 # the core module, but their privileged backends act only on a D-Bus message the core
-# does not grant permission to send, so without this group the command runs and gets no
-# response.
+# does not grant permission to send, so without this group the command runs and does not
+# get any response.
 #
 # The rule set below covers the send_msg pair. A real firewalld or NetworkManager
 # exchange can also need receive_msg or unix-socket permissions, which a bring-up pass
