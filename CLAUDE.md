@@ -151,6 +151,12 @@ and every way that predicate can fail resolves to *less* access — never more �
 Corrupting, removing, or tampering with one of these inputs therefore narrows what the session
 gets, so the sandbox cannot improve its own position by breaking one.
 
+`AI_TOOLS_REQUIRE_SELINUX` sits **outside** it in the other direction: it is an operator's
+*declaration* rather than one of the predicates, and a failed read of it yields the default, which
+launches where the declaration would have refused. The sandbox cannot produce that state, so the
+property above holds against the adversary it names; which exits it governs, and what makes the
+direction safe, are in [confinement](.claude/rules/confinement.rule.md).
+
 `ai-tools --project-remove` sits **outside** this table: it decides what is *destroyed*, not what a
 session may reach, so its safe direction is inaction. Its authorization is correspondingly
 different — an exact `allowed-projects` entry (allow or `!`-parked) plus a typed-name
