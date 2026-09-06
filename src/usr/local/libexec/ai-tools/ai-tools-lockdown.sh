@@ -44,7 +44,7 @@ readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
 
 # Directory-skip selector from the shared library (single source of truth, shared with
-# session-hook.sh and ai-tools-setgid). A missing lib leaves a stub that skips nothing.
+# session-hook.sh and ai-tools-setgid). A missing lib leaves a stub that descends everywhere.
 readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/skip-dirs.lib.sh
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
@@ -215,9 +215,9 @@ done < <(find "${expr[@]}" 2>/dev/null)
 # later chmod; owner-only.lib.sh is the reference for what comes off.
 #
 # `! -perm /077` selects "no group and no other bit set", the owner-only predicate, in the
-# kernel -- so the filter costs no stat per path. A sealed DIRECTORY is printed and then pruned,
+# kernel -- so the filter avoids a stat per path. A sealed DIRECTORY is printed and then pruned,
 # taking its subtree with it exactly as ai-tools-setgid/-setfacl do: the sandbox account cannot
-# enter it, so nothing inside is reachable through it. Secret-named paths are left to the lock
+# enter it, so no path inside is reachable through it. Secret-named paths are left to the lock
 # pass above, which seals them itself.
 declare -a sealed=()
 while IFS= read -r -d '' path; do
@@ -314,9 +314,9 @@ _safe_apply() {
 }
 
 # _safe_seal <path>: strip the sandbox residue from an already-owner-only path, through a pinned
-# fd like _safe_apply. Changes no mode bits and no ownership -- it removes only what the sandbox
-# put there (owner-only.lib.sh) -- so unlike _safe_apply it needs no confirmation.
-# Returns 0 when something was stripped, 1 when there was nothing to strip or the path is out of
+# fd like _safe_apply. It leaves mode bits and ownership as they are -- it removes only what the sandbox
+# put there (owner-only.lib.sh) -- so unlike _safe_apply it asks for no confirmation.
+# Returns 0 when something was stripped, 1 when there was no residue to strip or the path is out of
 # scope. Sets AI_TOOLS_RESIDUE_SURFACE for the caller (a third-party setgid it declined to clear),
 # and AI_TOOLS_RESIDUE_ACTIONS to what came off.
 # Under --dry-run every gate above still runs and the strip itself reports instead of acting
@@ -355,7 +355,7 @@ _safe_seal() {
 }
 
 # _seal_pass: run _safe_seal over every enumerated owner-only path and report. One pass serves
-# both modes -- a dry run reports what would come off and changes nothing, an apply reports what
+# both modes -- a dry run reports what would come off and applies none of it, an apply reports what
 # did -- so the preview cannot describe a pass other than the one that follows it. Under --dry-run
 # each hit names its path AND what it carries, since "3 paths would change" is not something an
 # operator can check before answering.

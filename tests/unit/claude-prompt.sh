@@ -5,7 +5,7 @@
 # claude.sh applies before it execs a session. The guarantee under test is one instance of "the
 # sandbox cannot widen its own surface": a prompt file the sandbox account could influence, or a
 # configured prompt that cannot be honoured, must NOT be silently passed to Claude Code -- it either
-# yields no injection (unconfigured) or REFUSES the launch (configured-but-invalid), never a
+# leaves the prompt empty (unconfigured) or REFUSES the launch (configured-but-invalid), never a
 # fall-back to a prompt the operator did not set. This drives the resolver into each bad state and
 # asserts it moves to no-injection or a refusal, never to injecting an untrusted or wrong prompt.
 # The agent-side half (the files are not agent-writable) lives in tests/boundary/access.sh.
@@ -73,7 +73,7 @@ expect "append default -> --append-system-prompt-file" 0 "--append-system-prompt
 _reset; _cfg "CLAUDE_SYSTEM_PROMPT_FILE=${prompt}" "CLAUDE_SYSTEM_PROMPT_MODE=replace"; _resolve
 expect "replace -> --system-prompt-file" 0 "--system-prompt-file ${prompt}"
 
-# 4) An empty inert file is valid (the shipped default): append adds nothing but still applies.
+# 4) An empty inert file is valid (the shipped default): append contributes an empty string but still applies.
 _reset; : > "${prompt}"; _cfg "CLAUDE_SYSTEM_PROMPT_FILE=${prompt}"; _resolve
 expect "empty inert file -> append" 0 "--append-system-prompt-file ${prompt}"
 
@@ -98,7 +98,7 @@ expect "missing file -> refuse" 1 ""
 _reset; printf '\x00\x01\x02ELF\x00' > "${prompt}"; _cfg "CLAUDE_SYSTEM_PROMPT_FILE=${prompt}"; _resolve
 expect "binary file -> refuse" 1 "" "not a text file"
 
-# 10) Flag smuggling via the path value: the value is a single argument to realpath, so it names no
+# 10) Flag smuggling via the path value: the value is a single argument to realpath, so it does not name a
 #     file and is refused -- it can never split into a second CLI flag.
 _reset; _cfg "CLAUDE_SYSTEM_PROMPT_FILE=${prompt} --dangerous-flag"; _resolve
 expect "flag smuggle in value -> refuse, no extra arg" 1 ""

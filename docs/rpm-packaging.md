@@ -61,7 +61,7 @@ Obsoletes:      <old-name> < <version the rename landed in>
 
 Both are required, and the cost of omitting them is a **failed transaction**, not a cosmetic
 gap. The old subpackage pins `Requires: ai-tools-base = <its own version>`; the only upgrade
-candidate for the base is the new version; and with nothing obsoleting the old name, dnf can
+candidate for the base is the new version; and with no package obsoleting the old name, dnf can
 neither keep nor replace it, so `dnf update` fails outright and the operator is pushed into a
 manual erase that drops their `operator.conf`. Where the two packages also share a file path
 (the `claude` wrapper, the hooks), the `Obsoletes` is additionally what lets rpm hand the file
@@ -92,11 +92,11 @@ sudo dnf install ./*.rpm
 **Upgrade in place; never `dnf remove` first.** From the repository, `sudo dnf upgrade
 'ai-tools*'`; from a downloaded archive, `sudo dnf install ./*.rpm` (a higher version upgrades
 each subpackage). A subpackage that has been renamed carries `Obsoletes` for its old name, so dnf
-performs the rename inside the same transaction and nothing has to be removed by hand.
+performs the rename inside the same transaction, with no package to remove by hand.
 
 Removing the packages moves an edited `/etc/ai-tools/operator.conf` to `operator.conf.rpmsave`
 and a fresh install writes an empty one, dropping the operator list (re-add with
-`ai-tools-admin operator add`); an in-place upgrade keeps it via `%config(noreplace)`. What else
+`ai-tools-admin operators add`); an in-place upgrade keeps it via `%config(noreplace)`. What else
 survives an erase is in [Preservation on erase](#preservation-on-erase). `dnf reinstall` requires
 the *same* version already installed and is not the way to move between versions.
 
@@ -107,8 +107,8 @@ the *same* version already installed and is not the way to move between versions
 | `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home ROOT and `bin` (plus its default-deny `.gitignore` git guard and `.gitconfig` identity, both `%post`-seeded-if-missing and not rpm-owned, so an erase preserves them); the mode and label contract every agent's config directory carries, but no such directory itself; the shared skills root `/opt/ai-tools/skills` and the pristine skill copies (skills are agent-agnostic, so every agent symlinks into this one place) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `secret-patterns` template; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `skip-dirs.lib.sh`, `safe-paths.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`, `conf.lib.sh`, `providers.lib.sh`; the agent-agnostic confinement shim `/opt/ai-tools/bin/ai-tools-run` and the `%ai-ops` sudoers grant that reaches it; the `agents.d`, `integrations.d`, and `session-env.d` provider directories (base owns the dirs at `0755 root:root`; each member package drops only its own manifest or fragment into them) |
 | `ai-tools-selinux` | the prebuilt SELinux policy packages in `/usr/share/selinux/packages/ai-tools/` — the core `ai_tools.pp` (the `ai_tools_t` domain and the handback/helper types) plus each STABLE optional group; the `%post`/`%postun` scriptlets that load the core and unload every loaded `ai_tools*` module on erase; the GPL licence text |
 | `ai-tools-integration-nodejs` | nvm under `/opt/ai-tools/.nvm`; the per-sandbox-user Node-version auto-update service and timer; `ai-tools-bootstrap`; the symlink-repoint helper (`ai-tools-launcher-symlink`) and the post-upgrade entrypoint relabel (`ai-tools-relabel-agent`) |
-| `ai-tools-integration-dotnet` | the dotnet session-env fragment (`session-env.d/dotnet.env.sh`) and manifest (`integrations.d/dotnet.conf`); the `ai-tools-dotnet` provisioning helper (writable NuGet cache + read-only shared tools under its own `/opt/ai-tools/integrations/dotnet` state root, covered by the base's single fcontext rule for that tree). No .NET runtime — the host's dotnet is used |
-| `ai-tools-agents-claude-code-restricted` | the `claude` launch wrapper; `/opt/ai-tools/bin/claude`; the Claude Code hooks (`post-tool-hook.sh`, `session-hook.sh`) and `settings.json`; its agent manifest (`agents.d/claude-code.conf`, naming the npm package, launcher, display name, handback capability, config directory, and the SELinux entrypoint file-context for `claude.exe`); its own config directory `/opt/ai-tools/.claude`, the shipped Claude-format agents seeded into it, and its session-env fragment (`session-env.d/claude-code.env.sh`); the scriptlets that register that file-context on install and drop it on erase. Confinement itself is base-owned, so this package ships no shim and needs no sudoers rule of its own |
+| `ai-tools-integration-dotnet` | the dotnet session-env fragment (`session-env.d/dotnet.env.sh`), manifest (`integrations.d/dotnet.conf`) and the `dotnet` domain of `ai-tools-admin` (`admin-commands.d/dotnet`), which provisions a writable NuGet cache + read-only shared tools under its own `/opt/ai-tools/integrations/dotnet` state root, covered by the base's single fcontext rule for that tree. No .NET runtime — the host's dotnet is used |
+| `ai-tools-agents-claude-code-restricted` | the `claude` launch wrapper; `/opt/ai-tools/bin/claude`; the Claude Code hooks (`post-tool-hook.sh`, `session-hook.sh`) and `settings.json`; its agent manifest (`agents.d/claude-code.conf`, naming the npm package, launcher, display name, handback capability, config directory, and the SELinux entrypoint file-context for `claude.exe`); its own config directory `/opt/ai-tools/.claude`, the shipped Claude-format agents seeded into it, and its session-env fragment (`session-env.d/claude-code.env.sh`); the scriptlets that register that file-context on install and drop it on erase. Confinement itself is base-owned, so this package does not ship a shim and does not need a sudoers rule of its own |
 
 The handback daemon is a verb dispatcher over a helper table; the generic verbs
 (`CHOWN`, `SETGID`, `SETFACL`) and the daemon live in the base, while the
@@ -148,12 +148,12 @@ than misbehaving. This replaces the install-time
 build time in `%install`.
 
 A single config read is the only operator-dependent input to the helpers, so the
-package files are identical on every host and `rpm -V` reports no helper as
+package files are identical on every host and `rpm -V` does not report a helper as
 modified after an operator is added.
 
 ## Operator administration
 
-`ai-tools-admin operator add|remove|list` (`/usr/local/libexec/ai-tools/ai-tools-admin`,
+`ai-tools-admin operators add|remove|list` (`/usr/local/libexec/ai-tools/ai-tools-admin`,
 root, run via `sudo`) manages the operators -- the login users (a human or a rootless
 service account) that drive the sandbox through the shared `ai-tools` account. It is a
 root helper rather than an `ai-tools` CLI verb, because it edits host config (the
@@ -182,16 +182,17 @@ ship with the package, so adding an operator is a membership change, not a sudoe
 
 The `%post` of `ai-tools-base` does **not** bind an operator: it is per-operator, which a
 non-interactive scriptlet cannot do. `%post` installs cleanly and unenrolled and prints the
-ordered `sudo ai-tools-bootstrap` then `sudo ai-tools-admin operator add <user>` directives.
+ordered `sudo ai-tools-admin system bootstrap` then `sudo ai-tools-admin operators add <user>`
+directives.
 
 ## Bootstrap
 
-`ai-tools-bootstrap` (`/usr/local/libexec/ai-tools/ai-tools-bootstrap`, root, run via
-`sudo`; shipped by `ai-tools-integration-nodejs`) creates the `ai-tools` system account
+`sudo ai-tools-admin system bootstrap` (which execs
+`/usr/local/libexec/ai-tools/ai-tools-bootstrap`, shipped by `ai-tools-integration-nodejs`)
+creates the `ai-tools` system account
 and its `/opt/ai-tools` home when absent, then installs nvm, Node, and each **enabled**
 agent's npm package under `/opt/ai-tools` as the sandbox account, and points
-`/opt/ai-tools/bin/<launcher>` at each versioned binary. It takes no arguments and names
-no agent: the enabled set, each agent's npm package, and its launcher come from the
+`/opt/ai-tools/bin/<launcher>` at each versioned binary. It does not take arguments, and is agent-agnostic: the enabled set, each agent's npm package, and its launcher come from the
 manifests under `/usr/local/lib/ai-tools/agents.d` gated by `operator.conf`
 `AI_TOOLS_AGENTS` (see the [providers](../.claude/rules/providers.rule.md) rule). With no
 manifests deployed it provisions Node alone, and a re-run picks up agents installed since.
@@ -201,7 +202,7 @@ so bootstrap pre-creates the agent-owned subtrees it must populate — `.nvm`, `
 `.npm`, `.local`, each `ai-tools:ai-tools 0750` — as root, then runs nvm/Node/npm as the
 sandbox account, writing only within them (`PROFILE=/dev/null` keeps nvm's installer off the
 root-owned home profile). It creates the launcher symlink under the locked `bin` as root;
-agent runtime state needs no seeding — `ai-tools-run` pins `CLAUDE_CONFIG_DIR` to the
+agent runtime state does not need seeding — `ai-tools-run` pins `CLAUDE_CONFIG_DIR` to the
 group-writable `.claude`, where claude creates its own state files (`.claude.json`
 included). A re-run reuses an existing toolchain; Node updates land inside the agent-owned
 `.nvm` subtree.
@@ -215,7 +216,7 @@ reaches the download URL.
 Bootstrap fetches from the network (`nvm` from GitHub, packages from npm), so it
 is a command run once after install, never an RPM scriptlet: scriptlets are
 non-interactive, must succeed offline and inside build chroots, and must be
-reproducible. `%post` prints the `sudo ai-tools-bootstrap` directive; the
+reproducible. `%post` prints the `sudo ai-tools-admin system bootstrap` directive; the
 nvm-update timer maintains the tree from then on.
 
 ## Scriptlets
@@ -228,10 +229,10 @@ nvm-update timer maintains the tree from then on.
   file owned by them is unpacked. `Requires(pre): shadow-utils`. The `ai-ops` group
   ships empty; operators are added to it per host.
 - `%post` runs `%systemd_post ai-tools-handback.socket`, applies the shared-area ACLs, and
-  prints the ordered `ai-tools-bootstrap` then `ai-tools-admin operator add`
+  prints the ordered `ai-tools-admin system bootstrap` then `ai-tools-admin operators add`
   directives. Loading the SELinux policy is NOT base's job — that scriptlet lives with the
   payload in `ai-tools-selinux`. It does not bind an operator or provision the toolchain and its update
-  timer — those belong to `ai-tools-admin operator add` and `ai-tools-bootstrap`.
+  timer — those belong to `ai-tools-admin operators add` and `ai-tools-admin system bootstrap`.
 - `%preun` runs `%systemd_preun ai-tools-handback.socket`.
 - `%postun` runs `%systemd_postun_with_restart ai-tools-handback.socket`.
 
@@ -244,7 +245,7 @@ diverge, or an install leaves the entrypoint unlabelled and an erase leaves the 
 
 `ai-tools-integration-nodejs`: `%post`/`%preun`/`%postun` manage the system `ai-tools-relabel.path`
 watcher with the systemd macros. The `nvm-update` service and timer ship in
-`%{_userunitdir}` (`/usr/lib/systemd/user/`); `ai-tools-bootstrap` enables the timer in
+`%{_userunitdir}` (`/usr/lib/systemd/user/`); `system bootstrap` enables the timer in
 `ai-tools`'s own `--user` instance once it has provisioned the toolchain.
 
 `ai-tools-agents-claude-code-restricted`: `%post` applies the entrypoint file-context and, when
@@ -264,8 +265,8 @@ stable groups are shipped but stay **off**, toggled per host by an operator who 
 boundary:
 
 ```bash
-sudo ai-tools-admin selinux list-groups
-sudo ai-tools-admin selinux enable-group tmpmap
+sudo ai-tools-admin selinux groups
+sudo ai-tools-admin selinux groups enable tmpmap
 ```
 
 That helper `semodule`-loads the prebuilt `.pp` from the package directory. The
@@ -290,17 +291,17 @@ rather than packaged files:
 - `/opt/ai-tools/.nvm` (nvm and Node) and `/var/opt/ai-tools` (sandbox clones),
   which are unpackaged runtime data;
 - each operator's `~/.config/ai-tools/{allowed-projects,secret-patterns}`, which
-  the package never owns — `ai-tools-admin operator add` seeds the allowlist and they
+  the package never owns — `ai-tools-admin operators add` seeds the allowlist and they
   survive erase untouched.
 
 `operator.conf` ships as `%config(noreplace)` with an empty `OPERATORS=""` baseline and is
-edited in place by `ai-tools-admin operator add|remove`. `%config(noreplace)` keeps the
+edited in place by `ai-tools-admin operators add|remove`. `%config(noreplace)` keeps the
 edited copy across an **upgrade** (`dnf upgrade`, or `dnf install ./*.rpm` of a higher
 version), so the host's operators persist. An **erase** is different: rpm saves the modified
 config as `operator.conf.rpmsave` and removes the tracked file, so a remove-then-install
 cycle drops the operator list — the fresh install lays down the empty baseline. Upgrade in
 place rather than `dnf remove` + install; if a `.rpmsave` was left behind, re-add operators
-with `ai-tools-admin operator add` (see the README "Upgrading" note).
+with `ai-tools-admin operators add` (see the README "Upgrading" note).
 
 ## Tests
 
@@ -324,7 +325,7 @@ the confinement would silently not apply; installation is RPM/`dnf`-native regar
 ## Build
 
 `make dist` produces the `%{name}-%{version}.tar.gz` source tarball consumed by
-`Source0`; `%prep` is `%autosetup`. The build compiles nothing (`BuildArch:
+`Source0`; `%prep` is `%autosetup`. The build does not compile any source (`BuildArch:
 noarch`); `%install` lays out the `src/` tree into the buildroot and substitutes
 the constant `@SANDBOX_*@` tokens. The prebuilt `ai_tools.pp` is shipped as a
 build artifact checked into the source tarball, so the build needs no
@@ -368,7 +369,7 @@ path the README leads with). Two properties shape the design:
   `GPG_SIGNING_KEY`, `GPG_SIGNING_PASSPHRASE`, and `RPM_REPO_DISPATCH_TOKEN`, and before
   building or publishing anything it runs `sign-rpms.sh --selftest` in each matching-EL
   container — signing and verifying a throwaway RPM — so a wrong passphrase or a no-op signing
-  toolchain fails the job while nothing is public. A release never publishes an unsigned
+  toolchain fails the job while the release is still private. A release never publishes an unsigned
   package.
 - **A central repo owns metadata and hosting.** The signed RPMs and the public key attach to
   the GitHub Release (loose + per-EL zip), then the job notifies the dedicated `dag-node/rpm`

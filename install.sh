@@ -11,15 +11,15 @@
 #   sudo ./install.sh install              deploy all files, enable timer
 #   sudo ./install.sh uninstall            remove deployed files, disable timer
 #   sudo ./install.sh check-perms          run the permissions test (tests/integration/perms.sh; also part of the suite offered at the end of an interactive install)
-#   sudo ./install.sh install --operator op      enrol the named account, asking nothing
+#   sudo ./install.sh install --operator op      enrol the named account, asking no question
 #
 # Project registration lives in the `ai-tools` CLI (/usr/local/bin/ai-tools), run
 # as the projects user, not in install.sh:
 #   ai-tools --project-create <dir>        register a real project
 #   ai-tools --sandbox-create <dir>        shallow-clone a repo into the sandbox area
 #
-# Prerequisites (one-time manual steps before running install; `sudo ai-tools-bootstrap`
-# does both in one idempotent command):
+# Prerequisites (one-time manual steps before running install;
+# `sudo ai-tools-admin system bootstrap` does both in one idempotent command):
 #   - ai-tools OS user created at /opt/ai-tools  (README step 2)
 #   - nvm + Node v22 + claude installed as ai-tools  (README step 3)
 
@@ -71,11 +71,11 @@ readonly SANDBOX_USER="ai-tools"
 readonly SANDBOX_GROUP="ai-tools"
 
 # operator_refusal <name> -- echo why <name> cannot be the operator this install enrols, or
-# nothing when it can. The single home for that decision, because a name now reaches it by three
+# an empty string when it can. The single home for that decision, because a name now reaches it by three
 # routes -- the invoking SUDO_USER, --operator, and the prompt -- which must refuse alike or the
 # route decides the outcome.
 #
-# Root is the one that matters: `ai-tools-admin operator add` refuses it outright and this script
+# Root is the one that matters: `ai-tools-admin operators add` refuses it outright and this script
 # reaches the same end state by a different route (the @PROJECTS_USER@ substitution plus
 # `usermod -aG ai-ops`), producing a host nobody can provision -- the CLI refuses root every
 # mutating verb, --for refuses root as a target, and operator.lib.sh resolves path owners from
@@ -98,6 +98,24 @@ operator_refusal() {
     fi
 }
 
+# operator_create_hint <name> -- print on stderr how to bring <name> into existence as an operator
+# account. Called from the two refusal sites where the name is a usable choice that has simply not
+# been created yet, so the command arrives at the point the reader is blocked rather than in a box
+# every install draws. Emits with printf rather than warn(), which is defined further down: this
+# runs from the entry-point validation as well, before the emitters exist.
+#
+# The two halves are separate decisions. `useradd` creates the normal login account this script
+# enrols. `usermod -aG wheel` is this host's general sudo grant, which install.sh never writes:
+# claim, unclaim, lockdown and reclaim reach root helpers carrying no NOPASSWD rule, so a host
+# needs at least one operator holding that grant, and which accounts hold it is the
+# administrator's decision.
+operator_create_hint() {
+    local name="$1"
+    printf '    create one, then re-run this install:\n' >&2
+    printf '    sudo useradd -m -s /bin/bash %s && sudo usermod -aG wheel %s\n' "${name}" "${name}" >&2
+    printf '    the wheel half is this host'"'"'s general sudo grant, which this script does not write\n' >&2
+}
+
 # The install runs its verification suite as SUDO_USER, so that variable is required whichever
 # account is enrolled: --operator decides WHO is enrolled, never how this script was invoked.
 : "${SUDO_USER:?error: SUDO_USER not set -- invoke via sudo, not as root directly}"
@@ -106,6 +124,9 @@ OPERATOR_REFUSAL="$(operator_refusal "${PROJECTS_USER}")"
 [[ -z "${OPERATOR_REFUSAL}" ]] \
     || { echo "error: ${OPERATOR_REFUSAL}" >&2
          echo "       name a normal login account: sudo ./install.sh --operator <account>" >&2
+         if [[ -n "${PROJECTS_USER}" ]] && ! id "${PROJECTS_USER}" &>/dev/null; then
+             operator_create_hint "${PROJECTS_USER}"
+         fi
          exit 1; }
 unset OPERATOR_REFUSAL
 PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"
@@ -180,7 +201,7 @@ source "${MANAGED_ASSETS_LIB}" || {
 #   * the shared inline yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh),
 # all on the controlling terminal, BYPASSING the do_install log tee that captures
 # stdout+stderr. msg.lib.sh prints a blank line BEFORE every box, so prompts self-separate.
-# Non-interactive runs draw nothing and take <y|n>, the safe default for the question.
+# Non-interactive runs draw no box and take <y|n>, the safe default for the question.
 confirm_boxed() {
     local title="$1" def="$2" question="$3"; shift 3
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
@@ -344,7 +365,7 @@ user_systemctl() {
 # `loginctl enable-linger` returns before the manager is up, so the enablement below would
 # otherwise race it. Readiness is asked of the system manager (`is-active user@<uid>.service`)
 # rather than probed through the account's own bus: that is the authoritative answer to "is the
-# manager running", it needs no bus connection, and a bus probe answers a different and narrower
+# manager running", it does not need a bus connection, and a bus probe answers a different and narrower
 # question -- whether root can currently reach that account's bus -- which is not what gates
 # provisioning. Starting user@<uid>.service first is the documented, idempotent way to have the
 # manager exist at all for a nologin account.
@@ -388,7 +409,7 @@ lockdown_nvm_permissions() {
 
 # Point /opt/ai-tools/bin/<launcher> at each enabled agent's versioned binary directly, without
 # running nvm-update.service (which also prunes old Node versions). Which launchers those are
-# comes from the agent manifests, so this installer names no agent. Emits a warning and returns
+# comes from the agent manifests, so this installer is agent-agnostic. Emits a warning and returns
 # when the sandbox nvm tree or a launcher is not yet installed.
 bootstrap_launcher_symlinks() {
     local ai_nvm_dir="/opt/ai-tools/.nvm"
@@ -397,7 +418,7 @@ bootstrap_launcher_symlinks() {
 
     if [[ ! -s "${ai_nvm_dir}/nvm.sh" ]]; then
         warn "ai-tools: nvm not found at ${ai_nvm_dir}/nvm.sh -- launcher symlinks skipped"
-        warn "         provision the toolchain: sudo ai-tools-bootstrap"
+        warn "         provision the toolchain: sudo ai-tools-admin system bootstrap"
         return
     fi
 
@@ -410,7 +431,7 @@ bootstrap_launcher_symlinks() {
 
     if [[ -z "${node_version}" || "${node_version}" == "N/A" ]]; then
         warn "ai-tools: nvm 'default' alias not set -- launcher symlinks skipped"
-        warn "         provision the toolchain: sudo ai-tools-bootstrap"
+        warn "         provision the toolchain: sudo ai-tools-admin system bootstrap"
         return
     fi
 
@@ -428,7 +449,7 @@ bootstrap_launcher_symlinks() {
     fi
     if (( ${#launchers[@]} == 0 )); then
         warn "ai-tools: no enabled agent to link -- launcher symlinks skipped"
-        warn "         check the agents in /etc/ai-tools/operator.conf, then: sudo ai-tools-bootstrap"
+        warn "         check the agents in /etc/ai-tools/operator.conf, then: sudo ai-tools-admin system bootstrap"
         return
     fi
 
@@ -447,7 +468,7 @@ bootstrap_launcher_symlinks() {
         versioned_launcher="${ai_nvm_dir}/versions/node/${node_version}/bin/${launcher}"
         if [[ ! -x "${versioned_launcher}" ]]; then
             warn "ai-tools: ${launcher} not found at ${versioned_launcher} -- its symlink is skipped"
-            warn "         provision the toolchain: sudo ai-tools-bootstrap"
+            warn "         provision the toolchain: sudo ai-tools-admin system bootstrap"
             continue
         fi
         if /usr/local/libexec/ai-tools/ai-tools-launcher-symlink "${versioned_launcher}"; then
@@ -571,7 +592,7 @@ offer_selinux() {
         # ai-tools-admin is the shipped entry point and is deployed by now, so name it rather
         # than the checkout path an installed host may not keep.
         if command -v ai-tools-admin >/dev/null 2>&1; then
-            say "    ${C_DIM}manage them with: sudo ai-tools-admin selinux list-groups${C_RST}"
+            say "    ${C_DIM}manage them with: sudo ai-tools-admin selinux groups${C_RST}"
         else
             say "    ${C_DIM}manage them with: sudo ${selinux_script} {install|remove|list-groups}${C_RST}"
         fi
@@ -579,7 +600,7 @@ offer_selinux() {
         # leave the agent entrypoint mislabelled (bin_t) -- which fail-closes the launch -- so the
         # filesystem labels must be re-applied to match it. This is the single relabel on the
         # decline path; the accept path above already relabels inside install-selinux.sh install.
-        "${selinux_script}" relabel || warn "relabel did not complete -- run: sudo ai-tools --relabel"
+        "${selinux_script}" relabel || warn "relabel did not complete -- run: sudo ai-tools-admin system entrypoints relabel"
     else
         log "skipped -- the sandbox runs without SELinux confinement until you run:"
         say "    ${C_BOLD}sudo ${selinux_script} install${C_RST}"
@@ -589,7 +610,7 @@ offer_selinux() {
 # Suggest lint tools the sandboxed agent can use in its sessions (shellcheck for shell
 # sources, rpmlint for RPM specs, yamllint for YAML/workflows) when the host lacks them.
 # A tool counts as present by its binary (any install method: package, pip, manual) or by
-# its package name, so nothing already usable is re-suggested. Print-only, and strictly
+# its package name, so a tool already usable is never re-suggested. Print-only, and strictly
 # from the repos ALREADY enabled -- it neither installs anything nor enables EPEL (which
 # carries all three on EL); a tool no enabled repo provides is silently dropped from the
 # suggestion. Any packaged version serves; no pinning.
@@ -663,7 +684,6 @@ do_summary() {
     _chk /usr/local/libexec/ai-tools/ai-tools-relabel-agent
     _chk /usr/local/libexec/ai-tools/ai-tools-bootstrap
     _chk /usr/local/libexec/ai-tools/ai-tools-admin
-    _chk /usr/sbin/ai-tools-bootstrap
     _chk /usr/sbin/ai-tools-admin
     _chk /usr/sbin/ai-tools
     _chk /usr/local/libexec/ai-tools/ai-tools-handback
@@ -679,6 +699,7 @@ do_summary() {
     _chk /usr/local/bin/ai-tools
     _chk /usr/local/share/man/man1/ai-tools.1
     _chk /usr/local/share/man/man5/operator.conf.5
+    _chk /usr/local/share/man/man8/ai-tools-admin.8
     _chk /var/opt/ai-tools
     _chk /var/opt/ai-tools/sandbox-projects
     _chk /var/opt/ai-tools/README.md
@@ -706,8 +727,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh
     _chk /usr/local/lib/ai-tools/integrations.d/dotnet.conf
     _chk /usr/local/lib/ai-tools/filters.d/dotnet.rules
-    _chk /usr/local/libexec/ai-tools/ai-tools-dotnet
-    _chk /usr/sbin/ai-tools-dotnet
+    _chk /usr/local/lib/ai-tools/admin-commands.d/dotnet
     _chk /usr/local/lib/ai-tools/control-plane.lib.sh
     _chk /usr/local/lib/ai-tools/managed-assets.lib.sh
     _chk /usr/local/lib/ai-tools/relabel.lib.sh
@@ -745,7 +765,7 @@ do_summary() {
         _gcname="$(git config --file "${_gc}" user.name 2>/dev/null || true)"
         _gcemail="$(git config --file "${_gc}" user.email 2>/dev/null || true)"
         printf '\n  sandbox git identity : %s <%s>\n' "${_gcname:-?}" "${_gcemail:-?}"
-        printf '  %sset it with sudo ai-tools-bootstrap; verify %s afterwards%s\n' \
+        printf '  %sset it with sudo ai-tools-admin system bootstrap; verify %s afterwards%s\n' \
             "${C_DIM}" "${_gc}" "${C_RST}"
     fi
     printf '\n'
@@ -755,7 +775,7 @@ do_summary() {
 # brand mark is single-sourced; the installer only supplies its subtitle, the package
 # version (AI_TOOLS_VERSION, the same value `ai-tools --version` reports -- not the noisy
 # git-describe), and the "installer" mode word (this is the install phase, not the running
-# app). The renderer prints nothing when stdout is not a terminal.
+# app). The renderer stays silent when stdout is not a terminal.
 print_banner() {
     ai_tools_msg_banner \
         'Agent Tools Restricted — run coding agents with limited system access' \
@@ -781,7 +801,7 @@ do_install() {
     # Proceed gate -- everything above is print-only; the first change to the host
     # (including the install log itself) happens only past this point. Two questions:
     # Enter proceeds through the first, but the second defaults to CANCEL, so an
-    # accidental double-Enter installs nothing. Interactive only -- an unattended run
+    # accidental double-Enter does not install anything. Interactive only -- an unattended run
     # (CI, container self-test) proceeds as before.
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
         if ! confirm_boxed "Review install" y "Proceed with the install?" \
@@ -913,7 +933,7 @@ do_install() {
         /usr/local/lib/ai-tools/secret-patterns.lib.sh
 
     # Seal primitives (owner-only predicate + residue strip): read only by the root helpers
-    # that walk a claimed tree, but carries no secrets -- 644 root:root, like msg/log/
+    # that walk a claimed tree, but does not carry any secrets -- 644 root:root, like msg/log/
     # safe-paths. Substituted: the strip is keyed on the sandbox group's name.
     log "/usr/local/lib/ai-tools/owner-only.lib.sh"
     install_subst 644 root root \
@@ -922,7 +942,7 @@ do_install() {
 
     # Skip-dir list/selector: sourced by the root helpers, by session-hook.sh (as the
     # agent), and by the operator-run CLI (the claim drift scan) -- 644 root:root, like
-    # msg/log/safe-paths. It carries no secrets: the names are documented. No tokens to
+    # msg/log/safe-paths. It does not carry any secrets: the names are documented. No tokens to
     # substitute.
     log "/usr/local/lib/ai-tools/skip-dirs.lib.sh"
     install -o root -g root -m 644 \
@@ -1039,10 +1059,18 @@ do_install() {
     # in the integration step below when this from-source install includes it.
     install -d -o root -g root -m 755 /usr/local/lib/ai-tools/integrations.d
     install -d -o root -g root -m 755 /usr/local/lib/ai-tools/session-env.d
+    # The contributed-command directory, base-owned like the three above and load-bearing for the
+    # same reason, one step further out: ai-tools-admin execs what it finds here AS ROOT, so only
+    # root writes it. 0755 root:root carries that (write is owner-only) and keeps the directory
+    # listable, which is what `ai-tools-admin --help` reads: it is answered ahead of the root check
+    # and names this host's contributed domains for any caller. Each fragment inside is 0750
+    # root:root, so the domain names are readable and the fragments themselves are not.
+    install -d -o root -g root -m 755 /usr/local/lib/ai-tools/admin-commands.d
 
     # dotnet integration data files (optional; inert without a host dotnet). The session-env
     # fragment ai-tools-run sources when dotnet is enabled, and the manifest providers.lib.sh reads.
-    # The ai-tools-dotnet helper is installed with the other libexec helpers below. No secrets.
+    # The manifest also carries the summary `ai-tools-admin --help` prints for the command domain
+    # this package contributes, laid down below. No secrets.
     log "/usr/local/lib/ai-tools/session-env.d/dotnet.env.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/session-env.d/dotnet.env.sh" \
@@ -1057,9 +1085,18 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.d/dotnet.rules" \
         /usr/local/lib/ai-tools/filters.d/dotnet.rules
+    # The `dotnet` domain of ai-tools-admin: the command that creates the sandbox NuGet cache and
+    # shared tools dir, installs global tools, and reports the integration's state. 750 root:root,
+    # like every other root-executed helper -- ai-tools-admin execs it after checking that both it
+    # and its directory are root-owned and not group- or other-writable. The basename is the domain
+    # token, so this file IS the `dotnet` in `sudo ai-tools-admin dotnet bootstrap`.
+    log "/usr/local/lib/ai-tools/admin-commands.d/dotnet"
+    install_subst 750 root root \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh" \
+        /usr/local/lib/ai-tools/admin-commands.d/dotnet
 
     # SELinux policy packages (prebuilt): stage the core plus each STABLE optional group under the
-    # canonical package dir, so the installed ai-tools-admin can `selinux enable-group` a prebuilt
+    # canonical package dir, so the installed ai-tools-admin can `selinux groups enable` a prebuilt
     # module without a source checkout (parity with the RPM). Only stable groups ship prebuilt;
     # experimental groups are compiled and verified from source on demand, so they are not staged.
     # Keep this list in step with the stable set in selinux-groups.lib.sh. install-selinux.sh
@@ -1075,7 +1112,7 @@ do_install() {
 
     # Logger library: 644 root:root -- world-readable. Sourced by the root helpers, by
     # the hooks (run as ai-tools), and by the CLI (run as the projects user, NOT in
-    # SANDBOX_GROUP), so every principal must read it; it holds no secrets. No tokens.
+    # SANDBOX_GROUP), so every principal must read it; it does not carry any secrets. No tokens.
     log "/usr/local/lib/ai-tools/log.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/log.lib.sh" \
@@ -1083,7 +1120,7 @@ do_install() {
 
     # Message formatter: 644 root:root -- world-readable. Sourced by the operator wrapper
     # and CLI, by the hooks (run as ai-tools), and by ai-tools-run, so every principal must
-    # read it; it holds no secrets. No tokens to substitute.
+    # read it; it does not carry any secrets. No tokens to substitute.
     log "/usr/local/lib/ai-tools/msg.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/msg.lib.sh" \
@@ -1091,7 +1128,7 @@ do_install() {
 
     # Operator-identity resolver: 644 root:root -- world-readable. Sourced by the root helpers
     # (which run in ai_tools_handback_t) AND the agent hooks (ai_tools_t); both read it to
-    # resolve the operator from /etc/ai-tools/operator.conf, and it holds no secrets. No tokens.
+    # resolve the operator from /etc/ai-tools/operator.conf, and it does not carry any secrets. No tokens.
     log "/usr/local/lib/ai-tools/operator.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/operator.lib.sh" \
@@ -1099,7 +1136,7 @@ do_install() {
 
     # Protected-paths backstop: 644 root:root -- world-readable. Sourced by the operator
     # wrapper and CLI AND the root helpers, so every principal that resolves a target path
-    # reads the same list; it holds no secrets. No tokens to substitute.
+    # reads the same list; it does not carry any secrets. No tokens to substitute.
     log "/usr/local/lib/ai-tools/safe-paths.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/safe-paths.lib.sh" \
@@ -1159,8 +1196,8 @@ do_install() {
         /usr/local/libexec/ai-tools/ai-tools-relabel
 
     # SELinux entrypoint-relabel helper. 750 root:root -- run AS root: automatically by the
-    # ai-tools-relabel.path watcher after a Node upgrade, and on demand by `ai-tools --relabel`
-    # (the second %ai-ops NOPASSWD rule); never by ai-tools. No @-substitution needed (no
+    # ai-tools-relabel.path watcher after a Node upgrade, and on demand by
+    # `sudo ai-tools-admin system entrypoints relabel`; never by ai-tools. No @-substitution needed (no
     # placeholders), but install_subst keeps the deploy path uniform with the other helpers.
     log "/usr/local/libexec/ai-tools/ai-tools-relabel-agent"
     install_subst 750 root root \
@@ -1174,35 +1211,25 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh" \
         /usr/local/libexec/ai-tools/ai-tools-bootstrap
 
-    # Host administration: ai-tools-admin operator add|remove|list manages the OPERATORS list and
+    # Host administration: ai-tools-admin operators add|remove|list manages the OPERATORS list and
     # ai-ops membership. This dev install binds the invoking user as the sole operator inline below.
     log "/usr/local/libexec/ai-tools/ai-tools-admin"
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-admin.sh" \
         /usr/local/libexec/ai-tools/ai-tools-admin
 
-    # dotnet integration provisioning helper (optional integration; administrator-typed like
-    # bootstrap/admin). Creates the sandbox NuGet cache + shared tools dir and installs global
-    # tools -- run `sudo ai-tools-dotnet setup` to provision, then enable `dotnet` in operator.conf.
-    log "/usr/local/libexec/ai-tools/ai-tools-dotnet"
-    install_subst 750 root root \
-        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-dotnet.sh" \
-        /usr/local/libexec/ai-tools/ai-tools-dotnet
-
-    # Put the two human-facing admin commands where `sudo <name>` resolves them. The
-    # sudo-helpers under /usr/local/libexec/ai-tools/ are invoked by the daemon and sudoers by
-    # fixed path and stay hidden there, but ai-tools-bootstrap and ai-tools-admin are typed by
-    # an administrator and documented as bare commands. sudo resolves a bare command against
+    # Put the one human-facing admin command where `sudo <name>` resolves it. The sudo-helpers
+    # under /usr/local/libexec/ai-tools/ are invoked by the daemon, by sudoers and by
+    # ai-tools-admin at fixed paths and stay hidden there -- provisioning among them, reached as
+    # `ai-tools-admin system bootstrap` -- and so do the contributed command fragments, reached as
+    # `ai-tools-admin <provider> <verb>`. ai-tools-admin itself is typed by an administrator and
+    # documented as a bare command. sudo resolves a bare command against
     # the sudoers secure_path, which on stock EL is /sbin:/bin:/usr/sbin:/usr/bin -- it does
-    # NOT include /usr/local/sbin -- so the symlinks live in /usr/sbin (also on root's shell
-    # PATH). The targets keep their canonical /usr/local/libexec/ai-tools/ path (sudoers, perms
+    # NOT include /usr/local/sbin -- so the symlink lives in /usr/sbin (also on root's shell
+    # PATH). The target keeps its canonical /usr/local/libexec/ai-tools/ path (sudoers, perms
     # checks, docs reference it).
-    log "/usr/sbin/ai-tools-bootstrap -> /usr/local/libexec/ai-tools/ai-tools-bootstrap"
-    ln -sfn /usr/local/libexec/ai-tools/ai-tools-bootstrap /usr/sbin/ai-tools-bootstrap
     log "/usr/sbin/ai-tools-admin -> /usr/local/libexec/ai-tools/ai-tools-admin"
     ln -sfn /usr/local/libexec/ai-tools/ai-tools-admin /usr/sbin/ai-tools-admin
-    log "/usr/sbin/ai-tools-dotnet -> /usr/local/libexec/ai-tools/ai-tools-dotnet"
-    ln -sfn /usr/local/libexec/ai-tools/ai-tools-dotnet /usr/sbin/ai-tools-dotnet
     # The ai-tools CLI gets the same secure_path symlink for the OPPOSITE reason: it must
     # never run under sudo, and without the symlink `sudo ai-tools` dies with sudo's
     # "command not found" (/usr/local/bin is not in secure_path) before the CLI's own
@@ -1273,7 +1300,7 @@ do_install() {
         /usr/lib/systemd/system/ai-tools-relabel.service
 
     # Project-lifecycle CLI. Runs AS the projects user (never root, never ai-tools)
-    # and needs no privilege: it only edits allowed-projects and the git
+    # and does not need privilege: it only edits allowed-projects and the git
     # safe.directory list, both writable by the projects user. 755 root:root --
     # world-executable (the in-script guard refuses to run as root or ai-tools),
     # root-owned so the agent cannot tamper with it.
@@ -1289,6 +1316,14 @@ do_install() {
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/share/man/man1/ai-tools.1" \
         /usr/local/share/man/man1/ai-tools.1
+
+    # ai-tools-admin(8). Section 8 because every command it documents refuses a non-root
+    # caller. Version-substituted and command-synced with the helper's usage() the same way.
+    log "/usr/local/share/man/man8/ai-tools-admin.8"
+    install -d -o root -g root -m 755 /usr/local/share/man/man8
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/share/man/man8/ai-tools-admin.8" \
+        /usr/local/share/man/man8/ai-tools-admin.8
 
     # operator.conf(5). Documents the shared KEY=value grammar and every host option, so an
     # operator reading the config has a manual rather than only its inline comments.
@@ -1406,7 +1441,7 @@ do_install() {
     # Host config. The root helpers and the agent hooks resolve the operators from this file
     # at runtime (via operator.lib.sh) instead of substituting an identity into each helper, so
     # the helper files are identical on every host. 644 root:root: world-readable -- both the
-    # agent (ai_tools_t hooks) and the root helpers (ai_tools_handback_t) read it, and it carries
+    # agent (ai_tools_t hooks) and the root helpers (ai_tools_handback_t) read it, and it must not hold
     # no secret -- and root-write-only, so the agent cannot rewrite the identity root hands files
     # back to. Seeded from the src/etc template with the invoking user as the sole operator; an
     # EXISTING file is kept by default (keep_existing prompt; unattended installs always keep)
@@ -1802,18 +1837,18 @@ do_install() {
 
     # offer_selinux is the single labelling point: it relabels through install-selinux.sh on both
     # the accept path (install action) and the declined-but-loaded path (relabel action), so a
-    # SELinux-active host relabels exactly once here, in one tool's consistent output. Nothing to
+    # SELinux-active host relabels exactly once here, in one tool's consistent output. No step to
     # do afterwards.
     offer_selinux
 
     section "Install complete -- next steps"
     if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 ]]; then
         say "  provision the sandbox toolchain (nvm + Node + claude) -- required before launch:"
-        say "    ${C_BOLD}sudo ai-tools-bootstrap${C_RST}"
+        say "    ${C_BOLD}sudo ai-tools-admin system bootstrap${C_RST}"
         say ""
     fi
-    say "  verify the timer (in ${SANDBOX_USER}'s --user instance):"
-    say "    ${C_BOLD}sudo systemctl --user -M ${SANDBOX_USER}@.host list-timers nvm-update.timer${C_RST}"
+    say "  check the install (run as ${PROJECTS_USER}, no sudo):"
+    say "    ${C_BOLD}ai-tools --status${C_RST}                             ${C_DIM}# every managed unit, and what to run for a broken one${C_RST}"
     say ""
     say "  register projects with the ai-tools CLI (run as ${PROJECTS_USER}, no sudo):"
     say "    ${C_BOLD}ai-tools --project-claim /path/to/project${C_RST}     ${C_DIM}# claim a project in place${C_RST}"
@@ -1821,6 +1856,7 @@ do_install() {
     say "  configure and read up:"
     say "    ${C_BOLD}/etc/ai-tools/operator.conf${C_RST}                  ${C_DIM}# host options, each documented inline${C_RST}"
     say "    ${C_BOLD}man ai-tools${C_RST}                                 ${C_DIM}# the CLI${C_RST}"
+    say "    ${C_BOLD}man ai-tools-admin${C_RST}                           ${C_DIM}# the root-only host commands${C_RST}"
     say "    ${C_BOLD}man 5 operator.conf${C_RST}                          ${C_DIM}# every host option${C_RST}"
     say ""
     suggest_lint_tools
@@ -1834,11 +1870,11 @@ do_install() {
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
         if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 ]]; then
             warn "toolchain not provisioned -- the wrapper/handback/SELinux checks skip or fail"
-            warn "until it is; for a full pass run sudo ai-tools-bootstrap first, then re-test"
+            warn "until it is; for a full pass run sudo ai-tools-admin system bootstrap first, then re-test"
             warn "with: sudo ${SCRIPT_DIR}/tests/run.sh all"
         fi
-        # The section header prints only when the suite actually runs, so a skip leaves
-        # no empty "Verify" heading in the transcript.
+        # The section header prints only when the suite runs, so a skip avoids an
+        # empty "Verify" heading in the transcript.
         if confirm_boxed "Run test suite" y "Run it now?" \
                 "Run the full test suite (incl. the permissions check) now to verify the install?"; then
             section "Verify"
@@ -1884,20 +1920,20 @@ do_uninstall() {
     section "Removing files"
     log "system files"
     # Remove the helper and library trees whole: they hold only deployed files, never
-    # operator or agent state, so a dir-level removal leaves nothing behind and never
+    # operator or agent state, so a dir-level removal does not leave a file behind and never
     # drifts out of sync with the install list the way an enumerated rm would.
     rm -rf /usr/local/libexec/ai-tools
     # Sweep the pre-0.10.0 helper location too, in case an uninstall follows an install that
     # never ran the migration. Guarded to a real dir so a Fedora sbin->bin symlink is left alone.
     [ -d /usr/local/sbin/ai-tools ] && [ ! -L /usr/local/sbin/ai-tools ] && rm -rf /usr/local/sbin/ai-tools
-    rm -f /usr/sbin/ai-tools-bootstrap         # sudo-PATH symlinks -> /usr/local/libexec/ai-tools/...
-    rm -f /usr/sbin/ai-tools-admin
+    rm -f /usr/sbin/ai-tools-admin             # sudo-PATH symlinks -> /usr/local/libexec/ai-tools/...
     rm -f /usr/sbin/ai-tools                   # secure_path symlink -> /usr/local/bin/ai-tools
     rm -rf /usr/local/lib/ai-tools
     rm -f /usr/local/bin/ai-tools-handback-client
     rm -f /usr/local/bin/ai-tools
     rm -f /usr/local/share/man/man1/ai-tools.1
     rm -f /usr/local/share/man/man5/operator.conf.5
+    rm -f /usr/local/share/man/man8/ai-tools-admin.8
     rm -f /usr/local/bin/claude
     # Units, after the stop/disable above. Globs cover the handback socket+service and
     # the relabel path+service in one sweep, plus the updater service+timer.
@@ -1969,43 +2005,75 @@ do_uninstall() {
 # ── dispatch ───────────────────────────────────────────────────────────────────
 
 # ── The operator this install enrols ─────────────────────────────────────────────
-# choose_operator -- name the operator explicitly instead of adopting SUDO_USER unannounced.
+# operator_is_enrolled <account> -- succeed when <account> already holds both facts that make an
+# operator on this host: a name in OPERATORS (/etc/ai-tools/operator.conf) and membership of
+# ai-ops. An unreadable or untrusted config, or a name holding only one of the two, fails the
+# test, so a host whose enrolment is absent or half-written reaches the prompt below.
+operator_is_enrolled() {
+    local account="$1" conf=/etc/ai-tools/operator.conf name
+    local -a operators=()
+    [[ -n "${account}" ]] || return 1
+    ai_tools_conf_is_trusted "${conf}" || return 1
+    ai_tools_conf_list operators "${conf}" OPERATORS || return 1
+    for name in "${operators[@]}"; do
+        [[ "${name}" == "${account}" ]] || continue
+        id -nG "${account}" 2>/dev/null | tr ' ' '\n' | grep -qxF ai-ops && return 0
+        return 1
+    done
+    return 1
+}
+
+# choose_operator -- name the operator this install enrols, rather than adopting SUDO_USER
+# unannounced.
 #
-# One account comes out of this install holding both facts that make an operator: ai-ops
-# membership and a name in OPERATORS. Which account that is was previously decided by whoever
-# happened to type sudo, which is right often enough that the decision was never visible -- and
-# wrong for the two shapes an administrator actually picks between: enrolling a purpose-made
-# provisioning account, and installing on behalf of someone else.
+# This install enrols ONE account with both facts that make an operator: ai-ops membership and a
+# name in OPERATORS. The prompt defaults to SUDO_USER, so a plain Enter and a non-interactive run
+# both enrol the invoking account; answering No reads a name and refuses it through
+# operator_refusal, the same predicate the entry-point validation applies.
 #
-# The prompt defaults to SUDO_USER, so a non-interactive run and a plain Enter both keep the
-# previous behaviour. Answering No reads a name, refused through operator_refusal -- the same
-# decision the entry applies, since a typed name reaches it by a different route.
+# Two routes skip the prompt. `--operator <account>` pre-answers it, which an unattended install
+# uses and which lets the refusals be driven without a terminal. An invoking account
+# operator_is_enrolled reports as an operator has answered it on an earlier run, and a re-install
+# re-asserts that enrolment whichever way it is answered, so the run logs the account and proceeds.
+# `--operator` still names a different account on such a host.
 #
-# `--operator <account>` answers the question ahead of time: the entry has already refused an
-# unusable name, so there is nothing left to ask and the prompt is skipped. That is what an
-# unattended install uses, and what lets the refusals be driven without a terminal.
+# The default is the usual answer: the invoking account reached this script through sudo, so it
+# holds the grant a claim needs, and the ownership handback restores agent-written files to it,
+# which keeps an editor or IDE working in a claimed project seeing its own files. The prompt offers
+# accounts of that same shape, because one operator comes out of this install and a host whose only
+# operator does not hold a sudo grant can register no project.
 #
-# It states what enrolment does NOT confer: a claim additionally needs a general sudo grant that
-# this script cannot write, so an account without one launches sessions and has its projects
-# claimed for it with `ai-tools --project-claim --for`.
+# So the prompt states what enrolment does not confer: `ai-tools-admin` enrols an account holding
+# no grant later, and a grant-holding operator claims its projects with the CLI's `--for` switch.
+# The prompt names that switch alone, without the claim verb carrying it, so respelling the verb in
+# the resource grammar leaves behind no stale command here, and writes the switch's target as a
+# placeholder -- the account enrolled here runs such a claim more often than it receives one.
+#
+# operator_create_hint prints the useradd command, from the two sites that refuse an unresolvable
+# name, keeping it out of the prompt every install draws.
 choose_operator() {
     local candidate attempts=3 refusal
     if [[ -n "${OPERATOR_OPT}" ]]; then
         log "enrolling ${PROJECTS_USER} (${PROJECTS_HOME}, group ${PROJECTS_GROUP}) -- named with --operator"
         return 0
     fi
+    if operator_is_enrolled "${PROJECTS_USER}"; then
+        log "${PROJECTS_USER} (${PROJECTS_HOME}, group ${PROJECTS_GROUP}) is already an operator -- enrolment re-asserted"
+        log "name another account with: sudo ./install.sh install --operator <account>"
+        return 0
+    fi
     confirm_boxed "Operator" y "Enrol ${PROJECTS_USER}?" \
-        "This install enrols ONE operator: the account is added to the ai-ops group and to" \
-        "OPERATORS in /etc/ai-tools/operator.conf, and the sandbox area is prepared for it." \
+        "This install enrols ONE operator." \
         "" \
-        "  ${PROJECTS_USER}   (the account that invoked sudo)" \
+        "The chosen account joins the ai-ops group, is listed in OPERATORS (/etc/ai-tools/operator.conf), and gets its sandbox area prepared." \
         "" \
-        "Answer No to name a different account -- a purpose-made provisioning account, or the" \
-        "colleague this host is being set up for." \
+        "  Default:  ${PROJECTS_USER}   (the account that invoked sudo)" \
         "" \
-        "Claiming projects also needs a general sudo grant, which this script does not write." \
-        "An operator without one launches agent sessions; another operator claims for it with" \
-        "ai-tools --project-claim --for <operator>." \
+        "Enrolling your own login account is the usual choice: agent-written files are handed back to it, so an editor or IDE working in a claimed project keeps seeing its own files." \
+        "" \
+        "Answer No to enrol a different account instead -- the colleague this host is being set up for, or a dedicated provisioning account. Enrol one that holds the sudo grant below." \
+        "" \
+        "Note: claiming a project needs a general sudo grant, which this script does not write, and this host needs at least one operator holding one. An account holding none launches agent sessions but claims nothing: enrol it later with ai-tools-admin, and claim its projects from a grant-holding operator with the --for <account> switch." \
         && return 0
 
     while (( attempts-- > 0 )); do
@@ -2015,6 +2083,9 @@ choose_operator() {
         refusal="$(operator_refusal "${candidate}")"
         if [[ -n "${refusal}" ]]; then
             warn "${refusal}"
+            if [[ -n "${candidate}" ]] && ! id "${candidate}" &>/dev/null; then
+                operator_create_hint "${candidate}"
+            fi
         else
             PROJECTS_USER="${candidate}"
             PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"

@@ -22,16 +22,18 @@ carries an `SPDX-License-Identifier` stating which applies.
 From a source checkout:
 
     sudo ./install.sh install        # deploys the wrapper, helpers, systemd units
-    sudo ai-tools-bootstrap          # provisions the sandbox account's Node toolchain
+    sudo ai-tools-admin system bootstrap          # provisions the sandbox account's Node toolchain
 
 See the root `README.md`'s manual install steps if you're working without the RPM.
 
 Optional, recommended for regular contributors:
 
-    make -C packaging hooks          # enable the local git hooks (a non-blocking changelog reminder)
+    make -C packaging hooks          # enable the local git hooks (non-blocking reminders)
 
 A per-clone developer opt-in: it sets `core.hooksPath` to `.githooks` and quiets git's
-ignored-hook advice for sandbox-account commits. None of this ships in the RPM — the
+ignored-hook advice for sandbox-account commits. Two hooks come with it, and neither blocks a
+commit: a `commit-msg` changelog reminder, and a `pre-commit` prose report over the lines the
+commit adds (`prose-check.py`, shipped with the `ai-tools-technical-docs` skill). None of this ships in the RPM — the
 package builds only from `src/`, `docs/`, the spec, and the compiled policy.
 
 ## Running the tests
@@ -72,8 +74,8 @@ Commit messages follow `type(scope): summary` (`feat`, `fix`, `docs`, `test`, `c
 ### AI-assisted commits
 
 Commits in this repository frequently carry a `Co-Authored-By` trailer naming an AI
-model. This records how the change was produced. It asserts no copyright: model output
-is not separately copyrightable and Anthropic claims no rights in it. Every commit is
+model. This records how the change was produced. It does not assert copyright: model output
+is not separately copyrightable and Anthropic does not claim rights in it. Every commit is
 authored, reviewed, and signed off by a human contributor, whose CLA covers the
 contribution in full.
 

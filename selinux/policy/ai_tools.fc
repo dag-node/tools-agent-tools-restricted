@@ -12,7 +12,7 @@
 # so a manifest chooses which file is its entrypoint, never what type a file gets.
 #
 # The relabel runs at provision time (ai-tools-bootstrap), on the ai-tools-relabel.path watcher
-# after a Node upgrade reinstalls the binary mislabelled, and on demand via `ai-tools --relabel`.
+# after a Node upgrade reinstalls the binary mislabelled, and on demand via `ai-tools-admin system entrypoints relabel`.
 # Until it lands, ai-tools-run fail-closes (refuses to launch) rather than run unconfined.
 #
 # The rest of the nvm node tree is left to its default usr_t/bin_t/lib_t -- READ-ONLY
@@ -71,8 +71,8 @@
 
 # The INTEGRATION state root: one directory per integration (integrations/<name>/...), holding
 # the sandbox-side state a host toolchain needs -- a package cache the agent writes, shared tools
-# it only executes. ONE rule covers every integration present or future, so a new toolchain adds
-# no policy: ai_tools_home_t grants the domain the access, and the DAC modes each integration
+# it only executes. ONE rule covers every integration present or future, so a new toolchain
+# does not need policy of its own: ai_tools_home_t grants the domain the access, and the DAC modes each integration
 # sets inside its own directory are the enforced read/write boundary.
 /opt/ai-tools/integrations(/.*)?  gen_context(system_u:object_r:ai_tools_home_t,s0)
 

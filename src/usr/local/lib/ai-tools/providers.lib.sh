@@ -12,8 +12,8 @@
 # Both inputs are DATA -- parsed via conf.lib.sh, never sourced -- so a malformed or tampered file
 # cannot execute code in the scripts that read it (the same posture as operator.lib.sh /
 # skip-dirs.lib.sh). conf.lib.sh also carries the KEY=value grammar, so a manifest and
-# operator.conf read identically; a load failure there leaves this file defining NOTHING and
-# returning non-zero, so a consumer resolves no providers rather than guessing.
+# operator.conf read identically; a load failure there leaves this file defining NO RESOLVER and
+# returning non-zero, so a consumer falls back rather than guessing.
 #
 # Manifest -- /usr/local/lib/ai-tools/{agents,integrations}.d/<name>.conf, one per installed
 # member package. <name> (the basename) is the token an operator writes in AI_TOOLS_AGENTS /
@@ -21,6 +21,8 @@
 #   agents:        npm_package=<registry package>  launcher=<bin name>  display_name=<label>
 #                  handback=hooks|none          default_enable=yes|no
 #   integrations:  default_enable=yes|no       (its env fragment is session-env.d/<name>.env.sh)
+#   either kind:   admin_summary=<one line>    (the domain's line in `ai-tools-admin --help`, for
+#                  a package that also ships an admin-commands.d/<name> command fragment)
 #
 # ── Enablement is FAIL-CLOSED ────────────────────────────────────────────────────────────────
 # operator.conf: AI_TOOLS_AGENTS / AI_TOOLS_INTEGRATIONS = "<name> ..." (commas and whitespace
@@ -29,8 +31,8 @@
 #   key absent   -> enabled = installed providers with default_enable=yes (the safe baseline)
 #   conf unreadable/malformed/UNTRUSTED -> treated as absent (safe baseline, never "enable all")
 #   a listed name with no installed manifest -> reported and skipped, never guessed
-# A default_enable=yes on a manifest is the shipping package's claim that its provider widens no
-# host surface beyond the sandbox; a surface-widening one ships default_enable=no and is enabled
+# A default_enable=yes on a manifest is the shipping package's claim that its provider leaves
+# host surface unchanged beyond the sandbox; a surface-widening one ships default_enable=no and is enabled
 # only when an operator names it. The operator's explicit list always overrides the default.
 #
 # ── The sandbox cannot widen its own surface ─────────────────────────────────────────────────
@@ -52,8 +54,8 @@ fi
 
 # Shared KEY=value grammar + the trust predicate. REQUIRED: without it this file cannot parse a
 # manifest or tell a trusted input from a planted one, and guessing either would be exactly the
-# fail-open this seam exists to prevent. Return non-zero and define nothing, so the consumer's
-# `source ... && declare -F ...` guard resolves no providers.
+# fail-open this seam exists to prevent. Return non-zero and define no resolver, so the consumer's
+# `source ... && declare -F ...` guard then falls back.
 # shellcheck source=SCRIPTDIR/conf.lib.sh
 if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
         || ! declare -F ai_tools_conf_read >/dev/null 2>&1 \
@@ -167,7 +169,7 @@ _ai_tools_provider_dir_trusted() {
 # _ai_tools_warn_uninstalled <manifest-dir> <conf-key> <active> <list> : report each
 #   explicitly-requested (allowlisted) name that has no <name>.conf in the manifest dir -- never
 #   guessed into a package name. The baseline case (no allowlist) can only enable manifests that
-#   exist, so it has nothing to warn.
+#   exist, so it has no name to warn about.
 _ai_tools_warn_uninstalled() {
     local dir="$1" conf_key="$2" active="$3" list="$4"
     [[ "${active}" == yes ]] || return 0
@@ -210,18 +212,36 @@ ai_tools_enabled_agents() {
     return 0
 }
 
+# _ai_tools_manifest_field <manifest-dir> <name> <key> : print one field of a trusted manifest in
+#   <manifest-dir>, empty (and non-zero) when the manifest is absent or untrusted or the key is not
+#   there. Shared by the two public readers below so both allowlist the name the same way and both
+#   apply the trust predicate before reading.
+_ai_tools_manifest_field() {
+    local manifest_dir="$1" provider_name="$2" wanted_key="$3"
+    # Allowlist the name before it becomes a path: manifest basenames are plain identifiers, so
+    # anything else -- a separator, a traversal -- cannot address a file outside the manifest dir.
+    [[ "${provider_name}" =~ ^[A-Za-z0-9._-]+$ && "${provider_name}" != *..* ]] || return 1
+    local manifest_file="${manifest_dir}/${provider_name}.conf"
+    ai_tools_conf_is_trusted "${manifest_file}" || return 1
+    ai_tools_conf_get "${manifest_file}" "${wanted_key}"
+}
+
 # ai_tools_agent_manifest_field <agent-name> <key> : print one field of an installed agent's
 #   manifest, empty when the agent has no manifest, the manifest is untrusted, or the key is
 #   absent. For a caller that already knows which agent it resolved and needs a further
 #   declarative field (the launcher's display name) without re-listing every agent.
 ai_tools_agent_manifest_field() {
-    local agent_name="$1" wanted_key="$2"
-    # Allowlist the name before it becomes a path: manifest basenames are plain identifiers, so
-    # anything else -- a separator, a traversal -- cannot address a file outside the manifest dir.
-    [[ "${agent_name}" =~ ^[A-Za-z0-9._-]+$ && "${agent_name}" != *..* ]] || return 1
-    local manifest_file="${AI_TOOLS_AGENTS_DIR}/${agent_name}.conf"
-    ai_tools_conf_is_trusted "${manifest_file}" || return 1
-    ai_tools_conf_get "${manifest_file}" "${wanted_key}"
+    _ai_tools_manifest_field "${AI_TOOLS_AGENTS_DIR}" "$@"
+}
+
+# ai_tools_provider_manifest_field <name> <key> : the same read across BOTH manifest kinds, for a
+#   caller holding a provider name with no reason to care which kind carries it -- ai-tools-admin
+#   reads admin_summary this way, a contributed command domain being either kind. The provider
+#   namespace is flat (providers.rule.md), so at most one kind holds the name; integrations are
+#   tried first because every contributed domain today is one.
+ai_tools_provider_manifest_field() {
+    _ai_tools_manifest_field "${AI_TOOLS_INTEGRATIONS_DIR}" "$@" && return 0
+    _ai_tools_manifest_field "${AI_TOOLS_AGENTS_DIR}" "$@"
 }
 
 # ai_tools_enabled_integrations : print one enabled AND installed integration name per line, in

@@ -4,7 +4,7 @@
 # Unit test for the session-stop helper (ai-tools-stop), the incident ladder's stop rung. It
 # pins the two things the whole guarantee rests on -- WHICH cgroups are enumerated as sessions,
 # and whether a cgroup is judged LIVE -- against a synthetic cgroup tree built in TESTDIR, so
-# every assertion runs on any host, with no session running, no cgroup privilege, and nothing
+# every assertion runs on any host, with no session running, no cgroup privilege, and no host state
 # signalled.
 #
 # WHY A FIXTURE AND NOT A LIVE SESSION. /sys/fs/cgroup is unreadable from a confined session and
@@ -12,19 +12,19 @@
 # a cgroup.procs that cannot be read) cannot be manufactured on a live host at all. Reading has
 # repeatedly failed to find defects in this enumeration; a fixture finds them in seconds.
 #
-# The helper is SOURCED, which is inert by construction (it parses nothing and resolves nothing at
+# The helper is SOURCED, which is inert by construction (it does not parse an argument and does not resolve host state at
 # file scope), and the three globals the walk is expressed against are then pointed at the fixture.
 # Two things are stubbed, both non-decisions here: unit_working_directory, whose real form would
-# reach the sandbox account's user manager over sudo, and -- nothing else. Liveness and enumeration
+# reach the sandbox account's user manager over sudo, and that one alone. Liveness and enumeration
 # are exercised as written.
 #
-# NOTHING REAL CAN BE SIGNALLED. Every fixture pid is above the host's pid_max, so it has no /proc
+# NO REAL PROCESS CAN BE SIGNALLED. Every fixture pid is above the host's pid_max, so it has no /proc
 # entry; the helper validates a pid's start time immediately before signalling and skips one it
 # cannot read, which is asserted here rather than assumed. main() is driven only in the dry run,
 # which returns before the kill. The kill primitive itself is exercised against real `sleep`
 # children this test spawns and reaps, and end to end in tests/integration/stop.sh.
 #
-# Run as root via sudo with the rest of the suite; needs no privilege of its own, so it also runs
+# Run as root via sudo with the rest of the suite; does not require privilege of its own, so it also runs
 # directly as an unprivileged user during development. Two assertions about an UNREADABLE file skip
 # under root, which reads everything regardless of mode.
 
@@ -45,8 +45,8 @@ if [[ ! -r "${STOP_HELPER}" ]]; then
 fi
 
 mktestdir
-# Fixture project directories only. This helper reads no allowlist and resolves no operator: it
-# takes no target, so there is nothing to authorize. These paths exist purely as the working
+# Fixture project directories only. This helper does not read an allowlist and does not resolve an operator: it
+# does not take a target, so there is no input to authorize. These paths exist purely as the working
 # directories the fixture attribution map hands back for the table.
 mkdir -p "${TESTDIR}/proj/alpha" "${TESTDIR}/proj/alpha-extra" "${TESTDIR}/proj/beta"
 
@@ -60,7 +60,7 @@ source "${STOP_HELPER}" 2>"${source_errors}" || true
 
 # The real attribution function, saved under a second name BEFORE the fixture stub below replaces
 # it. `unset -f` cannot get it back: overriding a function discards the original outright, so a
-# test that stubbed first and unset later would drive nothing.
+# test that stubbed first and unset later would drive the real function.
 eval "helper_unit_working_directory() $(declare -f unit_working_directory 2>/dev/null | tail -n +2)" \
     2>/dev/null || true
 
@@ -392,7 +392,7 @@ declare -A FIXTURE_WORKING_DIR=()
 unit_working_directory() { printf '%s' "${FIXTURE_WORKING_DIR[$1]:-}"; }
 
 # A tree with a mix of attributable and unattributable sessions. Attribution is DISPLAY ONLY -- it
-# selects nothing -- so what these assert is that every session is selected regardless of it, and
+# does not select a target -- so what these assert is that every session is selected regardless of it, and
 # that an unreadable working directory costs a label rather than a target.
 CG2="${TESTDIR}/cgroup2b/user.slice/user-4242.slice"
 point_at "${CG2}" 4242
@@ -410,8 +410,8 @@ FIXTURE_WORKING_DIR=(
     [ai-tools-claude-code-23.service]="${TESTDIR}/proj/alpha-extra"
 )
 
-# The caller identity recorded in the trail. In production it comes from sudo; it authorizes
-# nothing -- this command takes no authorization input.
+# The caller identity recorded in the trail. In production it comes from sudo, and is recorded rather than
+# consulted -- this command does not take an authorization input.
 # shellcheck disable=SC2034  # CALLER/SANDBOX_UID are read by the sourced helper
 CALLER="${PROJECTS_USER}"
 # shellcheck disable=SC2034  # as above
@@ -448,7 +448,7 @@ else
 fi
 
 # THE PROPERTY THAT REPLACED SCOPING. Every one of these is selected, including the session whose
-# project merely shares a path prefix with another and the manager's own init.scope. Nothing here
+# project merely shares a path prefix with another and the manager's own init.scope. No cgroup here
 # is a target to be matched, so there is no prefix trap and no exemption to get wrong.
 for expect_unit in ai-tools-claude-code-21.service ai-tools-claude-code-22.service \
                    ai-tools-claude-code-23.service; do
@@ -461,7 +461,7 @@ done
 
 # ATTRIBUTION CANNOT COST A SESSION ITS STOP. A unit whose working directory cannot be read is
 # still selected and simply shows as `unknown`; the old behaviour refused the whole run. This is
-# the assertion that a misreporting session gains nothing by lying.
+# the assertion that a misreporting session does not gain an exemption by lying.
 FIXTURE_WORKING_DIR[ai-tools-claude-code-22.service]=""
 run_main true
 if (( MAIN_STATUS == 0 )) \
@@ -473,7 +473,7 @@ else
 fi
 FIXTURE_WORKING_DIR[ai-tools-claude-code-22.service]="${TESTDIR}/proj/alpha/sub/dir"
 
-# A WORKING DIRECTORY THAT IS NOT AN ABSOLUTE PATH YIELDS NOTHING. systemd renders the
+# A WORKING DIRECTORY THAT IS NOT AN ABSOLUTE PATH YIELDS AN EMPTY VALUE. systemd renders the
 # "missing is ok" flag as a `!` prefix over d-bus (`WorkingDirectory=!/opt/ai-tools`), and an
 # unstripped one reached the operator inside a `--reclaim` command that will not run -- and that,
 # pasted into an interactive bash, is not even inert. Driven through the real function, with the
@@ -491,7 +491,7 @@ for stub_case in "!/srv/p:/srv/p" "-/srv/p:/srv/p" "/srv/p:/srv/p" "~:" "!~:" "r
 done
 unset -f systemctl timeout
 
-# An empty slice is not an error: nothing running is a successful stop.
+# An empty slice is not an error: no session running is a successful stop.
 point_at "${TESTDIR}/cgroup2c/user.slice/user-4242.slice" 4242
 mkcg "${SANDBOX_SLICE}"
 run_main true
@@ -510,7 +510,7 @@ section "confirmation"
 #
 # unattended_confirm <arg...> -- drive confirm_stop under `setsid`, which removes the controlling
 # terminal: that is the shape of every unattended run, and the one a default-NO prompt would
-# silently turn into "nothing was stopped". The sub-shell's STDERR IS CAPTURED, not discarded --
+# silently turn into "nothing was stopped". The sub-shell's STDERR IS CAPTURED, not discarded --  prose-check: allow
 # discarding it once turned a shell that aborted outright under `set -u` into a result line reading
 # "the confirmation declined", which named neither the abort nor the line it happened on.
 unattended_confirm() {
@@ -559,7 +559,7 @@ check_question 0 3 "Terminate the 3 unit(s) of the ${SANDBOX_USER} account's own
 check_question 2 3 "the 2 agent session(s) listed above, and 3 unit(s) of the ${SANDBOX_USER} account's own plumbing with them?"
 unset -f ai_tools_msg_confirm check_question
 
-# And a deliberate decline stops the stop, at exit 4, with nothing signalled. The renderer's answer
+# And a deliberate decline stops the stop, at exit 4, with no process signalled. The renderer's answer
 # is stubbed because a real `n` needs a terminal to type it into; what is under test is that the
 # answer is honoured, which is the wiring between the two.
 point_at "${CG2}" 4242
@@ -596,8 +596,8 @@ section "usage"
 # to YES. In a suite that `install.sh` runs as its verification phase, that is an install that
 # hangs on a terminal read and one keystroke away from ending every session on the host.
 #
-# So acceptance is asserted at the PARSER, which is the thing actually being claimed about: it
-# touches no host state and needs no privilege. The live command belongs to
+# So acceptance is asserted at the PARSER, which is the thing being claimed about: it
+# does not touch host state and does not require privilege. The live command belongs to
 # tests/manual/verify-live-flows.sh, behind its opt-in drill flag, which is the only place a real
 # stop is ever issued.
 #

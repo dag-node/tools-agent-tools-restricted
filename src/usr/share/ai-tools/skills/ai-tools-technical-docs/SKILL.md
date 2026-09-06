@@ -3,10 +3,14 @@ name: ai-tools-technical-docs
 # ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the name above is stable.
 x-ai-tools-managed: true
 x-ai-tools-status: draft
-x-ai-tools-version: 1
-x-ai-tools-updated: 2026-08-24
+x-ai-tools-version: 2
+x-ai-tools-updated: 2026-09-05
 description: >
-  Technical writing standard for every software engineering artifact. Use when writing or
+  Technical writing standard for every software engineering artifact.
+
+
+
+Use when writing or
   editing README and usage guides, CLAUDE.md / AGENTS.md, *.rule.md, file and module headers,
   design notes, architecture docs and ADRs, method/function/XML doc-comments and docstrings,
   changelogs, release notes, migration guides, man pages, git commit messages, pull requests,
@@ -63,16 +67,16 @@ to the mechanism.
 The grammatical subject is a component, command, function, file, or person — something with
 an implementation a reader can open. Abstractions describe; they do not act.
 
-- Off style: `A claim that can grant nothing leaves nothing registered.`
-- In style: `--project-claim writes no allowlist entry when an existing entry already covers the path.`
+- In style: `register() does not write an entry when an existing one already covers the path.`
+- Off style: `A registration that can add nothing leaves nothing recorded.`
 
 ### State the mechanism, not the definition
 
-A sentence shaped *"an X that ⟨property⟩ is not an X"* restates a definition and gives the
-reader nothing to verify. Write what the code does and what follows from it.
+A sentence shaped *"an X that ⟨property⟩ is not an X"* restates a definition, which a reader
+cannot check against the code. Write what the code does and what follows from it.
 
+- In style: `stop() does not take a target and enumerates every process in the account's cgroup, so a task cannot exclude itself from the sweep.`
 - Off style: `A stop path the monitored system can put itself outside of is not a stop path.`
-- In style: `--stop takes no target and enumerates every cgroup in the account's slice, so a session cannot select itself out of the sweep.`
 
 A document may carry **one** such formulation as its stated binding rule, where the compression
 earns its place. Everywhere else, describe the mechanism.
@@ -82,25 +86,70 @@ earns its place. Everywhere else, describe the mechanism.
 "Never", "always", and "cannot" are claims about the implementation. Name the guard that makes
 each one true, in the same sentence.
 
-- Off style: `The sandbox account is never an operator.`
-- In style: `ai-tools-run refuses to launch when SANDBOX_USER appears in ai-ops.`
+- In style: `launch() exits non-zero when the service account appears in the admin group.`
+- Off style: `The service account is never an administrator.`
 
-Where no guard exists, describe the behaviour without the absolute.
+Where no guard exists, describe the behaviour without the absolute. **The fix is to name the
+guard, not to delete the absolute** — an absolute a guard does back is the claim, and dropping it
+to `not` swaps a universal for a single instance. Which of the two applies is decided by what the
+sentence is about:
+
+| The absolute is about | Do | Why |
+|---|---|---|
+| this system, with a guard in the code | keep it, and name the guard beside it | it states the guarantee; `never a glob` and `not a glob` are different claims about a sudoers rule |
+| the conduct required of a reader or an agent | keep it | a prohibition is the content of the sentence |
+| what a person will do | drop it | `never run dnf remove first` predicts a human action; `upgrade in place, without a dnf remove first` is the instruction |
+| what a third-party tool does | drop it | `DNF never pulls a new weak dependency` is a claim about someone else's code; `DNF leaves a new weak dependency off an existing install` states the behaviour |
+
+**A claim about cost is the same shape.** "cheap", "negligible", "near-zero cost" state how often
+something runs or how much work it does. Name the frequency or the bounded operation, which the
+code answers; a measurement is host-dependent and is rarely what the sentence meant.
+
+- In style: `runs once per (re)start, not per connection`
+- Off style: `adds no meaningful overhead`
 
 ### Name the absent input rather than writing "nothing"
 
-- Off style: `There is nothing left to gate, and nothing to trust.`
-- In style: `The helper takes no path argument, so safe-paths.lib.sh is not loaded.`
+- In style: `The helper does not take a path argument, so the path validator is not loaded.`
+- Off style: `There is nothing left to check, and nothing to trust.`
+
+The defect is the hiding, not the word: `nothing is exempt` in a file that terminates processes
+leaves the reader to work out the scope of a sweep, where `no cgroup under the account is exempt`
+states it. Name the thing, and the same goes for `everything`, `anything`, and `all of them`.
+
+**Where the actor is a person, `nothing` is often the right word and the replacement is not.**
+"what you have to do about it (almost always nothing)" is an action the reader takes; `none` reads
+as a count of some set the sentence never named. Keep the sentence and mark the line
+`prose-check: allow` — in Markdown as `<!-- prose-check: allow -->`, which the checker reads and
+the rendered page does not show.
 
 ### Domain vocabulary points at a mechanism
 
 `grant`, `claim`, `authority`, and `privilege` are correct when they name something in the
-code — a sudoers rule, a POSIX ACL entry, the `--project-claim` verb. Used as metaphor for
+code — a sudoers rule, a POSIX ACL entry, a `claim` subcommand. Used as metaphor for
 what code merely does, they read as legal prose. The same test applies to any borrowed
 vocabulary: point at the mechanism it names, or choose a plainer word.
 
 Prefer plain verbs — returns, creates, loads, stores, deletes, parses, validates, caches,
 retries, logs, skips, reads, writes, starts, stops, maps, serializes, emits, forwards.
+
+**A term of art in the reader's domain is a domain term, however ordinary it looks.**
+*maintenance*, *permission*, *mask*, *grant*, *traverse*, *weak dependency* have settled meanings
+in systems and operations prose, so they stay fixed under *Consistent domain terms* below. Keep
+them: substituting a near-synonym (*upkeep* for *maintenance*) costs the reader a term they
+already know.
+
+**Some verbs name no operation.** *convey*, *leverage*, *utilize*, *facilitate*, *handle* describe
+an unspecified relationship, so a reader cannot check them against the code. Say which operation it
+is: **permits** or **grants** for an access decision, **transmits**, **sends**, or **routes** for a
+message, **displays**, **renders**, or **shows** for output, **states**, **describes**, or
+**specifies** for an explanation. `--x` on a directory *permits traversal*; it does not *convey*
+anything. A word with a settled meaning in one domain keeps it there — `convey` is the GPL's own
+term for distributing a work, and licensing prose is where it belongs.
+
+*attribution* is the same case as a noun: name the thing. An **audit trail** or **provenance**
+records who acted, a **root cause** explains why something failed, an **attribute** or **field** is
+data on an object, and a **label** is what a row in a report carries.
 
 ### Name real mechanisms
 
@@ -114,8 +163,8 @@ retries, logs, skips, reads, writes, starts, stops, maps, serializes, emits, for
 Open with the behaviour. Where a reader benefits from knowing what the behaviour prevents,
 that comes second.
 
-- Off style: `Without this check a symlink could redirect the chown outside the project tree.`
-- In style: `ai-tools-chown resolves the path and acts only on the pinned inode, so the change stays inside the project tree even if the path is swapped mid-operation.`
+- In style: `chown() resolves the path once and acts on the pinned inode, so the change stays inside the tree even when the path is swapped mid-operation.`
+- Off style: `Without this check a symlink could redirect the chown outside the tree.`
 
 ### Affirmative framing is structural
 
@@ -123,9 +172,31 @@ State what the reader can rely on. Prefer "X is available when ⟨condition⟩" 
 ⟨condition⟩" where both state the same fact. Describe what a component does rather than what it
 does not do.
 
+Turning a negation positive is sound over a set provably disjoint from the one the negation
+excluded, and nowhere else; where that does not hold, keep the negation and write it with `does
+not`. Editing prose that already exists is governed by *Rewriting existing prose* below, which is
+the section to read before touching a sentence someone else wrote.
+
 Keep this structural: no praise, no intensifiers, no tone words, and never overstate a
 guarantee. No single sentence looks upbeat; across a corpus the effect accumulates, and the
 documentation reads as capable and dependable.
+
+**Write a negation with `does not`.** Fronting the quantifier instead — `writes no entry`,
+`takes no argument` — attaches the negative to the object instead of the verb. It reads formal
+to archaic, and it is the determiner statutes are built from (*no person shall*, *no warranty is
+given*). The fronted form is the shorter one, and the longer one wins anyway: the razor takes the
+fewest words that stay clear.
+
+- In style: `does not write any entries`, `does not take a path argument`
+- Off style: `writes no entries`, `takes no path argument`
+
+**The object's number follows the code, not a preference.** `does not take any path arguments`
+and `does not take a path argument` are different claims about arity — a variadic parameter
+against a single one — so the signature decides which is true. A definite object keeps its
+article: `does not increment the counter`.
+
+The same applies to `nothing` as a subject or object, which the checklist already catches: name
+the absent input instead.
 
 ### Keep severity proportionate
 
@@ -145,20 +216,51 @@ dependency* is an RPM relation, not a statement about the quality of what it pul
 Leave out legal phrasing (hereby, pursuant to, thereunder, entitlement, standing, void),
 aphorisms and slogans, philosophical framing, and marketing language.
 
-- Off style: `An empty request cannot produce a result.`
 - In style: `Returns an empty collection when no items match.`
-- Off style: `A caller lacking identity receives no authorization.`
+- Off style: `An empty request cannot produce a result.`
 - In style: `Returns 401 when the request is unauthenticated.`
+- Off style: `A caller lacking identity receives no authorization.`
 
 ## Sentence craft
+
+### Rationale is the payload — state it as a fact
+
+Purpose is what prose exists to carry. The code already shows what happens, so a header earns
+its place by recording why: the constraint that forced the choice, the alternative rejected, the
+foot-gun avoided. Write that freely — it is the content worth keeping.
+
+Write it in the same register as everything else, because this is the register that slips.
+Explaining why attracts every figure in *Rhetorical figures* below: contrast ("rather than",
+"instead of"), metaphor ("spends the signal"), definition ("a check that cannot fail is not a
+check"). Each states the reason as a figure instead of a mechanism, so a reader cannot check it
+against the code.
+
+State the reason as a fact about the code, and name the constraint behind it — an external
+requirement, a kernel quirk, an ordering dependency. A "so that ⟨outcome⟩" clause is the usual
+join. A because-, so-that-, or rather-than-sentence is the cue to re-read it against that table.
+Run the check while drafting.
+
+**Attach purpose where the reason is non-obvious, and nowhere else.** A named construction turns
+into a slot a writer fills, and a document whose every sentence makes a causal claim reads as
+though none of them does. Three tests before a purpose clause stays:
+
+- **It says something the first half did not.** `The file is 0644, so it is world-readable`
+  restates the mode. Cut the clause.
+- **A reader would miss it.** Where the consequence follows from the fact for anyone who knows
+  the domain, the fact stands alone.
+- **The consequent names a mechanism.** `so it takes the same report` is vague; `so the
+  commit-msg hook runs the checker over the message` is the same claim, checkable.
+
+Purpose also lands without the join: as its own sentence, or as a paragraph's whole job. Where a
+paragraph already makes one causal claim, check whether the next sentence earns a second.
 
 ### One fact per sentence, in one direction
 
 Keep sentences short and single-idea. Avoid mirrored clauses that a reader must unpick to
 recover one fact.
 
-- Off style: `A missing one costs you a label rather than costing the stop a target.`
-- In style: `A session whose project cannot be read shows as unknown, and is terminated like any other.`
+- In style: `A task whose project cannot be read shows as unknown, and is terminated like any other.`
+- Off style: `A missing one costs you a label rather than costing the sweep a target.`
 
 ### Present tense, active voice
 
@@ -201,22 +303,32 @@ A reader should follow *how* something works from the code alone. Prose carries 
 the non-obvious trade-off a name, type, or signature cannot hold. Restating what the code does
 adds a second copy that drifts.
 
-### Write the least that leaves a reader oriented
+### Occam's razor — the fewest words that carry the full fact
 
-The starting point for any explanation is none. A sentence earns its place by carrying something
-the code cannot: the purpose, a constraint imposed from outside, a rejected alternative, a
-foot-gun. Where the code can be made to say it instead, that is the better fix — a variable or
-function renamed to state what it holds or does, spelled out in full and following the naming
-conventions of the language in hand; a function extracted; a stronger type.
+Use the fewest words that still carry the full fact. The starting point for any explanation is
+none. A sentence earns its place only when it carries something the code cannot: purpose, an
+external constraint, a rejected alternative, or a foot-gun.
 
-A docs-to-code ratio that rivals the file is a late alarm rather than a budget to write up to; by
-the time prose reaches that size the code has usually stopped being self-descriptive. Some of it
-is warranted anyway, where the code cannot be made clearer — a kernel quirk, an ordering
-constraint, a workaround for a defect elsewhere — and naming the constraint is the point.
+Where the code can say it instead, prefer that fix: rename a variable or function so the name
+itself states what it holds or does (full words, following the language's conventions); extract
+a function; strengthen a type.
+
+Two habits do most of the work:
+
+- Merge sentences that share a subject.
+- Cut any fact already carried by this file, by the code below it, or by the domain rule that
+  owns it. Each fact has one home.
+
+**Length is a symptom, never a budget.** Prose that approaches the size of the code it describes
+usually means the code has stopped being self-descriptive; the fix is to make the code say it.
+Short prose is not automatically finished prose either: the only test is whether every remaining
+sentence still carries a fact. A longer header is correct precisely when the code cannot be made
+clearer — a kernel quirk, an ordering constraint, a workaround for a defect elsewhere — and the
+point of the prose is to name that constraint.
 
 Judge each file on its own. A header at a good altitude stays as it is, and a change that merely
 touches a file edits only the passages it invalidates. On a header that has grown past its
-purpose, expand it first to surface what actually matters, then reduce to purpose and the
+purpose, expand it first to surface what matters, then reduce to purpose and the
 load-bearing why.
 
 ### Self-contained
@@ -224,14 +336,21 @@ load-bearing why.
 Prose is read without the conversation that produced it. Name the concrete mechanism; leave out
 session shorthand, internal labels, ticket tags, and "as discussed" back-references.
 
-### Resolve conflicts against the code, while writing
+### Resolve a doc/code conflict while writing, in the right direction
 
-Where a doc and the code disagree, resolve it then, against the code — do not default to
-either side, and do not commit a known inconsistency. Ask when the correct behaviour is
-genuinely unclear.
+Where a doc and the code disagree, resolve it then — do not default to either side, and do not
+commit a known inconsistency. Which side moves depends on what the prose is doing:
 
-While a migration is in progress, describe the target state as current. Where that forces a
-mention of something not yet built, record the dependency and keep writing to the target.
+- **A description of behaviour** — a file header, a doc comment, most rule prose. The code decides
+  what it says, and the stale side is not reliably the prose.
+- **An invariant** — a `CLAUDE.md` guarantee, a stated MUST, a security property. The prose stands
+  and the code is the defect: raise it. Rewriting the invariant to match retires a guarantee by
+  editing prose.
+- **A migration in progress** — the prose leads and the code follows: describe the target state as
+  current, and record the dependency where that forces a mention of something not yet built. The
+  gap is expected, so it is recorded rather than resolved away in either direction.
+
+Ask when which of the three applies is genuinely unclear, rather than committing a guess.
 
 ## The three axes
 
@@ -243,8 +362,86 @@ Purpose, style, and tense constrain different things, and compose:
 
 RFCs are full of purpose: "receivers MUST ignore unknown fields *so that* the format stays
 forward-compatible" is purpose, spec style, and present tense at once. Friction appears only
-when purpose is written as **history** or as a **predicted human action**. Attach purpose as a
-"so that ⟨invariant⟩" clause on a fact about what the code does.
+when purpose is written as **history** or as a **predicted human action**. A "so that
+⟨invariant⟩" clause on a fact about what the code does is one way to attach it — see the limit
+on it under *Rationale is the payload*.
+
+---
+
+# Rewriting existing prose
+
+Every rule above governs a first draft, where the claim is in the writer's head and only the words
+are in question. Editing prose that already exists is a different operation: the claim is already in
+the sentence, and the job of the edit is to keep it. The rules for that are collected here, because
+a rewrite pass reads one section and then changes several hundred sentences.
+
+**A rewrite changes the wording, not the claim.** What remains states what the original stated —
+same subject, same set, same number, same modality — and does not add anything the original did not
+say. Where
+the new wording cannot carry the claim, leave the sentence unchanged: a style rule that cannot be
+applied without retiring a guarantee does not apply.
+
+## Rewrite from the source, not from the flagged token
+
+A finding names a symptom, and every rule here is about the claim, so:
+
+1. Open what the sentence describes — the code, or the invariant it states.
+2. Settle any disagreement between the two in the direction *Resolve a doc/code conflict* sets.
+3. Write the sentence again from that source.
+4. Leave the reported token out of the result.
+
+Substituting a synonym for that token instead clears the check and keeps the defect:
+
+| `grants nothing` becomes | and | |
+|---|---|---|
+| `confers no authority` | the grep is clear, a domain term is now a legal one, and the quantifier is still fronted | ✗ |
+| `granted no path` | both default checks are clear, and the same figure sits in another inflection for a later pass to find | ✗ |
+| `uses a grant the caller already holds` | read off the code in one pass | ✓ |
+
+Reading the source also answers what no rule decides in the abstract — arity among them.
+
+## Carry four things through every edit
+
+Check each one before accepting a rewrite. A change that moves any of them has changed the claim.
+
+- **The set.** Rewrite over the set the original named. `carries no secrets` → `does not carry any
+  secrets`, never `contains only settings`: a setting can be a token, so the second stops justifying
+  the `644` mode the first was written to justify.
+- **The number.** Keep a plural plural and a singular singular. `does not carry any secrets` says
+  the contents and the secrets do not intersect; `must not hold a secret` says one of them is absent.
+- **The modality.** Keep `never`, `always`, `cannot`, `only`, and `must` where the original used
+  one, and name the guard that backs it in the same sentence. Do not trade an absolute for `not`;
+  *Back an absolute with its check* has the cases where the absolute itself goes.
+- **Every fact, and no new ones.** Account for each fact in the old sentence before deleting it.
+  `stable, and leaks nothing regardless of who runs it` → `stable whoever runs it` drops a
+  disclosure claim. No vocabulary check sees that, so read the two versions side by side.
+
+## Keep the sentence and raise the finding
+
+Leave a sentence as it stands, and report the conflict, when it states any of:
+
+- a **security boundary** — what a mode permits, what a file may hold, who may act, what a refusal
+  refuses;
+- an **invariant in an always-loaded layer** — a root `CLAUDE.md`, a rule file, a prohibition
+  addressed to an agent; a weakened guarantee is still read as a guarantee;
+- an **identity or disclosure claim** — what a value leaks, what an output carries.
+
+"This rewrite would weaken an invariant" is a finding: report it and leave the sentence as it
+stands. Readability is not a reason to weaken a guarantee.
+
+## Run the checks a rewrite needs
+
+Run both, on the files the pass touched and on the diff it produced:
+
+```bash
+python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --all <file>...
+python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --kept <base>
+```
+
+`--all` catches a figure moved into an inflection the default checks leave alone. `--kept` compares
+the two sides of the diff and reports a dropped term, a narrowed number, and a weakened modality —
+three of the four above. The fourth, a dropped fact, has no check, so read for it. Both modes
+report and neither decides: whether two sets are disjoint is not a question a regex answers.
 
 ---
 
@@ -336,15 +533,9 @@ advisory.
 `*.rule.md` holds the principles common to its domain plus the cross-file story. A file header
 holds that file's local mechanism.
 
-**The code is true for behaviour, and invariants have to hold.** Code, header, and rule describe
-one system at three altitudes, each in the present tense, and touching any of them obligates
-reconciling the others at the time of writing.
-
-Where a description disagrees with the code, the code decides what the description says — the
-stale side is not reliably the prose. Where the **code** contradicts an invariant a `CLAUDE.md`
-or a rule states, that is a defect in the code: raise it, and leave the invariant standing.
-Rewriting the invariant to match would retire a guarantee by editing prose. Ask when the correct
-behaviour is genuinely unclear, rather than committing a guess.
+**Code, header, and rule describe one system at three altitudes**, each in the present tense, so
+touching any of them obligates reconciling the others at the time of writing — in the direction
+*Resolve a doc/code conflict* sets.
 
 Each tier states the system as it now is. What changed belongs to the changelog and to git.
 
@@ -393,7 +584,7 @@ subject here, so the current-state rule above does not apply.
 - **One or two sentences per entry.** Depth comes from a link to the issue, PR, or doc.
 - **Grouped so a scan works** — Added, Changed, Deprecated, Removed, Fixed, Security, or the
   project's established headings. Breaking changes appear in one place.
-- **Internal churn produces no entry** — tests, formatting, CI, version bumps.
+- **Internal churn does not produce an entry** — tests, formatting, CI, version bumps.
 - **Present the gain plainly.** A reader should finish an entry knowing what they get, without
   the entry sounding like it is being sold.
 
@@ -463,20 +654,35 @@ Use structured templates so fields survive into the journal or the log store.
 
 # Anti-patterns
 
+## Rhetorical figures
+
+Name the figure and it becomes greppable. Each of these is a *shape*, not a word, so a
+vocabulary filter cannot see any of them.
+
+| Figure | Example | Why it fails | Instead |
+|---|---|---|---|
+| **Definitional negation** — "an X that fails a test is not an X" | "A threshold nobody acts on is not a threshold" | A tautology dressed as a finding | "An unacknowledged threshold does not raise any alert, so each one names the person who receives it" |
+| **Abstraction as subject** | "A claim *leaves* nothing registered" | The subject cannot be opened in the code | "`claim()` does not write an entry when one already covers the path" |
+| **Chiasmus** — mirrored clauses | "costs you a label rather than costing the sweep a target" | The reader unpicks a mirror to get one fact | Two plain sentences, or one fact stated once |
+| **"Nothing" as a quantifier** | "there is nothing left to gate" | Hides *which* input is missing | "The helper does not take a path argument, so the path check is skipped" |
+| **Unbacked absolute** | "The service account is never an administrator" | A claim about the code with no check named | "`start()` exits non-zero when the service account holds the admin role" |
+| **Metaphor for a mechanism** | "spends the strict-mode signal" | Does not name any operation a reader can find | "does not increment any counter, so it stays out of the summary" |
+| **Negation as framing** | "a host with nothing wrong" | States the absence of a fault instead of the state | "a host in a supported configuration" |
+
+## Artifact-level
+
 | Off style | In style |
 |---|---|
-| `A claim that can grant nothing leaves nothing registered.` | `--project-claim writes no allowlist entry when an existing entry already covers the path.` |
-| `A threshold nobody acts on is not a threshold.` | `An unacknowledged threshold raises no alert, so each one names the operator who receives it.` |
-| `The sandbox account is never an operator.` | `ai-tools-run refuses to launch when SANDBOX_USER appears in ai-ops.` |
-| `Arming the timer so it does not fail to fire` | `Enabling the timer so the update runs daily` |
-| `Directories are pruned from the walk` | `Directories on the skip list are omitted from the walk, which keeps the sweep fast` |
 | Paragraph of preamble, then code | Code block, then one paragraph naming the mechanism |
+| `Arming the timer so it does not fail to fire` | `Enabling the timer so the update runs daily` |
+| `Entries are pruned from the walk` | `Entries on the skip list are omitted from the walk, which keeps the sweep fast` |
 | `The framework was updated to support async` | `The async handler takes precedence when both are defined` |
 | `Improved reliability / Various fixes` | `Fixed HttpClient retry on 429; corrected timezone parsing in date fields` |
-| Changelog entry describing the mechanism | Entry describing what the operator gains |
-| Commit body as long as the diff | Two paragraphs: the why, and where the detail lives |
+| Changelog entry describing the mechanism | Entry describing what the caller or operator gains |
+| Commit body as long as the diff | Two short paragraphs: the why, and where the detail lives |
 | Rambling multi-sentence doc comment | One-line contract; a second sentence for a real precondition |
 | Bulleted list narrating each behaviour | Connected prose; bullets for true enumerations |
+| Slogan or abstract principle | The observable outcome, or the concrete rule that produces it |
 
 ---
 
@@ -487,13 +693,60 @@ Scan the finished text for each of these, since every one is checkable:
 1. A sentence whose subject is an abstract noun rather than a component, command, or person.
 2. `is not a` / `is no` used to define rather than to describe.
 3. A clause mirrored on "rather than" or "not … but", where one plain sentence carries the fact.
-4. "nothing" as the subject or object of a verb.
-5. "never", "always", or "cannot" with no guard named in the same sentence.
+4. "nothing" — or "everything", "anything" — as the subject or object of a verb, where naming the
+   thing would state the scope.
+5. "never", "always", or "cannot" with no guard named in the same sentence; "cheap",
+   "negligible", or "near-zero cost" with no frequency or bounded operation named in it.
 6. A behaviour introduced by what it prevents rather than by what it does.
 7. History in reference prose: "now", "used to", "previously", "was changed", a date.
 8. A fact stated in full in more than one place from the same perspective.
 9. Filler and intensifiers.
-10. A doc comment or header longer than the code it describes.
+10. A sentence carrying no fact the code, this file, or the domain rule lacks — cut it. Two
+    sentences sharing a subject — merge them. (Length is the symptom, not the test: prose the
+    size of its code says the code stopped being self-descriptive, and prose that is merely
+    short has not thereby passed.)
+
+**A finding names a symptom. Fix the claim, not the token** — the procedure is *Rewrite from the
+source* above, and it applies to a first draft's own findings as much as to a rewrite pass.
+
+**Run the checkable ones.** `prose-check.py` ships beside this file and reports items 2, 3, 4, 5,
+7 and 9 plus the `does not` rule, so the pass is a command rather than an act of attention:
+
+```bash
+python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py <file>...
+```
+
+It reads rejoined sentences, reports, and does not block. Items 4 and 9 and the `does not` rule
+run by default and are near-exact, as does item 5's cost half — it reports a cost word only where
+the sentence does not name a frequency or a bounded operation, so one already stated concretely
+stays silent. `--all` adds the shape checks, each of which greps a sub-shape
+of its rule, because the rules themselves are about meaning: a word stem repeated across the pivot
+is the mirror in item 3 and the restated head noun in item 2, and an absolute in a sentence with
+no subordinating conjunction has nowhere for item 5's guard clause to be. It also carries the two
+checks a rewrite needs a reader for — the `does not` rule in its past and participle inflections,
+and the verbs that name no operation. Every `--all` check wants a reader on each hit. `--kept` is
+the rewrite mode, described under *Run the checks a rewrite needs*.
+
+Quoted, backticked, and fenced spans are skipped, so a document may quote the prose it warns
+against; mark anything else deliberate with `prose-check: allow` on the line, or
+`<!-- prose-check: allow -->` in Markdown, where the marker then stays out of the rendered page.
+Run it before committing prose, and on the commit message too — the universal rules cover that
+artifact like any other.
+
+**A file's extension decides how it is read, and `--prose` / `--source` override that.** A `.md`
+page or a man page contributes every line; anything else contributes its comments and docstrings.
+A path the extension rule does not recognize is read as source, so a **document copy whose name
+lost its extension** keeps only its `#` headings and reports zero findings for a file whose body
+the run never read — and zero findings reads as clean. Pass `--prose` for such a copy, `--source`
+for the reverse.
+
+That is what checking **what a branch added** needs, so a pre-existing finding does not mask a new
+one. Write each changed file's pre-change revision to a temp path, check both, and compare the
+sorted findings:
+
+```bash
+git show "HEAD:$f" > /tmp/base && python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --all --prose /tmp/base
+```
 
 When in doubt: describe what the code does, name the mechanism that does it, and use fewer
 words.

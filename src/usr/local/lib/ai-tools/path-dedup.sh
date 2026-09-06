@@ -1,19 +1,20 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # shellcheck shell=bash
-# /usr/local/lib/ai-tools/path-dedup.sh — deduplicates the existing PATH
-# entries of an operator shell and orders them so the root-owned system tiers
-# win first-match. That places /usr/local/bin/claude — the wrapper that
-# launches claude restricted — ahead of any nvm-managed claude, so typing
-# `claude` always enters the sandbox. Sourced per-account: `ai-tools-admin
-# operator add` wires it into the operator's ~/.bashrc and ~/.bash_profile
-# after their nvm init (it must follow anything that prepends to PATH), which
-# scopes the reorder to the operators who need it — root and unrelated
-# accounts keep their stock PATH. The sandbox session needs no sourcing:
-# ai-tools-run pins the session PATH as a unit property.
+# /usr/local/lib/ai-tools/path-dedup.sh — deduplicates an operator shell's
+# PATH and reorders it so root-owned directories win, placing
+# /usr/local/bin/claude (the wrapper that launches claude restricted) ahead
+# of any nvm-managed claude.
 #
-# PATH is first-match-wins: an early directory shadows every later one. The
-# order below puts the least-writable directories first, so a user- or
-# package-writable entry can never shadow a system binary:
+# `ai-tools-admin operators add` adds the source line to the operator's
+# ~/.bashrc and ~/.bash_profile, below their nvm init — it must follow
+# anything that prepends to PATH. The fragment lives in the ai-tools lib dir
+# rather than /etc/profile.d, so root and unrelated accounts keep their stock
+# PATH. Both files are bash's, so `operators add` reports a login shell that
+# reads neither. The sandbox account takes its PATH elsewhere: ai-tools-run pins the
+# session PATH as a unit property.
+#
+# PATH is first-match-wins, so the order below runs least-writable first and
+# a user- or package-writable entry cannot shadow a system binary:
 #
 #   Tier 1  /usr/local/sbin /usr/sbin /usr/local/bin /usr/bin   root-owned
 #           /usr/lib64/dotnet                                   DNF-managed
@@ -22,11 +23,10 @@
 #                             outranks package-managed at equal user trust
 #   Tier 4  rest of the inherited $PATH, order preserved (nvm, fzf, ...)
 #
-# Optional tiers are added only when the directory exists — a system without
-# dotnet gets no dead entries, and the next shell ranks the directory in once
-# it is created. Inherited entries are passed through as-is, existing or not:
-# they belong to whatever added them (EL skel dotfiles add ~/bin and
-# ~/.local/bin unconditionally). Dedup is first-seen-wins and idempotent.
+# A tier joins the list only when its directory exists, and the next shell
+# ranks in one created since. Inherited entries pass through whether they
+# exist or not: they belong to whatever added them (EL skel adds ~/bin and
+# ~/.local/bin unconditionally). Re-sourcing yields the same PATH.
 #
 # Debugging: PATH_DEDUP_WARN=1 reports missing final-PATH entries to stderr,
 # once per shell (surfaces stale entries, e.g. a removed node version).
@@ -54,7 +54,7 @@ _dedup_path() {
 
     # Opt-in: report missing directories, each at most once per shell process
     # (_PATH_DEDUP_WARNED is not exported, so every new shell starts clean).
-    # `|| [[ -n ... ]]` keeps the last entry: tr emits no trailing newline.
+    # `|| [[ -n ... ]]` keeps the last entry: tr leaves off the trailing newline.
     if [[ "${PATH_DEDUP_WARN-}" == "1" ]]; then
         local entry
         while IFS= read -r entry || [[ -n "${entry}" ]]; do

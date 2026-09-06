@@ -4,7 +4,7 @@
 # Verify that an agent's entrypoint is the binary its vendor published, and carry that verdict to
 # the launch in a record the sandbox account cannot write.
 #
-# It names no agent: the release manifest, the signing key, and its fingerprint are optional fields
+# It is agent-agnostic: the release manifest, the signing key, and its fingerprint are optional fields
 # on the agent's own manifest (providers.rule.md). Why the check exists, which caller runs which
 # half, what each outcome means, and where the pin lives are in updater.rule.md; this header covers
 # only what a reader of this file needs.
@@ -34,7 +34,7 @@ _AI_TOOLS_ENTRYPOINT_VERIFY_LIB_LOADED=1
 # The shared KEY=value grammar, for the strictness switch and the fingerprint list. Best-effort,
 # NOT required: the launch-side check (the hot path) needs neither, and every consumer that does
 # has already loaded conf.lib.sh through providers.lib.sh -- so a failure here degrades the two
-# functions that use it in their permissive/refusing directions rather than defining nothing. Both
+# functions that use it in their permissive/refusing directions rather than leaving them undefined. Both
 # guard on `declare -F` before calling into it.
 # shellcheck source=SCRIPTDIR/conf.lib.sh
 source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null || true
@@ -61,7 +61,7 @@ _ai_tools_ev_warn() {
 # ── Pure decisions (no I/O, no privilege, no network) ────────────────────────────────────────
 
 # ai_tools_entrypoint_platform_key <machine> [libc] : print the key a vendor release manifest
-#   lists this host's binary under, or nothing for an architecture with no mapping. <machine> is
+#   lists this host's binary under, or an empty string for an architecture with no mapping. <machine> is
 #   uname -m; <libc> is `musl` or empty. Pure, so the mapping is unit-tested without needing the
 #   architectures it maps.
 ai_tools_entrypoint_platform_key() {
@@ -92,7 +92,7 @@ ai_tools_release_url_valid() {
 # ai_tools_release_manifest_url <template> <version> : print the fetchable URL for <version>, by
 #   substituting the template's single {version} slot. A template without the slot is refused
 #   rather than fetched as-is: it would pin every version to one manifest, which reads as "verified"
-#   while checking the wrong release. The version is admitted only in semver shape, so nothing a
+#   while checking the wrong release. The version is admitted only in semver shape, so no value a
 #   package.json carries can inject a path segment into the URL.
 ai_tools_release_manifest_url() {
     local template="${1:-}" version="${2:-}"
@@ -106,7 +106,7 @@ ai_tools_release_manifest_url() {
 # ai_tools_release_manifest_checksum <manifest-json> <platform-key> : print the SHA-256 the
 #   manifest lists for that platform. Reads the passed string only -- no filesystem, no network --
 #   and admits the result only in exactly the 64-hex shape a SHA-256 has, so malformed JSON, an
-#   absent platform, or a crafted value yields NOTHING rather than a checksum that could match a
+#   absent platform, or a crafted value yields an EMPTY STRING rather than a checksum that could match a
 #   crafted binary. jq is the parser (a hard dependency of the agent packages that declare these
 #   fields); its absence is reported by the caller as "unable to verify", never as a mismatch.
 ai_tools_release_manifest_checksum() {
@@ -123,7 +123,7 @@ ai_tools_release_manifest_checksum() {
 #   Echoes a verdict token and returns the status contract above:
 #     ok         both present and equal
 #     mismatch   both present and different -- the tamper signal, status 1
-#     unpinned   no expected value: nothing has verified this entrypoint yet, status 2
+#     unpinned   no expected value: no run has verified this entrypoint yet, status 2
 #     unreadable no observed value: the entrypoint could not be hashed, status 2
 #   Absence is never a mismatch: a missing pin and a modified binary are different facts with
 #   different remedies. Unit-tested over the truth table.
@@ -137,7 +137,7 @@ ai_tools_entrypoint_pin_verdict() {
 
 # ── Impure: hashing, the pin, and the signed-manifest probe ──────────────────────────────────
 
-# ai_tools_entrypoint_sha256 <path> : print the file's SHA-256, or nothing. Bounded to a regular
+# ai_tools_entrypoint_sha256 <path> : print the file's SHA-256, or an empty string. Bounded to a regular
 #   file so a fifo or device swapped into the path cannot block the caller forever.
 ai_tools_entrypoint_sha256() {
     local path="${1:-}" line
@@ -154,7 +154,7 @@ ai_tools_entrypoint_sha256() {
 #   template, the signing key's path AND its content, and the declared fingerprints. A pin records
 #   this digest so a later run can tell "the same question, asked the same way" from a question that
 #   has changed (a vendor key rotation, a repointed manifest host) without refetching anything.
-#   Prints nothing when any input is unusable, which resolves to a full verification.
+#   Prints an empty string when any input is unusable, which resolves to a full verification.
 ai_tools_entrypoint_inputs_digest() {
     local url_template="${1:-}" key_file="${2:-}" fingerprints="${3:-}" key_digest line
     [[ -n "${url_template}" ]] || return 1
@@ -217,8 +217,8 @@ _ai_tools_ev_write_record() {
 #   reconciliation could do about <agent>'s labels. ROOT ONLY.
 #
 #   `skipped` is the SELinux layer being inactive -- a DAC-only host, where there is no
-#   ai_tools_exec_t to assign and nothing to fix. The reason is a short TOKEN, not prose: every
-#   field here is read back through the stamp accessors' charset clamp, which admits no spaces, and
+#   ai_tools_exec_t to assign and no fault to fix. The reason is a short TOKEN, not prose: every
+#   field here is read back through the stamp accessors' charset clamp, which excludes spaces, and
 #   the operator-facing detail (semanage's own message) belongs in the log the refusal already
 #   writes. This says which class of failure, so the report can name the remedy.
 ai_tools_entrypoint_label_write() {
@@ -249,7 +249,7 @@ _ai_tools_ev_pin_field() {
     printf '%s' "${line#*=}"
 }
 
-# ai_tools_entrypoint_pin_read <agent> : print the SHA-256 recorded for that agent, or nothing.
+# ai_tools_entrypoint_pin_read <agent> : print the SHA-256 recorded for that agent, or an empty string.
 ai_tools_entrypoint_pin_read() {
     local pin checksum
     pin="$(ai_tools_entrypoint_pin_path "${1:-}")" || return 1
@@ -432,8 +432,9 @@ ai_tools_entrypoint_verify_required() {
 }
 
 # ai_tools_entrypoint_check <agent> <entrypoint> : the launch-side gate. Hash the entrypoint and
-#   compare it to the agent's pin. Echoes the verdict token and returns the status contract; takes
-#   no network, no key, and no privilege, so it runs as the sandbox account on the launch path.
+#   compare it to the agent's pin. Echoes the verdict token and returns the status contract. It does not
+#   reach the network, read a key, or need privilege, so it runs as the sandbox account on the
+#   launch path.
 ai_tools_entrypoint_check() {
     local agent="${1:-}" entrypoint="${2:-}" expected observed
     expected="$(ai_tools_entrypoint_pin_read "${agent}" || true)"

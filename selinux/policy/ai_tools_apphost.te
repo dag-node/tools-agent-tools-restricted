@@ -17,7 +17,7 @@ policy_module(ai_tools_apphost, 0.1.0)
 ## into the dotnet integration or the base.
 ##
 ## SECURITY: this permits fileless in-memory execution (memfd + PROT_EXEC, the
-## classic evasion primitive), but it grants no new PRIVILEGE. The domain already
+## classic evasion primitive), but it does not grant a new PRIVILEGE. The domain already
 ## holds `execmem`, so in-process arbitrary native execution is already possible;
 ## this only extends it to a file-backed executable mapping. Code executed this way
 ## still runs as ai_tools_t -- there is no entrypoint from this domain to a more

@@ -67,7 +67,7 @@ expect() {  # <desc> <want-ret> <want-args-substr-or-empty> [want-err-substr]
 _reset; : > "${conf}"; _resolve
 expect "unconfigured -> no args" 0 ""
 
-# 2) Inert endpoint file (nothing uncommented) -> no injection, launch.
+# 2) Inert endpoint file (no option uncommented) -> no injection, launch.
 _reset; _resolve
 expect "inert file -> no args" 0 ""
 

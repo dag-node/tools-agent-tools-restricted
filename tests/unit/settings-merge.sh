@@ -200,13 +200,25 @@ else
     fail "the refusal gives no reason: ${report}"
 fi
 
-# A second failed run keeps the first baseline instead of replacing it, so the copies read as a
-# history of what each install offered rather than only the most recent.
+# A second refusal offering the SAME baseline resolves to the copy already beside the file, so a
+# host that re-runs the installer keeps one copy per baseline it was offered rather than one per
+# run. The refusal still names a path to merge from.
 merge_report "${broken}" "${SHIPPED}" >/dev/null 2>&1
-if [[ "$(count_sidecars "${broken}" shipped)" == 2 ]]; then
-    pass "a second refusal adds a baseline copy rather than overwriting the first"
+if [[ "$(count_sidecars "${broken}" shipped)" == 1 ]]; then
+    pass "a second refusal on the same baseline reuses the copy beside the file"
 else
-    fail "expected 2 baseline copies, found $(count_sidecars "${broken}" shipped)"
+    fail "expected 1 baseline copy, found $(count_sidecars "${broken}" shipped)"
+fi
+
+# A baseline that has CHANGED between the two runs is a different answer, and takes its own copy.
+changed="${TESTDIR}/changed-shipped.json"
+jq '.model = "sonnet"' "${SHIPPED}" > "${changed}"
+report="$(merge_report "${broken}" "${changed}" 2>&1)"
+reference_path="$(sed -n 's/^reference: //p' <<< "${report}")"
+if [[ "$(count_sidecars "${broken}" shipped)" == 2 ]] && cmp -s "${reference_path}" "${changed}"; then
+    pass "a changed baseline adds a copy and the refusal names it"
+else
+    fail "expected 2 baseline copies naming the changed one, found $(count_sidecars "${broken}" shipped)"
 fi
 
 finish

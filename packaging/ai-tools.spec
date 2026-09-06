@@ -96,7 +96,7 @@ packages build on this layer.
 #
 # Scriptlet tools are named explicitly rather than via %%{?selinux_requires}: that macro bakes
 # the BUILD host's selinux-policy version into a Requires (uninstallable on the older EL of a
-# noarch build) and pulls policycoreutils-python-utils, which nothing here uses. semodule and
+# noarch build) and pulls policycoreutils-python-utils, which no scriptlet here uses. semodule and
 # restorecon come from policycoreutils; getenforce from libselinux-utils.
 %package -n ai-tools-selinux
 Summary:        SELinux confinement policy for the ai-tools sandbox
@@ -142,7 +142,7 @@ Requires:       gzip
 # dnf treat that as a RENAME and hand the shared files over in one transaction. Without it a host
 # on the old name cannot resolve `dnf update` at all: the installed ai-tools-nodejs pins
 # `ai-tools-base = <its own version>`, the only upgrade candidate for the base is the new version,
-# and nothing obsoletes the old name to break the deadlock -- so the whole transaction fails and
+# and no package obsoletes the old name to break the deadlock -- so the whole transaction fails and
 # the operator is pushed into a manual erase that drops their operator.conf. The bound is the
 # version the rename landed in, so a future package reusing the old name is never obsoleted.
 Provides:       ai-tools-nodejs = %{version}-%{release}
@@ -166,9 +166,9 @@ Requires:       ai-tools-base = %{version}-%{release}
 %description -n ai-tools-integration-dotnet
 Integrates a host-managed .NET toolchain into a sandbox session: a session-env fragment that
 exports DOTNET_ROOT and a sandbox-writable NuGet cache when the dotnet integration is enabled
-(operator.conf AI_TOOLS_INTEGRATIONS), and the ai-tools-dotnet helper to provision that cache and
-shared global tools. The .NET SDK/runtime itself is the host's RPM-managed dotnet; this package
-adds no runtime and is inert until enabled on a host that has dotnet installed.
+(operator.conf AI_TOOLS_INTEGRATIONS), and the `dotnet` domain of ai-tools-admin to provision that
+cache and shared global tools. The .NET SDK/runtime itself is the host's RPM-managed dotnet; this
+package adds no runtime and is inert until enabled on a host that has dotnet installed.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ai-tools-agents umbrella: the AI coding agents that run confined in the sandbox. A thin
@@ -230,7 +230,7 @@ grep -rlZ '@AI_TOOLS_VERSION@' src \
 %install
 # The /opt control plane and the /var trees ship root:ai-tools and stay that way: root (not the
 # agent) owns the locked control files while the agent reaches its state through group ai-tools.
-# Nothing re-owns them to a person -- the operators drive the shared ai-tools account and reach
+# No step re-owns them to a person -- the operators drive the shared ai-tools account and reach
 # the launcher through an o+x search bit, so the agent is never the owner of a locked dir.
 
 # ── base: root helpers ───────────────────────────────────────────────────────
@@ -246,8 +246,8 @@ install -m 0750 src%{ai_libexecdir}/ai-tools-handback.py %{buildroot}%{ai_libexe
 # base helper that is not daemon- or sudoers-invoked by fixed path, so it gets a symlink in
 # %{_sbindir}: sudo resolves a bare command against the sudoers secure_path, which on stock
 # EL is /sbin:/bin:/usr/sbin:/usr/bin and does NOT include /usr/local/sbin. The target keeps
-# its canonical %{ai_libexecdir} path. ai-tools-bootstrap gets the same treatment in the
-# ai-tools-integration-nodejs subpackage.
+# its canonical %{ai_libexecdir} path. Provisioning is a verb on it (`system bootstrap`) rather
+# than a name of its own.
 install -d -m 0755 %{buildroot}%{_sbindir}
 ln -s %{ai_libexecdir}/ai-tools-admin %{buildroot}%{_sbindir}/ai-tools-admin
 
@@ -259,6 +259,9 @@ install -m 0750 src%{ai_bindir}/ai-tools-handback-client.py %{buildroot}%{ai_bin
 # ships. brp-compress may gzip it (hence the %%files glob).
 install -d -m 0755 %{buildroot}%{ai_mandir}/man1
 install -m 0644 src%{ai_mandir}/man1/ai-tools.1             %{buildroot}%{ai_mandir}/man1/ai-tools.1
+# ai-tools-admin(8): section 8 because every command it documents refuses a non-root caller.
+install -d -m 0755 %{buildroot}%{ai_mandir}/man8
+install -m 0644 src%{ai_mandir}/man8/ai-tools-admin.8       %{buildroot}%{ai_mandir}/man8/ai-tools-admin.8
 # operator.conf(5): the host options and the shared KEY=value grammar they are written in.
 install -d -m 0755 %{buildroot}%{ai_mandir}/man5
 install -m 0644 src%{ai_mandir}/man5/operator.conf.5        %{buildroot}%{ai_mandir}/man5/operator.conf.5
@@ -287,6 +290,11 @@ done
 install -d -m 0755 %{buildroot}%{ai_libdir}/agents.d
 install -d -m 0755 %{buildroot}%{ai_libdir}/integrations.d
 install -d -m 0755 %{buildroot}%{ai_libdir}/session-env.d
+# Contributed ai-tools-admin command domains, keyed by name the same way: admin-commands.d/<name>,
+# an executable ai-tools-admin execs after checking that it and this directory are root-owned and
+# not group- or other-writable. Base owns the directory and does not put a file in it; each
+# provider package ships the domain named for itself.
+install -d -m 0755 %{buildroot}%{ai_libdir}/admin-commands.d
 # Token-saving command-filter rule sets, keyed by name the same way: filters.d/<name>.rules. Base
 # owns the directory and ships core.rules, the set every host gets; a package with commands of its
 # own ships one beside it. An agent's filter hook reads them through filters.lib.sh.
@@ -327,7 +335,7 @@ install -m 0440 src%{_sysconfdir}/sudoers.d/ai-tools %{buildroot}%{_sysconfdir}/
 
 # ── base: host-config template. The @PROJECTS_USER@ token stays literal at build (the
 #    operator is a runtime identity), so stage the template with OPERATORS emptied;
-#    `ai-tools-admin operator add` fills it in place. %config(noreplace) keeps the
+#    `ai-tools-admin operators add` fills it in place. %config(noreplace) keeps the
 #    operator's OPERATORS/SKIP_* edits across upgrades. ──
 install -d -m 0755 %{buildroot}%{_sysconfdir}/ai-tools
 sed 's/^OPERATORS=.*/OPERATORS=""/' src%{_sysconfdir}/ai-tools/operator.conf \
@@ -338,7 +346,7 @@ chmod 0644 %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 # Staged here, shipped in the ai-tools-selinux subpackage (which also carries the load/unload
 # scriptlets and the GPL licence text -- see its %%package block).
 # The core (loaded on install) plus each STABLE optional group. Only stable groups ship
-# prebuilt: they are toggled per host with `ai-tools-admin selinux enable-group <name>`,
+# prebuilt: they are toggled per host with `ai-tools-admin selinux groups enable <name>`,
 # which semodule-loads the prebuilt .pp from this directory (no source tree or
 # selinux-policy-devel needed). EXPERIMENTAL groups are NOT shipped -- they are compiled and
 # verified from a source checkout on demand (install-selinux.sh enable-group + the avc loop);
@@ -409,10 +417,9 @@ find %{buildroot}%{_datadir}/ai-tools/subagents %{buildroot}%{_datadir}/ai-tools
 for h in ai-tools-launcher-symlink ai-tools-relabel-agent ai-tools-bootstrap; do
     install -m 0750 src%{ai_libexecdir}/${h}.sh %{buildroot}%{ai_libexecdir}/${h}
 done
-# ai-tools-bootstrap is administrator-typed (documented as a bare command); symlinked in
-# %{_sbindir} so `sudo ai-tools-bootstrap` resolves via secure_path, mirroring
-# ai-tools-admin in the base subpackage.
-ln -s %{ai_libexecdir}/ai-tools-bootstrap %{buildroot}%{_sbindir}/ai-tools-bootstrap
+# All three are reached at their %{ai_libexecdir} paths and do not get a %{_sbindir} symlink,
+# because an administrator does not type any of them: provisioning is
+# `sudo ai-tools-admin system bootstrap`, which execs the helper there.
 install -m 0550 src/opt/ai-tools/bin/nvm-update.sh %{buildroot}/opt/ai-tools/bin/nvm-update.sh
 
 # ── integration-nodejs: toolchain update units + post-upgrade relabel watcher ─
@@ -425,17 +432,17 @@ install -m 0644 src%{_userunitdir}/nvm-update.timer     %{buildroot}%{_userunitd
 install -m 0644 src%{_unitdir}/ai-tools-relabel.path    %{buildroot}%{_unitdir}/ai-tools-relabel.path
 install -m 0644 src%{_unitdir}/ai-tools-relabel.service %{buildroot}%{_unitdir}/ai-tools-relabel.service
 
-# ── integration-dotnet: session-env fragment + manifest + provisioning helper ─
-# The .NET SDK/runtime is the host's; this ships only the sandbox-side glue. The env fragment
-# (session-env.d) and manifest (integrations.d) drop into the base-owned dirs; the ai-tools-dotnet
-# helper is administrator-typed, so it gets a %{_sbindir} symlink like ai-tools-bootstrap/-admin.
+# ── integration-dotnet: session-env fragment + manifest + admin command ──────
+# The .NET SDK/runtime is the host's; this ships only the sandbox-side glue. Every file drops into
+# a base-owned directory: the env fragment (session-env.d), the manifest (integrations.d), and the
+# command fragment carrying this package's `dotnet` domain of ai-tools-admin (admin-commands.d),
+# whose basename is the domain token an administrator types.
 install -m 0644 src%{ai_libdir}/session-env.d/dotnet.env.sh %{buildroot}%{ai_libdir}/session-env.d/dotnet.env.sh
 install -m 0644 src%{ai_libdir}/integrations.d/dotnet.conf  %{buildroot}%{ai_libdir}/integrations.d/dotnet.conf
 # Its command-filter rules (SDK verbosity), which are .NET knowledge and so ship with the .NET
 # package rather than in the base's core.rules.
 install -m 0644 src%{ai_libdir}/filters.d/dotnet.rules      %{buildroot}%{ai_libdir}/filters.d/dotnet.rules
-install -m 0750 src%{ai_libexecdir}/ai-tools-dotnet.sh         %{buildroot}%{ai_libexecdir}/ai-tools-dotnet
-ln -s %{ai_libexecdir}/ai-tools-dotnet %{buildroot}%{_sbindir}/ai-tools-dotnet
+install -m 0750 src%{ai_libdir}/admin-commands.d/dotnet.sh  %{buildroot}%{ai_libdir}/admin-commands.d/dotnet
 # Ghost this helper's operation log alongside the base helpers' (the /var/log/ai-tools dir itself
 # is base-owned), so it carries the package's context and is removed with the package.
 touch %{buildroot}/var/log/ai-tools/dotnet.log
@@ -532,7 +539,7 @@ chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 # keep_existing semantics), so a fresh install or upgrade self-heals a missing guard while an
 # existing -- possibly operator-customised -- file is never clobbered. This runs on every
 # transition, not fresh-install only, so a file lost to an earlier package's config handling is
-# restored. No operator is bound yet at %post time (that is `ai-tools-admin operator add`, run
+# restored. No operator is bound yet at %post time (that is `ai-tools-admin operators add`, run
 # after this), so the .gitconfig email uses the hostname -f fallback.
 if [ ! -f /opt/ai-tools/.gitignore ]; then
     install -m 0640 -o root -g ai-tools \
@@ -559,7 +566,7 @@ fi
 # AI_TOOLS_ASSUME_YES answers the update confirm here rather than letting it fall through to its
 # default. The outcome is the same either way -- the default IS yes, and a scriptlet has no tty to
 # answer with -- but the prompt is written to /dev/tty, which succeeds when dnf runs on a terminal,
-# so without this the operator is shown a question that nothing can answer and that is then decided
+# so without this the operator is shown a question that no one can answer and that is then decided
 # without them. Pre-answering skips drawing it, and the decision audits as `assume-yes` rather than
 # `default`, which is what actually happened. It cannot widen anything: the variable fast-tracks a
 # question whose default is already yes and never flips a default-NO one (see msg.lib.sh).
@@ -570,19 +577,40 @@ for kind in skills subagents; do
     [ -d %{_datadir}/ai-tools/${kind} ] && command -v bash >/dev/null 2>&1 || continue
     AI_TOOLS_ASSUME_YES=1 bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools ai-tools ${kind}; ai_tools_remove_retired_assets /opt/ai-tools ${kind}; ai_tools_link_asset_readme %{_datadir}/ai-tools/${kind}/README.md /opt/ai-tools/${kind} ai-tools" 2>/dev/null || :
 done
-# Operator binding + toolchain are per-operator / network steps a scriptlet must not do; direct
-# the operator to them. ai-tools-bootstrap installs the Node toolchain; ai-tools-admin operator
-# add binds an operator (OPERATORS list + ai-ops membership + linger + allowlist seed).
-cat <<'EOF'
-ai-tools-base installed. To finish setup:
-  sudo ai-tools-bootstrap                      # install nvm + Node + Claude Code (network)
-  sudo ai-tools-admin operator add <your-user> # bind an operator (ai-ops, OPERATORS, linger)
-EOF
-# operator.conf is %config(noreplace): an edited file is kept and this version's copy is parked as
-# .rpmnew. rpm's own warning names that file but not what to do with it, and ignoring it costs
-# silently -- an option this version adds simply never appears on the host.
+# Direct the operator to the per-operator / network steps a scriptlet must not take itself.
+# Each is gated on the state it would create rather than on install-vs-upgrade, so an upgrade
+# names only what this host still owes, a step undone since an earlier run included. An operator
+# is two facts -- ai-ops membership and a name in OPERATORS (cli.rule.md) -- so either one
+# missing asks for `operators add`, which writes both. OPERATORS ships holding the literal
+# @PROJECTS_USER@ token, which the name-character class excludes. A gate that cannot read its
+# input prints its hint.
+_at_toolchain=1
+_at_operator=1
+_at_merge=0
+if [ -d /opt/ai-tools/.nvm ]; then
+    _at_toolchain=0
+fi
+if [ -n "$(getent group ai-ops 2>/dev/null | cut -d: -f4)" ] \
+   && grep -Eq '^[[:space:]]*OPERATORS[[:space:]]*=[[:space:]]*"?[A-Za-z0-9_]' \
+        /etc/ai-tools/operator.conf 2>/dev/null; then
+    _at_operator=0
+fi
+# operator.conf is config(noreplace), so an edited file is kept and this version's copy parked as
+# .rpmnew. Ignoring it costs silently: an option this version adds never reaches the host.
 if [ -f /etc/ai-tools/operator.conf.rpmnew ]; then
-    echo "  sudo ai-tools-admin postupgrade              # operator.conf.rpmnew is waiting"
+    _at_merge=1
+fi
+if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ]; then
+    echo "ai-tools-base: steps this host still needs:"
+    if [ "${_at_toolchain}" = 1 ]; then
+        echo "  sudo ai-tools-admin system bootstrap          # install nvm + Node + Claude Code (network)"
+    fi
+    if [ "${_at_operator}" = 1 ]; then
+        echo "  sudo ai-tools-admin operators add <your-user> # bind an operator (ai-ops, OPERATORS, linger)"
+    fi
+    if [ "${_at_merge}" = 1 ]; then
+        echo "  sudo ai-tools-admin system post-upgrade       # operator.conf.rpmnew is waiting"
+    fi
 fi
 
 %preun -n ai-tools-base
@@ -647,13 +675,13 @@ fi
 %post -n ai-tools-selinux
 # Load the core module into the RUNNING policy and apply contexts. Core only -- the stable
 # optional groups ship prebuilt alongside it but stay OFF, toggled per host with
-# `ai-tools-admin selinux enable-group <name>` (experimental groups are not shipped).
+# `ai-tools-admin selinux groups enable <name>` (experimental groups are not shipped).
 #
 # `semodule -i` loads into the RUNNING policy, not just the module store: the entrypoint is
 # labelled by the restorecon below only once the module's types exist in the kernel, and
 # ai-tools-run's preflight refuses to launch (`mislabel`) while it is unlabelled. The default
 # module priority puts this in the same slot selinux/install-selinux.sh and `ai-tools-admin
-# selinux enable-group` address, so one host holds one copy of each module and a package upgrade
+# selinux groups enable` address, so one host holds one copy of each module and a package upgrade
 # always supersedes what it replaces.
 #
 # After relabelling the daemon binary, refresh an already-active handback socket (an upgrade): the
@@ -665,7 +693,7 @@ fi
 #
 # A failed load is REPORTED rather than swallowed: every type the entrypoint and the project
 # labels name comes from this module, so a load that did not happen surfaces later as a relabel
-# that cannot register its rules and a launch that fail-closes, with nothing naming this as the
+# that cannot register its rules and a launch that fail-closes, with no message naming this as the
 # cause. The transaction still completes -- the remedy is a re-run, not a rollback.
 if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/null 2>&1; then
     _semodule_error=$(semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp 2>&1) || {
@@ -685,7 +713,7 @@ fi
 
 %postun -n ai-tools-selinux
 # On final erase only, unload every loaded ai_tools module -- the core, any stable optional group
-# enabled with `ai-tools-admin selinux enable-group`, and any EXPERIMENTAL group compiled from a
+# enabled with `ai-tools-admin selinux groups enable`, and any EXPERIMENTAL group compiled from a
 # source checkout. Enumerated rather than named: a .pp is erased with the package, but the
 # compiled module persists in the policy store until removed, and a module built from source was
 # never in the rpm database at all. Leaving one loaded would keep a domain alive for files the
@@ -700,7 +728,7 @@ fi
 # enabled in the sandbox account's own instance by ai-tools-bootstrap, which is where that
 # instance is brought up with linger -- a scriptlet cannot reliably reach it.
 %systemd_post ai-tools-relabel.path
-# Create the updater's last-run stamp (%ghost, so rpm owns the path but ships no content). The
+# Create the updater's last-run stamp (%ghost, so rpm owns the path without shipping content). The
 # state directory is root-owned and not group-writable on purpose, so nvm-update.sh can only
 # REWRITE this inode, never create it -- which is exactly what keeps the surface to one file. Owned
 # by the sandbox account (the writer) with group ai-ops (the readers). Idempotent; an existing
@@ -730,26 +758,30 @@ systemctl start ai-tools-relabel.path 2>/dev/null || :
 
 %post -n ai-tools-integration-dotnet
 # Create + SELinux-label the sandbox-side dotnet dirs (writable NuGet cache, read-only shared
-# tools) the session-env fragment relies on. Offline + idempotent; the helper recognizes a host
+# tools) the session-env fragment relies on. Offline + idempotent; the command recognizes a host
 # with no enforcing ai-tools policy and skips labelling there rather than failing. Not the network
-# tool install -- that stays the operator's `sudo ai-tools-dotnet install-tools`.
+# tool install -- that stays the operator's `sudo ai-tools-admin dotnet tools install`.
+#
+# The command fragment is exec'd at its own path rather than through ai-tools-admin: this package
+# ships it, so its presence is what the guard tests, and the dispatch would add a discovery step
+# to reach a file already known here.
 #
 # The failure is NOT swallowed: a half-provisioned integration that looks installed surfaces later
-# as an opaque denial inside a confined session. The helper logs the cause (journald +
+# as an opaque denial inside a confined session. The command logs the cause (journald +
 # /var/log/ai-tools/dotnet.log) and the scriptlet reports the remedy and exits non-zero, so rpm
 # records a scriptlet failure against this package alone -- the transaction still completes, which
 # is what a weakly-pulled optional integration should do to the rest of the stack.
-if [ -x %{ai_libexecdir}/ai-tools-dotnet ]; then
-    %{ai_libexecdir}/ai-tools-dotnet setup >/dev/null || {
+if [ -x %{ai_libdir}/admin-commands.d/dotnet ]; then
+    %{ai_libdir}/admin-commands.d/dotnet bootstrap >/dev/null || {
         echo "ai-tools-integration-dotnet: provisioning failed; see 'journalctl -t ai-tools-dotnet'" >&2
-        echo "ai-tools-integration-dotnet: fix the cause and re-run: sudo ai-tools-dotnet setup" >&2
+        echo "ai-tools-integration-dotnet: fix the cause and re-run: sudo ai-tools-admin dotnet bootstrap" >&2
         exit 1
     }
 fi
 
 %post -n ai-tools-agents-claude-code-restricted
 # Register this agent's SELinux entrypoint file-context and label whatever it matches. The base
-# policy names no agent (see selinux/policy/ai_tools.fc): the pattern comes from this package's
+# policy is agent-agnostic (see selinux/policy/ai_tools.fc): the pattern comes from this package's
 # own manifest, and the helper maps it to the base's ai_tools_exec_t as a local rule, so a
 # session's domain transition fires. Offline and idempotent; it no-ops when SELinux or the
 # ai_tools module is inactive, and when the toolchain is not provisioned yet (a fresh install --
@@ -766,7 +798,7 @@ fi
 if [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
     AI_TOOLS_ENTRYPOINT_PIN_REUSE=1 %{ai_libexecdir}/ai-tools-relabel-agent >/dev/null || {
         echo "ai-tools-agents-claude-code-restricted: entrypoint labelling failed; see 'journalctl -t ai-tools-relabel-agent'" >&2
-        echo "ai-tools-agents-claude-code-restricted: fix the cause and re-run: sudo ai-tools --relabel" >&2
+        echo "ai-tools-agents-claude-code-restricted: fix the cause and re-run: sudo ai-tools-admin system entrypoints relabel" >&2
         exit 1
     }
 fi
@@ -785,13 +817,13 @@ for kind in skills:skills subagents:agents; do
 done
 # settings.json is %config(noreplace), so a host that tuned its permission rules keeps them and rpm
 # parks this version's copy as .rpmnew. Choosing between the two is the operator's call, made
-# through `ai-tools-admin postupgrade` -- a scriptlet does not edit a config file. Say so here,
+# through `ai-tools-admin system post-upgrade` -- a scriptlet does not edit a config file. Say so here,
 # because leaving it costs silently: a hook this version ships installs its body and its data, and
-# nothing invokes it until its DECLARATION reaches settings.json.
+# no event invokes it until its DECLARATION reaches settings.json.
 if [ -f /opt/ai-tools/.claude/settings.json.rpmnew ]; then
     echo "ai-tools: settings.json.rpmnew is waiting -- this version's hook declarations are not in"
     echo "  your settings.json yet, so the hooks they declare never run. Merge them with:"
-    echo "    sudo ai-tools-admin postupgrade"
+    echo "    sudo ai-tools-admin system post-upgrade"
 fi
 
 %preun -n ai-tools-agents-claude-code-restricted
@@ -838,6 +870,7 @@ fi
 %{_sbindir}/ai-tools
 %attr(0644, root, root) %{ai_mandir}/man1/ai-tools.1*
 %attr(0644, root, root) %{ai_mandir}/man5/operator.conf.5*
+%attr(0644, root, root) %{ai_mandir}/man8/ai-tools-admin.8*
 %attr(0750, root, ai-tools) %{ai_bindir}/ai-tools-handback-client
 %dir %attr(0751, root, ai-tools) %{ai_libdir}
 %attr(0644, root, root) %{ai_libdir}/log.lib.sh
@@ -862,6 +895,7 @@ fi
 %dir %attr(0755, root, root) %{ai_libdir}/agents.d
 %dir %attr(0755, root, root) %{ai_libdir}/integrations.d
 %dir %attr(0755, root, root) %{ai_libdir}/session-env.d
+%dir %attr(0755, root, root) %{ai_libdir}/admin-commands.d
 %dir %attr(0755, root, root) %{ai_libdir}/filters.d
 %attr(0644, root, root) %{ai_libdir}/filters.d/core.rules
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/ai-tools-run
@@ -871,7 +905,7 @@ fi
 %{_presetdir}/85-ai-tools.preset
 # Plain %config (replace on upgrade), NOT noreplace: the file is host-identical by
 # construction (@SANDBOX_*@ substituted to the constant ai-tools at %build, %ai-ops literal),
-# so it carries no operator config to preserve. Replace guarantees the guardrail -- including
+# so it does not hold operator config to preserve. Replace guarantees the guardrail -- including
 # the sudoers path of the root relabel-agent rule -- always matches the shipped version instead
 # of drifting under noreplace: on the unmodified host rpm sees on-disk == prior-packaged and
 # replaces silently; on a hand-edited host it parks the old file as .rpmsave (ignored by sudo,
@@ -935,7 +969,6 @@ fi
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-launcher-symlink
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-relabel-agent
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-bootstrap
-%{_sbindir}/ai-tools-bootstrap
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/nvm-update.sh
 # The updater's last-run stamp: rewritten by nvm-update.sh on every exit, read by
 # `ai-tools --status` (the base's state directory above owns the placement). Owned by the sandbox
@@ -952,8 +985,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/session-env.d/dotnet.env.sh
 %attr(0644, root, root) %{ai_libdir}/integrations.d/dotnet.conf
 %attr(0644, root, root) %{ai_libdir}/filters.d/dotnet.rules
-%attr(0750, root, root) %{ai_libexecdir}/ai-tools-dotnet
-%{_sbindir}/ai-tools-dotnet
+%attr(0750, root, root) %{ai_libdir}/admin-commands.d/dotnet
 %ghost %attr(0600, root, root) /var/log/ai-tools/dotnet.log
 
 %files -n ai-tools-agents
@@ -984,23 +1016,104 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Sat Sep 05 2026 dagnode <tools@dagnode.com> - 0.15.0-1
+- CHANGED: The ai-tools-admin commands are spelled as a resource grammar, so the names an
+  administrator types are 'operators add <user>', 'operators remove <user>', 'operators'
+  (which lists them), 'selinux groups', 'selinux groups enable <name>', 'selinux groups
+  disable <name>', and 'system post-upgrade'. The old spellings -- operator add, selinux
+  list-groups, selinux enable-group, selinux disable-group, postupgrade -- are gone and are
+  not aliased. Update any script, cron job or runbook that calls them. What each command does
+  is unchanged.
+- CHANGED: The entrypoint reconcile is now 'sudo ai-tools-admin system entrypoints relabel'.
+  'ai-tools --relabel' is gone and is not aliased; running it prints the new command and exits 2.
+  Update any script, cron job or runbook that calls it. What the command does is unchanged: it
+  verifies each agent binary against the checksum its vendor signed, pins the result, then
+  restores the SELinux label. The command moved because it runs as root, and root commands live on
+  ai-tools-admin.
+- CHANGED: Provisioning is now 'sudo ai-tools-admin system bootstrap'. The standalone
+  'ai-tools-bootstrap' command is gone and is not aliased, and its /usr/sbin symlink goes with it.
+  Update any script, kickstart or runbook that calls it -- the %post banner and the install
+  output already print the new spelling. What the command does is unchanged, including the
+  AI_TOOLS_NVM_VERSION and AI_TOOLS_NODE_MAJOR settings it reads and its re-run after enabling
+  another agent. A host installed from source keeps the old /usr/sbin/ai-tools-bootstrap symlink
+  until it is removed by hand; an RPM upgrade removes it.
+- CHANGED: The dotnet integration is administered through 'sudo ai-tools-admin dotnet <verb>':
+  'dotnet bootstrap' (was 'ai-tools-dotnet setup'), 'dotnet tools install <pkg...>' (was
+  'install-tools'), and 'dotnet status'. The standalone 'ai-tools-dotnet' command is gone and is
+  not aliased, and its /usr/sbin symlink goes with it, so ai-tools and ai-tools-admin are the only
+  two commands this stack puts on your PATH. Update any script or runbook that calls it. What each
+  command does is unchanged, including the journal tag and log file it writes
+  ('journalctl -t ai-tools-dotnet', /var/log/ai-tools/dotnet.log). A host installed from source
+  keeps the old /usr/sbin/ai-tools-dotnet symlink and the helper it points at until both are
+  removed by hand; an RPM upgrade removes them.
+- NEW: An installed provider package can add its own command domain to ai-tools-admin, which is
+  how 'dotnet' arrives above. 'ai-tools-admin --help' lists the domains this host has, each with a
+  line describing it, and every domain answers its own --help. Installing a package is what makes
+  its commands exist -- enabling the provider in operator.conf is a separate question, and still
+  decides what a session gets.
+- NEW: A contributed command is checked before it runs, and every check refuses rather than
+  guesses. It and its directory must be root-owned and writable by neither group nor other, and one
+  file failing that refuses every contributed command on the host: only root may write there, so a
+  file that is not root's alone is one something else can rewrite between runs. A packaged command
+  installs in the correct state, so the remedy is to reinstall the package owning it ('rpm -qf'
+  names it) and find out how the file changed -- not to re-permission it in place. Each command
+  must also declare the domain it is installed as, the least ai-tools-admin interface version it
+  needs, and the verbs it answers; one claiming a name ai-tools-admin already uses is refused
+  rather than merged. Writing an integration of your own: the declaration is three comment lines,
+  documented in .claude/rules/providers.rule.md, and a floor of 1.0 stays valid for every
+  ai-tools-admin that implements 1.x.
+- NEW: 'sudo ai-tools-admin system bootstrap --scope full' provisions the toolchain and then runs
+  the setup of every integration enabled in operator.conf, so a host that also runs .NET is
+  provisioned in one command. A bare 'system bootstrap' is unchanged and still does the minimum
+  that works: the toolchain and the enabled agents.
+- CHANGED: The %ai-ops sudoers drop-in is down to two rules, the session lifecycle: launch a
+  session, and stop every session. The passwordless rule for the relabel helper is removed, so an
+  operator without a general sudo grant can launch and stop sessions, and cannot run the
+  reconcile by hand. Nothing else changes for them: the post-upgrade relabel still runs on its own
+  through the root-side watcher and the agent package's install scriptlet.
+- NEW: 'ai-tools-admin --help' and '-h' print the command summary, and '--version' prints the
+  installed version. The tool previously answered a wrong command with a one-line error and had
+  no way to show its surface at all. Both answer any caller rather than only root, so any
+  account can read what the tool does without sudo.
+- NEW: ai-tools-admin(8) documents every command, its arguments, the exit codes and the files
+  each one touches, with worked examples, 'system entrypoints relabel' among them.
+  'man ai-tools-admin'.
+- CHANGED: A rejected command line exits 2 rather than 1, so an unattended caller can tell a
+  command nobody can type correctly from an operation that ran and failed. Exit 0 and exit 1
+  keep their meanings.
+- NEW: 'sudo ai-tools-admin status' reports the same host 'ai-tools --status' does, and completes
+  the three readings an operator cannot make and sees as '?': the sandbox account's own systemd
+  --user units, read live; each agent's entrypoint pin, which lives in a directory only root can
+  enter; and the SELinux type each agent path carries. That last one is what no other command
+  gives -- 'ai-tools --status' reports what the last relabel achieved, which may be hours old,
+  while this reports the label on the file now, so a label that has drifted since is visible
+  without running the reconcile. It reads the labels and does not relabel, it does not take an
+  argument, and it exits non-zero when something needs attention, so it runs from a monitor or a
+  cron job without parsing its output.
+- CHANGED: 'sudo ai-tools --status' now resolves the sandbox account's systemd --user units live
+  instead of reporting them from their last-run stamp, so root sees the same verdicts either way.
+  Run as yourself the command is unchanged. A live reading only ever adds an answer: a unit that
+  is stopped or failed is reported as such outright, while one that is running is still checked
+  against its last-run stamp, so a timer that is loaded but has stopped firing still reports
+  STALE rather than OK.
+
 * Mon Aug 31 2026 dagnode <tools@dagnode.com> - 0.14.0-1
 - NEW: 'ai-tools --project-create <path>' creates a project: one directory, an empty git
   repository, a README.md naming it, then the ordinary claim on the result. It was an alias for
   --project-claim, which refuses a path that does not exist, so the one thing its name promised was
-  the one thing it could not do. It asks nothing it can answer for itself -- no proceed
+  the one thing it could not do. It does not ask what it can answer for itself -- no proceed
   confirmation, no secret scan and no git-history question over a tree it just created -- which
-  leaves the traverse grant as the only prompt, and it takes no -y because there is nothing to
-  pre-answer. A path that already exists and a parent that does not are each refused, naming the
-  command that applies.
-- NEW: 'ai-tools --project-remove [path]' releases a project AND deletes its directory.
-  It was an alias for --project-unclaim, so the verb named after removal removed nothing;
+  leaves the traverse grant as the only prompt, and it does not take -y, since the prompts it
+  would pre-answer are not asked. A path that already exists and a parent that does not are each
+  refused, naming the command that applies.
+- NEW: 'ai-tools --project-remove [path]' releases a project AND deletes its directory. It was an
+  alias for --project-unclaim, so the verb named after removal left the directory in place;
   --project-unclaim stays the non-destructive reversal. An exact allowlist entry is the only thing
   that authorizes a deletion -- an ancestor, a path inside a project, an unregistered path, and an
-  entry containing another claimed project are each refused -- and there is no --force. It confirms
-  twice, a default-NO prompt and a typed project name with no default at all, so nothing is deleted
-  without a terminal; only this verb's own -y pre-answers them, and -y requires an explicit path so
-  an unattended run cannot delete the directory it started in.
+  entry containing another claimed project are each refused -- and there is no --force. It
+  confirms twice, a default-NO prompt and a typed project name with no default at all, so a
+  deletion needs an operator at the prompt; only this verb's own -y pre-answers them, and -y
+  requires an explicit path so an unattended run cannot delete the directory it started in.
 - FIX: --project-create now produces a project the agent can actually read on a host whose umask is
   077. The directory, the README and .git were born owner-only, which the claim that follows
   honours as a deliberate seal and skips -- so the verb registered a project whose README the agent
@@ -1016,8 +1129,8 @@ fi
 - NEW: 'ai-tools --project-disable [path]' parks a claimed project and '--project-enable [path]'
   brings it back. Parking takes a project out of service without unclaiming it: no session starts
   there and the ownership handback stops restoring files written under it, while group ownership,
-  ACLs, setgid and the SELinux label are untouched -- so re-enabling grants nothing that was not
-  already granted. The line is edited in place, so an allowed-projects you keep as an ordered,
+  ACLs, setgid and the SELinux label are untouched -- so re-enabling leaves access exactly as it
+  was. The line is edited in place, so an allowed-projects you keep as an ordered,
   commented document comes back byte-identical after a park and a restore. --project-disable
   refuses a project nested inside another, since that line would be indistinguishable from a
   carve-out withholding a subtree, and --project-enable refuses a carve-out for the same reason.
@@ -1042,7 +1155,7 @@ fi
   warning, and the claim still reported "claimed" over a project the agent cannot enter. It now
   reports what is still pending and exits non-zero. The first failure also asks once, default NO,
   whether to attempt the remaining steps, instead of costing three password prompts per step on a
-  host where sudo caches no credential.
+  host where sudo does not cache credentials.
 - FIX: --project-unclaim reports when the filesystem hand-back did not run, and exits non-zero.
   That step is what revokes the agent's access to the FILES; everything else the verb does is
   registry work, so an unclaim that under-applied told the operator access was removed while the
@@ -1052,11 +1165,12 @@ fi
 - FIX: A claim over a tree the resolved operator does not own is refused before its first registry
   write, naming the chown that makes it claimable. 'mkdir ~/proj && ai-tools --project-claim --for
   svc ~/proj' is the common way to reach that state: every inode failed the helpers' owner guard,
-  so the claim applied its registries and its label, granted nothing, and finished with a check
-  mark over a project that account cannot enter.
+  so the claim applied its registries and its label, did not grant any access, and finished with
+  a check mark over a project that account cannot enter.
 - FIX: The setgid and ACL walks report how many paths they skipped because a third party owns them,
   with the project root stated in its own words -- every directory below an unreachable root
-  inherits nothing, so that case is the outcome of the whole claim rather than one skipped path.
+  inherits neither the group nor the ACL, so that case is the outcome of the whole claim rather
+  than one skipped path.
 - FIX: Claiming a project for a secondary operator, and every 'ai-tools --project-claim --for
   <operator>', now applies the SELinux label. The label step read a single operator's
   allowlist -- the primary's -- and refused a path absent from it, so on an enforcing host the
@@ -1078,7 +1192,7 @@ fi
   as ABSENT, at random, and more often the more modules a host has. That silently cost an entrypoint
   relabel its file-context registration and the dotnet integration its label step. Five probes
   carried the fault; all five are fixed, and the same shape was costing the container test suite
-  red runs on a man-page check that had nothing wrong with it.
+  red runs on a man-page check that was correct.
 - CHANGE: An unattended entrypoint reconciliation answers from the pin already on disk when the
   installed version, the binary's bytes and every verification input are unchanged. A single dnf
   upgrade could otherwise re-fetch and re-verify the vendor's signed manifest several times, which
@@ -1088,7 +1202,7 @@ fi
 - FIX: A package upgrade reports honestly what it did with the shipped skills and agents. The four
   withdrawn documentation skills were reported "up to date" and retired seconds later in the same
   transaction, "seeded (vN)" carried the previous asset's version rather than the new one, and the
-  update question was drawn on dnf's terminal where nothing could answer it. No host ends an
+  update question was drawn on dnf's terminal, where no one could answer it. No host ends an
   upgrade in a different state; what an operator is shown while it happens is now correct.
 - CHANGE: The first-run screen an agent shows in a directory it cannot work in states each choice
   once, leads with the action rather than the refusal, and says which option does not start a
@@ -1109,7 +1223,7 @@ fi
   unclaim is --project-claim run again, not --reclaim -- and states which routes into the tree a
   release actually closes, in the order that matters. The README leads with the --project-create
   one-liner and keeps --project-claim beside it.
-- Upgrading from 0.13.x needs no action beyond dnf.
+- Upgrading from 0.13.x requires only dnf.
 
 * Sat Aug 29 2026 dagnode <tools@dagnode.com> - 0.13.0-1
 - CHANGE: "Operator" now names exactly two facts -- membership of ai-ops and a name in OPERATORS,
@@ -1117,9 +1231,9 @@ fi
   this project never writes, records, or infers: the host's own sudoers decides it. An account
   holding only the two is a first-class operator -- it launches sessions and has projects claimed
   for it with --for -- rather than a half-configured one. The requirement that follows is now
-  stated: a host needs at least one operator holding a general grant, or nothing can be claimed on
-  it by any principal, root included. Nothing changes on an existing host; what changes is that a
-  refusal now says which of the three you are missing.
+  stated: a host needs at least one operator holding a general grant, or no project on it can be
+  claimed by any principal, root included. Nothing changes on an existing host; what changes is
+  that a refusal now says which of the three you are missing.
 - NEW: A verb whose root helper you hold no sudo grant for is refused BEFORE sudo asks for a
   password. sudo authenticates before it decides whether a rule matches, so a restricted operator
   was made to authenticate and then turned away, for a decision that was knowable without asking.
@@ -1128,9 +1242,9 @@ fi
   cannot read falls through to sudo, so nobody loses a command they do hold the grant for.
 - NEW: Root may run the commands that write no operator-owned state -- --audit, --status, --list,
   --providers and --stop. --audit needs root by construction (its trail is 700 root:root) and was
-  unreachable from both sides on a host whose only operator holds no general grant. Every command
-  that writes a registry still refuses root, since a registry owned by root names an operator whose
-  own launch gate cannot read it.
+  unreachable from both sides on a host whose only operator does not hold a general grant. Every
+  command that writes a registry still refuses root, since a registry owned by root names an
+  operator whose own launch gate cannot read it.
 - NEW: 'ai-tools --stop' runs with no password in its bare form, so a service that detects a session
   which must end immediately can escalate to a full stop with nobody present. A control unattended
   monitoring cannot exercise is unavailable during exactly the incidents it exists for. The grant is
@@ -1138,8 +1252,8 @@ fi
   work with it) and --dry-run still prompt. It now also works on a host that is unprovisioned or
   that enables an agent other than Claude Code -- a stop must not depend on what it is stopping.
 - FIX: 'sudo ai-tools --stop', the form 0.12.0 documented, was refused on every host: --stop sat in
-  the set of verbs the CLI refuses root for, though it writes no operator state. Run it as yourself
-  -- 'ai-tools --stop' -- and root may now run it too.
+  the set of verbs the CLI refuses root for, though it does not write any operator state. Run it
+  as yourself -- 'ai-tools --stop' -- and root may now run it too.
 - NEW: 'install.sh --operator <account>' names the account to enrol instead of silently adopting
   SUDO_USER, and an interactive install asks. Root, the sandbox account, an unknown name and a name
   with no home are each refused by one rule whichever route the name arrived by, so an unattended
@@ -1177,13 +1291,13 @@ fi
   produced a plausible-looking claim of whatever repository you were standing in -- observed live.
   A path you named now passes through as typed.
 - FIX: 'ai-tools-admin operator add' read a sudo that failed for its own reasons -- an unreachable
-  sudoers backend, a host that refuses -l -- as proof the account holds no grant, sending an
+  sudoers backend, a host that refuses -l -- as proof the account does not hold a grant, sending an
   administrator to a --for workflow they did not need. It now reports "undetermined" unless a
   second probe confirms sudo is answering at all.
 - FIX: ai-tools(1) documents the exit codes it returns, including the three specific to --stop, and
   both man pages follow the shipped man-page guideline (ENVIRONMENT, EXAMPLES, and the lifecycle
   guide cited at the path the package installs it to).
-- Upgrading from 0.12.x needs no action beyond dnf, with one exception: shipped skills and agents
+- Upgrading from 0.12.x requires only dnf, with one exception: shipped skills and agents
   seeded before this release move on the next INTERACTIVE './install.sh install' or
   'sudo ai-tools-bootstrap', not on the dnf upgrade itself.
 
@@ -1203,7 +1317,7 @@ fi
   later, and 'npm install -g' does not reinstall an unchanged version, so such a change would
   otherwise persist across every session and operator. The signing key ships in the package rather
   than being fetched, and the pin is written automatically by the watcher that already relabels
-  entrypoints: nothing to maintain per release. Requires gnupg2 (gpgv).
+  entrypoints, so a release does not add any maintenance step. Requires gnupg2 (gpgv).
 - NEW: 'ai-tools --status' shows that verification per agent: VERIFIED with the pinned version and
   how long ago, or unverified. It is the only window an operator has onto it, the entrypoint itself
   living in a toolchain they cannot read. Unverified counts against the exit status only where
@@ -1216,16 +1330,16 @@ fi
   is also how to pin one on a DAC-only host, or on a host the watcher was offline for. An
   unreachable vendor is not an error; only a mismatch fails the command.
 - NEW: 'sudo ai-tools --audit [--since <when>]' reads back what has refused, been rejected, been
-  stranded or been flagged. These detections were already being recorded and nothing read them,
-  each landing in a root-only file or a journald tag someone had to think to query. It exits
+  stranded or been flagged. These detections were already being recorded; what they lacked was a
+  reader, each landing in a root-only file or a journald tag someone had to think to query. It exits
   non-zero when anything is reported, so it runs from cron or a login banner without parsing its
   output. Launch refusals are reported separately, since those lines come from the sandbox account
   itself and are for reconciling against the root-only trail rather than relying on alone. Window
   defaults to 7 days; a --since date(1) cannot parse is refused rather than read as "everything".
 - NEW: Every tool call a session makes is recorded where the agent can append but neither edit nor
   delete -- 'journalctl -t ai-tools-hook _UID="$(id -u ai-tools)"', or '-o json' for structured
-  fields. The session's own transcript is agent-owned, so after an incident there was nothing
-  independent to reconcile it against; now there is a record of what ran and what was written. Each
+  fields. The session's own transcript is agent-owned, so after an incident no independent record
+  existed to reconcile it against; now there is a record of what ran and what was written. Each
   record is bounded on purpose: for a shell command, its first two words and word count, never the
   command line -- a here-doc body or a credential in an argument never reaches the journal.
 - NEW: 'ai-tools --for <operator>' claims projects on behalf of another enrolled operator, so a
@@ -1239,7 +1353,7 @@ fi
 - NEW: Sandboxed agents now carry a shared standard for building and operating systems that act
   with autonomy -- what constrains a system, what watches it, and what a human does when a
   threshold is crossed -- which also binds the agent's own conduct in the sandbox. Seeded with the
-  other shipped skills; nothing to configure.
+  other shipped skills; it is ready to use as seeded.
 - FIX: On a DAC-only host, launch verified one path and started another: it checked the resolved
   entrypoint but handed systemd the launcher symlink, leaving the preflight as a window in which
   that link could be repointed. It now resolves once, uses that single path for both, and re-checks
@@ -1256,9 +1370,10 @@ fi
 * Tue Aug 18 2026 dagnode <tools@dagnode.com> - 0.11.1-1
 - FIX: A toolchain update that could not reach the npm registry failed with an empty journal and
   left ai-tools --status reporting FAILED until the next day's window. It now says what it could
-  not reach, reads SKIPPED instead (nothing changed; STALE after 48 hours if it persists), and
-  retries every 30 minutes for up to 6 hours. The daily window moved to 07:55 local time, and it
-  and the tracked Node LTS series are overridable with 'systemctl --user -M ai-tools@.host edit'.
+  not reach, reads SKIPPED instead (the toolchain is unchanged; STALE after 48 hours if it
+  persists), and retries every 30 minutes for up to 6 hours. The daily window moved to 07:55 local
+  time, and it and the tracked Node LTS series are overridable with 'systemctl --user -M
+  ai-tools@.host edit'.
 
 * Tue Aug 18 2026 dagnode <tools@dagnode.com> - 0.11.0-1
 - NEW: ai-tools --status is a single health report for the pieces a session depends on: the
@@ -1281,7 +1396,7 @@ fi
   flag and a default, with the prompts kept as the interactive fallback, and the confirm previews
   the exact git commands. The branch may be any valid git ref and now defaults to
   sandbox/<name-of-source> (previously ai-tools/sandbox-<owner>/<leaf>); the name is convention
-  only -- nothing parses it -- so no behaviour depends on the change.
+  only -- no code parses it -- so no behaviour depends on the change.
 - NEW: ai-tools --project-unclaim --force releases a copy of a claimed project -- one moved or
   copied elsewhere that still carries the ai-tools group and ACLs but that no allowlist names. It
   changes only paths that still carry ai-tools access; --dry-run, --full and --group support
@@ -1294,7 +1409,7 @@ fi
   deliberate choice from a leftover -- with the chmod g-s that clears it.
 - NEW: ai-tools --list flags more kinds of inconsistent allowlist entry under Suggested cleanup,
   each with a copy-paste fix: a glob written in an allow line (globs work only in '!' exclusion
-  lines, so a glob allow entry silently matches nothing), a stale '!' exclusion whose path no
+  lines, so a glob allow entry silently fails to match), a stale '!' exclusion whose path no
   longer exists, and a git safe.directory entry that no allowlist line lists. The report stays
   read-only.
 - NEW: AI_TOOLS_REQUIRE_SELINUX=yes in operator.conf lets an operator require SELinux confinement:
@@ -1333,7 +1448,7 @@ fi
   refuses a directory that is neither a claimed project nor an ancestor of claimed ones, refuses a
   protected system directory up front, and hands ownership back before dropping the allowlist entry
   -- previously it could drop the entry first and leave the tree in the agent's group, releasing
-  nothing. --sandbox-remove and the per-project verbs likewise refuse a target that is not a
+  the entry alone. --sandbox-remove and the per-project verbs likewise refuse a target that is not a
   recognized sandbox clone or claimed project, so a mistyped path cannot delete or re-permission
   the wrong tree.
 - FIX: ai-tools --list is reliable on a hand-edited allowlist. An entry written with an end-of-line
@@ -1347,8 +1462,8 @@ fi
   entrypoint is re-labelled automatically after a Node toolchain upgrade. Without it a launch after
   an upgrade could fail closed on a mislabelled binary until you ran ai-tools --relabel by hand.
 - FIX: Upgrading the ai-tools-selinux policy refreshes the running handback socket's SELinux label,
-  so ownership hand-back keeps working immediately after the upgrade instead of silently doing
-  nothing until the next reboot.
+  so ownership hand-back keeps working immediately after the upgrade instead of silently failing
+  until the next reboot.
 - FIX: The toolchain updater could abort silently, leaving nvm-update.service failed with an empty
   journal and Node and the agent packages frozen at their installed versions: its logging ran as a
   bare pipeline that killed the run it was reporting, before the line explaining why was written.
@@ -1361,7 +1476,7 @@ fi
 - DOCS: The README gives explicit install and upgrade commands, a working first-launch walkthrough,
   and a pre-1.0 stability notice, and the project-lifecycle documentation spells out what a claim
   and an unclaim each do to a project's permissions.
-- Upgrading from 0.10.x needs no action beyond dnf. If you had sealed directories (0700) inside a
+- Upgrading from 0.10.x requires only dnf. If you had sealed directories (0700) inside a
   project claimed by an earlier release, re-claim it once -- ai-tools --project-claim <project> --
   to return them to your own group.
 
@@ -1377,7 +1492,8 @@ fi
 - FIX: A down handback socket is now reported instead of failing silently. The launch warns (naming
   the fix) and proceeds -- the socket restores ownership but is not a confinement boundary -- while
   the session sweeps and ai-tools --reclaim count only confirmed hand-backs and, when the socket is
-  down, report the stranded work rather than a reassuring count of calls that changed nothing.
+  down, report the stranded work rather than a reassuring count of calls that left the tree as it
+  was.
 - DOCS: The claim, unclaim, and reclaim entries in ai-tools --help and the man page now spell out
   what each does and how they differ: claim grants the agent access to a project, unclaim releases
   it (revoking that access and returning the tree to your group), and reclaim takes ownership back
@@ -1422,7 +1538,7 @@ fi
 - FIX: The source package now carries the SELinux policy sources alongside the compiled modules, so
   a GPL binary is conveyed with its corresponding source (GPLv2 s.3) on every channel, including the
   offline release archive.
-- Upgrading from 0.9.x needs no action beyond dnf: the helper-path migration and the sudoers
+- Upgrading from 0.9.x requires only dnf: the helper-path migration and the sudoers
   re-point are automatic. If a host prints a relabel notice, run sudo ai-tools --relabel.
 
 * Wed Aug 05 2026 dagnode <tools@dagnode.com> - 0.9.1-1
@@ -1451,9 +1567,8 @@ fi
   confirming, writing a dated .bak first. operator.conf and the sudoers grant are reported, never
   written -- a file of commented option blocks has no merge worth learning to predict. The install
   output points here whenever a .rpmnew is waiting
-- NEW: Merge shipped hook declarations into a kept settings.json, so a new version's hook no
-  longer installs with nothing to invoke it (inline on a from-source install, through postupgrade
-  on RPM)
+- NEW: Merge shipped hook declarations into a kept settings.json, so a new version's hook arrives
+  with the declaration that invokes it (inline on a from-source install, through postupgrade on RPM)
 - NEW: Report the options a kept KEY=value config has not seen (inline on a from-source install,
   through postupgrade against operator.conf.rpmnew on RPM)
 - NEW: Add the shared config backup and baseline-copy layer to the from-source installer --
@@ -1492,7 +1607,7 @@ fi
   explanation precedes the skip question, an already-loaded group is reported (and can be
   recompiled from source rather than offered for re-enable), and the summary lists every loaded
   group
-- Upgrading from 0.8.1 needs no action beyond dnf. Command filtering arrives ON for a host whose
+- Upgrading from 0.8.1 requires only dnf. Command filtering arrives ON for a host whose
   operator.conf predates AI_TOOLS_FILTERS; set AI_TOOLS_FILTERS="" to opt out.
 - For .NET workloads on an enforcing host, enable the optional groups they need: tmpmap
   (restore/build), apphost (build an executable or host project), and netcore (test and run); all
@@ -1519,11 +1634,11 @@ fi
   core module and any loaded optional group -- and, when the dotnet integration is enabled under
   enforcing but tmpmap is not loaded, names the enable command instead of letting the build fail
   with an opaque EACCES.
-- Upgrading from 0.8.0 needs no action beyond dnf. A DAC-only host is unchanged; on an enforcing
+- Upgrading from 0.8.0 requires only dnf. A DAC-only host is unchanged; on an enforcing
   host, dotnet builds now require enabling the tmpmap group once, as above.
 
 * Tue Jul 28 2026 dagnode <tools@dagnode.com> - 0.8.0-1
-- The stack is multi-agent: nothing in ai-tools-base names an agent. Which agents exist, what
+- The stack is multi-agent: no file in ai-tools-base names an agent. Which agents exist, what
   each provisions, where it keeps its config directory, which binary the SELinux domain
   transition keys on, which side converges file ownership, and where it reads skills and
   subagents all come from per-package manifests under /usr/local/lib/ai-tools/agents.d. A second
@@ -1544,19 +1659,19 @@ fi
   authored and updated once however many agents read it, while an agent-specific one is a real
   file the linker never displaces. Adding one: /usr/share/ai-tools/skills/README.md.
 - Each integration keeps its sandbox-side state under /opt/ai-tools/integrations/<name>, covered
-  by a single base-owned SELinux rule, so an integration package carries no file-context rules
-  of its own and adds no directory to the sandbox home.
+  by a single base-owned SELinux rule, so an integration package does not carry file-context
+  rules of its own and does not add a directory to the sandbox home.
 - ai-tools-integration-dotnet integrates a host-managed .NET toolchain (no runtime packaged, no
   dotnet RPM dependency, inert without one): DOTNET_ROOT, a sandbox-writable NuGet cache, and the
   admin-provisioned shared tools on PATH. Provision with sudo ai-tools-dotnet setup /
   install-tools. Pulled as a dnf weak dependency, so it installs by default and removes cleanly.
   Known limitation on an SELinux-enforcing host: the SDK cannot restore or build, because NuGet
-  mmaps a shared-memory file under /tmp and the sandbox domain holds no map permission on its own
-  tmp files. Running a prebuilt assembly works, as does a DAC-only host; the policy grant is
+  mmaps a shared-memory file under /tmp and the sandbox domain does not hold map permission on
+  its own tmp files. Running a prebuilt assembly works, as does a DAC-only host; the policy grant is
   planned for 0.8.1.
 - New command: ai-tools --providers reports the installed agents and integrations, which of them
   a session gets, and why -- including any input refused as untrusted.
-- Upgrading from 0.7.0 needs no action beyond dnf, but five things moved. dnf handles the first;
+- Upgrading from 0.7.0 requires only dnf, but five things moved. dnf handles the first;
   the rest are stale copies worth deleting once:
     /etc/sudoers.d/ai-tools-claude   is now /etc/sudoers.d/ai-tools (removed on upgrade)
     ai-tools-claude-symlink          is now ai-tools-launcher-symlink
@@ -1605,7 +1720,7 @@ fi
 * Fri Jul 17 2026 dagnode <tools@dagnode.com> - 0.6.2-1
 - Fixed: release RPMs are correctly GPG-signed on EL10. The 0.6.0 and 0.6.1 el10
   packages shipped unsigned -- rpm's sign command ran gpg with a stray argument and
-  signed nothing. Reinstall with gpgcheck after importing RPM-GPG-KEY-dag-node.
+  produced an unsigned package. Reinstall with gpgcheck after importing RPM-GPG-KEY-dag-node.
 - Signing is now mandatory: the release proves the whole key/passphrase/sign/verify
   chain on a throwaway package before building or publishing, so a broken signing
   toolchain fails the release instead of shipping unsigned packages.

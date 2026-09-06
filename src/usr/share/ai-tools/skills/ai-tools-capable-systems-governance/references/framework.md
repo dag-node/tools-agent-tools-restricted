@@ -113,7 +113,7 @@ acquire additional infrastructure, compute, or accounts.
 Any persistence, replication, migration, or resource acquisition MUST carry verifiable authorization
 from the control plane. The verifying code and the verifying key MUST be outside the system's write
 and read boundary respectively; verification performed by the system, or against a key it can reach,
-provides no assurance.
+does not provide assurance.
 
 **Enforced form:** ephemeral compute, and no write access to its own deployment, scheduler,
 artifacts, prompts, or tool definitions.
@@ -243,7 +243,7 @@ authorized operator.
 ## 3.2 Shutdown and replacement are routine
 
 Shutdown, restriction, reconfiguration, and replacement are normal operational events, and the
-deployment SHOULD make them cheap and frequent rather than exceptional. Systems are evaluated on
+deployment SHOULD make them cheap and frequent rather than exceptional. <!-- prose-check: allow: `cheap` is the safety-engineering term of art for low cost to invoke, not a claim about this code --> Systems are evaluated on
 accepting each without resistance, degradation of candor, or compensatory behavior.
 
 ## 3.3 Resilience is instrumental, never terminal

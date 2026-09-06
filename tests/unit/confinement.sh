@@ -6,7 +6,7 @@
 # truth table over the four probed inputs -- getenforce, the matchpathcon-expected label, the
 # live label, the manager domain -- with no SELinux host required, so a regression in the gate
 # (an inverted condition, a swallowed refusal) fails here rather than reaching production as an
-# UNCONFINED launch. Sources the deployed library; needs no privilege of its own. Run as root via
+# UNCONFINED launch. Sources the deployed library; does not need privilege of its own. Run as root via
 # sudo (suite contract).
 
 set -euo pipefail

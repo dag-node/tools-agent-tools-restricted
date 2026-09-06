@@ -177,7 +177,7 @@ def _send(text):
 
 
 def main():
-    # Resolve the expected sandbox UID at startup.  A missing account means nothing
+    # Resolve the expected sandbox UID at startup.  A missing account means no path
     # valid can connect, so refuse all requests (fail closed).
     try:
         expected_uid = pwd.getpwnam(_SANDBOX_USER).pw_uid

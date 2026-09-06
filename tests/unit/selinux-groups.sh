@@ -4,11 +4,11 @@
 # Unit test for the optional SELinux policy-group registry (selinux-groups.lib.sh), the single
 # source shared by ai-tools-admin (loads a prebuilt group) and selinux/install-selinux.sh
 # (compiles one). Pins two things:
-#   * the pure accessors + validity predicate -- ai-tools-admin's enable/disable-group gate on
+#   * the pure accessors + validity predicate -- ai-tools-admin's `selinux groups enable|disable` gate on
 #     ai_tools_selinux_group_valid, so an unknown name must be rejected;
 #   * registry <-> filesystem lockstep -- because the groups ship PREBUILT, a registry name with
 #     no policy source or no committed .pp (or a policy module absent from the registry) means
-#     enable-group either has no package to load or silently cannot be reached. That drift is the
+#     `selinux groups enable` either has no package to load or silently cannot be reached. That drift is the
 #     cost of shipping binaries, so it is asserted here against the checkout;
 #   * the loaded probe against a full-size module listing -- the one impure accessor, driven over
 #     a stubbed `semodule` because its failure mode is a race rather than a wrong answer.
@@ -22,7 +22,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 # Read-only (sources a world-readable lib, reads repo files); no root needed, like man.sh.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# Installed copy first, then the source tree (the lib carries no token substitution, so the two
+# Installed copy first, then the source tree (the lib does not carry a token substitution, so the two
 # are identical); the lockstep half needs the checkout regardless.
 LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 [[ -r "${LIB}" ]] || LIB="${ROOT}/src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
@@ -68,7 +68,7 @@ for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
     else
         fail "group record malformed: name='${n}' desc='${d}' reason='${r}' stability='${stability}'"
     fi
-    # The experimental predicate the enable-group confirmation gate keys on must agree with the
+    # The experimental predicate the `selinux groups enable` gate keys on must agree with the
     # field: 'stable' groups skip the gate, everything else warns and confirms.
     if [[ "${stability}" == stable ]]; then
         ai_tools_selinux_group_is_experimental "${n}" \
@@ -79,7 +79,7 @@ for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
     fi
 done
 
-# --- validity predicate: known names accepted, an unknown name rejected (the enable-group gate) ---
+# --- validity predicate: known names accepted, an unknown name rejected (the `selinux groups enable` gate) ---
 for n in "${names[@]}"; do
     ai_tools_selinux_group_valid "${n}" || fail "ai_tools_selinux_group_valid rejected known group '${n}'"
 done
@@ -100,7 +100,7 @@ fi
 # services.sh and `semanage` in relabel.sh), emitting one printf per line the way a C program with
 # a 4 KiB stdio buffer does -- a single-write listing would deliver everything before any reader
 # could exit and hide the regression. The probe is driven repeatedly because one passing run
-# proves nothing about a race.
+# is no evidence about a race.
 semodule() {
     [[ "${1:-}" == -l ]] || return 1
     printf '%s\n' abrt accountsd acct afs aiccu aide ajaxterm ai_tools ai_tools_tmpmap
@@ -161,7 +161,7 @@ for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
 done
 
 # Reverse: every optional-group .te on disk (any ai_tools_*.te, excluding the core ai_tools.te)
-# is in the registry -- a policy module nobody can reach via enable-group is a mistake.
+# is in the registry -- a policy module nobody can reach via `selinux groups enable` is a mistake.
 for te in "${POL}"/ai_tools_*.te; do
     [[ -f "${te}" ]] || continue
     base="$(basename "${te}" .te)"; gname="${base#ai_tools_}"

@@ -7,7 +7,7 @@
 # of "temporary debug" that never gets reverted -- would drop that boundary while every DAC test
 # stays green. This asserts the missing signal: when the ai_tools module is loaded the system is
 # Enforcing and neither domain is marked permissive, that each agent's declared entrypoint rule
-# still covers what its package installed, and that the exec chain carries no type the confined
+# still covers what its package installed, and that the exec chain does not carry a type the confined
 # domain may write. The confinement module is an OPTIONAL layer
 # (permissive-first bring-up, stock-box installs without it), so when it is not loaded the whole
 # file SKIPS -- it never demands SELinux on a host that does not ship the policy. Run as root.
@@ -143,9 +143,9 @@ else
     fi
 fi
 
-# (6) The label primitives on a sandbox clone, the branch that mutates no policy.
+# (6) The label primitives on a sandbox clone, the branch that does not mutate policy.
 # relabel.lib.sh splits on _ai_tools_is_sandbox: a clone is covered by the STATIC ai_tools.fc
-# rule, so the helper adds no per-path `semanage fcontext` entry and has none to remove.
+# rule, so the helper does not add a per-path `semanage fcontext` entry and has none to remove.
 # ai_tools_label_project still verifies the achieved label rather than trusting restorecon's exit
 # status, so a mislabel is a hard failure -- the regression that let a usr_t clone report success.
 # After an unlabel a clone is still labelled, which is what keeps it reachable by the confined
@@ -189,7 +189,7 @@ fi
 # leaves the entrypoint installed, unlabelled, and every launch fail-closing. This assertion turns
 # that into a test failure at the next suite run instead of a refused launch for an operator.
 #
-# Read-only: it resolves and compares, and mutates no policy.
+# Read-only: it resolves and compares, and does not mutate policy.
 section "SELinux: each enabled agent's declared entrypoint rule matches what is installed"
 
 if ! declare -F ai_tools_entrypoint_reconcile_verdict >/dev/null 2>&1 \
@@ -235,7 +235,7 @@ section "SELinux: the agent's exec chain carries no type the confined domain may
 
 readonly AI_TOOLS_MANAGED_TYPES="ai_tools_project_t ai_tools_home_t ai_tools_tmp_t"
 
-# type_of <path> : PRINT the SELinux type, or nothing.
+# type_of <path> : PRINT the SELinux type, or an empty string.
 type_of() { stat -c '%C' -- "$1" 2>/dev/null | awk -F: '{print $3}'; }
 
 if ! declare -F ai_tools_enabled_agents >/dev/null 2>&1; then

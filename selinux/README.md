@@ -22,7 +22,7 @@ underneath — both layers must allow an access.
 The core module ships **prebuilt** (`ai_tools.pp`) and **enforcing**, so a normal
 install loads it with no toolchain. A missing transition **fails closed**: if an agent's
 entrypoint loses its label (a Node upgrade before the relabel lands), `ai-tools-run` refuses to
-launch rather than start an unconfined session, and names `ai-tools --relabel` as the fix. The
+launch rather than start an unconfined session, and names `ai-tools-admin system entrypoints relabel` as the fix. The
 layer as a whole is still optional — a host that never installs the module runs DAC-only, which
 the launch preflight recognises and allows.
 
@@ -74,9 +74,9 @@ surface for tasks that reach into system context, all **disabled by default**:
 core and load on any installed host with no toolchain:
 
 ```bash
-sudo ai-tools-admin selinux list-groups
-sudo ai-tools-admin selinux enable-group tmpmap
-sudo ai-tools-admin selinux disable-group tmpmap
+sudo ai-tools-admin selinux groups
+sudo ai-tools-admin selinux groups enable tmpmap
+sudo ai-tools-admin selinux groups disable tmpmap
 ```
 
 **Experimental** groups are unaudited drafts: their rule set has not been verified under
@@ -145,7 +145,7 @@ sudo bash selinux/avc/avc-analyze.sh  # splits denials into NEW vs EXPECTED BOUN
 ```
 
 `avc-testsuite.sh` **aborts unless it is running in `ai_tools_t`** — running it
-unconfined would log nothing and the empty result would look like success. It
+unconfined would log no denial and the empty result would look like success. It
 writes a start marker (`selinux/avc/.avc-last-run`); `avc-analyze.sh` reads it so
 `ausearch -ts` starts at exactly the right instant. The analyzer classifies each
 denial: **EXPECTED BOUNDARY** ones (the `user_home_t` / `config_home_t` /
@@ -243,7 +243,7 @@ user's home, container storage, a non-`http` port, the MTA) and confirms each is
 refused.
 
 The catch: the boundary accesses are `dontaudit`'d, so under enforcing they are
-blocked **silently** — `ausearch` shows nothing and an empty log looks like the
+blocked **silently** — `ausearch` reports an empty result and that looks like the
 probe never ran. So the run-mode half brackets the probe with `semodule -DB` …
 `semodule -B`, which disables/re-enables dontaudit **system-wide** for the window,
 making those denials visible. A trap restores dontaudit on any exit, including
@@ -268,7 +268,7 @@ GROUP-DISABLED** (only an optional group would allow them — `enable-group <nam
 *not* a core change), and **NEW** (a real gap to review). Group-surface denials
 (`rpm_exec_t`, `systemd_systemctl_exec_t`, `firewalld_t`, …) land in the second
 bucket instead of being misreported as NEW. A clean verification shows entries in
-the two EXPECTED buckets and **nothing** under NEW or "ran (group enabled?)".
+the two EXPECTED buckets and **no entry** under NEW or "ran (group enabled?)".
 
 ## After a Node upgrade
 
@@ -277,9 +277,9 @@ A freshly installed `claude.exe` is mislabelled (`bin_t`), so the
 it refuses to launch rather than run unconfined — so a mislabelled entrypoint keeps the
 agent safe while it waits to be relabelled.
 
-The daily `nvm-update` timer relabels the new entrypoint automatically: after delegating the
-sandbox update it runs `ai-tools-relabel-agent` as root (a dedicated NOPASSWD rule).
-That helper names no agent — for each enabled agent it applies the entrypoint file-context that
+The daily `nvm-update` timer relabels the new entrypoint automatically: the repoint it makes
+triggers the root-side `ai-tools-relabel.path` watcher, which runs `ai-tools-relabel-agent` as root.
+That helper is agent-agnostic — for each enabled agent it applies the entrypoint file-context that
 agent's own manifest declares (`entrypoint_fcontext`, mapped to the `ai_tools_exec_t` this module
 defines), `restorecon`s every binary it matches, and verifies the type. So a normal upgrade keeps
 the agent confined across version bumps with no manual step, and a second agent is labelled by
@@ -289,7 +289,7 @@ Relabel by hand only if you upgraded Node some other way, or if the timer's rela
 (`ai-tools-run` will be refusing to launch and pointing you here):
 
 ```bash
-ai-tools --relabel
+sudo ai-tools-admin system entrypoints relabel
 ```
 
 To re-apply **all** labels after changing the policy (entrypoint + home-state + every

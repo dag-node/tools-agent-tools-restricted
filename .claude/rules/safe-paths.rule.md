@@ -58,7 +58,7 @@ work without a carve-out.
 
 A second predicate, for a strictly weaker operation, single-sourced here and used by `reg_reach`
 (via `grantable_ancestor`) and by both new project verbs through it. It returns 0 when `<path>` is
-a directory `<owner>` holds and it either matches no protected path **or** matches only as
+a directory `<owner>` holds and it either does not match any protected path **or** matches only as
 `<owner>`'s own home root — resolved from `getent`, so a path that merely looks like `/home/<name>`
 is not admitted on its shape. Every system directory, `/home` itself, and any other account's home
 root stay refused, as does a missing path, a non-directory, or an unnamed owner.
@@ -67,13 +67,13 @@ root stay refused, as does a missing path, a non-directory, or an unnamed owner.
 size of the operation is the whole justification. A claim, an unclaim, a lockdown or an elevated
 walk rewrites group, mode and ACLs across a **tree**, and `ai_tools_protected_path_match` still
 refuses a home root as the target of any of them. A traverse grant is one `u:SANDBOX_USER:--x`
-entry on **one directory**: search permission on that directory alone, conveying no listing of it
-and nothing whatever about the files inside, whose own modes and ACLs still decide — and the
+entry on **one directory**: search permission on that directory alone, which permits traversal and
+neither a listing of it nor any access to the files inside, whose own modes and ACLs still decide — and the
 sandbox account is neither their owner nor in their group. Reusing the target backstop for it made
 every project at `/home/<user>/<proj>` report permanently unreachable, with a sandbox clone the
 only way in.
 
-What the grant conveys is therefore a **condition**, not exposure: it makes already-world-readable
+The grant therefore creates a **condition**, not exposure: it makes already-world-readable
 entries *reachable*. Under `umask 077` that set is empty; under the RHEL default `022` it is the
 `644` skel files and anything else written world-readable. Which of those a host is has a one-line
 answer, so the prompt states the condition and names `find <home> -maxdepth 1 -perm -o+r` rather
@@ -116,10 +116,10 @@ launch wrapper (matching its `die`); a load failure (below) uses the same codes.
 
 **`ai-tools-stop` is not a consumer, and the reason is instructive.** It loaded this library while
 it took a per-project target, to vet that caller-supplied path — advisorily, since it only
-*selected processes* by the path and never wrote to it. It now takes no path at all: what it
+*selected processes* by the path and never wrote to it. It does not take a path at all: what it
 terminates is decided by cgroup-slice membership, so there is no caller-supplied path to vet and
 the library is not loaded. A helper comes into scope here by *taking an argument that names a
-path*, which is the same rule that keeps `ai-tools-dotnet` out.
+path*, which is the same rule that keeps the `dotnet` admin command out.
 [docs/session-stop.md](../../docs/session-stop.md).
 
 ## Load failure fails closed
@@ -134,8 +134,8 @@ broken or mis-permissioned install yields a refusal, not an unguarded operation.
   the likely cause (an untraversable lib dir, a missing or unreadable lib), then exit (`1` for
   the wrapper's `die`, `3` for the CLI), so an operator reads why the launch or claim stopped.
 The backstop guards *caller-supplied* paths, so it scopes to the helpers that take one. A root
-helper whose targets are fixed literals compiled into it — `ai-tools-dotnet`, which only ever
-touches only its own `/opt/ai-tools/integrations/dotnet` tree — has no path to validate and does not
+command whose targets are fixed literals compiled into it — `ai-tools-admin dotnet`, which only
+ever touches its own `/opt/ai-tools/integrations/dotnet` tree — has no path to validate and does not
 load the library; giving a helper an argument that names a path is what brings it into scope here.
 
 - **Root helpers** bare-`source` the library under `set -e`: an unreadable lib aborts the
@@ -150,7 +150,7 @@ rationale is single-sourced here, and each consumer carries a one-line pointer t
 ## Design notes
 
 - **Deployed `644 root:root`**, world-readable like `msg.lib.sh`/`log.lib.sh`: the operator
-  wrapper, the CLI, and the root helpers read one list; it carries no secrets. The lib directory
+  wrapper, the CLI, and the root helpers read one list; it does not carry any secrets. The lib directory
   `/usr/local/lib/ai-tools` is `0751 root:SANDBOX_GROUP`, so an operator who is not a
   `SANDBOX_GROUP` member (the multi-operator default) traverses in to source the `644` libs by
   path without listing the directory — the world-execute bit is what makes the world-readable

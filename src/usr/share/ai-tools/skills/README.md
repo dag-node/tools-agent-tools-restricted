@@ -19,8 +19,8 @@ copy is ever forked per agent — `tests/integration/perms.sh` fails if one is.
 
 1. Create `src/usr/share/ai-tools/skills/ai-tools-<name>/SKILL.md` with the frontmatter below (copy a
    sibling; the `ai-tools-` prefix is the shipped namespace and must match the `name:` field).
-2. Reinstall (`sudo ./install.sh install`) or `sudo ai-tools-bootstrap`. The skill is seeded into
-   `/opt/ai-tools/skills/` and linked into each agent's own skills directory.
+2. Reinstall (`sudo ./install.sh install`) or `sudo ai-tools-admin system bootstrap`. The skill is
+   seeded into `/opt/ai-tools/skills/` and linked into each agent's own skills directory.
 3. Invoke it in a session as `/ai-tools-<name>`.
 
 ```yaml
@@ -51,7 +51,7 @@ root. A real directory always wins: the linker never displaces one, so a name th
 exactly as you left it. This is also how an agent-specific *override* of a shared skill works —
 same name, real directory, no link. (The one thing that is converted to a link is an
 `x-ai-tools-managed` copy that is byte-identical to the shared skill: that is the project's own
-copy from the older per-agent layout, so nothing is lost. An edited one is kept.)
+copy from the older per-agent layout, so no content is lost. An edited one is kept.)
 
 ## Versioning: stable name, RFC-draft frontmatter
 
@@ -60,11 +60,17 @@ above, in the RFC-draft form every shipped asset shares — `x-ai-tools-managed`
 marker (this one is maintained by the project), `x-ai-tools-status` the lifecycle stage (`draft`
 while it is still being refined), and `x-ai-tools-version` a monotonic integer.
 
-Bump `x-ai-tools-version` and set `x-ai-tools-updated` whenever you change a shipped skill. On the
-next install or bootstrap a newer version is **offered** as an update (default: keep, so Enter
-leaves your copy as it is) and an unchanged one is a quiet no-op. One version is installed at a
-time, so the stable name always resolves to the current text and cross-references between skills
-never churn.
+A shipped skill takes one version bump per release in which it changed, along with a new
+`x-ai-tools-updated`. On the next install or bootstrap a newer version prompts, **defaulting to
+update**: Enter takes the new text, and so does any run without a terminal — an RPM scriptlet
+included. An unchanged version is a quiet no-op. One version is installed at a time, so the stable
+name always resolves to the current text and cross-references between skills never churn.
+
+**To keep an edit of your own across upgrades, delete the `x-ai-tools-managed: true` line.** The
+seeder claims only a file carrying that marker, so one without it is yours and is left alone
+(reported as `kept (operator's own, not ai-tools-managed)`). Editing a managed copy in place
+instead means the next release replaces it, and no copy of the old text is kept — answering `n`
+at the prompt defers that, it does not settle it.
 
 ## Your own skills stay yours
 

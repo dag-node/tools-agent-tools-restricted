@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Shared base recipe for the EL (Rocky/RHEL) ai-tools RPM test image. All the common build/test
 # logic lives here, parameterized by the EL base image; the per-distro files (Rocky9.Containerfile,
-# Rocky10.Containerfile) are thin pins over the image this builds, so nothing below is repeated.
+# Rocky10.Containerfile) are thin pins over the image this builds, so no line below is repeated.
 # Rocky 9/10 minimal both ship microdnf and the same package names installed below, so this recipe
 # builds unchanged across them.
 #
@@ -51,7 +51,7 @@ ARG RPM_RELEASE=""
 # rpm-sign + gnupg2 are baked in here, NOT dnf-installed at sign time: the release workflow
 # runs sign-rpms.sh in this image with the signing key in the environment, and no package
 # scriptlet may ever execute while that secret is present.
-# Nothing below comes from the `extras` repo; disable it so a flaky refresh can't abort the install.
+# No package below comes from the `extras` repo; disable it so a flaky refresh can't abort the install.
 RUN sed -i '/^\[extras\]/,/^\[/ s/^enabled=1$/enabled=0/' /etc/yum.repos.d/*.repo \
     && microdnf -y install \
         dnf rpm-build rpm-sign gnupg2 systemd-rpm-macros make sed tar gzip findutils createrepo_c \
@@ -121,8 +121,8 @@ RUN set -eux; \
 
 # A non-root login user to enrol as the operator. The NOPASSWD drop-in is TEST-ONLY: it lets
 # the unattended selftest run the operator's password-prompting sudo helpers (project claim,
-# lockdown, …). It does NOT relax the agent's confinement -- the sandbox account ai-tools holds
-# no sudo grant, which the selftest re-checks.
+# lockdown, …). It does NOT relax the agent's confinement -- the sandbox account ai-tools does
+# not hold a sudo grant, which the selftest re-checks.
 RUN useradd -m -s /bin/bash tester \
     && printf 'tester ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/zz-test-operator \
     && chmod 0440 /etc/sudoers.d/zz-test-operator

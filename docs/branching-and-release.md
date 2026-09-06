@@ -9,9 +9,9 @@ guideline on top of them.
 ## The one rule that decides everything else
 
 **The channel is a function of the tag, never of the branch.** A bare `vX.Y.Z` tag publishes to
-stable; a `vX.Y.Z-rc.N` tag publishes a GitHub prerelease; no tag publishes nothing. Branches
+stable; a `vX.Y.Z-rc.N` tag publishes a GitHub prerelease; an untagged push does not publish anything. Branches
 only decide where commits land — `develop` for integration, `main` as the last-released state.
-The publish side (`repository_dispatch` to dag-node/rpm) only ever sees the tag, so nothing else
+The publish side (`repository_dispatch` to dag-node/rpm) only ever sees the tag, so no other input
 could carry the decision.
 
 ## Flow

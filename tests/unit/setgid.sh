@@ -3,7 +3,7 @@
 # tests/unit/setgid.sh
 # Hermetic unit tests for the deployed ai-tools-setgid helper: project setgid + group
 # normalization, the secret-dir skip, and the owner guard. Installed helper against a /tmp
-# testdir with a dummy allowlist; nothing outside the testdir is touched.
+# testdir with a dummy allowlist; no path outside the testdir is touched.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -57,7 +57,7 @@ else
 fi
 
 # (A4) the owner-guard skip is REPORTED, not silent. This is the half that matters to the CLI:
-# a walk that normalized nothing must not be indistinguishable from one that had nothing to do,
+# a walk that normalized no directory must not be indistinguishable from one with no work to do,
 # which is what let a claim over a tree owned by a third party close with a clean ✓.
 if ${foreign}; then
     guard_err="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null || true)"
@@ -118,7 +118,7 @@ else
     fail "sealed dir mode is now $(perm "${p2}/sealed")"
 fi
 
-# (C2) a sealed dir takes its subtree with it -- nothing under it is normalized either.
+# (C2) a sealed dir takes its subtree with it -- no path under it is normalized either.
 if [[ "$(stat -c '%G' "${p2}/sealed/inside")" != "${SANDBOX_GROUP}" ]]; then
     pass "the subtree of a sealed dir is skipped with it"
 else
@@ -162,7 +162,7 @@ fi
 
 # ── The project root itself owned by a third party ───────────────────────────
 # (E) The case that decides whether a claim granted anything at all: every directory below an
-# unreachable root inherits nothing, so the agent cannot enter the tree. It gets its own wording
+# unreachable root inherits neither, so the agent cannot enter the tree. It gets its own wording
 # rather than folding into the count, because "1 directory skipped" reads as a detail while this
 # is the whole outcome.
 p3="${TESTDIR}/proj3"

@@ -12,7 +12,7 @@
 # themselves is never claimed or overwritten. Seeded copies are root:SANDBOX_GROUP (files 640,
 # dirs 750) in their shared root -- locked from the agent, updated only through the root-run
 # installer or `ai-tools-bootstrap`. Versioning is RFC-draft: the marker
-# `x-ai-tools-version` is a monotonic integer bumped on every change, and a newer shipped version
+# `x-ai-tools-version` is a monotonic integer bumped once per release, and a newer shipped version
 # is what drives the update offer. This file is *sourced* (never executed); its consumers
 # (install.sh, ai-tools-bootstrap) run as root and have already sourced msg.lib.sh. See
 # shipped-assets.rule.md.
@@ -60,7 +60,7 @@ _ai_tools_asset_is_retired() {
     return 1
 }
 
-# An UPDATE replaces the live copy outright and keeps no sidecar, which is not an oversight: there
+# An UPDATE replaces the live copy outright without keeping a sidecar, which is not an oversight: there
 # is no baseline to detect an edit against. The live copy is the previous version, so it differs
 # from the incoming one by definition, and the pristine datadir carries only the current version
 # (rpm has already replaced it by the time this runs). A copy-on-every-update would therefore fire
@@ -226,7 +226,7 @@ ai_tools_remove_retired_assets() {
 
 # _ai_tools_asset_is_stale_copy <shared> <live> : true when <live> is a copy this project placed
 # under the pre-shared layout and is byte-identical to <shared> -- i.e. replacing it with a link
-# loses nothing. Requires BOTH the ai-tools-managed marker (so an operator's own asset is never
+# does not discard content. Requires BOTH the ai-tools-managed marker (so an operator's own asset is never
 # touched) and identical content (so an edited or drifted copy is never discarded). Without the
 # comparison tools it answers false, keeping the copy.
 _ai_tools_asset_is_stale_copy() {
@@ -277,7 +277,7 @@ ai_tools_link_shared_assets() {
             # asset, which always wins -- or OUR copy from the layout before these assets were
             # shared, which should become a link so the shared file is the only one to maintain.
             # Convert only when it is BOTH ai-tools-managed and byte-identical to the shared
-            # copy: same provenance, nothing to lose. A managed copy that differs is left alone
+            # copy: same provenance, no content to lose. A managed copy that differs is left alone
             # and reported, because the difference is either an operator edit or version drift,
             # and this is not the place to resolve either.
             if _ai_tools_asset_is_stale_copy "${src}" "${dst}"; then

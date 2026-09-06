@@ -92,7 +92,7 @@ _ai_tools_claude_argv_has_prompt_flag() {
 # or holds text (no binary/NUL content). The custom prompt is read as text and appended to (or
 # substituted for) the model's system prompt -- it is never executed -- so the only sanity bar is
 # that it is not a binary blob whose bytes would land in the prompt. An empty file is fine: it is the
-# shipped inert default, and appending it adds nothing. `grep -I` reports a binary file as no-match.
+# shipped inert default, and appending it leaves the prompt as it was. `grep -I` reports a binary file as no-match.
 _ai_tools_claude_is_text_file() {
     local path="$1"
     [[ -f "${path}" ]] || return 1

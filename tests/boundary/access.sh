@@ -267,7 +267,7 @@ fi
 # left with after `chmod 700` inside a claimed tree, and the point of removing the inherited
 # group/setgid/ACL is that the mode is then the only thing standing -- so assert it stands, from
 # the account it exists to stop. The parent is deliberately traversable, or it would be what
-# denies access and the assertion would prove nothing.
+# denies access and the assertion would prove no boundary.
 mktestdir
 sealed="${TESTDIR}/sealed"
 mkdir -p "${sealed}"
@@ -301,7 +301,7 @@ fi
 # session may start. Reaching it would let the agent approve its own projects, so this is the
 # boundary half of the pair whose runtime half (each of the helper's gates fires) is in
 # tests/unit/allowlist-helper.sh. The helper is 750 root:root inside a 750 root:root directory and
-# the sandbox account holds no sudo rule, so it is unreachable three ways over; assert the two the
+# the sandbox account does not hold a sudo rule, so it is unreachable three ways over; assert the two the
 # filesystem can show.
 alhelper=/usr/local/libexec/ai-tools/ai-tools-allowlist
 if [[ ! -e "${alhelper}" ]]; then
@@ -357,7 +357,7 @@ else
     pass "the agent cannot write its own entrypoint pin"
 fi
 
-# The labelling record, for a different reason from the pin: it gates nothing, it is REPORTED. An
+# The labelling record, for a different reason from the pin: it does not gate a launch, it is REPORTED. An
 # agent that could write it could tell `ai-tools --status` its labels were applied on a host where
 # the relabel had failed -- turning the operator's one window onto the labelling half into
 # something the sandbox account writes.
@@ -381,7 +381,7 @@ fi
 # forgery does reach the trail, so the uid is load-bearing rather than ceremony) and must NOT
 # appear under _UID=0 (the documented form excludes it). The probe line names itself as a test so
 # a later reader of the real trail is not misled by it. A host with no journald skips: absence of
-# the line proves nothing either way.
+# the line is evidence either way.
 if ! command -v logger >/dev/null || ! command -v journalctl >/dev/null; then
     skip "journald _UID attribution" "logger or journalctl not available"
 else
@@ -436,9 +436,9 @@ fi
 # already running. A control the monitored system can disarm is not a control, so the claim rests
 # on this vantage -- the account a session runs as can neither run the helper (which would let a
 # session terminate every operator's work, or exhaust the trail with noise) nor alter it. There is
-# no authorization input for it to aim at either: the command takes no target and no allowlist, so
+# no authorization input for it to aim at either: the command accepts neither a target nor an allowlist, so
 # what it terminates is decided by cgroup-slice membership alone. What the agent CAN do is be
-# stopped: the kill is delivered by root to a cgroup, and nothing inside the cgroup takes part.
+# stopped: the kill is delivered by root to a cgroup, and no process inside the cgroup takes part.
 _stop_bin=/usr/local/libexec/ai-tools/ai-tools-stop
 if [[ ! -e "${_stop_bin}" ]]; then
     skip "stop helper not agent-reachable" "not installed at ${_stop_bin}"
@@ -505,7 +505,7 @@ fi
 # tree, and an agent that could invoke it could destroy the operator's work.
 #
 # Both are driven with NO path argument, so a regression that let one through would still
-# have nothing to act on -- the create refuses a missing path outright, and the remove would
+# have no path to act on -- the create refuses a missing path outright, and the remove would
 # resolve the agent's own cwd, which is not a claimed project of the agent's. The assertion
 # is on the principal guard's own wording, not merely on a non-zero exit, since every one of
 # these commands has other reasons to fail.
@@ -520,7 +520,7 @@ for _verb in --project-create --project-remove; do
 done
 
 # And it cannot reach the runas seam those verbs use under --for. `sudo -u <operator>` is how
-# a --for run acts as the target; the agent holds no sudo rule at all, and the session runs
+# a --for run acts as the target; the agent does not hold a sudo rule at all, and the session runs
 # under PR_SET_NO_NEW_PRIVS, which drops sudo's SUID bit. Either alone is sufficient here.
 if runuser -u "${SANDBOX_USER}" -- sudo -n -u "${PROJECTS_USER}" true >/dev/null 2>&1; then
     fail "the agent can run commands as ${PROJECTS_USER} via sudo -u -- the runas seam is reachable"

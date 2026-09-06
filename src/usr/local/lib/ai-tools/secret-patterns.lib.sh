@@ -13,8 +13,8 @@
 # 700 .config/ai-tools dir -- can neither read nor write it; the root helpers read it on the
 # user's behalf.
 # This mirrors how allowed-projects is owned and consumed. When the file is
-# absent or yields no usable patterns, the built-in defaults below apply, so
-# classification never silently degrades to "match nothing".
+# absent or parses to an empty set, the built-in defaults below apply, so
+# classification never silently degrades to an empty pattern set.
 #
 # Config-file format: one pattern per line; '#' comments and blank lines ignored;
 # surrounding whitespace trimmed. Patterns are basename globs matched
@@ -60,7 +60,7 @@ readonly -a _AI_TOOLS_DEFAULT_SECRET_PATTERNS=(
 # overrides it (a test hook), else `<PROJECTS_HOME>/.config/ai-tools/secret-patterns` -- so a
 # caller that has resolved an operator first (ai_tools_resolve_owner for the path's owner, or
 # ai_tools_load_operator) reads that operator's file. Falls back to the built-in defaults when
-# the file is unreadable or contains no patterns. Idempotent.
+# the file is unreadable or parses to an empty set. Idempotent.
 ai_tools_load_secret_patterns() {
     AI_TOOLS_SECRET_PATTERNS=()
     local line

@@ -1,0 +1,529 @@
+.\" ai-tools-admin(8) -- host administration for Agent Tools Restricted.
+.\" Kept in sync with the helper's own usage() text by tests/unit/man.sh, which
+.\" compares the command sets of both; @AI_TOOLS_VERSION@ is substituted at
+.\" deploy time (install.sh install_subst / the RPM %prep), like the helper.
+.TH AI-TOOLS-ADMIN 8 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
+.SH NAME
+ai-tools-admin \- administer the host a sandboxed coding agent runs on
+.SH SYNOPSIS
+.B ai-tools-admin
+.I command
+.RI [ argument ]
+.br
+.B ai-tools-admin
+.BR \-\-help | \-\-version
+.SH DESCRIPTION
+.B ai-tools-admin
+administers the host state the sandbox rests on: who is enrolled as an
+operator, which optional SELinux policy groups are loaded, the toolchain the
+agents run on, which agent binary each session is allowed to start, and the
+configuration files an upgrade leaves to reconcile.
+Every command runs as root and refuses any other caller, which is what
+separates it from
+.BR ai-tools (1)
+\(em the project-lifecycle CLI, run as your own login user, which refuses root
+for every command that writes an operator's registries.
+.PP
+A command is a bare word and
+.B \-\-
+introduces an option, so a collection takes its verb after the noun
+.RB ( "operators add" ,
+.BR "selinux groups enable" ).
+A collection named on its own lists what it holds.
+A domain named on its own
+.RB ( selinux ,
+.BR system )
+prints its commands, since every verb it owns changes the host.
+.PP
+Commands that write a file back it up first, name each path they touched, and
+state each yes/no question's default in the prompt
+.RB ( "[Y/n] (default: Yes)" );
+plain Enter \(em and any run without a terminal \(em takes that default.
+.SS Operators
+An operator is a login user, a person or a rootless service account, that
+drives the sandbox through the shared
+.B ai-tools
+account.
+Enrolment writes two facts:
+a name in
+.B OPERATORS
+in
+.BR operator.conf (5),
+from which the root helpers resolve who owns a path, and membership of the
+.B ai-ops
+group, which the
+.BR sudoers (5)
+grant and the launch wrapper both gate on.
+.PP
+Claiming a project needs a third fact this command cannot write: a general
+.BR sudo (8)
+grant, which the host's own sudoers decides.
+.B "operators add"
+reports which of the two shapes the enrolment produced \(em an account that
+can claim projects as well as launch sessions, or one that launches sessions
+on projects another operator claimed for it with
+.BR "ai\-tools \-\-project\-claim \-\-for" .
+.PP
+Group membership applies to new login sessions, so an operator enrolled from
+an already-open shell starts a new one before launching an agent.
+.SS SELinux groups
+The core policy module confines every session to the
+.B ai_tools_t
+domain and covers a repository workload: files, git, HTTPS.
+The optional groups widen that domain for one workload each, are disabled by
+default, and are loaded per host.
+.B "selinux groups enable"
+loads the module the base package ships prebuilt, needing no source tree and
+no
+.BR selinux\-policy\-devel .
+.PP
+Only groups marked
+.I stable
+ship prebuilt.
+A group marked
+.I experimental
+is an unaudited draft and is refused here, with a pointer to the source
+checkout that compiles and verifies it.
+.SS The toolchain
+The agents run on a Node toolchain owned by the sandbox account, under
+.IR /opt/ai\-tools .
+.B "system bootstrap"
+installs it: the account and its home if they are absent, then nvm, Node, and
+each enabled agent's npm package.
+It is the first command to run on a new host, and the one that installs
+software over the network \(em which is why no install scriptlet runs it for
+you: a scriptlet has to succeed offline and inside a build chroot.
+.PP
+It is idempotent, so it is also the command to re-run after enabling another
+agent in
+.BR operator.conf (5):
+an existing account, nvm install or Node version is reused rather than rebuilt.
+A scheduled timer maintains the toolchain afterwards.
+.PP
+A bare run provisions the toolchain and the agents, which is what a first host
+needs.
+.B "\-\-scope full"
+goes on to run the setup of every enabled integration, each through the domain
+it contributes, so provisioning a host that also runs .NET is one command
+rather than one per layer.
+.SS Commands a provider package contributes
+.B ai-tools-admin
+ships in the base package, which is installed before a host knows which agent and
+integration packages it will add, so the command set below is not the whole
+surface.
+A provider package contributes a domain named for itself \(em an executable it
+drops in
+.I /usr/local/lib/ai-tools/admin-commands.d
+\(em and this command discovers it.
+The
+.B dotnet
+domain works this way:
+.B "dotnet bootstrap"
+creates and labels the sandbox-side .NET state,
+.B "dotnet tools install"
+adds shared global tools, and
+.B "dotnet status"
+reports the host SDKs and what the sandbox has.
+They exist on a host that installed
+.BR ai\-tools\-integration\-dotnet ,
+and not on one that did not.
+.PP
+.B \-\-help
+lists the domains this host has, with a line describing each, so what it prints
+and what dispatches are one list.
+.B "<domain> \-\-help"
+prints that domain's own commands.
+.PP
+Installing a provider is what makes its commands exist; enabling it in
+.BR operator.conf (5)
+is what gives a session the provider itself.
+.PP
+Two things are checked before any of them runs.
+A contributed command must be root-owned and writable by neither group nor
+other, as must the directory holding it; one file failing that refuses every
+contributed command, since only root may write there and a file that is not
+root's alone is one something else can rewrite between runs.
+A packaged command is installed in that state, so reinstalling the package that
+owns it \(em
+.B rpm \-qf
+names it \(em is the remedy, together with finding out how the file changed;
+re-permissioning it in place is not.
+.PP
+Each command must also declare the domain it is installed as, the least
+version of this interface it needs, and the verbs it answers.
+A file that declares none of this is not run as a command, and one needing a
+newer interface than this
+.B ai-tools-admin
+implements is refused naming both versions rather than run in a state neither
+package can explain.
+A command claiming a name this page documents is refused rather than merged.
+Every refusal is reported and leaves the command surface smaller.
+.SS Entrypoints
+An entrypoint is the agent binary a session execs.
+A toolchain update installs a fresh one, which leaves it carrying the wrong
+SELinux label, so the domain transition stops firing and the next launch
+refuses rather than running the session unconfined.
+.PP
+The reconcile that clears this runs on its own after an update, through the
+.B ai-tools-relabel.path
+watcher and the agent package's install scriptlet.
+.B "system entrypoints relabel"
+is the command an administrator runs when neither did \(em an out-of-band
+upgrade, or a watcher that was down \(em and when either
+.B status
+or
+.B "ai\-tools \-\-status"
+reports an entrypoint unverified or not labelled.
+.B status
+answers from the labels themselves, where
+.B "ai\-tools \-\-status"
+answers from the last reconciliation's record.
+.SH COMMANDS
+.TP
+.B operators
+List the enrolled operators, one per line.
+This is what a bare
+.B operators
+runs, and
+.B "operators list"
+is the same command spelled in full.
+.TP
+.B operators add \fR[\fIuser\fR]
+Enrol
+.IR user ,
+defaulting to
+.BR $SUDO_USER .
+Appends the name to
+.BR OPERATORS ,
+adds the account to
+.BR ai\-ops ,
+seeds an empty allowlist at
+.IR ~/.config/ai\-tools/allowed\-projects ,
+enables
+.BR loginctl (1)
+linger for the sandbox account, and offers to source the PATH ordering
+fragment from the account's
+.I ~/.bashrc
+and
+.IR ~/.bash_profile .
+Idempotent: a re-run reconciles each of those and reports what was already in
+place.
+Refuses root and the sandbox account.
+.TP
+.B operators remove \fIuser\fR
+Withdraw
+.IR user 's
+enrolment: drops the name from
+.B OPERATORS
+and the account from
+.BR ai\-ops .
+Leaves the account's own allowlist and configuration on disk, so re-enrolling
+restores the projects it had.
+.TP
+.B selinux groups
+Report the core module and every optional group with its state
+.RB ( [LOADED] / [disabled] ),
+its stability, and what it covers.
+Reports that there is no policy to manage when SELinux is disabled.
+.TP
+.B selinux groups enable \fIname\fR
+Load the prebuilt module for
+.IR name .
+Prints the group list when
+.I name
+is not a registered group, and refuses an
+.I experimental
+group with the source-checkout command that compiles it.
+Loading a group widens what SELinux permits and does not lift the session's
+namespace filter.
+.TP
+.B selinux groups disable \fIname\fR
+Unload the module for
+.IR name .
+Works for any loaded group, stable or experimental.
+.TP
+.B system bootstrap \fR[\fB\-\-scope full\fR]
+Provision the sandbox account and the toolchain the enabled agents run on.
+Creates the
+.B ai-tools
+account and its
+.I /opt/ai-tools
+home when they are absent, installs nvm and Node as that account, installs each
+agent enabled in
+.BR operator.conf (5),
+points each launcher at the binary it installed, and enables the update timer.
+Offers to set the sandbox account's git commit identity, keeping the seeded
+default without a terminal.
+.B Reaches the network,
+for the nvm installer and the npm packages.
+Idempotent: a re-run reuses an existing account, nvm install and Node version,
+and provisions whatever is newly enabled.
+Which agents it installs comes from
+.BR operator.conf (5)
+and the installed manifests, so it names none of them itself.
+.RS
+.TP
+.B \-\-scope \fIminimal\fB|\fIfull
+How far to provision.
+.I minimal
+\(em the default, and what a bare
+.B "system bootstrap"
+does \(em is the toolchain and the enabled agents.
+.I full
+additionally runs the
+.B bootstrap
+of every integration enabled in
+.BR operator.conf (5),
+through the domain each one contributes, so a host is provisioned end to end in
+one command.
+Each integration is attempted and every failure named before the command exits
+non-zero; an enabled integration that does not contribute a
+.B bootstrap
+is reported and skipped.
+.RE
+.TP
+.B system entrypoints relabel
+Reconcile every enabled agent's entrypoint, in two steps.
+It verifies the binary against the checksum its vendor signed and records the
+result in that agent's pin, which the launch compares the binary against; then
+it restores the entrypoint's
+.B ai_tools_exec_t
+SELinux label.
+The verification needs the host online and
+.B fails soft
+when it cannot reach the vendor, so a disconnected host still gets its label
+back; a checksum
+.B mismatch
+fails the command, an entrypoint that is not the binary its vendor published
+being a more serious finding than any label.
+This command always re-fetches the vendor's signed manifest, where the
+unattended callers may answer from an unchanged pin.
+Takes no argument: the entrypoints come from the installed agent manifests.
+See
+.I /usr/share/doc/ai\-tools/entrypoint\-verification.md
+and
+.BR operator.conf (5).
+.TP
+.B system post-upgrade
+Reconcile the
+.I <file>.rpmnew
+copies an upgrade leaves beside the configuration files this stack owns.
+Each file gets the treatment its content calls for: the agent's
+.I settings.json
+has the hook declarations it lacks merged in, with its permission rules left
+as written;
+.BR operator.conf (5)
+is reported and never rewritten;
+.I /etc/sudoers.d/ai\-tools
+is shown only.
+Every treatment shows the difference first, confirms, and writes a dated
+backup before changing anything.
+Idempotent, and a no-op when no
+.I .rpmnew
+file is waiting.
+.TP
+.B status
+Report this host's health: the installed version, whether the toolchain is
+provisioned, each managed
+.BR systemd (1)
+unit, and \(em per enabled agent \(em both halves of the entrypoint
+reconciliation: whether the binary is pinned to a checksum its vendor signed,
+and what SELinux type its paths carry.
+.RS
+.PP
+It is the same report
+.B "ai\-tools \-\-status"
+gives an operator, completed with the three readings that vantage point lacks
+the privilege for and prints as
+.BR ? :
+the sandbox account's own
+.B "systemd \-\-user"
+units, read live over the machine transport; the entrypoint pin, which sits in
+a state directory a non-operator cannot traverse; and the SELinux type each
+agent path carries, inside a toolchain only root can enter.
+Every verdict comes from the registry both reports read, so the two differ in
+what each is allowed to see and never in what either says about the same unit.
+.PP
+The label reading is the one this command alone can give.
+.B "ai\-tools \-\-status"
+reports what the last reconciliation
+.IR achieved ,
+an event that may be hours old; this reports the type the file carries now, so
+a label that has drifted since \(em an out-of-band
+.BR restorecon ,
+a package that reinstalled the binary \(em is visible without running the
+reconcile.
+.PP
+Read-only: it reads the labels and does not relabel, register a file-context
+rule, or take the policy-store lock, so it does not change the state it reports
+on.
+It does not take an argument.
+Exits non-zero when anything needs attention, so it runs from a monitor or a
+.BR cron (8)
+job without parsing its output; a reading it could not make is reported as
+.B ?
+and never counted, so an unqueryable unit does not alarm a healthy host.
+.RE
+.SH OPTIONS
+Both options read no host state and leave the host as it is, so both answer any caller
+rather than only root, and each ignores any further argument.
+.TP
+.BR \-\-help ", " \-h
+Print the command summary and exit.
+.TP
+.B \-\-version
+Print the installed version and exit.
+.SH EXIT STATUS
+.TP
+.B 0
+The command completed.
+An idempotent command that found no work left lands here, as does a
+command with no policy to manage because SELinux is disabled.
+.TP
+.B 1
+The operation failed.
+.TP
+.B 2
+The command line was rejected \(em an unknown command, a missing argument, or
+a domain named with no command after it.
+Nothing was changed.
+.SH ENVIRONMENT
+.TP
+.B AI_TOOLS_ASSUME_YES
+Set to
+.B 1
+to answer every question whose default is already
+.I yes
+without prompting, for unattended runs.
+A question defaulting to
+.I no
+still prompts, so this never turns a refusal into consent.
+.TP
+.B AI_TOOLS_NVM_VERSION
+Pin the nvm release
+.B "system bootstrap"
+installs
+.RI ( vX.Y.Z ).
+Unset, it installs the latest release, resolved at run time.
+.TP
+.B AI_TOOLS_NODE_MAJOR
+The Node major version
+.B "system bootstrap"
+installs.
+Defaults to 22.
+.PP
+Host settings are not environment variables: they live in
+.BR operator.conf (5),
+which is root-owned so that a session cannot widen what it is given.
+.SH FILES
+.TP
+.I /etc/ai-tools/operator.conf
+Operator registry and host options.
+.B operators
+edits the
+.B OPERATORS
+line in place and leaves every other setting as written.
+.TP
+.I ~/.config/ai-tools/allowed-projects
+The enrolled account's own allowlist of project paths, seeded empty by
+.BR "operators add" .
+.TP
+.I /opt/ai-tools
+The sandbox account's home, holding the nvm tree, the installed agents and the
+launchers
+.B "system bootstrap"
+points at them.
+.TP
+.I /usr/local/lib/ai-tools/admin-commands.d
+The command domains installed provider packages contribute, one executable per
+domain, named for the provider.
+.TP
+.I /usr/share/selinux/packages/ai-tools
+The prebuilt policy modules
+.B "selinux groups enable"
+loads.
+.TP
+.I /etc/sudoers.d/ai-tools
+The grant that lets an operator launch a sandboxed session.
+.B "system post-upgrade"
+shows changes to it and never writes it.
+.SH EXAMPLES
+Bring a freshly installed host up: provision the toolchain, then enrol
+yourself.
+.PP
+.RS 4
+.EX
+sudo ai\-tools\-admin system bootstrap
+sudo ai\-tools\-admin operators add "$(id \-un)"
+.EE
+.RE
+.PP
+Provision an agent you enabled after the first run \(em edit
+.B AI_TOOLS_AGENTS
+in
+.BR operator.conf (5),
+then re-run the same command:
+.PP
+.RS 4
+.EX
+sudo ai\-tools\-admin system bootstrap
+.EE
+.RE
+.PP
+Provision the toolchain and every integration enabled on this host, then see
+what the .NET one has:
+.PP
+.RS 4
+.EX
+sudo ai\-tools\-admin system bootstrap \-\-scope full
+sudo ai\-tools\-admin dotnet status
+.EE
+.RE
+.PP
+Claim a project for a passwordless service account you enrolled earlier:
+.PP
+.RS 4
+.EX
+sudo ai\-tools\-admin operators add svc\-agent
+ai\-tools \-\-project\-claim \-\-for svc\-agent ~/src/myproject
+.EE
+.RE
+.PP
+See which policy groups are loaded, then widen the domain for a .NET build:
+.PP
+.RS 4
+.EX
+sudo ai\-tools\-admin selinux groups
+sudo ai\-tools\-admin selinux groups enable tmpmap
+.EE
+.RE
+.PP
+Reconcile the configuration files an upgrade left behind:
+.PP
+.RS 4
+.EX
+sudo ai\-tools\-admin system post\-upgrade
+.EE
+.RE
+.PP
+Put the agent entrypoints back in order after a toolchain update, when a launch
+refuses over the label:
+.PP
+.RS 4
+.EX
+sudo ai\-tools\-admin system entrypoints relabel
+.EE
+.RE
+.SH SEE ALSO
+.BR ai\-tools (1),
+.BR operator.conf (5),
+.BR semodule (8),
+.BR sudoers (5).
+.PP
+Running one sandbox for several operators \(em what each account gets, and
+what stays private to it:
+.I /usr/share/doc/ai\-tools/multi\-operator.md
+.PP
+How an entrypoint is verified against its vendor's signed release, what the pin
+holds, and what a launch does with each outcome:
+.I /usr/share/doc/ai\-tools/entrypoint\-verification.md

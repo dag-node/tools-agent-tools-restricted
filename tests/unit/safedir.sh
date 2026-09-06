@@ -5,7 +5,7 @@
 # adds at project claim and removes at unclaim, its idempotency, the allowlist gate on add, and
 # the root:SANDBOX_GROUP 644 it leaves behind. Runs the installed helper against a /tmp testdir
 # with a dummy allowlist (AI_TOOLS_ALLOWLIST) and a fixture gitconfig (AI_TOOLS_GITCONFIG); reads
-# and writes nothing outside the testdir.
+# and does not write a path outside the testdir.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"

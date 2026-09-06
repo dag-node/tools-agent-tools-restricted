@@ -53,8 +53,8 @@ fi
 readonly TARGET REMOVE FROM_CWD
 
 # Operator-identity resolver (operator.lib.sh): on ADD, confirms an operator's allowlist covers
-# the path. A missing lib leaves ai_tools_resolve_owner a fail-closed stub, so an ADD finds no
-# owner and leaves the file untouched.
+# the path. A missing lib leaves ai_tools_resolve_owner a fail-closed stub, so an ADD leaves the owner
+# unresolved and the file untouched.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
@@ -96,8 +96,8 @@ _listed() {
         | grep -qxF "$1"
 }
 
-# _confirm_cwd <question>: a shared-confirm gate (default yes -- registering safe.directory is a
-# restrict-nothing convenience) that fires only when the path was defaulted from the current
+# _confirm_cwd <question>: a shared-confirm gate (default yes -- registering safe.directory is an
+# additive change to git's trust list) that fires only when the path was defaulted from the current
 # directory AND a terminal is present, so a bare interactive `sudo ai-tools-safedir` confirms
 # before registering/dropping cwd. When an explicit path was given (the tooling passes one) or
 # the run is non-interactive, it is a no-op, which keeps the helper from double-prompting after

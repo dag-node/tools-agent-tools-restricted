@@ -17,7 +17,7 @@
 #
 # --selftest builds a disposable package, signs it, and verifies it through the identical code
 # path, so the release workflow can prove the key, passphrase, rpmsign, and verification all
-# work in this exact container BEFORE any real RPM is built or published. It leaves nothing
+# work in this exact container BEFORE any real RPM is built or published. It does not leave an artifact
 # behind.
 #
 # Environment (from the dag-node org CI secrets):
@@ -27,7 +27,7 @@
 # Fail-closed: a missing key or passphrase, a signing failure, or an RPM that does not carry a
 # signature that verifies exits non-zero, so a release never publishes an unsigned or wrongly
 # signed package. Verification asserts a cryptographic signature LINE validates -- `rpmkeys
-# --checksig` exits 0 for an unsigned package (nothing to fail), so a return-code-only test
+# --checksig` exits 0 for an unsigned package (no signature to fail), so a return-code-only test
 # passes a silent rpmsign no-op; the 0.6.1 assets shipped unsigned that way. Errors use the
 # ::error:: prefix so GitHub Actions surfaces them as annotations; the text reads plainly on a
 # local terminal too. Every secret (imported private key, passphrase) lives in a tmpfs (RAM)
@@ -56,7 +56,7 @@ import_signing_key() {
 #
 # %{__gpg} is the ONLY binary token. rpm's stock %__gpg_sign_cmd is `%{__gpg} gpg ...`, which on
 # EL10 (where %__gpg is defined as /usr/bin/gpg) expands to `/usr/bin/gpg gpg ...` -- gpg invoked
-# with argv[1]="gpg", a bogus input filename, so it signs nothing. Copying that literal `gpg`
+# with argv[1]="gpg", a bogus input filename, so it does not sign the package. Copying that literal `gpg`
 # into the override is why the 0.6.1 el10 RPMs shipped unsigned; here %{__gpg} stands alone.
 write_rpm_macros() {
     local home="$1" fpr="$2" passfile="$3"
@@ -154,7 +154,7 @@ main() {
     # default TMPDIR where /dev/shm is absent. gpg needs the private key in a keyring DIRECTORY
     # (it cannot sign from a variable), and rpmsign forks gpg once per package, so the passphrase
     # must stay re-readable here rather than a one-shot stream -- keeping it on the same RAM tree
-    # as the unavoidable keyring adds no disk exposure. The runner VM is ephemeral.
+    # as the unavoidable keyring leaves disk exposure unchanged. The runner VM is ephemeral.
     # Script-global, not local: the EXIT trap fires after main returns, where a local is out of
     # scope -- an unbound reference under set -u -- and the wipe must still run.
     workdir="$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)"

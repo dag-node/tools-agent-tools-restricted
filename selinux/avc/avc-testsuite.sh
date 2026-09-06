@@ -17,7 +17,7 @@
 # come back empty and you'd wrongly conclude the policy is complete. The usual
 # cause is the claude.exe entrypoint not being labelled ai_tools_exec_t (so the
 # unconfined_t->ai_tools_t transition never fired) -- the guard tells you how to
-# fix it. The module ships permissive, so nothing here is ever blocked; it is only
+# fix it. The module ships permissive, so no test here is ever blocked; it is only
 # logged.
 
 set -uo pipefail   # NOT -e: several steps below are EXPECTED to fail (denied
@@ -300,7 +300,7 @@ semodule -l 2>/dev/null | grep -q '^ai_tools_podman' && {
 # code heap through that path, so `dotnet --info` exercises it; a real executable
 # build/run under the agent (dotnet run / an xunit.v3 or ASP.NET Core project) covers
 # it more fully. Skipped when the group is off or dotnet is absent (an optional
-# integration that ships no runtime).
+# integration that does not ship a runtime).
 semodule -l 2>/dev/null | grep -q '^ai_tools_apphost' && {
     if command -v dotnet >/dev/null 2>&1; then
         note "apphost group loaded -- exercising the .NET memfd JIT via dotnet --info"

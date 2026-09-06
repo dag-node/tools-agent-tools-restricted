@@ -8,7 +8,7 @@
 # so it is a command run once by the operator -- never an RPM scriptlet, which must succeed
 # offline and inside build chroots. The scheduled nvm-update timer maintains the tree afterwards.
 #
-# Agent-agnostic: it installs no hardcoded agent. Which agents to provision -- their npm package
+# Agent-agnostic: it does not install a hardcoded agent. Which agents to provision -- their npm package
 # and launcher name -- comes from the per-package manifests under
 # /usr/local/lib/ai-tools/agents.d, gated by operator.conf AI_TOOLS_AGENTS (providers.lib.sh).
 # With no manifests deployed yet it provisions Node alone; a re-run after an ai-tools-agents-*
@@ -16,8 +16,10 @@
 #
 # Idempotent: an existing account, nvm install, or Node version is reused, not rebuilt.
 #
-# Run as root (it creates a user and execs npm as @SANDBOX_USER@):
-#       sudo ai-tools-bootstrap
+# Run as root (it creates a user and execs npm as @SANDBOX_USER@) through the command that reaches
+# it, which is what an administrator types:
+#       sudo ai-tools-admin system bootstrap
+# ai-tools-admin execs it at the path below; it does not have a name on PATH of its own.
 # nvm defaults to its latest GitHub release (resolved at run time, so it does not rot); set
 # AI_TOOLS_NVM_VERSION=vX.Y.Z to pin it, or AI_TOOLS_NODE_MAJOR to choose the Node line.
 #
@@ -64,7 +66,7 @@ resolve_nvm_version() {
 # seed a safe default (ai-tools@<domain-or-hostname>); this is the one interactive point both
 # install flows share (an RPM %post cannot prompt), so the operator can adopt their own git
 # identity, keep the default, or edit the file by hand. Runs only when the control plane is
-# present (the gitconfig exists) -- a bootstrap that precedes install.sh has nothing to
+# present (the gitconfig exists) -- a bootstrap that precedes install.sh has no gitconfig to
 # configure and skips. Past that gate msg.lib is deployed, so it is REQUIRED like every other
 # prompting consumer (a missing lib is a broken install and dies, not a silent skip); an
 # unattended run keeps the default via msg.lib's no-tty path.
@@ -126,9 +128,9 @@ configure_git_identity() {
 
 # seed_managed_assets_step: (re)seed the ai-tools-managed agents/skills from the pristine datadir
 # copies into the config directory of each agent that uses that asset format. The directories come
-# from the manifests (control-plane.lib.sh), so this names no path of its own. Runs only when the
+# from the manifests (control-plane.lib.sh), so this helper does not hardcode a path itself. Runs only when the
 # control plane is present (a config dir and the /usr/share/ai-tools pristine copies exist) and
-# the seeder lib is deployed; a bootstrap that precedes install.sh has nothing to seed and skips.
+# the seeder lib is deployed; a bootstrap that precedes install.sh has no source to seed and skips.
 # Past that gate msg.lib is deployed, so the update confirm requires it like every other prompting
 # consumer. Same non-overwrite and version rules as install.sh -- only ai-tools-* assets carrying
 # x-ai-tools-managed are touched, and an existing one updates only on confirm (default keep). See
@@ -181,7 +183,7 @@ command -v curl >/dev/null 2>&1 || die "curl is required to fetch nvm"
 # Run from a neutral, world-traversable directory. The sudo -u ${SANDBOX_USER} steps below
 # inherit this process's CWD; invoked from an operator's private dir (e.g. ~/Downloads, mode
 # 0700) the sandbox account cannot traverse back into it, so nvm/npm's internal `find` warns
-# "Failed to restore initial working directory". Nothing here depends on CWD (every path is
+# "Failed to restore initial working directory". No step here depends on CWD (every path is
 # absolute), and / is always reachable, so move off the caller's directory up front.
 cd /
 
@@ -222,7 +224,7 @@ done
 # re-run picks up the agents. Its stderr warns of an enabled-but-uninstalled agent.
 _providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
 _agent_packages=(); _agent_launchers=()
-# Guarded load: providers.lib.sh returns non-zero and defines nothing when its own dependency
+# Guarded load: providers.lib.sh returns non-zero without defining a resolver when its own dependency
 # (conf.lib.sh, the shared KEY=value grammar) is missing, so probe the resolver rather than assume
 # the source succeeded -- a bare `source` under set -e would abort the provision instead of falling
 # back to Node-only.
@@ -309,7 +311,7 @@ fi
 #    launcher is present. Runs as root: the agent cannot create top-level entries in the home
 #    root. bin is the locked control-plane dir (0551 root:ai-tools); root writes the symlinks
 #    here, and install.sh / the RPM repoint them through the root symlink helper afterwards.
-#    Agent runtime state needs no seeding: ai-tools-run pins CLAUDE_CONFIG_DIR to the
+#    Agent runtime state is not seeded here: ai-tools-run pins CLAUDE_CONFIG_DIR to the
 #    group-writable .claude dir, where claude creates its own state files (.claude.json
 #    included).
 if [[ ${#_agent_launchers[@]} -gt 0 ]]; then
@@ -329,7 +331,7 @@ fi
 #     ai-tools-run refuses to launch (it would run UNCONFINED) until the entrypoint carries
 #     ai_tools_exec_t. Bootstrap runs as root (a domain that holds relabel) and has just minted
 #     the entrypoint, so it relabels here rather than leaving the first launch to fail with a
-#     manual `ai-tools --relabel`. Gated on the helper being deployed: a bootstrap that precedes
+#     manual `ai-tools-admin system entrypoints relabel`. Gated on the helper being deployed: a bootstrap that precedes
 #     the control plane has no helper yet (install.sh / the RPM relabel then). The helper is
 #     idempotent and no-ops when SELinux or the ai_tools module is inactive, so this is safe on a
 #     DAC-only host; best-effort -- a relabel gap degrades to ai-tools-run's refusal, not a failed
@@ -337,7 +339,7 @@ fi
 _relabel_helper=/usr/local/libexec/ai-tools/ai-tools-relabel-agent
 if [[ -x "${_relabel_helper}" ]]; then
     "${_relabel_helper}" \
-        || log "warn: entrypoint relabel did not complete -- run 'ai-tools --relabel' before launching claude"
+        || log "warn: entrypoint relabel did not complete -- run 'sudo ai-tools-admin system entrypoints relabel' before launching claude"
 fi
 
 # 4. Capture the control plane's initial state in a root-private git repo so drift is reviewable.
@@ -431,7 +433,7 @@ configure_git_identity
 # deploy (the common flow -- the wrapper is already present), or before it on a from-source
 # host. Name the step that is actually still outstanding rather than assuming one order.
 if [[ -x /usr/local/bin/claude ]]; then
-    log "next: enrol an operator -- sudo ai-tools-admin operator add <user>"
+    log "next: enrol an operator -- sudo ai-tools-admin operators add <user>"
 else
     log "next: deploy the control plane -- sudo ./install.sh install   (or install the RPM)"
 fi

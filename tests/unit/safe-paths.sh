@@ -9,7 +9,7 @@
 # a real project nested under an operator home or the sandbox-clone area passes. Also checks the assert emits a refusal and returns
 # non-zero on a protected target and is silent + zero on a safe one, and pins the second,
 # narrower predicate beside it -- ai_tools_traverse_grant_allowed, which admits the acting
-# operator's own home root for a traverse-only ACL and nothing else. Run as root via sudo
+# operator's own home root for a traverse-only ACL and no other path. Run as root via sudo
 # (the suite contract); the only case needing privilege (a foreign-owned fixture) skips without
 # it, so the file also runs directly as an operator.
 
@@ -89,8 +89,7 @@ fi
 
 # ── The traverse-grant predicate ─────────────────────────────────────────────
 # ai_tools_traverse_grant_allowed vets a strictly weaker operation than the target backstop
-# above: one `u:ai-tools:--x` entry on ONE directory, which conveys search permission and no
-# read. It therefore admits the acting operator's OWN home root, which the backstop refuses as a
+# above: one `u:ai-tools:--x` entry on ONE directory, which grants search permission and not read. It therefore admits the acting operator's OWN home root, which the backstop refuses as a
 # target -- so these assertions are about the difference between the two, and (2b) above still
 # stands unchanged. What keeps the carve-out from becoming a hole is the owner argument: it is
 # checked before the home-root exemption, so the exemption reaches exactly one account's home.
@@ -154,7 +153,7 @@ else
     skip "own home root" "${PROJECTS_HOME} is not a /home/<user> home root"
 fi
 
-# (10) Fail closed on inputs that name nothing: a missing path, a file rather than a directory,
+# (10) Fail closed on inputs that name no directory: a missing path, a file rather than a directory,
 #      and an empty owner all refuse rather than default to granting.
 closed_ok=true
 : > "${TESTDIR}/afile"

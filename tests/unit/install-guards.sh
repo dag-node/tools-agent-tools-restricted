@@ -4,7 +4,7 @@
 # Hermetic check of install.sh's entry guards -- the ones that decide WHICH account the install
 # enrols as the operator, before it writes anything.
 #
-# The one that matters is root. `ai-tools-admin operator add` refuses it outright, and install.sh
+# The one that matters is root. `ai-tools-admin operators add` refuses it outright, and install.sh
 # reaches the same end state by a different route (the @PROJECTS_USER@ substitution plus
 # `usermod -aG ai-ops`), so the two have to refuse alike or the dev path produces a host nobody
 # can provision: the CLI refuses root every mutating verb, --for refuses root as a target, and the

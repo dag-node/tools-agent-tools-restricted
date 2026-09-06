@@ -52,7 +52,7 @@ phase() {
 }
 
 # as_operator <cmd...> : run a command in a fresh login shell of the operator, so it picks
-# up the ai-ops group membership `operator add` just granted (a stale shell would not).
+# up the ai-ops group membership `operators add` just granted (a stale shell would not).
 as_operator() { runuser -l "${OPERATOR}" -c "$*"; }
 
 # ── environment dump ─────────────────────────────────────────────────────────
@@ -98,17 +98,29 @@ phase "Handback socket is active (system instance up)" \
     systemctl is-active --quiet ai-tools-handback.socket
 
 phase "Core helpers + wrapper installed on PATH" \
-    bash -c 'command -v claude && command -v ai-tools && command -v ai-tools-admin && command -v ai-tools-bootstrap'
+    bash -c 'command -v claude && command -v ai-tools && command -v ai-tools-admin'
 
 phase "safedir + reclaim helpers present (the late spec additions)" \
     bash -c 'test -x /usr/local/libexec/ai-tools/ai-tools-safedir && test -x /usr/local/libexec/ai-tools/ai-tools-reclaim'
+
+# The provisioning helper does not have a name on PATH: `ai-tools-admin system bootstrap` execs
+# it at this fixed path, so what the phase above cannot cover is asserted here.
+phase "provisioning helper present at the path ai-tools-admin execs" \
+    test -x /usr/local/libexec/ai-tools/ai-tools-bootstrap
+
+# The contributed-command seam, end to end on a real install: ai-tools-integration-dotnet ships a
+# command fragment and no name on PATH, so this is the one phase that proves discovery, the trust
+# check and the exec all line up on packaged files. `dotnet status` is read-only and works on a
+# host with no .NET, which it reports.
+phase "contributed command domain dispatches (dotnet status)" \
+    ai-tools-admin dotnet status
 
 # ── toolchain provisioning (network) ─────────────────────────────────────────
 # Run at runtime, not build: under a live systemd, bootstrap enables the sandbox account's
 # linger and the nvm-update.timer in its own --user instance. Idempotent (reuses an existing
 # nvm/Node), so a re-run is cheap.
-phase "ai-tools-bootstrap (nvm + Node + claude; linger + timer)" \
-    ai-tools-bootstrap
+phase "system bootstrap (nvm + Node + claude; linger + timer)" \
+    ai-tools-admin system bootstrap
 
 phase "claude launcher symlink resolves to the nvm-installed binary" \
     bash -c 'test -L /opt/ai-tools/bin/claude && readlink -f /opt/ai-tools/bin/claude | grep -q "/versions/node/"'
@@ -120,8 +132,8 @@ phase "nvm-update.timer enabled in the ai-tools --user instance" \
     test -L /opt/ai-tools/.config/systemd/user/timers.target.wants/nvm-update.timer
 
 # ── operator enrolment ───────────────────────────────────────────────────────
-phase "ai-tools-admin operator add ${OPERATOR}" \
-    ai-tools-admin operator add "${OPERATOR}"
+phase "ai-tools-admin operators add ${OPERATOR}" \
+    ai-tools-admin operators add "${OPERATOR}"
 
 phase "${OPERATOR} is in ai-ops + listed in operator.conf" \
     bash -c "id -nG '${OPERATOR}' | tr ' ' '\n' | grep -qx ai-ops && grep -q '${OPERATOR}' /etc/ai-tools/operator.conf"

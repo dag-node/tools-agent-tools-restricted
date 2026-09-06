@@ -84,7 +84,7 @@ ai_tools_npm_verdict() {
 
 # ai_tools_verify_npm_signatures: verify every globally installed npm package's registry
 # signature. Self-contained -- discovers the global tree (`npm root -g`) and the top-level
-# package set (`npm ls -g`) itself; takes no arguments. Returns the status contract above.
+# package set (`npm ls -g`) itself; it does not take arguments. Returns the status contract above.
 ai_tools_verify_npm_signatures() {
     local _p='npm-verify:'
 
@@ -104,7 +104,7 @@ ai_tools_verify_npm_signatures() {
         || { printf '%s global node_modules not found -- nothing to verify\n' "${_p}" >&2; return 2; }
 
     # Top-level global packages at their installed versions, as a JSON deps object, from
-    # `npm ls -g --json`. A parse miss yields an empty object, handled as "nothing to verify".
+    # `npm ls -g --json`. A parse miss yields an empty object, handled as "no package to verify".
     local deps_json
     deps_json="$(npm ls -g --depth=0 --json 2>/dev/null | node -e '
         const fs = require("fs");

@@ -4,13 +4,13 @@
 # Hermetic consistency check on the exec bit git TRACKS for every `.sh` in the tree: within a
 # directory, all of them must agree. A directory here holds one kind of file -- the root helpers
 # are all commands, the shared libraries are all sourced, the tests are all run as `bash <file>` --
-# so a single file disagreeing with its siblings is drift, not intent, and the rule needs no
+# so a single file disagreeing with its siblings is drift, not intent, and the rule does not require a
 # hand-maintained list of which paths are executable.
 #
 # The gap this closes: a mode flip is INVISIBLE in a normal review. `git show` renders it as a
 # zero-line change, and every install path sets its own mode explicitly (`install_subst 750 root
 # root`, `%attr(0750, root, root)`, asserted for the installed artifacts by
-# tests/integration/perms.sh), so nothing downstream fails to make the drift noticeable. What it
+# tests/integration/perms.sh), so no downstream check has to make the drift noticeable. What it
 # does cause is a file that reads as permanently modified in `git status` once a checkout's mode
 # and the index disagree -- noise that then hides a real change.
 #
@@ -21,7 +21,7 @@
 #
 # WHY THE TWO NUMBERS NEVER MATCH, since a reader meets them side by side and they look like a
 # contradiction: git stores only two modes for a regular file, 100644 and 100755. It records the
-# OWNER EXECUTE BIT and nothing else -- no group bits, no world bits, no setgid. So this tree's
+# OWNER EXECUTE BIT alone -- no group bits, no world bits, no setgid. So this tree's
 # collaborative 770 is tracked as 100755 and its 660 as 100644, and `ls -l` showing `rwxrwx---`
 # for a file reported as 100755 is agreement, not drift. The remediation is therefore stated as a
 # numeric mode to apply on disk, while the assertion it satisfies is about the tracked bit.

@@ -30,8 +30,8 @@ Agent Tools Restricted runs autonomous coding agents under a dedicated, unprivil
 - **SELinux targeted policy, enforcing** — recommended; the session is confined in
   `ai_tools_t`. With SELinux disabled the system runs in a documented DAC-only
   posture.
-- **Network access once** for `ai-tools-bootstrap` (fetches nvm, Node, and the agent
-  npm package); day-to-day operation and updates run from a systemd timer.
+- **Network access once** for `ai-tools-admin system bootstrap` (fetches nvm, Node, and
+  the agent npm package); day-to-day operation and updates run from a systemd timer.
 - Optional: **podman** to run the container test harness (`packaging/README.md`).
 
 > [!WARNING]
@@ -73,14 +73,14 @@ step 3:
 
 ```bash
 # 1. Install Node.js, nvm, and Claude Code (from npm) and enable the update timer (network).
-sudo ai-tools-bootstrap
+sudo ai-tools-admin system bootstrap
 
 # 2. Enrol yourself as an operator: records you in /etc/ai-tools/operator.conf and grants
 #    ai-ops membership (the sudo rules and ownership hand-back).
-sudo ai-tools-admin operator add "$(id -un)"
+sudo ai-tools-admin operators add "$(id -un)"   # every host command: man ai-tools-admin
 
 # 3. Make a project and launch in it. --project-create makes the directory, initializes a
-#    git repository, and claims it -- one command, no prompts, nothing pre-existing to
+#    git repository, and claims it -- one command, no prompts, no pre-existing content to
 #    review. `ai-tools --help` lists every command.
 ai-tools --project-create ~/src/demo
 cd ~/src/demo && claude
@@ -100,7 +100,7 @@ back. All of it is in [docs/project-lifecycle.md](docs/project-lifecycle.md).
 
 ### Upgrading
 
-Upgrade in place with ordinary DNF — never `dnf remove` first:
+Upgrade in place with ordinary DNF, without a `dnf remove` first:
 
 ```bash
 sudo dnf upgrade --refresh 'ai-tools*'
@@ -110,8 +110,8 @@ sudo dnf upgrade --refresh 'ai-tools*'
 predate a just-published release, so a plain `dnf upgrade` may report "Nothing to do" on a
 stale cache even when `dnf list` (a newer cache) already shows the new version. This moves
 every **installed** ai-tools package to the new version, and a host running `dnf-automatic`
-does the same unattended once its cache refreshes on schedule. What it does **not** do is add a package you don't
-already have: DNF never pulls a new weak dependency onto an existing install. So a host first
+does the same unattended once its cache refreshes on schedule. What it does **not** do is add a package
+you don't already have, because DNF leaves a new weak dependency off an existing install. So a host first
 installed before 0.10.0 — when the SELinux policy split into its own `ai-tools-selinux`
 package — keeps upgrading *without* confinement until you add it once:
 
@@ -130,7 +130,7 @@ via `sudo` and wraps the session in a confined `systemd --user` service. Launche
 unclaimed project it prompts you to claim it first; the claim and every elevated helper
 refuse system directories and home roots (the
 [safe-paths backstop](.claude/rules/safe-paths.rule.md)). [From source](#from-source)
-is the manual equivalent of the package install plus `ai-tools-bootstrap`.
+is the manual equivalent of the package install plus `ai-tools-admin system bootstrap`.
 
 ## Why
 
@@ -185,7 +185,7 @@ of what it can ever send:
 - **Shared skills, one copy** — the documentation and engineering-judgment skills the project
   ships live once in `/opt/ai-tools/skills`; each agent's config directory holds a symlink per
   skill, so a skill is authored and updated in one place however many agents read it, and an
-  agent-specific skill is simply a real directory that the linker never displaces. See
+  agent-specific skill is a real directory, which the linker keeps in place. See
   `/usr/share/ai-tools/skills/README.md`.
 - **Operation logging** — the `sudo` helpers, the lifecycle hooks, the `ai-tools`
   CLI, and `install.sh` log through one library to **journald** (always, leveled and
@@ -194,11 +194,11 @@ of what it can ever send:
 - **A working stop** — `ai-tools --stop` terminates every agent session on the host and
   everything it spawned, with no password to answer, so an unattended detector can reach it too. (To finish a session you are done with, use `/exit` inside it, which lets
   it run its own ownership handback.) Sessions are found and killed by **cgroup**, so a child that
-  called `setsid(2)` or double-forked goes with them, and success means verified gone from the
-  kernel's view rather than from systemd's. It takes no path and no authorization input, and
-  exempts no cgroup — a stop path the session can put itself outside of is not a stop path — so the
-  sandbox account's own user manager is terminated too and restarted afterwards. The session takes
-  no part in any of it: the account it runs as can neither invoke, read nor alter the helper. What
+  called `setsid(2)` or double-forked goes with them, and success means the kernel reports the
+  processes gone, not systemd. It does not take a path or an authorization input, and sweeps every cgroup
+  under the sandbox account, so the account's own user manager is terminated too and restarted afterwards —
+  a session cannot put itself outside the sweep. The session does not take part in any of it: the
+  account it runs as can neither invoke, read nor alter the helper. What
   each outcome means and what a stop cannot undo are in
   [docs/session-stop.md](docs/session-stop.md).
 - **Auto-updating** — a `systemd --user` timer in `${SANDBOX_USER}`'s own instance keeps
@@ -221,7 +221,7 @@ Each of those refusals is tested from both ends: once that the refusal fires, an
 > files get ownership restored — it is not a kernel-enforced read boundary. The CWD is
 > canonicalized before it is checked, so a symlink cannot slip a path past it. Once running
 > as `${SANDBOX_USER}`, ordinary Unix permissions plus the `ai_tools_t` SELinux type govern
-> access; that is what actually isolates the agent from other users' files. A per-session
+> access; that is the boundary isolating the agent from other users' files. A per-session
 > `bubblewrap` mount namespace to make the allowlist a true access boundary is proposed but
 > not yet implemented.
 
@@ -234,8 +234,8 @@ in [`CLAUDE.md`](CLAUDE.md#boundaries-and-non-goals).
 
 The agent binary itself is verified against the checksum its vendor **signed**, using a key shipped
 in the package rather than downloaded, and the verified value is pinned where the sandbox account
-cannot write it — so a binary modified after installation refuses to launch. It needs no per-release
-maintenance and no network at launch; what it checks, what each failure means, and how it behaves on
+cannot write it — so a binary modified after installation refuses to launch. It does not need any
+per-release maintenance and does not reach the network at launch; what it checks, what each failure means, and how it behaves on
 an air-gapped host are in
 [docs/entrypoint-verification.md](docs/entrypoint-verification.md).
 
@@ -253,7 +253,7 @@ spec is in [`docs/naming-conventions.md`](docs/naming-conventions.md).
 | Sandbox user | `SANDBOX_USER` / `@SANDBOX_USER@` | `ai-tools` | the unprivileged service account Claude Code runs as |
 | …its group | `SANDBOX_GROUP` / `@SANDBOX_GROUP@` | `ai-tools` | the sandbox user's group |
 
-The package and `install.sh` resolve these automatically — you never type them. The
+The package and `install.sh` resolve these automatically — you do not type them. The
 `@…@` token form is what the shipped templates carry; the RPM `%prep` and `install.sh`
 substitute it to `ai-tools` at build/deploy time, and the RPM creates the account from a
 `sysusers.d` entry (`u ai-tools …`) with no prompt, so the name is **not** an install-time
@@ -297,11 +297,11 @@ The privilege model and every guard above are specified in
     cd tools-agent-tools-restricted
     # steps 1-3: PATH fragment, the ai-tools account, nvm + Node + claude
     sudo ./install.sh install                   # step 4: helpers, units, sudoers, CLI
-    sudo ai-tools-admin operator add <user>     # enrol yourself as an operator
+    sudo ai-tools-admin operators add <user>    # enrol yourself as an operator
 
 `install.sh` stops unless the sandbox account and `/opt/ai-tools/bin` already exist —
-steps 1–3 create them (once the package is deployed, `sudo ai-tools-bootstrap` does both
-in one idempotent command). The four steps, the full source→deploy file map, and
+steps 1–3 create them (once the package is deployed, `sudo ai-tools-admin system bootstrap`
+does both in one idempotent command). The four steps, the full source→deploy file map, and
 `sudo ./install.sh uninstall` are in
 [docs/install-from-source.md](docs/install-from-source.md); registering projects is the
 same as the package path — see
@@ -327,8 +327,8 @@ The `ai-tools-relabel.path` watcher sees the repoint (it watches the `bin` direc
 watch covers every agent) and runs `ai-tools-relabel-agent` (root) to restore
 `ai_tools_exec_t` on each enabled agent's new entrypoint, so the SELinux domain transition keeps
 firing. Until the entrypoint is relabelled,
-`ai-tools-run` fail-closes (refuses to launch rather than run unconfined); `ai-tools
---relabel` is the manual fallback.
+`ai-tools-run` fail-closes (refuses to launch rather than run unconfined);
+`sudo ai-tools-admin system entrypoints relabel` is the manual fallback.
 
 On launch the wrapper resolves the symlink one hop via `readlink`, exports it as
 `AI_TOOLS_AGENT_EXEC`, and `ai-tools-run` re-validates it against the nvm versioned-binary pattern
@@ -340,6 +340,22 @@ mode-700 package dir does and does not guarantee, is specified in
 After an update, **new** Claude sessions resolve the repointed `bin/claude` symlink and use
 the new Node version. A **running** session stays pinned to the version it launched with for
 its whole lifetime by design.
+
+## Health checks
+
+```bash
+ai-tools --status            # as yourself
+sudo ai-tools-admin status   # as root, the same host with the readings you cannot make
+```
+
+Both report the installed version, whether the toolchain is provisioned, every managed systemd
+unit, and — per enabled agent — whether its binary is pinned to a checksum its vendor signed and
+what SELinux label its paths carry. Each prints `?` where its caller cannot reach the answer, so
+running the second as root fills in the sandbox account's own `systemd --user` units, the
+entrypoint pin, and the live SELinux label. Both exit non-zero when something needs attention, so
+either runs from `cron` or a monitor without parsing its output.
+
+Details and exit codes: `man ai-tools` and `man ai-tools-admin`.
 
 ## Operation logging
 
@@ -394,21 +410,21 @@ privileged action is attributable at the socket layer. Root-only log files: `cho
 
 The optional confinement layer puts the session in its own domain, `ai_tools_t`, on top of the
 file permissions that already isolate it. It ships **prebuilt and enforcing**, so a normal
-install loads it without a policy toolchain, and it is a second boundary rather than the only
+install loads it without a policy toolchain, and it is a second boundary, not the only
 one — a host without it is still confined by DAC.
 
 The one thing an operator meets in practice is a **stale label after a Node upgrade**. A freshly
-installed agent binary is born with the default type, so its exec fires no domain transition —
-and rather than run the session unconfined, `ai-tools-run` **refuses to launch** and says so. The
+installed agent binary is born with the default type, so its exec does not perform a domain
+transition — and rather than run the session unconfined, `ai-tools-run` **refuses to launch** and says so. The
 post-upgrade watcher normally relabels it for you; when it has not, the fix is one command:
 
 ```bash
-ai-tools --relabel        # relabels every enabled agent's entrypoint and config directory
+sudo ai-tools-admin system entrypoints relabel   # relabels every enabled agent's entrypoint and config directory
 ```
 
 Two things worth knowing before reaching for `restorecon` yourself: the agent entrypoints and
 each agent's config directory are labelled from rules the **agent's own manifest** declares, so
-`ai-tools --relabel` (or `sudo selinux/install-selinux.sh relabel`) applies them in the right
+`sudo ai-tools-admin system entrypoints relabel` (or `sudo selinux/install-selinux.sh relabel`) applies them in the right
 order, and a bare recursive `restorecon` over `/opt/ai-tools` can leave a hardlinked entrypoint
 mislabelled — which the launch will then refuse. To inspect a denial:
 
@@ -437,9 +453,9 @@ See [`LICENSE`](LICENSE) for the full text. Releases through 0.9.x were publishe
 `AGPL-3.0-or-later`; from 0.10.0 the project is `AGPL-3.0-only`.
 
 **Claude Code is separate.** This license covers this repository's own source — the
-sandboxing, install, and CLI machinery. `ai-tools-bootstrap` installs Claude Code
+sandboxing, install, and CLI machinery. `ai-tools-admin system bootstrap` installs Claude Code
 (`@anthropic-ai/claude-code`) from npm at your own bootstrap step; it is a separate
-Anthropic product under its own terms, never vendored or redistributed here.
+Anthropic product under its own terms, which this repository neither vendors nor redistributes.
 See [Anthropic's Claude Code](https://github.com/anthropics/claude-code).
 
 The SELinux policy modules under [`selinux/policy/`](selinux/policy) are `GPL-2.0-or-later`,

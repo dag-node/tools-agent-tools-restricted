@@ -36,7 +36,7 @@
 #           Brackets the probe with `semodule -DB` ... `semodule -B` so the
 #           dontaudit'd boundary denials become VISIBLE in the audit log for the
 #           test window (without -DB they are blocked but silent, and the audit
-#           log would look empty -- mistakable for "nothing was denied"). A trap
+#           log would look empty -- mistakable for "no access was denied"). A trap
 #           restores dontaudit on ANY exit (success, error, Ctrl-C). It then hands
 #           off to avc-analyze.sh, which buckets every denial as EXPECTED BOUNDARY,
 #           EXPECTED GROUP-DISABLED, or NEW.
@@ -104,7 +104,7 @@ do_probe() {
     #
     # getenforce reads security_t (selinuxfs).  Under enforcing, ai_tools_t has no
     # security_t read access, so getenforce and the direct cat both fail -> "unknown".
-    # Under permissive nothing is blocked, so both CAN read it and return an explicit
+    # Under permissive no access is blocked, so both CAN read it and return an explicit
     # "Permissive"/"0".  Therefore, once past the context check:
     #
     #   "unknown" = selinuxfs was protected = enforcing              -> allow
@@ -838,7 +838,7 @@ do_run() {
     note "      Flip to enforcing (remove 'permissive ai_tools_t;') for a true test."
   fi
 
-  # auditd must be running; without it ausearch finds nothing even when denials fire.
+  # auditd must be running; without it ausearch reports an empty result even when denials fire.
   # The group-disabled exec denials (systemctl, rpm, podman) are NOT dontaudit'd and
   # should always appear -- an empty log for those is the fingerprint of auditd being down.
   if ! systemctl is-active --quiet auditd 2>/dev/null; then

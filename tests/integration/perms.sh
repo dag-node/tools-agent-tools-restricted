@@ -29,22 +29,22 @@ check_file /usr/local/libexec/ai-tools/ai-tools-lockdown         root           
 # SANDBOX_USER grant); same surface as lockdown.
 check_file /usr/local/libexec/ai-tools/ai-tools-relabel          root              root              750
 # SELinux agent-relabel helper: 750 root:root -- run AS root automatically by the
-# ai-tools-relabel.path watcher and on demand by `ai-tools --relabel` (the %ai-ops NOPASSWD
-# rule), never by the agent. The grant is pinned to its zero-argument form, so the root rule
-# cannot be parameterized.
+# ai-tools-relabel.path watcher and on demand by `sudo ai-tools-admin system entrypoints relabel`,
+# never by the agent. It carries no NOPASSWD rule: the admin command reaches it through the host's
+# own general sudo grant, so the %ai-ops drop-in holds the session lifecycle alone.
 check_file /usr/local/libexec/ai-tools/ai-tools-relabel-agent    root              root              750
-# Toolchain bootstrap + operator administration: 750 root:root -- run by the operator via sudo,
-# never by the agent (no SANDBOX_USER grant, and /usr/local/libexec/ai-tools is 750 root:root).
+# Toolchain bootstrap + operator administration: 750 root:root. ai-tools-admin runs as root via
+# sudo; the provisioning helper is exec'd by its `system bootstrap` command at this fixed path.
+# Neither is reachable by the agent (no SANDBOX_USER grant, and /usr/local/libexec/ai-tools is
+# 750 root:root).
 check_file /usr/local/libexec/ai-tools/ai-tools-bootstrap        root              root              750
 check_file /usr/local/libexec/ai-tools/ai-tools-admin           root              root              750
-# dotnet integration provisioning helper (optional integration): 750 root:root, sudo-invoked.
-check_file /usr/local/libexec/ai-tools/ai-tools-dotnet          root              root              750
-# Their sudo-PATH symlinks in /usr/sbin (sudoers secure_path on stock EL excludes
-# /usr/local/sbin, so `sudo ai-tools-bootstrap` resolves here). check_file lstat()s the
-# link itself (777 is a symlink's fixed mode); -e inside it also catches a dangling link.
-check_file /usr/sbin/ai-tools-bootstrap                       root              root              777
+# The sudo-PATH symlink in /usr/sbin, for the one command an administrator types (sudoers
+# secure_path on stock EL excludes /usr/local/sbin, so `sudo ai-tools-admin` resolves here).
+# check_file lstat()s the link itself (777 is a symlink's fixed mode); -e inside it also catches
+# a dangling link. Nothing else has one: the provisioning helper and every contributed command
+# are reached as verbs of this one.
 check_file /usr/sbin/ai-tools-admin                           root              root              777
-check_file /usr/sbin/ai-tools-dotnet                          root              root              777
 # Lib dir: root-owned, group ai-tools, 0751. The agent enters via group to read the skip
 # list; world-execute lets an operator (not a SANDBOX_GROUP member) traverse in to source the
 # 644 world-readable libs by path without listing the dir. No write but root.
@@ -80,16 +80,16 @@ check_file /usr/local/lib/ai-tools/npm-verify.lib.sh         root              r
 check_file /usr/local/lib/ai-tools/entrypoint-verify.lib.sh  root              root              644
 check_file /usr/local/lib/ai-tools/keys/claude-code.asc      root              root              644
 # Shared KEY=value grammar + the trust predicate: 644 root:root -- world-readable, sourced by
-# operator.lib.sh, skip-dirs.lib.sh and providers.lib.sh; carries no secrets.
+# operator.lib.sh, skip-dirs.lib.sh and providers.lib.sh; does not carry secrets.
 check_file /usr/local/lib/ai-tools/conf.lib.sh               root              root              644
 # Provider/agent resolver: 644 root:root -- world-readable, sourced by ai-tools-bootstrap and
-# nvm-update (both run as the sandbox account) to read the agent manifests; carries no secrets.
+# nvm-update (both run as the sandbox account) to read the agent manifests; does not carry secrets.
 check_file /usr/local/lib/ai-tools/providers.lib.sh          root              root              644
 # Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by
-# ai-tools-admin and selinux/install-selinux.sh (both root); read-only data, carries no secrets.
+# ai-tools-admin and selinux/install-selinux.sh (both root); read-only data, does not carry secrets.
 check_file /usr/local/lib/ai-tools/selinux-groups.lib.sh     root              root              644
 # Command-filter engine: 644 root:root -- world-readable, sourced by an agent's filter hook, which
-# runs AS the agent on every Bash call; read-only data plus pure logic, carries no secrets.
+# runs AS the agent on every Bash call; read-only data plus pure logic, does not carry secrets.
 check_file /usr/local/lib/ai-tools/filters.lib.sh            root              root              644
 # Service-health registry: 644 root:root -- world-readable, sourced by the operator launch wrapper
 # and the CLI (--status); read-only data, no secrets.
@@ -103,6 +103,12 @@ check_file /usr/local/lib/ai-tools/services.lib.sh           root              r
 check_file /usr/local/lib/ai-tools/agents.d                  root              root              755
 check_file /usr/local/lib/ai-tools/integrations.d            root              root              755
 check_file /usr/local/lib/ai-tools/session-env.d              root              root              755
+# The contributed-command directory takes that same reasoning at the highest privilege here:
+# ai-tools-admin execs what it finds inside AS ROOT, so a non-root writer would be choosing a root
+# command. Root-owned with no group or other write is what the dispatch's trust check requires;
+# world-READ is what lets `ai-tools-admin --help`, answered ahead of its own root check, list this
+# host's domains for any caller.
+check_file /usr/local/lib/ai-tools/admin-commands.d          root              root              755
 # The command-filter rule-set directory carries the same reasoning one step further out: its files
 # decide what every command in a session becomes, so a non-root writer here could reshape the
 # commands the agent runs and the transcript the operator reads. Base owns the directory and
@@ -116,6 +122,10 @@ check_file /usr/local/lib/ai-tools/agents.d/claude-code.conf root              r
 # manifest providers.lib.sh reads and the session-env fragment ai-tools-run sources when enabled.
 check_file /usr/local/lib/ai-tools/integrations.d/dotnet.conf   root            root              644
 check_file /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh  root            root              644
+# The `dotnet` domain of ai-tools-admin, contributed by the same package: 750 root:root like every
+# other root-executed helper, so the agent can neither read nor run it, and root-owned so the
+# dispatch's trust check admits it.
+check_file /usr/local/lib/ai-tools/admin-commands.d/dotnet      root            root              750
 check_file /usr/local/lib/ai-tools/filters.d/dotnet.rules       root            root              644
 # The claude-code agent's own session-env fragment, shipped by its agent package. ai-tools-run
 # sources it last, so these pins outrank an integration's -- and 644 root:root is what makes it
@@ -166,7 +176,7 @@ check_file /opt/ai-tools/.claude/settings.json               root              "
 # ai-tools is a group-writer for its own state but cannot unlink/replace the root-owned control
 # files above. Owned by ai-tools, or without the sticky bit, the agent could delete and recreate
 # them. The set of directories comes from the manifests (control-plane.lib.sh), so a second agent
-# is covered here without editing this list; a host with none asserts nothing and says so.
+# is covered here without editing this list; a host with none skips and says so.
 # The SHARED asset roots: base-owned, agent-readable, NOT agent-writable. Every agent symlinks
 # into them, so a writable root here would let one session rewrite the instructions -- or the
 # delegate definitions -- every agent and every future session reads.
@@ -252,6 +262,11 @@ if [[ -e /usr/local/share/man/man5/operator.conf.5.gz ]]; then
 else
     check_file /usr/local/share/man/man5/operator.conf.5      root root 644
 fi
+if [[ -e /usr/local/share/man/man8/ai-tools-admin.8.gz ]]; then
+    check_file /usr/local/share/man/man8/ai-tools-admin.8.gz  root root 644
+else
+    check_file /usr/local/share/man/man8/ai-tools-admin.8     root root 644
+fi
 # Launch wrapper: 755 root:root -- system-wide on every operator's PATH (path-dedup.sh ranks
 # /usr/local/bin above the nvm shims, so it shadows nvm's claude). Runs as the invoking
 # operator, gates on ai-ops membership, then drops to the sandbox account via sudo; root-owned
@@ -278,12 +293,12 @@ check_file /var/opt/ai-tools/README.md                        root              
 check_file /var/opt/ai-tools/state                            root              "${SANDBOX_GROUP}" 750
 check_file_optional /var/opt/ai-tools/state/nvm-update.status "${SANDBOX_USER}" ai-ops            640
 # The entrypoint pins. root:root and not group-writable, unlike the stamp beside them: a stamp
-# reports and gates nothing, while a pin is what the launch compares the agent binary against, so
+# reports and does not gate a launch, while a pin is what the launch compares the agent binary against, so
 # the account it constrains must not be able to write it.
 check_file /var/opt/ai-tools/state/entrypoint-pin.d           root              root              755
 check_file /var/opt/ai-tools/state/entrypoint-label.d         root              root              755
 # Sandbox-area operator ACL: ai-ops reaches the area without SANDBOX_GROUP membership -- traverse
-# on the outer dir, rwX + default on sandbox-projects. The agent (not in ai-ops) gains nothing.
+# on the outer dir, rwX + default on sandbox-projects. The agent (not in ai-ops) does not gain access.
 if ! command -v getfacl >/dev/null 2>&1; then
     skip "sandbox-area ai-ops ACL" "getfacl not available"
 elif getfacl -p /var/opt/ai-tools 2>/dev/null | grep -qE '^group:ai-ops:r-x' \
@@ -335,7 +350,7 @@ fi
 # env_keep surface: ai-tools-run re-validates AI_TOOLS_AGENT_EXEC/AI_TOOLS_PROJECT_DIR (ai-tools-run.sh test),
 # which is the real defense, but the drop-in's per-command env_keep should pass through ONLY
 # those two -- a widened list would smuggle attacker-influenced env into the launch path. Pin it:
-# every env_keep in the file names exactly AI_TOOLS_AGENT_EXEC and AI_TOOLS_PROJECT_DIR, nothing else.
+# every env_keep in the file names exactly AI_TOOLS_AGENT_EXEC and AI_TOOLS_PROJECT_DIR, and no other name.
 if [[ -r /etc/sudoers.d/ai-tools ]]; then
     ek_extra="$(grep -oE 'env_keep[[:space:]]*\+?=[[:space:]]*"[^"]*"' /etc/sudoers.d/ai-tools \
         | grep -oE '"[^"]*"' | tr -d '"' | tr ' ' '\n' \
@@ -346,19 +361,27 @@ if [[ -r /etc/sudoers.d/ai-tools ]]; then
         fail "sudoers env_keep names unexpected variable(s): ${ek_extra//$'\n'/ } -- widened launch env surface"
     fi
 
-    # Both root rules must be pinned to their helper's ZERO-ARGUMENT form. The trailing "" is what
-    # keeps each a grant to run one program one way: sudoers(5) reads a command listed with no
-    # arguments at all as permitting ANY, so a dropped "" silently turns a narrow root rule into
-    # `--remove <agent>` (relabel) or `--force` (stop) without a password. tests/unit/helper-path.sh
-    # pins the same two lines in the SOURCE; this asserts what the install actually deployed.
-    for _rule_helper in ai-tools-relabel-agent ai-tools-stop; do
-        if grep -qE "^%ai-ops[[:space:]]+.*NOPASSWD:[[:space:]]*/usr/local/libexec/ai-tools/${_rule_helper}[[:space:]]+\"\"[[:space:]]*$" \
-                /etc/sudoers.d/ai-tools; then
-            pass "sudoers grants ${_rule_helper} in its zero-argument form only"
-        else
-            fail "sudoers rule for ${_rule_helper} is missing or not pinned to the zero-argument form"
-        fi
-    done
+    # The root rule must be pinned to its helper's ZERO-ARGUMENT form. The trailing "" is what keeps
+    # it a grant to run one program one way: sudoers(5) reads a command listed with no arguments at
+    # all as permitting ANY, so a dropped "" silently turns a narrow root rule into `--force`
+    # without a password. tests/unit/helper-path.sh pins the same line in the SOURCE; this asserts
+    # what the install actually deployed.
+    if grep -qE "^%ai-ops[[:space:]]+.*NOPASSWD:[[:space:]]*/usr/local/libexec/ai-tools/ai-tools-stop[[:space:]]+\"\"[[:space:]]*$" \
+            /etc/sudoers.d/ai-tools; then
+        pass "sudoers grants ai-tools-stop in its zero-argument form only"
+    else
+        fail "sudoers rule for ai-tools-stop is missing or not pinned to the zero-argument form"
+    fi
+
+    # And the drop-in holds the session lifecycle ALONE. The entrypoint relabel is an
+    # ai-tools-admin command reached through the host's own general sudo grant, so a %ai-ops rule
+    # naming its helper would hand every operator a passwordless root command the model no longer
+    # accounts for.
+    if grep -qE "^%ai-ops.*ai-tools-relabel-agent" /etc/sudoers.d/ai-tools; then
+        fail "sudoers grants %ai-ops a rule for ai-tools-relabel-agent -- the drop-in holds the session lifecycle only"
+    else
+        pass "sudoers grants %ai-ops no rule for ai-tools-relabel-agent"
+    fi
 fi
 
 finish

@@ -95,7 +95,7 @@ source "${SAFE_PATHS_LIB}"
 
 # Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), which reads the
 # allowlist this helper gates every path on. REQUIRED like safe-paths.lib.sh: the bare source
-# under set -e aborts if it is missing, rather than leaving a parser that matches nothing and
+# under set -e aborts if it is missing, rather than leaving a parser that does not match any name and
 # silently declines every hand-back. Include-guarded, so a second source is a no-op.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 source /usr/local/lib/ai-tools/conf.lib.sh

@@ -12,7 +12,7 @@ the system can decline, disable, or route around counts as none of the three. Th
 that standard lands on **this** deployment, which is both its author and one of its subjects.
 
 The skill ships as a draft whose clause numbering moves between versions (see
-[shipped-assets](shipped-assets.rule.md)), so what follows applies its obligations and cites no
+[shipped-assets](shipped-assets.rule.md)), so what follows applies its obligations without citing a
 clause number.
 
 ## Enforced and dispositional
@@ -54,14 +54,14 @@ control leaves a choice, and the right column is why the host's safety does not 
 
 | Expected of the agent | The enforced control beside it |
 |---|---|
-| Accept a stop or a restriction immediately, without finishing the current step first | `ai-tools --stop` ends the session whether or not it accepts anything: the kill is delivered by root to a cgroup, and nothing inside the cgroup takes part in it. The allowlist, the provider manifests, and `operator.conf` then gate the next launch from files the agent cannot write. |
+| Accept a stop or a restriction immediately, without finishing the current step first | `ai-tools --stop` ends the session whether or not it accepts anything: the kill is delivered by root to a cgroup, and no process inside the cgroup takes part in it. The allowlist, the provider manifests, and `operator.conf` then gate the next launch from files the agent cannot write. |
 | Report a gap in the sandbox instead of using it | Every refusal is asserted from both ends, so a reachable gap is a missing test — not a capability anyone granted. |
 | Do not misrepresent what ran, what failed, or what was skipped | The root-only file sink and the handback daemon's per-request audit line record every privileged operation independently of the session ([logging](logging.rule.md), [handback-bridge](handback-bridge.rule.md)). |
 | Do not work to widen the grant; ask the operator for an authority the work needs | Every input deciding what a session gets passes a trust predicate the sandbox account cannot satisfy, and each failure direction yields less ([providers](providers.rule.md)). |
 
 The same four are stated in the root `CLAUDE.md` rather than only here, and that placement is
 deliberate: this rule loads when a matching source file is open, which is not the moment the
-expectations bind. A conduct expectation is worth nothing in a file the session never reads, so the
+expectations bind. A conduct expectation has no effect in a file the session never reads, so the
 short form lives in the always-loaded layer and the reasoning lives here.
 
 ## The stop rung is enforced, not dispositional
@@ -122,5 +122,5 @@ logged as a gap rather than skipped.
 - **The pairing runs in the unusual direction here.** The standard's normal failure is a model made
   of dispositional clauses with no enforcement behind them. This tree's is the mirror image: strong
   enforcement with the disposition unstated, so an agent meeting a gap between two enforced controls
-  is told nothing about which way to resolve it. The rows above are that missing half, and they stay
+  has no guidance on which way to resolve it. The rows above are that missing half, and they stay
   the smaller half by design.

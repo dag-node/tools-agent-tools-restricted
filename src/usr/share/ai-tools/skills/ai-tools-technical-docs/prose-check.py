@@ -1,0 +1,590 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-only
+# prose-check.py -- reports the rhetorical figures this skill rules out, as file:line, so the
+# final-pass checklist runs mechanically instead of by eye. It ships beside the SKILL.md it
+# enforces, so the rule and its check are versioned together.
+#
+# Seeded assets are mode 640, so run it through its interpreter:
+#
+#     python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py <file>...
+#
+# Four modes. `--staged` reads the added lines of the git index, which is what a pre-commit hook
+# runs; `--message` reads a commit message, an artifact this standard covers like any other; named
+# paths are read whole, for a sweep; `--kept` compares the two sides of a diff, and enforces a
+# different rule -- see its own heading below. `--staged` sees only the added half of a sentence an
+# edit split, so a hit it reports alone is worth re-checking against the whole file.
+# Source files contribute their comments and docstrings, Markdown and man pages every line. The
+# patterns match English, so they carry to any codebase.
+#
+# `--kept`: A REWRITE CHANGES THE WORDING, NOT THE CLAIM.
+# Every other check reports how a sentence is written. This one reports a rewrite that changed
+# what a sentence CLAIMS, which is a defect of a different kind: the prose still has to state the
+# same security boundary afterwards. Three shapes, each a way an edit reads as tidying and lands
+# somewhere weaker:
+#
+#   dropped    a security or access-control term the added prose does not restate. The usual case
+#              is a swapped set -- `carries no secrets` becomes `contains only settings`, which
+#              reads better and stops justifying the 644 mode it was written to justify, because a
+#              setting can be a token.
+#   narrowed   a plural noun restated in the singular. `does not carry any secrets` says the
+#              contents and the secrets do not intersect; `must not hold a secret` says one of
+#              them is absent, which is a smaller claim and a weaker justification for the mode.
+#   weakened   a modality the added prose drops. `never a glob` restated as `not a glob` swaps a
+#              universal for a single instance; `only`, `always`, `cannot` and `must not` go the
+#              same way.
+#
+# Whether the new wording still rules out the same thing is a question about two sets, which a
+# regex cannot decide, so all three report and leave the judgement to a reader. It compares one
+# hunk at a time, so a term that merely moved to another hunk of the same file reports as dropped;
+# check the file before acting.
+#
+# Checks read rejoined SENTENCES rather than raw lines. Wrapped prose puts the guard clause of an
+# absolute on the next line, and the shape checks compare the two halves of a pivot, so both need
+# the whole sentence to report anything worth reading.
+#
+# One default check carries a second condition for the same reason the `--all` ones do:
+# `unbacked-cost` needs a cost word AND no frequency and no bounded operation in the sentence,
+# either of which is what a reader checks the claim against.
+#
+# `--all` adds the shape checks. Each one greps a sub-shape of its rule -- the half a regex can
+# see -- because the rules themselves are about meaning: "an absolute with no guard in the same
+# sentence" and "a clause mirrored across a pivot" are not properties of any word list. A
+# vocabulary grep for them reported correct prose on most of what it flagged when it was sampled
+# against this repository, so each check now carries a second condition:
+#
+#   unbacked-absolute  the sentence holds an absolute AND no subordinating conjunction, since a
+#                      guard clause is what those conjunctions introduce.
+#   mirrored-clause    a word stem repeats across `rather than` / `instead of`, which is the
+#                      mirror itself; a plain contrast puts different words on each side.
+#   definitional       a head noun repeats across `is not a`, which is the restatement that makes
+#                      the sentence a definition instead of a description.
+#   history            the past-tense markers only. `no longer` describes a current state as often
+#                      as a change, so it is left to the reader.
+#
+# Two more sit here because a REWRITE is what produces them, and both report ordinary English on
+# some of what they flag:
+#
+#   fronted-quantifier-inflected  the default `does not` check in the past and participle forms,
+#                      where a redraft moves the figure to escape the default check.
+#   vague-verb         a verb naming no operation. `convey` is exempt in a sentence about
+#                      licensing, which is the one place it is a term of art.
+#
+# A line carrying `prose-check: allow` is skipped, which is how a style guide keeps the labelled
+# bad examples it has to contain. In Markdown the marker goes in an HTML comment
+# (`<!-- prose-check: allow -->`), which the substring match finds and the rendered page omits.
+
+import argparse
+import re
+import subprocess
+import sys
+
+ALLOW_MARKER = "prose-check: allow"
+
+# Any verb before `no`, rather than a list of them: an enumerated list finds only the verbs
+# whoever wrote it thought of, and this construction takes every transitive verb in the language.
+# A particle may sit between the verb and the quantifier (`takes away no access`).
+# Exclusions keep the suggestion honest. `is`/`was`/`has`/`had` carry the existential "there is no
+# X", which reads plainly and has no mechanical rewrite; `means`/`implies` negate a following
+# clause rather than an object, so "no operator means no ownership" wants "means there is no
+# ownership" instead. The object stop-list drops the fixed adverbials.
+_QUANTIFIED_OBJECT = (r"(?:\s+(?:away|back|up|out|off|down|over|through))?"
+                      r"\s+no\s+(?!longer\b|one\b|matter\b|doubt\b)([a-z][a-z-]*)")
+FRONTED_QUANTIFIER = re.compile(
+    r"\b(?!is\b|was\b|has\b|had\b|means\b|implies\b)([a-z]{3,}s)" + _QUANTIFIED_OBJECT)
+
+# The same shape in the other two inflections, which is where a REWRITE puts it: `grants nothing`
+# redrafted as `granted no path` clears both default checks and keeps the figure, and a participle
+# (`conveying no listing`) does the same. It sits in `--all` rather than the default set because a
+# reduced relative clause -- `a line carrying no prose` -- is ordinary English, so this one wants a
+# reader on every hit. A rewrite pass runs `--all` for exactly this reason.
+FRONTED_QUANTIFIER_INFLECTED = re.compile(
+    r"\b(?!having\b|during\b)([a-z]{3,}(?:ed|ing))" + _QUANTIFIED_OBJECT)
+
+# A subordinating conjunction is how a guard clause attaches, so a sentence carrying one has
+# somewhere for the guard to be and is left to the reader. The absolute and the cost check share
+# it.
+GUARD = re.compile(r"\b(so|because|since|unless|when|while|until|once|only|if|where|after"
+                   r"|before|without|through|via|whenever|as long as)\b")
+
+# The second way a cost claim states its backing: a frequency or a bounded operation as the
+# sentence's own subject, where no conjunction appears. `a single write of the whole text keeps
+# the window negligible` names what makes it small.
+COST_BACKING = re.compile(r"\b(single|one|per|bounded|scoped|cached|amortized|idempotent|no-op)\b",
+                          re.I)
+
+# A cost claim is an absolute in another vocabulary, and unbacked in the same way. `fast` and
+# `slow` stay out of it: both live in compounds that are domain terms (`fast-track`, `fail-fast`),
+# where the compound is the common case rather than the exception.
+COST = re.compile(r"\b(cheap|cheaply|negligible|negligibly|near-zero|inexpensive|costly"
+                  r"|meaningful overhead|no overhead)\b", re.I)
+
+
+def unbacked_cost(sentence):
+    """A cost claim in a sentence that does not name a frequency or a bounded operation."""
+    match = COST.search(sentence)
+    if not match or GUARD.search(sentence) or COST_BACKING.search(sentence):
+        return None
+    return match
+
+
+# Each entry is (name, pattern, hint). The hint is what to write instead, since a report naming
+# only the defect leaves the reader to rediscover the fix on every hit.
+DEFAULT_CHECKS = [
+    ("fronted-quantifier", FRONTED_QUANTIFIER, None),  # hint derived; see suggest()
+    ("nothing", re.compile(r"\bnothing\b"), "name the absent input"),
+    ("unbacked-cost", unbacked_cost, "name the frequency or the bounded operation"),
+]
+
+# Third-person singular endings that need more than a dropped "s".
+_ES_ENDINGS = ("sses", "shes", "ches", "xes", "zes", "oes")
+
+
+def base_form(verb):
+    """The base form of a third-person singular verb: carries -> carry, passes -> pass."""
+    if verb.endswith("ies"):
+        return verb[:-3] + "y"
+    if verb.endswith(_ES_ENDINGS):
+        return verb[:-2]
+    return verb[:-1]
+
+
+def suggest(name, match, static_hint):
+    """What to write instead, derived from the match where the fix is mechanical."""
+    if name == "fronted-quantifier":
+        verb, obj = match.group(1), match.group(2)
+        # `a` or `any` is a claim about arity, so the code decides: one parameter takes the
+        # article, a variadic one pluralizes under `any`, an uncountable object takes neither.
+        return f"`does not {base_form(verb)} a/any {obj}`"
+    if name == "fronted-quantifier-inflected":
+        # A past tense or a participle sits in a clause whose subject and tense the rewrite has to
+        # keep, so naming the shape is honest where guessing a base form is not.
+        return f"attach the negation to the verb, not to `{match.group(2)}`"
+    return static_hint
+
+
+ABSOLUTE = re.compile(r"\b(never|always|cannot)\b")
+
+MIRROR_PIVOT = re.compile(r"\b(rather than|instead of)\b")
+DEFINITIONAL_PIVOT = re.compile(r"\b(?:is|are) not (?:a|an|the)\b")
+
+# Four characters is the shortest prefix that separates the stems this repository uses
+# (`stop`/`stay`, `read`/`real`) while still tying `costs` to `costing` and `control` to
+# `controls`. Words of three letters or fewer carry no stem worth matching.
+WORD = re.compile(r"[a-z][a-z-]{3,}")
+# Words each side of the pivot. Five is what separates a mirror from a sentence that happens to
+# reuse its own subject: `a verb on ai-tools-admin rather than a binary of its own` repeats
+# `binary` from six words back, and that repeat is the topic, not a mirrored clause.
+MIRROR_WINDOW = 5
+
+
+def stems(text, limit=None):
+    """The four-character stems of the words in `text`, optionally the first or last `limit`."""
+    words = WORD.findall(text.lower())
+    if limit is not None:
+        words = words[-limit:] if limit > 0 else words[:-limit]
+    return {word[:4] for word in words}
+
+
+def mirrored(sentence, pivot):
+    """True when a word stem repeats across `pivot`, which is the mirror the rule names.
+
+    `costs you a label rather than costing the sweep a target` repeats `cost`; `shipped in the
+    package rather than downloaded` does not share a stem and is a plain contrast.
+    """
+    match = pivot.search(sentence)
+    if not match:
+        return None
+    left = stems(sentence[:match.start()], MIRROR_WINDOW)
+    right = stems(sentence[match.end():], -MIRROR_WINDOW)
+    return match if left & right else None
+
+
+def unbacked_absolute(sentence):
+    """An absolute in a sentence with no subordinating conjunction to hang a guard on."""
+    match = ABSOLUTE.search(sentence)
+    return match if match and not GUARD.search(sentence) else None
+
+
+# Verbs that name no operation a reader can find. `convey` is the one with a legitimate home: it
+# is the GPL's own term for distributing a work, so a sentence about licensing keeps it and every
+# other sentence wants the operation -- permits, transmits, states, shows.
+VAGUE_VERB = re.compile(r"\b(convey|conveys|conveyed|conveying|upkeep|leverage|leverages"
+                        r"|leveraged|utilize|utilizes|utilized|facilitate|facilitates"
+                        r"|facilitated)\b", re.I)
+LICENSING = re.compile(r"\b(GPL|AGPL|licen[cs]|copyright|corresponding source)", re.I)
+
+
+def vague_verb(sentence):
+    """A vague verb, except `convey` where the sentence is about licensing."""
+    match = VAGUE_VERB.search(sentence)
+    if match and match.group(0).lower().startswith("convey") and LICENSING.search(sentence):
+        return None
+    return match
+
+
+EXTRA_CHECKS = [
+    ("mirrored-clause", lambda s: mirrored(s, MIRROR_PIVOT),
+     "state the fact once, in one direction"),
+    ("definitional", lambda s: mirrored(s, DEFINITIONAL_PIVOT), "describe the mechanism"),
+    ("unbacked-absolute", unbacked_absolute, "name the guard in the same sentence"),
+    ("fronted-quantifier-inflected", FRONTED_QUANTIFIER_INFLECTED, None),  # hint from suggest()
+    ("vague-verb", vague_verb, "name the operation: permits, transmits, states, shows"),
+    ("history", re.compile(r"\b(used to|previously|was changed|formerly)\b"),
+     "state current behaviour"),
+    ("filler", re.compile(r"\b(simply|obviously|clearly|basically|naturally|effectively"
+                          r"|actually|essentially|robust|elegant|powerful|flexible)\b"),
+     "cut it"),
+]
+
+PROSE_WHOLE_FILE = (".md", ".1", ".5", ".8")
+
+# How to read a path, when --prose or --source has said: True reads every line, False reads only
+# comments and docstrings, None leaves the extension above to decide.
+#
+# The extension rule fails in one direction without saying so, which is what the override answers:
+# a path it does not recognize is read as SOURCE, so a document keeps only its `#` headings and the
+# run reports zero findings for a file whose body it never read. That is what a caller gets for a
+# copy whose name lost its extension -- a baseline written to a temp path, a revision from
+# `git show` -- and zero findings reads as clean.
+_FORCE_WHOLE_FILE = None
+
+
+def is_prose_file(path):
+    """Whether to read every line of `path` as prose, rather than only its comments."""
+    if _FORCE_WHOLE_FILE is not None:
+        return _FORCE_WHOLE_FILE
+    return path.endswith(PROSE_WHOLE_FILE)
+
+# Terms that mark a sentence as stating a SECURITY BOUNDARY rather than describing behaviour.
+# A rewrite that drops one of these has probably changed the claim; see the `--kept` heading above.
+# The access-control nouns are here for the same reason as the secrets: `grants nothing on` rewritten
+# as `leaves untouched` reads better and stops saying anything about access.
+INVARIANT_TERMS = re.compile(
+    r"\b(secret|secrets|credential|credentials|token|password|privilege|privileged|sudo"
+    r"|world-readable|root-only|owner-only|unprivileged|untrusted|trusted|forge|forged|tamper"
+    r"|escalate|escalation|fail-closed|fail closed|confine|confined|allowlist|refuses|refuse"
+    r"|grant|grants|granted|permission|permissions|acl|acls|ownership|setgid|readable|writable"
+    r"|0[0-7]{3}|[0-7]{3,4} root:)\b", re.I)
+
+# The nouns among those terms, which are the ones whose NUMBER carries a claim: a set of secrets
+# either intersects the file's contents or it does not. A verb's inflection carries none, so
+# `grants nothing` restated as `nothing to grant` is a rewrite rather than a narrowing.
+NARROWABLE_TERMS = re.compile(
+    r"\b(secrets?|credentials?|tokens?|passwords?|privileges?|permissions?|acls?)\b", re.I)
+
+# Modality is part of the claim, not part of the wording. `never a glob` restated as `not a glob`
+# swaps a universal for a single instance, and `carries no secrets` restated as `must not hold a
+# secret` swaps a fact for an obligation; both read as tidying and both retire what the sentence
+# guaranteed. Reported when the removed prose carried one and the added prose does not.
+MODALITY = re.compile(r"\b(never|always|cannot|must not|only)\b", re.I)
+
+
+MESSAGE = "<message>"  # the path a commit message is reported under
+
+# A line that carries its own prose and does not continue onto the next one: a Markdown heading
+# or table row, a man-page macro. Joining a table would let a guard word in one row suppress a
+# finding in another.
+STANDALONE = re.compile(r"^\s*(\||#{1,6}\s|\.[A-Za-z])")
+FENCE = re.compile(r"^\s*(```|~~~)")
+SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+LINE_COMMENT = re.compile(r"^\s*(#(?!!)|//+)\s?")
+BLOCK_MARGIN = re.compile(r"^\s*\*(?!/)\s?")  # the ` * ` margin inside a /* */ block
+# `/*` opens a comment only when a space, a second `*`, or the line end follows. A shell `case`
+# pattern (`/*|./*|../*)`) begins the same way, and reading one as a comment opener swallows every
+# line to the next `*/` -- which in a shell script is the rest of the file.
+BLOCK_OPEN = re.compile(r"^\s*/\*(\s|\*|$)")
+TRIPLE_QUOTE = re.compile(r'"""|\'\'\'')
+
+
+def source_prose(line, state):
+    """The prose a source line carries, and the block state after it.
+
+    A source file contributes its comments AND its docstrings: `#`, `//`, a `/* */` block, and a
+    triple-quoted Python string are all places the artifacts this standard covers live. The marker
+    is dropped so the sentences rejoin cleanly.
+    """
+    if state:  # inside a docstring or a /* */ block; state holds its closing delimiter
+        end = line.find(state)
+        body = line if end < 0 else line[:end]
+        if state == "*/":
+            body = BLOCK_MARGIN.sub("", body)
+        return body, (state if end < 0 else None)
+    stripped = line.strip()
+    quote = TRIPLE_QUOTE.match(stripped)
+    if quote:
+        delimiter = quote.group(0)
+        body = stripped[len(delimiter):]
+        return (body.split(delimiter)[0], None) if delimiter in body else (body, delimiter)
+    if BLOCK_OPEN.match(line):
+        body = stripped[2:]
+        return (body.split("*/")[0], None) if "*/" in body else (body, "*/")
+    return (LINE_COMMENT.sub("", line), None) if LINE_COMMENT.match(line) else (None, None)
+
+
+def prose_lines(source):
+    """Yield (path, line number, raw line, prose or None), holding block state per file.
+
+    A document or man page contributes every line. A commit message inverts the source rule -- its
+    body is prose and its `#` lines are the template git strips.
+    """
+    last_path, state = None, None
+    for path, number, line in source:
+        if path != last_path:
+            last_path, state = path, None
+        if path == MESSAGE:
+            yield path, number, line, None if line.lstrip().startswith("#") else line
+        elif is_prose_file(path):
+            yield path, number, line, line
+        else:
+            text, state = source_prose(line, state)
+            yield path, number, line, text
+
+
+def block_sentences(path, lines):
+    """Split one joined block into sentences, each reported at the line it starts on."""
+    if not path or not lines:
+        return
+    joined, offsets = "", []
+    for number, text in lines:
+        if joined:
+            joined += " "
+        offsets.append((len(joined), number))
+        joined += text.strip()
+    position = 0
+    for part in SENTENCE_SPLIT.split(joined):
+        part = part.strip()
+        if not part:
+            continue
+        start = joined.index(part, position)
+        yield path, max(n for offset, n in offsets if offset <= start), part
+        position = start + len(part)
+
+
+def sentences(source):
+    """Yield (path, line number, sentence) with wrapped prose rejoined.
+
+    A block ends at a blank line, a line carrying no prose, a standalone line, or a change of
+    file. Fenced code in a document is skipped: it is not the author's prose.
+    """
+    block_path, block, fenced = None, [], False
+    for path, number, line, text in prose_lines(source):
+        if text is not None and is_prose_file(path):
+            if FENCE.match(line):
+                fenced = not fenced
+                text = None
+            elif fenced:
+                text = None
+        if text is not None and ALLOW_MARKER in line:
+            text = None
+        standalone = bool(text and text.strip() and STANDALONE.match(text))
+        if not (text and text.strip()) or path != block_path or standalone:
+            yield from block_sentences(block_path, block)
+            block_path, block = path, []
+        if not (text and text.strip()):
+            continue
+        if standalone:
+            yield from block_sentences(path, [(number, text)])
+            continue
+        block.append((number, text))
+    yield from block_sentences(block_path, block)
+
+
+def staged_lines():
+    """Yield (path, line number, line) for every line this commit adds, from the index."""
+    diff = subprocess.run(
+        ["git", "diff", "--cached", "-U0", "--no-color", "--diff-filter=ACM"],
+        capture_output=True, text=True, check=False).stdout
+    path, number = None, 0
+    for line in diff.splitlines():
+        if line.startswith("+++ b/"):
+            path, number = line[6:], 0
+        elif line.startswith("@@"):
+            hunk = re.search(r"\+(\d+)", line)
+            number = int(hunk.group(1)) - 1 if hunk else 0
+        elif line.startswith("+") and not line.startswith("+++") and path:
+            number += 1
+            yield path, number, line[1:]
+
+
+def diff_hunks(revisions):
+    """Yield (path, removed prose lines, added prose lines) for each hunk of a diff."""
+    command = ["git", "diff", "--no-color", "--diff-filter=M", "-U0"]
+    command += revisions.split() if revisions else ["--cached"]
+    diff = subprocess.run(command, capture_output=True, text=True, check=False).stdout
+    path, removed, added = None, [], []
+    for line in diff.splitlines():
+        if line.startswith("diff --git") or line.startswith("@@"):
+            if path:
+                yield path, removed, added
+            removed, added = [], []
+        elif line.startswith("+++ b/"):
+            path = line[6:]
+        elif line.startswith("-") and not line.startswith("---") and path:
+            removed.append(line[1:])
+        elif line.startswith("+") and not line.startswith("+++") and path:
+            added.append(line[1:])
+    if path:
+        yield path, removed, added
+
+
+def _singular(term):
+    return term[:-1] if term.endswith("s") and not term.endswith("ss") else term
+
+
+def hunk_prose(path, lines):
+    """The prose each of these diff lines carries, skipping the ones that carry none."""
+    for line in lines:
+        text, _ = (line, None) if is_prose_file(path) else source_prose(line, None)
+        if text:
+            yield text
+
+
+def vocabulary(path, lines, pattern, singularize=False):
+    """The matches of `pattern` in the prose among these lines, lowercased."""
+    found = set()
+    for text in hunk_prose(path, lines):
+        found.update(_singular(match.group(0).lower()) if singularize else match.group(0).lower()
+                     for match in pattern.finditer(text))
+    return found
+
+
+def context_line(lines, needle):
+    """The first of these lines carrying `needle`, for the report."""
+    return next((line.strip() for line in lines if needle in line.lower()), "")
+
+
+# What each kind of `--kept` finding asks the reader to do.
+KEPT_HINTS = {
+    "dropped": "restate it, or confirm the new wording still rules out the same thing",
+    "narrowed": "the plural WAS the claim -- keep the set, not one member of it",
+    "weakened": "modality is part of the claim -- restore it, or say why the weaker form holds",
+}
+
+
+def kept_findings(revisions):
+    """Report the three ways a rewrite changes a claim while looking like a wording change.
+
+    Each is reported, not decided: whether the new wording still rules out the same thing is a
+    question about two sets, which a regex cannot answer.
+    """
+    for path, removed, added in diff_hunks(revisions):
+        was, now = (vocabulary(path, side, NARROWABLE_TERMS) for side in (removed, added))
+        singular_was, singular_now = (vocabulary(path, side, INVARIANT_TERMS, singularize=True)
+                                      for side in (removed, added))
+
+        for term in sorted(singular_was - singular_now):
+            yield path, "dropped", term, context_line(removed, term)
+
+        # A plural restated in the singular narrows the set the sentence is about. `does not carry
+        # any secrets` says the contents and the secrets do not intersect; `must not hold a secret`
+        # says one of them is absent. Only the first justifies the world-readable mode it was
+        # written to justify, so the number is the claim rather than a matter of taste.
+        for term in sorted(was - now):
+            if _singular(term) != term and _singular(term) in now:
+                yield path, "narrowed", f"{term} -> {_singular(term)}", context_line(removed, term)
+
+        for word in sorted(vocabulary(path, removed, MODALITY)
+                           - vocabulary(path, added, MODALITY)):
+            yield path, "weakened", word, context_line(removed, word)
+
+
+def file_lines(paths):
+    """Yield (path, line number, line) for every line of every readable path."""
+    for path in paths:
+        try:
+            with open(path, errors="ignore") as handle:
+                for number, line in enumerate(handle, 1):
+                    yield path, number, line.rstrip("\n")
+        except OSError as exc:
+            print(f"prose-check: cannot read {path}: {exc}", file=sys.stderr)
+
+
+BACKTICK_SPAN = re.compile(r"`[^`]*`")
+QUOTED_SPAN = re.compile(r"`[^`]*`|\"[^\"]*\"")
+
+
+def author_prose(path, text):
+    """The sentence with the spans that are not the author's own prose blanked out.
+
+    A backticked span is a code reference in either kind of file. A double-quoted span is a
+    quotation in a DOCUMENT -- most often the labelled bad example a style guide has to contain --
+    so documents drop it too. A comment keeps its quoted text, because a message template quoted
+    in a comment is prose this standard covers.
+    """
+    span = QUOTED_SPAN if is_prose_file(path) else BACKTICK_SPAN
+    # " -- " rather than a space: a removed span must still separate the words around it, or
+    # `takes \x60--for\x60 no target` fuses into a phrase the patterns then match.
+    return span.sub(" -- ", text)
+
+
+def findings(source, checks):
+    for path, number, sentence in sentences(source):
+        subject = author_prose(path, sentence)
+        for name, check, hint in checks:
+            match = check.search(subject) if hasattr(check, "search") else check(subject)
+            if match:
+                yield path, number, name, match.group(0), suggest(name, match, hint), sentence
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="report prose figures the writing standard rules out")
+    parser.add_argument("--staged", action="store_true",
+                        help="check the lines this commit adds")
+    parser.add_argument("--message", metavar="FILE",
+                        help="check a commit message; template comments skipped")
+    parser.add_argument("--all", action="store_true",
+                        help="add the shape checks")
+    parser.add_argument("--kept", metavar="REVISIONS", nargs="?", const="",
+                        help="report a claim a rewrite dropped, narrowed, or weakened "
+                             "(default: the index)")
+    reading = parser.add_mutually_exclusive_group()
+    reading.add_argument("--prose", dest="force", action="store_const", const=True,
+                         help="read every line as prose, whatever the extension")
+    reading.add_argument("--source", dest="force", action="store_const", const=False,
+                         help="read comments and docstrings only, whatever the extension")
+    parser.add_argument("paths", nargs="*", help="files to read whole")
+    args = parser.parse_args()
+
+    global _FORCE_WHOLE_FILE
+    _FORCE_WHOLE_FILE = args.force
+
+    if args.kept is not None:
+        count = 0
+        for path, kind, detail, context in kept_findings(args.kept):
+            count += 1
+            print(f"{path}: {kind} [{detail}] -- {KEPT_HINTS[kind]}")
+            print(f"    - {context[:110]}")
+        if count:
+            print(f"\n{count} finding(s). A rewrite changes the wording, not the claim. "
+                  f"A term that only moved to another hunk reports here too.")
+        return 1 if count else 0
+
+    modes = [args.staged, bool(args.message), bool(args.paths)]
+    if sum(1 for mode in modes if mode) != 1:
+        parser.error("give exactly one of --staged, --message FILE, or one or more paths")
+
+    checks = DEFAULT_CHECKS + (EXTRA_CHECKS if args.all else [])
+    if args.staged:
+        source = staged_lines()
+    elif args.message:
+        source = ((MESSAGE, number, line.rstrip("\n"))
+                  for number, line in enumerate(open(args.message, errors="ignore"), 1))
+    else:
+        source = file_lines(args.paths)
+
+    count = 0
+    for path, number, name, token, hint, text in findings(source, checks):
+        count += 1
+        print(f"{path}:{number}: {name} [{token}] -- {hint}")
+        print(f"    {text[:110]}")
+    if count:
+        print(f"\n{count} finding(s). See the ai-tools-technical-docs skill; "
+              f"mark a deliberate example with '{ALLOW_MARKER}'.")
+    return 1 if count else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

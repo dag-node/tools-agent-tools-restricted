@@ -161,7 +161,7 @@ ai_tools_conf_split() {
 #   named array, but ONLY when the key is present -- a present key REPLACES the array (an empty
 #   value giving an empty array, an explicit "none"), while an absent key leaves it untouched and
 #   returns 1. That is what makes an override key override: a caller seeds the array with its
-#   default and calls this, and a config that says nothing about the key keeps that default.
+#   default and calls this, and a config that omits the key keeps that default.
 ai_tools_conf_list() {
     local out_name="$1" file="$2" key="$3"
     ai_tools_conf_read "${file}" "${key}" || return 1
@@ -184,6 +184,13 @@ ai_tools_conf_list() {
 # overwriting the evidence of the last. A same-day second copy takes a `-N` counter, so a .bak
 # is never overwritten -- an operator who ran the installer twice in a day is exactly the one
 # who needs the first copy.
+#
+# The two kinds accumulate differently, because they record different things. A .bak records that
+# a run replaced the file, so each one is distinct evidence and every rewrite writes one. A
+# .shipped records the baseline that was on offer, so ai_tools_conf_reference reuses an existing
+# copy whose content already matches and dates a new one only for a baseline the directory does
+# not hold. A host re-running the installer against an unchanged source tree therefore keeps one
+# copy per DIFFERENT baseline it was offered, rather than one per run.
 
 # ai_tools_conf_sidecar_path <path> <kind> : print an UNUSED sidecar path for <path>. Returns 1
 #   without printing when the day's namespace is exhausted, so a caller never silently reuses a
@@ -216,7 +223,7 @@ _ai_tools_conf_match_perms() {
 
 # ai_tools_conf_backup <file> : copy <file> to a fresh dated .bak and print that path. `cp -p`
 #   keeps mode, ownership and timestamps, so the copy is a faithful restore point rather than a
-#   file the operator has to re-permission. Returns 1 printing nothing when no copy was made.
+#   file the operator has to re-permission. Returns 1 without printing a path when no copy was made.
 ai_tools_conf_backup() {
     local file="$1" target
     [[ -f "${file}" ]] || return 1
@@ -225,12 +232,20 @@ ai_tools_conf_backup() {
     printf '%s' "${target}"
 }
 
-# ai_tools_conf_reference <deployed> <shipped> : copy the <shipped> baseline next to <deployed>
-#   as a fresh dated .shipped and print that path. The copy takes the DEPLOYED file's owner and
-#   mode, not the source tree's. Returns 1 printing nothing when no copy was made.
+# ai_tools_conf_reference <deployed> <shipped> : print the .shipped sidecar beside <deployed> that
+#   holds the <shipped> baseline, copying it to a fresh dated path when no existing sidecar matches
+#   it byte for byte. The copy takes the DEPLOYED file's owner and mode, not the source tree's.
+#   Returns 1 without printing a path when the baseline is absent or the copy fails.
 ai_tools_conf_reference() {
-    local deployed="$1" shipped="$2" target
+    local deployed="$1" shipped="$2" target existing
     [[ -f "${shipped}" ]] || return 1
+    for existing in "${deployed}".*.shipped; do
+        [[ -f "${existing}" ]] || continue
+        if cmp -s "${existing}" "${shipped}"; then
+            printf '%s' "${existing}"
+            return 0
+        fi
+    done
     target="$(ai_tools_conf_sidecar_path "${deployed}" shipped)" || return 1
     cp "${shipped}" "${target}" 2>/dev/null || return 1
     _ai_tools_conf_match_perms "${target}" "${deployed}"
@@ -240,7 +255,7 @@ ai_tools_conf_reference() {
 # ai_tools_conf_require_jq : succeed when jq is callable. jq is a package dependency, so its
 #   absence is a broken install rather than a host variation -- this reports and fails instead of
 #   degrading, and callers of the JSON paths below gate on it. Deliberately NOT checked when this
-#   library is sourced: the KEY=value grammar above needs no jq, and this file is sourced on every
+#   library is sourced: the KEY=value grammar above does not need jq, and this file is sourced on every
 #   launch (by ai-tools-run, as the sandbox account) and by every root helper, so a source-time
 #   failure would stop a session for a reason unrelated to what it asked for.
 ai_tools_conf_require_jq() {
@@ -263,7 +278,7 @@ ai_tools_conf_require_jq() {
 # The shipped hook commands a deployed file does not declare, as "<event>: <command>". The
 # command binds to $command before the membership test: inside index(), `.` is that function's
 # own input -- the $have array -- so an unbound form asks whether the array contains itself and
-# reports nothing wherever the event already declares a hook.
+# does not report a gap wherever the event already declares a hook.
 # shellcheck disable=SC2016  # jq variables, bound by --slurpfile and jq's own `as`
 readonly _AI_TOOLS_CONF_HOOKS_MISSING_FILTER='
     . as $cur
@@ -294,7 +309,7 @@ readonly _AI_TOOLS_CONF_HOOKS_MERGE_FILTER='
 #   declarations into <deployed>.
 #     returns 0  merged      _ai_tools_conf_merge_added holds "<event>: <command>" per addition,
 #                            _ai_tools_conf_merge_backup the copy of what the operator had
-#     returns 1  no change   the file already declares everything shipped; nothing written
+#     returns 1  no change   the file already declares everything shipped; no write happens
 #     returns 2  refused     the file is byte-identical and _ai_tools_conf_merge_reference holds
 #                            the baseline dropped for a hand merge (empty if even that failed);
 #                            _ai_tools_conf_merge_reason says which check refused
@@ -361,7 +376,7 @@ ai_tools_conf_merge_hook_declarations() {
 #   whether the key is live or written as a commented-out default (`#KEY=` / `# KEY =`). Both
 #   forms count as "mentioned", which is the point: a key an operator has deliberately commented
 #   out is one they have already seen, so re-announcing it every upgrade would be noise. A comment
-#   indented further than one space is prose, not a default, and mentions nothing (below).
+#   indented further than one space is prose, not a default, and does not name an option (below).
 ai_tools_conf_keys() {
     local -n _ai_tools_conf_keys_out="$1"
     local file="$2" line key
@@ -374,7 +389,7 @@ ai_tools_conf_keys() {
             # ...but only when written hard against the `#` or one space in. A comment indented
             # further is illustrative prose: operator.conf's header documents the grammar with
             # lines like `#   KEY=value`, so counting those would make the minimally seeded file
-            # `ai-tools-admin operator add` writes report every documented key as new.
+            # `ai-tools-admin operators add` writes report every documented key as new.
             [[ "${line}" != "  "* ]] || continue
             line="${line#"${line%%[![:space:]]*}"}"
         fi
@@ -429,7 +444,7 @@ ai_tools_conf_new_keys() {
 # exclusions as globs, and this only decides what text the line denotes.
 
 # ai_tools_conf_path_entry <line> : set _ai_tools_conf_value to the entry <line> denotes and
-#   return 0; return 1 for a line that carries no entry (blank, or a whole-line comment), which
+#   return 0; return 1 for a line that does not carry an entry (blank, or a whole-line comment), which
 #   is the caller's signal to skip it. A leading `!` is preserved on the result, so an exclusion
 #   stays distinguishable after the quotes are stripped.
 ai_tools_conf_path_entry() {
@@ -516,7 +531,7 @@ ai_tools_conf_allowlist_matching_lines() {
 #   <path> exactly (compared without the `!`), and return 0 when at least one did. Exact-path like
 #   ai_tools_conf_allowlist_has_exclusion, never glob-expanding: it serves the callers that must
 #   EDIT the line an operator wrote to park a project (the CLI's re-enable, its de-registration,
-#   and the --for root helper), and a glob line names no single project to act on.
+#   and the --for root helper), and a glob line does not name a single project to act on.
 ai_tools_conf_allowlist_exclusion_lines() {
     local -n _ai_tools_conf_excluded="$1"
     local file="$2" want line entry
@@ -545,7 +560,7 @@ ai_tools_conf_allowlist_exclusion_lines() {
 # and reports three outcomes apart:
 #   0  the file now holds the intended state (including "it already did")
 #   1  the edit could not be applied -- the file is missing or could not be written
-#   2  the request does not apply from the CURRENT state, and nothing was written
+#   2  the request does not apply from the CURRENT state, and no write happened
 # The 2 cases are what keep the four states honest: adding over an exclusion would leave both lines
 # present with the `!` still winning at the launch gate (a claim reporting success over a project
 # no session can start in), and enabling or disabling a path the file does not name would invent an
@@ -585,17 +600,23 @@ ai_tools_conf_allowlist_state() {
     fi
 }
 
-# ai_tools_conf_allowlist_add <allowlist-file> <path> : append <path> as an allow entry. A path
-#   already listed is left alone (a re-claim must not duplicate a line); a DISABLED path is
-#   refused with 2 rather than appended, because the appended line would not take effect.
+# ai_tools_conf_allowlist_add <allowlist-file> <path> : append <path> as an allow entry, on a line
+#   of its own. A path already listed is left alone (a re-claim must not duplicate a line); a
+#   DISABLED path is refused with 2 rather than appended, because the appended line would not take
+#   effect.
 ai_tools_conf_allowlist_add() {
-    local file="$1" path="$2"
+    local file="$1" path="$2" line_break=''
     [[ -f "${file}" ]] || return 1
     case "$(ai_tools_conf_allowlist_state "${file}" "${path}")" in
         listed)   return 0 ;;
         disabled) return 2 ;;
     esac
-    printf '%s\n' "${path}" >> "${file}" 2>/dev/null || return 1
+    # A hand-edited registry can run to EOF part-way through its last line, and every reader here
+    # keeps that entry (the read loops take a final unbroken line). So the append opens a new line
+    # first: written straight, it would join the two paths into a third that no project matches,
+    # dropping the claimed one from the launch gate while the entry above it changed meaning.
+    [[ -n "$(tail -c 1 -- "${file}" 2>/dev/null)" ]] && line_break=$'\n'
+    printf '%s%s\n' "${line_break}" "${path}" >> "${file}" 2>/dev/null || return 1
     ai_tools_conf_allowlist_has_entry "${file}" "${path}" || return 1
 }
 
@@ -643,7 +664,7 @@ _ai_tools_conf_allowlist_retag() {
     # already exists -- the pair the old "append over an exclusion" bug created -- would leave two
     # live entries for one path. So the FIRST line naming the path survives, un-parked, in its own
     # position, and every later line naming it is dropped: one live entry per path, which is the
-    # invariant every reader of this file assumes. DISABLE needs no such rule, since parking each
+    # invariant every reader of this file assumes. DISABLE does not need that rule, since parking each
     # of several allow lines leaves them all excluded, which is one state and not two.
     local -a live_lines=()
     if [[ "${op}" == enable ]]; then

@@ -1,8 +1,8 @@
 # Install from source
 
 The manual path — four root steps a checkout installs with, no RPM. The package install
-(see the README) automates all of it; `sudo ai-tools-bootstrap` automates steps 2–3 once
-`install.sh` has deployed it, and `install.sh` automates everything from step 4 on.
+(see the README) automates all of it; `sudo ai-tools-admin system bootstrap` automates steps 2–3
+once `install.sh` has deployed it, and `install.sh` automates everything from step 4 on.
 
 Set the recurring identities once, in the shell you run these steps in, so every command
 pastes verbatim (the full naming spec is in
@@ -32,7 +32,7 @@ claude restricted — always resolves ahead of the nvm-managed `claude`. It is
 sourced per-account: only the operator shells wired for it get the ordering,
 and every other account on the host keeps its stock PATH.
 
-`sudo ai-tools-admin operator add <user>` offers to wire the source line into your
+`sudo ai-tools-admin operators add <user>` offers to wire the source line into your
 `~/.bashrc` and `~/.bash_profile`. To wire it by hand, add it to **both** files
 (non-login interactive shells read only `~/.bashrc`, login shells `~/.bash_profile`),
 after your nvm init:
@@ -42,6 +42,11 @@ after your nvm init:
 
     # ai-tools PATH dedup (must follow nvm init)
     [[ -f /usr/local/lib/ai-tools/path-dedup.sh ]] && source /usr/local/lib/ai-tools/path-dedup.sh
+
+Those two files are bash's, and `operators add` names your login shell when it
+reads something else. The fragment sources cleanly under zsh, so the same line
+goes in `~/.zshrc` and `~/.zprofile`; a shell that does not read bash (fish) takes
+the same tier ordering in its own syntax.
 
 nvm must be sourced **before** path-dedup: nvm prepends its versioned bin dir
 to `$PATH`, and path-dedup then restructures it into Tier 4, behind the T1
@@ -78,9 +83,9 @@ actually takes effect.
 
 ## 3. Install nvm + Node + claude as SANDBOX_USER (root, once)
 
-`ai-tools-bootstrap` does steps 2 and 3 in one idempotent command once the package is
-installed — it creates the account, installs the toolchain, seeds the symlink, and enables
-the `nvm-update.timer`. The manual equivalent:
+`sudo ai-tools-admin system bootstrap` does steps 2 and 3 in one idempotent command once the
+package is installed — it creates the account, installs the toolchain, seeds the symlink, and
+enables the `nvm-update.timer`. The manual equivalent:
 
     # cd first: the block runs as ${SANDBOX_USER}, which cannot occupy your home as cwd
     sudo -u "${SANDBOX_USER}" bash -c '
@@ -104,26 +109,43 @@ the `nvm-update.timer`. The manual equivalent:
     '
 
 Once `install.sh` (step 4) has run, `/opt/ai-tools/bin` is locked `0551 root:ai-tools` and
-only root maintains the symlink: instead of the `ln` above, run `sudo ai-tools-bootstrap`
-(idempotent -- it provisions whatever is missing and seeds the symlink through the root
-helper), or re-run `sudo ./install.sh install`.
+only root maintains the symlink: instead of the `ln` above, run
+`sudo ai-tools-admin system bootstrap` (idempotent -- it provisions whatever is missing and
+seeds the symlink through the root helper), or re-run `sudo ./install.sh install`.
 
 ## 4. Run the install script (root, once)
 
 Everything from here on is fully automated by `install.sh`. **Complete steps 2 and 3
 first** — the account must exist (else the script stops with `ai-tools user not found`)
 and `/opt/ai-tools/bin` must exist (step 3 creates it; the script writes `nvm-update.sh`
-into it). `sudo ai-tools-bootstrap` does both in one idempotent command. Then run:
+into it). `sudo ai-tools-admin system bootstrap` does both in one idempotent command. Then run:
 
     sudo ./install.sh install
 
 The script asks which account to enrol as the operator, offering the invoking `SUDO_USER`
-as the default — answer No to name another, such as a purpose-made provisioning account.
-A non-interactive run and a plain Enter both take `SUDO_USER`. `root` is refused at either
-route, including the one that reaches it by accident: `sudo` from a root shell sets
-`SUDO_USER=root`, and the resulting host has an operator the CLI refuses every project verb.
+as the default — answer No to name another. A non-interactive run and a plain Enter both
+take `SUDO_USER`. `root` is refused at either route, including the one that reaches it by
+accident: `sudo` from a root shell sets `SUDO_USER=root`, and the resulting host has an
+operator the CLI refuses every project verb.
 
-Name the account up front to skip the question — what an unattended install uses:
+**Enrolling your own login account is the usual choice.** Agent-written files are handed
+back to it, so an editor or IDE working in a claimed project keeps seeing its own files,
+and a login that can already `sudo` holds what claiming needs. Enrol a different account
+when this host is being set up for someone else, or when a dedicated provisioning account
+owns the projects. Create one before installing:
+
+    sudo useradd -m -s /bin/bash op && sudo usermod -aG wheel op
+
+`useradd` creates the login account the script enrols; `usermod -aG wheel` is this host's
+general sudo grant, which this project does not write (see below). Naming an account
+that does not exist yet refuses the install and prints this same command.
+
+The question is asked once per account. A re-install whose invoking account already holds
+both facts — a name in `OPERATORS` and `ai-ops` membership — reports whose host it is
+working on and re-asserts that enrolment without prompting.
+
+Name the account up front to skip the question — what an unattended install uses, and how
+to enrol a different account on a host that already has one:
 
     sudo ./install.sh install --operator op
 
@@ -133,10 +155,12 @@ enrolled**: the script still runs as `sudo`, and its verification suite still ru
 invoking `SUDO_USER`.
 
 Enrolment writes the two facts that make an operator — `ai-ops` membership and a name in
-`OPERATORS`. **Claiming a project needs a general sudo grant as well**, which nothing here
+`OPERATORS`. **Claiming a project needs a general sudo grant as well**, which this project does not
 writes; the host's own sudoers decides it. An operator without one launches agent sessions,
 and another operator claims for it with `ai-tools --project-claim --for <operator>`. A host
-needs at least one operator holding the grant, so enrol one that does.
+needs at least one operator holding the grant, so enrol one that does — a service account
+holding none is enrolled after the install with `ai-tools-admin`, rather than named at this
+prompt.
 
 The script deploys the static `%ai-ops` sudoers drop-in, the helpers and the system
 units, creates the approved-projects allowlist with format documentation, installs the
@@ -147,7 +171,7 @@ install directory is never auto-registered as a project.
 
 Enrol each further login user as an operator (ai-ops membership, allowlist seed):
 
-    sudo ai-tools-admin operator add <user>     # defaults to $SUDO_USER
+    sudo ai-tools-admin operators add <user>     # defaults to $SUDO_USER
 
 It reports which shape the enrolment produced — whether the account can claim projects, or
 only launch sessions and have them claimed for it — by asking sudo about that account.

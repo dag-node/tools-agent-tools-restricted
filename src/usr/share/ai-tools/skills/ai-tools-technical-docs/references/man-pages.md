@@ -132,7 +132,7 @@ A man page is part of the same coupled set as the CLI it documents: an added fla
 default, or a new exit code lands in the same change as the page. Where a page and the command
 disagree, the command decides what the page says.
 
-State the current interface. A page carries no changelog; what changed belongs to the changelog
+State the current interface. A page does not carry a changelog; what changed belongs to the changelog
 and to git.
 
 ## Check before finishing

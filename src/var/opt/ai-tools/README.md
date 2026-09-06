@@ -36,7 +36,7 @@ ai-tools --sandbox-create [path] \
 `--branch` takes any valid git ref, so the `sandbox/<leaf>` default is only a
 convention — use `--branch hotfix/urgent`, a flat `--branch mywork`, or any other
 shape. Nothing downstream depends on the name (`--sandbox-push` tracks the clone's
-upstream, not a naming pattern). The default deliberately carries no host or operator
+upstream, not a naming pattern). The default deliberately omits host and operator
 identity; on a shared remote, pass `--branch` to disambiguate concurrent sandboxes.
 
 ## Why this is the boundary
@@ -99,7 +99,7 @@ or git credential, so it physically cannot reach the remote — `ai-tools
 
 The operator supplies only the **transport** (network) credentials. The commits
 themselves keep the author/committer identity from `/opt/ai-tools/.gitconfig` — the
-sandbox account's git identity, set at install by `ai-tools-bootstrap` (which offers
+sandbox account's git identity, set at install by `ai-tools-admin system bootstrap` (which offers
 to adopt your identity, keep a default, or edit it) — **not** the pushing operator's.
 So attribution on the pushed work reflects that configured identity regardless of who
 pushes; set it at install if you care what name lands on the commits.

@@ -31,14 +31,17 @@ _san() { local LC_ALL=C; printf '%s' "${1//[^[:print:]]/?}"; }
 # grep for a result message keeps matching; a grep anchored on the WORD must allow the prefix (see
 # run.sh's failure summary).
 if [[ -t 1 || "${AI_TOOLS_TEST_COLOR:-0}" == "1" ]]; then
-    _C_PASS=$'\033[32m' _C_FAIL=$'\033[31m' _C_SKIP=$'\033[33m' _C_OFF=$'\033[0m'
+    _C_PASS=$'\033[32m' _C_FAIL=$'\033[31m' _C_SKIP=$'\033[33m' _C_NOTE=$'\033[2m' _C_OFF=$'\033[0m'
 else
-    _C_PASS='' _C_FAIL='' _C_SKIP='' _C_OFF=''
+    _C_PASS='' _C_FAIL='' _C_SKIP='' _C_NOTE='' _C_OFF=''
 fi
 
 pass()    { printf '  %sPASS%s  %s\n' "${_C_PASS}" "${_C_OFF}" "$(_san "$*")";            _pass=$(( _pass + 1 )); }
 fail()    { printf '  %sFAIL%s  %s\n' "${_C_FAIL}" "${_C_OFF}" "$(_san "$*")" >&2;        _fail=$(( _fail + 1 )); }
 skip()    { printf '  %sSKIP%s  %s  (%s)\n' "${_C_SKIP}" "${_C_OFF}" "$(_san "$1")" "$(_san "$2")"; _skip=$(( _skip + 1 )); }
+# note <subject> <detail>: report which supported state a host is in. Increments no counter, so
+# it stays out of run.sh's no-coverage notice; a check that could not run emits skip instead.
+note()    { printf '  %sNOTE%s  %s  (%s)\n' "${_C_NOTE}" "${_C_OFF}" "$(_san "$1")" "$(_san "$2")"; }
 section() { printf '\n── %s\n' "$(_san "$*")"; }
 
 # perm <path>: the rwx permission bits only, as octal (masks setgid/setuid/sticky). GNU
@@ -90,8 +93,8 @@ require_root() {
 # root: under sudo it is the operator who invoked it; run DIRECTLY as an unprivileged user (which
 # the pure library suites support -- they stub what they drive and build fixtures they own) the
 # invoker is that user; run as root with no sudo context there is no unprivileged identity to
-# derive and nothing to guess from, so refuse -- fixtures would be built root-owned and every
-# owner guard under test would skip them, passing the suite while proving nothing.
+# derive and no default to guess from, so refuse -- fixtures would be built root-owned and every
+# owner guard under test would skip them, passing the suite while proving no property.
 if [[ -n "${SUDO_USER:-}" ]]; then
     PROJECTS_USER="${SUDO_USER}"
 elif [[ "${EUID}" -ne 0 ]]; then
@@ -137,7 +140,7 @@ trap _teardown EXIT
 # root-only hook, exactly like AI_TOOLS_ALLOWLIST / AI_TOOLS_OPERATOR_CONF: sudo strips it
 # and the live handback daemon execs helpers with its own environment, so only a root
 # caller execing a helper directly (this suite) redirects it. The journald sink still
-# carries every line under its per-component tag, so nothing is lost. A helper the LIVE
+# carries every line under its per-component tag, so no line is lost. A helper the LIVE
 # daemon execs (integration/handback.sh) keeps the real dir -- the daemon does not inherit
 # this -- matching the AI_TOOLS_ALLOWLIST limitation. Registered for teardown.
 _test_logdir="$(mktemp -d /tmp/ai-tools-testlog.XXXXXX)"

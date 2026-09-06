@@ -19,7 +19,7 @@
 # re-resolves it immediately before the launch. What that window is, and why it is a DAC-only
 # concern, are in launch.rule.md.
 #
-# It names no agent. Which executables may launch, what environment each session gets, and
+# It is agent-agnostic. Which executables may launch, what environment each session gets, and
 # whether the session's ownership handback needs driving from here come from the root-owned
 # provider manifests under /usr/local/lib/ai-tools/agents.d and the session-env fragments under
 # /usr/local/lib/ai-tools/session-env.d.
@@ -31,7 +31,7 @@
 #     `ai-tools-run` syslog tag -- where the useful records are:
 #         sudo journalctl -t ai-tools-run _UID=<sandbox uid> -n 50 --no-pager
 #   * A refusal names the fix. The common ones are a stale SELinux label after a Node upgrade
-#     (`ai-tools --relabel`) and a stopped user manager (`loginctl enable-linger`).
+#     (`ai-tools-admin system entrypoints relabel`) and a stopped user manager (`loginctl enable-linger`).
 #   * The ownership handback socket is checked before launch: if it is down the session still
 #     starts (it is a data-ownership convenience, not a confinement boundary) but a NOTICE names
 #     the fix, and the session-end sweep skips its walk rather than tallying failed hand-backs.
@@ -123,7 +123,8 @@ while IFS=$'\t' read -r manifest_agent_name _ manifest_launcher; do
 done < <(ai_tools_enabled_agents 2>/dev/null)
 (( ${#agent_name_by_launcher[@]} > 0 )) \
     || refuse 'no agent is enabled on this host -- nothing can launch' \
-              'enable one in /etc/ai-tools/operator.conf (AI_TOOLS_AGENTS), then: sudo ai-tools-bootstrap'
+              'enable one in /etc/ai-tools/operator.conf (AI_TOOLS_AGENTS), then provision it:' \
+              '  sudo ai-tools-admin system bootstrap'
 
 agent_executable_path="${AI_TOOLS_AGENT_EXEC:-}"
 [[ "${agent_executable_path}" != *"/../"* ]] \
@@ -182,7 +183,7 @@ resolve_entrypoint() {
 #   size, and ctime at nanosecond precision. Each of the three ways a same-uid process can swap an
 #   entrypoint moves it: a symlink repoint and a rename-over both land a different inode, and an
 #   in-place write bumps ctime (which no unprivileged caller can roll back -- utimes(2) sets atime
-#   and mtime, never ctime). Prints nothing when the path cannot be stat'd, which compares unequal.
+#   and mtime, never ctime). Prints an empty string when the path cannot be stat'd, which compares unequal.
 entrypoint_identity() {
     stat -c '%d:%i:%s:%z' -- "$1" 2>/dev/null || true
 }
@@ -190,7 +191,8 @@ entrypoint_identity() {
 session_exec_path="$(resolve_entrypoint)" \
     || refuse "the launcher does not resolve to an executable inside ${entrypoint_version_root}" \
               "resolved from:  ${agent_executable_path}" \
-              'reprovision the toolchain:  sudo ai-tools-bootstrap'
+              'reprovision the toolchain:' \
+              '  sudo ai-tools-admin system bootstrap'
 session_exec_identity="$(entrypoint_identity "${session_exec_path}")"
 
 # ── Session working directory ────────────────────────────────────────────────────────────────
@@ -230,11 +232,11 @@ if command -v getenforce >/dev/null 2>&1; then
         expected_label="$(matchpathcon -n "${entrypoint_path}" 2>/dev/null | awk -F: '{print $3}' || true)"
         actual_label="$(stat -c '%C' -- "${entrypoint_path}" 2>/dev/null | awk -F: '{print $3}' || true)"
         # Module presence for the verdict, WITHOUT reading the root-only module store: this runs as
-        # @SANDBOX_USER@, so `semodule -l` returns nothing -- a systematic false "no" that, on the
+        # @SANDBOX_USER@, so `semodule -l` returns an empty list -- a systematic false "no" that, on the
         # unresolved-label branch, would fail OPEN (launch DAC-only where a half-installed host must
         # refuse). A CORE-owned path resolves to an ai_tools_* type IFF the core module's
         # file-contexts are live, and matchpathcon reads the world-readable file-contexts from the
-        # path string, so the probe needs no privilege and the agent cannot influence it. This
+        # path string, so the probe does not need privilege and the agent cannot influence it. This
         # distinguishes a half-installed host (module live, entrypoint unlabelled -> refuse) from a
         # DAC-only host (module absent -> launch), which the store read could not from this account.
         module_present="$(ai_tools_confinement_module_present \
@@ -266,7 +268,7 @@ if command -v getenforce >/dev/null 2>&1; then
             audit warning "REFUSED: entrypoint mislabelled (${actual_label:-none}, want ai_tools_exec_t)"
             refuse "refusing to launch -- ${entrypoint_path} is mislabelled \"${actual_label:-none}\"" \
                    "(expected ai_tools_exec_t), so no domain transition fires and the session would run UNCONFINED (relabel is required after upgrade)." \
-                   "Fix:  ai-tools --relabel" ;;
+                   "Fix:  sudo ai-tools-admin system entrypoints relabel" ;;
         manager-domain)
             audit warning "REFUSED: manager domain ${manager_domain} has no domtrans to ai_tools_t"
             refuse "refusing to launch -- the systemd --user manager runs in domain \"${manager_domain}\", which no domtrans_pattern in ai_tools.te covers, so the session would run UNCONFINED.  Add the source and rebuild:" \
@@ -275,7 +277,7 @@ if command -v getenforce >/dev/null 2>&1; then
         unverifiable)
             audit warning "REFUSED: ai_tools module present but file-contexts inactive (expected=${expected_label:-none})"
             refuse "refusing to launch -- the ai_tools SELinux module is installed but no file-context maps ${entrypoint_path} to ai_tools_exec_t, so the transition cannot be verified and the session would run UNCONFINED (fail closed on a half-installed host)." \
-                   "The agent's entrypoint rule comes from its own manifest; register it:  ai-tools --relabel" \
+                   "The agent's entrypoint rule comes from its own manifest; register it:  sudo ai-tools-admin system entrypoints relabel" \
                    "Or bring the whole layer up:  sudo selinux/install-selinux.sh install" \
                    "Or make this a DAC-only host:  sudo semodule -r ai_tools   (or run SELinux permissive)" ;;
         require-not-enforcing)
@@ -313,7 +315,7 @@ fi
 # ownership". This is NOT a confinement boundary -- DAC, the ai_tools_t type, and the project's
 # user:<operator> ACL keep the operator's access intact regardless -- so a down socket WARNS and
 # proceeds rather than refusing the launch (a refusal would trade availability for a non-security
-# convenience). Skipped for a diagnostic run with no project directory, which writes nothing to
+# convenience). Skipped for a diagnostic run with no project directory, which writes to no project under
 # hand back. The reconcile commands are printed plain, below the frame, so they stay paste-safe.
 readonly HANDBACK_SOCKET="/run/ai-tools/handback.sock"
 if [[ -n "${session_working_directory}" && ! -S "${HANDBACK_SOCKET}" ]]; then
@@ -325,7 +327,7 @@ if [[ -n "${session_working_directory}" && ! -S "${HANDBACK_SOCKET}" ]]; then
 fi
 
 # ── Session environment ──────────────────────────────────────────────────────────────────────
-# A service unit is spawned by the user manager with ITS OWN environment, so nothing crosses
+# A service unit is spawned by the user manager with ITS OWN environment, so no variable crosses
 # into the session unless named here. Only terminal-, locale-, and connectivity-shaping
 # variables are forwarded by name; the operator's API keys, tokens, SSH_AUTH_SOCK, and cloud
 # credentials stay out by construction, independent of sudo's env_reset/env_keep.
@@ -401,12 +403,12 @@ session_environment_options+=( "--setenv=PATH=${session_path}" )
 #
 # The walk only chooses which paths to OFFER: each one goes through the handback socket to
 # ai-tools-chown, which re-validates the allowlist, the exclusions, and the born-owner guard as
-# root, so this reaches nothing the hooks could not.
+# root, so this sweep cannot reach a path the hooks could not.
 readonly HANDBACK_CLIENT="/usr/local/bin/ai-tools-handback-client"
 
 # Directory-skip selector, shared with the hooks and the root helpers. Fail-SOFT by its own
 # design -- a skip list is walk cost, not an access boundary -- so a missing lib leaves a stub
-# that skips nothing: a slower, more thorough sweep, never a narrower one.
+# that descends everywhere: a slower, more thorough sweep, never a narrower one.
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/skip-dirs.lib.sh
 source "${AI_TOOLS_LIB_DIR}/skip-dirs.lib.sh" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
@@ -418,13 +420,13 @@ sweep_project_ownership() {
     [[ -n "${session_working_directory}" && -d "${session_working_directory}" ]] || return 0
     [[ -x "${HANDBACK_CLIENT}" ]] || return 0
     # A down socket fails every CHOWN, so skip the walk and record that once, rather than logging
-    # a reassuring count of calls that changed nothing (the failure mode this whole change fixes).
+    # a reassuring count of calls that changed no ownership (the failure mode this whole change fixes).
     if [[ ! -S "${HANDBACK_SOCKET}" ]]; then
         audit warning "session-end sweep skipped: handback socket ${HANDBACK_SOCKET} is down -- files under ${session_working_directory} stay @SANDBOX_USER@-owned (reclaim with: ai-tools --reclaim ${session_working_directory})"
         return 0
     fi
     # The "reclaim" consumer omits the heavy dependency/build trees but WALKS .git -- the tree
-    # the per-turn hooks skip, and which nothing else on this path would reach.
+    # the per-turn hooks skip, and which no other pass on this path would reach.
     ai_tools_skip_find_expr reclaim '' "${session_working_directory}"
     # Count CONFIRMED handbacks (client exit 0), not attempts, so the audit line reflects what
     # actually changed owner; a non-zero exit is either a routine skip (a path the root helper
@@ -546,13 +548,13 @@ case "${entrypoint_pin_verdict}" in
         refuse 'the agent entrypoint does not match the checksum its vendor signed for the installed version -- refusing to start the session' \
                "entrypoint:  ${session_exec_path}" \
                'The binary changed after it was verified. Treat this toolchain as tampered and reprovision it:' \
-               '  sudo ai-tools-bootstrap' ;;
+               '  sudo ai-tools-admin system bootstrap' ;;
     ok) ;;
     *)  if [[ "${require_entrypoint_verify}" == yes ]]; then
             audit warning "REFUSED: entrypoint unverified (${entrypoint_pin_verdict}) and AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set"
             refuse 'refusing to launch -- AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set in operator.conf, but this entrypoint carries no verified checksum.' \
                    'Pin it (this fetches the vendor'"'"'s signed release manifest, so the host must be online):' \
-                   '  ai-tools --relabel'
+                   '  sudo ai-tools-admin system entrypoints relabel'
         fi ;;
 esac
 
@@ -563,7 +565,8 @@ if [[ "$(resolve_entrypoint || true)" != "${session_exec_path}" \
            "entrypoint:  ${session_exec_path}" \
            'A toolchain update running at the same moment explains this: rerun the launch.' \
            'If it repeats with no update running, treat the toolchain as untrusted:' \
-           'reprovision it:  sudo ai-tools-bootstrap'
+           'reprovision it:' \
+           '  sudo ai-tools-admin system bootstrap'
 fi
 
 # ExecStart is the RESOLVED entrypoint, not the launcher symlink: the manager's execve performs the
@@ -588,6 +591,6 @@ if (( session_exit_status != 0 && SECONDS - session_start_seconds < 5 )); then
         "ai-tools-run: the session exited with status ${session_exit_status} almost immediately." \
         "If it ended with no output, the sandbox toolchain may be incompletely" \
         "installed -- reprovision it as root, then relaunch:"
-    printf '  sudo ai-tools-bootstrap\n' >&2
+    printf '  sudo ai-tools-admin system bootstrap\n' >&2
 fi
 exit "${session_exit_status}"

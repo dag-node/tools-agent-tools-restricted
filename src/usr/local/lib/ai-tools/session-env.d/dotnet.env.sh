@@ -6,14 +6,14 @@
 #
 # ai-tools-run sources this when `dotnet` is enabled in /etc/ai-tools/operator.conf
 # (AI_TOOLS_INTEGRATIONS). It self-gates on a host dotnet, so it is inert on a host without
-# one even when enabled -- this integration packages no runtime.
+# one even when enabled -- this integration does not ship a runtime of its own.
 #
-# One state root backs it, provisioned by `sudo ai-tools-dotnet setup` -- every integration keeps
-# its sandbox-side state under /opt/ai-tools/integrations/<name>, so no toolchain adds a dotdir to
-# the sandbox home and one SELinux rule covers them all:
+# One state root backs it, provisioned by `sudo ai-tools-admin dotnet bootstrap` -- every
+# integration keeps its sandbox-side state under /opt/ai-tools/integrations/<name>, so no
+# toolchain adds a dotdir to the sandbox home and one SELinux rule covers them all:
 #   integrations/dotnet/nuget   restore cache, agent-writable across every project
 #   integrations/dotnet/cli     the SDK's own state (DOTNET_CLI_HOME), agent-writable
-#   integrations/dotnet/tools   shared global tools, read-only to the agent (sudo-only writes)
+#   integrations/dotnet/tools   shared global tools, read-only to the agent (root-only writes)
 #
 # The variables are those .NET 8 LTS and later read. DOTNET_CLI_HOME is what keeps the shared
 # tools tree read-only: the SDK's own state defaults to $HOME/.dotnet, so it is pinned at the
@@ -32,7 +32,7 @@
 [[ -x /usr/bin/dotnet ]] || return 0
 
 # The host SDK/runtime tree at its RPM path, or wherever the muxer resolves to. The muxer is
-# already on the session PATH, so PATH itself needs no dotnet entry.
+# already on the session PATH, so PATH itself does not need a dotnet entry.
 dotnet_root=/usr/lib64/dotnet
 [[ -d "${dotnet_root}" ]] || dotnet_root="$(dirname -- "$(readlink -f /usr/bin/dotnet)")"
 

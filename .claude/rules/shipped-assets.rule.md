@@ -20,7 +20,7 @@ Each kind is seeded ONCE into its own shared root — `/opt/ai-tools/skills` and
 every agent gets a **symlink** per asset into the directory its own product reads. One file to
 author, one to update, however many agents read it. The formats are Claude Code's (`SKILL.md`,
 subagent frontmatter) and are not standardized across products, so an agent that cannot read a
-kind simply declares no directory for it and takes no links of that kind.
+kind leaves that field unset, and does not take links of that kind.
 
 Ships now: the `ai-tools-reference-architect` agent and three skills —
 `ai-tools-technical-docs` (the writing standard for every artifact),
@@ -30,7 +30,7 @@ An asset is a **tree**, not a file: a skill may carry supporting material beside
 (`ai-tools-capable-systems-governance/references/framework.md` is the normative text its `SKILL.md`
 defers to, so the working guidance stays short and the long text loads only when it is needed). The
 seeder copies a directory asset whole (`cp -rT`) and applies the modes recursively, and the linker
-places one symlink for the asset's top directory, so nesting needs nothing of either.
+places one symlink for the asset's top directory, so nesting is handled by both without a special case.
 
 ## Placement: one rule, four hops
 
@@ -72,13 +72,13 @@ symlink per shared asset, for either kind, and is idempotent and non-displacing:
   asset, or an operator's override of a shared one, wins: same name, real file, no link. The one
   exception is a copy that is **both** `x-ai-tools-managed` **and** byte-identical to the shared
   asset: that is this project's own copy from the layout before these assets were shared, so it
-  is replaced by a link (nothing is lost). A managed copy that *differs* is kept and reported —
+  is replaced by a link, with no content lost. A managed copy that *differs* is kept and reported —
   the difference is an operator edit or version drift, and the linker is not the place to
   resolve either.
 
 Which agents take links of which kind comes from `ai_tools_agent_asset_dirs <manifest-field>`
 (`control-plane.lib.sh`), which reads each enabled agent's `config_dir` plus the field naming
-that kind's directory (`skills_dir`, `subagents_dir`) — the seeder names no path itself. The
+that kind's directory (`skills_dir`, `subagents_dir`) — the seeder does not name a path itself. The
 links are root-owned inside the agent's setgid+sticky config directory, so a session reads and
 invokes them but cannot repoint one.
 
@@ -108,8 +108,11 @@ x-ai-tools-version: 1
 x-ai-tools-updated: 2026-07-15
 ```
 
-`x-ai-tools-version` is a monotonic integer; **every change to a shipped asset bumps it and sets
-`x-ai-tools-updated`**. `x-ai-tools-managed: true` is the provenance marker the seeder gates on.
+`x-ai-tools-version` is a monotonic integer, bumped **once per repository release in which the
+asset changed**, together with `x-ai-tools-updated`. A development cycle that edits an asset
+several times ships one increment: a host installs released packages only, so the version the
+seeder compares against a live copy tracks releases, and the first edit of a cycle is the one that
+bumps it. `x-ai-tools-managed: true` is the provenance marker the seeder gates on.
 `x-ai-tools-status` tracks the RFC-draft lifecycle (`draft` while an asset is still being refined).
 A single version is installed at a time, so the stable name always resolves to the latest.
 
@@ -123,7 +126,7 @@ asset — and keeps offering it to every session — until it is named in
 `ai_tools_remove_retired_assets` runs after the seeder in all three provisioning paths
 (`install.sh`, `ai-tools-bootstrap`, base's `%post`). It gates on the same `x-ai-tools-managed`
 marker the seeder claims by, so an operator's own asset under a withdrawn name is kept and
-reported. Each agent's symlink needs no handling of its own: the linker drops a link into the
+reported. Each agent's symlink is handled by the linker: the linker drops a link into the
 shared root once its target is gone.
 
 **The list gates both passes, so neither depends on the order they run in.** The seeder skips a
@@ -158,7 +161,7 @@ It acts on an asset **only** when its name matches `ai-tools-*` **and** its fron
 - **absent** in the live tree → seeded;
 - **present + managed + a newer shipped `x-ai-tools-version`** → a keep/update confirm defaulting
   to **update**, so Enter and any non-interactive run (a scriptlet has no tty) take the new
-  version. The replace keeps no sidecar: the live copy is the previous version and differs from
+  version. The replace does not keep a sidecar: the live copy is the previous version and differs from
   the incoming one by definition, so there is no baseline an edit could be detected against, and a
   copy per upgrade would bury the withdrawal copies that do carry something unrecoverable;
 - **present + unmanaged** (no marker) → left untouched (the operator's own file);
@@ -168,8 +171,8 @@ It acts on an asset **only** when its name matches `ai-tools-*` **and** its fron
 Base's `%post` pre-answers the update confirm with `AI_TOOLS_ASSUME_YES=1` rather than letting it
 fall through to its default. The outcome is identical, but the prompt is written to `/dev/tty`,
 which *succeeds* when `dnf` runs on a terminal — so without it the operator is shown a question
-nothing can answer and which is then decided without them. Pre-answering skips drawing it, and the
-decision audits as `assume-yes` rather than `default`, which is what happened. It widens nothing:
+no one can answer and which is then decided without them. Pre-answering skips drawing it, and the
+decision audits as `assume-yes` rather than `default`, which is what happened. It leaves the surface unchanged:
 the variable fast-tracks a question whose default is already yes and never flips a default-NO one
 ([messaging](messaging.rule.md)).
 

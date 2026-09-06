@@ -2,8 +2,8 @@
 #
 # Every source file states its own licence in a one-line `SPDX-License-Identifier` header. The
 # COPYRIGHT holder is declared here instead of in each file, so it is single-sourced: a file added
-# later inherits it with nothing to remember, and the year is one line to update rather than a
-# tree-wide sweep. `precedence = "aggregate"` means a file's own header wins where it has one and
+# later inherits it, and the year is one line to update rather than a tree-wide sweep.
+# `precedence = "aggregate"` means a file's own header wins where it has one and
 # these annotations only fill the gaps.
 #
 # The paths below are those that cannot carry a comment (compiled .pp policy packages), or where a

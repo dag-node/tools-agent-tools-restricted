@@ -17,7 +17,7 @@ policy_module(ai_tools_netadmin, 0.1.0)
 ##    Why: firewall-cmd and nmcli are bin_t (already executable) but their
 ##         privileged backends (firewalld_t, NetworkManager_t) communicate via
 ##         D-Bus. ai_tools_t lacks dbus send_msg permission to those daemon types,
-##         so the command runs but gets no response."
+##         so the command runs without a response."
 ##
 ## After enabling, re-run the bring-up suite (avc-testsuite.sh + avc-analyze.sh):
 ## firewalld and NM interactions may surface additional D-Bus receive_msg or

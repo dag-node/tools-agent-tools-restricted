@@ -126,7 +126,7 @@ ai_tools_relabel_lock
          ai_tools_log_warn "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"; }
 
 if ai_tools_relabel_available; then :; else
-    # SELinux off or restorecon absent -- nothing to do, and not an error: the
+    # SELinux off or restorecon absent -- no work to do, and not an error: the
     # confinement layer simply is not in play on this host.
     echo "ai-tools-relabel: SELinux inactive -- no labelling needed for ${dir}"
     exit 0

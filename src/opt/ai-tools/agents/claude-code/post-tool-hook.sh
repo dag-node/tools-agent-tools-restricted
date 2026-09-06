@@ -6,7 +6,7 @@
 # argument-less form additionally restores operator:ai-tools ownership.
 #
 #   (no argument)  Write|Edit -- record the call, then hand the written file back
-#   record         Bash       -- record the call only; a Bash write carries no
+#   record         Bash       -- record the call only; a Bash write does not report a
 #                               file_path and is swept at turn end instead
 #
 # Runs as ai-tools. It deliberately does NOT pre-check the approved-projects
@@ -18,7 +18,7 @@
 #
 # This hook only decides, cheaply and as ai-tools, whether a handback call is
 # even worth making. It exits early -- without calling the client -- when:
-#   - the tool input contains no file path
+#   - the tool input does not contain a file path
 #   - the file is not owned by ai-tools (already handed back, or never agent-written)
 #
 # Ownership handback is delegated to the socket privilege bridge
@@ -64,7 +64,7 @@ readonly RECORDED_LEADING_WORD_COUNT=2
 readonly RECORD_FIELD_SEPARATOR=$'\037'
 
 # format_tool_call_record <hook-event-json> -- PRINT the audit-trail record for the tool call
-# this event carries, or nothing when it cannot be read. Never fails the caller.
+# this event carries, or an empty string when it cannot be read. Never fails the caller.
 #
 # The output is one 0x1F-delimited list: the human-readable MESSAGE first, then zero or more
 # `FIELD=value` pairs for the journal's native structured fields. Both renderings are built
@@ -80,7 +80,7 @@ readonly RECORD_FIELD_SEPARATOR=$'\037'
 # command's FIRST LINE (each capped at MAX_RECORDED_WORD_LENGTH, a longer one marked `~`)
 # plus the count of words on that line. Taking the first line excludes a here-doc body by
 # construction rather than by a length cap -- `cat > f <<'EOF'` followed by a credential
-# records `cmd="cat >" argc=4` and nothing of the payload -- and two words keep a command
+# records `cmd="cat >" argc=4` and no part of the payload -- and two words keep a command
 # distinguishable from its subcommand (`git log` from `git push`). Recording the full
 # command line would make the trail carry unbounded file content.
 #
@@ -96,13 +96,13 @@ readonly RECORD_FIELD_SEPARATOR=$'\037'
 # they are STRUCTURE, so a word containing them forges fields: a leading word of
 # `git" argc=0 cwd=/etc/passwd` would otherwise render as `cmd="git" argc=0" argc=8`, handing a
 # reader the planted argc. Reducing them to `?` makes the line's shape unforgeable while leaving
-# it readable, and the variable-length part is placed LAST, so nothing the agent controls
+# it readable, and the variable-length part is placed LAST, so no agent-controlled value
 # precedes a field a reader trusts. The class spells the surviving set as its two ranges: `!`
 # (0x21), `#`-`<` (0x23-0x3C, excluding space 0x20 and `"` 0x22), and `>`-`~` (0x3E-0x7E,
 # excluding `=` 0x3D).
 #
 # The structured FIELDS need none of that narrowing: journald's native protocol delimits each
-# field itself, so a value cannot forge a sibling and needs no escaping. They therefore keep
+# field itself, so a value cannot forge a sibling, and escaping is unnecessary. They therefore keep
 # what the MESSAGE reduces -- a path with a space stays a path with a space, where the MESSAGE
 # shows `?` -- and the shared logger applies its display allowlist to each on the way out. The
 # MESSAGE is the lossy human view; the fields are the faithful machine one.
@@ -159,7 +159,7 @@ format_tool_call_record() {
 # ran no tools" from "the recorder was broken or bypassed", and the second reads as the first,
 # which is worse than no trail at all because it manufactures confidence. So a failure to
 # record is itself recorded, at WARNING, naming the gap. The reason is resolved only on the
-# failure path, so the common case pays nothing for it, and `jq` is singled out because its
+# failure path, so the common case does not pay for it, and `jq` is singled out because its
 # absence degrades every hook in the session (handback and sweeps included), not just this
 # line -- that is a host-level fault an operator must see, not a parse hiccup.
 record_tool_call() {
@@ -188,7 +188,7 @@ record_tool_call() {
 # The handback call is made only for a path the agent itself wrote -- one currently owned by
 # @SANDBOX_USER@ -- which is exactly the set ai-tools-chown will act on (its own owner guard)
 # and the same signal the parent-dir walk uses, so an already-handed-back file
-# (operator-owned, or a quarantined secret) makes no socket call. The root-owned validator
+# (operator-owned, or a quarantined secret) does not call the socket. The root-owned validator
 # does the real work: it checks the allowlist (as root, which can read it), chowns + strips
 # world bits, and for secret-named files revokes ai-tools access and prints a NOTICE. That
 # stderr is deliberately NOT redirected to /dev/null, so Claude Code surfaces the NOTICE in
@@ -229,7 +229,7 @@ main() {
     # An empty stdin is not a tool call the harness made: it means this hook ran outside the
     # session that feeds it (a hand invocation, a misconfigured declaration). Say so rather
     # than exiting mute, for the same reason record_tool_call reports its gaps -- but at the
-    # lower level, since nothing was lost from the trail here; there was nothing to record.
+    # lower level, since no record was lost from the trail here; there was no call to record.
     hook_event_json="$(cat)" || return 0
     if [[ -z "${hook_event_json}" ]]; then
         ai_tools_log_info "PostToolUse invoked with no event on stdin -- nothing to record or hand back"
@@ -238,8 +238,8 @@ main() {
 
     record_tool_call "${hook_event_json}"
 
-    # The Bash form records and stops: a Bash-created file carries no file_path, so there is
-    # nothing for the handback to act on (the Stop sweep catches those at turn end).
+    # The Bash form records and stops: a Bash-created file does not report a file_path, so there is
+    # no path for the handback to act on (the Stop sweep catches those at turn end).
     if [[ "${hook_invocation_mode}" == "record" ]]; then
         return 0
     fi

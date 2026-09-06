@@ -7,7 +7,7 @@
 # and a final vX.Y.Z tag require the three-way match, a vX.Y.Z-rc.N tag compares its base
 # and relaxes only the %changelog match (surfacing a note), any other dashed tag is refused,
 # and a missing %changelog entry stays fatal for every form. Exercises the repo's own copy
-# (the script is not a deployed artifact); needs no privilege beyond the suite contract.
+# (the script is not a deployed artifact); does not need privilege beyond the suite contract.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"

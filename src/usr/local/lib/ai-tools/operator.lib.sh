@@ -36,7 +36,7 @@
 #
 # The handback helpers (ai-tools-chown/-setgid/-setfacl/-lockdown/-unclaim) source this lib
 # best-effort and, when it is absent, define a fail-closed ai_tools_resolve_owner stub that
-# resolves no owner -- so a missing lib skips the handback (the path stays sandbox-owned) rather
+# leaves the owner unresolved -- so a missing lib skips the handback (the path stays sandbox-owned) rather
 # than acting on the wrong identity. Each calls resolve_owner on the path it acts on, then restores
 # to that owner; a path no operator's allowlist covers is left untouched.
 
@@ -51,7 +51,7 @@ readonly _AI_TOOLS_OPERATOR_LIB=1
 # Shared KEY=value grammar (conf.lib.sh), so OPERATORS parses exactly like every other key in
 # operator.conf -- commas or whitespace between names, quotes optional, inline comments honored.
 # The load is fail-CLOSED by consequence rather than by refusal: without the parser
-# ai_tools_load_operators resolves no operators, and "no owner" is already the answer that stops
+# ai_tools_load_operators leaves the operator set empty, and "no owner" is already the answer that stops
 # a handback (see the header), so a missing lib skips the operation instead of acting on a
 # half-parsed identity.
 # shellcheck source=SCRIPTDIR/conf.lib.sh
@@ -66,7 +66,7 @@ readonly AI_TOOLS_OPERATOR_CONF="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operato
 # ai_tools_load_operators: parse the OPERATORS list from AI_TOOLS_OPERATOR_CONF into the
 # global array AI_TOOLS_OPERATORS (one element per operator, order preserved). Returns 0 when
 # at least one operator is configured, 1 when unenrolled -- callers treat the unenrolled case
-# as "nothing to do" (fail-closed: no operator means no ownership to restore). Idempotent.
+# as "no work to do" (fail-closed: no operator means no ownership to restore). Idempotent.
 ai_tools_load_operators() {
     AI_TOOLS_OPERATORS=()
     declare -F ai_tools_conf_list >/dev/null 2>&1 || return 1
@@ -76,7 +76,7 @@ ai_tools_load_operators() {
 
 # ai_tools_load_operator: resolve the PRIMARY operator (the first in the list) into the globals
 # PROJECTS_USER, PROJECTS_HOME, PROJECTS_GROUP, and the derived PROJECTS_UID (numeric, -1 when
-# unresolved so an owner-guard compare matches nothing). The single-operator identity contract
+# unresolved so an owner-guard compare can never match). The single-operator identity contract
 # the components that need "an operator" rely on (the launch path, the CLI, the symlink/relabel
 # helpers); the per-path owner of a multi-operator host is resolved separately. Home and group
 # are derived from the name via getent/id. Returns 0 when an operator is configured, 1 when

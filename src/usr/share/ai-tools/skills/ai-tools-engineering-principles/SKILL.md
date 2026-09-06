@@ -4,7 +4,7 @@ name: ai-tools-engineering-principles
 x-ai-tools-managed: true
 x-ai-tools-status: draft
 x-ai-tools-version: 2
-x-ai-tools-updated: 2026-08-25
+x-ai-tools-updated: 2026-09-05
 description: "Use when introducing a new feature (to set its shape before coding), when validating or reviewing a feature implementation against these defaults, or when choosing an approach, architecture, or how much machinery a problem warrants — in any language. Consult it at both ends: before building a feature and when checking the result. Sets the default engineering judgment: resolve trade-offs in the order security, then performance; write in a pragmatic, low-ceremony style (simple, explicit, terse-but-readable, POCO/DTO-first, no speculative abstraction); fail closed on critical components; sanitize with an allowlist not a blocklist; reach for the lightest mechanism that works; spend context and tokens deliberately (amortize discovery through persistent docs, isolate noisy fan-out work, and never downgrade planning to a weaker model); keep humans in the loop for irreversible or outward-facing actions. For prose style defer to ai-tools-technical-docs. Trigger on 'add/implement a feature', 'design this', 'how should I build/structure this', 'which approach', 'review/validate this implementation', 'is this over-engineered', or any design/architecture decision."
 ---
 
@@ -24,7 +24,7 @@ required. The "One-line test" and the anti-patterns below double as the review p
 
 When concerns pull against each other, resolve them in this order:
 
-1. **Correctness** — it has to do the right thing; a fast, elegant wrong answer is worth nothing.
+1. **Correctness** — it has to do the right thing; a fast, elegant wrong answer is worthless.
 2. **Security** — get the boundary right before the speed. An input that reaches a log, a shell, a
    query, or the filesystem is untrusted until proven otherwise.
 3. **Performance** — then make it fast: avoid needless work, allocations, and chatty round-trips;
@@ -77,7 +77,7 @@ understands in one pass — the code is the best documentation.
   correctness gate.)
 - **Sanitize with a fail-closed allowlist, not a blocklist.** Permit a known-safe subset and reject
   everything else by construction. A blocklist is open-ended and never provably complete; an
-  allowlist needs no maintenance to stay safe. Prefer the simple, foolproof rule over exhaustive
+  allowlist does not need maintenance to stay safe. Prefer the simple, foolproof rule over exhaustive
   enumeration.
 - **Lightest mechanism that works.** Resolve an inconsistency at write-time against ground truth
   (the code) rather than building tooling to police it later; reach for a lint/CI gate only for a
@@ -101,9 +101,9 @@ understands in one pass — the code is the best documentation.
 - **Scope a change to what it requires.** Touch only what the change needs — reconcile the doc
   passages it actually invalidates, don't ride unsolicited cross-cutting refactors or new doc
   sections along with a fix. Raise a broader idea separately.
-- **Trace, don't guess.** When something "does nothing" with no error, observe the running behaviour
-  (a trace, an exit code, a log) before theorising — silent no-ops (a swallowed error, a mis-set
-  flag) don't reveal themselves by inspection.
+- **Trace, don't guess.** When a call reports success and the expected effect is missing, observe the running
+  behaviour (a trace, an exit code, a log) before theorising — a silent no-op (a swallowed error,
+  a mis-set flag) does not reveal itself by inspection.
 
 ## Routing
 

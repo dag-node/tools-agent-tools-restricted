@@ -3,7 +3,7 @@ paths:
   - "src/usr/local/lib/ai-tools/session-env.d/dotnet.env.sh"
   - "src/usr/local/lib/ai-tools/filters.d/dotnet.rules"
   - "src/usr/local/lib/ai-tools/integrations.d/dotnet.conf"
-  - "src/usr/local/libexec/ai-tools/ai-tools-dotnet.sh"
+  - "src/usr/local/lib/ai-tools/admin-commands.d/**"
   - "selinux/policy/ai_tools_tmpmap.te"
   - "selinux/policy/ai_tools_apphost.te"
   - "selinux/policy/ai_tools_netcore.te"
@@ -19,6 +19,12 @@ memory-mapping a shared mutex, executing JIT'd code, opening diagnostic IPC sock
 native host it built — reaches past the repo-only base domain. None of it is required by the Claude
 Code agent itself, so all of it lives in **optional policy groups**, off by default, loaded only
 where .NET is brought up. On a DAC-only host (no SELinux) none of this applies.
+
+The integration's own commands are the `dotnet` domain of `ai-tools-admin` — `dotnet bootstrap`,
+`dotnet tools install <pkg...>`, `dotnet status`. They are spelled to the standard in
+[cli-grammar](cli-grammar.rule.md), and reach that surface through the contributed-command seam in
+[providers](providers.rule.md), which is what puts a root-only integration command on the base
+binary rather than on one of its own.
 
 ## The three .NET policy groups
 
@@ -75,7 +81,7 @@ benign — the sandbox's own processes doing socket/FIFO IPC in their own tmp/ho
 the file management the base already grants.
 
 `netcore` §2 is the boundary: **execute on `ai_tools_project_t`** is on-disk native code the sandbox
-wrote, run as a new process image. It confers no new privilege (`execmem` already concedes
+wrote, run as a new process image. It does not grant a new privilege (`execmem` already concedes
 in-process native code, and `execute_no_trans` keeps the child in `ai_tools_t` with no entrypoint to
 a more privileged domain), but it is the reason the whole `netcore` module is off by default and
 `experimental`. `execmod` covers an R2R image relocated in place.

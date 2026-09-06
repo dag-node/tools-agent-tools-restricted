@@ -34,10 +34,10 @@ fi
 readonly _AI_TOOLS_OWNER_ONLY_LIB=1
 
 # The sandbox group, substituted at install. Every arm of the strip is keyed on it, so a tree
-# that never met a claim has nothing to strip.
+# that never met a claim has no residue to strip.
 readonly AI_TOOLS_SANDBOX_GROUP="@SANDBOX_GROUP@"
 
-# ai_tools_is_owner_only <octal-mode>: 0 when the mode carries no group and no other bits.
+# ai_tools_is_owner_only <octal-mode>: 0 when the mode grants neither group nor other bits.
 # An empty or unparseable mode reads as sealed, so a path whose stat failed is skipped by the
 # walkers rather than granted.
 ai_tools_is_owner_only() {
@@ -51,7 +51,7 @@ ai_tools_is_owner_only() {
 # inode, so it inherits that caller's TOCTOU guarantee. <ftype>/<group-name>/<octal-mode> are
 # the values the caller read from that same descriptor.
 #
-# Returns 0 when something was stripped, 1 when there was nothing to strip. Sets:
+# Returns 0 when something was stripped, 1 when there was no residue to strip. Sets:
 #   AI_TOOLS_RESIDUE_ACTIONS   what changed, as an array of acl / setgid / group
 #   AI_TOOLS_RESIDUE_SURFACE   1 when a third-party group's setgid was left for the caller
 #                              to report

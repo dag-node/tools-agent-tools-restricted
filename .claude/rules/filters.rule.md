@@ -24,7 +24,7 @@ overrides ([claude-settings](claude-settings.rule.md)). A rules file is therefor
 The refusal directions follow from that. Every way filtering can fail — an untrusted rules file,
 an unparseable line, a command the engine does not fully parse, an absent library, a missing
 `jq` — ends in **pass-through**: the command the agent wrote, run unchanged, with its output
-untouched. Failing here costs tokens and nothing else, which is why the hook adapter fails
+untouched. Failing here costs tokens alone, which is why the hook adapter fails
 **soft** where the security gates fail closed ([shellcheck](shellcheck.rule.md) states that
 split; this is the "pure output path" case).
 
@@ -52,7 +52,7 @@ match       the literal leading words a command must start with        git log
 action      args -- insert <payload> right after those words
             wrap -- prepend <payload> as a wrapper command
 blocking    words that cancel the rule, comma- or whitespace-separated;
-            a lone `-` means nothing blocks it                          --format,--stat
+            a lone `-` means no flag blocks it                          --format,--stat
 payload     verbatim shell text, inserted as written                    --format='%h %s'
 ```
 
@@ -98,13 +98,13 @@ its argument, the way `session-hook.sh` dispatches its session phases:
   `hookSpecificOutput.updatedToolOutput` when the output carried noise. The result shape is read
   from the event rather than assumed: an object carrying `stdout`/`stderr` strings has those
   filtered in place and its other keys preserved, a bare string is filtered whole, anything else
-  is left alone. Output that carried no noise emits nothing at all, which is the common case.
+  is left alone. Output that carried no noise passes through unchanged, which is the common case.
 
 ## Noise stripping is byte-level only
 
 The strip removes ANSI CSI and OSC sequences, stray escapes, and collapses carriage-return
 redraws to the final state a terminal would have shown. **No line is dropped, truncated,
-reordered, or summarized**, so nothing the model would have read is lost — the transform is
+reordered, or summarized**, so every line the model would have read survives — the transform is
 reversible in information content, not merely in volume. Its one cost is a line that uses a
 carriage return as data rather than as a redraw (CR-only line endings), which keeps its last
 segment.
@@ -116,11 +116,11 @@ they need a recovery path the agent can reach, and they are deferred until one e
 
 `operator.conf` `AI_TOOLS_FILTERS`, in the shared `KEY=value` grammar (`conf.lib.sh`):
 
-- **key absent** → every installed rule set applies. This is the default: filtering widens no
-  surface, adds no egress, and ships no binary.
+- **key absent** → every installed rule set applies. This is the default: filtering leaves the
+  surface unchanged, and it neither opens a network path nor ships a binary.
 - **key present** → exactly the named sets. An **empty value is the kill switch** — no filtering
   at all, the switch to reach for when a session's command output looks unexpected. The kill
-  switch covers both transforms: the rewrite path loads no rules under it, and the adapter gates
+  switch covers both transforms: the rewrite path loads its rule sets only when enabled, and the adapter gates
   its noise strip on the same verdict (`ai_tools_filter_enabled`), so a switched-off session's
   output reaches the model byte-identical to what the tool produced. A named list narrows which
   rule sets load, never the strip.
@@ -128,7 +128,7 @@ they need a recovery path the agent can reach, and they are deferred until one e
   root-owned rules.
 
 Rule sets are **not** gated on provider enablement. A rule is inert unless the agent runs the
-command it matches, so the gate would decide nothing, and this resolution runs on every Bash call.
+command it matches, so the gate would have no effect, and this resolution runs on every Bash call.
 A package's rules therefore install and are removed with that package, and that is the whole of
 their lifecycle.
 

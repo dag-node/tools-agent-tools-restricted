@@ -4,7 +4,7 @@
 # Hermetic unit tests for the deployed ai-tools-reclaim helper: it hands agent-owned files under a
 # project back to the operator via ai-tools-chown, including the .git tree the sweeps skip, while
 # leaving the heavy/transient trees (node_modules, ...) agent-owned -- and --full reclaims those
-# too. Runs the installed helper against a /tmp testdir + dummy allowlist; writes nothing outside.
+# too. Runs the installed helper against a /tmp testdir + dummy allowlist; does not write a path outside.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -29,7 +29,7 @@ nm="${proj}/node_modules/pkg/i.js"; : > "${nm}"
 
 own() { stat -c '%U' "$1" 2>/dev/null; }
 
-# (0) Two-phase, empty set: nothing agent-owned yet (the fixtures are root-owned), so
+# (0) Two-phase, empty set: no path agent-owned yet (the fixtures are root-owned), so
 # the collect phase reports exactly that and stops before any confirmation or change.
 noop_out="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 > /dev/null || true)"
 if grep -qF "nothing to reclaim" <<<"${noop_out}"; then

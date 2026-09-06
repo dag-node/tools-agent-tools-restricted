@@ -31,7 +31,7 @@ readonly AI_TOOLS_SELINUX_PACKAGE_DIR="/usr/share/selinux/packages/ai-tools"
 # The stability field is 'experimental' or 'stable': 'experimental' groups are
 # unaudited drafts whose rule set has not been verified under permissive against a
 # real workload, so a consumer that enables one warns and confirms first (see
-# ai-tools-admin selinux enable-group); a 'stable' group is a single, reasoned rule
+# ai-tools-admin selinux groups enable); a 'stable' group is a single, reasoned rule
 # that has been tested. Add a group as 'experimental' until it earns 'stable'.
 # shellcheck disable=SC2034  # iterated by consumers via the accessors below
 readonly AI_TOOLS_SELINUX_GROUPS=(
@@ -85,7 +85,7 @@ ai_tools_selinux_group_valid() {
 # writing -- it then dies of SIGPIPE, and under the `set -o pipefail` every consumer of this
 # library runs with, the pipeline reports 141 for a probe that SUCCEEDED. The module reads as
 # absent at random, and each caller acts on that: no label registered, no group reported
-# loaded. A here-string is fully written before grep starts, so nothing can exit early on it.
+# loaded. A here-string is fully written before grep starts, so no reader can exit early on it.
 ai_tools_selinux_group_loaded() {
     local modules
     modules="$(semodule -l 2>/dev/null || true)"
