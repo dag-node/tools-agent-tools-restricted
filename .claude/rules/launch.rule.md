@@ -291,20 +291,22 @@ an operator told only "excluded" is left to work out which of the two they are s
 ## PATH ordering
 
 Every agent wrapper lives in `/usr/local/bin`, which `path-dedup.sh`
-(`/usr/local/lib/ai-tools/path-dedup.sh`, `644 root:root`) ranks Tier 1 — above the nvm
-shims it leaves in Tier 4 — so `/usr/local/bin/<launcher>` resolves ahead of the
-nvm-managed binary of the same name and typing the launcher always enters the sandboxed
-launch path. The fragment is
-sourced per-account: `ai-tools-admin operators add` offers to add the guard line to the
-operator's `~/.bashrc` and `~/.bash_profile` **after** their nvm init, the one position
-where the ordering holds (the dedup must follow anything that prepends to PATH, and
-non-login interactive shells read `~/.bashrc` only). Those two files govern **bash**, so an
-account whose login shell reads its own init instead is named in the enrolment output, with the
-ordering left to the operator to place there. A `~/.bash_profile` the wiring creates opens with
-the `. ~/.bashrc` block EL's skel carries, since bash reads that file alone at login: the
-account's own init — its nvm init among it — stays read at login, and the guard line follows it.
-Per-account wiring scopes the reorder
-to the operators who launch the agent: root and accounts unrelated to ai-tools keep their
-stock PATH, and ai-tools does not install any file into `/etc/profile.d`, keeping the host's
-every-login-shell code surface untouched. The sandbox account takes its PATH elsewhere:
-`ai-tools-run` pins the session PATH as a unit property, on the same Tier-1-first ordering.
+(`/usr/local/lib/ai-tools/path-dedup.sh`, `644 root:root`) ranks Tier 1 — above the nvm shims it
+leaves in Tier 4 — so typing a launcher name always enters the sandboxed path rather than the
+nvm-managed binary of the same name. The tiers and the first-match-wins ordering behind them are
+in that file's header.
+
+The fragment is sourced per-account: `ai-tools-admin operators add` offers to add the guard line
+to the operator's `~/.bashrc` and `~/.bash_profile` **after** their nvm init, the one position
+where the ordering holds (the dedup must follow anything that prepends to PATH, and non-login
+interactive shells read `~/.bashrc` only). Those two files govern **bash**, so an account whose
+login shell reads its own init instead is named in the enrolment output, with the ordering left to
+the operator to place there. A `~/.bash_profile` the wiring creates opens with the `. ~/.bashrc`
+block EL's skel carries, since bash reads that file alone at login: the account's own init — its
+nvm init among it — stays read at login, and the guard line follows it.
+
+Per-account wiring scopes the reorder to the operators who launch the agent: root and accounts
+unrelated to ai-tools keep their stock PATH, and ai-tools does not install any file into
+`/etc/profile.d`, leaving the host's every-login-shell code surface untouched. The sandbox account takes its PATH
+elsewhere — `ai-tools-run` pins the session PATH as a unit property, on the same Tier-1-first
+ordering.

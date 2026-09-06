@@ -28,11 +28,13 @@ readonly AI_TOOLS_SELINUX_PACKAGE_DIR="/usr/share/selinux/packages/ai-tools"
 #   name | operator-facing description | why it is off by default | stability
 # The reason text is what a caller quotes when a task needs a group that is not
 # loaded: it explains the SELinux type mismatch that makes the access fail.
-# The stability field is 'experimental' or 'stable': 'experimental' groups are
-# unaudited drafts whose rule set has not been verified under permissive against a
-# real workload, so a consumer that enables one warns and confirms first (see
-# ai-tools-admin selinux groups enable); a 'stable' group is a single, reasoned rule
-# that has been tested. Add a group as 'experimental' until it earns 'stable'.
+# The stability field is 'experimental' or 'stable', and it decides both how a group
+# ships and which front door may enable it. An 'experimental' group is an unaudited
+# draft whose rule set has not been verified under permissive against a real workload:
+# it is not shipped prebuilt, and `ai-tools-admin selinux groups enable` refuses it and
+# points at the source workflow rather than loading it. A 'stable' group is a single,
+# tested rule, ships prebuilt, and loads from that command directly. Add a group as
+# 'experimental' until an audit earns it 'stable'.
 # shellcheck disable=SC2034  # iterated by consumers via the accessors below
 readonly AI_TOOLS_SELINUX_GROUPS=(
     "systemd|System inspection (systemctl, journalctl, unit files)|systemctl is labelled systemd_systemctl_exec_t; ai_tools_t needs execute + D-Bus access to query PID 1. journalctl is journalctl_exec_t.|experimental"

@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/selinux.sh
-# Integration: the SELinux confinement layer is actually ENFORCING, not silently disabled. The
-# whole trust chain past DAC (steps 4-5 in CLAUDE.md) rests on ai_tools_t / ai_tools_handback_t
-# type enforcement; a `setenforce 0` or a stray `semanage permissive -a ai_tools_t` -- the kind
-# of "temporary debug" that never gets reverted -- would drop that boundary while every DAC test
-# stays green. This asserts the missing signal: when the ai_tools module is loaded the system is
-# Enforcing and neither domain is marked permissive, that each agent's declared entrypoint rule
-# still covers what its package installed, and that the exec chain does not carry a type the confined
-# domain may write. The confinement module is an OPTIONAL layer
-# (permissive-first bring-up, stock-box installs without it), so when it is not loaded the whole
-# file SKIPS -- it never demands SELinux on a host that does not ship the policy. Run as root.
+# Integration: the SELinux confinement layer is enforcing, rather than loaded and silently inert.
+# Trust-chain step 4 in CLAUDE.md rests on ai_tools_t / ai_tools_handback_t type enforcement, and a
+# `setenforce 0` or a stray `semanage permissive -a ai_tools_t` -- the kind of "temporary debug"
+# that never gets reverted -- drops that boundary while every DAC test stays green. This file is
+# the signal that would otherwise be missing. With the module loaded it asserts: the system is
+# Enforcing and neither domain is individually permissive; the module-presence probe ai-tools-run
+# reads resolves the way the shim expects; a sandbox clone takes ai_tools_project_t; each agent's
+# declared entrypoint rule still covers what its package installed; and no link in the exec chain
+# carries a type the confined domain may write.
+#
+# The layer is OPTIONAL -- the policy is its own subpackage, and a host may run DAC-only -- so with
+# the module absent the whole file SKIPS instead of demanding SELinux on a host that does not ship
+# it. Run as root.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -127,7 +130,7 @@ fi
 # (5) Sandbox clones must LABEL as ai_tools_project_t. Their on-disk path is under
 # /var/opt/ai-tools/sandbox-projects, which the base file_contexts.subs_dist alias `/var/opt /opt`
 # canonicalizes to /opt/... BEFORE file-context matching, so the clone rule is authored under /opt
-# (ai_tools.fc). This asserts the rule is actually REACHABLE through that alias: a synthetic clone
+# (ai_tools.fc). This asserts the rule is REACHABLE through that alias: a synthetic clone
 # path resolves to ai_tools_project_t. A rule keyed on the aliased /var/opt prefix resolves to
 # usr_t here instead -- the exact regression this catches. matchpathcon reads the loaded policy,
 # so the path need not exist.

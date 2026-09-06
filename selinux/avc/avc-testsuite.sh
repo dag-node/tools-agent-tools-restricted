@@ -17,8 +17,13 @@
 # come back empty and you'd wrongly conclude the policy is complete. The usual
 # cause is the claude.exe entrypoint not being labelled ai_tools_exec_t (so the
 # unconfined_t->ai_tools_t transition never fired) -- the guard tells you how to
-# fix it. The module ships permissive, so no test here is ever blocked; it is only
-# logged.
+# fix it.
+#
+# Run this during a bring-up pass, with `permissive ai_tools_t;` uncommented in
+# ai_tools.te: the kernel then logs each access instead of blocking it, which is what
+# makes the run a complete record of the surface. Against the shipped ENFORCING module a
+# denied step fails for real; the assertions tally it and the run continues, so the
+# summary reports which accesses the policy is missing.
 
 set -uo pipefail   # NOT -e: several steps below are EXPECTED to fail (denied
                    # connects, missing tools); we never want that to abort the run.

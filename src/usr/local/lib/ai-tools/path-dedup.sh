@@ -1,17 +1,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # shellcheck shell=bash
 # /usr/local/lib/ai-tools/path-dedup.sh — deduplicates an operator shell's
-# PATH and reorders it so root-owned directories win, placing
-# /usr/local/bin/claude (the wrapper that launches claude restricted) ahead
-# of any nvm-managed claude.
+# PATH and reorders it so root-owned directories win, placing each agent's
+# wrapper in /usr/local/bin ahead of the nvm-managed launcher of the same
+# name.
 #
 # `ai-tools-admin operators add` adds the source line to the operator's
 # ~/.bashrc and ~/.bash_profile, below their nvm init — it must follow
-# anything that prepends to PATH. The fragment lives in the ai-tools lib dir
-# rather than /etc/profile.d, so root and unrelated accounts keep their stock
-# PATH. Both files are bash's, so `operators add` reports a login shell that
-# reads neither. The sandbox account takes its PATH elsewhere: ai-tools-run pins the
-# session PATH as a unit property.
+# anything that prepends to PATH. Where that line goes for a non-bash login
+# shell, and why the fragment is per-account rather than in /etc/profile.d,
+# are in launch.rule.md.
 #
 # PATH is first-match-wins, so the order below runs least-writable first and
 # a user- or package-writable entry cannot shadow a system binary:

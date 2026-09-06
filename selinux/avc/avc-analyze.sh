@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # selinux/avc/avc-analyze.sh -- collect the ai_tools_t AVCs logged since the last
-# avc-testsuite.sh run and split them into NEW (candidates to fold into the policy)
-# vs EXPECTED BOUNDARY (the accesses ai_tools.te deliberately dontaudit's -- they
-# must stay denied, NOT be added). RUN AS ROOT (it reads the audit log).
+# avc-testsuite.sh run and sort them into three buckets: EXPECTED BOUNDARY (accesses
+# ai_tools.te dontaudits and does not grant any allow rule for -- they must stay denied,
+# NOT be added), EXPECTED GROUP-DISABLED (accesses only an optional policy group would
+# allow, so the fix is enable-group, not a core change), and NEW (the candidates to fold
+# into the policy). NEW must be 0 to pass. RUN AS ROOT (it reads the audit log).
 #
 # Usage:
 #   sudo ./avc-analyze.sh                       # from the marker avc-testsuite.sh wrote

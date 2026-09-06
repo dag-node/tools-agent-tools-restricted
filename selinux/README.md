@@ -56,18 +56,26 @@ scripts under `avc/`. `install-selinux.sh` stays at `selinux/` and resolves both
 ## Optional policy groups
 
 The core module alone covers repo-only work (project/home/tmp files, git, coreutils,
-HTTPS to the Anthropic API, the sudo→helper calls). Seven optional groups widen the
+HTTPS to the Anthropic API, the handback socket). Seven optional groups widen the
 surface for tasks that reach into system context, all **disabled by default**:
 
-| group | grants | stability |
-|---|---|---|
-| `systemd`  | `systemctl`, `journalctl`, unit-file reads | experimental |
-| `pkgmgmt`  | `rpm`, `dnf`, the RPM database | experimental |
-| `netadmin` | `firewall-cmd` / `nmcli` D-Bus | experimental |
-| `podman`   | container runtime exec + image storage (still blocked by the namespace filter — see the confinement rule) | experimental |
-| `tmpmap`   | mmap of the agent's own `/tmp` files (`dotnet` build, `git`/SQLite in `/tmp`) | stable |
-| `apphost`  | map+execute of tmpfs/memfd files (.NET apphost/JIT: `dotnet run`, ASP.NET Core, `xunit.v3`); disjoint from `tmpmap` | experimental |
-| `netcore`  | .NET runtime IPC (`dotnet test` sockets, multi-node MSBuild pipes) + executing a project's built binary — see [dotnet.rule.md](../.claude/rules/dotnet.rule.md) | experimental |
+| group | grants |
+|---|---|
+| `systemd`  | `systemctl`, `journalctl`, unit-file reads |
+| `pkgmgmt`  | `rpm`, `dnf`, the RPM database |
+| `netadmin` | `firewall-cmd` / `nmcli` D-Bus |
+| `podman`   | container runtime exec + image storage (still blocked by the namespace filter — see the confinement rule) |
+| `tmpmap`   | mmap of the agent's own `/tmp` files (`dotnet` build, `git`/SQLite in `/tmp`) |
+| `apphost`  | map+execute of tmpfs/memfd files (.NET apphost/JIT: `dotnet run`, ASP.NET Core, `xunit.v3`); disjoint from `tmpmap` |
+| `netcore`  | .NET runtime IPC (`dotnet test` sockets, multi-node MSBuild pipes) + executing a project's built binary — see [dotnet.rule.md](../.claude/rules/dotnet.rule.md) |
+
+Each group is either **stable** or **experimental**, which decides how it ships and which
+command may enable it (below). A group earns `stable` as it is audited, so the current value
+is read from the host rather than from this table:
+
+```bash
+sudo ai-tools-admin selinux groups
+```
 
 **Stable** groups are a single, tested rule (`tmpmap` grants exactly
 `ai_tools_tmp_t:file map`). They ship **prebuilt** (`ai_tools_<group>.pp`) alongside the
@@ -173,49 +181,30 @@ but only recompiles if you answer its prompt, and it re-offers the optional grou
 
 Repeat exercise → `audit2allow` → fold-in → reload until `ausearch` shows **no new
 `ai_tools_t` denials** across a full session including git push and an update run.
-Expect to add at least: exec of `sudo` and the transition that runs the two root
-helpers (`ai-tools-chown`, `ai-tools-launcher-symlink`), plus some temp-file /
-`/proc/self` / socket access — these are deliberately left out of the shipped
-skeleton so each lands as an *observed* rule, not a guess.
 
-### What the first bring-up pass folded in (v0.2.0)
+One class of proposal is never folded in: anything that would let the domain reach root.
+`ai_tools_t` holds no `sudo_exec_t` execute, no `auth_domtrans_chk_passwd`, and none of the
+PAM or capability permissions a privilege escalation needs; `ai_tools.te` lists that withheld
+set explicitly. Root operations go through the `ai-tools-handback` socket instead, whose
+daemon runs in its own domain. Granting the sudo path would not make `sudo` work in any
+case: the session runs under `NoNewPrivileges`, which drops sudo's SUID bit.
 
-A raw `audit2allow` of a full session (git add/commit/push, file edits firing the
-hook, Bash-tool commands) proposed ~130 allow rules. Most were **not** granted —
-the tightening was deciding what the agent *needs* versus what some tool merely
-*probed*. The split:
+### What a bring-up pass grants, and what it refuses
 
-**Allowed** (genuine needs, via refpolicy interfaces where one fits):
-- `sudo` + PAM, present only to run `sudo ai-tools-chown` from the hooks:
-  `can_exec(sudo_exec_t)`, `auth_domtrans_chk_passwd` (so `/etc/shadow` is read in
-  `chkpwd_t`, **not** in `ai_tools_t`), `logging_send_{audit,syslog}_msg`, faillock
-  + pam runtime dirs, and the `setuid setgid chown fsetid dac_read_search`
-  capabilities the drop-to-uid and the chown helper use.
-- Private temp: a new type `ai_tools_tmp_t` with a `/tmp` `type_transition`, so the
-  agent's scratch files are relabelled away from shared `tmp_t`/`user_tmp_t`.
-- `execmem` (V8 JIT), `map` on the project/home types (Node/git mmap),
-  `dev_read_sysfs`, fs/vm sysctls, the controlling pty, and execute on the hook
-  scripts in `.claude`.
+A raw `audit2allow` of a full session proposes far more than the agent needs — the work is
+deciding what it *needs* against what some tool merely *probed*. A process-table walk, a
+listing of the invoking user's home, and reads of container storage all appear in the logs
+and are all refused.
 
-**Refused — `dontaudit`, never `allow`** (this is the boundary):
-- **Reading other domains' process state.** The pass logged ~45 daemon domains
-  (`sshd_t`, `sssd_t`, `postgresql_t`, `NetworkManager_t`, `container_t`,
-  `unconfined_t`, …) with the identical `/proc/<pid>` read signature — a full
-  process-table walk. `domain_dontaudit_read_all_domains_state` refuses the lot;
-  the agent has no business reading every daemon's `cmdline`/`environ`/fds.
-- **Listing the invoking user's home.** `user_home_t:dir search` *is* granted (the
-  project nests under `/home/<you>/…`, so the agent must traverse to reach it), but
-  `read` on `home_root_t` / `user_home_dir_t` / `user_home_t`, and reads of
-  `config_home_t` (`~/.config`), are refused — that listing is how the agent would
-  discover unrelated files.
-- Reading container storage (`container_file_t`) and executing the MTA
-  (`sendmail_exec_t`); benign `statfs`/tty-attr noise.
+Both halves of that decision are recorded where they are enforced, each rule stating its own
+reason: the grants in the body of `ai_tools.te`, and the refusals in its **THE BOUNDARY**
+section, which is `dontaudit` throughout and explains per entry why the access is denied
+rather than allowed. Read that section before adding anything to it.
 
-**Fixed by labelling, not by allowing:** the pass also logged `usr_t` *writes* —
-the agent writing its own HOME state (`/opt/ai-tools/.npm`,
-`.cache`, `.local`). Those paths are now labelled `ai_tools_home_t` in
-`ai_tools.fc`, so the writes land on a type the domain already manages. Granting
-`usr_t` write was rejected: it would also hand the agent the read-only node tree.
+One case is worth knowing separately, because it looks like a missing grant and is not: the
+agent's writes to its own HOME state (`/opt/ai-tools/.npm`, `.cache`, `.local`) land on paths
+labelled `ai_tools_home_t` in `ai_tools.fc`. Granting `usr_t` write instead would also hand
+the agent the read-only node tree, so the fix is the label, not the rule.
 
 ## 3. Flip to enforcing
 
@@ -340,12 +329,12 @@ DAC hardening (ownership/permissions/sticky `.claude`/locked `bin`) is untouched
 
 ## Notes
 
-- **Minimal surface:** five types (`ai_tools_t`, its entrypoint, project, home,
-  private-tmp), one entrypoint transition, manage rights on exactly the project +
-  home + tmp types, read/exec for the nvm tree, the `sudo`→helper path, outbound
-  HTTPS, and a process baseline. Everything else is denied — and the accesses the
-  agent *probed but does not need* (other domains' `/proc`, the user's home
-  listing, container storage) are `dontaudit`'d so they stay denied AND quiet.
+- **Minimal surface:** the domain holds manage rights on exactly three types — project,
+  home, and private-tmp — and one entrypoint transition. What it reaches beyond those is
+  read-only or execute-only: the nvm tree, `/etc`, shared libraries, the controlling pty,
+  DNS and outbound HTTPS, the handback socket, and a process baseline. The accesses the
+  agent *probed but does not need* (other domains' `/proc`, the user's home listing,
+  container storage) are additionally `dontaudit`'d, so they stay denied and quiet.
 - **git is covered:** `ai_tools_project_t` manage rights include the dir
   create/rename/unlink that git needs (`index.lock`, refs, objects); `git` itself
   runs from `corecmd_exec_bin`. No git permission from the main install changes.

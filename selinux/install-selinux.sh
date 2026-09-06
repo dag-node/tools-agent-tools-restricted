@@ -19,20 +19,16 @@
 #   sudo ./install-selinux.sh disable-group <name> unload one policy group
 #   sudo ./install-selinux.sh list-groups          show group availability and state
 #
-# selinux-policy-devel is required ONLY to COMPILE a module from source -- i.e. to
-# recompile the core or a group after editing its .te/.fc. The core AND every optional
-# group ship prebuilt (ai_tools.pp, ai_tools_<group>.pp), so a normal install and a
-# plain enable-group need no toolchain. Install it only when rebuilding from source:
+# selinux-policy-devel is required ONLY to COMPILE a module from source: to recompile the
+# core or a group after editing its .te/.fc, or to build an EXPERIMENTAL group, which
+# never ships prebuilt. The core and the STABLE groups do ship prebuilt, so a normal
+# install and a stable enable-group need no toolchain. Install it only to build:
 #   sudo dnf install selinux-policy-devel
 #
-# Policy groups (all DISABLED by default; core alone covers repo-only work):
-#   systemd   systemctl, journalctl, unit file reads
-#   pkgmgmt   rpm (rpm_exec_t), RPM database (rpm_var_lib_t)
-#   netadmin  firewall-cmd D-Bus (firewalld_t), nmcli D-Bus (NetworkManager_t)
-#   podman    container runtime exec, image/layer storage reads
-#   tmpmap    mmap of the agent's own /tmp files (dotnet build, git/SQLite in /tmp)
-#   apphost   map+execute of tmpfs/memfd files (.NET apphost/JIT: dotnet run, ASP.NET Core, xunit.v3)
-#   netcore   .NET runtime IPC (dotnet test / MSBuild pipes) + running a project's built executable
+# The optional policy groups are all DISABLED by default (the core alone covers repo-only
+# work) and are declared once, in selinux-groups.lib.sh -- name, description, why it is
+# off, and the stability that decides whether it ships prebuilt. This script reads that
+# registry, as ai-tools-admin does, so the two cannot disagree on which groups exist.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -294,7 +290,7 @@ prompt_groups() {
     # some experimental -- so the caveat names the experimental subset instead of the whole set.
     section "Optional policy groups (all default: disabled)" >&2
     sayx "  Core alone covers project/home/tmp files, git, coreutils, HTTPS to the"
-    sayx "  Anthropic API, and the sudo->helper calls. Enable a group only when a task"
+    sayx "  Anthropic API, and the handback socket. Enable a group only when a task"
     sayx "  must reach into system context. Each is tagged stable or experimental below;"
     sayx "  an experimental group is an unaudited draft -- audit it under permissive (the"
     sayx "  avc-denials harness) before relying on it."

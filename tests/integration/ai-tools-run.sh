@@ -160,9 +160,9 @@ else
     fi
 
     # (5) A real, executable binary sitting in the SAME versioned bin directory is refused
-    # because no enabled agent manifest claims that launcher. This is the agent allowlist doing
-    # the work the old hardcoded path pattern used to: without it, anything the sandbox account
-    # can drop beside the launcher would start a confined session under the sudo grant.
+    # because no enabled agent manifest claims that launcher. The manifest allowlist is what
+    # carries that: a path-shape check alone admits anything the sandbox account can drop beside
+    # the launcher, which would start a confined session under the sudo grant.
     node_bin="${real%/*}/node"
     if [[ ! -x "${node_bin}" ]]; then
         skip "ai-tools-run unclaimed-launcher refusal" "no sibling binary to probe at ${node_bin}"
