@@ -55,16 +55,26 @@ out of. The `ai_tools_t` transition completes under NNP because the policy grant
 `process2:nnp_transition` to the authorised source domains (`ai_tools.te`); without that
 grant, setting NNP (explicitly or via the filter) sends the session unconfined.
 
-The grant is one of two kernel paths, and rests on a policy capability the base policy
-declares rather than this module. Under NNP the kernel runs `check_nnp_nosuid()`: it checks
+Under NNP the kernel runs `check_nnp_nosuid()` on the computed transition: it tries
 `process2:nnp_transition` where the **`nnp_nosuid_transition` policy capability** is
-enabled, and otherwise requires a `typebounds` bounded transition, which this module does
-not declare. A host with that capability disabled therefore refuses the transition without
-consulting the grant. Every supported EL target enables it in the base policy, on both
-architectures the project runs on —
-`cat /sys/fs/selinux/policy_capabilities/nnp_nosuid_transition` reports `1` — and
-`ai-tools-run`'s preflight does not observe it, probing the transition's inputs rather than
-the post-`exec` domain.
+enabled, falls back to `security_bounded_transition()` — a `typebounds` rule, which this
+module does not declare — and returns `-EPERM` when both fail. `selinux_bprm_creds_for_exec()`
+propagates that, so a missing grant **fails the `execve`** and the unit does not start.
+
+**That failure direction is what makes the preflight's shape correct.** A denied transition
+costs the launch, not the confinement, so it does not need a probe. The dangerous case is the
+opposite one: a **mislabelled** entrypoint does not compute any transition, `new_sid ==
+old_sid` returns 0 on `check_nnp_nosuid()`'s "no change in credentials" path, and the exec
+succeeds in the manager's domain. Silent, and unconfined — which is the state the label
+probe refuses on, and why the preflight probes the label rather than the transition.
+
+The capability is turned on by an explicit `policycap nnp_nosuid_transition;` statement,
+which stock EL policy carries. It was introduced to repair systemd-hardening breakage
+without lowering security: applying `NoNewPrivileges` to a unit left only the `typebounds`
+path, which is impractical to define per service domain and which reference policy does not
+define at all, so services failed to reach their domains. A `0` therefore indicates an old
+or custom-built base policy rather than a stricter one. Read it with
+`cat /sys/fs/selinux/policy_capabilities/nnp_nosuid_transition` (expect `1`).
 
 NNP drops `sudo`'s SUID bit, so the hooks reach root operations through the handback
 socket bridge rather than `sudo` (see [handback-bridge](handback-bridge.rule.md)).
@@ -274,10 +284,20 @@ procedure for running either is in `selinux/README.md` §2 and §4.
   denial messages"; it is the absent `allow` that denies.
 - [SELinux Notebook — reference policy](https://github.com/SELinuxProject/selinux-notebook/blob/main/src/reference_policy.md)
   — the `.te`/`.if`/`.fc` source layout and building a module against installed policy headers.
-- [Smalley, "Generalize support for NNP/nosuid SELinux domain transitions"](https://www.spinics.net/lists/selinux/msg22842.html)
+- [Smalley, "Generalize support for NNP/nosuid SELinux domain transitions"](https://patchwork.kernel.org/project/selinux/patch/20170714164647.6183-1-sds@tycho.nsa.gov/)
   — the patch adding the `process2` class and its `nnp_transition`/`nosuid_transition`
-  permissions, gated on the `nnp_nosuid_transition` policy capability. The branch is
+  permissions, gated on the `nnp_nosuid_transition` policy capability, and the rationale:
+  packagers were turning systemd hardening options off to preserve SELinux transitions,
+  because `typebounds` for every service domain is impractical. The branch is
   `check_nnp_nosuid()` in `security/selinux/hooks.c`.
+- [Moore, "Linux v4.14 Released"](https://www.paul-moore.com/blog/d/2017/11/linux_v414.html)
+  — the kernel release the capability landed in.
+- [Red Hat bug 1480518](https://bugzilla.redhat.com/show_bug.cgi?id=1480518)
+  — the distro-side record: units carrying `NoNewPrivileges` lost their domain transitions,
+  which is the breakage the capability was added to repair.
+- [refpolicy list, "Re: nnp_transition"](https://www.spinics.net/lists/selinux-refpolicy/msg00215.html)
+  — reference policy defines no `typebounds`, so the fallback path is unavailable to a
+  refpolicy-derived base policy: enabling the capability is what makes NNP transitions work.
 - [Walsh, "Teaching an old dog new tricks"](https://danwalsh.livejournal.com/78312.html)
   — `nnp_transition` in practice: the transition is allowed under NNP with no `typebounds`
   rule in place.
