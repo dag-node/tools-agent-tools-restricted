@@ -2,8 +2,10 @@
 paths:
   - "selinux/policy/*.te"
   - "selinux/policy/*.fc"
+  - "selinux/policy/*.if"
   - "selinux/policy/Makefile"
   - "selinux/install-selinux.sh"
+  - "selinux/avc/*.sh"
   - "packaging/ai-tools.spec"
   - "selinux/README.md"
   - "src/opt/ai-tools/bin/ai-tools-run.sh"
@@ -49,10 +51,20 @@ resolve.
 The unit sets `NoNewPrivileges=yes` for clarity, and the session runs under
 `PR_SET_NO_NEW_PRIVS` regardless: `RestrictNamespaces=yes` installs its seccomp filter
 via that flag, and NNP is a precondition for seccomp, not a setting the unit can opt
-out of. The bounded `ai_tools_t` transition completes under NNP because the policy
-grants `process2:nnp_transition` to the authorised source domains (`ai_tools.te`);
-without that grant, setting NNP (explicitly or via the filter) sends the session
-unconfined.
+out of. The `ai_tools_t` transition completes under NNP because the policy grants
+`process2:nnp_transition` to the authorised source domains (`ai_tools.te`); without that
+grant, setting NNP (explicitly or via the filter) sends the session unconfined.
+
+The grant is one of two kernel paths, and rests on a policy capability the base policy
+declares rather than this module. Under NNP the kernel runs `check_nnp_nosuid()`: it checks
+`process2:nnp_transition` where the **`nnp_nosuid_transition` policy capability** is
+enabled, and otherwise requires a `typebounds` bounded transition, which this module does
+not declare. A host with that capability disabled therefore refuses the transition without
+consulting the grant. Every supported EL target enables it in the base policy, on both
+architectures the project runs on —
+`cat /sys/fs/selinux/policy_capabilities/nnp_nosuid_transition` reports `1` — and
+`ai-tools-run`'s preflight does not observe it, probing the transition's inputs rather than
+the post-`exec` domain.
 
 NNP drops `sudo`'s SUID bit, so the hooks reach root operations through the handback
 socket bridge rather than `sudo` (see [handback-bridge](handback-bridge.rule.md)).
@@ -109,8 +121,8 @@ One residual the `matchpathcon` probe cannot see: a module **staged in the store
 file-contexts never loaded** into the running policy reads as "absent" (the core-owned path resolves
 to its default type), so that narrow half-installed state launches DAC-only rather than refusing.
 Detecting it requires reading the store, which the sandbox account cannot do — no unprivileged probe
-can — and it is vanishingly rare (a normal `semodule -i` loads store and policy together). It is no
-worse than the previous `semodule -l`-as-sandbox read, which reported "absent" for **every** host.
+can — and a normal `semodule -i` loads store and policy together, so it is reached only by a
+half-completed install. `AI_TOOLS_REQUIRE_SELINUX` closes it outright, below.
 
 #### The toolchain is read-only to the confined domain
 
@@ -231,6 +243,50 @@ active.
 
 After editing policy source, rebuild and reload the loaded module with
 `sudo selinux/install-selinux.sh rebuild`.
+
+## Bring-up and enforce-verification (`selinux/avc/`)
+
+The rule set is arrived at by observation: load permissive (`permissive ai_tools_t;` in
+`ai_tools.te`), exercise the surface, fold the logged denials in, then remove that line.
+Two harnesses drive it, each **split into an agent half and a root half**, because the
+agent exercises the surface but cannot read `/var/log/audit`, and root reads the log but
+does not run in `ai_tools_t`.
+
+`avc-testsuite.sh` (agent) exercises what the agent needs and writes a start marker;
+`avc-analyze.sh` (root) reads that marker so `ausearch -ts` starts at the right instant,
+and sorts each denial into **NEW**, **EXPECTED BOUNDARY** (an access `ai_tools.te`
+`dontaudit`s) or **EXPECTED GROUP-DISABLED** (one only an optional group would allow).
+Only NEW is a candidate to fold in.
+
+`avc-denials.sh` proves the inverse — that what the agent must not do is refused. Its root
+half brackets the probe with `semodule -DB` … `semodule -B`, since a `dontaudit` suppresses
+the audit record and an empty `ausearch` result would otherwise be indistinguishable from a
+probe that never ran; a trap restores dontaudit on any exit, Ctrl-C included.
+
+Both agent halves **abort unless the calling process is in `ai_tools_t`**: run unconfined
+they log no `ai_tools_t` denial at all, and that empty result reads as success. The
+procedure for running either is in `selinux/README.md` §2 and §4.
+
+## References
+
+- [SELinux Notebook — AV rules](https://github.com/SELinuxProject/selinux-notebook/blob/main/src/avc_rules.md)
+  — `allow`, `dontaudit`, `auditallow`, `neverallow`. `dontaudit` "stops the auditing of
+  denial messages"; it is the absent `allow` that denies.
+- [SELinux Notebook — reference policy](https://github.com/SELinuxProject/selinux-notebook/blob/main/src/reference_policy.md)
+  — the `.te`/`.if`/`.fc` source layout and building a module against installed policy headers.
+- [Smalley, "Generalize support for NNP/nosuid SELinux domain transitions"](https://www.spinics.net/lists/selinux/msg22842.html)
+  — the patch adding the `process2` class and its `nnp_transition`/`nosuid_transition`
+  permissions, gated on the `nnp_nosuid_transition` policy capability. The branch is
+  `check_nnp_nosuid()` in `security/selinux/hooks.c`.
+- [Walsh, "Teaching an old dog new tricks"](https://danwalsh.livejournal.com/78312.html)
+  — `nnp_transition` in practice: the transition is allowed under NNP with no `typebounds`
+  rule in place.
+- [`systemd.exec(5)`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html)
+  — `RestrictNamespaces=` limits `unshare(2)`, `clone(2)` and `setns(2)`; `NoNewPrivileges=`
+  and `PR_SET_NO_NEW_PRIVS`.
+- [RHEL 9, *Using SELinux*](https://docs.redhat.com/en-us/documentation/red_hat_enterprise_linux/9/html/using_selinux/)
+  — `semanage fcontext` writes the persistent rule, `restorecon` applies it; `-F` resets a
+  customizable type a plain run preserves.
 
 ## How the policy ships
 
