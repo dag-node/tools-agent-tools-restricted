@@ -1663,6 +1663,10 @@ do_install() {
     for _kind in skills subagents; do
         rm -rf "/usr/share/ai-tools/${_kind}"
         cp -rT "${SCRIPT_DIR}/src/usr/share/ai-tools/${_kind}" "/usr/share/ai-tools/${_kind}"
+        # A from-source install copies the working tree, where a local import of a shipped script
+        # leaves a bytecode cache beside it. It is gitignored, so a CI build from a fresh checkout
+        # never carries one; dropping it keeps a from-source install identical to the packaged one.
+        find "/usr/share/ai-tools/${_kind}" -name __pycache__ -type d -prune -exec rm -rf {} +
         chown -R root:root "/usr/share/ai-tools/${_kind}"
         find "/usr/share/ai-tools/${_kind}" -type d -exec chmod 755 {} +
         find "/usr/share/ai-tools/${_kind}" -type f -exec chmod 644 {} +

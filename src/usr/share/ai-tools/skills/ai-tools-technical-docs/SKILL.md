@@ -40,6 +40,23 @@ which inputs, producing which outputs and state changes.
 Write as an experienced software engineer. The register is that of a specification or a good
 API reference — not a legal document, a policy memo, an essay, or a product page.
 
+**These rules exist to make prose plainer, so the plain version wins.** Where following a rule
+makes a sentence harder to read than the obvious wording, write the obvious wording. Two rules
+that pull against each other are resolved the same way, rather than by satisfying both at once —
+a sentence shaped to clear every rule in this file is the failure this tiebreaker exists to
+prevent.
+
+The **load-bearing** rules outrank plainness, because breaking one changes what the prose claims
+rather than how it reads. They are named here by their own headings, so the set resolves without
+a paraphrase to interpret:
+
+- *Rewriting existing prose* and *Carry four things through every edit*
+- *Name the fail direction from the branch that decides it*
+- *Label every example of prose this standard rules out*
+- *One home per fact, and a pointer everywhere else*
+
+Everything else in this file is style, and yields to the plain version.
+
 ## Know the reader before writing
 
 Name the reader first; it sets altitude more than any other choice.
@@ -169,8 +186,12 @@ that comes second.
 ### Affirmative framing is structural
 
 State what the reader can rely on. Prefer "X is available when ⟨condition⟩" to "X fails unless
-⟨condition⟩" where both state the same fact. Describe what a component does rather than what it
-does not do.
+⟨condition⟩" where both state the same fact.
+
+That condition bounds the rule. A negation carrying something the positive form does not — a
+prohibition, a refusal, a defect to avoid — stays negative, because turning it around costs the
+reader an inference to recover the instruction that was already there: "Do not copy a row into a
+header" says it, where "A copied row goes stale" leaves them to work out what to do about it.
 
 Turning a negation positive is sound over a set provably disjoint from the one the negation
 excluded, and nowhere else; where that does not hold, keep the negation and write it with `does
@@ -223,7 +244,7 @@ aphorisms and slogans, philosophical framing, and marketing language.
 
 ## Sentence craft
 
-### Rationale is the payload — state it as a fact
+### Rationale is the payload — state it as a mechanism, not as a figure
 
 Purpose is what prose exists to carry. The code already shows what happens, so a header earns
 its place by recording why: the constraint that forced the choice, the alternative rejected, the
@@ -235,10 +256,13 @@ Explaining why attracts every figure in *Rhetorical figures* below: contrast ("r
 check"). Each states the reason as a figure instead of a mechanism, so a reader cannot check it
 against the code.
 
-State the reason as a fact about the code, and name the constraint behind it — an external
-requirement, a kernel quirk, an ordering dependency. A "so that ⟨outcome⟩" clause is the usual
-join. A because-, so-that-, or rather-than-sentence is the cue to re-read it against that table.
-Run the check while drafting.
+Name the mechanism the reason rests on, and the constraint behind it — an external requirement, a
+kernel quirk, an ordering dependency. A "so that ⟨outcome⟩" clause is the usual join. A because-,
+so-that-, or rather-than-sentence is the cue to re-read it against that table. Run the check while
+drafting.
+
+This governs how a reason is **phrased**, and it is not a rule about mood: a passage whose job is
+to tell the next writer what to do opens with the instruction, and the reason follows it.
 
 **Attach purpose where the reason is non-obvious, and nowhere else.** A named construction turns
 into a slot a writer fills, and a document whose every sentence makes a causal claim reads as
