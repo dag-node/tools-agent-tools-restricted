@@ -1016,28 +1016,28 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
-* Sat Sep 05 2026 dagnode <tools@dagnode.com> - 0.15.0-1
-- CHANGED: The ai-tools-admin commands are spelled as a resource grammar, so the names an
+* Sun Sep 06 2026 dagnode <tools@dagnode.com> - 0.15.0-1
+- CHANGE: The ai-tools-admin commands are spelled as a resource grammar, so the names an
   administrator types are 'operators add <user>', 'operators remove <user>', 'operators'
   (which lists them), 'selinux groups', 'selinux groups enable <name>', 'selinux groups
   disable <name>', and 'system post-upgrade'. The old spellings -- operator add, selinux
   list-groups, selinux enable-group, selinux disable-group, postupgrade -- are gone and are
   not aliased. Update any script, cron job or runbook that calls them. What each command does
   is unchanged.
-- CHANGED: The entrypoint reconcile is now 'sudo ai-tools-admin system entrypoints relabel'.
+- CHANGE: The entrypoint reconcile is now 'sudo ai-tools-admin system entrypoints relabel'.
   'ai-tools --relabel' is gone and is not aliased; running it prints the new command and exits 2.
   Update any script, cron job or runbook that calls it. What the command does is unchanged: it
   verifies each agent binary against the checksum its vendor signed, pins the result, then
   restores the SELinux label. The command moved because it runs as root, and root commands live on
   ai-tools-admin.
-- CHANGED: Provisioning is now 'sudo ai-tools-admin system bootstrap'. The standalone
+- CHANGE: Provisioning is now 'sudo ai-tools-admin system bootstrap'. The standalone
   'ai-tools-bootstrap' command is gone and is not aliased, and its /usr/sbin symlink goes with it.
   Update any script, kickstart or runbook that calls it -- the %post banner and the install
   output already print the new spelling. What the command does is unchanged, including the
   AI_TOOLS_NVM_VERSION and AI_TOOLS_NODE_MAJOR settings it reads and its re-run after enabling
   another agent. A host installed from source keeps the old /usr/sbin/ai-tools-bootstrap symlink
   until it is removed by hand; an RPM upgrade removes it.
-- CHANGED: The dotnet integration is administered through 'sudo ai-tools-admin dotnet <verb>':
+- CHANGE: The dotnet integration is administered through 'sudo ai-tools-admin dotnet <verb>':
   'dotnet bootstrap' (was 'ai-tools-dotnet setup'), 'dotnet tools install <pkg...>' (was
   'install-tools'), and 'dotnet status'. The standalone 'ai-tools-dotnet' command is gone and is
   not aliased, and its /usr/sbin symlink goes with it, so ai-tools and ai-tools-admin are the only
@@ -1066,7 +1066,7 @@ fi
   the setup of every integration enabled in operator.conf, so a host that also runs .NET is
   provisioned in one command. A bare 'system bootstrap' is unchanged and still does the minimum
   that works: the toolchain and the enabled agents.
-- CHANGED: The %ai-ops sudoers drop-in is down to two rules, the session lifecycle: launch a
+- CHANGE: The %ai-ops sudoers drop-in is down to two rules, the session lifecycle: launch a
   session, and stop every session. The passwordless rule for the relabel helper is removed, so an
   operator without a general sudo grant can launch and stop sessions, and cannot run the
   reconcile by hand. Nothing else changes for them: the post-upgrade relabel still runs on its own
@@ -1078,7 +1078,7 @@ fi
 - NEW: ai-tools-admin(8) documents every command, its arguments, the exit codes and the files
   each one touches, with worked examples, 'system entrypoints relabel' among them.
   'man ai-tools-admin'.
-- CHANGED: A rejected command line exits 2 rather than 1, so an unattended caller can tell a
+- CHANGE: A rejected command line exits 2 rather than 1, so an unattended caller can tell a
   command nobody can type correctly from an operation that ran and failed. Exit 0 and exit 1
   keep their meanings.
 - NEW: 'sudo ai-tools-admin status' reports the same host 'ai-tools --status' does, and completes
@@ -1090,12 +1090,50 @@ fi
   without running the reconcile. It reads the labels and does not relabel, it does not take an
   argument, and it exits non-zero when something needs attention, so it runs from a monitor or a
   cron job without parsing its output.
-- CHANGED: 'sudo ai-tools --status' now resolves the sandbox account's systemd --user units live
+- CHANGE: 'sudo ai-tools --status' now resolves the sandbox account's systemd --user units live
   instead of reporting them from their last-run stamp, so root sees the same verdicts either way.
   Run as yourself the command is unchanged. A live reading only ever adds an answer: a unit that
   is stopped or failed is reported as such outright, while one that is running is still checked
   against its last-run stamp, so a timer that is loaded but has stopped firing still reports
   STALE rather than OK.
+- NEW: The shipped ai-tools-technical-docs skill carries prose-check.py, which reads the files it is
+  given and reports the writing rules a regex can see: quantifiers fronted onto the object,
+  absolutes with no guard named in the sentence, mirrored clauses, history in reference prose, and
+  filler. It reports and does not block:
+  'python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py <file>'.
+- CHANGE: The installer's closing steps point at 'ai-tools --status' in place of a systemctl line
+  for one timer. The status report covers that timer along with the handback socket, the relabel
+  watcher and the service it triggers, and names the command to run for anything it reports broken.
+- FIX: A claim writes its allowlist entry on a line of its own where the registry's last line ends
+  without a newline. The two ran together into one entry naming neither path, which took the
+  project already registered out of the launch gate, and the claim then reported the failure it had
+  just produced. A host that hit this still holds the joined line in allowed-projects: delete it and
+  re-claim both projects.
+- FIX: 'ai-tools-admin operators add' creates a ~/.bash_profile that reads the account's ~/.bashrc.
+  Bash reads that file alone at login, so an account provisioned without skel dotfiles -- a service
+  account, usually -- was enrolled with a profile holding only the PATH line and lost its nvm init
+  at login. A profile that already exists is left as it is; add '. ~/.bashrc' to one that lacks it.
+  The enrolment also reports when the account's login shell reads neither file, since this wiring
+  governs bash.
+- FIX: An upgrade names only the setup steps the host still owes. The base post-install block
+  printed unconditionally, so it told a provisioned host to run the bootstrap and enrol an operator
+  it already had, under a headline announcing a fresh install. Each line is gated on the state it
+  would create rather than on install-versus-upgrade, which also covers a host that lost half its
+  setup.
+- FIX: The installer keeps one operator.conf.<date>.shipped copy per baseline. Running it again
+  against an unchanged source tree dated another copy on every pass, leaving /etc/ai-tools a
+  directory of identical files to read past. The .bak side is unchanged: it records that a run
+  replaced the file, so every rewrite still writes one.
+- FIX: './install.sh install' reports the operator it is working for instead of asking a question
+  with one usable answer. A re-install re-asserts an existing enrolment whichever way that prompt
+  was answered, so an invoking account already in OPERATORS and in ai-ops was asked to confirm what
+  the run would do either way. '--operator' still names a different account, which is the route to
+  enrolling a second operator.
+- FIX: An install closes a fully labelled agent's block with that agent's own verdict, in place of
+  "unrecognized labelling result: agent claude-code ok" and a pointer to chase a label that was
+  already correct. The labelling report ends with a per-agent line, which the installer's renderer
+  now reads alongside the per-path ones; those per-path verdicts still decide the install's
+  outcome.
 
 * Mon Aug 31 2026 dagnode <tools@dagnode.com> - 0.14.0-1
 - NEW: 'ai-tools --project-create <path>' creates a project: one directory, an empty git
