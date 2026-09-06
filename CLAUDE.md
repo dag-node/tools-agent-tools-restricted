@@ -31,7 +31,13 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 ## How instructions are organized
 
 - **This file** — the trust-chain summary, the security-model invariants, and
-  cross-cutting conventions an agent needs in every session.
+  cross-cutting conventions an agent needs in every session. A fact earns a place here only by
+  holding **project-wide**; a domain's mechanism belongs in that domain's rule, **including where
+  it qualifies an invariant stated here** — the qualification is written at invariant altitude and
+  points at the rule for how it works. A verdict token, a file mode, a test path, or a `file:line`
+  reference is the mark of a rule rather than of this file. This is the tier rule from
+  `.claude/rules/authoring.rule.md`, restated because that rule's `paths:` covers `*.rule.md` and
+  so does not load while this file is open.
 - **`.claude/rules/*.rule.md`** — per-component reference prose, scoped to the source files
   it describes via `paths:` frontmatter, so it loads when you open a matching file under
   `src/` (or `selinux/`). See the component map below. A rule and its source file's header
