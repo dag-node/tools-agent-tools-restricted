@@ -133,18 +133,27 @@ rpmtest-fedora:
 # compiled from. Both lists are globs, and a glob that does not match a file yields a tarball that looks
 # well-formed and conveys a GPL binary with no source, so the counts are checked rather than
 # assumed -- comparing the archive against the inputs, so adding a policy module does not need an edit here.
+#
+# The bytecode excludes are hygiene rather than compliance. The tarball is built from the WORKING
+# TREE, so a local build made after importing a shipped script would package a __pycache__ that a
+# CI build from a fresh checkout never has. Asserted alongside the counts above, since an exclude
+# that stops matching is invisible in a tarball that still builds.
 dist:
 	tar czf $(TARBALL) -C $(ROOT) \
 	    --transform 's,^,$(NAME)-$(VERSION)/,' \
 	    --exclude='.git' --exclude='*.tar.gz' --exclude='rpmbuild' \
+	    --exclude='__pycache__' --exclude='*.pyc' \
 	    $(CONTENT)
 	@pp=$$(tar tzf $(TARBALL) | grep -cE 'selinux/policy/[^/]+\.pp$$'); \
 	 src=$$(tar tzf $(TARBALL) | grep -cE 'selinux/policy/[^/]+\.(te|if|fc)$$'); \
+	 pyc=$$(tar tzf $(TARBALL) | grep -cE '__pycache__|\.pyc$$'); \
 	 fail() { echo "$(TARBALL): $$1" >&2; rm -f $(TARBALL); exit 1; }; \
 	 [ "$$pp" -gt 0 ] \
 	    || fail "no prebuilt policy package -- %install needs ai_tools.pp"; \
 	 [ "$$src" -gt 0 ] \
-	    || fail "conveys $$pp GPL .pp with no policy source -- GPLv2 s.3"
+	    || fail "conveys $$pp GPL .pp with no policy source -- GPLv2 s.3"; \
+	 [ "$$pyc" -eq 0 ] \
+	    || fail "carries $$pyc bytecode cache file(s) from the working tree"
 	@echo "built $(TARBALL)"
 
 rpm: dist
