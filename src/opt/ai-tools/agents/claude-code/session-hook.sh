@@ -94,9 +94,8 @@ readonly MARKER="${HOOK_DIR}/.sweep-marker"
 # as MARKER.
 readonly ACTIVE_MARKER="${HOOK_DIR}/.session-active"
 
-# The handback socket every CHOWN runs over. When it is down the reclaim/sweep can hand back no path
-# back, so each pass checks it first and reports the stranded work rather than a count of failed
-# calls -- the failure mode that let a dead socket report a reassuring "Reclaimed N".
+# The handback socket every CHOWN runs over. Each pass checks it before walking, so a socket
+# that is down reports the stranded work rather than a count of failed calls (see the header).
 readonly HANDBACK_SOCKET="/run/ai-tools/handback.sock"
 
 # Mode: "stop" (default, bounded sweep), "session-start" (unbounded reclaim) or
@@ -154,9 +153,7 @@ reclaim_git_tree() {
     if [[ -n "${proj}" && -d "${proj}/.git" ]]; then
         while IFS= read -r -d '' path; do
             # Count CONFIRMED handbacks (client exit 0), not attempts, so the reported total
-            # reflects what changed owner. The client's stdout stays empty, so
-            # using it as the `if` condition cannot corrupt this function's captured count, and
-            # its stderr (MSG relays) still reaches the session.
+            # reflects what changed owner.
             if /usr/local/bin/ai-tools-handback-client CHOWN "${path}"; then
                 n=$((n + 1))
             fi
@@ -167,13 +164,11 @@ reclaim_git_tree() {
 }
 
 # session-end: graceful process exit. Clear the clean-exit marker so the next session-start does
-# not read this session as interrupted, and reclaim this project's .git to the operator. The
-# per-turn Stop sweeps skip .git, so objects the agent wrote there via `git commit` stay
-# @SANDBOX_USER@-owned; reclaiming at exit -- the session is over, so no live git command to
-# disturb -- converges .git ownership to <you>:@SANDBOX_GROUP@ right away (consistent with the work
-# tree, which the Stop sweeps already hand back), rather than waiting for the next session-start.
-# The user:<operator> ACL keeps it accessible meanwhile; this just makes ownership track it. A
-# KILLED session never reaches here; its leftovers are caught by the next session-start's pass.
+# not read this session as interrupted, and reclaim this project's .git now that the session is
+# over and no live git command is there to disturb. Ownership then tracks the work tree the Stop
+# sweeps already handed back, instead of waiting for the next session-start; the user:<operator>
+# ACL keeps .git accessible meanwhile. A killed session exits before this handler runs, and the
+# next session-start's pass catches what it left.
 if [[ "${MODE}" == "session-end" ]]; then
     ai_tools_log_debug "session-end: clearing clean-exit marker"
     rm -f "${ACTIVE_MARKER}" 2>/dev/null || true
@@ -203,8 +198,8 @@ payload="$(cat 2>/dev/null)" || exit 0
 dir="$(jq -r '.cwd // empty' <<<"${payload}" 2>/dev/null)" || exit 0
 [[ -n "${dir}" && -d "${dir}" ]] || exit 0
 
-# Decide whether this pass ignores the marker. Stop mode always honours it.
-# Session-start mode is unbounded, but only for a freshly started process.
+# Decide whether this pass ignores the marker. Only session-start mode sets it, and only for
+# a freshly started process, so a Stop pass stays bounded by the marker.
 unbounded=0
 if [[ "${MODE}" == "session-start" ]]; then
     src="$(jq -r '.source // empty' <<<"${payload}" 2>/dev/null)"
@@ -215,7 +210,7 @@ if [[ "${MODE}" == "session-start" ]]; then
 fi
 
 # Interrupted-session detection (real process start only). A surviving
-# ACTIVE_MARKER means the previous session never ran its SessionEnd handler.
+# ACTIVE_MARKER means the previous session exited before its SessionEnd handler ran.
 # Capture the cwd it recorded so the deep .git reclaim below can target that
 # project, then (re)stamp the marker with THIS session's cwd.
 interrupted=0
@@ -231,7 +226,8 @@ fi
 # Session start on a genuinely new process (the unbounded pass): normalize the
 # project's setgid bit so files the projects user creates inherit @SANDBOX_GROUP@,
 # letting the projects user be a non-member of that group. The root helper
-# re-validates dir against the allowlist and is idempotent. Stop mode never does this.
+# re-validates dir against the allowlist and is idempotent. Gated on the unbounded
+# pass, so a Stop turn does not repeat it.
 if [[ "${unbounded}" -eq 1 ]]; then
     ai_tools_log_debug "session-start: normalizing setgid on ${dir}"
     /usr/local/bin/ai-tools-handback-client SETGID "${dir}" || true
@@ -261,8 +257,8 @@ expr+=( '(' -type f -o -type d ')' -print0 ')' )
 ai_tools_log_debug "${MODE} sweep: handing back agent-owned paths under ${dir}$([[ "${unbounded}" -eq 1 ]] && echo ' (unbounded)' || echo ' (since marker)')"
 swept=0
 if [[ ! -S "${HANDBACK_SOCKET}" ]]; then
-    # Socket down: every CHOWN would fail, so skip the walk and record it once instead of
-    # counting failed calls (which would also mis-fire the large-batch skip-list hint below).
+    # Socket down: every CHOWN would fail, so skip the walk and record it once. Counting the
+    # failed calls would also mis-fire the large-batch skip-list hint below.
     ai_tools_log_warn "${MODE} sweep skipped: handback socket ${HANDBACK_SOCKET} is down -- paths under ${dir} stay @SANDBOX_USER@-owned (reclaim with: ai-tools --reclaim ${dir})"
 else
     # Count CONFIRMED handbacks (client exit 0), not attempts.
@@ -281,13 +277,13 @@ if [[ "${swept}" -ge 200 ]]; then
 fi
 
 # Advance the marker to this scan's start time (rename within the same dir keeps
-# the mtime). Best-effort; never block the turn/session from proceeding.
+# the mtime). Best-effort: a failed rename falls through to `|| true`, so the turn
+# or session proceeds either way.
 mv -f "${newref}" "${MARKER}" 2>/dev/null || rm -f "${newref}" 2>/dev/null || true
 
 # count_git_agent_owned PROJECT -- number of @SANDBOX_USER@-owned paths under PROJECT/.git (0 if
 # there is no such tree). Used only when the socket is down, to tell whether there is stranded
-# git work to warn about, so a dead socket surfaces what it could NOT reclaim instead of the
-# reclaim silently skipping its walk.
+# git work to warn about.
 count_git_agent_owned() {
     local proj="$1"
     [[ -n "${proj}" && -d "${proj}/.git" ]] || { printf '0'; return 0; }
@@ -297,11 +293,10 @@ count_git_agent_owned() {
 # .git ownership reclaim, run on every unbounded (session-start) pass. Every sweep
 # SKIPS .git, so ai-tools-owned objects the agent writes there via `git commit`
 # (Bash tool, no file_path, so no Write|Edit PostToolUse handback) escape the sweep
-# on graceful and killed exits alike. Such objects leave .git in mixed ownership
-# (work tree <you>-owned, .git internals ai-tools-owned), which makes git report
-# "dubious ownership" and, once <you> is not an ai-tools group member, blocks reads
-# and repacks. The marker does not gate this reclaim; it only selects the cross-project
-# target and the NOTICE wording below.
+# and leave .git in mixed ownership -- work tree <you>-owned, .git internals
+# ai-tools-owned -- which makes git report "dubious ownership" and, once <you> is not
+# an ai-tools group member, blocks reads and repacks. The marker does not gate this
+# reclaim; it only selects the cross-project target and the NOTICE wording below.
 if [[ "${unbounded}" -eq 1 ]]; then
   if [[ -S "${HANDBACK_SOCKET}" ]]; then
     git_found="$(reclaim_git_tree "${dir}")"
@@ -320,10 +315,9 @@ if [[ "${unbounded}" -eq 1 ]]; then
     # additionalContext, because only it is actionable: a killed prior session can leave
     # cross-project mixed ownership the agent should relay, with the manual reconcile for
     # stragglers the helper could not reach (excluded or quarantined paths). The routine
-    # post-git-activity reclaim runs on essentially every session-start (the per-turn sweeps
-    # always skip .git) and has already repaired ownership, so there is no action for the user
-    # to act on; injecting additionalContext would only force a TUI re-render that clobbers
-    # claude's startup banner. It therefore stays journald-only.
+    # post-git-activity reclaim has already repaired ownership, so its notice would carry a
+    # line the user cannot act on, and injecting additionalContext would force a TUI re-render
+    # that clobbers the agent's startup banner. It therefore stays journald-only.
     total_found=$((git_found + prev_found))
     if [[ "${total_found}" -gt 0 ]]; then
         ai_tools_log_info "reclaimed ${total_found} agent-owned .git path(s) under ${dir}$([[ "${prev_found}" -gt 0 ]] && echo " and ${prev_cwd}")$([[ "${interrupted}" -eq 1 ]] && echo ' (prior session interrupted)')"
@@ -343,10 +337,10 @@ if [[ "${unbounded}" -eq 1 ]]; then
         fi
     fi
   else
-    # Socket DOWN: the reclaim cannot run. If agent-owned .git objects are stranded, surface
-    # that with the fix, instead of silently reclaiming no path and reporting a reassuring
-    # count -- the exact condition that produced a misleading "Reclaimed N". Count the strand
-    # under this session's project and, if a prior session was killed elsewhere, that project too.
+    # Socket DOWN: every CHOWN would fail, so the reclaim is skipped. Surface the stranded
+    # paths and the fix rather than a count of a reclaim that did not happen.
+    # Count the strand under this session's project and, if a prior session was killed
+    # elsewhere, that project too.
     stranded="$(count_git_agent_owned "${dir}")"
     if [[ "${interrupted}" -eq 1 && -n "${prev_cwd}" && "${prev_cwd}" != "${dir}" ]]; then
         stranded=$(( stranded + $(count_git_agent_owned "${prev_cwd}") ))
