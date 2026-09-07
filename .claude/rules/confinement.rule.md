@@ -90,6 +90,28 @@ authorises both `unconfined_r` and `system_r` for `ai_tools_t`, so the transitio
 regardless of which role the manager holds. The manager's domain also needs `search` on
 `ai_tools_project_t` for the `WorkingDirectory` chdir.
 
+### The operator config subtree is mode-gated, not policy-gated
+
+`~/.config/ai-tools` carries its own type, `ai_tools_conf_t`, applied by `install-selinux.sh`
+with `semanage fcontext` because the operator's home path is dynamic. The narrow type is what
+lets a grant name that one subtree instead of the whole of `config_home_t`; every other file in
+`~/.config` stays refused, and a `dontaudit` keeps the git and Node probes that follow quiet.
+
+Two domains hold the grant. `ai_tools_handback_t` is the load-bearing one — the root helpers
+read `allowed-projects` and `secret-patterns` there on the operator's behalf, and without it
+ownership handback silently no-ops. The confined session domain `ai_tools_t` holds it as well,
+which sounds like a widening and is not: DAC and type enforcement must both allow, and at the
+shipped `700` directory with `600` files DAC refuses the session before the type is reached.
+
+What the session grant buys is that the **file mode stays the operator's knob**. An operator who
+decides to open either file gets the read they intended rather than an AVC denial they could
+clear only by editing policy. Opening `allowed-projects` lets a session read where it may work
+instead of being told or probing for refusals; opening `secret-patterns` tells it which basenames
+are quarantined, which it can already infer from the NOTICE each quarantine emits (see
+[secret-handling](secret-handling.rule.md)). Removing the session grant was considered and
+rejected, because it moves that decision from a mode the operator manages into policy they would
+have to rebuild.
+
 ### Fail-closed confinement preflight
 
 A session that fails to transition into `ai_tools_t` runs *unconfined*, and because
