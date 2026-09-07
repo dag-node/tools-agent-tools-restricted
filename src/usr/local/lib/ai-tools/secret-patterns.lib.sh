@@ -37,15 +37,12 @@ if [[ -n "${_AI_TOOLS_SECRET_PATTERNS_LIB:-}" ]]; then
 fi
 readonly _AI_TOOLS_SECRET_PATTERNS_LIB=1
 
-# Built-in fallback, used only when the config file is missing or empty. Kept in
-# sync with src/home/user/.config/ai-tools/secret-patterns (install.sh seeds the config file from
-# it) and with the inline list this replaced in ai-tools-chown.sh. Basename-safe
-# globs only (no bare 'config' etc. that would match innocuous files); matching
-# is case-insensitive, so a single stem covers its case variants. The .NET config
-# patterns are anchored to a name (appsettings/web/connectionstrings/…) or an
-# environment segment, deliberately NOT broad '*.*.json'/'*.*.config' catch-alls
-# that would also quarantine build artifacts the toolchain must read
-# (deps.json, runtimeconfig.json, project.assets.json, MyApp.dll.config).
+# Built-in baseline, in force whenever the operator's config file is missing or parses to an
+# empty set -- the state on a host where that operator has never written a pattern. Basename-safe globs
+# only (no bare 'config' that would match innocuous files); matching is case-insensitive, so one
+# stem covers its case variants. The .NET entries are anchored to a name
+# (appsettings/web/connectionstrings/…) or an environment segment rather than to an extension --
+# secret-handling.rule.md states what a broad '*.*.json' catch-all would quarantine.
 readonly -a _AI_TOOLS_DEFAULT_SECRET_PATTERNS=(
     '.env' '.env.*' '*.env' 'env' '.envrc' '.environment' '.environment.*' 'environment'
     'secret' 'secrets' 'usersecrets' 'private' 'secret.*' 'secrets.*' '*.secret'

@@ -537,38 +537,35 @@ in_list() {
     return 1
 }
 
-# seed_allowlist <user>: create the operator's empty allowed-projects (header only) when absent,
-# 700 .config/ai-tools + 600 allowlist so the sandbox account -- not owner, not in the group,
-# unable to enter the 700 dir -- cannot read it. Never clobbers an existing allowlist.
-seed_allowlist() {
-    local user="$1" home group cfg allow tmp
+# seed_config_file <user> <group> <path> <seed-function>: place <path> from what <seed-function>
+# prints, owned by the operator at 600. An existing file holds that operator's own edits and is
+# left as it stands, so enrolment is idempotent.
+seed_config_file() {
+    local user="$1" group="$2" file="$3" seed="$4" tmp
+    [[ -f "${file}" ]] && return 0
+    log "seeding ${file}"
+    tmp="$(mktemp)"
+    "${seed}" > "${tmp}"
+    install -o "${user}" -g "${group}" -m 600 "${tmp}" "${file}"
+    rm -f "${tmp}"
+}
+
+# seed_operator_config <user>: create the config an operator keeps in ~/.config/ai-tools --
+# allowed-projects (the launch gate) and secret-patterns (which basenames are credentials) -- at
+# 600 inside a 700 directory, so the sandbox account, neither owner nor group member and unable to
+# enter the directory, reads neither while the root helpers read both on the operator's behalf.
+# This is the one place either file is created for an operator, and both headers come from
+# conf.lib.sh, so an account enrolled on a packaged host gets what a from-source install writes.
+seed_operator_config() {
+    local user="$1" home group cfg
     home="$(getent passwd "${user}" | cut -d: -f6)"
     group="$(id -gn "${user}")"
-    [[ -n "${home}" && -d "${home}" ]] || { log "warn: no home for ${user}; skipping allowlist seed"; return 0; }
+    [[ -n "${home}" && -d "${home}" ]] || { log "warn: no home for ${user}; skipping config seed"; return 0; }
     cfg="${home}/.config/ai-tools"
     [[ -d "${home}/.config" ]] || install -d -o "${user}" -g "${group}" -m 700 "${home}/.config"
     [[ -d "${cfg}" ]]          || install -d -o "${user}" -g "${group}" -m 700 "${cfg}"
-    allow="${cfg}/allowed-projects"
-    [[ -f "${allow}" ]] && return 0
-    log "seeding ${allow}"
-    tmp="$(mktemp)"
-    printf '%s\n' \
-        "# Approved project directories for Claude Code (ai-tools) -- one directory per line." \
-        "# A plain path allows that directory and everything under it; a '!'-prefixed path" \
-        "# excludes one. Exclusions win over allows, and only they may use * ? [ ] globs --" \
-        "# an allow line must be a literal directory (a glob there matches nothing and is inert)." \
-        "#" \
-        "# '#' starts a comment, whole-line or after a path; quote a path that contains a space" \
-        "# or a literal '#', e.g.  \"/home/me/my project\"" \
-        "#" \
-        "# Managed by the ai-tools CLI -- prefer it over editing by hand:" \
-        "#   ai-tools --project-create <dir>   create a new project directory and claim it" \
-        "#   ai-tools --project-claim  <dir>   register/claim a real project in place" \
-        "#   ai-tools --sandbox-create <dir>   shallow-clone a repo into the sandbox area" \
-        "#   ai-tools --list                   review entries; flags stale/unusable/orphaned ones" \
-        "" > "${tmp}"
-    install -o "${user}" -g "${group}" -m 600 "${tmp}" "${allow}"
-    rm -f "${tmp}"
+    seed_config_file "${user}" "${group}" "${cfg}/allowed-projects" ai_tools_conf_allowlist_seed
+    seed_config_file "${user}" "${group}" "${cfg}/secret-patterns"  ai_tools_conf_secret_patterns_seed
 }
 
 # The line an operator's bash init carries: sources the PATH dedup when it is installed, and
@@ -685,7 +682,7 @@ op_add() {
 
     ai_tools_load_operators || true   # tolerate an unenrolled host (empty list)
     if in_list "${user}"; then
-        log "${user} is already an operator; reconciling group, allowlist, and sandbox linger"
+        log "${user} is already an operator; reconciling group, config, and sandbox linger"
     else
         local newlist=()
         [[ "${#AI_TOOLS_OPERATORS[@]}" -gt 0 ]] && newlist=( "${AI_TOOLS_OPERATORS[@]}" )
@@ -705,7 +702,7 @@ op_add() {
         log "added ${user} to group ${OPERATORS_GROUP}"
     fi
 
-    seed_allowlist "${user}"
+    seed_operator_config "${user}"
 
     # The sandbox account needs a systemd --user instance without an interactive login: its
     # nvm-update timer and each ai-tools-run session unit run there, and it has no login shell, so
@@ -735,7 +732,7 @@ op_remove() {
     for n in "${AI_TOOLS_OPERATORS[@]}"; do [[ "${n}" == "${user}" ]] || kept+=("${n}"); done
     write_operators "${kept[@]}"
     log "removed ${user} from OPERATORS"
-    # Drop ai-ops membership; leave the user's own allowlist and config (their data).
+    # Drop ai-ops membership; leave the account's own allowlist and secret patterns (their data).
     gpasswd -d "${user}" "${OPERATORS_GROUP}" >/dev/null 2>&1 \
         || log "warn: could not remove ${user} from ${OPERATORS_GROUP}"
     log "removed ${user} from group ${OPERATORS_GROUP}"

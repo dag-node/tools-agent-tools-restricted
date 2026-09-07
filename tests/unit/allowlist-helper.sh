@@ -122,6 +122,28 @@ refuses "refuses two actions at once" "only one action" \
 refuses "refuses a missing --operator" "required" \
     "${OPERATOR_UID}" --print
 
+# (9) A target with no config yet. Enrolment is what creates an operator's allowlist, so a
+# missing one means the account reached OPERATORS another way; the helper does not create the
+# file and names the command that does, because seeding here would leave the account with a launch
+# gate and no secret-patterns file beside it. Driven by pointing the fixture hook at a path that does not
+# exist, which is the state a hand-enrolled account is in.
+before_missing="$(md5sum < "${ALLOWFILE}")"
+out="$(env SUDO_UID="${OPERATOR_UID}" \
+    AI_TOOLS_ALLOWLIST="${TESTDIR}/no-config/allowed-projects" \
+    AI_TOOLS_OPERATOR_CONF="${TESTDIR}/operator.conf" \
+    "${HELPER}" --operator "${PROJECTS_USER}" --add "${proj}" 2>&1)" && rc=0 || rc=$?
+if (( rc == 0 )); then
+    fail "a target with no allowlist: helper succeeded where it must refuse: ${out}"
+elif ! grep -q 'operators add' <<<"${out}"; then
+    fail "a target with no allowlist: refused without naming the enrolment command: ${out}"
+elif [[ -e "${TESTDIR}/no-config/allowed-projects" ]]; then
+    fail "a target with no allowlist: the helper created the file"
+elif [[ "${before_missing}" != "$(md5sum < "${ALLOWFILE}")" ]]; then
+    fail "a target with no allowlist: another operator's registry changed"
+else
+    pass "refuses a target with no config and names 'operators add'"
+fi
+
 # ── Mechanics: add / print / remove against the primary operator's fixture registry ──────────
 out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --add "${proj}")" && rc=0 || rc=$?
 if (( rc == 0 )) && grep -q "^${proj}$" "${ALLOWFILE}"; then
