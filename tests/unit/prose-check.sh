@@ -326,6 +326,38 @@ else
     kept="$(cd "${repo}" && python3 "${PC}" --kept 2>&1)" || true
     assert_grep 'weakened \[cannot\]' "${kept}" \
         "PC-38-kept-contraction-dropped: a dropped contraction reports as its long form"
+
+    # A special bit is often the mechanism rather than a detail of it, so rendering a mode as
+    # prose drops the bit that does the work. The ten-character rendering, the symbolic mode and
+    # the four-digit octal are terms for that reason.
+    git -C "${repo}" -c commit.gpgsign=false commit -qm bits-base
+    printf 'The home root is drwxr-s--x at 2751, and the claim runs chmod g+s on it.\n' \
+        > "${repo}/doc.md"
+    git -C "${repo}" add doc.md
+    git -C "${repo}" -c commit.gpgsign=false commit -qm bits
+    printf 'The home root gives the group read and traverse.\n' > "${repo}/doc.md"
+    git -C "${repo}" add doc.md
+    kept="$(cd "${repo}" && python3 "${PC}" --kept 2>&1)" || true
+    assert_grep 'dropped \[drwxr-s--x\]' "${kept}" \
+        "PC-39-kept-mode-rendering: a dropped mode rendering is reported"
+    assert_grep 'dropped \[g+s\]' "${kept}" \
+        "PC-39-kept-symbolic-mode: a dropped symbolic mode is reported"
+    assert_grep 'dropped \[2751\]' "${kept}" \
+        "PC-39-kept-special-octal: a dropped four-digit octal is reported"
+
+    # A permission that CHANGES is the same defect as one that goes: the claim the old mode made
+    # is gone either way, and a mode edited in place is the easier one to read past. The set
+    # difference reports it, so a rewrite cannot move a bit without saying so.
+    printf 'The dir is 2751 and the file is 640, stripped with g-x.\n' > "${repo}/doc.md"
+    git -C "${repo}" add doc.md
+    git -C "${repo}" -c commit.gpgsign=false commit -qm modes
+    printf 'The dir is 2750 and the file is 660, stripped with g-w.\n' > "${repo}/doc.md"
+    git -C "${repo}" add doc.md
+    kept="$(cd "${repo}" && python3 "${PC}" --kept 2>&1)" || true
+    assert_grep 'dropped \[2751\]' "${kept}" \
+        "PC-39-kept-mode-changed: an octal changed in place is reported"
+    assert_grep 'dropped \[g-x\]' "${kept}" \
+        "PC-39-kept-symbolic-changed: a symbolic mode changed in place is reported"
 fi
 
 # ── --message: a commit message is an artifact the standard covers like any other ──────────────

@@ -333,6 +333,32 @@ def is_prose_file(path):
 # this reports, stated as the check sees it -- removed `may not read other users' files`, added `no
 # rule grants access to them` -- keeps the vocabulary of access while retiring the claim about
 # reading, which is why the other two kinds stay silent on it.
+#
+# A special bit and an ACL entry are named here for a fourth reason: in this domain one of them is
+# often the mechanism rather than a detail of it -- setgid on a shared directory is what makes a
+# file born there carry the group, sticky is what stops a group-writer unlinking a file it does not
+# own, and the ACL mask is what a `setfacl -m` recalculates and a `setfacl -n` preserves. A rewrite
+# that renders `drwxr-s--x` as "group r-x" reads as a tidy-up and retires the bit that does the
+# work, so the whole permission vocabulary is matched as terms: the octals in every spelling, the
+# symbolic modes, the ten-character renderings, an ACL entry with its own colon syntax, the
+# setfacl flag that decides whether the mask is recalculated, and the link vocabulary a refusal
+# rests on (lstat over stat, nlink, no-dereference). A mode CHANGED in place reports the same way
+# as one removed, since the old spelling leaves the added side either way. The trailing branches
+# sit outside the `\b` group because each begins or ends with a character that is not a word
+# character, so they carry their own boundaries.
+#
+# Every octal reduces to the number alone, with no owner attached: `750` and `750 root:root` name
+# one mode, so matching the pair as a second token would report a mode as dropped each time a
+# rewrite restated it with its owner. The owner is a term in its own right instead -- an
+# `owner:group` pair, in the spellings this domain writes it in (`root:root`, `<you>:<you>`,
+# `${PROJECTS_USER}:${SANDBOX_GROUP}`, `root:@SANDBOX_GROUP@`) -- since which account holds a path
+# is a claim of the same order as which bits it carries, and a rewrite that renames the owner
+# changes who may reach the file. A trailing sentence period is left out of the match, so the same
+# pair at the end of a sentence reduces to the same term.
+#
+# A bare three-digit octal is the one loose thread: it also matches a count. Measured at 273
+# sentences in this repo, of which the sample was 13 modes to 1 count, and it reports only when
+# the number leaves a hunk, so the reading cost is a fraction of that.
 INVARIANT_TERMS = re.compile(
     r"\b(secret|secrets|credential|credentials|token|password|privilege|privileged|sudo"
     r"|world-readable|root-only|owner-only|unprivileged|untrusted|trusted|forge|forged|tamper"
@@ -340,7 +366,17 @@ INVARIANT_TERMS = re.compile(
     r"|grant|grants|granted|permission|permissions|acl|acls|ownership|setgid|readable|writable"
     r"|read|reads|write|writes|execute|executes|search|searches|traverse|traverses|list|lists"
     r"|append|appends|relabel|relabels|connect|connects|map|maps"
-    r"|0[0-7]{3}|[0-7]{3,4} root:)\b", re.I)
+    r"|setuid|suid|sticky|umask|mask"
+    r"|symlink|symlinks|hardlink|hardlinks|hardlinked|nlink|lstat|dereference|dereferences"
+    r"|nosuid|noexec|nodev"
+    r"|0[0-7]{3}|[1-7][0-7]{3})\b"
+    r"|(?<![\w-])(?:[ugoa][-+=][rwxstXST]*|--x|[-dlbcps][-rwxsStT]{9}"
+    r"|no-dereference|O_NOFOLLOW)(?![\w-])"
+    r"|(?<![\w./-])[0-7]{3}(?![\w/-])"
+    r"|(?<![\w])(?:default:|d:)?(?:user|group|other|mask|u|g|o|m):[\w@{}$-]*:[rwxXst-]+"
+    r"|(?:set|get)facl\s+-[a-zA-Z]+"
+    r"|(?<![\w:@${}<>.-])(?:[A-Za-z_]|[@${<][\w@${}<>-]*)[\w@${}<>.-]*"
+    r":(?:[A-Za-z_]|[@${<][\w@${}<>-]*)(?:[\w@${}<>.-]*[\w@}>])?(?![\w:@${}<>-])", re.I)
 
 # The nouns among those terms, which are the ones whose NUMBER carries a claim: a set of secrets
 # either intersects the file's contents or it does not. A verb's inflection carries none, so
@@ -543,7 +579,13 @@ def _singular(term):
     The `-es` endings need more than a dropped `s`, the same ones `base_form` names: `searches`
     reduced to `searche` would never match the `search` on the other side of the diff, and the
     verb would report as dropped on every rewrite that only changed its number.
+
+    A term that is not a word is returned as it stands. A mode does not take a plural, and the `s`
+    that ends `g+s` is the setgid bit, so reducing it would compare a claim about setgid against
+    one about `g+` and report a bit that never moved.
     """
+    if not term.isalpha():
+        return term
     if term.endswith(_ES_ENDINGS):
         return term[:-2]
     return term[:-1] if term.endswith("s") and not term.endswith("ss") else term
