@@ -149,11 +149,22 @@ readonly OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"
 SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
 readonly SANDBOX_UID
 
+# Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser the
+# allowlist is read with -- end-of-line comments, and quotes for a path carrying a space or a
+# literal '#'. REQUIRED like safe-paths.lib.sh: the bare source under set -e aborts if it is
+# missing, rather than leaving a bare filter that would mis-read an entry ai-tools-chown reads
+# correctly, so a path this walk skips is one the handback still acts on. Include-guarded.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
+source /usr/local/lib/ai-tools/conf.lib.sh
+
 # ── Allowlist (allow + ! exclude), same parse as ai-tools-chown ──────────────
 declare -a allowed=()
 declare -a excluded=()
 while IFS= read -r entry || [[ -n "${entry}" ]]; do
-    [[ -z "${entry}" || "${entry}" == '#'* ]] && continue
+    # One shared grammar (conf.lib.sh): whole-line and end-of-line comments, and quotes for a
+    # path carrying a space or a literal '#'. A line denoting no entry is skipped.
+    ai_tools_conf_path_entry "${entry}" || continue
+    entry="${_ai_tools_conf_value}"
     if [[ "${entry}" == '!'* ]]; then
         excluded+=("${entry:1}")                  # keep raw (may contain glob)
     else
