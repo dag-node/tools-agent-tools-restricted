@@ -84,8 +84,9 @@ if declare -F ai_tools_conf_secret_patterns_seed >/dev/null 2>&1; then
     else
         fail "the seeded config changed the loaded pattern set (${#AI_TOOLS_SECRET_PATTERNS[@]} patterns)"
     fi
-    # The one claim the seeded header must always carry: an operator's pattern REPLACES the
-    # baseline. A reader who misses it writes one name and loses every other.
+    # The one claim the seeded header must always carry, asserted by the grep below: an
+    # operator's pattern REPLACES the baseline rather than adding to it, so a file holding one
+    # name classifies on that name alone.
     if grep -qi 'REPLACES the built-in baseline' "${seed_file}"; then
         pass "the seeded header states that a pattern replaces the baseline"
     else

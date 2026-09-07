@@ -204,15 +204,14 @@ strip "${TESTDIR}/f2" "regular file" "${SBX}" "${PROJECTS_GROUP}"
 # ── idempotence: a clean sealed path has no residue to strip ─────────────────────────────────
 strip "${TESTDIR}/d" directory "${PROJECTS_GROUP}" "${PROJECTS_GROUP}"
 [[ "${STRIP_RC}" -eq 1 ]] \
-    && pass "a already-stripped path reports nothing to do (idempotent, silent on re-runs)" \
+    && pass "an already-stripped path reports no residue to remove (idempotent, silent on re-runs)" \
     || fail "a second strip claimed another change"
 
 # ── dry run: report the same arms, act on none of them ────────────────────────────────────
-# ai-tools-lockdown's --dry-run previews the seal pass through this same function rather than
-# through a read-only re-implementation, so the two must agree by construction. What is pinned is
-# both halves of that: the preview names exactly what the apply then removes, and it leaves the
-# path byte-for-byte as found -- a preview that mutated would be the worst possible bug in a flag
-# whose entire promise is that it does not.
+# ai-tools-lockdown's --dry-run drives the seal pass through this function with
+# AI_TOOLS_RESIDUE_DRY_RUN set, which is why a preview describes the run that follows it
+# (secret-handling.rule.md). Two properties are pinned here: the preview names what the apply
+# then removes, and it leaves the path byte-for-byte as found.
 mkdir "${TESTDIR}/dry"
 chown "${PROJECTS_USER}:${SBX}" "${TESTDIR}/dry"
 setfacl -m "g:${SBX}:rwX" -m "d:g:${SBX}:rwX" "${TESTDIR}/dry" 2>/dev/null || true
