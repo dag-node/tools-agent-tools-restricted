@@ -589,9 +589,9 @@ that status — a reading this vantage could not make must not alarm a healthy h
 ## Acting for another operator (`--for`)
 
 `--for <operator>` performs a command **on behalf of** another enrolled operator: the allowlist
-entry lands in *their* `~/.config/ai-tools/allowed-projects`, so `ai-tools-setfacl` grants
-`user:<them>`, the ownership handback restores to them, and their agent's launch gate covers the
-path. It exists for a **service account that runs an agent without holding a password**: such an account
+entry lands in the target operator's `~/.config/ai-tools/allowed-projects`, so `ai-tools-setfacl`
+grants `user:<target-operator>`, the ownership handback restores to that account, and its agent's
+launch gate covers the path. It exists for a **service account that runs an agent without holding a password**: such an account
 cannot authenticate the claim's own no-NOPASSWD root helpers, and a claim performed by a human
 would otherwise register the project in the *human's* registry — not the one that account's launch
 wrapper reads. A human operator claims once with `--for`, and that account's session then finds the
