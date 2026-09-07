@@ -353,6 +353,15 @@ buckets, seven options — goes stale on the next addition, and it goes stale in
 the one that changed. Name the set instead: *the log levels the writer emits* holds however many
 the code grows to.
 
+**A word that implies a count is a count.** *both*, *the two*, *either*, *the pair*, *neither*
+fix the size of a set as firmly as a numeral, and they break the same way: a third config file, a
+third sink, a third verdict turns *seeds both* into a sentence that is wrong about what it
+describes and does not point at the member it left out. They also fail more quietly than a
+numeral, because *both* reads as a pronoun rather than as a claim. Name what is counted —
+*seeds the operator's config files*, *writes to every sink the logger holds* — and keep the
+closed-set word only where the set is closed **by construction** and named in the same sentence,
+as *both halves of a pinned-fd check* is by the check having a before and an after.
+
 **Length is a symptom, never a budget.** Prose that approaches the size of the code it describes
 usually means the code has stopped being self-descriptive; the fix is to make the code say it.
 Short prose is not automatically finished prose either: the only test is whether every remaining
@@ -788,6 +797,8 @@ Scan the finished text for each of these, since every one is checkable:
     will", "a host that wants it enforced".
 12. Domain mechanism in the always-loaded layer: a file mode, a test path, or a `file:line`
     reference in a root `CLAUDE.md` or `AGENTS.md`.
+13. A count of what the code declares, including the words that imply one — "both", "the two",
+    "the pair" — where the set can grow. Name the set instead.
 
 **Before committing, name the file each behavioural sentence was read from.** Not as a citation
 in the prose — as a check made while editing. Open the code during this edit, and do not let a
@@ -824,7 +835,9 @@ the sentence does not name a frequency or a bounded operation, so one already st
 stays silent. `--all` adds the shape checks, each of which greps a sub-shape
 of its rule, because the rules themselves are about meaning: a word stem repeated across the pivot
 is the mirror in item 3 and the restated head noun in item 2, and an absolute in a sentence with
-no subordinating conjunction has nowhere for item 5's guard clause to be. It also carries the two
+no subordinating conjunction has nowhere for item 5's guard clause to be, and a count word with no
+noun after it and no correlative beside it is item 13's set left unnamed — where a following noun
+(`both files`) or an enumeration (`both the manifest and the key`) names it. It also carries the
 checks a rewrite needs a reader for — the `does not` rule in its past and participle inflections,
 and the verbs that name no operation. Every `--all` check wants a reader on each hit. `--kept` is
 the rewrite mode, described under *Run the checks a rewrite needs*.

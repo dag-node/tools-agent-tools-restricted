@@ -247,6 +247,47 @@ def vague_verb(sentence):
     return match
 
 
+# A word that fixes a set's size the way a numeral does. `both`, `the two` and `the pair` break
+# on the next member exactly as `two` does -- a third config file turns `seeds both` into a
+# sentence that is wrong about what it describes -- and they break more quietly, because they
+# read as pronouns rather than as claims.
+#
+# Only the PRONOUN form is reported: the word standing where its members would be named, as the
+# subject or the object of the clause (`both are best-effort`, `seeds both`, `the two agree`).
+# `both files` and `the two strategies` name what is counted, which is what the rule asks for, so
+# a following noun is left alone -- as is a sentence that enumerates its members beside the word
+# (`both the manifest and the key`, `A and B both hold`), since a reader there can see what a
+# third member would join.
+#
+# `either` and `neither` are out of the set: their common forms are the correlative (`neither
+# owner nor group member`) and the adverb (`the probe could not report that either`), which are
+# different words rather than counts, and reporting them buries the shape this names.
+CLOSED_SET_COUNT = re.compile(
+    r"\b(both|the two|the pair)\b"
+    r"(?=\s*(?:[.,;:)]|$)"
+    r"|\s+(?:is|are|was|were|has|have|had|do|does|did|can|could|may|must|should|would|will"
+    r"|stay|stays|stayed|remain|remains|remained|fail|fails|failed|apply|applies|applied"
+    r"|agree|agrees|agreed|hold|holds|held|run|runs|ran)\b)", re.I)
+
+# The members named beside the count, on either side of it: `both the manifest and the key`
+# enumerates them after, `A and B both hold` before. The window is short, because further off an
+# `and` joins the next clause rather than the second member.
+CORRELATIVE_AFTER = re.compile(r"^(?:\W*\w+){0,6}?\W*\b(and|or|nor)\b", re.I)
+CORRELATIVE_BEFORE = re.compile(r"\b(and|or|nor)\b(?:\W*\w+){0,6}?\W*$", re.I)
+
+
+def closed_set_count(sentence):
+    """A closed-set count word standing in place of the members it counts."""
+    match = CLOSED_SET_COUNT.search(sentence)
+    if not match:
+        return None
+    if CORRELATIVE_AFTER.match(sentence[match.end():]):
+        return None
+    if CORRELATIVE_BEFORE.search(sentence[:match.start()]):
+        return None
+    return match
+
+
 EXTRA_CHECKS = [
     ("mirrored-clause", lambda s: mirrored(s, MIRROR_PIVOT),
      "state the fact once, in one direction"),
@@ -256,6 +297,8 @@ EXTRA_CHECKS = [
     ("vague-verb", vague_verb, "name the operation: permits, transmits, states, shows"),
     ("history", re.compile(r"\b(used to|previously|was changed|formerly)\b"),
      "state current behaviour"),
+    ("closed-set-count", closed_set_count,
+     "name the set, unless it is closed by construction and the sentence says so"),
     ("filler", re.compile(r"\b(simply|obviously|clearly|basically|naturally|effectively"
                           r"|actually|essentially|robust|elegant|powerful|flexible)\b"),
      "cut it"),

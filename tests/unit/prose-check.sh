@@ -208,6 +208,26 @@ run_check "$(fixture CLAUDE.md \
     'The control plane is root-owned and not writable by `SANDBOX_USER`.')"
 assert_rc 0 "PC-24-router-invariant: an invariant carrying no mechanism is not reported"
 
+# ── closed-set-count: a count word standing in for the members it counts (--all) ──────────────
+# The pronoun form is the one that goes stale silently: a third config file makes `seeds both`
+# wrong about what it describes while reading as ordinary prose. Pinned from both directions,
+# since the exclusions carry most of the check -- widened, it reports every `both files` and
+# `A and B both hold` in the tree and becomes noise a reader stops reading.
+run_check --all "$(fixture PC-25-closed-set.md 'The command seeds both.')"
+assert_grep closed-set-count "${OUT}" "PC-25-closed-set: reports a count word standing alone"
+
+run_check --all "$(fixture PC-26-closed-set-named.md \
+    "The command seeds the operator's config files.")"
+omits closed-set-count "PC-26-closed-set-named: the named set is not reported"
+
+run_check --all "$(fixture PC-27-closed-set-noun.md 'Both files are seeded at enrolment.')"
+omits closed-set-count "PC-27-closed-set-noun: a following noun names what is counted"
+
+run_check --all "$(fixture PC-28-closed-set-correlative.md \
+    'It seeds both the allowlist and the secret patterns.' \
+    'The manifest and the key both ship in the package.')"
+omits closed-set-count "PC-28-closed-set-correlative: enumerated members are not reported"
+
 # ── --kept: the rewrite guard, driven over a real git index ────────────────────────────────────
 if ! command -v git >/dev/null 2>&1; then
     skip "PC-30..34-kept" "git not available"
