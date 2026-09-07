@@ -724,3 +724,68 @@ ai_tools_conf_allowlist_enable() {
     _ai_tools_conf_allowlist_retag "${file}" "${path}" enable || { rc=$?; return "${rc}"; }
     [[ "$(ai_tools_conf_allowlist_state "${file}" "${path}")" == listed ]] || return 1
 }
+
+# ── Seed text for an operator's own config files ──────────────────────────────────────────────
+# A file an operator keeps in ~/.config/ai-tools is created carrying its header and no entry, so
+# the operator edits a file that states its own grammar rather than a blank one. The text lives
+# here because it is written from more than one place -- `ai-tools-admin operators add` on any
+# installed host, and install.sh for the account a from-source install enrols -- and a header
+# written twice is a header that disagrees with itself about what the file accepts. Each function
+# PRINTS; the caller places the file with the ownership and mode it needs (600, inside a 700
+# directory).
+
+# ai_tools_conf_allowlist_seed : print the header a fresh allowed-projects carries. It does not
+#   name any project, so a session cannot start anywhere until the CLI or the operator adds an
+#   entry.
+ai_tools_conf_allowlist_seed() {
+    printf '%s\n' \
+        "# Approved project directories for the ai-tools sandbox -- one directory per line." \
+        "# A plain path allows that directory and everything under it; a '!'-prefixed path" \
+        "# excludes one. Exclusions win over allows, and only they may use * ? [ ] globs --" \
+        "# an allow line must be a literal directory (a glob there matches nothing and is inert)." \
+        "#" \
+        "# '#' starts a comment, whole-line or after a path; quote a path that contains a space" \
+        "# or a literal '#', e.g.  \"/home/me/my project\"" \
+        "#" \
+        "# Managed by the ai-tools CLI -- prefer it over editing by hand:" \
+        "#   ai-tools --project-create <dir>   create a new project directory and claim it" \
+        "#   ai-tools --project-claim  <dir>   register/claim a real project in place" \
+        "#   ai-tools --sandbox-create <dir>   shallow-clone a repo into the sandbox area" \
+        "#   ai-tools --list                   review entries; flags stale/unusable/orphaned ones" \
+        "#" \
+        "# For a repo whose git history may hold credentials, prefer a sandboxed clone under" \
+        "# /var/opt/ai-tools/sandbox-projects/ so the agent never reads the original history." \
+        "# See /var/opt/ai-tools/README.md." \
+        ""
+}
+
+# ai_tools_conf_secret_patterns_seed : print the header a fresh secret-patterns file carries. It
+#   carries the header alone, which leaves the built-in baseline in secret-patterns.lib.sh in
+#   force -- so seeding this file changes what is classified as a secret only once the operator
+#   writes a pattern into it, and the operator finds a file that says how.
+ai_tools_conf_secret_patterns_seed() {
+    printf '%s\n' \
+        "# Secret-name patterns for the ai-tools sandbox -- your file, owner-only (600). A path" \
+        "# whose BASENAME matches a pattern here is a credential file: ai-tools-chown quarantines" \
+        "# one the agent writes, and ai-tools-lockdown seals one already in a project. The root" \
+        "# helpers read this file on your behalf; the sandbox account can read neither it nor the" \
+        "# 700 directory holding it." \
+        "#" \
+        "# A pattern listed here REPLACES the built-in baseline in" \
+        "# /usr/local/lib/ai-tools/secret-patterns.lib.sh rather than adding to it. This file" \
+        "# lists none, so that baseline -- the public list of credential names, kept current by" \
+        "# package upgrades -- is what classifies today. Write a deployment-specific name here" \
+        "# together with the baseline entries you want to keep, copied from that library." \
+        "#" \
+        "# Format: one BASENAME glob per line (no '/'), matched case-insensitively, where '*'" \
+        "# matches any characters and '.' is literal; '#' starts a comment and blank lines are" \
+        "# ignored." \
+        "#" \
+        "# Anchor a pattern to a name or an environment segment. A broad catch-all such as" \
+        "# '*.*.json' also matches build artifacts the toolchain must read, and quarantining" \
+        "# those breaks builds." \
+        "#" \
+        "# A credential name software writes in general, and that the baseline misses, is worth a" \
+        "# pull request upstream so every host gets it." \
+        ""
+}

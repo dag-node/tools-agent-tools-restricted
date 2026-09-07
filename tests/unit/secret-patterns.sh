@@ -65,7 +65,41 @@ for n in appsettings.json web.config MyApp.deps.json MyApp.runtimeconfig.json \
 done
 ${build_ok} && pass "plain configs and build artifacts are NOT quarantined"
 
-# (5) The classifier restores the caller's nocasematch setting (it flips it on internally).
+# (5) The seeded config file leaves classification unchanged. `ai-tools-admin operators add`
+# writes that file at enrolment, before the operator has decided anything, so what it writes must
+# parse to an empty set and leave the built-in baseline in force -- a seed that parsed to even one
+# pattern would REPLACE the baseline and silently stop quarantining every name it dropped.
+CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
+if [[ -r "${CONF_LIB}" ]]; then
+    # shellcheck source=/dev/null
+    source "${CONF_LIB}"
+fi
+if declare -F ai_tools_conf_secret_patterns_seed >/dev/null 2>&1; then
+    seed_file="$(mktemp)"
+    ai_tools_conf_secret_patterns_seed > "${seed_file}"
+    AI_TOOLS_SECRET_PATTERNS_FILE="${seed_file}" ai_tools_load_secret_patterns
+    if [[ "${#AI_TOOLS_SECRET_PATTERNS[@]}" -eq "${#_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}" ]] \
+            && ai_tools_is_secret_basename .env; then
+        pass "the seeded config parses to no pattern, so the baseline stays in force"
+    else
+        fail "the seeded config changed the loaded pattern set (${#AI_TOOLS_SECRET_PATTERNS[@]} patterns)"
+    fi
+    # The one claim the seeded header must always carry: an operator's pattern REPLACES the
+    # baseline. A reader who misses it writes one name and loses every other.
+    if grep -qi 'REPLACES the built-in baseline' "${seed_file}"; then
+        pass "the seeded header states that a pattern replaces the baseline"
+    else
+        fail "the seeded header does not state the replace rule: $(cat "${seed_file}")"
+    fi
+    rm -f "${seed_file}"
+    # Restore the shipped defaults for the case below, which the load above overwrote.
+    AI_TOOLS_SECRET_PATTERNS=("${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}")
+    _AI_TOOLS_PATTERNS_LOADED=1
+else
+    skip "seeded secret-patterns config" "conf.lib.sh defines no seed function"
+fi
+
+# (6) The classifier restores the caller's nocasematch setting (it flips it on internally).
 shopt -u nocasematch
 ai_tools_is_secret_basename .env >/dev/null || true
 if ! shopt -q nocasematch; then

@@ -1715,30 +1715,9 @@ do_install() {
             "Removes every approved project from the allowlist (the directories are untouched)."; then
         seed_result "${allowlist}" "${allowlist_existed}" 1
     else
-        printf '%s\n' \
-            "# Approved project directories for Claude Code (ai-tools)." \
-            "#" \
-            "# Syntax:" \
-            "#   /path/to/project      allow: Claude Code may run here; chown is active" \
-            "#   !/path/to/file        exclude: this file's ownership is never changed" \
-            "#   !/path/to/dir         exclude directory and all contents" \
-            "#   !/path/to/*.ext       exclude by glob (* matches any characters)" \
-            "#   /path/to/project  # note    a comment runs to the end of the line" \
-            "#   \"/path/to/my project\"       quote a path holding a space or a literal #" \
-            "#   !\"/path/to/my project/x\"    the ! comes before the quotes" \
-            "#" \
-            "# Exclusions (!) override allows and are checked first." \
-            "# Plain paths cover their contents automatically; no trailing /* needed." \
-            "#" \
-            "# Manage entries with the ai-tools CLI (run as the projects user) rather" \
-            "# than editing by hand:" \
-            "#   ai-tools --project-create <dir>   register a real project" \
-            "#   ai-tools --sandbox-create <dir>   shallow-clone a repo into the sandbox area" \
-            "#" \
-            "# For repos whose git history may hold secrets, prefer a sandboxed clone" \
-            "# under /var/opt/ai-tools/sandbox-projects/ so the agent never reads the" \
-            "# original history. See /var/opt/ai-tools/README.md." \
-            "" > "${allowlist}"
+        # The header text is conf.lib.sh's, the same one `ai-tools-admin operators add` seeds on a
+        # packaged host, so an operator meets one description of what the file accepts.
+        ai_tools_conf_allowlist_seed > "${allowlist}"
         chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${allowlist}"
         chmod 600 "${allowlist}"
         if (( allowlist_existed )); then
@@ -1754,19 +1733,19 @@ do_install() {
         log "removed install dir from allowlist: ${SCRIPT_DIR}"
     fi
 
-    # Secret-name patterns: user-owned 600 (ai-tools can neither read nor write it;
-    # the root helpers read it). An existing file holds the user's edits, so a
-    # re-install keeps it by default and only re-seeds the shipped default on
-    # explicit consent. Both ai-tools-chown and ai-tools-lockdown read this file;
-    # if it is removed they fall back to the built-in defaults baked into the
-    # shared library.
+    # Secret-name patterns: user-owned 600, from the same conf.lib.sh header
+    # `ai-tools-admin operators add` seeds. The seeded file carries the header alone, so
+    # classification keeps using the baseline in secret-patterns.lib.sh until this operator
+    # writes a pattern; an
+    # existing file holds their edits, so a re-install keeps it unless they consent to re-seed.
     local patternfile="${PROJECTS_HOME}/.config/ai-tools/secret-patterns"
     local secret_existed=0; [[ -f "${patternfile}" ]] && secret_existed=1
     if keep_existing "${patternfile}"; then
         seed_result "${patternfile}" "${secret_existed}" 1
     else
-        install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 600 \
-            "${SCRIPT_DIR}/src/home/user/.config/ai-tools/secret-patterns" "${patternfile}"
+        ai_tools_conf_secret_patterns_seed > "${patternfile}"
+        chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${patternfile}"
+        chmod 600 "${patternfile}"
         seed_result "${patternfile}" "${secret_existed}" 0
     fi
 

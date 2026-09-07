@@ -2,7 +2,6 @@
 paths:
   - "src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-chown.sh"
-  - "src/home/user/.config/ai-tools/secret-patterns"
   - "src/usr/local/lib/ai-tools/secret-patterns.lib.sh"
   - "src/usr/local/lib/ai-tools/owner-only.lib.sh"
 ---
@@ -76,11 +75,14 @@ not in a `SANDBOX_USER`-writable dir) for one matcher over that file, so
 baseline** — the credential names software writes in general — and ships in the source repo, so
 read is open: the installed copy holds only what is already published. Root-only **write** is
 the boundary, since an agent that could edit the matcher would decide its own classification;
-`tests/boundary/access.sh` asserts that as the agent. The baseline is identical to the shipped
-`secret-patterns` seed (`src/home/user/.config/ai-tools/secret-patterns`). An operator's config
+`tests/boundary/access.sh` asserts that as the agent. An operator's config
 **replaces** it rather than adding to it, and the baseline applies when that file is missing or
-parses empty, so classification never degrades to an empty pattern set. A deployment-specific
-name belongs in the operator's `600` config; a general one missing from the baseline goes
+parses empty, so classification never degrades to an empty pattern set. That is what makes the
+seeded file safe to place before an operator has decided anything: enrolment writes the header
+alone (below), so the baseline stays in force and each upgrade's additions reach that operator
+until they write a pattern of their own. A deployment-specific
+name belongs in the operator's `600` config, alongside the baseline entries they still want, since
+the file replaces rather than extends; a general one missing from the baseline goes
 upstream, since the library is rpm-owned and not `%config`, so an edit there is lost on upgrade. A failure
 to source the library is fail-closed: `ai-tools-chown` exits non-zero and skips that
 path's handback (it stays `SANDBOX_USER`-owned) rather than handing a possible secret back
