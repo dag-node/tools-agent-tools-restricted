@@ -9,9 +9,11 @@
 # when sweeping, because they are heavy or transient trees (dependencies, build output,
 # caches, .git) and not where shared hand-authored files live, so walking them every pass
 # costs time and returns files no one edits. The consequence is per walk:
-#   - handback sweeps: a skipped tree's files are NOT reclaimed, so they stay agent-owned
-#     (harmless -- world-readable and regenerable). To have a tree's contents handed back to
-#     the operator, remove it from the skip list (or run `ai-tools --reclaim --full`).
+#   - handback sweeps: a skipped tree's files are NOT reclaimed, so they stay agent-owned. That
+#     is safe as an OWNERSHIP outcome -- the files are world-readable, so the owner field does
+#     not decide access to them, and the tree is regenerable. It is a claim about ownership
+#     alone: no sweep inspects what a tree holds, here or anywhere else. To have a tree handed
+#     back to the operator, remove it from the skip list (or run `ai-tools --reclaim --full`).
 #   - setgid/ACL normalization: a skipped tree is given neither a setgid bit nor an ACL.
 #   - secret lockdown: a skipped tree is not scanned for secret-named files.
 #

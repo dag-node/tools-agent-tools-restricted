@@ -8,6 +8,10 @@
 
 Agent Tools Restricted runs autonomous coding agents under a dedicated, unprivileged system user (`ai-tools`) with tightly scoped privileges, SELinux confinement, ownership hand-back, and automatic toolchain updates. The agent never runs as you. Claude Code is the first supported agent; the confinement, ownership-handback, and toolchain machinery are deliberately agent-agnostic.
 
+**Scope.** The model defends the host from the agent *while it runs*. It does not make
+agent-written code safe for you to execute afterwards, and reviewing a diff before running from
+the tree is the control — see [On running what sandboxed agents wrote](#why).
+
 > **Fun fact.** This project is written inside its own sandbox. The agent that edits these
 > files runs as `ai-tools` under the confinement described here — its writes come back to the
 > author through the ownership handback, and when a Node upgrade leaves an entrypoint
@@ -224,6 +228,16 @@ Each of those refusals is tested from both ends: once that the refusal fires, an
 > access; that is the boundary isolating the agent from other users' files. A per-session
 > `bubblewrap` mount namespace to make the allowlist a true access boundary is proposed but
 > not yet implemented.
+
+> **On running what sandboxed agents wrote.** The confinement bounds the agent *while it runs*.
+> It does not make the code left behind safe for you to execute afterwards: a build script, a git
+> hook, a test fixture or a built artifact in a claimed project runs as you, unconfined, the
+> moment you build or run that project. Review a change before you run it, as you would a patch
+> from anyone else (or from a particularly persuasive raccoon that somehow got root). Restricting
+> one path does not help here — the set of files you eventually execute is the project itself —
+> so the control is review, not permissions. Note also that the trees the sweeps skip (`.git`,
+> `node_modules`, `.venv`) carry no ownership signal worth trusting: regenerate them rather than
+> adopt them.
 
 The enforced isolation boundary is DAC plus the `ai_tools_t` SELinux type. A few things are
 **out of scope by design**, not oversights: all operators share one `${SANDBOX_USER}` account
