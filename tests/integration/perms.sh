@@ -51,7 +51,7 @@ check_file /usr/sbin/ai-tools-admin                           root              
 check_file /usr/local/lib/ai-tools                            root              "${SANDBOX_GROUP}" 751
 # Secret-pattern matcher: read only by the root helpers, so 640 root:root -- no group/world
 # surface. The agent (group ai-tools) cannot read it.
-check_file /usr/local/lib/ai-tools/secret-patterns.lib.sh     root              root              640
+check_file /usr/local/lib/ai-tools/secret-patterns.lib.sh     root              root              644
 # Skip-dir list/selector: 644 root:root -- world-readable, sourced by the root helpers,
 # session-hook.sh (runs as the agent), and the CLI's claim drift scan (runs as the
 # projects user, not in ai-tools). Carries no secrets: the names are documented.
@@ -62,7 +62,7 @@ check_file /usr/local/lib/ai-tools/log.lib.sh                 root              
 # Project-label library: 640 root:root -- read only by root principals (ai-tools-relabel and
 # install-selinux.sh). No group/world surface; the unprivileged CLI inlines its read-only
 # label check instead of sourcing it.
-check_file /usr/local/lib/ai-tools/relabel.lib.sh             root              root              640
+check_file /usr/local/lib/ai-tools/relabel.lib.sh             root              root              644
 # Operator-identity resolver: 644 root:root -- world-readable like log.lib.sh; sourced by the
 # root helpers (ai_tools_handback_t) and the agent hooks (ai_tools_t) to read operator.conf.
 check_file /usr/local/lib/ai-tools/operator.lib.sh           root              root              644

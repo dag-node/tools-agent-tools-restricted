@@ -877,8 +877,8 @@ fi
 %attr(0644, root, root) %{ai_libdir}/msg.lib.sh
 %attr(0644, root, root) %{ai_libdir}/skip-dirs.lib.sh
 %attr(0644, root, root) %{ai_libdir}/owner-only.lib.sh
-%attr(0640, root, root) %{ai_libdir}/relabel.lib.sh
-%attr(0640, root, root) %{ai_libdir}/secret-patterns.lib.sh
+%attr(0644, root, root) %{ai_libdir}/relabel.lib.sh
+%attr(0644, root, root) %{ai_libdir}/secret-patterns.lib.sh
 %attr(0644, root, root) %{ai_libdir}/operator.lib.sh
 %attr(0644, root, root) %{ai_libdir}/control-plane.lib.sh
 %attr(0644, root, root) %{ai_libdir}/managed-assets.lib.sh

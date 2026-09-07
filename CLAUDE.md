@@ -342,8 +342,11 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   the PATH-ordering fragment `ai-tools-admin` wires into operator dotfiles (see
   [launch](.claude/rules/launch.rule.md)). That directory and its contents are `root`-owned and
   non-group-writable, and the sandbox group reads them — load-bearing, since the sandbox account
-  sources several of these libraries (the modes are in
-  [providers](.claude/rules/providers.rule.md); see the provider-seam invariant below).
+  sources several of these libraries. Read is open on every one of them and **write** is the
+  boundary: a shared library carries shipped logic or a general list, and an operator's own data
+  stays in that operator's private config instead, so an open read discloses only what already
+  ships (the modes are in [providers](.claude/rules/providers.rule.md); see the provider-seam
+  invariant below).
 
 ### Documentation register
 

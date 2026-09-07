@@ -648,9 +648,14 @@ subject here, so the current-state rule above does not apply.
 - **Operator-facing, not commit-facing.** "Command output is filtered by default, which saves
   tokens" over "narrow command output through root-owned rule sets". Mechanism belongs in the
   commit and the rule file.
+- **One entry per change the reader experiences, not per commit.** A feature built over nine
+  commits is one entry; a commit that only moved code is none. Reconcile the set once, before a
+  release, from what the version gained as a whole.
 - **One or two sentences per entry.** Depth comes from a link to the issue, PR, or doc.
-- **Grouped so a scan works** — Added, Changed, Deprecated, Removed, Fixed, Security, or the
-  project's established headings. Breaking changes appear in one place.
+- **Grouped so a scan works** — Keep a Changelog's six categories (ADDED, CHANGED, DEPRECATED,
+  REMOVED, FIXED, SECURITY), or the project's established headings mapped onto them. Breaking
+  changes appear in one place. SECURITY is a category rather than a severity note: an entry
+  belongs there because a reader's exposure changes, whether the change opens or closes it.
 - **Internal churn does not produce an entry** — tests, formatting, CI, version bumps.
 - **Present the gain plainly.** A reader should finish an entry knowing what they get, without
   the entry sounding like it is being sold.
@@ -787,6 +792,18 @@ Scan the finished text for each of these, since every one is checkable:
 **Before committing, name the file each behavioural sentence was read from.** Not as a citation
 in the prose — as a check made while editing. Open the code during this edit, and do not let a
 recollection stand for a reading.
+
+**An absence is a claim about your search.** "There is no rationale for this mode", "no standard
+covers this", "the reason is documented nowhere" — each asserts that a fact is missing from every
+place it could live, which is a far larger claim than finding one. Before writing or acting on it,
+name the tiers that could hold it and check each: the router, the domain rule, the file header,
+the inline comment, the **tests**, the packaging, and the external convention the artifact belongs
+to. Two of those are the ones that get skipped. A **boundary test** is where a project records
+that a state is unreachable, so a mode or a refusal with no rule explaining it may be justified
+there and nowhere else. And **this standard is itself one of the tiers** — a question about how to
+write a changelog entry, a doc comment, or a commit message is answered here before it is answered
+anywhere else. An absence claim that has not covered them reports where you looked, not what is
+there.
 
 **A finding names a symptom. Fix the claim, not the token** — the procedure is *Rewrite from the
 source* above, and it applies to a first draft's own findings as much as to a rewrite pass.

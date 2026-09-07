@@ -6,19 +6,20 @@
 # Runs as root so the root helpers (ai-tools-chown, ai-tools-setgid,
 # ai-tools-launcher-symlink) can chown/chmod project files.
 #
-# NoNewPrivileges=yes: safe here because this daemon is never invoked via SUID
-# (unlike the agent session, which needed SUID sudo for the hooks -- the exact
-# problem this socket replaces).  The helpers execute as root directly via
-# subprocess.run(), with no SUID transition needed.
+# NoNewPrivileges=yes: safe here because this daemon is not invoked via SUID. The
+# helpers execute as root directly via subprocess.run(), with no SUID transition
+# needed.  The agent session is the contrasting case -- NNP drops sudo's SUID bit
+# there, which is the problem this socket solves.
 #
 # StandardInput=socket: Accept=yes wires the accepted client socket to stdin
 # AND stdout.  The daemon reads the request from stdin and writes the response
 # to stdout without needing explicit socket calls.
 #
-# SELinux note: when the ai_tools_handback_t domain is defined and the binary
-# is labelled ai_tools_handback_exec_t, the domain transition fires from init_t
-# via domtrans_pattern(init_t, ai_tools_handback_exec_t, ai_tools_handback_t).
-# Until that domain is added the handler runs in init_t (functional but wide).
+# SELinux note: the daemon binary is labelled ai_tools_handback_exec_t, so the
+# handler transitions out of init_t into ai_tools_handback_t via
+# domtrans_pattern(init_t, ai_tools_handback_exec_t, ai_tools_handback_t). An
+# unlabelled binary does not compute any transition and runs in init_t -- wide -- which is why
+# the SELinux installer relabels the daemon before restarting the socket.
 
 [Unit]
 Description=ai-tools handback handler (%i)
@@ -28,13 +29,13 @@ Documentation=file:/usr/local/libexec/ai-tools/ai-tools-handback
 Type=simple
 ExecStart=/usr/local/libexec/ai-tools/ai-tools-handback
 NoNewPrivileges=yes
-# Drop all capabilities except the narrow set the root helpers actually need.
+# Drop all capabilities except the narrow set the root helpers need.
 # Without this the handler inherits the full root capability set; if a future
-# Python CVE or a crafted helper stderr were exploitable, the blast radius would
-# be full root rather than the four filesystem capabilities below.  This set is
+# Python CVE or a crafted helper stderr were exploitable, what it reached would be
+# full root rather than the four filesystem capabilities below.  This set is
 # deliberately kept identical to the SELinux grant for ai_tools_handback_t
-# (self:capability { chown fowner fsetid dac_override } in ai_tools.te) so the two
-# layers agree once the domain is enforcing.
+# (self:capability { chown fowner fsetid dac_override } in ai_tools.te), so the two
+# layers agree.
 # CAP_CHOWN        -- chown files to PROJECTS_USER:SANDBOX_GROUP
 # CAP_FOWNER       -- chmod files the process does not own (operate via /proc/self/fd)
 # CAP_FSETID       -- set the setgid bit on directories (ai-tools-setgid)

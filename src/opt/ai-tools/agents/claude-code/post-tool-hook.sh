@@ -16,19 +16,20 @@
 # allowlist is enforced authoritatively by ai-tools-chown, which runs as root
 # and CAN read it (and is the real security boundary regardless).
 #
-# This hook only decides, cheaply and as ai-tools, whether a handback call is
-# even worth making. It exits early -- without calling the client -- when:
+# This hook only decides, as ai-tools and from one stat, whether a handback call is
+# worth making. It exits early -- without calling the client -- when:
 #   - the tool input does not contain a file path
 #   - the file is not owned by ai-tools (already handed back, or never agent-written)
 #
 # Ownership handback is delegated to the socket privilege bridge
 # (/usr/local/bin/ai-tools-handback-client), which connects to
-# ai-tools-handback.socket (a root daemon) and sends a CHOWN request.  This
-# replaces the former `sudo ai-tools-chown` calls, which fail silently under
-# NNP (PR_SET_NO_NEW_PRIVS, forced by RestrictNamespaces=yes in the session
-# service unit) because NNP drops sudo's SUID bit before it can switch uid.
+# ai-tools-handback.socket (a root daemon) and sends a CHOWN request. A `sudo
+# ai-tools-chown` call cannot serve here: the session runs under NNP
+# (PR_SET_NO_NEW_PRIVS, forced by RestrictNamespaces=yes in the session service
+# unit), which drops sudo's SUID bit before it can switch uid, so the call fails
+# silently.
 #
-# Deploy: sudo install -o ai-tools -g ai-tools -m 750 \
+# Deploy: sudo install -o root -g ai-tools -m 750 \
 #             src/opt/ai-tools/agents/claude-code/post-tool-hook.sh /opt/ai-tools/.claude/post-tool-hook.sh
 
 set -euo pipefail

@@ -112,10 +112,21 @@ ai_tools_assert_safe_target "${canonical}" "setgid normalization" || exit 3
 ai_tools_resolve_owner "${canonical}" || exit 0
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
 
+# Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser the
+# allowlist is read with -- end-of-line comments, and quotes for a path carrying a space or a
+# literal '#'. REQUIRED like safe-paths.lib.sh: the bare source under set -e aborts if it is
+# missing, rather than leaving a bare filter that would mis-read an entry ai-tools-chown reads
+# correctly, so a path this walk skips is one the handback still acts on. Include-guarded.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
+source /usr/local/lib/ai-tools/conf.lib.sh
+
 declare -a allowed=()
 declare -a excluded=()
 while IFS= read -r entry || [[ -n "${entry}" ]]; do
-    [[ -z "${entry}" || "${entry}" == '#'* ]] && continue
+    # One shared grammar (conf.lib.sh): whole-line and end-of-line comments, and quotes for a
+    # path carrying a space or a literal '#'. A line denoting no entry is skipped.
+    ai_tools_conf_path_entry "${entry}" || continue
+    entry="${_ai_tools_conf_value}"
     if [[ "${entry}" == '!'* ]]; then
         excluded+=("${entry:1}")              # strip leading !, keep raw (may glob)
     else
@@ -125,7 +136,8 @@ while IFS= read -r entry || [[ -n "${entry}" ]]; do
 done < "${ALLOWLIST}"
 
 # _is_excluded <abs-path>: 0 if covered by a '!' rule. A plain path also covers its
-# contents; a glob matches as-is. Same semantics as ai-tools-chown / ai-tools-lockdown.
+# contents; a glob matches as-is. Same semantics as ai-tools-chown / ai-tools-lockdown,
+# which read the allowlist through the same conf.lib.sh grammar.
 _is_excluded() {
     local path="$1" pat
     [[ "${#excluded[@]}" -gt 0 ]] || return 1

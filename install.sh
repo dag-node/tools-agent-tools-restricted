@@ -916,19 +916,22 @@ do_install() {
     # and the world-execute bit lets an operator (who is NOT a SANDBOX_GROUP member
     # under the multi-operator model) TRAVERSE in to source the world-readable 644
     # libs (msg/log/safe-paths/skip-dirs) by path, without being able to LIST the
-    # dir. The group-restricted 640 files (secret-patterns, relabel) stay protected
-    # by their own modes. No write for anyone but root, so the rules cannot be
-    # altered. Enforce on re-install even when the dir pre-exists.
+    # dir. Every file here is 644 root:root: each one carries shipped logic and a
+    # general list, so none of them holds host- or operator-specific data. No write
+    # for anyone but root, so the rules cannot be altered. Enforce on re-install even
+    # when the dir pre-exists.
     log "/usr/local/lib/ai-tools/"
     ensure_dir 751 root "${SANDBOX_GROUP}" /usr/local/lib/ai-tools
     chown root:"${SANDBOX_GROUP}" /usr/local/lib/ai-tools
     chmod 751 /usr/local/lib/ai-tools
 
-    # Secret-name matcher: read ONLY by the root helpers (ai-tools-chown,
-    # ai-tools-lockdown), so 640 root:root -- no group or world surface; the agent
-    # (not root, group SANDBOX_GROUP) cannot read it at all.
+    # Secret-name matcher: read by the root helpers (ai-tools-chown, ai-tools-lockdown),
+    # and 644 root:root because the built-in list is the PUBLIC baseline of credential
+    # names -- it ships in the source repo, so the on-disk copy holds only what is already
+    # published. The operator's own patterns live in their 600 config, never here. Root-only
+    # write is what stops the agent weakening its own classification.
     log "/usr/local/lib/ai-tools/secret-patterns.lib.sh"
-    install_subst 640 root root \
+    install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/secret-patterns.lib.sh" \
         /usr/local/lib/ai-tools/secret-patterns.lib.sh
 
@@ -1172,12 +1175,12 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/path-dedup.sh" \
         /usr/local/lib/ai-tools/path-dedup.sh
 
-    # Project-label library: 640 root:root -- read ONLY by root principals (the
-    # ai-tools-relabel helper and selinux/install-selinux.sh's sweep). No group or
-    # world surface: the unprivileged CLI does not source it (it inlines its read-only
-    # label check), and the agent never needs it. No tokens to substitute.
+    # Project-label library: 644 root:root -- read by root principals (the ai-tools-relabel
+    # helper and selinux/install-selinux.sh's sweep). It carries SELinux labelling primitives
+    # and resolves project paths at runtime from the allowlist, so it does not hold any
+    # host-specific data to withhold. Root-only write keeps the label rules out of the agent's reach.
     log "/usr/local/lib/ai-tools/relabel.lib.sh"
-    install -o root -g root -m 640 \
+    install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/relabel.lib.sh" \
         /usr/local/lib/ai-tools/relabel.lib.sh
 

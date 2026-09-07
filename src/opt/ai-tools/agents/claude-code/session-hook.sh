@@ -41,8 +41,9 @@
 #
 #   session-end   -- SessionEnd hook, fires once when the process exits
 #                 gracefully. Removes the clean-exit marker (.session-active) and
-#                 stops there. That marker is written at session-start and
-#                 cleared here; if it instead SURVIVES into the next session-start,
+#                 reclaims this project's .git: the session is over, so no live git
+#                 command is there to disturb. That marker is written at session-start
+#                 and cleared here; if it instead SURVIVES into the next session-start,
 #                 the previous session was killed before this ran (tokens
 #                 exhausted, crash, closed terminal). A surviving marker widens the
 #                 .git reclaim (which runs every session-start, below) to the killed
@@ -54,10 +55,10 @@
 #
 # .git reclaim: every sweep SKIPS .git for cost, so ai-tools-owned objects the agent
 # writes there via `git commit` (Bash tool -> no Write|Edit PostToolUse) are never
-# handed back by the sweep, on a graceful exit as much as a killed one -- rotting .git
-# into mixed ownership that makes git report "dubious ownership". The unbounded
-# session-start pass therefore reclaims .git unconditionally; a per-turn Stop reclaim
-# is deliberately avoided (it would change ownership mid-turn under a live git command).
+# handed back by the sweep, on a graceful exit as much as a killed one -- leaving .git
+# in mixed ownership, which makes git report "dubious ownership". The unbounded
+# session-start pass and the session-end pass therefore reclaim .git; a per-turn Stop
+# reclaim is avoided (it would change ownership mid-turn under a live git command).
 #
 # Heavy/transient trees are skipped in both sweeping modes (their contents are world-readable
 # anyway, so <you> can already read them) and the scan stays on one filesystem (-xdev).
@@ -142,9 +143,10 @@ fi
 
 # reclaim_git_tree PROJECT -- hand every ai-tools-owned path under PROJECT/.git to
 # ai-tools-chown, which re-validates the allowlist, exclusions and secret rules exactly as
-# the sweep does. Echoes the count of paths processed on stdout; the client redirects the
-# helper's own stdout to stderr, so it cannot corrupt the additionalContext JSON this script
-# emits. No PROJECT/.git -> echo 0. Used by the session-end reclaim and the session-start pass.
+# the sweep does. Echoes the count of paths processed on stdout. The client writes only to
+# stderr -- MSG relays of the helper's stderr, and its own errors -- and leaves stdout empty,
+# so it cannot corrupt this function's captured count or the additionalContext JSON this
+# script emits. No PROJECT/.git -> echo 0. Used by the session-end reclaim and the session-start pass.
 reclaim_git_tree() {
     local proj="$1" n=0 path
     # Socket down: no path can be handed back -- report zero, not a count of failed calls.
@@ -281,30 +283,6 @@ fi
 # Advance the marker to this scan's start time (rename within the same dir keeps
 # the mtime). Best-effort; never block the turn/session from proceeding.
 mv -f "${newref}" "${MARKER}" 2>/dev/null || rm -f "${newref}" 2>/dev/null || true
-
-# reclaim_git_tree PROJECT -- hand every ai-tools-owned path under PROJECT/.git to
-# ai-tools-chown, which re-validates the allowlist, exclusions and secret rules
-# exactly as the sweep does. Echoes the count of paths processed on stdout; the
-# helper's own stdout is redirected to stderr (1>&2) so it can never corrupt the
-# additionalContext JSON this script emits on stdout. No PROJECT/.git -> echo 0.
-reclaim_git_tree() {
-    local proj="$1" n=0 path
-    # Socket down: no path can be handed back -- report zero, not a count of failed calls.
-    [[ -S "${HANDBACK_SOCKET}" ]] || { printf '0'; return 0; }
-    if [[ -n "${proj}" && -d "${proj}/.git" ]]; then
-        while IFS= read -r -d '' path; do
-            # Count CONFIRMED handbacks (client exit 0), not attempts, so the reported total
-            # reflects what changed owner. The client's stdout stays empty, so
-            # using it as the `if` condition cannot corrupt this function's captured count, and
-            # its stderr (MSG relays) still reaches the session.
-            if /usr/local/bin/ai-tools-handback-client CHOWN "${path}"; then
-                n=$((n + 1))
-            fi
-        done < <(find "${proj}/.git" -xdev -user @SANDBOX_USER@ \
-                     \( -type f -o -type d \) -print0 2>/dev/null)
-    fi
-    printf '%s' "${n}"
-}
 
 # count_git_agent_owned PROJECT -- number of @SANDBOX_USER@-owned paths under PROJECT/.git (0 if
 # there is no such tree). Used only when the socket is down, to tell whether there is stranded

@@ -48,23 +48,18 @@ write on the directory, and with it the ability to unlink the secrets inside, wh
 thing the `700` is there to stop.
 
 **The mode is not the whole boundary, so sealing also strips.** Setgid and default-ACL
-inheritance act at create time, so a path created inside a claimed tree is *already* group
-`SANDBOX_GROUP`, setgid, and carrying the project's default ACL. A later `chmod 700` holds the
-ACL mask at `---` but removes none of that, and a numeric `chmod` does not clear a directory's
-setgid at all; files created inside are born `0660` with the inherited entry **effective**.
-Nothing is reachable while the `700` stands — traversal is denied at the directory — but the
-grant is dormant, not gone: widening that one mode later re-activates it over everything already
-inside, including files written while the directory looked private.
+inheritance act at create time, so a path created inside a claimed tree already carries the
+project's sandbox group, setgid bit and default ACL, and a later `chmod 700` masks that rather
+than removing it — files created inside are born group-accessible. No file inside is reachable
+while the `700` stands, since traversal is denied at the directory, but the grant is dormant
+rather than gone: widening that one mode later re-activates it over everything already inside,
+including files written while the directory looked private.
 
 Every walk over a claimed tree therefore **strips** that residue from an owner-only path rather
-than merely skipping it — the `group:SANDBOX_GROUP` access and default ACL entries, the setgid
-bit, and the sandbox group owner — so the seal does not rest on a single mode bit staying put.
-Predicate and strip are single-sourced in `owner-only.lib.sh`, shared by `ai-tools-setgid`,
-`ai-tools-setfacl`, `ai-tools-lockdown` and `ai-tools-chown`; it removes only what the sandbox
-put there and leaves mode bits, ownership and every other ACL entry as found. A setgid bit whose
-group is neither the sandbox account's nor the operator's is kept and reported, not removed. A
-`!`-exclusion remains the stronger form, since an excluded subtree is skipped by every walk
-whatever its mode.
+than merely skipping it, so the seal does not rest on a single mode bit staying put.
+`owner-only.lib.sh` is the reference for both halves — which paths are sealed, exactly what the
+strip removes, and what it leaves as found. A `!`-exclusion remains the stronger form, since an
+excluded subtree is skipped by every walk whatever its mode.
 
 ## Shared secret-pattern set (one source, two consumers)
 
@@ -75,12 +70,18 @@ neither its owner nor in its group, and unable to enter the `700 .config/ai-tool
 can neither read nor write it; the root helpers read it on the operator's behalf, so the
 agent cannot weaken its own secret classification.
 
-Both root helpers source `/usr/local/lib/ai-tools/secret-patterns.lib.sh` (root-owned
-`644`, not in a `SANDBOX_USER`-writable dir) for one matcher over that file, so
-`ai-tools-chown` and `ai-tools-lockdown` never drift apart. The library carries a built-in
-default list identical to the shipped `secret-patterns` seed
-(`src/home/user/.config/ai-tools/secret-patterns`); if the config file is missing or
-empty the defaults apply, so classification never degrades to an empty pattern set. A failure
+Both root helpers source `/usr/local/lib/ai-tools/secret-patterns.lib.sh` (`644 root:root`,
+not in a `SANDBOX_USER`-writable dir) for one matcher over that file, so
+`ai-tools-chown` and `ai-tools-lockdown` never drift apart. Its built-in list is the **public
+baseline** — the credential names software writes in general — and ships in the source repo, so
+read is open: the installed copy holds only what is already published. Root-only **write** is
+the boundary, since an agent that could edit the matcher would decide its own classification;
+`tests/boundary/access.sh` asserts that as the agent. The baseline is identical to the shipped
+`secret-patterns` seed (`src/home/user/.config/ai-tools/secret-patterns`). An operator's config
+**replaces** it rather than adding to it, and the baseline applies when that file is missing or
+parses empty, so classification never degrades to an empty pattern set. A deployment-specific
+name belongs in the operator's `600` config; a general one missing from the baseline goes
+upstream, since the library is rpm-owned and not `%config`, so an edit there is lost on upgrade. A failure
 to source the library is fail-closed: `ai-tools-chown` exits non-zero and skips that
 path's handback (it stays `SANDBOX_USER`-owned) rather than handing a possible secret back
 as an ordinary file. `ai-tools-chown` runs in `ai_tools_handback_t` (inherited from the
@@ -117,10 +118,9 @@ is the target, the same one `ai-tools-chown` gives an agent-written secret, so a
 identically owned whether it was locked down proactively or quarantined on write; leaving the
 group as `SANDBOX_GROUP` would re-expose it the moment the mode was widened. Each locked path
 also has its sandbox residue stripped (see above).
-It runs only when the CWD is an allowed project and skips `!`-excluded paths, reusing the
-same allowlist parse, and applies each change through a pinned fd (re-verifying inode and
-type) so a `SANDBOX_USER` path swap cannot redirect root's chmod/chown. `--yes` skips the TTY
-confirmation.
+It runs only when the CWD is an allowed project and skips `!`-excluded paths, and applies each
+change through a pinned fd (re-verifying inode and type) so a `SANDBOX_USER` path swap cannot
+redirect root's chmod/chown. `--yes` skips the TTY confirmation.
 
 `--dry-run` previews **both** passes — the secret lock and the seal — naming each path and, for
 a seal, what would come off it. The seal half is the one that acts on paths the operator did not

@@ -237,12 +237,24 @@ allow ai_tools_t user_home_t:dir { getattr search open };
 # the project rules above. Projects under /home use the user_home_t traversal instead.
 files_search_var(ai_tools_t)
 
-# Reach + read the ai-tools config subtree (~/.config/ai-tools, ai_tools_conf_t):
-# SEARCH config_home_t (~/.config) only to traverse INTO it -- never list or read
-# its siblings (the config_home_t:file dontaudit below still refuses those). Then
-# search the ai_tools_conf_t dir and read its files (allowed-projects,
-# secret-patterns). Without this, ai-tools-chown cannot read the allowlist and
-# silently no-ops, breaking ownership handback under enforcing.
+# Reach + read the ai-tools config subtree (~/.config/ai-tools, ai_tools_conf_t): SEARCH
+# config_home_t (~/.config) only to traverse INTO it -- never list or read its siblings, which
+# the config_home_t:file dontaudit below still refuses. Two domains hold this, for different
+# reasons, and the narrow type is what keeps either grant off the rest of ~/.config.
+#
+# ai_tools_handback_t (granted further down) is the load-bearing one: the root helpers read
+# allowed-projects and secret-patterns on the operator's behalf, and without it their getattr is
+# denied and ownership handback silently no-ops.
+#
+# ai_tools_t holds it so the FILE MODE stays the operator's knob. The grant alone gives the
+# session no access: DAC and type enforcement must BOTH allow, and at the shipped 700 dir with
+# 600 files DAC refuses. What it buys is that an operator who deliberately widens the mode gets the
+# read they intended, rather than an AVC denial they could clear only by editing policy. Opening
+# allowed-projects lets a session read where it may work instead of being told or probing for
+# refusals; opening secret-patterns tells it which basenames are quarantined, which it can
+# already infer from the NOTICE every quarantine emits. Removing this grant was considered and
+# rejected: it would make policy, not the mode, the binding constraint on a decision that belongs
+# to the operator. The default stays closed.
 allow ai_tools_t config_home_t:dir search;
 allow ai_tools_t ai_tools_conf_t:dir { getattr search open };
 allow ai_tools_t ai_tools_conf_t:file { getattr open read };
@@ -395,11 +407,11 @@ dontaudit ai_tools_t kernel_t:unix_stream_socket connectto;
 # (2) The path boundary into the invoking user's home. SEARCH to reach the project
 # is allowed above; LISTING /home, /home/<you>, or its subtrees is not -- that is how
 # the agent would discover unrelated files. Reading the user's ~/.config FILES is
-# likewise refused (git/Node probe it; failing closed is harmless) -- the lone
-# exception is the ai_tools_conf_t subtree (~/.config/ai-tools), carved out and
-# granted read above so the chown helper can read the allowlist. config_home_t:dir
-# search is allowed above only to TRAVERSE ~/.config into that subtree, never to
-# list or read it; this dontaudit keeps every other config_home_t FILE refused.
+# likewise refused (git/Node probe it; failing closed is harmless) -- the lone exception is the
+# ai_tools_conf_t subtree (~/.config/ai-tools), carved out and granted above so the file mode
+# rather than policy decides what the session may read there. config_home_t:dir search is
+# allowed above only to TRAVERSE ~/.config into that subtree, never to list or read it; this
+# dontaudit keeps every other config_home_t FILE refused.
 dontaudit ai_tools_t home_root_t:dir read;
 dontaudit ai_tools_t user_home_dir_t:dir read;
 dontaudit ai_tools_t user_home_t:dir read;
@@ -609,8 +621,10 @@ corecmd_exec_bin(ai_tools_handback_t)
 allow ai_tools_handback_t self:capability { chown fowner fsetid dac_override };
 
 # Read the allowlist and secret-pattern files (ai_tools_conf_t,
-# ~/.config/ai-tools/{allowed-projects,secret-patterns}). Same reasoning as the
-# ai_tools_t grant in the "Run the agent" section.
+# ~/.config/ai-tools/{allowed-projects,secret-patterns}). This domain is the ONLY one granted
+# them: the helpers here re-validate every path against the allowlist as root, and the narrow
+# type keeps the grant off the rest of ~/.config. SEARCH on config_home_t traverses into the
+# subtree without listing it.
 allow ai_tools_handback_t config_home_t:dir search;
 allow ai_tools_handback_t ai_tools_conf_t:dir { getattr search open };
 allow ai_tools_handback_t ai_tools_conf_t:file { getattr open read };

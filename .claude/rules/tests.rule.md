@@ -520,7 +520,7 @@ it through `tests/run.sh all`. Adding or repermissioning an installed file means
 `check_file` list here, nowhere else.
 
 **`boundary`** — confinement assertions executed **as the agent** (`sudo -u SANDBOX_USER`)
-(`access.sh`, `providers.sh`, `filters.sh`, `sudo.sh`): the agent cannot read the secret-pattern library or write the
+(`access.sh`, `providers.sh`, `filters.sh`, `sudo.sh`): the agent cannot write the secret-pattern library or the
 control plane, cannot reach the operator's credential stores (`~/.ssh`, `~/.gnupg`, …), and
 does not hold any sudo rights — `sudo -l` reports it is not allowed to run sudo at all (both NOPASSWD
 rules belong to the projects user and drop privilege), plus the account hygiene that invariant
