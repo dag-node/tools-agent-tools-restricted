@@ -28,9 +28,8 @@
 #       cd /path/to/project
 #       sudo ai-tools-lockdown [--dry-run|-n] [--yes|-y]
 #
-# Deploy:
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh /usr/local/libexec/ai-tools/ai-tools-lockdown
+# Installed 750 root:root, so only root runs it -- which is why the CLI cannot pre-check the
+# path and sudo reaches it instead. Deploying from a checkout: docs/install-from-source.md.
 
 set -euo pipefail
 

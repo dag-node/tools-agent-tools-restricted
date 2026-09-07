@@ -38,9 +38,8 @@
 # the helpers' chown.log/setgid.log/symlink.log.  Only the root daemon writes the file; the
 # agent-side client cannot (DAC), so it stays journald-only.
 #
-# Deploy: install.sh deploys src/usr/local/libexec/ai-tools/ai-tools-handback.py
-# to /usr/local/libexec/ai-tools/ai-tools-handback (750 root:root, @SANDBOX_USER@
-# substituted by install_subst).
+# Installed 750 root:root as ai-tools-handback, with @SANDBOX_USER@ substituted at install.
+# Deploying from a checkout: docs/install-from-source.md.
 
 import datetime
 import os

@@ -18,9 +18,8 @@
 #   Not a sudo target -- ai-tools has no sudo rights (the session runs under NNP,
 #   which drops sudo's SUID bit).
 #
-# Deploy:
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-chown.sh /usr/local/libexec/ai-tools/ai-tools-chown
+# Installed 750 root:root, so only root runs it. Deploying from a checkout:
+# docs/install-from-source.md.
 
 set -euo pipefail
 

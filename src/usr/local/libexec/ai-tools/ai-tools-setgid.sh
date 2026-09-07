@@ -26,9 +26,8 @@
 # Invocation: the handback socket's SETGID verb (ai-tools-handback daemon, root).
 #   Not a sudo target -- ai-tools has no sudo rights.
 #
-# Deploy:
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-setgid.sh /usr/local/libexec/ai-tools/ai-tools-setgid
+# Installed 750 root:root, so only root runs it. Deploying from a checkout:
+# docs/install-from-source.md.
 
 set -euo pipefail
 
