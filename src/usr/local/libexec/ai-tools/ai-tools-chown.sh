@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-chown
-# Restores operator:ai-tools ownership on files and directories created or
-# overwritten by Claude Code. Invoked as root by the ai-tools-handback daemon
-# (ai_tools_handback_t) when the PostToolUse/Stop/SessionStart hooks send a CHOWN
-# request over the handback socket. Accepts a single regular-file or directory
-# target; for directories it strips world bits while preserving group rwx so the
-# agent can keep working in a dir it created. An interactive invocation confirms
-# per path; --yes skips that for a batch caller (ai-tools-reclaim) that already
-# confirmed its whole set.
+# Restores operator:ai-tools ownership on files and directories an agent session
+# created or overwrote. Invoked as root by the ai-tools-handback daemon
+# (ai_tools_handback_t) when a session's hooks, or ai-tools-run's session-end sweep
+# for an agent that declares none, send a CHOWN request over the handback socket.
+# Accepts a single regular-file or directory target; for directories it strips world
+# bits while preserving group rwx so the agent can keep working in a dir it created.
+# An interactive invocation confirms per path; --yes skips that for a batch caller
+# (ai-tools-reclaim) that already confirmed its whole set.
 #
 # Reads the operator's allowed-projects allowlist for allow and exclude rules (its path is
 # derived from the operator identity in /etc/ai-tools/operator.conf). That file is owned by

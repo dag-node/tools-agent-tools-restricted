@@ -41,8 +41,9 @@
 #
 #   session-end   -- SessionEnd hook, fires once when the process exits
 #                 gracefully. Removes the clean-exit marker (.session-active) and
-#                 stops there. That marker is written at session-start and
-#                 cleared here; if it instead SURVIVES into the next session-start,
+#                 reclaims this project's .git: the session is over, so no live git
+#                 command is there to disturb. That marker is written at session-start
+#                 and cleared here; if it instead SURVIVES into the next session-start,
 #                 the previous session was killed before this ran (tokens
 #                 exhausted, crash, closed terminal). A surviving marker widens the
 #                 .git reclaim (which runs every session-start, below) to the killed
@@ -54,10 +55,10 @@
 #
 # .git reclaim: every sweep SKIPS .git for cost, so ai-tools-owned objects the agent
 # writes there via `git commit` (Bash tool -> no Write|Edit PostToolUse) are never
-# handed back by the sweep, on a graceful exit as much as a killed one -- rotting .git
-# into mixed ownership that makes git report "dubious ownership". The unbounded
-# session-start pass therefore reclaims .git unconditionally; a per-turn Stop reclaim
-# is deliberately avoided (it would change ownership mid-turn under a live git command).
+# handed back by the sweep, on a graceful exit as much as a killed one -- leaving .git
+# in mixed ownership, which makes git report "dubious ownership". The unbounded
+# session-start pass and the session-end pass therefore reclaim .git; a per-turn Stop
+# reclaim is avoided (it would change ownership mid-turn under a live git command).
 #
 # Heavy/transient trees are skipped in both sweeping modes (their contents are world-readable
 # anyway, so <you> can already read them) and the scan stays on one filesystem (-xdev).
