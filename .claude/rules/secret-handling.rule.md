@@ -70,12 +70,18 @@ neither its owner nor in its group, and unable to enter the `700 .config/ai-tool
 can neither read nor write it; the root helpers read it on the operator's behalf, so the
 agent cannot weaken its own secret classification.
 
-Both root helpers source `/usr/local/lib/ai-tools/secret-patterns.lib.sh` (root-owned
-`644`, not in a `SANDBOX_USER`-writable dir) for one matcher over that file, so
-`ai-tools-chown` and `ai-tools-lockdown` never drift apart. The library carries a built-in
-default list identical to the shipped `secret-patterns` seed
-(`src/home/user/.config/ai-tools/secret-patterns`); if the config file is missing or
-empty the defaults apply, so classification never degrades to an empty pattern set. A failure
+Both root helpers source `/usr/local/lib/ai-tools/secret-patterns.lib.sh` (`644 root:root`,
+not in a `SANDBOX_USER`-writable dir) for one matcher over that file, so
+`ai-tools-chown` and `ai-tools-lockdown` never drift apart. Its built-in list is the **public
+baseline** — the credential names software writes in general — and ships in the source repo, so
+read is open: the installed copy holds only what is already published. Root-only **write** is
+the boundary, since an agent that could edit the matcher would decide its own classification;
+`tests/boundary/access.sh` asserts that as the agent. The baseline is identical to the shipped
+`secret-patterns` seed (`src/home/user/.config/ai-tools/secret-patterns`). An operator's config
+**replaces** it rather than adding to it, and the baseline applies when that file is missing or
+parses empty, so classification never degrades to an empty pattern set. A deployment-specific
+name belongs in the operator's `600` config; a general one missing from the baseline goes
+upstream, since the library is rpm-owned and not `%config`, so an edit there is lost on upgrade. A failure
 to source the library is fail-closed: `ai-tools-chown` exits non-zero and skips that
 path's handback (it stays `SANDBOX_USER`-owned) rather than handing a possible secret back
 as an ordinary file. `ai-tools-chown` runs in `ai_tools_handback_t` (inherited from the
