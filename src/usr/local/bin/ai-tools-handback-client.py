@@ -18,9 +18,10 @@
 # only root and @SANDBOX_GROUP@ members can reach (0660 SocketGroup=@SANDBOX_GROUP@),
 # and the daemon authenticates the connection via SO_PEERCRED.
 #
-# Deploy: install.sh deploys src/usr/local/bin/ai-tools-handback-client.py
-# to /usr/local/bin/ai-tools-handback-client (750 root:@SANDBOX_GROUP@,
-# @SANDBOX_GROUP@ substituted by install_subst).
+# Installed 750 root:@SANDBOX_GROUP@ as ai-tools-handback-client, with @SANDBOX_GROUP@
+# substituted at install: the group execute bit is what lets a session run it, and root
+# ownership is what stops the session rewriting it. Deploying from a checkout:
+# docs/install-from-source.md.
 
 import socket
 import sys

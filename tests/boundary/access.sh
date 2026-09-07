@@ -187,17 +187,20 @@ else
     fail "cannot execute ${shook} -- stop-sweep / session-start silently skipped"
 fi
 
-# The control-plane home root is drwxr-s--- (2750 ${PROJECTS_USER}:${SANDBOX_GROUP}): the agent
-# (group r-x) traverses and reads but must NOT create new top-level entries, or it could drop
-# files that shadow control assets or escape its own subtrees (.nvm/.cache). Probed with a real
-# create attempt; the probe is removed whether or not it (wrongly) succeeded.
+# The control-plane home root is root:${SANDBOX_GROUP} at CP_HOME_MODE (control-plane.lib.sh,
+# asserted in integration/perms.sh). Three parts of that mode matter here: SETGID, so an entry
+# born under it stays in the sandbox group; group r-x, so the agent traverses and reads but must
+# NOT create new top-level entries, or it could drop files that shadow control assets or escape
+# its own subtrees (.nvm/.cache); and o+x, which lets an operator readlink the launcher without
+# listing the directory. This probe covers the middle one with a real create attempt; the probe
+# is removed whether or not it (wrongly) succeeded.
 _homeprobe="/opt/ai-tools/.test_homelock_$$"
 runuser -u "${SANDBOX_USER}" -- touch "${_homeprobe}" 2>/dev/null || true
 if [[ -e "${_homeprobe}" ]]; then
     rm -f "${_homeprobe}"
-    fail "agent created ${_homeprobe} -- /opt/ai-tools is not locked (expected drwxr-s--- ${PROJECTS_USER}-owned)"
+    fail "agent created ${_homeprobe} -- /opt/ai-tools is not locked (expected root-owned at CP_HOME_MODE)"
 else
-    pass "cannot create files in /opt/ai-tools (drwxr-s---): agent confined to its own subtrees"
+    pass "cannot create files in /opt/ai-tools (root-owned, no group write): agent confined to its own subtrees"
 fi
 
 # The sandbox account's systemd --user manager runs unconfined (ai-tools maps to unconfined_u),

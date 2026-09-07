@@ -104,7 +104,8 @@ for name in .env.local id_ed25519 server.key cert.pem .pgpass ID_ED25519; do
 done
 ${sec_ok} && pass "secret-named files -> ${PROJECTS_USER}:${PROJECTS_GROUP} 600 + NOTICE (incl. upper-case)"
 
-# (4) The agent genuinely cannot read a quarantined secret.
+# (4) The agent cannot read a quarantined secret -- asserted against the deployed file rather
+# than inferred from its mode.
 qs="${proj}/.env.local"
 if ! sudo -u "${SANDBOX_USER}" cat "${qs}" < /dev/null > /dev/null 2>&1; then
     pass "the agent cannot read the quarantined secret (EACCES)"

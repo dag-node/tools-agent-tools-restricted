@@ -168,6 +168,50 @@ srv/project (2770 SGID, group=devs)
 
 
 ============================================================
+7b. DEFAULT ACL REPLACES THE UMASK
+============================================================
+A directory carrying a DEFAULT ACL does not filter new files
+through the creator's umask. POSIX applies the default ACL
+entries instead, so section 6's formula does not hold there:
+
+  no default ACL:  final_mode = requested_mode & ~umask
+  default ACL:     inherit the default entries, then drop every
+                   permission the requested mode does not carry
+                   (umask ignored)
+
+For an ordinary file creation the requested mode is 0666, so
+the result is the default entries themselves; a program that
+asks for less still gets less.
+
+------------------------------------------------------------
+FILE CREATION IN A DIR WITH default:g:devs:rwX, default:o::-
+------------------------------------------------------------
+UMASK   RESULT   NOTES
+------------------------------------------------------------
+0007    0660     same
+0022    0660     same -- umask NOT applied
+0077    0660     same -- umask NOT applied
+
+USE: this is how a shared tree gets a UNIFORM mode. Put a
+default ACL on the directory and every file born under it
+carries the same permissions, no matter which account writes
+it or how that account's umask is set -- which a SGID bit
+alone does not give you, since SGID fixes the GROUP and leaves
+the mode to the umask (section 7).
+
+Works on any filesystem carrying POSIX ACLs -- ext4, XFS, Btrfs
+-- mounted with ACL support, which is the default on current
+kernels.
+
+To read what a directory will hand its children:
+  getfacl -c <dir> | grep default
+
+Clearing them: setfacl -b removes every extended entry INCLUDING
+the default ACL, so new files fall back to the umask formula
+above. setfacl -k removes the default entries only.
+
+
+============================================================
 8. KEY MENTAL MODELS (ASCII CORE)
 ============================================================
 

@@ -71,8 +71,9 @@
 # is a data-ownership convenience, not a confinement boundary (the user:<operator> ACL keeps <you>
 # reading agent files regardless), so this warns and proceeds -- it never blocks a session.
 #
-# Deploy: sudo install -o root -g ai-tools -m 750 \
-#             src/opt/ai-tools/agents/claude-code/session-hook.sh /opt/ai-tools/.claude/session-hook.sh
+# Installed 750 root:ai-tools: the session executes it through the group and cannot rewrite it,
+# which is what keeps the sweeps out of the agent's control (see ownership-and-hooks.rule.md).
+# Deploying from a checkout: docs/install-from-source.md.
 # Wired to the Stop, SessionStart, and SessionEnd hooks in settings.json (the
 # SessionStart entry passes "session-start", the SessionEnd entry "session-end").
 

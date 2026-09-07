@@ -29,8 +29,9 @@
 # unit), which drops sudo's SUID bit before it can switch uid, so the call fails
 # silently.
 #
-# Deploy: sudo install -o root -g ai-tools -m 750 \
-#             src/opt/ai-tools/agents/claude-code/post-tool-hook.sh /opt/ai-tools/.claude/post-tool-hook.sh
+# Installed 750 root:ai-tools: the session executes it through the group and cannot rewrite it,
+# which is what keeps the handback it performs out of the agent's control (see
+# ownership-and-hooks.rule.md). Deploying from a checkout: docs/install-from-source.md.
 
 set -euo pipefail
 

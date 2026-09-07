@@ -125,8 +125,10 @@ and so the operator's access survives an ACL-unaware copy (an `rsync`/`tar` that
 preserves owner). It runs on the once-per-session `session-start` pass (which also covers a killed
 prior session's leftovers) and the `session-end` pass (graceful-exit convergence), never the
 per-turn `Stop` sweep, so it never flips ownership mid-turn under a live `git` command. The other
-skipped trees (`node_modules`, `.venv`, …) stay agent-owned — harmless (world-readable,
-regenerable). The operator's on-demand counterpart is `ai-tools --reclaim [--full]` (the
+skipped trees (`node_modules`, `.venv`, …) stay agent-owned, which is safe as an ownership
+outcome — the files are world-readable, so the owner field does not decide access to them, and
+the tree is regenerable. That is a claim about ownership alone: no sweep inspects what a tree
+holds. The operator's on-demand counterpart is `ai-tools --reclaim [--full]` (the
 `ai-tools-reclaim` helper, which walks a project and delegates to the same `ai-tools-chown`; see
 [cli](cli.rule.md)) — e.g. before a backup, with `--full` to include the skipped heavy trees.
 

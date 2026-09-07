@@ -25,7 +25,8 @@ proj="${TESTDIR}/proj"
 mkdir -p "${proj}/secrets" "${proj}/vendor" "${proj}/.git"
 chmod 0755 "${TESTDIR}" "${proj}"
 
-# Pre-existing, user-owned fixtures (the case ai-tools-chown never reaches). Secret-named
+# Pre-existing, user-owned fixtures -- the case ai-tools-chown's owner guard skips, since it acts
+# only on a path the sandbox account currently owns, which is what lockdown exists to cover. Secret-named
 # file + dir, an ordinary file, a secret under a '!'-excluded subtree, and a secret under a
 # skipped (.git) tree.
 mk_secret() { : > "$1"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "$1"; chmod 0644 "$1"; }

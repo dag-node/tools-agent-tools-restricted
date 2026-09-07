@@ -48,11 +48,18 @@ thing the `700` is there to stop.
 
 **The mode is not the whole boundary, so sealing also strips.** Setgid and default-ACL
 inheritance act at create time, so a path created inside a claimed tree already carries the
-project's sandbox group, setgid bit and default ACL, and a later `chmod 700` masks that rather
-than removing it — files created inside are born group-accessible. No file inside is reachable
-while the `700` stands, since traversal is denied at the directory, but the grant is dormant
-rather than gone: widening that one mode later re-activates it over everything already inside,
-including files written while the directory looked private.
+project's sandbox group, setgid bit and default ACL. A later `chmod 700` holds the ACL mask at
+`---` but removes none of them, and a numeric `chmod` does not clear a directory's setgid at all
+(GNU chmod keeps it unless the octal carries five digits), so files created inside are born `0660`
+with the inherited entry **effective** — group read *and write*, others denied. That mode comes
+from the default ACL rather than from anyone's umask: POSIX applies a directory's default ACL
+**instead of** the creator's umask, so the residue is identical whoever writes the file and
+however their umask is set ([the permissions
+cheatsheet](../../docs/linux-permissions-cheatsheet.txt) §7b covers the general rule). No file
+inside is reachable while the `700` stands, since traversal is denied at
+the directory, but the grant is dormant rather than gone: widening that one mode later
+re-activates it over everything already inside, including files written while the directory looked
+private.
 
 Every walk over a claimed tree therefore **strips** that residue from an owner-only path rather
 than merely skipping it, so the seal does not rest on a single mode bit staying put.
