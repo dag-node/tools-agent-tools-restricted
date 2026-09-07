@@ -285,6 +285,47 @@ else
     else
         fail "PC-34-kept-inflection: reported an inflection as a dropped claim: ${kept}"
     fi
+
+    # An RFC 2119 verb fixes how binding a sentence is, so demoting one to a plain present tense
+    # turns a constraint the code was built to satisfy into a report of what it happens to do.
+    git -C "${repo}" -c commit.gpgsign=false commit -qm rfc-base
+    printf 'A preview must not ask to apply.\n' > "${repo}/doc.md"
+    git -C "${repo}" add doc.md
+    git -C "${repo}" -c commit.gpgsign=false commit -qm rfc
+    printf 'A preview stops before the confirmation.\n' > "${repo}/doc.md"
+    git -C "${repo}" add doc.md
+    kept="$(cd "${repo}" && python3 "${PC}" --kept 2>&1)" || true
+    assert_grep 'weakened \[must not\]' "${kept}" \
+        "PC-35-kept-rfc-verb: reports a dropped RFC 2119 verb"
+
+    # `must not` weakened to a bare `must` is the same defect one step smaller, so the negation is
+    # matched before the stem it begins with rather than being absorbed into it.
+    printf 'A preview must ask before it applies.\n' > "${repo}/doc.md"
+    git -C "${repo}" add doc.md
+    kept="$(cd "${repo}" && python3 "${PC}" --kept 2>&1)" || true
+    assert_grep 'weakened \[must not\]' "${kept}" \
+        'PC-36-kept-negation-first: "must not" weakened to "must" is reported'
+
+    # The guideline is to write the long form, so a contraction carries the same claim and a
+    # rewrite between the two forms is a wording change rather than a weakening.
+    printf 'The agent cannot read the file.\n' > "${repo}/doc.md"
+    git -C "${repo}" add doc.md
+    git -C "${repo}" -c commit.gpgsign=false commit -qm contraction
+    printf "The agent can't read the file.\n" > "${repo}/doc.md"
+    git -C "${repo}" add doc.md
+    kept="$(cd "${repo}" && python3 "${PC}" --kept 2>&1)" || true
+    if [[ -z "${kept}" ]]; then
+        pass "PC-37-kept-contraction: a contraction and its long form read as one modality"
+    else
+        fail "PC-37-kept-contraction: reported a contraction as a weakening: ${kept}"
+    fi
+
+    # And the contraction is matched, so dropping one is reported like dropping its long form.
+    printf 'The agent reads the file.\n' > "${repo}/doc.md"
+    git -C "${repo}" add doc.md
+    kept="$(cd "${repo}" && python3 "${PC}" --kept 2>&1)" || true
+    assert_grep 'weakened \[cannot\]' "${kept}" \
+        "PC-38-kept-contraction-dropped: a dropped contraction reports as its long form"
 fi
 
 # ── --message: a commit message is an artifact the standard covers like any other ──────────────

@@ -352,7 +352,39 @@ NARROWABLE_TERMS = re.compile(
 # swaps a universal for a single instance, and `carries no secrets` restated as `must not hold a
 # secret` swaps a fact for an obligation; both read as tidying and both retire what the sentence
 # guaranteed. Reported when the removed prose carried one and the added prose does not.
-MODALITY = re.compile(r"\b(never|always|cannot|must not|only)\b", re.I)
+#
+# The RFC 2119 verbs are in the set because this standard writes reference prose in that register,
+# where each one fixes how binding a sentence is: a `must` demoted to a plain present tense turns a
+# constraint the code was built to satisfy into a report of what it happens to do, which reads as a
+# description a later editor may update rather than a rule they would be breaking. Each negation is
+# spelled before its bare form, so the alternation prefers the longer match and `must not` weakened
+# to `must` is reported rather than absorbed. The RFC's adjectives (REQUIRED, RECOMMENDED,
+# OPTIONAL) stay out: they are ordinary words here -- `Required and fail-closed`, `the optional
+# third arg` -- so reporting them would bury the verbs that do carry the claim.
+# A contraction is matched beside its long form, and each one is spelled before the bare stem it
+# begins with, so `mustn't` reads as `must not` rather than as `must` with a suffix left over. The
+# apostrophe may be either the ASCII or the typographic one, since a document carries whichever its
+# author typed. `will not`/`won't` stay out: `will` fixes when something happens, not how binding
+# it is, and the standard reserves it for genuinely future behaviour.
+MODALITY = re.compile(
+    r"\b(never|always|only"
+    r"|cannot|can[’']t"
+    r"|must not|mustn[’']t|must"
+    r"|shall not|shan[’']t|shall"
+    r"|should not|shouldn[’']t|should"
+    r"|may not|may)\b", re.I)
+
+# The long form each contraction carries, applied to both sides before they are compared. The
+# guideline is to write the long form, so swapping one for the other is a wording change that does
+# not produce a finding, while dropping either form does.
+CONTRACTIONS = {
+    "can't": "cannot", "mustn't": "must not", "shan't": "shall not", "shouldn't": "should not",
+}
+
+
+def _modal(word):
+    """The long form of a modal, so a contraction and its expansion compare equal."""
+    return CONTRACTIONS.get(word.replace("’", "'"), word)
 
 
 MESSAGE = "<message>"  # the path a commit message is reported under
@@ -525,12 +557,17 @@ def hunk_prose(path, lines):
             yield text
 
 
-def vocabulary(path, lines, pattern, singularize=False):
-    """The matches of `pattern` in the prose among these lines, lowercased."""
+def vocabulary(path, lines, pattern, singularize=False, normalize=None):
+    """The matches of `pattern` in the prose among these lines, lowercased.
+
+    `normalize` folds forms that carry one claim onto a single token, so a rewrite between those
+    forms does not produce a finding while dropping the claim does.
+    """
     found = set()
     for text in hunk_prose(path, lines):
-        found.update(_singular(match.group(0).lower()) if singularize else match.group(0).lower()
-                     for match in pattern.finditer(text))
+        for match in pattern.finditer(text):
+            word = _singular(match.group(0).lower()) if singularize else match.group(0).lower()
+            found.add(normalize(word) if normalize else word)
     return found
 
 
@@ -569,8 +606,8 @@ def kept_findings(revisions):
             if _singular(term) != term and _singular(term) in now:
                 yield path, "narrowed", f"{term} -> {_singular(term)}", context_line(removed, term)
 
-        for word in sorted(vocabulary(path, removed, MODALITY)
-                           - vocabulary(path, added, MODALITY)):
+        for word in sorted(vocabulary(path, removed, MODALITY, normalize=_modal)
+                           - vocabulary(path, added, MODALITY, normalize=_modal)):
             yield path, "weakened", word, context_line(removed, word)
 
 

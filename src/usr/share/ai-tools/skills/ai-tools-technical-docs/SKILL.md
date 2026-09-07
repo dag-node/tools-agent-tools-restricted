@@ -140,6 +140,16 @@ as a count of some set the sentence never named. Keep the sentence and mark the 
 `prose-check: allow` — in Markdown as `<!-- prose-check: allow -->`, which the checker reads and
 the rendered page does not show.
 
+**Name the party behind a pronoun that a clause has separated from it.** The defect is the
+distance, not the pronoun: once a clause stands between pronoun and party, `them` leaves the
+reader to work out which party is meant.
+
+- In style: `The agent reads messages from the inbox, so an agent that freezes leaves the messages unread.`
+- Off style: `The agent reads messages from the inbox, so an agent that freezes leaves them unread.`
+
+Do not stack vague references in one clause. A `that`, an `it`, and a `them` together turn one
+unclear word into an unclear sentence.
+
 ### Domain vocabulary points at a mechanism
 
 `grant`, `claim`, `authority`, and `privilege` are correct when they name something in the
