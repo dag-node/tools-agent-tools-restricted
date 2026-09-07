@@ -33,10 +33,9 @@ have written; it is left completely untouched (no re-chown, no bit-stripping, an
 secret-named path no false `breached` NOTICE about a secret the agent never accessed).
 
 It acts only on a regular file or directory — a symlink or a hardlinked file is refused —
-and applies the `chown`/`chmod` race-safely: it opens the target, re-verifies inode and
-type through the held descriptor, and mutates via `/proc/self/fd`, so a `SANDBOX_USER` path
-swap between validation and mutation cannot redirect root's `chown` onto a file outside the
-tree. The full pinned-fd sequence is in the `ai-tools-chown.sh` header.
+and applies the `chown`/`chmod` through a pinned descriptor it re-verifies, so a
+`SANDBOX_USER` path swap between validation and mutation cannot redirect root's `chown` onto
+a file outside the tree. The full sequence is in `ai-tools-chown.sh`'s apply block.
 
 ## `PostToolUse` — the immediate path
 
@@ -155,7 +154,7 @@ the user cannot act on. The surfaced NOTICE is framed through `msg.lib.sh` (see
 [messaging](messaging.rule.md)).
 
 Every pass checks the handback socket before acting, since a socket that is down fails every
-`CHOWN` and would otherwise report a reassuring count of calls that changed no ownership. So the
+`CHOWN` and a count of attempts would then report work that did not happen. So the
 sweeps and the reclaim count **confirmed** handbacks (client exit 0), not attempts; a down socket
 makes each pass skip its walk and record the stranded count, and the `session-start` pass — the
 one the operator reads — surfaces a distinct `SessionStart` NOTICE naming the fix (`systemctl
@@ -175,8 +174,7 @@ in depth: home-dir configs stay unreachable from `SANDBOX_GROUP`) while project-
 collaboration works. Like the claim-side ACL and unclaim helpers, it resolves the project's
 owning operator (`ai_tools_resolve_owner`) and acts **only** on dirs that operator or the
 sandbox account holds — a dir held by any third party (root, another developer) is left
-untouched, so normalization never pulls a foreign-held dir into the agent's group. This is the claim-side partner to `ai-tools-chown`'s "act only on
-`SANDBOX_USER`-owned paths" rule.
+untouched, so normalization never pulls a foreign-held dir into the agent's group.
 
 **That skip is counted and reported, never silent.** It is the one skip that can leave a claim
 granting the agent *no access at all* while every other step succeeds, so each walk (`ai-tools-setgid`,
@@ -188,12 +186,10 @@ its first registry write (see [cli](cli.rule.md)).
 
 An **owner-only** directory (`0600`/`0700`) is left out of
 the normalization too, and its subtree with it: that mode is the operator's standing seal, and
-this pass honours it exactly as `ai-tools-setfacl` does. Rather than normalize such a directory
-it *strips* the sandbox residue the directory still carries — the inherited
-`group:SANDBOX_GROUP` ACL entries, the setgid bit, and the sandbox group owner — since setgid
-and default-ACL inheritance act at create time and a later `chmod` only masks them. Predicate
-and strip are single-sourced in `owner-only.lib.sh`, shared with `ai-tools-setfacl`,
-`ai-tools-lockdown` and `ai-tools-chown`; see [secrets](secret-handling.rule.md). Heavy/transient trees (`.git`, `node_modules`, `.venv`,
+this pass honours it exactly as `ai-tools-setfacl` does. It *strips* the sandbox residue such a
+directory carries rather than normalizing it, since the mode masks that residue instead of
+removing it. `owner-only.lib.sh` defines what counts as residue and carries the strip; the seal
+itself is [secrets](secret-handling.rule.md). Heavy/transient trees (`.git`, `node_modules`, `.venv`,
 `__pycache__`, `packages`) are skipped; that skip list is shared with the sweep and
 `ai-tools-lockdown` via `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (the authoritative
 reference), which groups the names into categories (VCS, package, artifact, cache) an
@@ -260,14 +256,13 @@ owner it cannot bypass that. setgid keeps new entries in group `SANDBOX_GROUP`. 
 here precisely because the agent never legitimately re-edits these files — the inverse of the
 project-dir reasoning in [secrets](secret-handling.rule.md).
 
-`/opt/ai-tools/bin` is locked harder: owned `root:SANDBOX_GROUP` at `0551`, not
+`/opt/ai-tools/bin` is locked harder: owned `root:SANDBOX_GROUP` at `CP_DIR_MODES[bin]`, not
 group-writable. `SANDBOX_USER` gets group `r-x` — enough to execute `nvm-update.sh` and
 resolve the `claude` symlink — but no write, and it is not the dir owner, so it cannot
-edit `nvm-update.sh` in place, `unlink`/replace it, or swap the symlink. The `o+x` bit
-(search without read) lets an operator `readlink` a known `bin/<launcher>` path
-without listing or writing the directory — the one concession that distinguishes `0551`
-from a bare `0550`. No sticky bit is needed because no path here is group-writable; only
-root can change it. Repointing a launcher symlink at a new toolchain version is delegated to
+edit `nvm-update.sh` in place, `unlink`/replace it, or swap the symlink. The `o+x` search bit
+is the one concession: it lets an operator `readlink` a known `bin/<launcher>` path
+without listing or writing the directory. No sticky bit is needed because no path here is
+group-writable; only root can change it. Repointing a launcher symlink at a new toolchain version is delegated to
 the `ai-tools-launcher-symlink` root helper (see [updater](updater.rule.md)).
 
 The control-plane modes are single-sourced as constants in
