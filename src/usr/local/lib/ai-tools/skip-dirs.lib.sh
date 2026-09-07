@@ -5,10 +5,10 @@
 # ai-tools helpers, and the per-consumer selector that combines them.
 #
 # "Skip" here means OMITTED FROM A WALK -- it is NOT an access boundary. These directories
-# stay fully accessible to the agent and everyone else; the helpers simply do not descend
-# into them when sweeping, because they are heavy or transient trees (dependencies, build
-# output, caches, .git) and not where shared hand-authored files live, so walking them every
-# pass is wasteful. The consequence is per walk:
+# stay fully accessible to the agent and everyone else; the helpers do not descend into them
+# when sweeping, because they are heavy or transient trees (dependencies, build output,
+# caches, .git) and not where shared hand-authored files live, so walking them every pass
+# costs time and returns files no one edits. The consequence is per walk:
 #   - handback sweeps: a skipped tree's files are NOT reclaimed, so they stay agent-owned
 #     (harmless -- world-readable and regenerable). To have a tree's contents handed back to
 #     the operator, remove it from the skip list (or run `ai-tools --reclaim --full`).
@@ -21,7 +21,8 @@
 # The matcher skips DIRECTORIES only
 # (find -type d), so a file that merely shares a name (a git object named "obj") is walked
 # normally. Names are grouped into categories an operator can override in
-# /etc/ai-tools/operator.conf (parsed, never sourced), a PRESENT key REPLACING that
+# /etc/ai-tools/operator.conf, which conf.lib.sh parses and never sources, so a tampered
+# config cannot execute code in the privileged helpers. A PRESENT key REPLACES that
 # category's default.
 
 # Category defaults -- the authoritative reference for the skip categories
@@ -54,7 +55,9 @@ AI_TOOLS_SKIP_CACHE_DIRS=(__pycache__)                     # regenerable caches
 #
 # The load is fail-SOFT, unlike the provider gating: a skip list is a walk-cost optimization, not
 # an access boundary (see the header), so a missing conf.lib.sh leaves the compiled-in defaults in
-# force rather than refusing. The worst case is a slower walk, never a widened boundary.
+# force rather than refusing. An override that would have skipped more then goes unapplied, which
+# costs walk time; since this set decides only which directories a walk visits and does not grant
+# access to any of them, it cannot widen a boundary.
 # shellcheck source=SCRIPTDIR/conf.lib.sh
 if source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
         && declare -F ai_tools_conf_list >/dev/null 2>&1; then

@@ -106,7 +106,8 @@ def _audit(level, msg):
     # Two sinks, mirroring log.lib.sh: journald via stderr (StandardError=journal; systemd
     # stamps the timestamp + identifier, the "<N>" prefix the priority) ALWAYS, and the
     # root-only file with an explicit "<ts> <LEVEL> [<pid>] <msg>" line matching the helpers'
-    # format. Both are best-effort: a failed write never aborts or delays the handback. The
+    # format. Each sink is wrapped in try/except OSError, so a failed write never aborts or
+    # delays the handback. The
     # message is reduced to safe-for-display characters once for both sinks; if anything was
     # replaced it is flagged inline (a non-standard byte where a path is expected is a probe
     # worth recording). The marker is pure ASCII, so it cannot itself re-trigger a replacement.
@@ -177,8 +178,8 @@ def _send(text):
 
 
 def main():
-    # Resolve the expected sandbox UID at startup.  A missing account means no path
-    # valid can connect, so refuse all requests (fail closed).
+    # Resolve the expected sandbox UID at startup.  Without the account there is no uid to
+    # authenticate a peer against, so every request is refused rather than served unchecked.
     try:
         expected_uid = pwd.getpwnam(_SANDBOX_USER).pw_uid
     except KeyError:
@@ -257,8 +258,8 @@ def main():
     # Fail-fast pre-filter (defense in depth, NOT a replacement for the helpers'
     # validation): every verb takes an absolute path, so reject anything that is not
     # absolute, is longer than PATH_MAX, or carries control characters (including the
-    # embedded NUL that execve(2) rejects).  A malformed request never reaches a
-    # helper; a well-formed one is still fully re-validated there.
+    # embedded NUL that execve(2) rejects).  The branch below exits before the exec, so a
+    # malformed request never reaches a helper; a well-formed one is still re-validated there.
     if not arg.startswith('/') or len(arg) > _MAX_ARG \
             or any(ord(c) < 0x20 or ord(c) == 0x7f for c in arg):
         _audit('warning', 'rejected malformed arg for %s (pid %d)' % (verb, peer_pid))
@@ -273,8 +274,8 @@ def main():
     #
     # ValueError is raised when arg contains an embedded null byte: Python refuses
     # to pass it to execve(2) because C strings are null-terminated.  The pre-filter
-    # above already rejects NUL, but catching it here keeps the exec robust against
-    # any future change to that filter.
+    # above already rejects NUL; catching it here as well keeps the exec guarded when
+    # that filter changes.
     # TimeoutExpired bounds a stalled helper at _HELPER_TIMEOUT (see above); the
     # child is killed and the request fails cleanly rather than pinning a root
     # process.  stderr captured before the timeout is discarded with the child.

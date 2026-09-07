@@ -3,11 +3,12 @@
 # /usr/local/lib/ai-tools/owner-only.lib.sh
 # Which paths the operator sealed, and what a claim may remove from one. Shared by every helper
 # that walks a claimed tree -- ai-tools-setgid, ai-tools-setfacl, ai-tools-lockdown,
-# ai-tools-chown -- so all four agree on both.
+# ai-tools-chown -- so the seal and the strip have one definition between them.
 #
-# An owner-only path -- a mode with no group and no other bits (0600, 0700) -- is the operator's
-# standing decision to keep it out of the sandbox account's reach. A claim honours it: the path
-# is never granted, and a sealed directory takes its whole subtree with it.
+# An owner-only path -- a mode that grants neither group nor other bits (0600, 0700) -- is the
+# operator's standing decision to keep it out of the sandbox account's reach. A claim honours it:
+# ai_tools_is_owner_only below reports the path sealed, and each walk then skips it without
+# descending, so every path beneath a sealed directory is left alone as well.
 #
 # The mode alone does not hold, because setgid and default-ACL inheritance act at CREATE time: a
 # path born inside a claimed tree already carries group @SANDBOX_GROUP@, the setgid bit and the
@@ -25,8 +26,9 @@
 # the file lands 0670 -- a strip that grants. With -n the mode is bit-for-bit unchanged.
 #
 # A setgid bit whose group is neither the sandbox account's nor the operator's is left alone and
-# reported instead: an operator who set it deliberately is not overruled by a walk that cannot
-# ask. Surfacing it is the caller's job; the session hooks have no terminal.
+# reported instead: an operator may have set it deliberately, and this walk runs with no terminal
+# to ask on. Surfacing it is the caller's job -- the strip only records it in
+# AI_TOOLS_RESIDUE_SURFACE.
 
 if [[ -n "${_AI_TOOLS_OWNER_ONLY_LIB:-}" ]]; then
     return 0
@@ -62,7 +64,7 @@ ai_tools_is_owner_only() {
 # question "what is sandbox residue" must have exactly one answer -- a second copy of these three
 # arms would eventually promise a strip that no longer matches the one performed.
 # The one difference between the modes is what the action list means: what WOULD be attempted in
-# a dry run, and what actually succeeded in a real one.
+# a dry run, and what succeeded in a real one.
 # shellcheck disable=SC2034  # both are outputs, read by the walkers and ai-tools-lockdown
 ai_tools_strip_sandbox_residue() {
     local fd="$1" ftype="$2" grp="$3" mode="$4" opgrp="${5:-}"
@@ -72,8 +74,8 @@ ai_tools_strip_sandbox_residue() {
     AI_TOOLS_RESIDUE_ACTIONS=()
     AI_TOOLS_RESIDUE_SURFACE=0
 
-    # Remove only the entries that are actually present -- setfacl fails the whole call on one
-    # that is not. The matches are anchored: the access entry's text is a suffix of the default.
+    # Remove only the entries the getfacl read found -- setfacl fails the whole call on an entry
+    # that is absent. The matches are anchored: the access entry's text is a suffix of the default.
     if command -v getfacl >/dev/null 2>&1 && command -v setfacl >/dev/null 2>&1; then
         local acl
         acl="$(getfacl -c -- "${path}" 2>/dev/null)" || acl=""

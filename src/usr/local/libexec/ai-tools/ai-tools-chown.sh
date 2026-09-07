@@ -64,12 +64,11 @@ if ! source "${LOG_LIB}"; then
     exit 1
 fi
 
-# Shared secret-name matcher, sourced (not executed) so this helper and
-# ai-tools-lockdown classify basenames by the SAME patterns from the SAME config
-# file (the operator's secret-patterns, resolved via the operator identity). Failing to source it
-# would leave secret classification undefined, so abort rather than fall through
-# and hand a secret back as an ordinary file -- exiting non-zero simply skips this
-# path's handback (it stays ai-tools-owned), which is fail-closed, not a leak.
+# Shared secret-name matcher, sourced (not executed) so this helper and ai-tools-lockdown
+# classify basenames by the SAME patterns from the SAME config file (the operator's
+# secret-patterns, resolved via the operator identity). Required and fail-closed: exiting
+# non-zero here skips this path's handback, which secret-handling.rule.md states is the safe
+# outcome -- the path stays ai-tools-owned instead of being handed back unclassified.
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
 if ! source "${SECRET_PATTERNS_LIB}"; then
@@ -78,8 +77,9 @@ if ! source "${SECRET_PATTERNS_LIB}"; then
 fi
 
 # Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the
-# reference for both). Required and fail-closed like safe-paths.lib.sh: an unusable library
-# must not leave a quarantined secret carrying the residue that would re-expose it.
+# reference for the seal and the strip alike). Required and fail-closed like safe-paths.lib.sh:
+# an unusable library must not leave a quarantined secret carrying the residue that would
+# re-expose it.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/owner-only.lib.sh
 source /usr/local/lib/ai-tools/owner-only.lib.sh
 if ! declare -F ai_tools_strip_sandbox_residue >/dev/null 2>&1; then
@@ -111,8 +111,8 @@ export AI_TOOLS_MSG_FULLWIDTH=1
 
 # _notify_secret: emit a one-line NOTICE that a secret-named file was written and
 # ai-tools' read access revoked, to stderr (the PostToolUse hook relays it into the
-# session) and -- at WARNING level -- to journald + the root-owned chown.log. Logging
-# is best-effort, never blocks.
+# session) and -- at WARNING level -- to journald + the root-owned chown.log. log.lib.sh
+# wraps each sink in `|| true`, so a sink that cannot be written never blocks the NOTICE.
 # args:  path  old_owner  new_owner  old_mode  new_mode
 _notify_secret() {
     local path="$1" old_owner="$2" new_owner="$3" old_mode="$4" new_mode="$5" msg
@@ -131,21 +131,18 @@ canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
 ai_tools_assert_safe_target "${canonical}" "ownership handback" || exit 3
 
 # Resolve the operator that owns this path (operator.lib.sh); no owner -> leave it untouched.
-# Ordinary files go to OWNER (group ai-tools, agent-readable); secret-named files to SECRET_OWNER
-# (the operator and their primary group) at mode 600 -- readable only by the operator, so the agent
-# loses read while the operator keeps it. ai-tools stays a group-writer on the project dir (not its
-# owner), so it can still unlink/replace the path: read is revoked from the agent, not control.
+# The two owners the branches below choose between: OWNER is the shared group an ordinary file
+# returns to, SECRET_OWNER the operator's own private group a quarantined secret goes to. What
+# each one grants and what it deliberately leaves the agent is in secret-handling.rule.md.
 ai_tools_resolve_owner "${canonical}" || exit 0
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}"
 readonly OWNER="${PROJECTS_USER}:@SANDBOX_GROUP@"
 readonly SECRET_OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"
 
-# Classify the basename against the shared secret-name patterns. A match sets
-# is_secret, so the apply path chowns the file to SECRET_OWNER, strips group+world
-# bits, and emits a NOTICE via _notify_secret. The patterns live in the user-owned
-# config file read by the library (basename-safe globs only; no bare 'config' that
-# would match innocuous files). Per-project secrets belong in ! allowlist
-# exclusions, which leave ownership intact.
+# Classify the basename against the shared secret-name patterns, which the library reads
+# from the operator's own config (secret-handling.rule.md covers the set and how an
+# operator narrows it). A match sets is_secret, which selects the quarantine branch and
+# the NOTICE further down.
 is_secret=false
 if ai_tools_is_secret_basename "$(basename "${canonical}")"; then
     is_secret=true
@@ -156,7 +153,7 @@ declare -a excluded=()
 
 while IFS= read -r entry || [[ -n "${entry}" ]]; do
     # One shared grammar (conf.lib.sh): whole-line and end-of-line comments, and quotes for a
-    # path carrying a space or a literal `#`. A line denoting no entry is skipped.
+    # path carrying a space or a literal `#`. A line that does not denote an entry is skipped.
     ai_tools_conf_path_entry "${entry}" || continue
     entry="${_ai_tools_conf_value}"
     if [[ "${entry}" == '!'* ]]; then
@@ -186,13 +183,11 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
     for dir in "${allowed[@]}"; do
         if [[ "${canonical}" == "${dir}" || "${canonical}" == "${dir}/"* ]]; then
 
-            # Inspect the path WITHOUT following symlinks (GNU stat defaults to
-            # lstat). Act on a regular file or a directory; reject symlinks and
-            # devices. For a regular file, nlink must be 1: a freshly written
-            # file is never hardlinked, and a hardlink could point at a sensitive
-            # file outside the tree. Directories legitimately have nlink >= 2
-            # (their own '.' plus each child's '..'), so the nlink guard applies
-            # to regular files only.
+            # lstat (the GNU stat default), so a symlink is seen as itself and
+            # refused along with the devices. A regular file must have nlink 1: a
+            # freshly written file has one link, and a hardlink could point at a
+            # sensitive file outside the tree. A directory legitimately has nlink >= 2
+            # (its own '.' plus each child's '..'), so that guard is for files.
             read -r expect_ident nlink ftype \
                 < <(stat -c '%d:%i %h %F' "${canonical}" 2>/dev/null) || exit 0
             is_dir=false
@@ -201,44 +196,26 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
                 "directory")                         is_dir=true ;;
                 *)                                   exit 0 ;;
             esac
-            # A directory is the agent's own workspace, never a secret to revoke
-            # (and revoking the agent's access to a dir it must keep writing into
-            # would break it). Never apply secret handling to a directory.
+            # A directory is the agent's own workspace rather than a secret to
+            # revoke: taking away access to a dir it must keep writing into would
+            # break it.
             ${is_dir} && is_secret=false
 
             current_owner="$(stat -c '%U:%G' "${canonical}" 2>/dev/null)" || exit 0
             current_mode="$( stat -c '%a'    "${canonical}" 2>/dev/null)" || exit 0
 
-            # Act ONLY on paths the agent itself wrote. Claude Code's Write/Edit
-            # tools create files (and any missing parent dirs) via atomic rename,
-            # which stamps them ai-tools-owned; a handed-back path is <you>-owned.
-            # So "currently ai-tools-owned" means "the agent just created or
-            # overwrote this". Anything NOT ai-tools-owned is a pre-existing user
-            # file or directory the agent could not have written -- leave it
-            # completely untouched: never re-chown it, never strip its bits, and
-            # for a secret-named path never raise a false 'breached' NOTICE about a
-            # secret the agent never had access to. Acting on a non-ai-tools
-            # directory would additionally GRANT ai-tools the group rwx below on a
-            # dir it never owned. The pinned-inode re-check below makes this owner
-            # read race-safe: an ai-tools-owned inode's user field cannot change
-            # except via root.
+            # The agent-written guard: act only on a path currently ai-tools-owned.
+            # What that ownership signals and what an unowned path is spared are in
+            # ownership-and-hooks.rule.md. The owner is read from the path string
+            # here, which the pinned-inode re-check below makes race-safe: moving an
+            # ai-tools-owned inode's user field takes root, which the agent lacks.
             [[ "${current_owner%%:*}" == "@SANDBOX_USER@" ]] || exit 0
 
-            # Directories: hand to OWNER, strip world bits but GUARANTEE group
-            #   rwx (g+rwx,o=) so the agent -- now only a group member of a dir it
-            #   created and may still be writing into -- can still traverse and
-            #   add files. This mirrors the project root (<you>:ai-tools, group-writable).
-            # Secret-named files: hand to SECRET_OWNER (the user's private group)
-            #   and strip BOTH group and world bits (go=), removing ai-tools' read
-            #   access to the contents.
-            # Ordinary files: hand to OWNER, keep group ai-tools read/WRITE (the
-            #   agent co-writes via the group/mask), strip the world bits (o=), and
-            #   strip a stray group/mask EXECUTE the Write tool leaves on a data file
-            #   -- keyed on OWNER-execute (the only exec bit git records), so a real
-            #   script (owner rwx) keeps its group r-x (-> 750) while a data file
-            #   (owner rw) drops the spurious x to group rw (-> 660/640). g-x removes
-            #   execute only, so read+write stay: on an ACL'd file the mask stays rw
-            #   and the agent can still edit the file next turn.
+            # Three targets, in this order: a directory, a secret-named file, then an
+            # ordinary file split on OWNER-execute -- the only exec bit git records.
+            # What each target hands back and why is in ownership-and-hooks.rule.md
+            # (directories and ordinary files) and secret-handling.rule.md (secrets);
+            # new_mode mirrors each chmod arithmetically for the report below.
             if ${is_dir}; then
                 target_owner="${OWNER}"
                 chmod_arg="g+rwx,o="
@@ -310,22 +287,18 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
                 exec {fd}<&-
                 exit 0
             fi
-            # chown/chmod follow the /proc magic symlink to the pinned inode.
-            # chmod corrects the execute bit Claude Code's Write tool sets: a real
-            # shebang script (owner rwx) keeps group r-x (755 -> 750, o=), a data
-            # file the tool wrote executable (owner rw) has the stray group/mask x
-            # stripped (g-x,o=), and a secret loses both group and world (go=).
+            # chown/chmod follow the /proc magic symlink to the pinned inode, so both
+            # act on the descriptor the checks above validated rather than on the name.
             /usr/bin/chown -- "${target_owner}" "/proc/self/fd/${fd}"
             /usr/bin/chmod -- "${chmod_arg}"    "/proc/self/fd/${fd}"
             # A quarantined secret is owner-only now, so strip the residue the mode only masks:
             # a file born in a claimed tree carries the project's inherited group ACL entry, and
             # `go=` leaves it in place, dormant (owner-only.lib.sh). Ordinary files keep theirs --
             # the agent is meant to go on co-writing those.
-            # Every value handed to the strip is read from the PINNED inode, ${got_ftype} included:
-            # the strip's contract is that it describes the same descriptor it acts through, and
-            # the pre-open ${ftype} is a different read of a path that may since have been swapped.
-            # The type check above makes the two agree today, so this is not a live bug -- it is
-            # the one place the discipline is stated, and it should not read as an exception to it.
+            # Every value handed to the strip is read from the PINNED inode, ${got_ftype}
+            # included: the strip acts through that descriptor, so what describes it comes
+            # from it. The pre-open ${ftype} is a second read of a path that may since have
+            # been swapped, which the type check above keeps equal to this one.
             if ${is_secret} \
                     && read -r sec_grp sec_mode \
                         < <(stat -L -c '%G %a' "/proc/self/fd/${fd}" 2>/dev/null); then
