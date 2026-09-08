@@ -90,7 +90,17 @@ alone (below), so the baseline stays in force and each upgrade's additions reach
 until they write a pattern of their own. A deployment-specific
 name belongs in the operator's `600` config, alongside the baseline entries they still want, since
 the file replaces rather than extends; a general one missing from the baseline goes
-upstream, since the library is rpm-owned and not `%config`, so an edit there is lost on upgrade. A failure
+upstream, since the library is rpm-owned and not `%config`, so an edit there is lost on upgrade.
+
+**Replacing rather than extending has a cost the launch wrapper reports.** A config written once
+holds this host to the set it listed then, and every pattern added upstream since is absent from
+it — a narrowing no party is placed to notice, since the agent cannot read the file and a
+quarantine that did not happen writes no line to any log. `ai_tools_secret_patterns_drift` compares the set in
+force against the baseline as a set, and `claude.sh` logs the result to journald once per launch:
+the file's path, what it adds, and — the half that matters — which baseline patterns it drops, each
+one a credential name this host no longer quarantines. A missing or empty config is the baseline
+itself, so no line is written for it; the report names patterns rather than counts alone, and goes
+to the journal rather than the terminal, being a fact to act on later and not a launch decision. A failure
 to source the library is fail-closed: `ai-tools-chown` exits non-zero and skips that
 path's handback (it stays `SANDBOX_USER`-owned) rather than handing a possible secret back
 as an ordinary file. `ai-tools-chown` runs in `ai_tools_handback_t` (inherited from the

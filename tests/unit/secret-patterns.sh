@@ -100,7 +100,85 @@ else
     skip "seeded secret-patterns config" "conf.lib.sh defines no seed function"
 fi
 
-# (6) The classifier restores the caller's nocasematch setting (it flips it on internally).
+# (6) The drift report, which the launch wrapper logs once per session. What it exists to catch is
+# a file written once and never re-read: because an operator's set REPLACES the baseline, such a
+# file keeps this host on the patterns it listed then and drops every one added upstream since. So
+# the assertions are about the two silent directions -- no file and an empty file must read as
+# agreement (the baseline is in force, and a host that has decided nothing should not be nagged),
+# while a real file must name what it DROPS, that being the half that stops quarantining anything.
+if declare -F ai_tools_secret_patterns_drift >/dev/null 2>&1; then
+    # The cases above need no fixture on disk; this section is the first here that does, so it
+    # creates the testdir the harness tears down.
+    mktestdir
+    _drift_file="${TESTDIR}/drift-patterns"
+
+    # shellcheck disable=SC2034  # read by ai_tools_load_secret_patterns in the sourced library
+    AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/no-such-file"
+    _AI_TOOLS_PATTERNS_LOADED=""
+    if ! out="$(ai_tools_secret_patterns_drift)" && [[ -z "${out}" ]]; then
+        pass "a missing config reports no drift (the baseline is what is in force)"
+    else
+        fail "a missing config reported drift: ${out}"
+    fi
+
+    printf '# only comments and blanks\n\n' > "${_drift_file}"
+    # shellcheck disable=SC2034  # read by ai_tools_load_secret_patterns in the sourced library
+    AI_TOOLS_SECRET_PATTERNS_FILE="${_drift_file}"
+    _AI_TOOLS_PATTERNS_LOADED=""
+    if ! out="$(ai_tools_secret_patterns_drift)" && [[ -z "${out}" ]]; then
+        pass "a config that parses empty reports no drift (the loader fell back to the baseline)"
+    else
+        fail "an empty config reported drift: ${out}"
+    fi
+
+    # A copy of the baseline, reordered and with one line repeated: the same SET, so the report
+    # must stay silent. Ordering is not a difference, and a host that mirrored the baseline into
+    # its own file should not be told it diverged.
+    printf '%s\n' "${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}" | LC_ALL=C sort -r > "${_drift_file}"
+    printf '%s\n' "${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[0]}" >> "${_drift_file}"
+    _AI_TOOLS_PATTERNS_LOADED=""
+    if ! out="$(ai_tools_secret_patterns_drift)" && [[ -z "${out}" ]]; then
+        pass "a reordered, duplicated copy of the baseline reports no drift (compared as a set)"
+    else
+        fail "a set-identical config reported drift: ${out}"
+    fi
+
+    # The real case, driven as ONE pattern in and one out, so both lists are named in full and the
+    # assertion does not depend on where a name falls against the cap. The dropped half is the one
+    # an operator acts on: that pattern is a credential name this host stopped quarantining.
+    printf '%s\n' "${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}" | grep -vxF '*.pem' > "${_drift_file}"
+    printf '*.asc\n' >> "${_drift_file}"
+    _AI_TOOLS_PATTERNS_LOADED=""
+    out="$(ai_tools_secret_patterns_drift)" || true
+    if [[ "${out}" == *"${_drift_file}"* ]] \
+       && [[ "${out}" == *"adds 1 (*.asc)"* ]] \
+       && [[ "${out}" == *"drops 1 (*.pem)"* ]]; then
+        pass "a config that differs by one pattern names the file, the addition, and the drop"
+    else
+        fail "the drift report did not name the file, the addition, or the dropped pattern: ${out}"
+    fi
+
+    # A wide difference stays ONE line: the report is read at a glance in the journal, and the file
+    # itself is where the whole set is read. Driven with a config that keeps two patterns, so the
+    # dropped list runs well past the cap.
+    printf '.env\n*.asc\n' > "${_drift_file}"
+    _AI_TOOLS_PATTERNS_LOADED=""
+    out="$(ai_tools_secret_patterns_drift)" || true
+    if [[ "$(printf '%s' "${out}" | wc -l)" -eq 0 ]] && [[ "${out}" == *"more)"* ]]; then
+        pass "the report stays one line, capping the list it prints"
+    else
+        fail "the drift report is not a single capped line: ${out}"
+    fi
+
+    rm -f "${_drift_file}"
+    unset AI_TOOLS_SECRET_PATTERNS_FILE
+    AI_TOOLS_SECRET_PATTERNS=("${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}")
+    _AI_TOOLS_PATTERNS_LOADED=1
+else
+    skip "secret-pattern drift report" "the library defines no ai_tools_secret_patterns_drift"
+fi
+
+# (7) The classifier restores the caller's nocasematch setting (it flips it on internally).
 shopt -u nocasematch
 ai_tools_is_secret_basename .env >/dev/null || true
 if ! shopt -q nocasematch; then

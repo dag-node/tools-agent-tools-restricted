@@ -527,6 +527,30 @@ if source /usr/local/lib/ai-tools/services.lib.sh 2>/dev/null \
     done
 fi
 
+# Secret-pattern drift, journald only (informational, best-effort). The operator's own file
+# REPLACES the shipped baseline rather than extending it, so a copy written once keeps this host on
+# that set and silently drops every pattern added upstream since. Nobody is placed to notice: the
+# agent cannot read the file, and a quarantine that did not happen prints nothing. This is the one
+# point per session where the file is both readable (the wrapper runs as the operator, before the
+# drop) and attributable to a launch, so the difference is recorded here -- to the journal, never to
+# the terminal, since it is not a launch decision and the operator did not ask a question.
+# Best-effort throughout: a missing lib, an unreadable file, or an absent `logger` skips it. An
+# empty or missing file means the baseline is in force, which is no difference and stays silent.
+# shellcheck source=SCRIPTDIR/../lib/ai-tools/secret-patterns.lib.sh
+if command -v logger >/dev/null 2>&1 \
+        && source /usr/local/lib/ai-tools/secret-patterns.lib.sh 2>/dev/null \
+        && declare -F ai_tools_secret_patterns_drift >/dev/null 2>&1; then
+    # The loader resolves the config under PROJECTS_HOME; the wrapper runs as the operator, so
+    # their own ${HOME} is the operator whose set this launch will be classified against.
+    PROJECTS_HOME="${HOME}"
+    _drift="$(ai_tools_secret_patterns_drift 2>/dev/null)" || _drift=""
+    # A plain `[[ ]] && cmd` as the block's last command would exit the wrapper under `set -e`
+    # whenever the test is false -- which is the healthy host, every launch.
+    if [[ -n "${_drift}" ]]; then
+        logger -t claude -p user.notice -- "${_drift}"
+    fi
+fi
+
 # Pass the validated versioned path through sudo's env_keep. ai-tools-run re-validates it, and
 # derives WHICH agent this is from the launcher name in the path, so no agent identity crosses
 # sudo as a separate variable.
