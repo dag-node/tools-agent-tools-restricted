@@ -1026,6 +1026,57 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Wed Sep 09 2026 dagnode <tools@dagnode.com> - 0.16.0-1
+- SECURITY: The built-in secret-name baseline changes what a host relying on it quarantines.
+  '*.asc' and '*.crt' name public artifacts and are no longer secrets (the first had been
+  quarantining this project's own shipped signing key), armored private keys still match as
+  'secring.*' and 'privkey.*', about forty general credential names are added, and a few too
+  specific for a default are dropped. An operator's own secret-patterns file is unaffected, since
+  it replaces the baseline. The library carrying the baseline is readable by any account (644
+  root:root), so the list can be read without sudo; root alone can write it.
+- CHANGE: 'ai-tools --for <operator>' refuses a target account that has no config directory of its
+  own and names 'sudo ai-tools-admin operators add <operator>' as the step to run first. In earlier
+  releases it created the target's allowlist itself, which left that account a launch gate with no
+  secret-patterns file beside it.
+- NEW: Every session starts with a statement of the sandbox boundaries -- which commands are
+  refused, that a script runs through its interpreter, that an exec bit is the operator's to set --
+  linked into the agent's config directory under the filename its product reads as user-scope
+  instructions (CLAUDE.md for Claude Code). A real file already at that path is kept, so an
+  operator's own instructions are not displaced. The text is one shared asset under
+  /usr/share/ai-tools/orientation.
+- NEW: 'sudo ai-tools-admin operators add' writes an operator's config files, allowed-projects and
+  secret-patterns, each 0600 inside a 0700 ~/.config/ai-tools. The seeded secret-patterns carries
+  its header and no pattern, so the shipped baseline stays in force and keeps receiving each
+  upgrade's additions, and the header says that writing a pattern replaces that baseline. A host
+  installed from the RPM did not receive this file before.
+- NEW: Each launch records in the journal how the operator's secret-patterns file differs from the
+  shipped baseline -- what it adds, and which baseline names it drops, each of those a credential
+  name that host no longer quarantines. A missing or empty file is the baseline itself, so the
+  launch does not write a line for it. 'journalctl -t claude' shows the record.
+- NEW: prose-check.py in the shipped ai-tools-technical-docs skill reports three more classes by
+  default -- a person predicted where the system should be described, a domain mechanism written
+  into a root CLAUDE.md, and an access verb dropped from a rewrite -- and its --kept mode reports a
+  dropped RFC 2119 verb and a permission or ownership claim (a mode, an ACL entry, an owner:group)
+  that a rewrite moved. --all adds the words that imply a count, such as 'both' and 'the two'.
+- FIX: The daily toolchain update had stopped updating the agent while reporting success.
+  nvm-update.service set PrivateTmp=, which in a systemd --user unit implies PrivateUsers=, so every
+  host uid outside the sandbox account's read as 65534: the updater refused operator.conf and every
+  agent manifest as not root-owned, installed npm alone and exited 0. The option is removed and the
+  next scheduled run installs the current agent release. A run whose agent set is refused now
+  fails, 'ai-tools --status' reports it, and the journal line names each refused path with the
+  owner and mode that was read.
+- FIX: A claim's setgid and lockdown walks read allowed-projects with the same grammar as the
+  handback, so an entry carrying an end-of-line comment, or a quoted path holding a space, is
+  covered by the claim-time walks as it already was by the hand-back.
+- DOCS: The README states what the confinement does not cover -- a build script, git hook or test
+  the operator later runs from the project runs as the operator, unconfined, with review as the
+  control -- and addresses the agent directly with the conduct expected where a control leaves a
+  choice. selinux/README.md no longer describes the sudo-to-helper path the handback socket
+  replaced.
+- DOCS: The permissions cheatsheet explains why a file created in a claimed tree is 0660 whatever
+  the creator's umask (the directory's default ACL applies in its place), and the project lifecycle
+  guide says what clearing that ACL at unclaim hands back.
+
 * Sun Sep 06 2026 dagnode <tools@dagnode.com> - 0.15.0-1
 - CHANGE: The ai-tools-admin commands are spelled as a resource grammar, so the names an
   administrator types are 'operators add <user>', 'operators remove <user>', 'operators'
