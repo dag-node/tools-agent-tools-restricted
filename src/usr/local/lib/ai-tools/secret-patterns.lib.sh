@@ -92,6 +92,59 @@ ai_tools_load_secret_patterns() {
     _AI_TOOLS_PATTERNS_LOADED=1
 }
 
+# ai_tools_secret_patterns_file: print the config path the loader reads for the operator resolved
+# so far, whether or not it exists. One resolution shared by the loader and by any caller that
+# reports WHICH file is in force, so a report cannot name a path other than the one that was read.
+ai_tools_secret_patterns_file() {
+    printf '%s\n' "${AI_TOOLS_SECRET_PATTERNS_FILE:-${PROJECTS_HOME:-}/.config/ai-tools/secret-patterns}"
+}
+
+# ai_tools_secret_patterns_drift: print how the set in force differs from the shipped baseline, as
+# one line naming the file, what it ADDS, and what of the baseline it DROPS. Prints nothing and
+# returns 1 when the two agree -- which is also the missing-file and empty-file case, since the
+# loader falls back to the baseline there, so a host that has written no patterns is silent.
+#
+# It exists because the operator's file REPLACES the baseline (secret-handling.rule.md) rather than
+# extending it, which makes a stale copy silently NARROWER than what ships: a host that wrote its
+# own file keeps quarantining what it listed then, and nothing added upstream since. That gap is
+# invisible from every side -- the agent cannot read the file, and a classification that did not
+# happen produces no output -- so the launch wrapper reports it once per session. The DROPPED
+# patterns are the half that matters: each one is a credential name this host no longer
+# quarantines.
+#
+# Compared as a SET (sorted, de-duplicated), so a reordered or repeated copy of the baseline reads
+# as agreement. Each list is capped, because the report is a prompt to re-read the file rather than
+# a replacement for reading it.
+ai_tools_secret_patterns_drift() {
+    [[ -n "${_AI_TOOLS_PATTERNS_LOADED:-}" ]] || ai_tools_load_secret_patterns
+    local -a live baseline added dropped
+    mapfile -t live < <(printf '%s\n' "${AI_TOOLS_SECRET_PATTERNS[@]}" | LC_ALL=C sort -u)
+    mapfile -t baseline < <(printf '%s\n' "${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}" | LC_ALL=C sort -u)
+    [[ "${live[*]}" != "${baseline[*]}" ]] || return 1
+    mapfile -t added < <(LC_ALL=C comm -23 <(printf '%s\n' "${live[@]}") <(printf '%s\n' "${baseline[@]}"))
+    mapfile -t dropped < <(LC_ALL=C comm -13 <(printf '%s\n' "${live[@]}") <(printf '%s\n' "${baseline[@]}"))
+    printf 'secret patterns: %s replaces the shipped baseline -- adds %d%s; drops %d%s\n' \
+        "$(ai_tools_secret_patterns_file)" \
+        "${#added[@]}"   "$(_ai_tools_secret_patterns_list added)" \
+        "${#dropped[@]}" "$(_ai_tools_secret_patterns_list dropped)"
+    return 0
+}
+
+# Render an array name as " (a, b, c, +N more)", or nothing when it is empty. Capped at 12: a
+# journald line is read at a glance, and the file itself is the place to read the whole set.
+_ai_tools_secret_patterns_list() {
+    local -n _arr="$1"
+    local -i cap=12 n="${#_arr[@]}"
+    (( n )) || return 0
+    local shown
+    shown="$(printf '%s, ' "${_arr[@]:0:cap}")"; shown="${shown%, }"
+    if (( n > cap )); then
+        printf ' (%s, +%d more)' "${shown}" "$(( n - cap ))"
+    else
+        printf ' (%s)' "${shown}"
+    fi
+}
+
 # ai_tools_is_secret_basename <basename>: return 0 if the basename matches any
 # loaded secret pattern (case-insensitive glob), 1 otherwise. Loads patterns on
 # first call. Saves and restores the caller's nocasematch setting so callers

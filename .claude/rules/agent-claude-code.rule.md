@@ -35,6 +35,7 @@ the single `%ai-ops` grant on the shared shim.
 | `handback` | `hooks` | `ai-tools-run` — this agent converges the tree itself, so the shim does not add a session-end sweep |
 | `config_dir` | `.claude` | the control-plane mode/label/seeding set, and `→ ai_tools_home_t` |
 | `skills_dir` / `subagents_dir` | `skills` / `agents` | where shared assets are symlinked in ([shipped-assets](shipped-assets.rule.md)) |
+| `memory_file` | `CLAUDE.md` | where the shared orientation text is symlinked in — the one filename this product reads as user-scope instructions ([shipped-assets](shipped-assets.rule.md)) |
 | `entrypoint_fcontext` | a regex ending `…/@anthropic-ai/claude-code/bin/claude\.exe` | `ai-tools-relabel-agent` — which file takes `ai_tools_exec_t` |
 | `default_enable` | `yes` | the baseline set when `operator.conf` names none |
 

@@ -154,6 +154,15 @@ vendor's layout, not our vocabulary: the manifest maps between them (`subagents_
 our name is unambiguous and the product still finds its files where it expects. Use "subagent"
 in prose, in path names, and in identifiers everywhere this project controls the name.
 
+## Orientation vs memory
+
+The same split applies to the third shared asset. **Orientation** is this project's word for the
+text stating what the sandbox refuses, which lives in `/opt/ai-tools/orientation/AGENTS.md`. Each
+product has its own name and its own filename for the place it is read from — Claude Code calls it
+user memory and reads `CLAUDE.md`, another product reads `AGENTS.md` — so the manifest maps between
+them (`memory_file`) exactly as `subagents_dir` does. Use "orientation" for the content this
+project authors, and the product's own term only when describing where that product loads it from.
+
 ## Generic / fixed terms that are NOT these identities
 
 ### Generic host user (`src/usr/local/lib/ai-tools/path-dedup.sh`)

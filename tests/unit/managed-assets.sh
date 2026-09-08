@@ -25,6 +25,9 @@
 #      a freshly seeded one, which is the order that reproduces it.
 #   5. WITHDRAWAL PRESERVES. It moves rather than deletes, because a withdrawn asset has no shipped
 #      counterpart left to compare an operator's edit against.
+#   6. THE ORIENTATION LINK IS NON-DISPLACING, and links under a name that is not the source's.
+#      It lands on the one path each agent reads as user-scope instructions, so a link placed over
+#      an operator's own file there would silently replace what every session on the host loads.
 #
 # Drives the INSTALLED library against fixtures in its own /tmp testdir: every root is an argument,
 # so no case reads or writes /usr/share/ai-tools, /opt/ai-tools, or any live asset. Needs root --
@@ -79,6 +82,16 @@ write_subagent() {
     mkdir -p "${root}/subagents"
     printf -- '---\nname: %s\nx-ai-tools-managed: true\nx-ai-tools-version: %s\n---\nbody\n' \
         "${name}" "${version}" > "${root}/subagents/${name}.md"
+}
+
+# write_orientation <root> <version>  -- the fixed-name kind. Its marker rides in an HTML comment
+# rather than YAML frontmatter, because every byte of this file is read by the model in every
+# session; the seeder's line-anchored greps see it either way, which is what this fixture pins.
+write_orientation() {
+    local root="$1" version="$2"
+    mkdir -p "${root}/orientation"
+    printf -- '<!--\nx-ai-tools-managed: true\nx-ai-tools-version: %s\n-->\n\n# Sandbox boundaries\n' \
+        "${version}" > "${root}/orientation/AGENTS.md"
 }
 
 asset_version() { ai_tools_asset_version "$1"; }
@@ -242,6 +255,79 @@ if [[ -f "${LIVE}/skills/ai-tools-zzz-seeded/SKILL.md" ]] && [[ ! -d "${LIVE}/re
     pass "an asset that is not withdrawn is untouched, and retired/ is not created for nothing"
 else
     fail "the withdrawal pass acted on an asset that is not withdrawn: ${out}"
+fi
+
+# ── Orientation: a fixed-name asset, linked under each agent's own filename ──────
+# Property 6. The seeding half first: the kind carries ONE file at a name the seeder knows, so the
+# ai-tools-* namespace does not apply to it and the managed marker is the whole of what it claims by.
+reset_roots
+write_orientation "${SHIPPED}" 3
+out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root orientation 2>&1)" || true
+if [[ -f "${LIVE}/orientation/AGENTS.md" ]] \
+   && [[ "$(asset_version "${LIVE}/orientation/AGENTS.md")" == "3" ]]; then
+    pass "the fixed-name kind (orientation) is seeded, and its marker reads out of an HTML comment"
+else
+    fail "the orientation asset was not seeded: ${out}"
+fi
+
+if ! declare -F ai_tools_link_agent_memory >/dev/null 2>&1; then
+    fail "the asset library does not define ai_tools_link_agent_memory"
+else
+    AGENT_DIR="${TESTDIR}/agent"; rm -rf "${AGENT_DIR}"; mkdir -p "${AGENT_DIR}"
+    SHARED_FILE="${LIVE}/orientation/AGENTS.md"
+
+    # The link's name comes from the agent's manifest, not from the source file, which is the whole
+    # reason this is not ai_tools_link_shared_assets: Claude Code reads CLAUDE.md and nothing else
+    # at user scope, so a link named for the source would never be loaded.
+    out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
+    if [[ -L "${AGENT_DIR}/CLAUDE.md" ]] \
+       && [[ "$(readlink -- "${AGENT_DIR}/CLAUDE.md")" == "${SHARED_FILE}" ]]; then
+        pass "the shared orientation is linked under the name the agent reads (CLAUDE.md)"
+    else
+        fail "the orientation link was not placed under the manifest's name: ${out}"
+    fi
+
+    # Idempotent: a second run over a correct link neither replaces it nor reports anything.
+    out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
+    if [[ -z "${out}" ]] && [[ -L "${AGENT_DIR}/CLAUDE.md" ]]; then
+        pass "a link already pointing at the shared file is left alone and reported as nothing"
+    else
+        fail "a correct link was acted on or reported: ${out}"
+    fi
+
+    # A link left by an earlier layout points somewhere else; it is repointed rather than kept,
+    # or the agent goes on loading a file this project no longer maintains.
+    ln -sfn "${TESTDIR}/gone.md" "${AGENT_DIR}/CLAUDE.md"
+    out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
+    if [[ "$(readlink -- "${AGENT_DIR}/CLAUDE.md")" == "${SHARED_FILE}" ]] \
+       && grep -q 'repointed' <<<"${out}"; then
+        pass "a stale link is repointed at the shared file and the change is reported"
+    else
+        fail "a stale orientation link was not repointed: ${out}"
+    fi
+
+    # The property that matters most: this path is the operator's user-scope instructions for every
+    # session on the host, so anything REAL there wins and is reported, never displaced by a link.
+    rm -f "${AGENT_DIR}/CLAUDE.md"
+    printf 'the operator wrote this\n' > "${AGENT_DIR}/CLAUDE.md"
+    out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
+    if [[ ! -L "${AGENT_DIR}/CLAUDE.md" ]] \
+       && grep -q 'the operator wrote this' "${AGENT_DIR}/CLAUDE.md" \
+       && grep -q 'kept (a real entry here wins' <<<"${out}"; then
+        pass "a real file at the agent's memory path is kept and reported, never replaced by a link"
+    else
+        fail "an operator's own memory file was displaced by the shared link: ${out}"
+    fi
+
+    # An agent that declares no memory_file reaches the linker with an empty name (the resolver
+    # skips it, but the guard is what keeps a bad manifest from writing to the directory itself).
+    rm -f "${AGENT_DIR}/CLAUDE.md"
+    ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" "" root >/dev/null 2>&1 || true
+    if [[ -z "$(ls -A "${AGENT_DIR}")" ]]; then
+        pass "no memory filename means no link, rather than a link under an empty name"
+    else
+        fail "the linker placed something for an agent that declares no memory file"
+    fi
 fi
 
 finish

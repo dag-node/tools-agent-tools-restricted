@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/managed-assets.lib.sh
-# Seeds the ai-tools-managed agents and skills, and links the SHARED skills into each agent.
+# Seeds the ai-tools-managed shared assets, and links them into each agent that reads them.
 #
 # Skills are agent-agnostic content, so they are seeded ONCE into /opt/ai-tools/skills and each
 # agent's own skills directory carries a SYMLINK per skill; agents are Claude Code-format files
 # and are copied into that agent's config directory. Authoring or updating a skill is therefore
-# one edit in one place, whatever number of agents read it.
+# one edit in one place, whatever number of agents read it. The orientation text
+# (/opt/ai-tools/orientation/AGENTS.md) is shared the same way and linked by
+# ai_tools_link_agent_memory under the filename each agent reads as its user-scope instructions.
 # A managed asset is one whose name is `ai-tools-*` AND whose frontmatter carries
 # `x-ai-tools-managed: true`; the seeder acts only on those, so an asset the operator authored
 # themselves is never claimed or overwritten. Seeded copies are root:SANDBOX_GROUP (files 640,
@@ -118,9 +120,15 @@ ai_tools_seed_managed_assets() {
         # glob has to match: subagents are files (ai-tools-*.md), skills are directories
         # (ai-tools-*/). README.md and any non-ai-tools- entry fall outside both globs, so they
         # are never seeded.
+        # Orientation is the one kind whose asset has a FIXED name rather than an ai-tools-*
+        # one: it is placed under the filename each agent's product reads as its user-scope
+        # instructions (ai_tools_link_agent_memory), so a namespace prefix would only appear in
+        # the shared root. The x-ai-tools-managed marker still decides what may be claimed, so
+        # an operator's own file at that name is kept exactly as for any other kind.
         case "${kind}" in
-            subagents) src_glob="${src_root}/${kind}/ai-tools-*.md" ;;
-            *)         src_glob="${src_root}/${kind}/ai-tools-*/"  ;;
+            subagents)   src_glob="${src_root}/${kind}/ai-tools-*.md" ;;
+            orientation) src_glob="${src_root}/${kind}/AGENTS.md"     ;;
+            *)           src_glob="${src_root}/${kind}/ai-tools-*/"   ;;
         esac
         for src in ${src_glob}; do
             [[ -e "${src}" ]] || continue                    # no matches -> literal pattern, skip
@@ -309,6 +317,40 @@ ai_tools_link_shared_assets() {
 
     ai_tools_link_asset_readme "${readme_source}" "${agent_dir}" "${group}"
     restorecon -R "${agent_dir}" >/dev/null 2>&1 || :
+    return 0
+}
+
+# ai_tools_link_agent_memory <shared_file> <agent_dir> <memory_file> <group>
+# Point an agent at the shared orientation text under the filename its own product reads as
+# user-scope instructions -- CLAUDE.md for Claude Code, AGENTS.md for a product that follows that
+# spelling -- so one file is authored and every agent loads it in every session, whatever the
+# project. The name comes from the agent manifest (memory_file), which is why this links under a
+# name that differs from the source's; ai_tools_link_shared_assets preserves names and cannot.
+#
+# Non-displacing on the same rule as the asset linker: a link already pointing at the shared file
+# is left alone, a stale one is repointed, and anything REAL is kept and reported -- an operator
+# who writes their own instructions at that path keeps them, and the shared text is then not
+# loaded. Root-owned inside the agent's setgid+sticky config directory, so the session reads it
+# and cannot repoint it at a file of its own choosing.
+ai_tools_link_agent_memory() {
+    local shared_file="$1" agent_dir="$2" memory_file="$3" group="$4"
+    [[ -f "${shared_file}" && -d "${agent_dir}" && -n "${memory_file}" ]] || return 0
+    local dst="${agent_dir}/${memory_file}"
+    if [[ -L "${dst}" ]]; then
+        if [[ "$(readlink -- "${dst}")" == "${shared_file}" ]]; then
+            return 0
+        fi
+        ln -sfn "${shared_file}" "${dst}"
+        _ai_tools_ma_say "${memory_file} link repointed at ${shared_file}"
+    elif [[ -e "${dst}" ]]; then
+        _ai_tools_ma_say "${memory_file} kept (a real entry here wins over the shared one)"
+        return 0
+    else
+        ln -s "${shared_file}" "${dst}"
+        _ai_tools_ma_say "${memory_file} linked -> ${shared_file}"
+    fi
+    chown -h "root:${group}" "${dst}" 2>/dev/null || :
+    restorecon "${dst}" >/dev/null 2>&1 || :
     return 0
 }
 
