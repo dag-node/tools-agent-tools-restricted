@@ -105,6 +105,21 @@ else
     fail "can write ${sf} -- agent could add permissions.allow rules, remove deny rules, or drop hooks"
 fi
 
+# The orientation text is what every session in every project is told about its own boundaries,
+# before it does anything. A session that could edit it would decide what the next session believes
+# about the sandbox -- the shared file and the per-agent link both, since either end serves the
+# same read. The runtime half of this pair is integration/perms.sh (modes) and
+# unit/managed-assets.sh (a real file at the link's path is never displaced).
+for _orient in /opt/ai-tools/orientation /opt/ai-tools/orientation/AGENTS.md; do
+    if [[ ! -e "${_orient}" ]]; then
+        skip "${_orient}" "shipped orientation not seeded on this host"
+    elif ! runuser -u "${SANDBOX_USER}" -- test -w "${_orient}" 2>/dev/null; then
+        pass "cannot write ${_orient}: agent cannot rewrite what every session is told about its boundaries"
+    else
+        fail "can write ${_orient} -- agent could rewrite the orientation every future session loads"
+    fi
+done
+
 # Even without file write, a group-writer of the DIRECTORY could unlink+recreate the file.
 # The sticky bit on .claude (3770) forbids that: you can only unlink a file you own OR in a
 # dir you own; the agent owns neither. Tested with a DECOY (same ownership, same dir).
