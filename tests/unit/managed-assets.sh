@@ -277,7 +277,7 @@ else
     SHARED_FILE="${LIVE}/orientation/AGENTS.md"
 
     # The link's name comes from the agent's manifest, not from the source file, which is the whole
-    # reason this is not ai_tools_link_shared_assets: Claude Code reads CLAUDE.md and nothing else
+    # reason this is not ai_tools_link_shared_assets: Claude Code reads CLAUDE.md and no other file
     # at user scope, so a link named for the source would never be loaded.
     out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
     if [[ -L "${AGENT_DIR}/CLAUDE.md" ]] \
@@ -319,7 +319,7 @@ else
         fail "an operator's own memory file was displaced by the shared link: ${out}"
     fi
 
-    # An agent that declares no memory_file reaches the linker with an empty name (the resolver
+    # An agent that does not declare a memory_file reaches the linker with an empty name (the resolver
     # skips it, but the guard is what keeps a bad manifest from writing to the directory itself).
     rm -f "${AGENT_DIR}/CLAUDE.md"
     ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" "" root >/dev/null 2>&1 || true

@@ -530,7 +530,8 @@ fi
 # Secret-pattern drift, journald only (informational, best-effort). The operator's own file
 # REPLACES the shipped baseline rather than extending it, so a copy written once keeps this host on
 # that set and silently drops every pattern added upstream since. Nobody is placed to notice: the
-# agent cannot read the file, and a quarantine that did not happen prints nothing. This is the one
+# agent cannot read the file, and the log records the quarantines that happened rather than the
+# patterns that would have caused one. This is the one
 # point per session where the file is both readable (the wrapper runs as the operator, before the
 # drop) and attributable to a launch, so the difference is recorded here -- to the journal, never to
 # the terminal, since it is not a launch decision and the operator did not ask a question.
