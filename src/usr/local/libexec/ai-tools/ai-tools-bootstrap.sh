@@ -126,7 +126,7 @@ configure_git_identity() {
     log "verify the result in ${gc}"
 }
 
-# seed_managed_assets_step: (re)seed the ai-tools-managed agents/skills from the pristine datadir
+# seed_managed_assets_step: (re)seed the ai-tools-managed shared assets from the pristine datadir
 # copies into the config directory of each agent that uses that asset format. The directories come
 # from the manifests (control-plane.lib.sh), so this helper does not hardcode a path itself. Runs only when the
 # control plane is present (a config dir and the /usr/share/ai-tools pristine copies exist) and
@@ -174,6 +174,20 @@ seed_managed_assets_step() {
             seeded=1
         done < <(ai_tools_agent_asset_dirs "${spec#*:}")
     done
+    # The orientation text is a single file rather than a directory of assets, and each agent
+    # reads it under its own filename (the manifest's memory_file), so it is seeded like the
+    # other kinds and linked by name instead of by iterating the shared root.
+    local memory_target
+    shared="${CP_SHARED_ORIENTATION}"
+    install -d -o root -g "${SANDBOX_GROUP}" -m "${CP_DIR_MODES[orientation]}" "${shared}"
+    log "seeding the ai-tools-managed orientation into ${shared}"
+    ai_tools_seed_managed_assets "${pristine}" "${CP_HOME}" "${SANDBOX_GROUP}" orientation
+    while IFS=$'\t' read -r _ memory_target; do
+        log "linking the shared orientation into ${memory_target}"
+        ai_tools_link_agent_memory "${shared}/AGENTS.md" \
+            "${memory_target%/*}" "${memory_target##*/}" "${SANDBOX_GROUP}"
+        seeded=1
+    done < <(ai_tools_agent_memory_targets)
     (( seeded )) || log "managed assets: no agent config directory to seed yet"
 }
 

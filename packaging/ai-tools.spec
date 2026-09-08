@@ -391,6 +391,7 @@ install -d -m 0755 %{buildroot}/opt/ai-tools/bin
 # directories rather than copied per agent.
 install -d -m 0750 %{buildroot}/opt/ai-tools/skills
 install -d -m 0750 %{buildroot}/opt/ai-tools/subagents
+install -d -m 0750 %{buildroot}/opt/ai-tools/orientation
 # The integration state root: each ai-tools-integration-* package creates its own directory
 # under it (integrations/<name>), and one static file-context rule covers them all.
 install -d -m 0750 %{buildroot}/opt/ai-tools/integrations
@@ -410,8 +411,9 @@ install -m 0644 src%{_datadir}/ai-tools/gitignore %{buildroot}%{_datadir}/ai-too
 # is offered by install.sh / ai-tools-bootstrap (managed-assets.lib.sh, the shared seeder).
 cp -rT src%{_datadir}/ai-tools/subagents %{buildroot}%{_datadir}/ai-tools/subagents
 cp -rT src%{_datadir}/ai-tools/skills %{buildroot}%{_datadir}/ai-tools/skills
-find %{buildroot}%{_datadir}/ai-tools/subagents %{buildroot}%{_datadir}/ai-tools/skills -type d -exec chmod 0755 {} +
-find %{buildroot}%{_datadir}/ai-tools/subagents %{buildroot}%{_datadir}/ai-tools/skills -type f -exec chmod 0644 {} +
+cp -rT src%{_datadir}/ai-tools/orientation %{buildroot}%{_datadir}/ai-tools/orientation
+find %{buildroot}%{_datadir}/ai-tools/subagents %{buildroot}%{_datadir}/ai-tools/skills %{buildroot}%{_datadir}/ai-tools/orientation -type d -exec chmod 0755 {} +
+find %{buildroot}%{_datadir}/ai-tools/subagents %{buildroot}%{_datadir}/ai-tools/skills %{buildroot}%{_datadir}/ai-tools/orientation -type f -exec chmod 0644 {} +
 
 # ── integration-nodejs: toolchain helpers + updater ──────────────────────────
 for h in ai-tools-launcher-symlink ai-tools-relabel-agent ai-tools-bootstrap; do
@@ -573,7 +575,7 @@ fi
 # conf.lib.sh comes first -- it owns the dated-sidecar stamp both of those steps preserve through.
 # stdout is kept so `dnf upgrade` reports what changed; a host that never sees these lines cannot
 # tell that a shipped asset moved.
-for kind in skills subagents; do
+for kind in skills subagents orientation; do
     [ -d %{_datadir}/ai-tools/${kind} ] && command -v bash >/dev/null 2>&1 || continue
     AI_TOOLS_ASSUME_YES=1 bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools ai-tools ${kind}; ai_tools_remove_retired_assets /opt/ai-tools ${kind}; ai_tools_link_asset_readme %{_datadir}/ai-tools/${kind}/README.md /opt/ai-tools/${kind} ai-tools" 2>/dev/null || :
 done
@@ -815,6 +817,12 @@ for kind in skills:skills subagents:agents; do
     [ -d "${shared}" ] && command -v bash >/dev/null 2>&1 || continue
     bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_link_shared_assets ${shared} ${dest} ai-tools ${readme}" >/dev/null 2>&1 || :
 done
+# The shared orientation text is one file, linked under the name THIS agent reads as user-scope
+# instructions (its manifest's memory_file), so a session in any project starts knowing which
+# commands are refused and which paths it cannot reach. A real file already at that path wins.
+if [ -f /opt/ai-tools/orientation/AGENTS.md ] && command -v bash >/dev/null 2>&1; then
+    bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_link_agent_memory /opt/ai-tools/orientation/AGENTS.md /opt/ai-tools/.claude CLAUDE.md ai-tools" >/dev/null 2>&1 || :
+fi
 # settings.json is %config(noreplace), so a host that tuned its permission rules keeps them and rpm
 # parks this version's copy as .rpmnew. Choosing between the two is the operator's call, made
 # through `ai-tools-admin system post-upgrade` -- a scriptlet does not edit a config file. Say so here,
@@ -949,13 +957,15 @@ fi
 # content, so an erase preserves operator updates.
 %dir %attr(0750, root, ai-tools) /opt/ai-tools/skills
 %dir %attr(0750, root, ai-tools) /opt/ai-tools/subagents
+%dir %attr(0750, root, ai-tools) /opt/ai-tools/orientation
 # The integration state root (see the .fc rule): base owns it, each integration package owns its
 # own directory inside it, and the state within is runtime data -- not rpm-owned, so an erase
 # leaves a restore cache alone.
 %dir %attr(0750, root, ai-tools) /opt/ai-tools/integrations
-# Pristine reseed sources (rpm-owned) for both shared kinds.
+# Pristine reseed sources (rpm-owned) for every shared kind.
 %{_datadir}/ai-tools/skills
 %{_datadir}/ai-tools/subagents
+%{_datadir}/ai-tools/orientation
 # /opt/ai-tools/.gitignore and .gitconfig are deliberately NOT listed here: rpm-owning them
 # would delete them on erase. They are scriptlet-managed (%post reseed-if-missing) so an erase
 # preserves the operator's copies. The canonical .gitignore reseed source ships read-only here.

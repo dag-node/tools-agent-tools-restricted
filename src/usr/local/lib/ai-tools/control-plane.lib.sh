@@ -47,17 +47,20 @@ readonly CP_HOME=/opt/ai-tools
 #                          file-context rule; each integration package owns its own directory and
 #                          chooses the modes inside it, so a new toolchain brings neither policy nor
 #                          dotdir at the home root.
-#   CP_SHARED_SKILLS / CP_SHARED_SUBAGENTS
+#   CP_SHARED_SKILLS / CP_SHARED_SUBAGENTS / CP_SHARED_ORIENTATION
 #                          the one place each SHARED asset kind lives, agent-agnostic: the base
 #                          ships them here and every agent's config directory carries SYMLINKS
 #                          into them rather than copies, so an asset is authored, updated, and
 #                          read in one location. Their modes are CP_DIR_MODES[<kind>] --
 #                          root-owned, agent-readable, not agent-writable.
 readonly CP_HOME_MODE=2751
-readonly -A CP_DIR_MODES=( [bin]=0551 [skills]=0750 [subagents]=0750 [integrations]=0750 )
+readonly -A CP_DIR_MODES=(
+    [bin]=0551 [skills]=0750 [subagents]=0750 [orientation]=0750 [integrations]=0750
+)
 readonly CP_AGENT_CONFIG_MODE=3770
 readonly CP_SHARED_SKILLS="${CP_HOME}/skills"
 readonly CP_SHARED_SUBAGENTS="${CP_HOME}/subagents"
+readonly CP_SHARED_ORIENTATION="${CP_HOME}/orientation"
 readonly CP_INTEGRATIONS="${CP_HOME}/integrations"
 
 # Which agents are installed and enabled, and what each declares, comes from the provider
@@ -101,6 +104,23 @@ ai_tools_agent_asset_dirs() {
         asset_dir="$(ai_tools_agent_manifest_field "${agent}" "${field}" || true)"
         ai_tools_agent_config_dir_valid "${asset_dir}" || continue
         printf '%s\t%s/%s\n' "${agent}" "${config_dir}" "${asset_dir}"
+    done < <(ai_tools_agent_config_dirs)
+    return 0
+}
+
+# ai_tools_agent_memory_targets : print "agent<TAB>absolute-path" for the file every ENABLED
+#   agent declares in `memory_file` -- the name its own product reads as user-scope instructions,
+#   loaded in every session in every project (CLAUDE.md for Claude Code). One component inside
+#   that agent's config directory, validated exactly as config_dir is, so a manifest names a file
+#   beneath the home and cannot address a path outside it. An agent that declares none is given
+#   no orientation link, the same way it is given no links of an asset kind it cannot read.
+ai_tools_agent_memory_targets() {
+    declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 0
+    local agent config_dir memory_file
+    while IFS=$'\t' read -r agent config_dir; do
+        memory_file="$(ai_tools_agent_manifest_field "${agent}" memory_file || true)"
+        ai_tools_agent_config_dir_valid "${memory_file}" || continue
+        printf '%s\t%s/%s\n' "${agent}" "${config_dir}" "${memory_file}"
     done < <(ai_tools_agent_config_dirs)
     return 0
 }

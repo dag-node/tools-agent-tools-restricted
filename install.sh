@@ -748,6 +748,8 @@ do_summary() {
     _chk /opt/ai-tools/skills/ai-tools-technical-docs/SKILL.md
     _chk /opt/ai-tools/skills/ai-tools-engineering-principles/SKILL.md
     _chk /opt/ai-tools/.claude/skills/ai-tools-technical-docs
+    _chk /opt/ai-tools/orientation/AGENTS.md
+    _chk /opt/ai-tools/.claude/CLAUDE.md
 
     printf '  %s\n' "${sep}"
     if (( missing == 0 )); then
@@ -1660,10 +1662,10 @@ do_install() {
     # ai-tools-* assets carrying x-ai-tools-managed are touched, an operator's own is never
     # claimed, and an existing managed asset updates only on confirm (default keep). See
     # managed-assets.lib.sh and shipped-assets.rule.md.
-    log "/usr/share/ai-tools/{skills,subagents} (pristine managed assets)"
+    log "/usr/share/ai-tools/{skills,subagents,orientation} (pristine managed assets)"
     install -d -o root -g root -m 755 /usr/share/ai-tools
     local _kind _shared
-    for _kind in skills subagents; do
+    for _kind in skills subagents orientation; do
         rm -rf "/usr/share/ai-tools/${_kind}"
         cp -rT "${SCRIPT_DIR}/src/usr/share/ai-tools/${_kind}" "/usr/share/ai-tools/${_kind}"
         # A from-source install copies the working tree, where a local import of a shipped script
@@ -1675,7 +1677,7 @@ do_install() {
         find "/usr/share/ai-tools/${_kind}" -type f -exec chmod 644 {} +
     done
 
-    for _kind in skills subagents; do
+    for _kind in skills subagents orientation; do
         _shared="${CP_HOME}/${_kind}"
         log "${_shared}/ (shared ${_kind}, symlinked into every agent that reads them)"
         ensure_dir "${CP_DIR_MODES[${_kind}]}" root "${SANDBOX_GROUP}" "${_shared}"
@@ -1697,6 +1699,16 @@ do_install() {
                 "${SANDBOX_GROUP}" "/usr/share/ai-tools/${_kind}/README.md"
         done < <(ai_tools_agent_asset_dirs "${_spec#*:}")
     done
+
+    # The orientation text is one file rather than a directory of assets, and it lands under the
+    # filename each agent reads as user-scope instructions -- so it is linked by name from the
+    # manifest instead of by iterating a shared root.
+    local _memory_target
+    while IFS=$'\t' read -r _agent _memory_target; do
+        log "linking the shared orientation into ${_memory_target}"
+        ai_tools_link_agent_memory "${CP_SHARED_ORIENTATION}/AGENTS.md" \
+            "${_memory_target%/*}" "${_memory_target##*/}" "${SANDBOX_GROUP}"
+    done < <(ai_tools_agent_memory_targets)
 
     section "Configuration (allowlist & secret patterns)"
 
