@@ -21,7 +21,8 @@
 # unit's Restart= policy:
 #   0  the toolchain is current.
 #   1  a fault on this host: something is broken or untrustworthy and it will still be broken on a
-#      retry (no nvm, no curl, an unset alias, a failed signature check).
+#      retry (no nvm, no curl, an unset alias, a failed signature check, a provider input the
+#      trust predicate refused so that no agent resolved).
 #   3  transient: the registry could not be reached, so the toolchain was left alone and the previous,
 #      trusted toolchain stays active and installed. The unit retries this one; the stamp records
 #      it as `skipped` rather than a failure, because an offline host has no fault to fix.
@@ -396,6 +397,21 @@ main() {
             [[ -n "${manifest_package}" ]]  && agent_packages+=("${manifest_package}")
             [[ -n "${manifest_launcher}" ]] && agent_launchers+=("${manifest_launcher}")
         done < <(ai_tools_enabled_agents)
+        # A resolver that loaded and returned an empty set is classified before npm alone becomes
+        # the managed set. The resolver refuses an input the trust predicate declines and reports it on
+        # stderr only, so without this step a host whose inputs all read as untrusted -- every
+        # manifest, operator.conf -- maintains npm, exits 0 and stamps RESULT=ok while the agent
+        # stops updating. The fault class exits 1: the same inputs are read on a retry, and that is
+        # the status the unit's RestartPreventExitStatus= names. A set the configuration asks to be
+        # empty is logged and the run continues.
+        if (( ${#agent_packages[@]} == 0 )); then
+            local empty_verdict="" empty_reason=""
+            IFS=$'\t' read -r empty_verdict empty_reason < <(ai_tools_agents_empty_verdict) || true
+            case "${empty_verdict}" in
+                none) log "no agent to maintain: ${empty_reason} -- updating npm only" ;;
+                *)    die "no agent resolved: ${empty_reason:-the classification printed nothing} -- enabled agents are unrefreshed and their launchers unrepointed until this is fixed" ;;
+            esac
+        fi
     else
         warn "provider resolver unavailable (${providers_lib}) -- updating npm only; enabled agents are unrefreshed and their launchers unrepointed this run"
     fi

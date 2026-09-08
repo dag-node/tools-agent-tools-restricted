@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/boundary/sudo.sh
-# Boundary: the sandbox account is granted NO sudo rights -- the first security-model invariant in
-# CLAUDE.md. The two NOPASSWD rules in sudoers.d/ai-tools both belong to the PROJECTS
-# user -- one dropping privilege to the sandbox account, one running a fixed-path helper as root;
-# the agent runs AS the sandbox account and can invoke neither. Asserts that at runtime
-# (sudo -l for the sandbox account reports it is not
-# allowed to run sudo at all) and statically (no grant line names the sandbox account as
-# principal). Also pins the account hygiene the invariant depends on -- nologin shell, locked
-# password, and non-membership in ai-ops. Run as root via sudo.
+# Boundary: the sandbox account does not hold any sudo rights -- the first security-model invariant
+# in CLAUDE.md. Both NOPASSWD rules in sudoers.d/ai-tools are `%ai-ops` GROUP rules, held by the
+# operators -- one dropping privilege to the sandbox account, one running a fixed-path helper as
+# root -- and the agent runs AS the sandbox account, which is not in that group, so it can invoke
+# neither. Asserts that at runtime (sudo -l for the sandbox account reports it is not allowed to
+# run sudo at all) and statically (no grant line names the sandbox account as principal). Also
+# pins the account hygiene the invariant depends on -- nologin shell, locked password, and
+# non-membership in ai-ops. Run as root via sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"

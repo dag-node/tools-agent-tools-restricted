@@ -57,8 +57,8 @@ else
 fi
 
 # (A4) the owner-guard skip is REPORTED, not silent. This is the half that matters to the CLI:
-# a walk that normalized no directory must not be indistinguishable from one with no work to do,
-# which is what let a claim over a tree owned by a third party close with a clean ✓.
+# a walk that did not normalize any directory must read differently from one that had no work to
+# do, or a claim over a tree owned by a third party closes with a clean check mark.
 if ${foreign}; then
     guard_err="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null || true)"
     if grep -q 'owned by neither' <<<"${guard_err}"; then

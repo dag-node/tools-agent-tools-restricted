@@ -197,9 +197,11 @@ Appends the name to
 .BR OPERATORS ,
 adds the account to
 .BR ai\-ops ,
-seeds an empty allowlist at
-.IR ~/.config/ai\-tools/allowed\-projects ,
-enables
+seeds that account's own config \(em an allowlist at
+.I ~/.config/ai\-tools/allowed\-projects
+and secret\-name patterns at
+.IR ~/.config/ai\-tools/secret\-patterns ,
+each carrying its format header alone \(em enables
 .BR loginctl (1)
 linger for the sandbox account, and offers to source the PATH ordering
 fragment from the account's
@@ -425,8 +427,15 @@ edits the
 line in place and leaves every other setting as written.
 .TP
 .I ~/.config/ai-tools/allowed-projects
-The enrolled account's own allowlist of project paths, seeded empty by
+The enrolled account's own allowlist of project paths, seeded by
 .BR "operators add" .
+.TP
+.I ~/.config/ai-tools/secret-patterns
+The same account's secret\-name patterns, seeded by
+.BR "operators add" .
+A pattern listed here replaces the built\-in baseline in
+.I /usr/local/lib/ai-tools/secret-patterns.lib.sh
+rather than adding to it; the seeded file lists none, so the baseline applies.
 .TP
 .I /opt/ai-tools
 The sandbox account's home, holding the nvm tree, the installed agents and the

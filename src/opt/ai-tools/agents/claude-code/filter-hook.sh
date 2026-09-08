@@ -23,8 +23,8 @@
 # exactly as the agent wrote it. There is no state in which failing here denies, alters or hides
 # anything, so refusing would only trade tokens for lost work.
 #
-# Deploy: sudo install -o root -g ai-tools -m 750 \
-#             src/opt/ai-tools/agents/claude-code/filter-hook.sh /opt/ai-tools/.claude/filter-hook.sh
+# Installed 750 root:ai-tools, like the other hooks: the session executes it through the group
+# and cannot rewrite it. Deploying from a checkout: docs/install-from-source.md.
 
 set -euo pipefail
 

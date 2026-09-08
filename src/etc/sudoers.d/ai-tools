@@ -2,41 +2,36 @@
 # Grants the ai-ops operators group (the login users that drive the sandbox) two NOPASSWD rules,
 # which are the session lifecycle: start one, end them all. The first DROPS privilege to
 # @SANDBOX_USER@; the second runs a fixed-path helper as root. @SANDBOX_USER@ itself has NO rule
-# here, and the agent runs AS @SANDBOX_USER@, so no rule grants the agent anything.
+# here, and the agent runs AS @SANDBOX_USER@, so no rule grants the agent anything -- the root
+# rule included, which @SANDBOX_USER@ cannot reach.
 #   1. execute ai-tools-run as @SANDBOX_USER@ (an agent's wrapper resolves the versioned
-#      executable, exports it as AI_TOOLS_AGENT_EXEC, then calls ai-tools-run which wraps the
-#      session in a systemd transient service (--user --pty) with RestrictNamespaces=yes +
-#      UMask=0007; NoNewPrivileges is intentionally ABSENT -- the session itself runs under NNP
-#      because RestrictNamespaces forces PR_SET_NO_NEW_PRIVS, but ai-tools-run must not set NNP
-#      at the scope it occupies before exec, or sudo's own PAM authentication breaks)
+#      executable, exports it as AI_TOOLS_AGENT_EXEC, then calls ai-tools-run, which wraps the
+#      session in a systemd transient service; the unit properties that confine it are set there,
+#      not here). NNP is deliberately not set at the sudo level: ai-tools-run must not run under
+#      PR_SET_NO_NEW_PRIVS at the scope it occupies before exec, or sudo's own PAM authentication
+#      breaks. The session gets it from the unit instead.
 #   2. run ai-tools-stop as ROOT (`ai-tools --stop`, which terminates every running agent
 #      session; see the security note below)
 #
-# One rule serves every agent: the rule names ai-tools-run, the shared confinement shim, which is
-# agent-agnostic. A second agent package ships its own wrapper and inherits this grant rather than
-# adding one.
+# One rule serves every agent, because it names the shared agent-agnostic shim: a second agent
+# package ships its own wrapper and inherits this grant rather than adding one. A group rule
+# (`%ai-ops`) likewise covers every operator from one static drop-in, so there is no per-operator
+# line to generate.
 #
-# The sandbox toolchain update runs as @SANDBOX_USER@ in its own systemd --user instance
-# (nvm-update.service), writing the shared .nvm tree directly, so it does not need a sudo rule
-# here.
-# The post-upgrade entrypoint relabel fires as root through the ai-tools-relabel.path watcher, and
-# an administrator reconciles on demand with `sudo ai-tools-admin system entrypoints relabel`, so
-# that helper does not appear in this file either.
-#
-# A group rule (`%ai-ops`) covers every operator from one static drop-in: the package ships it,
-# and membership in ai-ops (managed by ai-tools-admin) is what grants access, so there is no
-# per-operator line to generate. Ownership handback (ai-tools-chown, -setgid, -launcher-symlink)
-# is NOT here: it goes through the ai-tools-handback socket daemon, which the agent reaches via
-# /usr/local/bin/ai-tools-handback-client -- sudo's SUID bit is dropped under NNP anyway.
+# Three privileged operations deliberately do NOT appear here: the toolchain update (runs as
+# @SANDBOX_USER@ in its own systemd --user instance), the post-upgrade entrypoint relabel (root,
+# through the ai-tools-relabel.path watcher), and the ownership handback (ai-tools-chown, -setgid,
+# -launcher-symlink, reached through the ai-tools-handback socket daemon rather than sudo, whose
+# SUID bit NNP drops inside a session anyway). Why each is placed where it is: launch.rule.md.
 #
 # The umask, env_keep, and umask_override Defaults are scoped per-command (Defaults!<command>),
 # not to all of an operator's sudo, so they apply ONLY to these commands:
 #   - umask=0007 + umask_override (ai-tools-run): sets ai-tools-run's own process umask. A service
-#     unit does NOT inherit the caller's umask, so the agent's umask is set authoritatively by
-#     the UMask=0007 property ai-tools-run puts on the unit -- files 660/770 rather than 600/700.
-#     The operator and @SANDBOX_USER@ are co-writers on project files; world bits are still
-#     stripped (o=0). A stricter umask (e.g. 0027) would give group read-only after handback,
-#     blocking an agent's in-place edit tool on handed-back files.
+#     unit does NOT inherit the caller's umask, so the agent's umask comes authoritatively from
+#     the UMask=0007 property ai-tools-run puts on the unit -- files 660/770 rather than 600/700,
+#     the operator and @SANDBOX_USER@ being co-writers on project files (world bits are still
+#     stripped). A stricter umask such as 0027 would leave the group read-only after handback,
+#     blocking an agent's in-place edit tool on the files it just handed back.
 #   - env_keep AI_TOOLS_AGENT_EXEC AI_TOOLS_PROJECT_DIR (ai-tools-run): the versioned executable
 #     resolved and validated by the wrapper is passed through sudo so ai-tools-run can re-validate
 #     and exec it directly; AI_TOOLS_PROJECT_DIR carries the validated project dir and becomes the
@@ -57,10 +52,8 @@
 #     the confirmation defaults YES with no terminal) and withholds --force and --dry-run. The
 #     helper does not take a target or an authorization input, so the rule does not expose any
 #     argument surface. Why it is granted this way, and what it widens: docs/session-stop.md.
-#   - The first rule DROPS privilege; the agent runs AS @SANDBOX_USER@ and cannot invoke an
-#     ai-ops rule, so no rule here grants the agent anything -- including the root rule, which
-#     @SANDBOX_USER@ cannot reach.
 #   - @SANDBOX_USER@ has no login shell and no other sudo rights, and is not a member of ai-ops.
+#     ai-tools-run refuses to launch if it ever becomes one.
 #
 # Syntax check before deploy:  visudo -c -f /etc/sudoers.d/ai-tools
 

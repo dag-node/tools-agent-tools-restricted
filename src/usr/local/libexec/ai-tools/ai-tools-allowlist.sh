@@ -8,10 +8,10 @@
 # authenticate the claim's own root helpers.
 #
 # Root is needed for READS as well as writes: an allowlist is 0600 inside a 0700
-# .config/ai-tools (ai-tools-admin seeds both), so one operator cannot see another's list at
-# all. --print exists for exactly that, and the CLI snapshots it for the decisions a claim
-# makes (is the path listed, disabled, or absent) before routing the mutation back through the
-# four editing actions.
+# .config/ai-tools (ai-tools-admin seeds an operator's config), so one operator cannot see
+# another's list at all. --print exists for exactly that, and the CLI snapshots it for the
+# decisions a claim makes (is the path listed, disabled, or absent) before routing the mutation
+# back through the four editing actions.
 #
 # The allowlist is the LAUNCH GATE: an entry here is what lets that operator's agent start in
 # the directory, and what makes the ownership handback restore files to them. Editing another
@@ -163,16 +163,13 @@ target_home="$(getent passwd "${OPERATOR}" 2>/dev/null | cut -d: -f6)" \
     || die "cannot resolve ${OPERATOR} -- nothing changed"
 [[ -n "${target_home}" && -d "${target_home}" ]] \
     || die "no home directory for ${OPERATOR} -- nothing changed"
-target_group="$(id -gn "${OPERATOR}" 2>/dev/null)" \
-    || die "cannot resolve the primary group of ${OPERATOR} -- nothing changed"
-
 # Resolve the target's allowlist through operator.lib's own path helper, so the
 # AI_TOOLS_ALLOWLIST test hook applies here exactly as it does on every resolve_owner path and
 # the helper cannot drift from what the root helpers read.
 is_primary=secondary
 [[ "${OPERATOR}" == "${AI_TOOLS_OPERATORS[0]}" ]] && is_primary=primary
 allowlist="$(_ai_tools_operator_allowlist "${OPERATOR}" "${is_primary}")"
-readonly caller allowlist target_home target_group
+readonly caller allowlist target_home
 
 # ── print ────────────────────────────────────────────────────────────────────────
 # Read-only, and the only action that does not require a path. An absent allowlist prints
@@ -194,18 +191,18 @@ canonical="$(realpath -e "${TARGET_PATH}" 2>/dev/null)" \
 ai_tools_assert_safe_target "${canonical}" "allowlist ${ACTION}" || exit 3
 readonly canonical
 
-# ensure_allowlist: create the target's .config/ai-tools and allowed-projects when absent, owned
-# by the TARGET and with the modes ai-tools-admin seeds (0700 dir, 0600 file) -- so a project
-# claimed for a freshly enrolled operator does not depend on that operator having logged in yet.
-# The file is the target's own data; this helper only ever adds to it.
-ensure_allowlist() {
-    local cfg="${allowlist%/*}"
-    [[ -d "${target_home}/.config" ]] \
-        || install -d -o "${OPERATOR}" -g "${target_group}" -m 700 "${target_home}/.config"
-    [[ -d "${cfg}" ]] \
-        || install -d -o "${OPERATOR}" -g "${target_group}" -m 700 "${cfg}"
-    [[ -f "${allowlist}" ]] \
-        || install -o "${OPERATOR}" -g "${target_group}" -m 600 /dev/null "${allowlist}"
+# require_target_config: the target's allowlist must already exist. This helper applies the one
+# entry change it was asked for and does not create the file: `ai-tools-admin operators add` is
+# where an operator's config comes from -- the config files, at the modes that keep the sandbox
+# account out (0700 dir, 0600 files) -- and it is idempotent. A missing allowlist therefore means
+# the name reached OPERATORS and ai-ops another way, or the home did not exist at enrolment;
+# seeding it from here would write the allowlist and leave the account without the secret-patterns
+# file beside it, so the refusal names the command that writes the whole config.
+require_target_config() {
+    [[ -f "${allowlist}" ]] && return 0
+    die "${OPERATOR} has no ai-tools config yet (no ${allowlist}) -- nothing changed.
+       If the ${OPERATOR} account is meant to run sandboxed sessions, enrol it first with:
+       sudo ai-tools-admin operators add ${OPERATOR}"
 }
 
 # Every edit below is one call into conf.lib.sh's allowlist-editing functions -- the same
@@ -217,7 +214,7 @@ ensure_allowlist() {
 
 case "${ACTION}" in
     add)
-        ensure_allowlist
+        require_target_config
         rc=0; ai_tools_conf_allowlist_add "${allowlist}" "${canonical}" || rc=$?
         case "${rc}" in
             0) ;;

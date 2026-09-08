@@ -46,7 +46,16 @@ RestartSec=30min
 # The updater writes its own .nvm tree as ai-tools and reaches the locked bin/ through
 # the handback socket, so the session runs with no privilege escalation.
 NoNewPrivileges=yes
-PrivateTmp=yes
+# No mount-namespace option here, and this is a correctness requirement rather than a preference.
+# systemd.exec(5): such an option "is only available for system services, or for services running
+# in per-user instances of the service manager in which case PrivateUsers= is implicitly enabled".
+# PrivateUsers maps this account's uid alone, so every other host uid -- root included -- reads
+# back as the overflow uid 65534 while stat(1) still exits 0. The updater then resolves its agents
+# through ai_tools_conf_is_trusted, which requires owner 0, so it refuses operator.conf and every
+# manifest and ends the run as a fault. RestrictNamespaces= does NOT prevent this: it filters
+# the payload's own unshare/clone/setns, and systemd builds the namespace before installing that
+# filter. tests/integration/systemd.sh asserts the whole option family stays out of every --user
+# unit. See .claude/rules/updater.rule.md.
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=nvm-update

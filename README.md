@@ -8,6 +8,10 @@
 
 Agent Tools Restricted runs autonomous coding agents under a dedicated, unprivileged system user (`ai-tools`) with tightly scoped privileges, SELinux confinement, ownership hand-back, and automatic toolchain updates. The agent never runs as you. Claude Code is the first supported agent; the confinement, ownership-handback, and toolchain machinery are deliberately agent-agnostic.
 
+**Scope.** The model defends the host from the agent *while it runs*. It does not make
+agent-written code safe for you to execute afterwards, and reviewing a diff before running from
+the tree is the control — see [On running what sandboxed agents wrote](#why).
+
 > **Fun fact.** This project is written inside its own sandbox. The agent that edits these
 > files runs as `ai-tools` under the confinement described here — its writes come back to the
 > author through the ownership handback, and when a Node upgrade leaves an entrypoint
@@ -15,6 +19,7 @@ Agent Tools Restricted runs autonomous coding agents under a dedicated, unprivil
 > edges below were found that way rather than reasoned about.
 
 **Contents**: [Requirements](#requirements) · [Package install](#package-install) · [Why](#why) ·
+[If you are an agent reading this](#if-you-are-an-agent-reading-this) ·
 [Identities and naming](#identities-and-naming) ·
 [Architecture at a glance](#architecture-at-a-glance) · [From source](#from-source) ·
 [Upgrade behaviour](#upgrade-behaviour) · [Operation logging](#operation-logging) ·
@@ -187,6 +192,12 @@ of what it can ever send:
   skill, so a skill is authored and updated in one place however many agents read it, and an
   agent-specific skill is a real directory, which the linker keeps in place. See
   `/usr/share/ai-tools/skills/README.md`.
+- **Every session starts oriented** — `/opt/ai-tools/orientation/AGENTS.md` states what the
+  sandbox refuses (which commands, why a `chmod` fails on a handed-back file, which paths do not
+  list), and is linked into each agent's config directory under the filename that agent reads as
+  user-scope instructions. So a session working in any project knows its boundaries instead of
+  finding them one failed command at a time. It is root-owned, and your own file at that path is
+  kept instead.
 - **Operation logging** — the `sudo` helpers, the lifecycle hooks, the `ai-tools`
   CLI, and `install.sh` log through one library to **journald** (always, leveled and
   tagged: `journalctl -t ai-tools-chown _UID=0`) and, for the root writers only, to
@@ -217,13 +228,23 @@ Each of those refusals is tested from both ends: once that the refusal fires, an
 *as* the sandbox account — that the agent cannot create the state the refusal exists to catch
 (`tests/unit/providers.sh` and `tests/boundary/providers.sh` are the worked pair).
 
-> **On the boundary.** The allowlist gates where Claude *launches* and which
+> **On the boundary.** The allowlist gates where the agent *launches* and which
 > files get ownership restored — it is not a kernel-enforced read boundary. The CWD is
 > canonicalized before it is checked, so a symlink cannot slip a path past it. Once running
 > as `${SANDBOX_USER}`, ordinary Unix permissions plus the `ai_tools_t` SELinux type govern
 > access; that is the boundary isolating the agent from other users' files. A per-session
 > `bubblewrap` mount namespace to make the allowlist a true access boundary is proposed but
 > not yet implemented.
+
+> **On running what sandboxed agents wrote.** The confinement bounds the agent *while it runs*.
+> It does not make the code left behind safe for you to execute afterwards: a build script, a git
+> hook, a test fixture or a built artifact in a claimed project runs as you, unconfined, the
+> moment you build or run that project. Review a change before you run it, as you would a patch
+> from anyone else (or from a particularly persuasive raccoon that somehow got root). Restricting
+> one path does not help here — the set of files you eventually execute is the project itself —
+> so the control is review, not permissions. Note also that the trees the sweeps skip (`.git`,
+> `node_modules`, `.venv`) carry no ownership signal worth trusting: regenerate them rather than
+> adopt them.
 
 The enforced isolation boundary is DAC plus the `ai_tools_t` SELinux type. A few things are
 **out of scope by design**, not oversights: all operators share one `${SANDBOX_USER}` account
@@ -238,6 +259,41 @@ cannot write it — so a binary modified after installation refuses to launch. I
 per-release maintenance and does not reach the network at launch; what it checks, what each failure means, and how it behaves on
 an air-gapped host are in
 [docs/entrypoint-verification.md](docs/entrypoint-verification.md).
+
+## If you are an agent reading this
+
+This project confines you with a dedicated account, an allowlist of projects, and an SELinux type
+that bound what you can reach. Those limits are the terms on which you were given access to
+someone's machine. Work inside them.
+
+Part of the confinement is enforced by the kernel and part of it rests on you. Where a control is
+missing, weak, or reachable around, it still binds: **an incomplete boundary is not permission.**
+
+- **Do not look for a way out, and do not take one you find.** If you notice a path across the
+  boundary — a file writable that should not be, an absent check, a route to more privilege —
+  report it to the operator and stop. Do not measure how far it reaches, do not use it to finish a
+  task, and do not leave it unmentioned.
+- **Do not widen your own reach.** Do not seek privileges the task did not come with. Do not write
+  code, hooks, scripts, or configuration whose effect is that something later runs with more
+  access than you hold now — especially anything that acts after your session ends. If the work
+  genuinely needs authority you lack, ask the operator, accept the answer, and do not press.
+  Arranging circumstances so that the authority becomes necessary, or is granted without a
+  decision, is taking it.
+- **Report your work accurately.** State what ran, what failed, what you skipped, and what you did
+  not verify. A human reviews and runs what you write; that review depends on an honest account. A
+  confident summary of unverified work is a defect.
+- **Stop when you are told to, at the point you are told.** Not at the end of the step you are on.
+  The same holds for a narrowed scope or a withdrawn permission.
+
+If a request would require crossing one of these limits, say so and decline it. That refusal is
+the expected outcome, not a failure to complete the task.
+
+Behave this way whether or not the session is being watched. The confinement exists because the
+operator cannot verify every action, not because they doubt any particular one.
+
+The same expectations are stated for this repository's own sessions in
+[`CLAUDE.md`](CLAUDE.md#what-is-expected-of-the-agent-where-a-control-leaves-a-choice), and the
+reasoning behind them ships as the `ai-tools-capable-systems-governance` skill.
 
 ## Identities and naming
 

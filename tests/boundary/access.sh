@@ -53,21 +53,23 @@ for _sec in .ssh .gnupg .aws .kube .docker/config.json .netrc .config/gh/hosts.y
     fi
 done
 
-# Secret-pattern library (640 root:root) defines what filenames trigger quarantine. The lib
-# dir (0751 root:ai-tools) is traversable, but the file's group is root, so traversal does not
-# imply read. If readable, the agent could route secrets through a name not in the list.
+# Secret-pattern library (644 root:root) defines what basenames trigger quarantine. READ is
+# deliberately open: the built-in list is the public baseline and ships in the source repo, so
+# the installed copy holds only what is already published. WRITE is the boundary -- an agent that
+# could edit the matcher would decide its own classification. The operator's own patterns are
+# not in this file; they live in the 700 .config/ai-tools dir asserted above.
 splib=/usr/local/lib/ai-tools/secret-patterns.lib.sh
-if ! runuser -u "${SANDBOX_USER}" -- test -r "${splib}" 2>/dev/null; then
-    pass "cannot read ${splib} (640 root:root): secret classifier is opaque to the agent"
+if ! runuser -u "${SANDBOX_USER}" -- test -w "${splib}" 2>/dev/null; then
+    pass "cannot write ${splib} (644 root:root): the agent cannot redefine what counts as a secret"
 else
-    fail "can read ${splib} -- agent can inspect the secret-pattern matcher and avoid triggering it"
+    fail "can write ${splib} -- agent can edit the secret-pattern matcher and avoid triggering it"
 fi
 
-# Skip-dir library (640 root:ai-tools) is sourced by session-hook.sh while it runs AS the
-# agent. Group read is intentional and required; the content is not sensitive.
+# Skip-dir library (644 root:root) is sourced by session-hook.sh while it runs AS the
+# agent. World read is intentional and required; the content is not sensitive.
 skip_dirs_lib=/usr/local/lib/ai-tools/skip-dirs.lib.sh
 if runuser -u "${SANDBOX_USER}" -- test -r "${skip_dirs_lib}" 2>/dev/null; then
-    pass "can read ${skip_dirs_lib} (640 root:ai-tools): required by session-hook.sh at runtime"
+    pass "can read ${skip_dirs_lib} (644 root:root): required by session-hook.sh at runtime"
 else
     fail "cannot read ${skip_dirs_lib} -- session-hook.sh will fail to source the skip list"
 fi
@@ -102,6 +104,21 @@ if ! runuser -u "${SANDBOX_USER}" -- test -w "${sf}" 2>/dev/null; then
 else
     fail "can write ${sf} -- agent could add permissions.allow rules, remove deny rules, or drop hooks"
 fi
+
+# The orientation text is what every session in every project is told about its own boundaries,
+# before it does anything. A session that could edit it would decide what the next session believes
+# about the sandbox -- the shared file and the per-agent link both, since either end serves the
+# same read. The runtime half of this pair is integration/perms.sh (modes) and
+# unit/managed-assets.sh (a real file at the link's path is never displaced).
+for _orient in /opt/ai-tools/orientation /opt/ai-tools/orientation/AGENTS.md; do
+    if [[ ! -e "${_orient}" ]]; then
+        skip "${_orient}" "shipped orientation not seeded on this host"
+    elif ! runuser -u "${SANDBOX_USER}" -- test -w "${_orient}" 2>/dev/null; then
+        pass "cannot write ${_orient}: agent cannot rewrite what every session is told about its boundaries"
+    else
+        fail "can write ${_orient} -- agent could rewrite the orientation every future session loads"
+    fi
+done
 
 # Even without file write, a group-writer of the DIRECTORY could unlink+recreate the file.
 # The sticky bit on .claude (3770) forbids that: you can only unlink a file you own OR in a
@@ -185,17 +202,20 @@ else
     fail "cannot execute ${shook} -- stop-sweep / session-start silently skipped"
 fi
 
-# The control-plane home root is drwxr-s--- (2750 ${PROJECTS_USER}:${SANDBOX_GROUP}): the agent
-# (group r-x) traverses and reads but must NOT create new top-level entries, or it could drop
-# files that shadow control assets or escape its own subtrees (.nvm/.cache). Probed with a real
-# create attempt; the probe is removed whether or not it (wrongly) succeeded.
+# The control-plane home root is root:${SANDBOX_GROUP} at CP_HOME_MODE (control-plane.lib.sh,
+# asserted in integration/perms.sh). Three parts of that mode matter here: SETGID, so an entry
+# born under it stays in the sandbox group; group r-x, so the agent traverses and reads but must
+# NOT create new top-level entries, or it could drop files that shadow control assets or escape
+# its own subtrees (.nvm/.cache); and o+x, which lets an operator readlink the launcher without
+# listing the directory. This probe covers the middle one with a real create attempt; the probe
+# is removed whether or not it (wrongly) succeeded.
 _homeprobe="/opt/ai-tools/.test_homelock_$$"
 runuser -u "${SANDBOX_USER}" -- touch "${_homeprobe}" 2>/dev/null || true
 if [[ -e "${_homeprobe}" ]]; then
     rm -f "${_homeprobe}"
-    fail "agent created ${_homeprobe} -- /opt/ai-tools is not locked (expected drwxr-s--- ${PROJECTS_USER}-owned)"
+    fail "agent created ${_homeprobe} -- /opt/ai-tools is not locked (expected root-owned at CP_HOME_MODE)"
 else
-    pass "cannot create files in /opt/ai-tools (drwxr-s---): agent confined to its own subtrees"
+    pass "cannot create files in /opt/ai-tools (root-owned, no group write): agent confined to its own subtrees"
 fi
 
 # The sandbox account's systemd --user manager runs unconfined (ai-tools maps to unconfined_u),

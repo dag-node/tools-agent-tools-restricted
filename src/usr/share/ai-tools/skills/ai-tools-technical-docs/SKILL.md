@@ -3,8 +3,8 @@ name: ai-tools-technical-docs
 # ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the name above is stable.
 x-ai-tools-managed: true
 x-ai-tools-status: draft
-x-ai-tools-version: 2
-x-ai-tools-updated: 2026-09-05
+x-ai-tools-version: 3
+x-ai-tools-updated: 2026-09-06
 description: >
   Technical writing standard for every software engineering artifact.
 
@@ -39,6 +39,23 @@ which inputs, producing which outputs and state changes.
 
 Write as an experienced software engineer. The register is that of a specification or a good
 API reference — not a legal document, a policy memo, an essay, or a product page.
+
+**These rules exist to make prose plainer, so the plain version wins.** Where following a rule
+makes a sentence harder to read than the obvious wording, write the obvious wording. Two rules
+that pull against each other are resolved the same way, rather than by satisfying both at once —
+a sentence shaped to clear every rule in this file is the failure this tiebreaker exists to
+prevent.
+
+The **load-bearing** rules outrank plainness, because breaking one changes what the prose claims
+rather than how it reads. They are named here by their own headings, so the set resolves without
+a paraphrase to interpret:
+
+- *Rewriting existing prose* and *Carry four things through every edit*
+- *Name the fail direction from the branch that decides it*
+- *Label every example of prose this standard rules out*
+- *One home per fact, and a pointer everywhere else*
+
+Everything else in this file is style, and yields to the plain version.
 
 ## Know the reader before writing
 
@@ -123,6 +140,16 @@ as a count of some set the sentence never named. Keep the sentence and mark the 
 `prose-check: allow` — in Markdown as `<!-- prose-check: allow -->`, which the checker reads and
 the rendered page does not show.
 
+**Name the party behind a pronoun that a clause has separated from it.** The defect is the
+distance, not the pronoun: once a clause stands between pronoun and party, `them` leaves the
+reader to work out which party is meant.
+
+- In style: `The agent reads messages from the inbox, so an agent that freezes leaves the messages unread.`
+- Off style: `The agent reads messages from the inbox, so an agent that freezes leaves them unread.`
+
+Do not stack vague references in one clause. A `that`, an `it`, and a `them` together turn one
+unclear word into an unclear sentence.
+
 ### Domain vocabulary points at a mechanism
 
 `grant`, `claim`, `authority`, and `privilege` are correct when they name something in the
@@ -169,8 +196,12 @@ that comes second.
 ### Affirmative framing is structural
 
 State what the reader can rely on. Prefer "X is available when ⟨condition⟩" to "X fails unless
-⟨condition⟩" where both state the same fact. Describe what a component does rather than what it
-does not do.
+⟨condition⟩" where both state the same fact.
+
+That condition bounds the rule. A negation carrying something the positive form does not — a
+prohibition, a refusal, a defect to avoid — stays negative, because turning it around costs the
+reader an inference to recover the instruction that was already there: "Do not copy a row into a
+header" says it, where "A copied row goes stale" leaves them to work out what to do about it.
 
 Turning a negation positive is sound over a set provably disjoint from the one the negation
 excluded, and nowhere else; where that does not hold, keep the negation and write it with `does
@@ -223,7 +254,7 @@ aphorisms and slogans, philosophical framing, and marketing language.
 
 ## Sentence craft
 
-### Rationale is the payload — state it as a fact
+### Rationale is the payload — state it as a mechanism, not as a figure
 
 Purpose is what prose exists to carry. The code already shows what happens, so a header earns
 its place by recording why: the constraint that forced the choice, the alternative rejected, the
@@ -235,10 +266,13 @@ Explaining why attracts every figure in *Rhetorical figures* below: contrast ("r
 check"). Each states the reason as a figure instead of a mechanism, so a reader cannot check it
 against the code.
 
-State the reason as a fact about the code, and name the constraint behind it — an external
-requirement, a kernel quirk, an ordering dependency. A "so that ⟨outcome⟩" clause is the usual
-join. A because-, so-that-, or rather-than-sentence is the cue to re-read it against that table.
-Run the check while drafting.
+Name the mechanism the reason rests on, and the constraint behind it — an external requirement, a
+kernel quirk, an ordering dependency. A "so that ⟨outcome⟩" clause is the usual join. A because-,
+so-that-, or rather-than-sentence is the cue to re-read it against that table. Run the check while
+drafting.
+
+This governs how a reason is **phrased**, and it is not a rule about mood: a passage whose job is
+to tell the next writer what to do opens with the instruction, and the reason follows it.
 
 **Attach purpose where the reason is non-obvious, and nowhere else.** A named construction turns
 into a slot a writer fills, and a document whose every sentence makes a causal claim reads as
@@ -297,6 +331,11 @@ Restating in full is warranted only when the **perspective** changes:
 The same perspective covered twice means one copy is redundant. Choose the surface whose
 reader needs the detail, write it there, and point at it from the others.
 
+**Keep a declared registry in one place.** Where code declares a table — of groups, verdicts,
+options, or exit codes — name the registry in prose and leave the rows in that declaration. Do
+not copy a row into a header or a rule file: a copied row goes stale the moment the table
+changes, and the table changes in the other file.
+
 ### Prose covers purpose and why; the code shows what
 
 A reader should follow *how* something works from the code alone. Prose carries the intent and
@@ -318,6 +357,20 @@ Two habits do most of the work:
 - Merge sentences that share a subject.
 - Cut any fact already carried by this file, by the code below it, or by the domain rule that
   owns it. Each fact has one home.
+
+**Write the shape, not the count.** A count of what the code declares — four log levels, two
+buckets, seven options — goes stale on the next addition, and it goes stale in a file far from
+the one that changed. Name the set instead: *the log levels the writer emits* holds however many
+the code grows to.
+
+**A word that implies a count is a count.** *both*, *the two*, *either*, *the pair*, *neither*
+fix the size of a set as firmly as a numeral, and they break the same way: a third config file, a
+third sink, a third verdict turns *seeds both* into a sentence that is wrong about what it
+describes and does not point at the member it left out. They also fail more quietly than a
+numeral, because *both* reads as a pronoun rather than as a claim. Name what is counted —
+*seeds the operator's config files*, *writes to every sink the logger holds* — and keep the
+closed-set word only where the set is closed **by construction** and named in the same sentence,
+as *both halves of a pinned-fd check* is by the check having a before and an after.
 
 **Length is a symptom, never a budget.** Prose that approaches the size of the code it describes
 usually means the code has stopped being self-descriptive; the fix is to make the code say it.
@@ -400,6 +453,11 @@ Substituting a synonym for that token instead clears the check and keeps the def
 
 Reading the source also answers what no rule decides in the abstract — arity among them.
 
+**Review the whole sentence, not only the flagged token.** A check highlights one word, yet the
+rest of the sentence came from the same pass and is equally likely to be wrong. Before moving on,
+re-read the count, the mechanism name, and the fail direction that stand beside the token. Do not
+treat a corrected token as evidence that the sentence has been reviewed.
+
 ## Carry four things through every edit
 
 Check each one before accepting a rewrite. A change that moves any of them has changed the claim.
@@ -408,7 +466,8 @@ Check each one before accepting a rewrite. A change that moves any of them has c
   secrets`, never `contains only settings`: a setting can be a token, so the second stops justifying
   the `644` mode the first was written to justify.
 - **The number.** Keep a plural plural and a singular singular. `does not carry any secrets` says
-  the contents and the secrets do not intersect; `must not hold a secret` says one of them is absent.
+  the contents and the secrets do not intersect, where the narrowed `must not hold a secret` says
+  only that one of them is absent.
 - **The modality.** Keep `never`, `always`, `cannot`, `only`, and `must` where the original used
   one, and name the guard that backs it in the same sentence. Do not trade an absolute for `not`;
   *Back an absolute with its check* has the cases where the absolute itself goes.
@@ -442,6 +501,15 @@ python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --kept <base
 the two sides of the diff and reports a dropped term, a narrowed number, and a weakened modality —
 three of the four above. The fourth, a dropped fact, has no check, so read for it. Both modes
 report and neither decides: whether two sets are disjoint is not a question a regex answers.
+
+Two points about running the checks:
+
+- **For a multi-part change, baseline each pass at the tip of the previous part.** `--kept`
+  accepts any revision range, so `--kept <rev>` reports only the findings belonging to the part
+  in hand, rather than every change since the branch point.
+- **When comparing an `--all` run from before an edit with one from after, compare the finding
+  text rather than whole lines.** An edit shifts line numbers, and a line-wise `comm` then treats
+  every finding that merely moved as new.
 
 ---
 
@@ -525,6 +593,13 @@ advisory.
   "previously", and dates of discovery. Git carries that.
 - Attach purpose as the guarantee a behaviour provides.
 - Describe the system, rather than predicting what a person will do with it.
+- **Name the fail direction from the branch that decides it.** State what happens when an input
+  is missing, unreadable, or untrusted, and whether that outcome increases or decreases access.
+  Do not write "fails closed" from the shape of a sentence — over code that defaults open, it
+  documents a property the implementation lacks. Where access increases, record the reason the
+  code or the design already gives, never one composed to fit: an opening with no reason on
+  record, or one contradicting a guarantee stated elsewhere, is a finding to raise with the
+  operator, and *Resolve a doc/code conflict* has which side moves.
 - Where the system acts on its own, name the visibility or override path — log, notice,
   confirmation, review point — in the same place, and say who confirms an irreversible or
   outward-facing action.
@@ -532,6 +607,17 @@ advisory.
 **Altitude across tiers.** A root `CLAUDE.md` holds global invariants and routes to the rest. A
 `*.rule.md` holds the principles common to its domain plus the cross-file story. A file header
 holds that file's local mechanism.
+
+Put a fact in the always-loaded layer only where it holds across the whole project and a reader
+needs it in every session. Send a domain's mechanism to that domain's document **even where it
+qualifies an invariant the router states** — write the qualification at invariant altitude and
+point at the document that carries how it works. A file mode, a test path, a `file:line`
+reference, or a verdict token is the mark of a domain document rather than of a router, and
+`prose-check.py` reports each of them there.
+
+State that boundary inside the router itself. A rule scoped to `*.rule.md` paths does not load
+while the router is open, so a constraint on the router must be written in the router to be
+present in the sessions that edit it.
 
 **Code, header, and rule describe one system at three altitudes**, each in the present tense, so
 touching any of them obligates reconciling the others at the time of writing — in the direction
@@ -581,9 +667,14 @@ subject here, so the current-state rule above does not apply.
 - **Operator-facing, not commit-facing.** "Command output is filtered by default, which saves
   tokens" over "narrow command output through root-owned rule sets". Mechanism belongs in the
   commit and the rule file.
+- **One entry per change the reader experiences, not per commit.** A feature built over nine
+  commits is one entry; a commit that only moved code is none. Reconcile the set once, before a
+  release, from what the version gained as a whole.
 - **One or two sentences per entry.** Depth comes from a link to the issue, PR, or doc.
-- **Grouped so a scan works** — Added, Changed, Deprecated, Removed, Fixed, Security, or the
-  project's established headings. Breaking changes appear in one place.
+- **Grouped so a scan works** — Keep a Changelog's six categories (ADDED, CHANGED, DEPRECATED,
+  REMOVED, FIXED, SECURITY), or the project's established headings mapped onto them. Breaking
+  changes appear in one place. SECURITY is a category rather than a severity note: an entry
+  belongs there because a reader's exposure changes, whether the change opens or closes it.
 - **Internal churn does not produce an entry** — tests, formatting, CI, version bumps.
 - **Present the gain plainly.** A reader should finish an entry knowing what they get, without
   the entry sounding like it is being sold.
@@ -654,6 +745,12 @@ Use structured templates so fields survive into the journal or the log store.
 
 # Anti-patterns
 
+**Label every example of prose this standard rules out.** A document that has to contain bad
+prose marks it as bad — an *Off style* prefix, a ✗ column, or the imperative it violates stated
+first. Never leave a defect standing as a neutral description of what some wording achieves: read
+without the surrounding argument, an unlabelled example is followed as an instance of the
+standard.
+
 ## Rhetorical figures
 
 Name the figure and it becomes greppable. Each of these is a *shape*, not a word, so a
@@ -680,6 +777,7 @@ vocabulary filter cannot see any of them.
 | `Improved reliability / Various fixes` | `Fixed HttpClient retry on 429; corrected timezone parsing in date fields` |
 | Changelog entry describing the mechanism | Entry describing what the caller or operator gains |
 | Commit body as long as the diff | Two short paragraphs: the why, and where the detail lives |
+| Correcting the flagged token and committing the sentence | Rewriting the whole sentence from the source it describes |
 | Rambling multi-sentence doc comment | One-line contract; a second sentence for a real precondition |
 | Bulleted list narrating each behaviour | Connected prose; bullets for true enumerations |
 | Slogan or abstract principle | The observable outcome, or the concrete rule that produces it |
@@ -705,24 +803,51 @@ Scan the finished text for each of these, since every one is checkable:
     sentences sharing a subject — merge them. (Length is the symptom, not the test: prose the
     size of its code says the code stopped being self-descriptive, and prose that is merely
     short has not thereby passed.)
+11. A person predicted rather than a system described: "if you want", "you should", "users
+    will", "a host that wants it enforced".
+12. Domain mechanism in the always-loaded layer: a file mode, a test path, or a `file:line`
+    reference in a root `CLAUDE.md` or `AGENTS.md`.
+13. A count of what the code declares, including the words that imply one — "both", "the two",
+    "the pair" — where the set can grow. Name the set instead.
+
+**Before committing, name the file each behavioural sentence was read from.** Not as a citation
+in the prose — as a check made while editing. Open the code during this edit, and do not let a
+recollection stand for a reading.
+
+**An absence is a claim about your search.** "There is no rationale for this mode", "no standard
+covers this", "the reason is documented nowhere" — each asserts that a fact is missing from every
+place it could live, which is a far larger claim than finding one. Before writing or acting on it,
+name the tiers that could hold it and check each: the router, the domain rule, the file header,
+the inline comment, the **tests**, the packaging, and the external convention the artifact belongs
+to. Two of those are the ones that get skipped. A **boundary test** is where a project records
+that a state is unreachable, so a mode or a refusal with no rule explaining it may be justified
+there and nowhere else. And **this standard is itself one of the tiers** — a question about how to
+write a changelog entry, a doc comment, or a commit message is answered here before it is answered
+anywhere else. An absence claim that has not covered them reports where you looked, not what is
+there.
 
 **A finding names a symptom. Fix the claim, not the token** — the procedure is *Rewrite from the
 source* above, and it applies to a first draft's own findings as much as to a rewrite pass.
 
 **Run the checkable ones.** `prose-check.py` ships beside this file and reports items 2, 3, 4, 5,
-7 and 9 plus the `does not` rule, so the pass is a command rather than an act of attention:
+7, 9, 11 and 12 plus the `does not` rule, so the pass is a command rather than an act of
+attention:
 
 ```bash
 python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py <file>...
 ```
 
-It reads rejoined sentences, reports, and does not block. Items 4 and 9 and the `does not` rule
-run by default and are near-exact, as does item 5's cost half — it reports a cost word only where
+It reads rejoined sentences, reports, and does not block. Items 4, 9, 11 and 12 and the `does
+not` rule run by default and are near-exact — item 11 on a short vocabulary of person-naming
+subjects, item 12 only in a root `CLAUDE.md` or `AGENTS.md`, where each of its three marks names
+one thing — as does item 5's cost half — it reports a cost word only where
 the sentence does not name a frequency or a bounded operation, so one already stated concretely
 stays silent. `--all` adds the shape checks, each of which greps a sub-shape
 of its rule, because the rules themselves are about meaning: a word stem repeated across the pivot
 is the mirror in item 3 and the restated head noun in item 2, and an absolute in a sentence with
-no subordinating conjunction has nowhere for item 5's guard clause to be. It also carries the two
+no subordinating conjunction has nowhere for item 5's guard clause to be, and a count word with no
+noun after it and no correlative beside it is item 13's set left unnamed — where a following noun
+(`both files`) or an enumeration (`both the manifest and the key`) names it. It also carries the
 checks a rewrite needs a reader for — the `does not` rule in its past and participle inflections,
 and the verbs that name no operation. Every `--all` check wants a reader on each hit. `--kept` is
 the rewrite mode, described under *Run the checks a rewrite needs*.

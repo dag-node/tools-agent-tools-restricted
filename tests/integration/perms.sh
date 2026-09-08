@@ -51,7 +51,7 @@ check_file /usr/sbin/ai-tools-admin                           root              
 check_file /usr/local/lib/ai-tools                            root              "${SANDBOX_GROUP}" 751
 # Secret-pattern matcher: read only by the root helpers, so 640 root:root -- no group/world
 # surface. The agent (group ai-tools) cannot read it.
-check_file /usr/local/lib/ai-tools/secret-patterns.lib.sh     root              root              640
+check_file /usr/local/lib/ai-tools/secret-patterns.lib.sh     root              root              644
 # Skip-dir list/selector: 644 root:root -- world-readable, sourced by the root helpers,
 # session-hook.sh (runs as the agent), and the CLI's claim drift scan (runs as the
 # projects user, not in ai-tools). Carries no secrets: the names are documented.
@@ -62,7 +62,7 @@ check_file /usr/local/lib/ai-tools/log.lib.sh                 root              
 # Project-label library: 640 root:root -- read only by root principals (ai-tools-relabel and
 # install-selinux.sh). No group/world surface; the unprivileged CLI inlines its read-only
 # label check instead of sourcing it.
-check_file /usr/local/lib/ai-tools/relabel.lib.sh             root              root              640
+check_file /usr/local/lib/ai-tools/relabel.lib.sh             root              root              644
 # Operator-identity resolver: 644 root:root -- world-readable like log.lib.sh; sourced by the
 # root helpers (ai_tools_handback_t) and the agent hooks (ai_tools_t) to read operator.conf.
 check_file /usr/local/lib/ai-tools/operator.lib.sh           root              root              644
@@ -182,6 +182,15 @@ check_file /opt/ai-tools/.claude/settings.json               root              "
 # delegate definitions -- every agent and every future session reads.
 check_file /opt/ai-tools/skills                               root              "${SANDBOX_GROUP}" 750
 check_file /opt/ai-tools/subagents                            root              "${SANDBOX_GROUP}" 750
+check_file /opt/ai-tools/orientation                          root              "${SANDBOX_GROUP}" 750
+# The orientation text itself, not only its root: it is what every session in every project loads
+# before anything else, so an agent-writable copy would let one session rewrite what the next one
+# is told about its own boundaries.
+if [[ -e /opt/ai-tools/orientation/AGENTS.md ]]; then
+    check_file /opt/ai-tools/orientation/AGENTS.md            root              "${SANDBOX_GROUP}" 640
+else
+    skip "/opt/ai-tools/orientation/AGENTS.md" "shipped orientation not seeded on this host"
+fi
 _cp_lib=/usr/local/lib/ai-tools/control-plane.lib.sh
 # shellcheck source=/dev/null
 if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_agent_config_dirs >/dev/null 2>&1; then
@@ -217,6 +226,28 @@ if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_agent_config_dirs >/de
             fi
         done < <(ai_tools_agent_asset_dirs "${_field}")
     done
+    # The orientation text arrives the same way, but at a name the manifest supplies rather than
+    # the asset's own -- and at the one path each agent reads as user-scope instructions. A COPY
+    # here is the same fork the asset kinds guard against; a real file that is not ours is an
+    # operator's own instructions, which the linker is contracted to keep.
+    if declare -F ai_tools_agent_memory_targets >/dev/null 2>&1; then
+        _memory_found=0
+        while IFS=$'\t' read -r _agent _memory; do
+            _memory_found=1
+            if [[ ! -e "${_memory}" ]]; then
+                skip "${_memory}" "shipped orientation not linked on this host"
+            elif [[ -L "${_memory}" && "$(readlink "${_memory}")" == /opt/ai-tools/orientation/* ]]; then
+                pass "${_memory} is a symlink into /opt/ai-tools/orientation"
+            elif ! grep -qE '^x-ai-tools-managed:[[:space:]]*true' "${_memory}" 2>/dev/null; then
+                skip "${_memory}" "an operator's own instructions sit here (not ai-tools-managed)"
+            else
+                fail "${_memory} is a managed COPY, not a symlink into /opt/ai-tools/orientation -- the orientation text forks per agent"
+            fi
+        done < <(ai_tools_agent_memory_targets)
+        (( _memory_found )) || skip "agent orientation link" "no enabled agent declares a memory_file"
+    else
+        fail "${_cp_lib} does not resolve the agents' memory targets"
+    fi
 else
     skip "agent config directory modes" "${_cp_lib} does not resolve the agents' config dirs"
 fi

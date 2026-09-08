@@ -27,39 +27,45 @@ readonly _AI_TOOLS_CONTROL_PLANE_LIB=1
 # Control-plane home root. The boundary modes below apply to it and its sub-directories.
 readonly CP_HOME=/opt/ai-tools
 
-# Boundary modes (every path is owned root:ai-tools):
-#   CP_HOME_MODE   2751 home root: the agent (group) traverses+reads, setgid keeps files born here
-#                       in the sandbox group, and the o+x search bit lets any operator readlink the
-#                       launcher (the only reach an operator needs into the control plane)
-#   CP_DIR_MODES        per base-owned sub-directory:
-#                     0551 bin     locked -- the agent cannot swap a launcher symlink or the
-#                                  updater; o+x so an operator readlinks bin/<launcher>
+# Boundary modes (every path is owned root:ai-tools). Each mode is the constant below; what it
+# grants:
+#   CP_HOME_MODE   home root: the agent (group) traverses+reads, setgid keeps files born here in
+#                  the sandbox group, and the o+x search bit lets any operator readlink the
+#                  launcher (the only reach an operator needs into the control plane)
+#   CP_DIR_MODES   per base-owned sub-directory:
+#                  bin  locked -- the agent cannot swap a launcher symlink or the updater, since
+#                       the directory denies group write and it does not own it; o+x so an
+#                       operator readlinks bin/<launcher>
 #   CP_AGENT_CONFIG_MODE
-#                     3770 setgid+sticky, applied to EVERY agent's config directory: the agent is
-#                          a group-writer for its own session state but cannot unlink the control
-#                          files (settings, hooks) it does not own
+#                  setgid+sticky, applied to EVERY agent's config directory: the agent is a
+#                  group-writer for its own session state but cannot unlink the control files
+#                  (settings, hooks) it does not own, since sticky allows that only to an entry's
+#                  owner and root owns the directory
 #   CP_INTEGRATIONS        the one root under which every INTEGRATION keeps its sandbox-side
 #                          state, one directory per integration named for its manifest
 #                          (integrations/<name>/...). Base owns the root and its single SELinux
 #                          file-context rule; each integration package owns its own directory and
 #                          chooses the modes inside it, so a new toolchain brings neither policy nor
 #                          dotdir at the home root.
-#   CP_SHARED_SKILLS / CP_SHARED_SUBAGENTS
+#   CP_SHARED_SKILLS / CP_SHARED_SUBAGENTS / CP_SHARED_ORIENTATION
 #                          the one place each SHARED asset kind lives, agent-agnostic: the base
 #                          ships them here and every agent's config directory carries SYMLINKS
 #                          into them rather than copies, so an asset is authored, updated, and
 #                          read in one location. Their modes are CP_DIR_MODES[<kind>] --
 #                          root-owned, agent-readable, not agent-writable.
 readonly CP_HOME_MODE=2751
-readonly -A CP_DIR_MODES=( [bin]=0551 [skills]=0750 [subagents]=0750 [integrations]=0750 )
+readonly -A CP_DIR_MODES=(
+    [bin]=0551 [skills]=0750 [subagents]=0750 [orientation]=0750 [integrations]=0750
+)
 readonly CP_AGENT_CONFIG_MODE=3770
 readonly CP_SHARED_SKILLS="${CP_HOME}/skills"
 readonly CP_SHARED_SUBAGENTS="${CP_HOME}/subagents"
+readonly CP_SHARED_ORIENTATION="${CP_HOME}/orientation"
 readonly CP_INTEGRATIONS="${CP_HOME}/integrations"
 
 # Which agents are installed and enabled, and what each declares, comes from the provider
-# manifests. Loaded best-effort: without it the resolver below yields an empty set, which leaves a
-# caller asserting no agent config directory rather than guessing a path.
+# manifests. Loaded best-effort: without it the resolver below yields an empty set, so a caller
+# does not assert any agent config directory rather than guessing a path.
 # shellcheck source=SCRIPTDIR/providers.lib.sh
 source "${BASH_SOURCE[0]%/*}/providers.lib.sh" 2>/dev/null || true
 
@@ -89,8 +95,8 @@ ai_tools_agent_config_dir_valid() {
 #   every ENABLED agent declares in <manifest-field> (skills_dir, subagents_dir) -- a single
 #   component inside that agent's config directory, so the agent names WHERE its own product
 #   expects a kind of asset while the layout under the home stays ours. An agent that declares
-#   none is given no links of that kind: the shared assets are in the Claude Code format, so an
-#   agent that cannot read that format simply does not ask.
+#   none is given no links of that kind: the shared assets are in the Claude Code format, which
+#   an agent that cannot read it leaves unset.
 ai_tools_agent_asset_dirs() {
     declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 0
     local field="$1" agent config_dir asset_dir
@@ -98,6 +104,23 @@ ai_tools_agent_asset_dirs() {
         asset_dir="$(ai_tools_agent_manifest_field "${agent}" "${field}" || true)"
         ai_tools_agent_config_dir_valid "${asset_dir}" || continue
         printf '%s\t%s/%s\n' "${agent}" "${config_dir}" "${asset_dir}"
+    done < <(ai_tools_agent_config_dirs)
+    return 0
+}
+
+# ai_tools_agent_memory_targets : print "agent<TAB>absolute-path" for the file every ENABLED
+#   agent declares in `memory_file` -- the name its own product reads as user-scope instructions,
+#   loaded in every session in every project (CLAUDE.md for Claude Code). One component inside
+#   that agent's config directory, validated exactly as config_dir is, so a manifest names a file
+#   beneath the home and cannot address a path outside it. An agent that declares none is given
+#   no orientation link, the same way it is given no links of an asset kind it cannot read.
+ai_tools_agent_memory_targets() {
+    declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 0
+    local agent config_dir memory_file
+    while IFS=$'\t' read -r agent config_dir; do
+        memory_file="$(ai_tools_agent_manifest_field "${agent}" memory_file || true)"
+        ai_tools_agent_config_dir_valid "${memory_file}" || continue
+        printf '%s\t%s/%s\n' "${agent}" "${config_dir}" "${memory_file}"
     done < <(ai_tools_agent_config_dirs)
     return 0
 }

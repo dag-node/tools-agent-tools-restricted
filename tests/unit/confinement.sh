@@ -3,8 +3,9 @@
 # tests/unit/confinement.sh
 # Unit test for the SELinux launch-gate decision (confinement.lib.sh): the pure
 # ai_tools_confinement_verdict that ai-tools-run's fail-closed preflight dispatches on. Drives the
-# truth table over the four probed inputs -- getenforce, the matchpathcon-expected label, the
-# live label, the manager domain -- with no SELinux host required, so a regression in the gate
+# truth table over the five probed inputs -- getenforce, module presence, the matchpathcon-expected
+# label, the live label, the manager domain -- and the operator's AI_TOOLS_REQUIRE_SELINUX switch,
+# with no SELinux host required, so a regression in the gate
 # (an inverted condition, a swallowed refusal) fails here rather than reaching production as an
 # UNCONFINED launch. Sources the deployed library; does not need privilege of its own. Run as root via
 # sudo (suite contract).

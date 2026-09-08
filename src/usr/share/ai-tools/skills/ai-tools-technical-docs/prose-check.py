@@ -22,7 +22,9 @@
 # same security boundary afterwards. Three shapes, each a way an edit reads as tidying and lands
 # somewhere weaker:
 #
-#   dropped    a security or access-control term the added prose does not restate. The usual case
+#   dropped    a security or access-control term the added prose does not restate -- a noun
+#              (`secret`, `privilege`, `permission`) or the verb naming the operation the sentence
+#              permits or refuses (`read`, `execute`, `map`). The usual case
 #              is a swapped set -- `carries no secrets` becomes `contains only settings`, which
 #              reads better and stops justifying the 644 mode it was written to justify, because a
 #              setting can be a token.
@@ -45,6 +47,12 @@
 # One default check carries a second condition for the same reason the `--all` ones do:
 # `unbacked-cost` needs a cost word AND no frequency and no bounded operation in the sentence,
 # either of which is what a reader checks the claim against.
+#
+# One default check reads the PATH as well as the sentence:
+#
+#   invariant-altitude a file mode, a test path, or a `file:line` reference in a root CLAUDE.md or
+#                      AGENTS.md. Each is the mark of a domain rule rather than of a document that
+#                      holds global invariants and routes to the rest.
 #
 # `--all` adds the shape checks. Each one greps a sub-shape of its rule -- the half a regex can
 # see -- because the rules themselves are about meaning: "an absolute with no guard in the same
@@ -127,12 +135,29 @@ def unbacked_cost(sentence):
     return match
 
 
+# A person as the subject of a prediction, where reference prose describes the system instead.
+# Two shapes: a reader handed a choice (`if you want`, `you should`), and a system given a
+# preference (`a host that wants it enforced`), which writes an install invariant as something
+# someone opted into.
+#
+# The vocabulary is small on purpose, because a default check runs on every file and three
+# neighbouring registers are correct: `a reader should` in an advisory document, `you can set X`
+# in a man page, and `the reader` or `the caller` naming a FUNCTION rather than a person -- so the
+# subjects here are the two that name a person outright, and the modals are the two that predict
+# rather than instruct.
+PREDICTED_ACTION = re.compile(
+    r"\b(?:if you (?:want|need|prefer|wish)"
+    r"|you (?:should|will)"
+    r"|(?:that|who) wants?"
+    r"|(?:users?|operators?) will)\b", re.I)
+
 # Each entry is (name, pattern, hint). The hint is what to write instead, since a report naming
 # only the defect leaves the reader to rediscover the fix on every hit.
 DEFAULT_CHECKS = [
     ("fronted-quantifier", FRONTED_QUANTIFIER, None),  # hint derived; see suggest()
     ("nothing", re.compile(r"\bnothing\b"), "name the absent input"),
     ("unbacked-cost", unbacked_cost, "name the frequency or the bounded operation"),
+    ("predicted-action", PREDICTED_ACTION, "state what the system does, or give the instruction"),
 ]
 
 # Third-person singular endings that need more than a dropped "s".
@@ -222,6 +247,47 @@ def vague_verb(sentence):
     return match
 
 
+# A word that fixes a set's size the way a numeral does. `both`, `the two` and `the pair` break
+# on the next member exactly as `two` does -- a third config file turns `seeds both` into a
+# sentence that is wrong about what it describes -- and they break more quietly, because they
+# read as pronouns rather than as claims.
+#
+# Only the PRONOUN form is reported: the word standing where its members would be named, as the
+# subject or the object of the clause (`both are best-effort`, `seeds both`, `the two agree`).
+# `both files` and `the two strategies` name what is counted, which is what the rule asks for, so
+# a following noun is left alone -- as is a sentence that enumerates its members beside the word
+# (`both the manifest and the key`, `A and B both hold`), since a reader there can see what a
+# third member would join.
+#
+# `either` and `neither` are out of the set: their common forms are the correlative (`neither
+# owner nor group member`) and the adverb (`the probe could not report that either`), which are
+# different words rather than counts, and reporting them buries the shape this names.
+CLOSED_SET_COUNT = re.compile(
+    r"\b(both|the two|the pair)\b"
+    r"(?=\s*(?:[.,;:)]|$)"
+    r"|\s+(?:is|are|was|were|has|have|had|do|does|did|can|could|may|must|should|would|will"
+    r"|stay|stays|stayed|remain|remains|remained|fail|fails|failed|apply|applies|applied"
+    r"|agree|agrees|agreed|hold|holds|held|run|runs|ran)\b)", re.I)
+
+# The members named beside the count, on either side of it: `both the manifest and the key`
+# enumerates them after, `A and B both hold` before. The window is short, because further off an
+# `and` joins the next clause rather than the second member.
+CORRELATIVE_AFTER = re.compile(r"^(?:\W*\w+){0,6}?\W*\b(and|or|nor)\b", re.I)
+CORRELATIVE_BEFORE = re.compile(r"\b(and|or|nor)\b(?:\W*\w+){0,6}?\W*$", re.I)
+
+
+def closed_set_count(sentence):
+    """A closed-set count word standing in place of the members it counts."""
+    match = CLOSED_SET_COUNT.search(sentence)
+    if not match:
+        return None
+    if CORRELATIVE_AFTER.match(sentence[match.end():]):
+        return None
+    if CORRELATIVE_BEFORE.search(sentence[:match.start()]):
+        return None
+    return match
+
+
 EXTRA_CHECKS = [
     ("mirrored-clause", lambda s: mirrored(s, MIRROR_PIVOT),
      "state the fact once, in one direction"),
@@ -231,6 +297,8 @@ EXTRA_CHECKS = [
     ("vague-verb", vague_verb, "name the operation: permits, transmits, states, shows"),
     ("history", re.compile(r"\b(used to|previously|was changed|formerly)\b"),
      "state current behaviour"),
+    ("closed-set-count", closed_set_count,
+     "name the set, unless it is closed by construction and the sentence says so"),
     ("filler", re.compile(r"\b(simply|obviously|clearly|basically|naturally|effectively"
                           r"|actually|essentially|robust|elegant|powerful|flexible)\b"),
      "cut it"),
@@ -259,12 +327,56 @@ def is_prose_file(path):
 # A rewrite that drops one of these has probably changed the claim; see the `--kept` heading above.
 # The access-control nouns are here for the same reason as the secrets: `grants nothing on` rewritten
 # as `leaves untouched` reads better and stops saying anything about access.
+#
+# The access VERBS are here for a third reason: each one names the operation a sentence permits or
+# refuses, so a rewrite that drops one changes which operation the sentence is about. The defect
+# this reports, stated as the check sees it -- removed `may not read other users' files`, added `no
+# rule grants access to them` -- keeps the vocabulary of access while retiring the claim about
+# reading, which is why the other two kinds stay silent on it.
+#
+# A special bit and an ACL entry are named here for a fourth reason: in this domain one of them is
+# often the mechanism rather than a detail of it -- setgid on a shared directory is what makes a
+# file born there carry the group, sticky is what stops a group-writer unlinking a file it does not
+# own, and the ACL mask is what a `setfacl -m` recalculates and a `setfacl -n` preserves. A rewrite
+# that renders `drwxr-s--x` as "group r-x" reads as a tidy-up and retires the bit that does the
+# work, so the whole permission vocabulary is matched as terms: the octals in every spelling, the
+# symbolic modes, the ten-character renderings, an ACL entry with its own colon syntax, the
+# setfacl flag that decides whether the mask is recalculated, and the link vocabulary a refusal
+# rests on (lstat over stat, nlink, no-dereference). A mode CHANGED in place reports the same way
+# as one removed, since the old spelling leaves the added side either way. The trailing branches
+# sit outside the `\b` group because each begins or ends with a character that is not a word
+# character, so they carry their own boundaries.
+#
+# Every octal reduces to the number alone, with no owner attached: `750` and `750 root:root` name
+# one mode, so matching the pair as a second token would report a mode as dropped each time a
+# rewrite restated it with its owner. The owner is a term in its own right instead -- an
+# `owner:group` pair, in the spellings this domain writes it in (`root:root`, `<you>:<you>`,
+# `${PROJECTS_USER}:${SANDBOX_GROUP}`, `root:@SANDBOX_GROUP@`) -- since which account holds a path
+# is a claim of the same order as which bits it carries, and a rewrite that renames the owner
+# changes who may reach the file. A trailing sentence period is left out of the match, so the same
+# pair at the end of a sentence reduces to the same term.
+#
+# A bare three-digit octal is the one loose thread: it also matches a count. Measured at 273
+# sentences in this repo, of which the sample was 13 modes to 1 count, and it reports only when
+# the number leaves a hunk, so the reading cost is a fraction of that.
 INVARIANT_TERMS = re.compile(
     r"\b(secret|secrets|credential|credentials|token|password|privilege|privileged|sudo"
     r"|world-readable|root-only|owner-only|unprivileged|untrusted|trusted|forge|forged|tamper"
     r"|escalate|escalation|fail-closed|fail closed|confine|confined|allowlist|refuses|refuse"
     r"|grant|grants|granted|permission|permissions|acl|acls|ownership|setgid|readable|writable"
-    r"|0[0-7]{3}|[0-7]{3,4} root:)\b", re.I)
+    r"|read|reads|write|writes|execute|executes|search|searches|traverse|traverses|list|lists"
+    r"|append|appends|relabel|relabels|connect|connects|map|maps"
+    r"|setuid|suid|sticky|umask|mask"
+    r"|symlink|symlinks|hardlink|hardlinks|hardlinked|nlink|lstat|dereference|dereferences"
+    r"|nosuid|noexec|nodev"
+    r"|0[0-7]{3}|[1-7][0-7]{3})\b"
+    r"|(?<![\w-])(?:[ugoa][-+=][rwxstXST]*|--x|[-dlbcps][-rwxsStT]{9}"
+    r"|no-dereference|O_NOFOLLOW)(?![\w-])"
+    r"|(?<![\w./-])[0-7]{3}(?![\w/-])"
+    r"|(?<![\w])(?:default:|d:)?(?:user|group|other|mask|u|g|o|m):[\w@{}$-]*:[rwxXst-]+"
+    r"|(?:set|get)facl\s+-[a-zA-Z]+"
+    r"|(?<![\w:@${}<>.-])(?:[A-Za-z_]|[@${<][\w@${}<>-]*)[\w@${}<>.-]*"
+    r":(?:[A-Za-z_]|[@${<][\w@${}<>-]*)(?:[\w@${}<>.-]*[\w@}>])?(?![\w:@${}<>-])", re.I)
 
 # The nouns among those terms, which are the ones whose NUMBER carries a claim: a set of secrets
 # either intersects the file's contents or it does not. A verb's inflection carries none, so
@@ -276,7 +388,39 @@ NARROWABLE_TERMS = re.compile(
 # swaps a universal for a single instance, and `carries no secrets` restated as `must not hold a
 # secret` swaps a fact for an obligation; both read as tidying and both retire what the sentence
 # guaranteed. Reported when the removed prose carried one and the added prose does not.
-MODALITY = re.compile(r"\b(never|always|cannot|must not|only)\b", re.I)
+#
+# The RFC 2119 verbs are in the set because this standard writes reference prose in that register,
+# where each one fixes how binding a sentence is: a `must` demoted to a plain present tense turns a
+# constraint the code was built to satisfy into a report of what it happens to do, which reads as a
+# description a later editor may update rather than a rule they would be breaking. Each negation is
+# spelled before its bare form, so the alternation prefers the longer match and `must not` weakened
+# to `must` is reported rather than absorbed. The RFC's adjectives (REQUIRED, RECOMMENDED,
+# OPTIONAL) stay out: they are ordinary words here -- `Required and fail-closed`, `the optional
+# third arg` -- so reporting them would bury the verbs that do carry the claim.
+# A contraction is matched beside its long form, and each one is spelled before the bare stem it
+# begins with, so `mustn't` reads as `must not` rather than as `must` with a suffix left over. The
+# apostrophe may be either the ASCII or the typographic one, since a document carries whichever its
+# author typed. `will not`/`won't` stay out: `will` fixes when something happens, not how binding
+# it is, and the standard reserves it for genuinely future behaviour.
+MODALITY = re.compile(
+    r"\b(never|always|only"
+    r"|cannot|can[’']t"
+    r"|must not|mustn[’']t|must"
+    r"|shall not|shan[’']t|shall"
+    r"|should not|shouldn[’']t|should"
+    r"|may not|may)\b", re.I)
+
+# The long form each contraction carries, applied to both sides before they are compared. The
+# guideline is to write the long form, so swapping one for the other is a wording change that does
+# not produce a finding, while dropping either form does.
+CONTRACTIONS = {
+    "can't": "cannot", "mustn't": "must not", "shan't": "shall not", "shouldn't": "should not",
+}
+
+
+def _modal(word):
+    """The long form of a modal, so a contraction and its expansion compare equal."""
+    return CONTRACTIONS.get(word.replace("’", "'"), word)
 
 
 MESSAGE = "<message>"  # the path a commit message is reported under
@@ -430,6 +574,20 @@ def diff_hunks(revisions):
 
 
 def _singular(term):
+    """The unmarked form of a term, so an inflection alone does not read as a dropped claim.
+
+    The `-es` endings need more than a dropped `s`, the same ones `base_form` names: `searches`
+    reduced to `searche` would never match the `search` on the other side of the diff, and the
+    verb would report as dropped on every rewrite that only changed its number.
+
+    A term that is not a word is returned as it stands. A mode does not take a plural, and the `s`
+    that ends `g+s` is the setgid bit, so reducing it would compare a claim about setgid against
+    one about `g+` and report a bit that never moved.
+    """
+    if not term.isalpha():
+        return term
+    if term.endswith(_ES_ENDINGS):
+        return term[:-2]
     return term[:-1] if term.endswith("s") and not term.endswith("ss") else term
 
 
@@ -441,12 +599,17 @@ def hunk_prose(path, lines):
             yield text
 
 
-def vocabulary(path, lines, pattern, singularize=False):
-    """The matches of `pattern` in the prose among these lines, lowercased."""
+def vocabulary(path, lines, pattern, singularize=False, normalize=None):
+    """The matches of `pattern` in the prose among these lines, lowercased.
+
+    `normalize` folds forms that carry one claim onto a single token, so a rewrite between those
+    forms does not produce a finding while dropping the claim does.
+    """
     found = set()
     for text in hunk_prose(path, lines):
-        found.update(_singular(match.group(0).lower()) if singularize else match.group(0).lower()
-                     for match in pattern.finditer(text))
+        for match in pattern.finditer(text):
+            word = _singular(match.group(0).lower()) if singularize else match.group(0).lower()
+            found.add(normalize(word) if normalize else word)
     return found
 
 
@@ -485,8 +648,8 @@ def kept_findings(revisions):
             if _singular(term) != term and _singular(term) in now:
                 yield path, "narrowed", f"{term} -> {_singular(term)}", context_line(removed, term)
 
-        for word in sorted(vocabulary(path, removed, MODALITY)
-                           - vocabulary(path, added, MODALITY)):
+        for word in sorted(vocabulary(path, removed, MODALITY, normalize=_modal)
+                           - vocabulary(path, added, MODALITY, normalize=_modal)):
             yield path, "weakened", word, context_line(removed, word)
 
 
@@ -519,13 +682,50 @@ def author_prose(path, text):
     return span.sub(" -- ", text)
 
 
-def findings(source, checks):
+# The always-loaded layer: a root CLAUDE.md or AGENTS.md, which holds global invariants and routes
+# to the rest. Every mark below is ordinary in the domain document it routes to and is altitude
+# drift here, so this check reads the PATH and is scoped to these two names rather than joining
+# the shape checks.
+INVARIANT_LAYER = ("CLAUDE.md", "AGENTS.md")
+
+# A file:line reference, a test path, and a file mode -- bare, backticked, or carrying its owner.
+# These read the RAW sentence: a backticked span is the signal here, not the noise `author_prose`
+# blanks everywhere else.
+#
+# Each mark names one thing, which is what keeps the check readable. Counting backticked
+# identifiers instead -- three in a sentence as the mark of mechanism -- reports the register a
+# router is written in: a document naming an account, a group and a shim in one invariant is
+# routing, not drifting, so the count reports the file rather than a passage in it.
+MECHANISM_MARK = re.compile(r"`[^`]+:\d+`"
+                            r"|\btests?/[\w./-]+"
+                            r"|\b0[0-7]{3}\b|`[0-7]{3,4}`|\b[0-7]{3,4} [a-z][\w-]*:")
+
+
+def invariant_altitude(path, sentence):
+    """A mark of domain mechanism in a router file, where the invariant belongs without it."""
+    return MECHANISM_MARK.search(sentence) if path.endswith(INVARIANT_LAYER) else None
+
+
+# Checks that read the path as well as the sentence, and the sentence unblanked. They run by
+# default: each mark names one thing, so the report is near-exact, and the hook that runs the
+# default set is where a writer is standing when the mechanism goes in.
+PATH_CHECKS = [
+    ("invariant-altitude", invariant_altitude,
+     "state the invariant here; the mechanism belongs in the domain's rule, with a pointer"),
+]
+
+
+def findings(source, checks, path_checks=()):
     for path, number, sentence in sentences(source):
         subject = author_prose(path, sentence)
         for name, check, hint in checks:
             match = check.search(subject) if hasattr(check, "search") else check(subject)
             if match:
                 yield path, number, name, match.group(0), suggest(name, match, hint), sentence
+        for name, check, hint in path_checks:
+            match = check(path, sentence)
+            if match:
+                yield path, number, name, match.group(0), hint, sentence
 
 
 def main():
@@ -576,7 +776,7 @@ def main():
         source = file_lines(args.paths)
 
     count = 0
-    for path, number, name, token, hint, text in findings(source, checks):
+    for path, number, name, token, hint, text in findings(source, checks, PATH_CHECKS):
         count += 1
         print(f"{path}:{number}: {name} [{token}] -- {hint}")
         print(f"    {text[:110]}")

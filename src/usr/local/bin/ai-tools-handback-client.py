@@ -7,21 +7,21 @@
 #
 # Connects to /run/ai-tools/handback.sock (AF_UNIX SOCK_STREAM), sends one
 # "VERB ARG\n" request, reads the response, relays MSG lines to stderr (so the
-# calling hook can surface NOTICEs in the Claude Code session), and exits 0 on
+# calling hook can surface NOTICEs in the agent's session), and exits 0 on
 # OK or 1 on ERR/error.
 #
-# Replaces `sudo ai-tools-{chown,setgid,launcher-symlink}` everywhere it was
-# called from the agent process tree.  Those sudo calls fail silently under NNP
-# (PR_SET_NO_NEW_PRIVS, forced by RestrictNamespaces=yes in the session service
-# unit) because NNP drops the SUID bit on sudo, leaving it running as
-# @SANDBOX_USER@ instead of root -- unable to read /etc/sudoers or switch UID.
-# This client avoids SUID entirely: it connects a socket that only root and
-# @SANDBOX_GROUP@ members can reach (0660 SocketGroup=@SANDBOX_GROUP@), and the
-# daemon authenticates the connection via SO_PEERCRED.
+# This is how the agent process tree reaches ai-tools-{chown,setgid,launcher-symlink}.
+# A `sudo` call cannot serve there: under NNP (PR_SET_NO_NEW_PRIVS, forced by
+# RestrictNamespaces=yes in the session service unit) sudo loses its SUID bit and
+# keeps running as @SANDBOX_USER@ -- unable to read /etc/sudoers or switch uid -- so
+# the call fails silently.  This client uses no SUID at all: it connects a socket
+# only root and @SANDBOX_GROUP@ members can reach (0660 SocketGroup=@SANDBOX_GROUP@),
+# and the daemon authenticates the connection via SO_PEERCRED.
 #
-# Deploy: install.sh deploys src/usr/local/bin/ai-tools-handback-client.py
-# to /usr/local/bin/ai-tools-handback-client (750 root:@SANDBOX_GROUP@,
-# @SANDBOX_GROUP@ substituted by install_subst).
+# Installed 750 root:@SANDBOX_GROUP@ as ai-tools-handback-client, with @SANDBOX_GROUP@
+# substituted at install: the group execute bit is what lets a session run it, and root
+# ownership is what stops the session rewriting it. Deploying from a checkout:
+# docs/install-from-source.md.
 
 import socket
 import sys
@@ -59,7 +59,7 @@ def main():
                     line = line.rstrip('\n')
                     if line.startswith('MSG '):
                         # Relay helper stderr (NOTICEs, warnings) to our stderr so
-                        # the hook surfaces them in the Claude Code session.
+                        # the calling hook surfaces them in the agent's session.
                         sys.stderr.write(line[4:] + '\n')
                     elif line == 'OK':
                         sys.exit(0)

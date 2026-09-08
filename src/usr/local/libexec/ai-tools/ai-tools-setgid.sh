@@ -26,9 +26,8 @@
 # Invocation: the handback socket's SETGID verb (ai-tools-handback daemon, root).
 #   Not a sudo target -- ai-tools has no sudo rights.
 #
-# Deploy:
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-setgid.sh /usr/local/libexec/ai-tools/ai-tools-setgid
+# Installed 750 root:root, so only root runs it. Deploying from a checkout:
+# docs/install-from-source.md.
 
 set -euo pipefail
 
@@ -68,11 +67,11 @@ readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
-# Secret-name matcher (defense in depth): never apply the sandbox group to a dir
-# whose basename looks like a secret (e.g. .env), so a private dir is not exposed
-# to the agent group even if the operator forgot to '!'-exclude it. We run as root,
-# so we can read the 640 root:root lib. Best-effort -- the '!' allowlist exclusions
-# remain the authoritative control; if the matcher cannot load, fall back to them.
+# Secret-name matcher (defense in depth): the walk below skips a dir whose basename looks
+# like a secret (e.g. .env), so a private dir is not exposed to the agent group when the
+# operator did not '!'-exclude it. Best-effort, unlike ai-tools-chown's fail-closed load:
+# the '!' exclusions are the authoritative control, so a matcher that will not load leaves
+# the exclusions as the only skip instead of stopping the claim.
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 _secret_loaded=false
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
@@ -85,8 +84,8 @@ _is_secret_name() {
 }
 
 # Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the
-# reference for both). Required and fail-closed like safe-paths.lib.sh: an unusable library
-# must not leave this walk unable to recognize a sealed directory.
+# reference for the seal and the strip alike). Required and fail-closed like safe-paths.lib.sh:
+# an unusable library must not leave this walk unable to recognize a sealed directory.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/owner-only.lib.sh
 source /usr/local/lib/ai-tools/owner-only.lib.sh
 if ! declare -F ai_tools_is_owner_only >/dev/null 2>&1 \
@@ -112,10 +111,21 @@ ai_tools_assert_safe_target "${canonical}" "setgid normalization" || exit 3
 ai_tools_resolve_owner "${canonical}" || exit 0
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
 
+# Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser the
+# allowlist is read with -- end-of-line comments, and quotes for a path carrying a space or a
+# literal '#'. REQUIRED like safe-paths.lib.sh: the bare source under set -e aborts if it is
+# missing, rather than leaving a bare filter that would mis-read an entry ai-tools-chown reads
+# correctly, so a path this walk skips is one the handback still acts on. Include-guarded.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
+source /usr/local/lib/ai-tools/conf.lib.sh
+
 declare -a allowed=()
 declare -a excluded=()
 while IFS= read -r entry || [[ -n "${entry}" ]]; do
-    [[ -z "${entry}" || "${entry}" == '#'* ]] && continue
+    # One shared grammar (conf.lib.sh): whole-line and end-of-line comments, and quotes for a
+    # path carrying a space or a literal '#'. A line that does not denote an entry is skipped.
+    ai_tools_conf_path_entry "${entry}" || continue
+    entry="${_ai_tools_conf_value}"
     if [[ "${entry}" == '!'* ]]; then
         excluded+=("${entry:1}")              # strip leading !, keep raw (may glob)
     else
@@ -125,7 +135,8 @@ while IFS= read -r entry || [[ -n "${entry}" ]]; do
 done < "${ALLOWLIST}"
 
 # _is_excluded <abs-path>: 0 if covered by a '!' rule. A plain path also covers its
-# contents; a glob matches as-is. Same semantics as ai-tools-chown / ai-tools-lockdown.
+# contents; a glob matches as-is. Same semantics as ai-tools-chown / ai-tools-lockdown,
+# which read the allowlist through the same conf.lib.sh grammar.
 _is_excluded() {
     local path="$1" pat
     [[ "${#excluded[@]}" -gt 0 ]] || return 1

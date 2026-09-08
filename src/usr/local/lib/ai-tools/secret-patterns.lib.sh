@@ -12,9 +12,17 @@
 # The user edits it; ai-tools -- neither its owner nor in its group, and unable to enter the
 # 700 .config/ai-tools dir -- can neither read nor write it; the root helpers read it on the
 # user's behalf.
-# This mirrors how allowed-projects is owned and consumed. When the file is
-# absent or parses to an empty set, the built-in defaults below apply, so
-# classification never silently degrades to an empty pattern set.
+# This mirrors how allowed-projects is owned and consumed. A config file REPLACES the
+# defaults rather than adding to them, and the defaults below apply when it is absent or
+# parses to an empty set, so classification never silently degrades to an empty pattern set.
+#
+# Do not edit the defaults below on a deployed host. The file is rpm-owned and not %config,
+# so an upgrade overwrites it and a local edit is lost without a .rpmsave copy. The list is
+# the PUBLIC baseline -- the names credential files carry across software in general -- and
+# does not hold any name specific to one deployment. A change belongs in one of two other
+# places: a project- or organization-specific name goes in the operator's 600 config above,
+# and a name missing from the general baseline goes upstream as a pull request. The baseline
+# is incomplete by construction, since it tracks conventions that keep appearing.
 #
 # Config-file format: one pattern per line; '#' comments and blank lines ignored;
 # surrounding whitespace trimmed. Patterns are basename globs matched
@@ -29,28 +37,34 @@ if [[ -n "${_AI_TOOLS_SECRET_PATTERNS_LIB:-}" ]]; then
 fi
 readonly _AI_TOOLS_SECRET_PATTERNS_LIB=1
 
-# Built-in fallback, used only when the config file is missing or empty. Kept in
-# sync with src/home/user/.config/ai-tools/secret-patterns (install.sh seeds the config file from
-# it) and with the inline list this replaced in ai-tools-chown.sh. Basename-safe
-# globs only (no bare 'config' etc. that would match innocuous files); matching
-# is case-insensitive, so a single stem covers its case variants. The .NET config
-# patterns are anchored to a name (appsettings/web/connectionstrings/…) or an
-# environment segment, deliberately NOT broad '*.*.json'/'*.*.config' catch-alls
-# that would also quarantine build artifacts the toolchain must read
-# (deps.json, runtimeconfig.json, project.assets.json, MyApp.dll.config).
+# Built-in baseline, in force whenever the operator's config file is missing or parses to an
+# empty set -- the state on a host where that operator has never written a pattern. Basename-safe globs
+# only (no bare 'config' that would match innocuous files); matching is case-insensitive, so one
+# stem covers its case variants. The .NET entries are anchored to a name
+# (appsettings/web/connectionstrings/…) or an environment segment rather than to an extension --
+# secret-handling.rule.md states what a broad '*.*.json' catch-all would quarantine.
 readonly -a _AI_TOOLS_DEFAULT_SECRET_PATTERNS=(
-    '.env' '.env.*' 'env' '.environment' '.environment.*' 'environment'
+    '.env' '.env.*' '*.env' 'env' '.envrc' '.environment' '.environment.*' 'environment'
     'secret' 'secrets' 'usersecrets' 'private' 'secret.*' 'secrets.*' '*.secret'
     '*.credential' 'credential' 'credentials' 'credentials.*'
+    'password' 'passwords' 'password.*' 'passwords.*'
+    'apikey' 'apikeys' 'api_key' 'api_keys' '*.apikey'
+    'token' 'tokens' '.token' '*.token'
     'id_rsa' 'id_dsa' 'id_ecdsa' 'id_ed25519' 'authorized_keys'
-    '*.ppk' '*.pem' '*.key' '*.priv' '*.p12' '*.pfx' '*.crt' '*.pkcs12'
-    '*.jks' '*.keystore' '*.p8' '*.asc' '*.gpg'
-    'kubeconfig' '.pgpass' '.git-credentials' '.dockercfg' '.htpasswd'
-    '.npmrc' '.pypirc' '.netrc'
+    '*.ppk' '*.pem' '*.key' '*.priv' '*.p12' '*.pfx' '*.pkcs12'
+    '*.jks' '*.keystore' '*.p8' '*.gpg' '*.kdbx' '*.ovpn'
+    'secring' 'secring.*' 'privkey' 'privkey.*'
+    'kubeconfig' '*.kubeconfig' '.pgpass' '.git-credentials' '.dockercfg' '.htpasswd'
+    '.npmrc' '.pypirc' '.netrc' '.boto' '.s3cfg' '.my.cnf' 'my.cnf' '.mylogin.cnf'
+    '.vault-token' 'vault_pass' 'vault_pass.*'
+    '*.tfvars' '*.tfstate' '*.tfstate.backup'
+    'service-account.json' 'service-account-*.json' '*-service-account.json'
+    'client_secret.json' 'client_secret_*.json' 'application_default_credentials.json'
+    '*.publishsettings' '*.pubxml.user' '*.mobileprovision'
     'connectionstrings.*.json' 'ConnectionString.*.config'
     'commonsettings.*.json' 'CommonSettings.*.config'
     'appsettings.*.json' 'AppSettings.*.config' 'web.*.config' 'App.*.config'
-    '*.DEV.*' '*.STAGE.*' '*.PROD.*' '*.C1_DEV.*' '*.C2_STAGE.*' '*.C3_PROD.*'
+    '*.DEV.*' '*.STAGE.*' '*.PROD.*'
     '*.Development.*' '*.Staging.*' '*.Production.*'
 )
 
@@ -76,6 +90,59 @@ ai_tools_load_secret_patterns() {
     [[ "${#AI_TOOLS_SECRET_PATTERNS[@]}" -gt 0 ]] \
         || AI_TOOLS_SECRET_PATTERNS=("${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}")
     _AI_TOOLS_PATTERNS_LOADED=1
+}
+
+# ai_tools_secret_patterns_file: print the config path the loader reads for the operator resolved
+# so far, whether or not it exists. One resolution shared by the loader and by any caller that
+# reports WHICH file is in force, so a report cannot name a path other than the one that was read.
+ai_tools_secret_patterns_file() {
+    printf '%s\n' "${AI_TOOLS_SECRET_PATTERNS_FILE:-${PROJECTS_HOME:-}/.config/ai-tools/secret-patterns}"
+}
+
+# ai_tools_secret_patterns_drift: print how the set in force differs from the shipped baseline, as
+# one line naming the file, what it ADDS, and what of the baseline it DROPS. Prints nothing and
+# returns 1 when the two agree -- which is also the missing-file and empty-file case, since the
+# loader falls back to the baseline there, so a host that has written no patterns is silent.
+#
+# It exists because the operator's file REPLACES the baseline (secret-handling.rule.md) rather than
+# extending it, which makes a stale copy silently NARROWER than what ships: a host that wrote its
+# own file keeps quarantining what it listed then, and nothing added upstream since. That gap is
+# invisible from every side -- the agent cannot read the file, and a classification that did not
+# happen produces no output -- so the launch wrapper reports it once per session. The DROPPED
+# patterns are the half that matters: each one is a credential name this host no longer
+# quarantines.
+#
+# Compared as a SET (sorted, de-duplicated), so a reordered or repeated copy of the baseline reads
+# as agreement. Each list is capped, because the report is a prompt to re-read the file rather than
+# a replacement for reading it.
+ai_tools_secret_patterns_drift() {
+    [[ -n "${_AI_TOOLS_PATTERNS_LOADED:-}" ]] || ai_tools_load_secret_patterns
+    local -a live baseline added dropped
+    mapfile -t live < <(printf '%s\n' "${AI_TOOLS_SECRET_PATTERNS[@]}" | LC_ALL=C sort -u)
+    mapfile -t baseline < <(printf '%s\n' "${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}" | LC_ALL=C sort -u)
+    [[ "${live[*]}" != "${baseline[*]}" ]] || return 1
+    mapfile -t added < <(LC_ALL=C comm -23 <(printf '%s\n' "${live[@]}") <(printf '%s\n' "${baseline[@]}"))
+    mapfile -t dropped < <(LC_ALL=C comm -13 <(printf '%s\n' "${live[@]}") <(printf '%s\n' "${baseline[@]}"))
+    printf 'secret patterns: %s replaces the shipped baseline -- adds %d%s; drops %d%s\n' \
+        "$(ai_tools_secret_patterns_file)" \
+        "${#added[@]}"   "$(_ai_tools_secret_patterns_list added)" \
+        "${#dropped[@]}" "$(_ai_tools_secret_patterns_list dropped)"
+    return 0
+}
+
+# Render an array name as " (a, b, c, +N more)", or nothing when it is empty. Capped at 12: a
+# journald line is read at a glance, and the file itself is the place to read the whole set.
+_ai_tools_secret_patterns_list() {
+    local -n _arr="$1"
+    local -i cap=12 n="${#_arr[@]}"
+    (( n )) || return 0
+    local shown
+    shown="$(printf '%s, ' "${_arr[@]:0:cap}")"; shown="${shown%, }"
+    if (( n > cap )); then
+        printf ' (%s, +%d more)' "${shown}" "$(( n - cap ))"
+    else
+        printf ' (%s)' "${shown}"
+    fi
 }
 
 # ai_tools_is_secret_basename <basename>: return 0 if the basename matches any

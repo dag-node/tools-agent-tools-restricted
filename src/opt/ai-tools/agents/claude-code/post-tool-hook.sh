@@ -16,20 +16,22 @@
 # allowlist is enforced authoritatively by ai-tools-chown, which runs as root
 # and CAN read it (and is the real security boundary regardless).
 #
-# This hook only decides, cheaply and as ai-tools, whether a handback call is
-# even worth making. It exits early -- without calling the client -- when:
+# This hook only decides, as ai-tools and from one stat, whether a handback call is
+# worth making. It exits early -- without calling the client -- when:
 #   - the tool input does not contain a file path
 #   - the file is not owned by ai-tools (already handed back, or never agent-written)
 #
 # Ownership handback is delegated to the socket privilege bridge
 # (/usr/local/bin/ai-tools-handback-client), which connects to
-# ai-tools-handback.socket (a root daemon) and sends a CHOWN request.  This
-# replaces the former `sudo ai-tools-chown` calls, which fail silently under
-# NNP (PR_SET_NO_NEW_PRIVS, forced by RestrictNamespaces=yes in the session
-# service unit) because NNP drops sudo's SUID bit before it can switch uid.
+# ai-tools-handback.socket (a root daemon) and sends a CHOWN request. A `sudo
+# ai-tools-chown` call cannot serve here: the session runs under NNP
+# (PR_SET_NO_NEW_PRIVS, forced by RestrictNamespaces=yes in the session service
+# unit), which drops sudo's SUID bit before it can switch uid, so the call fails
+# silently.
 #
-# Deploy: sudo install -o ai-tools -g ai-tools -m 750 \
-#             src/opt/ai-tools/agents/claude-code/post-tool-hook.sh /opt/ai-tools/.claude/post-tool-hook.sh
+# Installed 750 root:ai-tools: the session executes it through the group and cannot rewrite it,
+# which is what keeps the handback it performs out of the agent's control (see
+# ownership-and-hooks.rule.md). Deploying from a checkout: docs/install-from-source.md.
 
 set -euo pipefail
 
@@ -48,14 +50,11 @@ readonly HANDBACK_CLIENT="/usr/local/bin/ai-tools-handback-client"
 
 # ── The tool-call record's content bound ─────────────────────────────────────────
 # These two constants ARE the bound on what a session's command line can put into the
-# audit trail, so they are named and stated here rather than buried as literals inside
-# the jq program below. Widening either widens what the trail carries; the reasoning
-# for the current values is in format_tool_call_record and pinned in logging.rule.md.
-# 128 rather than a tighter figure because a PATH is the common second word (`cd <dir>`,
-# `mkdir <dir>`, `dotnet build <proj>`) and a cap that truncates one mid-directory removes
-# exactly the part that identifies it. This is not the bound that matters -- first-line-two-words
-# already bounds the record structurally -- it is the backstop for a single pathological word
-# with no whitespace in it, such as a base64 blob, so it needs only to be finite.
+# audit trail, so they are named here rather than buried as literals inside the jq program
+# below: widening either widens what the trail carries. Two words keep a command
+# distinguishable from its subcommand (`git log` from `git push`); the cap is a backstop for
+# a single pathological word with no whitespace in it, such as a base64 blob, so it only has
+# to be finite. What the bound covers, and why it is not to be widened, is in logging.rule.md.
 readonly MAX_RECORDED_WORD_LENGTH=128
 readonly RECORDED_LEADING_WORD_COUNT=2
 
@@ -67,52 +66,17 @@ readonly RECORD_FIELD_SEPARATOR=$'\037'
 # this event carries, or an empty string when it cannot be read. Never fails the caller.
 #
 # The output is one 0x1F-delimited list: the human-readable MESSAGE first, then zero or more
-# `FIELD=value` pairs for the journal's native structured fields. Both renderings are built
-# here, from one parse, because they must agree -- and they are reduced differently, because
-# they are read differently (see below).
+# `FIELD=value` pairs for the journal's native structured fields. Both are built here from one
+# parse, so they agree, and both drop control characters (`strip_controls`) -- which is what
+# makes the 0x1F delimiter safe to join on and removes the newline that would truncate a
+# journal field. What each rendering carries, and why the MESSAGE is reduced further than the
+# fields, is in logging.rule.md.
 #
-# The line is the only trail of the agent's own ACTIONS: every other record in this system
-# covers a privileged operation performed on the operator's behalf. journald is a sink the
-# agent can append to but can neither edit nor delete, unlike the session transcript under
-# /opt/ai-tools/.claude/projects, which the session owns and can rewrite at will.
-#
-# WHAT IS RECORDED, and why it stops there. For Bash: only the first two words of the
-# command's FIRST LINE (each capped at MAX_RECORDED_WORD_LENGTH, a longer one marked `~`)
-# plus the count of words on that line. Taking the first line excludes a here-doc body by
-# construction rather than by a length cap -- `cat > f <<'EOF'` followed by a credential
-# records `cmd="cat >" argc=4` and no part of the payload -- and two words keep a command
-# distinguishable from its subcommand (`git log` from `git push`). Recording the full
-# command line would make the trail carry unbounded file content.
-#
-# HOW UNTRUSTED INPUT IS REDUCED, and why the two renderings differ. Every value here is
-# agent-supplied -- the tool name and the working directory as much as the command -- and both
-# renderings drop control characters first (`strip_controls`), which is what makes the 0x1F
-# delimiter safe to join on and removes the newline that would truncate a journal field.
-#
-# The MESSAGE is additionally passed through `clamp`, a narrower allowlist keeping printable
-# ASCII MINUS the three characters that delimit it: space, `"` and `=`. In free prose those
-# three are ordinary text -- which is why the shared logger's ai_tools_log_sanitize, a DISPLAY
-# guard against terminal escapes and bidi overrides, permits them -- but in a key=value line
-# they are STRUCTURE, so a word containing them forges fields: a leading word of
-# `git" argc=0 cwd=/etc/passwd` would otherwise render as `cmd="git" argc=0" argc=8`, handing a
-# reader the planted argc. Reducing them to `?` makes the line's shape unforgeable while leaving
-# it readable, and the variable-length part is placed LAST, so no agent-controlled value
-# precedes a field a reader trusts. The class spells the surviving set as its two ranges: `!`
-# (0x21), `#`-`<` (0x23-0x3C, excluding space 0x20 and `"` 0x22), and `>`-`~` (0x3E-0x7E,
-# excluding `=` 0x3D).
-#
-# The structured FIELDS need none of that narrowing: journald's native protocol delimits each
-# field itself, so a value cannot forge a sibling, and escaping is unnecessary. They therefore keep
-# what the MESSAGE reduces -- a path with a space stays a path with a space, where the MESSAGE
-# shows `?` -- and the shared logger applies its display allowlist to each on the way out. The
-# MESSAGE is the lossy human view; the fields are the faithful machine one.
-#
-# The length cap is the one reduction BOTH renderings take, since it bounds a pathological word
-# rather than the record's shape: AI_TOOLS_CMD is capped like the MESSAGE's copy of it, while
-# AI_TOOLS_PATH is not capped at all (a file path is already bounded by PATH_MAX).
-#
-# Extraction runs inside jq rather than the shell, so an unbounded here-doc body is never
-# assigned to a shell variable on its way to being discarded.
+# Two things local to this implementation. `clamp` spells the MESSAGE's narrower allowlist as
+# the ranges that survive it: `!` (0x21), `#`-`<` (0x23-0x3C, excluding space 0x20 and `"`
+# 0x22), and `>`-`~` (0x3E-0x7E, excluding `=` 0x3D). And extraction runs inside jq rather than
+# the shell, so an unbounded here-doc body is never assigned to a shell variable on its way to
+# being discarded.
 format_tool_call_record() {
     local hook_event_json="$1"
     # shellcheck disable=SC2016  # a jq program: every $name below is a jq variable, not shell
@@ -153,15 +117,11 @@ format_tool_call_record() {
 
 # record_tool_call <hook-event-json> -- emit the audit-trail line for this event.
 #
-# A record that cannot be built is never guessed at -- an unreadable event is not evidence of
-# what ran -- but neither is it passed over in silence. Silence here is ambiguous in the one
-# direction that matters: a reader of a trail with no lines in it cannot tell "this session
-# ran no tools" from "the recorder was broken or bypassed", and the second reads as the first,
-# which is worse than no trail at all because it manufactures confidence. So a failure to
-# record is itself recorded, at WARNING, naming the gap. The reason is resolved only on the
-# failure path, so the common case does not pay for it, and `jq` is singled out because its
-# absence degrades every hook in the session (handback and sweeps included), not just this
-# line -- that is a host-level fault an operator must see, not a parse hiccup.
+# An event the parse does not turn into a record is recorded as a gap instead, at WARNING,
+# rather than passed over -- logging.rule.md carries why an empty trail is the one ambiguity
+# that matters. The reason is resolved only on the failure path, so the common case does not
+# pay for it, and a missing `jq` is named separately because it degrades every hook in the
+# session (handback and sweeps included) rather than this line alone.
 record_tool_call() {
     local hook_event_json="$1" formatted_record="" failure_reason=""
     local -a record_parts=()
@@ -185,14 +145,12 @@ record_tool_call() {
 # hand_back_written_path <hook-event-json> -- restore operator ownership of the file this
 # Write/Edit produced, and of any parent directory the write itself created.
 #
-# The handback call is made only for a path the agent itself wrote -- one currently owned by
-# @SANDBOX_USER@ -- which is exactly the set ai-tools-chown will act on (its own owner guard)
-# and the same signal the parent-dir walk uses, so an already-handed-back file
-# (operator-owned, or a quarantined secret) does not call the socket. The root-owned validator
-# does the real work: it checks the allowlist (as root, which can read it), chowns + strips
-# world bits, and for secret-named files revokes ai-tools access and prints a NOTICE. That
-# stderr is deliberately NOT redirected to /dev/null, so Claude Code surfaces the NOTICE in
-# the session.
+# The call is made only for a path currently owned by @SANDBOX_USER@ -- the same set
+# ai-tools-chown will act on under its own owner guard, and the same signal the parent-dir walk
+# below uses -- so an already-handed-back file (operator-owned, or a quarantined secret) does
+# not reach the socket. The root-owned validator does the real work, the allowlist check only
+# it can read included. Its stderr is deliberately NOT redirected to /dev/null, so a
+# secret-file NOTICE reaches the agent's session.
 hand_back_written_path() {
     local hook_event_json="$1" written_file_path="" current_owner_name="" parent_directory=""
 
@@ -206,14 +164,13 @@ hand_back_written_path() {
         "${HANDBACK_CLIENT}" CHOWN "${written_file_path}" || true
     fi
 
-    # Normalize any directories the write just created. Claude Code's Write tool makes
-    # missing parent dirs owned by ai-tools at the agent's umask -- often world-traversable
-    # and never handed back. Walk upward from the file's directory and hand back each
-    # ai-tools-owned dir, stopping at the first dir the agent does NOT own: that is the
-    # pre-existing user tree (the project root and above, which is <you>-owned), so the walk
-    # never leaves the project. The common case -- writing into an existing dir -- breaks on
-    # the first iteration with no socket call. ai-tools-chown re-validates each path against
-    # the allowlist as root.
+    # Normalize any directories the write just created: the Write tool makes missing parent
+    # dirs owned by ai-tools at the agent's umask, often world-traversable, and no event
+    # carries their paths. Walk upward from the file's directory, handing back each
+    # ai-tools-owned dir and stopping at the first dir the agent does NOT own -- the
+    # pre-existing user tree (the project root and above, <you>-owned) -- so the walk stays
+    # inside the project. Writing into an existing dir, the common case, breaks on the first
+    # iteration with no socket call. ai-tools-chown re-validates each path as root.
     parent_directory="$(dirname -- "${written_file_path}")"
     while [[ "${parent_directory}" != "/" && "${parent_directory}" != "." ]]; do
         [[ "$(stat -c '%U' "${parent_directory}" 2>/dev/null || true)" == "@SANDBOX_USER@" ]] || break

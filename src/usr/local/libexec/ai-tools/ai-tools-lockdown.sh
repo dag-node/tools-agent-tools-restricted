@@ -28,9 +28,8 @@
 #       cd /path/to/project
 #       sudo ai-tools-lockdown [--dry-run|-n] [--yes|-y]
 #
-# Deploy:
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh /usr/local/libexec/ai-tools/ai-tools-lockdown
+# Installed 750 root:root, so only root runs it -- which is why the CLI cannot pre-check the
+# path and sudo reaches it instead. Deploying from a checkout: docs/install-from-source.md.
 
 set -euo pipefail
 
@@ -68,8 +67,8 @@ warn() { printf 'ai-tools-lockdown: warn: %s\n' "$*" >&2; }
 die()  { printf 'ai-tools-lockdown: error: %s\n' "$*" >&2; exit 1; }
 
 # Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the
-# reference for both). Required and fail-closed like safe-paths.lib.sh: an unusable library
-# must not leave a locked path carrying the residue that would re-expose it.
+# reference for the seal and the strip alike). Required and fail-closed like safe-paths.lib.sh:
+# an unusable library must not leave a locked path carrying the residue that would re-expose it.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/owner-only.lib.sh
 source /usr/local/lib/ai-tools/owner-only.lib.sh
 if ! declare -F ai_tools_is_owner_only >/dev/null 2>&1 \
@@ -149,11 +148,22 @@ readonly OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"
 SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
 readonly SANDBOX_UID
 
+# Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser the
+# allowlist is read with -- end-of-line comments, and quotes for a path carrying a space or a
+# literal '#'. REQUIRED like safe-paths.lib.sh: the bare source under set -e aborts if it is
+# missing, rather than leaving a bare filter that would mis-read an entry ai-tools-chown reads
+# correctly, so a path this walk skips is one the handback still acts on. Include-guarded.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
+source /usr/local/lib/ai-tools/conf.lib.sh
+
 # ── Allowlist (allow + ! exclude), same parse as ai-tools-chown ──────────────
 declare -a allowed=()
 declare -a excluded=()
 while IFS= read -r entry || [[ -n "${entry}" ]]; do
-    [[ -z "${entry}" || "${entry}" == '#'* ]] && continue
+    # One shared grammar (conf.lib.sh): whole-line and end-of-line comments, and quotes for a
+    # path carrying a space or a literal '#'. A line that does not denote an entry is skipped.
+    ai_tools_conf_path_entry "${entry}" || continue
+    entry="${_ai_tools_conf_value}"
     if [[ "${entry}" == '!'* ]]; then
         excluded+=("${entry:1}")                  # keep raw (may contain glob)
     else
@@ -196,7 +206,7 @@ fi
 ai_tools_load_secret_patterns
 
 # ── Enumerate secret-matching paths under the target ─────────────────────────
-# find -P (default): never follow symlinks; -type f/-type d already exclude them.
+# find -P (the default) does not follow a symlink, and -type f/-type d exclude one anyway.
 ai_tools_skip_find_expr lockdown '' "${target}"
 declare -a expr=( "${target}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
                   '(' -type f -o -type d ')' -print0 )
@@ -259,7 +269,7 @@ if (( ${#sealed[@]} )); then
     ai_tools_log_info "scan${scan_mode}: ${#sealed[@]} owner-only path(s) under ${target}"
 fi
 
-# The confirm comes after the dry-run branch below, not here: a preview must never ask to apply.
+# A preview must not ask to apply: the confirm sits after the dry-run branch below, which exits first.
 #
 # _safe_apply <path>: chmod (file 600 / dir 700) and chown to OWNER through a
 # pinned fd, so a symlink/path swap by ai-tools (a group-writer on the project
@@ -314,14 +324,13 @@ _safe_apply() {
 }
 
 # _safe_seal <path>: strip the sandbox residue from an already-owner-only path, through a pinned
-# fd like _safe_apply. It leaves mode bits and ownership as they are -- it removes only what the sandbox
-# put there (owner-only.lib.sh) -- so unlike _safe_apply it asks for no confirmation.
-# Returns 0 when something was stripped, 1 when there was no residue to strip or the path is out of
-# scope. Sets AI_TOOLS_RESIDUE_SURFACE for the caller (a third-party setgid it declined to clear),
-# and AI_TOOLS_RESIDUE_ACTIONS to what came off.
-# Under --dry-run every gate above still runs and the strip itself reports instead of acting
-# (AI_TOOLS_RESIDUE_DRY_RUN), so the preview is produced by the code that does the work rather
-# than by a second opinion about it.
+# fd like _safe_apply. It leaves mode bits and ownership as they are, removing only what the
+# sandbox put there (owner-only.lib.sh).
+# Returns 0 when something was stripped, 1 when the path does not carry any residue, or is out
+# of scope.
+# Sets AI_TOOLS_RESIDUE_SURFACE for the caller (a third-party setgid it declined to clear), and
+# AI_TOOLS_RESIDUE_ACTIONS to what came off. Under --dry-run the strip reports instead of acting
+# (AI_TOOLS_RESIDUE_DRY_RUN) and every gate here still runs; secret-handling.rule.md has why.
 _safe_seal() {
     local path="$1" expect_ident fd got_ident got_uid got_grp got_mode got_ftype rc
     # Clear it here, not only in the strip: every return below the strip is an early one, and a
@@ -354,11 +363,10 @@ _safe_seal() {
     return "${rc}"
 }
 
-# _seal_pass: run _safe_seal over every enumerated owner-only path and report. One pass serves
-# both modes -- a dry run reports what would come off and applies none of it, an apply reports what
-# did -- so the preview cannot describe a pass other than the one that follows it. Under --dry-run
-# each hit names its path AND what it carries, since "3 paths would change" is not something an
-# operator can check before answering.
+# _seal_pass: run _safe_seal over every enumerated owner-only path and report. One pass serves the
+# preview and the apply alike, which is what keeps a preview describing the run that follows it
+# (secret-handling.rule.md). Under --dry-run each hit names its path AND what it carries, since a
+# count alone is not something an operator can check before answering.
 _seal_pass() {
     declare -i seal_count=0 foreign=0
     local path
@@ -391,8 +399,8 @@ _seal_pass() {
     fi
 }
 
-# A dry run stops here -- but not before previewing the seal pass, which an apply would run too.
-# A preview that covers half of what follows it is the thing a preview exists to prevent.
+# A dry run stops here, after previewing the seal pass an apply would also run: a preview must
+# cover both passes, which is why this branch runs the seal before exiting.
 if ${DRY_RUN}; then
     if (( ${#sealed[@]} )); then
         printf 'ai-tools-lockdown: %d owner-only path(s) under %s, checked for sandbox residue:\n' \
@@ -405,9 +413,8 @@ if ${DRY_RUN}; then
     exit 0
 fi
 
-# Only the secret lock asks. It changes ownership and modes the operator did not choose, whereas
-# the seal pass only ever REMOVES the sandbox's reach from a path the operator already sealed --
-# the same terms on which the claim walks strip, so it runs unprompted.
+# Only the secret lock asks, because it changes ownership and modes the operator did not choose.
+# The seal pass runs unprompted on the terms the header states.
 if (( ${#hits[@]} )) && ! ${ASSUME_YES}; then
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
         ai_tools_msg_confirm \
@@ -438,6 +445,6 @@ if (( ${#hits[@]} )); then
 fi
 
 # ── Seal pass ────────────────────────────────────────────────────────────────
-# Strip the residue from the paths the operator sealed by mode. Reported only when it actually
-# changed something: on a settled tree this is a silent no-op, run after run.
+# Strip the residue from the paths the operator sealed by mode. Reported only when something came
+# off, so on a settled tree this is a silent no-op, run after run.
 _seal_pass

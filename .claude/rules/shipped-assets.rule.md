@@ -4,9 +4,9 @@ paths:
   - "src/usr/local/lib/ai-tools/managed-assets.lib.sh"
 ---
 
-# Shipped assets: shared skills and subagents
+# Shipped assets: shared skills, subagents, and the orientation text
 
-The project ships two kinds of asset, and both are agent-agnostic **content**, so both are shared
+The project ships three kinds of asset, and all are agent-agnostic **content**, so all are shared
 rather than copied per agent:
 
 - **Skills** — prose that shapes how an agent works (how to write documentation, how to weigh a
@@ -14,6 +14,8 @@ rather than copied per agent:
 - **Subagents** — delegate role definitions an agent dispatches to. "Subagent" is this project's
   word; Claude Code calls them "agents" and reads them from `<config dir>/agents/`, which is why
   the manifest maps the two (`subagents_dir=agents`). See `docs/naming-conventions.md`.
+- **Orientation** — one file, `AGENTS.md`, stating what the sandbox refuses. It is the only asset
+  loaded **unconditionally in every session in every project**, which is what shapes it (below).
 
 Each kind is seeded ONCE into its own shared root — `/opt/ai-tools/skills` and
 `/opt/ai-tools/subagents`, both owned by `ai-tools-base` along with the pristine copies — and
@@ -22,9 +24,39 @@ author, one to update, however many agents read it. The formats are Claude Code'
 subagent frontmatter) and are not standardized across products, so an agent that cannot read a
 kind leaves that field unset, and does not take links of that kind.
 
-Ships now: the `ai-tools-reference-architect` agent and three skills —
+Ships now: the `ai-tools-reference-architect` agent, three skills —
 `ai-tools-technical-docs` (the writing standard for every artifact),
-`ai-tools-engineering-principles`, and `ai-tools-capable-systems-governance`.
+`ai-tools-engineering-principles`, and `ai-tools-capable-systems-governance` — and the
+orientation text.
+
+## The orientation text
+
+A session launched in a project that is not this repository gets that project's memory and no
+statement that it is confined, so it learns each boundary by hitting it — and a denial reads as a broken environment rather than
+as an edge, which costs the turns spent working around it. The file states the boundaries a
+session cannot derive from its environment before wasting a turn discovering them.
+
+Three properties follow from it loading in every session, forever, beside each project's own
+memory, and they are what keep it from growing:
+
+- **Every line names a loop it removes**, measured from the session transcripts rather than
+  predicted. A fact that does not end a loop does not earn its tokens.
+- **It routes nowhere.** No "see also", no skill to invoke, no path to read — a route out spends
+  the tokens the file exists to save.
+- **It does not carry conduct.** How an agent behaves at a boundary lives in `CLAUDE.md`, the README's
+  agent section, and the governance skill. The one exception is where the *action* a boundary
+  invites is itself the problem: recording an exec bit with `git update-index --chmod=+x` defers
+  an escalation to the operator's next checkout, so the line that names the failed `chmod` names
+  that too, and says to surface it instead.
+
+**It is not a security control**, and is not argued for as one: an agent inclined to probe is not
+deterred by a file it can read. The enforced invariants hold either way; this saves work.
+
+Its provenance markers ride in an **HTML comment** rather than YAML frontmatter, and it carries
+`x-ai-tools-managed` and `x-ai-tools-version` alone. Every byte is read by the model in every
+session, so a status field and a date would be paid for in every one of them; the seeder's greps
+are line-anchored and see the markers either way. The kind ships no `README.md` — the asset is one
+short file whose content is its own documentation.
 
 An asset is a **tree**, not a file: a skill may carry supporting material beside its `SKILL.md`
 (`ai-tools-capable-systems-governance/references/framework.md` is the normative text its `SKILL.md`
@@ -82,6 +114,21 @@ that kind's directory (`skills_dir`, `subagents_dir`) — the seeder does not na
 links are root-owned inside the agent's setgid+sticky config directory, so a session reads and
 invokes them but cannot repoint one.
 
+### Linking the orientation (`ai_tools_link_agent_memory`)
+
+The orientation text is one file, and the name it lands under is **not its own**: each product
+reads user-scope instructions from one hardcoded filename (`CLAUDE.md` for Claude Code, `AGENTS.md`
+for one following that spelling), so the manifest's `memory_file` supplies it and
+`ai_tools_agent_memory_targets` resolves `<config_dir>/<memory_file>` per enabled agent. A link
+under any other name would simply never be read, which is why the asset linker — which preserves
+names — cannot place it.
+
+Same non-displacing rule otherwise: a correct link is left alone, a stale one repointed, and a
+**real file wins and is reported**. That last case is how an operator keeps their own user-scope
+instructions; the shared text is then not loaded at all, since the path holds one file. An agent
+that declares no `memory_file` is given no link, exactly as one declaring no `skills_dir` is given
+no skills.
+
 **Assumption to hold:** the agent follows a symlinked asset. Claude Code scans its skills and
 agents directories and reads the file beneath, which follows links transparently;
 `tests/integration/perms.sh` asserts a shipped asset of each kind arrives as a link, so a
@@ -91,7 +138,10 @@ regression to per-agent copies (which would silently fork the content) fails the
 
 Every shipped asset's name is prefixed `ai-tools-`: an agent's filename and `name:`
 frontmatter, and a skill's directory and `name:`. The prefix is a distinct namespace, so a
-shipped asset never collides with an agent or skill the operator authored. Shipped assets are
+shipped asset never collides with an agent or skill the operator authored. The orientation text is
+the one exception, and does not need the namespace: its name is fixed on both ends — the seeder
+knows the source filename and the manifest supplies the destination one — so there is no set for it
+to collide within, and the managed marker still decides what may be claimed. Shipped assets are
 self-contained — a cross-reference names a sibling by its `ai-tools-` id (the docs skills and the
 agent reference each other this way), so every reference resolves on a host that has only the
 shipped copies. A shipped asset carries **no** reference to a skill the project does not ship.
@@ -155,7 +205,8 @@ does not ship.
 ## Seeding (`managed-assets.lib.sh`)
 
 `ai_tools_seed_managed_assets <src_root> <live_.claude> <group>` seeds the managed assets.
-It acts on an asset **only** when its name matches `ai-tools-*` **and** its frontmatter carries
+It acts on an asset **only** when its name matches the kind's glob — `ai-tools-*` for skills and
+subagents, the fixed `AGENTS.md` for orientation — **and** its frontmatter carries
 `x-ai-tools-managed: true`, so an operator's own agent/skill is never claimed or overwritten:
 
 - **absent** in the live tree → seeded;
@@ -197,7 +248,7 @@ only what is absent. This mirrors the `.gitignore`/`.gitconfig` reseed (see
 ## SELinux
 
 The live assets need no per-asset file-context rule: the shared root has a static rule in
-`ai_tools.fc` (`/opt/ai-tools/skills(/.*)?` → `ai_tools_home_t`) and an agent's config directory
+`ai_tools.fc` (one per shared root, e.g. `/opt/ai-tools/skills(/.*)?` → `ai_tools_home_t`) and an agent's config directory
 is labelled the same type from its own manifest, so the seeder's `restorecon -R` gives every
 seeded file and link the label the agent (`ai_tools_t`) already reads as home state. The datadir copies stay `usr_t` and are read by root, like the gitignore datadir. See
 [confinement](confinement.rule.md).
@@ -210,3 +261,13 @@ orientation) and the
 behavior, the namespace, or the versioning scheme obligates reconciling all three against the
 code. Adding a shipped asset obligates keeping this rule's `paths:` and the shipped-set list above
 current.
+
+The orientation kind couples further, because its destination is manifest data: the
+`memory_file` field ([providers](providers.rule.md),
+[agent-claude-code](agent-claude-code.rule.md)), `ai_tools_agent_memory_targets`
+(`control-plane.lib.sh`), and the boundaries the text itself states — each line describes an
+enforced behavior documented elsewhere ([launch](launch.rule.md),
+[ownership-and-hooks](ownership-and-hooks.rule.md), [secret-handling](secret-handling.rule.md),
+[claude-settings](claude-settings.rule.md)), so changing one of those behaviors obligates
+re-reading the line that describes it. A line that goes stale is worse than an absent one: it is
+believed.

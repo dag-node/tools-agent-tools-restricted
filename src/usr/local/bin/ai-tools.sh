@@ -719,7 +719,11 @@ reg_allow() {
         fi
         die "could not add ${dir} to ${FOR_OPERATOR}'s allowed-projects"
     fi
-    [[ -f "${ALLOWLIST}" ]] || die "allowlist not found at ${ALLOWLIST} -- run install first"
+    # Enrolment creates this file; a name that reached OPERATORS another way arrives here without
+    # one. Naming the command that writes it keeps that recoverable without a hand-made registry.
+    [[ -f "${ALLOWLIST}" ]] || die "no allowlist at ${ALLOWLIST} -- nothing changed.
+       If this account is meant to run sandboxed sessions, enrol it first with:
+       sudo ai-tools-admin operators add ${USER:-$(id -un)}"
     local before; before="$(allow_state "${dir}")"
     ai_tools_conf_allowlist_add "${ALLOWLIST}" "${dir}" || rc=$?
     case "${rc}" in
@@ -1673,7 +1677,7 @@ cmd_project_claim() {
 
     # ── Review block: the flow headline, the pending-step overview, and the drift
     # reports, so the proceed confirm that closes it covers exactly what was just
-    # shown. Every later block is announced here with a "you will be asked" marker. ──
+    # shown. Every later block is announced here with a `you will be asked` marker. ──
     local heavy=false
     local -a head=("${d}")
     if [[ "${owngap}" == true ]] || ${need_acl} || ${need_label} || (( ${#drift[@]} )); then

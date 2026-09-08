@@ -20,14 +20,13 @@ The socket unit is **enabled by a shipped preset**, `85-ai-tools.preset`
 (`enable ai-tools-handback.socket`, read before the distro's `90-default.preset`), so a package
 install brings the handback up by itself. A bare `%systemd_post`/`install.sh` without the preset
 would leave the unit at the distro default (`disabled`) — a socket that never listens, whose whole
-effect is silent: every `CHOWN` fails, files stay `SANDBOX_USER`-owned, and the tree rots into
+effect is silent: every `CHOWN` fails, files stay `SANDBOX_USER`-owned, and git reports
 "dubious ownership". The preset is applied by `%systemd_post` on **initial install only**, so a
 later operator `systemctl disable` survives upgrades. The socket being down is not a security
 failure — DAC, `ai_tools_t`, and the project `user:<operator>` ACL keep the operator's access
 intact — so the consumers **warn and proceed** rather than fail closed: `ai-tools-run` emits a
-launch-time NOTICE naming the fix, and the sweeps/reclaim skip the walk and report the stranded
-work instead of a count of failed calls (see [ownership-and-hooks](ownership-and-hooks.rule.md)
-and [launch](launch.rule.md)).
+launch-time NOTICE naming the fix, and the sweeps and the reclaim report the stranded work (see
+[ownership-and-hooks](ownership-and-hooks.rule.md) and [launch](launch.rule.md)).
 
 ## Protocol
 
@@ -71,8 +70,8 @@ cannot write the `700` dir (DAC) and stays journald-only. Recorded events: rejec
 (`SO_PEERCRED` mismatch, `WARNING`), malformed or refused requests (`WARNING`), helper
 timeouts/exec failures (`ERROR`), and one `INFO` line per served request (`verb`, peer pid,
 arg, helper result) — a non-zero helper exit stays `INFO`, since it is often a routine skip
-(a path outside the allowlist). Writes are best-effort, never blocking or failing a
-handback. See [logging](logging.rule.md).
+(a path outside the allowlist). Both sinks are wrapped in `try`/`except OSError`, so a failed
+write never blocks or fails a handback. See [logging](logging.rule.md).
 
 ## Files
 

@@ -748,6 +748,8 @@ do_summary() {
     _chk /opt/ai-tools/skills/ai-tools-technical-docs/SKILL.md
     _chk /opt/ai-tools/skills/ai-tools-engineering-principles/SKILL.md
     _chk /opt/ai-tools/.claude/skills/ai-tools-technical-docs
+    _chk /opt/ai-tools/orientation/AGENTS.md
+    _chk /opt/ai-tools/.claude/CLAUDE.md
 
     printf '  %s\n' "${sep}"
     if (( missing == 0 )); then
@@ -916,19 +918,22 @@ do_install() {
     # and the world-execute bit lets an operator (who is NOT a SANDBOX_GROUP member
     # under the multi-operator model) TRAVERSE in to source the world-readable 644
     # libs (msg/log/safe-paths/skip-dirs) by path, without being able to LIST the
-    # dir. The group-restricted 640 files (secret-patterns, relabel) stay protected
-    # by their own modes. No write for anyone but root, so the rules cannot be
-    # altered. Enforce on re-install even when the dir pre-exists.
+    # dir. Every file here is 644 root:root: each one carries shipped logic and a
+    # general list, so none of them holds host- or operator-specific data. No write
+    # for anyone but root, so the rules cannot be altered. Enforce on re-install even
+    # when the dir pre-exists.
     log "/usr/local/lib/ai-tools/"
     ensure_dir 751 root "${SANDBOX_GROUP}" /usr/local/lib/ai-tools
     chown root:"${SANDBOX_GROUP}" /usr/local/lib/ai-tools
     chmod 751 /usr/local/lib/ai-tools
 
-    # Secret-name matcher: read ONLY by the root helpers (ai-tools-chown,
-    # ai-tools-lockdown), so 640 root:root -- no group or world surface; the agent
-    # (not root, group SANDBOX_GROUP) cannot read it at all.
+    # Secret-name matcher: read by the root helpers (ai-tools-chown, ai-tools-lockdown),
+    # and 644 root:root because the built-in list is the PUBLIC baseline of credential
+    # names -- it ships in the source repo, so the on-disk copy holds only what is already
+    # published. The operator's own patterns live in their 600 config, never here. Root-only
+    # write is what stops the agent weakening its own classification.
     log "/usr/local/lib/ai-tools/secret-patterns.lib.sh"
-    install_subst 640 root root \
+    install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/secret-patterns.lib.sh" \
         /usr/local/lib/ai-tools/secret-patterns.lib.sh
 
@@ -1172,12 +1177,12 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/path-dedup.sh" \
         /usr/local/lib/ai-tools/path-dedup.sh
 
-    # Project-label library: 640 root:root -- read ONLY by root principals (the
-    # ai-tools-relabel helper and selinux/install-selinux.sh's sweep). No group or
-    # world surface: the unprivileged CLI does not source it (it inlines its read-only
-    # label check), and the agent never needs it. No tokens to substitute.
+    # Project-label library: 644 root:root -- read by root principals (the ai-tools-relabel
+    # helper and selinux/install-selinux.sh's sweep). It carries SELinux labelling primitives
+    # and resolves project paths at runtime from the allowlist, so it does not hold any
+    # host-specific data to withhold. Root-only write keeps the label rules out of the agent's reach.
     log "/usr/local/lib/ai-tools/relabel.lib.sh"
-    install -o root -g root -m 640 \
+    install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/relabel.lib.sh" \
         /usr/local/lib/ai-tools/relabel.lib.sh
 
@@ -1657,18 +1662,22 @@ do_install() {
     # ai-tools-* assets carrying x-ai-tools-managed are touched, an operator's own is never
     # claimed, and an existing managed asset updates only on confirm (default keep). See
     # managed-assets.lib.sh and shipped-assets.rule.md.
-    log "/usr/share/ai-tools/{skills,subagents} (pristine managed assets)"
+    log "/usr/share/ai-tools/{skills,subagents,orientation} (pristine managed assets)"
     install -d -o root -g root -m 755 /usr/share/ai-tools
     local _kind _shared
-    for _kind in skills subagents; do
+    for _kind in skills subagents orientation; do
         rm -rf "/usr/share/ai-tools/${_kind}"
         cp -rT "${SCRIPT_DIR}/src/usr/share/ai-tools/${_kind}" "/usr/share/ai-tools/${_kind}"
+        # A from-source install copies the working tree, where a local import of a shipped script
+        # leaves a bytecode cache beside it. It is gitignored, so a CI build from a fresh checkout
+        # never carries one; dropping it keeps a from-source install identical to the packaged one.
+        find "/usr/share/ai-tools/${_kind}" -name __pycache__ -type d -prune -exec rm -rf {} +
         chown -R root:root "/usr/share/ai-tools/${_kind}"
         find "/usr/share/ai-tools/${_kind}" -type d -exec chmod 755 {} +
         find "/usr/share/ai-tools/${_kind}" -type f -exec chmod 644 {} +
     done
 
-    for _kind in skills subagents; do
+    for _kind in skills subagents orientation; do
         _shared="${CP_HOME}/${_kind}"
         log "${_shared}/ (shared ${_kind}, symlinked into every agent that reads them)"
         ensure_dir "${CP_DIR_MODES[${_kind}]}" root "${SANDBOX_GROUP}" "${_shared}"
@@ -1691,6 +1700,16 @@ do_install() {
         done < <(ai_tools_agent_asset_dirs "${_spec#*:}")
     done
 
+    # The orientation text is one file rather than a directory of assets, and it lands under the
+    # filename each agent reads as user-scope instructions -- so it is linked by name from the
+    # manifest instead of by iterating a shared root.
+    local _memory_target
+    while IFS=$'\t' read -r _agent _memory_target; do
+        log "linking the shared orientation into ${_memory_target}"
+        ai_tools_link_agent_memory "${CP_SHARED_ORIENTATION}/AGENTS.md" \
+            "${_memory_target%/*}" "${_memory_target##*/}" "${SANDBOX_GROUP}"
+    done < <(ai_tools_agent_memory_targets)
+
     section "Configuration (allowlist & secret patterns)"
 
     # --- Allowlist (create with format header if absent; keep on re-install) ---
@@ -1708,30 +1727,9 @@ do_install() {
             "Removes every approved project from the allowlist (the directories are untouched)."; then
         seed_result "${allowlist}" "${allowlist_existed}" 1
     else
-        printf '%s\n' \
-            "# Approved project directories for Claude Code (ai-tools)." \
-            "#" \
-            "# Syntax:" \
-            "#   /path/to/project      allow: Claude Code may run here; chown is active" \
-            "#   !/path/to/file        exclude: this file's ownership is never changed" \
-            "#   !/path/to/dir         exclude directory and all contents" \
-            "#   !/path/to/*.ext       exclude by glob (* matches any characters)" \
-            "#   /path/to/project  # note    a comment runs to the end of the line" \
-            "#   \"/path/to/my project\"       quote a path holding a space or a literal #" \
-            "#   !\"/path/to/my project/x\"    the ! comes before the quotes" \
-            "#" \
-            "# Exclusions (!) override allows and are checked first." \
-            "# Plain paths cover their contents automatically; no trailing /* needed." \
-            "#" \
-            "# Manage entries with the ai-tools CLI (run as the projects user) rather" \
-            "# than editing by hand:" \
-            "#   ai-tools --project-create <dir>   register a real project" \
-            "#   ai-tools --sandbox-create <dir>   shallow-clone a repo into the sandbox area" \
-            "#" \
-            "# For repos whose git history may hold secrets, prefer a sandboxed clone" \
-            "# under /var/opt/ai-tools/sandbox-projects/ so the agent never reads the" \
-            "# original history. See /var/opt/ai-tools/README.md." \
-            "" > "${allowlist}"
+        # The header text is conf.lib.sh's, the same one `ai-tools-admin operators add` seeds on a
+        # packaged host, so an operator meets one description of what the file accepts.
+        ai_tools_conf_allowlist_seed > "${allowlist}"
         chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${allowlist}"
         chmod 600 "${allowlist}"
         if (( allowlist_existed )); then
@@ -1747,19 +1745,19 @@ do_install() {
         log "removed install dir from allowlist: ${SCRIPT_DIR}"
     fi
 
-    # Secret-name patterns: user-owned 600 (ai-tools can neither read nor write it;
-    # the root helpers read it). An existing file holds the user's edits, so a
-    # re-install keeps it by default and only re-seeds the shipped default on
-    # explicit consent. Both ai-tools-chown and ai-tools-lockdown read this file;
-    # if it is removed they fall back to the built-in defaults baked into the
-    # shared library.
+    # Secret-name patterns: user-owned 600, from the same conf.lib.sh header
+    # `ai-tools-admin operators add` seeds. The seeded file carries the header alone, so
+    # classification keeps using the baseline in secret-patterns.lib.sh until this operator
+    # writes a pattern; an
+    # existing file holds their edits, so a re-install keeps it unless they consent to re-seed.
     local patternfile="${PROJECTS_HOME}/.config/ai-tools/secret-patterns"
     local secret_existed=0; [[ -f "${patternfile}" ]] && secret_existed=1
     if keep_existing "${patternfile}"; then
         seed_result "${patternfile}" "${secret_existed}" 1
     else
-        install -o "${PROJECTS_USER}" -g "${PROJECTS_GROUP}" -m 600 \
-            "${SCRIPT_DIR}/src/home/user/.config/ai-tools/secret-patterns" "${patternfile}"
+        ai_tools_conf_secret_patterns_seed > "${patternfile}"
+        chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${patternfile}"
+        chmod 600 "${patternfile}"
         seed_result "${patternfile}" "${secret_existed}" 0
     fi
 

@@ -274,7 +274,11 @@ Four separate routes into the tree come off, and it is worth knowing which does 
   the one that closes the standing route: clearing the ACL alone would leave the agent its
   access through the group bits of a tree still group-owned by `ai-tools`.
 - **The ACLs.** `setfacl -b` clears every extended ACL — the `g:ai-tools:rwX` entry, the
-  `user:<you>` entry, and the default ACL that new files inherited from the directory.
+  `user:<operator>` entry naming the operator the project was claimed for (yourself, unless it was
+  claimed `--for` another account), and the default ACL that new files inherited from the
+  directory. New files in the tree then take their mode from the creating account's umask again,
+  which the default ACL had been overriding (see the
+  [permissions cheatsheet](linux-permissions-cheatsheet.txt), §7b).
 - **Group write.** `chmod` drops it (`660` → `640`), and on directories also the setgid bit the
   claim set, so new files stop being born in the agent's group.
 - **The SELinux label.** `ai_tools_project_t` reverts to the tree's default type, so on an

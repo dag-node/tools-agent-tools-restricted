@@ -7,22 +7,8 @@
 # wherever it points, so a system directory mistakenly added to allowed-projects (or passed
 # to a helper) could be rewritten. This list is the independent backstop -- the launch
 # wrapper, the claim CLI, and every elevated helper refuse a protected target regardless of
-# the allowlist, before acting.
-#
-# Matching is exact-or-ancestor: a target is protected when its resolved real path EQUALS a
-# list entry or CONTAINS one (is an ancestor, e.g. "/"). A user home ROOT (a direct child
-# of /home) is additionally protected exactly: a whole home as a claim or sweep target
-# would hand the agent every dotfile and key in it (~/.ssh, ~/.gnupg, ...). Descendants
-# pass, so a real project nested under an operator home (/home/<user>/<proj>) or a sandbox
-# clone (/var/opt/ai-tools/sandbox-projects/<repo>) is unaffected -- those are the trees
-# the helpers legitimately act on. A deeper or glob-expanded accident inside a protected tree
-# stays covered by each helper's owner-guard, which acts only on agent- or operator-owned
-# paths and never the root-owned files that fill a system directory.
-#
-# A second, narrower predicate lives beside it: ai_tools_traverse_grant_allowed, which vets a
-# traverse-only ACL on ONE directory rather than a whole tree as an elevated target, and so admits
-# the acting operator's own home root. It is an addition, not a relaxation -- the backstop above is
-# unchanged for every target that reaches it.
+# the allowlist, before acting. Each function below states the rule it applies; which
+# consumers call which, and what a failed load does, are in safe-paths.rule.md.
 #
 # Sourced (not executed) so every consumer shares ONE list and ONE matcher. Deployed
 # 644 root:root (world-readable, and it does not carry any secrets; the operator wrapper, the CLI, and the

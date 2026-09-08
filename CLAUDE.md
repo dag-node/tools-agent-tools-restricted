@@ -31,7 +31,13 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 ## How instructions are organized
 
 - **This file** — the trust-chain summary, the security-model invariants, and
-  cross-cutting conventions an agent needs in every session.
+  cross-cutting conventions an agent needs in every session. A fact earns a place here only by
+  holding **project-wide**; a domain's mechanism belongs in that domain's rule, **including where
+  it qualifies an invariant stated here** — the qualification is written at invariant altitude and
+  points at the rule for how it works. A verdict token, a file mode, a test path, or a `file:line`
+  reference is the mark of a rule rather than of this file. This is the tier rule from
+  `.claude/rules/authoring.rule.md`, restated because that rule's `paths:` covers `*.rule.md` and
+  so does not load while this file is open.
 - **`.claude/rules/*.rule.md`** — per-component reference prose, scoped to the source files
   it describes via `paths:` frontmatter, so it loads when you open a matching file under
   `src/` (or `selinux/`). See the component map below. A rule and its source file's header
@@ -55,7 +61,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `opt/ai-tools/agents/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh`, `owner-only.lib.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
 | Claude Code settings, Bash deny rules ↔ SELinux policy | `opt/ai-tools/agents/*/settings.json` | [claude-settings](.claude/rules/claude-settings.rule.md) |
 | Token-saving command filters: rewrite rules + output noise stripping | `filters.lib.sh`, `lib/ai-tools/filters.d/**`, `agents/*/filter-hook.sh` | [filters](.claude/rules/filters.rule.md) |
-| Shipped assets: shared skills + per-agent agents, their placement chain and seeding | `usr/share/ai-tools/**`, `lib/ai-tools/managed-assets.lib.sh` | [shipped-assets](.claude/rules/shipped-assets.rule.md) |
+| Shipped assets: shared skills, subagents, and the per-session orientation text, their placement chain and seeding | `usr/share/ai-tools/**`, `lib/ai-tools/managed-assets.lib.sh` | [shipped-assets](.claude/rules/shipped-assets.rule.md) |
 | Governance posture: enforced vs dispositional, proportionality, the agent's own conduct and the controls beside it | `usr/share/ai-tools/skills/ai-tools-capable-systems-governance/**` | [governance](.claude/rules/governance.rule.md) |
 | Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secret-handling.rule.md) |
 | Toolchain provisioning + Node/claude updater, symlink repoint, post-upgrade entrypoint reconciliation (signed-release verification + relabel) | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `ai-tools-launcher-symlink.sh`, `ai-tools-relabel-agent.sh`, `entrypoint-verify.lib.sh`, `keys/**`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
@@ -151,6 +157,12 @@ and every way that predicate can fail resolves to *less* access — never more �
 Corrupting, removing, or tampering with one of these inputs therefore narrows what the session
 gets, so the sandbox cannot improve its own position by breaking one.
 
+`AI_TOOLS_REQUIRE_SELINUX` sits **outside** it in the other direction: it is an operator's
+*declaration* rather than one of the predicates, and a failed read of it yields the default, which
+launches where the declaration would have refused. The sandbox cannot produce that state, so the
+property above holds against the adversary it names; which exits it governs, and what makes the
+direction safe, are in [confinement](.claude/rules/confinement.rule.md).
+
 `ai-tools --project-remove` sits **outside** this table: it decides what is *destroyed*, not what a
 session may reach, so its safe direction is inaction. Its authorization is correspondingly
 different — an exact `allowed-projects` entry (allow or `!`-parked) plus a typed-name
@@ -181,8 +193,8 @@ The invariants the agent operates under:
 - **`SANDBOX_USER` has no login shell and no password.**
 - **Every `%ai-ops` rule names one fixed-path program** — never an arbitrary shell or binary,
   and never a glob. `ai-tools-run` is `root:SANDBOX_GROUP` and not writable by the agent;
-  `ai-tools-stop` is `750 root:root` and pinned to its zero-argument form. The agent itself, *as*
-  `SANDBOX_USER`, does not hold any sudo rule.
+  `ai-tools-stop` is root-owned and root-only, and pinned to its zero-argument form. The agent
+  itself, *as* `SANDBOX_USER`, does not hold any sudo rule.
 - **The control-plane files are not agent-writable** — `settings.json`, the hooks,
   `nvm-update.sh`, and `ai-tools-run` are `root:SANDBOX_GROUP` with no group write;
   each agent's config directory (`/opt/ai-tools/<config_dir>`, `.claude` for Claude Code — the
@@ -328,9 +340,13 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   `msg`, `log`, and the claude-code pair `claude-prompt`/`claude-endpoint`),
   plus `path-dedup.sh`,
   the PATH-ordering fragment `ai-tools-admin` wires into operator dotfiles (see
-  [launch](.claude/rules/launch.rule.md)). That directory is `0751 root:SANDBOX_GROUP` and its
-  contents `root`-owned and non-group-writable — load-bearing, since the sandbox account sources
-  several of these libraries (see the provider-seam invariant below).
+  [launch](.claude/rules/launch.rule.md)). That directory and its contents are `root`-owned and
+  non-group-writable, and the sandbox group reads them — load-bearing, since the sandbox account
+  sources several of these libraries. Read is open on every one of them and **write** is the
+  boundary: a shared library carries shipped logic or a general list, and an operator's own data
+  stays in that operator's private config instead, so an open read discloses only what already
+  ships (the modes are in [providers](.claude/rules/providers.rule.md); see the provider-seam
+  invariant below).
 
 ### Documentation register
 

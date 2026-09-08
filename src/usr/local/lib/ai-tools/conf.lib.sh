@@ -39,6 +39,13 @@
 # own surface: the provider manifests and their directories, operator.conf, and the session-env
 # fragments all decide what a session gets, so each is honored only while it is root-owned and
 # not group- or other-writable. See providers.rule.md.
+#
+# A refusal reports what the predicate read (ai_tools_conf_untrusted_reason): the owner uid and
+# the mode, against what it requires. That uid is the owner on disk only inside the initial user
+# namespace. In any other, a host uid with no mapping reads back as the overflow uid 65534 while
+# stat exits 0, so a root-owned file reads the same as a nobody-owned one and the predicate
+# refuses it. ai_tools_conf_uid_map_is_identity detects that namespace and the reason names it,
+# so an owner refusal caused by uid translation is not investigated as a file mode or a label.
 
 # Sourced more than once in a single shell: the readonly below would abort under set -e on the
 # second pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for an unset
@@ -65,6 +72,45 @@ ai_tools_conf_is_trusted() {
     [[ "${owner}" == 0 ]] || return 1
     [[ "${mode}" =~ ^[0-7]+$ ]] || return 1
     (( (0${mode} & 022) == 0 ))
+}
+
+# ai_tools_conf_uid_map_is_identity [map-file] : succeed when this process runs in the INITIAL
+#   user namespace -- the only one where an owner uid read off disk means what it says. The
+#   kernel's map there is exactly one identity range over the whole uid space; any other content,
+#   an empty map included, means uids are translated and fails closed with the rest. Parsing sets
+#   IFS locally, since callers run under a strict IFS that would otherwise stop `read -a`
+#   splitting the kernel's space-padded columns, and a map of several ranges is refused on the
+#   embedded newline rather than parsed from its first line alone. <map-file> is
+#   /proc/self/uid_map for a live reading (the default) and a fixture under test; it is a
+#   positional argument, so no environment variable selects it.
+ai_tools_conf_uid_map_is_identity() {
+    local map_file="${1:-/proc/self/uid_map}" map IFS=$' \t\n'
+    local -a ranges=()
+    [[ -r "${map_file}" ]] || return 1
+    map="$(<"${map_file}")"
+    [[ "${map}" == *$'\n'* ]] && return 1
+    read -r -a ranges <<< "${map}"
+    (( ${#ranges[@]} == 3 )) || return 1
+    [[ "${ranges[0]}" == 0 && "${ranges[1]}" == 0 && "${ranges[2]}" == 4294967295 ]]
+}
+
+# ai_tools_conf_untrusted_reason <path> : print, on one line, what ai_tools_conf_is_trusted
+#   observed about a <path> it refused -- the owner uid and mode it read, against what it
+#   requires -- so the refusal states what was observed. When the owner check fails outside the
+#   initial user namespace the line says so: the uid read there is a translation, and ownership
+#   cannot be evaluated from it. Always prints and returns 0.
+ai_tools_conf_untrusted_reason() {
+    local path="${1:-}" meta owner mode
+    [[ -n "${path}" ]] || { printf 'no path given'; return 0; }
+    [[ -L "${path}" ]] && { printf 'is a symlink'; return 0; }
+    [[ -e "${path}" ]] || { printf 'does not exist'; return 0; }
+    meta="$(stat -c '%u %a' "${path}" 2>/dev/null)" || { printf 'could not be stat-ed'; return 0; }
+    owner="${meta%% *}"; mode="${meta##* }"
+    printf 'owner=%s mode=%s, expected owner=0 with no group/other write' "${owner}" "${mode}"
+    if [[ "${owner}" != 0 ]] && ! ai_tools_conf_uid_map_is_identity /proc/self/uid_map; then
+        printf ' (this process is not in the initial user namespace, so the owner it reads is a translation and ownership cannot be evaluated here)'
+    fi
+    return 0
 }
 
 # _ai_tools_conf_strip_inline_comment <text> : set _ai_tools_conf_value to <text> with an inline
@@ -723,4 +769,69 @@ ai_tools_conf_allowlist_enable() {
     esac
     _ai_tools_conf_allowlist_retag "${file}" "${path}" enable || { rc=$?; return "${rc}"; }
     [[ "$(ai_tools_conf_allowlist_state "${file}" "${path}")" == listed ]] || return 1
+}
+
+# ── Seed text for an operator's own config files ──────────────────────────────────────────────
+# A file an operator keeps in ~/.config/ai-tools is created carrying its header and no entry, so
+# the operator edits a file that states its own grammar rather than a blank one. The text lives
+# here because it is written from more than one place -- `ai-tools-admin operators add` on any
+# installed host, and install.sh for the account a from-source install enrols -- and a header
+# written twice is a header that disagrees with itself about what the file accepts. Each function
+# PRINTS; the caller places the file with the ownership and mode it needs (600, inside a 700
+# directory).
+
+# ai_tools_conf_allowlist_seed : print the header a fresh allowed-projects carries. It does not
+#   name any project, so a session cannot start anywhere until the CLI or the operator adds an
+#   entry.
+ai_tools_conf_allowlist_seed() {
+    printf '%s\n' \
+        "# Approved project directories for the ai-tools sandbox -- one directory per line." \
+        "# A plain path allows that directory and everything under it; a '!'-prefixed path" \
+        "# excludes one. Exclusions win over allows, and only they may use * ? [ ] globs --" \
+        "# an allow line must be a literal directory (a glob there matches nothing and is inert)." \
+        "#" \
+        "# '#' starts a comment, whole-line or after a path; quote a path that contains a space" \
+        "# or a literal '#', e.g.  \"/home/me/my project\"" \
+        "#" \
+        "# Managed by the ai-tools CLI -- prefer it over editing by hand:" \
+        "#   ai-tools --project-create <dir>   create a new project directory and claim it" \
+        "#   ai-tools --project-claim  <dir>   register/claim a real project in place" \
+        "#   ai-tools --sandbox-create <dir>   shallow-clone a repo into the sandbox area" \
+        "#   ai-tools --list                   review entries; flags stale/unusable/orphaned ones" \
+        "#" \
+        "# For a repo whose git history may hold credentials, prefer a sandboxed clone under" \
+        "# /var/opt/ai-tools/sandbox-projects/ so the agent never reads the original history." \
+        "# See /var/opt/ai-tools/README.md." \
+        ""
+}
+
+# ai_tools_conf_secret_patterns_seed : print the header a fresh secret-patterns file carries. It
+#   carries the header alone, which leaves the built-in baseline in secret-patterns.lib.sh in
+#   force -- so seeding this file changes what is classified as a secret only once the operator
+#   writes a pattern into it, and the operator finds a file that says how.
+ai_tools_conf_secret_patterns_seed() {
+    printf '%s\n' \
+        "# Secret-name patterns for the ai-tools sandbox -- your file, owner-only (600). A path" \
+        "# whose BASENAME matches a pattern here is a credential file: ai-tools-chown quarantines" \
+        "# one the agent writes, and ai-tools-lockdown seals one already in a project. The root" \
+        "# helpers read this file on your behalf; the sandbox account can read neither it nor the" \
+        "# 700 directory holding it." \
+        "#" \
+        "# A pattern listed here REPLACES the built-in baseline in" \
+        "# /usr/local/lib/ai-tools/secret-patterns.lib.sh rather than adding to it. This file" \
+        "# lists none, so that baseline -- the public list of credential names, kept current by" \
+        "# package upgrades -- is what classifies today. Write a deployment-specific name here" \
+        "# together with the baseline entries you want to keep, copied from that library." \
+        "#" \
+        "# Format: one BASENAME glob per line (no '/'), matched case-insensitively, where '*'" \
+        "# matches any characters and '.' is literal; '#' starts a comment and blank lines are" \
+        "# ignored." \
+        "#" \
+        "# Anchor a pattern to a name or an environment segment. A broad catch-all such as" \
+        "# '*.*.json' also matches build artifacts the toolchain must read, and quarantining" \
+        "# those breaks builds." \
+        "#" \
+        "# A credential name software writes in general, and that the baseline misses, is worth a" \
+        "# pull request upstream so every host gets it." \
+        ""
 }
