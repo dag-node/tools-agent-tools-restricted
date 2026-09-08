@@ -72,6 +72,33 @@ instance maintains the toolchain the whole team shares. `ai-tools-bootstrap` ena
 timer once it has provisioned the toolchain and `SANDBOX_USER`'s linger; `install.sh`
 enables it for the dev flow.
 
+### A `--user` unit here does not carry a mount-namespace option
+
+Running in a per-user manager decides what these units may set. `systemd.exec(5)` states that a
+mount-namespace option "is only available for system services, or for services running in per-user
+instances of the service manager in which case `PrivateUsers=` is implicitly enabled" — an
+unprivileged manager cannot mount, so it builds the namespace inside an unprivileged user
+namespace. `PrivateUsers` maps that account's uid alone, so a host uid outside the map reads back
+as the overflow uid `65534` while `stat` still exits 0.
+
+The payload is what breaks. `ai_tools_conf_is_trusted` requires owner 0 (see
+[providers](providers.rule.md)), so under such an option the updater reads root-owned manifests as
+nobody-owned, refuses `operator.conf` and every manifest, does not resolve any agent, and installs
+`npm` alone — reporting a run that succeeded, since every step it took did. The failure direction is what
+makes it worth a rule: the refusals stay fail-closed and the toolchain silently stops advancing.
+
+Two properties of that make the guard a **unit-file check** (`tests/integration/systemd.sh`, over
+every shipped `--user` unit) rather than a runtime one:
+
+- `systemd-analyze verify` accepts the option, and the unit starts and exits 0 with it.
+- `RestrictNamespaces=yes` does not refuse it. That directive filters the **payload's** `unshare`,
+  `clone` and `setns`, and systemd installs the filter after building the namespace, so the two
+  coexist.
+
+`ai-tools-run`'s session unit sets `RestrictNamespaces=yes` and no mount-namespace option, so the
+same property holds for a session (see [confinement](confinement.rule.md), which covers why
+`PrivateTmp` is not used there either).
+
 ## Last-run stamp
 
 Running there puts the updater's health out of the operator's reach: querying a `--user` manager

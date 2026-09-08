@@ -72,6 +72,38 @@ else
     fi
 fi
 
+section "No --user unit carries a mount-namespace option"
+
+# In a per-user service manager an option that needs a mount namespace implies PrivateUsers=
+# (systemd.exec(5)), which maps that account's uid alone -- so every other host uid, root included,
+# reads back as the overflow uid 65534 while stat(1) still exits 0. Every uid-based trust predicate
+# in the payload then refuses: ai_tools_conf_is_trusted requires owner 0, so the updater reads
+# root-owned manifests as nobody-owned, resolves NO agent, installs npm alone, and exits 0.
+#
+# That is a silent failure in the worst direction -- the run stamps a healthy RESULT while the
+# agent stops being updated -- and it is why this is a text check rather than a runtime one: the
+# unit starts and succeeds either way. `systemd-analyze verify` does not report it, and
+# RestrictNamespaces= does not prevent it (it filters the payload's own unshare/clone/setns, which
+# systemd installs after building the namespace), so the unit file is where it is catchable.
+#
+# The check covers EVERY shipped --user unit, not the one where this was found, because the
+# property belongs to the manager rather than to the updater.
+_NS_OPTS='PrivateTmp|PrivateUsers|PrivateDevices|PrivateMounts|PrivateNetwork|ProtectSystem|ProtectHome|ProtectKernelTunables|ProtectKernelModules|ProtectControlGroups|ProtectProc|ReadOnlyPaths|ReadWritePaths|InaccessiblePaths|BindPaths|BindReadOnlyPaths|TemporaryFileSystem|RootDirectory|RootImage|MountAPIVFS'
+if ! compgen -G "${USERUNITDIR}/*" >/dev/null 2>&1; then
+    skip "--user units carry no mount-namespace option" "no user units installed in ${USERUNITDIR}"
+else
+    for u in "${USERUNITDIR}"/*; do
+        [[ -f "${u}" ]] || continue
+        # Assignments only, so a directive named in a comment (this rationale, or a unit header
+        # explaining the prohibition) is not read as one being set.
+        if out="$(grep -nE "^[[:space:]]*(${_NS_OPTS})[[:space:]]*=" "${u}")"; then
+            fail "$(basename "${u}") sets a mount-namespace option, which makes every host uid read as 65534 in this manager and leaves the payload's trust checks refusing root-owned files: ${out//$'\n'/; }"
+        else
+            pass "$(basename "${u}") carries no mount-namespace option (uids stay untranslated)"
+        fi
+    done
+fi
+
 section "Enablement in the correct instance"
 
 # (1) Handback socket: enabled AND active in the system instance (the privilege bridge the hooks
