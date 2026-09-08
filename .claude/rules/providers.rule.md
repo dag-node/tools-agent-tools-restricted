@@ -282,6 +282,15 @@ the trail), never silently:
 | one command fragment | that one domain is not a command |
 | `/usr/local/lib/ai-tools` itself | no integration env at all (`ai-tools-run`'s bootstrap check) |
 
+A refusal reports the owner uid and the mode the predicate read, against what it requires
+(`ai_tools_conf_untrusted_reason`). That uid is the owner on disk only in the initial user
+namespace: in any other, a host uid the namespace does not map reads as the overflow uid `65534`
+while `stat` exits 0, so a root-owned input is refused on a reading that is not its owner.
+`ai_tools_conf_uid_map_is_identity` reads `/proc/self/uid_map`, and the reason names the
+translation where it applies, so the investigation starts at the namespace and not at the file's
+mode or label. The `--user` unit rule in [updater](updater.rule.md) keeps this project's own units
+from creating such a namespace; the reason is what a refusal says when one exists anyway.
+
 Trust bootstraps on the lib directory, which `ai-tools-run` checks inline before sourcing anything
 from it — the predicate that checks everything else lives inside it. `0751 root:SANDBOX_GROUP` on
 that directory is therefore load-bearing, not housekeeping, and

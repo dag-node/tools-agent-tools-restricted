@@ -43,8 +43,10 @@
 #   * an untrusted manifest disables that one provider
 #   * an untrusted operator.conf is ignored, falling back to the baseline (which can only ever
 #     enable a provider its own package marked default_enable=yes)
-# Each refusal is reported, so a tamper is loud rather than silent. The agent account can
-# therefore neither enable a disabled provider nor introduce a new one, whatever it can write.
+# Each refusal is reported with the owner and mode the predicate read
+# (ai_tools_conf_untrusted_reason in conf.lib.sh), so a tamper is loud and a refusal caused by uid
+# translation in a non-initial user namespace names that cause. The agent account can therefore
+# neither enable a disabled provider nor introduce a new one, whatever it can write.
 
 # Include guard: consumers may source this alongside libs that also pull it in. An if-statement,
 # not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing shell's set -e.
@@ -59,7 +61,8 @@ fi
 # shellcheck source=SCRIPTDIR/conf.lib.sh
 if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
         || ! declare -F ai_tools_conf_read >/dev/null 2>&1 \
-        || ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1; then
+        || ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf_untrusted_reason >/dev/null 2>&1; then
     printf 'ai-tools: providers.lib.sh: conf.lib.sh missing or incomplete -- no providers resolved\n' >&2
     return 1
 fi
@@ -143,7 +146,7 @@ _ai_tools_provider_requested() {
     requested_active=no; requested_list=""
     case "$(ai_tools_provider_gate "${conf_key}")" in
         untrusted)
-            _ai_tools_provider_warn "ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: not root-owned or writable by group/other -- using the default-enabled providers only" ;;
+            _ai_tools_provider_warn "ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: $(ai_tools_conf_untrusted_reason "${AI_TOOLS_OPERATOR_CONF}") -- using the default-enabled providers only" ;;
         allowlist)
             requested_active=yes
             ai_tools_conf_read "${AI_TOOLS_OPERATOR_CONF}" "${conf_key}" || true
@@ -160,7 +163,7 @@ _ai_tools_provider_dir_trusted() {
     local dir="$1" conf_key="$2"
     [[ -d "${dir}" ]] || return 1
     if ! ai_tools_conf_is_trusted "${dir}"; then
-        _ai_tools_provider_warn "refusing every ${conf_key} provider: ${dir} is not root-owned or is writable by group/other"
+        _ai_tools_provider_warn "refusing every ${conf_key} provider: ${dir} $(ai_tools_conf_untrusted_reason "${dir}")"
         return 1
     fi
     return 0
@@ -194,7 +197,7 @@ ai_tools_enabled_agents() {
             [[ -e "${manifest_file}" ]] || continue
             agent_name="${manifest_file##*/}"; agent_name="${agent_name%.conf}"
             if ! ai_tools_conf_is_trusted "${manifest_file}"; then
-                _ai_tools_provider_warn "skipping agent ${agent_name}: ${manifest_file} is not root-owned or is writable by group/other"
+                _ai_tools_provider_warn "skipping agent ${agent_name}: ${manifest_file} $(ai_tools_conf_untrusted_reason "${manifest_file}")"
                 continue
             fi
             npm_package="$(ai_tools_conf_get "${manifest_file}" npm_package || true)"
@@ -258,7 +261,7 @@ ai_tools_enabled_integrations() {
             [[ -e "${manifest_file}" ]] || continue
             integration_name="${manifest_file##*/}"; integration_name="${integration_name%.conf}"
             if ! ai_tools_conf_is_trusted "${manifest_file}"; then
-                _ai_tools_provider_warn "skipping integration ${integration_name}: ${manifest_file} is not root-owned or is writable by group/other"
+                _ai_tools_provider_warn "skipping integration ${integration_name}: ${manifest_file} $(ai_tools_conf_untrusted_reason "${manifest_file}")"
                 continue
             fi
             default_enable="$(ai_tools_conf_get "${manifest_file}" default_enable || true)"

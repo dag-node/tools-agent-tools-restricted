@@ -249,7 +249,12 @@ from an absent one — plus two properties whose breakage is silent in productio
 splitter must be **IFS-independent** (it is sourced into scripts that set `IFS=$'\n\t'`,
 where an inherited IFS collapses a multi-item value into one bogus item), and
 `ai_tools_conf_is_trusted` must refuse every state a non-root writer can create
-(non-root-owned, group- or other-writable, a symlink), for directories as well as files. Its
+(non-root-owned, group- or other-writable, a symlink), for directories as well as files. The
+refusal's text is pinned with it: the owner uid and mode the predicate read, the map parser over
+fixture `uid_map` contents (the kernel's padded identity line, a translated map, a multi-range map,
+an empty one, and the identity line under the strict-mode IFS), and — inside a real user namespace
+where `unshare -Ur` is permitted, skipped otherwise — the clause naming a translated uid beside the
+`65534` it read. Its
 new-option report carries a third: a commented **default** (`#KEY=`, `# KEY=`) is a mention while
 an indented **example** in a header block is not, so a file seeded with `operator.conf`'s own
 grammar comments is not mistaken for one that already knows every option.
