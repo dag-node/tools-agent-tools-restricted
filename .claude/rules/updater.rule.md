@@ -72,6 +72,34 @@ instance maintains the toolchain the whole team shares. `ai-tools-bootstrap` ena
 timer once it has provisioned the toolchain and `SANDBOX_USER`'s linger; `install.sh`
 enables it for the dev flow.
 
+### A `--user` unit here does not carry a mount-namespace option
+
+Running in a per-user manager decides what these units may set. `systemd.exec(5)` states that a
+mount-namespace option "is only available for system services, or for services running in per-user
+instances of the service manager in which case `PrivateUsers=` is implicitly enabled" — an
+unprivileged manager cannot mount, so it builds the namespace inside an unprivileged user
+namespace. `PrivateUsers` maps that account's uid alone, so a host uid outside the map reads back
+as the overflow uid `65534` while `stat` still exits 0.
+
+The payload is what breaks. `ai_tools_conf_is_trusted` requires owner 0 (see
+[providers](providers.rule.md)), so under such an option the updater reads root-owned manifests as
+nobody-owned, refuses `operator.conf` and every manifest, and does not resolve any agent. The
+refusals stay fail-closed, and the toolchain stops advancing; the run ends as a fault whose reason
+names the translated owner it read ([the empty-set classification](#the-run-classifies-itself-ok-skipped-or-failed)),
+so the state is reported, and the unit check below is what keeps it from arising.
+
+Two properties of that make the guard a **unit-file check** (`tests/integration/systemd.sh`, over
+every shipped `--user` unit) rather than a runtime one:
+
+- `systemd-analyze verify` accepts the option, and the unit starts and exits 0 with it.
+- `RestrictNamespaces=yes` does not refuse it. That directive filters the **payload's** `unshare`,
+  `clone` and `setns`, and systemd installs the filter after building the namespace, so the two
+  coexist.
+
+`ai-tools-run`'s session unit sets `RestrictNamespaces=yes` and no mount-namespace option, so the
+same property holds for a session (see [confinement](confinement.rule.md), which covers why
+`PrivateTmp` is not used there either).
+
 ## Last-run stamp
 
 Running there puts the updater's health out of the operator's reach: querying a `--user` manager
@@ -117,6 +145,21 @@ whether a retry is the right response (the unit retries `3` and not `1`; see
 now. What keeps `skipped` from becoming a way to hide a real problem is that it does not stop the
 clock: the stamp still ages, and a condition that persists past the record's 48h grace reports
 `STALE`, the same escalation a schedule that stopped firing gets. Offline once is routine; offline for a week is a toolchain that has stopped advancing.
+
+**An empty agent set is classified before `npm` alone becomes the managed set.** The resolver
+reports a refused input on stderr and does not print a line for it, so its stdout reads as an
+empty set for a tampered manifest directory and for a host with no agent package alike. `nvm-update.sh` asks
+`ai_tools_agents_empty_verdict` (see [providers](providers.rule.md)) which it is: a refused input,
+or an `AI_TOOLS_AGENTS` naming agents none of which resolved, is a **fault** — `die`, exit `1`,
+`RESULT=failed` — because a retry reads the same inputs, and `1` is the status the unit's
+`RestartPreventExitStatus=` already withholds a retry from. A configuration that asks for no agent
+(`AI_TOOLS_AGENTS` set and empty, no manifest installed, or every manifest `default_enable=no` with
+the key unset) is logged and the run continues over `npm`. The fault reason carries every refused
+path with the owner and mode the predicate read, so `ai-tools --status` reports `FAILED` on the
+first run after the fault and the journal line names the input to look at. The verdict is a
+`fault`/`none` line and not a new `RESULT` token: `ai_tools_service_stamp_verdict` declines a word
+outside `ok|skipped|failed`, so a token added there would report as unknown and leave
+`ai_tools_service_needs_attention` unmoved.
 
 ### Retrying a transient failure
 

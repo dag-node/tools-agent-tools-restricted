@@ -14,6 +14,9 @@
 #   3. THE TRUST PREDICATE: the gate behind "the sandbox cannot widen its own surface". A file or
 #      directory that is not root-owned, or is group/other-writable, or is a symlink, must be
 #      refused -- those are exactly the states a non-root writer can create.
+#   4. THE REFUSAL TEXT: a refusal reports the owner uid and mode the predicate read, and names a
+#      user namespace that translates uids when that is why the owner check failed -- the state
+#      in which every input is correct on disk and reads as 65534.
 #
 # Hermetic: /tmp fixtures with known content, no network, no daemon, no host config read.
 
@@ -177,6 +180,91 @@ tdir="${TESTDIR}/trusted.d"; mkdir -p "${tdir}"; chown root:root "${tdir}"; chmo
 check_trust "root-owned 0755 directory is trusted"   trusted "${tdir}"
 chmod 0775 "${tdir}"
 check_trust "group-writable directory is refused"    refused "${tdir}"
+
+# --- The refusal names what the predicate read ------------------------------------------------
+# A refusal is investigated from its text, so the text carries the owner uid and the mode the
+# predicate read and the requirement they failed. The failure this exists for is an owner that
+# reads as 65534 inside a user namespace with no mapping for root: the file's modes, labels and
+# ownership on disk are all correct there, and a text asserting a permission problem sends the
+# investigation through every one of them first.
+section "conf: a refusal reports the owner and mode it read"
+check_reason() {
+    local desc="$1" expected="$2" path="$3" got
+    got="$(ai_tools_conf_untrusted_reason "${path}")"
+    if [[ "${got}" == *"${expected}"* ]]; then pass "${desc}"
+    else fail "${desc}: got '${got}', expected it to contain '${expected}'"; fi
+}
+notroot_uid="$(stat -c '%u' "${notroot}")"
+check_reason "a non-root owner is reported as the uid read"    "owner=${notroot_uid} mode=644"  "${notroot}"
+check_reason "a group-writable mode is reported as read"       "owner=0 mode=664"               "${gw}"
+check_reason "the requirement is stated beside the reading"    "expected owner=0"               "${gw}"
+check_reason "a symlink is named as the cause"                 "is a symlink"                   "${TESTDIR}/link.conf"
+check_reason "a missing path is named as the cause"            "does not exist"                 "${TESTDIR}/absent.conf"
+if [[ "$(ai_tools_conf_untrusted_reason "${notroot}")" != *"user namespace"* ]]; then
+    pass "in the initial namespace the reason carries no namespace clause"
+else
+    fail "the namespace clause appeared in the initial namespace: $(ai_tools_conf_untrusted_reason "${notroot}")"
+fi
+
+# The map parser, over fixture maps. The kernel writes space-padded columns, and the libraries
+# are sourced into scripts running under IFS=$'\n\t', so the identity case is also driven from a
+# subshell under that IFS -- a parser inheriting it reads the whole line as one field.
+map_verdict() {   # <expect: identity|translated> <desc> <map-content>
+    local expect="$1" desc="$2" content="$3" got=translated
+    printf '%s' "${content}" > "${TESTDIR}/uid_map"
+    ai_tools_conf_uid_map_is_identity "${TESTDIR}/uid_map" && got=identity
+    if [[ "${got}" == "${expect}" ]]; then pass "${desc}"; else fail "${desc}: read as ${got}"; fi
+}
+map_verdict identity   "the kernel's padded identity line is identity"     $'         0          0 4294967295\n'
+map_verdict translated "a single-uid map is translated"                     $'         0       1000          1\n'
+map_verdict translated "a map of several ranges is translated"             $'         0          0 4294967295\n      1000       1000          1\n'
+map_verdict translated "an empty map is translated (fails closed)"          ''
+map_verdict translated "a four-field line is translated"                    $'0 0 4294967295 0\n'
+rm -f "${TESTDIR}/uid_map"
+if ! ai_tools_conf_uid_map_is_identity "${TESTDIR}/uid_map"; then
+    pass "a missing map file reads as translated"
+else
+    fail "a missing map file read as identity"
+fi
+printf '         0          0 4294967295\n' > "${TESTDIR}/uid_map"
+if ( IFS=$'\n\t'; ai_tools_conf_uid_map_is_identity "${TESTDIR}/uid_map" ); then
+    pass "the identity line parses under IFS=\$'\\n\\t' (the updater's strict mode)"
+else
+    fail "the identity line did not parse under IFS=\$'\\n\\t'"
+fi
+# The live verdict agrees with the process's own map, whichever namespace this suite runs in.
+live_map="$(</proc/self/uid_map)"
+if [[ "${live_map}" =~ ^[[:space:]]*0[[:space:]]+0[[:space:]]+4294967295[[:space:]]*$ ]]; then
+    if ai_tools_conf_uid_map_is_identity; then pass "the live map reads as identity where /proc says so"
+    else fail "the live map is the identity line yet read as translated"; fi
+else
+    if ! ai_tools_conf_uid_map_is_identity; then pass "the live map reads as translated where /proc says so"
+    else fail "the live map is not the identity line yet read as identity"; fi
+fi
+
+# The namespace clause, driven inside a real user namespace. `unshare -Ur` maps this root process
+# to 0 inside, so a root-owned fixture stays trusted there while the projects-user-owned one
+# reads back as 65534 -- the reading this test exists for -- and its reason has to say so. A host
+# whose seccomp or sysctl refuses an unprivileged user namespace skips rather than fakes it.
+if ! command -v unshare >/dev/null 2>&1 || ! unshare -Ur true 2>/dev/null; then
+    skip "the reason names a translating namespace" "unshare -Ur is not permitted on this host"
+else
+    # shellcheck disable=SC2016  # $1..$3 are the inner shell's positionals, passed after `_`
+    ns_out="$(unshare -Ur bash -c '
+        source "$1" || exit 9
+        printf "trusted=%s\n" "$(ai_tools_conf_is_trusted "$2" && echo yes || echo no)"
+        printf "reason=%s\n" "$(ai_tools_conf_untrusted_reason "$3")"' _ "${LIB}" "${trusted}" "${notroot}" 2>&1)" || true
+    if [[ "${ns_out}" == *"trusted=yes"* ]]; then
+        pass "inside the namespace a root-owned file is still trusted (root maps to root)"
+    else
+        fail "inside the namespace the root-owned file was refused: ${ns_out}"
+    fi
+    if [[ "${ns_out}" == *"owner=65534"*"user namespace"* ]]; then
+        pass "inside the namespace the reason reports owner=65534 and names the translation"
+    else
+        fail "the namespace clause is missing: ${ns_out}"
+    fi
+fi
 
 # --- Sidecar files: what an upgrade preserves when it rewrites an operator's config ------------
 # Two copies with two jobs -- .bak is what the operator HAD, .shipped is what they were SUPPOSED

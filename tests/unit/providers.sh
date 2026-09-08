@@ -37,6 +37,7 @@ if ! source "${LIB}" \
         || ! declare -F ai_tools_provider_is_enabled >/dev/null 2>&1 \
         || ! declare -F ai_tools_agent_sweeps_at_exit >/dev/null 2>&1 \
         || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1 \
+        || ! declare -F ai_tools_agents_empty_verdict >/dev/null 2>&1 \
         || ! declare -F ai_tools_enabled_integrations >/dev/null 2>&1; then
     fail "could not source ${LIB} or it does not define the resolver functions"; finish; exit
 fi
@@ -206,6 +207,58 @@ else
 fi
 chmod 0755 "${agents_dir}"
 assert_names "restored manifest dir honored again" "claude-code experimental " "${conf}"
+
+# --- Empty-set classification: what nvm-update asks once the resolver returned an empty set ----
+# The resolver reports a refused input on stderr and does not print a line for it, so a caller
+# reading stdout sees an empty set for a tampered manifest directory and for a host with no agent
+# package alike. nvm-update.sh ends the first as a fault (exit 1, RESULT=failed) and logs the second, so
+# the verdict is driven over both classes and over the shape its caller parses: one line, a TAB
+# between verdict and reason, every refused path named.
+section "providers: an empty agent set is classified as fault or none"
+assert_empty() {   # <desc> <expected verdict> <reason substring> <conf path>
+    local desc="$1" want="$2" needle="$3" conf_path="$4" line verdict reason
+    line="$(AI_TOOLS_OPERATOR_CONF="${conf_path}" ai_tools_agents_empty_verdict)"
+    IFS=$'\t' read -r verdict reason <<< "${line}"
+    if [[ "${verdict}" == "${want}" && "${reason}" == *"${needle}"* && "${line}" != *$'\n'* ]]; then
+        pass "${desc}"
+    else
+        fail "${desc}: got '${line}'"
+    fi
+}
+# The configuration asks for an empty set: three states, each read as none and logged.
+printf 'AI_TOOLS_AGENTS=""\n' > "${conf}"
+assert_empty "an explicit empty allowlist is none"        none  "set and empty"              "${conf}"
+empty_dir="${TESTDIR}/empty.d"; mkdir -p "${empty_dir}"; chmod 0755 "${empty_dir}"
+AI_TOOLS_AGENTS_DIR="${empty_dir}" assert_empty \
+             "no installed manifest is none"               none  "no agent manifest is installed" /nonexistent
+printf 'npm_package=@anthropic-ai/claude-code\nlauncher=claude\ndefault_enable=no\n' > "${agents_dir}/claude-code.conf"
+assert_empty "every manifest default_enable=no is none"   none  "none is default_enable=yes"  /nonexistent
+printf 'npm_package=@anthropic-ai/claude-code\nlauncher=claude\ndisplay_name=Claude Code\ndefault_enable=yes\n' \
+    > "${agents_dir}/claude-code.conf"
+
+# The operator asked for agents that did not resolve: a fault, naming what was asked for.
+printf 'AI_TOOLS_AGENTS="missing other"\n' > "${conf}"
+assert_empty "an allowlist that resolved nothing is a fault" fault "names missing other but no agent resolved" "${conf}"
+
+# A refused input is a fault whatever the configuration says, and the reason names the path and
+# what the predicate read -- the line an operator investigates from.
+chmod 0777 "${agents_dir}"
+assert_empty "an untrusted manifest dir is a fault"       fault "${agents_dir}: owner=0 mode=777" /nonexistent
+chmod 0666 "${agents_dir}/claude-code.conf"
+assert_empty "two refused inputs are both named on one line" fault "2 input(s) failed the trust check" /nonexistent
+chmod 0755 "${agents_dir}"
+assert_empty "an untrusted manifest is a fault"           fault "${agents_dir}/claude-code.conf: owner=0 mode=666" /nonexistent
+chmod 0644 "${agents_dir}/claude-code.conf"
+printf 'AI_TOOLS_AGENTS="claude-code"\n' > "${conf}"; chmod 0666 "${conf}"
+assert_empty "an untrusted operator.conf is a fault"      fault "${conf}: owner=0 mode=666"    "${conf}"
+chmod 0644 "${conf}"
+# The caller parses this under IFS=$'\n\t'; the TAB is what keeps verdict and reason apart there.
+ifs_line="$( IFS=$'\n\t'; AI_TOOLS_OPERATOR_CONF=/nonexistent AI_TOOLS_AGENTS_DIR="${empty_dir}" ai_tools_agents_empty_verdict )"
+if [[ "${ifs_line}" == none$'\t'* ]]; then
+    pass "the verdict line parses under IFS=\$'\\n\\t' (nvm-update's strict mode)"
+else
+    fail "verdict line under IFS=\$'\\n\\t': '${ifs_line}'"
+fi
 
 # --- Integrations resolver (one name per line; integrations carry only default_enable) ---------
 section "providers: integration enablement"

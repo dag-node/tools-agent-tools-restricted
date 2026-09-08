@@ -13,6 +13,9 @@ require_root
 
 readonly UNITDIR=/usr/lib/systemd/system
 readonly USERUNITDIR=/usr/lib/systemd/user
+# The --user units this project ships. Other packages install into the same directory, and this
+# suite judges only its own units, so every check over the user units reads this one list.
+readonly -a SHIPPED_USER_UNITS=(nvm-update.service nvm-update.timer)
 SANDBOX_UID="$(id -u "${SANDBOX_USER}" 2>/dev/null || true)"
 
 # sandbox_systemctl <args...>: run `systemctl --user` in the sandbox account's own instance.
@@ -60,7 +63,7 @@ else
     if [[ -z "${SANDBOX_UID}" || ! -d "/run/user/${SANDBOX_UID}" ]]; then
         skip "verify nvm-update user units" "${SANDBOX_USER}'s --user instance not reachable"
     else
-        for u in nvm-update.service nvm-update.timer; do
+        for u in "${SHIPPED_USER_UNITS[@]}"; do
             if out="$(sudo -u "${SANDBOX_USER}" \
                           XDG_RUNTIME_DIR="/run/user/${SANDBOX_UID}" \
                           systemd-analyze --user verify "${USERUNITDIR}/${u}" 2>&1)"; then
@@ -71,6 +74,38 @@ else
         done
     fi
 fi
+
+section "No --user unit carries a mount-namespace option"
+
+# In a per-user service manager an option that needs a mount namespace implies PrivateUsers=
+# (systemd.exec(5)), which maps that account's uid alone -- so every other host uid, root included,
+# reads back as the overflow uid 65534 while stat(1) still exits 0. Every uid-based trust predicate
+# in the payload then refuses: ai_tools_conf_is_trusted requires owner 0, so the updater reads
+# root-owned manifests as nobody-owned and resolves NO agent. nvm-update.sh ends that run as a
+# fault, so the state is reported once it exists; this check keeps it from existing.
+#
+# It is a text check rather than a runtime one because the unit starts either way:
+# `systemd-analyze verify` does not report the option, and RestrictNamespaces= does not prevent it
+# (it filters the payload's own unshare/clone/setns, which systemd installs after building the
+# namespace), so the unit file is where it is catchable.
+#
+# The check covers EVERY --user unit this project ships, not the one where this was found, because
+# the property belongs to the manager rather than to the updater. A unit another package installs
+# beside them is that package's to judge, so only SHIPPED_USER_UNITS is read.
+_NS_OPTS='PrivateTmp|PrivateUsers|PrivateDevices|PrivateMounts|PrivateNetwork|ProtectSystem|ProtectHome|ProtectKernelTunables|ProtectKernelModules|ProtectControlGroups|ProtectProc|ReadOnlyPaths|ReadWritePaths|InaccessiblePaths|BindPaths|BindReadOnlyPaths|TemporaryFileSystem|RootDirectory|RootImage|MountAPIVFS'
+for u in "${SHIPPED_USER_UNITS[@]}"; do
+    if [[ ! -f "${USERUNITDIR}/${u}" ]]; then
+        skip "${u} carries no mount-namespace option" "not installed in ${USERUNITDIR}"
+        continue
+    fi
+    # Assignments only, so a directive named in a comment (this rationale, or a unit header
+    # explaining the prohibition) is not read as one being set.
+    if out="$(grep -nE "^[[:space:]]*(${_NS_OPTS})[[:space:]]*=" "${USERUNITDIR}/${u}")"; then
+        fail "${u} sets a mount-namespace option, which makes every host uid read as 65534 in this manager and leaves the payload's trust checks refusing root-owned files: ${out//$'\n'/; }"
+    else
+        pass "${u} carries no mount-namespace option (uids stay untranslated)"
+    fi
+done
 
 section "Enablement in the correct instance"
 
