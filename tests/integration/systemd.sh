@@ -78,13 +78,13 @@ section "No --user unit carries a mount-namespace option"
 # (systemd.exec(5)), which maps that account's uid alone -- so every other host uid, root included,
 # reads back as the overflow uid 65534 while stat(1) still exits 0. Every uid-based trust predicate
 # in the payload then refuses: ai_tools_conf_is_trusted requires owner 0, so the updater reads
-# root-owned manifests as nobody-owned, resolves NO agent, installs npm alone, and exits 0.
+# root-owned manifests as nobody-owned and resolves NO agent. nvm-update.sh ends that run as a
+# fault, so the state is reported once it exists; this check keeps it from existing.
 #
-# That is a silent failure in the worst direction -- the run stamps a healthy RESULT while the
-# agent stops being updated -- and it is why this is a text check rather than a runtime one: the
-# unit starts and succeeds either way. `systemd-analyze verify` does not report it, and
-# RestrictNamespaces= does not prevent it (it filters the payload's own unshare/clone/setns, which
-# systemd installs after building the namespace), so the unit file is where it is catchable.
+# It is a text check rather than a runtime one because the unit starts either way:
+# `systemd-analyze verify` does not report the option, and RestrictNamespaces= does not prevent it
+# (it filters the payload's own unshare/clone/setns, which systemd installs after building the
+# namespace), so the unit file is where it is catchable.
 #
 # The check covers EVERY shipped --user unit, not the one where this was found, because the
 # property belongs to the manager rather than to the updater.

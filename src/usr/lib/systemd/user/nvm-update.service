@@ -52,7 +52,7 @@ NoNewPrivileges=yes
 # PrivateUsers maps this account's uid alone, so every other host uid -- root included -- reads
 # back as the overflow uid 65534 while stat(1) still exits 0. The updater then resolves its agents
 # through ai_tools_conf_is_trusted, which requires owner 0, so it refuses operator.conf and every
-# manifest, installs npm alone, and exits 0. RestrictNamespaces= does NOT prevent this: it filters
+# manifest and ends the run as a fault. RestrictNamespaces= does NOT prevent this: it filters
 # the payload's own unshare/clone/setns, and systemd builds the namespace before installing that
 # filter. tests/integration/systemd.sh asserts the whole option family stays out of every --user
 # unit. See .claude/rules/updater.rule.md.

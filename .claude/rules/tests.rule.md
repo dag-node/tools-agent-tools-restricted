@@ -260,7 +260,11 @@ an indented **example** in a header block is not, so a file seeded with `operato
 grammar comments is not mistaken for one that already knows every option.
 `providers.sh` drives the enablement truth table and then, for each untrusted input in turn
 — `operator.conf`, a manifest, a manifest directory — asserts the resolver moves to *less*
-access and says so, never more.
+access and says so, never more. It then drives the empty-set verdict the updater reads once the
+resolver printed an empty set: each refused input, and an allowlist none of whose names resolved, reads
+`fault` with the path and the owner and mode named on one line, while an empty allowlist, an empty
+manifest directory, and a set of `default_enable=no` manifests read `none` — the split that decides
+whether the updater exits `1` or maintains `npm` and exits `0`.
 
 `claude-prompt.sh` and `claude-endpoint.sh` are the runtime half of the custom system prompt and
 custom API endpoint (see [launch](launch.rule.md) and [providers](providers.rule.md)). Each drives

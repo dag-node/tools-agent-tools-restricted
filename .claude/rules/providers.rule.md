@@ -319,6 +319,13 @@ agent-writable (catching the agent trying to break it).
   (above), likewise no I/O and unit-tested.
 - `ai_tools_enabled_agents` — prints `name<TAB>npm_package<TAB>launcher` per enabled installed agent.
 - `ai_tools_enabled_integrations` — prints one enabled installed integration name per line.
+- `ai_tools_agents_empty_verdict` — for a caller whose `ai_tools_enabled_agents` printed an empty
+  set, one `fault`/`none` line saying why, every refused path named with what the predicate read.
+  The resolver reports a refusal on stderr only, so a caller reading its stdout sees an empty set
+  for a tampered manifest directory and for a host with no agent package alike; `nvm-update` ends
+  the first as a fault and logs the second (see [updater](updater.rule.md)). An allowlist naming
+  agents none of which resolved is a fault too: the operator asked for agents the run does not
+  maintain.
 - `ai_tools_agent_manifest_field <name> <key>` — one further field of a trusted manifest, for a
   caller that has already resolved which agent it has. The name is allowlisted to a plain
   identifier before it becomes a path, so it cannot address a file outside the manifest directory.

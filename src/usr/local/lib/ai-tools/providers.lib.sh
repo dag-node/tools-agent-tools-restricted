@@ -215,6 +215,61 @@ ai_tools_enabled_agents() {
     return 0
 }
 
+# ai_tools_agents_empty_verdict : for a caller whose ai_tools_enabled_agents printed an empty
+#   set, print one line, "<verdict><TAB><reason>", classifying it:
+#     fault  an input was refused by the trust predicate (operator.conf, the manifest directory, a
+#            manifest), or AI_TOOLS_AGENTS names agents and none of them resolved. A retry reads
+#            the same inputs, so a caller maintaining the toolchain ends the run as a failure
+#            rather than treating npm alone as the managed set.
+#     none   the configuration asks for no agent: AI_TOOLS_AGENTS is set and empty, no manifest is
+#            installed, or every installed manifest is default_enable=no with the key unset.
+#   The reason carries each refused path with what the predicate read
+#   (ai_tools_conf_untrusted_reason), so the caller's one line names every cause. TAB-separated
+#   because the callers run under IFS=$'\n\t'. Any output shape the caller does not recognize is
+#   its cue to treat the set as a fault.
+ai_tools_agents_empty_verdict() {
+    local gate manifest_file installed=0 joined
+    local -a refused=() requested_names=()
+    gate="$(ai_tools_provider_gate AI_TOOLS_AGENTS)"
+    [[ "${gate}" == untrusted ]] \
+        && refused+=("${AI_TOOLS_OPERATOR_CONF}: $(ai_tools_conf_untrusted_reason "${AI_TOOLS_OPERATOR_CONF}")")
+    if [[ -d "${AI_TOOLS_AGENTS_DIR}" ]]; then
+        ai_tools_conf_is_trusted "${AI_TOOLS_AGENTS_DIR}" \
+            || refused+=("${AI_TOOLS_AGENTS_DIR}: $(ai_tools_conf_untrusted_reason "${AI_TOOLS_AGENTS_DIR}")")
+        for manifest_file in "${AI_TOOLS_AGENTS_DIR}"/*.conf; do
+            [[ -e "${manifest_file}" ]] || continue
+            installed=$(( installed + 1 ))
+            ai_tools_conf_is_trusted "${manifest_file}" \
+                || refused+=("${manifest_file}: $(ai_tools_conf_untrusted_reason "${manifest_file}")")
+        done
+    fi
+    if (( ${#refused[@]} > 0 )); then
+        printf -v joined '%s; ' "${refused[@]}"
+        printf 'fault\t%d input(s) failed the trust check: %s\n' "${#refused[@]}" "${joined%; }"
+        return 0
+    fi
+    if [[ "${gate}" == allowlist ]]; then
+        ai_tools_conf_read "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS || true
+        ai_tools_conf_split requested_names "${_ai_tools_conf_value}"
+        if (( ${#requested_names[@]} > 0 )); then
+            printf -v joined '%s ' "${requested_names[@]}"
+            printf 'fault\tAI_TOOLS_AGENTS in %s names %sbut no agent resolved: no trusted manifest under %s carries one of those names with an npm_package\n' \
+                "${AI_TOOLS_OPERATOR_CONF}" "${joined}" "${AI_TOOLS_AGENTS_DIR}"
+        else
+            printf 'none\tAI_TOOLS_AGENTS in %s is set and empty, so the operator enabled no agent\n' \
+                "${AI_TOOLS_OPERATOR_CONF}"
+        fi
+        return 0
+    fi
+    if (( installed == 0 )); then
+        printf 'none\tno agent manifest is installed under %s\n' "${AI_TOOLS_AGENTS_DIR}"
+    else
+        printf 'none\t%d agent manifest(s) under %s and none is default_enable=yes, with AI_TOOLS_AGENTS unset\n' \
+            "${installed}" "${AI_TOOLS_AGENTS_DIR}"
+    fi
+    return 0
+}
+
 # _ai_tools_manifest_field <manifest-dir> <name> <key> : print one field of a trusted manifest in
 #   <manifest-dir>, empty (and non-zero) when the manifest is absent or untrusted or the key is not
 #   there. Shared by the two public readers below so both allowlist the name the same way and both

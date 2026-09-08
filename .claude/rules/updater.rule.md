@@ -83,9 +83,10 @@ as the overflow uid `65534` while `stat` still exits 0.
 
 The payload is what breaks. `ai_tools_conf_is_trusted` requires owner 0 (see
 [providers](providers.rule.md)), so under such an option the updater reads root-owned manifests as
-nobody-owned, refuses `operator.conf` and every manifest, does not resolve any agent, and installs
-`npm` alone — reporting a run that succeeded, since every step it took did. The failure direction is what
-makes it worth a rule: the refusals stay fail-closed and the toolchain silently stops advancing.
+nobody-owned, refuses `operator.conf` and every manifest, and does not resolve any agent. The
+refusals stay fail-closed, and the toolchain stops advancing; the run ends as a fault whose reason
+names the translated owner it read ([the empty-set classification](#the-run-classifies-itself-ok-skipped-or-failed)),
+so the state is reported, and the unit check below is what keeps it from arising.
 
 Two properties of that make the guard a **unit-file check** (`tests/integration/systemd.sh`, over
 every shipped `--user` unit) rather than a runtime one:
@@ -144,6 +145,21 @@ whether a retry is the right response (the unit retries `3` and not `1`; see
 now. What keeps `skipped` from becoming a way to hide a real problem is that it does not stop the
 clock: the stamp still ages, and a condition that persists past the record's 48h grace reports
 `STALE`, the same escalation a schedule that stopped firing gets. Offline once is routine; offline for a week is a toolchain that has stopped advancing.
+
+**An empty agent set is classified before `npm` alone becomes the managed set.** The resolver
+reports a refused input on stderr and does not print a line for it, so its stdout reads as an
+empty set for a tampered manifest directory and for a host with no agent package alike. `nvm-update.sh` asks
+`ai_tools_agents_empty_verdict` (see [providers](providers.rule.md)) which it is: a refused input,
+or an `AI_TOOLS_AGENTS` naming agents none of which resolved, is a **fault** — `die`, exit `1`,
+`RESULT=failed` — because a retry reads the same inputs, and `1` is the status the unit's
+`RestartPreventExitStatus=` already withholds a retry from. A configuration that asks for no agent
+(`AI_TOOLS_AGENTS` set and empty, no manifest installed, or every manifest `default_enable=no` with
+the key unset) is logged and the run continues over `npm`. The fault reason carries every refused
+path with the owner and mode the predicate read, so `ai-tools --status` reports `FAILED` on the
+first run after the fault and the journal line names the input to look at. The verdict is a
+`fault`/`none` line and not a new `RESULT` token: `ai_tools_service_stamp_verdict` declines a word
+outside `ok|skipped|failed`, so a token added there would report as unknown and leave
+`ai_tools_service_needs_attention` unmoved.
 
 ### Retrying a transient failure
 
