@@ -33,8 +33,9 @@ execute code in the privileged scripts that read it:
   call it), `handback` (which side converges ownership — below), `entrypoint_fcontext` and
   `config_dir` (the two paths it declares to SELinux — below), `skills_dir` / `subagents_dir`
   (where inside its config directory it reads each shared asset kind, so the shared copies can be
-  symlinked in — see [shipped-assets](shipped-assets.rule.md)), `default_enable`, and — optionally
-  — the three release-verification fields below.
+  symlinked in — see [shipped-assets](shipped-assets.rule.md)), `memory_file` (the filename that
+  agent's product reads as user-scope instructions, where the shared orientation text is linked),
+  `default_enable`, and — optionally — the three release-verification fields below.
 - integrations: `default_enable`.
 - either kind: `admin_summary`, the one-line description `ai-tools-admin --help` prints for the
   command domain this package contributes (below). Optional; a package that does not contribute a

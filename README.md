@@ -192,6 +192,12 @@ of what it can ever send:
   skill, so a skill is authored and updated in one place however many agents read it, and an
   agent-specific skill is a real directory, which the linker keeps in place. See
   `/usr/share/ai-tools/skills/README.md`.
+- **Every session starts oriented** — `/opt/ai-tools/orientation/AGENTS.md` states what the
+  sandbox refuses (which commands, why a `chmod` fails on a handed-back file, which paths do not
+  list), and is linked into each agent's config directory under the filename that agent reads as
+  user-scope instructions. So a session working in any project knows its boundaries instead of
+  finding them one failed command at a time. It is root-owned, and your own file at that path is
+  kept instead.
 - **Operation logging** — the `sudo` helpers, the lifecycle hooks, the `ai-tools`
   CLI, and `install.sh` log through one library to **journald** (always, leveled and
   tagged: `journalctl -t ai-tools-chown _UID=0`) and, for the root writers only, to
