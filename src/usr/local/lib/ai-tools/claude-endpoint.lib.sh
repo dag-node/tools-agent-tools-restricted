@@ -4,41 +4,18 @@
 # Resolves the ANTHROPIC_* session environment that routes a Claude Code session at a custom API
 # endpoint, from a dedicated endpoint file that operator.conf's CLAUDE_BASE_URL_FILE points at.
 # Sourced (never executed) by the claude-code session-env fragment, which runs inside ai-tools-run
-# as the sandbox account; the pure resolution is split out so it is unit-tested apart from a real
-# launch (tests/unit/claude-endpoint.sh), the same split claude-prompt.lib.sh makes.
+# as the sandbox account; the pure resolution is split out so tests/unit/claude-endpoint.sh drives
+# it apart from a real launch, the same split claude-prompt.lib.sh makes.
 #
-# Why a dedicated file, not operator.conf: one of the four values is a bearer token
-# (ANTHROPIC_AUTH_TOKEN), and operator.conf is 644 world-readable and must never hold a secret. The
-# endpoint file lives at /etc/ai-tools/endpoints/ mode 640 root:@SANDBOX_GROUP@ instead -- readable
-# by root and the sandbox account (which needs the token) but NOT world, and NOT by the operator
-# (who is not in @SANDBOX_GROUP@), so the credential does not leak. operator.conf only holds the
-# POINTER (CLAUDE_BASE_URL_FILE), never the token. That the operator cannot read the file is also why
-# validation happens HERE, sandbox-side in the fragment, rather than in the operator-side wrapper.
-#
-# ── Tier: fail closed on an invalid CONFIGURED option ─────────────────────────────────────────
-# An operator who enables a custom endpoint is relying on the session routing there, so a broken
-# value is refused rather than quietly ignored. The states, and their outcomes:
-#   * NOT configured (CLAUDE_BASE_URL_FILE absent/empty), or the endpoint file present but INERT
-#     (no recognised key uncommented) -> no options; the session uses the default Anthropic endpoint.
-#   * A recognised option is present (uncommented) but INVALID -- a malformed URL, a model label with
-#     whitespace, a token with control bytes, or options set with no ANTHROPIC_BASE_URL to anchor
-#     them -- or the pointer names a missing/untrusted file -> the resolver returns non-zero and the
-#     fragment REFUSES the launch. Only sane, present options are ever passed to Claude Code.
-# A non-local endpoint with no token is WARNED about but still applied: an absent token is an omitted
-# option, not an invalid one, and Claude Code surfaces the resulting auth failure itself.
-#
-# What the resolver guarantees regardless:
-#   * only the four RECOGNISED keys are read -- an arbitrary key in the file never becomes session
-#     environment;
-#   * the endpoint file must sit under /etc/ai-tools/endpoints/ (etc_t, the one place the confined
-#     session can read), be root-owned, not group/other-writable, and not a symlink;
-#   * ANTHROPIC_AUTH_TOKEN is imported BY NAME (--setenv=ANTHROPIC_AUTH_TOKEN, no value on the
-#     command line) so it does not leak via ps / /proc/<pid>/cmdline -- the discipline ai-tools-run
-#     already uses for the forwarded environment.
-# Precedence: these are process environment variables. A Claude Code settings `env` block
-# (settings.json, and authoritatively /etc/claude-code/managed-settings.json) that sets the same
-# name takes precedence over them; the shipped settings set no ANTHROPIC_* key, so the endpoint file
-# governs by default and managed-settings.json remains the un-overridable host lock.
+# A dedicated file, not operator.conf, because one of the recognised values is a bearer token
+# (ANTHROPIC_AUTH_TOKEN): operator.conf is 644 and must never hold a secret, so the token sits in a
+# 640 root:@SANDBOX_GROUP@ file under /etc/ai-tools/endpoints/ that root and the sandbox account
+# read and the operator (not in @SANDBOX_GROUP@) cannot -- which is why validation happens HERE,
+# sandbox-side, and not in the operator-side wrapper. operator.conf holds only the pointer
+# (CLAUDE_BASE_URL_FILE). Fail closed on a CONFIGURED option that is invalid, and inert on an
+# unconfigured host: the keys the resolver recognises (an arbitrary key never becomes session
+# environment), what makes each invalid, the name-only token import that keeps the value off every
+# command line, and the precedence against a settings `env` block are in agent-claude-code.rule.md.
 
 # Include-guarded: the fragment and the unit test may both source this and its dependencies.
 if [[ -n "${_AI_TOOLS_CLAUDE_ENDPOINT_LIB:-}" ]]; then
@@ -137,7 +114,7 @@ ai_tools_claude_resolve_endpoint_setenv() {
         return 1
     fi
 
-    # Read ONLY the recognised keys. An unknown key in the file is never consulted.
+    # Read ONLY the recognised keys, so an unknown key in the file is not consulted.
     local base_url="" auth_token="" model="" haiku=""
     ai_tools_conf_read "${file_canon}" ANTHROPIC_BASE_URL 2>/dev/null && base_url="${_ai_tools_conf_value}"
     ai_tools_conf_read "${file_canon}" ANTHROPIC_AUTH_TOKEN 2>/dev/null && auth_token="${_ai_tools_conf_value}"
@@ -161,7 +138,7 @@ ai_tools_claude_resolve_endpoint_setenv() {
     fi
 
     # Model labels are opaque single tokens the endpoint resolves; a present-but-malformed one is a
-    # refusal (never let whitespace/control bytes reach systemd-run), an omitted one is skipped.
+    # refusal, so whitespace or control bytes do not reach systemd-run; an omitted one is skipped.
     if [[ -n "${model}" && ! "${model}" =~ ^[[:graph:]]+$ ]]; then
         _ai_tools_endpoint_warn "custom endpoint: ANTHROPIC_MODEL is not a single printable token"
         return 1

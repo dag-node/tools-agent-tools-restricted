@@ -96,7 +96,7 @@ fi
 
 # Host tuning is the whole reason the file is kept, so it must survive a merge verbatim: a
 # relaxed deny entry (the documented case, alongside an enabled SELinux group) and an added env
-# key. Both are states an upgrade must not quietly revert.
+# key, states an upgrade must not quietly revert.
 tuned="${TESTDIR}/tuned.json"
 mk_stale "${tuned}"
 jq '.permissions.deny -= ["Bash(rpm)"] | .env.SITE_PROXY = "http://proxy.example:3128"' \

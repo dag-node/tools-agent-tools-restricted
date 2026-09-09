@@ -1,52 +1,23 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/providers.lib.sh
-# Resolve which sandboxed providers are enabled and how to provision each. This is the seam that
-# keeps the toolchain and launch layers provider-agnostic: a provider's details live in a
-# per-package manifest the provider's own package ships, and operator.conf gates which are
-# enabled. Two provider kinds share the mechanism:
-#   * AGENTS -- the AI coding agents (ai-tools-agents-*). ai-tools-bootstrap / nvm-update install
-#     each enabled agent's npm package and symlink its launcher.
-#   * INTEGRATIONS -- host-toolchain layers (ai-tools-integration-*). ai-tools-run sources each
-#     enabled integration's session-env fragment (session-env.d/<name>.env.sh).
-# Both inputs are DATA -- parsed via conf.lib.sh, never sourced -- so a malformed or tampered file
-# cannot execute code in the scripts that read it (the same posture as operator.lib.sh /
-# skip-dirs.lib.sh). conf.lib.sh also carries the KEY=value grammar, so a manifest and
-# operator.conf read identically; a load failure there leaves this file defining NO RESOLVER and
-# returning non-zero, so a consumer falls back rather than guessing.
+# Resolve which sandboxed providers are enabled and how to provision each: the seam that keeps
+# the toolchain and launch layers provider-agnostic. A provider's details live in the manifest its
+# own package ships (/usr/local/lib/ai-tools/{agents,integrations}.d/<name>.conf, <name> being the
+# token an operator writes in operator.conf's AI_TOOLS_AGENTS / AI_TOOLS_INTEGRATIONS), and that
+# key gates which are enabled. The manifest fields and what reads each, the fail-closed enablement
+# rules, and the trust predicate every input and its directory pass are in providers.rule.md; the
+# values one agent declares are that manifest's own comments.
 #
-# Manifest -- /usr/local/lib/ai-tools/{agents,integrations}.d/<name>.conf, one per installed
-# member package. <name> (the basename) is the token an operator writes in AI_TOOLS_AGENTS /
-# AI_TOOLS_INTEGRATIONS:
-#   agents:        npm_package=<registry package>  launcher=<bin name>  display_name=<label>
-#                  handback=hooks|none          default_enable=yes|no
-#   integrations:  default_enable=yes|no       (its env fragment is session-env.d/<name>.env.sh)
-#   either kind:   admin_summary=<one line>    (the domain's line in `ai-tools-admin --help`, for
-#                  a package that also ships an admin-commands.d/<name> command fragment)
-#
-# ── Enablement is FAIL-CLOSED ────────────────────────────────────────────────────────────────
-# operator.conf: AI_TOOLS_AGENTS / AI_TOOLS_INTEGRATIONS = "<name> ..." (commas and whitespace
-# both separate; see conf.lib.sh for the grammar):
-#   key present  -> enabled = exactly the listed names (an allowlist; an empty value = none)
-#   key absent   -> enabled = installed providers with default_enable=yes (the safe baseline)
-#   conf unreadable/malformed/UNTRUSTED -> treated as absent (safe baseline, never "enable all")
-#   a listed name with no installed manifest -> reported and skipped, never guessed
-# A default_enable=yes on a manifest is the shipping package's claim that its provider leaves
-# host surface unchanged beyond the sandbox; a surface-widening one ships default_enable=no and is enabled
-# only when an operator names it. The operator's explicit list always overrides the default.
-#
-# ── The sandbox cannot widen its own surface ─────────────────────────────────────────────────
-# Every input that decides what a session gets is honored only while it is root-owned and not
-# group- or other-writable (ai_tools_conf_is_trusted), and so is the DIRECTORY holding it -- a
-# group-writable directory lets a non-root writer unlink and replace the file inside it. So:
-#   * an untrusted manifest directory disables that whole provider kind
-#   * an untrusted manifest disables that one provider
-#   * an untrusted operator.conf is ignored, falling back to the baseline (which can only ever
-#     enable a provider its own package marked default_enable=yes)
-# Each refusal is reported with the owner and mode the predicate read
-# (ai_tools_conf_untrusted_reason in conf.lib.sh), so a tamper is loud and a refusal caused by uid
-# translation in a non-initial user namespace names that cause. The agent account can therefore
-# neither enable a disabled provider nor introduce a new one, whatever it can write.
+# Manifests and operator.conf are DATA, parsed through conf.lib.sh and never sourced, so a
+# malformed or tampered file yields a bad value rather than code running in the scripts that read
+# it. conf.lib.sh is therefore a hard dependency: a load failure leaves this file defining NO
+# RESOLVER and returning non-zero, so a consumer falls back (Node-only bootstrap, npm-only update,
+# no integration env) rather than guessing which providers it has. The pure verdicts
+# (ai_tools_provider_is_enabled, ai_tools_agent_sweeps_at_exit, ai_tools_provider_gate) take no
+# input but their arguments, so tests/unit/providers.sh drives them over the truth table; the
+# resolvers around them read the files and print data-only stdout, with every refusal on stderr
+# and in journald, naming the owner and mode the predicate read.
 
 # Include guard: consumers may source this alongside libs that also pull it in. An if-statement,
 # not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing shell's set -e.
@@ -156,7 +127,7 @@ _ai_tools_provider_requested() {
 }
 
 # _ai_tools_provider_dir_trusted <manifest-dir> <conf-key> : succeed when the manifest directory
-#   may be read. A missing directory is simply "no providers installed" (silent); an existing but
+#   may be read. A missing directory is "no providers installed" (silent); an existing but
 #   untrusted one is a tamper signal and is reported, because a non-root writer there can plant a
 #   manifest that enables a provider nobody installed.
 _ai_tools_provider_dir_trusted() {

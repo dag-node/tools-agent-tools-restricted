@@ -202,8 +202,10 @@ and safety guidance) or `--system-prompt-file <path>` (mode `replace`).
 ## Custom API endpoint (`claude-endpoint.lib.sh`)
 
 The session-env counterpart, resolved **sandbox-side in the fragment** rather than in the wrapper.
-`operator.conf` `CLAUDE_BASE_URL_FILE` points at a dedicated file under `/etc/ai-tools/endpoints/`,
-from which the resolver reads exactly four recognised keys — `ANTHROPIC_BASE_URL` (required, a
+`operator.conf` `CLAUDE_BASE_URL_FILE` points at a dedicated file under `/etc/ai-tools/endpoints/`
+(`etc_t`, which the confined domain reads, as for the prompts base above; the file, its directory,
+and the pointer each pass `ai_tools_conf_is_trusted`), from which the resolver reads exactly four
+recognised keys — `ANTHROPIC_BASE_URL` (required, a
 validated http(s) URL), `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`,
 `ANTHROPIC_DEFAULT_HAIKU_MODEL` — and turns each valid one into a `--setenv=` entry. An arbitrary key
 is never read, so the file cannot inject unrecognised environment.
@@ -237,20 +239,17 @@ Outbound traffic is governed by network policy, not this variable.
 
 `session-env.d/claude-code.env.sh` is sourced **last**, after every enabled integration, so its pins
 are authoritative. Each exists because the sandbox home is deliberately not agent-writable at its
-root:
+root, and the fragment states the mechanism beside each pin:
 
-- **`CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude`** — Claude Code saves `.claude.json` (login,
-  onboarding, per-project trust) by writing a temp file beside it and renaming, which needs write on
-  the *containing* directory. `.claude` is `3770`, setgid+sticky: the rename works, and the sticky
-  bit keeps control files the agent does not own undeletable. Unpinned it would resolve under the
-  `2751` home root, where the rename is refused and every session demands a fresh login.
-- **`NODE_COMPILE_CACHE=/opt/ai-tools/.cache/node-compile-cache`** — Node's default is under
-  `os.tmpdir()` on the shared host `/tmp`, where entries left by an earlier unconfined run carry
-  `user_tmp_t`, a type the session's domain has no rule for; Node's own `open()` of its cache is
-  then denied and the session dies at startup.
-- **`DISABLE_AUTOUPDATER=1`** — the Node program tree is read-only to the session, so an in-session
-  self-update cannot write the npm prefix. The `nvm-update` timer maintains the toolchain out of
-  band ([updater](updater.rule.md)), which also keeps the toolset stable for the whole session.
+- **`CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude`** — the one directory where Claude Code's
+  write-then-rename of `.claude.json` succeeds (`3770`, setgid+sticky; the `2751` home root refuses
+  the rename).
+- **`NODE_COMPILE_CACHE=/opt/ai-tools/.cache/node-compile-cache`** — off the shared host `/tmp`,
+  where entries an unconfined run left carry `user_tmp_t`, a type the domain cannot open, and onto
+  the `ai_tools_home_t` cache subtree.
+- **`DISABLE_AUTOUPDATER=1`** — the Node tree is read-only to the session under the SELinux policy
+  (and sandbox-owned under DAC, per *Distribution channel* below), so a self-update cannot write
+  the npm prefix; the `nvm-update` timer maintains it out of band ([updater](updater.rule.md)).
 
 ## Distribution channel
 

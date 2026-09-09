@@ -1,51 +1,26 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/conf.lib.sh
-# The one KEY=value grammar every ai-tools config file is read with, plus the trust predicate
-# that decides whether a file may be read at all. Sourced (never executed) by operator.lib.sh,
-# skip-dirs.lib.sh, and providers.lib.sh, so /etc/ai-tools/operator.conf and the provider
-# manifests parse identically no matter which component reads them and the grammar cannot drift
-# between consumers.
+# The one KEY=value grammar every ai-tools config file is read with, the trust predicate that
+# decides whether a file may be read at all, and three things that share the grammar and so live
+# beside it: the dated config sidecars (<name>.<YYYYMMDD>[-N].{bak,shipped}, whose stamp
+# ai_tools_conf_sidecar_path is the single home of), the settings.json hook-declaration merge, and
+# every read AND write of allowed-projects. Sourced (never executed) by operator.lib.sh,
+# skip-dirs.lib.sh, providers.lib.sh, the launch wrapper, the CLI and the root helpers, so a key
+# and an allowlist line read the same whichever component reads them. The grammar, the
+# present/absent distinction the provider gating turns on, and what the trust predicate requires
+# are in providers.rule.md; the allowlist state model is in cli.rule.md.
 #
 # Config files are PARSED, never sourced: a malformed or tampered file yields a bad value, never
-# executed code in a privileged script.
+# executed code in a privileged script. List splitting pins IFS locally, because the sourcing
+# scripts run under the strict-mode IFS=$'\n\t', where an inherited IFS would read "a b" as one
+# item -- for a provider allowlist, a wrong "no such provider" verdict.
 #
-# ── Grammar ──────────────────────────────────────────────────────────────────────────────────
-# One `KEY=value` per line, the conventional shape of a shell-style config:
-#
-#   KEY=value                  bare value; no quotes needed
-#   KEY = value                whitespace around the key and the `=` is trimmed
-#   KEY="a b"  /  KEY='a b'    one optional layer of matched quotes, stripped
-#   KEY=a, b  c , d            list separators are commas AND whitespace, freely mixed;
-#                              runs collapse and empty items are dropped
-#   KEY=value   # why          an inline comment: `#` at the start of the value, or following
-#                              whitespace, ends it. Inside quotes `#` is literal, so a value
-#                              that must contain one is written KEY="a#b"
-#   # comment                  a whole-line comment
-#   KEY=                       PRESENT with an empty value -- distinct from an absent key, which
-#                              is the distinction the fail-closed provider gating turns on
-#
-# A repeated key takes its LAST assignment. A line with no `=` is ignored.
-#
-# ── IFS independence ─────────────────────────────────────────────────────────────────────────
-# List splitting sets IFS locally, so a value splits into the same items regardless of the IFS
-# the sourcing script runs under. Scripts here legitimately set `IFS=$'\n\t'` (the strict-mode
-# idiom); a splitter inheriting that would silently read "a b" as ONE item, and for the provider
-# allowlists that reads as "no such provider" -- a fail-closed but wrong verdict.
-#
-# ── Trust ────────────────────────────────────────────────────────────────────────────────────
-# ai_tools_conf_is_trusted gates a file (or directory) the sandbox account must not be able to
-# influence. It is the predicate behind the security invariant that the agent cannot widen its
-# own surface: the provider manifests and their directories, operator.conf, and the session-env
-# fragments all decide what a session gets, so each is honored only while it is root-owned and
-# not group- or other-writable. See providers.rule.md.
-#
-# A refusal reports what the predicate read (ai_tools_conf_untrusted_reason): the owner uid and
-# the mode, against what it requires. That uid is the owner on disk only inside the initial user
-# namespace. In any other, a host uid with no mapping reads back as the overflow uid 65534 while
-# stat exits 0, so a root-owned file reads the same as a nobody-owned one and the predicate
-# refuses it. ai_tools_conf_uid_map_is_identity detects that namespace and the reason names it,
-# so an owner refusal caused by uid translation is not investigated as a file mode or a label.
+# A trust refusal reports the owner uid and mode the predicate read (ai_tools_conf_untrusted_reason).
+# That uid is the owner on disk only inside the initial user namespace: in any other, a host uid
+# with no mapping reads back as the overflow uid 65534 while stat exits 0, so a root-owned file
+# reads as a nobody-owned one and is refused. ai_tools_conf_uid_map_is_identity detects that
+# namespace and the reason names it, so the refusal is not investigated as a mode or a label.
 
 # Sourced more than once in a single shell: the readonly below would abort under set -e on the
 # second pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for an unset
@@ -220,7 +195,7 @@ ai_tools_conf_list() {
 #
 #   <name>.<YYYYMMDD>.bak       what the operator HAD. The only thing that restores their
 #                               settings if a rewrite is valid but wrong, which no syntax check
-#                               catches. Written only when a file is actually about to change.
+#                               catches. Written only when a file is about to change.
 #   <name>.<YYYYMMDD>.shipped   what they were SUPPOSED to get. Written when the merge could not
 #                               run, or when the file is one this project refuses to rewrite
 #                               unattended, so the hand merge has a source -- a host installed
@@ -596,11 +571,10 @@ ai_tools_conf_allowlist_exclusion_lines() {
 # An allowed-projects line has four states to move between -- absent, listed, disabled (a `!`
 # exclusion parks it), and gone -- and three components change one: the CLI on the operator's own
 # file, ai-tools-allowlist on another operator's (a `--for` run), and install.sh de-registering its
-# own checkout. Each used to carry its own edit: an append here, a `sed -i` line-deletion there, a
-# read-transform-rename in the third, with their own escaping and their own idea of what a match
-# is. That is the drift this section removes -- the file is the agent's LAUNCH GATE, so a writer
-# that matches lines differently from the reader is a project that stays reachable after a
-# "removal", or one parked twice over.
+# own checkout. All three write through the functions below, so one matcher decides what a line
+# names for every writer and every reader. The file is the agent's LAUNCH GATE: a writer that
+# matched lines differently from the reader would leave a project reachable after a "removal", or
+# park it twice over.
 #
 # Every function below is idempotent, verifies by RE-READING the file rather than trusting a write,
 # and reports three outcomes apart:
@@ -635,8 +609,8 @@ _ai_tools_conf_allowlist_write() {
 # ai_tools_conf_allowlist_state <allowlist-file> <path> : print how the file answers for <path> --
 #   `disabled`, `listed`, or `absent`. An exclusion WINS over an allow entry, exactly as it does at
 #   the launch gate, so a path carrying both lines reads `disabled`: no session can start there,
-#   which makes it the only honest answer. This is the third state the has_entry/absent reading
-#   could not express, and every verb that used to call a parked project "not claimed" reads it.
+#   which makes it the only honest answer. This is the state a has_entry/absent reading cannot
+#   express, and every verb that reports on a parked project reads it.
 ai_tools_conf_allowlist_state() {
     local file="$1" path="$2"
     [[ -f "${file}" ]] || { printf 'absent'; return 0; }
@@ -667,8 +641,8 @@ ai_tools_conf_allowlist_add() {
 }
 
 # ai_tools_conf_allowlist_remove <allowlist-file> <path> : delete every line naming <path>, allow
-#   and exclusion alike. Both, because a de-registration that left the `!` behind would park a
-#   directory that no longer exists -- and silently disable the next project claimed at that path.
+#   and exclusion alike, because a de-registration that left the `!` behind would park a directory
+#   that no longer exists -- and silently disable the next project claimed at that path.
 #   Removing what is not there succeeds: an unclaim run twice is not an error.
 ai_tools_conf_allowlist_remove() {
     local file="$1" path="$2" tmp line keep m

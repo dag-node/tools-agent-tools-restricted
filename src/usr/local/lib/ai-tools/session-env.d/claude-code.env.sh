@@ -2,9 +2,9 @@
 # shellcheck shell=bash
 # /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
 # Session environment for the claude-code agent. ai-tools-run sources this last, after every
-# enabled integration, so these pins are authoritative for the session.
-#
-# Each pin exists because the sandbox home is deliberately not agent-writable at its root:
+# enabled integration, so these pins are authoritative for the session. Each exists because the
+# sandbox home is deliberately not agent-writable at its root; the reason beside each pin is the
+# mechanism, and agent-claude-code.rule.md carries the summary.
 #
 #   CLAUDE_CONFIG_DIR    Claude Code saves .claude.json (login, onboarding, per-project trust)
 #                        by writing a temp file beside it and renaming, which needs write on the
@@ -17,12 +17,13 @@
 #                        host /tmp. Entries left there by an earlier unconfined run carry
 #                        user_tmp_t, a type the session's domain has no rule for, so Node's own
 #                        open() of its cache is denied and the session dies at startup. The
-#                        .cache subtree is ai_tools_home_t and agent-managed.
+#                        .cache subtree is ai_tools_home_t (ai_tools.fc) and agent-managed.
 #
-#   DISABLE_AUTOUPDATER  The Node program tree is read-only to the session by SELinux policy, so
-#                        an in-session `npm install -g` self-update cannot write the npm prefix.
-#                        The nvm-update timer maintains the toolchain out of band instead, which
-#                        also keeps the toolset stable for the whole session.
+#   DISABLE_AUTOUPDATER  The Node program tree is read-only to the session by SELinux policy (under
+#                        DAC alone the sandbox account owns it), so an in-session `npm install -g`
+#                        self-update cannot write the npm prefix. The nvm-update timer maintains
+#                        the toolchain out of band instead, which also keeps the toolset stable for
+#                        the whole session.
 #
 # Fragment contract (see providers.rule.md): append to session_environment_options and
 # session_path_entries, unset your own temporaries, and do not exec, prompt, or read stdin. This

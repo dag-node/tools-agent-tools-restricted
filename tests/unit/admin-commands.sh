@@ -43,7 +43,7 @@ if [[ ! -x "${HELPER}" ]]; then
     skip "contributed commands" "not installed at ${HELPER}"; finish; exit
 fi
 
-# exec_capable <dir>: succeed when a file created in <dir> can actually be run from it. Probes
+# exec_capable <dir>: succeed when a file created in <dir> can be run from it. Probes
 # rather than reading mount options, so it answers for whatever combination of noexec, SELinux
 # label and filesystem applies here.
 exec_capable() {
@@ -468,7 +468,7 @@ else
     fail "expected a not-executable failure (exit 1), got ${STATUS}: ${out}"
 fi
 
-# ── an absent directory is simply a host with no contributed commands ────────────────────────
+# ── an absent directory is a host with no contributed commands ───────────────────────────────
 reset_fixtures
 rm -rf "${CMD_DIR}"
 run_admin --help
