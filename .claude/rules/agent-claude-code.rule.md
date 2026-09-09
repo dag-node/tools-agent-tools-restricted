@@ -40,10 +40,8 @@ the single `%ai-ops` grant on the shared shim.
 | `default_enable` | `yes` | the baseline set when `operator.conf` names none |
 | `release_manifest_url` / `release_key` / `release_fingerprint` | the vendor's per-release `manifest.json` template under `downloads.claude.ai`, the key file `keys/claude-code.asc` this package ships, and that key's fingerprint | `entrypoint-verify.lib.sh` — proves the installed `claude.exe` is the binary Anthropic published; the fields and the pin they feed are in [providers](providers.rule.md) and [updater](updater.rule.md) |
 
-`handback=hooks` is the only literal that switches the shim's sweep off; anything else, including an
-absent key, gets the sweep. `config_dir` must equal the directory the session-env fragment pins as
-`CLAUDE_CONFIG_DIR`, since the manifest decides the label and the fragment decides where the agent
-writes.
+What `handback=hooks` switches off, and why `config_dir` must match the directory the fragment pins
+as `CLAUDE_CONFIG_DIR`, are the seam's rules ([providers](providers.rule.md)).
 
 ## The resolution chain is three links, and each consumer takes a different one
 
@@ -256,11 +254,8 @@ root:
 
 ## Distribution channel
 
-The agent is provisioned as an **npm package on the sandbox's Node toolchain**: `npm install -g` at
-bootstrap and on each updater run, its launcher symlinked into the locked control-plane `bin`, and
-its executable accepted only under `/opt/ai-tools/.nvm/versions/node/<semver>/bin/`. That assumption
-lives in exactly two places — provisioning and exec validation — and nowhere else in the seam
-([providers](providers.rule.md)).
+The agent is provisioned as an **npm package on the sandbox's Node toolchain** — the runtime
+assumption [providers](providers.rule.md) states once, with the two places it lives.
 
 Two properties of the current channel shape the design:
 

@@ -483,62 +483,12 @@ the same split `ai-tools-admin(8)` documents, and keeps a `bootstrap` idempotent
 without a terminal, since full-scope provisioning runs it unattended. Those are behaviour rather
 than text, so they are contracted here and asserted by the provider's own tests.
 
-## dotnet integration (`ai-tools-integration-dotnet`)
+## The integration this project ships
 
-Integrates a **host-managed** .NET toolchain (RPM `dotnet`, at `/usr/bin/dotnet` +
-`/usr/lib64/dotnet`); the package carries **no dotnet RPM dependency** and is inert without one. The
-`ai-tools-integration` umbrella pulls it as a dnf **weak dependency** (`Recommends`), so it installs
-by default on every host yet stays fully optional — removable with no effect on the rest of the
-stack. `default_enable=no` (it widens surface: a new runtime exec, NuGet egress, a writable cache),
-so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS`.
-
-- `session-env.d/dotnet.env.sh` self-gates on `/usr/bin/dotnet`, then sets the variables the
-  fragment declares — the toolchain root, the NuGet cache and CLI home under its state root, the
-  telemetry and banner opt-outs, the MSBuild node-reuse switch ([dotnet](dotnet.rule.md)), and the
-  `Development` environment — and adds `integrations/dotnet/tools` to PATH. The set is the one
-  current for **.NET 8 LTS and later**; the .NET Core 2.x/3.x-era opt-outs
-  (`DOTNET_SKIP_FIRST_TIME_EXPERIENCE`, `DOTNET_PRINT_TELEMETRY_MESSAGE`) are absent because the
-  SDK does not read them.
-  `DOTNET_CLI_HOME=…/integrations/dotnet/cli` is what keeps the shared-tools tree read-only: the
-  SDK's own state (first-use sentinels, CLI logs) defaults to `$HOME/.dotnet`, so it is pinned at
-  a writable sibling inside the same state root. Only the root-owned tools dir joins PATH; a tool the agent
-  installs for itself under `DOTNET_CLI_HOME` stays reachable by full path but never lands on the
-  session PATH, so the sandbox cannot put an executable of its choosing on it.
-- `filters.d/dotnet.rules` sets `-v q` on `dotnet build|publish|restore|run|test`. The SDK's
-  verbosity has no environment-variable form, so it belongs in a command rule rather than in the
-  fragment above; quiet verbosity keeps errors and warnings. The banner is left to `DOTNET_NOLOGO`
-  (the fragment above), so no rule carries `--nologo`. See [filters](filters.rule.md).
-- `admin-commands.d/dotnet` is this package's contributed domain, so its administration is spelled
-  `sudo ai-tools-admin dotnet <verb>`. `dotnet bootstrap` creates that state root and its three
-  directories: the NuGet cache and the SDK's CLI home are agent-**writable** (`2770`, setgid),
-  the shared tools are **read-only** to the agent (`0755`, root-only writes). It applies **no**
-  SELinux policy of its own — the base's static rule on `integrations(/.*)?` already maps the
-  whole tree to `ai_tools_home_t`, so the type grants `ai_tools_t` the access (write on the
-  cache, exec on the tools) while the DAC modes are the enforced read/write boundary. It
-  also drops the local fcontext rules earlier versions added for the old home-root dotdirs.
-  `dotnet tools install <pkg...>` installs shared global tools;
-  `dotnet status` reports host SDKs/runtimes, and reads enablement through
-  `ai_tools_enabled_integrations` so it reports the same verdict `ai-tools-run` reaches. Its
-  journald tag and log file stay `ai-tools-dotnet`/`dotnet.log` — the log identity is what an
-  operator queries, and what moved is the typed command.
-- Every step **fails loudly**. A directory it cannot create, or a label it cannot apply on a host
-  that supports labelling, exits non-zero with the cause logged through `log.lib.sh` to journald and
-  `/var/log/ai-tools/dotnet.log` (see [logging](logging.rule.md)) — a half-provisioned integration
-  that looks installed surfaces later as an opaque denial inside a confined session. The genuine
-  no-ops are recognized as such: `selinux_active` gates the labelling on SELinux being enabled,
-  `policycoreutils` present, and the `ai_tools` module loaded, and skips with a logged line
-  otherwise. The RPM `%post` runs `dotnet bootstrap`, reports the remedy and exits non-zero on
-  failure (rpm records a scriptlet failure against this package while the transaction completes —
-  the right blast radius for a weakly-pulled optional integration); `%postun` drops the fcontexts and
-  `restorecon`s what stays behind on final erase.
-
-The state root's label comes from the base's static rule on `integrations(/.*)?`; the CLR runs on
-the already-granted `execmem` (shared with V8).
-
-**Under SELinux enforcing, .NET needs optional policy groups the base does not carry** — `tmpmap`
-(restore/build mmap), `apphost` (JIT/apphost memfd exec), and `netcore` (runtime IPC + execute on
-every file in the project tree). Which group each workload needs, why they are separate and disjoint, and the full
-denial breakdown live in [dotnet](dotnet.rule.md); a DAC-only host needs none of them.
+`dotnet` (`ai-tools-integration-dotnet`) is the one member package of the integration kind. It
+uses every seam above — a manifest with `default_enable=no`, a session-env fragment, a filter rule
+set, and a contributed `dotnet` domain — and what each of those does for .NET, together with the
+SELinux groups the runtime needs under enforcing, is in [dotnet](dotnet.rule.md).
 
 ## Boundaries
 

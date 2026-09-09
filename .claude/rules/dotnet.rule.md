@@ -11,20 +11,65 @@ paths:
 
 # Running .NET (CoreCLR) in the sandbox
 
-The `dotnet` **integration** hands a session the host .NET toolchain (`DOTNET_ROOT`, a
-sandbox-writable NuGet cache and CLI home, the shared tools dir on PATH — see
-[providers](providers.rule.md) for the env/filters/helper mechanism). This rule is the other
-half: what the **SELinux** confinement additionally needs, because CoreCLR's runtime behaviour —
-memory-mapping a shared mutex, executing JIT'd code, opening diagnostic IPC sockets, running a
-native host it built — reaches past the repo-only base domain. None of it is required by the Claude
-Code agent itself, so all of it lives in **optional policy groups**, off by default, loaded only
-where .NET is brought up. On a DAC-only host (no SELinux) none of this applies.
+The `dotnet` **integration** (`ai-tools-integration-dotnet`) hands a session the host .NET
+toolchain through the provider seam — a manifest, a session-env fragment, a filter rule set, and a
+contributed `ai-tools-admin` domain, whose contracts are [providers](providers.rule.md). This rule
+holds what each of those does for .NET, and what the **SELinux** confinement additionally needs,
+because CoreCLR's runtime behaviour — memory-mapping a shared mutex, executing JIT'd code, opening
+diagnostic IPC sockets, running a native host it built — reaches past the repo-only base domain.
+None of that is required by the Claude Code agent itself, so all of it lives in **optional policy
+groups**, off by default, loaded only where .NET is brought up. On a DAC-only host (no SELinux) the
+groups do not apply and the integration alone is the whole mechanism.
 
-The integration's own commands are the `dotnet` domain of `ai-tools-admin` — `dotnet bootstrap`,
-`dotnet tools install <pkg...>`, `dotnet status`. They are spelled to the standard in
-[cli-grammar](cli-grammar.rule.md), and reach that surface through the contributed-command seam in
-[providers](providers.rule.md), which is what puts a root-only integration command on the base
-binary rather than on one of its own.
+## The integration
+
+Integrates a **host-managed** .NET toolchain (RPM `dotnet`, at `/usr/bin/dotnet` +
+`/usr/lib64/dotnet`); the package carries **no dotnet RPM dependency** and is inert without one. The
+`ai-tools-integration` umbrella pulls it as a dnf **weak dependency** (`Recommends`), so it installs
+by default on every host yet stays fully optional — removable with no effect on the rest of the
+stack. `default_enable=no` (it widens surface: a new runtime exec, NuGet egress, a writable cache),
+so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS`.
+
+- `session-env.d/dotnet.env.sh` self-gates on `/usr/bin/dotnet`, then sets the variables the
+  fragment declares — the toolchain root, the NuGet cache and CLI home under its state root, the
+  telemetry and banner opt-outs, the MSBuild node-reuse switch (below), and the `Development`
+  environment — and adds `integrations/dotnet/tools` to PATH. The set is the one current for
+  **.NET 8 LTS and later**; the .NET Core 2.x/3.x-era opt-outs (`DOTNET_SKIP_FIRST_TIME_EXPERIENCE`,
+  `DOTNET_PRINT_TELEMETRY_MESSAGE`) are absent because the SDK does not read them.
+  `DOTNET_CLI_HOME=…/integrations/dotnet/cli` is what keeps the shared-tools tree read-only: the
+  SDK's own state (first-use sentinels, CLI logs) defaults to `$HOME/.dotnet`, so it is pinned at
+  a writable sibling inside the same state root. Only the root-owned tools dir joins PATH; a tool
+  the agent installs for itself under `DOTNET_CLI_HOME` stays reachable by full path but never
+  lands on the session PATH, so the sandbox cannot put an executable of its choosing on it.
+- `filters.d/dotnet.rules` quiets `build`, `publish`, `restore`, `run` and `test` with `-v q`;
+  the rule, and why verbosity is a command rule rather than a fragment variable, are in
+  [filters](filters.rule.md).
+- `admin-commands.d/dotnet` is this package's contributed domain, so its administration is spelled
+  `sudo ai-tools-admin dotnet <verb>` ([cli-grammar](cli-grammar.rule.md) for the spelling).
+  `dotnet bootstrap` creates that state root and its three directories: the NuGet cache and the
+  SDK's CLI home are agent-**writable** (`2770`, setgid), the shared tools are **read-only** to the
+  agent (`0755`, root-only writes). It applies **no** SELinux policy of its own — the base's static
+  rule on `integrations(/.*)?` already maps the whole tree to `ai_tools_home_t`, so the type grants
+  `ai_tools_t` the access (write on the cache, exec on the tools) while the DAC modes are the
+  enforced read/write boundary. It also drops the local fcontext rules earlier versions added for
+  the old home-root dotdirs. `dotnet tools install <pkg...>` installs shared global tools;
+  `dotnet status` reports host SDKs/runtimes, and reads enablement through
+  `ai_tools_enabled_integrations` so it reports the same verdict `ai-tools-run` reaches. Its
+  journald tag and log file are `ai-tools-dotnet`/`dotnet.log`, the identity an operator queries.
+- Every step **fails loudly**. A directory it cannot create, or a label it cannot apply on a host
+  that supports labelling, exits non-zero with the cause logged through `log.lib.sh` to journald and
+  `/var/log/ai-tools/dotnet.log` (see [logging](logging.rule.md)) — a half-provisioned integration
+  that looks installed surfaces later as an opaque denial inside a confined session. The genuine
+  no-ops are recognized as such: `selinux_active` gates the labelling on SELinux being enabled,
+  `policycoreutils` present, and the `ai_tools` module loaded, and skips with a logged line
+  otherwise. The RPM `%post` runs `dotnet bootstrap`, reports the remedy and exits non-zero on
+  failure (rpm records a scriptlet failure against this package while the transaction completes —
+  the right blast radius for a weakly-pulled optional integration); `%postun` drops the fcontexts and
+  `restorecon`s what stays behind on final erase.
+
+The state root's label comes from the base's static rule on `integrations(/.*)?`; the CLR runs on
+the already-granted `execmem` (shared with V8). Everything past that point is the optional groups
+below, which a DAC-only host does not need.
 
 ## The three .NET policy groups
 
@@ -91,13 +136,10 @@ whole `netcore` module is off by default; its stability is the registry's field 
 
 ## Not SELinux
 
-Two .NET fixes are runtime-env, not policy, and apply on a DAC-only host too:
-
-- **`MSBUILDDISABLENODEREUSE=1`** (`dotnet.env.sh`) — persistent MSBuild nodes lock a prior
-  project's output between builds (dotnet/msbuild#6461); disabling reuse makes sequential builds in
-  one solution deterministic under the shared UID.
-- **Verbosity** — `dotnet.rules` sets `-v q` on `build`/`publish`/`restore`/`run`/`test`
-  ([filters](filters.rule.md)).
+One .NET fix is runtime-env, not policy, and applies on a DAC-only host too:
+**`MSBUILDDISABLENODEREUSE=1`** (`dotnet.env.sh`) — persistent MSBuild nodes lock a prior project's
+output between builds (dotnet/msbuild#6461); disabling reuse makes sequential builds in one solution
+deterministic under the shared UID.
 
 The `setfscreate` grant (base) is also .NET-adjacent — it silences the libselinux
 "failed to set default file creation context" warnings most visible in `dotnet build`/restore
