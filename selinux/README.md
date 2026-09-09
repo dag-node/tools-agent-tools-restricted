@@ -113,8 +113,9 @@ sudo ./install-selinux.sh enable-group podman          # compiles from .te/.fc, 
 Both front doors read the same group registry (`selinux-groups.lib.sh`), so they agree on
 which groups exist and which are stable. Promoting a group to stable — after its rules are
 audited — means marking it `stable` in that library, committing its prebuilt `.pp`, and adding
-it to the shipped set (`packaging/ai-tools.spec`, `install.sh`, `.gitignore`,
-`packaging/Makefile`); `disable-group` works for any loaded group through either door.
+it to the shipped set (`packaging/ai-tools.spec`, `install.sh`, `.gitignore`, and the two
+build containers under `packaging/`); `disable-group` works for any loaded group through
+either door.
 
 ## Building from source (optional)
 

@@ -279,7 +279,9 @@ unaudited drafts and
 are **not** packaged: `ai-tools-admin` refuses them and directs the operator to compile and
 verify one from a source checkout first (`install-selinux.sh enable-group` + the `avc/`
 loop). The shipped set is single-sourced with the stable set in `selinux-groups.lib.sh` and
-must be kept in step across the spec, `install.sh`, `.gitignore`, and `packaging/Makefile`.
+must be kept in step across the spec, `install.sh`, `.gitignore`, and the two build
+containers under `packaging/`, which copy each prebuilt by name; `packaging/Makefile` reads
+the git index and follows on its own.
 `%postun` on final erase unloads the core **and** any group a host left loaded (the `.pp` is
 erased with the package, but the compiled module persists in the store otherwise).
 Per-project `semanage fcontext` rules are created by project registration, not by the

@@ -279,7 +279,9 @@ hold both rule sets:
   loads, then re-runs the project and clone label sweeps, since a group may ship file contexts of
   its own; `disable-group` sweeps the same way after the unload) plus the `avc/` bring-up loop.
   Promoting one to stable means marking it `stable` in the registry, committing its prebuilt
-  `.pp`, and adding it to the shipped set (spec, `install.sh`, `.gitignore`, `packaging/Makefile`).
+  `.pp`, and adding it to the shipped set: the spec, `install.sh`, `.gitignore`, and the two
+  build containers under `packaging/`, which copy each prebuilt by name (`packaging/Makefile`
+  reads the git index and follows on its own). A layout module joins the same set.
 
 A group is named for the capability it grants, never for a toolchain, so an administrator reads
 each as the class of access it is. What a toolchain needs is its integration manifest's to say
