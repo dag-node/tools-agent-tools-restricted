@@ -36,7 +36,19 @@ execute code in the privileged scripts that read it:
   symlinked in — see [shipped-assets](shipped-assets.rule.md)), `memory_file` (the filename that
   agent's product reads as user-scope instructions, where the shared orientation text is linked),
   `default_enable`, and — optionally — the three release-verification fields below.
-- integrations: `default_enable`.
+- integrations: `default_enable`, and optionally the three keys the SELinux layer reads —
+  `build_output_dirs` (the directory names that hold the toolchain's build output, which
+  `relabel.lib.sh` reads from every installed manifest through
+  `ai_tools_installed_integrations_declaring` and maps to the build-output type),
+  `selinux_layout_module` (the policy module that types them at creation, loaded with the
+  integration), and `selinux_groups` (the optional groups the toolchain needs, which the status
+  reports name when not loaded). What each is for is in [dotnet](dotnet.rule.md).
+
+`ai-tools-providers(5)` is the operator's statement of every key, and a manifest's own header is a
+pointer to it: a manifest is package data replaced on upgrade, so a description that lives in the
+file is one an upgrade rewrites for no settings change, and one that lives in the page reaches every
+host with the package. The same placement rule, for the operator-edited config files, is the
+approved plan in the wip repository (`ATR-260908`).
 - either kind: `admin_summary`, the one-line description `ai-tools-admin --help` prints for the
   command domain this package contributes (below). Optional; a package that does not contribute a
   domain has no use for it, and a domain whose manifest omits it is still listed.
@@ -318,6 +330,10 @@ agent-writable (catching the agent trying to break it).
   (above), likewise no I/O and unit-tested.
 - `ai_tools_enabled_agents` — prints `name<TAB>npm_package<TAB>launcher` per enabled installed agent.
 - `ai_tools_enabled_integrations` — prints one enabled installed integration name per line.
+- `ai_tools_installed_integrations_declaring <key>` — prints `name<TAB>value` for every
+  **installed** integration whose trusted manifest carries `<key>`, enabled or not, under the same
+  trust rules. For a field that describes a toolchain present on the host rather than what a
+  session receives.
 - `ai_tools_agents_empty_verdict` — for a caller whose `ai_tools_enabled_agents` printed an empty
   set, one `fault`/`none` line saying why, every refused path named with what the predicate read.
   The resolver reports a refusal on stderr only, so a caller reading its stdout sees an empty set

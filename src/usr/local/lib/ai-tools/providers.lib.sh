@@ -301,3 +301,26 @@ ai_tools_enabled_integrations() {
         "${requested_active}" "${requested_list}"
     return 0
 }
+
+# ai_tools_installed_integrations_declaring <key> : print "name<TAB>value" for every INSTALLED
+#   integration whose trusted manifest carries <key>, in manifest-filename order, enabled or not.
+#   For a manifest field that describes a toolchain present on the host rather than what a session
+#   receives: relabel.lib.sh reads build_output_dirs this way, because a project's SELinux label is
+#   a property of the tree, applied at claim time, and it stays correct whichever integrations a
+#   later session enables. The same trust rules as ai_tools_enabled_integrations: an untrusted
+#   directory yields an empty set and an untrusted manifest is skipped, each reported on stderr.
+ai_tools_installed_integrations_declaring() {
+    local wanted_key="$1" manifest_file integration_name value
+    _ai_tools_provider_dir_trusted "${AI_TOOLS_INTEGRATIONS_DIR}" AI_TOOLS_INTEGRATIONS || return 0
+    for manifest_file in "${AI_TOOLS_INTEGRATIONS_DIR}"/*.conf; do
+        [[ -e "${manifest_file}" ]] || continue
+        integration_name="${manifest_file##*/}"; integration_name="${integration_name%.conf}"
+        if ! ai_tools_conf_is_trusted "${manifest_file}"; then
+            _ai_tools_provider_warn "skipping integration ${integration_name}: ${manifest_file} $(ai_tools_conf_untrusted_reason "${manifest_file}")"
+            continue
+        fi
+        value="$(ai_tools_conf_get "${manifest_file}" "${wanted_key}")" || continue
+        printf '%s\t%s\n' "${integration_name}" "${value}"
+    done
+    return 0
+}
