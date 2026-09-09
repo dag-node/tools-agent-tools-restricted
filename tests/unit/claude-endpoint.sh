@@ -117,7 +117,7 @@ expect "no base url -> refuse" 1 "" "no ANTHROPIC_BASE_URL"
 _reset; _ep 'ANTHROPIC_BASE_URL=https://x.tld' 'ANTHROPIC_MODEL="has space"'; _resolve
 expect "malformed model -> refuse" 1 "" "not a single printable token"
 
-# 10) Token with whitespace -> refuse (never let it reach systemd-run).
+# 10) Token with whitespace -> refuse (it must not reach systemd-run).
 _reset; _ep 'ANTHROPIC_BASE_URL=https://x.tld' 'ANTHROPIC_AUTH_TOKEN="sk with space"'; _resolve
 expect "token with whitespace -> refuse" 1 "" "whitespace or control characters"
 

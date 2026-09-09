@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/managed-assets.sh
-# Unit test for the shipped-asset seeder and the withdrawal pass (managed-assets.lib.sh) -- the
-# two passes that decide what skills and subagents every session on the host reads. Both run
-# unattended in a package scriptlet with their output scrolling past in a dnf transaction, so
+# Unit test for the shipped-asset seeder and the withdrawal pass (managed-assets.lib.sh), which
+# decide what skills and subagents every session on the host reads. Each runs
+# unattended in a package scriptlet with its output scrolling past in a dnf transaction, so
 # every way either can go wrong is quiet, and each property below is one an operator would only
 # discover much later:
 #
 #   1. THE MARKER IS THE CLAIM. An asset without `x-ai-tools-managed: true` is the operator's own
 #      and is never overwritten by the seeder nor moved by the withdrawal. This is the whole of
-#      what separates "this project's content" from "yours" -- both passes gate on it, so both
-#      are driven against an unmanaged fixture.
+#      what separates "this project's content" from "yours" -- both passes gate on it, so each
+#      is driven against an unmanaged fixture.
 #   2. THE UPDATE DEFAULT IS *UPDATE*, including with no terminal. A scriptlet has no tty, so the
 #      default is what every packaged upgrade takes; when it was "keep", a host stayed on whatever
 #      version it first seeded and was never told. Driven under `setsid` (no controlling terminal)
@@ -181,7 +181,7 @@ else
 fi
 
 # ── A withdrawn name is never seeded ─────────────────────────────────────────────
-# Property 3, in the state that actually occurs: the source root STILL CARRIES the withdrawn asset,
+# Property 3, in the state that occurs: the source root STILL CARRIES the withdrawn asset,
 # because rpm has not yet removed the previous package's files. Both directions are driven -- the
 # live root missing it (which is where seeding it would be a real regression) and holding it (where
 # reporting on it is the misleading half).
