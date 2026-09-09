@@ -16,11 +16,10 @@ catalog of other Claude Code
 options an operator MAY add — and which are set elsewhere — is in
 [`docs/claude-options.md`](../../docs/claude-options.md).
 
-Settings coupled to the sandbox's layout rather than to Claude Code policy live in
-`ai-tools-run`'s environment allowlist instead of here: `DISABLE_AUTOUPDATER=1` (the agent's
-Node tree is not agent-writable, so in-session self-update fails; updates run out-of-band —
-see [updater](updater.rule.md)) and the `HOME`/`PATH`/`CLAUDE_CONFIG_DIR` pins (see
-[launch](launch.rule.md)).
+Settings coupled to the sandbox's layout rather than to Claude Code policy live outside this
+file: the agent's session-env fragment pins `CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE`, and
+`DISABLE_AUTOUPDATER=1` (see [agent-claude-code](agent-claude-code.rule.md)), and `ai-tools-run`
+pins `HOME`, `SHELL`, and `PATH` (see [launch](launch.rule.md)).
 
 ## Permission rules — three outcomes
 
@@ -97,7 +96,7 @@ work deleted from the tree.
 |---|---|
 | `git push --force*` | The remote's history for every other clone. The pattern also covers `--force-with-lease`, which narrows the race but still overwrites. |
 | `git push -f *` | The short spelling of the same. |
-| `git reset --hard*` | The working tree and index, including changes never committed. |
+| `git reset --hard*` | The working tree and index, including uncommitted changes. |
 | `git clean -f*` | Untracked files, which no commit and no reflog can bring back. |
 
 The criterion is **destruction with no undo**, so the refusal holds regardless of target: a
@@ -237,7 +236,7 @@ behavior keys an operator MAY add is in
 
 `"disable"` removes `auto` from the `Shift+Tab` permission-mode cycle and rejects
 `--permission-mode auto` at startup, so a session takes actions under a confirming
-permission mode rather than acting autonomously. The value is the literal string
+permission mode. The value is the literal string
 `"disable"`; the key absent (or any other value) leaves auto mode selectable.
 
 The default keeps a human in the loop for the outward-facing, irreversible actions a
@@ -247,18 +246,18 @@ project (see "Control-plane integrity" below).
 
 ## Coupling to optional SELinux groups
 
-The deny list is matched to the **core** policy alone. Enabling an optional SELinux group
-(`install-selinux.sh enable-group <name>` — `systemd`, `pkgmgmt`, `netadmin`, `podman`,
-all disabled by default; see [confinement](confinement.rule.md)) widens what `ai_tools_t`
-may do, but a `deny` entry here still blocks the matching command **before** SELinux is
-consulted. A capability a group newly grants stays unreachable until its deny entry is
-relaxed in the same change.
+The deny list is matched to the **core** policy alone. Enabling an optional SELinux group — one
+of the registry in `selinux-groups.lib.sh`, through the front doors
+[confinement](confinement.rule.md) describes — widens what `ai_tools_t` may do, but a `deny`
+entry here still blocks the matching command **before** SELinux is consulted. A capability a
+group newly grants stays unreachable until its deny entry is relaxed in the same change.
 
 For example, enabling the `systemd` group so the agent can drive its own services has no
-effect while `Bash(systemctl*)` and `Bash(journalctl*)` remain in `deny`: the tool
-refuses the command first. An operator who enables a group relaxes the corresponding deny
-entry alongside it. The audit CLIs map to no optional group today; granting them needs a
-new policy module, and the same relax-the-deny-entry step applies.
+effect while `Bash(systemctl)`, `Bash(systemctl *)`, `Bash(journalctl)`, and
+`Bash(journalctl *)` remain in `deny`: the tool refuses the command first. An operator who
+enables a group relaxes the corresponding deny entries alongside it. The audit CLIs are outside
+every optional group; granting them needs a new policy module, and the same
+relax-the-deny-entry step applies.
 
 ## Control-plane integrity
 
@@ -377,6 +376,6 @@ filtering. The agent package `Requires: jq` for that reason.
 ## Deferred
 
 The deny list and optional-group enablement are kept in sync **by hand** — no code links
-`enable-group` to relaxing the matching deny entry, so a group enabled on its own has no
+enabling a group to relaxing the matching deny entry, so a group enabled on its own has no
 effect at the tooling layer. A durable fix derives the deny set from the loaded policy
-groups, or has `enable-group` adjust `settings.json`, so the two layers cannot drift.
+groups, or has the group-enable path adjust `settings.json`, so the two layers cannot drift.

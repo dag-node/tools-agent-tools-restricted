@@ -38,6 +38,7 @@ the single `%ai-ops` grant on the shared shim.
 | `memory_file` | `CLAUDE.md` | where the shared orientation text is symlinked in — the one filename this product reads as user-scope instructions ([shipped-assets](shipped-assets.rule.md)) |
 | `entrypoint_fcontext` | a regex ending `…/@anthropic-ai/claude-code/bin/claude\.exe` | `ai-tools-relabel-agent` — which file takes `ai_tools_exec_t` |
 | `default_enable` | `yes` | the baseline set when `operator.conf` names none |
+| `release_manifest_url` / `release_key` / `release_fingerprint` | the vendor's per-release `manifest.json` template under `downloads.claude.ai`, the key file `keys/claude-code.asc` this package ships, and that key's fingerprint | `entrypoint-verify.lib.sh` — proves the installed `claude.exe` is the binary Anthropic published; the fields and the pin they feed are in [providers](providers.rule.md) and [updater](updater.rule.md) |
 
 `handback=hooks` is the only literal that switches the shim's sweep off; anything else, including an
 absent key, gets the sweep. `config_dir` must equal the directory the session-env fragment pins as
@@ -265,15 +266,16 @@ Two properties of the current channel shape the design:
 
 - **The executable is a compiled native binary, not a JavaScript entrypoint.** `claude.exe` is
   reached through two symlinks and executed directly; the session does not run it through `node`.
-  The same binary is what every distribution channel delivers — npm is a distribution channel for it
-  rather than a different build — so the channel decides provenance, placement, and update cadence,
-  not what runs.
+  The same binary is what every distribution channel delivers, so the channel decides provenance,
+  placement, and update cadence, not what runs.
 - **The sandbox account owns its own entrypoint.** The nvm tree is `SANDBOX_USER`-owned, so unlike
   every other control-plane file the agent binary is agent-writable. That is bounded rather than
-  open: `ai-tools-run` accepts only a manifest-claimed launcher at a semver path, the updater
-  verifies npm registry signatures before activating a tree, and the SELinux preflight fails closed
-  on a label the agent cannot grant itself. A root-owned, agent-read-only exec root would remove the
-  bound rather than tighten it, which is the direction the native-packaging plan takes.
+  open: `ai-tools-run` accepts only a manifest-claimed launcher at a semver path and refuses an
+  entrypoint whose checksum differs from the root-written pin, the updater verifies npm registry
+  signatures and the vendor's signed release manifest before activating a tree
+  ([updater](updater.rule.md)), and the SELinux preflight fails closed on a label the agent cannot
+  grant itself. A root-owned, agent-read-only exec root would remove the bound rather than tighten
+  it, which is the direction the native-packaging plan takes.
 
 ## Quirks
 
@@ -309,7 +311,7 @@ trade one risk for another, and the trades sit on opposite sides of this project
   closed outright** (see
   [the type layout](confinement.rule.md#the-toolchain-is-read-only-to-the-confined-domain)), so the
   gap is real on the DAC-only deployment the weak dependency permits, not on an enforcing one — and
-  it is now detected on both (see [updater](updater.rule.md)).
+  the entrypoint pin detects it on both (see [updater](updater.rule.md)).
 - **native's cost is out-of-model and unbounded.** It puts a second, *real* `claude` on every
   operator's PATH. Running `/usr/bin/claude` starts an **unconfined session as the operator**, with
   their own credentials and home and none of this machinery — the outcome the project exists to
@@ -324,7 +326,8 @@ here. A host that adopts native gets the PATH assertion as a precondition, not a
 
 **The signed release manifest closes npm's side of that trade without changing channel.** Upstream
 publishes a per-release `manifest.json` of SHA256 checksums for every platform binary, GPG-signed
-with a published fingerprint, independent of the delivery channel. Verifying the installed
-`claude.exe` against it would catch the in-place tamper described above — the one property native
-was buying — while the entrypoint stays where it is. Named here as the cheaper alternative to a
-channel move; not built.
+with a published fingerprint, independent of the delivery channel. `entrypoint-verify.lib.sh`
+verifies the installed `claude.exe` against it — the manifest's three release fields say where and
+with which key — and the root-written pin carries the result to each launch, so the in-place tamper
+described above is caught while the entrypoint stays where it is ([updater](updater.rule.md)). That
+is the property native was buying, taken without a channel move.

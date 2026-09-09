@@ -37,7 +37,7 @@ is enabled.
 |---|---|---|
 | `tmpmap` | `ai_tools_tmp_t:file map` | NuGet **restore** and **build** — the runtime mmaps a shared-memory mutex under `/tmp/.dotnet/shm`. Also git/SQLite in `/tmp`. |
 | `apphost` | `tmpfs_t:file map+execute` (anonymous memfd) | **building/JIT-ing** an executable — CoreCLR maps generated code and the apphost from a memfd `PROT_EXEC`. `execmem` (base) covers anonymous exec; this covers a file-backed one. |
-| `netcore` | runtime IPC (sockets/FIFOs, `getsid`, `/proc/sys/net`, loopback TCP connect) **and** executing a built binary from the project tree (`ai_tools_project_t:file execute`) | **`dotnet test`**, **multi-node MSBuild**, and **running** an apphost/testhost/R2R assembly the agent built |
+| `netcore` | runtime IPC (sockets/FIFOs, `getsid`, `/proc/sys/net`, loopback TCP connect) **and** execute on every file labelled `ai_tools_project_t` (`file { map execute execute_no_trans execmod }`) — a built binary, and equally a git hook or a project script | **`dotnet test`**, **multi-node MSBuild**, and **running** an apphost/testhost/R2R assembly the agent built |
 
 ## Which groups a project needs
 
@@ -71,8 +71,8 @@ one benign group grant and one sensitive one — the reasoning that shaped `netc
 The `/tmp` socket/FIFO **create** denials have a precise cause: the base `files_tmp_filetrans`
 transitions new `/tmp` **files/dirs/symlinks** to the private `ai_tools_tmp_t` but **not sockets or
 FIFOs**, so those default to `tmp_t`, which the domain cannot create — which is why multi-node
-MSBuild hangs on its worker **named pipes** (the `-m:1` workaround sidesteps them rather than
-fixing them). A named-socket **connect** needs a second grant the base also lacks:
+MSBuild hangs on its worker **named pipes** (the `-m:1` workaround avoids the pipes). A
+named-socket **connect** needs a second grant the base also lacks:
 `create_stream_socket_perms` covers `connect` but **not `connectto`** (the peer permission to a
 listener), so `dotnet test`'s Microsoft.Testing.Platform runner gets `EACCES` reaching its test
 host over the `.local/share` socket even once the socket file exists. `netcore` §1 grants the
@@ -80,11 +80,14 @@ socket/FIFO transition and management **and** `self:unix_stream_socket connectto
 benign — the sandbox's own processes doing socket/FIFO IPC in their own tmp/home, the same class as
 the file management the base already grants.
 
-`netcore` §2 is the boundary: **execute on `ai_tools_project_t`** is on-disk native code the sandbox
-wrote, run as a new process image. It does not grant a new privilege (`execmem` already concedes
-in-process native code, and `execute_no_trans` keeps the child in `ai_tools_t` with no entrypoint to
-a more privileged domain), but it is the reason the whole `netcore` module is off by default and
-`experimental`. `execmod` covers an R2R image relocated in place.
+`netcore` §2 is the boundary: **execute on `ai_tools_project_t`** is on-disk code run as a new
+process image, and the grant covers every file carrying that label — every file in every claimed
+project, a built binary and a git hook alike — so with `netcore` loaded git runs a project's hooks,
+and `./configure` or a Makefile recipe runs the script the tree carries. It does not grant a new
+privilege (`execmem` already concedes in-process native code, and `execute_no_trans` keeps the
+child in `ai_tools_t` with no entrypoint to a more privileged domain), but it is the reason the
+whole `netcore` module is off by default; its stability is the registry's field to state
+(`selinux-groups.lib.sh`). `execmod` covers an R2R image relocated in place.
 
 ## Not SELinux
 
@@ -104,11 +107,13 @@ output — but it is a general coreutils fix in the core domain, not a .NET grou
 ## Design notes
 
 - **`netcore` bundles a benign half and a sensitive half in one module** by choice: a .NET
-  bring-up wants both, and one `enable-group` is simpler than two. The `.te` sections them
-  explicitly. If finer granularity is ever wanted (IPC without on-disk execute — e.g. a host that
-  only runs in-process MSTest), §2 splits cleanly into its own group.
+  bring-up wants both, and enabling one group is simpler than enabling two. The `.te` sections
+  them explicitly, and §2 splits cleanly into its own group where IPC without on-disk execute is
+  the need (a host that only runs in-process MSTest).
 - **Base stays Claude-Code-minimal.** Even the benign IPC is kept out of the core domain, because
   the agent itself needs none of it; it is `.NET`-driven and loads with the `.NET` groups.
-- **Graduation to stable** for each group needs the enforcing `selinux/avc` bring-up to trim the
-  rule to the observed minimum (and, for `apphost`, scope to a private memfd type). `dotnet exec`
-  of an R2R assembly is the case to watch for extra `map`/`execmod` on `ai_tools_project_t`.
+- **A group graduates to `stable`** — the registry field in `selinux-groups.lib.sh` that decides
+  how it ships and which front door enables it — after an enforcing `selinux/avc` bring-up trims
+  its rule to the observed minimum (for `apphost`, scoping to a private memfd type as well).
+  `dotnet exec` of an R2R assembly is the case to watch for extra `map`/`execmod` on
+  `ai_tools_project_t`.

@@ -279,7 +279,7 @@ the trail), never silently:
 | one manifest | that one provider is skipped |
 | `session-env.d` or a fragment | that fragment is not sourced |
 | `admin-commands.d` | no contributed command dispatches at all |
-| one command fragment | that one domain is not a command |
+| one command fragment | that one domain does not dispatch |
 | `/usr/local/lib/ai-tools` itself | no integration env at all (`ai-tools-run`'s bootstrap check) |
 
 A refusal reports the owner uid and the mode the predicate read, against what it requires
@@ -298,10 +298,9 @@ that directory is therefore load-bearing, not housekeeping, and
 
 The last two rows carry the predicate one step further out than the rest of this table: what they
 gate is not what a confined session receives but what **root executes**, since `ai-tools-admin`
-execs a fragment as root. The reader there is root rather than `SANDBOX_USER`, so the reason for the
-check is not that the reading process is confined — it is that the file it would run sits in a
-directory the sandbox account can reach, and a planted or replaced fragment would be a root command
-of the agent's choosing.
+execs a fragment as root. The reader there is root, so the check does not protect a confined
+reader: the file it would run sits in a directory the sandbox account can reach, and a planted or
+replaced fragment would be a root command of the agent's choosing.
 
 This is enforced from both ends, and both halves are required: `tests/unit/providers.sh` and
 `tests/unit/admin-commands.sh` drive each untrusted state through the resolver and the dispatch and
@@ -329,7 +328,10 @@ agent-writable (catching the agent trying to break it).
 - `ai_tools_agent_manifest_field <name> <key>` — one further field of a trusted manifest, for a
   caller that has already resolved which agent it has. The name is allowlisted to a plain
   identifier before it becomes a path, so it cannot address a file outside the manifest directory.
-
+- `ai_tools_provider_manifest_field <name> <key>` — the same read across both manifest kinds, for a
+  caller holding a provider name without knowing which kind carries it (`ai-tools-admin` reads
+  `admin_summary` this way). The namespace is flat, so at most one kind holds the name; integrations
+  are tried first.
 - `ai_tools_provider_gate <conf-key>` — how a kind's enabled set is being decided (`allowlist` /
   `baseline` / `untrusted`), read-only and side-effect free. The resolvers read it, and so does
   `ai-tools --providers` (see [cli](cli.rule.md)), so an operator asking what is enabled and a
@@ -359,8 +361,8 @@ arbitrary `KEY=value` shell, and a fragment is a mechanism the seam already has.
 
 The seam is **best-effort**, not the fail-closed tier `msg.lib`/`confinement.lib` hold: a missing
 or untrusted lib, directory, or fragment leaves the integration env empty and the confined launch
-unaffected, because the integration env is additive, not load-bearing. "Fail closed" here means
-*no integration*, which is always a safe answer. Everything it sources is gated by the trust rules
+unaffected, because the integration env is additive, not load-bearing — "fail closed" here means
+*no integration*. Everything it sources is gated by the trust rules
 above; a fragment self-gates on its host tool, so it is inert on a host without the toolchain even
 when enabled.
 
@@ -490,12 +492,13 @@ by default on every host yet stays fully optional — removable with no effect o
 stack. `default_enable=no` (it widens surface: a new runtime exec, NuGet egress, a writable cache),
 so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS`.
 
-- `session-env.d/dotnet.env.sh` self-gates on `/usr/bin/dotnet`, then sets `DOTNET_ROOT`,
-  `NUGET_PACKAGES` and `DOTNET_CLI_HOME` under its state root, `DOTNET_CLI_TELEMETRY_OPTOUT`,
-  `DOTNET_NOLOGO`, and `ASPNETCORE_ENVIRONMENT`/`DOTNET_ENVIRONMENT=Development`, and adds
-  `integrations/dotnet/tools` to PATH. The variables are those current for **.NET 8 LTS and
-  later**; the .NET Core 2.x/3.x-era opt-outs (`DOTNET_SKIP_FIRST_TIME_EXPERIENCE`,
-  `DOTNET_PRINT_TELEMETRY_MESSAGE`) are absent because the SDK no longer reads them.
+- `session-env.d/dotnet.env.sh` self-gates on `/usr/bin/dotnet`, then sets the variables the
+  fragment declares — the toolchain root, the NuGet cache and CLI home under its state root, the
+  telemetry and banner opt-outs, the MSBuild node-reuse switch ([dotnet](dotnet.rule.md)), and the
+  `Development` environment — and adds `integrations/dotnet/tools` to PATH. The set is the one
+  current for **.NET 8 LTS and later**; the .NET Core 2.x/3.x-era opt-outs
+  (`DOTNET_SKIP_FIRST_TIME_EXPERIENCE`, `DOTNET_PRINT_TELEMETRY_MESSAGE`) are absent because the
+  SDK does not read them.
   `DOTNET_CLI_HOME=…/integrations/dotnet/cli` is what keeps the shared-tools tree read-only: the
   SDK's own state (first-use sentinels, CLI logs) defaults to `$HOME/.dotnet`, so it is pinned at
   a writable sibling inside the same state root. Only the root-owned tools dir joins PATH; a tool the agent
@@ -533,8 +536,8 @@ The state root's label comes from the base's static rule on `integrations(/.*)?`
 the already-granted `execmem` (shared with V8).
 
 **Under SELinux enforcing, .NET needs optional policy groups the base does not carry** — `tmpmap`
-(restore/build mmap), `apphost` (JIT/apphost memfd exec), and `netcore` (runtime IPC + running a
-built binary). Which group each workload needs, why they are separate and disjoint, and the full
+(restore/build mmap), `apphost` (JIT/apphost memfd exec), and `netcore` (runtime IPC + execute on
+every file in the project tree). Which group each workload needs, why they are separate and disjoint, and the full
 denial breakdown live in [dotnet](dotnet.rule.md); a DAC-only host needs none of them.
 
 ## Boundaries

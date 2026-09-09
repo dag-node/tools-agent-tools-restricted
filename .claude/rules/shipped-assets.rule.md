@@ -17,16 +17,17 @@ rather than copied per agent:
 - **Orientation** — one file, `AGENTS.md`, stating what the sandbox refuses. It is the only asset
   loaded **unconditionally in every session in every project**, which is what shapes it (below).
 
-Each kind is seeded ONCE into its own shared root — `/opt/ai-tools/skills` and
-`/opt/ai-tools/subagents`, both owned by `ai-tools-base` along with the pristine copies — and
+Each kind is seeded ONCE into its own shared root under `/opt/ai-tools` — one per kind, named in
+`control-plane.lib.sh` (`CP_SHARED_SKILLS`, `CP_SHARED_SUBAGENTS`, `CP_SHARED_ORIENTATION`) and
+owned by `ai-tools-base` along with the pristine copies — and
 every agent gets a **symlink** per asset into the directory its own product reads. One file to
 author, one to update, however many agents read it. The formats are Claude Code's (`SKILL.md`,
 subagent frontmatter) and are not standardized across products, so an agent that cannot read a
 kind leaves that field unset, and does not take links of that kind.
 
-Ships now: the `ai-tools-reference-architect` agent, three skills —
+The shipped set is the `ai-tools-reference-architect` subagent; the skills
 `ai-tools-technical-docs` (the writing standard for every artifact),
-`ai-tools-engineering-principles`, and `ai-tools-capable-systems-governance` — and the
+`ai-tools-engineering-principles`, and `ai-tools-capable-systems-governance`; and the
 orientation text.
 
 ## The orientation text
@@ -88,9 +89,10 @@ directory its manifest declares, so in `src/` it is grouped by the agent that ow
 `src/opt/ai-tools/agents/<manifest-name>/`. The destination is not knowable from the tree, so the
 tree mirrors ownership instead; a second agent adds a sibling directory named for its manifest.
 
-Each kind's `README.md` is the operator guide, shipped with the pristine copy and **symlinked**
-into the live root and into each agent's directory (`ai_tools_link_asset_readme`) — the doc is
-found where the assets are, and there is exactly one file to keep current.
+The skills and subagents kinds each ship a `README.md`, the operator guide, with the pristine copy;
+it is **symlinked** into the live root and into each agent's directory
+(`ai_tools_link_asset_readme`) — the doc is found where the assets are, and there is exactly one
+file to keep current.
 
 ## Linking (`ai_tools_link_shared_assets`)
 
@@ -119,8 +121,8 @@ invokes them but cannot repoint one.
 The orientation text is one file, and the name it lands under is **not its own**: each product
 reads user-scope instructions from one hardcoded filename (`CLAUDE.md` for Claude Code, `AGENTS.md`
 for one following that spelling), so the manifest's `memory_file` supplies it and
-`ai_tools_agent_memory_targets` resolves `<config_dir>/<memory_file>` per enabled agent. A link
-under any other name would simply never be read, which is why the asset linker — which preserves
+`ai_tools_agent_memory_targets` resolves `<config_dir>/<memory_file>` per enabled agent. The
+product does not read a link under any other name, which is why the asset linker — which preserves
 names — cannot place it.
 
 Same non-displacing rule otherwise: a correct link is left alone, a stale one repointed, and a
@@ -204,8 +206,9 @@ does not ship.
 
 ## Seeding (`managed-assets.lib.sh`)
 
-`ai_tools_seed_managed_assets <src_root> <live_.claude> <group>` seeds the managed assets.
-It acts on an asset **only** when its name matches the kind's glob — `ai-tools-*` for skills and
+`ai_tools_seed_managed_assets <src_root> <live_root> <group> <kind>...` seeds the named kinds from
+the pristine root into the live root (`/opt/ai-tools`, under which each kind's shared root is a
+subdirectory). It acts on an asset **only** when its name matches the kind's glob — `ai-tools-*` for skills and
 subagents, the fixed `AGENTS.md` for orientation — **and** its frontmatter carries
 `x-ai-tools-managed: true`, so an operator's own agent/skill is never claimed or overwritten:
 
@@ -230,7 +233,7 @@ the variable fast-tracks a question whose default is already yes and never flips
 Seeded copies are `root:SANDBOX_GROUP`, files `640` and dirs `750` — in each kind's shared root. The agent reads and invokes
 them but cannot rewrite one, so what every session reads stays what the operator installed —
 across the account's sessions *and* across agents. The pristine source is
-`/usr/share/ai-tools/{agents,skills}` (the datadir reseed source, shared by every seeding path);
+`/usr/share/ai-tools/<kind>` (the datadir reseed source, shared by every seeding path);
 the live copies are **not** rpm-owned, so an erase or upgrade preserves an operator-updated
 version. The seeder is bash and source-only; its consumers run as root.
 
@@ -239,7 +242,7 @@ Three paths provision, all root, and each resolves its destinations through
 naming them: `install.sh` (stages the datadir, seeds each kind into its shared root, then links)
 and `ai-tools-bootstrap` (`seed_managed_assets_step`, gated on the control plane being present)
 reuse the lib directly and offer the interactive version update; in the RPM the split follows
-package ownership — **base**'s `%post` seeds both shared roots, the **agent package**'s `%post`
+package ownership — **base**'s `%post` seeds each shared root, the **agent package**'s `%post`
 links them into the directories that agent reads. Both scriptlets reuse the
 same lib under an explicit `bash` (a scriptlet is `/bin/sh`) and, being non-interactive, place
 only what is absent. This mirrors the `.gitignore`/`.gitconfig` reseed (see
@@ -255,7 +258,7 @@ seeded file and link the label the agent (`ai_tools_t`) already reads as home st
 
 ## Coupling
 
-This rule is coupled to `src/usr/share/ai-tools/{skills,agents}/README.md` (the operator-facing
+This rule is coupled to `src/usr/share/ai-tools/{skills,subagents}/README.md` (the operator-facing
 orientation) and the
 `managed-assets.lib.sh` header (the seeder contract); changing the seeding
 behavior, the namespace, or the versioning scheme obligates reconciling all three against the
