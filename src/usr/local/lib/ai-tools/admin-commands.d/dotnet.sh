@@ -16,27 +16,25 @@
 # provisioning to do, rather than running the command to find out.
 #
 # The .NET SDK/runtime itself is the HOST's RPM-managed dotnet (this integration does not ship a
-# runtime of its own, and does not take a dotnet RPM dependency). This command sets up the
-# sandbox-side directories and SELinux labels the session-env fragment (session-env.d/dotnet.env.sh)
-# relies on, and installs shared global tools an operator wants available to every project.
-# "Modifications require sudo": the tools dir is root-owned and read-only to the agent, so only this
-# command changes it.
+# runtime of its own, and does not take a dotnet RPM dependency). This command creates the
+# sandbox-side state root the session-env fragment (session-env.d/dotnet.env.sh) relies on,
+# /opt/ai-tools/integrations/dotnet with its nuget, cli and tools directories, and installs shared
+# global tools an operator wants available to every project. The tools directory is root-owned and
+# read-only to the agent, so only this command changes it.
 #
-#   sudo ai-tools-admin dotnet bootstrap             # create + label the .nuget/.dotnet dirs (offline, idempotent)
+#   sudo ai-tools-admin dotnet bootstrap             # create the state root (offline, idempotent)
 #   sudo ai-tools-admin dotnet tools install <pkg...> # install global tools into the shared dir (network)
 #   sudo ai-tools-admin dotnet status                # show host SDKs/runtimes + sandbox state
 #
-# Every step FAILS LOUDLY: a directory it cannot create or a label it cannot apply on a host that
-# should support it is an error with a non-zero exit, not a silent skip, so a half-provisioned
-# integration cannot masquerade as a working one. The genuine no-ops -- SELinux disabled, no
-# policycoreutils, the ai_tools module not installed -- are recognized and logged as such. Every
-# outcome goes through the shared logger to journald and /var/log/ai-tools/dotnet.log, both under
-# the ai-tools-dotnet tag: the log identity is what an operator queries and it stays as it is,
-# where the typed command is what moved.
+# Every step fails loudly with the cause logged to journald and /var/log/ai-tools/dotnet.log under
+# the ai-tools-dotnet tag, and the genuine no-ops (SELinux disabled, no policycoreutils, the
+# ai_tools module not loaded) are recognized and logged as such; the contract, the directory modes,
+# and why the command applies no SELinux policy of its own are in dotnet.rule.md.
 #
-# Deploy:
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh /usr/local/lib/ai-tools/admin-commands.d/dotnet
+# Installed 0750 root:root at /usr/local/lib/ai-tools/admin-commands.d/dotnet, in a 0755 root:root
+# directory: the agent must not read or run a root command, and ai-tools-admin refuses the whole
+# directory when either is writable by anyone else. Deploying from a checkout:
+# docs/install-from-source.md.
 
 set -euo pipefail
 

@@ -1,23 +1,19 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/managed-assets.lib.sh
-# Seeds the ai-tools-managed shared assets, and links them into each agent that reads them.
-#
-# Skills are agent-agnostic content, so they are seeded ONCE into /opt/ai-tools/skills and each
-# agent's own skills directory carries a SYMLINK per skill; agents are Claude Code-format files
-# and are copied into that agent's config directory. Authoring or updating a skill is therefore
-# one edit in one place, whatever number of agents read it. The orientation text
-# (/opt/ai-tools/orientation/AGENTS.md) is shared the same way and linked by
-# ai_tools_link_agent_memory under the filename each agent reads as its user-scope instructions.
-# A managed asset is one whose name is `ai-tools-*` AND whose frontmatter carries
-# `x-ai-tools-managed: true`; the seeder acts only on those, so an asset the operator authored
-# themselves is never claimed or overwritten. Seeded copies are root:SANDBOX_GROUP (files 640,
-# dirs 750) in their shared root -- locked from the agent, updated only through the root-run
-# installer or `ai-tools-bootstrap`. Versioning is RFC-draft: the marker
-# `x-ai-tools-version` is a monotonic integer bumped once per release, and a newer shipped version
-# is what drives the update offer. This file is *sourced* (never executed); its consumers
-# (install.sh, ai-tools-bootstrap) run as root and have already sourced msg.lib.sh. See
-# shipped-assets.rule.md.
+# Seeds the ai-tools-managed shared assets into their shared roots and links them into each agent
+# that reads them. The kinds are AI_TOOLS_ASSET_KINDS below. Each is seeded ONCE into
+# /opt/ai-tools/<kind>, and every agent whose manifest names a directory for that kind gets a
+# SYMLINK per asset (ai_tools_link_shared_assets); the orientation text is linked under the
+# filename the agent's manifest names (ai_tools_link_agent_memory). One file to author and update,
+# however many agents read it. A managed asset is one whose name matches the kind's glob AND whose
+# frontmatter carries `x-ai-tools-managed: true`; the seeder acts only on those, so an asset the
+# operator authored is never claimed or overwritten. Seeded copies are root:SANDBOX_GROUP (files
+# 640, dirs 750): the agent reads and invokes them and cannot rewrite one. `x-ai-tools-version` is a
+# monotonic integer bumped once per release, and a newer shipped version is what drives the update
+# offer. Sourced (never executed) by install.sh, ai-tools-bootstrap and base's %post, all root,
+# after msg.lib.sh and conf.lib.sh. The placement chain, the versioning scheme, and withdrawal are
+# in shipped-assets.rule.md.
 
 # Withdrawing an asset needs its own step: the seeder only adds and updates, and the live roots are
 # not rpm-owned, so a name this project stops shipping stays live on an upgraded host until it is

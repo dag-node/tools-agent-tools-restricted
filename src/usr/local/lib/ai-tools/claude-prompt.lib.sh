@@ -4,40 +4,20 @@
 # Resolves the Claude Code launch arguments that carry an operator-configured custom system
 # prompt, from operator.conf's CLAUDE_SYSTEM_PROMPT_FILE / CLAUDE_SYSTEM_PROMPT_MODE keys. Sourced
 # (never executed) by claude.sh just before it execs the session; the pure resolution is split from
-# the wrapper so it is unit-tested apart from a real launch (tests/unit/claude-prompt.sh), the same
-# split confinement.lib.sh/providers.lib.sh make.
+# the wrapper so tests/unit/claude-prompt.sh drives it apart from a real launch. Claude Code-specific
+# (the four --{,append-}system-prompt{,-file} flags are its own), so it ships with the agent
+# wrapper rather than in the agent-agnostic shim, and the keys are prefixed CLAUDE_ for the same
+# reason.
 #
-# This is Claude Code-specific (the four --{,append-}system-prompt{,-file} flags are its own), so it
-# ships with the agent wrapper rather than in ai-tools-run's agent-agnostic shim, and the keys are
-# prefixed CLAUDE_ rather than AI_TOOLS_ for the same reason (matching CLAUDE_CONFIG_DIR).
-#
-# ── Tier: fail closed WHEN CONFIGURED ─────────────────────────────────────────────────────────
-# A custom system prompt is not confinement, but an operator who enabled one is relying on the
-# model behaving the configured way, so silently launching with Claude Code's DEFAULT prompt instead
-# is a wrong result, not a safe degradation. The two states are therefore treated differently:
-#   * NOT configured (CLAUDE_SYSTEM_PROMPT_FILE absent or empty) -> no arguments; the session
-#     launches with Claude Code's own default prompt. This is the baseline, not a failure.
-#   * CONFIGURED but the file/mode cannot be honoured (missing, unreadable, a symlink, not root-
-#     owned, group/other-writable, outside the trusted base, not a text prompt, or an unknown mode)
-#     -> the resolver returns non-zero and claude.sh REFUSES the launch. Better a clear refusal the
-#     operator fixes than a session that runs with a prompt they did not configure.
-# An operator passing a --{,append-}system-prompt{,-file} flag for a single invocation is steering
-# that launch by hand; the standing operator.conf default steps aside and no refusal fires.
-#
-# ── What it accepts, and why the bar is where it is ───────────────────────────────────────────
-# The resolved file is opened TWICE: by claude.sh as the operator at launch, and -- once forwarded
-# as --append-system-prompt-file/--system-prompt-file -- by the versioned binary running as the
-# sandbox account under the ai_tools_t SELinux domain. Both reads must succeed and neither input may
-# be one the sandbox account can influence, so a CONFIGURED prompt is accepted only when:
-#   * the path resolves under /etc/ai-tools/prompts/ (etc_t), the one place the confined domain is
-#     granted read on via files_read_etc_files -- a root-owned file elsewhere would pass the DAC
-#     trust check yet be UNREADABLE to ai_tools_t under enforcing;
-#   * that file, its directory, the prompts base, and operator.conf itself each pass
-#     ai_tools_conf_is_trusted (exists, not a symlink, root-owned, not group/other-writable), so the
-#     sandbox account cannot swap the approved prompt between the two reads;
-#   * the file is a regular TEXT file, not a binary blob (a prompt is read as text, never executed);
-#   * the mode is an allowlist (append|replace).
-# Anything else on a configured prompt is a refusal, reported.
+# Fail closed WHEN CONFIGURED: an unconfigured host launches with Claude Code's default prompt,
+# and a configured prompt that cannot be honoured makes the resolver return non-zero and claude.sh
+# refuse the launch -- launching with the default instead would be a wrong result, not a safe
+# degradation. A per-invocation --{,append-}system-prompt{,-file} flag steps the standing default
+# aside with no refusal. What a configured prompt must satisfy, and why the base is
+# /etc/ai-tools/prompts/ (the one etc_t place the confined domain reads), are in
+# agent-claude-code.rule.md. The file is resolved here as the operator and read by the confined
+# binary as the sandbox account, so each path component and operator.conf itself pass
+# ai_tools_conf_is_trusted: the sandbox account cannot swap the prompt between resolution and read.
 
 # Include-guarded: claude.sh and the unit test may both source this and its dependencies.
 if [[ -n "${_AI_TOOLS_CLAUDE_PROMPT_LIB:-}" ]]; then

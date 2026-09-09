@@ -5,14 +5,15 @@
 # invoking operator. Refuses a non-operator (not in the ai-ops group) up front with a framed
 # refusal, then resolves the current versioned claude binary under /opt/ai-tools via a stable
 # symlink maintained by nvm-update.sh, exports the resolved path as AI_TOOLS_AGENT_EXEC, and
-# re-executes the shared confinement shim /opt/ai-tools/bin/ai-tools-run as the ai-tools user
-# via sudo. ai-tools-run resolves this agent from its manifest, re-validates the path, and wraps
-# the session in a systemd transient service before exec'ing the versioned binary.
+# re-executes the shared confinement shim /opt/ai-tools/bin/ai-tools-run as the sandbox account
+# (SANDBOX_USER) via sudo. ai-tools-run resolves this agent from its manifest, re-validates the
+# path, and wraps the session in a systemd transient service before exec'ing the versioned binary.
 # path-dedup.sh (wired into operator dotfiles by ai-tools-admin) ranks /usr/local/bin
 # (Tier 1) above the nvm shims, so this shadows any nvm-managed claude on an operator's PATH.
 # When operator.conf configures a custom system prompt, this also prepends the resolved
 # --append-system-prompt-file / --system-prompt-file arguments (claude-prompt.lib.sh) ahead of the
-# operator's own; a configured-but-unhonourable prompt refuses the launch (fail closed).
+# operator's own; a configured-but-unhonourable prompt refuses the launch (fail closed). The gate
+# order, and what each refusal distinguishes, are in agent-claude-code.rule.md.
 
 set -euo pipefail
 IFS=$'\n\t'
