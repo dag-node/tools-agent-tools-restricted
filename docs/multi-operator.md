@@ -1,173 +1,81 @@
-# Multi-operator model
+# Running agents under service accounts on one host
 
-**Status: proposed.** This note specifies the target model that lets several login
-users (project users) — a human plus rootless service accounts on the same host —
-drive the sandbox through one shared `ai-tools` account. It supersedes the
-single-operator ownership model in which `/opt/ai-tools` is owned by one
-`PROJECTS_USER`. It is the contract the spec, `enroll`, the handback, and the
-rewritten `CLAUDE.md` will satisfy. Open questions are listed at the end; they
-gate implementation.
+```bash
+sudo ai-tools-admin operators add svc-ci                  # enrol the service account
+ai-tools projects claim --for svc-ci /srv/projects/api    # claim a project on its behalf
+sudo -u svc-ci -H bash -lc 'cd /srv/projects/api && claude'   # the account runs its own session
+```
 
-## Scope and threat model
+The first line makes `svc-ci` an operator: it records the name in `/etc/ai-tools/operator.conf`,
+adds the account to the `ai-ops` group, and seeds its own allowlist under `~/.config/ai-tools`.
+The second line claims a project for it. A claim needs `sudo`, which a service account without a
+password cannot answer, so an operator who holds a sudo grant claims once with `--for` and the
+entry lands in the service account's allowlist. From then on the account launches `claude` in
+that project by itself, and every file the agent writes comes back owned by `svc-ci`. The third
+line is how an administrator tries that from a shell; a CI job or a unit running as `svc-ci` runs
+`claude` the same way.
 
-The host has multiple non-root accounts that need Claude Code access — typically a
-human project user plus rootless service accounts (e.g. a CI runner). They form
-**one trusting team**: they share a single `ai-tools` sandbox account and therefore
-share its agent state and project reach. There is **no kernel isolation between
-operators' agent sessions** — every session runs as the same `ai-tools` uid. Hosts
-needing mutually-distrusting operators require per-operator sandbox accounts, which
-this model does not implement (it is a documented future option, keyed off the
-operators list).
+An operator is any login account enrolled like this, a person or a service account alike. The
+model exists so that agents can work on tasks under limited accounts on one host: each account
+has its own allowlist and owns its own results, while one sandbox account does the work.
+[naming-conventions.md](naming-conventions.md) states what an operator and an allowlist are, and
+[project-lifecycle.md](project-lifecycle.md) covers `--for` and the commands that take it.
 
-## Decisions
+## What a service account can do on its own
 
-- A new group **`ai-ops`** (`@OPERATORS_GROUP@`) names the operators. `enroll` adds
-  each project user to it; the agent account `ai-tools` is **not** a member.
-- The control plane (`/opt/ai-tools`) is owned **`root:ai-tools` permanently** and is
-  never re-owned to a person. The RPM-shipped placeholder is the final state, so the
-  re-own / `--reassert` / `%posttrans` machinery is removed.
-- Operators reach the control plane only as far as the launcher needs: a **search
-  bit** (`o+x`) on `/opt/ai-tools` and `/opt/ai-tools/bin` lets any operator `readlink`
-  the launcher. Everything deeper stays `o=0`.
-- The launch wrapper ships system-wide as **`/usr/local/bin/claude`** (`root:root
-  0755`), rpm-owned. `path-dedup.sh`, wired into each operator's dotfiles by
-  `ai-tools-admin operators add`, ranks `/usr/local/bin` (Tier 1) above the nvm shim,
-  so it shadows any nvm-managed `claude`.
-- The wrapper checks `ai-ops` membership first and frames a `msg.lib` refusal for a
-  non-operator, instead of leaking a raw `sudo` denial.
-- The `nvm-update` timer runs **once**, in `ai-tools`'s own `systemd --user` instance
-  (`%h=/opt/ai-tools`), updating the shared `.nvm` directly. The per-operator timer,
-  the per-operator `~/.local/bin/nvm-update.sh`, and the `nvm-update.sh` sudoers rule
-  are removed.
-- `/etc/ai-tools/operator.conf` holds `OPERATORS="alice bob svc-ci"` — one list naming
-  both human and rootless-service project users (they all drive the same `ai-tools`
-  account, so they share one list). Names separate on commas or whitespace and the quotes
-  are optional, the shared grammar every key in that file is read with
-  (`/usr/local/lib/ai-tools/conf.lib.sh`). Home and primary group are derived per name via
-  `getent`. The handback restores agent-written project files
-  to the operator whose **allowlist contains the path** (`opX:ai-tools`; secret-named
-  files `opX:opX 600`). When more than one operator lists the same path, the tie-break is
-  the **nearest parent directory's owner**, provided that owner is an operator whose
-  allowlist covers the path — the on-disk project owner wins. The control plane does not need
-  restore.
-- **`safe.directory` edits go through a root helper.** `.gitconfig` stays `root:ai-tools 644`
-  (world-readable so the agent reads `safe.directory` and the operator and launch wrapper read it
-  for the gap check without depending on `ai-tools` group membership; root-write-only). `ai-tools
-  --project-claim` registers the project's `safe.directory` through the `ai-tools-safedir` root
-  helper (operator `sudo`, no NOPASSWD — the same model as `ai-tools-setfacl`/`-relabel`/
-  `-unclaim`), and `--project-unclaim` removes it; the agent has no path to `.gitconfig` writes.
-  No setgid fight, no `ai-ops` group-write, and no new sudoers rule.
-- **Each operator gets a private agent-state subdir.** `ai-tools-run` points the session's
-  Claude state dir at `/opt/ai-tools/state/<operator>/` (history, sessions,
-  `.claude.json`), keyed off the launching operator the wrapper passes in, so operators'
-  conversations do not intermix and `.claude.json` writes do not race. This is
-  organizational, not kernel, isolation (one shared `ai-tools` uid). The shared control
-  settings and hooks apply from Claude's global/managed-settings layer; only per-operator
-  state lives in the subdir. Per-session scratch is isolated the same way: each session
-  gets a private `/tmp` (`PrivateTmp` on the transient unit), so concurrent same-uid
-  sessions do not collide on Claude's hardcoded `/tmp/claude-<uid>` path (which ignores
-  `TMPDIR`, so isolation must be at the mount-namespace level, not an env var).
-- `/opt/ai-tools/.git` is **`root:root 0700`** (root-private drift capture, no
-  per-operator owner).
-- Sudoers grants are **group** rules: `%ai-ops ALL=(ai-tools:ai-tools) NOPASSWD:
-  /opt/ai-tools/bin/ai-tools-run`. The per-operator-line form is gone.
-- **Operator management is a symmetric root helper, `ai-tools-admin operators
-  add|remove|list`** (run via `sudo`), replacing the one-shot `ai-tools-enroll`. It is a
-  root helper, not an `ai-tools` CLI verb, because the CLI is unprivileged and refuses
-  root while this edits host config (sudoers group, `ai-ops`, `OPERATORS`); the
-  `ai-tools-admin` name leaves room for other root-side admin subcommands. `add` with an
-  argument enrols that user or service account; with none it offers to add the non-root
-  user running it (`$SUDO_USER`). `add` is accumulating and idempotent: it appends the
-  name to `OPERATORS`, adds it to `ai-ops`, seeds that user's allowlist, and ensures the
-  sandbox account's linger. `remove` reverses it (drops from `OPERATORS` and `ai-ops`, leaves
-  the user's own allowlist/config). `list` prints the current operators. An operator runs
-  `claude` from its own active login, so it does not need linger of its own; the toolchain timer
-  is enabled once in `ai-tools`'s instance, not per operator.
+- **Run sessions** in every project claimed for it. Group membership applies to a new login
+  session, so enrol the account before its first job starts.
+- **See its projects and the host**: `ai-tools projects` lists its allowlist, and
+  `ai-tools status` reports the sandbox's health.
+- **Park and unpark its own projects** with `ai-tools projects disable` and `projects enable`.
+- **Stop every session on the host** with `ai-tools stop`, which does not ask for a password. It
+  is the shutdown rung of the escalation ladder in the shipped governance framework
+  ([framework.md](../src/usr/share/ai-tools/skills/ai-tools-capable-systems-governance/references/framework.md),
+  installed at `/opt/ai-tools/skills/ai-tools-capable-systems-governance/references/framework.md`),
+  and it is granted without a password so that an unattended monitor can reach it.
+- **Not claim, clone, unclaim, lock down or reclaim.** Each of those reaches a root helper over
+  `sudo`. The refusal names the command an operator with a sudo grant runs for it.
 
-## Permission mapping (single-operator → multi-operator)
+The account needs a home directory, since its allowlist lives under `~/.config/ai-tools`.
 
-Ownership cells use the shell-variable identities from
-[naming-conventions.md](naming-conventions.md): `PROJECTS_USER` (the owner),
-`PROJECTS_GROUP` (the owner's private group), `SANDBOX_USER`/`SANDBOX_GROUP`
-(`ai-tools`), and `ai-ops` (the operators group).
+## What every operator shares
 
-| Path | Single-operator | Multi-operator | Effect |
-|---|---|---|---|
-| `/opt/ai-tools` | `PROJECTS_USER:SANDBOX_GROUP 2750` | `root:SANDBOX_GROUP 2751` | `+o+x` search so any operator traverses to the launcher; no `o+r`. Root owner drops the single-operator binding. |
-| `/opt/ai-tools/bin` | `PROJECTS_USER:SANDBOX_GROUP 0550` | `root:SANDBOX_GROUP 0551` | `+o+x` so operators `readlink bin/claude` (readlink needs dir search, not link read). |
-| `bin/ai-tools-run` | `PROJECTS_USER:SANDBOX_GROUP 0550` | `root:SANDBOX_GROUP 0550` | unchanged surface — `sudo` transitions to `ai-tools` first, so the exec check is the group bit. |
-| `bin/nvm-update.sh` | `PROJECTS_USER:SANDBOX_GROUP 0550` | `root:SANDBOX_GROUP 0550` | run as `ai-tools` by its own timer; group-x. |
-| `bin/claude` (symlink) | `PROJECTS_USER:SANDBOX_GROUP` | `root:SANDBOX_GROUP` | owner irrelevant for readlink; root-owned = agent still can't swap it. |
-| `.claude` | `PROJECTS_USER:SANDBOX_GROUP 3770` | `root:SANDBOX_GROUP 3770` | unchanged (`o=0`): operators get no access; agent group-writes its state, sticky blocks unlink of root-owned control files. |
-| `.claude/{settings.json,hooks}` | `PROJECTS_USER:SANDBOX_GROUP 640/750` | `root:SANDBOX_GROUP 640/750` | unchanged; only the agent reads these. |
-| `.claude/.claude.json` | `SANDBOX_USER:SANDBOX_GROUP` (agent-created via the `CLAUDE_CONFIG_DIR` pin) | moves into `state/<operator>/` | agent-owned state, saved atomically (temp + rename), so it lives where the agent holds directory write; the enforced boundary is the root-owned `settings.json`. |
-| `.gitconfig` | `PROJECTS_USER:SANDBOX_GROUP 640` | `root:SANDBOX_GROUP 644` | agent reads `safe.directory`; world-readable so the operator and wrapper read it without `ai-tools` group membership; root-write-only. Operators register entries through the `ai-tools-safedir` root helper (`sudo`), not by writing the file. |
-| `.gitignore` | `PROJECTS_USER:SANDBOX_GROUP 640` | `root:SANDBOX_GROUP 640` | unchanged; agent reads, never writes. |
-| `.git` | `PROJECTS_USER:PROJECTS_GROUP 2750` | `root:root 0700` | root-private; per-operator drift capture is meaningless with N operators. |
-| `state/<operator>/` | n/a (shared `.claude`) | `SANDBOX_USER:SANDBOX_GROUP 0700` per operator | private agent state (history, sessions, `.claude.json`); `ai-tools-run` selects it by the launching operator. |
-| `.nvm/.cache/.local/.npm` | `SANDBOX_USER:SANDBOX_GROUP 0750` | unchanged | agent toolchain. |
-| `/var/opt/ai-tools[/sandbox-projects]` | `PROJECTS_USER:SANDBOX_GROUP 2750/2770` | `root:SANDBOX_GROUP 2750/2770` | agent workspace; operator ownership was incidental. |
-| `~/.config/ai-tools/*` | `PROJECTS_USER:PROJECTS_GROUP 700/600` | unchanged, **per operator** | each operator keeps their own allowlist/secret config; already scales to N. |
-| `~/.local/bin/claude` | `PROJECTS_USER:PROJECTS_GROUP 0750` | **removed** → `/usr/local/bin/claude root:root 0755` | system wrapper; rpm-owned, fails safe for non-operators. |
-| user `nvm-update.{service,timer}` | `PROJECTS_USER:PROJECTS_GROUP 640` in operator home | `root:root` in `%{_userunitdir}`, enabled once in `ai-tools`'s `--user` instance | one shared toolchain timer, not N. |
-| `/etc/sudoers.d/ai-tools` | per-operator lines | `%ai-ops` group rules | one rule covers all operators. |
-| `/etc/ai-tools/operator.conf` | one `PROJECTS_USER` | `OPERATORS` **list** | handback resolves the per-project owner from it via allowlist match (tie-break: nearest parent-dir owner). |
-| helpers / libs / CLI / handback / `/var/log` | `root:*` | unchanged | already operator-agnostic. |
+- **One sandbox account.** Every session runs as `ai-tools`, whichever operator launched it. A
+  session works in the project it was launched in, from the launching account's allowlist, and
+  the operators' allowlists are usually disjoint. The kernel does not keep one operator's projects
+  out of another's session, so operators are one trusting team.
+- **The agent's state.** Claude Code's history and sessions live in one directory for the host,
+  as does session scratch under `/tmp`.
+- **One session per project at a time.** Two sessions in one working tree share its files and its
+  git index. A second agent on the same repository works in its own clone
+  (`ai-tools projects clone`).
+- **The toolchain.** A daily timer in the sandbox account's own `systemd --user` instance
+  updates Node and the agent packages once for the host; it runs as `ai-tools`, and the relabel
+  that follows an update runs as root. `ai-tools status` reports the result to any operator.
+- **The commit identity.** The agent commits with the name and email set at bootstrap, whichever
+  operator's project the commit lands in.
+- **The clone area.** Any operator creates clones under `/var/opt/ai-tools/sandbox-projects`. A
+  clone belongs to the operator who created it and uses that operator's git credentials, so
+  `projects clone` does not take `--for`.
+- **The stop.** `ai-tools stop` ends every operator's sessions, not only the caller's
+  ([session-stop.md](session-stop.md)).
 
-## Properties and accepted trade-offs
+## What stays private to each operator
 
-- **Shared agent memory.** All operators' sessions share `/opt/ai-tools/.claude`
-  (history, sessions, `.claude.json`). Conversations intermix; `.claude.json` can race
-  under simultaneous use. Accepted for a trusting team.
-- **No inter-operator isolation.** Any operator's session, as `ai-tools`, can read what
-  `ai-tools` can read — including another operator's project files. Accepted.
-- **`/usr/local/bin/claude` is on every user's PATH.** A non-operator invocation fails
-  safe at the sudoers gate; the wrapper frames a friendly refusal first.
-- **Search-bit exposure.** `o+x` on `/opt/ai-tools` and `bin` lets any user traverse
-  and `readlink` the launcher (a non-secret `.nvm` path); deeper dirs stay `o=0`.
+- **The allowlist.** `~/.config/ai-tools/allowed-projects` is readable by its owner alone.
+  Another operator's `--for` run reaches it through a root helper, and the sandbox account does
+  not read it at all.
+- **The launch gate.** `claude` starts only in a project the launching account's own allowlist
+  lists.
+- **Ownership of the agent's work.** A file the agent writes comes back to the operator whose
+  allowlist covers its path; a secret-named file comes back readable by that operator alone. When
+  two allowlists list the same path, the operator who owns the directory on disk wins.
+- **Access to the tree.** A claim grants the operator read and write on the project through an
+  ACL, so the operator stays out of the `ai-tools` group.
 
-- **Per-path owner resolution.** Every per-project root helper — `ai-tools-setgid`,
-  `-setfacl`, `-unclaim`, `-chown`, `-lockdown`, `-reclaim`, `-relabel` — resolves *which*
-  operator owns a path from the allowlists themselves (`ai_tools_resolve_owner`), rather than
-  from one operator loaded up front. A helper that reads a single operator's registry refuses
-  every project registered to any of the others: a secondary operator's own claim, and every
-  `--project-claim --for <operator>`, would apply part of the claim and skip the rest.
+## Where to read more
 
-## What this removes
-
-The root-owned control plane has no per-operator ownership to restore, so the
-`reown_control_plane` routine, the `ai-tools-enroll --reassert` mode, and the
-`%posttrans` re-assert hook are dropped. `control-plane.lib.sh` keeps only the
-boundary-mode constants the installer/spec assert.
-
-## Resolved (was open)
-
-- **(A) `safe.directory` write path** → the `ai-tools-safedir` root helper (operator `sudo`,
-  no NOPASSWD — the model `ai-tools-setfacl`/`-relabel`/`-unclaim` use). `.gitconfig` is
-  `root:ai-tools 644` (world-readable, root-write-only); `--project-claim` registers and
-  `--project-unclaim` removes the entry through the helper. No setgid fight, no group-write,
-  no new sudoers rule. (The handback `SAFEDIR` verb was considered and dropped: a session-side
-  verb leaves stale entries on unclaim and re-introduces agent-triggered control-plane writes.)
-- **(B) operator.conf format** → `OPERATORS="alice bob svc-ci"`, one list for human and
-  service accounts alike (they share `ai-tools`); home/group derived via `getent`.
-- **(C) operator lifecycle** → `ai-tools-admin operators add|remove|list`; `add` with no
-  arg offers `$SUDO_USER`, with an arg enrols that user or service account.
-- **(D) per-operator isolation** → private `state/<operator>/` for agent state, private
-  `/tmp` per session via `PrivateTmp`.
-
-## Remaining verification
-
-Claude Code has no config-vs-state split: `CLAUDE_CONFIG_DIR` — which `ai-tools-run` pins to
-the shared `/opt/ai-tools/.claude` — selects history, sessions, `.claude.json`, **and** the
-`settings.json`/hooks layer together. A per-operator `state/<operator>/` would therefore
-relocate the guardrail settings too; a candidate home for the shared control settings is
-the managed-settings layer (`/etc/claude-code/managed-settings.json`, root-owned). Whether
-that layer carries the hook and deny-rule declarations is unverified, and per-operator
-state selection remains an optional, undecided direction.
-
-## Migration
-
-The branch carrying the single-operator re-own work is rewritten before merge so the
-history does not track the superseded `reown`/`--reassert`/`%posttrans` changes. Any
-relocation of tracked source files (e.g. the wrapper to its system path) uses `git mv`
-so file history is preserved.
+- `ai-tools-admin(8)` for enrolling and removing operators; `operator.conf(5)` and
+  `allowed-projects(5)` for the two files an enrolment writes.
+- [CLAUDE.md](../CLAUDE.md#boundaries-and-non-goals) for what the model leaves out on purpose:
+  operators are trusted, and sessions are not isolated from one another.
