@@ -47,8 +47,8 @@ execute code in the privileged scripts that read it:
 `ai-tools-providers(5)` is the operator's statement of every key, and a manifest's own header is a
 pointer to it: a manifest is package data replaced on upgrade, so a description that lives in the
 file is one an upgrade rewrites for no settings change, and one that lives in the page reaches every
-host with the package. The same placement rule, for the operator-edited config files, is the
-approved plan in the wip repository (`ATR-260908`).
+host with the package. The same placement rule holds for the config files an operator holds
+(*A config file's header is a pointer*, below).
 - either kind: `admin_summary`, the one-line description `ai-tools-admin --help` prints for the
   command domain this package contributes (below). Optional; a package that does not contribute a
   domain has no use for it, and a domain whose manifest omits it is still listed.
@@ -198,7 +198,7 @@ file — the launch wrapper, the CLI, the owner resolver in `operator.lib.sh`, a
 that walks or labels a project (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`,
 `-relabel`) — takes it from here, which is exactly why the rule lives in one place: a parser
 copied into each is a parser that drifts, and a line the wrapper resolves but a helper does not
-is a project the agent can launch in whose files never come back, or a carve-out the wrapper
+is a project the agent can launch in whose files stay sandbox-owned, or a carve-out the wrapper
 refuses that a walk grants. Each reader requires the library rather than falling back to a
 private parser; the resolver's load is fail-closed by consequence, since without the parser no
 line denotes an entry and no path is covered. The CLI,
@@ -248,6 +248,23 @@ difference, and offers to clear the copy. It leaves this file unchanged. An addi
 could append an option block the file lacks, but it could never correct the prose of one already
 there, so `operator.conf(5)` is the single current statement of what an option means and the file
 points at the man page rather than restating it.
+
+### A config file's header is a pointer
+
+The per-operator files reach the same placement from a harder constraint. `allowed-projects` and
+`secret-patterns` are seeded once, by `ai-tools-admin operators add` (the two `*_seed` functions in
+`conf.lib.sh`), and no upgrade rewrites them: the header an operator's file carries is the one that
+shipped on the day that account was enrolled, for as long as the account exists. A header written
+there therefore states what the file is, the one rule a reader needs before writing a line, example
+lines, and the page that holds the reference — `allowed-projects(5)`, `secret-patterns(5)` — and
+the grammar, the semantics and the worked examples live in the page, which the package replaces on
+every upgrade. `tests/unit/man.sh` caps each seeded header, asserts it names its page and registers
+no entry, and reads each page's own examples through the parser that file is read with
+(`ai_tools_conf_path_entry`, `ai_tools_load_secret_patterns`), so an example the manual shows is
+one the file accepts. The one claim that stays in a header whatever its page says is the fail
+direction a reader must know before writing a line — for `secret-patterns`, that a pattern listed
+there **replaces** the built-in baseline ([secret-handling](secret-handling.rule.md)), which
+`tests/unit/secret-patterns.sh` asserts on the seeded text.
 
 ### Deferred: `operator.conf.d/`
 

@@ -274,9 +274,13 @@ install -d -m 0755 %{buildroot}%{ai_mandir}/man8
 install -m 0644 src%{ai_mandir}/man8/ai-tools-admin.8       %{buildroot}%{ai_mandir}/man8/ai-tools-admin.8
 # operator.conf(5): the host options and the shared KEY=value grammar they are written in.
 # ai-tools-providers(5): the provider manifests (agents.d, integrations.d) and their keys.
+# allowed-projects(5), secret-patterns(5): the two files an operator's enrolment seeds, whose
+# headers are written once and point here for the reference.
 install -d -m 0755 %{buildroot}%{ai_mandir}/man5
 install -m 0644 src%{ai_mandir}/man5/operator.conf.5        %{buildroot}%{ai_mandir}/man5/operator.conf.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-providers.5   %{buildroot}%{ai_mandir}/man5/ai-tools-providers.5
+install -m 0644 src%{ai_mandir}/man5/allowed-projects.5     %{buildroot}%{ai_mandir}/man5/allowed-projects.5
+install -m 0644 src%{ai_mandir}/man5/secret-patterns.5      %{buildroot}%{ai_mandir}/man5/secret-patterns.5
 # The CLI gets a %%{_sbindir} symlink for the OPPOSITE reason ai-tools-admin does: its
 # mutating verbs must never run under sudo, and without the symlink `sudo ai-tools` dies with
 # sudo's "command not found" (%%{ai_bindir} is not in secure_path) before the CLI's own
@@ -924,6 +928,8 @@ fi
 %attr(0644, root, root) %{ai_mandir}/man1/ai-tools.1*
 %attr(0644, root, root) %{ai_mandir}/man5/operator.conf.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-providers.5*
+%attr(0644, root, root) %{ai_mandir}/man5/allowed-projects.5*
+%attr(0644, root, root) %{ai_mandir}/man5/secret-patterns.5*
 %attr(0644, root, root) %{ai_mandir}/man8/ai-tools-admin.8*
 %attr(0750, root, ai-tools) %{ai_bindir}/ai-tools-handback-client
 %dir %attr(0751, root, ai-tools) %{ai_libdir}

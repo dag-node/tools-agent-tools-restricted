@@ -469,10 +469,10 @@ ai_tools_conf_new_keys() {
 # that walks or labels a project; providers.rule.md names them) parses it here, and a rule that
 # lives in each of them separately is a rule that drifts.
 #
-#   /home/me/project              a path
-#   /home/me/project   # why      an end-of-line comment: `#` after whitespace ends the entry
-#   "/home/me/my project"         quotes carry a space, and make `#` inside them literal
-#   !/home/me/project/vendor      an exclusion; the `!` precedes the quotes: !"/a b"
+#   /home/op/project              a path
+#   /home/op/project   # why      an end-of-line comment: `#` after whitespace ends the entry
+#   "/home/op/ai works"           quotes carry a space, and make `#` inside them literal
+#   !/home/op/project/vendor      an exclusion; the `!` precedes the quotes: !"/a b"
 #
 # An entry is NOT resolved or validated here: callers canonicalize with realpath and match
 # exclusions as globs, and this only decides what text the line denotes.
@@ -760,65 +760,56 @@ ai_tools_conf_allowlist_enable() {
 
 # ── Seed text for an operator's own config files ──────────────────────────────────────────────
 # A file an operator keeps in ~/.config/ai-tools is created carrying its header and no entry, so
-# the operator edits a file that states its own grammar rather than a blank one. The text lives
-# here because it is written from more than one place -- `ai-tools-admin operators add` on any
+# the operator edits a file that states what it is rather than a blank one. The text lives here
+# because it is written from more than one place -- `ai-tools-admin operators add` on any
 # installed host, and install.sh for the account a from-source install enrols -- and a header
 # written twice is a header that disagrees with itself about what the file accepts. Each function
 # PRINTS; the caller places the file with the ownership and mode it needs (600, inside a 700
 # directory).
+#
+# A seeded header is written once and no upgrade rewrites it, so it carries what the file is, the
+# one rule a reader needs before writing a line, example lines, and the man page that holds the
+# reference -- the page ships with the package and reaches every host on every upgrade, where a
+# header stays as it was on the day the account was enrolled. tests/unit/man.sh caps the
+# allowlist header and reads the page's examples through ai_tools_conf_path_entry.
 
 # ai_tools_conf_allowlist_seed : print the header a fresh allowed-projects carries. It does not
 #   name any project, so a session cannot start anywhere until the CLI or the operator adds an
-#   entry.
+#   entry. The reference is allowed-projects(5).
 ai_tools_conf_allowlist_seed() {
     printf '%s\n' \
-        "# Approved project directories for the ai-tools sandbox -- one directory per line." \
-        "# A plain path allows that directory and everything under it; a '!'-prefixed path" \
-        "# excludes one. Exclusions win over allows, and only they may use * ? [ ] globs --" \
-        "# an allow line must be a literal directory (a glob there matches nothing and is inert)." \
+        "# Project directories the ai-tools sandbox may work in -- one per line. A session launched" \
+        "# by this account starts only inside a listed directory; a '!'-prefixed line excludes" \
+        "# a subtree, and an exclusion wins. This file is a launch gate, not a read boundary." \
         "#" \
-        "# '#' starts a comment, whole-line or after a path; quote a path that contains a space" \
-        "# or a literal '#', e.g.  \"/home/me/my project\"" \
+        "#   /home/op/project                allow this directory and everything under it" \
+        "#   !/home/op/project/vendor        carve this subtree out of it" \
+        "#   \"/home/op/ai works\"  # note     quote a path containing a space; '#' starts a comment" \
         "#" \
-        "# Managed by the ai-tools CLI -- prefer it over editing by hand:" \
-        "#   ai-tools --project-create <dir>   create a new project directory and claim it" \
-        "#   ai-tools --project-claim  <dir>   register/claim a real project in place" \
-        "#   ai-tools --sandbox-create <dir>   shallow-clone a repo into the sandbox area" \
-        "#   ai-tools --list                   review entries; flags stale/unusable/orphaned ones" \
-        "#" \
-        "# For a repo whose git history may hold credentials, prefer a sandboxed clone under" \
-        "# /var/opt/ai-tools/sandbox-projects/ so the agent never reads the original history." \
-        "# See /var/opt/ai-tools/README.md." \
+        "# Managed by the ai-tools CLI: --project-claim, --project-create and --sandbox-create" \
+        "# register a project; --project-disable and --project-enable park and restore one;" \
+        "# --list reviews the file. Full reference: man 5 allowed-projects" \
         ""
 }
 
 # ai_tools_conf_secret_patterns_seed : print the header a fresh secret-patterns file carries. It
 #   carries the header alone, which leaves the built-in baseline in secret-patterns.lib.sh in
 #   force -- so seeding this file changes what is classified as a secret only once the operator
-#   writes a pattern into it, and the operator finds a file that says how.
+#   writes a pattern into it. The replace rule stays in the header whatever the page says, since
+#   it is the one fact a reader needs before writing a line. The reference is secret-patterns(5).
 ai_tools_conf_secret_patterns_seed() {
     printf '%s\n' \
-        "# Secret-name patterns for the ai-tools sandbox -- your file, owner-only (600). A path" \
-        "# whose BASENAME matches a pattern here is a credential file: ai-tools-chown quarantines" \
-        "# one the agent writes, and ai-tools-lockdown seals one already in a project. The root" \
-        "# helpers read this file on your behalf; the sandbox account can read neither it nor the" \
-        "# 700 directory holding it." \
+        "# Secret-name patterns for the ai-tools sandbox -- one basename glob per line, matched" \
+        "# case-insensitively. A file whose name matches is a credential: the root helpers" \
+        "# quarantine one the agent writes and seal one already in a project, on your behalf." \
         "#" \
-        "# A pattern listed here REPLACES the built-in baseline in" \
-        "# /usr/local/lib/ai-tools/secret-patterns.lib.sh rather than adding to it. This file" \
-        "# lists none, so that baseline -- the public list of credential names, kept current by" \
-        "# package upgrades -- is what classifies today. Write a deployment-specific name here" \
-        "# together with the baseline entries you want to keep, copied from that library." \
+        "# A pattern listed here REPLACES the built-in baseline in the shared library" \
+        "# (/usr/local/lib/ai-tools/secret-patterns.lib.sh) rather than adding to it. This file" \
+        "# lists none, so the baseline classifies until you write a pattern; then copy the baseline" \
+        "# entries you keep, alongside your own." \
         "#" \
-        "# Format: one BASENAME glob per line (no '/'), matched case-insensitively, where '*'" \
-        "# matches any characters and '.' is literal; '#' starts a comment and blank lines are" \
-        "# ignored." \
+        "#   .env              *.pem             appsettings.*.json" \
         "#" \
-        "# Anchor a pattern to a name or an environment segment. A broad catch-all such as" \
-        "# '*.*.json' also matches build artifacts the toolchain must read, and quarantining" \
-        "# those breaks builds." \
-        "#" \
-        "# A credential name software writes in general, and that the baseline misses, is worth a" \
-        "# pull request upstream so every host gets it." \
+        "# Full reference: man 5 secret-patterns" \
         ""
 }

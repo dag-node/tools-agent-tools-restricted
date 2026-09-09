@@ -681,6 +681,13 @@ which is root-owned so that a session cannot widen what it is given.
 Per-operator allowlist of project paths; a
 .RB \(oq ! \(cq-prefixed
 line excludes a subtree. Gates where sessions launch \(em not a read boundary.
+The grammar and the entry states are in
+.BR allowed\-projects (5).
+.TP
+.I ~/.config/ai-tools/secret-patterns
+Per-operator secret-name patterns: a file whose name matches one is kept out of
+the agent's reach. The grammar and the replace rule are in
+.BR secret\-patterns (5).
 .TP
 .I /etc/ai-tools/operator.conf
 Operator registry and skip-list overrides.
@@ -750,7 +757,9 @@ ai\-tools \-\-project\-unclaim ~/src/myproject
 .RE
 .SH SEE ALSO
 .BR ai\-tools\-admin (8),
+.BR allowed\-projects (5),
 .BR operator.conf (5),
+.BR secret\-patterns (5),
 .BR setfacl (1),
 .BR sudo (8).
 .PP
