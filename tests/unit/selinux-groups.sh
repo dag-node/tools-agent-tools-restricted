@@ -45,6 +45,46 @@ else
     fail "package dir constant is '${AI_TOOLS_SELINUX_PACKAGE_DIR}', expected /usr/share/selinux/packages/ai-tools"
 fi
 
+# --- A renamed group's former module name resolves, and only for a renamed group ---
+# Both front doors and the selinux %post replace a loaded former module with the group's current
+# one; a former name that is itself a current group's module, or is malformed, would make that
+# swap unload a live group or pass a bad token to semodule.
+if declare -F ai_tools_selinux_group_former_module >/dev/null 2>&1; then
+    for g in localipc buildexec; do
+        if [[ "$(ai_tools_selinux_group_former_module "${g}")" == "ai_tools_netcore" ]]; then
+            pass "the ${g} group records ai_tools_netcore as its former module"
+        else
+            fail "ai_tools_selinux_group_former_module ${g} -> '$(ai_tools_selinux_group_former_module "${g}")'"
+        fi
+    done
+    # The reverse read is what a swap loads in the old module's place: both groups, in one
+    # transaction, or a host loses the half it did not ask for.
+    if [[ "$(ai_tools_selinux_groups_from_former_module ai_tools_netcore | sort | tr '\n' ' ')" == "buildexec localipc " ]]; then
+        pass "ai_tools_netcore maps back to both localipc and buildexec"
+    else
+        fail "ai_tools_selinux_groups_from_former_module ai_tools_netcore -> '$(ai_tools_selinux_groups_from_former_module ai_tools_netcore | tr '\n' ' ')'"
+    fi
+    if ai_tools_selinux_group_former_module tmpmap >/dev/null; then
+        fail "tmpmap reports a former module though it was never renamed"
+    else
+        pass "a group that was never renamed reports no former module"
+    fi
+    for entry in "${AI_TOOLS_SELINUX_GROUP_FORMER_MODULES[@]}"; do
+        fn="${entry%%|*}"; fm="${entry#*|}"
+        if ! ai_tools_selinux_group_valid "${fn}"; then
+            fail "former-module entry names an unknown group '${fn}'"
+        elif [[ ! "${fm}" =~ ^ai_tools_[a-z][a-z0-9]*$ ]]; then
+            fail "former module name '${fm}' is not a plain ai_tools_<name> token"
+        elif ai_tools_selinux_group_valid "${fm#ai_tools_}"; then
+            fail "former module '${fm}' is a CURRENT group's module -- the swap would unload a live group"
+        else
+            pass "former module '${fm}' -> group '${fn}' is well-formed and does not collide"
+        fi
+    done
+else
+    skip "former module accessor" "ai_tools_selinux_group_former_module not defined"
+fi
+
 # --- Every record parses into a well-formed name and non-empty description + reason ---
 if (( ${#AI_TOOLS_SELINUX_GROUPS[@]} > 0 )); then
     pass "registry is non-empty (${#AI_TOOLS_SELINUX_GROUPS[@]} groups)"
@@ -160,15 +200,30 @@ for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
     fi
 done
 
-# Reverse: every optional-group .te on disk (any ai_tools_*.te, excluding the core ai_tools.te)
-# is in the registry -- a policy module nobody can reach via `selinux groups enable` is a mistake.
+# Reverse: every optional .te on disk (any ai_tools_*.te, excluding the core ai_tools.te) is either
+# a group in the registry or a LAYOUT MODULE some shipped integration manifest declares
+# (selinux_layout_module) -- a policy module nobody can reach through `selinux groups enable` or
+# an integration's bootstrap is a mistake. A layout module ships prebuilt like a stable group, so
+# its .pp must be committed too.
+layout_modules=()
+for manifest in "${ROOT}"/src/usr/local/lib/ai-tools/integrations.d/*.conf; do
+    [[ -f "${manifest}" ]] || continue
+    m="$(sed -n 's/^[[:space:]]*selinux_layout_module[[:space:]]*=[[:space:]]*\([A-Za-z0-9_]*\).*/\1/p' "${manifest}" | tail -1)"
+    [[ -n "${m}" ]] && layout_modules+=( "${m}" )
+done
 for te in "${POL}"/ai_tools_*.te; do
     [[ -f "${te}" ]] || continue
     base="$(basename "${te}" .te)"; gname="${base#ai_tools_}"
     if ai_tools_selinux_group_valid "${gname}"; then
         pass "policy module '${base}' is registered"
+    elif printf '%s\n' "${layout_modules[@]}" | grep -qx "${base}"; then
+        if tracked_pp "${gname}"; then
+            pass "layout module '${base}' is declared by an integration manifest and ships prebuilt"
+        else
+            fail "layout module '${base}' is declared by an integration manifest but ${base}.pp is not committed (build it and git add it)"
+        fi
     else
-        fail "policy module '${base}' exists but is not in AI_TOOLS_SELINUX_GROUPS (add it to selinux-groups.lib.sh)"
+        fail "policy module '${base}' exists but is neither in AI_TOOLS_SELINUX_GROUPS nor a layout module an integration manifest declares"
     fi
 done
 

@@ -256,8 +256,9 @@ copy serves the `ai-tools` instance that runs the timer.
 
 ## SELinux
 
-The core policy module and the **stable** optional groups ship prebuilt (`ai_tools.pp` and
-each stable `ai_tools_<group>.pp`, currently `ai_tools_tmpmap.pp`) under
+The core policy module, the **stable** optional groups, and each integration's **layout module**
+ship prebuilt (`ai_tools.pp`, each stable `ai_tools_<group>.pp` — `tmpmap`, `localipc`,
+`buildexec` — and `ai_tools_dotnet.pp`) under
 `%{_datadir}/selinux/packages/ai-tools/`, so a normal install and enabling a stable group
 both need no policy toolchain. `ai-tools-selinux` `%post` loads the **core module only** and
 applies file contexts when `getenforce` is not `Disabled`, and is a no-op otherwise. The
@@ -266,11 +267,14 @@ boundary:
 
 ```bash
 sudo ai-tools-admin selinux groups
-sudo ai-tools-admin selinux groups enable tmpmap
+sudo ai-tools-admin selinux groups enable tmpmap localipc buildexec
 ```
 
-That helper `semodule`-loads the prebuilt `.pp` from the package directory. The
-**experimental** groups (`systemd`, `pkgmgmt`, `netadmin`, `podman`, `apphost`, `netcore`) are
+That helper `semodule`-loads the prebuilt `.pp` from the package directory. A layout module
+(`ai_tools_dotnet.pp`) is not enabled that way: it does not add any permission, so the `ai-tools-selinux`
+`%post` loads it for every installed integration whose manifest declares one, the integration's
+own `bootstrap` loads it too, and the integration's `%postun` unloads it on final erase. The
+**experimental** groups (`systemd`, `pkgmgmt`, `netadmin`, `podman`, `apphost`) are
 unaudited drafts and
 are **not** packaged: `ai-tools-admin` refuses them and directs the operator to compile and
 verify one from a source checkout first (`install-selinux.sh enable-group` + the `avc/`

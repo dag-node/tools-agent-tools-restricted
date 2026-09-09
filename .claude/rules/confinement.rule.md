@@ -160,8 +160,10 @@ half-completed install. `AI_TOOLS_REQUIRE_SELINUX` closes it outright, below.
 
 The preflight checks that the entrypoint carries `ai_tools_exec_t`; the type layout is what stops
 the confined agent changing it afterwards. `ai_tools.fc` deliberately leaves the whole nvm tree at
-its default `usr_t`/`bin_t`/`lib_t`, and `ai_tools.te` grants `manage_*_pattern` for exactly three
-types — `ai_tools_project_t`, `ai_tools_home_t`, `ai_tools_tmp_t`. None of them appears in the exec
+its default `usr_t`/`bin_t`/`lib_t`, and `ai_tools.te` grants `manage_*_pattern` only for the
+types it declares for the agent's own trees — `ai_tools_project_t`, `ai_tools_project_build_t`
+(the build output inside a project, see [dotnet](dotnet.rule.md)), `ai_tools_home_t`,
+`ai_tools_tmp_t`. None of them appears in the exec
 chain: the versioned launcher symlink is `bin_t`, the agent's package directory `lib_t`, and the
 entrypoint `ai_tools_exec_t`, on which `ai_tools_t` holds `execute_no_trans` plus what
 `application_domain` gives (entrypoint/read/getattr), and no other permission.
@@ -252,24 +254,44 @@ per-level isolation. Operational notes for that case:
 
 ## Optional SELinux groups and the namespace filter
 
-The optional groups (`systemd`/`pkgmgmt`/`netadmin`/`podman`/`tmpmap`/`apphost`/`netcore`) are all off by
+The optional groups (`systemd`/`pkgmgmt`/`netadmin`/`podman`/`tmpmap`/`apphost`/`localipc`/`buildexec`) are all off by
 default and each carries a **stability** field in the registry (`experimental`/`stable`)
 that decides how it is shipped and enabled. Both front doors draw the group set, descriptions,
-and stability from one place — `selinux-groups.lib.sh`, so they cannot disagree:
+and stability from one place — `selinux-groups.lib.sh`, so they cannot disagree. The same registry
+records a renamed group's **former module name**, and every path that loads policy — either front
+door, and the selinux subpackage's `%post` where the current module ships prebuilt — replaces a
+loaded former module with the group's current one in a single `semodule` transaction, so a host
+that enabled a group under its old name keeps the workload running across the rename and does not
+hold both rule sets:
 
-- **Stable** groups (a single, tested rule, e.g. `tmpmap`) ship **prebuilt**
+- **Stable** groups (`tmpmap`, `localipc`, `buildexec`: a rule set exercised against its workload
+  on an enforcing host) ship **prebuilt**
   (`ai_tools_<group>.pp`) alongside the core in `/usr/share/selinux/packages/ai-tools/`, and
   `sudo ai-tools-admin selinux groups enable <name>` `semodule`-loads the prebuilt `.pp` on an
-  installed host, needing no source tree or `selinux-policy-devel`. A bare `selinux groups` lists
+  installed host without a source tree or `selinux-policy-devel`, then restores the labels the
+  group's own file contexts decide (the sandbox-clone area). A bare `selinux groups` lists
   them and `selinux groups disable <name>` rounds it out, working for any loaded group. The
   spelling these commands take is set by [cli-grammar](cli-grammar.rule.md).
 - **Experimental** groups are unaudited drafts and are **not shipped prebuilt**;
   `ai-tools-admin selinux groups enable` refuses one and points at the source workflow rather than
   loading an unaudited module. They are compiled and verified from a source checkout —
   `sudo selinux/install-selinux.sh enable-group <name>` (which compiles from `.te`/`.fc`, then
-  loads) plus the `avc/` bring-up loop. Promoting one to stable means marking it `stable` in the
-  registry, committing its prebuilt `.pp`, and adding it to the shipped set (spec, `install.sh`,
-  `.gitignore`, `packaging/Makefile`).
+  loads, then re-runs the project and clone label sweeps, since a group may ship file contexts of
+  its own; `disable-group` sweeps the same way after the unload) plus the `avc/` bring-up loop.
+  Promoting one to stable means marking it `stable` in the registry, committing its prebuilt
+  `.pp`, and adding it to the shipped set (spec, `install.sh`, `.gitignore`, `packaging/Makefile`).
+
+A group is named for the capability it grants, never for a toolchain, so an administrator reads
+each as the class of access it is. What a toolchain needs is its integration manifest's to say
+(`selinux_groups`, read by the status reports to name the groups not loaded) — and where a
+toolchain's output layout must be typed at creation, its manifest names a **layout module**
+(`selinux_layout_module`, `ai_tools_dotnet` for .NET), a policy module that carries file
+transitions and file contexts and does not add any permission. A layout module is not a group and not a consent
+point: it loads with its integration (the integration's `bootstrap`, the policy package's `%post`
+for every installed integration declaring one, and `install-selinux.sh install`/`rebuild` from
+source), is unloaded by the integration's erase, and ships prebuilt in `ai-tools-selinux` like a
+stable group. The keys are in `ai-tools-providers(5)`; the one layout module and the groups it
+serves are in [dotnet](dotnet.rule.md).
 
 Enabling an optional policy group widens what SELinux permits but does not lift the seccomp
 filter. Of the optional groups only

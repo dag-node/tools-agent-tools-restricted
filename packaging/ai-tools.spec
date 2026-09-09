@@ -263,8 +263,10 @@ install -m 0644 src%{ai_mandir}/man1/ai-tools.1             %{buildroot}%{ai_man
 install -d -m 0755 %{buildroot}%{ai_mandir}/man8
 install -m 0644 src%{ai_mandir}/man8/ai-tools-admin.8       %{buildroot}%{ai_mandir}/man8/ai-tools-admin.8
 # operator.conf(5): the host options and the shared KEY=value grammar they are written in.
+# ai-tools-providers(5): the provider manifests (agents.d, integrations.d) and their keys.
 install -d -m 0755 %{buildroot}%{ai_mandir}/man5
 install -m 0644 src%{ai_mandir}/man5/operator.conf.5        %{buildroot}%{ai_mandir}/man5/operator.conf.5
+install -m 0644 src%{ai_mandir}/man5/ai-tools-providers.5   %{buildroot}%{ai_mandir}/man5/ai-tools-providers.5
 # The CLI gets a %%{_sbindir} symlink for the OPPOSITE reason ai-tools-admin does: its
 # mutating verbs must never run under sudo, and without the symlink `sudo ai-tools` dies with
 # sudo's "command not found" (%%{ai_bindir} is not in secure_path) before the CLI's own
@@ -359,9 +361,9 @@ install -d -m 0755 %{buildroot}%{_datadir}/selinux/packages/ai-tools
 # is the single source both consume, so the layout is identical on either build. The %{?dist} tag
 # (.fc44 vs .el10) keeps a Fedora-built .pp from ever reaching an EL host or vice versa.
 %if 0%{?fedora}
-make -C selinux/policy ai_tools.pp ai_tools_tmpmap.pp
+make -C selinux/policy ai_tools.pp ai_tools_tmpmap.pp ai_tools_localipc.pp ai_tools_buildexec.pp ai_tools_dotnet.pp
 %endif
-for pp in ai_tools ai_tools_tmpmap; do
+for pp in ai_tools ai_tools_tmpmap ai_tools_localipc ai_tools_buildexec ai_tools_dotnet; do
     install -m 0644 selinux/policy/${pp}.pp \
         %{buildroot}%{_datadir}/selinux/packages/ai-tools/${pp}.pp
 done
@@ -706,6 +708,37 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
     if command -v restorecon >/dev/null 2>&1; then
         restorecon -R %{ai_libexecdir} %{ai_libdir} /opt/ai-tools /var/log/ai-tools >/dev/null 2>&1 || :
     fi
+    # A renamed or split optional group: the registry (selinux-groups.lib.sh) records the former
+    # module name per current group, and a host that enabled the old module keeps it loaded
+    # across this upgrade. Replace it with every current group whose rules it carried, in a
+    # single transaction, so a failed load leaves the old module and the workload it serves. The
+    # same swap install-selinux.sh makes on any run; the pair below is the registry's row for
+    # ai_tools_netcore, written out because a scriptlet runs under /bin/sh.
+    _old_group_mod=ai_tools_netcore; _new_groups="localipc buildexec"
+    if semodule -l 2>/dev/null | grep -qx "${_old_group_mod}"; then
+        _swap_args=""
+        for _g in ${_new_groups}; do
+            _swap_args="${_swap_args} -i %{_datadir}/selinux/packages/ai-tools/ai_tools_${_g}.pp"
+        done
+        semodule -r "${_old_group_mod}" ${_swap_args} >/dev/null 2>&1 \
+            || echo "ai-tools-selinux: WARNING could not replace the ${_old_group_mod} module with the ${_new_groups} groups; it stays loaded. Re-run: sudo ai-tools-admin selinux groups enable ${_new_groups}" >&2
+    fi
+    # Each installed integration's LAYOUT module (selinux_layout_module in its manifest): it types
+    # the integration's build-output directories and does not add any permission, so it loads with
+    # the policy and is not an operator's choice. Loaded here as well as by the integration's own
+    # bootstrap because the two packages may land in either order in one transaction, and the
+    # module requires a type only the core loaded above declares. The manifest is root-owned
+    # package data; the token is still checked to one module name before it becomes a path.
+    for _manifest in /usr/local/lib/ai-tools/integrations.d/*.conf; do
+        [ -f "${_manifest}" ] || continue
+        _layout=$(sed -n 's/^[[:space:]]*selinux_layout_module[[:space:]]*=[[:space:]]*\([A-Za-z0-9_]*\).*/\1/p' "${_manifest}" | tail -1)
+        case "${_layout}" in
+            ai_tools_*)
+                _layout_pp=%{_datadir}/selinux/packages/ai-tools/${_layout}.pp
+                [ -f "${_layout_pp}" ] && semodule -i "${_layout_pp}" >/dev/null 2>&1 \
+                    || echo "ai-tools-selinux: WARNING could not load the layout module ${_layout} declared by ${_manifest}; build output is typed at relabel time only. Re-run: sudo semodule -i ${_layout_pp}" >&2 ;;
+        esac
+    done
     if command -v systemctl >/dev/null 2>&1 \
        && systemctl is-active --quiet ai-tools-handback.socket 2>/dev/null; then
         systemctl daemon-reexec >/dev/null 2>&1 || :
@@ -780,6 +813,15 @@ if [ -x %{ai_libdir}/admin-commands.d/dotnet ]; then
         echo "ai-tools-integration-dotnet: fix the cause and re-run: sudo ai-tools-admin dotnet bootstrap" >&2
         exit 1
     }
+fi
+
+%postun -n ai-tools-integration-dotnet
+# On final erase, unload this integration's SELinux layout module: it only types the .NET
+# build-output directories, for a toolchain the host no longer integrates. The type it maps to
+# belongs to the core, so labels already applied stay valid
+# and no relabel is needed. Guarded so a host without the policy tooling no-ops.
+if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
+    semodule -l 2>/dev/null | grep -qx ai_tools_dotnet && semodule -r ai_tools_dotnet >/dev/null 2>&1 || :
 fi
 
 %post -n ai-tools-agents-claude-code-restricted
@@ -857,6 +899,9 @@ fi
 %dir %{_datadir}/selinux/packages/ai-tools
 %{_datadir}/selinux/packages/ai-tools/ai_tools.pp
 %{_datadir}/selinux/packages/ai-tools/ai_tools_tmpmap.pp
+%{_datadir}/selinux/packages/ai-tools/ai_tools_localipc.pp
+%{_datadir}/selinux/packages/ai-tools/ai_tools_buildexec.pp
+%{_datadir}/selinux/packages/ai-tools/ai_tools_dotnet.pp
 
 %files -n ai-tools-base
 %license LICENSE
@@ -879,6 +924,7 @@ fi
 %{_sbindir}/ai-tools
 %attr(0644, root, root) %{ai_mandir}/man1/ai-tools.1*
 %attr(0644, root, root) %{ai_mandir}/man5/operator.conf.5*
+%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-providers.5*
 %attr(0644, root, root) %{ai_mandir}/man8/ai-tools-admin.8*
 %attr(0750, root, ai-tools) %{ai_bindir}/ai-tools-handback-client
 %dir %attr(0751, root, ai-tools) %{ai_libdir}

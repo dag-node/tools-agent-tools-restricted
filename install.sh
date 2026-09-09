@@ -699,6 +699,7 @@ do_summary() {
     _chk /usr/local/bin/ai-tools
     _chk /usr/local/share/man/man1/ai-tools.1
     _chk /usr/local/share/man/man5/operator.conf.5
+    _chk /usr/local/share/man/man5/ai-tools-providers.5
     _chk /usr/local/share/man/man8/ai-tools-admin.8
     _chk /var/opt/ai-tools
     _chk /var/opt/ai-tools/sandbox-projects
@@ -1109,7 +1110,7 @@ do_install() {
     # ai-tools-admin. The groups stay OFF until an operator enables one. No secrets.
     log "/usr/share/selinux/packages/ai-tools/*.pp"
     install -d -o root -g root -m 755 /usr/share/selinux/packages/ai-tools
-    for _pp in ai_tools ai_tools_tmpmap; do
+    for _pp in ai_tools ai_tools_tmpmap ai_tools_localipc ai_tools_buildexec ai_tools_dotnet; do
         [[ -f "${SCRIPT_DIR}/selinux/policy/${_pp}.pp" ]] || continue
         install -o root -g root -m 644 "${SCRIPT_DIR}/selinux/policy/${_pp}.pp" \
             "/usr/share/selinux/packages/ai-tools/${_pp}.pp"
@@ -1337,6 +1338,13 @@ do_install() {
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/operator.conf.5" \
         /usr/local/share/man/man5/operator.conf.5
+
+    # ai-tools-providers(5). The provider manifests under agents.d and integrations.d and every
+    # key they take, so a manifest's own header can stay a pointer.
+    log "/usr/local/share/man/man5/ai-tools-providers.5"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-providers.5" \
+        /usr/local/share/man/man5/ai-tools-providers.5
 
     # Launch wrapper. Ships system-wide root:root 0755 -- rpm-owned, on every operator's PATH
     # (path-dedup.sh, wired into operator dotfiles by ai-tools-admin, ranks /usr/local/bin
@@ -1931,6 +1939,7 @@ do_uninstall() {
     rm -f /usr/local/bin/ai-tools
     rm -f /usr/local/share/man/man1/ai-tools.1
     rm -f /usr/local/share/man/man5/operator.conf.5
+    rm -f /usr/local/share/man/man5/ai-tools-providers.5
     rm -f /usr/local/share/man/man8/ai-tools-admin.8
     rm -f /usr/local/bin/claude
     # Units, after the stop/disable above. Globs cover the handback socket+service and

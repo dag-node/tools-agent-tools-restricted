@@ -9,6 +9,7 @@ confines the agent to its own SELinux domain with a **path boundary**:
 | `ai_tools_t` | the agent process (`claude.exe` as the `SANDBOX_USER` UID) | — |
 | `ai_tools_exec_t` | each enabled agent's entrypoint binary (Claude Code: the versioned `claude.exe`), labelled from the rule that agent's own manifest declares — not from this module | entrypoint (drives the transition) |
 | `ai_tools_project_t` | approved project dirs (per allowlist) | read/write (incl. all git ops) |
+| `ai_tools_project_build_t` | the build-output directories inside one, the set an integration's manifest names (`build_output_dirs`, see `ai-tools-providers(5)`) | read/write; execute only with the `buildexec` group |
 | `ai_tools_home_t` | each agent's config directory (`.claude` for Claude Code) and the sandbox home state, labelled from the rule that agent's manifest declares | read/write its own state |
 | everything else (e.g. other `/home` files = `user_home_t`) | — | **no access** once enforcing |
 
@@ -39,11 +40,12 @@ installer detects the mode from the source and reports it.
 selinux/
   install-selinux.sh   load / rebuild / relabel / enable-group / remove (run from here)
   README.md            this guide
-  policy/              policy source + the shipped prebuilt packages (core + groups)
+  policy/              policy source + the shipped prebuilt packages (core + groups + layouts)
                          ai_tools.{te,fc,if}, the optional ai_tools_{systemd,pkgmgmt,
-                         netadmin,podman,tmpmap,apphost,netcore}.{te,fc,if}, the prebuilt ai_tools.pp and
-                         ai_tools_<group>.pp, Makefile, helper-domain.te.draft; build
-                         scratch lands in policy/tmp/
+                         netadmin,podman,tmpmap,apphost,localipc,buildexec}.{te,fc,if}, the
+                         layout module ai_tools_dotnet.{te,fc,if}, the prebuilt ai_tools.pp,
+                         ai_tools_<group>.pp and ai_tools_dotnet.pp, Makefile,
+                         helper-domain.te.draft; build scratch lands in policy/tmp/
   avc/                 bring-up + diagnostics (run during policy authoring)
                          avc-denials.sh, avc-testsuite.sh, avc-analyze.sh,
                          diag-nvm-update.sh; capture logs in avc/audits/, marker
@@ -56,8 +58,9 @@ scripts under `avc/`. `install-selinux.sh` stays at `selinux/` and resolves both
 ## Optional policy groups
 
 The core module alone covers repo-only work (project/home/tmp files, git, coreutils,
-HTTPS to the Anthropic API, the handback socket). Seven optional groups widen the
-surface for tasks that reach into system context, all **disabled by default**:
+HTTPS to the Anthropic API, the handback socket). The optional groups widen the
+surface for tasks that reach past it, all **disabled by default**, each named for the
+capability it grants:
 
 | group | grants |
 |---|---|
@@ -67,7 +70,14 @@ surface for tasks that reach into system context, all **disabled by default**:
 | `podman`   | container runtime exec + image storage (still blocked by the namespace filter — see the confinement rule) |
 | `tmpmap`   | mmap of the agent's own `/tmp` files (`dotnet` build, `git`/SQLite in `/tmp`) |
 | `apphost`  | map+execute of tmpfs/memfd files (.NET apphost/JIT: `dotnet run`, ASP.NET Core, `xunit.v3`); disjoint from `tmpmap` |
-| `netcore`  | .NET runtime IPC (`dotnet test` sockets, multi-node MSBuild pipes) + execute on every file in the project tree (a built binary, a git hook, a project script alike) — see [dotnet.rule.md](../.claude/rules/dotnet.rule.md) |
+| `localipc` | unix sockets and FIFOs under `/tmp` and the home state, connect to the session's own sockets and to a loopback port (`dotnet test`, multi-node MSBuild, a dev server and its browser) |
+| `buildexec` | execute on a project's build output — the directories an integration's manifest names and its layout module types; a script written there runs too — see [dotnet.rule.md](../.claude/rules/dotnet.rule.md) |
+
+Which groups a toolchain needs is its integration manifest's to say (`selinux_groups`, see
+`ai-tools-providers(5)`); `ai-tools --providers` and `ai-tools-admin <integration> status` name the
+ones not loaded. A toolchain whose build output must be typed the moment it is created also ships
+a **layout module** (`ai_tools_dotnet` for .NET): file transitions and file contexts only, no
+grant, so it is not a group and loads with the integration rather than by an operator's choice.
 
 Each group is either **stable** or **experimental**, which decides how it ships and which
 command may enable it (below). A group earns `stable` as it is audited, so the current value
@@ -77,13 +87,14 @@ is read from the host rather than from this table:
 sudo ai-tools-admin selinux groups
 ```
 
-**Stable** groups are a single, tested rule (`tmpmap` grants exactly
-`ai_tools_tmp_t:file map`). They ship **prebuilt** (`ai_tools_<group>.pp`) alongside the
-core and load on any installed host with no toolchain:
+**Stable** groups have a rule set exercised against the workload they serve on an enforcing
+host (`tmpmap` grants exactly `ai_tools_tmp_t:file map`; `localipc` and `buildexec` are the
+.NET bring-up's IPC and build-output execute). They ship **prebuilt** (`ai_tools_<group>.pp`)
+alongside the core and load on any installed host with no toolchain, several in one command:
 
 ```bash
 sudo ai-tools-admin selinux groups
-sudo ai-tools-admin selinux groups enable tmpmap
+sudo ai-tools-admin selinux groups enable tmpmap localipc buildexec
 sudo ai-tools-admin selinux groups disable tmpmap
 ```
 
@@ -329,8 +340,9 @@ DAC hardening (ownership/permissions/sticky `.claude`/locked `bin`) is untouched
 
 ## Notes
 
-- **Minimal surface:** the domain holds manage rights on exactly three types — project,
-  home, and private-tmp — and one entrypoint transition. What it reaches beyond those is
+- **Minimal surface:** the domain holds manage rights on the types the module declares for
+  its own trees — project, project build output, home, and private-tmp — and one entrypoint
+  transition. What it reaches beyond those is
   read-only or execute-only: the nvm tree, `/etc`, shared libraries, the controlling pty,
   DNS and outbound HTTPS, the handback socket, and a process baseline. The accesses the
   agent *probed but does not need* (other domains' `/proc`, the user's home listing,

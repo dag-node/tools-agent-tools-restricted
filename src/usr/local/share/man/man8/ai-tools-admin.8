@@ -228,14 +228,19 @@ Report the core module and every optional group with its state
 its stability, and what it covers.
 Reports that there is no policy to manage when SELinux is disabled.
 .TP
-.B selinux groups enable \fIname\fR
-Load the prebuilt module for
+.B selinux groups enable \fIname\fR...
+Load the prebuilt module for each
 .IR name .
-Prints the group list when
+Several names load in turn, so the set a toolchain declares
+.RB ( ai-tools-providers (5))
+is one command; every name is checked before any is loaded.
+Prints the group list when a
 .I name
 is not a registered group, and refuses an
 .I experimental
 group with the source-checkout command that compiles it.
+A module a group was loaded under before it was renamed is replaced in the
+same step.
 Loading a group widens what SELinux permits and does not lift the session's
 namespace filter.
 .TP

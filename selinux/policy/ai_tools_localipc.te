@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+policy_module(ai_tools_localipc, 0.1.0)
+
+# ai_tools OPTIONAL GROUP: localipc  [DEFAULT: DISABLED]
+#
+# Local inter-process communication between the session's own processes, beyond the file and
+# directory management the base grants: unix sockets and FIFOs created under /tmp and under the
+# agent's home state, connecting to the domain's own stream sockets, connecting to an ephemeral
+# TCP port on loopback, getsid(2), and the /proc/sys/net reads a runtime makes at startup. Kept
+# OUT of the base because the agent itself needs none of it; a workload that spawns a child and
+# talks to it over a socket does -- the .NET runtime's diagnostic socket and CLR debug FIFO,
+# multi-node MSBuild's worker pipes, a test runner reaching its test host, a dev server and the
+# browser driven against it, a language server. BENIGN: creating a socket or FIFO in the
+# sandbox's own tmp/home, or reaching its own child over loopback, is the same class as the
+# file management the base already grants, and none of it reaches a new host surface.
+#
+# For .NET this pairs with tmpmap (mmap of the /tmp shm mutex), apphost (memfd exec for the JIT
+# and apphost creation) and buildexec (running what a build produced); the workload-to-group map
+# is in the dotnet integration's rule.
+
+require {
+    type ai_tools_t;
+    type ai_tools_tmp_t;
+    type ai_tools_home_t;
+    type tmp_t;
+}
+
+# Sockets and FIFOs the workload creates under /tmp must transition to the private tmp
+# type -- as the base already does for file/dir/lnk_file -- and then be manageable. The
+# base rule and this one are separate type_transitions over disjoint object classes, so
+# they coexist; with this group off, a /tmp socket/FIFO stays tmp_t and is denied, which
+# is exactly why `dotnet test` reports it cannot connect and multi-node MSBuild hangs on
+# its worker pipes.
+files_tmp_filetrans(ai_tools_t, ai_tools_tmp_t, { sock_file fifo_file })
+manage_sock_files_pattern(ai_tools_t, ai_tools_tmp_t, ai_tools_tmp_t)
+manage_fifo_files_pattern(ai_tools_t, ai_tools_tmp_t, ai_tools_tmp_t)
+
+# A socket under the agent's home state (the CoreCLR IPC socket at .local/share/<guid>/.p)
+# is born ai_tools_home_t; the base manages file/dir/lnk_file there but not sockets/FIFOs.
+manage_sock_files_pattern(ai_tools_t, ai_tools_home_t, ai_tools_home_t)
+manage_fifo_files_pattern(ai_tools_t, ai_tools_home_t, ai_tools_home_t)
+
+# Connecting to such a socket. Microsoft.Testing.Platform's test runner and test host talk over
+# a unix stream socket under .local/share, so the runner (ai_tools_t) needs connectto to the
+# host (also ai_tools_t) -- otherwise connect(2) returns EACCES and `dotnet test` fails. The base
+# grants create_stream_socket_perms on self but NOT connectto; the sock_file write a named-socket
+# connect also needs is already covered by the manage rules above.
+allow ai_tools_t self:unix_stream_socket connectto;
+
+# getsid(2): csc and the runtime query their own session id.
+allow ai_tools_t self:process getsession;
+
+# /proc/sys/net/* symlink reads during runtime startup.
+kernel_read_network_state_symlinks(ai_tools_t)
+
+# TCP connect to a generic (unreserved) port on loopback: the xUnit/VSTest runner and the
+# test host it spawns talk over a TCP socket bound to an ephemeral port, so the runner
+# (ai_tools_t) needs to connect(2) that port -- otherwise it returns EACCES and `dotnet
+# test` fails. Same benign IPC class as the unix-socket connectto above; the sandbox is
+# only reaching its own child, not a new host surface.
+corenet_tcp_connect_generic_port(ai_tools_t)
