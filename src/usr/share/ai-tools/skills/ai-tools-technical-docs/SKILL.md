@@ -3,8 +3,8 @@ name: ai-tools-technical-docs
 # ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the name above is stable.
 x-ai-tools-managed: true
 x-ai-tools-status: draft
-x-ai-tools-version: 3
-x-ai-tools-updated: 2026-09-06
+x-ai-tools-version: 4
+x-ai-tools-updated: 2026-09-09
 description: >
   Technical writing standard for every software engineering artifact.
 
@@ -857,6 +857,19 @@ against; mark anything else deliberate with `prose-check: allow` on the line, or
 `<!-- prose-check: allow -->` in Markdown, where the marker then stays out of the rendered page.
 Run it before committing prose, and on the commit message too — the universal rules cover that
 artifact like any other.
+
+**A config file's header is read as fixed-width text.** An operator reads a config file in a
+terminal, where nothing reflows it, so its prose holds to 72 columns, the RFC text width, ragged
+right, and no comment line ends on a word that ties to the next one — an article, a conjunction, a
+preposition, or a wh-word — where a runtime message would carry it to the next line. Keep such a
+header to what the file is, the one rule a reader needs before writing a line, example lines and
+the file's man page, since a header in an operator's file is not rewritten by an upgrade.
+`--config-header` reports a line over the width (`--width` changes it) and a comment line ending
+on a tie word, leaving a commented default (`#KEY=value`) and a sentence-closing word alone:
+
+```bash
+python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --config-header <file>...
+```
 
 **A file's extension decides how it is read, and `--prose` / `--source` override that.** A `.md`
 page or a man page contributes every line; anything else contributes its comments and docstrings.

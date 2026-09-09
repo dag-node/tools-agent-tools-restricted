@@ -365,4 +365,45 @@ msg="$(fixture PC-40-message.txt 'fix(x): state what changed' '' 'There is nothi
 run_check --message "${msg}"
 assert_rc 1 "PC-40-message: --message checks a commit message"
 
+# ── --config-header: a config file's header is fixed-width text ────────────────────────────────
+# Both rules are pinned from both directions, and the exemptions with them: a commented default
+# is a setting, so its length is not measured and its last word is not read; a comment line that
+# closes a sentence on a tie word is not a wrapped line.
+long="# $(printf 'x%.0s' $(seq 1 75))"
+run_check --config-header "$(fixture PC-41-header-width.conf "${long}")"
+assert_grep 'header-width \[77>72\]' "${OUT}" "PC-41-header-width: a 77-column comment line is reported at the default width"
+run_check --config-header --width 80 "$(fixture PC-42-header-width-arg.conf "${long}")"
+assert_rc 0 "PC-42-header-width-arg: the same line is within an explicit width of 80"
+run_check --config-header "$(fixture PC-43-header-default.conf "#KEY=$(printf 'v%.0s' $(seq 1 75))")"
+assert_rc 0 "PC-43-header-default: a commented default is not measured"
+run_check --config-header "$(fixture PC-44-header-tie.conf '# A session starts only inside a' '# listed directory.')"
+assert_grep 'header-tie \[a\]' "${OUT}" "PC-44-header-tie: a comment line ending on an article is reported"
+run_check --config-header "$(fixture PC-45-header-tie-prep.conf '# the token is passed to Claude Code by' '# name.')"
+assert_grep 'header-tie \[by\]' "${OUT}" "PC-45-header-tie-prep: a comment line ending on a preposition is reported"
+run_check --config-header "$(fixture PC-46-header-tie-sentence.conf '# carve this subtree out.' '# Next sentence.')"
+assert_rc 0 "PC-46-header-tie-sentence: a tie word closing a sentence is not reported"
+run_check --config-header "$(fixture PC-47-header-clean.conf '# A session starts only inside' '# a listed directory.' 'KEY=value' '#OTHER=default')"
+assert_rc 0 "PC-47-header-clean: a wrapped header, a setting and a commented default are silent"
+
+# The tie set is msg.lib.sh's, mirrored: the runtime wrap and the header check must agree on
+# which words carry to the next line, or a header passes here and wraps differently in a box.
+MSG_LIB="${ROOT}/src/usr/local/lib/ai-tools/msg.lib.sh"
+[[ -r "${MSG_LIB}" ]] || MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
+if [[ -r "${MSG_LIB}" ]]; then
+    lib_ties="$(sed -n '/^readonly _AI_TOOLS_MSG_TIES=/,/"$/p' "${MSG_LIB}" | tr -d '"\\' | sed 's/^readonly _AI_TOOLS_MSG_TIES=//' | tr ' ' '\n' | grep . | sort -u | tr '\n' ' ')"
+    py_ties="$(python3 - "${PC}" <<'EOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("pc", sys.argv[1]); pc = importlib.util.module_from_spec(spec); spec.loader.exec_module(pc)
+print(" ".join(sorted(pc.HEADER_TIES)), end=" ")
+EOF
+)"
+    if [[ "${lib_ties}" == "${py_ties}" ]]; then
+        pass "PC-48-tie-set: the header tie set matches msg.lib.sh's _AI_TOOLS_MSG_TIES"
+    else
+        fail "PC-48-tie-set: tie sets differ -- msg.lib: '${lib_ties}' checker: '${py_ties}'"
+    fi
+else
+    skip "PC-48-tie-set" "msg.lib.sh not readable in the repo or installed"
+fi
+
 finish
