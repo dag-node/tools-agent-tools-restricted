@@ -3574,43 +3574,45 @@ cmd_providers() {
         (( loaded_any )) || say "    ${C_DIM}(no optional groups loaded)${C_RST}"
         say "    ${C_DIM}toggle with: sudo ai-tools-admin selinux groups enable <name>${C_RST}"
 
-        # dotnet <-> tmpmap: dotnet restore/build mmaps a shared-memory file under /tmp, which
-        # needs the 'tmpmap' group. Under enforcing, if dotnet is enabled but tmpmap is not loaded
-        # the build fails with an opaque EACCES -- surface the exact fix here instead.
-        if [[ "${enforce}" == "Enforcing" ]] \
-                && grep -qxF dotnet <<<"${enabled_integrations}" \
-                && ! group_loaded tmpmap; then
+        # Each enabled integration declares the policy groups its toolchain needs under enforcing
+        # (selinux_groups in its manifest, ai-tools-providers(5)); the ones not loaded are named
+        # here with the command that enables them, since the failure they cause inside a session
+        # is an opaque EACCES. Stable groups take one ai-tools-admin command; an experimental
+        # one is compiled from a source checkout, so it is named on its own line.
+        [[ "${enforce}" == "Enforcing" ]] || return 0
+        declare -F ai_tools_provider_manifest_field >/dev/null 2>&1 || return 0
+        local integration declared missing_stable missing_experimental gname gdesc
+        local -a declared_groups
+        while IFS= read -r integration; do
+            [[ -n "${integration}" ]] || continue
+            declared="$(ai_tools_provider_manifest_field "${integration}" selinux_groups 2>/dev/null || true)"
+            [[ -n "${declared}" ]] || continue
+            declared_groups=(); ai_tools_conf_split declared_groups "${declared}"
+            missing_stable=""; missing_experimental=""
+            for gname in "${declared_groups[@]}"; do
+                ai_tools_selinux_group_valid "${gname}" || continue
+                group_loaded "${gname}" && continue
+                if ai_tools_selinux_group_is_experimental "${gname}"; then
+                    missing_experimental+="${missing_experimental:+ }${gname}"
+                else
+                    missing_stable+="${missing_stable:+ }${gname}"
+                fi
+            done
+            [[ -n "${missing_stable}${missing_experimental}" ]] || continue
             say ""
-            say "  ${C_YEL}dotnet is enabled but the 'tmpmap' SELinux group is not loaded:${C_RST}"
-            say "  ${C_YEL}dotnet restore/build will fail under enforcing (EACCES on mmap of /tmp).${C_RST}"
-            say "  fix: sudo ai-tools-admin selinux groups enable tmpmap"
-        fi
-        # dotnet <-> apphost: executable/host projects run their apphost/JIT code from an
-        # anonymous memfd file, which needs the 'apphost' group -- disjoint from tmpmap (that
-        # is /tmp mmap; this is memfd execute), so a full build-and-run workflow wants both.
-        # apphost is experimental, so its fix is the source enable path, not ai-tools-admin
-        # (which loads only prebuilt stable groups).
-        if [[ "${enforce}" == "Enforcing" ]] \
-                && grep -qxF dotnet <<<"${enabled_integrations}" \
-                && ! group_loaded apphost; then
-            say ""
-            say "  ${C_YEL}dotnet is enabled but the 'apphost' SELinux group is not loaded:${C_RST}"
-            say "  ${C_YEL}executable/host projects (dotnet run, ASP.NET Core, xunit.v3) will fail (memfd exec denied).${C_RST}"
-            say "  ${C_DIM}library builds and in-process test runners (MSTest) are unaffected.${C_RST}"
-            say "  fix: sudo selinux/install-selinux.sh enable-group apphost  ${C_DIM}(from a source checkout)${C_RST}"
-        fi
-        # dotnet <-> netcore: the runtime's diagnostic sockets/FIFOs (dotnet test, multi-node
-        # MSBuild pipes) and running a binary built in the project tree. Experimental, so the fix
-        # is the source enable path. See .claude/rules/dotnet.rule.md.
-        if [[ "${enforce}" == "Enforcing" ]] \
-                && grep -qxF dotnet <<<"${enabled_integrations}" \
-                && ! group_loaded netcore; then
-            say ""
-            say "  ${C_YEL}dotnet is enabled but the 'netcore' SELinux group is not loaded:${C_RST}"
-            say "  ${C_YEL}dotnet test can't open its diagnostic socket, multi-node MSBuild hangs, and a built${C_RST}"
-            say "  ${C_YEL}binary won't run from the project tree.${C_RST}"
-            say "  fix: sudo selinux/install-selinux.sh enable-group netcore  ${C_DIM}(from a source checkout)${C_RST}"
-        fi
+            say "  ${C_YEL}${integration} is enabled but not every SELinux group it needs is loaded:${C_RST}"
+            for gname in ${missing_stable} ${missing_experimental}; do
+                for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
+                    [[ "$(ai_tools_selinux_group_name "${entry}")" == "${gname}" ]] || continue
+                    gdesc="$(ai_tools_selinux_group_desc "${entry}")"
+                    say "    ${C_YEL}${gname}${C_RST} -- ${gdesc%%:*}"
+                done
+            done
+            [[ -z "${missing_stable}" ]] \
+                || say "  fix: sudo ai-tools-admin selinux groups enable ${missing_stable}"
+            [[ -z "${missing_experimental}" ]] \
+                || say "  and, from a source checkout (experimental): sudo selinux/install-selinux.sh enable-group ${missing_experimental}"
+        done <<<"${enabled_integrations}"
     }
     selinux_groups_block
 

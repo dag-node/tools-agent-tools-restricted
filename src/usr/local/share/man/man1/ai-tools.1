@@ -448,13 +448,14 @@ or each provider's own
 .B default_enable
 when that file names none. Read-only, and it reports any input the resolver
 refused as untrusted. On an SELinux host it also reports the loaded optional
-policy groups, and warns with the
-.B ai-tools-admin selinux groups enable tmpmap
-fix when the
-.B dotnet
-integration is enabled under Enforcing but the
-.B tmpmap
-group that its build needs is not loaded.
+policy groups and, under Enforcing, the groups each enabled integration
+declares that are not loaded
+.RB ( selinux_groups
+in its manifest, see
+.BR ai-tools-providers (5)),
+with the
+.B ai-tools-admin selinux groups enable
+command that loads the stable ones.
 .TP
 .B \-\-audit \fR[\fB\-\-since\fI when\fR]
 Report what has refused, been rejected, been stranded, or been flagged since a given

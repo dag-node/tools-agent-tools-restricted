@@ -292,13 +292,14 @@ file sink being the authoritative one.
   whole section is **omitted** when that list is not readable unprivileged (common — the policy store
   is root-only on many hosts): every line it prints needs the module list, so a section that could
   only say "cannot read" is not shown at all (inspect groups with
-  `sudo ai-tools-admin selinux groups`). When the `dotnet` integration is enabled under **Enforcing** it
-  warns of the two disjoint policy groups a full .NET workflow wants but that are not loaded:
-  `tmpmap` (restore/build mmap of `/tmp`, `EACCES` without it) and `apphost` (executable/host
-  projects — `dotnet run`, ASP.NET Core, `xunit.v3` — whose memfd exec is denied without it), each
-  with its own enable command: `ai-tools-admin selinux groups enable tmpmap` for the stable one, the
-  source `install-selinux.sh enable-group apphost` for the experimental one. These are the
-  dependencies [providers](providers.rule.md) documents, surfaced where the operator checks status.
+  `sudo ai-tools-admin selinux groups`). Under **Enforcing** it then reads each enabled
+  integration's manifest for the policy groups its toolchain declares (`selinux_groups`,
+  `ai-tools-providers(5)`) and names the ones not loaded, each with the registry's description,
+  followed by one `ai-tools-admin selinux groups enable` command carrying every missing stable
+  group and, on its own line, the source-checkout command for an experimental one. The block does
+  not name any toolchain: the manifest declares the set, the registry supplies the words, and the
+  same read is what `ai-tools-admin <integration> status` reports. The .NET set is in
+  [dotnet](dotnet.rule.md).
 - `--audit [--since <when>]` — report what has refused, been rejected, been stranded, or been
   flagged since a given time, through the `ai-tools-audit` root helper (`sudo`, no NOPASSWD).
   The detections it reports already existed and were already recorded; what they lacked was a
