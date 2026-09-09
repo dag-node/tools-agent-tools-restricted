@@ -25,3 +25,6 @@ __pycache__/
 # Emacs backup and lock files
 *~
 .#*
+
+# Per-user Claude Code permission grants written by the harness; never shipped
+.claude/settings.local.json
