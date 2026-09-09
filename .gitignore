@@ -22,3 +22,6 @@ ai_tools_exec_t
 # imported (e.g. a test loading the daemon); never a source artifact.
 __pycache__/
 *.pyc
+# Emacs backup and lock files
+*~
+.#*

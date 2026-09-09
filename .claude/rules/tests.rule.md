@@ -200,6 +200,12 @@ departs the installed-helper pattern the other way: it runs a `TESTDIR` copy of
 fixture `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the
 three-way match, `vX.Y.Z-rc.N` compares its base and relaxes only the `%changelog` match,
 any other dashed tag is refused, a missing `%changelog` entry is fatal for every form.
+`fill-comments.sh` is a second repo-tool test: it drives `tools/fill-comments.sh`, the
+Emacs-driven formatter for the comment wrap rule, over one fixture carrying every shape the tool
+must fill or leave alone — a long paragraph filled inside the column with no line ending on a tie
+word (the checker's `--wrap` mode is the oracle), and an aligned table, a linter directive, a
+commented default, a shebang and a code line each back byte-identical — and asserts a second run
+leaves the file as the first left it. Skipped without Emacs.
 `cli-verbs.sh` is the same shape one layer in: a pure text check that the CLI's four
 **gating tables** — `OPERATOR_VERBS`, `ROOT_ALLOWED_VERBS`, `BOOTSTRAP_EXEMPT_VERBS`,
 `FOR_ALLOWED_VERBS` — still describe the verbs it dispatches. The failure it exists for is
