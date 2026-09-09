@@ -114,7 +114,7 @@ ai_tools_claude_resolve_endpoint_setenv() {
         return 1
     fi
 
-    # Read ONLY the recognised keys. An unknown key in the file is never consulted.
+    # Read ONLY the recognised keys, so an unknown key in the file is not consulted.
     local base_url="" auth_token="" model="" haiku=""
     ai_tools_conf_read "${file_canon}" ANTHROPIC_BASE_URL 2>/dev/null && base_url="${_ai_tools_conf_value}"
     ai_tools_conf_read "${file_canon}" ANTHROPIC_AUTH_TOKEN 2>/dev/null && auth_token="${_ai_tools_conf_value}"
@@ -138,7 +138,7 @@ ai_tools_claude_resolve_endpoint_setenv() {
     fi
 
     # Model labels are opaque single tokens the endpoint resolves; a present-but-malformed one is a
-    # refusal (never let whitespace/control bytes reach systemd-run), an omitted one is skipped.
+    # refusal, so whitespace or control bytes do not reach systemd-run; an omitted one is skipped.
     if [[ -n "${model}" && ! "${model}" =~ ^[[:graph:]]+$ ]]; then
         _ai_tools_endpoint_warn "custom endpoint: ANTHROPIC_MODEL is not a single printable token"
         return 1

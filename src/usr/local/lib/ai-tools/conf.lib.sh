@@ -195,7 +195,7 @@ ai_tools_conf_list() {
 #
 #   <name>.<YYYYMMDD>.bak       what the operator HAD. The only thing that restores their
 #                               settings if a rewrite is valid but wrong, which no syntax check
-#                               catches. Written only when a file is actually about to change.
+#                               catches. Written only when a file is about to change.
 #   <name>.<YYYYMMDD>.shipped   what they were SUPPOSED to get. Written when the merge could not
 #                               run, or when the file is one this project refuses to rewrite
 #                               unattended, so the hand merge has a source -- a host installed
@@ -571,11 +571,10 @@ ai_tools_conf_allowlist_exclusion_lines() {
 # An allowed-projects line has four states to move between -- absent, listed, disabled (a `!`
 # exclusion parks it), and gone -- and three components change one: the CLI on the operator's own
 # file, ai-tools-allowlist on another operator's (a `--for` run), and install.sh de-registering its
-# own checkout. Each used to carry its own edit: an append here, a `sed -i` line-deletion there, a
-# read-transform-rename in the third, with their own escaping and their own idea of what a match
-# is. That is the drift this section removes -- the file is the agent's LAUNCH GATE, so a writer
-# that matches lines differently from the reader is a project that stays reachable after a
-# "removal", or one parked twice over.
+# own checkout. All three write through the functions below, so one matcher decides what a line
+# names for every writer and every reader. The file is the agent's LAUNCH GATE: a writer that
+# matched lines differently from the reader would leave a project reachable after a "removal", or
+# park it twice over.
 #
 # Every function below is idempotent, verifies by RE-READING the file rather than trusting a write,
 # and reports three outcomes apart:
@@ -610,8 +609,8 @@ _ai_tools_conf_allowlist_write() {
 # ai_tools_conf_allowlist_state <allowlist-file> <path> : print how the file answers for <path> --
 #   `disabled`, `listed`, or `absent`. An exclusion WINS over an allow entry, exactly as it does at
 #   the launch gate, so a path carrying both lines reads `disabled`: no session can start there,
-#   which makes it the only honest answer. This is the third state the has_entry/absent reading
-#   could not express, and every verb that used to call a parked project "not claimed" reads it.
+#   which makes it the only honest answer. This is the state a has_entry/absent reading cannot
+#   express, and every verb that reports on a parked project reads it.
 ai_tools_conf_allowlist_state() {
     local file="$1" path="$2"
     [[ -f "${file}" ]] || { printf 'absent'; return 0; }
@@ -642,8 +641,8 @@ ai_tools_conf_allowlist_add() {
 }
 
 # ai_tools_conf_allowlist_remove <allowlist-file> <path> : delete every line naming <path>, allow
-#   and exclusion alike. Both, because a de-registration that left the `!` behind would park a
-#   directory that no longer exists -- and silently disable the next project claimed at that path.
+#   and exclusion alike, because a de-registration that left the `!` behind would park a directory
+#   that no longer exists -- and silently disable the next project claimed at that path.
 #   Removing what is not there succeeds: an unclaim run twice is not an error.
 ai_tools_conf_allowlist_remove() {
     local file="$1" path="$2" tmp line keep m

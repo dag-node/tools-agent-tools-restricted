@@ -23,7 +23,8 @@
 # invocations. Every operator's builds share one sandbox UID, so a reused node keeps a build
 # task's assemblies loaded and locks the prior project's output file -- a second build in the same
 # solution then fails on the lock (dotnet/msbuild#6461, for which the maintainers recommend exactly
-# this variable). Disabling reuse costs a little per-build cold start, never correctness.
+# this variable). Disabling reuse costs one node start per build and does not change what a build
+# produces.
 #
 # Fragment contract (see providers.rule.md): append to session_environment_options and
 # session_path_entries, unset your own temporaries, and do not exec, prompt, or read stdin.

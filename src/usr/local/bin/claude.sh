@@ -130,7 +130,7 @@ if ! source "${CLAUDE_PROMPT_LIB}" 2>/dev/null \
             "custom-system-prompt library ${CLAUDE_PROMPT_LIB} unavailable for $(id -un 2>/dev/null)"
 fi
 
-# have_tty: true only when a controlling terminal can actually be opened. `[[ -r /dev/tty ]]`
+# have_tty: true only when a controlling terminal can be opened. `[[ -r /dev/tty ]]`
 # is NOT a controlling-tty test -- the /dev/tty node is mode crw-rw-rw-, so the permission
 # bits read true even with no controlling terminal (e.g. under setsid). Opening it is the
 # only honest probe: with no controlling tty the open fails ENXIO and this returns non-zero,
@@ -248,7 +248,8 @@ declare -a allowed=()
 declare -a excluded=()
 while IFS= read -r entry || [[ -n "${entry}" ]]; do
     # One shared grammar (conf.lib.sh): whole-line and end-of-line comments, and quotes for a
-    # path carrying a space or a literal `#`. A line denoting no entry is skipped.
+    # path carrying a space or a literal `#`. A line that does not yield an entry (blank, or a
+    # comment) is skipped.
     ai_tools_conf_path_entry "${entry}" || continue
     entry="${_ai_tools_conf_value}"
     if [[ "${entry}" == '!'* ]]; then
@@ -347,8 +348,8 @@ if [[ "${approved}" != true ]]; then
                 || die "claude: ${cwd}: still not accessible -- the claim did not complete"
             ;;
         *)
-            # Cancel -- also the no-terminal path and an unanswered menu. The screen above
-            # carried no commands, so the cancel path names both itself: PLAIN and below the
+            # Cancel -- also the no-terminal path and an unanswered menu. The screen above does
+            # not carry the commands, so the cancel path names them itself: PLAIN and below the
             # frame, since a wrapping emitter would break a command across lines
             # (messaging.rule.md).
             ai_tools_msg_error "claude: no session started -- ${cwd} is not set up for the agent."
@@ -443,7 +444,7 @@ if ${own_gap} || ${label_gap}; then
         # traverse grant stay explicit. --project-claim is idempotent and closes
         # whichever gaps apply.
         "${AI_TOOLS_CLI}" --project-claim --yes "${cwd}" || true
-        # Re-verify the FATAL gaps actually closed before launching.
+        # Re-verify the FATAL gaps closed before launching.
         cwd_gid="$(stat -c '%G' "${cwd}" 2>/dev/null || true)"
         cwd_mode="$(stat -c '%a' "${cwd}" 2>/dev/null || true)"
         if [[ "${cwd_gid}" != "${SANDBOX_GROUP}" ]] || (( (0${cwd_mode:-0} & 010) == 0 )); then

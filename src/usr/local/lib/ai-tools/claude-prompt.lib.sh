@@ -117,7 +117,7 @@ ai_tools_claude_resolve_prompt_args() {
     fi
 
     # Is a prompt configured at all? Read it first; an absent or empty key is the baseline, and the
-    # trust of operator.conf only has to be established once a value is actually in play.
+    # trust of operator.conf only has to be established once a value is in play.
     local prompt_file=""
     if ai_tools_conf_read "${operator_conf}" CLAUDE_SYSTEM_PROMPT_FILE 2>/dev/null; then
         prompt_file="${_ai_tools_conf_value}"

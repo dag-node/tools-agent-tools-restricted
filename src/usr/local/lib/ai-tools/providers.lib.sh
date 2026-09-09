@@ -127,7 +127,7 @@ _ai_tools_provider_requested() {
 }
 
 # _ai_tools_provider_dir_trusted <manifest-dir> <conf-key> : succeed when the manifest directory
-#   may be read. A missing directory is simply "no providers installed" (silent); an existing but
+#   may be read. A missing directory is "no providers installed" (silent); an existing but
 #   untrusted one is a tamper signal and is reported, because a non-root writer there can plant a
 #   manifest that enables a provider nobody installed.
 _ai_tools_provider_dir_trusted() {

@@ -201,7 +201,7 @@ tools_install() {
     log "done; the tools are on the session PATH when the dotnet integration is enabled"
 }
 
-# dotnet_enabled : succeed when a session would actually get the dotnet integration -- the same
+# dotnet_enabled : succeed when a session would get the dotnet integration -- the same
 # verdict ai-tools-run reaches, via the shared resolver, rather than a grep over operator.conf that
 # would also match a commented-out line or a different name containing "dotnet".
 dotnet_enabled() {
