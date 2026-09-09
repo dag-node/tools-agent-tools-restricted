@@ -22,12 +22,14 @@ Source2:        VERSION
 
 BuildArch:      noarch
 BuildRequires:  systemd-rpm-macros
-# Fedora only: the shipped SELinux .pp is compiled from source at build time rather than served
-# from the committed EL-built prebuilt, because Fedora's refpolicy is a newer, moving target and
-# an EL-built .pp may not load against it. EL keeps the committed prebuilt (no devel at build).
-%if 0%{?fedora}
+# The SELinux policy modules are compiled in %%build, from the .te/.if/.fc in the tarball, against
+# the BUILDING distribution's policy headers: a module compiled on one release's headers is not
+# known to load on another, and a .pp is a binary no review can read, so none is committed or
+# carried in the source. The %%{?dist} tag on the Release keeps each distribution's build on its
+# own hosts. make drives the refpolicy Makefile; policycoreutils supplies semodule_package.
 BuildRequires:  selinux-policy-devel
-%endif
+BuildRequires:  policycoreutils
+BuildRequires:  make
 
 # Shell/Python scripts only: no ELF, so suppress the debuginfo subpackage and the
 # binary build-root policy steps (ldconfig/strip) that do not apply to a noarch package.
@@ -108,9 +110,10 @@ Requires(postun): policycoreutils
 
 %description -n ai-tools-selinux
 The SELinux targeted-policy module that confines a sandbox session in the
-ai_tools_t domain, plus the prebuilt packages for the stable optional policy
-groups. Built against the SELinux reference policy and therefore licensed
-GPL-2.0-or-later, unlike the rest of the stack.
+ai_tools_t domain, plus the stable optional policy groups and each
+integration's layout module, every one compiled at package build against this
+distribution's policy headers. Built against the SELinux reference policy and
+therefore licensed GPL-2.0-or-later, unlike the rest of the stack.
 
 Without this package the sandbox runs in a documented DAC-only mode: ownership,
 group ACLs, and the no-new-privileges launch confinement all still apply, but
@@ -226,6 +229,13 @@ grep -rlZ -e '@SANDBOX_USER@' -e '@SANDBOX_GROUP@' src \
 # Stamp the package version into the CLI (`ai-tools --version`).
 grep -rlZ '@AI_TOOLS_VERSION@' src \
     | xargs -0 -r sed -i 's/@AI_TOOLS_VERSION@/%{version}-%{release}/g'
+# Compile every shipped SELinux policy module against this distribution's policy headers (see
+# the BuildRequires note). The list is derived, never spelled: selinux/policy/shipped-modules.sh prints
+# the core, each STABLE group in selinux-groups.lib.sh, and the layout module each integration
+# manifest under src/ declares. %%install stages and %%files ships the same list, so promoting a
+# group or adding a layout module touches the registry or a manifest and no line of this spec.
+make -C selinux/policy \
+    $(bash selinux/policy/shipped-modules.sh src/usr/local/lib/ai-tools/integrations.d | sed 's/$/.pp/')
 
 %install
 # The /opt control plane and the /var trees ship root:ai-tools and stay that way: root (not the
@@ -344,28 +354,21 @@ sed 's/^OPERATORS=.*/OPERATORS=""/' src%{_sysconfdir}/ai-tools/operator.conf \
     > %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 chmod 0644 %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 
-# ── ai-tools-selinux: SELinux policy packages (prebuilt) ─────────────────────
+# ── ai-tools-selinux: the SELinux policy modules %%build compiled ────────────
 # Staged here, shipped in the ai-tools-selinux subpackage (which also carries the load/unload
-# scriptlets and the GPL licence text -- see its %%package block).
-# The core (loaded on install) plus each STABLE optional group. Only stable groups ship
-# prebuilt: they are toggled per host with `ai-tools-admin selinux groups enable <name>`,
-# which semodule-loads the prebuilt .pp from this directory (no source tree or
-# selinux-policy-devel needed). EXPERIMENTAL groups are NOT shipped -- they are compiled and
-# verified from a source checkout on demand (install-selinux.sh enable-group + the avc loop);
-# ai-tools-admin points the operator there rather than loading an unaudited module. Keep this
-# list in step with the stable set in selinux-groups.lib.sh.
+# scriptlets and the GPL licence text -- see its %%package block). The set is the one %%build
+# derived -- the core, each STABLE optional group, each integration's layout module -- read again
+# here and written to the file list %%files takes, so the three cannot disagree. The core loads on
+# install; a group stays OFF until an operator runs `ai-tools-admin selinux groups enable <name>`,
+# which semodule-loads it from this directory with no source tree and no selinux-policy-devel.
+# EXPERIMENTAL groups are not on the list: they are compiled and verified from a source checkout
+# (install-selinux.sh enable-group + the avc loop), and ai-tools-admin refuses to load one.
 install -d -m 0755 %{buildroot}%{_datadir}/selinux/packages/ai-tools
-# On Fedora, compile the .pp from the shipped .te/.fc/.if via the refpolicy Makefile (in the
-# tarball for GPL compliance) so the module targets the host's own refpolicy version; on EL, serve
-# the committed prebuilt. The .fc source -- carrying the /usr/local/libexec/ai-tools helper path --
-# is the single source both consume, so the layout is identical on either build. The %{?dist} tag
-# (.fc44 vs .el10) keeps a Fedora-built .pp from ever reaching an EL host or vice versa.
-%if 0%{?fedora}
-make -C selinux/policy ai_tools.pp ai_tools_tmpmap.pp ai_tools_localipc.pp ai_tools_buildexec.pp ai_tools_dotnet.pp
-%endif
-for pp in ai_tools ai_tools_tmpmap ai_tools_localipc ai_tools_buildexec ai_tools_dotnet; do
+: > selinux-files.list
+for pp in $(bash selinux/policy/shipped-modules.sh src/usr/local/lib/ai-tools/integrations.d); do
     install -m 0644 selinux/policy/${pp}.pp \
         %{buildroot}%{_datadir}/selinux/packages/ai-tools/${pp}.pp
+    echo "%{_datadir}/selinux/packages/ai-tools/${pp}.pp" >> selinux-files.list
 done
 
 # ── base: sandbox project workflow tree + operation-log dir ──────────────────
@@ -679,7 +682,7 @@ fi
 
 %post -n ai-tools-selinux
 # Load the core module into the RUNNING policy and apply contexts. Core only -- the stable
-# optional groups ship prebuilt alongside it but stay OFF, toggled per host with
+# optional groups ship compiled alongside it but stay OFF, toggled per host with
 # `ai-tools-admin selinux groups enable <name>` (experimental groups are not shipped).
 #
 # `semodule -i` loads into the RUNNING policy, not just the module store: the entrypoint is
@@ -894,14 +897,10 @@ fi
 %doc docs/rpm-packaging.md docs/project-lifecycle.md docs/entrypoint-verification.md
 %doc docs/session-stop.md README.md
 
-%files -n ai-tools-selinux
+# The module files come from the list %%install wrote (-f): one line per module the build derived.
+%files -n ai-tools-selinux -f selinux-files.list
 %license LICENSES/GPL-2.0-or-later.txt
 %dir %{_datadir}/selinux/packages/ai-tools
-%{_datadir}/selinux/packages/ai-tools/ai_tools.pp
-%{_datadir}/selinux/packages/ai-tools/ai_tools_tmpmap.pp
-%{_datadir}/selinux/packages/ai-tools/ai_tools_localipc.pp
-%{_datadir}/selinux/packages/ai-tools/ai_tools_buildexec.pp
-%{_datadir}/selinux/packages/ai-tools/ai_tools_dotnet.pp
 
 %files -n ai-tools-base
 %license LICENSE

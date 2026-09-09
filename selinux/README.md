@@ -18,10 +18,13 @@ This is what stops the agent inadvertently touching **unrelated** files: once
 but not `user_home_t`, `etc_t`, other users' files, etc. DAC still applies
 underneath — both layers must allow an access.
 
-## Enforcing by default, prebuilt
+## Enforcing by default, compiled from source
 
-The core module ships **prebuilt** (`ai_tools.pp`) and **enforcing**, so a normal
-install loads it with no toolchain. A missing transition **fails closed**: if an agent's
+Every module `install-selinux.sh` loads is compiled on this host from the sources under
+`policy/`, so a source install needs `selinux-policy-devel` (see *Building from source*); the
+RPM ships the same modules compiled at package build, per distribution (the mechanism is the
+confinement rule's *How the policy ships*, in `../.claude/rules/confinement.rule.md`). The core
+loads **enforcing**. A missing transition **fails closed**: if an agent's
 entrypoint loses its label (a Node upgrade before the relabel lands), `ai-tools-run` refuses to
 launch rather than start an unconfined session, and names `ai-tools-admin system entrypoints relabel` as the fix. The
 layer as a whole is still optional — a host that never installs the module runs DAC-only, which
@@ -38,14 +41,14 @@ installer detects the mode from the source and reports it.
 
 ```
 selinux/
-  install-selinux.sh   load / rebuild / relabel / enable-group / remove (run from here)
+  install-selinux.sh   install / build / rebuild / relabel / enable-group / remove (run from here)
   README.md            this guide
-  policy/              policy source + the shipped prebuilt packages (core + groups + layouts)
-                         ai_tools.{te,fc,if}, the optional ai_tools_{systemd,pkgmgmt,
-                         netadmin,podman,tmpmap,apphost,localipc,buildexec}.{te,fc,if}, the
-                         layout module ai_tools_dotnet.{te,fc,if}, the prebuilt ai_tools.pp,
-                         ai_tools_<group>.pp and ai_tools_dotnet.pp, Makefile,
-                         helper-domain.te.draft; build scratch lands in policy/tmp/
+  policy/              policy source (GPL-2.0-or-later); the modules compiled from it land
+                         here, gitignored. ai_tools.{te,fc,if}, the optional ai_tools_{systemd,
+                         pkgmgmt,netadmin,podman,tmpmap,apphost,localipc,buildexec}.{te,fc,if},
+                         the layout module ai_tools_dotnet.{te,fc,if}, Makefile,
+                         shipped-modules.sh (prints the shipped set: core + stable groups +
+                         layout modules), helper-domain.te.draft; build scratch in policy/tmp/
   avc/                 bring-up + diagnostics (run during policy authoring)
                          avc-denials.sh, avc-testsuite.sh, avc-analyze.sh,
                          diag-nvm-update.sh; capture logs in avc/audits/, marker
@@ -89,8 +92,10 @@ sudo ai-tools-admin selinux groups
 
 **Stable** groups have a rule set exercised against the workload they serve on an enforcing
 host (`tmpmap` grants exactly `ai_tools_tmp_t:file map`; `localipc` and `buildexec` are the
-.NET bring-up's IPC and build-output execute). They ship **prebuilt** (`ai_tools_<group>.pp`)
-alongside the core and load on any installed host with no toolchain, several in one command:
+.NET bring-up's IPC and build-output execute). They are on the **shipped set**: compiled as
+`ai_tools_<group>.pp` beside the core under `/usr/share/selinux/packages/ai-tools` by the RPM
+build or by `install-selinux.sh build`, and loaded on any installed host with no toolchain,
+several in one command:
 
 ```bash
 sudo ai-tools-admin selinux groups
@@ -99,7 +104,7 @@ sudo ai-tools-admin selinux groups disable tmpmap
 ```
 
 **Experimental** groups are unaudited drafts: their rule set has not been verified under
-permissive against a real workload. They are **not shipped prebuilt** and cannot be enabled
+permissive against a real workload. They are **off the shipped set** and cannot be enabled
 through `ai-tools-admin` — that helper refuses an experimental group and points here. Compile,
 audit, and load one from a source checkout, then re-run the bring-up loop (§2 / `avc/`) before
 relying on it:
@@ -112,20 +117,23 @@ sudo ./install-selinux.sh enable-group podman          # compiles from .te/.fc, 
 
 Both front doors read the same group registry (`selinux-groups.lib.sh`), so they agree on
 which groups exist and which are stable. Promoting a group to stable — after its rules are
-audited — means marking it `stable` in that library, committing its prebuilt `.pp`, and adding
-it to the shipped set (`packaging/ai-tools.spec`, `install.sh`, `.gitignore`, and the two
-build containers under `packaging/`); `disable-group` works for any loaded group through
-either door.
+audited — means marking it `stable` in that library; `shipped-modules.sh` derives the shipped
+set from that field, so no packaging file names the group. `disable-group` works for any
+loaded group through either door.
 
-## Building from source (optional)
-
-The shipped modules (the core and the stable groups) need no toolchain. `selinux-policy-devel`
-is required only to **recompile** a module after editing its `.te`/`.fc`, or to build an
-experimental group (which never ships prebuilt):
+## Building from source
 
 ```bash
 sudo dnf install selinux-policy-devel
+sudo ./install-selinux.sh build          # compile the shipped set, stage it for ai-tools-admin
 ```
+
+`selinux-policy-devel` is required by every action here that compiles — `install`, `build`,
+`rebuild`, and `enable-group` — since a checkout does not carry a compiled module. An RPM host has
+the shipped set compiled already and needs the toolchain only to build an experimental group
+or a module edited on that host. `build` compiles every module on the shipped set (what
+`shipped-modules.sh` prints) and stages it under `/usr/share/selinux/packages/ai-tools`,
+loading none; it is the step `install.sh` runs, and `install` runs it after loading the core.
 
 ## 1. Load and label
 
@@ -134,8 +142,9 @@ cd selinux
 sudo ./install-selinux.sh install
 ```
 
-This loads the prebuilt `ai_tools.pp` (enforcing) — or recompiles it first if you
-answer yes to the prompt — labels each agent's config directory (`ai_tools_home_t`) and
+This compiles and loads `ai_tools.pp` (enforcing) — a later run reuses the earlier build
+unless you answer yes to its recompile prompt — stages the shipped set for `ai-tools-admin`,
+labels each agent's config directory (`ai_tools_home_t`) and
 the `claude.exe` entrypoint, and labels every project in
 `~/.config/ai-tools/allowed-projects` as `ai_tools_project_t`.
 

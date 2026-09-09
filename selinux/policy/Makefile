@@ -16,6 +16,9 @@
 #   make ai_tools_dotnet.pp          # layout module: .NET's build output typed at creation
 #   make clean
 #
+# The set a release ships is printed by shipped-modules.sh beside this file; the RPM build and
+# `../install-selinux.sh build` compile that set here. No .pp is tracked.
+#
 # Use install-selinux.sh (one level up, at selinux/) rather than semodule directly:
 #   sudo ../install-selinux.sh install
 #   sudo ../install-selinux.sh enable-group <name>

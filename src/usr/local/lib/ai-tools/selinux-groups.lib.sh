@@ -2,12 +2,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/selinux-groups.lib.sh
 # Single source for the optional SELinux policy-group registry: each group's name,
-# its operator-facing description, and the reason it is off by default. Sourced by
-# both the source-tree authoring tool (selinux/install-selinux.sh, which COMPILES a
-# group from its .te/.fc) and the installed operator helper (ai-tools-admin selinux,
-# which LOADS the prebuilt .pp), so the two never drift on which groups exist or what
-# they mean. Read-only data plus pure predicates -- no I/O and no root operation of
-# its own; the caller owns semodule/make. Include-guarded, so a double source no-ops.
+# its operator-facing description, the reason it is off by default, and its stability.
+# Sourced by the source-tree authoring tool (selinux/install-selinux.sh, which COMPILES a
+# group from its .te/.fc), by the installed operator helper (ai-tools-admin selinux, which
+# LOADS a compiled .pp from the package directory below), and by selinux/policy/shipped-modules.sh
+# (which derives the set a release ships from the stability field), so none of them drifts
+# on which groups exist or what they mean. Read-only data plus pure predicates -- no I/O and
+# no root operation of its own; the caller owns semodule/make. Include-guarded, so a double
+# source no-ops.
 #
 # Deploy:
 #   sudo install -o root -g root -m 644 \
@@ -16,10 +18,10 @@
 [[ -n "${_AI_TOOLS_SELINUX_GROUPS_LIB_LOADED:-}" ]] && return 0
 readonly _AI_TOOLS_SELINUX_GROUPS_LIB_LOADED=1
 
-# Installed location of the prebuilt policy packages (core ai_tools.pp + one
-# ai_tools_<group>.pp per optional group), populated by the RPM %install and by
-# selinux/install-selinux.sh. ai-tools-admin loads a group's prebuilt .pp from here;
-# the source-tree authoring tool builds into its own policy/ dir instead.
+# Installed location of the compiled policy modules (the core ai_tools.pp, one
+# ai_tools_<group>.pp per stable group, each layout module), populated by the RPM %install
+# and by `selinux/install-selinux.sh build`. ai-tools-admin loads a group's .pp from here;
+# the source-tree authoring tool compiles into its own policy/ dir first.
 # shellcheck disable=SC2034  # read by ai-tools-admin
 readonly AI_TOOLS_SELINUX_PACKAGE_DIR="/usr/share/selinux/packages/ai-tools"
 
@@ -28,14 +30,15 @@ readonly AI_TOOLS_SELINUX_PACKAGE_DIR="/usr/share/selinux/packages/ai-tools"
 #   name | operator-facing description | why it is off by default | stability
 # The reason text is what a caller quotes when a task needs a group that is not
 # loaded: it explains the SELinux type mismatch that makes the access fail.
-# The stability field is 'experimental' or 'stable', and it decides both how a group
-# ships and which front door may enable it. An 'experimental' group is an unaudited
-# draft whose rule set has not been verified under permissive against a real workload:
-# it is not shipped prebuilt, and `ai-tools-admin selinux groups enable` refuses it and
-# points at the source workflow rather than loading it. A 'stable' group's rule set has
-# been exercised against the workload it serves on an enforcing host; it ships prebuilt
-# and loads from that command directly. Add a group as 'experimental' until an audit
-# earns it 'stable'.
+# The stability field is 'experimental' or 'stable', and it decides both whether a group
+# is on the shipped set (selinux/policy/shipped-modules.sh reads this field and nothing else
+# names the set) and which front door may enable it. An 'experimental' group is an
+# unaudited draft whose rule set has not been verified under permissive against a real
+# workload: it is off the shipped set, and `ai-tools-admin selinux groups enable` refuses
+# it and points at the source workflow rather than loading it. A 'stable' group's rule set
+# has been exercised against the workload it serves on an enforcing host; it is on the
+# shipped set and loads from that command directly. Add a group as 'experimental' until
+# an audit earns it 'stable'.
 # shellcheck disable=SC2034  # iterated by consumers via the accessors below
 readonly AI_TOOLS_SELINUX_GROUPS=(
     "systemd|System inspection (systemctl, journalctl, unit files)|systemctl is labelled systemd_systemctl_exec_t; ai_tools_t needs execute + D-Bus access to query PID 1. journalctl is journalctl_exec_t.|experimental"

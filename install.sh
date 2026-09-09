@@ -515,17 +515,62 @@ do_selinux_restore() {
         /usr/lib/systemd/system/ai-tools-relabel.service
 }
 
+# The policy toolchain every SELinux step of a source install needs: make plus the refpolicy
+# devel Makefile from selinux-policy-devel. A checkout carries no compiled policy module (the RPM
+# compiles its own at build time), so this is what turns the .te/.fc into something semodule can
+# load. install-selinux.sh checks the same pair before each compile.
+selinux_toolchain_present() {
+    command -v make >/dev/null 2>&1 && [[ -f /usr/share/selinux/devel/Makefile ]]
+}
+
+# Compile the shipped policy set from this checkout and stage it under the canonical package
+# directory, so the installed ai-tools-admin can `selinux groups enable` a stable group with no
+# checkout at hand (parity with the RPM, whose build compiles the same derived list:
+# selinux/policy/shipped-modules.sh). install-selinux.sh build does the work; the groups stay OFF until
+# an operator enables one. A host with SELinux inactive has no module to stage. A host with it
+# active and no toolchain is REFUSED the SELinux step here, with the package named: a source
+# install that cannot produce the modules must not skip them quietly, since a session on such a
+# host fail-closes at launch with no message naming this as the cause. offer_selinux reads the
+# refusal and does not draw its prompt.
+SELINUX_STEP_REFUSED=0
+stage_selinux_modules() {
+    local selinux_script="${SCRIPT_DIR}/selinux/install-selinux.sh"
+    [[ -f "${selinux_script}" ]] || return 0
+    local mode
+    mode="$(getenforce 2>/dev/null || true)"
+    if [[ -z "${mode}" || "${mode}" == "Disabled" ]]; then
+        log "SELinux is inactive -- no policy module to compile or stage"
+        return 0
+    fi
+    if ! selinux_toolchain_present; then
+        SELINUX_STEP_REFUSED=1
+        warn "SELinux step refused: a source install compiles its policy modules, and the"
+        warn "  selinux-policy-devel toolchain is not installed. The sandbox runs without the"
+        warn "  ai_tools_t confinement until it is. Install it, then bring the layer up:"
+        warn "      sudo dnf install selinux-policy-devel"
+        warn "      sudo ${selinux_script} install"
+        return 0
+    fi
+    log "/usr/share/selinux/packages/ai-tools/*.pp"
+    "${selinux_script}" build \
+        || die "the SELinux policy modules did not compile (see above); fix the cause and re-run"
+}
+
 # Offer to bring up the optional SELinux confinement layer. install-selinux.sh is
 # a deliberately decoupled installer, so this only SUGGESTS it and runs it on
 # explicit consent. We are already root with SUDO_USER set -- exactly what that
 # script requires -- so it runs in-place when accepted. Skips cleanly when the
-# script is absent or SELinux is disabled. Defaults to install when SELinux is
-# active (Enter = install). A child failure is tolerated so it never aborts an
-# otherwise-complete install. selinux-policy-devel is only needed when the user
-# later chooses to recompile the policy from source.
+# script is absent, SELinux is disabled, or stage_selinux_modules refused the step
+# for want of the toolchain (that refusal already named the package and the command).
+# Defaults to install when SELinux is active (Enter = install). A child failure is
+# tolerated so it never aborts an otherwise-complete install.
 offer_selinux() {
     local selinux_script="${SCRIPT_DIR}/selinux/install-selinux.sh"
     [[ -f "${selinux_script}" ]] || return 0
+    if (( SELINUX_STEP_REFUSED )); then
+        log "SELinux confinement: skipped -- the policy toolchain is missing (see the refusal above)"
+        return 0
+    fi
 
     local mode
     mode="$(getenforce 2>/dev/null || true)"
@@ -563,7 +608,7 @@ offer_selinux() {
     [[ "${mode}" == "Enforcing" ]] || mode_state="loaded but not enforcing (SELinux is ${mode})"
 
     say "  SELinux is active. A confinement layer locks the agent"
-    say "  to domain ${C_BOLD}ai_tools_t${C_RST} (ships prebuilt; loads ${C_BOLD}ENFORCING${C_RST})."
+    say "  to domain ${C_BOLD}ai_tools_t${C_RST} (compiled from this checkout; loads ${C_BOLD}ENFORCING${C_RST})."
     # State the No-path up front so the decision is unambiguous: this step only ADDS
     # confinement -- it never unloads a module -- so a skip leaves any module from a previous
     # install exactly as it was, and Yes on an already-loaded module rebuilds and reloads it in
@@ -1017,7 +1062,7 @@ do_install() {
         /usr/local/lib/ai-tools/filters.d/core.rules
 
     # Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by
-    # ai-tools-admin (to load a prebuilt group) and selinux/install-selinux.sh (to compile one)
+    # ai-tools-admin (to load a staged group) and selinux/install-selinux.sh (to compile one)
     # so the two never disagree on the group set. Read-only data, no secrets.
     log "/usr/local/lib/ai-tools/selinux-groups.lib.sh"
     install -o root -g root -m 644 \
@@ -1101,20 +1146,11 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh" \
         /usr/local/lib/ai-tools/admin-commands.d/dotnet
 
-    # SELinux policy packages (prebuilt): stage the core plus each STABLE optional group under the
-    # canonical package dir, so the installed ai-tools-admin can `selinux groups enable` a prebuilt
-    # module without a source checkout (parity with the RPM). Only stable groups ship prebuilt;
-    # experimental groups are compiled and verified from source on demand, so they are not staged.
-    # Keep this list in step with the stable set in selinux-groups.lib.sh. install-selinux.sh
-    # loads/labels the core from the source tree separately; this only lays the .pp down for
-    # ai-tools-admin. The groups stay OFF until an operator enables one. No secrets.
-    log "/usr/share/selinux/packages/ai-tools/*.pp"
-    install -d -o root -g root -m 755 /usr/share/selinux/packages/ai-tools
-    for _pp in ai_tools ai_tools_tmpmap ai_tools_localipc ai_tools_buildexec ai_tools_dotnet; do
-        [[ -f "${SCRIPT_DIR}/selinux/policy/${_pp}.pp" ]] || continue
-        install -o root -g root -m 644 "${SCRIPT_DIR}/selinux/policy/${_pp}.pp" \
-            "/usr/share/selinux/packages/ai-tools/${_pp}.pp"
-    done
+    # SELinux policy modules: compiled from this checkout and staged under the canonical package
+    # dir (see stage_selinux_modules). Loading and labelling the core is offer_selinux's step,
+    # later; this lays the modules down for ai-tools-admin, or refuses the SELinux step outright
+    # on a host that cannot compile them. No secrets.
+    stage_selinux_modules
 
     # Logger library: 644 root:root -- world-readable. Sourced by the root helpers, by
     # the hooks (run as ai-tools), and by the CLI (run as the projects user, NOT in

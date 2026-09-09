@@ -489,14 +489,19 @@ library is agent-writable) is in `boundary/access.sh`.
 `stability` field, guarding the regression where a fourth pipe field bleeds into the reason), the
 validity predicate the `selinux groups enable` gate depends on (an unknown name is rejected), and the
 `is_experimental` predicate agreeing with the field (it decides whether `selinux groups enable` loads a
-shipped module or refuses and points to the source workflow). And — because only **stable** groups
-ship prebuilt — registry↔filesystem lockstep: every registered group has a `.te` source; a
-**stable** group additionally has a **committed** `.pp` while an **experimental** group must have
-**no committed** `.pp` (source-only, so a compiled dev copy left tracked is caught); and every
-policy module on disk is either a registered group or a **layout module** some shipped
-integration manifest declares (`selinux_layout_module`), which ships prebuilt like a stable group
-and so must have a committed `.pp` too. The lockstep half reads git track-state, so it needs
-the checkout. It also pins the former-module seam: each group split out of the old
+shipped module or refuses and points to the source workflow). And — because the shipped set is
+derived from the registry (`selinux/policy/shipped-modules.sh`, the list the spec's `%build` and
+`install.sh` compile; see [confinement](confinement.rule.md)) — registry↔shipped-set lockstep:
+the derivation yields a non-empty set holding the core, every name on it has a `.te` source, a
+group is on it exactly when the registry marks it **stable** (an experimental group on the list
+would ship unaudited; a stable one off it has no module for `selinux groups enable` to load),
+every policy module on disk is either a registered group or a **layout module** some shipped
+integration manifest declares (`selinux_layout_module`) and is then on the set, and no compiled
+`.pp` is tracked anywhere (a tracked one was built on some other host's headers). The lockstep
+half reads git track-state, so it needs the checkout. Its installed-host counterpart is in
+`integration/perms.sh`, which asserts the staged package directory holds that derived set and no
+other file, at the modes the RPM ships; the container self-test asserts the same set against the
+built `ai-tools-selinux` RPM with `rpm -qlp`. It also pins the former-module seam: each group split out of the old
 `ai_tools_netcore` module names it as its former module, the reverse read yields both groups
 (the set a swap loads in the old module's place, or a host loses the half it did not ask for), a
 group without a former module reports none, and no former name collides with a current group's

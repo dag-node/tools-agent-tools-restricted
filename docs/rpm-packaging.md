@@ -105,7 +105,7 @@ the *same* version already installed and is not the way to move between versions
 | Subpackage | Owns |
 |---|---|
 | `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home ROOT and `bin` (plus its default-deny `.gitignore` git guard and `.gitconfig` identity, both `%post`-seeded-if-missing and not rpm-owned, so an erase preserves them); the mode and label contract every agent's config directory carries, but no such directory itself; the shared skills root `/opt/ai-tools/skills` and the pristine skill copies (skills are agent-agnostic, so every agent symlinks into this one place) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `skip-dirs.lib.sh`, `safe-paths.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`, `conf.lib.sh`, `providers.lib.sh`; the agent-agnostic confinement shim `/opt/ai-tools/bin/ai-tools-run` and the `%ai-ops` sudoers grant that reaches it; the `agents.d`, `integrations.d`, and `session-env.d` provider directories (base owns the dirs at `0755 root:root`; each member package drops only its own manifest or fragment into them) |
-| `ai-tools-selinux` | the prebuilt SELinux policy packages in `/usr/share/selinux/packages/ai-tools/` — the core `ai_tools.pp` (the `ai_tools_t` domain and the handback/helper types) plus each STABLE optional group; the `%post`/`%postun` scriptlets that load the core and unload every loaded `ai_tools*` module on erase; the GPL licence text |
+| `ai-tools-selinux` | the compiled SELinux policy modules in `/usr/share/selinux/packages/ai-tools/` — the core `ai_tools.pp` (the `ai_tools_t` domain and the handback/helper types), each STABLE optional group, and each integration's layout module, every one compiled at package build against the building distribution's policy headers; the `%post`/`%postun` scriptlets that load the core and unload every loaded `ai_tools*` module on erase; the GPL licence text |
 | `ai-tools-integration-nodejs` | nvm under `/opt/ai-tools/.nvm`; the per-sandbox-user Node-version auto-update service and timer; `ai-tools-bootstrap`; the symlink-repoint helper (`ai-tools-launcher-symlink`) and the post-upgrade entrypoint relabel (`ai-tools-relabel-agent`) |
 | `ai-tools-integration-dotnet` | the dotnet session-env fragment (`session-env.d/dotnet.env.sh`), manifest (`integrations.d/dotnet.conf`) and the `dotnet` domain of `ai-tools-admin` (`admin-commands.d/dotnet`), which provisions a writable NuGet cache + read-only shared tools under its own `/opt/ai-tools/integrations/dotnet` state root, covered by the base's single fcontext rule for that tree. No .NET runtime — the host's dotnet is used |
 | `ai-tools-agents-claude-code-restricted` | the `claude` launch wrapper; `/opt/ai-tools/bin/claude`; the Claude Code hooks (`post-tool-hook.sh`, `session-hook.sh`) and `settings.json`; its agent manifest (`agents.d/claude-code.conf`, naming the npm package, launcher, display name, handback capability, config directory, and the SELinux entrypoint file-context for `claude.exe`); its own config directory `/opt/ai-tools/.claude`, the shipped Claude-format agents seeded into it, and its session-env fragment (`session-env.d/claude-code.env.sh`); the scriptlets that register that file-context on install and drop it on erase. Confinement itself is base-owned, so this package does not ship a shim and does not need a sudoers rule of its own |
@@ -236,7 +236,7 @@ nvm-update timer maintains the tree from then on.
 - `%preun` runs `%systemd_preun ai-tools-handback.socket`.
 - `%postun` runs `%systemd_postun_with_restart ai-tools-handback.socket`.
 
-`ai-tools-selinux`: `%post` loads the prebuilt core module into the running policy with plain
+`ai-tools-selinux`: `%post` loads the core module into the running policy with plain
 `semodule -i` and relabels the install paths. `%postun`, on final erase (`$1 == 0`), unloads
 every loaded `ai_tools*` module — enumerated, not named, so a stable group enabled with
 `ai-tools-admin` and an experimental group compiled from a source checkout are both caught.
@@ -257,31 +257,30 @@ copy serves the `ai-tools` instance that runs the timer.
 ## SELinux
 
 The core policy module, the **stable** optional groups, and each integration's **layout module**
-ship prebuilt (`ai_tools.pp`, each stable `ai_tools_<group>.pp` — `tmpmap`, `localipc`,
-`buildexec` — and `ai_tools_dotnet.pp`) under
-`%{_datadir}/selinux/packages/ai-tools/`, so a normal install and enabling a stable group
-both need no policy toolchain. `ai-tools-selinux` `%post` loads the **core module only** and
-applies file contexts when `getenforce` is not `Disabled`, and is a no-op otherwise. The
-stable groups are shipped but stay **off**, toggled per host by an operator who hits a
-boundary:
+ship compiled (`ai_tools.pp`, `ai_tools_<group>.pp`, and the layout module's `.pp`) under
+`%{_datadir}/selinux/packages/ai-tools/`, so an RPM install and enabling a stable group
+both need no policy toolchain. Each distribution's RPM carries modules compiled against that
+distribution's policy headers during its own build (the mechanism is the confinement rule's
+*How the policy ships*, in `.claude/rules/confinement.rule.md`). `ai-tools-selinux` `%post`
+loads the **core module only** and applies file contexts when `getenforce` is not `Disabled`,
+and is a no-op otherwise. The stable groups are shipped but stay **off**, toggled per host by
+an operator who hits a boundary:
 
 ```bash
 sudo ai-tools-admin selinux groups
 sudo ai-tools-admin selinux groups enable tmpmap localipc buildexec
 ```
 
-That helper `semodule`-loads the prebuilt `.pp` from the package directory. A layout module
+That helper `semodule`-loads the compiled `.pp` from the package directory. A layout module
 (`ai_tools_dotnet.pp`) is not enabled that way: it does not add any permission, so the `ai-tools-selinux`
 `%post` loads it for every installed integration whose manifest declares one, the integration's
 own `bootstrap` loads it too, and the integration's `%postun` unloads it on final erase. The
-**experimental** groups (`systemd`, `pkgmgmt`, `netadmin`, `podman`, `apphost`) are
-unaudited drafts and
+**experimental** groups are unaudited drafts and
 are **not** packaged: `ai-tools-admin` refuses them and directs the operator to compile and
 verify one from a source checkout first (`install-selinux.sh enable-group` + the `avc/`
-loop). The shipped set is single-sourced with the stable set in `selinux-groups.lib.sh` and
-must be kept in step across the spec, `install.sh`, `.gitignore`, and the two build
-containers under `packaging/`, which copy each prebuilt by name; `packaging/Makefile` reads
-the git index and follows on its own.
+loop). Which groups are stable is read from the host, with `sudo ai-tools-admin selinux
+groups`; the packaged set follows the registry in `selinux-groups.lib.sh` and the integration
+manifests, derived by `selinux/policy/shipped-modules.sh` at build time.
 `%postun` on final erase unloads the core **and** any group a host left loaded (the `.pp` is
 erased with the package, but the compiled module persists in the store otherwise).
 Per-project `semanage fcontext` rules are created by project registration, not by the
@@ -325,17 +324,18 @@ container runs on Rocky with SELinux absent, so a green run validates the RPM, t
 the admin→operator→agent workflow, but **not** the SELinux confinement (`integration/selinux.sh`
 skips when the module is not loaded); enforcement is verified only on a real enforcing EL host.
 Non-EL SELinux is not a target: an SELinux-enabled Ubuntu host defaults to AppArmor and, when
-SELinux is used at all, runs a different base policy the prebuilt `.pp` will not load against, so
+SELinux is used at all, runs a different base policy the shipped modules will not load against, so
 the confinement would silently not apply; installation is RPM/`dnf`-native regardless.
 
 ## Build
 
 `make dist` produces the `%{name}-%{version}.tar.gz` source tarball consumed by
-`Source0`; `%prep` is `%autosetup`. The build does not compile any source (`BuildArch:
-noarch`); `%install` lays out the `src/` tree into the buildroot and substitutes
-the constant `@SANDBOX_*@` tokens. The prebuilt `ai_tools.pp` is shipped as a
-build artifact checked into the source tarball, so the build needs no
-`selinux-policy-devel`.
+`Source0`; `%prep` is `%autosetup`. `%build` substitutes the constant `@SANDBOX_*@` tokens
+and compiles the SELinux policy modules from `selinux/policy/` against the build host's
+policy headers, so the build needs `selinux-policy-devel`, `policycoreutils`, and `make`
+(the containers under `packaging/` install them); the package stays `noarch`. `%install`
+lays out the `src/` tree into the buildroot. The tarball carries the policy sources and no
+compiled module.
 
 `packaging/VERSION` is the single source of truth for `Version:` — the spec reads
 it directly (`%(cat %{_sourcedir}/VERSION)`, also shipped as `Source2` so a

@@ -259,29 +259,27 @@ default and each carries a **stability** field in the registry (`experimental`/`
 that decides how it is shipped and enabled. Both front doors draw the group set, descriptions,
 and stability from one place — `selinux-groups.lib.sh`, so they cannot disagree. The same registry
 records a renamed group's **former module name**, and every path that loads policy — either front
-door, and the selinux subpackage's `%post` where the current module ships prebuilt — replaces a
+door, and the selinux subpackage's `%post` where the current module is on the shipped set — replaces a
 loaded former module with the group's current one in a single `semodule` transaction, so a host
 that enabled a group under its old name keeps the workload running across the rename and does not
 hold both rule sets:
 
 - **Stable** groups (`tmpmap`, `localipc`, `buildexec`: a rule set exercised against its workload
-  on an enforcing host) ship **prebuilt**
-  (`ai_tools_<group>.pp`) alongside the core in `/usr/share/selinux/packages/ai-tools/`, and
-  `sudo ai-tools-admin selinux groups enable <name>` `semodule`-loads the prebuilt `.pp` on an
+  on an enforcing host) are on the **shipped set**: compiled as `ai_tools_<group>.pp` beside the
+  core in `/usr/share/selinux/packages/ai-tools/` (how, and by what, is in *How the policy ships*
+  below), where `sudo ai-tools-admin selinux groups enable <name>` `semodule`-loads one on an
   installed host without a source tree or `selinux-policy-devel`, then restores the labels the
   group's own file contexts decide (the sandbox-clone area). A bare `selinux groups` lists
   them and `selinux groups disable <name>` rounds it out, working for any loaded group. The
   spelling these commands take is set by [cli-grammar](cli-grammar.rule.md).
-- **Experimental** groups are unaudited drafts and are **not shipped prebuilt**;
+- **Experimental** groups are unaudited drafts and are **off the shipped set**;
   `ai-tools-admin selinux groups enable` refuses one and points at the source workflow rather than
   loading an unaudited module. They are compiled and verified from a source checkout —
   `sudo selinux/install-selinux.sh enable-group <name>` (which compiles from `.te`/`.fc`, then
   loads, then re-runs the project and clone label sweeps, since a group may ship file contexts of
   its own; `disable-group` sweeps the same way after the unload) plus the `avc/` bring-up loop.
-  Promoting one to stable means marking it `stable` in the registry, committing its prebuilt
-  `.pp`, and adding it to the shipped set: the spec, `install.sh`, `.gitignore`, and the two
-  build containers under `packaging/`, which copy each prebuilt by name (`packaging/Makefile`
-  reads the git index and follows on its own). A layout module joins the same set.
+  Promoting one to stable means marking it `stable` in the registry: the shipped set is derived
+  from that field, so no packaging file names the group.
 
 A group is named for the capability it grants, never for a toolchain, so an administrator reads
 each as the class of access it is. What a toolchain needs is its integration manifest's to say
@@ -291,9 +289,9 @@ toolchain's output layout must be typed at creation, its manifest names a **layo
 transitions and file contexts and does not add any permission. A layout module is not a group and not a consent
 point: it loads with its integration (the integration's `bootstrap`, the policy package's `%post`
 for every installed integration declaring one, and `install-selinux.sh install`/`rebuild` from
-source), is unloaded by the integration's erase, and ships prebuilt in `ai-tools-selinux` like a
-stable group. The keys are in `ai-tools-providers(5)`; the one layout module and the groups it
-serves are in [dotnet](dotnet.rule.md).
+source), is unloaded by the integration's erase, and is on the shipped set like a stable group,
+derived from the manifest that declares it. The keys are in `ai-tools-providers(5)`; the one
+layout module and the groups it serves are in [dotnet](dotnet.rule.md).
 
 Enabling an optional policy group widens what SELinux permits but does not lift the seccomp
 filter. Of the optional groups only
@@ -363,17 +361,38 @@ procedure for running either is in `selinux/README.md` §2 and §4.
 
 ## How the policy ships
 
-The policy is its own subpackage, `ai-tools-selinux`, and `ai-tools-base` **recommends** it. Two
+The policy is its own subpackage, `ai-tools-selinux`, and `ai-tools-base` **recommends** it. Three
 independent properties meet at that boundary:
 
+- **Build.** The shipped set — the core, each `stable` group, each layout module — is compiled in
+  the spec's `%build` from the `.te`/`.if`/`.fc` in the source tarball, against the policy headers
+  of the distribution the RPM is built on (`BuildRequires: selinux-policy-devel`), and the
+  `%{?dist}` tag on the Release keeps each build on its own distribution. `selinux/policy/shipped-modules.sh`
+  derives the set from the registry's `stability` field and the `selinux_layout_module` key of each
+  integration manifest under `src/`; `%build`, `%install`, and `%files` (through a file list
+  `%install` writes) read that one derivation, so promoting a group or adding a layout module edits
+  the registry or a manifest and no packaging file. No compiled module is tracked: `.gitignore`
+  covers `*.pp`, `make dist` refuses a tarball carrying one, and `tests/unit/selinux-groups.sh`
+  fails on a tracked one, since a tracked binary was built on some other host's headers and no
+  review can read it. A source install compiles the same set from the checkout —
+  `install-selinux.sh build`, which `install.sh` runs — and stages it in the package directory
+  above; where SELinux is active and `selinux-policy-devel` is absent, `install.sh` refuses the
+  SELinux step and names the package, so the absent modules are reported at install rather than
+  met later as a launch the preflight refuses. The container self-tests compile in each image and
+  assert the packaged set against the derivation (`rpm -qlp`), so an interface that does not
+  resolve on a distribution fails that distribution's build; they do not load a module
+  (`getenforce` is `Disabled` in a container), so a rule that fails to load is caught on an
+  enforcing host only.
 - **Licence.** A compiled `.pp` embeds macro expansions from the SELinux reference policy, so it is
-  `GPL-2.0-or-later` while the rest of the stack is `AGPL-3.0-only`. The `.te`/`.if`/`.fc` sources
-  carry the same identifier (they call refpolicy interfaces that expand on compile); the surrounding
-  tooling — `install-selinux.sh`, `selinux/avc/*.sh`, `selinux-groups.lib.sh` — is `AGPL-3.0-only`,
-  holding no refpolicy content. The subpackage conveys the GPL text via `%license`, and the source
-  tarball carries the policy sources and their `Makefile` so the SRPM accompanies each `.pp` with
-  its corresponding source; `make dist` asserts that pairing and refuses to produce a tarball
-  without it.
+  `GPL-2.0-or-later` while the rest of the stack is `AGPL-3.0-only`. Everything under
+  `selinux/policy/` carries that identifier: the `.te`/`.if`/`.fc` sources (they call refpolicy
+  interfaces that expand on compile) and the scripts controlling their compilation — the `Makefile`
+  and `shipped-modules.sh` — which GPLv2 s.3 counts as part of the corresponding source. The
+  surrounding tooling — `install-selinux.sh`, `selinux/avc/*.sh`, `selinux-groups.lib.sh` — is
+  `AGPL-3.0-only`, holding no refpolicy content and loading or reading a module rather than
+  compiling it. The subpackage conveys the GPL text via `%license`, and the source tarball
+  carries `selinux/policy/` whole, which is the corresponding source of every `.pp` the RPM built
+  from it conveys; `make dist` refuses a tarball without the policy sources.
 - **Degradation.** The weak dependency is what `ai_tools_confinement_verdict` already expects: a
   host without the subpackage has no module in the store, which is the intentional DAC-only
   deployment that launches, not the half-installed state that refuses. Dropping the policy costs
