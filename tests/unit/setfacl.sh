@@ -22,13 +22,16 @@ fi
 
 mktestdir
 proj="${TESTDIR}/proj"
-mkdir -p "${proj}/sub" "${proj}/.git/objects" "${proj}/.env/inside" "${proj}/private/nested"
+mkdir -p "${proj}/sub" "${proj}/noted" "${proj}/.git/objects" "${proj}/.env/inside" "${proj}/private/nested"
 # Pin the fixture's directory modes. mktestdir chmods only TESTDIR, so these would otherwise
 # inherit the RUNNER's umask -- and under umask 077 they land 0700, which the owner-only guard
 # then skips, taking the whole tree (project root included) out of the walk. Mode is behaviour
 # here, not cosmetics, so the test states it rather than inheriting it.
 find "${proj}" -type d -exec chmod 0755 {} +
-mk_allowlist "${proj}" "!${proj}/sub"          # sub is '!'-excluded
+# sub is '!'-excluded by a plain line; noted by a line carrying an end-of-line comment, which the
+# shared allowlist grammar admits. A walk that read the second line raw would match no path
+# against it and grant the carve-out.
+mk_allowlist "${proj}" "!${proj}/sub" "!${proj}/noted   # carve-out"
 
 if ! setfacl -m g:"${SANDBOX_GROUP}":rwX "${proj}" 2>/dev/null; then
     skip "ai-tools-setfacl" "filesystem does not support ACLs"; finish; exit
@@ -45,6 +48,7 @@ mv "${proj}/sub_restricted" "${proj}/restricted"
 : > "${proj}/.git/objects/o"                                  # .git tree (default: skipped)
 : > "${proj}/.git/.env.local"                                 # secret-named inside .git
 : > "${proj}/excluded"; mv "${proj}/excluded" "${proj}/sub/excluded"  # under '!' sub
+: > "${proj}/noted/excluded"                                          # under the commented '!'
 : > "${proj}/private/nested/k"                                       # inside the 0700 subtree
 # Same reason as the directories above: pin every file's mode, then restore the one fixture
 # whose owner-only mode is the point (A2). Without this the runner's umask decides which files
@@ -154,6 +158,9 @@ if ! g "${proj}/.git/objects/o"; then pass "skipped trees (.git) are skipped"
 else fail "a skipped-tree file was ACL'd"; fi
 if ! g "${proj}/sub" && ! g "${proj}/sub/excluded"; then pass "'!'-excluded subtree is skipped"
 else fail "an excluded path was ACL'd"; fi
+if ! g "${proj}/noted" && ! g "${proj}/noted/excluded" && ! u "${proj}/noted/excluded"; then
+    pass "'!'-excluded subtree is skipped when its line carries a comment (shared grammar)"
+else fail "a subtree excluded by a commented line was ACL'd"; fi
 
 # (B4) owner guard: a third-party-owned file gets neither grant.
 if ${foreign}; then

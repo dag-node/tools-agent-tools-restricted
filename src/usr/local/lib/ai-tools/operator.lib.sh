@@ -121,16 +121,22 @@ ai_tools_operator_allowlist_for() {
 }
 
 # ai_tools_allowlist_covers <allowlist-file> <canonical-path>: succeed when the allowlist allows
-# the path and no '!' exclusion overrides it. Exclusions are checked first and win; a plain (non
-# -glob) allow/exclude path also covers its contents. Allow entries are realpath-resolved so a
-# symlinked project root matches its canonical target. This is the one allow/exclude matcher the
-# resolver and the helpers' per-subpath walks share, so coverage cannot drift between them.
+# the path and no '!' exclusion overrides it. Each line is read through the shared grammar
+# (ai_tools_conf_path_entry in conf.lib.sh: whole-line and end-of-line comments, one quote layer,
+# the leading '!' kept), so a commented or quoted line denotes the same path here as in every
+# other reader of the file; without the parser no line denotes an entry and no path is covered.
+# Exclusions are checked first and win; a plain (non-glob) allow/exclude path also covers its
+# contents. Allow entries are realpath-resolved so a symlinked project root matches its canonical
+# target. The helpers' own walks (ai-tools-chown, -setgid, -setfacl, -unclaim, -lockdown) parse
+# the same grammar and apply the same exclusion-first rule per subpath.
 ai_tools_allowlist_covers() {
-    local file="$1" path="$2" entry dir pat
+    local file="$1" path="$2" line entry dir pat
     [[ -f "${file}" ]] || return 1
+    declare -F ai_tools_conf_path_entry >/dev/null 2>&1 || return 1
     local -a allowed=() excluded=()
-    while IFS= read -r entry || [[ -n "${entry}" ]]; do
-        [[ -z "${entry}" || "${entry}" == '#'* ]] && continue
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        ai_tools_conf_path_entry "${line}" || continue
+        entry="${_ai_tools_conf_value}"
         if [[ "${entry}" == '!'* ]]; then
             excluded+=("${entry:1}")                       # strip '!', keep raw (may glob)
         else

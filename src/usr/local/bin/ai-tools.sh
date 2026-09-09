@@ -943,9 +943,8 @@ acl_drift_scan() {
     # Leave this project's '!'-excluded subtrees out of the walk: an intentional
     # carve-out stays unreported.
     while IFS= read -r excl; do
-        excl="${excl#!}"
         [[ "${excl}" == "${dir}"/* ]] && skip+=( -o -path "${excl}" -prune )
-    done < <(grep '^!' "${ALLOWLIST}" 2>/dev/null || true)
+    done < <(allowlist_exclusions)
     find "${dir}" -xdev \( "${skip[@]}" \) -o \
         \( -user "${OWNER_USER}" -o -user "${SANDBOX_USER}" \) \
         ! -group "${SANDBOX_GROUP}" -perm /077 -print 2>/dev/null
@@ -968,9 +967,8 @@ sealed_setgid_scan() {
     local dir="$1" excl
     local -a skip=( -name .git -prune )
     while IFS= read -r excl; do
-        excl="${excl#!}"
         [[ "${excl}" == "${dir}"/* ]] && skip+=( -o -path "${excl}" -prune )
-    done < <(grep '^!' "${ALLOWLIST}" 2>/dev/null || true)
+    done < <(allowlist_exclusions)
     # find cannot compare a path's group to its own owner's, so it narrows to the candidates
     # (owner-only, setgid, not the sandbox group) and the owner comparison is made per path here.
     # An owner with no passwd entry resolves to no group and is therefore reported, which is the
@@ -2179,6 +2177,22 @@ report_still_blocked() {
     say  "      ${C_BOLD}${raw}${C_RST}"
     say  "  ${C_DIM}it parks an ancestor or matches as a glob, so it is not this project's own entry;"
     say  "  edit that line in ${ALLOWLIST} to lift it.${C_RST}"
+}
+
+# allowlist_exclusions  -- print this registry's '!' exclusion entries, one per line without the
+# '!', each read through the shared grammar (ai_tools_conf_path_entry), so a commented or quoted
+# line denotes the same path here as in every other reader of the file. Feeds the read-only
+# claim-time scans (acl_drift_scan, sealed_setgid_scan), which prune each carve-out from their
+# walk. A missing registry yields an empty list.
+allowlist_exclusions() {
+    local line
+    [[ -f "${ALLOWLIST}" ]] || return 0
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        ai_tools_conf_path_entry "${line}" || continue
+        if [[ "${_ai_tools_conf_value}" == '!'* ]]; then
+            printf '%s\n' "${_ai_tools_conf_value#!}"
+        fi
+    done < "${ALLOWLIST}"
 }
 
 # covered_by_project <dir>  -- 0 when <dir> is at or under a positive allowed-projects entry in the

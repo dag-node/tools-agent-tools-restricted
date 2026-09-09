@@ -4,9 +4,13 @@
 # Unit test for the operator resolver in operator.lib.sh -- the shared source the handback helpers
 # use to decide which operator owns an agent-written path. Pins the two security-critical functions
 # against a /tmp fixture tree via the AI_TOOLS_OPERATOR_CONF + AI_TOOLS_ALLOWLIST root-only test
-# hooks: ai_tools_allowlist_covers (allow/exclude/nested matching) and ai_tools_resolve_owner (a
-# covered path resolves to the operator and exposes the owner's allowlist; an excluded or
-# out-of-list path resolves to no owner, so the helpers leave it untouched). Multi-operator
+# hooks: ai_tools_allowlist_covers (allow/exclude/nested matching, and the shared allowlist
+# grammar -- an allow entry carrying an end-of-line comment or quotes covers its path, and an
+# exclusion carrying a comment still excludes, since a resolver that read those lines differently
+# from the launch wrapper would restore ownership on a carve-out the wrapper refuses) and
+# ai_tools_resolve_owner (a covered path resolves to the operator and exposes the owner's
+# allowlist; an excluded or out-of-list path resolves to no owner, so the helpers leave it
+# untouched). Multi-operator
 # tie-break resolution (which of several covering operators wins) needs several real operator
 # accounts and is not exercised by the suite yet. Run as root via sudo (the harness derives the
 # projects user from SUDO_USER).
@@ -26,9 +30,15 @@ if [[ ! -r "${LIB}" ]]; then
 fi
 
 mktestdir
-mkdir -p "${TESTDIR}"/proj/sub "${TESTDIR}"/proj/secret "${TESTDIR}"/other
+mkdir -p "${TESTDIR}"/proj/sub "${TESTDIR}"/proj/secret "${TESTDIR}"/proj/vendor "${TESTDIR}"/other \
+         "${TESTDIR}"/noted "${TESTDIR}/quoted dir"
 allow="${TESTDIR}/allowed-projects"
-printf '%s\n' "${TESTDIR}/proj" "!${TESTDIR}/proj/secret" > "${allow}"
+# Plain lines, plus one of each shape the shared grammar admits: an allow entry with an
+# end-of-line comment, a quoted allow entry, and an exclusion carrying a comment.
+printf '%s\n' "${TESTDIR}/proj" "!${TESTDIR}/proj/secret" \
+              "!${TESTDIR}/proj/vendor   # carve-out" \
+              "${TESTDIR}/noted   # why" \
+              "\"${TESTDIR}/quoted dir\"" > "${allow}"
 conf="${TESTDIR}/operator.conf"
 printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${conf}"
 export AI_TOOLS_OPERATOR_CONF="${conf}" AI_TOOLS_ALLOWLIST="${allow}"
@@ -41,6 +51,13 @@ covers "${TESTDIR}/proj"        && pass "covers: allowed project root"          
 covers "${TESTDIR}/proj/sub"    && pass "covers: file under an allowed project" || fail "covers: nested path"
 covers "${TESTDIR}/proj/secret" && fail "covers: excluded path matched"         || pass "covers: '!'-excluded path is not covered"
 covers "${TESTDIR}/other"       && fail "covers: unlisted path matched"         || pass "covers: unlisted path is not covered"
+# The shared grammar: what the launch wrapper reads as an entry, the resolver reads as the same entry.
+covers "${TESTDIR}/noted"         && pass "covers: allow entry with an end-of-line comment covers its path" \
+                                  || fail "covers: commented allow entry was dropped"
+covers "${TESTDIR}/quoted dir/x"  && pass "covers: quoted allow entry covers its path" \
+                                  || fail "covers: quoted allow entry was dropped"
+covers "${TESTDIR}/proj/vendor/x" && fail "covers: exclusion with a comment was ignored (subtree read as covered)" \
+                                  || pass "covers: exclusion with an end-of-line comment still excludes"
 
 # ── ai_tools_resolve_owner in a child shell: echo "<rc> <user> <allowlist>". ──
 resolve_out() {
@@ -67,5 +84,15 @@ read -r rc _ _ <<< "$(resolve_out "${TESTDIR}/proj/secret")"
 read -r rc _ _ <<< "$(resolve_out "${TESTDIR}/other")"
 [[ "${rc}" == 1 ]] && pass "resolve_owner: unlisted path resolves to no owner" \
                    || fail "resolve_owner: unlisted path resolved (rc=${rc})"
+
+# The consequence of the grammar, seen from the handback's side: a project registered with a
+# comment resolves to its operator, and a commented carve-out resolves to no owner.
+read -r rc user _ <<< "$(resolve_out "${TESTDIR}/noted/file")"
+[[ "${rc}" == 0 && "${user}" == "${PROJECTS_USER}" ]] \
+    && pass "resolve_owner: a path under a commented allow entry resolves to the operator" \
+    || fail "resolve_owner: commented allow entry gave rc=${rc} user=${user}"
+read -r rc _ _ <<< "$(resolve_out "${TESTDIR}/proj/vendor/file")"
+[[ "${rc}" == 1 ]] && pass "resolve_owner: a path under a commented exclusion resolves to no owner" \
+                   || fail "resolve_owner: commented exclusion was ignored (rc=${rc})"
 
 finish

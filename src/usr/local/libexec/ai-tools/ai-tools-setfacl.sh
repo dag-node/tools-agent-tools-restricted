@@ -152,10 +152,22 @@ readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
 # Prepend the resolved operator's named grant (its access to agent-written files).
 readonly ACL_SPEC="user:${PROJECTS_USER}:rwX,${ACL_BASE}"
 
+# Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser the
+# allowlist is read with -- end-of-line comments, and quotes for a path carrying a space or a
+# literal '#'. REQUIRED like safe-paths.lib.sh: the bare source under set -e aborts when it is
+# missing. A bare filter in its place reads a commented exclusion as a pattern no path matches,
+# and would grant the agent an ACL on a subtree the operator carved out and the launch wrapper
+# refuses. Include-guarded.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
+source /usr/local/lib/ai-tools/conf.lib.sh
+
 declare -a allowed=()
 declare -a excluded=()
 while IFS= read -r entry || [[ -n "${entry}" ]]; do
-    [[ -z "${entry}" || "${entry}" == '#'* ]] && continue
+    # One shared grammar (conf.lib.sh): whole-line and end-of-line comments, and quotes for a
+    # path carrying a space or a literal '#'. A line that does not denote an entry is skipped.
+    ai_tools_conf_path_entry "${entry}" || continue
+    entry="${_ai_tools_conf_value}"
     if [[ "${entry}" == '!'* ]]; then
         excluded+=("${entry:1}")              # strip leading !, keep raw (may glob)
     else
@@ -165,7 +177,8 @@ while IFS= read -r entry || [[ -n "${entry}" ]]; do
 done < "${ALLOWLIST}"
 
 # _is_excluded <abs-path>: 0 if covered by a '!' rule. A plain path also covers its
-# contents; a glob matches as-is. Same semantics as ai-tools-setgid / ai-tools-chown.
+# contents; a glob matches as-is. Same semantics as ai-tools-setgid / ai-tools-chown, which
+# read the allowlist through the same conf.lib.sh grammar.
 _is_excluded() {
     local path="$1" pat
     [[ "${#excluded[@]}" -gt 0 ]] || return 1

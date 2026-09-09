@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/sandbox.sh
-# Unit test for the pure decisions behind two ai-tools.sh flows -- the --sandbox-create pair, and
-# the precondition --project-create's skipped prompts rest on (tree_is_pristine, at the end).
+# Unit test for the pure decisions behind the ai-tools.sh flows -- the --sandbox-create pair, the
+# precondition --project-create's skipped prompts rest on (tree_is_pristine), and the
+# exclusion reader the claim-time scans prune their walks with (allowlist_exclusions, at the end).
 #
 # The --sandbox-create pair:
 #   * sandbox_default_branch -- composes the DEFAULT sandbox branch (sandbox/<leaf-of-from>) with no
@@ -174,6 +175,31 @@ if pristine "${bare}"; then
     pass "an empty directory with no repository is pristine"
 else
     fail "an empty directory was not recognised as pristine"
+fi
+
+# ── allowlist_exclusions ──────────────────────────────────────────────────────────────────────
+# The read-only scans a claim runs (acl_drift_scan, sealed_setgid_scan) prune every '!' exclusion
+# from their walk, and read the registry through the shared allowlist grammar: an exclusion line
+# carrying an end-of-line comment or quotes names the same path here as in the launch wrapper, so
+# a carve-out is neither reported as drift nor offered to the repair walk. Only the exclusions
+# are printed, without their '!', and a commented-out line is not one.
+section "allowlist_exclusions: the carve-outs the claim-time scans prune (unit)"
+
+excl_work="${TESTDIR}/exclusions"
+excl_list="${excl_work}/allowed-projects"
+mkdir -p "${excl_work}"
+printf '%s\n' "/p" "!/p/plain" "!/p/vendor   # carve-out" '!"/p/with space"' "# !/p/commented-out" \
+    > "${excl_list}"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${excl_work}"
+# The CLI reads AI_TOOLS_ALLOWLIST when sourced; runuser resets the environment, so it is set inside.
+# shellcheck disable=SC2016  # the $1 is for the inner `bash -c`, not this shell -- do not expand here
+excl_got="$(runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ALLOWLIST="${excl_list}" bash -c \
+    'source "$1" >/dev/null 2>&1 || exit 99; allowlist_exclusions' _ "${CLI}" | sort | tr '\n' '|')"
+excl_want="$(printf '%s\n' "/p/plain" "/p/vendor" "/p/with space" | sort | tr '\n' '|')"
+if [[ "${excl_got}" == "${excl_want}" ]]; then
+    pass "allowlist_exclusions prints each '!' entry read through the shared grammar (comment, quotes)"
+else
+    fail "allowlist_exclusions printed '${excl_got}' (want '${excl_want}')"
 fi
 
 finish
