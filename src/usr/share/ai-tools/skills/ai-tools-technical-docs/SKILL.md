@@ -862,12 +862,14 @@ artifact like any other.
 docstring, and a config file's header are read in an editor or a terminal, which do not reflow
 them, so a line does not end on a word that ties to the next one — an article, a conjunction, a
 preposition, or a wh-word (`, the` at a line end is the usual case) — where a runtime message
-would carry it to the next line. The default `comment-tie` check reports it in every source file,
-and `comment-width` reports a source comment over 120 columns, the column a code file wraps at;
-a document or a man page reflows and is not read for either. A code line is never measured: the
-width rule is for prose a reader has to follow, and a long line of C#, Java or shell is read on a
-wide screen as written. A config file's header
-holds to 72 columns instead, the RFC text width, ragged right, and is kept to what the file is, the one
+would carry it to the next line. `--wrap` adds the two checks that report it: `comment-tie` for a
+source comment ending on a tie word, and `comment-width` for one over 120 columns, the column a
+code file wraps at; a document or a man page reflows and is not read for either. They are opt-in:
+how a line is wrapped is a formatter's job, run over a file once, and a tree whose comments predate
+the rule reports every one of them. A code line is never measured: the width rule is for prose a
+reader has to follow, and a long line of C#, Java or shell is read on a wide screen as written.
+A config file's header holds to 72 columns instead, the RFC text width, ragged right, and is kept
+to what the file is, the one
 rule a reader needs before writing a line, example lines and the file's man page, since a header
 in an operator's file is not rewritten by an upgrade. `--config-header` reports a line over the
 width (`--width` changes it) and a comment line ending on a tie word, leaving a commented default

@@ -269,8 +269,8 @@ post-upgrade` from announcing every option as new.
 A config header is read in a terminal, which does not reflow it, so it holds to 72 columns, ragged
 right, with no comment line ending on an article, a conjunction, a preposition, or a wh-word — the
 words `msg.lib.sh` carries to the next line when it wraps a runtime message, and the rule the
-checker's default `comment-tie` check holds every source comment to. The checker's
-`--config-header` mode reports both, and `tests/unit/man.sh` runs it over the four headers. `tests/unit/man.sh` caps each seeded header, asserts it names its page and does not
+checker's opt-in `--wrap` mode holds a source comment to. The checker's `--config-header` mode
+reports both for a header, and `tests/unit/man.sh` runs it over the four headers. `tests/unit/man.sh` caps each seeded header, asserts it names its page and does not
 register an entry, and reads each page's own examples through the parser that file is read with
 (`ai_tools_conf_path_entry`, `ai_tools_load_secret_patterns`), so an example the manual shows is
 one the file accepts. The one claim that stays in a header whatever its page says is the fail

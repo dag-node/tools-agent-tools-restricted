@@ -716,8 +716,10 @@ PATH_CHECKS = [
 ]
 
 
-# Two default checks read LINES rather than sentences, and source files only, since a comment is
-# read as written while a document or a man page reflows:
+# `--wrap` adds two checks that read LINES rather than sentences, and source files only, since a
+# comment is read as written while a document or a man page reflows. They are opt-in rather than
+# default because they report how a line is WRAPPED, which a formatter fixes in bulk, and a tree
+# whose comments predate the rule reports every one of them:
 #
 #   comment-tie        a comment or docstring line ending on a word that ties to the next one:
 #                      an article, a conjunction, a preposition, or a wh-word. The word belongs
@@ -832,6 +834,9 @@ def main():
     parser.add_argument("--kept", metavar="REVISIONS", nargs="?", const="",
                         help="report a claim a rewrite dropped, narrowed, or weakened "
                              "(default: the index)")
+    parser.add_argument("--wrap", action="store_true",
+                        help="add the line checks on source comments: a line ending on a tie "
+                             "word, or over --width columns")
     parser.add_argument("--config-header", action="store_true",
                         help="read the paths as config-file headers: a line over --width "
                              "columns or a comment line ending on a tie word")
@@ -894,11 +899,12 @@ def main():
         count += 1
         print(f"{path}:{number}: {name} [{token}] -- {hint}")
         print(f"    {text[:110]}")
-    for path, number, name, token, hint, text in comment_line_findings(
-            source, args.width if args.width is not None else SOURCE_WIDTH):
-        count += 1
-        print(f"{path}:{number}: {name} [{token}] -- {hint}")
-        print(f"    {text[:110]}")
+    if args.wrap:
+        for path, number, name, token, hint, text in comment_line_findings(
+                source, args.width if args.width is not None else SOURCE_WIDTH):
+            count += 1
+            print(f"{path}:{number}: {name} [{token}] -- {hint}")
+            print(f"    {text[:110]}")
     if count:
         print(f"\n{count} finding(s). See the ai-tools-technical-docs skill; "
               f"mark a deliberate example with '{ALLOW_MARKER}'.")

@@ -385,21 +385,37 @@ assert_rc 0 "PC-46-header-tie-sentence: a tie word closing a sentence is not rep
 run_check --config-header "$(fixture PC-47-header-clean.conf '# A session starts only inside' '# a listed directory.' 'KEY=value' '#OTHER=default')"
 assert_rc 0 "PC-47-header-clean: a wrapped header, a setting and a commented default are silent"
 
-# ── comment-tie: a source comment is read as written, so it holds to the tie rule too ─────────
-reports comment-tie PC-49-comment-tie.sh 'KEY=1' '# The helper reads the list from the operator, the' '# one whose allowlist covers the path.'
-reports comment-tie PC-50-comment-tie-docstring.py 'def f():' '    """Return the rows of' '    the table."""'
-silent PC-51-comment-tie-wrapped.sh 'KEY=1' '# The helper reads the list from the operator,' '# the one whose allowlist covers the path.'
-silent PC-52-comment-tie-sentence.sh '# Carve this subtree out.' '# Next sentence.'
-silent PC-53-comment-tie-prose.md 'A document reflows, so a line may end on the' 'next word.'
-silent PC-54-comment-tie-code.sh 'value="$(cat a)"    # not a comment ending on a' 'x=1'
+# ── --wrap: the line checks on source comments, opt-in ───────────────────────────────────────
+# A source comment is read as written, so under --wrap it holds to the tie rule and a 120-column
+# wrap. Opt-in, so the default run stays silent on how a line is wrapped: that is pinned first,
+# since a tree whose comments predate the rule would otherwise report every one of them.
+silent PC-48a-wrap-off-by-default.sh 'KEY=1' '# The helper reads the list from the operator, the' '# one whose allowlist covers the path.'
+wrapped() {  # wrapped <check> <case>.<ext> <line...>: PASS when the check is reported under --wrap
+    local check="$1" name="$2"; shift 2
+    run_check --wrap "$(fixture "${name}" "$@")"
+    if grep -q -- "${check}" <<<"${OUT}"; then pass "${name%%.*}: reports ${check} under --wrap"
+    else fail "${name%%.*}: did NOT report ${check} under --wrap"; fi
+}
+wrapped_silent() {  # wrapped_silent <case>.<ext> <line...>: PASS when --wrap reports the fixture clean
+    local name="$1"; shift
+    run_check --wrap "$(fixture "${name}" "$@")"
+    if [[ "${RC}" -eq 0 && -z "${OUT}" ]]; then pass "${name%%.*}: silent under --wrap (rc 0)"
+    else fail "${name%%.*}: expected no finding under --wrap; rc ${RC}, output: ${OUT}"; fi
+}
+wrapped comment-tie PC-49-comment-tie.sh 'KEY=1' '# The helper reads the list from the operator, the' '# one whose allowlist covers the path.'
+wrapped comment-tie PC-50-comment-tie-docstring.py 'def f():' '    """Return the rows of' '    the table."""'
+wrapped_silent PC-51-comment-tie-wrapped.sh 'KEY=1' '# The helper reads the list from the operator,' '# the one whose allowlist covers the path.'
+wrapped_silent PC-52-comment-tie-sentence.sh '# Carve this subtree out.' '# Next sentence.'
+wrapped_silent PC-53-comment-tie-prose.md 'A document reflows, so a line may end on the' 'next word.'
+wrapped_silent PC-54-comment-tie-code.sh 'value="$(cat a)"    # not a comment ending on a' 'x=1'
 # A source comment wraps at 120 columns, wider than a config header's 72; --width overrides it.
 wide="# $(printf 'w%.0s' $(seq 1 125))"
-reports comment-width PC-55-comment-width.sh 'x=1' "${wide}"
-silent PC-56-comment-width-under.sh 'x=1' "# $(printf 'w%.0s' $(seq 1 110))"
-run_check --width 100 "$(fixture PC-57-comment-width-arg.sh 'x=1' "# $(printf 'w%.0s' $(seq 1 110))")"
+wrapped comment-width PC-55-comment-width.sh 'x=1' "${wide}"
+wrapped_silent PC-56-comment-width-under.sh 'x=1' "# $(printf 'w%.0s' $(seq 1 110))"
+run_check --wrap --width 100 "$(fixture PC-57-comment-width-arg.sh 'x=1' "# $(printf 'w%.0s' $(seq 1 110))")"
 assert_grep 'comment-width \[112>100\]' "${OUT}" "PC-57-comment-width-arg: --width lowers the column a source comment is measured against"
 # A linter directive is read by the linter, so neither line rule reads it, however long or however it ends.
-silent PC-58-comment-directive.sh 'x=1' "# shellcheck disable=SC2154  # set by the sourced library, whose contract names the" "y=2"
+wrapped_silent PC-58-comment-directive.sh 'x=1' "# shellcheck disable=SC2154  # set by the sourced library, whose contract names the" "y=2"
 
 # The tie set is msg.lib.sh's, mirrored: the runtime wrap and the header check must agree
 # on which words carry to the next line, or a header passes here and wraps differently in a box.
