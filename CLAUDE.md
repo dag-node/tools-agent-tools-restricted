@@ -328,9 +328,11 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   `ai-tools-base`-owned and agent-agnostic; an `ai-tools-agents-*` package ships its wrapper,
   its manifest, and its session-env fragment, and inherits the single `%ai-ops` sudoers grant
   rather than adding one. See [launch](.claude/rules/launch.rule.md).
-- **Root sudo-helpers** live under `/usr/local/libexec/ai-tools/` (`chown`, `setgid`, `setfacl`,
-  `unclaim`, `safedir`, `reclaim`, `allowlist`, `launcher-symlink`, `lockdown`, `relabel`,
-  `bootstrap`, `relabel-agent`, `admin`); a provider package's own root command is instead a
+- **Root sudo-helpers** live under `/usr/local/libexec/ai-tools/`, one fixed-path
+  `ai-tools-<verb>` executable per privileged operation; the directory listing is the set, and
+  which route reaches each one — the CLI over `sudo`, the handback daemon, a unit — is stated in
+  [cli](.claude/rules/cli.rule.md) and [launch](.claude/rules/launch.rule.md). A provider
+  package's own root command is instead a
   **contributed `ai-tools-admin` domain**, an executable at
   `/usr/local/lib/ai-tools/admin-commands.d/<name>` that the dispatcher execs once it and its
   directory pass the provider trust predicate (`dotnet` is the one installed today).

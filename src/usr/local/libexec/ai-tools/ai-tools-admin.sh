@@ -19,7 +19,7 @@
 #   sudo ai-tools-admin status                             # the host's health, read as root
 #   sudo ai-tools-admin dotnet bootstrap                   # a domain a provider package contributes
 #
-# The spelling is the project's command grammar (.claude/rules/cli-grammar.rule.md): a bare-word
+# The spelling is the project's command grammar (cli-grammar.rule.md): a bare-word
 # command, a plural collection, the verb after the noun, `list` as the zero-argument default, and
 # a singular domain (`selinux`, `system`) where one is needed. `--` introduces an option and
 # never a command, which here is `--help`/`-h` and `--version`.
@@ -32,8 +32,8 @@
 # membership (drops the name from OPERATORS and ai-ops), leaving the user's own allowlist and config.
 # `list` prints the current operators.
 #
-# `selinux groups` toggles the optional policy groups (systemd/pkgmgmt/netadmin/podman/tmpmap/apphost/localipc/buildexec), all off
-# by default. It loads the COMPILED ai_tools_<group>.pp that ai-tools-selinux (or a checkout's
+# `selinux groups` toggles the optional policy groups, all off by default. It loads the COMPILED
+# ai_tools_<group>.pp that ai-tools-selinux (or a checkout's
 # install-selinux.sh build) staged under AI_TOOLS_SELINUX_PACKAGE_DIR via semodule -- no source
 # tree or selinux-policy-devel needed on the host. The group set, descriptions, and per-group
 # stability are single-sourced from selinux-groups.lib.sh, shared with
@@ -89,9 +89,7 @@
 # names each path it touched. The from-source installer reaches the same end through its own
 # keep-or-reset prompts and dated .bak/.shipped sidecars; this is the RPM-side equivalent.
 #
-# Deploy:
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-admin.sh /usr/local/libexec/ai-tools/ai-tools-admin
+# Deploying from a checkout: docs/install-from-source.md.
 
 set -euo pipefail
 
@@ -103,9 +101,11 @@ readonly SELINUX_GROUPS_LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 # Where a provider package drops the command fragment carrying its own domain. The environment
-# override is a ROOT-ONLY test hook of the same standing as AI_TOOLS_POSTUPGRADE_ROOT (sudo strips
-# the name and this tool is reachable only as root), so tests/unit/admin-commands.sh drives the
-# dispatch against a fixture tree. Unset in production.
+# override is a test hook of the same standing as AI_TOOLS_POSTUPGRADE_ROOT: sudo strips the name,
+# so tests/unit/admin-commands.sh drives the dispatch against a fixture tree. --help lists
+# the domains through it ahead of the root check, so a non-root caller can point the LISTING at another
+# root-owned directory; the dispatch still needs root and each fragment still needs root ownership,
+# so the reach does not add a command. Unset in production.
 readonly ADMIN_COMMANDS_DIR="${AI_TOOLS_ADMIN_COMMANDS_DIR:-/usr/local/lib/ai-tools/admin-commands.d}"
 # The names base owns. A contributed fragment claiming one is refused, so no installed package can
 # shadow a command an administrator relies on. `status` is reserved before it is implemented: a
@@ -1174,8 +1174,7 @@ detail()  { printf '                  %s\n' "$*"; }
 heading() { printf '\n  %s\n\n' "$*"; }
 
 # status_services: every unit in the shared registry, with its consequence and remedy where one
-# needs attention. Prints the count of units needing attention on stdout... no: it sets
-# STATUS_PROBLEMS, because the rendering IS this function's stdout.
+# needs attention. Renders to stdout and counts the units needing attention in STATUS_PROBLEMS.
 STATUS_PROBLEMS=0
 status_services() {
     heading "Services"

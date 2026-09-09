@@ -29,8 +29,10 @@ fi
 
 mktestdir
 proj="${TESTDIR}/proj"
-mkdir -p "${proj}/d" "${proj}/.env" "${proj}/.git/objects"
-mk_allowlist "${proj}"
+mkdir -p "${proj}/d" "${proj}/.env" "${proj}/.git/objects" "${proj}/vendor"
+# vendor is carved out by an exclusion line carrying an end-of-line comment, which the shared
+# allowlist grammar admits: the walk must skip it exactly as it skips a plain '!' line.
+mk_allowlist "${proj}" "!${proj}/vendor   # carve-out"
 
 if ! setfacl -m g:"${SANDBOX_GROUP}":rwX "${proj}" 2>/dev/null; then
     skip "ai-tools-unclaim" "filesystem does not support ACLs"; finish; exit
@@ -45,6 +47,7 @@ chmod 2770 "${proj}/d"                         # setgid dir, as claim leaves it
 : > "${proj}/gx"; chmod 0670 "${proj}/gx"      # data file the agent left group-executable
 : > "${proj}/sh"; chmod 0770 "${proj}/sh"      # a genuine script (owner has execute)
 : > "${proj}/.env/secret"
+: > "${proj}/vendor/v"; chmod 0660 "${proj}/vendor/v"   # inside the commented carve-out
 # .git as a --with-git claim leaves it: setgid dirs + group-rw object (the main walk skips
 # .git, so only the dedicated reversal pass can revert these).
 : > "${proj}/.git/objects/o"; chmod 0660 "${proj}/.git/objects/o"
@@ -103,6 +106,12 @@ fi
 # (D) a secret-named path is left untouched (keeps its agent ACL / not regrouped).
 if agentacl "${proj}/.env/secret"; then pass "a secret-named path is left untouched"
 else fail "a secret path was regrouped/cleared"; fi
+
+# (D2) a subtree excluded by a '!' line carrying a comment is left untouched: the walk reads
+# the line through the shared grammar, so the carve-out is skipped exactly as a plain '!' line is.
+if agentacl "${proj}/vendor/v" && [[ "$(perm "${proj}/vendor/v")" == 660 ]]; then
+    pass "a subtree excluded by a commented '!' line is left untouched (shared grammar)"
+else fail "vendor/v was reverted despite its commented exclusion: $(stat -c '%a' "${proj}/vendor/v")"; fi
 
 # (E) owner guard: a third-party-owned file is left untouched.
 if ${foreign}; then

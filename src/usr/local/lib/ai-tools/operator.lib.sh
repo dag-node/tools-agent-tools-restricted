@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/operator.lib.sh
-# Shared operator-identity resolver for the ai-tools sandbox. This file is *sourced*
-# (never executed) by the root helpers (ai-tools-chown, -setgid, -setfacl, -unclaim,
-# -lockdown, -relabel), ai-tools-admin, and the agent hooks (session-hook.sh), so every
-# component reads the SAME operator list from the SAME source and the matcher cannot drift
-# between them.
+# Shared operator-identity resolver for the ai-tools sandbox. This file is *sourced* (never
+# executed) by every component that resolves an operator -- the root helpers that act
+# on a project path or on the toolchain, ai-tools-admin, the CLI, and the agent hooks
+# (session-hook.sh) -- so each reads the SAME operator list from the SAME source
+# and the matcher cannot drift between them.
 #
 # The operators -- the login users (a human plus rootless service accounts) whose projects
 # the sandbox works on -- are resolved at runtime from /etc/ai-tools/operator.conf, written
 # by ai-tools-admin, not substituted into file contents at build time. The helpers therefore
-# ship identical on every host and carry no per-operator value. The config holds one line:
+# ship identical on every host and carry no per-operator value. This library reads one key
+# of that file, the operator list:
 #     OPERATORS="alice bob svc-ci"
-# a space-separated list naming every operator. Home and primary group are derived per name
-# via getent/id. Names separate on commas or whitespace and the quotes are optional -- the one
-# KEY=value grammar conf.lib.sh defines for every key in the file. It is root-owned 644 (etc_t):
-# world-readable so both the agent hooks (ai_tools_t) and the root helpers (ai_tools_handback_t)
-# read it -- files_read_etc_files covers both domains -- and root-write-only, so the agent cannot
-# rewrite the identity root chowns files back to.
+# Home and primary group are derived per name via getent/id. Names separate on commas
+# or whitespace and the quotes are optional -- the one KEY=value grammar conf.lib.sh defines
+# for every key in the file; the host options beside it are stated in operator.conf(5). It is
+# root-owned 644 (etc_t): world-readable so both the agent hooks (ai_tools_t) and the root
+# helpers (ai_tools_handback_t) read it -- files_read_etc_files covers both domains --
+# and root-write-only, so the agent cannot rewrite the identity root chowns files back to.
 #
 # The value is PARSED, never sourced, so a malformed or tampered file cannot execute code in
 # the privileged helpers.
@@ -29,16 +30,12 @@
 #   - ai_tools_resolve_owner   -> the operator who owns a given path (their allowlist covers it,
 #                                 nearest-ancestor-owner tie-break); for the handback helpers that
 #                                 restore ownership of agent-written project files.
-# Beside them, ai_tools_operator_allowlist_for answers a third, narrower question -- where ONE
-# NAMED operator's registry is -- for a component authorizing against that operator specifically
-# rather than against whoever covers a path (ai-tools-stop, which must not accept a stop from an
-# operator merely because some other operator claimed the project).
 #
-# The handback helpers (ai-tools-chown/-setgid/-setfacl/-lockdown/-unclaim) source this lib
-# best-effort and, when it is absent, define a fail-closed ai_tools_resolve_owner stub that
-# leaves the owner unresolved -- so a missing lib skips the handback (the path stays sandbox-owned) rather
-# than acting on the wrong identity. Each calls resolve_owner on the path it acts on, then restores
-# to that owner; a path no operator's allowlist covers is left untouched.
+# The per-path helpers source this lib best-effort and, when it is absent, define a fail-closed
+# ai_tools_resolve_owner stub that leaves the owner unresolved -- so a missing lib skips
+# the operation (the path stays as found) instead of acting on the wrong identity. Each calls
+# resolve_owner on the path it acts on, then acts as that owner; a path no operator's allowlist
+# covers is left untouched.
 
 # Sourced more than once in a single shell: the readonly below would abort under set -e on
 # the second pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for
@@ -106,31 +103,23 @@ _ai_tools_operator_allowlist() {
     fi
 }
 
-# ai_tools_operator_allowlist_for <operator>: echo the allowlist path of a NAMED operator, deciding
-# the primary/secondary tag itself so a caller never has to know the list order. This is the public
-# way to ask "where is THIS operator's registry", for a component that authorizes against one
-# specific operator's list rather than against whoever happens to cover a path
-# (ai_tools_resolve_owner answers that different question). Going through here rather than
-# composing the path inline is what keeps the AI_TOOLS_ALLOWLIST test hook working for such a
-# caller. Returns 1 when no operator is configured.
-ai_tools_operator_allowlist_for() {
-    local operator="$1" tag=secondary
-    ai_tools_load_operators || return 1
-    [[ "${operator}" == "${AI_TOOLS_OPERATORS[0]}" ]] && tag=primary
-    _ai_tools_operator_allowlist "${operator}" "${tag}"
-}
-
 # ai_tools_allowlist_covers <allowlist-file> <canonical-path>: succeed when the allowlist allows
-# the path and no '!' exclusion overrides it. Exclusions are checked first and win; a plain (non
-# -glob) allow/exclude path also covers its contents. Allow entries are realpath-resolved so a
-# symlinked project root matches its canonical target. This is the one allow/exclude matcher the
-# resolver and the helpers' per-subpath walks share, so coverage cannot drift between them.
+# the path and no '!' exclusion overrides it. Each line is read through the shared grammar
+# (ai_tools_conf_path_entry in conf.lib.sh: whole-line and end-of-line comments, one quote layer,
+# the leading '!' kept), so a commented or quoted line denotes the same path here as in every
+# other reader of the file; without the parser no line denotes an entry and no path is covered.
+# Exclusions are checked first and win; a plain (non-glob) allow/exclude path also covers its
+# contents. Allow entries are realpath-resolved so a symlinked project root matches its canonical
+# target. The helpers' own walks (ai-tools-chown, -setgid, -setfacl, -unclaim, -lockdown) parse
+# the same grammar and apply the same exclusion-first rule per subpath.
 ai_tools_allowlist_covers() {
-    local file="$1" path="$2" entry dir pat
+    local file="$1" path="$2" line entry dir pat
     [[ -f "${file}" ]] || return 1
+    declare -F ai_tools_conf_path_entry >/dev/null 2>&1 || return 1
     local -a allowed=() excluded=()
-    while IFS= read -r entry || [[ -n "${entry}" ]]; do
-        [[ -z "${entry}" || "${entry}" == '#'* ]] && continue
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        ai_tools_conf_path_entry "${line}" || continue
+        entry="${_ai_tools_conf_value}"
         if [[ "${entry}" == '!'* ]]; then
             excluded+=("${entry:1}")                       # strip '!', keep raw (may glob)
         else

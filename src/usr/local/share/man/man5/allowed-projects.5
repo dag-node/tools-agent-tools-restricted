@@ -1,0 +1,174 @@
+.\" allowed-projects(5) -- an operator's project allowlist for Agent Tools Restricted.
+.\" @AI_TOOLS_VERSION@ is substituted at deploy time (install.sh install_subst
+.\" and the RPM %prep), like ai-tools(1). The grammar described here is the one
+.\" conf.lib.sh implements for the path-list files, shared by every reader.
+.TH ALLOWED-PROJECTS 5 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
+.SH NAME
+allowed-projects \- the project directories an operator's agent sessions may start in
+.SH SYNOPSIS
+.B ~/.config/ai-tools/allowed-projects
+.SH DESCRIPTION
+Each operator keeps one
+.B allowed-projects
+file, and it decides two things for that operator:
+where a session launched by that account may start, and which agent-written paths
+the ownership hand-back returns to that account.
+A session starts only inside a directory the file lists, and never inside a subtree
+a
+.RB \(oq ! \(cq
+line excludes.
+.PP
+The file is a launch gate and an ownership registry, not a read boundary.
+Once a session is running, ordinary file permissions and the SELinux policy decide
+what it reads and writes.
+.PP
+The file is owned by the operator at mode
+.BR 0600 ,
+inside a
+.B 0700
+directory, so no other account reads it.
+.B "ai-tools-admin operators add"
+creates it with a header and no entry, so no session can start anywhere until an
+entry is added.
+The
+.BR ai-tools (1)
+commands add, park and remove entries in place; edit by hand to review, to
+comment, or to carve a subtree out of a project.
+.SH GRAMMAR
+One entry per line.
+.TP
+.I /home/op/project
+An allow entry: a literal directory.
+Sessions may start in it and in every directory below it.
+.TP
+.I /home/op/project   # why
+An end-of-line comment.
+A
+.B #
+at the start of a line, or after whitespace, begins a comment.
+.TP
+.B "\(dq/home/op/ai works\(dq"
+One layer of matched quotes carries a path containing a space or a literal
+.BR # .
+.TP
+.B !/home/op/project/vendor
+An exclusion.
+The
+.B !
+precedes the quotes of a quoted path:
+.BR "!\(dq/a b\(dq" .
+.PP
+Blank lines are ignored.
+Every entry is resolved to its real path before it is compared, so an entry
+reached through a symbolic link or a trailing slash matches the directory it
+names.
+.SS Allow entries
+An allow entry is a literal directory and covers its contents.
+A glob in an allow line does not match any path, so it does not start a session;
+.B "ai-tools --list"
+reports such a line as unusable.
+An entry naming a directory that no longer exists is skipped, and reported as stale.
+.SS Exclusions
+An exclusion outranks an allow entry for the same path and for every path below it.
+A plain exclusion covers its contents; one carrying
+.BR * ,
+.BR ? ,
+.B [
+or
+.B ]
+is matched as a glob against the whole path, as written.
+Only an exclusion may use a glob.
+.PP
+An exclusion means one of two things, and the position decides which:
+.TP
+.B a carve-out
+An exclusion inside a listed project withholds that subtree from the agent.
+The launch refuses the subtree as a working directory, and no hand-back runs
+there.
+Lift it by editing the line;
+.B "ai-tools --project-enable"
+refuses it, since removing a carve-out widens what the agent reaches.
+.TP
+.B a parked project
+An exclusion with no listed project above it takes a claimed project out of
+service.
+The entry, the permissions and the label stay in place, so
+.B "ai-tools --project-enable"
+restores it.
+.SH ENTRY STATES
+A path is in one of three states, and the
+.BR ai-tools (1)
+commands name all three:
+.TP
+.B listed
+An allow line names the path.
+Sessions may start there.
+.TP
+.B disabled
+A
+.B !
+line names the path.
+No session starts there.
+While a project is parked, the hand-back does not restore files written under it,
+so park a project only once its sessions have ended.
+.TP
+.B absent
+Neither line names the path.
+It is not a project.
+.PP
+A listed path can still be unreachable, when an ancestor is parked or a glob
+exclusion matches it.
+A command that changes an entry reports the entry's new state and names the
+other line where one still blocks the path.
+.SH FILES
+.TP
+.I ~/.config/ai-tools/allowed-projects
+This file, one per operator.
+.TP
+.I ~/.config/ai-tools/secret-patterns
+The operator's secret-name patterns, kept beside it with the same ownership.
+.TP
+.I /var/opt/ai-tools/sandbox-projects/
+The sandbox-clone area; a clone made by
+.B "ai-tools --sandbox-create"
+is listed here like any other project.
+.SH EXAMPLES
+A project, a carve-out inside it, and a parked project:
+.PP
+.RS 4
+.EX
+/home/op/webapp
+!/home/op/webapp/vendor        # third-party code the agent does not touch
+!/home/op/oldapp               # parked: ai-tools --project-enable restores it
+.EE
+.RE
+.PP
+A path containing a space, a quoted exclusion inside it, and a glob exclusion
+of every dependency directory one level below another project:
+.PP
+.RS 4
+.EX
+"/home/op/ai works"
+!"/home/op/ai works/build"
+!/home/op/webapp/*/node_modules
+.EE
+.RE
+.PP
+Register a project, review the file, and park a project without editing:
+.PP
+.RS 4
+.EX
+ai\-tools \-\-project\-claim ~/src/webapp
+ai\-tools \-\-list
+ai\-tools \-\-project\-disable ~/src/oldapp
+.EE
+.RE
+.SH SEE ALSO
+.BR ai\-tools (1),
+.BR ai\-tools\-admin (8),
+.BR operator.conf (5),
+.BR secret\-patterns (5)
+.PP
+The lifecycle guide covers claiming a tree in place against working in a
+sandbox clone, and what each prompt grants:
+.IR /usr/share/doc/ai\-tools/project\-lifecycle.md .

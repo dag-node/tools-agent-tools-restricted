@@ -86,8 +86,10 @@ the boundary, since an agent that could edit the matcher would decide its own cl
 **replaces** it rather than adding to it, and the baseline applies when that file is missing or
 parses empty, so classification never degrades to an empty pattern set. That is what makes the
 seeded file safe to place before an operator has decided anything: enrolment writes the header
-alone (below), so the baseline stays in force and each upgrade's additions reach that operator
-until they write a pattern of their own. A deployment-specific
+alone — what the file is, the replace rule, an example line and `secret-patterns(5)`, the page
+that holds the reference ([providers](providers.rule.md) states why a seeded header is a pointer)
+— so the baseline stays in force and each upgrade's additions reach that operator until they
+write a pattern of their own. A deployment-specific
 name belongs in the operator's `600` config, alongside the baseline entries they still want, since
 the file replaces rather than extends; a general one missing from the baseline goes
 upstream, since the library is rpm-owned and not `%config`, so an edit there is lost on upgrade.

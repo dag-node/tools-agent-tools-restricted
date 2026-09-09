@@ -1,0 +1,140 @@
+.\" custom-claude-endpoint.conf(5) -- a custom API endpoint for Claude Code.
+.\" @AI_TOOLS_VERSION@ is substituted at deploy time (install.sh install_subst
+.\" and the RPM %prep), like ai-tools(1). The validation described here is the
+.\" one claude-endpoint.lib.sh applies in the session-env fragment.
+.TH CUSTOM-CLAUDE-ENDPOINT.CONF 5 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
+.SH NAME
+custom-claude-endpoint.conf \- route sandboxed Claude Code sessions at a custom API endpoint
+.SH SYNOPSIS
+.B /etc/ai-tools/endpoints/custom-claude-endpoint.conf
+.SH DESCRIPTION
+An endpoint file routes every Claude Code session on the host at an
+Anthropic-compatible API other than the default one: a local proxy, or a
+gateway of your own.
+It is read only where
+.BR operator.conf (5)
+sets
+.B CLAUDE_BASE_URL_FILE
+to its path, and the shipped file is inert, every option commented, so
+setting the pointer alone leaves the launch unchanged.
+.PP
+The file holds a credential, so it is owned by
+.B root
+in group
+.B ai-tools
+at mode
+.BR 0640 :
+root and the sandbox account read it, and no other account does.
+Edit it with
+.BR sudo .
+The pointer in
+.BR operator.conf (5)
+is world-readable and holds only the path.
+.PP
+A file elsewhere is refused.
+The path must resolve under
+.IR /etc/ai-tools/endpoints/ ,
+the one directory the confined session is granted read on, and the file,
+that directory and
+.BR operator.conf (5)
+must each be root-owned and not group- or other-writable.
+.PP
+Only the four options below are read; any other key in the file is
+ignored.
+Each set option is validated when a session launches, and a set option that
+is invalid
+.B refuses the launch
+rather than routing the session at a partial endpoint.
+A file with every option commented leaves the environment as it is, and the
+session launches at the default endpoint.
+.PP
+The file is parsed with the grammar
+.BR operator.conf (5)
+describes.
+.SH OPTIONS
+.TP
+.BI ANTHROPIC_BASE_URL= url
+The endpoint.
+An
+.B http://
+or
+.B https://
+URL with no whitespace.
+Required: another option set without it refuses the launch, since alone it
+would only mis-route the default connection.
+.TP
+.BI ANTHROPIC_AUTH_TOKEN= token
+The bearer token the endpoint expects, a single token with no whitespace.
+It is passed to Claude Code by name, so its value does not appear on any
+process command line.
+An endpoint on
+.BR localhost ,
+.B 127.0.0.1
+or
+.B ::1
+does not need one; for any other endpoint an absent token is reported
+at launch and the session still starts.
+.TP
+.BI ANTHROPIC_MODEL= label
+The model label the endpoint resolves, a single token.
+With a proxy the label is whatever that proxy maps to an underlying model,
+so it need not be an Anthropic model id.
+.TP
+.BI ANTHROPIC_DEFAULT_HAIKU_MODEL= label
+The label for the fast, background model, a single token.
+.SH ENVIRONMENT
+The options become process environment variables of the session.
+A Claude Code settings
+.B env
+block that sets the same name takes precedence, and
+.I /etc/claude-code/managed-settings.json
+is the host layer that takes precedence over a session's own settings.
+The shipped settings set no
+.B ANTHROPIC_*
+key, so this file governs by default.
+.PP
+A running session may set these variables for itself or for a child
+process; that does not repoint the client already started.
+Where sessions may connect is decided by network policy, not by this file.
+.SH FILES
+.TP
+.I /etc/ai-tools/endpoints/custom-claude-endpoint.conf
+The shipped endpoint file, inert until edited.
+.TP
+.I /etc/ai-tools/endpoints/
+The directory an endpoint file must live in.
+A second file here is used by pointing
+.B CLAUDE_BASE_URL_FILE
+at it.
+.SH EXAMPLES
+A local proxy, which does not need a token:
+.PP
+.RS 4
+.EX
+ANTHROPIC_BASE_URL=http://localhost:11434
+ANTHROPIC_MODEL=qwen2.5-coder
+.EE
+.RE
+.PP
+A gateway that maps labels to an underlying model:
+.PP
+.RS 4
+.EX
+ANTHROPIC_BASE_URL=https://chat.example.tld
+ANTHROPIC_AUTH_TOKEN=replace-with-your-token
+ANTHROPIC_MODEL=claude-sonnet-4-5-20250929
+ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-haiku-4-5-20251001
+.EE
+.RE
+.PP
+Point sessions at the file, in
+.BR operator.conf (5):
+.PP
+.RS 4
+.EX
+CLAUDE_BASE_URL_FILE=/etc/ai-tools/endpoints/custom-claude-endpoint.conf
+.EE
+.RE
+.SH SEE ALSO
+.BR ai\-tools (1),
+.BR operator.conf (5)

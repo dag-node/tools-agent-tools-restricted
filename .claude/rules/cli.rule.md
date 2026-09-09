@@ -103,8 +103,10 @@ wrapper needs and which does require a fresh login). The **informational** comma
 and inspect the host.
 
 A third gate, `require_sudo_access`, refuses a verb whose root helper the caller does not hold a
-sudo grant for, and names the command that reaches it instead (below). A fourth, `require_for_target`,
-runs last and validates a `--for` run (see *Acting for another operator* below). It is a no-op
+sudo grant for, and names the command that reaches it instead (below). A fourth,
+`require_runas_target`, refuses a `--for` run when `sudo -n -l -u <target>` reports a filesystem
+step the caller may not run **as** the target (the *runas seam*, below). A fifth, `require_for_target`, runs last and
+validates a `--for` run (see *Acting for another operator* below). The last two are no-ops
 without the flag.
 
 ### The caller with no sudo grant
@@ -543,9 +545,9 @@ documented code for a rejected command line.
 The CLI ships a man page, `ai-tools(1)`
 (`src/usr/local/share/man/man1/ai-tools.1` → `/usr/local/share/man/man1/`, deployed by
 `install.sh` and the RPM with the same `@AI_TOOLS_VERSION@` substitution as the CLI).
-It is hand-written troff — the CLI cannot be executed at package-build time for
-`help2man` (the bootstrap gate fail-closes on an unprovisioned host) — and
-The two are **not** copies of each other: `usage()` is orientation — the verbs, one line each,
+It is hand-written troff, since the CLI cannot be executed at package-build time for
+`help2man` (the bootstrap gate fail-closes on an unprovisioned host).
+The page and `usage()` are **not** copies of each other: `usage()` is orientation — the verbs, one line each,
 and the three cross-verb flags — while the page is the reference for every per-verb option, which
 is why a per-verb option lives under its verb there rather than in a flat list that would separate
 `--branch` or `--dir` from the only command they mean anything for. `tests/unit/man.sh` keeps them
@@ -1012,7 +1014,9 @@ into the agent's group, and unclaim never regroups one out.
 
 **Sandbox clone** (`--sandbox-create`) shallow-clones the repo under `SANDBOX_ROOT`
 (`/var/opt/ai-tools/sandbox-projects`) so the agent never reads the origin's full history.
-Work is pushed to a per-repo branch `ai-tools/sandbox-<user>/<leaf>` (default leaf `main`);
+Work is pushed to a per-repo branch, `sandbox/<leaf>` by default, where `<leaf>` is the last
+component of the ref the clone was forked from (`sandbox_default_branch`; `--branch` accepts any
+valid git ref in its place);
 only the projects user can push (the sandbox account does not hold any git credentials), and anyone
 with repo access merges that branch back, preserving the agent's commits granularly (see
 `/var/opt/ai-tools/README.md`). Clones are labelled statically by `ai_tools.fc` + a plain
@@ -1038,9 +1042,8 @@ otherwise), so the grant adds it no access.
 
 ## Privilege model
 
-The CLI itself is unprivileged. Eight of its root operations — `ai-tools-lockdown`,
-`ai-tools-relabel`, `ai-tools-setfacl`, `ai-tools-setgid`, `ai-tools-unclaim`, `ai-tools-safedir`,
-`ai-tools-reclaim`, and `ai-tools-allowlist` — run via `sudo` with **no** NOPASSWD grant by design,
+The CLI itself is unprivileged. Every root helper it reaches — the `*_BIN` constants at the top
+of `ai-tools.sh` name the set — runs via `sudo` with **no** NOPASSWD grant by design,
 so sudo prompts for the projects user's password; the sandbox account has no grant for any. One is
 the exception — `--stop` → `ai-tools-stop` — carrying a dedicated fixed-path NOPASSWD rule
 (see [launch](launch.rule.md)), so it runs **as root without a prompt**, kept safe by being a
@@ -1075,7 +1078,7 @@ helpers — only sudo, as root, reaches them.
 `sudo -u <target>` on a `--for` run (the *runas seam* above), which is not a new grant either: it
 rides the same general axis, and without `--for` they run as the invoker with no `sudo` at all.
 
-**Those eight calls assume a grant `ai-ops` membership does not carry** — a **general** sudo grant
+**Those calls assume a grant `ai-ops` membership does not carry** — a **general** sudo grant
 is a separate host-level axis that this project neither writes nor records
 ([naming-conventions](../../docs/naming-conventions.md) fixes the vocabulary), and the CLI answers
 for it ahead of the run's first prompt (*The caller with no sudo grant*, above). A host needs at

@@ -365,4 +365,77 @@ msg="$(fixture PC-40-message.txt 'fix(x): state what changed' '' 'There is nothi
 run_check --message "${msg}"
 assert_rc 1 "PC-40-message: --message checks a commit message"
 
+# ── --config-header: a config file's header is fixed-width text ────────────────────────────────
+# Both rules are pinned from both directions, and the exemptions with them: a commented default
+# is a setting, so its length is not measured and its last word is not read; a comment line
+# that closes a sentence on a tie word is not a wrapped line.
+long="# $(printf 'x%.0s' $(seq 1 75))"
+run_check --config-header "$(fixture PC-41-header-width.conf "${long}")"
+assert_grep 'header-width \[77>72\]' "${OUT}" "PC-41-header-width: a 77-column comment line is reported at the default width"
+run_check --config-header --width 80 "$(fixture PC-42-header-width-arg.conf "${long}")"
+assert_rc 0 "PC-42-header-width-arg: the same line is within an explicit width of 80"
+run_check --config-header "$(fixture PC-43-header-default.conf "#KEY=$(printf 'v%.0s' $(seq 1 75))")"
+assert_rc 0 "PC-43-header-default: a commented default is not measured"
+run_check --config-header "$(fixture PC-44-header-tie.conf '# A session starts only inside a' '# listed directory.')"
+assert_grep 'header-tie \[a\]' "${OUT}" "PC-44-header-tie: a comment line ending on an article is reported"
+run_check --config-header "$(fixture PC-45-header-tie-prep.conf '# the token is passed to Claude Code by' '# name.')"
+assert_grep 'header-tie \[by\]' "${OUT}" "PC-45-header-tie-prep: a comment line ending on a preposition is reported"
+run_check --config-header "$(fixture PC-46-header-tie-sentence.conf '# carve this subtree out.' '# Next sentence.')"
+assert_rc 0 "PC-46-header-tie-sentence: a tie word closing a sentence is not reported"
+run_check --config-header "$(fixture PC-47-header-clean.conf '# A session starts only inside' '# a listed directory.' 'KEY=value' '#OTHER=default')"
+assert_rc 0 "PC-47-header-clean: a wrapped header, a setting and a commented default are silent"
+
+# ── --wrap: the line checks on source comments, opt-in ───────────────────────────────────────
+# A source comment is read as written, so under --wrap it holds to the tie rule and a 120-column
+# wrap. Opt-in, so the default run stays silent on how a line is wrapped: that is pinned first,
+# since a tree whose comments predate the rule would otherwise report every one of them.
+silent PC-48a-wrap-off-by-default.sh 'KEY=1' '# The helper reads the list from the operator, the' '# one whose allowlist covers the path.'
+wrapped() {  # wrapped <check> <case>.<ext> <line...>: PASS when the check is reported under --wrap
+    local check="$1" name="$2"; shift 2
+    run_check --wrap "$(fixture "${name}" "$@")"
+    if grep -q -- "${check}" <<<"${OUT}"; then pass "${name%%.*}: reports ${check} under --wrap"
+    else fail "${name%%.*}: did NOT report ${check} under --wrap"; fi
+}
+wrapped_silent() {  # wrapped_silent <case>.<ext> <line...>: PASS when --wrap reports the fixture clean
+    local name="$1"; shift
+    run_check --wrap "$(fixture "${name}" "$@")"
+    if [[ "${RC}" -eq 0 && -z "${OUT}" ]]; then pass "${name%%.*}: silent under --wrap (rc 0)"
+    else fail "${name%%.*}: expected no finding under --wrap; rc ${RC}, output: ${OUT}"; fi
+}
+wrapped comment-tie PC-49-comment-tie.sh 'KEY=1' '# The helper reads the list from the operator, the' '# one whose allowlist covers the path.'
+wrapped comment-tie PC-50-comment-tie-docstring.py 'def f():' '    """Return the rows of' '    the table."""'
+wrapped_silent PC-51-comment-tie-wrapped.sh 'KEY=1' '# The helper reads the list from the operator,' '# the one whose allowlist covers the path.'
+wrapped_silent PC-52-comment-tie-sentence.sh '# Carve this subtree out.' '# Next sentence.'
+wrapped_silent PC-53-comment-tie-prose.md 'A document reflows, so a line may end on the' 'next word.'
+wrapped_silent PC-54-comment-tie-code.sh 'value="$(cat a)"    # not a comment ending on a' 'x=1'
+# A source comment wraps at 120 columns, wider than a config header's 72; --width overrides it.
+wide="# $(printf 'w%.0s' $(seq 1 125))"
+wrapped comment-width PC-55-comment-width.sh 'x=1' "${wide}"
+wrapped_silent PC-56-comment-width-under.sh 'x=1' "# $(printf 'w%.0s' $(seq 1 110))"
+run_check --wrap --width 100 "$(fixture PC-57-comment-width-arg.sh 'x=1' "# $(printf 'w%.0s' $(seq 1 110))")"
+assert_grep 'comment-width \[112>100\]' "${OUT}" "PC-57-comment-width-arg: --width lowers the column a source comment is measured against"
+# A linter directive is read by the linter, so neither line rule reads it, however long or however it ends.
+wrapped_silent PC-58-comment-directive.sh 'x=1' "# shellcheck disable=SC2154  # set by the sourced library, whose contract names the" "y=2"
+
+# The tie set is msg.lib.sh's, mirrored: the runtime wrap and the header check must agree
+# on which words carry to the next line, or a header passes here and wraps differently in a box.
+MSG_LIB="${ROOT}/src/usr/local/lib/ai-tools/msg.lib.sh"
+[[ -r "${MSG_LIB}" ]] || MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
+if [[ -r "${MSG_LIB}" ]]; then
+    lib_ties="$(sed -n '/^readonly _AI_TOOLS_MSG_TIES=/,/"$/p' "${MSG_LIB}" | tr -d '"\\' | sed 's/^readonly _AI_TOOLS_MSG_TIES=//' | tr ' ' '\n' | grep . | sort -u | tr '\n' ' ')"
+    py_ties="$(python3 - "${PC}" <<'EOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("pc", sys.argv[1]); pc = importlib.util.module_from_spec(spec); spec.loader.exec_module(pc)
+print(" ".join(sorted(pc.HEADER_TIES)), end=" ")
+EOF
+)"
+    if [[ "${lib_ties}" == "${py_ties}" ]]; then
+        pass "PC-48-tie-set: the header tie set matches msg.lib.sh's _AI_TOOLS_MSG_TIES"
+    else
+        fail "PC-48-tie-set: tie sets differ -- msg.lib: '${lib_ties}' checker: '${py_ties}'"
+    fi
+else
+    skip "PC-48-tie-set" "msg.lib.sh not readable in the repo or installed"
+fi
+
 finish

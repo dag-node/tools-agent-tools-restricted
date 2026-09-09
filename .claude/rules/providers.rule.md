@@ -47,8 +47,8 @@ execute code in the privileged scripts that read it:
 `ai-tools-providers(5)` is the operator's statement of every key, and a manifest's own header is a
 pointer to it: a manifest is package data replaced on upgrade, so a description that lives in the
 file is one an upgrade rewrites for no settings change, and one that lives in the page reaches every
-host with the package. The same placement rule, for the operator-edited config files, is the
-approved plan in the wip repository (`ATR-260908`).
+host with the package. The same placement rule holds for the config files an operator holds
+(*A config file's header is a pointer*, below).
 - either kind: `admin_summary`, the one-line description `ai-tools-admin --help` prints for the
   command domain this package contributes (below). Optional; a package that does not contribute a
   domain has no use for it, and a domain whose manifest omits it is still listed.
@@ -193,11 +193,15 @@ sourced**, so a malformed or tampered one yields a bad value, never executed cod
 The **path-list** files share that grammar rather than defining their own.
 `ai_tools_conf_path_entry` reads one `allowed-projects` line — whole-line and end-of-line
 comments, and one quote layer for a path carrying a space or a literal `#`, with a leading `!`
-preserved so an exclusion stays distinguishable after the quotes come off. Four components read
-that file (the launch wrapper, the CLI, `ai-tools-chown`, and `ai-tools-relabel`), which is exactly
-why the rule lives in one place: a parser copied into each is a parser that drifts, and a line the
-wrapper resolves but the chown helper does not is a project the agent can launch in whose files
-never come back. All four require the library rather than falling back to a private parser. The CLI,
+preserved so an exclusion stays distinguishable after the quotes come off. Every reader of that
+file — the launch wrapper, the CLI, the owner resolver in `operator.lib.sh`, and each root helper
+that walks or labels a project (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`,
+`-relabel`) — takes it from here, which is exactly why the rule lives in one place: a parser
+copied into each is a parser that drifts, and a line the wrapper resolves but a helper does not
+is a project the agent can launch in whose files stay sandbox-owned, or a carve-out the wrapper
+refuses that a walk grants. Each reader requires the library rather than falling back to a
+private parser; the resolver's load is fail-closed by consequence, since without the parser no
+line denotes an entry and no path is covered. The CLI,
 the relabel helper, and the launch wrapper's post-claim confirm additionally decide **membership**
 through `ai_tools_conf_allowlist_has_entry`/`_has_exclusion` (and `_matching_lines` /
 `_exclusion_lines` for the raw lines), which parse each line with the same grammar and compare
@@ -244,6 +248,35 @@ difference, and offers to clear the copy. It leaves this file unchanged. An addi
 could append an option block the file lacks, but it could never correct the prose of one already
 there, so `operator.conf(5)` is the single current statement of what an option means and the file
 points at the man page rather than restating it.
+
+### A config file's header is a pointer
+
+Every config file an operator holds keeps its reference in a section 5 page, for one of two
+reasons. The shipped templates, `operator.conf` and `custom-claude-endpoint.conf`, are
+`%config(noreplace)`, so a prose change to one reaches an upgraded host only as an `.rpmnew` the
+operator reconciles by hand. The per-operator files, `allowed-projects` and `secret-patterns`, are
+seeded once, by `ai-tools-admin operators add` (the two `*_seed` functions in `conf.lib.sh`), and
+no upgrade rewrites them: the header an operator's file carries is the one that shipped on the day
+that account was enrolled, for as long as the account exists. A header written into any of the
+four therefore states what the file is, the one rule a reader needs before writing a line, example
+lines or one brief line per option beside its commented default, and the page that holds the
+reference — `operator.conf(5)`, `custom-claude-endpoint.conf(5)`, `allowed-projects(5)`,
+`secret-patterns(5)` — and the grammar, the semantics and the worked examples live in the page,
+which the package replaces on every upgrade. A commented default (`#KEY=`) stays in a template: it
+is a setting, and it is what `ai_tools_conf_keys` counts as *mentioned*, which keeps `system
+post-upgrade` from announcing every option as new.
+
+A config header is read in a terminal, which does not reflow it, so it holds to 72 columns, ragged
+right, with no comment line ending on an article, a conjunction, a preposition, or a wh-word — the
+words `msg.lib.sh` carries to the next line when it wraps a runtime message, and the rule the
+checker's opt-in `--wrap` mode holds a source comment to. The checker's `--config-header` mode
+reports both for a header, and `tests/unit/man.sh` runs it over the four headers. `tests/unit/man.sh` caps each seeded header, asserts it names its page and does not
+register an entry, and reads each page's own examples through the parser that file is read with
+(`ai_tools_conf_path_entry`, `ai_tools_load_secret_patterns`), so an example the manual shows is
+one the file accepts. The one claim that stays in a header whatever its page says is the fail
+direction a reader must know before writing a line — for `secret-patterns`, that a pattern listed
+there **replaces** the built-in baseline ([secret-handling](secret-handling.rule.md)), which
+`tests/unit/secret-patterns.sh` asserts on the seeded text.
 
 ### Deferred: `operator.conf.d/`
 

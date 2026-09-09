@@ -12,10 +12,10 @@ ai-tools \- manage the projects a sandboxed coding agent may work in
 .RI [ path ]
 .SH DESCRIPTION
 .B ai-tools
-registers, secures, and hands back the projects the sandboxed coding agent
-(Claude Code, running as the unprivileged
+registers, secures, and hands back the projects the sandboxed coding agent,
+running as the unprivileged
 .B ai-tools
-system account) may work in. Run it as your own login user \(em never as the
+system account, may work in. Run it as your own login user \(em never as the
 sandbox account, which the CLI refuses for every command. Steps that need root
 (secret lockdown, ownership, SELinux labels) invoke
 .B sudo
@@ -70,14 +70,19 @@ grant is neither of them \(em the host's own sudoers decides it, and no file in
 this package writes or records it.
 .PP
 An operator holding only the two launches agent sessions and reads the reports.
-The commands that write a registry \(em
-.BR \-\-project\-claim ,
-.BR \-\-project\-unclaim ,
+The commands that reach a root helper need the grant as well: every project
+command except
+.B \-\-project\-enable
+and
+.B \-\-project\-disable
+in their plain form,
+.BR \-\-sandbox\-create ,
 .BR \-\-lockdown ,
-.BR \-\-reclaim ,
-.B \-\-sandbox\-create
-\(em reach root helpers with no NOPASSWD rule and need the grant as well; an
-operator who holds one performs them on another's behalf with
+.B \-\-reclaim
+and
+.BR \-\-audit .
+An operator who holds the grant performs the project commands, the lockdown
+and the reclaim on another's behalf with
 .BR \-\-for .
 A host needs at least one operator holding the grant, since root is refused
 every command that writes.
@@ -115,7 +120,10 @@ exist: only the final component is created, so a mistyped path is refused rather
 than manufactured. Every filesystem step runs as the operator the run acts for, so
 a create under
 .B \-\-for
-produces a tree that operator owns. A refusal removes the directory it made.
+produces a tree that operator owns. Every refusal fires before the directory
+is made; a step that fails after it leaves the directory in place, and
+.B \-\-project\-claim
+on it finishes the claim.
 .IP
 It does not take options, and asks for no confirmation of its own: the tree it makes is empty,
 so the claim that follows infers the answers its prompts would otherwise ask for \(em
@@ -318,8 +326,11 @@ stops fail-closed \(em the clone stays private and unregistered; re-run this com
 the clone path to resume securing it.
 .TP
 .B \-\-sandbox\-push \fR[\fIpath\fR]
-Push the sandbox clone's commits to its dedicated remote branch
-.RB ( ai\-tools/sandbox\- <user> / <leaf> ).
+Push the sandbox clone's commits to the remote branch it tracks
+.RI ( sandbox/ <leaf>
+by default; see
+.B \-\-branch
+above).
 .TP
 .B \-\-sandbox\-remove \fR[\fIpath\fR]
 Delete a sandbox clone and unregister it, warning about unpushed commits
@@ -681,9 +692,18 @@ which is root-owned so that a session cannot widen what it is given.
 Per-operator allowlist of project paths; a
 .RB \(oq ! \(cq-prefixed
 line excludes a subtree. Gates where sessions launch \(em not a read boundary.
+The grammar and the entry states are in
+.BR allowed\-projects (5).
+.TP
+.I ~/.config/ai-tools/secret-patterns
+Per-operator secret-name patterns: a file whose name matches one is kept out of
+the agent's reach. The grammar and the replace rule are in
+.BR secret\-patterns (5).
 .TP
 .I /etc/ai-tools/operator.conf
-Operator registry and skip-list overrides.
+The host options: the operator list, the enabled providers and filters, the
+strictness switches, and the skip lists. See
+.BR operator.conf (5).
 .TP
 .I /var/opt/ai-tools/sandbox-projects/
 The sandbox-clone area;
@@ -750,7 +770,9 @@ ai\-tools \-\-project\-unclaim ~/src/myproject
 .RE
 .SH SEE ALSO
 .BR ai\-tools\-admin (8),
+.BR allowed\-projects (5),
 .BR operator.conf (5),
+.BR secret\-patterns (5),
 .BR setfacl (1),
 .BR sudo (8).
 .PP

@@ -8,11 +8,12 @@
 #
 #     python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py <file>...
 #
-# Four modes. `--staged` reads the added lines of the git index, which is what a pre-commit hook
+# Five modes. `--staged` reads the added lines of the git index, which is what a pre-commit hook
 # runs; `--message` reads a commit message, an artifact this standard covers like any other; named
 # paths are read whole, for a sweep; `--kept` compares the two sides of a diff, and enforces a
-# different rule -- see its own heading below. `--staged` sees only the added half of a sentence an
-# edit split, so a hit it reports alone is worth re-checking against the whole file.
+# different rule -- see its own heading below; `--config-header` reads a config file's header
+# as fixed-width text -- see its heading below. `--staged` sees only the added half of a sentence
+# an edit split, so a hit it reports alone is worth re-checking against the whole file.
 # Source files contribute their comments and docstrings, Markdown and man pages every line. The
 # patterns match English, so they carry to any codebase.
 #
@@ -715,6 +716,99 @@ PATH_CHECKS = [
 ]
 
 
+# `--wrap` adds two checks that read LINES rather than sentences, and source files only, since a
+# comment is read as written while a document or a man page reflows. They are opt-in rather than
+# default because they report how a line is WRAPPED, which a formatter fixes in bulk, and a tree
+# whose comments predate the rule reports every one of them:
+#
+#   comment-tie        a comment or docstring line ending on a word that ties to the next one:
+#                      an article, a conjunction, a preposition, or a wh-word. The word belongs
+#                      at the head of the next line. The set is HEADER_TIES below.
+#   comment-width      a comment or docstring line over SOURCE_WIDTH columns (120, the column
+#                      a code file wraps at; `--width` overrides it).
+#
+# `--config-header`: A CONFIG FILE'S HEADER IS READ IN A TERMINAL AND NEVER REFLOWED.
+# An operator's config file -- a seeded header, a shipped template -- is read as-is, so its prose
+# holds to a fixed width (72 columns, the RFC text width, by default), and a comment line does not
+# end on a word that ties to the next one: an article, a conjunction, a preposition, or a wh-word.
+# The set is the one msg.lib.sh glues to its successor when it wraps a runtime message, mirrored
+# here because this checker is Python and ships apart from that library; tests/unit/prose-check.sh
+# asserts the two sets agree. Every line is measured; the tie rule reads comment lines only,
+# and leaves a commented default (`#KEY=value`) alone, that being a setting rather than prose. A line
+# ending a sentence (`.`, `!`, `?`) is left alone too: a tie word closes a sentence as any other.
+HEADER_TIES = frozenset("""
+    a an the and or nor but so yet
+    of to in on at by for with from into onto upon over under above below
+    between among through during before after about against along across
+    around near off out up down via per as
+    what which who whom whose that when where why how
+""".split())
+HEADER_COMMENT = re.compile(r"^\s*#")
+HEADER_DEFAULT = re.compile(r"^\s*#\s*[A-Za-z_][A-Za-z0-9_]*=")
+HEADER_WIDTH = 72
+
+
+TIE_HINT = ("carry the word to the next line; a line does not end on an article, "
+            "a conjunction, a preposition, or a wh-word")
+
+
+def tie_at_line_end(text):
+    """The tie word `text` ends on, or None: a comment marker is stripped, a sentence-closing
+    word is not a tie, and trailing punctuation around the word is ignored."""
+    words = text.lstrip("#/* \t").split()
+    if not words:
+        return None
+    last = words[-1]
+    if last[-1] in ".!?":
+        return None
+    last = last.strip(",;:)\"'`").lower()
+    return last if last in HEADER_TIES else None
+
+
+def header_findings(paths, width):
+    """A line over `width` columns, or a comment line ending on a tie word."""
+    for path, number, line in file_lines(paths):
+        text = line.rstrip()
+        if HEADER_DEFAULT.match(text):
+            continue
+        if len(text) > width:
+            yield (path, number, "header-width", f"{len(text)}>{width}",
+                   f"wrap the line at {width} columns", text)
+        if not HEADER_COMMENT.match(text):
+            continue
+        tie = tie_at_line_end(text)
+        if tie:
+            yield path, number, "header-tie", tie, TIE_HINT, text
+
+
+SOURCE_WIDTH = 120
+# A linter directive is an instruction to a tool, read by that tool, so neither line rule reads it.
+SOURCE_DIRECTIVE = re.compile(r"^\s*#\s*(shellcheck|noqa|pylint:|type:|pragma)\b")
+
+
+def comment_line_findings(source, width):
+    """A source file's comment or docstring line over `width` columns, or ending on a tie word.
+
+    A comment is read as written, in an editor, in `git blame`, or in a deployed file,
+    so the rule a config header holds to applies to it too, at the wider column a code file
+    wraps at. A code line is not measured: only a comment or a docstring is. A document or
+    a man page reflows, so this reads source files only, line by line, where every other check
+    reads rejoined sentences.
+    """
+    for path, number, line, text in prose_lines(source):
+        if path == MESSAGE or is_prose_file(path) or text is None:
+            continue
+        if ALLOW_MARKER in line or HEADER_DEFAULT.match(line) or SOURCE_DIRECTIVE.match(line):
+            continue
+        stripped = line.rstrip()
+        if len(stripped) > width:
+            yield (path, number, "comment-width", f"{len(stripped)}>{width}",
+                   f"wrap the comment at {width} columns", stripped.strip())
+        tie = tie_at_line_end(text)
+        if tie:
+            yield path, number, "comment-tie", tie, TIE_HINT, stripped.strip()
+
+
 def findings(source, checks, path_checks=()):
     for path, number, sentence in sentences(source):
         subject = author_prose(path, sentence)
@@ -740,6 +834,15 @@ def main():
     parser.add_argument("--kept", metavar="REVISIONS", nargs="?", const="",
                         help="report a claim a rewrite dropped, narrowed, or weakened "
                              "(default: the index)")
+    parser.add_argument("--wrap", action="store_true",
+                        help="add the line checks on source comments: a line ending on a tie "
+                             "word, or over --width columns")
+    parser.add_argument("--config-header", action="store_true",
+                        help="read the paths as config-file headers: a line over --width "
+                             "columns or a comment line ending on a tie word")
+    parser.add_argument("--width", metavar="COLUMNS", type=int, default=None,
+                        help=f"the column a line is measured against: {HEADER_WIDTH} for "
+                             f"--config-header, {SOURCE_WIDTH} for a source comment, by default")
     reading = parser.add_mutually_exclusive_group()
     reading.add_argument("--prose", dest="force", action="store_const", const=True,
                          help="read every line as prose, whatever the extension")
@@ -766,6 +869,20 @@ def main():
     if sum(1 for mode in modes if mode) != 1:
         parser.error("give exactly one of --staged, --message FILE, or one or more paths")
 
+    if args.config_header:
+        if not args.paths:
+            parser.error("--config-header reads one or more paths")
+        count = 0
+        width = args.width if args.width is not None else HEADER_WIDTH
+        for path, number, name, token, hint, text in header_findings(args.paths, width):
+            count += 1
+            print(f"{path}:{number}: {name} [{token}] -- {hint}")
+            print(f"    {text[:110]}")
+        if count:
+            print(f"\n{count} finding(s). A config header is read as fixed-width text; "
+                  f"see the ai-tools-technical-docs skill.")
+        return 1 if count else 0
+
     checks = DEFAULT_CHECKS + (EXTRA_CHECKS if args.all else [])
     if args.staged:
         source = staged_lines()
@@ -774,12 +891,20 @@ def main():
                   for number, line in enumerate(open(args.message, errors="ignore"), 1))
     else:
         source = file_lines(args.paths)
+    # Read twice -- once as sentences, once as lines -- so the source is held rather than streamed.
+    source = list(source)
 
     count = 0
     for path, number, name, token, hint, text in findings(source, checks, PATH_CHECKS):
         count += 1
         print(f"{path}:{number}: {name} [{token}] -- {hint}")
         print(f"    {text[:110]}")
+    if args.wrap:
+        for path, number, name, token, hint, text in comment_line_findings(
+                source, args.width if args.width is not None else SOURCE_WIDTH):
+            count += 1
+            print(f"{path}:{number}: {name} [{token}] -- {hint}")
+            print(f"    {text[:110]}")
     if count:
         print(f"\n{count} finding(s). See the ai-tools-technical-docs skill; "
               f"mark a deliberate example with '{ALLOW_MARKER}'.")

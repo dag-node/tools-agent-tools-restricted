@@ -200,6 +200,12 @@ departs the installed-helper pattern the other way: it runs a `TESTDIR` copy of
 fixture `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the
 three-way match, `vX.Y.Z-rc.N` compares its base and relaxes only the `%changelog` match,
 any other dashed tag is refused, a missing `%changelog` entry is fatal for every form.
+`fill-comments.sh` is a second repo-tool test: it drives `tools/fill-comments.sh`, the
+Emacs-driven formatter for the comment wrap rule, over one fixture carrying every shape the tool
+must fill or leave alone — a long paragraph filled inside the column with no line ending on a tie
+word (the checker's `--wrap` mode is the oracle), and an aligned table, a linter directive, a
+commented default, a shebang and a code line each back byte-identical — and asserts a second run
+leaves the file as the first left it. Skipped without Emacs.
 `cli-verbs.sh` is the same shape one layer in: a pure text check that the CLI's four
 **gating tables** — `OPERATOR_VERBS`, `ROOT_ALLOWED_VERBS`, `BOOTSTRAP_EXEMPT_VERBS`,
 `FOR_ALLOWED_VERBS` — still describe the verbs it dispatches. The failure it exists for is
@@ -213,11 +219,19 @@ check asserts required **content** rather than consistency: `--help` and `--vers
 leaves the gate's refusal as the only route to the provisioning command — a regression visible
 only on the host nobody develops against.
 
-`man.sh` is a pure text-sync check over both of this project's man pages and the `usage()`
-heredoc of the command each documents — `ai-tools(1)` against the CLI, `ai-tools-admin(8)`
-against the admin helper — validated from the repo sources (or the installed pair outside a
-checkout) and executing neither command, since the CLI's bootstrap gate fail-closes on an
-unprovisioned host and the helper refuses a non-root caller. In each pair the help is
+`man.sh` is a pure text-sync check over this project's man pages and what each documents. The
+two command pages are held to the `usage()` heredoc of their command — `ai-tools(1)` against the
+CLI, `ai-tools-admin(8)` against the admin helper — validated from the repo sources (or the
+installed pair outside a checkout) and executing neither command, since the CLI's bootstrap gate
+fail-closes on an unprovisioned host and the helper refuses a non-root caller. The config pages
+are held to their files: `allowed-projects(5)` and `secret-patterns(5)` to the header each file
+is seeded with (capped, naming the page, registering no entry) and to the parser each file is
+read with, through which the page's own examples are loaded; `operator.conf(5)` and
+`custom-claude-endpoint.conf(5)` to the keys their shipped templates mention, in both directions,
+read with `ai_tools_conf_keys` so the test and `system post-upgrade` agree on what *mentioned*
+means. It closes by running the checker's `--config-header` mode over every config header this
+project writes, so each holds to 72 columns with no line ending on a tie word
+([providers](providers.rule.md) states the placement rule). In each pair the help is
 orientation and the page is the reference (see [cli](cli.rule.md)), so it asserts relations
 rather than set equality. For `ai-tools(1)`: the **verb** sets match in both directions, every
 option the help names is documented, and every option the page documents is one a CLI **parser**

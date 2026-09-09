@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/man.sh
-# Hermetic sync test between this project's two man pages and the help text of the command each
-# documents: ai-tools(1) against the CLI's usage(), and ai-tools-admin(8) against the admin
-# helper's. In both pairs the page and the help are no longer copies of each other -- usage() is
-# orientation while the page is the reference -- so equality of their whole option sets is the
-# wrong contract and is what used to make slimming the help impossible.
+# Hermetic sync test between this project's man pages and what each documents: ai-tools(1)
+# against the CLI's usage(), ai-tools-admin(8) against the admin helper's, ai-tools-providers(5)
+# against the shipped manifests, allowed-projects(5) and secret-patterns(5) against the header
+# each file is seeded with and the parser its examples must load in, and operator.conf(5)
+# and custom-claude-endpoint.conf(5) against the keys their shipped templates mention. It closes
+# by holding every config header this project writes to the fixed-width rule (72 columns, no line
+# ending on a tie word). In the two command pairs the page and the help are not copies of each
+# other -- usage() is orientation while the page is the reference -- so equality of their whole
+# option sets is the wrong contract and is what made slimming the help impossible.
 #
 # ai-tools(1), four checks:
 #   (1) the VERB sets match in both directions;
@@ -314,5 +318,206 @@ check_providers_page() {
     th_version "${PROVIDERS_MAN}" AI-TOOLS-PROVIDERS
 }
 check_providers_page
+
+# ── The seeded operator files: allowed-projects(5), secret-patterns(5) ──────────
+# The header each *_seed function in conf.lib.sh prints is written into an operator's file once,
+# at enrolment, and no upgrade rewrites it -- so the reference lives in the page,
+# which the package replaces on every upgrade, and the header stays a pointer. check_seed_header holds
+# that shape for both files: the header is short (the cap is what stops it regrowing into a second
+# reference), it names its page, and it is comment-only, so a seeded file registers no entry.
+# Each page then has its EXAMPLES read through the parser its file is read with, so an example
+# the manual shows is one the file accepts, and its .TH version field checked.
+readonly SEED_HEADER_MAX_LINES=15
+
+# man5_path <name>: the repo page, or the installed page (possibly gzipped) outside a checkout.
+man5_path() {
+    local page="${ROOT}/src/usr/local/share/man/man5/$1.5"
+    [[ -r "${page}" ]] || page="/usr/local/share/man/man5/$1.5"
+    [[ -r "${page}" ]] || page="/usr/local/share/man/man5/$1.5.gz"
+    printf '%s' "${page}"
+}
+# man_examples <page>: the lines inside every .EX/.EE block of <page>, with troff's no-op
+# escape (\&) removed so a line the page had to protect from macro expansion reads as written.
+man_examples() {
+    read_man "$1" | awk '/^\.EX/{on=1;next} /^\.EE/{on=0} on' | sed 's/^\\&//'
+}
+
+# check_seed_header <seed-fn> <page-name>: the three shape checks on a seeded header.
+check_seed_header() {
+    local seed="$1" name="$2" header lines
+    if ! declare -F "${seed}" >/dev/null 2>&1; then
+        skip "${name} seed header" "${seed} not defined by ${CONF_LIB}"; return
+    fi
+    header="$("${seed}")"
+    lines="$(grep -c . <<< "${header}")"
+    if (( lines <= SEED_HEADER_MAX_LINES )); then
+        pass "the seeded ${name} header is a pointer (${lines} lines, cap ${SEED_HEADER_MAX_LINES})"
+    else
+        fail "the seeded ${name} header has grown to ${lines} lines (cap ${SEED_HEADER_MAX_LINES}): a reference belongs in ${name}(5)"
+    fi
+    if grep -q "man 5 ${name}" <<< "${header}"; then
+        pass "the seeded ${name} header names its page (man 5 ${name})"
+    else
+        fail "the seeded ${name} header does not name 'man 5 ${name}'"
+    fi
+    if grep -qvE '^(#|$)' <<< "${header}"; then
+        fail "the seeded ${name} header carries a line that is not a comment -- it would register an entry"
+    else
+        pass "the seeded ${name} header registers no entry"
+    fi
+}
+
+ALLOWLIST_MAN="$(man5_path allowed-projects)"
+section "man page: allowed-projects(5) and the seeded allowlist header (unit)"
+check_allowlist_page() {
+    if [[ ! -r "${ALLOWLIST_MAN}" ]]; then
+        skip "allowed-projects page" "allowed-projects.5 not found in the repo or installed"; return
+    fi
+    # shellcheck source=/dev/null
+    if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf_path_entry >/dev/null 2>&1; then
+        skip "allowed-projects seed header" "conf.lib.sh not loadable from ${CONF_LIB}"; return
+    fi
+    check_seed_header ai_tools_conf_allowlist_seed allowed-projects
+
+    # Every entry-shaped example -- a path, an exclusion, or a quoted path -- parses as an entry;
+    # the CLI invocations in the same blocks are not entries and are not read.
+    local -a examples=(); local line bad=0
+    mapfile -t examples < <(man_examples "${ALLOWLIST_MAN}" | grep -E '^[/!"]' || true)
+    if (( ${#examples[@]} == 0 )); then
+        fail "allowed-projects(5) EXAMPLES carry no entry-shaped line to check"
+    else
+        for line in "${examples[@]}"; do
+            # shellcheck disable=SC2154  # _ai_tools_conf_value is set by ai_tools_conf_path_entry in the sourced library
+            if ai_tools_conf_path_entry "${line}" && [[ "${_ai_tools_conf_value}" == /* || "${_ai_tools_conf_value}" == '!/'* ]]; then :
+            else fail "allowed-projects(5) example does not parse as an entry: ${line}"; bad=1; fi
+        done
+        (( bad )) || pass "every entry-shaped EXAMPLES line in allowed-projects(5) parses through the shared grammar (${#examples[@]} lines)"
+    fi
+    th_version "${ALLOWLIST_MAN}" ALLOWED-PROJECTS
+}
+check_allowlist_page
+
+SECRET_MAN="$(man5_path secret-patterns)"
+SECRET_LIB="${ROOT}/src/usr/local/lib/ai-tools/secret-patterns.lib.sh"
+[[ -r "${SECRET_LIB}" ]] || SECRET_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
+section "man page: secret-patterns(5) and the seeded patterns header (unit)"
+check_secret_patterns_page() {
+    if [[ ! -r "${SECRET_MAN}" ]]; then
+        skip "secret-patterns page" "secret-patterns.5 not found in the repo or installed"; return
+    fi
+    # shellcheck source=/dev/null
+    if ! source "${CONF_LIB}" 2>/dev/null || ! source "${SECRET_LIB}" 2>/dev/null \
+            || ! declare -F ai_tools_load_secret_patterns >/dev/null 2>&1; then
+        skip "secret-patterns seed header" "conf.lib.sh or secret-patterns.lib.sh not loadable"; return
+    fi
+    check_seed_header ai_tools_conf_secret_patterns_seed secret-patterns
+
+    # The page's example patterns load as patterns: the pattern-shaped lines of EXAMPLES (not
+    # the CLI invocations) are written to a file, read through the library's own loader, and must
+    # come back one for one, each a basename glob with no '/'.
+    local -a examples=() loaded=(); local pattern bad=0 file
+    mapfile -t examples < <(man_examples "${SECRET_MAN}" | grep -vE '^(ai-tools|#|$)' || true)
+    if (( ${#examples[@]} == 0 )); then
+        fail "secret-patterns(5) EXAMPLES carry no pattern line to check"; return
+    fi
+    file="$(mktemp)"
+    printf '%s\n' "${examples[@]}" > "${file}"
+    AI_TOOLS_SECRET_PATTERNS_FILE="${file}" ai_tools_load_secret_patterns
+    loaded=( "${AI_TOOLS_SECRET_PATTERNS[@]}" )
+    rm -f "${file}"
+    _AI_TOOLS_PATTERNS_LOADED=""
+    for pattern in "${examples[@]}"; do
+        [[ "${pattern}" == */* ]] && { fail "secret-patterns(5) example carries a '/', which a basename glob never matches: ${pattern}"; bad=1; }
+    done
+    if (( ${#loaded[@]} != ${#examples[@]} )); then
+        fail "secret-patterns(5) EXAMPLES: ${#examples[@]} pattern lines loaded as ${#loaded[@]} patterns"; bad=1
+    fi
+    (( bad )) || pass "every pattern line in secret-patterns(5) EXAMPLES loads through the shared matcher (${#examples[@]} patterns)"
+    th_version "${SECRET_MAN}" SECRET-PATTERNS
+}
+check_secret_patterns_page
+
+# ── The shipped config templates: operator.conf(5), custom-claude-endpoint.conf(5) ──────────────
+# Each template is %config(noreplace), so a prose change to it reaches an upgraded host only
+# as an .rpmnew the operator reconciles by hand; the reference lives in the page and the template keeps
+# a brief line per option beside its commented default. check_config_page holds the two
+# in lockstep: every key the template mentions is documented under OPTIONS, and every documented
+# option is one the template mentions -- read with ai_tools_conf_keys, the same "mentioned"
+# predicate `system post-upgrade` announces a new option by, so the test and the upgrade report
+# cannot disagree.
+CONFIG_TEMPLATES="${ROOT}/src/etc/ai-tools"
+[[ -d "${CONFIG_TEMPLATES}" ]] || CONFIG_TEMPLATES="/etc/ai-tools"
+
+# check_config_page <page-name> <config-file> <TH-NAME>
+check_config_page() {
+    local name="$1" file="$2" th="$3" page key
+    page="$(man5_path "${name}")"
+    if [[ ! -r "${page}" || ! -r "${file}" ]]; then
+        skip "${name} page" "page or template not found (${page}, ${file})"; return
+    fi
+    # shellcheck source=/dev/null
+    if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf_keys >/dev/null 2>&1; then
+        skip "${name} page key sync" "conf.lib.sh not loadable from ${CONF_LIB}"; return
+    fi
+    local -a documented=() used=()
+    # The tag line after each .TP or .TQ under OPTIONS, where the tag opens with the key token.
+    mapfile -t documented < <(man_section "${page}" OPTIONS \
+        | awk 'prev==".TP"||prev==".TQ"{print} {prev=$0}' \
+        | grep -oE '^\.B[IR]? [A-Z][A-Z0-9_]*' | awk '{print $2}' | sort -u)
+    ai_tools_conf_keys used "${file}"
+    mapfile -t used < <(printf '%s\n' "${used[@]}" | sort -u)
+    (( ${#used[@]} > 0 )) || { fail "${name}: the template mentions no key"; return; }
+    local missing=0 stale=0
+    for key in "${used[@]}"; do
+        printf '%s\n' "${documented[@]}" | grep -qx "${key}" \
+            || { fail "${name}(5): the template mentions '${key}', which OPTIONS does not document"; missing=1; }
+    done
+    (( missing )) || pass "${name}(5) documents every key the template mentions (${#used[@]} keys)"
+    for key in "${documented[@]}"; do
+        printf '%s\n' "${used[@]}" | grep -qx "${key}" \
+            || { fail "${name}(5) documents '${key}', which the template does not mention"; stale=1; }
+    done
+    (( stale )) || pass "every option ${name}(5) documents is one the template mentions"
+    th_version "${page}" "${th}"
+}
+section "man page: the shipped config templates in sync with their pages (unit)"
+check_config_page operator.conf "${CONFIG_TEMPLATES}/operator.conf" OPERATOR.CONF
+check_config_page custom-claude-endpoint.conf "${CONFIG_TEMPLATES}/endpoints/custom-claude-endpoint.conf" CUSTOM-CLAUDE-ENDPOINT.CONF
+
+# ── Config headers are fixed-width text ───────────────────────────────────────────────────────
+# An operator reads a config file in a terminal, where nothing reflows it, so every header this
+# project writes -- the two seeds and the two shipped templates -- holds to 72 columns and carries
+# no comment line ending on a word that ties to the next one. The rule is the checker's
+# --config-header mode (the ai-tools-technical-docs skill); this runs it over the four.
+section "config headers: 72 columns, no line ending on a tie word (unit)"
+PROSE_CHECK=""
+for candidate in \
+    "${ROOT}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py" \
+    "/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py" \
+    "/opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py"; do
+    [[ -r "${candidate}" ]] && { PROSE_CHECK="${candidate}"; break; }
+done
+check_config_headers() {
+    if [[ -z "${PROSE_CHECK}" ]] || ! command -v python3 >/dev/null 2>&1; then
+        skip "config header format" "prose-check.py or python3 not available"; return
+    fi
+    # shellcheck source=/dev/null
+    if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf_allowlist_seed >/dev/null 2>&1; then
+        skip "config header format" "conf.lib.sh not loadable from ${CONF_LIB}"; return
+    fi
+    local dir out rc=0
+    dir="$(mktemp -d)"
+    ai_tools_conf_allowlist_seed > "${dir}/allowed-projects"
+    ai_tools_conf_secret_patterns_seed > "${dir}/secret-patterns"
+    out="$(python3 "${PROSE_CHECK}" --config-header "${dir}/allowed-projects" "${dir}/secret-patterns" \
+        "${CONFIG_TEMPLATES}/operator.conf" "${CONFIG_TEMPLATES}/endpoints/custom-claude-endpoint.conf" 2>&1)" || rc=$?
+    rm -rf "${dir}"
+    if (( rc == 0 )); then
+        pass "the two seeded headers and the two shipped templates hold to 72 columns with no tie-word line end"
+    else
+        fail "a config header breaks the width or tie rule:"$'\n'"${out}"
+    fi
+}
+check_config_headers
 
 finish
