@@ -1,0 +1,2 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+## <summary>ai_tools layout module for the dotnet integration: types the build-output directories the integration's manifest names ai_tools_project_build_t at creation and in sandbox clones. Type transitions and file contexts only; it does not add any permission and exports no interfaces.</summary>

@@ -10,7 +10,7 @@
 #   sudo ai-tools-admin operators add [user]               # default: $SUDO_USER
 #   sudo ai-tools-admin operators remove <user>
 #   sudo ai-tools-admin selinux groups                     # show core + optional group state
-#   sudo ai-tools-admin selinux groups enable <name>       # load a prebuilt (stable) group
+#   sudo ai-tools-admin selinux groups enable <name>...    # load prebuilt (stable) groups
 #   sudo ai-tools-admin selinux groups disable <name>      # unload one
 #   sudo ai-tools-admin system bootstrap                   # provision the sandbox account's toolchain
 #   sudo ai-tools-admin system bootstrap --scope full      # ... and every enabled integration
@@ -32,7 +32,7 @@
 # membership (drops the name from OPERATORS and ai-ops), leaving the user's own allowlist and config.
 # `list` prints the current operators.
 #
-# `selinux groups` toggles the optional policy groups (systemd/pkgmgmt/netadmin/podman/tmpmap/apphost/netcore), all off
+# `selinux groups` toggles the optional policy groups (systemd/pkgmgmt/netadmin/podman/tmpmap/apphost/localipc/buildexec), all off
 # by default. It loads the PREBUILT ai_tools_<group>.pp shipped in the base package via semodule --
 # no source tree or selinux-policy-devel needed on the host. The group set, descriptions, and
 # per-group stability are single-sourced from selinux-groups.lib.sh, shared with
@@ -165,7 +165,7 @@ ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, the t
     operators remove <user>          withdraw an operator's enrolment
   SELinux
     selinux groups                   the core module and the optional groups
-    selinux groups enable <name>     load a prebuilt optional group
+    selinux groups enable <name>...  load prebuilt optional groups
     selinux groups disable <name>    unload a loaded group
   System
     system bootstrap [--scope full]  provision the sandbox account and its toolchain
@@ -772,15 +772,26 @@ _selinux_usage_groups() {
     done
 }
 
+# sel_enable <name>...: load each named group in turn. Several names are accepted because a
+# toolchain declares the set it needs (selinux_groups in its manifest, ai-tools-providers(5)) and
+# the status nudge prints that set as one command; each name is validated before any is loaded,
+# so a typo refuses the whole command rather than loading half of it.
 sel_enable() {
-    local name="${1:-}"
-    [[ $# -le 1 ]] || reject "selinux groups enable: one group name at a time"
-    [[ -n "${name}" && "${name}" != -* ]] || reject "selinux groups enable: name the group to load"
+    [[ $# -ge 1 ]] || reject "selinux groups enable: name the group(s) to load"
     require_selinux || return 0
-    if ! ai_tools_selinux_group_valid "${name}"; then
-        log "unknown group '${name}'. Available groups:"; _selinux_usage_groups
-        die "no such policy group: ${name}"
-    fi
+    local name
+    for name in "$@"; do
+        [[ -n "${name}" && "${name}" != -* ]] || reject "selinux groups enable: '${name}' is not a group name"
+        if ! ai_tools_selinux_group_valid "${name}"; then
+            log "unknown group '${name}'. Available groups:"; _selinux_usage_groups
+            die "no such policy group: ${name}"
+        fi
+    done
+    for name in "$@"; do _sel_enable_one "${name}"; done
+}
+
+_sel_enable_one() {
+    local name="$1"
     if ai_tools_selinux_group_loaded "${name}"; then
         log "group '${name}' is already loaded -- nothing to do"
         return 0
@@ -801,8 +812,26 @@ sel_enable() {
     fi
     local pp="${AI_TOOLS_SELINUX_PACKAGE_DIR}/ai_tools_${name}.pp"
     [[ -f "${pp}" ]] || die "prebuilt module ${pp} not found -- reinstall ai-tools-base"
-    log "loading group: ai_tools_${name}"
-    semodule -i "${pp}" || die "semodule failed to load ${pp}"
+    # A former module still loaded from before this group was renamed or split out of it goes
+    # in the same transaction, together with every OTHER current group that former module's
+    # rules became, so the host never holds both rule sets, never loses a capability the old
+    # module carried, and a failed load leaves the old module in place.
+    local former sibling
+    local -a swap_args=( -i "${pp}" )
+    if former="$(ai_tools_selinux_group_former_module "${name}" 2>/dev/null)" \
+            && ai_tools_selinux_module_loaded "${former}"; then
+        while IFS= read -r sibling; do
+            [[ -n "${sibling}" && "${sibling}" != "${name}" ]] || continue
+            [[ -f "${AI_TOOLS_SELINUX_PACKAGE_DIR}/ai_tools_${sibling}.pp" ]] || continue
+            swap_args+=( -i "${AI_TOOLS_SELINUX_PACKAGE_DIR}/ai_tools_${sibling}.pp" )
+        done < <(ai_tools_selinux_groups_from_former_module "${former}")
+        log "replacing the loaded '${former}' module with the group(s) its rules became"
+        semodule -r "${former}" "${swap_args[@]}" || die "semodule failed to replace ${former}"
+    else
+        log "loading group: ai_tools_${name}"
+        semodule "${swap_args[@]}" || die "semodule failed to load ${pp}"
+    fi
+    _restore_group_static_labels
     log "group '${name}' enabled"
     log "re-run the SELinux bring-up loop (selinux/avc/) to catch any new denials from the"
     log "expanded surface before relying on it under enforcing."
@@ -819,10 +848,23 @@ sel_disable() {
     fi
     if ai_tools_selinux_group_loaded "${name}"; then
         semodule -r "ai_tools_${name}" || die "semodule failed to remove ai_tools_${name}"
+        _restore_group_static_labels
         log "group '${name}' disabled"
     else
         log "group '${name}' is not loaded -- nothing to do"
     fi
+}
+
+# _restore_group_static_labels: after a group is loaded or unloaded, restore the labels its static
+# file contexts decide. The one tree a group's .fc names is the sandbox-clone area (the dotnet group
+# maps a clone's build output to ai_tools_project_build_t), so that is what is restored; a claimed
+# project's build rule is a per-project local rule written at claim time and is not the group's.
+_restore_group_static_labels() {
+    local clones=/var/opt/ai-tools/sandbox-projects
+    [[ -d "${clones}" ]] && command -v restorecon >/dev/null 2>&1 || return 0
+    restorecon -FR "${clones}" >/dev/null 2>&1 \
+        || warn "could not restore labels under ${clones}; run: sudo restorecon -FR ${clones}"
+    return 0
 }
 
 # sel_list is a read-only REPORT, not operational output, so it renders as a plain section (like

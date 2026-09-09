@@ -234,6 +234,14 @@ the helper. That is what catches a page still naming a command after the dispatc
 without pinning where in the nesting the arm sits. Both pages are then checked for a non-empty
 `.TH` version field.
 
+`ai-tools-providers(5)` is the third page, and its pairing is with **data** rather than a
+command: the shipped manifests under `agents.d` and `integrations.d` carry a pointer to it and no
+key documentation of their own, so the page is the only statement of what a key means. The keys
+each manifest sets are read with `ai_tools_conf_keys`, the parser the tooling uses, and compared
+with the `.TP` tags under KEYS in both directions — a key a manifest sets and the page lacks is an
+operator reading a file the manual does not explain, and a documented key no manifest sets is a
+stale entry.
+
 `sandbox.sh` closes with `tree_is_pristine`, which is not a sandbox helper but belongs to the same
 class: a pure decision with a security consequence. `--project-create` skips the secret scan, the
 git-history prompt and the proceed confirm when it returns 0, so every way it could wrongly say yes
@@ -260,7 +268,11 @@ an indented **example** in a header block is not, so a file seeded with `operato
 grammar comments is not mistaken for one that already knows every option.
 `providers.sh` drives the enablement truth table and then, for each untrusted input in turn
 — `operator.conf`, a manifest, a manifest directory — asserts the resolver moves to *less*
-access and says so, never more. It then drives the empty-set verdict the updater reads once the
+access and says so, never more. It closes with the installed-manifest field reader
+(`ai_tools_installed_integrations_declaring`), which `relabel.lib.sh` reads `build_output_dirs`
+through: a key is read from an installed integration whether or not it is enabled, since a
+project's label is applied at claim time, and an untrusted manifest or directory does not yield
+any value, under the same trust rules as the resolver. It then drives the empty-set verdict the updater reads once the
 resolver printed an empty set: each refused input, and an allowlist none of whose names resolved, reads
 `fault` with the path and the owner and mode named on one line, while an empty allowlist, an empty
 manifest directory, and a set of `default_enable=no` manifests read `none` — the split that decides
@@ -404,6 +416,17 @@ splitting a status line or carrying an escape sequence to the operator's termina
 so they need no provisioned host; the resolution they consume is exercised in
 `integration/selinux.sh`.
 
+The build-output rule beside the project rule (see [dotnet](dotnet.rule.md)) is driven with the
+manifest reader, `semanage` and `restorecon` stubbed: the pattern unions the names every installed
+integration declares in C-locale order, refuses a name carrying a path or a regex metacharacter
+(a manifest could otherwise widen the rule past the directories it names) and escapes a dot; a
+label registers the project rule first and the build rule second, since among rules sharing a stem
+the later one is the match; a build rule the store refuses fails the label rather than being
+skipped; a sandbox clone registers neither; and an unlabel drops the build rule it finds by
+**listing** the local rules under the project rule — an older name set included, a sibling
+project's rule untouched, a pattern with a space parsed whole — so no rule outlives the claim on a
+subtree the confined domain manages.
+
 Two further sections cover what happens when a rule does **not** register, with `semanage` stubbed
 as a shell function so no policy store is touched. The first asserts the refusal carries
 `semanage`'s stderr, collapsed to one line, and that it arrives on the **status line** rather than
@@ -469,9 +492,15 @@ validity predicate the `selinux groups enable` gate depends on (an unknown name 
 shipped module or refuses and points to the source workflow). And — because only **stable** groups
 ship prebuilt — registry↔filesystem lockstep: every registered group has a `.te` source; a
 **stable** group additionally has a **committed** `.pp` while an **experimental** group must have
-**no committed** `.pp` (source-only, so a compiled dev copy left tracked is caught); and no policy
-module on disk is missing from the registry. The lockstep half reads git track-state, so it needs
-the checkout.
+**no committed** `.pp` (source-only, so a compiled dev copy left tracked is caught); and every
+policy module on disk is either a registered group or a **layout module** some shipped
+integration manifest declares (`selinux_layout_module`), which ships prebuilt like a stable group
+and so must have a committed `.pp` too. The lockstep half reads git track-state, so it needs
+the checkout. It also pins the former-module seam: each group split out of the old
+`ai_tools_netcore` module names it as its former module, the reverse read yields both groups
+(the set a swap loads in the old module's place, or a host loses the half it did not ask for), a
+group without a former module reports none, and no former name collides with a current group's
+module — the swap would otherwise unload a live group.
 
 It closes with the registry's one impure accessor, `ai_tools_selinux_group_loaded`, whose failure
 mode is a **race** rather than a wrong answer: `semodule -l` needs several writes to deliver a
@@ -508,7 +537,13 @@ shim has one file to answer to; `handback.sh` keeps the bridge and the entrypoin
 `ai_tools_handback_t` is marked permissive; it skips when the module is absent (the layer is
 optional). It also holds the two entrypoint assertions that need a labelled host — that each
 agent's declared file-context rule still covers what its package installed, and that no link in
-the exec chain carries a type the confined domain may manage. `systemd.sh` is the single home for unit checks:
+the exec chain carries a type the confined domain may manage — and, where the `ai_tools_dotnet`
+layout module is loaded, the build-output labelling that only libselinux can answer: a path under
+one of the module's directories resolves to `ai_tools_project_build_t` and every other clone path
+to `ai_tools_project_t` (the rule precedence the narrowing rests on, read with `matchpathcon`),
+and a `bin/` directory created in the sandbox area by `unconfined_t` is born on the build type with
+no `restorecon`. The `ai_tools_t` transition and the `buildexec` execute grant need a session, and
+`selinux/avc/avc-testsuite.sh` probes them. `systemd.sh` is the single home for unit checks:
 `systemd-analyze verify` on each shipped unit, plus enablement in the correct instance —
 the `nvm-update` timer in the sandbox account's own `--user` instance, the relabel watcher
 and handback socket in the system instance. The

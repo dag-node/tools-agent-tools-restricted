@@ -4,8 +4,12 @@
 # Single source of the SELinux labelling primitives the sandbox applies at runtime, in two
 # families:
 #   * PROJECTS -- map an approved project directory to ai_tools_project_t (or revert it) so the
-#     confined agent (ai_tools_t) can read and write the tree. Sourced by the root helper
-#     ai-tools-relabel and by selinux/install-selinux.sh's allowlist sweep.
+#     confined agent (ai_tools_t) can read and write the tree, and its build-output directories
+#     to ai_tools_project_build_t. The directory names come from the installed integration
+#     manifests (build_output_dirs, see .claude/rules/dotnet.rule.md), so this library does not
+#     name any toolchain's layout, and a host where no integration declares any writes only the
+#     project rule. Sourced by the root helper ai-tools-relabel and by selinux/install-selinux.sh's
+#     allowlist sweep.
 #   * AGENT PATHS -- map each enabled agent's own paths to the types this policy defines: its
 #     launcher binary to ai_tools_exec_t (the label that drives the -> ai_tools_t domain
 #     transition on exec) and its config directory to ai_tools_home_t (so the confined session can
@@ -33,6 +37,9 @@
 # script keeps `set -e` semantics by checking the return value.
 
 readonly AI_TOOLS_PROJECT_TYPE="ai_tools_project_t"
+# The type of a project's build-output directories. Pinned here like the other types: a manifest
+# declares which directory NAMES are build output (build_output_dirs), never what type they get.
+readonly AI_TOOLS_PROJECT_BUILD_TYPE="ai_tools_project_build_t"
 readonly AI_TOOLS_SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
 # The entrypoint type is pinned HERE, not read from a manifest: an agent package declares only
 # WHICH path is its entrypoint, never what type to give it, so no manifest can label a file into
@@ -124,12 +131,72 @@ ai_tools_relabel_available() {
 # root, whose subtree ai_tools.fc already maps to ai_tools_project_t.
 _ai_tools_is_sandbox() { [[ "$1/" == "${AI_TOOLS_SANDBOX_ROOT}/"* ]]; }
 
-# ai_tools_label_project <dir>: ensure <dir> and its subtree carry ai_tools_project_t.
-# Adds (or refreshes) the per-project fcontext rule -- skipped for sandbox clones, which the
-# static rule already covers -- then forces the label with `restorecon -FR`.
-# Returns 2 if SELinux is unavailable, 1 on a hard failure (e.g. the type is not in the loaded
+# _ai_tools_build_output_names: print the build-output directory names every installed integration
+#   declares (build_output_dirs), one per line, deduplicated. A name is accepted only as one plain
+#   component -- letters, digits, `.`, `_`, `-` -- since it is spliced into a file-context regex
+#   and a `/`, a `|` or a `(` would let a manifest widen the rule past the directories it names.
+#   Sorted in the C locale, so the pattern a claim writes is the same on every host. Empty when
+#   no integration declares any, or the provider resolver is not loaded.
+_ai_tools_build_output_names() {
+    declare -F ai_tools_installed_integrations_declaring >/dev/null 2>&1 || return 0
+    local declared name
+    local -a names
+    while IFS=$'\t' read -r _ declared; do
+        [[ -n "${declared}" ]] || continue
+        names=()
+        ai_tools_conf_split names "${declared}"
+        for name in "${names[@]}"; do
+            [[ "${name}" =~ ^[A-Za-z0-9._-]+$ && "${name}" != *..* ]] || continue
+            printf '%s\n' "${name}"
+        done
+    done < <(ai_tools_installed_integrations_declaring build_output_dirs 2>/dev/null) | LC_ALL=C sort -u
+}
+
+# ai_tools_project_build_pattern <dir>: print the file-context pattern matching every declared
+#   build-output directory, at any depth under <dir>, and everything inside it --
+#   `<dir>(/.*)?/(bin|obj)(/.*)?` for the names bin and obj. Dots in a name are escaped. Prints an
+#   empty string and returns 1 when no name is declared, and the caller then skips the build rule.
+#
+#   Precedence over the project rule `<dir>(/.*)?` is what makes it a narrowing rather than a
+#   no-op: libselinux keys precedence on the literal stem before the first metacharacter, which the
+#   two rules share, and among equal stems the later, longer regex is the match. So the project
+#   rule is registered FIRST and this one second (ai_tools_label_project), and the result is
+#   verified with matchpathcon on a nested path when the policy is brought up, not assumed.
+ai_tools_project_build_pattern() {
+    local dir="$1" alternation="" name
+    while IFS= read -r name; do
+        [[ -n "${name}" ]] || continue
+        alternation+="${alternation:+|}${name//./\\.}"
+    done < <(_ai_tools_build_output_names)
+    [[ -n "${alternation}" ]] || return 1
+    printf '%s(/.*)?/(%s)(/.*)?' "${dir}" "${alternation}"
+}
+
+# _ai_tools_local_rules_under <dir>: print every LOCAL file-context pattern registered below
+#   <dir>'s own rule -- the ones that start with `<dir>(/.*)?/` -- one per line. That is how an
+#   unlabel finds the build rule it has to drop without recomputing it: the declared name set may
+#   have changed since the claim, and a rule left behind would keep a subtree of an unclaimed
+#   project on a type the confined domain manages. Parses `semanage fcontext -l -C -n` rows
+#   (pattern, file-type words, context), stripping the trailing two fields so a pattern carrying
+#   a space survives. Root-only, since the store is.
+_ai_tools_local_rules_under() {
+    local prefix="$1(/.*)?/" line pattern
+    while IFS= read -r line; do
+        pattern="$(sed -E 's/[[:space:]]+(all files|regular file|directory|character device|block device|socket|symbolic link|named pipe)[[:space:]]+[^[:space:]]+[[:space:]]*$//' <<<"${line}")"
+        [[ "${pattern}" == "${prefix}"* ]] || continue
+        printf '%s\n' "${pattern}"
+    done < <(semanage fcontext -l -C -n 2>/dev/null || true)
+}
+
+# ai_tools_label_project <dir>: ensure <dir> and its subtree carry ai_tools_project_t, and its
+# declared build-output directories ai_tools_project_build_t.
+# Adds (or refreshes) the per-project fcontext rules -- skipped for sandbox clones, which the
+# static rules already cover -- then forces the label with `restorecon -FR`.
+# Returns 2 if SELinux is unavailable, 1 on a hard failure (e.g. a type is not in the loaded
 # policy because the module is not installed, or restorecon left the tree on the wrong type
-# because no fcontext rule matched the path), 0 on success.
+# because no fcontext rule matched the path), 0 on success. Both rules must register: a build
+# rule the store refuses is a policy older than this library, and reporting it as a failed label
+# is what gets the module rebuilt rather than leaving output on a type the group cannot run.
 #
 # The relabel is FORCED (`-F`), and that is load-bearing, not a tuning choice. A file created
 # inside a labelled directory inherits ai_tools_project_t on its own, so an ordinary edit never
@@ -146,7 +213,7 @@ _ai_tools_is_sandbox() { [[ "$1/" == "${AI_TOOLS_SANDBOX_ROOT}/"* ]]; }
 # survive a future restorecon, and re-asserting it is how a type change from a policy bump reaches
 # an existing project.
 ai_tools_label_project() {
-    local dir="$1"
+    local dir="$1" build_pattern
     ai_tools_relabel_available || return 2
     if ! _ai_tools_is_sandbox "${dir}"; then
         # `-a` on an existing entry reports it on stdout as well as failing, so both streams are
@@ -154,6 +221,12 @@ ai_tools_label_project() {
         semanage fcontext -a -t "${AI_TOOLS_PROJECT_TYPE}" "${dir}(/.*)?" >/dev/null 2>&1 \
             || semanage fcontext -m -t "${AI_TOOLS_PROJECT_TYPE}" "${dir}(/.*)?" >/dev/null 2>&1 \
             || return 1
+        # The build rule goes in AFTER the project rule (see ai_tools_project_build_pattern).
+        if build_pattern="$(ai_tools_project_build_pattern "${dir}")"; then
+            semanage fcontext -a -t "${AI_TOOLS_PROJECT_BUILD_TYPE}" -- "${build_pattern}" >/dev/null 2>&1 \
+                || semanage fcontext -m -t "${AI_TOOLS_PROJECT_BUILD_TYPE}" -- "${build_pattern}" >/dev/null 2>&1 \
+                || return 1
+        fi
     fi
     restorecon -FR "${dir}" 2>/dev/null || return 1
     # Post-condition: verify the achieved label, do not trust restorecon's exit code. restorecon
@@ -165,16 +238,22 @@ ai_tools_label_project() {
     ai_tools_project_labelled "${dir}" || return 1
 }
 
-# ai_tools_unlabel_project <dir>: drop any per-project fcontext rule for <dir> and
-# restorecon the subtree back to its default type (e.g. user_home_t). The semanage
-# delete is skipped for sandbox clones (no local rule was ever added); the
+# ai_tools_unlabel_project <dir>: drop the per-project fcontext rules for <dir> -- its own rule
+# and every local rule registered below it (the build rule, under whatever name set it was
+# written with) -- and restorecon the subtree back to its default type (e.g. user_home_t). The
+# semanage deletes are skipped for sandbox clones (no local rule was ever added); the
 # restorecon still runs. Returns 2 if SELinux is unavailable, 1 on restorecon
 # failure, 0 otherwise.
 ai_tools_unlabel_project() {
-    local dir="$1"
+    local dir="$1" pattern
     ai_tools_relabel_available || return 2
-    _ai_tools_is_sandbox "${dir}" \
-        || semanage fcontext -d "${dir}(/.*)?" 2>/dev/null || true
+    if ! _ai_tools_is_sandbox "${dir}"; then
+        while IFS= read -r pattern; do
+            [[ -n "${pattern}" ]] || continue
+            semanage fcontext -d -- "${pattern}" >/dev/null 2>&1 || true
+        done < <(_ai_tools_local_rules_under "${dir}")
+        semanage fcontext -d "${dir}(/.*)?" 2>/dev/null || true
+    fi
     restorecon -FR "${dir}" 2>/dev/null || return 1
 }
 

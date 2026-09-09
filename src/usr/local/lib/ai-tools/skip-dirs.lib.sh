@@ -41,6 +41,9 @@ AI_TOOLS_SKIP_PACKAGE_DIRS=(node_modules .venv packages)   # restorable dependen
 # project where walking real build output is a performance issue, skip it per host --
 # candidates: SKIP_ARTIFACT_DIRS="bin obj" (.NET), "target" (Rust/Maven), "dist build"
 # (JS bundlers) -- and exempt any same-named source dir via the relative exclusions below.
+# This list is a walk-cost setting only. The SELinux build-output type an integration maps
+# onto its build-output directories (build_output_dirs in its manifest, applied by
+# relabel.lib.sh) is a separate mechanism with its own name set, and neither reads the other.
 AI_TOOLS_SKIP_ARTIFACT_DIRS=()
 # Project-root-relative paths walked even when their basename is in SKIP_ARTIFACT_DIRS
 # (explicit exclusions from the artifact-name skip), e.g. "src/usr/local/bin". Applied by

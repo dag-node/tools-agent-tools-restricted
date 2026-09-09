@@ -254,4 +254,65 @@ check_admin_page() {
 }
 check_admin_page
 
+# ── ai-tools-providers(5) ───────────────────────────────────────────────────────
+# The provider manifests carry a pointer to this page and no key documentation of their own, so
+# the page is the only statement of what a key means. Two directions keep it honest: every key a
+# shipped manifest sets is documented under KEYS, and every key documented there is one some
+# shipped manifest sets -- a documented key no manifest uses is a stale entry or a typo, and a
+# used key the page lacks is an operator reading a file the manual does not explain. Keys are
+# read with the same parser the tooling uses (ai_tools_conf_keys), so a commented default counts
+# the way it counts everywhere else.
+PROVIDERS_MAN="${ROOT}/src/usr/local/share/man/man5/ai-tools-providers.5"
+MANIFEST_DIRS=( "${ROOT}/src/usr/local/lib/ai-tools/agents.d" "${ROOT}/src/usr/local/lib/ai-tools/integrations.d" )
+CONF_LIB="${ROOT}/src/usr/local/lib/ai-tools/conf.lib.sh"
+if [[ ! -r "${PROVIDERS_MAN}" ]]; then
+    PROVIDERS_MAN="/usr/local/share/man/man5/ai-tools-providers.5"
+    [[ -r "${PROVIDERS_MAN}" ]] || PROVIDERS_MAN="/usr/local/share/man/man5/ai-tools-providers.5.gz"
+    MANIFEST_DIRS=( /usr/local/lib/ai-tools/agents.d /usr/local/lib/ai-tools/integrations.d )
+    CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
+fi
+section "man page: ai-tools-providers(5) in sync with the shipped manifests (unit)"
+
+check_providers_page() {
+    if [[ ! -r "${PROVIDERS_MAN}" ]]; then
+        skip "providers page" "ai-tools-providers.5 not found in the repo or installed"; return
+    fi
+    # shellcheck source=/dev/null
+    if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf_keys >/dev/null 2>&1; then
+        skip "providers page key sync" "conf.lib.sh not loadable from ${CONF_LIB}"; return
+    fi
+    # Documented keys: the tag line after each .TP under KEYS, where the whole tag is one key
+    # token. Bold words in the running prose (a command, a value) are not tags and are not keys.
+    mapfile -t documented < <(man_section "${PROVIDERS_MAN}" KEYS \
+        | awk 'prev==".TP"{print} {prev=$0}' \
+        | grep -oE '^\.B[IR]? [a-z][a-z0-9_]*$' | awk '{print $2}' | sort -u)
+    # Used keys: the union over every shipped manifest.
+    local -a used=() keys=() dir manifest key
+    for dir in "${MANIFEST_DIRS[@]}"; do
+        for manifest in "${dir}"/*.conf; do
+            [[ -e "${manifest}" ]] || continue
+            ai_tools_conf_keys keys "${manifest}"
+            used+=( "${keys[@]}" )
+        done
+    done
+    mapfile -t used < <(printf '%s\n' "${used[@]}" | sort -u)
+    (( ${#used[@]} > 0 )) || { skip "providers page key sync" "no shipped manifest found"; return; }
+
+    local missing=0
+    for key in "${used[@]}"; do
+        if printf '%s\n' "${documented[@]}" | grep -qx "${key}"; then :
+        else fail "manifest key '${key}' is set by a shipped manifest but not documented under KEYS"; missing=1; fi
+    done
+    (( missing )) || pass "every key a shipped manifest sets is documented under KEYS (${#used[@]} keys)"
+    local stale=0
+    for key in "${documented[@]}"; do
+        if printf '%s\n' "${used[@]}" | grep -qx "${key}"; then :
+        else fail "KEYS documents '${key}', which no shipped manifest sets"; stale=1; fi
+    done
+    (( stale )) || pass "every key documented under KEYS is set by a shipped manifest"
+
+    th_version "${PROVIDERS_MAN}" AI-TOOLS-PROVIDERS
+}
+check_providers_page
+
 finish

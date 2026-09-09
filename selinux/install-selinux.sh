@@ -180,6 +180,97 @@ ensure_pp() {
     fi
 }
 
+# _replace_former_group_modules: for every former module the registry records
+# (AI_TOOLS_SELINUX_GROUP_FORMER_MODULES) that is loaded, replace it with every current group
+# whose rules it carried. The new .pp files are built FIRST and the swap is one semodule
+# transaction (`-r old -i new...`), so a build or load failure leaves the old module in place and
+# the workload it served running, and the message says what to do. Runs after the core module is
+# loaded -- a current group may require a type the old core did not declare -- and before a
+# group is enabled or disabled, so every path that loads policy from this checkout migrates the
+# host.
+_replace_former_group_modules() {
+    local entry former name
+    local -a formers=() loads
+    for entry in "${AI_TOOLS_SELINUX_GROUP_FORMER_MODULES[@]}"; do
+        former="${entry#*|}"
+        printf '%s\n' "${formers[@]}" | grep -qx "${former}" 2>/dev/null && continue
+        formers+=( "${former}" )
+    done
+    for former in "${formers[@]}"; do
+        ai_tools_selinux_module_loaded "${former}" || continue
+        section "Replacing the loaded '${former}' module with the group(s) its rules became"
+        loads=()
+        while IFS= read -r name; do
+            [[ -n "${name}" ]] || continue
+            ensure_pp "ai_tools_${name}.pp"
+            loads+=( -i "${POLICY_DIR}/ai_tools_${name}.pp" )
+        done < <(ai_tools_selinux_groups_from_former_module "${former}")
+        if semodule -r "${former}" "${loads[@]}"; then
+            ok "'${former}' unloaded; $(ai_tools_selinux_groups_from_former_module "${former}" | tr '\n' ' ')loaded in its place"
+        else
+            warn "could not replace '${former}' -- it stays loaded with its former rule set;"
+            warn "    fix the cause above and re-run: sudo $0 rebuild"
+        fi
+    done
+}
+
+# _load_layout_modules: load the layout module of every installed integration that declares one
+# (selinux_layout_module in its manifest, read through providers.lib.sh with its trust rules).
+# A layout module types an integration's build-output directories and does not add any
+# permission, so it is not a group an operator enables: it loads whenever the policy is
+# (re)installed here, and
+# `ai-tools-admin <integration> bootstrap` loads it too. Compiled from source like a group.
+_load_layout_modules() {
+    declare -F ai_tools_installed_integrations_declaring >/dev/null 2>&1 || return 0
+    local integration module found=0
+    while IFS=$'\t' read -r integration module; do
+        [[ -n "${module}" ]] || continue
+        found=1
+        [[ "${module}" =~ ^ai_tools_[a-z][a-z0-9_]*$ ]] \
+            || { warn "integration ${integration} declares a layout module name that is not ai_tools_<name>: ${module}"; continue; }
+        [[ -f "${POLICY_DIR}/${module}.te" ]] \
+            || { warn "integration ${integration} declares layout module ${module}, which has no source under ${POLICY_DIR}"; continue; }
+        ensure_pp "${module}.pp"
+        log "loading layout module: ${module} (integration ${integration})"
+        if semodule -i "${POLICY_DIR}/${module}.pp"; then
+            ok "layout module ${module} loaded"
+        else
+            warn "could not load layout module ${module}; build output is typed at relabel time only"
+        fi
+    done < <(ai_tools_installed_integrations_declaring selinux_layout_module 2>/dev/null)
+    # Said out loud, because the usual cause is ordering: the INSTALLED manifests are read, so a
+    # checkout whose install.sh has not run yet declares none and the output would otherwise be
+    # silent on why a bin/ directory still types ai_tools_project_t.
+    (( found )) || log "no installed integration manifest declares a layout module (run install.sh first if one should)"
+}
+
+# _layout_modules_loaded: print the loaded layout modules the installed manifests declare, one
+# per line, for the closing summary.
+_layout_modules_loaded() {
+    declare -F ai_tools_installed_integrations_declaring >/dev/null 2>&1 || return 0
+    local integration module
+    while IFS=$'\t' read -r integration module; do
+        [[ "${module}" =~ ^ai_tools_[a-z][a-z0-9_]*$ ]] || continue
+        ai_tools_selinux_module_loaded "${module}" && printf '%s\n' "${module}"
+    done < <(ai_tools_installed_integrations_declaring selinux_layout_module 2>/dev/null)
+    return 0
+}
+
+# _groups_needed_by <group>: print the installed integrations whose manifests list <group> in
+# selinux_groups, space-separated, so the prompt can say what a group is for on this host.
+_groups_needed_by() {
+    declare -F ai_tools_installed_integrations_declaring >/dev/null 2>&1 || return 0
+    local integration declared name out=""
+    local -a names
+    while IFS=$'\t' read -r integration declared; do
+        names=(); ai_tools_conf_split names "${declared}"
+        for name in "${names[@]}"; do
+            [[ "${name}" == "$1" ]] && { out+="${out:+ }${integration}"; break; }
+        done
+    done < <(ai_tools_installed_integrations_declaring selinux_groups 2>/dev/null)
+    printf '%s' "${out}"
+}
+
 # build_pp <module.pp>: compile the named policy module from its .te/.fc source via
 # the refpolicy Makefile, then restore the .fc stub's ownership to the repo owner
 # (the Makefile creates it as root).
@@ -315,10 +406,23 @@ prompt_groups() {
 
     sayx ""
 
-    for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
+    # Stable groups are offered first, experimental ones after: the stable set is what an
+    # operator enables from a prebuilt without an audit, so it is what the prompt leads with, and
+    # the registry's own order (which groups an integration's declaration) is kept within each
+    # half. A group an installed integration declares (selinux_groups in its manifest) says so
+    # on its row, so the reason to enable it is on the line where it is answered.
+    local -a ordered=() needed
+    for stability in stable experimental; do
+        for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
+            [[ "$(ai_tools_selinux_group_stability "${entry}")" == "${stability}" ]] && ordered+=("${entry}")
+        done
+    done
+    for entry in "${ordered[@]}"; do
         name="$(ai_tools_selinux_group_name "${entry}")"
         desc="$(ai_tools_selinux_group_desc "${entry}")"
         stability="$(ai_tools_selinux_group_stability "${entry}")"
+        needed="$(_groups_needed_by "${name}")"
+        [[ -z "${needed}" ]] || desc+=" ${C_DIM}[needed by: ${needed}]${C_RST}"
         # A group loaded by an earlier install stays loaded whatever is answered here: this step
         # only ADDS modules. Show that state in the same vocabulary list-groups uses, and name
         # the verb that actually removes one -- an unmarked "Enable? [n]" beside a loaded group
@@ -580,6 +684,8 @@ case "${ACTION}" in
     semodule -i "${POLICY_DIR}/${MODULE}.pp"
     ok "core module loaded (${_mode})"
     _check_permissive_alignment
+    _replace_former_group_modules
+    _load_layout_modules
 
     section "Labelling"
     restorecon -FR "${NVM_DIR}"  2>/dev/null || true
@@ -649,6 +755,12 @@ case "${ACTION}" in
     else
         log "no optional groups loaded (core only)"
     fi
+    # Layout modules are reported apart from the groups: they load with an integration, not by
+    # an answer above, and a missing one is why fresh build output types ai_tools_project_t.
+    mapfile -t _layouts < <(_layout_modules_loaded)
+    if (( ${#_layouts[@]} )); then
+        log "layout modules loaded (with their integrations): $(_list "${_layouts[@]}")"
+    fi
     if [[ "${_mode}" == PERMISSIVE ]] && (( ${#SELECTED_GROUPS[@]} || ${#RECOMPILE_GROUPS[@]} )); then
         log "re-run the bring-up loop (avc-testsuite.sh + avc-analyze.sh) to cover"
         log "the expanded surface before removing 'permissive ai_tools_t;'"
@@ -688,6 +800,8 @@ case "${ACTION}" in
     semodule -i "${POLICY_DIR}/${MODULE}.pp"
     ok "core module rebuilt and reloaded (${_mode})"
     _check_permissive_alignment
+    _replace_former_group_modules
+    _load_layout_modules
 
     section "Re-applying labels"
     restorecon -FR "${NVM_DIR}"  2>/dev/null || true
@@ -743,20 +857,34 @@ case "${ACTION}" in
         done
         exit 1
     fi
+    _replace_former_group_modules
     section "Enabling group: ${name}"
     ensure_pp "ai_tools_${name}.pp"
     log "loading group: ai_tools_${name}"
     semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
     ok "group '${name}' enabled"
+    # A group may ship file contexts of its own (dotnet maps a clone's build output), so the
+    # labels are re-applied after the load: the project sweep re-asserts each project's rules,
+    # and the clone restorecon picks up any static rule the group added.
+    log "re-applying labels for the expanded rule set"
+    for_each_project _label_one
+    _label_sandbox_clones
     log "re-run the bring-up loop (avc-testsuite.sh + avc-analyze.sh) to catch any"
     log "new denials from the expanded surface before going enforcing"
     ;;
 
   disable-group)
     name="${2:?usage: sudo $0 disable-group <name>}"
+    _replace_former_group_modules
     if ai_tools_selinux_group_loaded "${name}"; then
         semodule -r "ai_tools_${name}"
         ok "group '${name}' disabled"
+        # The inverse of the enable sweep: a path a static rule of the group mapped falls back
+        # to the base's rule for it. Every type the groups name is declared in the base, so a
+        # per-project rule outlives the group unchanged.
+        log "re-applying labels for the reduced rule set"
+        for_each_project _label_one
+        _label_sandbox_clones
     else
         log "group 'ai_tools_${name}' is not currently loaded -- nothing to do"
     fi

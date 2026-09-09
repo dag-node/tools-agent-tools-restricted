@@ -286,4 +286,40 @@ printf 'AI_TOOLS_INTEGRATIONS="dotnet"\n' > "${conf}"; chmod 0666 "${conf}"
 assert_ints "untrusted conf cannot enable a default=no integration" "baseline " "${conf}"
 chmod 0644 "${conf}"
 
+# --- The installed-manifest reader (enabled or not) ---------------------------------------------
+# relabel.lib.sh reads build_output_dirs from every INSTALLED integration, because a project's
+# label is applied at claim time and must not depend on which integrations a later session
+# enables. The read keeps the resolver's trust rules: an untrusted manifest is skipped and an
+# untrusted directory yields an empty set, never a name from a file the sandbox could write.
+section "providers: the installed-manifest field reader"
+if declare -F ai_tools_installed_integrations_declaring >/dev/null 2>&1; then
+    printf 'default_enable=no\nbuild_output_dirs=bin obj artifacts\n' > "${integrations_dir}/dotnet.conf"
+    printf 'default_enable=yes\n' > "${integrations_dir}/baseline.conf"
+    printf 'AI_TOOLS_INTEGRATIONS=""\n' > "${conf}"   # dotnet is NOT enabled
+    got="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_installed_integrations_declaring build_output_dirs 2>/dev/null | tr '\t' '=' | tr '\n' ' ')"
+    if [[ "${got}" == "dotnet=bin obj artifacts " ]]; then
+        pass "declaring reads the key from an installed integration whether or not it is enabled"
+    else
+        fail "declaring read '${got}' (expected 'dotnet=bin obj artifacts ')"
+    fi
+    chmod 0666 "${integrations_dir}/dotnet.conf"
+    got="$(ai_tools_installed_integrations_declaring build_output_dirs 2>/dev/null | tr '\n' ' ')"
+    if [[ -z "${got}" ]]; then
+        pass "an untrusted (group/other-writable) manifest is skipped by the reader"
+    else
+        fail "the reader returned a value from an untrusted manifest: '${got}'"
+    fi
+    chmod 0644 "${integrations_dir}/dotnet.conf"
+    chmod 0777 "${integrations_dir}"
+    got="$(ai_tools_installed_integrations_declaring build_output_dirs 2>/dev/null | tr '\n' ' ')"
+    if [[ -z "${got}" ]]; then
+        pass "an untrusted manifest directory yields an empty set"
+    else
+        fail "the reader returned '${got}' from an untrusted directory"
+    fi
+    chmod 0755 "${integrations_dir}"
+else
+    skip "installed-manifest reader" "ai_tools_installed_integrations_declaring not defined"
+fi
+
 finish

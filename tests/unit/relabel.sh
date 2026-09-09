@@ -160,6 +160,103 @@ else
     skip "project-label verification" "ai_tools_project_labelled not defined by ${LIB}"
 fi
 
+# ── The build-output rule beside the project rule ─────────────────────────────────────────────
+# A claim labels a project's build-output directories ai_tools_project_build_t, the type the
+# buildexec policy group may grant execute on, from the names each installed integration manifest
+# declares (build_output_dirs). Three properties carry the weight. The NAMES come from the
+# manifests and are validated to one plain component each, since they are spliced into a
+# file-context regex and a `/`, `|` or `(` would let a manifest widen the rule past the
+# directories it names. The label writes the project rule FIRST and the build rule second, in
+# that order, because among rules sharing a stem the later one is the match. And the unlabel
+# drops the build rule by LISTING the local rules under the project rule, so a rule written under
+# an earlier name set is removed with the claim rather than left on a subtree the confined domain
+# manages. semanage, restorecon and the availability probe are stubbed; no policy store is touched.
+section "relabel: the build-output rule (unit)"
+if declare -F ai_tools_project_build_pattern >/dev/null 2>&1 \
+        && declare -F ai_tools_label_project >/dev/null 2>&1; then
+    # The manifest reader is stubbed at the seam relabel.lib.sh consumes it through.
+    ai_tools_installed_integrations_declaring() {
+        [[ "$1" == build_output_dirs ]] || return 0
+        printf 'dotnet\tbin obj artifacts\n'
+        printf 'evil\tbin/../etc x|y (z) .hidden\n'   # every name but .hidden must be refused
+    }
+    # C-locale order: `.` sorts before a letter, and the order is part of the pattern a claim writes.
+    got="$(ai_tools_project_build_pattern /home/op/proj)"
+    if [[ "${got}" == '/home/op/proj(/.*)?/(\.hidden|artifacts|bin|obj)(/.*)?' ]]; then
+        pass "the build pattern unions the declared names in C order, refuses a path or a metacharacter, and escapes a dot"
+    else
+        fail "build pattern: '${got}'"
+    fi
+    ai_tools_installed_integrations_declaring() { :; }
+    if ai_tools_project_build_pattern /home/op/proj >/dev/null; then
+        fail "a host with no declared build-output names still produced a build pattern"
+    else
+        pass "with no declared names the build pattern is empty and the caller writes no rule"
+    fi
+
+    # Order and content of the semanage calls a label makes.
+    ai_tools_installed_integrations_declaring() { printf 'dotnet\tbin obj\n'; }
+    ai_tools_relabel_available() { return 0; }
+    ai_tools_project_labelled()  { return 0; }
+    restorecon() { :; }
+    CALLS=""
+    semanage() { CALLS+="$*"$'\n'; return 0; }
+    ai_tools_label_project /home/op/proj
+    if [[ "${CALLS}" == "fcontext -a -t ai_tools_project_t /home/op/proj(/.*)?"$'\n'"fcontext -a -t ai_tools_project_build_t -- /home/op/proj(/.*)?/(bin|obj)(/.*)?"$'\n' ]]; then
+        pass "a label registers the project rule, then the build rule"
+    else
+        fail "label calls: ${CALLS//$'\n'/ | }"
+    fi
+    # A build rule the store refuses (a policy older than the library) fails the label, so the
+    # claim reports it rather than leaving output on a type the group cannot run.
+    semanage() { [[ "$*" == *ai_tools_project_build_t* ]] && return 1; return 0; }
+    if ai_tools_label_project /home/op/proj; then
+        fail "a refused build rule did not fail the label"
+    else
+        pass "a refused build rule fails the label (reported, not silently skipped)"
+    fi
+    # Sandbox clones take neither rule: the static rules cover them.
+    CALLS=""; semanage() { CALLS+="$*"$'\n'; return 0; }
+    ai_tools_label_project /var/opt/ai-tools/sandbox-projects/clone
+    if [[ -z "${CALLS}" ]]; then
+        pass "a sandbox clone registers no per-project rule"
+    else
+        fail "a sandbox clone registered rules: ${CALLS//$'\n'/ | }"
+    fi
+
+    # The unlabel finds the build rule by listing, whatever name set wrote it, and parses the
+    # row format semanage prints (pattern, file-type words, context).
+    semanage() {
+        case "$*" in
+            "fcontext -l -C -n")
+                printf '%-50s %-18s %s\n' '/home/op/proj(/.*)?' 'all files' 'system_u:object_r:ai_tools_project_t:s0'
+                printf '%-50s %-18s %s\n' '/home/op/proj(/.*)?/(bin|target)(/.*)?' 'all files' 'system_u:object_r:ai_tools_project_build_t:s0'
+                printf '%-50s %-18s %s\n' '/home/op/proj-two(/.*)?/(bin)(/.*)?' 'all files' 'system_u:object_r:ai_tools_project_build_t:s0'
+                printf '%-50s %-18s %s\n' '/home/op/other space(/.*)?/(bin)(/.*)?' 'all files' 'system_u:object_r:ai_tools_project_build_t:s0'
+                return 0 ;;
+            *) CALLS+="$*"$'\n'; return 0 ;;
+        esac
+    }
+    CALLS=""
+    ai_tools_unlabel_project /home/op/proj
+    if [[ "${CALLS}" == "fcontext -d -- /home/op/proj(/.*)?/(bin|target)(/.*)?"$'\n'"fcontext -d /home/op/proj(/.*)?"$'\n' ]]; then
+        pass "an unlabel drops the build rule found by listing (an older name set included), then the project rule, and leaves a sibling project's rule alone"
+    else
+        fail "unlabel calls: ${CALLS//$'\n'/ | }"
+    fi
+    got="$(_ai_tools_local_rules_under '/home/op/other space')"
+    if [[ "${got}" == '/home/op/other space(/.*)?/(bin)(/.*)?' ]]; then
+        pass "a pattern carrying a space survives the row parse"
+    else
+        fail "row parse of a pattern with a space: '${got}'"
+    fi
+    unset -f ai_tools_installed_integrations_declaring ai_tools_relabel_available \
+             ai_tools_project_labelled restorecon semanage
+    unset CALLS
+else
+    skip "build-output rule" "ai_tools_project_build_pattern not defined by ${LIB}"
+fi
+
 # ── Reporting WHY a file-context rule was refused ─────────────────────────────────────────────
 # semanage's stderr is the only account of why a rule did not land, and "could not register its
 # entrypoint file-context rule" does not name a cause on its own -- an operator reading it has no next step to

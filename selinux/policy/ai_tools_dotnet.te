@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+policy_module(ai_tools_dotnet, 0.1.0)
+
+# ai_tools LAYOUT MODULE: dotnet  (loads with the dotnet integration; labels only)
+#
+# The .NET output layout, mapped onto the base's build-output type at creation time: a
+# directory named bin, obj or artifacts created under a project-typed directory is born
+# ai_tools_project_build_t at any depth (a test project's bin/ under tests/, the artifacts/
+# root of the .NET 8 layout), so a fresh `dotnet build` does not need a restorecon before its
+# output can run once the buildexec group is loaded. Files created inside inherit the parent
+# directory's type, so the transition is declared for the directory only. unconfined_t gets
+# the same transition: an operator's own build on a claimed tree must not leave output the
+# next session cannot run until a relabel.
+#
+# NOT A GROUP. This module holds type transitions and file contexts and does not add any
+# permission -- with buildexec off, the two project types are equally non-executable and every
+# other grant the base holds is the same on each -- so it is not an operator's consent point:
+# `ai-tools-admin dotnet bootstrap` loads it where the
+# policy package is present, the ai-tools-selinux package loads it for every installed
+# integration that declares one, and it is never listed among the optional groups. The
+# capability it serves is buildexec, which stays an explicit enable.
+#
+# The name set is a policy literal here and in ai_tools_dotnet.fc, and is declared once more
+# as data in the integration's manifest (build_output_dirs in
+# /usr/local/lib/ai-tools/integrations.d/dotnet.conf), which is what labels EXISTING output
+# at claim and relabel time. The three MUST agree: a name known to the manifest alone is typed
+# only at the next relabel, and one known to the policy alone only when it is created.
+
+require {
+    type ai_tools_t;
+    type unconfined_t;
+    type ai_tools_project_t;
+    type ai_tools_project_build_t;
+}
+
+filetrans_pattern(ai_tools_t, ai_tools_project_t, ai_tools_project_build_t, dir, "bin")
+filetrans_pattern(ai_tools_t, ai_tools_project_t, ai_tools_project_build_t, dir, "obj")
+filetrans_pattern(ai_tools_t, ai_tools_project_t, ai_tools_project_build_t, dir, "artifacts")
+filetrans_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_build_t, dir, "bin")
+filetrans_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_build_t, dir, "obj")
+filetrans_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_build_t, dir, "artifacts")

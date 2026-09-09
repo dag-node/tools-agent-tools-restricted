@@ -140,6 +140,42 @@ drop_legacy_fcontexts() {
     done
 }
 
+# manifest_field <key> : print one field of this integration's own manifest, through the provider
+# resolver's trust rules; empty and non-zero when the key or the resolver is absent. The manifest
+# is where this integration declares its SELinux
+# layout module and the policy groups it needs (ai-tools-providers(5)); reading it here rather than
+# repeating the values keeps one home for them.
+manifest_field() {
+    local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
+    # shellcheck source=SCRIPTDIR/../providers.lib.sh
+    source "${providers_lib}" 2>/dev/null || return 1
+    declare -F ai_tools_provider_manifest_field >/dev/null 2>&1 || return 1
+    ai_tools_provider_manifest_field dotnet "$1" 2>/dev/null
+}
+
+# load_layout_module : load this integration's SELinux layout module (selinux_layout_module in the
+# manifest), which types its build-output directories at creation and does not add any permission,
+# so it loads with the integration and is not an operator's choice. The policy package loads it too, for
+# either package order in one transaction. Best-effort with the consequence named: without it,
+# build output is typed at the next relabel instead of when it is created.
+load_layout_module() {
+    local module pp
+    module="$(manifest_field selinux_layout_module || true)"
+    [[ -n "${module}" ]] || return 0
+    [[ "${module}" =~ ^ai_tools_[a-z][a-z0-9_]*$ ]] \
+        || { warn "manifest names a layout module that is not ai_tools_<name>: ${module}"; return 0; }
+    pp="/usr/share/selinux/packages/ai-tools/${module}.pp"
+    if [[ ! -f "${pp}" ]]; then
+        warn "layout module ${module} is not installed (${pp}); install ai-tools-selinux -- until then build output is typed at relabel time only"
+        return 0
+    fi
+    if semodule -i "${pp}" >/dev/null 2>&1; then
+        log "SELinux layout module ${module} loaded"
+    else
+        warn "could not load the SELinux layout module ${module}; build output is typed at relabel time only. Re-run: sudo semodule -i ${pp}"
+    fi
+}
+
 # bootstrap : the integration's first-run setup, and the verb every provider takes for it
 # (cli-grammar.rule.md). Idempotent and offline, so `system bootstrap --scope full` and this
 # package's own %post both reach it without asking what the host is already carrying.
@@ -172,6 +208,7 @@ bootstrap() {
     if selinux_active; then
         drop_legacy_fcontexts
         label_state "${STATE_DIR}"
+        load_layout_module
     else
         log "SELinux labelling skipped: no enforcing ai-tools policy on this host (DAC governs)"
     fi
@@ -233,6 +270,45 @@ status() {
     else
         log "session enablement: dotnet NOT enabled -- add it to AI_TOOLS_INTEGRATIONS in ${OPERATOR_CONF}"
     fi
+    selinux_status
+}
+
+# selinux_status : the SELinux half of `dotnet status`: whether this integration's layout module
+# is loaded, and which of the policy groups it declares (selinux_groups in the manifest) are not,
+# with the command that enables them. Read from the manifest, so the report and the launch nudge
+# name the same set. Skipped where there is no ai-tools policy to ask.
+selinux_status() {
+    selinux_active || return 0
+    local groups_lib=/usr/local/lib/ai-tools/selinux-groups.lib.sh
+    # shellcheck source=SCRIPTDIR/../selinux-groups.lib.sh
+    source "${groups_lib}" 2>/dev/null || return 0
+    declare -F ai_tools_selinux_group_loaded >/dev/null 2>&1 || return 0
+    local module declared name missing="" experimental=""
+    local -a names=()
+    module="$(manifest_field selinux_layout_module || true)"
+    if [[ -n "${module}" ]]; then
+        if ai_tools_selinux_module_loaded "${module}"; then
+            log "SELinux layout module: ${module} loaded (build output typed at creation)"
+        else
+            log "SELinux layout module: ${module} NOT loaded -- re-run: sudo ai-tools-admin dotnet bootstrap"
+        fi
+    fi
+    declared="$(manifest_field selinux_groups || true)"
+    [[ -n "${declared}" ]] || return 0
+    ai_tools_conf_split names "${declared}"
+    for name in "${names[@]}"; do
+        ai_tools_selinux_group_valid "${name}" || continue
+        if ai_tools_selinux_group_loaded "${name}"; then
+            log "SELinux group ${name}: loaded"
+        elif ai_tools_selinux_group_is_experimental "${name}"; then
+            log "SELinux group ${name}: NOT loaded (experimental)"; experimental+="${experimental:+ }${name}"
+        else
+            log "SELinux group ${name}: NOT loaded"; missing+="${missing:+ }${name}"
+        fi
+    done
+    [[ -z "${missing}" ]] || log "enable with: sudo ai-tools-admin selinux groups enable ${missing}"
+    [[ -z "${experimental}" ]] \
+        || log "experimental, from a source checkout: sudo selinux/install-selinux.sh enable-group ${experimental}"
 }
 
 # ── dispatch ─────────────────────────────────────────────────────────────────────────────────
