@@ -19,7 +19,7 @@
 #   sudo ai-tools-admin status                             # the host's health, read as root
 #   sudo ai-tools-admin dotnet bootstrap                   # a domain a provider package contributes
 #
-# The spelling is the project's command grammar (.claude/rules/cli-grammar.rule.md): a bare-word
+# The spelling is the project's command grammar (cli-grammar.rule.md): a bare-word
 # command, a plural collection, the verb after the noun, `list` as the zero-argument default, and
 # a singular domain (`selinux`, `system`) where one is needed. `--` introduces an option and
 # never a command, which here is `--help`/`-h` and `--version`.
@@ -32,8 +32,8 @@
 # membership (drops the name from OPERATORS and ai-ops), leaving the user's own allowlist and config.
 # `list` prints the current operators.
 #
-# `selinux groups` toggles the optional policy groups (systemd/pkgmgmt/netadmin/podman/tmpmap/apphost/localipc/buildexec), all off
-# by default. It loads the COMPILED ai_tools_<group>.pp that ai-tools-selinux (or a checkout's
+# `selinux groups` toggles the optional policy groups, all off by default. It loads the COMPILED
+# ai_tools_<group>.pp that ai-tools-selinux (or a checkout's
 # install-selinux.sh build) staged under AI_TOOLS_SELINUX_PACKAGE_DIR via semodule -- no source
 # tree or selinux-policy-devel needed on the host. The group set, descriptions, and per-group
 # stability are single-sourced from selinux-groups.lib.sh, shared with
@@ -89,9 +89,7 @@
 # names each path it touched. The from-source installer reaches the same end through its own
 # keep-or-reset prompts and dated .bak/.shipped sidecars; this is the RPM-side equivalent.
 #
-# Deploy:
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-admin.sh /usr/local/libexec/ai-tools/ai-tools-admin
+# Deploying from a checkout: docs/install-from-source.md.
 
 set -euo pipefail
 

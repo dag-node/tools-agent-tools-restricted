@@ -193,11 +193,15 @@ sourced**, so a malformed or tampered one yields a bad value, never executed cod
 The **path-list** files share that grammar rather than defining their own.
 `ai_tools_conf_path_entry` reads one `allowed-projects` line — whole-line and end-of-line
 comments, and one quote layer for a path carrying a space or a literal `#`, with a leading `!`
-preserved so an exclusion stays distinguishable after the quotes come off. Four components read
-that file (the launch wrapper, the CLI, `ai-tools-chown`, and `ai-tools-relabel`), which is exactly
-why the rule lives in one place: a parser copied into each is a parser that drifts, and a line the
-wrapper resolves but the chown helper does not is a project the agent can launch in whose files
-never come back. All four require the library rather than falling back to a private parser. The CLI,
+preserved so an exclusion stays distinguishable after the quotes come off. Every reader of that
+file — the launch wrapper, the CLI, the owner resolver in `operator.lib.sh`, and each root helper
+that walks or labels a project (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`,
+`-relabel`) — takes it from here, which is exactly why the rule lives in one place: a parser
+copied into each is a parser that drifts, and a line the wrapper resolves but a helper does not
+is a project the agent can launch in whose files never come back, or a carve-out the wrapper
+refuses that a walk grants. Each reader requires the library rather than falling back to a
+private parser; the resolver's load is fail-closed by consequence, since without the parser no
+line denotes an entry and no path is covered. The CLI,
 the relabel helper, and the launch wrapper's post-claim confirm additionally decide **membership**
 through `ai_tools_conf_allowlist_has_entry`/`_has_exclusion` (and `_matching_lines` /
 `_exclusion_lines` for the raw lines), which parse each line with the same grammar and compare

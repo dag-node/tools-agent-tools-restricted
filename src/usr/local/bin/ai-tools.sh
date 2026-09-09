@@ -1,26 +1,28 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/bin/ai-tools
-# Project-lifecycle CLI for the ai-tools Claude Code sandbox. Runs AS the invoking operator (not
-# as root, not as the sandbox account). It writes the operator-owned allowlist
+# Project-lifecycle CLI for the ai-tools sandbox. Runs AS the invoking operator (not as root, not
+# as the sandbox account). It writes the operator-owned allowlist
 # (~/.config/ai-tools/allowed-projects) directly -- through conf.lib.sh's allowlist-editing
 # functions, the one implementation shared with the ai-tools-allowlist root helper and install.sh
-# -- and reaches the root-owned bits
-# -- the git safe.directory list in /opt/ai-tools/.gitconfig, the SELinux label, the ACL, and
-# secret lockdown -- through the sudo root helpers (no NOPASSWD: the operator is prompted for a
-# password; the sandbox account has no grant).
+# -- and reaches the root-owned bits -- the git safe.directory list in /opt/ai-tools/.gitconfig,
+# the SELinux label, the ACL, and secret lockdown -- through the sudo root helpers, over the
+# operator's general sudo grant (the drop-in carries no NOPASSWD rule for them, so sudo prompts
+# for a password; the sandbox account has no grant). The one helper with a rule of its own is
+# --stop's (STOP_BIN).
 #
-# Four preflight gates run before dispatch: require_bootstrap (provisioned install); for the
-# operator-acting commands (--project-*/--sandbox-*/--lockdown/--reclaim),
-# require_operator -- the invoking user must be in OPERATORS in operator.conf, since the root
-# helpers resolve the caller's identity from that list; require_sudo_access, which refuses a verb
-# whose root helper this caller does not hold a sudo grant for, before sudo prompts for a password it
-# will then reject; and require_for_target, which validates a --for run and re-points the registry
-# at its target. --help/--version/--list/--providers stay open to any user.
+# The preflight gates run before dispatch, in this order: require_bootstrap (provisioned
+# install); for the operator-acting commands (OPERATOR_VERBS), require_operator -- the invoking
+# user must be in OPERATORS in operator.conf, since the root helpers resolve the caller's identity
+# from that list; require_sudo_access, which refuses a verb whose root helper this caller does not
+# hold a sudo grant for, before sudo prompts for a password it will then reject;
+# require_runas_target, which refuses a --for run whose filesystem steps sudo will not run as the
+# target; and require_for_target, which validates a --for run and re-points the registry at its
+# target. --help/--version/--list/--providers stay open to any user.
 #
 # The principal guard above them refuses the sandbox account outright and allows root only the
-# verbs that write no operator state (ROOT_ALLOWED_VERBS): the four reports, --audit needing root
-# by construction since the trail it reads is 700 root:root, plus --stop, whose helper requires
+# verbs that write no operator state (ROOT_ALLOWED_VERBS): the reports -- --audit needs root by
+# construction, since the trail it reads is 700 root:root -- plus --stop, whose helper requires
 # root anyway.
 #
 # --for <operator> performs a command ON BEHALF OF another enrolled operator: the allowlist entry
@@ -30,53 +32,17 @@
 # unreadable to the invoker (0600 in a 0700 directory), so a --for run reads a root-side snapshot
 # of it and routes its writes through ai-tools-allowlist.
 #
-# Commands (each confirms before applying and reports the result):
-#   --project-claim   [path]  claim a project in place -- grant the agent access (idempotent;
-#                             default: cwd); -y/--yes pre-answers its proceed prompt (delegated)
-#   --project-create  <path>  create a NEW project directory (one mkdir, git init, README.md)
-#                             and claim it; refuses a path that already exists and one whose
-#                             parent does not, and has no cwd default -- the cwd always exists
-#   --project-unclaim [path]  release a project -- revoke the agent's access and hand the tree
-#                             back to your own group (or a named user's), the agent's write
-#                             removed; the directory is left on disk. --keep-entry parks the
-#                             allowlist line in place instead of deleting it
-#   --project-disable [path]  park a claimed project: put a '!' on its allowlist line, in place,
-#                             so no session starts there. Registry-only -- permissions, ACLs and
-#                             the label are untouched
-#   --project-enable  [path]  take that '!' back off. Refuses an exclusion INSIDE a claimed
-#                             project (a carve-out, not a parked project): lifting one would hand
-#                             the agent a subtree its operator withheld
-#   --project-remove  [path]  release a project AND delete its directory (default: cwd); acts
-#                             only on an exact allowlist entry -- allow or parked -- has no
-#                             --force, and confirms twice: a default-NO prompt and a typed-name
-#                             challenge
-#   --sandbox-create [path]   shallow-clone a repo into the sandbox area (private,
-#                             umask 077), lock down tip-commit secrets, then grant
-#                             the agent access and register -- fail-closed: an
-#                             unsecured clone stays private and unregistered; run
-#                             again on the clone path to resume securing it
-#   --sandbox-push   [path]   push the sandbox clone's commits to its branch
-#   --sandbox-remove [path]   remove a sandbox clone and unregister it
-#   --lockdown [path]         lock down secret-named files under the project (sudo)
-#   --reclaim [--full] [path] take back ownership of agent-written files -- the project stays
-#                             claimed and the agent keeps access; the on-demand ownership
-#                             handback, e.g. before an ACL-unaware backup (sudo; default: cwd)
-#   --providers               report the installed agents/integrations, which are enabled,
-#                             and why (read-only; resolved through providers.lib.sh)
-#   --status                  report ai-tools service health (read-only; services.lib.sh)
-#   --list                    list registered projects (real vs sandbox)
-#   --version                 print the installed ai-tools version
-#   --help
+# The commands: usage() below is the orientation (one line per verb) and ai-tools(1) the
+# reference for every per-verb option; tests/unit/cli-verbs.sh and tests/unit/man.sh hold each
+# to the dispatcher.
 #
-# Sandbox model: the agent works in a shallow clone under SANDBOX_ROOT so it never
-# reads the original repo's full git history. Work is pushed to a per-repo branch
-# ai-tools/sandbox-<user>/<leaf> (default leaf: main). Only the projects user can
-# push -- the sandbox account has no git credentials. Anyone with repo access then
-# merges that branch back, preserving the agent's commits granularly. See
+# Sandbox model: --sandbox-create shallow-clones the repo into SANDBOX_ROOT, so the agent never
+# reads the origin's full git history, and --sandbox-push sends the agent's commits to a per-repo
+# branch (sandbox_default_branch names the default) that only the projects user can push -- the
+# sandbox account has no git credentials. The operator's statement of the workflow is
 # /var/opt/ai-tools/README.md.
 #
-# Deploy: install -o root -g root -m 755 src/usr/local/bin/ai-tools.sh \
-#         /usr/local/bin/ai-tools
+# Deploying from a checkout: docs/install-from-source.md.
 
 set -euo pipefail
 IFS=$'\n\t'
