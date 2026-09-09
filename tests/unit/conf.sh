@@ -709,4 +709,22 @@ else
     fi
 fi
 
+# --- the text predicate: a file whose bytes go to a program as prose -------------------------
+# ai_tools_conf_is_text_file is the shared check behind an agent's system prompt: the trust
+# predicate says who wrote the file, this says the bytes are text. Empty counts as text (the
+# shipped inert default), a directory and a NUL-carrying blob do not.
+if declare -F ai_tools_conf_is_text_file >/dev/null 2>&1; then
+    tf="${TESTDIR}/textfile"
+    printf 'You are a sandboxed agent.\n' > "${tf}"
+    ai_tools_conf_is_text_file "${tf}" && pass "a text file is text" || fail "a text file was refused"
+    : > "${tf}"
+    ai_tools_conf_is_text_file "${tf}" && pass "an empty file counts as text" || fail "an empty file was refused"
+    printf '\x00\x01\x02ELF\x00' > "${tf}"
+    ai_tools_conf_is_text_file "${tf}" && fail "a NUL-carrying blob passed as text" || pass "a binary blob is not text"
+    mkdir -p "${TESTDIR}/textdir"
+    ai_tools_conf_is_text_file "${TESTDIR}/textdir" && fail "a directory passed as a text file" || pass "a directory is not a text file"
+else
+    fail "conf.lib.sh does not define ai_tools_conf_is_text_file"
+fi
+
 finish

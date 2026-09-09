@@ -181,8 +181,13 @@ and safety guidance) or `--system-prompt-file <path>` (mode `replace`).
   confined `ai_tools_t` domain is granted read on (`etc_t`, via `files_read_etc_files`). A
   root-owned file elsewhere passes the DAC trust check yet is unreadable to the session, so a
   mis-set path would become a failed launch rather than a refused one. The file, its directory, the
-  prompts base, and `operator.conf` each pass `ai_tools_conf_is_trusted`, and the file must be
-  readable text.
+  prompts base, and `operator.conf` each pass `ai_tools_conf_is_trusted`, and the file must be a
+  regular file holding plain text. The wrapper's checks are all `stat`s: it runs as the operator,
+  who by design is not in `SANDBOX_GROUP` and cannot read the `0640` file (an operator holds `sudo`
+  for editing it). The text check (`ai_tools_conf_is_text_file`, a shared predicate) therefore runs
+  in the claude-code session-env fragment as the sandbox account, before the unit exists, and a
+  file that is not plain text refuses the launch there — whether or not the launch overrides the
+  prompt with a flag, which the fragment cannot see.
 - Claude Code reads the file **verbatim** — not processed, not comment-stripped — so it holds prompt
   text only. The shipped default is therefore **empty**, `0640 root:SANDBOX_GROUP` (a custom prompt
   may be proprietary, so not world-readable; the wrapper only `stat`s it as the operator, and the

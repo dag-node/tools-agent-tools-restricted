@@ -145,7 +145,11 @@ or empty (the default): Claude Code's own default prompt is used.
 .I path
 must resolve under
 .IR /etc/ai-tools/prompts/ ,
-be root-owned and not group/other-writable, and hold readable text \(em that
+be root-owned and not group/other-writable, be readable by the
+.B ai-tools
+group, and hold plain text (the shipped default is 0640 root:ai-tools; the
+operator need not read it, since the wrapper only stats the file and the
+session checks that it is text before it starts) \(em that
 directory is the one location the confined session is granted read on. Its
 .B full contents are sent to the model verbatim
 (no markup is stripped), so it must contain only prompt text. A
@@ -185,6 +189,15 @@ definitions and the
 context (collected from the working directory and its parents) in separate request
 fields, so it does not reduce what the model receives to only this file \(em for a
 non-Anthropic endpoint, shape the final request at the proxy.
+.IP
+In either mode the shipped orientation text,
+.IR /opt/ai-tools/orientation/AGENTS.md
+(linked into the agent's configuration directory under the name it reads as
+user-scope instructions), still loads. It arrives as memory context in the
+conversation, not in the system prompt, so it states what the sandbox refuses
+beneath whatever this file says. A system-prompt instruction outweighs memory
+context, so a prompt that contradicts the orientation wins; write the prompt so
+the two agree.
 .TP
 .BI CLAUDE_BASE_URL_FILE= path
 A dedicated file routing Claude Code sessions at a custom API endpoint (requires

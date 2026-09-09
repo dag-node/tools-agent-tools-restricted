@@ -68,16 +68,25 @@ _ai_tools_claude_argv_has_prompt_flag() {
     return 1
 }
 
-# _ai_tools_claude_is_text_file <path>: succeed when <path> is a regular file that is either empty
-# or holds text (no binary/NUL content). The custom prompt is read as text and appended to (or
-# substituted for) the model's system prompt -- it is never executed -- so the only sanity bar is
-# that it is not a binary blob whose bytes would land in the prompt. An empty file is fine: it is the
-# shipped inert default, and appending it leaves the prompt as it was. `grep -I` reports a binary file as no-match.
-_ai_tools_claude_is_text_file() {
-    local path="$1"
-    [[ -f "${path}" ]] || return 1
-    [[ -s "${path}" ]] || return 0                       # empty: valid (the inert default)
-    LC_ALL=C grep -Iq . "${path}" 2>/dev/null
+# ai_tools_claude_prompt_content_is_text <operator-conf> : the sandbox-side half of the check.
+#   The wrapper resolves the configured prompt as the operator, whose checks are all stats: the
+#   shipped prompt is 0640 root:SANDBOX_GROUP so a sensitive prompt stays unreadable to every other
+#   account, the operator's own included (an operator holds sudo for editing it). This function
+#   runs in the claude-code session-env fragment as the sandbox account, which can read the file:
+#   it resolves the configured prompt the same way (no session arguments -- a per-invocation flag
+#   override is not visible here, so a configured prompt must be text whether or not this launch
+#   uses it) and succeeds when none is configured or the file holds text. Fails, with the reason
+#   warned, when the configured prompt is not plain text; the caller refuses the launch, since the
+#   file's bytes would otherwise go to the model verbatim.
+ai_tools_claude_prompt_content_is_text() {
+    local operator_conf="$1"
+    local -a configured=()
+    ai_tools_claude_resolve_prompt_args configured "${operator_conf}" || return 1
+    (( ${#configured[@]} )) || return 0
+    local prompt_file="${configured[${#configured[@]}-1]}"
+    ai_tools_conf_is_text_file "${prompt_file}" && return 0
+    _ai_tools_claude_warn "CLAUDE_SYSTEM_PROMPT_FILE (${prompt_file}) is not a text file -- a system prompt must be plain text"
+    return 1
 }
 
 # ai_tools_claude_resolve_prompt_args <out-array-name> <operator-conf> [session-arg...] : set the
@@ -176,8 +185,10 @@ ai_tools_claude_resolve_prompt_args() {
 
     # A prompt is text the model reads, so refuse a binary blob (an ELF, a compiled artifact) whose
     # bytes would otherwise land verbatim in the system prompt.
-    if ! _ai_tools_claude_is_text_file "${file_canon}"; then
-        _ai_tools_claude_warn "CLAUDE_SYSTEM_PROMPT_FILE (${prompt_file}) is not a text file -- a system prompt must be readable text"
+    # A stat, not a read: this runs as the operator, who cannot read the 0640 file. Whether the
+    # content is text is checked sandbox-side (ai_tools_claude_prompt_content_is_text).
+    if [[ ! -f "${file_canon}" ]]; then
+        _ai_tools_claude_warn "CLAUDE_SYSTEM_PROMPT_FILE (${prompt_file}) is not a regular file -- a system prompt is one plain file"
         return 1
     fi
 
