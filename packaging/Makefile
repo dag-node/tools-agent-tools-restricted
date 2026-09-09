@@ -25,44 +25,37 @@ RELEASE_DEFINE = $(if $(RPM_RELEASE),--define "rpm_release $(RPM_RELEASE)",)
 
 # Tracked + working-tree sources the spec consumes, relative to the repo root.
 #
-# POLICY_PP is the set of prebuilt policy packages the spec installs: the core ai_tools.pp plus
-# each STABLE group's ai_tools_<group>.pp. It reads the git index, so it holds exactly the
-# committed packages -- the tarball feeds the SRPM, and only the audited, shipped policy belongs
-# in a published artifact. Experimental groups are compiled locally and gitignored, so the index
-# is what distinguishes them. In a tree with no index (the container build runs this Makefile
-# inside an image whose context excludes .git) the wildcard applies instead; that image's COPY
-# names the stable packages one by one, so both paths yield the same set.
-POLICY_PP = $(or $(shell git -C $(ROOT) ls-files 'selinux/policy/*.pp' 2>/dev/null),\
-                 $(patsubst $(ROOT)/%,%,$(wildcard $(ROOT)/selinux/policy/*.pp)))
-
-# POLICY_SRC is the corresponding source for those .pp: the policy text and the Makefile that
-# compiles it. A .pp is GPL-2.0-or-later, and GPLv2 section 3 conveys a binary only together with
-# its source, counting the scripts that control compilation as part of that source. Shipping both
-# in the tarball keeps the SRPM self-sufficient for every distribution channel, including an
-# offline release archive that reaches its recipient with no network.
+# POLICY_SRC is the policy text and the Makefile that compiles it, which the spec's %build turns
+# into the .pp modules the ai-tools-selinux subpackage ships. No .pp travels in the tarball: the
+# modules are compiled per distribution inside its own build, against its own policy headers, and
+# `dist` below refuses a tarball carrying one. A .pp is GPL-2.0-or-later, and GPLv2 section 3
+# conveys a binary only together with its source, counting the scripts that control compilation
+# as part of that source; the SRPM is that source for the modules the RPM conveys, and shipping
+# it keeps every distribution channel self-sufficient, an offline release archive included.
 #
 # A wildcard is exact here: .gitignore covers *.pp alone, so every policy source in the tree is
-# tracked. install-selinux.sh is not source in this sense -- it loads and installs a compiled
-# module rather than controlling compilation, and does not carry refpolicy content (it is AGPL-3.0-only,
-# per its SPDX header).
+# tracked. shipped-modules.sh names the modules to build, so it is a script controlling
+# compilation and travels with the sources under the same GPL-2.0-or-later. install-selinux.sh
+# is not source in this sense -- it loads and installs a compiled module rather than controlling
+# compilation, and does not carry refpolicy content (it is AGPL-3.0-only, per its SPDX header).
 POLICY_SRC = $(patsubst $(ROOT)/%,%,$(wildcard $(ROOT)/selinux/policy/*.te \
                                                $(ROOT)/selinux/policy/*.if \
                                                $(ROOT)/selinux/policy/*.fc \
                                                $(ROOT)/selinux/policy/*.te.draft \
-                                               $(ROOT)/selinux/policy/Makefile))
+                                               $(ROOT)/selinux/policy/Makefile)) \
+             selinux/policy/shipped-modules.sh
 
 # Each subpackage carries its own licence text via %license, and the GPL policy subpackage conveys
 # the GPL text with the binary it covers, so both LICENSE and LICENSES/ are payload.
-CONTENT = src docs $(POLICY_PP) $(POLICY_SRC) \
+CONTENT = src docs $(POLICY_SRC) \
           packaging/$(NAME).spec packaging/$(NAME).sysusers packaging/VERSION README.md \
           LICENSE LICENSES REUSE.toml
 
 # Container smoke test: the shared ELBase recipe parameterized by an EL base image, then a
 # thin per-distro overlay (see ELBase.Containerfile). OCI tool + EL bases are overridable. Fedora
-# is not yet a `rpmtest-*` target: the helper tree now lives at ai_libexecdir
-# (/usr/local/libexec/ai-tools), which the F42 bin/sbin merge leaves untouched, so the old file
-# conflict is resolved and a native Fedora build is unblocked -- but its image/target/CI leg are
-# not wired yet. FedoraLatestBase.Containerfile is the stub that future Fedora CI will build on.
+# has its own single-image recipe (FedoraLatestBase.Containerfile) and the rpmtest-fedora target
+# below: the helper tree lives at ai_libexecdir (/usr/local/libexec/ai-tools), which the F42
+# bin/sbin merge leaves untouched, so one install layout serves both families.
 OCI         ?= podman
 EL9_BASE    ?= quay.io/rockylinux/rockylinux:9.7-minimal
 EL10_BASE   ?= quay.io/rockylinux/rockylinux:10-minimal
@@ -124,15 +117,18 @@ rpmtest-rocky10: rpmbase-el10
 
 # Native Fedora smoke test. Unlike the EL pair, FedoraLatestBase is a complete runnable image
 # (single distro, its own FROM and ENTRYPOINT), so there is no separate base/overlay split -- build
-# it and run it directly. Building it also exercises the spec's `%if 0%{?fedora}` source .pp compile.
+# it and run it directly. Building it compiles the policy modules against Fedora's current
+# headers, as each EL image does against its own.
 rpmtest-fedora:
 	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmtest:fedora -f $(CURDIR)/FedoraLatestBase.Containerfile --build-arg RPM_RELEASE=$(RPM_RELEASE) $(ROOT)
 	$(OCI) run --rm -t --systemd=always --ulimit core=0 ai-tools-rpmtest:fedora
 
-# The tarball asserts its own GPL compliance: a .pp travels only with the policy source it was
-# compiled from. Both lists are globs, and a glob that does not match a file yields a tarball that looks
-# well-formed and conveys a GPL binary with no source, so the counts are checked rather than
-# assumed -- comparing the archive against the inputs, so adding a policy module does not need an edit here.
+# The tarball asserts what it carries. The policy SOURCE must be there, since %build compiles
+# it; a policy BINARY must not, since a .pp in the tarball is one built on some other host's
+# headers, shipped without the build that produced it. Each count is checked rather than assumed:
+# the source list is a glob, and a glob that does not match any file yields a tarball that looks
+# well-formed; a .pp left in the working tree by a local build would ride in on a bare glob just
+# as quietly.
 #
 # The bytecode excludes are hygiene rather than compliance. The tarball is built from the WORKING
 # TREE, so a local build made after importing a shipped script would package a __pycache__ that a
@@ -148,10 +144,10 @@ dist:
 	 src=$$(tar tzf $(TARBALL) | grep -cE 'selinux/policy/[^/]+\.(te|if|fc)$$'); \
 	 pyc=$$(tar tzf $(TARBALL) | grep -cE '__pycache__|\.pyc$$'); \
 	 fail() { echo "$(TARBALL): $$1" >&2; rm -f $(TARBALL); exit 1; }; \
-	 [ "$$pp" -gt 0 ] \
-	    || fail "no prebuilt policy package -- %install needs ai_tools.pp"; \
 	 [ "$$src" -gt 0 ] \
-	    || fail "conveys $$pp GPL .pp with no policy source -- GPLv2 s.3"; \
+	    || fail "no policy source -- %build compiles selinux/policy/*.te"; \
+	 [ "$$pp" -eq 0 ] \
+	    || fail "carries $$pp compiled .pp -- the modules are built by %build, never shipped in the source"; \
 	 [ "$$pyc" -eq 0 ] \
 	    || fail "carries $$pyc bytecode cache file(s) from the working tree"
 	@echo "built $(TARBALL)"

@@ -88,6 +88,33 @@ check_file /usr/local/lib/ai-tools/providers.lib.sh          root              r
 # Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by
 # ai-tools-admin and selinux/install-selinux.sh (both root); read-only data, does not carry secrets.
 check_file /usr/local/lib/ai-tools/selinux-groups.lib.sh     root              root              644
+# The compiled policy modules ai-tools-admin loads a stable group from: 644 root:root in a 755
+# root:root directory, and the SET is asserted with the modes -- exactly the modules
+# selinux/policy/shipped-modules.sh derives from the registry and the integration manifests, which is
+# the list the RPM build and install.sh compile. A module missing from it is a stable group with
+# no module for `selinux groups enable` to load; one beyond it was not built by this release. The directory
+# exists only where the SELinux layer was staged (the RPM ships it everywhere; a source install
+# stages it on a host with SELinux active), so its absence is a skip, not a failure.
+_pkg_dir=/usr/share/selinux/packages/ai-tools
+_shipped="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/selinux/policy/shipped-modules.sh"
+if [[ -d "${_pkg_dir}" ]]; then
+    check_file "${_pkg_dir}" root root 755
+    if [[ -f "${_shipped}" ]] && _want="$(bash "${_shipped}" | sort)" && [[ -n "${_want}" ]]; then
+        _have="$(find "${_pkg_dir}" -maxdepth 1 -name '*.pp' -printf '%f\n' | sed 's/\.pp$//' | sort)"
+        if [[ "${_have}" == "${_want}" ]]; then
+            pass "staged policy modules match the derived shipped set: $(tr '\n' ' ' <<<"${_want}")"
+        else
+            fail "staged policy modules differ from the shipped set (have: $(tr '\n' ' ' <<<"${_have}"); want: $(tr '\n' ' ' <<<"${_want}"))"
+        fi
+        while IFS= read -r _mod; do
+            check_file "${_pkg_dir}/${_mod}.pp" root root 644
+        done <<<"${_want}"
+    else
+        skip "staged policy module set" "shipped-modules.sh not in a checkout beside this suite"
+    fi
+else
+    skip "staged policy modules" "${_pkg_dir} absent (SELinux layer not staged on this host)"
+fi
 # Command-filter engine: 644 root:root -- world-readable, sourced by an agent's filter hook, which
 # runs AS the agent on every Bash call; read-only data plus pure logic, does not carry secrets.
 check_file /usr/local/lib/ai-tools/filters.lib.sh            root              root              644

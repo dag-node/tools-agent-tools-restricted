@@ -73,13 +73,14 @@ domain and covers a repository workload: files, git, HTTPS.
 The optional groups widen that domain for one workload each, are disabled by
 default, and are loaded per host.
 .B "selinux groups enable"
-loads the module the base package ships prebuilt, needing no source tree and
-no
+loads the compiled module the
+.B ai-tools-selinux
+package ships, needing no source tree and no
 .BR selinux\-policy\-devel .
 .PP
 Only groups marked
 .I stable
-ship prebuilt.
+are shipped.
 A group marked
 .I experimental
 is an unaudited draft and is refused here, with a pointer to the source
@@ -229,7 +230,7 @@ its stability, and what it covers.
 Reports that there is no policy to manage when SELinux is disabled.
 .TP
 .B selinux groups enable \fIname\fR...
-Load the prebuilt module for each
+Load the shipped module for each
 .IR name .
 Several names load in turn, so the set a toolchain declares
 .RB ( ai-tools-providers (5))
@@ -453,7 +454,7 @@ The command domains installed provider packages contribute, one executable per
 domain, named for the provider.
 .TP
 .I /usr/share/selinux/packages/ai-tools
-The prebuilt policy modules
+The compiled policy modules
 .B "selinux groups enable"
 loads.
 .TP

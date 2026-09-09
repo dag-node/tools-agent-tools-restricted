@@ -465,8 +465,9 @@ privileged action is attributable at the socket layer. Root-only log files: `cho
 ## SELinux
 
 The optional confinement layer puts the session in its own domain, `ai_tools_t`, on top of the
-file permissions that already isolate it. It ships **prebuilt and enforcing**, so a normal
-install loads it without a policy toolchain, and it is a second boundary, not the only
+file permissions that already isolate it. The RPM ships it **compiled and enforcing**, so a
+package install loads it without a policy toolchain (a source install compiles it, and needs
+`selinux-policy-devel`; see `selinux/README.md`), and it is a second boundary, not the only
 one — a host without it is still confined by DAC.
 
 The one thing an operator meets in practice is a **stale label after a Node upgrade**. A freshly
@@ -514,9 +515,10 @@ sandboxing, install, and CLI machinery. `ai-tools-admin system bootstrap` instal
 Anthropic product under its own terms, which this repository neither vendors nor redistributes.
 See [Anthropic's Claude Code](https://github.com/anthropics/claude-code).
 
-The SELinux policy modules under [`selinux/policy/`](selinux/policy) are `GPL-2.0-or-later`,
-because they are built against the SELinux reference policy, and ship as their own
-`ai-tools-selinux` subpackage. Everything else under `selinux/` — the installer and the
+The SELinux policy sources and their build scripts under [`selinux/policy/`](selinux/policy)
+are `GPL-2.0-or-later`, because the modules compiled from them embed the SELinux reference
+policy, and those modules ship as their own `ai-tools-selinux` subpackage. Everything else
+under `selinux/` — the installer and the
 denial-analysis tooling — is `AGPL-3.0-only` like the rest of the project. Each file states
 which applies in an `SPDX-License-Identifier` header; `REUSE.toml` covers the rest.
 
