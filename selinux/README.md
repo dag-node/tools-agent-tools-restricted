@@ -67,7 +67,7 @@ surface for tasks that reach into system context, all **disabled by default**:
 | `podman`   | container runtime exec + image storage (still blocked by the namespace filter — see the confinement rule) |
 | `tmpmap`   | mmap of the agent's own `/tmp` files (`dotnet` build, `git`/SQLite in `/tmp`) |
 | `apphost`  | map+execute of tmpfs/memfd files (.NET apphost/JIT: `dotnet run`, ASP.NET Core, `xunit.v3`); disjoint from `tmpmap` |
-| `netcore`  | .NET runtime IPC (`dotnet test` sockets, multi-node MSBuild pipes) + executing a project's built binary — see [dotnet.rule.md](../.claude/rules/dotnet.rule.md) |
+| `netcore`  | .NET runtime IPC (`dotnet test` sockets, multi-node MSBuild pipes) + execute on every file in the project tree (a built binary, a git hook, a project script alike) — see [dotnet.rule.md](../.claude/rules/dotnet.rule.md) |
 
 Each group is either **stable** or **experimental**, which decides how it ships and which
 command may enable it (below). A group earns `stable` as it is audited, so the current value

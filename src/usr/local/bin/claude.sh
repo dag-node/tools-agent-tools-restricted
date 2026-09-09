@@ -147,6 +147,7 @@ have_tty() { { : > /dev/tty; } 2>/dev/null; }
 # genuine non-operator.
 readonly OPERATORS_GROUP="ai-ops"
 readonly SANDBOX_USER="@SANDBOX_USER@"
+readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
 _user="$(id -un)"
 if [[ " $(id -nG 2>/dev/null) " != *" ${OPERATORS_GROUP} "* ]]; then
     if [[ "${_user}" == "${SANDBOX_USER}" ]]; then
@@ -192,7 +193,7 @@ fi
 # npm symlink into the package (-> .../claude-code/bin/claude.exe). Following
 # it fully would (a) yield a path the sudoers NOPASSWD rule cannot match, so
 # sudo would deny/prompt, and (b) require traversing the package directory
-# (mode 700, owned ai-tools), which the invoking user cannot enter -- realpath
+# (mode 700, owned by the sandbox account), which the invoking user cannot enter -- realpath
 # would fail with EACCES and, under set -e, abort the wrapper with no message.
 CLAUDE_REAL="$(readlink -- "${CLAUDE_LINK}")" \
     || die "ERROR: ${CLAUDE_LINK} is not a symlink -- reinstall or run nvm-update.sh"
@@ -219,7 +220,7 @@ if [[ $# -eq 1 ]]; then
         --version|-v|--help|-h)
             export AI_TOOLS_AGENT_EXEC="${CLAUDE_REAL}"
             export AI_TOOLS_PROJECT_DIR="/opt/ai-tools"
-            exec sudo -u ai-tools -g ai-tools -- /opt/ai-tools/bin/ai-tools-run "$@"
+            exec sudo -u "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -- /opt/ai-tools/bin/ai-tools-run "$@"
             ;;
     esac
 fi
@@ -316,7 +317,7 @@ if [[ "${approved}" != true ]]; then
     if have_tty; then
         sel="$(ai_tools_msg_pick none \
             "Create sandbox"$'\t'"work in an isolated copy; the session runs there, not here" \
-            "Claim here"$'\t'"work in this directory; its group becomes ai-tools" \
+            "Claim here"$'\t'"work in this directory; its group becomes ${SANDBOX_GROUP}" \
             "Cancel"$'\t'"change nothing")" || sel=3
     fi
     case "${sel}" in
@@ -366,7 +367,7 @@ fi
 # "claimed". Three independent gaps, all detected read-only here; the fix is always
 # delegated to `ai-tools --project-claim` (idempotent) -- this wrapper never performs a
 # chgrp or a relabel itself, it only detects, offers, and (on consent) calls the CLI:
-#   ownership  -- group not ai-tools, or no group-execute. The sandbox user runs with
+#   ownership  -- group not the sandbox group, or no group-execute. The sandbox user runs with
 #                 this dir as its cwd, and Node's posix_spawn then fails EACCES on every
 #                 child (hooks, the Bash tool): the session starts but cannot spawn a child.
 #                 FATAL. Closing it grants the agent recursive group access to this real
@@ -396,7 +397,7 @@ project_labelled() {
 own_gap=false
 cwd_gid="$(stat -c '%G' "${cwd}" 2>/dev/null || true)"
 cwd_mode="$(stat -c '%a' "${cwd}" 2>/dev/null || true)"
-if [[ "${cwd_gid}" != "ai-tools" ]] || (( (0${cwd_mode:-0} & 010) == 0 )); then
+if [[ "${cwd_gid}" != "${SANDBOX_GROUP}" ]] || (( (0${cwd_mode:-0} & 010) == 0 )); then
     own_gap=true
 fi
 label_gap=false
@@ -414,7 +415,7 @@ if ${own_gap} || ${label_gap}; then
     claim_default='n'
     ${own_gap} || claim_default='y'
     declare -a blk2=()
-    ${own_gap}   && blk2+=( "- group is '${cwd_gid:-?}', not 'ai-tools' -- sessions cannot spawn children here" )
+    ${own_gap}   && blk2+=( "- group is '${cwd_gid:-?}', not '${SANDBOX_GROUP}' -- sessions cannot spawn children here" )
     ${label_gap} && blk2+=( "- missing SELinux label ai_tools_project_t -- the agent cannot read/write here" )
     ${safe_gap}  && blk2+=( "- also not in git safe.directory" )
     blk2+=( "" )
@@ -422,7 +423,7 @@ if ${own_gap} || ${label_gap}; then
         blk2+=(
             "Recommended -- an isolated shallow branch copy in sandbox-projects:"
             "       ${CLI_CMD} --sandbox-create"
-            "Allow access -- claim this directory in place (give access to ai-tools; needs sudo):"
+            "Allow access -- claim this directory in place (give access to ${SANDBOX_USER}; needs sudo):"
             "       ${CLI_CMD} --project-claim"
         )
     else
@@ -444,7 +445,7 @@ if ${own_gap} || ${label_gap}; then
         # Re-verify the FATAL gaps actually closed before launching.
         cwd_gid="$(stat -c '%G' "${cwd}" 2>/dev/null || true)"
         cwd_mode="$(stat -c '%a' "${cwd}" 2>/dev/null || true)"
-        if [[ "${cwd_gid}" != "ai-tools" ]] || (( (0${cwd_mode:-0} & 010) == 0 )); then
+        if [[ "${cwd_gid}" != "${SANDBOX_GROUP}" ]] || (( (0${cwd_mode:-0} & 010) == 0 )); then
             die "claude: ${cwd}: still not accessible -- the claim did not complete"
         fi
         if ! project_labelled "${cwd}"; then
@@ -530,7 +531,8 @@ fi
 # Secret-pattern drift, journald only (informational, best-effort). The operator's own file
 # REPLACES the shipped baseline rather than extending it, so a copy written once keeps this host on
 # that set and silently drops every pattern added upstream since. Nobody is placed to notice: the
-# agent cannot read the file, and a quarantine that did not happen prints nothing. This is the one
+# agent cannot read the file, and the log records the quarantines that happened rather than the
+# patterns that would have caused one. This is the one
 # point per session where the file is both readable (the wrapper runs as the operator, before the
 # drop) and attributable to a launch, so the difference is recorded here -- to the journal, never to
 # the terminal, since it is not a launch decision and the operator did not ask a question.
@@ -565,5 +567,5 @@ export AI_TOOLS_PROJECT_DIR="${cwd}"
 # arguments. A per-invocation system-prompt flag is detected earlier and suppresses prompt_args, so
 # the two never collide here. The ${arr[@]+"..."} form expands to no word at all (not an empty word) when
 # prompt_args is empty, safe under set -u.
-exec sudo -u ai-tools -g ai-tools -- /opt/ai-tools/bin/ai-tools-run \
+exec sudo -u "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -- /opt/ai-tools/bin/ai-tools-run \
     ${prompt_args[@]+"${prompt_args[@]}"} "$@"

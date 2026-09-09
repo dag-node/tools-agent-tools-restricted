@@ -277,7 +277,7 @@ else
     SHARED_FILE="${LIVE}/orientation/AGENTS.md"
 
     # The link's name comes from the agent's manifest, not from the source file, which is the whole
-    # reason this is not ai_tools_link_shared_assets: Claude Code reads CLAUDE.md and nothing else
+    # reason this is not ai_tools_link_shared_assets: Claude Code reads CLAUDE.md and no other file
     # at user scope, so a link named for the source would never be loaded.
     out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
     if [[ -L "${AGENT_DIR}/CLAUDE.md" ]] \
@@ -319,7 +319,7 @@ else
         fail "an operator's own memory file was displaced by the shared link: ${out}"
     fi
 
-    # An agent that declares no memory_file reaches the linker with an empty name (the resolver
+    # An agent that does not declare a memory_file reaches the linker with an empty name (the resolver
     # skips it, but the guard is what keeps a bad manifest from writing to the directory itself).
     rm -f "${AGENT_DIR}/CLAUDE.md"
     ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" "" root >/dev/null 2>&1 || true
@@ -328,6 +328,33 @@ else
     else
         fail "the linker placed something for an agent that declares no memory file"
     fi
+fi
+
+# Property 7. THE KIND LIST IS THE TYPE. AI_TOOLS_ASSET_KINDS is the one declaration of what the
+# project ships; a caller naming a kind outside it, or no kind at all, is refused with a reason
+# rather than seeding less than it asked for. The seeder once defaulted to `agents`, a directory
+# the tree never carried, so a caller relying on the default would have skipped the subagents and
+# the orientation with no line saying so -- the quiet shape this refusal replaces.
+write_skill "${SHIPPED}" ai-tools-kind-probe 1
+out="$(ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root agents 2>&1)" && rc=0 || rc=$?
+if (( rc != 0 )) && grep -q 'agents is not an asset kind' <<<"${out}" \
+   && [[ ! -e "${LIVE}/agents" ]]; then
+    pass "a kind the project does not ship is refused by name, and nothing is seeded for it"
+else
+    fail "an unknown kind was not refused (rc=${rc}): ${out}"
+fi
+out="$(ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root 2>&1)" && rc=0 || rc=$?
+if (( rc != 0 )) && grep -q 'no asset kind named' <<<"${out}" \
+   && [[ ! -e "${LIVE}/skills/ai-tools-kind-probe" ]]; then
+    pass "an empty kind list is refused rather than defaulting to a set of the seeder's own"
+else
+    fail "an empty kind list was not refused (rc=${rc}): ${out}"
+fi
+out="$(ai_tools_remove_retired_assets "${LIVE}" agents 2>&1)" && rc=0 || rc=$?
+if (( rc != 0 )) && grep -q 'agents is not an asset kind' <<<"${out}"; then
+    pass "the withdrawal pass holds the same kind list"
+else
+    fail "the withdrawal pass accepted an unknown kind (rc=${rc}): ${out}"
 fi
 
 finish
