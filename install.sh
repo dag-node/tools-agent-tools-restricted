@@ -1665,7 +1665,7 @@ do_install() {
     log "/usr/share/ai-tools/{skills,subagents,orientation} (pristine managed assets)"
     install -d -o root -g root -m 755 /usr/share/ai-tools
     local _kind _shared
-    for _kind in skills subagents orientation; do
+    for _kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do
         rm -rf "/usr/share/ai-tools/${_kind}"
         cp -rT "${SCRIPT_DIR}/src/usr/share/ai-tools/${_kind}" "/usr/share/ai-tools/${_kind}"
         # A from-source install copies the working tree, where a local import of a shipped script
@@ -1677,7 +1677,7 @@ do_install() {
         find "/usr/share/ai-tools/${_kind}" -type f -exec chmod 644 {} +
     done
 
-    for _kind in skills subagents orientation; do
+    for _kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do
         _shared="${CP_HOME}/${_kind}"
         log "${_shared}/ (shared ${_kind}, symlinked into every agent that reads them)"
         ensure_dir "${CP_DIR_MODES[${_kind}]}" root "${SANDBOX_GROUP}" "${_shared}"

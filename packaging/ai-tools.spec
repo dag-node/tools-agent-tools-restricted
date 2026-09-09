@@ -573,12 +573,13 @@ fi
 # `default`, which is what actually happened. It cannot widen anything: the variable fast-tracks a
 # question whose default is already yes and never flips a default-NO one (see msg.lib.sh).
 # conf.lib.sh comes first -- it owns the dated-sidecar stamp both of those steps preserve through.
-# stdout is kept so `dnf upgrade` reports what changed; a host that never sees these lines cannot
-# tell that a shipped asset moved.
-for kind in skills subagents orientation; do
-    [ -d %{_datadir}/ai-tools/${kind} ] && command -v bash >/dev/null 2>&1 || continue
-    AI_TOOLS_ASSUME_YES=1 bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools ai-tools ${kind}; ai_tools_remove_retired_assets /opt/ai-tools ${kind}; ai_tools_link_asset_readme %{_datadir}/ai-tools/${kind}/README.md /opt/ai-tools/${kind} ai-tools" 2>/dev/null || :
-done
+# Output is kept, stderr included, so `dnf upgrade` reports what changed and names a refusal; a
+# host that never sees these lines cannot tell that a shipped asset moved. The kinds come from the
+# library's own AI_TOOLS_ASSET_KINDS rather than being spelled here, so this scriptlet cannot fall
+# behind the set the library seeds.
+if command -v bash >/dev/null 2>&1; then
+    AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; for kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do [ -d "$1/${kind}" ] || continue; ai_tools_seed_managed_assets "$1" /opt/ai-tools ai-tools "${kind}"; ai_tools_remove_retired_assets /opt/ai-tools "${kind}"; ai_tools_link_asset_readme "$1/${kind}/README.md" "/opt/ai-tools/${kind}" ai-tools; done' _ %{_datadir}/ai-tools || :
+fi
 # Direct the operator to the per-operator / network steps a scriptlet must not take itself.
 # Each is gated on the state it would create rather than on install-vs-upgrade, so an upgrade
 # names only what this host still owes, a step undone since an earlier run included. An operator

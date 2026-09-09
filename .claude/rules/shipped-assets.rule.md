@@ -208,7 +208,12 @@ does not ship.
 
 `ai_tools_seed_managed_assets <src_root> <live_root> <group> <kind>...` seeds the named kinds from
 the pristine root into the live root (`/opt/ai-tools`, under which each kind's shared root is a
-subdirectory). It acts on an asset **only** when its name matches the kind's glob — `ai-tools-*` for skills and
+subdirectory). `AI_TOOLS_ASSET_KINDS` in the same library is the one declaration of the kinds the
+project ships: the seeder and the withdrawal pass refuse an empty list or a name outside it with a
+reason on stderr, `install.sh` and base's `%post` iterate it rather than spelling the names, and a
+kind added to it without a source layout in the seeder is refused the same way — so a rename or an
+addition surfaces at the first call instead of seeding less than asked. It acts on an asset
+**only** when its name matches the kind's glob — `ai-tools-*` for skills and
 subagents, the fixed `AGENTS.md` for orientation — **and** its frontmatter carries
 `x-ai-tools-managed: true`, so an operator's own agent/skill is never claimed or overwritten:
 
