@@ -251,14 +251,25 @@ points at the man page rather than restating it.
 
 ### A config file's header is a pointer
 
-The per-operator files reach the same placement from a harder constraint. `allowed-projects` and
-`secret-patterns` are seeded once, by `ai-tools-admin operators add` (the two `*_seed` functions in
-`conf.lib.sh`), and no upgrade rewrites them: the header an operator's file carries is the one that
-shipped on the day that account was enrolled, for as long as the account exists. A header written
-there therefore states what the file is, the one rule a reader needs before writing a line, example
-lines, and the page that holds the reference — `allowed-projects(5)`, `secret-patterns(5)` — and
-the grammar, the semantics and the worked examples live in the page, which the package replaces on
-every upgrade. `tests/unit/man.sh` caps each seeded header, asserts it names its page and registers
+Every config file an operator holds keeps its reference in a section 5 page, for one of two
+reasons. The shipped templates, `operator.conf` and `custom-claude-endpoint.conf`, are
+`%config(noreplace)`, so a prose change to one reaches an upgraded host only as an `.rpmnew` the
+operator reconciles by hand. The per-operator files, `allowed-projects` and `secret-patterns`, are
+seeded once, by `ai-tools-admin operators add` (the two `*_seed` functions in `conf.lib.sh`), and
+no upgrade rewrites them: the header an operator's file carries is the one that shipped on the day
+that account was enrolled, for as long as the account exists. A header written into any of the
+four therefore states what the file is, the one rule a reader needs before writing a line, example
+lines or one brief line per option beside its commented default, and the page that holds the
+reference — `operator.conf(5)`, `custom-claude-endpoint.conf(5)`, `allowed-projects(5)`,
+`secret-patterns(5)` — and the grammar, the semantics and the worked examples live in the page,
+which the package replaces on every upgrade. A commented default (`#KEY=`) stays in a template: it
+is a setting, and it is what `ai_tools_conf_keys` counts as *mentioned*, which keeps `system
+post-upgrade` from announcing every option as new.
+
+A config header is read in a terminal, where nothing reflows it, so it holds to 72 columns, ragged
+right, with no comment line ending on an article, a conjunction, a preposition, or a wh-word — the
+words `msg.lib.sh` carries to the next line when it wraps a runtime message. The checker's
+`--config-header` mode reports both, and `tests/unit/man.sh` runs it over the four headers. `tests/unit/man.sh` caps each seeded header, asserts it names its page and registers
 no entry, and reads each page's own examples through the parser that file is read with
 (`ai_tools_conf_path_entry`, `ai_tools_load_secret_patterns`), so an example the manual shows is
 one the file accepts. The one claim that stays in a header whatever its page says is the fail
