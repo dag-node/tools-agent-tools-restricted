@@ -2,23 +2,23 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/operator.lib.sh
 # Shared operator-identity resolver for the ai-tools sandbox. This file is *sourced* (never
-# executed) by every component that resolves an operator -- the root helpers that act on a
-# project path or on the toolchain, ai-tools-admin, the CLI, and the agent hooks
-# (session-hook.sh) -- so each reads the SAME operator list from the SAME source and the
-# matcher cannot drift between them.
+# executed) by every component that resolves an operator -- the root helpers that act
+# on a project path or on the toolchain, ai-tools-admin, the CLI, and the agent hooks
+# (session-hook.sh) -- so each reads the SAME operator list from the SAME source
+# and the matcher cannot drift between them.
 #
 # The operators -- the login users (a human plus rootless service accounts) whose projects
 # the sandbox works on -- are resolved at runtime from /etc/ai-tools/operator.conf, written
 # by ai-tools-admin, not substituted into file contents at build time. The helpers therefore
-# ship identical on every host and carry no per-operator value. This library reads one key of
-# that file, the operator list:
+# ship identical on every host and carry no per-operator value. This library reads one key
+# of that file, the operator list:
 #     OPERATORS="alice bob svc-ci"
-# Home and primary group are derived per name via getent/id. Names separate on commas or
-# whitespace and the quotes are optional -- the one KEY=value grammar conf.lib.sh defines for
-# every key in the file; the host options beside it are stated in operator.conf(5). It is
+# Home and primary group are derived per name via getent/id. Names separate on commas
+# or whitespace and the quotes are optional -- the one KEY=value grammar conf.lib.sh defines
+# for every key in the file; the host options beside it are stated in operator.conf(5). It is
 # root-owned 644 (etc_t): world-readable so both the agent hooks (ai_tools_t) and the root
-# helpers (ai_tools_handback_t) read it -- files_read_etc_files covers both domains -- and
-# root-write-only, so the agent cannot rewrite the identity root chowns files back to.
+# helpers (ai_tools_handback_t) read it -- files_read_etc_files covers both domains --
+# and root-write-only, so the agent cannot rewrite the identity root chowns files back to.
 #
 # The value is PARSED, never sourced, so a malformed or tampered file cannot execute code in
 # the privileged helpers.
@@ -32,8 +32,8 @@
 #                                 restore ownership of agent-written project files.
 #
 # The per-path helpers source this lib best-effort and, when it is absent, define a fail-closed
-# ai_tools_resolve_owner stub that leaves the owner unresolved -- so a missing lib skips the
-# operation (the path stays as found) instead of acting on the wrong identity. Each calls
+# ai_tools_resolve_owner stub that leaves the owner unresolved -- so a missing lib skips
+# the operation (the path stays as found) instead of acting on the wrong identity. Each calls
 # resolve_owner on the path it acts on, then acts as that owner; a path no operator's allowlist
 # covers is left untouched.
 

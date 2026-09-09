@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/sandbox.sh
-# Unit test for the pure decisions behind the ai-tools.sh flows -- the --sandbox-create pair, the
-# precondition --project-create's skipped prompts rest on (tree_is_pristine), and the
-# exclusion reader the claim-time scans prune their walks with (allowlist_exclusions, at the end).
+# Unit test for the pure decisions behind the ai-tools.sh flows -- the --sandbox-create pair,
+# the precondition --project-create's skipped prompts rest on (tree_is_pristine),
+# and the exclusion reader the claim-time scans prune their walks with (allowlist_exclusions, at the end).
 #
 # The --sandbox-create pair:
 #   * sandbox_default_branch -- composes the DEFAULT sandbox branch (sandbox/<leaf-of-from>) with no
@@ -180,8 +180,8 @@ fi
 # ── allowlist_exclusions ──────────────────────────────────────────────────────────────────────
 # The read-only scans a claim runs (acl_drift_scan, sealed_setgid_scan) prune every '!' exclusion
 # from their walk, and read the registry through the shared allowlist grammar: an exclusion line
-# carrying an end-of-line comment or quotes names the same path here as in the launch wrapper, so
-# a carve-out is neither reported as drift nor offered to the repair walk. Only the exclusions
+# carrying an end-of-line comment or quotes names the same path here as in the launch wrapper,
+# so a carve-out is neither reported as drift nor offered to the repair walk. Only the exclusions
 # are printed, without their '!', and a commented-out line is not one.
 section "allowlist_exclusions: the carve-outs the claim-time scans prune (unit)"
 

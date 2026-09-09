@@ -5,10 +5,10 @@
 # use to decide which operator owns an agent-written path. Pins the two security-critical functions
 # against a /tmp fixture tree via the AI_TOOLS_OPERATOR_CONF + AI_TOOLS_ALLOWLIST root-only test
 # hooks: ai_tools_allowlist_covers (allow/exclude/nested matching, and the shared allowlist
-# grammar -- an allow entry carrying an end-of-line comment or quotes covers its path, and an
-# exclusion carrying a comment still excludes, since a resolver that read those lines differently
-# from the launch wrapper would restore ownership on a carve-out the wrapper refuses) and
-# ai_tools_resolve_owner (a covered path resolves to the operator and exposes the owner's
+# grammar -- an allow entry carrying an end-of-line comment or quotes covers its path,
+# and an exclusion carrying a comment still excludes, since a resolver that read those lines differently
+# from the launch wrapper would restore ownership on a carve-out the wrapper refuses)
+# and ai_tools_resolve_owner (a covered path resolves to the operator and exposes the owner's
 # allowlist; an excluded or out-of-list path resolves to no owner, so the helpers leave it
 # untouched). Multi-operator
 # tie-break resolution (which of several covering operators wins) needs several real operator
@@ -33,8 +33,8 @@ mktestdir
 mkdir -p "${TESTDIR}"/proj/sub "${TESTDIR}"/proj/secret "${TESTDIR}"/proj/vendor "${TESTDIR}"/other \
          "${TESTDIR}"/noted "${TESTDIR}/quoted dir"
 allow="${TESTDIR}/allowed-projects"
-# Plain lines, plus one of each shape the shared grammar admits: an allow entry with an
-# end-of-line comment, a quoted allow entry, and an exclusion carrying a comment.
+# Plain lines, plus one of each shape the shared grammar admits: an allow entry
+# with an end-of-line comment, a quoted allow entry, and an exclusion carrying a comment.
 printf '%s\n' "${TESTDIR}/proj" "!${TESTDIR}/proj/secret" \
               "!${TESTDIR}/proj/vendor   # carve-out" \
               "${TESTDIR}/noted   # why" \
@@ -85,8 +85,8 @@ read -r rc _ _ <<< "$(resolve_out "${TESTDIR}/other")"
 [[ "${rc}" == 1 ]] && pass "resolve_owner: unlisted path resolves to no owner" \
                    || fail "resolve_owner: unlisted path resolved (rc=${rc})"
 
-# The consequence of the grammar, seen from the handback's side: a project registered with a
-# comment resolves to its operator, and a commented carve-out resolves to no owner.
+# The consequence of the grammar, seen from the handback's side: a project registered
+# with a comment resolves to its operator, and a commented carve-out resolves to no owner.
 read -r rc user _ <<< "$(resolve_out "${TESTDIR}/noted/file")"
 [[ "${rc}" == 0 && "${user}" == "${PROJECTS_USER}" ]] \
     && pass "resolve_owner: a path under a commented allow entry resolves to the operator" \

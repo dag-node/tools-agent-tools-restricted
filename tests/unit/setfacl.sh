@@ -28,8 +28,8 @@ mkdir -p "${proj}/sub" "${proj}/noted" "${proj}/.git/objects" "${proj}/.env/insi
 # then skips, taking the whole tree (project root included) out of the walk. Mode is behaviour
 # here, not cosmetics, so the test states it rather than inheriting it.
 find "${proj}" -type d -exec chmod 0755 {} +
-# sub is '!'-excluded by a plain line; noted by a line carrying an end-of-line comment, which the
-# shared allowlist grammar admits. A walk that read the second line raw would match no path
+# sub is '!'-excluded by a plain line; noted by a line carrying an end-of-line comment,
+# which the shared allowlist grammar admits. A walk that read the second line raw would match no path
 # against it and grant the carve-out.
 mk_allowlist "${proj}" "!${proj}/sub" "!${proj}/noted   # carve-out"
 

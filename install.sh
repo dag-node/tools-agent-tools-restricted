@@ -1385,8 +1385,8 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-providers.5" \
         /usr/local/share/man/man5/ai-tools-providers.5
 
-    # allowed-projects(5). The operator's project allowlist: its grammar, what an entry and an
-    # exclusion mean, and the entry states. The seeded file's header is written once and never
+    # allowed-projects(5). The operator's project allowlist: its grammar, what an entry
+    # and an exclusion mean, and the entry states. The seeded file's header is written once and never
     # rewritten, so it points here rather than carrying the reference.
     log "/usr/local/share/man/man5/allowed-projects.5"
     install_subst 644 root root \
@@ -1401,8 +1401,8 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/secret-patterns.5" \
         /usr/local/share/man/man5/secret-patterns.5
 
-    # custom-claude-endpoint.conf(5). The endpoint file's four options, their validation and
-    # their precedence, so the %config(noreplace) template can stay a pointer.
+    # custom-claude-endpoint.conf(5). The endpoint file's four options, their validation
+    # and their precedence, so the %config(noreplace) template can stay a pointer.
     log "/usr/local/share/man/man5/custom-claude-endpoint.conf.5"
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/custom-claude-endpoint.conf.5" \

@@ -107,8 +107,8 @@ fi
 if agentacl "${proj}/.env/secret"; then pass "a secret-named path is left untouched"
 else fail "a secret path was regrouped/cleared"; fi
 
-# (D2) a subtree excluded by a '!' line carrying a comment is left untouched: the walk reads the
-# line through the shared grammar, so the carve-out is skipped exactly as a plain '!' line is.
+# (D2) a subtree excluded by a '!' line carrying a comment is left untouched: the walk reads
+# the line through the shared grammar, so the carve-out is skipped exactly as a plain '!' line is.
 if agentacl "${proj}/vendor/v" && [[ "$(perm "${proj}/vendor/v")" == 660 ]]; then
     pass "a subtree excluded by a commented '!' line is left untouched (shared grammar)"
 else fail "vendor/v was reverted despite its commented exclusion: $(stat -c '%a' "${proj}/vendor/v")"; fi

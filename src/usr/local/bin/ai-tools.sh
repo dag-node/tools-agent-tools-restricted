@@ -6,8 +6,8 @@
 # (~/.config/ai-tools/allowed-projects) directly -- through conf.lib.sh's allowlist-editing
 # functions, the one implementation shared with the ai-tools-allowlist root helper and install.sh
 # -- and reaches the root-owned bits -- the git safe.directory list in /opt/ai-tools/.gitconfig,
-# the SELinux label, the ACL, and secret lockdown -- through the sudo root helpers, over the
-# operator's general sudo grant (the drop-in carries no NOPASSWD rule for them, so sudo prompts
+# the SELinux label, the ACL, and secret lockdown -- through the sudo root helpers,
+# over the operator's general sudo grant (the drop-in carries no NOPASSWD rule for them, so sudo prompts
 # for a password; the sandbox account has no grant). The one helper with a rule of its own is
 # --stop's (STOP_BIN).
 #
@@ -16,13 +16,13 @@
 # user must be in OPERATORS in operator.conf, since the root helpers resolve the caller's identity
 # from that list; require_sudo_access, which refuses a verb whose root helper this caller does not
 # hold a sudo grant for, before sudo prompts for a password it will then reject;
-# require_runas_target, which refuses a --for run whose filesystem steps sudo will not run as the
-# target; and require_for_target, which validates a --for run and re-points the registry at its
+# require_runas_target, which refuses a --for run whose filesystem steps sudo will not run
+# as the target; and require_for_target, which validates a --for run and re-points the registry at its
 # target. --help/--version/--list/--providers stay open to any user.
 #
 # The principal guard above them refuses the sandbox account outright and allows root only the
-# verbs that write no operator state (ROOT_ALLOWED_VERBS): the reports -- --audit needs root by
-# construction, since the trail it reads is 700 root:root -- plus --stop, whose helper requires
+# verbs that write no operator state (ROOT_ALLOWED_VERBS): the reports -- --audit needs root
+# by construction, since the trail it reads is 700 root:root -- plus --stop, whose helper requires
 # root anyway.
 #
 # --for <operator> performs a command ON BEHALF OF another enrolled operator: the allowlist entry
@@ -32,14 +32,14 @@
 # unreadable to the invoker (0600 in a 0700 directory), so a --for run reads a root-side snapshot
 # of it and routes its writes through ai-tools-allowlist.
 #
-# The commands: usage() below is the orientation (one line per verb) and ai-tools(1) the
-# reference for every per-verb option; tests/unit/cli-verbs.sh and tests/unit/man.sh hold each
+# The commands: usage() below is the orientation (one line per verb) and ai-tools(1)
+# the reference for every per-verb option; tests/unit/cli-verbs.sh and tests/unit/man.sh hold each
 # to the dispatcher.
 #
 # Sandbox model: --sandbox-create shallow-clones the repo into SANDBOX_ROOT, so the agent never
 # reads the origin's full git history, and --sandbox-push sends the agent's commits to a per-repo
-# branch (sandbox_default_branch names the default) that only the projects user can push -- the
-# sandbox account has no git credentials. The operator's statement of the workflow is
+# branch (sandbox_default_branch names the default) that only the projects user can push --
+# the sandbox account has no git credentials. The operator's statement of the workflow is
 # /var/opt/ai-tools/README.md.
 #
 # Deploying from a checkout: docs/install-from-source.md.
@@ -108,8 +108,10 @@ readonly ALLOWLIST_BIN="/usr/local/libexec/ai-tools/ai-tools-allowlist"
 # 700 root:root; no NOPASSWD rule, so sudo prompts like the other per-project helpers.
 readonly AUDIT_BIN="/usr/local/libexec/ai-tools/ai-tools-audit"
 # Session-stop helper (--stop). Root-only, since a session is a transient unit in the sandbox
-# account's own `systemd --user` manager, which no operator can reach; no NOPASSWD rule, so sudo
-# prompts like the other root helpers. What it accepts, and why so little: cmd_stop.
+# account's own `systemd --user` manager, which no operator can reach. The one helper
+# with a %ai-ops NOPASSWD rule of its own, pinned to the zero-argument form by the drop-in's trailing "",
+# so the bare command runs without a prompt and a flagged form meets sudo's ordinary prompt.
+# What it accepts, and why so little: cmd_stop.
 readonly STOP_BIN="/usr/local/libexec/ai-tools/ai-tools-stop"
 # Sentinel in a guard CLAUDE.md (see drop_lockdown_guard) so the lockdown step can
 # recognise and remove its own placeholder once secrets are secured.
@@ -175,9 +177,9 @@ join_words() { local IFS=' '; printf '%s' "$*"; }
 # verb, and no argument, makes the agent a legitimate caller.
 #
 # Root is refused for every verb that WRITES (it would write the operator registries owned by
-# root, where the operator's own launch gate cannot read them) and allowed for the four that
-# only read. That split is decided below, once the verb is known -- see "Root and the read-only
-# reports".
+# root, where the operator's own launch gate cannot read them) and allowed the verbs that write
+# no operator-owned state (ROOT_ALLOWED_VERBS). That split is decided below, once the verb is
+# known -- see "Root and the read-only reports".
 INVOKING_USER="$(id -un)"
 [[ "${INVOKING_USER}" == "${SANDBOX_USER}" ]] \
     && { echo "ai-tools: refusing to run as the sandbox account ${SANDBOX_USER}" >&2; exit 1; }
@@ -412,9 +414,10 @@ fi
 # root:root -- the operator cannot even stat one). Two facts about the caller decide HOW, and
 # WHETHER, that helper is reached; both are answered here rather than at each call site.
 #
-# ALREADY ROOT -- run the helper directly, with no sudo in between. Root reaches only the
-# read-only verbs (see the principal guard above), so today that is --audit alone. The condition
-# lives here rather than inside cmd_audit so a read-only verb added later inherits it.
+# ALREADY ROOT -- run the helper directly, with no sudo in between. Root reaches only
+# ROOT_ALLOWED_VERBS (the principal guard above), and of those --audit and --stop reach a helper
+# through here. The condition lives here rather than inside each command so a verb added
+# to that set later inherits it.
 #
 # NO SUDO GRANT -- refuse before sudo prompts. Every helper outside the %ai-ops NOPASSWD rules
 # (the shipped sudoers drop-in holds their list) is reached by a plain
@@ -2145,8 +2148,8 @@ report_still_blocked() {
     say  "  edit that line in ${ALLOWLIST} to lift it.${C_RST}"
 }
 
-# allowlist_exclusions  -- print this registry's '!' exclusion entries, one per line without the
-# '!', each read through the shared grammar (ai_tools_conf_path_entry), so a commented or quoted
+# allowlist_exclusions  -- print this registry's '!' exclusion entries, one per line without
+# the '!', each read through the shared grammar (ai_tools_conf_path_entry), so a commented or quoted
 # line denotes the same path here as in every other reader of the file. Feeds the read-only
 # claim-time scans (acl_drift_scan, sealed_setgid_scan), which prune each carve-out from their
 # walk. A missing registry yields an empty list.

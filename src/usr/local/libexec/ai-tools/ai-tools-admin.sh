@@ -101,9 +101,11 @@ readonly SELINUX_GROUPS_LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 # Where a provider package drops the command fragment carrying its own domain. The environment
-# override is a ROOT-ONLY test hook of the same standing as AI_TOOLS_POSTUPGRADE_ROOT (sudo strips
-# the name and this tool is reachable only as root), so tests/unit/admin-commands.sh drives the
-# dispatch against a fixture tree. Unset in production.
+# override is a test hook of the same standing as AI_TOOLS_POSTUPGRADE_ROOT: sudo strips the name,
+# so tests/unit/admin-commands.sh drives the dispatch against a fixture tree. --help lists
+# the domains through it ahead of the root check, so a non-root caller can point the LISTING at another
+# root-owned directory; the dispatch still needs root and each fragment still needs root ownership,
+# so the reach does not add a command. Unset in production.
 readonly ADMIN_COMMANDS_DIR="${AI_TOOLS_ADMIN_COMMANDS_DIR:-/usr/local/lib/ai-tools/admin-commands.d}"
 # The names base owns. A contributed fragment claiming one is refused, so no installed package can
 # shadow a command an administrator relies on. `status` is reserved before it is implemented: a
@@ -1172,8 +1174,7 @@ detail()  { printf '                  %s\n' "$*"; }
 heading() { printf '\n  %s\n\n' "$*"; }
 
 # status_services: every unit in the shared registry, with its consequence and remedy where one
-# needs attention. Prints the count of units needing attention on stdout... no: it sets
-# STATUS_PROBLEMS, because the rendering IS this function's stdout.
+# needs attention. Renders to stdout and counts the units needing attention in STATUS_PROBLEMS.
 STATUS_PROBLEMS=0
 status_services() {
     heading "Services"

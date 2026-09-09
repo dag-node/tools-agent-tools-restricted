@@ -209,9 +209,9 @@ else
 fi
 readonly ALLOWLIST PROJECTS_UID
 
-# Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser the
-# allowlist is read with -- end-of-line comments, and quotes for a path carrying a space or a
-# literal '#'. REQUIRED like safe-paths.lib.sh: the bare source under set -e aborts when it is
+# Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser
+# the allowlist is read with -- end-of-line comments, and quotes for a path carrying a space
+# or a literal '#'. REQUIRED like safe-paths.lib.sh: the bare source under set -e aborts when it is
 # missing. A bare filter in its place mis-reads an entry every other reader of the file reads
 # correctly. Include-guarded.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
@@ -221,8 +221,8 @@ declare -a allowed=()
 declare -a excluded=()
 if [[ -r "${ALLOWLIST}" ]]; then
     while IFS= read -r entry || [[ -n "${entry}" ]]; do
-        # One shared grammar (conf.lib.sh): whole-line and end-of-line comments, and quotes for
-        # a path carrying a space or a literal '#'. A line that does not denote an entry is skipped.
+        # One shared grammar (conf.lib.sh): whole-line and end-of-line comments, and quotes
+        # for a path carrying a space or a literal '#'. A line that does not denote an entry is skipped.
         ai_tools_conf_path_entry "${entry}" || continue
         entry="${_ai_tools_conf_value}"
         if [[ "${entry}" == '!'* ]]; then

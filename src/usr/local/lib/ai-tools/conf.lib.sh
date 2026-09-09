@@ -466,8 +466,8 @@ ai_tools_conf_new_keys() {
 # rules as everything else: a whole-line or end-of-line `#` comment, and one matched quote layer
 # for a path that must contain a space or a literal `#`. Sharing the grammar is the point --
 # every reader of this file (the launch wrapper, the CLI, the owner resolver, and each root helper
-# that walks or labels a project; providers.rule.md names them) parses it here, and a rule that
-# lives in each of them separately is a rule that drifts.
+# that walks or labels a project; providers.rule.md names them) parses it here, and a rule
+# that lives in each of them separately is a rule that drifts.
 #
 #   /home/op/project              a path
 #   /home/op/project   # why      an end-of-line comment: `#` after whitespace ends the entry
@@ -767,11 +767,11 @@ ai_tools_conf_allowlist_enable() {
 # PRINTS; the caller places the file with the ownership and mode it needs (600, inside a 700
 # directory).
 #
-# A seeded header is written once and no upgrade rewrites it, so it carries what the file is, the
-# one rule a reader needs before writing a line, example lines, and the man page that holds the
-# reference -- the page ships with the package and reaches every host on every upgrade, where a
-# header stays as it was on the day the account was enrolled. tests/unit/man.sh caps the
-# allowlist header and reads the page's examples through ai_tools_conf_path_entry.
+# A seeded header is written once and no upgrade rewrites it, so it carries what the file is,
+# the one rule a reader needs before writing a line, example lines, and the man page that holds
+# the reference -- the page ships with the package and reaches every host on every upgrade,
+# where a header stays as it was on the day the account was enrolled. tests/unit/man.sh caps
+# the allowlist header and reads the page's examples through ai_tools_conf_path_entry.
 
 # ai_tools_conf_allowlist_seed : print the header a fresh allowed-projects carries. It does not
 #   name any project, so a session cannot start anywhere until the CLI or the operator adds an

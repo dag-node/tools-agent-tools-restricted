@@ -4,9 +4,9 @@
 # Hermetic sync test between this project's man pages and what each documents: ai-tools(1)
 # against the CLI's usage(), ai-tools-admin(8) against the admin helper's, ai-tools-providers(5)
 # against the shipped manifests, allowed-projects(5) and secret-patterns(5) against the header
-# each file is seeded with and the parser its examples must load in, and operator.conf(5) and
-# custom-claude-endpoint.conf(5) against the keys their shipped templates mention. It closes by
-# holding every config header this project writes to the fixed-width rule (72 columns, no line
+# each file is seeded with and the parser its examples must load in, and operator.conf(5)
+# and custom-claude-endpoint.conf(5) against the keys their shipped templates mention. It closes
+# by holding every config header this project writes to the fixed-width rule (72 columns, no line
 # ending on a tie word). In the two command pairs the page and the help are not copies of each
 # other -- usage() is orientation while the page is the reference -- so equality of their whole
 # option sets is the wrong contract and is what made slimming the help impossible.
@@ -321,9 +321,9 @@ check_providers_page
 
 # ── The seeded operator files: allowed-projects(5), secret-patterns(5) ──────────
 # The header each *_seed function in conf.lib.sh prints is written into an operator's file once,
-# at enrolment, and no upgrade rewrites it -- so the reference lives in the page, which the
-# package replaces on every upgrade, and the header stays a pointer. check_seed_header holds that
-# shape for both files: the header is short (the cap is what stops it regrowing into a second
+# at enrolment, and no upgrade rewrites it -- so the reference lives in the page,
+# which the package replaces on every upgrade, and the header stays a pointer. check_seed_header holds
+# that shape for both files: the header is short (the cap is what stops it regrowing into a second
 # reference), it names its page, and it is comment-only, so a seeded file registers no entry.
 # Each page then has its EXAMPLES read through the parser its file is read with, so an example
 # the manual shows is one the file accepts, and its .TH version field checked.
@@ -412,8 +412,8 @@ check_secret_patterns_page() {
     fi
     check_seed_header ai_tools_conf_secret_patterns_seed secret-patterns
 
-    # The page's example patterns load as patterns: the pattern-shaped lines of EXAMPLES (not the
-    # CLI invocations) are written to a file, read through the library's own loader, and must
+    # The page's example patterns load as patterns: the pattern-shaped lines of EXAMPLES (not
+    # the CLI invocations) are written to a file, read through the library's own loader, and must
     # come back one for one, each a basename glob with no '/'.
     local -a examples=() loaded=(); local pattern bad=0 file
     mapfile -t examples < <(man_examples "${SECRET_MAN}" | grep -vE '^(ai-tools|#|$)' || true)
@@ -438,10 +438,10 @@ check_secret_patterns_page() {
 check_secret_patterns_page
 
 # ── The shipped config templates: operator.conf(5), custom-claude-endpoint.conf(5) ──────────────
-# Each template is %config(noreplace), so a prose change to it reaches an upgraded host only as an
-# .rpmnew the operator reconciles by hand; the reference lives in the page and the template keeps
-# a brief line per option beside its commented default. check_config_page holds the two in
-# lockstep: every key the template mentions is documented under OPTIONS, and every documented
+# Each template is %config(noreplace), so a prose change to it reaches an upgraded host only
+# as an .rpmnew the operator reconciles by hand; the reference lives in the page and the template keeps
+# a brief line per option beside its commented default. check_config_page holds the two
+# in lockstep: every key the template mentions is documented under OPTIONS, and every documented
 # option is one the template mentions -- read with ai_tools_conf_keys, the same "mentioned"
 # predicate `system post-upgrade` announces a new option by, so the test and the upgrade report
 # cannot disagree.

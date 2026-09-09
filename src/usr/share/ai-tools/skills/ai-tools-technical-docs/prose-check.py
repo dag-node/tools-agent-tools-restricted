@@ -787,11 +787,11 @@ SOURCE_DIRECTIVE = re.compile(r"^\s*#\s*(shellcheck|noqa|pylint:|type:|pragma)\b
 def comment_line_findings(source, width):
     """A source file's comment or docstring line over `width` columns, or ending on a tie word.
 
-    A comment is read as written -- in an editor, in `git blame`, in a deployed file -- so
-    the rule a config header holds to applies to it too, at the wider column a code file wraps
-    at. A code line is not measured: only a comment or a docstring is. A document or a man page
-    reflows, so this reads source files only, line by line, where every other check reads
-    rejoined sentences.
+    A comment is read as written, in an editor, in `git blame`, or in a deployed file,
+    so the rule a config header holds to applies to it too, at the wider column a code file
+    wraps at. A code line is not measured: only a comment or a docstring is. A document or
+    a man page reflows, so this reads source files only, line by line, where every other check
+    reads rejoined sentences.
     """
     for path, number, line, text in prose_lines(source):
         if path == MESSAGE or is_prose_file(path) or text is None:
