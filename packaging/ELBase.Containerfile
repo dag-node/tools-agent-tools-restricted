@@ -61,9 +61,9 @@ RUN sed -i '/^\[extras\]/,/^\[/ s/^enabled=1$/enabled=0/' /etc/yum.repos.d/*.rep
 
 # Source tree for `make rpm` + the test suite. Copy the build inputs explicitly (a
 # .containerignore at the context root drops .git, packaging/rpmbuild, and tarballs). Only the
-# prebuilt policy packages are needed from selinux/ -- the core ai_tools.pp plus each stable
-# group's ai_tools_<group>.pp, which the Makefile CONTENT and the spec consume; experimental
-# groups ship no .pp.
+# prebuilt policy packages are needed from selinux/ -- the core ai_tools.pp, each stable
+# group's ai_tools_<group>.pp, and each integration's layout module -- which the Makefile
+# CONTENT and the spec consume; experimental groups ship no .pp.
 #
 # The build context is the maintainer's working tree, where locally compiled experimental groups
 # sit beside the shipped ones, so each prebuilt package is named: the image then holds exactly the
@@ -75,12 +75,15 @@ RUN sed -i '/^\[extras\]/,/^\[/ s/^enabled=1$/enabled=0/' /etc/yum.repos.d/*.rep
 # a glob is exact for them because .gitignore covers only *.pp.
 COPY src                            /opt/ai-tools-src/src
 COPY docs                           /opt/ai-tools-src/docs
-COPY selinux/policy/ai_tools.pp         /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/ai_tools_tmpmap.pp  /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/Makefile            /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/*.te                /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/*.if                /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/*.fc                /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/ai_tools.pp           /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/ai_tools_tmpmap.pp    /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/ai_tools_localipc.pp  /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/ai_tools_buildexec.pp /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/ai_tools_dotnet.pp    /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/Makefile              /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/*.te                  /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/*.if                  /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/*.fc                  /opt/ai-tools-src/selinux/policy/
 COPY tests                          /opt/ai-tools-src/tests
 COPY packaging                      /opt/ai-tools-src/packaging
 # The licence set `make dist` bundles: LICENSE, the LICENSES/ SPDX texts, and the REUSE.toml

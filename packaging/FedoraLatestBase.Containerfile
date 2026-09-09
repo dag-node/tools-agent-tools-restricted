@@ -46,9 +46,12 @@ RUN microdnf -y install \
 # recompiles from the .te/.if/.fc that come alongside, so both are needed here.
 COPY src                            /opt/ai-tools-src/src
 COPY docs                           /opt/ai-tools-src/docs
-COPY selinux/policy/ai_tools.pp         /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/ai_tools_tmpmap.pp  /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/Makefile            /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/ai_tools.pp           /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/ai_tools_tmpmap.pp    /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/ai_tools_localipc.pp  /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/ai_tools_buildexec.pp /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/ai_tools_dotnet.pp    /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/Makefile              /opt/ai-tools-src/selinux/policy/
 COPY selinux/policy/*.te                /opt/ai-tools-src/selinux/policy/
 COPY selinux/policy/*.if                /opt/ai-tools-src/selinux/policy/
 COPY selinux/policy/*.fc                /opt/ai-tools-src/selinux/policy/
