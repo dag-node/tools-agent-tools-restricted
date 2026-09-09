@@ -2,14 +2,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/selinux-groups.sh
 # Unit test for the optional SELinux policy-group registry (selinux-groups.lib.sh), the single
-# source shared by ai-tools-admin (loads a prebuilt group) and selinux/install-selinux.sh
-# (compiles one). Pins two things:
+# source shared by ai-tools-admin (loads a shipped group) and selinux/install-selinux.sh
+# (compiles one). Pins three things:
 #   * the pure accessors + validity predicate -- ai-tools-admin's `selinux groups enable|disable` gate on
 #     ai_tools_selinux_group_valid, so an unknown name must be rejected;
-#   * registry <-> filesystem lockstep -- because the groups ship PREBUILT, a registry name with
-#     no policy source or no committed .pp (or a policy module absent from the registry) means
-#     `selinux groups enable` either has no package to load or silently cannot be reached. That drift is the
-#     cost of shipping binaries, so it is asserted here against the checkout;
+#   * registry <-> shipped-set lockstep -- the RPM build and install.sh compile the modules
+#     selinux/policy/shipped-modules.sh derives, so a group is shipped exactly when the registry marks
+#     it stable, every name on that list has a .te source, every policy source on disk is
+#     reachable through the registry or an integration manifest, and no compiled .pp is tracked
+#     (the modules are compiled per distribution at build time; a tracked binary is one built on
+#     some other host's headers). Asserted against the checkout;
 #   * the loaded probe against a full-size module listing -- the one impure accessor, driven over
 #     a stubbed `semodule` because its failure mode is a race rather than a wrong answer.
 #
@@ -163,39 +165,59 @@ else
     pass "group_loaded reports an absent module as absent"
 fi
 
-# --- Lockstep with the source tree + git (real checkout only) ---
-# This half needs the .te SOURCES and git track-state, both present only in a source checkout. A
-# partial deployment skips it: the RPM selftest container copies just the prebuilt .pp (not the
-# .te/.fc sources, and no .git), so the policy dir exists but the sources do not -- gate on the git
-# work tree, not the dir. The accessor and validity checks above already ran and carry this file's
-# coverage.
+# --- Lockstep with the shipped set + the source tree + git (real checkout only) ---
+# This half needs the .te SOURCES, the derivation script, and git track-state, all present only
+# in a source checkout. A partial deployment skips it: the RPM selftest container copies the
+# policy sources without .git, so gate on the git work tree, not the dir. The accessor and
+# validity checks above already ran and carry this file's coverage.
 POL="${ROOT}/selinux/policy"
+SHIPPED="${ROOT}/selinux/policy/shipped-modules.sh"
 if ! git -C "${ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    skip "registry<->filesystem lockstep" "not a git work tree (installed or partial deployment)"
+    skip "registry<->shipped-set lockstep" "not a git work tree (installed or partial deployment)"
     finish; exit
 fi
-tracked_pp() { git -C "${ROOT}" ls-files --error-unmatch "selinux/policy/ai_tools_${1}.pp" >/dev/null 2>&1; }
 
-# Forward: each registry group has a .te source. STABLE groups additionally ship a COMMITTED
-# prebuilt .pp; EXPERIMENTAL groups must NOT commit one -- they are compiled and verified from
-# source on demand, so a committed experimental .pp (or a compiled-but-untracked dev copy) is not
-# what ships. Track-state comes from git, so a stray on-disk .pp in a dev tree is not mistaken for
-# a shipped one.
+# The derived shipped set, as the spec's %build and install.sh read it. One failing derivation is
+# one failing build, so it is a FAIL here rather than a skip.
+shipped=()
+if [[ -f "${SHIPPED}" ]] && mapfile -t shipped < <(bash "${SHIPPED}") && (( ${#shipped[@]} )); then
+    pass "shipped-modules.sh derives a non-empty set: ${shipped[*]}"
+else
+    fail "shipped-modules.sh did not derive a module set"
+fi
+is_shipped() { printf '%s\n' "${shipped[@]}" | grep -qx "$1"; }
+
+# The core is on the list unconditionally, and every name on it has the .te source the build
+# compiles from -- a derived name with no source is a build that fails at make.
+if is_shipped ai_tools; then
+    pass "the core ai_tools is on the shipped set"
+else
+    fail "the core ai_tools is missing from the shipped set"
+fi
+for m in "${shipped[@]}"; do
+    [[ "${m}" =~ ^ai_tools(_[a-z][a-z0-9_]*)?$ ]] || fail "shipped-set entry '${m}' is not an ai_tools_<name> module name"
+    [[ -f "${POL}/${m}.te" ]] || fail "shipped module '${m}' has no source ${POL}/${m}.te"
+done
+
+# Forward: each registry group has a .te source, and it is on the shipped set exactly when the
+# registry marks it stable. An EXPERIMENTAL group is compiled and verified from source on demand
+# and must stay off the list, or an unaudited module ships; a STABLE group left off it has no
+# module for `selinux groups enable` to load.
 for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
     n="$(ai_tools_selinux_group_name "${entry}")"
     [[ -f "${POL}/ai_tools_${n}.te" ]] \
         || fail "group '${n}' in registry but ${POL}/ai_tools_${n}.te is missing"
     if ai_tools_selinux_group_is_experimental "${n}"; then
-        if tracked_pp "${n}"; then
-            fail "experimental group '${n}' has a committed .pp -- experimental groups are source-only; do not commit ai_tools_${n}.pp"
+        if is_shipped "ai_tools_${n}"; then
+            fail "experimental group '${n}' is on the shipped set -- an experimental group is source-only"
         else
-            pass "experimental group '${n}': .te present, .pp not committed (source-only)"
+            pass "experimental group '${n}': .te present, not shipped (source-only)"
         fi
     else
-        if tracked_pp "${n}"; then
-            pass "stable group '${n}': .te source and committed prebuilt .pp"
+        if is_shipped "ai_tools_${n}"; then
+            pass "stable group '${n}': .te source, on the shipped set"
         else
-            fail "stable group '${n}' ships prebuilt but ai_tools_${n}.pp is not committed (build it and git add it)"
+            fail "stable group '${n}' is not on the shipped set -- shipped-modules.sh does not follow the registry"
         fi
     fi
 done
@@ -203,8 +225,8 @@ done
 # Reverse: every optional .te on disk (any ai_tools_*.te, excluding the core ai_tools.te) is either
 # a group in the registry or a LAYOUT MODULE some shipped integration manifest declares
 # (selinux_layout_module) -- a policy module nobody can reach through `selinux groups enable` or
-# an integration's bootstrap is a mistake. A layout module ships prebuilt like a stable group, so
-# its .pp must be committed too.
+# an integration's bootstrap is a mistake. A layout module is on the shipped set like a stable
+# group, since the selinux %post loads it for every installed integration that declares it.
 layout_modules=()
 for manifest in "${ROOT}"/src/usr/local/lib/ai-tools/integrations.d/*.conf; do
     [[ -f "${manifest}" ]] || continue
@@ -217,14 +239,24 @@ for te in "${POL}"/ai_tools_*.te; do
     if ai_tools_selinux_group_valid "${gname}"; then
         pass "policy module '${base}' is registered"
     elif printf '%s\n' "${layout_modules[@]}" | grep -qx "${base}"; then
-        if tracked_pp "${gname}"; then
-            pass "layout module '${base}' is declared by an integration manifest and ships prebuilt"
+        if is_shipped "${base}"; then
+            pass "layout module '${base}' is declared by an integration manifest and is on the shipped set"
         else
-            fail "layout module '${base}' is declared by an integration manifest but ${base}.pp is not committed (build it and git add it)"
+            fail "layout module '${base}' is declared by an integration manifest but is not on the shipped set"
         fi
     else
         fail "policy module '${base}' exists but is neither in AI_TOOLS_SELINUX_GROUPS nor a layout module an integration manifest declares"
     fi
 done
+
+# No compiled module is tracked, anywhere in the tree: each is compiled per distribution at
+# build time, and a tracked .pp is a binary built on some other host's headers that no review
+# can read. A local build leaves them in the working tree, gitignored.
+tracked="$(git -C "${ROOT}" ls-files -- '*.pp' 2>/dev/null || true)"
+if [[ -z "${tracked}" ]]; then
+    pass "no compiled .pp is tracked"
+else
+    fail "compiled policy modules are tracked -- the build compiles them, git rm: $(tr '\n' ' ' <<<"${tracked}")"
+fi
 
 finish

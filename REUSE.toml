@@ -6,8 +6,8 @@
 # `precedence = "aggregate"` means a file's own header wins where it has one and
 # these annotations only fill the gaps.
 #
-# The paths below are those that cannot carry a comment (compiled .pp policy packages), or where a
-# header would be noise rather than information (prose, licence texts, generated data, dotfiles).
+# The paths below are those where a header would be noise rather than information (prose, licence
+# texts, generated data, dotfiles), or a build file beside sources that state the licence themselves.
 
 version = 1
 SPDX-PackageName = "ai-tools"
@@ -21,10 +21,11 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Ondřej Nedomlel <tools@dagnode.com>"
 SPDX-License-Identifier = "AGPL-3.0-only"
 
-# The SELinux policy sources carry their own GPL-2.0-or-later headers; this entry exists for the
-# compiled .pp packages beside them, which are binary and cannot. They are GPL because a compiled
-# module embeds macro expansions from the SELinux reference policy -- the reason the policy ships
-# as its own ai-tools-selinux subpackage rather than inside the AGPL base.
+# The SELinux policy sources carry their own GPL-2.0-or-later headers; this entry covers what sits
+# beside them without one -- the build Makefile and the draft -- and any module a local build leaves
+# there (gitignored, never tracked: the RPM build compiles its own). A compiled module is GPL because
+# it embeds macro expansions from the SELinux reference policy -- the reason the policy ships as its
+# own ai-tools-selinux subpackage rather than inside the AGPL base.
 [[annotations]]
 path = "selinux/policy/**"
 precedence = "aggregate"

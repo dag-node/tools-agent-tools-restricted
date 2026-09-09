@@ -115,6 +115,20 @@ phase "provisioning helper present at the path ai-tools-admin execs" \
 phase "contributed command domain dispatches (dotnet status)" \
     ai-tools-admin dotnet status
 
+# The policy modules ai-tools-selinux ships are the ones selinux/policy/shipped-modules.sh derives from
+# the group registry and the integration manifests -- the list the spec's %build compiled inside
+# this image -- one .pp per name and no other. Read from the built RPM rather than the installed
+# tree, so a %files list that drifted from the derivation fails here whether or not the package
+# was installed. getenforce is Disabled in a container, so whether a module LOADS is not covered.
+phase "ai-tools-selinux ships exactly the derived policy module set" \
+    bash -c 'set -e
+             rpm=$(ls /tmp/ai-repo/ai-tools-selinux-*.rpm | head -1)
+             have=$(rpm -qlp "${rpm}" | sed -n "s#^/usr/share/selinux/packages/ai-tools/\(.*\)\.pp\$#\1#p" | sort)
+             want=$(bash "$1/selinux/policy/shipped-modules.sh" | sort)
+             [ -n "${want}" ] || { echo "shipped-modules.sh derived an empty set" >&2; exit 1; }
+             [ "${have}" = "${want}" ] || { printf "packaged:\n%s\nderived:\n%s\n" "${have}" "${want}" >&2; exit 1; }
+             echo "${have}" | tr "\n" " "; echo' _ "${SRC_DIR}"
+
 # ── toolchain provisioning (network) ─────────────────────────────────────────
 # Run at runtime, not build: under a live systemd, bootstrap enables the sandbox account's
 # linger and the nvm-update.timer in its own --user instance. Idempotent (reuses an existing

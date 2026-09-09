@@ -33,11 +33,12 @@
 # `list` prints the current operators.
 #
 # `selinux groups` toggles the optional policy groups (systemd/pkgmgmt/netadmin/podman/tmpmap/apphost/localipc/buildexec), all off
-# by default. It loads the PREBUILT ai_tools_<group>.pp shipped in the base package via semodule --
-# no source tree or selinux-policy-devel needed on the host. The group set, descriptions, and
-# per-group stability are single-sourced from selinux-groups.lib.sh, shared with
+# by default. It loads the COMPILED ai_tools_<group>.pp that ai-tools-selinux (or a checkout's
+# install-selinux.sh build) staged under AI_TOOLS_SELINUX_PACKAGE_DIR via semodule -- no source
+# tree or selinux-policy-devel needed on the host. The group set, descriptions, and per-group
+# stability are single-sourced from selinux-groups.lib.sh, shared with
 # selinux/install-selinux.sh (the source-tree authoring tool that instead COMPILES a group; this
-# operator helper only loads a shipped one). Only STABLE groups ship prebuilt (currently tmpmap);
+# operator helper only loads a shipped one). Only STABLE groups are on the shipped set;
 # `groups enable` of an EXPERIMENTAL (unaudited) group is refused with a pointer to the source
 # compile-and-verify workflow (install-selinux.sh + the avc bring-up loop), since this tool will
 # not load an unaudited module. `groups disable` works for any loaded group, stable or not.
@@ -747,7 +748,7 @@ op_list() {
 }
 
 # ── selinux groups: optional policy-group management ─────────────────────────────────
-# These load/unload the PREBUILT ai_tools_<group>.pp shipped in the base package; the group
+# These load/unload the COMPILED ai_tools_<group>.pp staged in the package directory; the group
 # set and text come from selinux-groups.lib.sh. Distinct from selinux/install-selinux.sh,
 # which compiles a group from source in a repo checkout -- this runs on any installed host.
 
@@ -796,7 +797,7 @@ _sel_enable_one() {
         log "group '${name}' is already loaded -- nothing to do"
         return 0
     fi
-    # Experimental groups are unaudited drafts and are NOT shipped prebuilt. This tool loads only
+    # Experimental groups are unaudited drafts and are NOT on the shipped set. This tool loads only
     # shipped, stable modules; an experimental group must be compiled and verified against a real
     # workload from a source checkout first (install-selinux.sh does both), because it widens the
     # sandbox domain's access beyond the repo-only core. Point the operator there rather than
@@ -811,7 +812,7 @@ _sel_enable_one() {
         die "'${name}' is experimental -- verify and enable it from source (see above)"
     fi
     local pp="${AI_TOOLS_SELINUX_PACKAGE_DIR}/ai_tools_${name}.pp"
-    [[ -f "${pp}" ]] || die "prebuilt module ${pp} not found -- reinstall ai-tools-base"
+    [[ -f "${pp}" ]] || die "compiled module ${pp} not found -- reinstall ai-tools-selinux, or from a checkout: sudo selinux/install-selinux.sh build"
     # A former module still loaded from before this group was renamed or split out of it goes
     # in the same transaction, together with every OTHER current group that former module's
     # rules became, so the host never holds both rule sets, never loses a capability the old

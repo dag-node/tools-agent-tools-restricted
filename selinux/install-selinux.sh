@@ -4,30 +4,35 @@
 # Separate from the main install.sh on purpose: this is an extra MAC layer, brought
 # up independently and refined via the audit2allow loop in README.md.
 #
-# The core module ships PREBUILT (ai_tools.pp) and ENFORCING, so a normal install
-# does not require a toolchain -- it loads the shipped package and labels the tree. To go
-# permissive instead (to observe before blocking), uncomment `permissive
-# ai_tools_t;` in ai_tools.te and recompile; the installer detects the mode from
-# the source and reports it.
+# Every module this script loads is COMPILED from the .te/.fc/.if under policy/ on this host:
+# the checkout carries no compiled module (the RPM compiles its own at build time, per
+# distribution). The core loads ENFORCING; to go permissive instead (to observe before
+# blocking), uncomment `permissive ai_tools_t;` in ai_tools.te and rebuild; the installer
+# detects the mode from the source and reports it.
 #
 # Usage:
-#   sudo ./install-selinux.sh install              load prebuilt core (opt. recompile) + prompt for groups
+#   sudo ./install-selinux.sh install              compile + load core, stage the shipped set, prompt for groups
+#   sudo ./install-selinux.sh build                compile + stage the shipped set (what install.sh runs)
 #   sudo ./install-selinux.sh rebuild              recompile core from source (.te/.fc) + reload + relabel
 #   sudo ./install-selinux.sh relabel              re-apply labels (after Node upgrade)
 #   sudo ./install-selinux.sh remove               unload all ai_tools* modules + labels
-#   sudo ./install-selinux.sh enable-group <name>  load one optional policy group
+#   sudo ./install-selinux.sh enable-group <name>  compile + load one optional policy group
 #   sudo ./install-selinux.sh disable-group <name> unload one policy group
 #   sudo ./install-selinux.sh list-groups          show group availability and state
 #
-# selinux-policy-devel is required ONLY to COMPILE a module from source: to recompile the
-# core or a group after editing its .te/.fc, or to build an EXPERIMENTAL group, which
-# never ships prebuilt. The core and the STABLE groups do ship prebuilt, so a normal
-# install and a stable enable-group need no toolchain. Install it only to build:
+# selinux-policy-devel is required by every action that compiles -- install, build, rebuild,
+# enable-group -- and by nothing else here:
 #   sudo dnf install selinux-policy-devel
+#
+# The "shipped set" is the core, each STABLE group, and each integration's layout module,
+# derived by shipped-modules.sh from the group registry and the integration manifests -- the
+# same list the RPM build compiles. `build` and `install` stage it compiled under
+# /usr/share/selinux/packages/ai-tools, where the installed ai-tools-admin loads a group from
+# with no checkout and no toolchain, as it does on an RPM host.
 #
 # The optional policy groups are all DISABLED by default (the core alone covers repo-only
 # work) and are declared once, in selinux-groups.lib.sh -- name, description, why it is
-# off, and the stability that decides whether it ships prebuilt. This script reads that
+# off, and the stability that decides whether it is on the shipped set. This script reads that
 # registry, as ai-tools-admin does, so the two cannot disagree on which groups exist.
 
 set -euo pipefail
@@ -35,8 +40,9 @@ IFS=$'\n\t'
 
 readonly ACTION="${1:-install}"
 readonly DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Policy source + prebuilt packages live under policy/; the build (make -C) and every
-# .te/.fc/.pp reference resolve there. install-selinux.sh, README.md, and ../src stay at DIR.
+# Policy source, the script naming the shipped set, and the modules compiled from the source
+# live under policy/; the build (make -C) and every .te/.fc/.pp reference resolve there.
+# install-selinux.sh, README.md, and ../src stay at DIR.
 readonly POLICY_DIR="${DIR}/policy"
 readonly MODULE="ai_tools"
 
@@ -150,34 +156,58 @@ sayx()    { printf '%s\n' "$*" >&2; }
 # Build helpers
 ########################################
 
-# require_devel <pp>: exit with install guidance unless the refpolicy devel
-# toolchain (make + /usr/share/selinux/devel/Makefile from selinux-policy-devel) is
-# present. Only reached when a module must be COMPILED from source -- the core and the
-# STABLE groups ship prebuilt, so a normal install and enabling a stable group never land
-# here; building an EXPERIMENTAL group (which never ships prebuilt), or a rebuild after
-# editing a .te/.fc, is what requires the toolchain.
+# require_devel <pp>: exit with install guidance unless the refpolicy devel toolchain (make +
+# /usr/share/selinux/devel/Makefile from selinux-policy-devel) is present. Reached by every
+# action that compiles: a checkout carries no compiled module, so the first install builds each
+# one, and a rebuild after editing a .te/.fc builds it again.
 require_devel() {
     command -v make >/dev/null && [[ -f /usr/share/selinux/devel/Makefile ]] && return 0
     warn "building ${1:-this policy module} needs the selinux-policy-devel toolchain,"
-    warn "  which is not installed. The shipped modules (core + stable groups) are prebuilt"
-    warn "  and need no toolchain; an experimental group or an edited-source rebuild does."
+    warn "  which is not installed. A checkout compiles every module it loads (the RPM"
+    warn "  ships them compiled), so install it and re-run:"
     warn "      sudo dnf install selinux-policy-devel"
-    warn "  then re-run. See ${DIR}/README.md for the policy build/bring-up workflow."
+    warn "  See ${DIR}/README.md for the policy build/bring-up workflow."
     exit 1
 }
 
 # ensure_pp <module.pp>: guarantee the compiled package ${POLICY_DIR}/<module.pp> exists.
-# Prefers the prebuilt package shipped in the repo so a normal install and enabling a stable
-# group need no toolchain; compiles from source (requiring selinux-policy-devel) when the
-# package is absent -- an experimental group (never shipped prebuilt), or after editing the
-# .te/.fc source.
+# Reuses a module an earlier run compiled and compiles it otherwise (requiring
+# selinux-policy-devel); an edited .te/.fc takes effect through build_pp, which always compiles.
 ensure_pp() {
     local pp="$1"
     if [[ -f "${POLICY_DIR}/${pp}" ]]; then
-        log "using prebuilt ${pp}"
+        log "using the compiled ${pp} from an earlier build"
     else
         build_pp "${pp}"
     fi
+}
+
+# _shipped_modules: print the shipped set, one module name per line -- the derivation in
+# shipped-modules.sh, read from this checkout's registry and manifests. A derivation that fails
+# aborts the run: staging a guessed set would leave ai-tools-admin a package directory that does
+# not match what the registry calls stable.
+_shipped_modules() {
+    bash "${POLICY_DIR}/shipped-modules.sh" || die "could not derive the shipped module set (policy/shipped-modules.sh)"
+}
+
+# stage_shipped_modules [rebuild]: compile the shipped set -- every module with ensure_pp, or
+# with build_pp when `rebuild` is given -- and install each compiled module 644 root:root under
+# AI_TOOLS_SELINUX_PACKAGE_DIR, the directory the installed ai-tools-admin loads a group from.
+# This is the from-source counterpart of the RPM's %install, so a checkout host and an RPM host
+# hold the same package directory; a group staged here still stays OFF until enabled.
+stage_shipped_modules() {
+    local how="${1:-reuse}" module
+    local -a modules=()
+    mapfile -t modules < <(_shipped_modules)
+    (( ${#modules[@]} )) || die "the shipped module set is empty -- is the group registry readable?"
+    for module in "${modules[@]}"; do
+        if [[ "${how}" == rebuild ]]; then build_pp "${module}.pp"; else ensure_pp "${module}.pp"; fi
+    done
+    install -d -o root -g root -m 755 "${AI_TOOLS_SELINUX_PACKAGE_DIR}"
+    for module in "${modules[@]}"; do
+        install -o root -g root -m 644 "${POLICY_DIR}/${module}.pp" "${AI_TOOLS_SELINUX_PACKAGE_DIR}/${module}.pp"
+    done
+    ok "staged $(_list "${modules[@]}") under ${AI_TOOLS_SELINUX_PACKAGE_DIR}"
 }
 
 # _replace_former_group_modules: for every former module the registry records
@@ -407,7 +437,7 @@ prompt_groups() {
     sayx ""
 
     # Stable groups are offered first, experimental ones after: the stable set is what an
-    # operator enables from a prebuilt without an audit, so it is what the prompt leads with, and
+    # operator enables without an audit, so it is what the prompt leads with, and
     # the registry's own order (which groups an integration's declaration) is kept within each
     # half. A group an installed integration declares (selinux_groups in its manifest) says so
     # on its row, so the reason to enable it is on the line where it is answered.
@@ -433,8 +463,8 @@ prompt_groups() {
             sayx "        already enabled; to remove it: $(_group_cmd disable "${name}")"
             # A loaded group is still offered, because from a source checkout the operator may be
             # iterating on its .te/.fc and want to rebuild + reload it in place. A yes recompiles
-            # FROM SOURCE (build_pp below), not a prebuilt reuse -- that is the point of offering
-            # a loaded group -- and needs the selinux-policy-devel toolchain.
+            # FROM SOURCE (build_pp below), never reusing an earlier build -- that is the point of
+            # offering a loaded group -- and needs the selinux-policy-devel toolchain.
             ai_tools_msg_confirm "    Recompile from source and reload?" n && RECOMPILE_GROUPS+=("${name}")
             continue
         fi
@@ -664,9 +694,9 @@ case "${ACTION}" in
 
   install)
     section "Core module"
-    # The core module ships prebuilt, so a normal install does not require a toolchain. Offer
-    # a from-source rebuild (needs selinux-policy-devel) for anyone who edited the
-    # .te/.fc -- default no. With no prebuilt package present we must build anyway.
+    # A fresh checkout holds no compiled module, so the first install compiles the core. A later
+    # run finds the earlier build and offers to recompile it (for an edited .te/.fc) -- default
+    # no, so an unattended re-run reuses what it has.
     _recompile=0
     if [[ -f "${POLICY_DIR}/${MODULE}.pp" && -t 0 ]]; then
         ai_tools_msg_confirm \
@@ -686,6 +716,10 @@ case "${ACTION}" in
     _check_permissive_alignment
     _replace_former_group_modules
     _load_layout_modules
+    # The shipped set, compiled and staged where the installed ai-tools-admin loads a stable
+    # group from; rebuilt with the core when the operator asked for that above.
+    section "Shipped modules"
+    if (( _recompile )); then stage_shipped_modules rebuild; else stage_shipped_modules; fi
 
     section "Labelling"
     restorecon -FR "${NVM_DIR}"  2>/dev/null || true
@@ -718,7 +752,7 @@ case "${ACTION}" in
             ok "group '${name}' enabled"
         done
         # Recompile-and-reload a loaded group from its current source: build_pp (unlike
-        # ensure_pp) never reuses a stale prebuilt, so an edited .te/.fc takes effect.
+        # ensure_pp) never reuses an earlier build, so an edited .te/.fc takes effect.
         for name in "${RECOMPILE_GROUPS[@]}"; do
             build_pp "ai_tools_${name}.pp"
             log "reloading from source: ai_tools_${name}"
@@ -788,10 +822,19 @@ case "${ACTION}" in
     ok "relabel done"
     ;;
 
+  build)
+    # Compile the shipped set from source and stage it under the package directory, loading
+    # nothing: the step install.sh runs so an installed ai-tools-admin can enable a stable group,
+    # and the from-source twin of the RPM's %build + %install. Needs selinux-policy-devel.
+    section "Compiling and staging the shipped modules"
+    stage_shipped_modules rebuild
+    ;;
+
   rebuild)
     # Recompile the core module from source (.te/.fc) and reload it, then re-apply
     # labels. This is the "rebuild core module" path: use it after editing ai_tools.te
-    # or ai_tools.fc so the loaded policy and the shipped ai_tools.pp match the source.
+    # or ai_tools.fc so the loaded policy matches the source. The shipped set is recompiled
+    # and re-staged with it, so the package directory matches the source too.
     # Needs the selinux-policy-devel toolchain (build_pp checks and guides if absent).
     section "Rebuilding core module"
     build_pp "${MODULE}.pp"
@@ -802,6 +845,8 @@ case "${ACTION}" in
     _check_permissive_alignment
     _replace_former_group_modules
     _load_layout_modules
+    section "Shipped modules"
+    stage_shipped_modules rebuild
 
     section "Re-applying labels"
     restorecon -FR "${NVM_DIR}"  2>/dev/null || true
@@ -921,13 +966,16 @@ case "${ACTION}" in
     cat >&2 <<EOF
 selinux: usage: sudo $0 <action> [args]
 
-  install              load prebuilt core (opt. recompile) + prompt for optional groups
+  install              compile + load the core, stage the shipped set, prompt for optional groups
+  build                compile + stage the shipped set under /usr/share/selinux/packages/ai-tools
   rebuild              recompile the core module from source (.te/.fc), reload, relabel
   relabel              re-apply labels (run after a Node upgrade)
   remove               unload all ai_tools* modules and revert labels
-  enable-group <name>  load one optional policy group (compiles it; needs selinux-policy-devel)
+  enable-group <name>  load one optional policy group (compiles it)
   disable-group <name> unload one optional policy group
   list-groups          show which groups are available and their current state
+
+  install, build, rebuild, and enable-group compile from source: sudo dnf install selinux-policy-devel
 
 Optional groups (all disabled by default):
 EOF

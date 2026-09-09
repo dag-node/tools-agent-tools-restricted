@@ -4,20 +4,12 @@
 # `tools-agent-tools-restricted-wip`. This directory holds only an untracked pointer to it
 # (wip/CLAUDE.md), and the tracked files do not reference any path under it.
 wip/
-# Compiled policy packages are build artifacts. Only the STABLE ones ship prebuilt so a
-# normal install and `ai-tools-admin selinux groups enable` need no selinux-policy-devel
-# toolchain -- the core (ai_tools.pp), each stable optional group (tmpmap, localipc, buildexec),
-# and each integration's layout module (ai_tools_dotnet.pp), which labels only and loads with
-# its integration. EXPERIMENTAL groups are deliberately NOT committed: they are compiled and
-# verified from source on demand (selinux/install-selinux.sh enable-group + the avc bring-up
-# loop), so a reviewer promoting one to stable adds its `!` line here in the same change. Ignore
-# the refpolicy build scratch under tmp/.
+# Compiled policy packages are build artifacts and are not committed: the RPM build compiles
+# every shipped module against the building distribution's policy headers, and a source install
+# compiles the same set from the checkout (selinux/policy/shipped-modules.sh derives which). A
+# .pp is a binary no review can read, so tests/unit/selinux-groups.sh fails on a tracked one.
+# The refpolicy build scratch under tmp/ goes with them.
 selinux/policy/*.pp
-!selinux/policy/ai_tools.pp
-!selinux/policy/ai_tools_tmpmap.pp
-!selinux/policy/ai_tools_localipc.pp
-!selinux/policy/ai_tools_buildexec.pp
-!selinux/policy/ai_tools_dotnet.pp
 selinux/policy/tmp/
 selinux/avc/.avc-last-run
 selinux/avc/audits/

@@ -40,9 +40,11 @@ ARG RPM_RELEASE=""
 
 # Build + test tooling. Rocky 9 and 10 minimal both ship microdnf; add dnf (readable dependency
 # resolution), the rpm build chain + systemd-rpm-macros (for %systemd_*/%sysusers/%_userunitdir),
-# createrepo_c (a local repo so the metapackage resolves its subpackage Requires), systemd as
-# PID 1, and the utilities the workflow uses (script/runuser from util-linux, getenforce from
-# libselinux-utils, git/curl for bootstrap + claim).
+# selinux-policy-devel + policycoreutils (the spec's %build compiles the policy modules against
+# THIS image's policy headers, so the EL9 and EL10 images each build their own), createrepo_c (a
+# local repo so the metapackage resolves its subpackage Requires), systemd as PID 1, and the
+# utilities the workflow uses (script/runuser from util-linux, getenforce from libselinux-utils,
+# git/curl for bootstrap + claim).
 #
 # dbus-broker provides the per-user D-Bus the sandbox account's `systemd --user` manager needs;
 # the -minimal images omit it, and without it logind cannot sustain a lingering --user instance
@@ -55,35 +57,24 @@ ARG RPM_RELEASE=""
 RUN sed -i '/^\[extras\]/,/^\[/ s/^enabled=1$/enabled=0/' /etc/yum.repos.d/*.repo \
     && microdnf -y install \
         dnf rpm-build rpm-sign gnupg2 systemd-rpm-macros make sed tar gzip findutils createrepo_c \
+        selinux-policy-devel policycoreutils \
         systemd dbus-broker sudo shadow-utils passwd util-linux procps-ng libselinux-utils \
         git curl which glibc-langpack-en \
     && microdnf clean all
 
 # Source tree for `make rpm` + the test suite. Copy the build inputs explicitly (a
-# .containerignore at the context root drops .git, packaging/rpmbuild, and tarballs). Only the
-# prebuilt policy packages are needed from selinux/ -- the core ai_tools.pp, each stable
-# group's ai_tools_<group>.pp, and each integration's layout module -- which the Makefile
-# CONTENT and the spec consume; experimental groups ship no .pp.
-#
-# The build context is the maintainer's working tree, where locally compiled experimental groups
-# sit beside the shipped ones, so each prebuilt package is named: the image then holds exactly the
-# audited, stable set. That naming is also what the Makefile's POLICY_PP relies on here, since the
-# image has no git index to read. Keep it in step with the shipped set in packaging/Makefile, the
-# spec %install loop, and .gitignore.
-#
-# The policy sources come too, as the corresponding source a GPL .pp is conveyed with (GPLv2 s.3);
-# a glob is exact for them because .gitignore covers only *.pp.
+# .containerignore at the context root drops .git, packaging/rpmbuild, and tarballs). From
+# selinux/ only the policy SOURCES come -- the .te/.if/.fc, their Makefile, and the script that
+# derives which modules ship: the spec compiles the modules inside this image, so a .pp lying in
+# the maintainer's working tree (a local build, an experimental group) never enters it. A glob is
+# exact for the sources because .gitignore covers only *.pp.
 COPY src                            /opt/ai-tools-src/src
 COPY docs                           /opt/ai-tools-src/docs
-COPY selinux/policy/ai_tools.pp           /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/ai_tools_tmpmap.pp    /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/ai_tools_localipc.pp  /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/ai_tools_buildexec.pp /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/ai_tools_dotnet.pp    /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/Makefile              /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/*.te                  /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/*.if                  /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/*.fc                  /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/shipped-modules.sh  /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/Makefile        /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/*.te            /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/*.if            /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/*.fc            /opt/ai-tools-src/selinux/policy/
 COPY tests                          /opt/ai-tools-src/tests
 COPY packaging                      /opt/ai-tools-src/packaging
 # The licence set `make dist` bundles: LICENSE, the LICENSES/ SPDX texts, and the REUSE.toml
