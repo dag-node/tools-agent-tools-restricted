@@ -858,14 +858,20 @@ against; mark anything else deliberate with `prose-check: allow` on the line, or
 Run it before committing prose, and on the commit message too — the universal rules cover that
 artifact like any other.
 
-**A config file's header is read as fixed-width text.** An operator reads a config file in a
-terminal, where nothing reflows it, so its prose holds to 72 columns, the RFC text width, ragged
-right, and no comment line ends on a word that ties to the next one — an article, a conjunction, a
-preposition, or a wh-word — where a runtime message would carry it to the next line. Keep such a
-header to what the file is, the one rule a reader needs before writing a line, example lines and
-the file's man page, since a header in an operator's file is not rewritten by an upgrade.
-`--config-header` reports a line over the width (`--width` changes it) and a comment line ending
-on a tie word, leaving a commented default (`#KEY=value`) and a sentence-closing word alone:
+**A comment is read as written, so no comment line ends on a tie word.** A source comment, a
+docstring, and a config file's header are read in an editor or a terminal, which do not reflow
+them, so a line does not end on a word that ties to the next one — an article, a conjunction, a
+preposition, or a wh-word (`, the` at a line end is the usual case) — where a runtime message
+would carry it to the next line. The default `comment-tie` check reports it in every source file,
+and `comment-width` reports a source comment over 120 columns, the column a code file wraps at;
+a document or a man page reflows and is not read for either. A code line is never measured: the
+width rule is for prose a reader has to follow, and a long line of C#, Java or shell is read on a
+wide screen as written. A config file's header
+holds to 72 columns instead, the RFC text width, ragged right, and is kept to what the file is, the one
+rule a reader needs before writing a line, example lines and the file's man page, since a header
+in an operator's file is not rewritten by an upgrade. `--config-header` reports a line over the
+width (`--width` changes it) and a comment line ending on a tie word, leaving a commented default
+(`#KEY=value`) and a sentence-closing word alone:
 
 ```bash
 python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --config-header <file>...

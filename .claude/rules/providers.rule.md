@@ -266,11 +266,12 @@ which the package replaces on every upgrade. A commented default (`#KEY=`) stays
 is a setting, and it is what `ai_tools_conf_keys` counts as *mentioned*, which keeps `system
 post-upgrade` from announcing every option as new.
 
-A config header is read in a terminal, where nothing reflows it, so it holds to 72 columns, ragged
+A config header is read in a terminal, which does not reflow it, so it holds to 72 columns, ragged
 right, with no comment line ending on an article, a conjunction, a preposition, or a wh-word — the
-words `msg.lib.sh` carries to the next line when it wraps a runtime message. The checker's
-`--config-header` mode reports both, and `tests/unit/man.sh` runs it over the four headers. `tests/unit/man.sh` caps each seeded header, asserts it names its page and registers
-no entry, and reads each page's own examples through the parser that file is read with
+words `msg.lib.sh` carries to the next line when it wraps a runtime message, and the rule the
+checker's default `comment-tie` check holds every source comment to. The checker's
+`--config-header` mode reports both, and `tests/unit/man.sh` runs it over the four headers. `tests/unit/man.sh` caps each seeded header, asserts it names its page and does not
+register an entry, and reads each page's own examples through the parser that file is read with
 (`ai_tools_conf_path_entry`, `ai_tools_load_secret_patterns`), so an example the manual shows is
 one the file accepts. The one claim that stays in a header whatever its page says is the fail
 direction a reader must know before writing a line — for `secret-patterns`, that a pattern listed

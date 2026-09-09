@@ -367,8 +367,8 @@ assert_rc 1 "PC-40-message: --message checks a commit message"
 
 # ── --config-header: a config file's header is fixed-width text ────────────────────────────────
 # Both rules are pinned from both directions, and the exemptions with them: a commented default
-# is a setting, so its length is not measured and its last word is not read; a comment line that
-# closes a sentence on a tie word is not a wrapped line.
+# is a setting, so its length is not measured and its last word is not read; a comment line
+# that closes a sentence on a tie word is not a wrapped line.
 long="# $(printf 'x%.0s' $(seq 1 75))"
 run_check --config-header "$(fixture PC-41-header-width.conf "${long}")"
 assert_grep 'header-width \[77>72\]' "${OUT}" "PC-41-header-width: a 77-column comment line is reported at the default width"
@@ -385,8 +385,24 @@ assert_rc 0 "PC-46-header-tie-sentence: a tie word closing a sentence is not rep
 run_check --config-header "$(fixture PC-47-header-clean.conf '# A session starts only inside' '# a listed directory.' 'KEY=value' '#OTHER=default')"
 assert_rc 0 "PC-47-header-clean: a wrapped header, a setting and a commented default are silent"
 
-# The tie set is msg.lib.sh's, mirrored: the runtime wrap and the header check must agree on
-# which words carry to the next line, or a header passes here and wraps differently in a box.
+# ── comment-tie: a source comment is read as written, so it holds to the tie rule too ─────────
+reports comment-tie PC-49-comment-tie.sh 'KEY=1' '# The helper reads the list from the operator, the' '# one whose allowlist covers the path.'
+reports comment-tie PC-50-comment-tie-docstring.py 'def f():' '    """Return the rows of' '    the table."""'
+silent PC-51-comment-tie-wrapped.sh 'KEY=1' '# The helper reads the list from the operator,' '# the one whose allowlist covers the path.'
+silent PC-52-comment-tie-sentence.sh '# Carve this subtree out.' '# Next sentence.'
+silent PC-53-comment-tie-prose.md 'A document reflows, so a line may end on the' 'next word.'
+silent PC-54-comment-tie-code.sh 'value="$(cat a)"    # not a comment ending on a' 'x=1'
+# A source comment wraps at 120 columns, wider than a config header's 72; --width overrides it.
+wide="# $(printf 'w%.0s' $(seq 1 125))"
+reports comment-width PC-55-comment-width.sh 'x=1' "${wide}"
+silent PC-56-comment-width-under.sh 'x=1' "# $(printf 'w%.0s' $(seq 1 110))"
+run_check --width 100 "$(fixture PC-57-comment-width-arg.sh 'x=1' "# $(printf 'w%.0s' $(seq 1 110))")"
+assert_grep 'comment-width \[112>100\]' "${OUT}" "PC-57-comment-width-arg: --width lowers the column a source comment is measured against"
+# A linter directive is read by the linter, so neither line rule reads it, however long or however it ends.
+silent PC-58-comment-directive.sh 'x=1' "# shellcheck disable=SC2154  # set by the sourced library, whose contract names the" "y=2"
+
+# The tie set is msg.lib.sh's, mirrored: the runtime wrap and the header check must agree
+# on which words carry to the next line, or a header passes here and wraps differently in a box.
 MSG_LIB="${ROOT}/src/usr/local/lib/ai-tools/msg.lib.sh"
 [[ -r "${MSG_LIB}" ]] || MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
 if [[ -r "${MSG_LIB}" ]]; then
