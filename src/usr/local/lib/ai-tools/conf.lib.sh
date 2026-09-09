@@ -778,17 +778,20 @@ ai_tools_conf_allowlist_enable() {
 #   entry. The reference is allowed-projects(5).
 ai_tools_conf_allowlist_seed() {
     printf '%s\n' \
-        "# Project directories the ai-tools sandbox may work in -- one per line. A session launched" \
-        "# by this account starts only inside a listed directory; a '!'-prefixed line excludes" \
-        "# a subtree, and an exclusion wins. This file is a launch gate, not a read boundary." \
+        "# Project directories the ai-tools sandbox may work in, one per line." \
+        "# A session launched by this account starts only inside a listed" \
+        "# directory; a '!'-prefixed line excludes a subtree, and an exclusion" \
+        "# wins. This file is a launch gate, not a read boundary." \
         "#" \
-        "#   /home/op/project                allow this directory and everything under it" \
-        "#   !/home/op/project/vendor        carve this subtree out of it" \
-        "#   \"/home/op/ai works\"  # note     quote a path containing a space; '#' starts a comment" \
+        "#   /home/op/project              allow it and everything under it" \
+        "#   !/home/op/project/vendor      carve this subtree out of it" \
+        "#   \"/home/op/ai works\"  # note   quote a path containing a space;" \
+        "#                                 '#' starts a comment" \
         "#" \
-        "# Managed by the ai-tools CLI: --project-claim, --project-create and --sandbox-create" \
-        "# register a project; --project-disable and --project-enable park and restore one;" \
-        "# --list reviews the file. Full reference: man 5 allowed-projects" \
+        "# Managed by the ai-tools CLI: --project-claim, --project-create" \
+        "# and --sandbox-create register a project; --project-disable" \
+        "# and --project-enable park and restore one; --list reviews the file." \
+        "# Full reference: man 5 allowed-projects" \
         ""
 }
 
@@ -799,14 +802,16 @@ ai_tools_conf_allowlist_seed() {
 #   it is the one fact a reader needs before writing a line. The reference is secret-patterns(5).
 ai_tools_conf_secret_patterns_seed() {
     printf '%s\n' \
-        "# Secret-name patterns for the ai-tools sandbox -- one basename glob per line, matched" \
-        "# case-insensitively. A file whose name matches is a credential: the root helpers" \
-        "# quarantine one the agent writes and seal one already in a project, on your behalf." \
+        "# Secret-name patterns for the ai-tools sandbox, one basename glob" \
+        "# per line, matched case-insensitively. A file whose name matches is" \
+        "# a credential: the root helpers quarantine one the agent writes" \
+        "# and seal one already in a project, on your behalf." \
         "#" \
-        "# A pattern listed here REPLACES the built-in baseline in the shared library" \
-        "# (/usr/local/lib/ai-tools/secret-patterns.lib.sh) rather than adding to it. This file" \
-        "# lists none, so the baseline classifies until you write a pattern; then copy the baseline" \
-        "# entries you keep, alongside your own." \
+        "# A pattern listed here REPLACES the built-in baseline in the shared" \
+        "# library (/usr/local/lib/ai-tools/secret-patterns.lib.sh) rather" \
+        "# than adding to it. This file lists none, so the baseline classifies" \
+        "# until you write a pattern; then copy the baseline entries you keep," \
+        "# alongside your own." \
         "#" \
         "#   .env              *.pem             appsettings.*.json" \
         "#" \

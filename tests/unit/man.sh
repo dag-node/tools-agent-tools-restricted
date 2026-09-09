@@ -3,11 +3,13 @@
 # tests/unit/man.sh
 # Hermetic sync test between this project's man pages and what each documents: ai-tools(1)
 # against the CLI's usage(), ai-tools-admin(8) against the admin helper's, ai-tools-providers(5)
-# against the shipped manifests, and allowed-projects(5) against the header the allowlist is
-# seeded with and the grammar its examples must parse in. In the two command pairs the page and
-# the help are not copies of each other -- usage() is orientation while the page is the
-# reference -- so equality of their whole option sets is the wrong contract and is what made
-# slimming the help impossible.
+# against the shipped manifests, allowed-projects(5) and secret-patterns(5) against the header
+# each file is seeded with and the parser its examples must load in, and operator.conf(5) and
+# custom-claude-endpoint.conf(5) against the keys their shipped templates mention. It closes by
+# holding every config header this project writes to the fixed-width rule (72 columns, no line
+# ending on a tie word). In the two command pairs the page and the help are not copies of each
+# other -- usage() is orientation while the page is the reference -- so equality of their whole
+# option sets is the wrong contract and is what made slimming the help impossible.
 #
 # ai-tools(1), four checks:
 #   (1) the VERB sets match in both directions;
@@ -434,5 +436,88 @@ check_secret_patterns_page() {
     th_version "${SECRET_MAN}" SECRET-PATTERNS
 }
 check_secret_patterns_page
+
+# ── The shipped config templates: operator.conf(5), custom-claude-endpoint.conf(5) ──────────────
+# Each template is %config(noreplace), so a prose change to it reaches an upgraded host only as an
+# .rpmnew the operator reconciles by hand; the reference lives in the page and the template keeps
+# a brief line per option beside its commented default. check_config_page holds the two in
+# lockstep: every key the template mentions is documented under OPTIONS, and every documented
+# option is one the template mentions -- read with ai_tools_conf_keys, the same "mentioned"
+# predicate `system post-upgrade` announces a new option by, so the test and the upgrade report
+# cannot disagree.
+CONFIG_TEMPLATES="${ROOT}/src/etc/ai-tools"
+[[ -d "${CONFIG_TEMPLATES}" ]] || CONFIG_TEMPLATES="/etc/ai-tools"
+
+# check_config_page <page-name> <config-file> <TH-NAME>
+check_config_page() {
+    local name="$1" file="$2" th="$3" page key
+    page="$(man5_path "${name}")"
+    if [[ ! -r "${page}" || ! -r "${file}" ]]; then
+        skip "${name} page" "page or template not found (${page}, ${file})"; return
+    fi
+    # shellcheck source=/dev/null
+    if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf_keys >/dev/null 2>&1; then
+        skip "${name} page key sync" "conf.lib.sh not loadable from ${CONF_LIB}"; return
+    fi
+    local -a documented=() used=()
+    # The tag line after each .TP or .TQ under OPTIONS, where the tag opens with the key token.
+    mapfile -t documented < <(man_section "${page}" OPTIONS \
+        | awk 'prev==".TP"||prev==".TQ"{print} {prev=$0}' \
+        | grep -oE '^\.B[IR]? [A-Z][A-Z0-9_]*' | awk '{print $2}' | sort -u)
+    ai_tools_conf_keys used "${file}"
+    mapfile -t used < <(printf '%s\n' "${used[@]}" | sort -u)
+    (( ${#used[@]} > 0 )) || { fail "${name}: the template mentions no key"; return; }
+    local missing=0 stale=0
+    for key in "${used[@]}"; do
+        printf '%s\n' "${documented[@]}" | grep -qx "${key}" \
+            || { fail "${name}(5): the template mentions '${key}', which OPTIONS does not document"; missing=1; }
+    done
+    (( missing )) || pass "${name}(5) documents every key the template mentions (${#used[@]} keys)"
+    for key in "${documented[@]}"; do
+        printf '%s\n' "${used[@]}" | grep -qx "${key}" \
+            || { fail "${name}(5) documents '${key}', which the template does not mention"; stale=1; }
+    done
+    (( stale )) || pass "every option ${name}(5) documents is one the template mentions"
+    th_version "${page}" "${th}"
+}
+section "man page: the shipped config templates in sync with their pages (unit)"
+check_config_page operator.conf "${CONFIG_TEMPLATES}/operator.conf" OPERATOR.CONF
+check_config_page custom-claude-endpoint.conf "${CONFIG_TEMPLATES}/endpoints/custom-claude-endpoint.conf" CUSTOM-CLAUDE-ENDPOINT.CONF
+
+# ── Config headers are fixed-width text ───────────────────────────────────────────────────────
+# An operator reads a config file in a terminal, where nothing reflows it, so every header this
+# project writes -- the two seeds and the two shipped templates -- holds to 72 columns and carries
+# no comment line ending on a word that ties to the next one. The rule is the checker's
+# --config-header mode (the ai-tools-technical-docs skill); this runs it over the four.
+section "config headers: 72 columns, no line ending on a tie word (unit)"
+PROSE_CHECK=""
+for candidate in \
+    "${ROOT}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py" \
+    "/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py" \
+    "/opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py"; do
+    [[ -r "${candidate}" ]] && { PROSE_CHECK="${candidate}"; break; }
+done
+check_config_headers() {
+    if [[ -z "${PROSE_CHECK}" ]] || ! command -v python3 >/dev/null 2>&1; then
+        skip "config header format" "prose-check.py or python3 not available"; return
+    fi
+    # shellcheck source=/dev/null
+    if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf_allowlist_seed >/dev/null 2>&1; then
+        skip "config header format" "conf.lib.sh not loadable from ${CONF_LIB}"; return
+    fi
+    local dir out rc=0
+    dir="$(mktemp -d)"
+    ai_tools_conf_allowlist_seed > "${dir}/allowed-projects"
+    ai_tools_conf_secret_patterns_seed > "${dir}/secret-patterns"
+    out="$(python3 "${PROSE_CHECK}" --config-header "${dir}/allowed-projects" "${dir}/secret-patterns" \
+        "${CONFIG_TEMPLATES}/operator.conf" "${CONFIG_TEMPLATES}/endpoints/custom-claude-endpoint.conf" 2>&1)" || rc=$?
+    rm -rf "${dir}"
+    if (( rc == 0 )); then
+        pass "the two seeded headers and the two shipped templates hold to 72 columns with no tie-word line end"
+    else
+        fail "a config header breaks the width or tie rule:"$'\n'"${out}"
+    fi
+}
+check_config_headers
 
 finish

@@ -335,6 +335,11 @@ if [[ -e /usr/local/share/man/man5/secret-patterns.5.gz ]]; then
 else
     check_file /usr/local/share/man/man5/secret-patterns.5       root root 644
 fi
+if [[ -e /usr/local/share/man/man5/custom-claude-endpoint.conf.5.gz ]]; then
+    check_file /usr/local/share/man/man5/custom-claude-endpoint.conf.5.gz root root 644
+else
+    check_file /usr/local/share/man/man5/custom-claude-endpoint.conf.5    root root 644
+fi
 if [[ -e /usr/local/share/man/man8/ai-tools-admin.8.gz ]]; then
     check_file /usr/local/share/man/man8/ai-tools-admin.8.gz  root root 644
 else

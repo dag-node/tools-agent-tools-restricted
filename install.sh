@@ -747,6 +747,7 @@ do_summary() {
     _chk /usr/local/share/man/man5/ai-tools-providers.5
     _chk /usr/local/share/man/man5/allowed-projects.5
     _chk /usr/local/share/man/man5/secret-patterns.5
+    _chk /usr/local/share/man/man5/custom-claude-endpoint.conf.5
     _chk /usr/local/share/man/man8/ai-tools-admin.8
     _chk /var/opt/ai-tools
     _chk /var/opt/ai-tools/sandbox-projects
@@ -1400,6 +1401,13 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/secret-patterns.5" \
         /usr/local/share/man/man5/secret-patterns.5
 
+    # custom-claude-endpoint.conf(5). The endpoint file's four options, their validation and
+    # their precedence, so the %config(noreplace) template can stay a pointer.
+    log "/usr/local/share/man/man5/custom-claude-endpoint.conf.5"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/custom-claude-endpoint.conf.5" \
+        /usr/local/share/man/man5/custom-claude-endpoint.conf.5
+
     # Launch wrapper. Ships system-wide root:root 0755 -- rpm-owned, on every operator's PATH
     # (path-dedup.sh, wired into operator dotfiles by ai-tools-admin, ranks /usr/local/bin
     # above the nvm shims, so it shadows nvm's claude). It
@@ -1996,6 +2004,7 @@ do_uninstall() {
     rm -f /usr/local/share/man/man5/ai-tools-providers.5
     rm -f /usr/local/share/man/man5/allowed-projects.5
     rm -f /usr/local/share/man/man5/secret-patterns.5
+    rm -f /usr/local/share/man/man5/custom-claude-endpoint.conf.5
     rm -f /usr/local/share/man/man8/ai-tools-admin.8
     rm -f /usr/local/bin/claude
     # Units, after the stop/disable above. Globs cover the handback socket+service and
