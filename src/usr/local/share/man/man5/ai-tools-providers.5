@@ -1,0 +1,256 @@
+.\" ai-tools-providers(5) -- the agent and integration manifests of Agent Tools Restricted.
+.\" @AI_TOOLS_VERSION@ is substituted at deploy time (install.sh install_subst and the RPM
+.\" %prep), like operator.conf(5). The keys described here are the ones providers.lib.sh and
+.\" its consumers read; tests/unit/man.sh keeps this page and the shipped manifests in step.
+.TH AI-TOOLS-PROVIDERS 5 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
+.SH NAME
+ai-tools-providers \- agent and integration manifests for Agent Tools Restricted
+.SH SYNOPSIS
+.BI /usr/local/lib/ai-tools/agents.d/ name .conf
+.br
+.BI /usr/local/lib/ai-tools/integrations.d/ name .conf
+.SH DESCRIPTION
+A provider is a package that adds something a sandboxed session can use:
+an
+.B agent
+is a coding assistant the toolchain installs and a session runs,
+an
+.B integration
+is a host toolchain the session is given access to.
+Each provider package ships one manifest, named after the provider,
+in the directory of its kind.
+The base package reads the manifests and never names a provider itself,
+so a provider is added by installing its package and removed by erasing it.
+.PP
+.I name
+is the token an operator writes in
+.B AI_TOOLS_AGENTS
+or
+.B AI_TOOLS_INTEGRATIONS
+in
+.BR operator.conf (5)
+to enable the provider.
+The two directories share one namespace: a name is unique across both kinds.
+Whether a session receives a provider is decided by that file and by the
+manifest's
+.B default_enable
+key, as described under
+.B ENABLEMENT
+below.
+.PP
+A manifest is package data.
+It is owned by
+.B root
+at mode
+.BR 0644 ,
+is replaced on upgrade, and is not edited on a host.
+It is parsed and never sourced, so a manifest carries settings and cannot
+run code.
+A manifest that is not owned by root, that is writable by its group or by
+others, or that is a symbolic link, is skipped and the reason is reported on
+standard error and in the journal; the same applies to the directory that
+holds it, in which case every manifest of that kind is skipped.
+.PP
+Beside its manifest a provider may ship, under the same
+.IR name :
+a session-environment fragment, a command domain of
+.BR ai-tools-admin (8),
+and a rule set for the command filters.
+See
+.B FILES
+for each.
+.SH GRAMMAR
+One
+.I KEY=value
+per line, in the grammar
+.BR operator.conf (5)
+describes under
+.BR GRAMMAR :
+quotes are optional, list items separate on commas and whitespace, and a
+.B #
+begins a comment.
+A repeated key takes its last value.
+.SH ENABLEMENT
+When
+.B operator.conf
+sets the key for a provider's kind, the providers enabled are exactly the
+names it lists, and
+.B default_enable
+is ignored.
+When that key is absent, the providers enabled are the installed ones whose
+manifest sets
+.BR default_enable=yes .
+A name listed but not installed is reported and skipped.
+When
+.B operator.conf
+is unreadable, or does not meet the ownership and mode rules above, it is
+treated as absent.
+.SH KEYS
+Every key is optional unless stated.
+.SS Both kinds
+.TP
+.B default_enable
+.B yes
+or
+.BR no .
+Whether a session receives this provider when
+.B operator.conf
+does not list providers of its kind.
+A provider that changes what the host exposes beyond the sandbox ships
+.BR no ,
+and is enabled only by being named.
+Default:
+.BR no .
+.TP
+.B admin_summary
+The one-line description
+.B ai-tools-admin --help
+prints beside the command domain this package contributes.
+A domain exists because its command is installed, not because this key is
+set; a domain without the key is listed without a description.
+.SS Agents
+.TP
+.B npm_package
+The npm package the toolchain installs for this agent.
+Required for an agent to be provisioned.
+.TP
+.B launcher
+The command name, installed as
+.BI /opt/ai-tools/bin/ launcher
+and the only name an executable may carry to start a session as this agent.
+Required.
+.TP
+.B display_name
+What the launch banner and the session unit call the agent.
+.TP
+.B handback
+.B hooks
+when the agent converges file ownership itself, per tool call and per turn.
+Any other value, or an absent key, makes the launcher hand the project back
+once, when the session ends.
+Default: the session-end handback.
+.TP
+.B config_dir
+One directory name under
+.BR /opt/ai-tools ,
+the agent's own configuration and state.
+The agent package owns the directory and the files in it.
+.TP
+.B skills_dir
+Where, relative to
+.BR config_dir ,
+the agent reads skills.
+The shared skills under
+.B /opt/ai-tools/skills
+are linked there, one link per skill.
+Unset for an agent that does not read skills; it is given no links.
+.TP
+.B subagents_dir
+Where, relative to
+.BR config_dir ,
+the agent reads its delegate definitions.
+The shared definitions under
+.B /opt/ai-tools/subagents
+are linked there the same way.
+.TP
+.B memory_file
+The file name, relative to
+.BR config_dir ,
+the agent reads as instructions at the start of every session.
+The shared orientation text under
+.B /opt/ai-tools/orientation
+is linked under that name.
+Unset for an agent that reads none.
+.TP
+.B entrypoint_fcontext
+A file-context pattern for the binary that starts a session, which the
+SELinux confinement keys on.
+It is applied as a local rule by
+.B ai-tools-admin system entrypoints relabel
+and by the automatic relabel after a toolchain update.
+The pattern must lie under
+.B /opt/ai-tools/.nvm/versions/node/
+and may use a character class, but no alternation or group; the label it
+receives is fixed and is not declared here.
+Without it a session refuses to launch on an enforcing host rather than run
+unconfined.
+.TP
+.B release_manifest_url
+The vendor's per-release checksum manifest, with one
+.B {version}
+slot the installed version fills.
+A template without the slot is refused.
+.TP
+.B release_key
+The OpenPGP keyring that signs the release manifest, a file this agent's
+package ships.
+The verifier reads the key from this file only.
+.TP
+.B release_fingerprint
+The fingerprint the signing key must have.
+A list, so a key rotation ships old and new fingerprints for the overlap.
+.PP
+The three
+.B release_*
+keys are read together.
+An agent declaring none of them is reported as unverified by
+.BR "ai-tools --status" ,
+which is not a fault unless the operator required verification.
+.SS Integrations
+.TP
+.B build_output_dirs
+Directory names, at any depth inside a claimed project, that hold this
+toolchain's build output.
+A claim and a relabel map every directory of one of these names, and
+everything inside it, to the SELinux build-output type, which the
+.B buildexec
+policy group may grant execute on.
+Each name is one plain component (letters, digits, dot, underscore, hyphen).
+Read from every installed manifest, enabled or not.
+.TP
+.B selinux_layout_module
+The SELinux policy module that types those same directories at the moment
+they are created, and inside sandbox clones.
+It holds type transitions and file contexts and does not add any
+permission, so it loads with the integration:
+.BI "ai-tools-admin " name " bootstrap"
+loads it where the policy package is installed, and the policy package loads
+it for every installed integration that declares one.
+The module must be shipped by the policy package under
+.BR /usr/share/selinux/packages/ai-tools/ .
+.TP
+.B selinux_groups
+The optional SELinux policy groups this toolchain needs on an enforcing
+host.
+None is enabled automatically; each is an explicit
+.BR "ai-tools-admin selinux groups enable" .
+.B ai-tools --providers
+and
+.BI "ai-tools-admin " name " status"
+name the ones not loaded, with the command that enables them.
+.SH FILES
+.TP
+.I /usr/local/lib/ai-tools/agents.d/
+Agent manifests, one per installed agent package.
+.TP
+.I /usr/local/lib/ai-tools/integrations.d/
+Integration manifests, one per installed integration package.
+.TP
+.IB /usr/local/lib/ai-tools/session-env.d/ name .env.sh
+The provider's session-environment fragment, sourced by the launcher when the
+provider is enabled.
+.TP
+.IB /usr/local/lib/ai-tools/admin-commands.d/ name
+The provider's command domain of
+.BR ai-tools-admin (8).
+.TP
+.IB /usr/local/lib/ai-tools/filters.d/ name .rules
+The provider's command-filter rules.
+.TP
+.I /etc/ai-tools/operator.conf
+Where an operator enables providers; see
+.BR operator.conf (5).
+.SH SEE ALSO
+.BR ai-tools (1),
+.BR ai-tools-admin (8),
+.BR operator.conf (5)
