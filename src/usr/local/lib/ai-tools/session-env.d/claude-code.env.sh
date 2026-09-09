@@ -65,3 +65,27 @@ elif ai_tools_conf_read /etc/ai-tools/operator.conf CLAUDE_BASE_URL_FILE 2>/dev/
         "unavailable -- refusing to launch rather than ignore it. Reinstall ai-tools."
     exit 1
 fi
+
+# Custom system prompt (operator.conf CLAUDE_SYSTEM_PROMPT_FILE): the wrapper resolved and stat'd
+# the configured file as the operator, who cannot read it (0640 root:SANDBOX_GROUP). This is the
+# half only the sandbox account can do -- read it and refuse the launch when it is not plain text,
+# since its bytes go to the model verbatim. A per-invocation prompt flag is not visible here, so a
+# configured prompt must be text whether or not this launch overrides it. Same clean fail-closed
+# as the endpoint above: sourced before the unit exists. See claude-prompt.lib.sh.
+# shellcheck source=/dev/null
+if source /usr/local/lib/ai-tools/claude-prompt.lib.sh 2>/dev/null \
+        && declare -F ai_tools_claude_prompt_content_is_text >/dev/null 2>&1; then
+    if ! ai_tools_claude_prompt_content_is_text /etc/ai-tools/operator.conf; then
+        ai_tools_msg_error \
+            "ai-tools-run: a custom Claude Code system prompt is configured but is not plain text --" \
+            "refusing to launch (see the warning above). Fix the file named by" \
+            "CLAUDE_SYSTEM_PROMPT_FILE in /etc/ai-tools/operator.conf, or comment the key out."
+        exit 1
+    fi
+elif ai_tools_conf_read /etc/ai-tools/operator.conf CLAUDE_SYSTEM_PROMPT_FILE 2>/dev/null \
+        && [[ -n "${_ai_tools_conf_value}" ]]; then
+    ai_tools_msg_error \
+        "ai-tools-run: a custom Claude Code system prompt is configured but its resolver library" \
+        "is unavailable -- refusing to launch rather than skip the check. Reinstall ai-tools."
+    exit 1
+fi

@@ -30,6 +30,18 @@ if [[ -n "${_AI_TOOLS_CONF_LIB:-}" ]]; then
 fi
 readonly _AI_TOOLS_CONF_LIB=1
 
+# ai_tools_conf_is_text_file <path> : succeed when <path> is a regular file that is empty or holds
+#   text -- no NUL bytes, which is what `grep -I` reports a binary file by. For a file whose whole
+#   content is handed to a program as prose (an agent's system prompt): the trust predicate below
+#   says who may have written it, this says the bytes are the kind the reader expects. It READS the
+#   file, so the caller is an account that may.
+ai_tools_conf_is_text_file() {
+    local path="$1"
+    [[ -f "${path}" ]] || return 1
+    [[ -s "${path}" ]] || return 0
+    LC_ALL=C grep -Iq . "${path}" 2>/dev/null
+}
+
 # ai_tools_conf_is_trusted <path> : succeed when <path> exists, is not a symlink, is owned by
 #   root, and is writable by neither group nor other -- the property that makes it safe for a
 #   sandbox-side process to parse or source. A symlink is refused outright rather than followed,
