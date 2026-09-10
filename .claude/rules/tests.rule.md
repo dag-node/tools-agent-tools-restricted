@@ -205,6 +205,18 @@ contention against a lock file in its own testdir. They carry the lightest stand
 what they redirect is an advisory lock, so a caller who sets one can leave a run unserialized,
 which is the documented fail-soft and never changes what a label may be applied to.
 
+`AI_TOOLS_SANDBOX_ROOT` (`ai-tools.sh`) is the eighth, and it sits with `AI_TOOLS_GITCONFIG` and
+`AI_TOOLS_ALLOWLIST` on the operator side of the family: the CLI runs as the operator without
+`sudo`, so the operator's own environment reaches it, and it carries the same standing as those
+two. It moves the directory a clone is made in and read as the sandbox kind from, and the
+operator owns every clone, so a caller who sets it does not gain any reach beyond claiming a
+clone made elsewhere; the clone kind's destructive removal stays scoped to a direct child of that
+directory, and the protected-paths backstop still refuses a system directory named there.
+`integration/cli-flags.sh` points it at a clone area in its fixtures so the clone rows never
+touch the shared one, and `integration/cli.sh` aims the clone removal's refusal rows at a fixture
+root the same way; both skip on an installed CLI that predates the override, since a destructive
+verb is never aimed at the real clone area even to assert a refusal.
+
 It is not in the suite because the full function registers a `semanage fcontext` rule, and this
 suite does not mutate the host's SELinux policy to test a helper — the same line
 `integration/selinux.sh` draws for `ai_tools_unlabel_project`. The check above is safe *because* it
@@ -599,7 +611,7 @@ because one green run is not evidence about a race. The same shape reached produ
 each remaining `semodule -l` probe now captures the listing before matching it.
 
 **`integration`** — checks that need a completed install and the running system
-(`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`, `cli.sh`,
+(`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`, `cli.sh`, `cli-flags.sh`,
 `ai-tools-run.sh`, `systemd.sh`, `selinux.sh`): installed-artifact ownership/modes, sudoers
 syntax, the wrapper launched end-to-end (its allowlist gate, `!`-exclusion refusal,
 fail-closed load of `safe-paths.lib.sh`, and consultation of the protected-paths backstop on
@@ -641,6 +653,45 @@ script, inside the project it claims. The wrapper test stays hermetic by
 pointing `HOME` at a `/tmp` testdir (the wrapper keys its allowlist off `${HOME}`) and runs
 the wrapper under `setsid`, so it never touches the real allowlist or fires a claim prompt.
 Run as root.
+
+`cli-flags.sh` holds every `ai-tools` command and every option `ai-tools(1)` documents to what it
+**achieves**, and its rows do not read message text, so the command surface can be respelled with
+the file unchanged ([cli-grammar](cli-grammar.rule.md)). A row names a command by a key that
+`lib/cli-spelling.sh` turns into today's tokens, drives the deployed CLI as the projects user with
+`lib/cli-stubs.sh`'s `sudo` shim first on its `PATH`, and reads one of three channels: the helper
+call the CLI made, with its arguments and the directory it was made from (the shim records every
+`sudo <helper>` and execs a stub of the helper without elevating the CLI — the CLI resolves `sudo`
+by name and already runs unprivileged, so the shim is not a hook and the CLI carries none for it);
+the registry or filesystem state left behind, read through the deployed `conf.lib.sh` and fixture
+repositories; or the exit status, paired for a refusal with an empty call log, which asserts the
+ordering rule that a refused command does not call `sudo` first. Every run is under `setsid`, so
+a default-NO prompt declines and `--yes` is observable as the call that then happens. The file
+closes by extracting
+the options the page documents, with `man.sh`'s extractor, and fails on any option without a row
+and on any row driving an option the page dropped. A rename edits the spelling table alone, and
+the file green before and after is the retention proof.
+
+The assertions name what a row expects, so a change no row names — a helper call gained, an exit
+code moved, a mode a walk left different — passes them. `AI_TOOLS_CLI_FLAGS_TRACE=<file>` closes
+that: the file then also **records** every row (its key-form label, exit status, the whole call
+log, and a digest of the registries and the fixture tree), headed by a surface digest read from
+the CLI source — per command key, the option arms its parser accepts and the gating tables that
+list it, plus any dispatch arm no key reaches — so a command that gained an option or a gate shows
+without a row for it. Fixture paths, account names and the generated clone names are written as
+tokens, and commit ids and times are left out, so two traces from the same host compare with `diff`: one recorded on
+`develop`, one on the branch after `install.sh` deployed it, and an empty diff is the statement
+that every outcome a row or the digest observes is unchanged. A difference the ticket lists in
+advance is expected; any other is a regression.
+
+The file pins its own umask. A umask is process state the CLI inherits through `runuser` (whose
+PAM stack carries no `pam_umask`), so the rows and the trace run under 022 whatever the host's
+login default, which is what makes a trace comparable across hosts and keeps a fixture readable
+by the account a row runs as. The verbs whose result a umask could change — a create, which sets
+its modes outright, and a clone, born private and then opened — are then re-driven under 077 and
+027 and held to the modes `ai-tools(1)` states, so the guarantee that the operator's shell umask
+does not decide what the agent can read is asserted rather than assumed, and on one host. The
+host's own umask configuration is read by nothing and written by nothing: the pass sets the
+builtin in the test's shell, which dies with it.
 
 `perms.sh` is the **single source** for the deployed-artifact permission assertions (every
 installed file and directory's owner/group/mode): `install.sh` does not carry a parallel checker —
