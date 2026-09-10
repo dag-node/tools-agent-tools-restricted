@@ -34,7 +34,7 @@ fi
 source "${LIB}"
 
 # The stamp accessors, which is how `ai-tools --status` reads the label record this library writes.
-# Loaded here so the round-trip below is asserted through the REAL reader rather than a local one:
+# Loaded here so the round-trip is asserted through the REAL reader rather than a local one:
 # the record and the reader are only worth anything if they agree on the grammar.
 readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
 # shellcheck source=/dev/null
@@ -238,13 +238,13 @@ fi
 
 # ── Pin reuse: answering from the pin instead of refetching the signed manifest ───────────────
 # The unattended callers (the relabel watcher, the agent package's %post) may skip the fetch and
-# the gpgv when no input that decides the verdict has changed. Every assertion below targets a way
+# the gpgv when no input that decides the verdict has changed. Every assertion here targets a way
 # that shortcut could answer a question it was not asked -- which is the only way it can fail
 # open, since a reused verdict is indistinguishable from a fresh one to everything downstream.
 section "entrypoint-verify: pin reuse (unit)"
 
 # Asserted only when the deployed library actually carries the predicate. Without this guard an
-# absent function exits 127, which every negative case below would read as a correct refusal --
+# absent function exits 127, which every negative case would read as a correct refusal --
 # the section would report green while testing no behaviour at all.
 if ! declare -F ai_tools_entrypoint_pin_reusable >/dev/null 2>&1 \
         || ! declare -F ai_tools_entrypoint_inputs_digest >/dev/null 2>&1; then

@@ -112,13 +112,13 @@ fi
 # left to the CLI test: what it gates is the SECRET SCAN. A claim skips that scan, the git-history
 # prompt, and the proceed confirm when this returns 0, so every way it could wrongly say yes is a
 # way to grant an agent access to a tree no scan has covered. It must answer for the tree as it is on
-# disk -- never for what a caller asserts about it -- so the cases below are the states that must
+# disk -- never for what a caller asserts about it -- so the cases are the states that must
 # read as NOT pristine.
 section "tree_is_pristine: the precondition behind --project-create's skipped prompts (unit)"
 
 pristine() { call tree_is_pristine "$1"; }
 
-# Fixtures are built AS ROOT and handed over at the end, the same way the repo fixture above is.
+# Fixtures are built AS ROOT and handed over at the end, the same way the repo fixture is.
 # The predicate only reads the tree, so what matters is that the projects user can read it when
 # `call` runs; driving each mkdir/git through runuser instead would make every fixture line a
 # command that can fail under set -e for reasons unrelated to what is being tested.

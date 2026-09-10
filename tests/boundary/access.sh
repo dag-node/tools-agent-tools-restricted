@@ -57,7 +57,7 @@ done
 # deliberately open: the built-in list is the public baseline and ships in the source repo, so
 # the installed copy holds only what is already published. WRITE is the boundary -- an agent that
 # could edit the matcher would decide its own classification. The operator's own patterns are
-# not in this file; they live in the 700 .config/ai-tools dir asserted above.
+# not in this file; they live in the 700 .config/ai-tools dir this suite asserts on.
 splib=/usr/local/lib/ai-tools/secret-patterns.lib.sh
 if ! runuser -u "${SANDBOX_USER}" -- test -w "${splib}" 2>/dev/null; then
     pass "cannot write ${splib} (644 root:root): the agent cannot redefine what counts as a secret"
@@ -86,7 +86,7 @@ fi
 # The boundary half of ai-tools-unclaim --unlisted (see unit/unclaim.sh for the runtime half).
 # That mode acts outside the allowlist, bounded instead by the operator identity it resolves from
 # SUDO_UID plus OPERATORS. Both inputs must be out of the agent's reach, or it could aim a root
-# permission rewrite at a tree of its choosing: the helper itself is unreadable (above), and the
+# permission rewrite at a tree of its choosing: the helper itself is unreadable, and the
 # operator roster is not agent-writable. The third input, sudo, the agent does not hold at all
 # (boundary/sudo.sh).
 opconf=/etc/ai-tools/operator.conf
@@ -243,7 +243,7 @@ done
 # atomically -- a temp file beside the target, then rename -- so persistence needs create+rename
 # in the CONTAINING DIR, not write on the file. .claude (root:ai-tools 3770) grants the agent
 # exactly that through the group bits, while the sticky bit keeps the root-owned control files
-# undeletable (the settings.json lock is checked above). A regression here fails every state
+# undeletable (the settings.json lock has its own case). A regression here fails every state
 # save silently: login and onboarding state are lost and each session demands a fresh token.
 _state_name="$(ai_test_name state)"
 _state_tmp="/opt/ai-tools/.claude/${_state_name}.tmp"
@@ -312,7 +312,7 @@ fi
 # Second, the agent cannot reach the code that decides what sealing means. owner-only.lib.sh
 # carries the predicate every claim walk gates on and the strip that removes the sandbox's own
 # residue; were it agent-writable, the agent could make its own group read as "not residue" and
-# have the next claim leave the grant standing. Same standing as secret-patterns.lib.sh above.
+# have the next claim leave the grant standing. Same standing as secret-patterns.lib.sh.
 oolib=/usr/local/lib/ai-tools/owner-only.lib.sh
 if [[ ! -e "${oolib}" ]]; then
     skip "owner-only library not agent-writable" "not installed at ${oolib}"

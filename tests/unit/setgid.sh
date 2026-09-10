@@ -81,7 +81,7 @@ else
 fi
 
 # ── Owner-only (sealed) paths ────────────────────────────────────────────────
-# A second project, so the cases above keep their fixture. These are what make `chmod 700` a
+# A second project, so the earlier cases keep their fixture. These are what make `chmod 700` a
 # boundary rather than a mask: the pass must not pull a sealed dir into the agent's group, and
 # must strip the residue such a dir carries from having been created inside a claimed tree.
 p2="${TESTDIR}/proj2"
@@ -161,7 +161,7 @@ else
 fi
 
 # ── The project root itself owned by a third party ───────────────────────────
-# (E) The case that decides whether a claim granted anything at all: every directory below an
+# (E) The case that decides whether a claim granted anything at all: every directory under an
 # unreachable root inherits neither, so the agent cannot enter the tree. It gets its own wording
 # rather than folding into the count, because "1 directory skipped" reads as a detail while this
 # is the whole outcome.

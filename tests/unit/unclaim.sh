@@ -161,7 +161,7 @@ fi
 # The mode exists for a claimed project copied or moved out of the allowlist. What makes it
 # safe on a mistyped path is not caution about which bits it writes -- those are identical to
 # a listed unclaim -- but that it writes them ONLY to a path still carrying the ai-tools
-# fingerprint. Every assertion below is a form of that one property.
+# fingerprint. Every assertion here is a form of that one property.
 
 # The mode resolves its owner from the invoking operator, so it needs one configured.
 operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"

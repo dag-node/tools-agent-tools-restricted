@@ -14,7 +14,7 @@
 # the verb simply works, until a root helper refuses it midway. The reverse (a table naming a verb
 # the dispatcher no longer has) is dead configuration that reads as coverage. So membership is
 # asserted in both directions, and every dispatched verb must be classified one way or the other:
-# the INFORMATIONAL set below is the second half of that contract, and adding a verb means naming
+# the INFORMATIONAL set is the second half of that contract, and adding a verb means naming
 # it in one of the two.
 #
 # Pure text comparison of the CLI source -- no root, no install dependency, no CLI execution (its
@@ -35,7 +35,7 @@ fi
 
 # INFORMATIONAL -- the verbs deliberately open to any caller: they read, or (in --stop's case) act
 # through a helper that requires root anyway and does not take operator-owned state. This list is the
-# test's half of the contract, so a verb added to neither this nor OPERATOR_VERBS fails below with
+# test's half of the contract, so a verb added to neither this nor OPERATOR_VERBS fails with
 # the choice spelled out.
 readonly INFORMATIONAL=(--help --version --list --providers --status --audit --stop)
 
@@ -60,7 +60,7 @@ dispatch_verbs() {
 }
 
 # usage_verbs : the verb lines of the help heredoc (indented four spaces; the cross-verb flag
-# block below them is indented two, so the indent alone separates them).
+# block under them is indented two, so the indent alone separates them).
 usage_verbs() {
     sed -n '/^usage() {/,/^EOF$/p' "${CLI}" \
         | grep -E '^    --[a-z]' | grep -oE -- '--[a-z][a-z-]+' | sort -u
@@ -72,7 +72,7 @@ ROOTOK="$(array_items ROOT_ALLOWED_VERBS)"
 BOOTEXEMPT="$(array_items BOOTSTRAP_EXEMPT_VERBS)"
 FORALLOWED="$(array_items FOR_ALLOWED_VERBS)"
 
-# An empty extraction would make every check below pass vacuously, which is the one way a test
+# An empty extraction would make every check pass vacuously, which is the one way a test
 # like this fails silently -- so the extractor is asserted before anything is compared.
 if [[ -z "${DISPATCH}" || -z "${OPERATOR}" || -z "${ROOTOK}" || -z "${BOOTEXEMPT}" || -z "${FORALLOWED}" ]]; then
     fail "could not extract a verb set (dispatch=$(wc -w <<<"${DISPATCH}") operator=$(wc -w <<<"${OPERATOR}") root=$(wc -w <<<"${ROOTOK}") bootstrap=$(wc -w <<<"${BOOTEXEMPT}") for=$(wc -w <<<"${FORALLOWED}"))"

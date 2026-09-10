@@ -104,7 +104,7 @@ skip() { SKIPPED+=1; printf '  %sSKIP%s  %s\n' "${C_Y}" "${C_0}" "$*"; }
 note() { printf '        %s%s%s\n' "${C_D}" "$*" "${C_0}"; }
 # sudo_why <what needs it> : say what the imminent "[sudo] password for ..." prompt is for. The
 # CLI invokes sudo itself, once per root helper, so the prompt arrives with no context of its own
-# and the operator would otherwise be typing a password blind. Printed immediately above the
+# and the operator would otherwise be typing a password blind. Printed immediately before the
 # command that triggers it. sudo caches for a few minutes, so not every line is followed by a
 # prompt -- which is why it names the step rather than promising one.
 sudo_why() { printf '  %ssudo%s  %s\n' "${C_Y}" "${C_0}" "$*"; }
@@ -125,7 +125,7 @@ command -v getfacl >/dev/null 2>&1 || { echo "getfacl/setfacl are required" >&2;
 # Every path this script touches is one IT created, in a directory mktemp made fresh. Nothing
 # pre-existing is reused, written into, or removed -- an existing path is a hard stop, not
 # something to clean up, because a script that deletes what it did not create is one typo away
-# from deleting the wrong thing. WORKSPACE is the single root; the removal rails below refuse any
+# from deleting the wrong thing. WORKSPACE is the single root; the removal rails refuse any
 # path that is not inside it.
 [[ -n "${HOME:-}" && -d "${HOME}" ]] || { echo "HOME is unset or not a directory" >&2; exit 2; }
 # Named by the suite's fixture rule (tests/lib/harness.sh), group `manual`: the project the claim
@@ -200,7 +200,7 @@ cleanup() {
     "${CLI}" --project-unclaim -y --group "${MY_GROUP}" "${PROJ}" >/dev/null 2>&1 || true
     "${CLI}" --project-unclaim -y --group "${MY_GROUP}" "${COPY}" >/dev/null 2>&1 || true
     safe_rm "${PROJ}"; safe_rm "${COPY}"; safe_rm "${OUTSIDE}"
-    # rmdir, not rm -r: it removes the workspace only if the removals above emptied it, so
+    # rmdir, not rm -r: it removes the workspace only if the per-project removals emptied it, so
     # anything unexpected still in there is preserved for the operator to look at.
     if rmdir "${WORKSPACE}" 2>/dev/null; then
         note "removed ${WORKSPACE} and the registry entries for it"
@@ -900,7 +900,7 @@ session_task_count() {
 # NEVER with `-s`: every cgroupfs file stats as zero bytes however many tasks it holds, so
 # `[[ -s cgroup.procs ]]` is false even for a slice holding hundreds -- an assertion that cannot
 # pass, and that reports a healthy restore as a failure. (Verified: the root cgroup.procs stats 0
-# with 379 pids in it.) session_task_count above already reads content, for the same reason.
+# with 379 pids in it.) session_task_count already reads content, for the same reason.
 #
 # `2>/dev/null` PRECEDES the input redirect, per the rule ai-tools-stop.sh's cgroup_pids states:
 # redirections apply left to right, so the other order lets a missing init.scope -- exactly the
@@ -988,7 +988,7 @@ else
             fail "the user manager did not come back; the next launch will have no --user instance -- restore it: sudo systemctl start user@$(id -u "${SANDBOX_GROUP}").service"
         fi
         # IDEMPOTENT IN END STATE, WHICH IS NOT THE SAME AS SILENT -- and the difference follows
-        # from the rebuild rather than being a defect in it. The manager the run above restored is
+        # from the rebuild rather than being a defect in it. The manager the stop run restored is
         # itself inside the swept slice, so a second run finds it, stops it, and restarts it again.
         # What must hold is that no AGENT session is found (the first stop took) and the run still
         # exits 0. A second run reporting agent sessions would mean the first one did not.

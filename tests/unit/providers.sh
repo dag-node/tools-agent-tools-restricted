@@ -14,7 +14,7 @@
 # Two properties get their own sections because a break in either is silent in production:
 #   * IFS INDEPENDENCE -- the resolver runs inside scripts that set IFS=$'\n\t' (nvm-update.sh).
 #     A splitter inheriting that reads a multi-name allowlist as one bogus name, disabling every
-#     configured agent with only a warning. The section below drives the resolver under that IFS.
+#     configured agent with only a warning. The IFS section drives the resolver under that IFS.
 #   * TAMPER REFUSAL -- every input that decides what a session gets (operator.conf, the manifest
 #     directories, each manifest) is honored only while root-owned and not group/other-writable.
 #     This is the mechanism behind "the sandbox cannot widen its own surface", so each untrusted
@@ -77,7 +77,7 @@ sweeps "unrecognized value -> sweeps (allowlist, not blocklist)"    0 Hooks
 
 # --- Resolver over a /tmp fixture tree (name<TAB>npm_package<TAB>launcher per enabled agent) ---
 # The fixtures are created by this root-run suite, so they are root-owned and non-group-writable:
-# the trusted state. The tamper section below deliberately breaks that per case and restores it.
+# the trusted state. The tamper section deliberately breaks that per case and restores it.
 mktestdir
 agents_dir="${TESTDIR}/agents.d"; mkdir -p "${agents_dir}"
 printf 'npm_package=@anthropic-ai/claude-code\nlauncher=claude\ndefault_enable=yes\n' > "${agents_dir}/claude-code.conf"

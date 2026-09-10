@@ -40,7 +40,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # read_man <page>: the page text with troff's escaped hyphens (\-\-project\-claim) flattened, so
-# every extraction below matches plain option and command spellings.
+# every extraction matches plain option and command spellings.
 read_man() {
     case "$1" in
         *.gz) zcat "$1" ;;
@@ -102,12 +102,12 @@ check_cli_page() {
 
     # ── (1) The verb sets, both directions ──────────────────────────────────────────
     # usage() lists one verb per line, indented four spaces and starting with its long option
-    # (the flag block below it is indented two, so it is excluded by that indent alone).
+    # (the flag block under it is indented two, so it is excluded by that indent alone).
     local help_verbs man_verbs undocumented unlisted help_opts man_opts missing parsed_opts stale
     help_verbs="$(usage_text "${CLI}" | grep -E '^    --[a-z]' | grep -oE -- '--[a-z][a-z-]+' | sort -u)"
     # In the page a verb is the FIRST long option on the .B/.BR line opening each TOP-LEVEL .TP
     # entry under COMMANDS. Three things must not be read as verbs: the rest of that opening
-    # line (the verb's own flags), the prose below it (which names other verbs), and the nested
+    # line (the verb's own flags), the prose under it (which names other verbs), and the nested
     # .TP entries inside an .RS/.RE block, which are that verb's per-flag reference and are
     # where a per-verb option belongs -- under the verb it applies to, not in a flat list that
     # separates it from the only command it means anything for. Hence the depth counter.

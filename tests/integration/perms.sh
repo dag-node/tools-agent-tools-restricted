@@ -201,7 +201,7 @@ check_file /opt/ai-tools/.claude/filter-hook.sh              root              "
 check_file /opt/ai-tools/.claude/settings.json               root              "${SANDBOX_GROUP}" 640
 # EVERY agent's config directory is root-owned with setgid+sticky (CP_AGENT_CONFIG_MODE, 3770):
 # ai-tools is a group-writer for its own state but cannot unlink/replace the root-owned control
-# files above. Owned by ai-tools, or without the sticky bit, the agent could delete and recreate
+# files it holds. Owned by ai-tools, or without the sticky bit, the agent could delete and recreate
 # them. The set of directories comes from the manifests (control-plane.lib.sh), so a second agent
 # is covered here without editing this list; a host with none skips and says so.
 # The SHARED asset roots: base-owned, agent-readable, NOT agent-writable. Every agent symlinks
@@ -346,7 +346,7 @@ else
     check_file /usr/local/share/man/man8/ai-tools-admin.8     root root 644
 fi
 # Launch wrapper: 755 root:root -- system-wide on every operator's PATH (path-dedup.sh ranks
-# /usr/local/bin above the nvm shims, so it shadows nvm's claude). Runs as the invoking
+# /usr/local/bin ahead of the nvm shims, so it shadows nvm's claude). Runs as the invoking
 # operator, gates on ai-ops membership, then drops to the sandbox account via sudo; root-owned
 # so the agent cannot rewrite it.
 check_file /usr/local/bin/claude                              root root 755

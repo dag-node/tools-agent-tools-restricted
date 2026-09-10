@@ -122,7 +122,7 @@ if command -v runuser >/dev/null 2>&1; then
     printf 'OPERATORS="nobody-operator"\n' > "${tconf}"; chmod 644 "${tconf}"
     proj="${TESTDIR}/proj"; mkdir -p "${proj}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${proj}"
     # An empty FIXTURE allowlist (AI_TOOLS_ALLOWLIST test hook) so the mutating-verb refusals
-    # below classify against it, never the operator's real registry -- and a regression that
+    # classify against it, never the operator's real registry -- and a regression that
     # wrote past a refusal would touch this throwaway file, which the next assertion inspects.
     emptyal="${TESTDIR}/empty-allowlist"; : > "${emptyal}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${emptyal}"
 
@@ -199,7 +199,7 @@ if command -v runuser >/dev/null 2>&1; then
         skip "third-party-owned claim root" "user 'nobody' not present"
     fi
 
-    # brief <captured-output> [pattern]  -- a SHORT diagnostic for a FAIL message. The flows below
+    # brief <captured-output> [pattern]  -- a SHORT diagnostic for a FAIL message. The flows here
     # print thirty-odd lines of headline blocks and per-step results, and interpolating all of
     # that into a failure line buries the one thing that explains it -- especially in the runner's
     # end-of-run summary, which reprints FAIL lines and is unreadable if each is a screenful.
@@ -273,7 +273,7 @@ if command -v runuser >/dev/null 2>&1; then
         skip "--project-create protected-target refusal" "this host has every protected path already"
     fi
 
-    # Atomic on refusal: none of the above may have written a registry entry. The fixture
+    # Atomic on refusal: no refused verb may have written a registry entry. The fixture
     # allowlist is the one a regression would touch.
     if [[ -s "${emptyal}" ]]; then
         fail "a refused --project-create wrote to the allowlist: $(cat "${emptyal}")"
@@ -281,7 +281,7 @@ if command -v runuser >/dev/null 2>&1; then
         pass "every refused --project-create left the allowlist untouched"
     fi
 
-    # THE HAPPY PATH. Every assertion above is a refusal, which together can be satisfied by a
+    # THE HAPPY PATH. Every preceding assertion is a refusal, which together can be satisfied by a
     # verb that acts on no path at all -- so the one run that has to actually work is asserted too,
     # end to end and unattended. It runs under setsid with NO -y (the verb has none): a create
     # that still asked something would block here and be killed by the file timeout, which is the
@@ -381,7 +381,7 @@ if command -v runuser >/dev/null 2>&1; then
     # The project fixtures live under a directory the PROJECTS user OWNS, because removing a
     # project ends by unlinking it from its parent -- which needs write permission there, not on
     # the project. Root-owned TESTDIR would fail that, which is a real refusal (asserted on its
-    # own below) rather than the case these are for.
+    # own case) rather than the case these are for.
     rmwork="${TESTDIR}/work"; mkdir -p "${rmwork}"
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${rmwork}"; chmod 755 "${rmwork}"
     rmproj="${rmwork}/rm-proj"; mkdir -p "${rmproj}/sub"
@@ -752,14 +752,14 @@ if command -v runuser >/dev/null 2>&1; then
     fal="${TESTDIR}/for-allowlist"; : > "${fal}"
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${fal}"
 
-    # setsid: every assertion below expects a refusal, and each must land BEFORE the gate's
+    # setsid: every assertion in this section expects a refusal, and each must land BEFORE the gate's
     # snapshot step, which is a --for run's only sudo. Without a controlling terminal sudo cannot
     # open /dev/tty to prompt (a stdin redirect does not stop it) and fails at once, so a
     # regression that let a refusal fall past the snapshot FAILS here instead of hanging on a
     # developer's password prompt -- the asymmetry being that a container with no tty would fail
     # while an interactive run stalls indefinitely. -w because setsid FORKS when it is already a
     # process-group leader, and the bare form then returns 0 rather than the command's status,
-    # which would quietly pass every rc-based assertion below.
+    # which would quietly pass every rc-based assertion in it.
     run_for() {
         runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${fconf}" AI_TOOLS_ALLOWLIST="${fal}" \

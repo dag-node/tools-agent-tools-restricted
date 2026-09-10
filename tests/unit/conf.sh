@@ -539,7 +539,7 @@ check_entry "an unmatched quote is taken as-is"    '/home/me/project'       '"/h
 # --- Allowlist editing: the one implementation of a registry change ---------------------------
 # Three components write allowed-projects (the CLI on the operator's own file, ai-tools-allowlist
 # on another operator's, install.sh on its own checkout), and this is what all three call. The
-# file is the LAUNCH GATE, so each assertion below is about a way an edit could leave the gate
+# file is the LAUNCH GATE, so each assertion is about a way an edit could leave the gate
 # saying something other than what the caller was told:
 #   * the three-state read, so a DISABLED project reads as disabled, not as absent;
 #   * add refusing to append under a winning '!', which would leave an allow line the exclusion
@@ -604,7 +604,7 @@ else
 fi
 # A hand-edited registry can run to EOF part-way through its last line, and the readers keep that
 # entry, so the append opens a line of its own for the new one. Written straight it would join the
-# two paths into one that is not a project, taking the entry above it off the launch gate.
+# two paths into one that is not a project, taking the preceding entry off the launch gate.
 printf '%s\n%s' "# header" "${P2}" > "${AL}"
 rc_is 0 "add opens a line for an entry that runs to EOF" ai_tools_conf_allowlist_add "${AL}" "${P1}"
 state_is listed "${P1}" "the added path reads as listed"

@@ -42,7 +42,7 @@ fi
 
 mktestdir
 
-# Render the library's structured result the way a caller does, so the assertions below read what
+# Render the library's structured result the way a caller does, so the assertions read what
 # an operator would have been told rather than reaching into the library's variables one by one.
 # shellcheck disable=SC2154  # the _ai_tools_conf_merge_* results are set by the sourced
 # conf.lib.sh, which shellcheck cannot follow through the LIB path variable

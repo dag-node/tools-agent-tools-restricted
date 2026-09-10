@@ -18,7 +18,7 @@
 # reach the sandbox account's user manager over sudo, and that one alone. Liveness and enumeration
 # are exercised as written.
 #
-# NO REAL PROCESS CAN BE SIGNALLED. Every fixture pid is above the host's pid_max, so it has no /proc
+# NO REAL PROCESS CAN BE SIGNALLED. Every fixture pid is past the host's pid_max, so it has no /proc
 # entry; the helper validates a pid's start time immediately before signalling and skips one it
 # cannot read, which is asserted here rather than assumed. main() is driven only in the dry run,
 # which returns before the kill. The kill primitive itself is exercised against real `sleep`
@@ -70,7 +70,7 @@ cp "${STOP_HELPER}" "${HELPER_COPY}"; chmod 0644 "${HELPER_COPY}"
 as_projects_user() { runuser -u "${PROJECTS_USER}" -- "$@"; }
 can_drop_privilege() { [[ "${EUID}" -eq 0 ]] && command -v runuser >/dev/null 2>&1; }
 
-# The real attribution function, saved under a second name BEFORE the fixture stub below replaces
+# The real attribution function, saved under a second name BEFORE the fixture stub replaces
 # it. `unset -f` cannot get it back: overriding a function discards the original outright, so a
 # test that stubbed first and unset later would drive the real function.
 eval "helper_unit_working_directory() $(declare -f unit_working_directory 2>/dev/null | tail -n +2)" \
@@ -91,8 +91,8 @@ else
     fail "sandbox account mismatch: helper/harness resolved '${SANDBOX_USER}'"
 fi
 
-# Fixture pids sit ABOVE pid_max, so no /proc entry can ever exist for one and no fixture pid can
-# name a real process. This is the test's own safety property and it is asserted below.
+# Fixture pids sit PAST pid_max, so no /proc entry can ever exist for one and no fixture pid can
+# name a real process. This is the test's own safety property, and it has its own assertion.
 _pid_max="$(< /proc/sys/kernel/pid_max)"
 fixture_pid() { printf '%s' "$(( _pid_max + $1 ))"; }
 
@@ -127,7 +127,7 @@ sync_events() {
 # point_at <slice-root> <uid> -- aim the helper's two walk globals at a fixture tree. They are
 # readonly only once the helper's own resolve_cgroup_layout runs, which sourcing does not do -- and
 # this file never calls it, which is what keeps every main() here on a fixture slice under TESTDIR
-# and off the real sandbox account's. Every main() call below is preceded by a point_at.
+# and off the real sandbox account's. Every main() call in this file is preceded by a point_at.
 # shellcheck disable=SC2034  # read by the sourced helper's walk, not by this file
 point_at() {
     SANDBOX_SLICE="$1"
@@ -239,7 +239,7 @@ else
 fi
 
 # THREADED CGROUP: cgroup.procs exists and is permission-readable, but the read itself fails
-# (EOPNOTSUPP below a threaded root) while live threads sit in the cgroup. Bash cannot tell that
+# (EOPNOTSUPP under a threaded root) while live threads sit in the cgroup. Bash cannot tell that
 # failed read from a clean EOF -- verified, both give `read` status 1 and an empty value -- so the
 # corroborating source is cgroup.threads, which the kernel keeps readable in every cgroup. The
 # fixture reproduces the SHAPE (a read that fails on a permission-readable path) with a directory
@@ -328,7 +328,7 @@ if ( PATH=/nonexistent; cgroup_is_live "${unit11}" ); then
 else
     fail "liveness must not depend on an external command"
 fi
-# shellcheck disable=SC2123  # as above
+# shellcheck disable=SC2123  # same reason as the earlier disable
 if ( PATH=/nonexistent; cgroup_is_live "${CG}/user@4242.service/empty.slice" ); then
     fail "an empty cgroup must still read empty with PATH=/nonexistent"
 else
@@ -365,7 +365,7 @@ fi
 # ── The kill primitive, against real processes this test owns ─────────────────────────────────
 section "signalling"
 
-# A fixture pid is above pid_max, so it has no /proc entry -- the property every assertion above
+# A fixture pid is past pid_max, so it has no /proc entry -- the property every assertion here
 # leans on, and the reason a fixture can never name a real process.
 if pid_start_time "$(fixture_pid 201)" >/dev/null 2>&1; then
     fail "a fixture pid must have no /proc entry"
@@ -437,7 +437,7 @@ FIXTURE_WORKING_DIR=(
 # consulted -- this command does not take an authorization input.
 # shellcheck disable=SC2034  # CALLER/SANDBOX_UID are read by the sourced helper
 CALLER="${PROJECTS_USER}"
-# shellcheck disable=SC2034  # as above
+# shellcheck disable=SC2034  # same reason as the earlier disable
 SANDBOX_UID=4242
 
 # run_main <dry-run?> -- set the request the way the argument parser would and run main(),
