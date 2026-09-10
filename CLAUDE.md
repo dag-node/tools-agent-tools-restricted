@@ -47,6 +47,13 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
   in the same change — the file→rule auto-load is only as complete as `paths:`, and a
   documented file left out of it silently stops loading its rule.
   Conventions for writing rules: `.claude/rules/authoring.rule.md`.
+- **`.claude/references.md`** — the generated cross-reference index: every reftag in the tree,
+  with its id, its name, its file, and the files that cite it. A reference in prose names a
+  reftag, never a position, a line, or a heading anchor, and a reftag exists only for a citation
+  from another file; a session that meets one resolves it here, and
+  `bash tools/ref-index.sh where <reftag>` prints the live line. Regenerated from the tree with
+  `bash tools/ref-index.sh generate`, not edited. The grammar is the `ai-tools-technical-docs`
+  skill's, and the authoring rule states when a referent takes a reftag.
 - **Auto memory** (`/memory`) — decisions, rejected alternatives, and open follow-ups
   that are not derivable from the code.
 

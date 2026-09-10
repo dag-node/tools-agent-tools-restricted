@@ -25,4 +25,13 @@ checker="${repo_root}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/pros
 if ! python3 "${checker}" --staged; then
     echo "  (not blocking this commit)" >&2
 fi
+
+# The cross-reference check and the index, over the whole tree rather than the staged lines: a
+# reference resolves against where its target is now, and a stale index is a property of the tree.
+# Both report and neither blocks, like the prose report.
+wrapper="${repo_root}/tools/ref-index.sh"
+if [[ -r "${wrapper}" ]] && git diff --cached --name-only --diff-filter=ACMR | grep -q '\.md$'; then
+    bash "${wrapper}" check || echo "  (not blocking this commit)" >&2
+    bash "${wrapper}" stale || echo "  (not blocking this commit)" >&2
+fi
 exit 0
