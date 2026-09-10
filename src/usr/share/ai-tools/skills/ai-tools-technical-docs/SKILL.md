@@ -862,9 +862,14 @@ artifact like any other.
 docstring, and a config file's header are read in an editor or a terminal, which do not reflow
 them, so a line does not end on a word that ties to the next one — an article, a conjunction, a
 preposition, or a wh-word (`, the` at a line end is the usual case) — where a runtime message
-would carry it to the next line. `--wrap` adds the two checks that report it: `comment-tie` for a
-source comment ending on a tie word, and `comment-width` for one over 120 columns, the column a
-code file wraps at; a document or a man page reflows and is not read for either. They are opt-in:
+would carry it to the next line. `--wrap` adds the checks that report it: `comment-tie` for a
+source comment ending on a tie word, `comment-width` for one over 120 columns, the column a
+code file wraps at, and `document-width` for a Markdown line over 100 columns, the column a
+document wraps at. A document reflows when rendered and is read unrendered too, in an editor
+and in a diff, and an edit that splices a sentence into a wrapped paragraph is what leaves a
+line long; a table row, a fenced block, a line holding a URL or one token, and a man page are
+not measured, each being a unit the rule cannot break, and the tie rule does not read a
+document. They are opt-in:
 how a line is wrapped is a formatter's job, run over a file once, and a tree whose comments predate
 the rule reports every one of them. A code line is never measured: the width rule is for prose a
 reader has to follow, and a long line of C#, Java or shell is read on a wide screen as written.

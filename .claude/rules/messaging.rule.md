@@ -166,7 +166,7 @@ Pre-answering is two distinct mechanisms, by direction:
 a pipe, a cron run and an absent `msg.lib.sh` all proceed, and only a deliberate `n` declines. The
 principle is unchanged — *give it the default that is the safe outcome* — and it is **which outcome
 is safe** that flips: for the one control whose job is to end a session already running, declining
-is the failure. `-n/--dry-run` is how that command is looked at without acting, and
+is the failure. `--dry-run` is how that command is looked at without acting, and
 `AI_TOOLS_ASSUME_YES=1` fast-tracks it like any other default-yes question.
 
 The inversion is bounded to the *confirmation*, not to argument handling. The same command

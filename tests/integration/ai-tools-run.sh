@@ -192,9 +192,16 @@ else
     # Probed in a THROWAWAY version directory (v0.0.1), never the live one: the shim only needs the
     # path to be semver-shaped, and writing into the active tree is what this file's header rules
     # out. Removed on exit whichever way this test ends.
+    #
+    # This is the one fixture that cannot carry the harness's `.ai-tools-test-*` name: the shim
+    # accepts an entrypoint only at a bare `v<major>.<minor>.<patch>` directory, so the residue
+    # sweep (tests/lib/residue.sh) lists this exact path by name instead. Node shipped no such
+    # version, so only this test creates it -- which is why one already present is a FAILURE (a
+    # teardown that did not run, on a host the sweep has not cleaned) and not a case to skip:
+    # skipping would let residue silently cost the coverage.
     fake_version_dir="/opt/ai-tools/.nvm/versions/node/v0.0.1"
     if [[ -e "${fake_version_dir}" ]]; then
-        skip "ai-tools-run entrypoint containment" "${fake_version_dir} already exists -- not overwriting"
+        fail "${fake_version_dir} already exists -- residue of an earlier run; run \`tests/run.sh residue\` (the sweep removes it) and rerun"
     else
         _cleanup+=("${fake_version_dir}")
         mkdir -p "${fake_version_dir}/bin"

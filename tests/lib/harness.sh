@@ -110,25 +110,78 @@ readonly PROJECTS_USER PROJECTS_GROUP PROJECTS_HOME PROJECTS_UID
 readonly SANDBOX_USER="ai-tools"
 readonly SANDBOX_GROUP="ai-tools"
 
+# Every path a test creates outside its own testdir is named by one rule, so a leftover is
+# recognisable as this suite's and a sweep can find it without guessing:
+#
+#     .ai-tools-test-<group>-<thing>-XXXXXX
+#
+# <group> is the category directory the file runs from (unit, integration, boundary; the
+# operator-run script under manual/ names itself), <thing> names what the path is for (the
+# file's stem for its testdir; homelock, victim, c3 for a single fixture), and XXXXXX is six
+# random alphanumerics, mktemp's own. The leading dot keeps
+# a leftover out of a plain listing and gives the residue sweep (tests/lib/residue.sh, run by
+# run.sh before every run) one pattern to match. The mk_fixture_* helpers create AND register in one
+# call, so a fixture cannot be born outside the teardown list; a test that must name a path
+# before it exists (a probe the agent is asked to create) takes the name from ai_test_name and
+# registers it itself.
+readonly AI_TOOLS_TEST_PREFIX=".ai-tools-test"
+TEST_GROUP="$(basename "$(cd "$(dirname "$0")" && pwd)")"
+TEST_STEM="$(basename "$0" .sh)"
+readonly TEST_GROUP TEST_STEM
+
+# ai_test_name <thing>: PRINT a fresh fixture name under the rule (not created, not registered).
+ai_test_name() {
+    printf '%s-%s-%s-%s' "${AI_TOOLS_TEST_PREFIX}" "${TEST_GROUP}" "$1" \
+        "$(head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 6)"
+}
+# mk_fixture_dir <var> <parent> <thing> / mk_fixture_file <var> <parent> <thing>: create a
+# fixture under <parent> (mktemp: unique, born 0700/0600) named by the rule, register it for
+# teardown, and assign its path to the caller's variable <var>. The path is ASSIGNED, never
+# printed: a `$(...)` capture would run the registration in a subshell and lose it, leaving
+# the fixture outside the teardown list. The caller sets the mode and owner the case needs.
+mk_fixture_dir() {
+    local -n _out="$1"
+    _out="$(mktemp -d "$2/${AI_TOOLS_TEST_PREFIX}-${TEST_GROUP}-$3-XXXXXX")" || return 1
+    _cleanup+=("${_out}")
+}
+mk_fixture_file() {
+    local -n _out="$1"
+    _out="$(mktemp "$2/${AI_TOOLS_TEST_PREFIX}-${TEST_GROUP}-$3-XXXXXX")" || return 1
+    _cleanup+=("${_out}")
+}
+
 # Teardown removes every artifact a test registered, on any exit. Nothing outside these
 # paths is ever touched. It returns success unconditionally: it runs in the EXIT trap, and
 # under `set -e` a non-zero teardown status -- e.g. the empty-_cleanup loop where the final
 # `[[ -n "" ]]` is false, or an `rm` of an already-gone path -- would otherwise become the
 # script's exit status and mask an all-PASS run as a failure. The result comes from finish.
+# The trap also fires on the SIGTERM run.sh's per-file timeout sends, so a file killed on its
+# budget still tears down; only a SIGKILL or a failed rm leaves residue, which the pre-run
+# sweep then reports and removes.
 #
-# _teardown_cmd holds one non-path cleanup command -- state that is not a file to unlink --
-# registered with on_teardown and run directly (no eval; best-effort, output discarded) after
-# the path sweep. The live case is a bridge integration test clearing the transient
-# `ai-tools-handback@*` instances its negative cases leave FAILED, so the manager's
-# failed-unit list reflects only real faults, not test-induced rejections. Quote a glob you
+# on_teardown registers one non-path cleanup command -- state that is not a file to unlink --
+# run directly (no eval; best-effort, output discarded) after the path sweep, in registration
+# order. Each call is kept in its own array (a nameref, so no eval), so a file may register
+# several. The live cases: the bridge integration test clearing the transient
+# `ai-tools-handback@*` instances its negative cases leave FAILED, the stop test killing its
+# fixture cgroup, and the hooks test restoring the live sweep marker it moved. Quote a glob you
 # want passed to the command literally (systemd does its own unit-name matching):
 # on_teardown systemctl reset-failed 'ai-tools-handback@*'.
-declare -a _cleanup=() _teardown_cmd=()
-on_teardown() { _teardown_cmd=("$@"); }
+declare -a _cleanup=()
+declare -i _teardown_n=0
+on_teardown() {
+    local -n _register_into="_teardown_cmd_${_teardown_n}"
+    _register_into=("$@")
+    _teardown_n+=1
+}
 _teardown() {
-    local p
+    local p i
     for p in "${_cleanup[@]:-}"; do [[ -n "${p}" ]] && rm -rf "${p}"; done
-    [[ ${#_teardown_cmd[@]} -gt 0 ]] && "${_teardown_cmd[@]}" >/dev/null 2>&1
+    for (( i = 0; i < _teardown_n; i++ )); do
+        local -n _run_from="_teardown_cmd_${i}"
+        "${_run_from[@]}" >/dev/null 2>&1
+        unset -n _run_from
+    done
     return 0
 }
 trap _teardown EXIT
@@ -143,16 +196,15 @@ trap _teardown EXIT
 # carries every line under its per-component tag, so no line is lost. A helper the LIVE
 # daemon execs (integration/handback.sh) keeps the real dir -- the daemon does not inherit
 # this -- matching the AI_TOOLS_ALLOWLIST limitation. Registered for teardown.
-_test_logdir="$(mktemp -d /tmp/ai-tools-testlog.XXXXXX)"
-_cleanup+=("${_test_logdir}")
+_test_logdir=""; mk_fixture_dir _test_logdir /tmp "${TEST_STEM}-log"
 export AI_TOOLS_LOG_DIR="${_test_logdir}"
 
-# mktestdir: create THE dedicated /tmp boundary for this test and register it for teardown.
-# Mode 0755 so an `sudo -u ai-tools` boundary check can traverse in to a fixture (the
-# fixture's own mode is what the check exercises). Sets the global TESTDIR.
+# mktestdir: create THE dedicated /tmp boundary for this test (named by the fixture rule, with
+# the file's stem as its thing) and register it for teardown. Mode 0755 so an `sudo -u ai-tools`
+# boundary check can traverse in to a fixture (the fixture's own mode is what the check
+# exercises). Sets the global TESTDIR.
 mktestdir() {
-    TESTDIR="$(mktemp -d /tmp/ai-tools-test.XXXXXX)"
-    _cleanup+=("${TESTDIR}")
+    mk_fixture_dir TESTDIR /tmp "${TEST_STEM}"
     chmod 0755 "${TESTDIR}"
 }
 

@@ -166,8 +166,9 @@ elif [[ ! -r "${RELABEL_LIB}" ]] || ! source "${RELABEL_LIB}" 2>/dev/null \
         || ! declare -F ai_tools_label_project >/dev/null 2>&1; then
     skip "sandbox clone label" "relabel.lib.sh not available at ${RELABEL_LIB}"
 else
-    sprobe="${SANDBOX_ROOT}/_selftest-relabel-$$"
-    mkdir -p "${sprobe}"
+    # A real clone-area path, since the static rule is keyed on that prefix; named and
+    # registered through the harness so the sweep finds what an aborted run leaves.
+    sprobe=""; mk_fixture_dir sprobe "${SANDBOX_ROOT}" relabel
     if ai_tools_label_project "${sprobe}" && ai_tools_project_labelled "${sprobe}"; then
         pass "ai_tools_label_project applies AND verifies ai_tools_project_t on a sandbox clone"
     else
@@ -249,8 +250,8 @@ else
         else fail "${probe%%:*} -> ${got:-none}, expected ${want} (rule precedence between the clone rule and the layout module's rule)"; fi
     done
     if [[ -d "${SANDBOX_ROOT}" ]]; then
-        tprobe="${SANDBOX_ROOT}/_selftest-build-$$"
-        mkdir -p "${tprobe}" && restorecon -F "${tprobe}" 2>/dev/null || true
+        tprobe=""; mk_fixture_dir tprobe "${SANDBOX_ROOT}" build
+        restorecon -F "${tprobe}" 2>/dev/null || true
         mkdir "${tprobe}/bin" "${tprobe}/src" 2>/dev/null || true
         bt="$(type_of "${tprobe}/bin")"; st="$(type_of "${tprobe}/src")"
         if [[ "${bt}" == ai_tools_project_build_t && "${st}" == ai_tools_project_t ]]; then

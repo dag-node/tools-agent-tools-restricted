@@ -619,12 +619,27 @@ else
         pass "no sandbox account named: the live probe is not offered"
     fi
     ai_tools_service_sandbox_account ai-tools
-    if [[ "${EUID}" -eq 0 ]]; then
-        skip "non-root live probe" "this run is root, which is the vantage the probe is for"
-    elif _ai_tools_service_systemctl sandbox-user; then
-        fail "the live probe was offered to a non-root caller"
+    # The non-root half is asked from a non-root process: a root run drops to the projects user
+    # through runuser (the library is world-readable) rather than skipping the vantage the
+    # refusal exists for.
+    # shellcheck disable=SC2016  # $1 is the inner shell's positional
+    probe_offered_to_projects_user() {
+        runuser -u "${PROJECTS_USER}" -- bash -c \
+            'source "$1" || exit 2; ai_tools_service_sandbox_account ai-tools; _ai_tools_service_systemctl sandbox-user' \
+            _ "${LIB}"
+    }
+    if [[ "${EUID}" -ne 0 ]]; then
+        if _ai_tools_service_systemctl sandbox-user; then
+            fail "the live probe was offered to a non-root caller"
+        else
+            pass "a non-root caller is not offered the live probe, whatever account is named"
+        fi
+    elif ! command -v runuser >/dev/null 2>&1; then
+        skip "non-root live probe" "runuser unavailable to ask the probe unprivileged"
+    elif probe_offered_to_projects_user; then
+        fail "the live probe was offered to a non-root caller (${PROJECTS_USER})"
     else
-        pass "a non-root caller is not offered the live probe, whatever account is named"
+        pass "a non-root caller (${PROJECTS_USER}) is not offered the live probe, whatever account is named"
     fi
     # A system unit's state is world-readable, so that scope is offered to every caller -- the
     # asymmetry is the point, and reading it as privileged would silently stop the launch

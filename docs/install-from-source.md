@@ -167,7 +167,9 @@ units, creates the approved-projects allowlist with format documentation, instal
 `ai-tools` project CLI and the `/var/opt/ai-tools` sandbox area, enables the
 `nvm-update.timer` in `${SANDBOX_USER}`'s `--user` instance, and enables the
 `ai-tools-relabel.path` watcher. It is idempotent — safe to re-run after updates. The
-install directory is never auto-registered as a project.
+install directory is never registered as a project by default: an interactive install ends by
+asking, and Enter re-registers a checkout that was registered when the install began and leaves
+one that was not unregistered.
 
 Enrol each further login user as an operator (ai-ops membership, allowlist seed):
 

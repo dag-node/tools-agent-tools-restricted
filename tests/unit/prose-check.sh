@@ -416,6 +416,19 @@ run_check --wrap --width 100 "$(fixture PC-57-comment-width-arg.sh 'x=1' "# $(pr
 assert_grep 'comment-width \[112>100\]' "${OUT}" "PC-57-comment-width-arg: --width lowers the column a source comment is measured against"
 # A linter directive is read by the linter, so neither line rule reads it, however long or however it ends.
 wrapped_silent PC-58-comment-directive.sh 'x=1' "# shellcheck disable=SC2154  # set by the sourced library, whose contract names the" "y=2"
+# A Markdown document is read unrendered too -- in an editor, a diff -- so under --wrap a line holds
+# to 100 columns. A table row, a fenced block, a URL line, a lone token and a man page are units
+# the rule cannot break, and each is pinned silent.
+long_md="$(printf 'word %.0s' $(seq 1 25))"
+wrapped document-width PC-59-document-width.md '# Title' "${long_md}"
+wrapped_silent PC-60-document-width-under.md '# Title' "$(printf 'word %.0s' $(seq 1 19))"
+wrapped_silent PC-61-document-width-table.md '| a | b |' '|---|---|' "| $(printf 'cell %.0s' $(seq 1 25)) | x |"
+wrapped_silent PC-62-document-width-fence.md '```' "${long_md}" '```' 'After the fence.'
+wrapped_silent PC-63-document-width-url.md "See https://example.invalid/$(printf 'p%.0s' $(seq 1 100)) for the reference."
+wrapped_silent PC-64-document-width-token.md "$(printf 'p%.0s' $(seq 1 110))"
+wrapped_silent PC-65-document-width-man.1 '.TH X 1' "${long_md}"
+run_check --wrap --width 80 "$(fixture PC-66-document-width-arg.md '# Title' "$(printf 'word %.0s' $(seq 1 19))")"
+assert_grep 'document-width \[94>80\]' "${OUT}" "PC-66-document-width-arg: --width lowers the column a document line is measured against"
 
 # The tie set is msg.lib.sh's, mirrored: the runtime wrap and the header check must agree
 # on which words carry to the next line, or a header passes here and wraps differently in a box.

@@ -670,24 +670,31 @@ EOF
     done
 
     # (9) --sandbox-remove refuses a target that is not a real clone, BEFORE any rm -rf:
-    # the shared clone-area root itself (require_sandbox_clone: not a direct-child clone) and a
-    # path outside SANDBOX_ROOT. The refusal precedes the removal, so no path is deleted.
-    sroot="/var/opt/ai-tools/sandbox-projects"
-    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
-            AI_TOOLS_OPERATOR_CONF="${oconf}" setsid "${CLI}" --sandbox-remove "${sroot}" 2>&1)" && rc=0 || rc=$?
-    if [[ ${rc} -ne 0 ]] && grep -qi 'not a sandbox clone' <<<"${out}" && [[ -d "${sroot}" ]]; then
-        pass "--sandbox-remove refuses the shared clone-area root (not a direct-child clone)"
-    elif [[ ! -d "${sroot}" ]]; then
-        skip "--sandbox-remove root guard" "sandbox area ${sroot} not present"
+    # the clone-area root itself (require_sandbox_clone: not a direct-child clone) and a path
+    # outside SANDBOX_ROOT. A destructive verb is never aimed at the REAL clone area, even to
+    # assert a refusal: the rows run against a fixture clone area through the
+    # AI_TOOLS_SANDBOX_ROOT override, and skip on an installed CLI that predates it.
+    if ! grep -q 'AI_TOOLS_SANDBOX_ROOT' "${CLI}"; then
+        skip "--sandbox-remove guards" "the installed ${CLI} predates the AI_TOOLS_SANDBOX_ROOT override; deploy the checkout first"
     else
-        fail "--sandbox-remove did not refuse the clone-area root (rc=${rc}): ${out}"
-    fi
-    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
-            AI_TOOLS_OPERATOR_CONF="${oconf}" setsid "${CLI}" --sandbox-remove "${lone}" 2>&1)" && rc=0 || rc=$?
-    if [[ ${rc} -ne 0 ]] && grep -qi 'not a sandbox clone' <<<"${out}"; then
-        pass "--sandbox-remove refuses a path outside SANDBOX_ROOT"
-    else
-        fail "--sandbox-remove did not refuse a non-sandbox path (rc=${rc}): ${out}"
+        sroot="${TESTDIR}/sandbox-projects"; mkdir -p "${sroot}"
+        chown "${PROJECTS_USER}:${PROJECTS_USER}" "${sroot}"
+        out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+                AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_SANDBOX_ROOT="${sroot}" \
+                setsid "${CLI}" --sandbox-remove "${sroot}" 2>&1)" && rc=0 || rc=$?
+        if [[ ${rc} -ne 0 ]] && grep -qi 'not a sandbox clone' <<<"${out}" && [[ -d "${sroot}" ]]; then
+            pass "--sandbox-remove refuses the clone-area root (not a direct-child clone)"
+        else
+            fail "--sandbox-remove did not refuse the clone-area root (rc=${rc}): ${out}"
+        fi
+        out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+                AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_SANDBOX_ROOT="${sroot}" \
+                setsid "${CLI}" --sandbox-remove "${lone}" 2>&1)" && rc=0 || rc=$?
+        if [[ ${rc} -ne 0 ]] && grep -qi 'not a sandbox clone' <<<"${out}"; then
+            pass "--sandbox-remove refuses a path outside SANDBOX_ROOT"
+        else
+            fail "--sandbox-remove did not refuse a non-sandbox path (rc=${rc}): ${out}"
+        fi
     fi
 fi
 
@@ -1116,13 +1123,17 @@ else
     #     The usage()/man-page pairing itself is covered from source in unit/man.sh; what this
     #     adds is that the copy actually installed on this host carries it -- which is why it
     #     SKIPS rather than fails when the deployed CLI predates the verb. That is the normal
-    #     state between building this branch and installing it, and it is not a defect.
-    if ! command -v ai-tools >/dev/null 2>&1; then
-        skip "--audit is wired into the CLI" "ai-tools is not on PATH"
-    elif ai-tools --help 2>&1 | grep -q -- '--audit'; then
+    #     state between building this branch and installing it, and it is not a defect. The help
+    #     is read AS the projects user: the CLI refuses root before it prints anything, so a root
+    #     read would report every deployed copy as predating the verb.
+    if [[ ! -x "${CLI}" ]]; then
+        skip "--audit is wired into the CLI" "not installed at ${CLI}"
+    elif ! command -v runuser >/dev/null 2>&1; then
+        skip "--audit is wired into the CLI" "runuser unavailable to read the help as ${PROJECTS_USER}"
+    elif runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" "${CLI}" --help 2>&1 | grep -q -- '--audit'; then
         pass "the deployed ai-tools dispatches --audit"
     else
-        skip "--audit is wired into the CLI" "the deployed ai-tools predates the verb (install this version to cover it)"
+        skip "--audit is wired into the CLI" "the deployed ${CLI} predates the verb (install this version to cover it)"
     fi
 fi
 

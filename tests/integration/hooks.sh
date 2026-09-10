@@ -1,26 +1,25 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/hooks.sh
-# Integration: the live ownership-handback hooks end-to-end (PostToolUse, Stop sweep,
-# SessionStart reclaim). Each hook delegates to the handback socket daemon, which execs
-# ai-tools-chown with its OWN environment -- so the AI_TOOLS_ALLOWLIST test override does NOT
-# reach it (it is stripped by sudo/the daemon, by design); the helper reads the REAL
-# allowlist. The fixtures therefore live in a self-cleaning subdir INSIDE the project this
-# suite is run from, reusing that project's existing allowlist entry (the session runs in it).
-# They cannot use /tmp: /tmp and /var/tmp are polyinstantiated per session by pam_namespace
-# (root/adm exempt), so a /tmp fixture is invisible to the hook's own `sudo -u ai-tools`
-# session (a private, empty /tmp instance) -- the hand-back would silently no-op. The test
-# SKIPS when its run-dir is not allowlisted. Run as root via sudo.
+# Integration: what the deployed hook configuration DECLARES -- settings.json names the handback
+# hooks and the Bash deny rules -- and the optional /tmp isolation where a host carries it. Both
+# read installed files and need no allowlisted path.
+#
+# The hooks themselves are not driven here. Each delegates to the handback socket daemon, which
+# execs ai-tools-chown with its OWN environment, so the helper reads the operator's REAL allowlist
+# and a fixture must sit inside a project that allowlist names -- which this suite may not write,
+# and install.sh deregisters its own checkout. The live chain (PostToolUse, the tool-call record,
+# the Stop sweep, SessionStart and SessionEnd reclaim) is exercised in
+# tests/manual/verify-live-flows.sh, inside the project that run claims. Run as root via sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
+# The hook paths the declarations must name; the files are not run here.
 readonly hook="/opt/ai-tools/.claude/post-tool-hook.sh"
 readonly sweep="/opt/ai-tools/.claude/session-hook.sh"
 readonly settings="/opt/ai-tools/.claude/settings.json"
-readonly REAL_ALLOWLIST="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
-readonly SOCK="/run/ai-tools/handback.sock"
 
 # ── settings.json declares the hooks + Bash deny rules ───────────────────────────
 # perms.sh pins settings.json's owner/mode and access.sh pins that the agent cannot write it,
@@ -154,258 +153,21 @@ else
     fi
 fi
 
-# ── /tmp isolation posture (pam_namespace, optional) ─────────────────────────────
+# ── /tmp isolation (pam_namespace, optional) ─────────────────────────────────────
 # pam_namespace polyinstantiation of /tmp + /var/tmp gives each session a private /tmp instance
-# (a confinement property, and the reason this suite keeps its live-chain fixtures under $HOME
-# rather than /tmp). It is OPTIONAL: a host without it is a supported install state, so its
-# absence is not a failure -- it only means per-session /tmp isolation must come from the
-# deferred PrivateTmp launch path instead. This check only REPORTS the posture, so every outcome
-# but the polyinstantiated one emits `note`: each names a state the project supports, and `skip`
-# would put it in run.sh's no-coverage notice, which reports what a run left unverified.
-section "/tmp isolation posture (pam_namespace, optional)"
+# (a confinement property, and the reason the live hook chain is driven against a fixture under
+# the operator's home rather than /tmp). It is OPTIONAL and outside this project's install, so a host without it
+# is the default state and is not reported: the only line this emits is the PASS where the
+# isolation is present, on a host whose administrator set it up.
 readonly NSCONF="/etc/security/namespace.conf"
-if [[ ! -r "${NSCONF}" ]]; then
-    note "/tmp isolation posture" "pam_namespace not configured -- supported; per-session /tmp isolation relies on the deferred PrivateTmp path"
-else
+if [[ -r "${NSCONF}" ]]; then
     has_tmp=false; has_vartmp=false
     awk -v d=/tmp     '!/^[[:space:]]*#/ && $1==d && $3 ~ /level|context|user/ {exit 0} END{exit 1}' "${NSCONF}" && has_tmp=true
     awk -v d=/var/tmp '!/^[[:space:]]*#/ && $1==d && $3 ~ /level|context|user/ {exit 0} END{exit 1}' "${NSCONF}" && has_vartmp=true
     if ${has_tmp} && ${has_vartmp}; then
+        section "/tmp isolation (pam_namespace)"
         pass "pam_namespace polyinstantiates /tmp and /var/tmp per session (isolation active)"
-    elif ${has_tmp} || ${has_vartmp}; then
-        note "/tmp isolation posture" "only one of /tmp,/var/tmp is polyinstantiated -- partial, and a supported host state"
-    else
-        note "/tmp isolation posture" "namespace.conf carries no /tmp,/var/tmp entries -- supported; per-session /tmp isolation relies on the deferred PrivateTmp path"
     fi
-fi
-
-section "Ownership-handback hooks end-to-end (integration)"
-
-if [[ ! -x "${hook}" || ! -x "${sweep}" ]]; then
-    skip "handback hooks" "hooks not installed under /opt/ai-tools/.claude"; finish; exit
-fi
-if [[ ! -S "${SOCK}" ]]; then
-    skip "handback hooks" "handback socket ${SOCK} not present (daemon not started?)"; finish; exit
-fi
-
-# ── Fixtures inside the already-allowlisted run-dir project ──────────────────────
-# REPO is the project this suite is run from (tests/integration/hooks.sh -> ../..). The
-# daemon-exec'd helper validates each path against the REAL allowlist, so the fixtures must
-# sit under an allowlisted path -- and this project already is one (the session runs in it).
-# Confirm that against the real allowlist (mirroring the wrapper's allow-match: an entry that
-# equals REPO or is an ancestor of it), and SKIP rather than mutate the allowlist if not.
-readonly REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-covered=false
-if [[ -r "${REAL_ALLOWLIST}" ]]; then
-    while IFS= read -r entry || [[ -n "${entry}" ]]; do
-        [[ -z "${entry}" || "${entry}" == '#'* || "${entry}" == '!'* ]] && continue
-        d="$(realpath -e "${entry}" 2>/dev/null)" || continue
-        if [[ "${REPO}" == "${d}" || "${REPO}" == "${d}"/* ]]; then covered=true; break; fi
-    done < "${REAL_ALLOWLIST}"
-fi
-if ! ${covered}; then
-    # install.sh strips its own checkout from the allowlist on every run (a control-plane repo
-    # registered as a project would let the sandbox modify future installs), so this suite run as
-    # that install's verification phase always lands here. Name that cause where it applies: the
-    # generic reason reads as a mistake the operator made, and sends them to re-claim a directory
-    # the next install deregisters again.
-    if [[ -f "${REPO}/install.sh" && -f "${REPO}/src/usr/local/bin/ai-tools.sh" ]]; then
-        skip "handback hooks" "${REPO} is the install checkout, which install.sh deregisters by design -- run this suite from a claimed project to cover the live chain"
-    else
-        skip "handback hooks" "run-dir ${REPO} is not in the real allowlist -- run this suite from a claimed project"
-    fi
-    finish; exit
-fi
-
-# A self-cleaning fixture dir inside the project. Born under the project's group so the agent
-# (which traverses the project tree via group ai-tools) can reach it.
-proj="$(mktemp -d "${REPO}/.handback-test.XXXXXX")"
-_cleanup+=("${proj}")
-chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${proj}"
-chmod 0755 "${proj}"
-
-# Under SELinux enforcing the confined chown helper can only act on an ai_tools_project_t
-# tree. The project usually already carries that label (it is claimed); set it on the fixture
-# explicitly so the test holds even if the project's label has lapsed. Root sets it directly
-# (no sudo/password). A failure here (module not loaded) is surfaced by the assertions below.
-if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" == "Enforcing" ]]; then
-    chcon -R -t ai_tools_project_t "${proj}" 2>/dev/null \
-        || skip "project label" "could not set ai_tools_project_t on ${proj} (module not loaded?)"
-fi
-
-# ── PostToolUse: immediate Write/Edit handback ───────────────────────────────────
-run_hook() {  # $1 = file_path
-    printf '{"tool_input":{"file_path":"%s"}}' "$1" \
-        | timeout 15 setsid sudo -u "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" "${hook}" \
-            > /dev/null 2>&1 || true
-}
-
-# (A) An agent-owned ordinary file is handed back to <projects-user>:SANDBOX_GROUP.
-hk="${proj}/note.txt"; : > "${hk}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${hk}"; chmod 0600 "${hk}"
-run_hook "${hk}"
-if [[ "$(stat -c '%U:%G' "${hk}")" == "${PROJECTS_USER}:${SANDBOX_GROUP}" ]]; then
-    pass "PostToolUse hands an agent-owned file back to ${PROJECTS_USER}:${SANDBOX_GROUP}"
-else
-    fail "PostToolUse did not hand back ${hk}: $(stat -c '%U:%G' "${hk}") (want ${PROJECTS_USER}:${SANDBOX_GROUP})"
-fi
-
-# (B) A secret-named agent file is routed to the projects user's PRIVATE group 600 (agent
-#     access revoked).
-hs="${proj}/.env"; : > "${hs}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${hs}"; chmod 0600 "${hs}"
-run_hook "${hs}"
-if [[ "$(stat -c '%U:%G' "${hs}")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" ]]; then
-    pass "PostToolUse routes a secret-named file to ${PROJECTS_USER}:${PROJECTS_GROUP} (agent revoked)"
-else
-    fail "secret-named file ended $(stat -c '%U:%G' "${hs}") (want ${PROJECTS_USER}:${PROJECTS_GROUP})"
-fi
-
-# (C) A directory the write newly created is normalized to <projects-user>:SANDBOX_GROUP 770
-#     (world stripped, group rwx kept). Parent is the project root (projects-user-owned), so
-#     exactly the new dir is normalized and the upward walk stops there.
-hd="${proj}/made"; mkdir "${hd}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${hd}"; chmod 0755 "${hd}"
-hdf="${hd}/file"; : > "${hdf}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${hdf}"; chmod 0600 "${hdf}"
-run_hook "${hdf}"
-if [[ "$(stat -c '%U:%G' "${hd}")" == "${PROJECTS_USER}:${SANDBOX_GROUP}" && "$(perm "${hd}")" == 770 ]]; then
-    pass "PostToolUse normalizes a newly-created parent dir to ${PROJECTS_USER}:${SANDBOX_GROUP} 770"
-else
-    fail "PostToolUse did not normalize ${hd}: $(stat -c '%U:%G' "${hd}") $(perm "${hd}") (want ${PROJECTS_USER}:${SANDBOX_GROUP} 770)"
-fi
-
-# (D) Static pin: an allowlist pre-check in the hook (which the agent cannot satisfy) would
-#     silently disable handback, so the hook keeps no ALLOWLIST reference in code (comments
-#     naming it are stripped first).
-if grep -vE '^[[:space:]]*#' "${hook}" | grep -q 'ALLOWLIST'; then
-    fail "hook has a non-comment ALLOWLIST reference -- the silently-disabling pre-check may be back"
-else
-    pass "hook code has no ALLOWLIST pre-check (delegates enforcement to ai-tools-chown)"
-fi
-
-# ── PostToolUse: the tool-call record and its content bound ──────────────────────
-# The record is the only trail of what the agent DID (logging.rule.md). Two properties are
-# asserted, and the second matters more than the first: that a call is recorded at all, and
-# that the record STOPS at the documented bound. A here-doc body is the case that bound exists
-# for -- it is unbounded and routinely carries file content -- so the fixture writes a
-# recognisable secret through one and the assertion is that it never reaches the journal.
-# Driven as the agent, since that is the account that writes these lines and the uid they must
-# file under. A host without journald skips: an absent line is evidence either way.
-section "PostToolUse tool-call record (content bound)"
-if ! command -v journalctl >/dev/null 2>&1; then
-    skip "tool-call record" "journalctl not available to read the trail back"
-else
-    rec_uid="$(id -u "${SANDBOX_USER}")"
-    rec_marker="record-probe-$$"
-    rec_secret="SUPERSECRET-${rec_marker}"
-    # A command whose first line is benign and whose here-doc body carries the secret.
-    printf '{"tool_name":"Bash","cwd":"/tmp/%s","tool_input":{"command":"cat > f <<%sEOF%s\\n%s\\nEOF"}}' \
-        "${rec_marker}" "'" "'" "${rec_secret}" \
-        | timeout 15 setsid sudo -u "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" "${hook}" record \
-            >/dev/null 2>&1 || true
-    journalctl --sync >/dev/null 2>&1 || true
-
-    rec_line=""
-    for _i in 1 2 3 4 5 6 7 8 9 10; do
-        rec_line="$(journalctl -t ai-tools-hook _UID="${rec_uid}" --since '2 min ago' \
-                        --no-pager 2>/dev/null | grep -F "cwd=/tmp/${rec_marker}" || true)"
-        [[ -n "${rec_line}" ]] && break
-        sleep 0.5
-    done
-
-    if [[ -z "${rec_line}" ]]; then
-        skip "tool-call record" "the record never reached the journal (journald unavailable here)"
-    else
-        # (A) The call is recorded, with the leading words and the word count.
-        if grep -qF 'cmd="cat >" argc=4' <<<"${rec_line}"; then
-            pass "PostToolUse records a Bash call as its leading words + argument count"
-        else
-            fail "the tool-call record does not carry the expected leading words/argc: ${rec_line}"
-        fi
-
-        # (B) THE BOUND. The here-doc body must not be in the trail, in any field. Checked
-        #     against the whole entry (-o export covers the structured fields too), not just
-        #     the rendered MESSAGE, so a future field that carried the full command fails here.
-        rec_all="$(journalctl -t ai-tools-hook _UID="${rec_uid}" --since '2 min ago' \
-                       -o export --no-pager 2>/dev/null || true)"
-        if grep -qF "${rec_secret}" <<<"${rec_all}"; then
-            fail "the here-doc body reached the trail -- the tool-call record's content bound is broken (it must carry only the first line's leading words + argc)"
-        else
-            pass "a here-doc body never reaches the trail (the record stops at the first line)"
-        fi
-
-        # (C) The native structured fields are present beside the MESSAGE, so the trail is
-        #     machine-consumable without re-parsing the message text.
-        if grep -qF 'AI_TOOLS_TOOL=Bash' <<<"${rec_all}" && grep -qF 'AI_TOOLS_ARGC=4' <<<"${rec_all}"; then
-            pass "the record carries native journald fields (AI_TOOLS_TOOL/ARGC) beside the MESSAGE"
-        elif ! logger --help 2>&1 | grep -q -- --journald; then
-            skip "structured record fields" "logger(1) on this host has no --journald (the plain fallback is expected)"
-        else
-            fail "the record carries no AI_TOOLS_* journal fields -- structured consumers must re-parse the message"
-        fi
-    fi
-fi
-
-# ── Stop: turn-end sweep of Bash-created files ───────────────────────────────────
-run_sweep() {  # $1 = cwd
-    printf '{"cwd":"%s"}' "$1" \
-        | timeout 30 setsid sudo -u "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" "${sweep}" \
-            > /dev/null 2>&1 || true
-}
-section "Stop sweep: turn-end catch of Bash-created files"
-rm -f /opt/ai-tools/.claude/.sweep-marker 2>/dev/null || true   # force a full scan
-sw="${proj}/bash-made"; : > "${sw}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${sw}"; chmod 0644 "${sw}"
-run_sweep "${proj}"
-if [[ "$(stat -c '%U:%G' "${sw}")" == "${PROJECTS_USER}:${SANDBOX_GROUP}" ]]; then
-    pass "Stop sweep hands back a Bash-created (agent-owned) file"
-else
-    fail "Stop sweep did not hand back ${sw}: $(stat -c '%U:%G' "${sw}") (want ${PROJECTS_USER}:${SANDBOX_GROUP})"
-fi
-
-# ── SessionStart: unbounded reclaim of interrupted-session leftovers ──────────────
-section "SessionStart reclaim: unbounded recovery of leftovers"
-run_sweep_ss() {  # $1 = cwd  $2 = source
-    printf '{"cwd":"%s","source":"%s"}' "$1" "$2" \
-        | timeout 30 setsid sudo -u "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" "${sweep}" session-start \
-            > /dev/null 2>&1 || true
-}
-
-# (A) Unbounded: a marker NEWER than the leftover must NOT stop the reclaim. Stamp the marker
-#     to now, then make the file older so a bounded (-newer) pass would skip it.
-: > /opt/ai-tools/.claude/.sweep-marker 2>/dev/null || true
-sleep 1
-ssf="${proj}/leftover"; : > "${ssf}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${ssf}"; chmod 0644 "${ssf}"
-touch -d '1 hour ago' "${ssf}"
-run_sweep_ss "${proj}" startup
-if [[ "$(stat -c '%U:%G' "${ssf}")" == "${PROJECTS_USER}:${SANDBOX_GROUP}" ]]; then
-    pass "SessionStart (startup) reclaims a leftover older than the marker (unbounded)"
-else
-    fail "SessionStart did not reclaim ${ssf}: $(stat -c '%U:%G' "${ssf}") (want ${PROJECTS_USER}:${SANDBOX_GROUP})"
-fi
-
-# (B) Source gating: compact/clear stay within a live process, so the pass is a no-op.
-ssf2="${proj}/live-write"; : > "${ssf2}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${ssf2}"; chmod 0644 "${ssf2}"
-run_sweep_ss "${proj}" compact
-if [[ "$(stat -c '%U:%G' "${ssf2}")" == "${SANDBOX_USER}:${SANDBOX_GROUP}" ]]; then
-    pass "SessionStart (compact) is a no-op (leaves live-session writes to the Stop sweep)"
-else
-    fail "SessionStart (compact) unexpectedly changed ${ssf2}: $(stat -c '%U:%G' "${ssf2}")"
-fi
-
-# ── SessionEnd: .git ownership convergence on graceful exit ───────────────────────
-# The per-turn/Stop sweeps skip .git, so an object the agent wrote there stays agent-owned;
-# SessionEnd reclaims it to <projects-user>:SANDBOX_GROUP so ownership tracks the access ACL
-# (and survives an ACL-unaware copy). The reclaim walks <cwd>/.git for agent-owned paths.
-section "SessionEnd reclaim: .git ownership convergence on graceful exit"
-run_sweep_se() {  # $1 = cwd
-    printf '{"cwd":"%s"}' "$1" \
-        | timeout 30 setsid sudo -u "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" "${sweep}" session-end \
-            > /dev/null 2>&1 || true
-}
-mkdir -p "${proj}/.git/objects/ab"
-seo="${proj}/.git/objects/ab/object"; : > "${seo}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${seo}"; chmod 0444 "${seo}"
-run_sweep_se "${proj}"
-if [[ "$(stat -c '%U:%G' "${seo}")" == "${PROJECTS_USER}:${SANDBOX_GROUP}" ]]; then
-    pass "SessionEnd reclaims an agent-owned .git object to ${PROJECTS_USER}:${SANDBOX_GROUP}"
-else
-    fail "SessionEnd did not reclaim ${seo}: $(stat -c '%U:%G' "${seo}") (want ${PROJECTS_USER}:${SANDBOX_GROUP})"
 fi
 
 finish

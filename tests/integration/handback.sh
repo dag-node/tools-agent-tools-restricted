@@ -224,8 +224,7 @@ else
     # victim lives under /var/opt/ai-tools (root-owned, NOT /tmp -- which is polyinstantiated
     # and would not cross to the daemon, and NOT allowlisted), so a buggy bridge that chowned
     # it would be a real privilege leak this test would catch.
-    victim="$(mktemp /var/opt/ai-tools/.handback-negtest.XXXXXX)"
-    _cleanup+=("${victim}")
+    victim=""; mk_fixture_file victim /var/opt/ai-tools victim
     chown root:root "${victim}"; chmod 0600 "${victim}"
     before="$(stat -c '%U:%G' "${victim}")"
     drive CHOWN "${victim}" >/dev/null 2>&1 || true
