@@ -253,7 +253,7 @@ aphorisms and slogans, philosophical framing, and marketing language.
 
 ## Sentence craft
 
-### Rationale is the payload — state it as a mechanism, not as a figure <a id="ref-section-y0q4"></a>
+### Rationale is the payload — state it as a mechanism, not as a figure <a id="ref-section-j4m2"></a>
 
 Purpose is what prose exists to carry. The code already shows what happens, so a header earns
 its place by recording why: the constraint that forced the choice, the alternative rejected, the
@@ -303,7 +303,7 @@ conditional behaviour. Changelogs are the exception;
 [Changelogs, release notes, migration guides](#changelogs-release-notes-migration-guides) covers
 them.
 
-### Consistent domain terms, varied ordinary nouns <a id="ref-section-t9a0"></a>
+### Consistent domain terms, varied ordinary nouns <a id="ref-section-g2r3"></a>
 
 Domain terms stay fixed — a reader who learns a term once meets it unchanged. Ordinary words
 repeated inside one sentence get rewritten: `own/owner/owned` piling up becomes *holds*,
@@ -316,7 +316,7 @@ elegant, powerful, flexible — unless the word is technically required.
 
 ## Placement
 
-### One home per fact, and a pointer everywhere else <a id="ref-section-a0x3"></a>
+### One home per fact, and a pointer everywhere else <a id="ref-section-m8t7"></a>
 
 Every principle gets exactly one canonical home; every other mention is a brief reference to
 it. The same fact in five places is five places to update.
@@ -390,7 +390,7 @@ load-bearing why.
 Prose is read without the conversation that produced it. Name the concrete mechanism; leave out
 session shorthand, internal labels, ticket tags, and "as discussed" back-references.
 
-### A reference names a reftag, not a position <a id="ref-section-l5b0"></a>
+### A reference names a reftag, not a position <a id="ref-section-h9b7"></a>
 
 A table, a diagram, a listing, or a section that prose in another file refers to carries a
 reftag, and the reference is a link whose text is the reftag:
@@ -414,10 +414,10 @@ split every markup system makes:
 
 | Family | Reftag | Target |
 |---|---|---|
-| a place in a document, by kind | `ref-section-i3c6`, `ref-table-z4m9` | a heading closed by an anchor, `## Two project models <a id="ref-section-i3c6"></a>`, or an anchor and a bold caption on the line before the block, `<a id="ref-table-z4m9"></a>**Altitudes and who owns which fact**` |
-| function doc, comment note | `FN-T6I7`, `NOTE-A9S0` | a comment line, `FN-T6I7: <function name>` |
-| runtime message | `MSG-N1H8` | the token inside the emitted string, `MSG-N1H8: <message>` |
-| resource identifier | `URI-G7O3` | one link definition line, `[URI-G7O3]: https://… "name"` |
+| a place in a document, by kind | `ref-section-h3b7`, `ref-table-z4m9` | a heading closed by an anchor, `## Two project models <a id="ref-section-h3b7"></a>`, or an anchor and a bold caption on the line before the block, `<a id="ref-table-z4m9"></a>**Altitudes and who owns which fact**` |
+| function doc, comment note | `FN-Q2H8`, `NOTE-A5H9` | a comment line, `FN-Q2H8: <function name>` |
+| runtime message | `MSG-F6Z3` | the token inside the emitted string, `MSG-F6Z3: <message>` |
+| resource identifier | `URI-Q4Q6` | one link definition line, `[URI-Q4Q6]: https://… "name"` |
 
 The kinds a document reftag may name, and what each one is, are declared in `ref-index.py`
 and printed by `kinds`, so a writer picks one without reading the tool; this project uses
@@ -443,7 +443,7 @@ the title and whose fragment is the heading's own slug; a link to another file a
 `[launch](launch.rule.md)`, is the same. Both are checked with the reftags, since a renamed
 heading breaks a contents line silently.
 
-- In style: `The umask rule [ref-section-i9q5](../cli.rule.md#ref-section-i9q5) re-runs the create and clone rows.`
+- In style: `The umask rule [ref-section-m7g9](../cli.rule.md#ref-section-m7g9) re-runs the create and clone rows.`
 - Off style: `The section below re-runs the create and clone rows.`
 
 `ref-index.py` ships beside this file. `kinds` prints the registry, `new <family>` mints a
@@ -466,7 +466,7 @@ on the screen takes another word (`under the box`, `the parent directory`). `pro
 excuses a number after the word and reports every other use, and reports a reftag whose id is
 malformed.
 
-### Resolve a doc/code conflict while writing, in the right direction <a id="ref-section-o1o6"></a>
+### Resolve a doc/code conflict while writing, in the right direction <a id="ref-section-p6c5"></a>
 
 Where a doc and the code disagree, resolve it then — do not default to either side, and do not
 commit a known inconsistency. Which side moves depends on what the prose is doing:
@@ -499,7 +499,7 @@ on it under
 
 ---
 
-# Rewriting existing prose <a id="ref-section-k1a0"></a>
+# Rewriting existing prose <a id="ref-section-q9p8"></a>
 
 Every writing rule in this standard governs a first draft, where the claim is in the writer's head and only the words
 are in question. Editing prose that already exists is a different operation: the claim is already in
@@ -538,7 +538,7 @@ rest of the sentence came from the same pass and is equally likely to be wrong. 
 re-read the count, the mechanism name, and the fail direction that stand beside the token. Do not
 treat a corrected token as evidence that the sentence has been reviewed.
 
-## Carry four things through every edit <a id="ref-section-v0o0"></a>
+## Carry four things through every edit <a id="ref-section-z4d3"></a>
 
 Check each one before accepting a rewrite. A change that moves any of them has changed the claim.
 

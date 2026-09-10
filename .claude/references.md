@@ -12,31 +12,31 @@ the live line. A row named `example` reserves an id a document shows without def
 | g6c4 | [ref-section-g6c4](../CLAUDE.md#ref-section-g6c4) | What is expected of the agent where a control leaves a choice | CLAUDE.md | README.md |
 | x6a9 | [ref-section-x6a9](../CLAUDE.md#ref-section-x6a9) | Boundaries and non-goals | CLAUDE.md | README.md, docs/multi-operator.md |
 | f5q2 | [ref-section-f5q2](../docs/rpm-packaging.md#ref-section-f5q2) | Installing and upgrading | docs/rpm-packaging.md | README.md |
-| u0z2 | [ref-section-u0z2](../docs/rpm-packaging.md#ref-section-u0z2) | Signing and distribution | docs/rpm-packaging.md | docs/branching-and-release.md |
+| a6s8 | [ref-section-a6s8](../docs/rpm-packaging.md#ref-section-a6s8) | Signing and distribution | docs/rpm-packaging.md | docs/branching-and-release.md |
 | d7n6 | [ref-section-d7n6](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-d7n6) | Back an absolute with its check | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
-| y0q4 | [ref-section-y0q4](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-y0q4) | Rationale is the payload — state it as a mechanism, not as a figure | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
+| j4m2 | [ref-section-j4m2](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-j4m2) | Rationale is the payload — state it as a mechanism, not as a figure | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
 | a2e9 | [ref-section-a2e9](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-a2e9) | Present tense, active voice | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
-| t9a0 | [ref-section-t9a0](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-t9a0) | Consistent domain terms, varied ordinary nouns | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
-| a0x3 | [ref-section-a0x3](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-a0x3) | One home per fact, and a pointer everywhere else | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
-| l5b0 | [ref-section-l5b0](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-l5b0) | A reference names a reftag, not a position | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md | .claude/rules/authoring.rule.md |
+| g2r3 | [ref-section-g2r3](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-g2r3) | Consistent domain terms, varied ordinary nouns | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
+| m8t7 | [ref-section-m8t7](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-m8t7) | One home per fact, and a pointer everywhere else | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
+| h9b7 | [ref-section-h9b7](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-h9b7) | A reference names a reftag, not a position | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md | .claude/rules/authoring.rule.md |
 | j5r7 | ref-section-j5r7 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
-| i3c6 | ref-section-i3c6 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
+| h3b7 | ref-section-h3b7 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
 | z4m9 | ref-table-z4m9 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
-| t6i7 | FN-T6I7 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
-| a9s0 | NOTE-A9S0 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
-| n1h8 | MSG-N1H8 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
-| g7o3 | URI-G7O3 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
-| i9q5 | ref-section-i9q5 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
-| o1o6 | [ref-section-o1o6](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-o1o6) | Resolve a doc/code conflict while writing, in the right direction | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
-| k1a0 | [ref-section-k1a0](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-k1a0) | Rewriting existing prose | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
+| q2h8 | FN-Q2H8 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
+| a5h9 | NOTE-A5H9 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
+| f6z3 | MSG-F6Z3 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
+| q4q6 | URI-Q4Q6 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
+| m7g9 | ref-section-m7g9 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
+| p6c5 | [ref-section-p6c5](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-p6c5) | Resolve a doc/code conflict while writing, in the right direction | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
+| q9p8 | [ref-section-q9p8](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-q9p8) | Rewriting existing prose | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
 | e8b7 | [ref-section-e8b7](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-e8b7) | Rewrite from the source, not from the flagged token | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
-| v0o0 | [ref-section-v0o0](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-v0o0) | Carry four things through every edit | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
+| z4d3 | [ref-section-z4d3](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-z4d3) | Carry four things through every edit | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
 | g5n4 | [ref-section-g5n4](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-g5n4) | Run the checks a rewrite needs | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
 | y8q9 | [ref-section-y8q9](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-y8q9) | Changelogs, release notes, migration guides | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
 | r3a2 | [ref-section-r3a2](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-r3a2) | Rhetorical figures | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
 | t3w4 | ref-section-t3w4 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py |  |
-| m2g0 | ref-section-m2g0 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/ref-index.py |  |
+| g3g4 | ref-section-g3g4 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/ref-index.py |  |
 | u2s6 | ref-diagram-u2s6 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/ref-index.py |  |
-| c7k0 | ref-listing-c7k0 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/ref-index.py |  |
+| u7y5 | ref-listing-u7y5 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/ref-index.py |  |
 | b8e6 | ref-section-b8e6 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/ref-index.py |  |
-| h9l8 | ref-section-h9l8 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/ref-index.py |  |
+| p7r3 | ref-section-p7r3 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/ref-index.py |  |

@@ -10,6 +10,7 @@
 #     bash tools/ref-index.sh relink            rewrite every reftag link in the tree's documents
 #     bash tools/ref-index.sh kinds             list the kinds and code families a reftag may name
 #     bash tools/ref-index.sh new <family>      mint a reftag whose id is unique across the tree
+#                              [--count N]      mint N of them, distinct from each other too
 #     bash tools/ref-index.sh where <reftag>    print the target's live file:line and span
 set -euo pipefail
 

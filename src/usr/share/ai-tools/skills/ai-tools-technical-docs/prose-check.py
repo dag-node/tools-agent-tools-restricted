@@ -162,8 +162,8 @@ PREDICTED_ACTION = re.compile(
 POSITIONAL_REFERENCE = re.compile(r"\b(above|below)\b(?!\s+\d)", re.I)
 
 # A reftag is a prefix, a dash, and a letter-digit-letter-digit id, lowercase for a place in a document
-# (`ref-section-t3w4`) and uppercase in the code family (`FN-T6I7`, `NOTE-A9S0`, `MSG-N1H8`,
-# `URI-G7O3`); ref-index.py beside this file states the grammar and the kinds. A prefix followed by
+# (`ref-section-t3w4`) and uppercase in the code family (`FN-Q2H8`, `NOTE-A5H9`, `MSG-F6Z3`,
+# `URI-Q4Q6`); ref-index.py beside this file states the grammar and the kinds. A prefix followed by
 # anything else is a reftag a search will not find, so it is reported at the prefix. The bare
 # `ref-` prefix is not read: it opens ordinary words (`ref-index.py`), where `ref-<kind>-` does not.
 _REFTAG_KINDS = (r"section|table|diagram|listing|figure|equation|algorithm|chart|graph|image"

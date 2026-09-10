@@ -211,7 +211,7 @@ assert_grep '^| k1l2 | \[FN-K1L2\](src/s.sh) | chown_path | src/s.sh | docs/code
     "$(cat "${TESTDIR}/index.md")" "TEST-RI-13-generate-code: a code target links to its file and lists every citing file"
 # A backticked span is blanked before a target is matched, so that a reftag shown in backticks is
 # not read as one; the name is the heading as written, and the span's text is part of it.
-fixture docs/span.md '## Security model — what `SANDBOX_USER` can do <a id="ref-section-i6l9"></a>'
+fixture docs/span.md '## Security model — what `SANDBOX_USER` can do <a id="ref-section-g9f6"></a>'
 run_ri generate docs/span.md --out span-index.md
 assert_grep '| Security model — what `SANDBOX_USER` can do |' "$(cat "${TESTDIR}/span-index.md")" \
     "TEST-RI-13-generate-span: a name keeps the text of a backticked span in the heading"
@@ -237,6 +237,17 @@ assert_grep '^section .*ref-section-<id>' "${OUT}" "TEST-RI-15-kinds: the regist
 assert_grep '^uri .*URI-<ID>' "${OUT}" "TEST-RI-15-kinds-code: the code families are listed with the kinds"
 run_ri new spreadsheet --index index.md
 if [[ "${RC}" -eq 2 ]]; then pass "TEST-RI-15-new-unknown: an unknown family is refused"; else fail "TEST-RI-15-new-unknown: rc ${RC}"; fi
+# A mint is recorded nowhere, so a batch drawn in one call is what makes several ids distinct:
+# each joins the taken set as it is drawn.
+run_ri new section --count 12 --index index.md
+distinct="$(printf '%s\n' "${OUT}" | sort -u | wc -l)"
+if [[ "$(printf '%s\n' "${OUT}" | wc -l)" -eq 12 && "${distinct}" -eq 12 ]]; then
+    pass "TEST-RI-15-new-count: --count prints that many reftags, all distinct"
+else
+    fail "TEST-RI-15-new-count: ${distinct} distinct of $(printf '%s\n' "${OUT}" | wc -l); ${OUT}"
+fi
+run_ri new section --count 0 --index index.md
+if [[ "${RC}" -eq 2 ]]; then pass "TEST-RI-15-new-count-zero: a count under 1 is refused"; else fail "TEST-RI-15-new-count-zero: rc ${RC}"; fi
 
 # ── where: the live line and the span by the kind's syntax ────────────────────────────────────
 run_ri where ref-section-a1b2 --index index.md

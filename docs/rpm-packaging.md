@@ -356,7 +356,7 @@ Runtime dependencies: `ai-tools-base` requires `systemd`, `sudo`, `acl`,
 dependency — it is nvm-managed under `/opt/ai-tools` so the agent can self-update
 it within the policy the SELinux module enforces.
 
-## Signing and distribution <a id="ref-section-u0z2"></a>
+## Signing and distribution <a id="ref-section-a6s8"></a>
 
 The `release` job signs each built RPM with the dag-node org GPG key and publishes it to the
 signed DNF repository at `https://rpm.dagnode.com/` (the "served from a signed repo" install
