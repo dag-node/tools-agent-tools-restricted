@@ -156,7 +156,7 @@ Detecting it requires reading the store, which the sandbox account cannot do —
 can — and a normal `semodule -i` loads store and policy together, so it is reached only by a
 half-completed install. `AI_TOOLS_REQUIRE_SELINUX` closes it outright, below.
 
-#### The toolchain is read-only to the confined domain
+#### The toolchain is read-only to the confined domain <a id="ref-section-w4z6"></a>
 
 The preflight checks that the entrypoint carries `ai_tools_exec_t`; the type layout is what stops
 the confined agent changing it afterwards. `ai_tools.fc` deliberately leaves the whole nvm tree at

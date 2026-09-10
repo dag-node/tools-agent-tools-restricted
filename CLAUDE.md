@@ -109,7 +109,7 @@ Each step's mechanism is in the rule files above; the invariant each guarantees:
    session-end sweep instead, so no agent leaves the operator's tree sandbox-owned.
 7. `SessionStart` additionally reclaims `.git` and normalizes setgid for the project.
 
-## Security model — what `SANDBOX_USER` can and cannot do
+## Security model — what `SANDBOX_USER` can and cannot do <a id="ref-section-e7n8"></a>
 
 The sudoers drop-in (`/etc/sudoers.d/ai-tools`) is a static `%ai-ops` group rule
 granting the **operators** (members of the `ai-ops` group, managed by `ai-tools-admin`)
@@ -255,7 +255,7 @@ The invariants the agent operates under:
   the backstop above is unchanged for every target that reaches it. See
   [safe-paths](.claude/rules/safe-paths.rule.md).
 
-### What is expected of the agent where a control leaves a choice
+### What is expected of the agent where a control leaves a choice <a id="ref-section-g6c4"></a>
 
 Every invariant above is **enforced**: it holds whether or not the session cooperates. The space
 between them is not, and this is what the agent does there:
@@ -272,7 +272,7 @@ where a control leaves a choice, and each one names the enforced control it sits
 [governance](.claude/rules/governance.rule.md). They are stated here, in the always-loaded layer,
 because a path-scoped rule does not load in the session where they bind. The standard they come from is the shipped `ai-tools-capable-systems-governance` skill.
 
-## Boundaries and non-goals
+## Boundaries and non-goals <a id="ref-section-x6a9"></a>
 
 The enforced isolation boundary is DAC plus the `ai_tools_t` SELinux type. The following are
 deliberate scope decisions, not gaps, so a reader tells bounded design from an oversight:

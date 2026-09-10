@@ -102,7 +102,7 @@ the installed release, and one that has not reconciled yet — unless
 That re-check **narrows** the window a concurrent same-uid process would have to win, from the whole
 preflight to the `systemd-run` round trip; it does not close it. Only an exec root the agent cannot
 write does — which under SELinux already holds, so there is no swap to observe there (see
-[the type layout](confinement.rule.md#the-toolchain-is-read-only-to-the-confined-domain)). The
+[ref-section-w4z6](confinement.rule.md#ref-section-w4z6)). The
 re-check is for the **DAC-only** deployment, where it is the only observer of one.
 
 It then wraps the session in a transient systemd *service* unit (`systemd-run --user --pty`)

@@ -170,7 +170,7 @@ with a rehearsal, then released as the next `rc.N` — never by iterating merges
 Signing is mandatory and preflight-checked before anything builds; fork PRs never see the
 signing secret (the release job runs only on tags and `workflow_dispatch`); `v*` tag creation
 is restricted to maintainers by a ruleset. Details in
-[rpm-packaging.md](rpm-packaging.md#signing-and-distribution).
+[ref-section-u0z2](rpm-packaging.md#ref-section-u0z2).
 
 Rehearsal RPMs are signed with the real key, so they carry the distinct Release
 `0.<run>.rehearsal.git<sha>` — a leaked rehearsal artifact can never share a NEVRA with, and

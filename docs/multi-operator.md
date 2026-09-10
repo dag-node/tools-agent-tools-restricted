@@ -77,5 +77,5 @@ The account needs a home directory, since its allowlist lives under `~/.config/a
 
 - `ai-tools-admin(8)` for enrolling and removing operators; `operator.conf(5)` and
   `allowed-projects(5)` for the two files an enrolment writes.
-- [CLAUDE.md](../CLAUDE.md#boundaries-and-non-goals) for what the model leaves out on purpose:
+- [ref-section-x6a9](../CLAUDE.md#ref-section-x6a9) for what the model leaves out on purpose:
   operators are trusted, and sessions are not isolated from one another.

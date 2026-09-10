@@ -515,5 +515,5 @@ written files get ownership handed back. It is not a read boundary: once a sessi
 file permissions plus the SELinux `ai_tools_project_t` label are what confine it, which is why
 every flow above locks secrets down *before* granting group access, and why declining a lockdown
 fails closed. The invariants are in
-[`CLAUDE.md` — Security model](../CLAUDE.md#security-model--what-sandbox_user-can-and-cannot-do);
+[ref-section-e7n8](../CLAUDE.md#ref-section-e7n8);
 the per-component mechanism is in [`.claude/rules/`](../.claude/rules/).

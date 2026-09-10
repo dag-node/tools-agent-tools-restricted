@@ -7,6 +7,12 @@ the live line. A row named `example` reserves an id a document shows without def
 
 | Id | Reftag | Name | File | Cited by |
 |---|---|---|---|---|
+| w4z6 | [ref-section-w4z6](rules/confinement.rule.md#ref-section-w4z6) | The toolchain is read-only to the confined domain | .claude/rules/confinement.rule.md | .claude/rules/agent-claude-code.rule.md, .claude/rules/launch.rule.md |
+| e7n8 | [ref-section-e7n8](../CLAUDE.md#ref-section-e7n8) | Security model — what `SANDBOX_USER` can and cannot do | CLAUDE.md | docs/project-lifecycle.md |
+| g6c4 | [ref-section-g6c4](../CLAUDE.md#ref-section-g6c4) | What is expected of the agent where a control leaves a choice | CLAUDE.md | README.md |
+| x6a9 | [ref-section-x6a9](../CLAUDE.md#ref-section-x6a9) | Boundaries and non-goals | CLAUDE.md | README.md, docs/multi-operator.md |
+| f5q2 | [ref-section-f5q2](../docs/rpm-packaging.md#ref-section-f5q2) | Installing and upgrading | docs/rpm-packaging.md | README.md |
+| u0z2 | [ref-section-u0z2](../docs/rpm-packaging.md#ref-section-u0z2) | Signing and distribution | docs/rpm-packaging.md | docs/branching-and-release.md |
 | d7n6 | [ref-section-d7n6](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-d7n6) | Back an absolute with its check | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
 | y0q4 | [ref-section-y0q4](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-y0q4) | Rationale is the payload — state it as a mechanism, not as a figure | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
 | a2e9 | [ref-section-a2e9](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-a2e9) | Present tense, active voice | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |

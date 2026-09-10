@@ -125,8 +125,8 @@ rpm -q ai-tools-selinux || sudo dnf install ai-tools-selinux
 ```
 
 Installing offline from a release archive, and exactly what an upgrade preserves, are in
-[docs/rpm-packaging.md](docs/rpm-packaging.md#installing-and-upgrading). The
-[Upgrade behaviour](#upgrade-behaviour) section below is about the Node/Claude **toolchain**
+[ref-section-f5q2](docs/rpm-packaging.md#ref-section-f5q2). The
+[Upgrade behaviour](#upgrade-behaviour) section is about the Node/Claude **toolchain**
 auto-update, a separate mechanism from these DNF package upgrades.
 
 `claude` resolves to the system wrapper `/usr/local/bin/claude`, which runs as you,
@@ -251,7 +251,7 @@ The enforced isolation boundary is DAC plus the `ai_tools_t` SELinux type. A few
 (sessions are not kernel-isolated from each other), and `ai-ops` operators are trusted — the
 model defends the host from the *agent*, not from an operator. The full trust model, the
 non-goals, and the deferred hardening (per-operator isolation, registry-key pinning) are
-in [`CLAUDE.md`](CLAUDE.md#boundaries-and-non-goals).
+in [ref-section-x6a9](CLAUDE.md#ref-section-x6a9).
 
 The agent binary itself is verified against the checksum its vendor **signed**, using a key shipped
 in the package rather than downloaded, and the verified value is pinned where the sandbox account
@@ -292,7 +292,7 @@ Behave this way whether or not the session is being watched. The confinement exi
 operator cannot verify every action, not because they doubt any particular one.
 
 The same expectations are stated for this repository's own sessions in
-[`CLAUDE.md`](CLAUDE.md#what-is-expected-of-the-agent-where-a-control-leaves-a-choice), and the
+[ref-section-g6c4](CLAUDE.md#ref-section-g6c4), and the
 reasoning behind them ships as the `ai-tools-capable-systems-governance` skill.
 
 ## Identities and naming

@@ -72,7 +72,7 @@ package legitimately reusing the old name is not obsoleted by every later releas
 `ai-tools-integration-nodejs` (from `ai-tools-nodejs`) and
 `ai-tools-agents-claude-code-restricted` (from `claude-code-restricted`) both carry the pair.
 
-## Installing and upgrading
+## Installing and upgrading <a id="ref-section-f5q2"></a>
 
 The recommended install is the two commands in the README: the `dagnode-release` package brings
 the signed repository definition and the org signing key, then `dnf install ai-tools` pulls the
@@ -356,7 +356,7 @@ Runtime dependencies: `ai-tools-base` requires `systemd`, `sudo`, `acl`,
 dependency — it is nvm-managed under `/opt/ai-tools` so the agent can self-update
 it within the policy the SELinux module enforces.
 
-## Signing and distribution
+## Signing and distribution <a id="ref-section-u0z2"></a>
 
 The `release` job signs each built RPM with the dag-node org GPG key and publishes it to the
 signed DNF repository at `https://rpm.dagnode.com/` (the "served from a signed repo" install
