@@ -2520,13 +2520,13 @@ cmd_project_unclaim() {
         case "${a}" in
             --force)      force=true ;;
             --full)       full=true ;;
-            -n|--dry-run) dry=true ;;
+            --dry-run)    dry=true ;;
             -y|--yes)     assume_yes=true ;;
             --group)      want_group=true ;;
             --group=*)    group_opt="${a#--group=}" ;;
             --keep-entry) registry=park ;;
             -*) die "unknown --project-unclaim option: ${a}" \
-                    "       allowed: --force, --full, --keep-entry, -n/--dry-run, -y/--yes, --group <group>" ;;
+                    "       allowed: --force, --full, --keep-entry, --dry-run, -y/--yes, --group <group>" ;;
             *)  if [[ -z "${path}" ]]; then path="${a}"
                 else die "--project-unclaim takes a single path"; fi ;;
         esac
@@ -2536,7 +2536,7 @@ cmd_project_unclaim() {
         die "no such group: ${group_opt}"
     fi
     if ${dry} && ! ${force}; then
-        die "-n/--dry-run applies to --force only" \
+        die "--dry-run applies to --force only" \
             "       a registered project's unclaim previews itself: it lists what it will do and asks before acting"
     fi
     # --force reaches a tree the allowlist does not name, so there is no line to park. Refused
@@ -3217,14 +3217,14 @@ cmd_sandbox_remove() {
     say "  ${C_DIM}remote branch left intact -- others may still merge it${C_RST}"
 }
 
-# cmd_lockdown [path] [-n|-y]  -- run ai-tools-lockdown (via sudo) on the project to
+# cmd_lockdown [path] [--dry-run] [-y]  -- run ai-tools-lockdown (via sudo) on the project to
 # revoke ai-tools' read access to secret files; clears any guard CLAUDE.md on a real
-# (non-dry-run) success. -n/--dry-run and -y/--yes pass through to the helper.
+# (non-dry-run) success. --dry-run and -y/--yes pass through to the helper.
 cmd_lockdown() {
     local d="" a dry=false; local -a passthru=()
     for a in "$@"; do
         case "${a}" in
-            -n|--dry-run) passthru+=("${a}"); dry=true ;;
+            --dry-run)    passthru+=("${a}"); dry=true ;;
             -y|--yes)     passthru+=("${a}") ;;
             -*)           die "unknown --lockdown option: ${a} (allowed: --dry-run, --yes)" ;;
             *)            if [[ -z "${d}" ]]; then d="${a}"; else die "--lockdown takes a single path"; fi ;;
@@ -3406,9 +3406,9 @@ cmd_stop() {
     for argument in "$@"; do
         case "${argument}" in
             # --all is accepted and inert; ai-tools(1) says why it exists at all.
-            --all|-n|--dry-run|-y|--yes|--force) passthru+=("${argument}") ;;
+            --all|--dry-run|-y|--yes|--force) passthru+=("${argument}") ;;
             -*) die_stop_usage "unknown --stop option: ${argument}" \
-                    "allowed: --all, --dry-run/-n, --yes/-y, --force" ;;
+                    "allowed: --all, --dry-run, --yes/-y, --force" ;;
             # A PATH IS REFUSED HERE, NOT PASSED ON. The helper refuses it too -- that is the last
             # line, for a direct root call -- but the refusal has to happen on this side as well,
             # BEFORE the sudo below: a command that is going to be refused must not first prompt
@@ -4104,7 +4104,7 @@ ai-tools -- manage the projects a sandboxed coding agent may work in
     --stop                      terminate every agent session on this host
 
   -y/--yes        pre-answer a command's own confirmation (never its scoped opt-ins)
-  -n/--dry-run    show what would change, change nothing
+  --dry-run       show what would change, change nothing
   --for <op>      act on another enrolled operator's projects instead of your own
 
   Run as an operator, without sudo -- the CLI invokes sudo itself for the steps that

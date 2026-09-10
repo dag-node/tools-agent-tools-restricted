@@ -342,7 +342,7 @@ note "sealed fixtures: ${BEFORE} (inherited group + default ACL), ${BEFORE_OWN} 
     || fail "own-group seal fixture is '${BEFORE_OWN}', want '2700 ${MY_GROUP}' -- the setgid arm is not exercised"
 
 sudo_why "the lockdown helper, in preview mode (it still runs as root to read the whole tree)"
-DRY_OUT="$(cd "${PROJ}" && "${CLI}" --lockdown -n "${PROJ}" 2>&1)"; DRY_RC=$?
+DRY_OUT="$(cd "${PROJ}" && "${CLI}" --lockdown --dry-run "${PROJ}" 2>&1)"; DRY_RC=$?
 printf '%s\n' "${DRY_OUT}" | sed 's/^/        /'
 check "the dry run completes (rc=${DRY_RC})" test "${DRY_RC}" -eq 0
 if grep -q 'inherited-then-sealed' <<<"${DRY_OUT}" && grep -q 'own-group-sealed' <<<"${DRY_OUT}"; then
@@ -587,7 +587,7 @@ elif [[ "$(group_of "${COPY}/src")" != "${SANDBOX_GROUP}" ]]; then
     skip "--force checks (the copy carries no ai-tools fingerprint -- was the original granted?)"
 else
     pass "the copy carries the agent group, so --force has something to act on"
-    FORCE_DRY="$("${CLI}" --project-unclaim --force -n "${COPY}" 2>&1)"; FORCE_DRY_RC=$?
+    FORCE_DRY="$("${CLI}" --project-unclaim --force --dry-run "${COPY}" 2>&1)"; FORCE_DRY_RC=$?
     printf '%s\n' "${FORCE_DRY}" | head -20 | sed 's/^/        /'
     check "the --force dry run completes (rc=${FORCE_DRY_RC})" test "${FORCE_DRY_RC}" -eq 0
     check "the dry run changed nothing" test "$(group_of "${COPY}/src")" = "${SANDBOX_GROUP}"

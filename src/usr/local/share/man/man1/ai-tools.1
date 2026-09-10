@@ -132,7 +132,7 @@ brand-new directory for, and no git history to expose in a repository with no co
 The one question that can still appear is the traverse grant on a parent directory,
 which widens access above the project and is answered only by a person at a terminal.
 .TP
-.B \-\-project\-unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-\-keep\-entry\fR] [\fB\-n\fR] [\fB\-y\fR] [\fB\-\-group\fI g\fR] [\fIpath\fR]
+.B \-\-project\-unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-\-keep\-entry\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR] [\fB\-\-group\fI g\fR] [\fIpath\fR]
 Reverse a claim: revert the SELinux label, drop both registries, and \(em behind
 its own confirm \(em revoke the agent's access, handing the tree back to your own
 group (or a named user's group) with the agent's write removed. The directory
@@ -336,7 +336,7 @@ above).
 Delete a sandbox clone and unregister it, warning about unpushed commits
 first. The remote branch stays for others to merge.
 .TP
-.B \-\-lockdown \fR[\fIpath\fR] [\fB\-n\fR|\fB\-y\fR]
+.B \-\-lockdown \fR[\fIpath\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR]
 Lock secret-named files under the project (\fB.env\fR, \fB*.key\fR, ...) to
 owner-only, revoking the agent's read access. Runs via
 .BR sudo .
@@ -526,7 +526,7 @@ then requires an explicit
 .IR path ,
 so an unattended removal cannot inherit the current directory.
 .TP
-.BR \-n ", " \-\-dry\-run
+.B \-\-dry\-run
 For
 .BR \-\-lockdown :
 report what would be locked, and what would be stripped from the paths you have

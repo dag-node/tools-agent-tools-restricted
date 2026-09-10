@@ -136,7 +136,7 @@ check_cli_page() {
     fi
 
     # ── (2) Every option the help names is documented somewhere in the page ─────────
-    # This is what keeps the cross-verb flag lines (-y/--yes, -n/--dry-run, --for) honest: the
+    # This is what keeps the cross-verb flag lines (-y/--yes, --dry-run, --for) honest: the
     # help may name fewer options than the page, never more.
     help_opts="$(usage_text "${CLI}" | grep -oE -- '--[a-z][a-z-]+' | sort -u)"
     man_opts="$(read_man "${MAN}" | grep -oE -- '--[a-z][a-z-]+' | sort -u)"

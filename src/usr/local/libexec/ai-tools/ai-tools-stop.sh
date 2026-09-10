@@ -29,7 +29,7 @@
 #      that did not happen. NO project library is load-bearing here: this helper does not take any
 #      input deciding WHICH sessions to stop, so there is no input left for one to gate.
 #   2. THE CONFIRMATION DEFAULTS TO YES (messaging.rule.md requires NO). A pipe, a cron run, an
-#      absent msg.lib.sh and a bare Enter all proceed; only a deliberate `n` declines. -n/--dry-run
+#      absent msg.lib.sh and a bare Enter all proceed; only a deliberate `n` declines. --dry-run
 #      is how this command is looked at without acting.
 #
 # ── The mechanism, in one paragraph ──────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@
 # handback. This command TERMINATES instead: it kills the process tree, so no handback runs and the
 # last turn's writes may still be sandbox-owned (which is why a run names the reclaim per project).
 #
-# Usage:  ai-tools-stop [-n|--dry-run] [-y|--yes] [--force] [--all]
+# Usage:  ai-tools-stop [--dry-run] [-y|--yes] [--force] [--all]
 #
 # `--all` is accepted and inert. A PATH is refused (exit 2) rather than ignored -- see
 # refuse_positional_argument.
@@ -223,7 +223,7 @@ parse_command_line() {
             # Accepted and inert (the header's usage note says why it exists at all). The
             # documented form is `ai-tools --stop`.
             --all)        shift ;;
-            -n|--dry-run) DRY_RUN=true; shift ;;
+            --dry-run) DRY_RUN=true; shift ;;
             -y|--yes)     ASSUME_YES=true; shift ;;
             --force)      FORCE_KILL=true; shift ;;
             -*) printf 'ai-tools-stop: unknown option: %s\n' "$1" >&2; exit 2 ;;

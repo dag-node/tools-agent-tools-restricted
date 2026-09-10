@@ -26,7 +26,7 @@
 # Runs as root via sudo, invoked by YOU -- not ai-tools (no sudoers grant lets
 # ai-tools run it):
 #       cd /path/to/project
-#       sudo ai-tools-lockdown [--dry-run|-n] [--yes|-y]
+#       sudo ai-tools-lockdown [--dry-run] [--yes|-y]
 #
 # Installed 750 root:root, so only root runs it -- which is why the CLI cannot pre-check the
 # path and sudo reaches it instead. Deploying from a checkout: docs/install-from-source.md.
@@ -96,7 +96,7 @@ usage() {
     cat >&2 <<'EOF'
 usage: cd <project> && sudo ai-tools-lockdown [options]
 
-  -n, --dry-run   list paths that would be locked down; make no changes
+  --dry-run       list paths that would be locked down; make no changes
   -y, --yes       apply without the interactive confirmation prompt
   -h, --help      show this help
 
@@ -111,7 +111,7 @@ DRY_RUN=false
 ASSUME_YES=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -n|--dry-run) DRY_RUN=true ;;
+        --dry-run)    DRY_RUN=true ;;
         -y|--yes)     ASSUME_YES=true ;;
         -h|--help)    usage; exit 0 ;;
         *)            usage; die "unknown argument: $1" ;;

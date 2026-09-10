@@ -156,7 +156,7 @@ ask to apply.
 It is a user tool: there is **no** sudoers grant letting `SANDBOX_USER` run it, and it
 refuses to run as `SANDBOX_USER`. The `ai-tools` CLI wraps it as `ai-tools --lockdown
 [path]` (it `cd`s into the project and `sudo`s the helper, so sudo prompts for the
-projects user's password; `-n`/`--dry-run` and `-y`/`--yes` pass through). The CLI never
+projects user's password; `--dry-run` and `-y`/`--yes` pass through). The CLI never
 pre-checks the helper's path: `/usr/local/libexec/ai-tools` is `750 root:root`, so the
 projects user cannot stat the helper — only `sudo`, as root, can reach it.
 
