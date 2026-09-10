@@ -250,6 +250,16 @@ def quoted_tokens(path, lines):
                 yield number, match.group(1)
 
 
+def target_name(pattern, group, lines, number, blanked):
+    """The name `pattern` captures, read from the raw line so a backticked span keeps its text.
+
+    A span is blanked before a target is matched, so that a reftag shown in backticks is not read
+    as one; the name is what the heading or caption says, and `` `SANDBOX_USER` `` is part of it.
+    """
+    raw = pattern.match(lines[number - 1])
+    return (raw.group(group) if raw else blanked).strip()
+
+
 def followed_by_block(lines, number, kind):
     """Whether the first non-blank line after line `number` opens the block the kind names."""
     for line in lines[number:]:
@@ -282,9 +292,11 @@ def scan(paths):
                 caption = CAPTION_TARGET.match(text)
                 uri = URI_TARGET.match(text)
                 if heading:
-                    found.append(Target(heading.group(3), heading.group(2).strip(), path, number))
+                    found.append(Target(heading.group(3), target_name(
+                        HEADING_TARGET, 2, lines, number, heading.group(2)), path, number))
                 elif caption:
-                    found.append(Target(caption.group(1), caption.group(2).strip(), path, number))
+                    found.append(Target(caption.group(1), target_name(
+                        CAPTION_TARGET, 2, lines, number, caption.group(2)), path, number))
                     if not followed_by_block(lines, number, family_of(caption.group(1))):
                         misplaced.append((path, number, caption.group(1)))
                 elif uri:

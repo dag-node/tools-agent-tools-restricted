@@ -209,6 +209,12 @@ else
 fi
 assert_grep '^| k1l2 | \[FN-K1L2\](src/s.sh) | chown_path | src/s.sh | docs/code.md, src/t.sh |$' \
     "$(cat "${TESTDIR}/index.md")" "TEST-RI-13-generate-code: a code target links to its file and lists every citing file"
+# A backticked span is blanked before a target is matched, so that a reftag shown in backticks is
+# not read as one; the name is the heading as written, and the span's text is part of it.
+fixture docs/span.md '## Security model — what `SANDBOX_USER` can do <a id="ref-section-i6l9"></a>'
+run_ri generate docs/span.md --out span-index.md
+assert_grep '| Security model — what `SANDBOX_USER` can do |' "$(cat "${TESTDIR}/span-index.md")" \
+    "TEST-RI-13-generate-span: a name keeps the text of a backticked span in the heading"
 run_ri generate --at docs/index.md docs/a.md
 assert_grep '(a.md#ref-section-a1b2)' "${OUT}" "TEST-RI-13-generate-at: --at computes the links from where the index lives"
 : > "${TESTDIR}/empty.md"
