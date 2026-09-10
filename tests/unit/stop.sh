@@ -59,7 +59,7 @@ source_errors="${TESTDIR}/source-stderr"
 # shellcheck source=/dev/null
 source "${STOP_HELPER}" 2>"${source_errors}" || true
 
-# Two assertions below hold only for an UNPRIVILEGED caller (an unreadable cgroup.procs, and
+# Two assertions hold only for an UNPRIVILEGED caller (an unreadable cgroup.procs, and
 # the helper's own root check). The suite runs as root, so those are re-driven as the projects
 # user through runuser, against a readable copy of the helper: the installed one is root-only
 # (750), and the projects user cannot source it. as_projects_user <cmd...> runs a command as

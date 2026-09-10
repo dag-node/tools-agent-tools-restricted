@@ -456,9 +456,9 @@ fi
 # needs root; and a host may prompt for a password on EVERY sudo, so the section is one root step
 # like every other section here, not one per chown and hook. The step is a script root runs with
 # `bash -s`, reaching the sandbox account through runuser (which never prompts) and printing one
-# tab-separated verdict line per check, which the loop below turns into this script's results.
-# Nothing under it may call sudo, and nothing under it may put sudo under `timeout`: timeout runs
-# its command in a background process group, where a password read on the tty stops the job.
+# tab-separated verdict line per check, which the verdict loop turns into this script's results.
+# No command under it may call sudo, and none may put sudo under `timeout`: timeout runs its
+# command in a background process group, where a password read on the tty stops the job.
 section "2c. the ownership-handback hooks, end to end"
 if ! grep -qx "${PROJ}" "${HOME}/.config/ai-tools/allowed-projects" 2>/dev/null; then
     skip "handback hooks (the claim in section 1 did not register ${PROJ}, so the daemon would refuse it)"
@@ -483,7 +483,7 @@ perm_of()  { printf '%o' "$(( 8#$(stat -c '%a' "$1" 2>/dev/null || echo 0) & 8#7
 # born_agent <path> <mode>: make a path look like the agent wrote it.
 born_agent() { chown "${SBX}:${SBX}" "$1" && chmod "$2" "$1"; }
 # as_agent <hook...>: run a hook as the sandbox account with the JSON on stdin. runuser, not
-# sudo: root needs no grant and nothing here may prompt.
+# sudo: root holds the account already, and no step here may prompt.
 as_agent()     { timeout 30 runuser -u "${SBX}" -g "${SBX}" -- "$@" >/dev/null 2>&1 || true; }
 run_hook()     { printf '{"tool_input":{"file_path":"%s"}}' "$1" | as_agent "${HOOK}"; }
 run_sweep()    { printf '{"cwd":"%s"}' "$1" | as_agent "${SWEEP}"; }
@@ -514,7 +514,7 @@ HDF="${HD}/file"; : > "${HDF}"; born_agent "${HDF}" 0600
 run_hook "${HDF}"
 check "PostToolUse normalizes a newly created parent to ${OP}:${SBX} 770 (got $(owner_of "${HD}") $(perm_of "${HD}"))" \
     test "$(owner_of "${HD}")" = "${OP}:${SBX}" -a "$(perm_of "${HD}")" = 770
-# (D) The hook keeps no allowlist pre-check of its own: one the agent cannot satisfy would
+# (D) The hook does not carry an allowlist pre-check of its own: one the agent cannot satisfy would
 #     silently disable the handback, so enforcement stays with ai-tools-chown.
 if grep -vE '^[[:space:]]*#' "${HOOK}" | grep -q 'ALLOWLIST'; then
     say FAIL "the hook carries a non-comment ALLOWLIST reference -- the silently disabling pre-check may be back"

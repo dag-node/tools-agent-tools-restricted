@@ -140,13 +140,13 @@ sandbox_user_mgr_up() { sandbox_systemctl show -p Version --value >/dev/null 2>&
 # where the updater writes the shared .nvm tree directly. The timer is active only while that
 # --user manager runs, and what keeps the manager running with no login is the account's
 # linger, which `ai-tools-admin operators add` enables. This reads that state and does not
-# repair it -- the suite starts and stops nothing on the host, and a manager it had started
+# repair it -- the suite does not start or stop a service on the host, and a manager it had started
 # would either stay up as a change the run made or be stopped along with any session launched
 # meanwhile. So: linger absent is a FAILURE (the enrolment did not take, and ai-tools-run
 # aborts at the bus socket on such a host); linger present with the manager down is the
 # container case, where logind does not sustain the lingering instance across the suite's
 # session open/close, and the runtime state is untestable here -- skip with the start command
-# named (the on-disk enablement and `systemd-analyze verify` above already cover correctness).
+# named (the on-disk enablement check and `systemd-analyze verify` already cover correctness).
 if [[ -z "${SANDBOX_UID}" ]]; then
     skip "nvm-update.timer" "no ${SANDBOX_USER} account"
 elif [[ ! -e "/var/lib/systemd/linger/${SANDBOX_USER}" ]]; then

@@ -156,9 +156,9 @@ fi
 # ── /tmp isolation (pam_namespace, optional) ─────────────────────────────────────
 # pam_namespace polyinstantiation of /tmp + /var/tmp gives each session a private /tmp instance
 # (a confinement property, and the reason the live hook chain is driven against a fixture under
-# the operator's home rather than /tmp). It is OPTIONAL and this project neither installs nor configures it, so a
-# host without it is the default state and is reported as nothing at all: the only line this
-# emits is the PASS where the isolation is present, on a host whose administrator set it up.
+# the operator's home rather than /tmp). It is OPTIONAL and outside this project's install, so a host without it
+# is the default state and is not reported: the only line this emits is the PASS where the
+# isolation is present, on a host whose administrator set it up.
 readonly NSCONF="/etc/security/namespace.conf"
 if [[ -r "${NSCONF}" ]]; then
     has_tmp=false; has_vartmp=false

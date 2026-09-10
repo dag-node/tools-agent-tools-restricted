@@ -167,7 +167,7 @@ elif [[ ! -r "${RELABEL_LIB}" ]] || ! source "${RELABEL_LIB}" 2>/dev/null \
     skip "sandbox clone label" "relabel.lib.sh not available at ${RELABEL_LIB}"
 else
     # A real clone-area path, since the static rule is keyed on that prefix; named and
-    # registered through the harness so an aborted run leaves nothing the sweep cannot find.
+    # registered through the harness so the sweep finds what an aborted run leaves.
     sprobe=""; mk_fixture_dir sprobe "${SANDBOX_ROOT}" relabel
     if ai_tools_label_project "${sprobe}" && ai_tools_project_labelled "${sprobe}"; then
         pass "ai_tools_label_project applies AND verifies ai_tools_project_t on a sandbox clone"

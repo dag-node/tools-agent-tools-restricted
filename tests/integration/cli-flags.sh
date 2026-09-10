@@ -38,9 +38,9 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/cli-spelling.sh"
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/cli-stubs.sh"
 require_root
-# The umask is process state the CLI inherits through runuser (whose PAM stack carries no
+# The umask is process state the CLI inherits through runuser (whose PAM stack does not run
 # pam_umask), so this file decides it rather than the host: the rows and the trace run under
-# 022, which makes a trace comparable across hosts, and the umask pass below re-runs the rows a
+# 022, which makes a trace comparable across hosts, and the umask independence section re-runs the rows a
 # umask could change under the stricter values a hardened host sets. Nothing on the host is
 # changed by it -- a umask is per process and dies with this shell.
 umask 022

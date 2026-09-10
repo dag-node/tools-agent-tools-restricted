@@ -35,14 +35,14 @@ a verdict — `prose-check.sh` names which checker it drove — and does not inc
 so it stays out of the notice. `AI_TOOLS_TEST_STRICT=1` then fails a run only where a check was
 left unrun.
 
-A skip is for a state the host is in, never for the vantage the suite runs from. The suite is
-root, so an assertion that holds only for an unprivileged caller — the stop helper's own root
-check, a cgroup file whose mode root reads through, a probe the services library withholds from
-non-root — is re-driven as the projects user through `runuser` rather than skipped, and the CLI's
-help is read as that user too, since the CLI refuses root before it prints. A skip that a full
-install would always emit is a check in the wrong place. An optional host feature this project
-neither installs nor configures (`pam_namespace` polyinstantiation of `/tmp`) is reported only
-where it is present, and its absence — the default — prints nothing.
+A skip records a state the host is in, not the vantage the suite runs from. The suite is root,
+so an assertion that holds only for an unprivileged caller — the stop helper's own root check, a
+cgroup file whose mode root reads through, a probe the services library withholds from non-root —
+is driven as the projects user through `runuser`, and the CLI's help is read as that user too,
+since the CLI refuses root before it prints. A skip that every full install emits is a check in
+the wrong place. An optional host feature outside this project's install (`pam_namespace`
+polyinstantiation of `/tmp`) is reported only where it is present; where it is absent, the
+default, the file does not print a line for it.
 
 ```
 tests/
@@ -88,7 +88,7 @@ touches a path outside its testdir boundary.
 
 A test that must create a path **outside** its testdir — in the clone area, the control plane, the
 cgroup root, the operator's home when `/tmp` is `noexec` — names it by one rule, so a leftover is
-recognisable as this suite's and nothing has to guess:
+recognisable as this suite's and the sweep matches one pattern:
 
 ```
 .ai-tools-test-<group>-<thing>-XXXXXX
@@ -122,9 +122,8 @@ takes.
 One fixture cannot carry the rule and is listed by its fixed path instead:
 `integration/ai-tools-run.sh` probes entrypoint containment in
 `/opt/ai-tools/.nvm/versions/node/v0.0.1`, because the shim accepts an entrypoint only at a bare
-semver version directory. It is a version Node never shipped, so nothing but that test creates it,
-and the test **fails** rather than skips when it already exists — a skip would let residue silently
-cost the coverage. The teardown is the harness `EXIT` trap, which also fires on the `SIGTERM` the
+semver version directory. No Node release carries that version, so only that test creates it, and the
+test **fails** when it already exists: a skip would let residue silently cost the coverage. The teardown is the harness `EXIT` trap, which also fires on the `SIGTERM` the
 per-file timeout sends, so only a `SIGKILL` or a failed `rm` leaves residue for the sweep.
 
 No automated file writes live runtime state. The one place a real hook runs is the manual
@@ -133,8 +132,8 @@ would; the automated suite never moves that marker, which the hook rotates by `m
 sticky `.claude` directory and a root-written one could never be replaced in. No file starts or
 stops a service: `integration/systemd.sh`
 reads the sandbox account's linger record (what keeps its `--user` manager up with no login) and
-fails when it is absent, and a manager down despite linger is skipped with the start command named
-rather than started by the test.
+fails when it is absent; a manager down despite linger is skipped, with the start command named,
+and the test does not start it.
 
 Nor does a test mutate **global system state** to exercise a helper — the host's local SELinux
 policy (`semanage fcontext`) above all. A helper whose real work *is* to add and then remove a
@@ -690,8 +689,8 @@ by the account a row runs as. The verbs whose result a umask could change — a 
 its modes outright, and a clone, born private and then opened — are then re-driven under 077 and
 027 and held to the modes `ai-tools(1)` states, so the guarantee that the operator's shell umask
 does not decide what the agent can read is asserted rather than assumed, and on one host. The
-host's own umask configuration is read by nothing and written by nothing: the pass sets the
-builtin in the test's shell, which dies with it.
+pass does not read or write the host's umask configuration: it sets the builtin in the test's
+shell, which dies with it.
 
 `perms.sh` is the **single source** for the deployed-artifact permission assertions (every
 installed file and directory's owner/group/mode): `install.sh` does not carry a parallel checker —

@@ -120,7 +120,7 @@ readonly SANDBOX_GROUP="ai-tools"
 # file's stem for its testdir; homelock, victim, c3 for a single fixture), and XXXXXX is six
 # random alphanumerics, mktemp's own. The leading dot keeps
 # a leftover out of a plain listing and gives the residue sweep (tests/lib/residue.sh, run by
-# run.sh before every run) one pattern to match. The helpers below create AND register in one
+# run.sh before every run) one pattern to match. The mk_fixture_* helpers create AND register in one
 # call, so a fixture cannot be born outside the teardown list; a test that must name a path
 # before it exists (a probe the agent is asked to create) takes the name from ai_test_name and
 # registers it itself.
@@ -199,7 +199,7 @@ trap _teardown EXIT
 _test_logdir=""; mk_fixture_dir _test_logdir /tmp "${TEST_STEM}-log"
 export AI_TOOLS_LOG_DIR="${_test_logdir}"
 
-# mktestdir: create THE dedicated /tmp boundary for this test (named by the rule above, with
+# mktestdir: create THE dedicated /tmp boundary for this test (named by the fixture rule, with
 # the file's stem as its thing) and register it for teardown. Mode 0755 so an `sudo -u ai-tools`
 # boundary check can traverse in to a fixture (the fixture's own mode is what the check
 # exercises). Sets the global TESTDIR.

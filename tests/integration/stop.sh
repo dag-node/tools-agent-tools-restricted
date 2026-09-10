@@ -49,7 +49,7 @@ fi
 
 mktestdir
 # Named by the harness's fixture rule, so the pre-run residue sweep recognises a slice an
-# aborted run left at the cgroup root; the teardown below owns it during the run.
+# aborted run left at the cgroup root; stop_fixture_cleanup owns it during the run.
 FIXTURE_SLICE="${CGROUP2_ROOT}/$(ai_test_name stop).slice"
 GO="${TESTDIR}/release-the-payloads"
 
