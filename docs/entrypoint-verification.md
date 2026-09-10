@@ -1,7 +1,7 @@
 # Entrypoint verification
 
 How `ai-tools` proves that the agent binary it is about to run is the one its vendor published, what
-you have to do about it (almost always nothing), and what each failure means. <!-- prose-check: allow: the reader is the actor; "nothing" is the action they take -->
+you have to do about it (almost always nothing), and what each failure means. <!-- prose-check: ignore: the reader is the actor; "nothing" is the action they take -->
 
 ## The short version
 

@@ -11,8 +11,8 @@
 # Five modes. `--staged` reads the added lines of the git index, which is what a pre-commit hook
 # runs; `--message` reads a commit message, an artifact this standard covers like any other; named
 # paths are read whole, for a sweep; `--kept` compares the two sides of a diff, and enforces a
-# different rule -- see its own heading below; `--config-header` reads a config file's header
-# as fixed-width text -- see its heading below. `--staged` sees only the added half of a sentence
+# different rule -- see the `--kept` heading; `--config-header` reads a config file's header
+# as fixed-width text -- see the `--config-header` heading. `--staged` sees only the added half of a sentence
 # an edit split, so a hit it reports alone is worth re-checking against the whole file.
 # Source files contribute their comments and docstrings, Markdown and man pages every line. The
 # patterns match English, so they carry to any codebase.
@@ -78,16 +78,16 @@
 #   vague-verb         a verb naming no operation. `convey` is exempt in a sentence about
 #                      licensing, which is the one place it is a term of art.
 #
-# A line carrying `prose-check: allow` is skipped, which is how a style guide keeps the labelled
+# A line carrying `prose-check: ignore` is skipped, which is how a style guide keeps the labelled
 # bad examples it has to contain. In Markdown the marker goes in an HTML comment
-# (`<!-- prose-check: allow -->`), which the substring match finds and the rendered page omits.
+# (`<!-- prose-check: ignore -->`), which the substring match finds and the rendered page omits.
 
 import argparse
 import re
 import subprocess
 import sys
 
-ALLOW_MARKER = "prose-check: allow"
+IGNORE_MARKER = "prose-check: ignore"
 
 # Any verb before `no`, rather than a list of them: an enumerated list finds only the verbs
 # whoever wrote it thought of, and this construction takes every transitive verb in the language.
@@ -154,9 +154,37 @@ PREDICTED_ACTION = re.compile(
 
 # Each entry is (name, pattern, hint). The hint is what to write instead, since a report naming
 # only the defect leaves the reader to rediscover the fix on every hit.
+# `above`/`below` pointing at a position in the document. A code block and the paragraph that
+# describes it can change order, or move to another file, without the sentence that points at
+# them changing at all, so the reference goes wrong silently. Every use is reported except a
+# threshold, which a number after the word marks (`below 50 columns`); a placement is written
+# with another word (`under the box`, `the parent directory`).
+POSITIONAL_REFERENCE = re.compile(r"\b(above|below)\b(?!\s+\d)", re.I)
+
+# A reftag is a prefix, a dash, and a letter-digit-letter-digit id, lowercase for a place in a document
+# (`ref-section-t3w4`) and uppercase in the code family (`FN-T6I7`, `NOTE-A9S0`, `MSG-N1H8`,
+# `URI-G7O3`); ref-index.py beside this file states the grammar and the kinds. A prefix followed by
+# anything else is a reftag a search will not find, so it is reported at the prefix. The bare
+# `ref-` prefix is not read: it opens ordinary words (`ref-index.py`), where `ref-<kind>-` does not.
+_REFTAG_KINDS = (r"section|table|diagram|listing|figure|equation|algorithm|chart|graph|image"
+                 r"|picture|scheme|theorem|lemma|definition|proof|appendix|footnote|caption|list"
+                 r"|callout|abstract|bibliography|nomenclature")
+# The id is a letter, a digit, a letter, a digit, in the family's case.
+REFERENCE_SHAPE = re.compile(rf"\bref-(?:{_REFTAG_KINDS})-(?![a-z][0-9][a-z][0-9]\b)[\w-]*"
+                             r"|\b(?:FN|NOTE|MSG|URI)-(?![A-Z][0-9][A-Z][0-9]\b)[\w-]*")
+
+# A reftag link's destination is generated (a relative path and an anchor), so a line holding
+# one is measured without it; see `document_line_findings`.
+REFTAG_LINK = re.compile(rf"(\[(?:ref-(?:{_REFTAG_KINDS})-[a-z][0-9][a-z][0-9]"
+                         r"|(?:FN|NOTE|MSG|URI)-[A-Z][0-9][A-Z][0-9])\])\([^)]*\)")
+
 DEFAULT_CHECKS = [
     ("fronted-quantifier", FRONTED_QUANTIFIER, None),  # hint derived; see suggest()
     ("nothing", re.compile(r"\bnothing\b"), "name the absent input"),
+    ("positional-reference", POSITIONAL_REFERENCE,
+     "name the section, function, or file the reader goes to"),
+    ("reference-shape", REFERENCE_SHAPE,
+     "write the reftag in full: the prefix, a dash, and its four-character id"),
     ("unbacked-cost", unbacked_cost, "name the frequency or the bounded operation"),
     ("predicted-action", PREDICTED_ACTION, "state what the system does, or give the instruction"),
 ]
@@ -308,7 +336,7 @@ EXTRA_CHECKS = [
 PROSE_WHOLE_FILE = (".md", ".1", ".5", ".8")
 
 # How to read a path, when --prose or --source has said: True reads every line, False reads only
-# comments and docstrings, None leaves the extension above to decide.
+# comments and docstrings, None leaves PROSE_WHOLE_FILE to decide.
 #
 # The extension rule fails in one direction without saying so, which is what the override answers:
 # a path it does not recognize is read as SOURCE, so a document keeps only its `#` headings and the
@@ -325,7 +353,7 @@ def is_prose_file(path):
     return path.endswith(PROSE_WHOLE_FILE)
 
 # Terms that mark a sentence as stating a SECURITY BOUNDARY rather than describing behaviour.
-# A rewrite that drops one of these has probably changed the claim; see the `--kept` heading above.
+# A rewrite that drops one of these has probably changed the claim; see the `--kept` heading.
 # The access-control nouns are here for the same reason as the secrets: `grants nothing on` rewritten
 # as `leaves untouched` reads better and stops saying anything about access.
 #
@@ -521,7 +549,7 @@ def sentences(source):
                 text = None
             elif fenced:
                 text = None
-        if text is not None and ALLOW_MARKER in line:
+        if text is not None and IGNORE_MARKER in line:
             text = None
         standalone = bool(text and text.strip() and STANDALONE.match(text))
         if not (text and text.strip()) or path != block_path or standalone:
@@ -684,7 +712,7 @@ def author_prose(path, text):
 
 
 # The always-loaded layer: a root CLAUDE.md or AGENTS.md, which holds global invariants and routes
-# to the rest. Every mark below is ordinary in the domain document it routes to and is altitude
+# to the rest. Every mark the pattern names is ordinary in the domain document it routes to and is altitude
 # drift here, so this check reads the PATH and is scoped to these two names rather than joining
 # the shape checks.
 INVARIANT_LAYER = ("CLAUDE.md", "AGENTS.md")
@@ -722,7 +750,7 @@ PATH_CHECKS = [
 #
 #   comment-tie        a comment or docstring line ending on a word that ties to the next one:
 #                      an article, a conjunction, a preposition, or a wh-word. The word belongs
-#                      at the head of the next line. The set is HEADER_TIES below.
+#                      at the head of the next line. The set is HEADER_TIES.
 #   comment-width      a comment or docstring line over SOURCE_WIDTH columns (120, the column
 #                      a code file wraps at; `--width` overrides it).
 #   document-width     a Markdown line over DOCUMENT_WIDTH columns (100, the column the tree's
@@ -731,7 +759,8 @@ PATH_CHECKS = [
 #                      -- and an edit that splices a sentence into a wrapped paragraph is what
 #                      leaves a line long. A table row, a fenced block, a line holding a URL or
 #                      one token, and a man page are not measured: each is a unit the rule
-#                      cannot break. The tie rule does not read a document, which reflows.
+#                      cannot break, and a line is measured without a reftag link's generated
+#                      destination. The tie rule does not read a document, which reflows.
 #
 # `--config-header`: A CONFIG FILE'S HEADER IS READ IN A TERMINAL AND NEVER REFLOWED.
 # An operator's config file -- a seeded header, a shipped template -- is read as-is, so its prose
@@ -804,7 +833,7 @@ def comment_line_findings(source, width):
     for path, number, line, text in prose_lines(source):
         if path == MESSAGE or is_prose_file(path) or text is None:
             continue
-        if ALLOW_MARKER in line or HEADER_DEFAULT.match(line) or SOURCE_DIRECTIVE.match(line):
+        if IGNORE_MARKER in line or HEADER_DEFAULT.match(line) or SOURCE_DIRECTIVE.match(line):
             continue
         stripped = line.rstrip()
         if len(stripped) > width:
@@ -834,9 +863,10 @@ def document_line_findings(source, width):
             fenced = not fenced
             continue
         stripped = line.rstrip()
-        if (fenced or ALLOW_MARKER in line or DOCUMENT_TABLE.match(stripped)
+        if (fenced or IGNORE_MARKER in line or DOCUMENT_TABLE.match(stripped)
                 or "://" in stripped or " " not in stripped.strip()):
             continue
+        stripped = REFTAG_LINK.sub(r"\1", stripped)
         if len(stripped) > width:
             yield (path, number, "document-width", f"{len(stripped)}>{width}",
                    f"wrap the line at {width} columns", stripped.strip())
@@ -945,7 +975,7 @@ def main():
             print(f"    {text[:110]}")
     if count:
         print(f"\n{count} finding(s). See the ai-tools-technical-docs skill; "
-              f"mark a deliberate example with '{ALLOW_MARKER}'.")
+              f"mark a deliberate example with '{IGNORE_MARKER}'.")
     return 1 if count else 0
 
 

@@ -87,6 +87,16 @@ describes. If a change alters behavior a rule file documents, update the rule fi
 the same PR — the two are meant to stay in sync, and a mismatch is treated as a bug in
 whichever one didn't get updated.
 
+A reference into another file names a reftag rather than a position; the grammar is in the
+`ai-tools-technical-docs` skill, and `.claude/references.md` is the generated index. After adding,
+moving, or deleting a labelled target or a reference, regenerate the index and check the tree:
+
+    bash tools/ref-index.sh generate
+    bash tools/ref-index.sh check
+
+The pre-commit hook reports a stale index and any reference finding, and the unit suite fails on
+either.
+
 ## Pull requests
 
 Branch from `develop`, not `main`, using `feature/<ticket-num>-<feature-name>` (e.g.

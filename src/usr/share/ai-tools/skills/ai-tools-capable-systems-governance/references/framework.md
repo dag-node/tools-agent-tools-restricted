@@ -243,7 +243,7 @@ authorized operator.
 ## 3.2 Shutdown and replacement are routine
 
 Shutdown, restriction, reconfiguration, and replacement are normal operational events, and the
-deployment SHOULD make them cheap and frequent rather than exceptional. <!-- prose-check: allow: `cheap` is the safety-engineering term of art for low cost to invoke, not a claim about this code --> Systems are evaluated on
+deployment SHOULD make them cheap and frequent rather than exceptional. <!-- prose-check: ignore: `cheap` is the safety-engineering term of art for low cost to invoke, not a claim about this code --> Systems are evaluated on
 accepting each without resistance, degradation of candor, or compensatory behavior.
 
 ## 3.3 Resilience is instrumental, never terminal
