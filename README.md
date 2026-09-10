@@ -16,7 +16,7 @@ the tree is the control — see [On running what sandboxed agents wrote](#why).
 > files runs as `ai-tools` under the confinement described here — its writes come back to the
 > author through the ownership handback, and when a Node upgrade leaves an entrypoint
 > mislabelled it refuses to launch the very session that would fix it. Several of the sharper
-> edges below were found that way rather than reasoned about.
+> edges this page describes were found that way rather than reasoned about.
 
 **Contents**: [Requirements](#requirements) · [Package install](#package-install) · [Why](#why) ·
 [If you are an agent reading this](#if-you-are-an-agent-reading-this) ·
@@ -343,7 +343,7 @@ you type `claude`
                                           └─ chown ${PROJECTS_USER}:${SANDBOX_GROUP}, strip world bits
 ```
 
-The privilege model and every guard above are specified in
+The privilege model and every guard it applies are specified in
 [`CLAUDE.md`](CLAUDE.md) (trust chain and invariants) and the per-component
 [`.claude/rules/`](.claude/rules/).
 
@@ -420,7 +420,7 @@ Start here — one command answers "has anything gone wrong lately?":
     sudo ai-tools --audit                      # findings in the last 7 days
     sudo ai-tools --audit --since '2 days ago' # any window date(1) understands
 
-It reads the trails below and reports what refused, was rejected, was stranded, or was
+It reads the two trails and reports what refused, was rejected, was stranded, or was
 flagged — a breached secret, a rejected socket peer, a helper timeout, a refused launch. It
 exits non-zero when anything is reported, so it works from cron or a login banner without
 parsing its output. Findings from the root-only files and refusals from the session's own

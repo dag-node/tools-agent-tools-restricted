@@ -345,7 +345,7 @@ file, so a release bump touches one place. `Release:` defaults to plain `1`
 `RPM_RELEASE=<override>` — CI passes `0.<run>.git<sha>` for dev builds and
 `0.rcN` for `vX.Y.Z-rc.N` prerelease tags. The leading `0.` is the Fedora
 pre-release convention, so rpm's version comparison ranks any snapshot or RC
-below the final release that follows it, and a host that installed an RC
+under the final release that follows it, and a host that installed an RC
 upgrades cleanly to the final via ordinary `dnf`.
 
 Runtime dependencies: `ai-tools-base` requires `systemd`, `sudo`, `acl`,

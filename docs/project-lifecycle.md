@@ -50,7 +50,7 @@ modes are in [what a claim and an unclaim do to permissions](#what-a-claim-and-a
 
 **Create a sandbox clone** when the tree, its history, or its surroundings should stay out of
 reach: the clone is shallow (`--depth=1`), so the agent never sees the origin's history, and it
-lives under the already-isolated sandbox area, so no ancestor above it needs a grant. The agent's
+lives under the already-isolated sandbox area, so no ancestor of it needs a grant. The agent's
 commits go to a dedicated branch you push and merge back yourself.
 
 Running `claude` in an unregistered directory offers the same choice interactively.
@@ -68,7 +68,7 @@ It does not ask any questions. A tree that did not exist a moment ago has no pre
 about, no secret-named files worth a `sudo` password to scan for, and no git history to expose,
 so the questions a claim asks about an existing tree are answered by the tree being empty. The
 one prompt that can still appear is the traverse grant on a parent directory, which widens
-access *above* the project.
+access on the project's *ancestors*.
 
 On a host with a restrictive `umask` (`077`, the `/etc/login.defs` default on many systems) it
 sets the modes rather than inheriting them — `0750` for the directory, `0640` for the
@@ -126,8 +126,8 @@ prompt, `--yes` on `ai-tools-lockdown`) pre-answers one.
 A claim walks through self-contained blocks, each with its own decision:
 
 - **Proceed confirm** (`[y/N]`) — approves exactly the pending steps the Review block lists:
-  registration, the setgid group and ACL grant, the SELinux label, and any drift repair shown
-  above it.
+  registration, the setgid group and ACL grant, the SELinux label, and any drift repair the
+  Review block reports.
 - **Secret lockdown** (`[Y/n]`) — runs before anything widens access. The scan
   (`ai-tools-lockdown --dry-run`, the first sudo prompt) matches known secret-name patterns;
   locking sets the finds to owner-only. Declining stops the claim, so access is never granted
@@ -138,7 +138,7 @@ A claim walks through self-contained blocks, each with its own decision:
   working tree stays claimed either way.
 - **Traverse-only parents** (`[y/N]`) — where the project sits under a directory the sandbox
   account cannot enter (a `700` home), grants `u:ai-tools:--x` on each blocking parent you own:
-  enter only, never list or read. It widens access above the project, hence the No default.
+  enter only, never list or read. It widens access on the project's ancestors, hence the No default.
 
 ### Re-claiming: drift and skip-lists
 
@@ -250,7 +250,7 @@ Two refusals keep a `!` line unambiguous:
   over. Delete it yourself if that is what you mean.
 - `--project-disable` refuses a project **nested inside** another claimed project, because the
   line it would write could not later be told apart from such a carve-out. Unclaim the nested
-  project, or park the one above it.
+  project, or park the one enclosing it.
 
 Launching in a parked project refuses and names the way back:
 
@@ -513,7 +513,7 @@ asking.
 The allowlist (`~/.config/ai-tools/allowed-projects`) gates where sessions *launch* and which
 written files get ownership handed back. It is not a read boundary: once a session runs, ordinary
 file permissions plus the SELinux `ai_tools_project_t` label are what confine it, which is why
-every flow above locks secrets down *before* granting group access, and why declining a lockdown
+every flow on this page locks secrets down *before* granting group access, and why declining a lockdown
 fails closed. The invariants are in
 [ref-section-e7n8](../CLAUDE.md#ref-section-e7n8);
 the per-component mechanism is in [`.claude/rules/`](../.claude/rules/).

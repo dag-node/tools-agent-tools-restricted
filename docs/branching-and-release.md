@@ -67,7 +67,7 @@ Tag shape, RPM `Release`, and destination at a glance:
 | tag `vX.Y.Z`         | `X.Y.Z-1`             | GitHub Release + `rpm.dagnode.com` (stable)     |
 
 The `Release` prefixes are the Fedora pre-release convention: rpm's version comparison ranks
-`0.<run>.git<sha>` and `0.rcN` below the final `1`, so a host that installed an RC upgrades
+`0.<run>.git<sha>` and `0.rcN` under the final `1`, so a host that installed an RC upgrades
 cleanly to the final via ordinary `dnf`, and a real release always outranks any snapshot.
 
 ## For developers
@@ -86,7 +86,9 @@ summary — so `feature/ATR-260729-selinux-optional-groups`. PRs target `develop
 merges them manually. Every push runs `shellcheck` and the full `rpm-selftest`
 matrix and uploads snapshot RPMs as workflow artifacts, so a build off any commit is
 inspectable without cutting a release. Do not push `v*` tags — a tag ruleset restricts tag
-creation to maintainers, because under the rule above a tag *is* a release decision.
+creation to maintainers, because under
+[The one rule that decides everything else](#the-one-rule-that-decides-everything-else) a tag *is*
+a release decision.
 
 There are no standing `release/X.Y` branches. Cut one only when stabilization must diverge —
 holding X.Y for release while `develop` moves on to X.Y+1, or hotfixing an old minor.
@@ -115,8 +117,8 @@ git push
 git tag v0.6.3-rc.1 && git push origin v0.6.3-rc.1
 ```
 
-An RC carries the *next* version (SemVer: `0.6.3-rc.1` sorts above the released `0.6.2` and
-below the eventual `0.6.3`). `check-version.sh` verifies the tag's base `X.Y.Z` against
+An RC carries the *next* version (SemVer: `0.6.3-rc.1` sorts after the released `0.6.2` and
+before the eventual `0.6.3`). `check-version.sh` verifies the tag's base `X.Y.Z` against
 `packaging/VERSION` but relaxes the `%changelog` match — RC notes aren't finalized. The release
 job builds `0.6.3-0.rc1`, signs and verifies it, and publishes a GitHub **prerelease**; the
 stable repo never sees it. Install an RC by downloading the prerelease zip. Fixes land on
@@ -153,8 +155,8 @@ git push
 ```
 
 After the final release publishes, bump `packaging/VERSION` on `develop` to the next
-anticipated version. Dev/snapshot RPMs (`Release: 0.<n>.git<sha>`) then sort above the last
-release and below the next one; left at the released number, a newer snapshot sorts as an
+anticipated version. Dev/snapshot RPMs (`Release: 0.<n>.git<sha>`) then sort after the last
+release and before the next one; left at the released number, a newer snapshot sorts as an
 older package.
 
 ### If the release job goes red
@@ -180,7 +182,7 @@ One-time setup (repo admin), in GitHub Settings:
 
 - **Rules → Rulesets → New tag ruleset** — enforcement *Active*, target tags matching `v*`,
   restrict *creation*, *update*, and *deletion*, bypass list *Repository admin* only. The tag
-  is the entire release authority under the rule above, so it gets `main`-level protection.
+  is the entire release authority under that one rule, so it gets `main`-level protection.
 - **Actions → General** — default workflow permissions *Read repository contents* (the
   release job requests `contents: write` explicitly); leave "Allow GitHub Actions to create
   and approve pull requests" off; require approval for workflow runs from all outside
