@@ -37,7 +37,7 @@ readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 
 # Operator-identity resolver (operator.lib.sh): secrets are locked to the operator that owns the
 # current directory. A missing lib leaves ai_tools_resolve_owner a fail-closed stub, so the resolve
-# below dies rather than lock secrets to the wrong identity.
+# resolution dies rather than lock secrets to the wrong identity.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
@@ -86,7 +86,7 @@ source "${SAFE_PATHS_LIB}"
 # Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like
 # safe-paths.lib.sh: the bare source under set -e aborts if it is missing -- a valid
 # install ships it, so there is no fallback. Include-guarded, so this is a no-op when
-# safe-paths.lib.sh above already loaded it.
+# safe-paths.lib.sh already loaded it.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
 source /usr/local/lib/ai-tools/msg.lib.sh
 # Fixed 80-column frame for any box this helper renders, aligned with the CLI's.
@@ -219,7 +219,7 @@ while IFS= read -r -d '' path; do
 done < <(find "${expr[@]}" 2>/dev/null)
 
 # ── Enumerate owner-only paths to seal ───────────────────────────────────────
-# The pass above finds paths by NAME. This one finds the paths sealed by MODE -- anything
+# The lock pass finds paths by NAME. This one finds the paths sealed by MODE -- anything
 # already owner-only that still carries the group, setgid bit or ACL entries it inherited when
 # it was created inside the claimed tree. Stripping those is what makes such a seal survive a
 # later chmod; owner-only.lib.sh is the reference for what comes off.
@@ -228,7 +228,7 @@ done < <(find "${expr[@]}" 2>/dev/null)
 # kernel -- so the filter avoids a stat per path. A sealed DIRECTORY is printed and then pruned,
 # taking its subtree with it exactly as ai-tools-setgid/-setfacl do: the sandbox account cannot
 # enter it, so no path inside is reachable through it. Secret-named paths are left to the lock
-# pass above, which seals them itself.
+# pass, which seals them itself.
 declare -a sealed=()
 while IFS= read -r -d '' path; do
     _is_excluded "${path}" && continue
@@ -269,7 +269,7 @@ if (( ${#sealed[@]} )); then
     ai_tools_log_info "scan${scan_mode}: ${#sealed[@]} owner-only path(s) under ${target}"
 fi
 
-# A preview must not ask to apply: the confirm sits after the dry-run branch below, which exits first.
+# A preview must not ask to apply: the confirm sits after the dry-run branch, which exits first.
 #
 # _safe_apply <path>: chmod (file 600 / dir 700) and chown to OWNER through a
 # pinned fd, so a symlink/path swap by ai-tools (a group-writer on the project
@@ -309,7 +309,7 @@ _safe_apply() {
     /usr/bin/chown -- "${OWNER}" "/proc/self/fd/${fd}"
     /usr/bin/chmod -- "${mode}"  "/proc/self/fd/${fd}"
     # The path is owner-only now, so strip the residue the mode merely masks -- the inherited
-    # ACL entries and, on a directory, the setgid bit the numeric chmod above leaves standing.
+    # ACL entries and, on a directory, the setgid bit the numeric chmod leaves standing.
     # Re-read both from the pinned inode: they are what the chown/chmod just made them.
     local now_grp now_mode
     if read -r now_grp now_mode \
@@ -333,7 +333,7 @@ _safe_apply() {
 # (AI_TOOLS_RESIDUE_DRY_RUN) and every gate here still runs; secret-handling.rule.md has why.
 _safe_seal() {
     local path="$1" expect_ident fd got_ident got_uid got_grp got_mode got_ftype rc
-    # Clear it here, not only in the strip: every return below the strip is an early one, and a
+    # Clear it here, not only in the strip: every return that precedes the strip is an early one, and a
     # stale value from the previous path would be counted against this one.
     AI_TOOLS_RESIDUE_SURFACE=0
     expect_ident="$(stat -c '%d:%i' "${path}" 2>/dev/null)" || return 1

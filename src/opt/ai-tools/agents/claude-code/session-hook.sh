@@ -32,7 +32,7 @@
 #                 session that was killed (crash, kill -9, closed terminal) before
 #                 its Stop sweep could run -- the one gap the Stop net cannot close
 #                 itself. It ALSO reclaims the project's .git, which every sweep
-#                 skips (see below). Gated on the hook's .source: only "startup"
+#                 skips (see the .git reclaim). Gated on the hook's .source: only "startup"
 #                 and "resume" (a freshly started process, which is what can follow
 #                 an interrupted session) trigger the pass. "clear"/"compact" stay
 #                 within a live process whose Stop sweeps already cover the tree,
@@ -46,7 +46,7 @@
 #                 and cleared here; if it instead SURVIVES into the next session-start,
 #                 the previous session was killed before this ran (tokens
 #                 exhausted, crash, closed terminal). A surviving marker widens the
-#                 .git reclaim (which runs every session-start, below) to the killed
+#                 .git reclaim (which runs every session-start) to the killed
 #                 session's recorded cwd -- which may be a different project -- and is
 #                 what raises the SessionStart NOTICE: only the interrupted case emits
 #                 one (framed via msg.lib.sh), while the routine post-git-activity
@@ -80,7 +80,7 @@
 set -euo pipefail
 
 # The hook's own directory -- this agent's config dir, whose name its manifest declares -- so the
-# state files below follow the hook instead of repeating a path the base layer no longer owns.
+# state files follow the hook instead of repeating a path the base layer no longer owns.
 HOOK_DIR="${BASH_SOURCE[0]%/*}"
 readonly HOOK_DIR
 readonly MARKER="${HOOK_DIR}/.sweep-marker"
@@ -88,7 +88,7 @@ readonly MARKER="${HOOK_DIR}/.sweep-marker"
 # Clean-exit marker: written at session-start (process birth), removed at
 # session-end (graceful exit). Surviving into the next session-start means the
 # previous session was killed before its SessionEnd ran -- the signal for the
-# deep .git reclaim below. Global, not per-project (mirrors MARKER); it records
+# deep .git reclaim. Global, not per-project (mirrors MARKER); it records
 # the prior session's cwd so the deep reclaim can target that project. Under
 # concurrent sessions the single marker races (a second start sees the first's
 # marker as "interrupted"); the sandbox is single-session by design, same caveat
@@ -114,7 +114,7 @@ if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
 fi
 
-# Shared message formatter -- frames the SessionStart NOTICE below in the paste-safe
+# Shared message formatter -- frames the SessionStart NOTICE in the paste-safe
 # '#' box, wrapped within 80 columns. THE one msg.lib consumer that keeps a fallback:
 # every other consumer requires the lib (it carries their yes/no decisions and their
 # runs may fail closed), but this hook only EMITS, and its sweep is itself the safety
@@ -129,7 +129,7 @@ if ! source "${MSG_LIB}" 2>/dev/null; then
 fi
 
 # Operator identity (PROJECTS_USER) from /etc/ai-tools/operator.conf via the shared resolver,
-# used only to render the reconcile command in the interrupted-session NOTICE below. Sweeping
+# used only to render the reconcile command in the interrupted-session NOTICE. Sweeping
 # itself does not need an operator identity -- it finds @SANDBOX_USER@-owned paths and the root
 # validator re-checks ownership. Best-effort: an unenrolled/missing config leaves PROJECTS_USER
 # empty, degrading only the suggested command's owner field.
@@ -212,7 +212,7 @@ fi
 
 # Interrupted-session detection (real process start only). A surviving
 # ACTIVE_MARKER means the previous session exited before its SessionEnd handler ran.
-# Capture the cwd it recorded so the deep .git reclaim below can target that
+# Capture the cwd it recorded so the deep .git reclaim can target that
 # project, then (re)stamp the marker with THIS session's cwd.
 interrupted=0
 prev_cwd=""
@@ -259,7 +259,7 @@ ai_tools_log_debug "${MODE} sweep: handing back agent-owned paths under ${dir}$(
 swept=0
 if [[ ! -S "${HANDBACK_SOCKET}" ]]; then
     # Socket down: every CHOWN would fail, so skip the walk and record it once. Counting the
-    # failed calls would also mis-fire the large-batch skip-list hint below.
+    # failed calls would also mis-fire the large-batch skip-list hint.
     ai_tools_log_warn "${MODE} sweep skipped: handback socket ${HANDBACK_SOCKET} is down -- paths under ${dir} stay @SANDBOX_USER@-owned (reclaim with: ai-tools --reclaim ${dir})"
 else
     # Count CONFIRMED handbacks (client exit 0), not attempts.
@@ -297,7 +297,7 @@ count_git_agent_owned() {
 # and leave .git in mixed ownership -- work tree <you>-owned, .git internals
 # ai-tools-owned -- which makes git report "dubious ownership" and, once <you> is not
 # an ai-tools group member, blocks reads and repacks. The marker does not gate this
-# reclaim; it only selects the cross-project target and the NOTICE wording below.
+# reclaim; it only selects the cross-project target and the NOTICE wording.
 if [[ "${unbounded}" -eq 1 ]]; then
   if [[ -S "${HANDBACK_SOCKET}" ]]; then
     git_found="$(reclaim_git_tree "${dir}")"
@@ -326,7 +326,7 @@ if [[ "${unbounded}" -eq 1 ]]; then
             scope="${dir}/.git"
             [[ "${prev_found}" -gt 0 ]] && scope="${scope} and ${prev_cwd}/.git"
             # Frame the explanation in the '#' box (wrapped within 80 cols); keep the
-            # reconcile command on its own line BELOW the box so it stays copy-pasteable.
+            # reconcile command on its own line UNDER the box so it stays copy-pasteable.
             # The wrap never splits a single token (paths survive intact), but a
             # multi-word command would break across lines, so it is left outside the box.
             prose="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg NOTICE 1 \

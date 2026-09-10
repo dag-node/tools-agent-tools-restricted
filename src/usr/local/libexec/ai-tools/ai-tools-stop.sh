@@ -9,7 +9,7 @@
 # HAPPENED. The design that follows from it -- why sessions are found by CGROUP rather than by
 # process tree, why it does not take a target, where containment ends, and the residual failure
 # modes -- is documented once, in docs/session-stop.md. This header states only what a reader of
-# THIS FILE needs; each function below carries its own local mechanism.
+# THIS FILE needs; each function carries its own local mechanism.
 #
 # ── Two inverted conventions, stated here so they are not "fixed" back ───────────────────────
 # For every other component in this project the safe direction is DON'T ACT. For this one it is
@@ -81,7 +81,7 @@
 #   sudo install -o root -g root -m 750 \
 #       src/usr/local/libexec/ai-tools/ai-tools-stop.sh /usr/local/libexec/ai-tools/ai-tools-stop
 
-# NOT `set -e`: see inverted convention 1 above. An unexpected non-zero must never abandon a
+# NOT `set -e`: see inverted convention 1. An unexpected non-zero must never abandon a
 # half-finished kill.
 set -uo pipefail
 
@@ -94,7 +94,7 @@ export PATH
 
 # The cgroup walk must see EVERY child directory, and `*/` alone does not: a name beginning with a
 # dot is skipped by default globbing. Every name inside the delegated subtree is the DELEGATEE's to
-# choose (see the delegation note above), so without `dotglob` a session could place itself in a
+# choose (see the delegation note), so without `dotglob` a session could place itself in a
 # cgroup called `.hidden` and drop out of the enumeration -- including under --all, the form that
 # must hold against a hostile session. `nullglob` makes a childless cgroup expand to an empty list rather than
 # the unexpanded pattern. Set once, at file scope: every walk here depends on it.
@@ -156,11 +156,11 @@ log_event() {
 # say_error / say_warn / say_notice <line...> -- framed through msg.lib.sh when it loaded, plain
 # otherwise. Output formatting is the most expendable thing here.
 #
-# THE EMITTERS TAKE LINES ONLY, NOT A LEADING FD -- unlike ai_tools_msg_headline below, whose
+# THE EMITTERS TAKE LINES ONLY, NOT A LEADING FD -- unlike ai_tools_msg_headline, whose
 # signature IS <title> <fd> <line...>. The two shapes sit next to each other, so passing the
 # headline's fd to an emitter reads as consistent and is not: ai_tools_msg_error bakes in fd 2
 # already, so a leading `2` becomes the message's FIRST LINE and every refusal prints a stray
-# digit above itself. It is invisible in the boxed path and obvious only when captured.
+# digit ahead of itself. It is invisible in the boxed path and obvious only when captured.
 say_error()  { if declare -F ai_tools_msg_error  >/dev/null 2>&1; then ai_tools_msg_error  "$@"; else printf 'ai-tools-stop: %s\n' "$@" >&2; fi; }
 say_warn()   { if declare -F ai_tools_msg_warn   >/dev/null 2>&1; then ai_tools_msg_warn   "$@"; else printf 'ai-tools-stop: %s\n' "$@" >&2; fi; }
 say_notice() { if declare -F ai_tools_msg_notice >/dev/null 2>&1; then ai_tools_msg_notice "$@"; else printf '%s\n'               "$@";     fi; }
@@ -186,7 +186,7 @@ FORCE_KILL=false
 # operator's intent is KNOWN and something environmental is in the way -- no terminal, a missing
 # library, a wedged manager. An unexpected argument is ambiguity about what was ASKED FOR, and
 # guessing the most destructive reading of it is not degrading toward stopping. Nothing is left
-# running either: the operator is one keystroke away, and the message below says which.
+# running either: the operator is one keystroke away, and the refusal says which.
 #
 # AND IT KEEPS A LATER EXTENSION NON-BREAKING. If per-target stopping is ever built -- which needs
 # a session-to-project mapping the session cannot influence, i.e. something root records at launch,
@@ -195,7 +195,7 @@ FORCE_KILL=false
 # Had it meant "stop everything, ignoring your path", the identical line would silently begin doing
 # something different, which is the one outcome that cannot be rolled out safely.
 #
-# THE TEXT BELOW IS A DELIBERATE TWIN of the CLI's refusal in cmd_stop, which is the copy an
+# THE TEXT HERE IS A DELIBERATE TWIN of the CLI's refusal in cmd_stop, which is the copy an
 # operator normally meets -- this one is the last line, reached by a direct root call. They cannot
 # be single-sourced: different processes, and this file is 750 root:root. They must say the same
 # thing and offer the same four commands -- change one, change both.
@@ -234,7 +234,7 @@ parse_command_line() {
 }
 
 # resolve_run_context -- establish who is asking and what account is being stopped, and arm the
-# trail's traps. Everything here either succeeds or exits; no code below it runs on a guess.
+# trail's traps. Everything here either succeeds or exits; nothing after it runs on a guess.
 resolve_run_context() {
     if [[ "$(id -u)" != "0" ]]; then
         say_error "ai-tools-stop must run as root: stopping a session means signalling ${SANDBOX_USER}'s cgroups" \
@@ -374,7 +374,7 @@ find_session_cgroups() {
             # ONE cgroup is still special-cased, and it is not an exemption:
             #   user@<uid>.service -- the manager unit. DESCENDED INTO but never emitted, because
             #                         its name ends in `.service`, so the stop-at-first-unit rule
-            #                         below would otherwise swallow the whole manager subtree as a
+            #                         would otherwise swallow the whole manager subtree as a
             #                         single "session" and never reach the real units inside it.
             #                         Its contents, init.scope among them, are emitted instead --
             #                         so everything under it is still stopped, and the operator's
@@ -400,7 +400,7 @@ find_session_cgroups() {
 }
 
 # has_own_tasks <cgroup-dir> -- succeed when tasks sit in THIS cgroup's own cgroup.procs, ignoring
-# descendants. This is what separates "a slice, whose tasks all live in the units below it" from
+# descendants. This is what separates "a slice, whose tasks all live in the units under it" from
 # "a cgroup holding processes directly", and it is why enumerating units does not lose anything:
 # the only place a task can hide from a unit walk is a slice, and a slice with its own tasks is
 # emitted in its own right.
@@ -415,7 +415,7 @@ find_session_cgroups() {
 #
 #   permission-unreadable -- `-r` answers it directly, and answers LIVE.
 #   THREADED cgroup       -- the kernel's documented case, and the one that matters here: in a
-#                            threaded subtree every cgroup.procs below the threaded root fails the
+#                            threaded subtree every cgroup.procs under the threaded root fails the
 #                            read (EOPNOTSUPP) while the cgroup holds live threads, and the file is
 #                            permission-readable, so `-r` does NOT catch it. cgroup.threads is
 #                            readable in EVERY cgroup including those, so it is the corroborating
@@ -698,7 +698,7 @@ unit_working_directory() {
     # Strip systemd's "missing is ok" marker. THE D-BUS PROPERTY RENDERS IT `!`, which is what
     # `show` returns and therefore the only spelling this function actually meets; `-` is the
     # unit-file spelling of the same flag and is stripped too, so neither rendering reaches the
-    # comparison below. (Observed: dbus-broker.service reports `WorkingDirectory=!/home/<user>`.)
+    # comparison. (Observed: dbus-broker.service reports `WorkingDirectory=!/home/<user>`.)
     if [[ "${raw}" == '!'* || "${raw}" == '-'* ]]; then raw="${raw:1}"; fi
     # ONLY AN ABSOLUTE PATH IS A RESULT; anything else yields an empty value and the session reads as
     # `unknown`. Attribution does not decide any part of the sweep here, so this is not a gate -- it is what keeps a value
@@ -913,7 +913,7 @@ main() {
     fi
 
     # The two counts are reported separately everywhere, never summed into one "session" figure.
-    # See the classification block above for why, and for why the split is advisory.
+    # See the classification block for why, and for why the split is advisory.
     #
     # Two wordings, because "go with them" has no antecedent when no agent session was found -- the
     # shape a RERUN always takes, the manager having been restarted by the run before it.
@@ -998,7 +998,7 @@ main() {
     done
 
     # ONE FINAL SWEEP OF THE WHOLE SLICE, after every session has been dealt with individually.
-    # Each cgroup above was verified empty on its own, which leaves one theoretical gap: a process
+    # Each cgroup was verified empty on its own, which leaves one theoretical gap: a process
     # that moved between two selected cgroups during the run would be verified gone from the one it
     # left and never looked for in the one it joined. Migration needs write access to the
     # destination's cgroup.procs, which the confined session does not have -- so this closes a gap

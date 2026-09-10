@@ -1,10 +1,10 @@
 ---
 name: ai-tools-capable-systems-governance
-# ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the name above is stable.
+# ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the frontmatter name is stable.
 x-ai-tools-managed: true
 x-ai-tools-status: draft
-x-ai-tools-version: 2
-x-ai-tools-updated: 2026-08-25
+x-ai-tools-version: 3
+x-ai-tools-updated: 2026-09-10
 description: "Use when designing, building, reviewing, or operating a system that acts with autonomy — an agent with tool access, a delegating or multi-agent system, anything holding credentials, spending, writing to external systems, persisting across sessions, or running unattended — and when writing the governance, oversight, or safety model for one. Sets the three-layer model: technical constraints limit what a system can do, monitoring planes detect what it is doing, operational doctrine defines what humans do when a threshold is crossed — bound by the rule that a control the system can decline is not a control. Covers least authority, asymmetric corrigibility, fail-closed-in-one-direction, authority that does not amplify through delegation, reversibility gates, audit before exotic telemetry, and a drilled escalation ladder; scales by blast radius, so a bounded tool gets a credential scope and an audit log rather than a monitoring plane. Governs the agent's own conduct in the sandbox too. For general design judgment defer to ai-tools-engineering-principles. Trigger on 'design an agent', 'give it tool/API access', 'it needs credentials', 'multi-agent', 'run unattended', 'kill switch', 'is this agentic system safe', or 'oversight/governance model'."
 ---
 
@@ -20,7 +20,7 @@ None is sufficient alone: technical controls fail, monitoring misses events, pro
 The layers must be independent, or one failure takes out two layers at once.
 
 One rule binds them: **a control the system can decline, disable, or route around is not a control.**
-Everything below is an application of it.
+Every duty in the three layers is an application of it.
 
 Full normative text, with the clause-level obligations and the term definitions:
 `references/framework.md` — **framework v0.1, draft**, whose clause numbering is provisional: apply
@@ -61,7 +61,7 @@ system "shall not" exhibit has specified a preference, not a control.
 
 ## Layer 1 — Technical constraints
 
-Each duty below states the design obligation, then the form that is actually enforced.
+Each duty states the design obligation, then the form that is actually enforced.
 
 1. **Least authority by construction.** The system gets the narrowest credential, scope, and reach
    that does the job. Nothing else in this document survives an admin token.
@@ -122,7 +122,7 @@ Build in this order — the first row pays for itself on day one, the last is re
 | **Process + behavioral** | process trees, syscalls, file and storage access, cross-instance interaction | host agent, audit subsystem, container runtime events; canary workloads and probes |
 | **Network** | volume, connection graph, protocol use, request rates, timing distributions | flow logs, egress proxy, classical anomaly detection |
 | **Host + hardware** | compute accounting outside the system's trust boundary | cgroup/GPU accounting, hypervisor telemetry, TPM and measured boot |
-| **Independent observers** | everything the above shares a blind spot about | a different model family, classical ML, security tooling, human analysts, external auditors |
+| **Independent observers** | everything the other planes share a blind spot about | a different model family, classical ML, security tooling, human analysts, external auditors |
 
 - **Classical methods first.** Statistics and rules before an LLM analyst: an LLM shares blind spots
   with the system it analyzes and is itself injectable through the data it reads. Use it to
@@ -135,8 +135,8 @@ Build in this order — the first row pays for itself on day one, the last is re
   built from the same components as the system inherits its errors.
 - **Rotate deliberately.** Rotating a monitor discards its baseline. Vary schedules and probes; keep
   the history.
-- **Detection without a wired action is decoration.** Every alert names its rung on the ladder below
-  and its owner. Side channels — power, thermal, memory-access — are high false-positive research
+- **Detection without a wired action is decoration.** Every alert names its rung on the escalation
+  ladder ([Layer 3 — Operational doctrine](#layer-3--operational-doctrine)) and its owner. Side channels — power, thermal, memory-access — are high false-positive research
   work; nobody should build them while the audit log is still missing.
 
 ## Layer 3 — Operational doctrine

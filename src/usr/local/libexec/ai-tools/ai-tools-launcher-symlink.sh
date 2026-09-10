@@ -72,7 +72,7 @@ done < <(ai_tools_enabled_agents 2>/dev/null)
 [[ -d "${BIN_DIR}" ]] || err "${BIN_DIR} missing"
 
 # Idempotency guard. The repoint is also the sole trigger for the ai-tools-relabel.path watcher
-# (the rename below changes an entry in the watched bin directory), so skipping it when no change
+# (the rename changes an entry in the watched bin directory), so skipping it when no change
 # changed must not skip a pending relabel: entrypoint_relabel_pending reports whether the binary
 # the link resolves to still needs its ai_tools_exec_t label -- true for a freshly (re)minted
 # entrypoint, including a same-version reinstall. Any uncertainty answers "pending", so the
@@ -94,7 +94,7 @@ entrypoint_relabel_pending() {
 
 # Skip the repoint only when the stable link already points at TARGET AND no relabel is
 # pending: no work to do, so the daily no-op timer run stops churning the symlink and the
-# log. Otherwise fall through to the atomic repoint below.
+# log. Otherwise fall through to the atomic repoint.
 if [[ "$(readlink -- "${LINK}" 2>/dev/null || true)" == "${TARGET}" ]] \
    && ! entrypoint_relabel_pending; then
     ai_tools_log_debug "already current: ${LINK} -> ${TARGET} (entrypoint labelled; no repoint)"
@@ -114,7 +114,7 @@ printf 'ai-tools-launcher-symlink: %s -> %s\n' "${LINK}" "${TARGET}"
 
 # This helper does NOT relabel the new entrypoint: it runs in ai_tools_handback_t, which is granted
 # no relabel rights by design (ai_tools.te), so the privilege stays off the agent-reachable
-# domain. The rename above instead trips the root-side ai-tools-relabel.path watcher, which
+# domain. The rename instead trips the root-side ai-tools-relabel.path watcher, which
 # watches the bin DIRECTORY and so fires for whichever agent's link moved; `ai-tools-admin system entrypoints relabel`
 # is the on-demand path. A label still wrong at launch makes ai-tools-run fail closed.
 # See .claude/rules/updater.rule.md.

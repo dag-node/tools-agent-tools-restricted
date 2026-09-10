@@ -40,7 +40,7 @@ AI_TOOLS_SKIP_PACKAGE_DIRS=(node_modules .venv packages)   # restorable dependen
 # bin/ is a regular source directory in many codebases (not a .NET build dir). On a large
 # project where walking real build output is a performance issue, skip it per host --
 # candidates: SKIP_ARTIFACT_DIRS="bin obj" (.NET), "target" (Rust/Maven), "dist build"
-# (JS bundlers) -- and exempt any same-named source dir via the relative exclusions below.
+# (JS bundlers) -- and exempt any same-named source dir via the relative exclusions.
 # This list is a walk-cost setting only. The SELinux build-output type an integration maps
 # onto its build-output directories (build_output_dirs in its manifest, applied by
 # relabel.lib.sh) is a separate mechanism with its own name set, and neither reads the other.
@@ -80,7 +80,7 @@ if source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
 fi
 
 # ai_tools_skip_find_expr <consumer> [skip_git] [root]
-# Build the skip set for a consumer from the LIB-OWNED per-consumer defaults below, and
+# Build the skip set for a consumer from the LIB-OWNED per-consumer defaults, and
 # expose it two ways: AI_TOOLS_SKIP_NAMES (the flat directory-name list) and
 # AI_TOOLS_SKIP_FIND_EXPR (a find fragment "( -type d ( -name a -o -name b ) ) -prune -o",
 # empty when no directory is skipped). Splice the fragment into a find between the start dir and

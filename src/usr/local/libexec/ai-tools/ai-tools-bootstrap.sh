@@ -19,7 +19,7 @@
 # Run as root (it creates a user and execs npm as @SANDBOX_USER@) through the command that reaches
 # it, which is what an administrator types:
 #       sudo ai-tools-admin system bootstrap
-# ai-tools-admin execs it at the path below; it does not have a name on PATH of its own.
+# ai-tools-admin execs it at its installed path; it does not have a name on PATH of its own.
 # nvm defaults to its latest GitHub release (resolved at run time, so it does not rot); set
 # AI_TOOLS_NVM_VERSION=vX.Y.Z to pin it, or AI_TOOLS_NODE_MAJOR to choose the Node line.
 #
@@ -77,7 +77,7 @@ configure_git_identity() {
     [[ -f "${gc}" ]] \
         || { log "git identity: ${gc} not present yet -- install the control plane, then re-run to set it"; return 0; }
 
-    # The control plane is present (gitconfig above), so its msg.lib is deployed too; require it
+    # The control plane is present (the gitconfig check), so its msg.lib is deployed too; require it
     # like every other prompting consumer -- a missing lib is a broken install, not a skip.
     local msglib=/usr/local/lib/ai-tools/msg.lib.sh
     [[ -r "${msglib}" ]] || die "control plane present but ${msglib} missing -- reinstall ai-tools"
@@ -111,7 +111,7 @@ configure_git_identity() {
     else
         # No operator identity to adopt: keep-or-edit only; option 1 is the default.
         sel="$(ai_tools_msg_pick 1 "Keep the current identity" "Edit ${gc} by hand")"
-        # Shift so the branches below read the same in both shapes (1=adopt, 2=keep, 3=edit).
+        # Shift so the case arms read the same in both shapes (1=adopt, 2=keep, 3=edit).
         (( sel += 1 ))
     fi
 
@@ -194,7 +194,7 @@ seed_managed_assets_step() {
 [[ "${EUID}" -eq 0 ]] || die "run as root (sudo)"
 command -v curl >/dev/null 2>&1 || die "curl is required to fetch nvm"
 
-# Run from a neutral, world-traversable directory. The sudo -u ${SANDBOX_USER} steps below
+# Run from a neutral, world-traversable directory. The sudo -u ${SANDBOX_USER} steps
 # inherit this process's CWD; invoked from an operator's private dir (e.g. ~/Downloads, mode
 # 0700) the sandbox account cannot traverse back into it, so nvm/npm's internal `find` warns
 # "Failed to restore initial working directory". No step here depends on CWD (every path is
@@ -221,7 +221,7 @@ fi
 # through group ai-tools; the o+x search bit lets an operator readlink the launcher. The agent
 # cannot create entries in this dir, so the agent-owned subtrees it must write are pre-created
 # here, as root, and chowned to the account: .nvm holds the toolchain, .cache the
-# NODE_COMPILE_CACHE, .npm the npm cache, .local XDG state. nvm/npm below then write only within
+# NODE_COMPILE_CACHE, .npm the npm cache, .local XDG state. nvm/npm then write only within
 # these, never the home root.
 install -d "${SANDBOX_HOME}"
 chown "root:${SANDBOX_GROUP}" "${SANDBOX_HOME}"

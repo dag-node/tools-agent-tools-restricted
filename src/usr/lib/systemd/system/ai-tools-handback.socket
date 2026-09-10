@@ -48,14 +48,14 @@ Accept=yes
 # Cap simultaneous connections from SANDBOX_USER.  Each accepted connection
 # spawns a handler process and a helper subprocess (both as root); without a
 # limit a flood of connections is an unbounded-process-count DoS.  20 is well
-# above the expected hook concurrency (one PostToolUse + one Stop per turn).
+# past the expected hook concurrency (one PostToolUse + one Stop per turn).
 MaxConnections=20
 # Trigger rate limit made explicit.  An Accept=yes socket that is triggered more
 # than TriggerLimitBurst times within TriggerLimitIntervalSec is DISABLED until a
 # manual `systemctl restart`.  Tripping it is fail-SAFE (the bridge stops, no
 # privileged action runs, the agent's files simply stay SANDBOX_USER-owned and the
 # hooks no-op via `|| true`) -- but it would still halt all handback, so the burst
-# is set comfortably above any legitimate session's hook rate while still bounding
+# is set comfortably past any legitimate session's hook rate while still bounding
 # a flood.  Raise TriggerLimitBurst if a heavy interactive session ever trips it.
 TriggerLimitIntervalSec=10s
 TriggerLimitBurst=200
@@ -69,7 +69,7 @@ RuntimeDirectory=ai-tools
 # is made world-TRAVERSABLE (--x) but not listable: any uid can resolve the socket
 # name to connect(), nobody but root can enumerate the directory, and the actual
 # access gate is unchanged -- the socket file itself is 0660 root:@SANDBOX_GROUP@
-# (SocketMode/SocketGroup above) plus the daemon's SO_PEERCRED uid check.  A
+# (SocketMode/SocketGroup) plus the daemon's SO_PEERCRED uid check.  A
 # non-@SANDBOX_GROUP@ uid that traverses in still gets EACCES on connect().  This is
 # the standard pattern for a group-gated runtime socket on pre-256 systemd.
 RuntimeDirectoryMode=0711

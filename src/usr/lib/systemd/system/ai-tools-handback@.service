@@ -32,7 +32,7 @@ NoNewPrivileges=yes
 # Drop all capabilities except the narrow set the root helpers need.
 # Without this the handler inherits the full root capability set; if a future
 # Python CVE or a crafted helper stderr were exploitable, what it reached would be
-# full root rather than the four filesystem capabilities below.  This set is
+# full root rather than the four filesystem capabilities it keeps.  This set is
 # deliberately kept identical to the SELinux grant for ai_tools_handback_t
 # (self:capability { chown fowner fsetid dac_override } in ai_tools.te), so the two
 # layers agree.

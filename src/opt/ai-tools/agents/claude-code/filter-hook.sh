@@ -81,7 +81,7 @@ post-tool-use)
         elif (.tool_response | type) == "string" then "string"
         else "none" end' <<< "${hook_input}" 2>/dev/null)" || exit 0
 
-    # Command substitution strips trailing newlines, so every capture below carries an `x`
+    # Command substitution strips trailing newlines, so every capture here carries an `x`
     # sentinel appended inside the substitution and removed after: a filtered value must differ
     # from the raw one only by the noise removed, never by a lost final newline. jq -j prints the
     # string without adding a newline of its own, which is what makes the raw capture exact.

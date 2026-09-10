@@ -37,7 +37,7 @@ if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
     printf 'ai-tools: providers.lib.sh: conf.lib.sh missing or incomplete -- no providers resolved\n' >&2
     return 1
 fi
-# Logging is best-effort here (the refusals below also go to stderr for the operator at the
+# Logging is best-effort here (the refusals also go to stderr for the operator at the
 # terminal); journald is where a tamper signal is durable. Mirrors msg.lib.sh's optional load.
 # shellcheck source=SCRIPTDIR/log.lib.sh
 source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || true
@@ -92,7 +92,7 @@ ai_tools_agent_sweeps_at_exit() {
 #   "allowlist" (operator.conf names the key, so its value is the exact enabled set), "baseline"
 #   (it does not, so default_enable governs), or "untrusted" (operator.conf exists but fails the
 #   trust predicate, so it is ignored and the baseline applies). Read-only and side-effect free:
-#   the resolvers below and any caller REPORTING the gating both read it, so what an operator is
+#   the resolvers and any caller REPORTING the gating both read it, so what an operator is
 #   told matches what a session gets.
 ai_tools_provider_gate() {
     local conf_key="$1"
@@ -243,7 +243,7 @@ ai_tools_agents_empty_verdict() {
 
 # _ai_tools_manifest_field <manifest-dir> <name> <key> : print one field of a trusted manifest in
 #   <manifest-dir>, empty (and non-zero) when the manifest is absent or untrusted or the key is not
-#   there. Shared by the two public readers below so both allowlist the name the same way and both
+#   there. Shared by the two public readers so both allowlist the name the same way and both
 #   apply the trust predicate before reading.
 _ai_tools_manifest_field() {
     local manifest_dir="$1" provider_name="$2" wanted_key="$3"

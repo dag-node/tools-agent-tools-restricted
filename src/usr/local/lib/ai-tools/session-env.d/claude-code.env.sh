@@ -71,7 +71,7 @@ fi
 # half only the sandbox account can do -- read it and refuse the launch when it is not plain text,
 # since its bytes go to the model verbatim. A per-invocation prompt flag is not visible here, so a
 # configured prompt must be text whether or not this launch overrides it. Same clean fail-closed
-# as the endpoint above: sourced before the unit exists. See claude-prompt.lib.sh.
+# as the endpoint resolution: sourced before the unit exists. See claude-prompt.lib.sh.
 # shellcheck source=/dev/null
 if source /usr/local/lib/ai-tools/claude-prompt.lib.sh 2>/dev/null \
         && declare -F ai_tools_claude_prompt_content_is_text >/dev/null 2>&1; then

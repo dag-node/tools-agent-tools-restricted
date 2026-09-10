@@ -102,7 +102,7 @@ source /usr/local/lib/ai-tools/conf.lib.sh
 # Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like
 # safe-paths.lib.sh: the bare source under set -e aborts if it is missing -- a valid
 # install ships it, so there is no fallback. Include-guarded, so this is a no-op when
-# safe-paths.lib.sh above already loaded it.
+# safe-paths.lib.sh already loaded it.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
 source /usr/local/lib/ai-tools/msg.lib.sh
 # Fixed 80-column frame for any box this helper renders, aligned with the CLI's.
@@ -130,7 +130,7 @@ canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
 ai_tools_assert_safe_target "${canonical}" "ownership handback" || exit 3
 
 # Resolve the operator that owns this path (operator.lib.sh); no owner -> leave it untouched.
-# The two owners the branches below choose between: OWNER is the shared group an ordinary file
+# The two owners the branches choose between: OWNER is the shared group an ordinary file
 # returns to, SECRET_OWNER the operator's own private group a quarantined secret goes to. What
 # each one grants and what it deliberately leaves the agent is in secret-handling.rule.md.
 ai_tools_resolve_owner "${canonical}" || exit 0
@@ -206,7 +206,7 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             # The agent-written guard: act only on a path currently ai-tools-owned.
             # What that ownership signals and what an unowned path is spared are in
             # ownership-and-hooks.rule.md. The owner is read from the path string
-            # here, which the pinned-inode re-check below makes race-safe: moving an
+            # here, which the pinned-inode re-check makes race-safe: moving an
             # ai-tools-owned inode's user field takes root, which the agent lacks.
             [[ "${current_owner%%:*}" == "@SANDBOX_USER@" ]] || exit 0
 
@@ -214,7 +214,7 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             # ordinary file split on OWNER-execute -- the only exec bit git records.
             # What each target hands back and why is in ownership-and-hooks.rule.md
             # (directories and ordinary files) and secret-handling.rule.md (secrets);
-            # new_mode mirrors each chmod arithmetically for the report below.
+            # new_mode mirrors each chmod arithmetically for the report.
             if ${is_dir}; then
                 target_owner="${OWNER}"
                 chmod_arg="g+rwx,o="
@@ -255,7 +255,7 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
                 ai_tools_msg_confirm "Apply?" y || exit 0
             fi
 
-            # TOCTOU-safe apply. Every check above ran against the path *string*,
+            # TOCTOU-safe apply. Every check so far ran against the path *string*,
             # but ai-tools owns the project directory and can unlink and recreate
             # this path -- as a symlink, a hardlink, or a different file -- at any
             # instant. chmod has no --no-dereference, so a symlink swapped in
@@ -264,11 +264,11 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             # Pin the inode with an open fd and act through /proc/self/fd: a held
             # fd cannot be redirected by a later path swap. open() does follow a
             # symlink swapped in just before it, so after opening we re-verify the
-            # fd resolves to the SAME inode validated above, still a regular file,
+            # fd resolves to the SAME inode already validated, still a regular file,
             # still link count 1. Any mismatch means a race -- bail.
             # NB: brace-group the redirection. A bare `exec {fd}< file 2>/dev/null`
             # applies 2>/dev/null to the SHELL permanently (exec with no command),
-            # which would swallow the secret-file NOTICE emitted on stderr below.
+            # which would swallow the secret-file NOTICE emitted on stderr.
             # The group scopes 2>/dev/null to just the open; fd2 is restored after.
             { exec {fd}< "${canonical}"; } 2>/dev/null || exit 0
             read -r got_ident got_nlink got_ftype \
@@ -287,7 +287,7 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
                 exit 0
             fi
             # chown/chmod follow the /proc magic symlink to the pinned inode, so both
-            # act on the descriptor the checks above validated rather than on the name.
+            # act on the descriptor those checks validated rather than on the name.
             /usr/bin/chown -- "${target_owner}" "/proc/self/fd/${fd}"
             /usr/bin/chmod -- "${chmod_arg}"    "/proc/self/fd/${fd}"
             # A quarantined secret is owner-only now, so strip the residue the mode only masks:
@@ -297,7 +297,7 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             # Every value handed to the strip is read from the PINNED inode, ${got_ftype}
             # included: the strip acts through that descriptor, so what describes it comes
             # from it. The pre-open ${ftype} is a second read of a path that may since have
-            # been swapped, which the type check above keeps equal to this one.
+            # been swapped, which the pinned-fd type check keeps equal to this one.
             if ${is_secret} \
                     && read -r sec_grp sec_mode \
                         < <(stat -L -c '%G %a' "/proc/self/fd/${fd}" 2>/dev/null); then

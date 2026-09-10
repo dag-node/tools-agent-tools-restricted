@@ -13,14 +13,14 @@
 # 700 .config/ai-tools dir -- can neither read nor write it; the root helpers read it on the
 # user's behalf.
 # This mirrors how allowed-projects is owned and consumed. A config file REPLACES the
-# defaults rather than adding to them, and the defaults below apply when it is absent or
+# defaults rather than adding to them, and these defaults apply when it is absent or
 # parses to an empty set, so classification never silently degrades to an empty pattern set.
 #
-# Do not edit the defaults below on a deployed host. The file is rpm-owned and not %config,
+# Do not edit these defaults on a deployed host. The file is rpm-owned and not %config,
 # so an upgrade overwrites it and a local edit is lost without a .rpmsave copy. The list is
 # the PUBLIC baseline -- the names credential files carry across software in general -- and
 # does not hold any name specific to one deployment. A change belongs in one of two other
-# places: a project- or organization-specific name goes in the operator's 600 config above,
+# places: a project- or organization-specific name goes in the operator's 600 config,
 # and a name missing from the general baseline goes upstream as a pull request. The baseline
 # is incomplete by construction, since it tracks conventions that keep appearing.
 #
@@ -29,7 +29,7 @@
 # case-insensitively (.ENV, Server.KEY, ID_RSA, …).
 
 # Sourced more than once in a single shell (e.g. a helper that re-sources): the
-# readonly declarations below would abort under set -e on the second pass. Return
+# readonly declarations would abort under set -e on the second pass. Return
 # early. Use an if-statement, not `[[ ]] && return` -- the latter returns 1 when
 # the guard var is unset and trips the sourcing shell's set -e.
 if [[ -n "${_AI_TOOLS_SECRET_PATTERNS_LIB:-}" ]]; then

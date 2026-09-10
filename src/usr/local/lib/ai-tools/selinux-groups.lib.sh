@@ -5,7 +5,7 @@
 # its operator-facing description, the reason it is off by default, and its stability.
 # Sourced by the source-tree authoring tool (selinux/install-selinux.sh, which COMPILES a
 # group from its .te/.fc), by the installed operator helper (ai-tools-admin selinux, which
-# LOADS a compiled .pp from the package directory below), and by selinux/policy/shipped-modules.sh
+# LOADS a compiled .pp from the package directory), and by selinux/policy/shipped-modules.sh
 # (which derives the set a release ships from the stability field), so none of them drifts
 # on which groups exist or what they mean. Read-only data plus pure predicates -- no I/O and
 # no root operation of its own; the caller owns semodule/make. Include-guarded, so a double
@@ -39,7 +39,7 @@ readonly AI_TOOLS_SELINUX_PACKAGE_DIR="/usr/share/selinux/packages/ai-tools"
 # has been exercised against the workload it serves on an enforcing host; it is on the
 # shipped set and loads from that command directly. Add a group as 'experimental' until
 # an audit earns it 'stable'.
-# shellcheck disable=SC2034  # iterated by consumers via the accessors below
+# shellcheck disable=SC2034  # iterated by consumers via this library's accessors
 readonly AI_TOOLS_SELINUX_GROUPS=(
     "systemd|System inspection (systemctl, journalctl, unit files)|systemctl is labelled systemd_systemctl_exec_t; ai_tools_t needs execute + D-Bus access to query PID 1. journalctl is journalctl_exec_t.|experimental"
     "pkgmgmt|Package management (rpm, dnf, RPM database)|/usr/bin/rpm is labelled rpm_exec_t (not bin_t); the RPM database is rpm_var_lib_t. Both need explicit allow rules. dnf is bin_t (already executable) but also reads rpm_var_lib_t.|experimental"
@@ -59,7 +59,7 @@ readonly AI_TOOLS_SELINUX_GROUPS=(
 # upgrade neither breaks the workload the old group served nor leaves the old grant in place
 # once the operator runs anything that loads policy. An entry is dropped once no supported host
 # can still carry the old module.
-# shellcheck disable=SC2034  # iterated through the accessors below
+# shellcheck disable=SC2034  # iterated through this library's accessors
 readonly AI_TOOLS_SELINUX_GROUP_FORMER_MODULES=(
     "localipc|ai_tools_netcore"
     "buildexec|ai_tools_netcore"

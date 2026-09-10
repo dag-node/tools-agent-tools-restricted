@@ -10,7 +10,7 @@
 #
 # It does not invent a detection, nor parse per-case wording. The root-only file sink already
 # encodes severity in its line format (`<ts> <LEVEL> [<pid>] <msg>`, written by log.lib.sh and,
-# in the same format, by the handback daemon), so a finding is simply a line at NOTICE or above.
+# in the same format, by the handback daemon), so a finding is simply a line at NOTICE or higher.
 # That is what keeps this from drifting: a helper that adds a new warning is reported here the
 # day it ships, with no pattern to update.
 #
@@ -154,7 +154,7 @@ collect_launch_refusals() {
 # Findings are grouped by their message with digit runs replaced by `#`, so occurrences that
 # differ only in a pid, a count, or a timestamp collapse into one line carrying the number of
 # times it happened and the most recent example in full. No occurrence is hidden -- the count states
-# what was folded, and the underlying files are named above.
+# what was folded, and the underlying files are named with it.
 #
 # Ordering is by severity first and recency second, because those are the two questions actually
 # being asked: what is worst, and is it still happening.

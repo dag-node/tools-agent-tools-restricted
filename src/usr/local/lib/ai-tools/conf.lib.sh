@@ -22,7 +22,7 @@
 # reads as a nobody-owned one and is refused. ai_tools_conf_uid_map_is_identity detects that
 # namespace and the reason names it, so the refusal is not investigated as a mode or a label.
 
-# Sourced more than once in a single shell: the readonly below would abort under set -e on the
+# Sourced more than once in a single shell: this library's readonly constants would abort under set -e on the
 # second pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for an unset
 # guard and trips the sourcing shell's set -e).
 if [[ -n "${_AI_TOOLS_CONF_LIB:-}" ]]; then
@@ -32,7 +32,7 @@ readonly _AI_TOOLS_CONF_LIB=1
 
 # ai_tools_conf_is_text_file <path> : succeed when <path> is a regular file that is empty or holds
 #   text -- no NUL bytes, which is what `grep -I` reports a binary file by. For a file whose whole
-#   content is handed to a program as prose (an agent's system prompt): the trust predicate below
+#   content is handed to a program as prose (an agent's system prompt): the trust predicate
 #   says who may have written it, this says the bytes are the kind the reader expects. It READS the
 #   file, so the caller is an account that may.
 ai_tools_conf_is_text_file() {
@@ -287,8 +287,8 @@ ai_tools_conf_reference() {
 
 # ai_tools_conf_require_jq : succeed when jq is callable. jq is a package dependency, so its
 #   absence is a broken install rather than a host variation -- this reports and fails instead of
-#   degrading, and callers of the JSON paths below gate on it. Deliberately NOT checked when this
-#   library is sourced: the KEY=value grammar above does not need jq, and this file is sourced on every
+#   degrading, and callers of the JSON paths gate on it. Deliberately NOT checked when this
+#   library is sourced: the KEY=value grammar does not need jq, and this file is sourced on every
 #   launch (by ai-tools-run, as the sandbox account) and by every root helper, so a source-time
 #   failure would stop a session for a reason unrelated to what it asked for.
 ai_tools_conf_require_jq() {
@@ -323,7 +323,7 @@ readonly _AI_TOOLS_CONF_HOOKS_MISSING_FILTER='
 
 # Append whole matcher groups whose commands are absent, so a group arrives with its matcher
 # intact; a group already fully declared is left alone.
-# shellcheck disable=SC2016  # jq variables, as above
+# shellcheck disable=SC2016  # jq variables, as in the merge program
 readonly _AI_TOOLS_CONF_HOOKS_MERGE_FILTER='
     ($shipped[0].hooks // {}) as $ship
     | reduce ($ship | to_entries[]) as $event (
@@ -380,7 +380,7 @@ ai_tools_conf_merge_hook_declarations() {
     fi
 
     # Keep what the operator had before replacing it: this is the only copy that restores host
-    # tuning if a merge is valid JSON yet wrong, which the check above cannot catch.
+    # tuning if a merge is valid JSON yet wrong, which the JSON check cannot catch.
     _ai_tools_conf_merge_backup="$(ai_tools_conf_backup "${deployed}")" || true
     _ai_tools_conf_match_perms "${tmp}" "${deployed}"
     mv -f "${tmp}" "${deployed}" || { rm -f "${tmp}"; _refuse "the merged file could not be moved into place"; return 2; }
@@ -409,7 +409,7 @@ ai_tools_conf_merge_hook_declarations() {
 #   whether the key is live or written as a commented-out default (`#KEY=` / `# KEY =`). Both
 #   forms count as "mentioned", which is the point: a key an operator has deliberately commented
 #   out is one they have already seen, so re-announcing it every upgrade would be noise. A comment
-#   indented further than one space is prose, not a default, and does not name an option (below).
+#   indented further than one space is prose, not a default, and does not name an option.
 ai_tools_conf_keys() {
     local -n _ai_tools_conf_keys_out="$1"
     local file="$2" line key
@@ -499,7 +499,7 @@ ai_tools_conf_path_entry() {
 # ── Allowlist membership (exact-entry matching) ──────────────────────────────────────────────
 # One predicate for "is this path an entry of allowed-projects", shared by every component that
 # asks: the launch wrapper's post-claim confirm, the claim/unclaim CLI (reg/unreg, project_state),
-# and the relabel helper. They read the file through the grammar above, so an entry written in
+# and the relabel helper. They read the file through that grammar, so an entry written in
 # that grammar -- an end-of-line comment (`/p   # why`), a quoted path (`"/p with space"`), or a
 # spelling reached by a symlink or trailing slash -- is a MATCH here, where a raw `grep -qxF`
 # against the stored line would miss it and report the project unlisted. Comparison is on
@@ -561,7 +561,7 @@ ai_tools_conf_allowlist_matching_lines() {
 }
 
 # ai_tools_conf_allowlist_exclusion_lines <array-name> <allowlist-file> <path> : the exclusion
-#   counterpart of the matcher above -- set the named array to every RAW line whose `!` entry names
+#   counterpart of the allow matcher -- set the named array to every RAW line whose `!` entry names
 #   <path> exactly (compared without the `!`), and return 0 when at least one did. Exact-path like
 #   ai_tools_conf_allowlist_has_exclusion, never glob-expanding: it serves the callers that must
 #   EDIT the line an operator wrote to park a project (the CLI's re-enable, its de-registration,
@@ -584,12 +584,12 @@ ai_tools_conf_allowlist_exclusion_lines() {
 # An allowed-projects line has four states to move between -- absent, listed, disabled (a `!`
 # exclusion parks it), and gone -- and three components change one: the CLI on the operator's own
 # file, ai-tools-allowlist on another operator's (a `--for` run), and install.sh de-registering its
-# own checkout. All three write through the functions below, so one matcher decides what a line
+# own checkout. All three write through these functions, so one matcher decides what a line
 # names for every writer and every reader. The file is the agent's LAUNCH GATE: a writer that
 # matched lines differently from the reader would leave a project reachable after a "removal", or
 # park it twice over.
 #
-# Every function below is idempotent, verifies by RE-READING the file rather than trusting a write,
+# Every one of them is idempotent, verifies by RE-READING the file rather than trusting a write,
 # and reports three outcomes apart:
 #   0  the file now holds the intended state (including "it already did")
 #   1  the edit could not be applied -- the file is missing or could not be written
@@ -647,7 +647,7 @@ ai_tools_conf_allowlist_add() {
     # A hand-edited registry can run to EOF part-way through its last line, and every reader here
     # keeps that entry (the read loops take a final unbroken line). So the append opens a new line
     # first: written straight, it would join the two paths into a third that no project matches,
-    # dropping the claimed one from the launch gate while the entry above it changed meaning.
+    # dropping the claimed one from the launch gate while the preceding entry changed meaning.
     [[ -n "$(tail -c 1 -- "${file}" 2>/dev/null)" ]] && line_break=$'\n'
     printf '%s%s\n' "${line_break}" "${path}" >> "${file}" 2>/dev/null || return 1
     ai_tools_conf_allowlist_has_entry "${file}" "${path}" || return 1
@@ -681,7 +681,7 @@ ai_tools_conf_allowlist_remove() {
 }
 
 # _ai_tools_conf_allowlist_retag <allowlist-file> <path> <disable|enable> : the shared line rewrite
-#   behind the two verbs below. It edits the line the operator wrote IN PLACE -- the `!` goes on or
+#   behind the two verbs. It edits the line the operator wrote IN PLACE -- the `!` goes on or
 #   comes off, and the line keeps its position, its indentation and its comment -- so parking a
 #   project and restoring it leaves the file as it was, rather than moving the entry to the end.
 _ai_tools_conf_allowlist_retag() {

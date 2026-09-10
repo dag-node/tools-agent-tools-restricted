@@ -16,7 +16,7 @@
 # (.nvm/.cache/.local/.npm) stay agent-owned and .git is root-private 0700, so they are not
 # described here.
 
-# Sourced more than once in a single shell: the readonly below would abort under set -e on the
+# Sourced more than once in a single shell: this library's readonly constants would abort under set -e on the
 # second pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for an unset
 # guard and trips the sourcing shell's set -e).
 if [[ -n "${_AI_TOOLS_CONTROL_PLANE_LIB:-}" ]]; then
@@ -24,10 +24,10 @@ if [[ -n "${_AI_TOOLS_CONTROL_PLANE_LIB:-}" ]]; then
 fi
 readonly _AI_TOOLS_CONTROL_PLANE_LIB=1
 
-# Control-plane home root. The boundary modes below apply to it and its sub-directories.
+# Control-plane home root. The boundary modes apply to it and its sub-directories.
 readonly CP_HOME=/opt/ai-tools
 
-# Boundary modes (every path is owned root:ai-tools). Each mode is the constant below; what it
+# Boundary modes (every path is owned root:ai-tools). Each mode is its own constant; what it
 # grants:
 #   CP_HOME_MODE   home root: the agent (group) traverses+reads, setgid keeps files born here in
 #                  the sandbox group, and the o+x search bit lets any operator readlink the
@@ -64,7 +64,7 @@ readonly CP_SHARED_ORIENTATION="${CP_HOME}/orientation"
 readonly CP_INTEGRATIONS="${CP_HOME}/integrations"
 
 # Which agents are installed and enabled, and what each declares, comes from the provider
-# manifests. Loaded best-effort: without it the resolver below yields an empty set, so a caller
+# manifests. Loaded best-effort: without it the agent resolvers yield an empty set, so a caller
 # does not assert any agent config directory rather than guessing a path.
 # shellcheck source=SCRIPTDIR/providers.lib.sh
 source "${BASH_SOURCE[0]%/*}/providers.lib.sh" 2>/dev/null || true
