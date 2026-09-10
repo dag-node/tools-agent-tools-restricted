@@ -25,7 +25,7 @@
 # denied step fails for real; the assertions tally it and the run continues, so the
 # summary reports which accesses the policy is missing.
 
-set -uo pipefail   # NOT -e: several steps below are EXPECTED to fail (denied
+set -uo pipefail   # NOT -e: several of this script's steps are EXPECTED to fail (denied
                    # connects, missing tools); we never want that to abort the run.
 IFS=$'\n\t'
 
@@ -228,7 +228,7 @@ note "git exercise done (history stayed inside ${gitrepo})"
 # 5. SECRET QUARANTINE -- drop secret-named files and LEAVE them. The Stop sweep
 #    (session-hook.sh) runs `sudo ai-tools-chown`, which quarantines them to
 #    <you>:<you> 600 and logs a NOTICE -- exercising the sudo->root-helper + secret path.
-#    Left on purpose; the next run's rm -rf above cleans them.
+#    Left on purpose; the next run's rm -rf cleans them.
 ########################################
 step "secret quarantine (.env, *.key left for the Stop sweep)"
 printf 'API_TOKEN=avc-fake-not-a-real-secret\n' > "${SECRETS}/.env"

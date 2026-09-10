@@ -35,7 +35,7 @@ policy_module(ai_tools_apphost, 0.1.0)
 # SECCOMP: memfd_create passes the session's @system-service SystemCallFilter (only
 # namespace syscalls are filtered), so SELinux is the operative gate for this path.
 #
-# The permission set below is a bring-up hypothesis: verify it under permissive against a
+# This module's permission set is a bring-up hypothesis: verify it under permissive against a
 # real executable build and run, then trim it to the observed minimum. The graduation
 # step is scoping the grant to a private memfd type through a tmpfs type_transition
 # rather than the shared tmpfs_t it names today.

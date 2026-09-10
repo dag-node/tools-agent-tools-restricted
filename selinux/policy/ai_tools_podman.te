@@ -13,7 +13,7 @@ policy_module(ai_tools_podman, 0.1.0)
 # that filter re-opens the user-namespace escape the sandbox closes deliberately, which
 # is why this group is not a partial relaxation of it.
 #
-# Its surface is wide beyond the two rules below -- overlayfs mounts, user-namespace
+# Its surface is wide beyond this module's two rules -- overlayfs mounts, user-namespace
 # setup, netns creation, newuidmap/newgidmap -- so a bring-up pass judges each denial a
 # podman run produces on its own merits rather than folding in what audit2allow proposes.
 

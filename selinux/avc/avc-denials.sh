@@ -91,13 +91,13 @@ do_probe() {
   esac
 
   # Safety guard: probing under non-enforcing SELinux is an information-exposure
-  # risk.  In Permissive or Disabled mode the accesses below are NOT blocked -- some
+  # risk.  In Permissive or Disabled mode the probed accesses are NOT blocked -- some
   # probes may SUCCEED, reaching data the policy is meant to protect (/home/<user>,
   # ~/.config, container storage, port :22, the MTA).  Results would also be
   # misleading because "denied/failed" only reflects the absent enforcement, not the
   # policy.  Require Enforcing + loaded module, or an explicit --force override.
   if [[ "${FORCE:-0}" -ne 1 ]]; then
-    # Prerequisite: we already confirmed ai_tools_t context above.  That check
+    # Prerequisite: this script already confirmed the ai_tools_t context.  That check
     # rules out "SELinux not installed" and "SELinux disabled" -- a domain
     # transition into ai_tools_t is impossible without SELinux running and the
     # module loaded.  The only remaining question here is enforcing vs permissive.

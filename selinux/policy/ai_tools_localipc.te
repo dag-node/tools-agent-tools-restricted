@@ -44,7 +44,7 @@ manage_fifo_files_pattern(ai_tools_t, ai_tools_home_t, ai_tools_home_t)
 # a unix stream socket under .local/share, so the runner (ai_tools_t) needs connectto to the
 # host (also ai_tools_t) -- otherwise connect(2) returns EACCES and `dotnet test` fails. The base
 # grants create_stream_socket_perms on self but NOT connectto; the sock_file write a named-socket
-# connect also needs is already covered by the manage rules above.
+# connect also needs is already covered by the base's manage rules.
 allow ai_tools_t self:unix_stream_socket connectto;
 
 # getsid(2): csc and the runtime query their own session id.
@@ -56,6 +56,6 @@ kernel_read_network_state_symlinks(ai_tools_t)
 # TCP connect to a generic (unreserved) port on loopback: the xUnit/VSTest runner and the
 # test host it spawns talk over a TCP socket bound to an ephemeral port, so the runner
 # (ai_tools_t) needs to connect(2) that port -- otherwise it returns EACCES and `dotnet
-# test` fails. Same benign IPC class as the unix-socket connectto above; the sandbox is
+# test` fails. Same benign IPC class as the unix-socket connectto; the sandbox is
 # only reaching its own child, not a new host surface.
 corenet_tcp_connect_generic_port(ai_tools_t)

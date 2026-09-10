@@ -55,7 +55,7 @@ selinux/
                          avc/.avc-last-run
 ```
 
-Filenames below (`ai_tools.te`, `ai_tools.pp`, …) live under `policy/`; the bring-up
+The filenames this page names (`ai_tools.te`, `ai_tools.pp`, …) live under `policy/`; the bring-up
 scripts under `avc/`. `install-selinux.sh` stays at `selinux/` and resolves both.
 
 ## Optional policy groups
@@ -83,7 +83,7 @@ a **layout module** (`ai_tools_dotnet` for .NET): file transitions and file cont
 grant, so it is not a group and loads with the integration rather than by an operator's choice.
 
 Each group is either **stable** or **experimental**, which decides how it ships and which
-command may enable it (below). A group earns `stable` as it is audited, so the current value
+command may enable it. A group earns `stable` as it is audited, so the current value
 is read from the host rather than from this table:
 
 ```bash
