@@ -138,18 +138,21 @@ sandbox_user_mgr_up() { sandbox_systemctl show -p Version --value >/dev/null 2>&
 
 # (3) Toolchain timer: active in the SANDBOX account's own --user instance (not the operator's),
 # where the updater writes the shared .nvm tree directly. The timer is active only while that
-# --user manager runs, and a minimal/container environment can let logind drop the lingering
-# manager across the suite's repeated session open/close -- so bring it up explicitly, then
-# check that the timers.target.wants enablement yields an active timer. This asserts the real
-# guarantee (enablement -> active once the manager runs); on a normal host the manager is
-# already up, so the start is a no-op. If the environment cannot keep the manager reachable at
-# all, the runtime state is untestable here -- skip with a note (the on-disk enablement and
-# `systemd-analyze verify` above already cover correctness; the host/box test is the gate).
+# --user manager runs, and what keeps the manager running with no login is the account's
+# linger, which `ai-tools-admin operators add` enables. This reads that state and does not
+# repair it -- the suite starts and stops nothing on the host, and a manager it had started
+# would either stay up as a change the run made or be stopped along with any session launched
+# meanwhile. So: linger absent is a FAILURE (the enrolment did not take, and ai-tools-run
+# aborts at the bus socket on such a host); linger present with the manager down is the
+# container case, where logind does not sustain the lingering instance across the suite's
+# session open/close, and the runtime state is untestable here -- skip with the start command
+# named (the on-disk enablement and `systemd-analyze verify` above already cover correctness).
 if [[ -z "${SANDBOX_UID}" ]]; then
     skip "nvm-update.timer" "no ${SANDBOX_USER} account"
+elif [[ ! -e "/var/lib/systemd/linger/${SANDBOX_USER}" ]]; then
+    fail "linger is not enabled for ${SANDBOX_USER}, so its --user manager (and nvm-update.timer) does not run without a login -- run: loginctl enable-linger ${SANDBOX_USER}"
 else
-    systemctl start "user@${SANDBOX_UID}.service" 2>/dev/null || true
-    for _i in $(seq 1 20); do sandbox_user_mgr_up && break; sleep 0.5; done
+    pass "linger is enabled for ${SANDBOX_USER} (its --user manager runs without a login)"
     # The manager reaches timers.target (and starts the wants-linked timer) shortly after its
     # bus comes up, so retry briefly rather than reading the state in the same instant.
     _timer_active=""
@@ -161,7 +164,7 @@ else
         pass "nvm-update.timer is active in ${SANDBOX_USER}'s --user instance"
     elif ! sandbox_user_mgr_up; then
         skip "nvm-update.timer is-active" \
-            "${SANDBOX_USER}'s --user manager answers on neither the machine transport nor its own bus (a container where logind does not sustain the lingering instance); enablement verified on disk"
+            "${SANDBOX_USER}'s --user manager is not running despite linger (a container where logind does not sustain the lingering instance); enablement verified on disk. To bring it up by hand: systemctl start user@${SANDBOX_UID}.service"
     else
         # Manager is up but the timer is not active -- a real enablement gap. Dump its view.
         printf '\n--- nvm-update.timer diagnostics ---\n'

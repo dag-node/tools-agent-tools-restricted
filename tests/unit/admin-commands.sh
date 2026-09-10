@@ -58,9 +58,8 @@ exec_capable() {
 mktestdir
 FIXTURE_ROOT="${TESTDIR}"
 if ! exec_capable "${TESTDIR}"; then
-    FIXTURE_ROOT="$(mktemp -d "${PROJECTS_HOME}/.ai-tools-admin-test.XXXXXX")"
+    mk_fixture_dir FIXTURE_ROOT "${PROJECTS_HOME}" admin-commands
     chmod 0755 "${FIXTURE_ROOT}"
-    on_teardown rm -rf "${FIXTURE_ROOT}"
 fi
 CMD_DIR="${FIXTURE_ROOT}/admin-commands.d"
 MANIFEST_DIR="${FIXTURE_ROOT}/integrations.d"

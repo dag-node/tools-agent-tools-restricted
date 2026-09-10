@@ -30,15 +30,27 @@ container selftest stays lenient because SELinux is legitimately absent there, s
 `selinux.sh`'s all-skip is a documented limitation, not a broken prerequisite.
 
 The harness carries a fourth emitter for that reason. `skip` records a check that could not
-run, and reaching the notice is the point of it. `note` records which supported state a host is
-in — `hooks.sh`'s `/tmp` posture, where `pam_namespace` polyinstantiation is optional and its
-absence is a documented deployment — and does not increment the counter, so it stays out of the notice.
-`AI_TOOLS_TEST_STRICT=1` then fails a run only where a check was left unrun.
+run, and reaching the notice is the point of it. `note` records a fact about the run that is not
+a verdict — `prose-check.sh` names which checker it drove — and does not increment the counter,
+so it stays out of the notice. `AI_TOOLS_TEST_STRICT=1` then fails a run only where a check was
+left unrun.
+
+A skip is for a state the host is in, never for the vantage the suite runs from. The suite is
+root, so an assertion that holds only for an unprivileged caller — the stop helper's own root
+check, a cgroup file whose mode root reads through, a probe the services library withholds from
+non-root — is re-driven as the projects user through `runuser` rather than skipped, and the CLI's
+help is read as that user too, since the CLI refuses root before it prints. A skip that a full
+install would always emit is a check in the wrong place. An optional host feature this project
+neither installs nor configures (`pam_namespace` polyinstantiation of `/tmp`) is reported only
+where it is present, and its absence — the default — prints nothing.
 
 ```
 tests/
-  lib/harness.sh   pass/fail/skip/note, perm(), check_file(), the /tmp testdir + dummy-allowlist fixtures, teardown
-  run.sh           dispatcher; aggregates by exit status
+  lib/harness.sh   pass/fail/skip/note, perm(), check_file(), the fixture name rule + the /tmp testdir + dummy-allowlist fixtures, teardown
+  lib/residue.sh   the pre-run sweep: finds and removes what an earlier run left, by that name rule
+  lib/cli-spelling.sh  the one table that spells an ai-tools command or option for a test
+  lib/cli-stubs.sh     the `sudo` shim and stub root helpers that record what the CLI asks for
+  run.sh           dispatcher; sweeps residue first, then aggregates by exit status
   unit/            hermetic helper-logic tests
   integration/     full-install checks (needs a deployed, running system)
   boundary/        confinement checks run as the agent (SANDBOX_USER)
@@ -49,8 +61,11 @@ tests/
 is: `verify-live-flows.sh` drives the CLI **as the operator**, which prompts on
 `/dev/tty`, `sudo`s for each root step, and writes the operator's own registries — none of which a
 root-run hermetic suite reproduces. It exists for what only a live run shows (a claim, lockdown
-and unclaim completing end to end, and `ai-tools --status` read from the vantage point that has to
-read it), and it is bounded by two rules that keep a convenience script from becoming a hazard:
+and unclaim completing end to end, `ai-tools --status` read from the vantage point that has to
+read it, and the **live handback chain** — hook, socket, daemon, `ai-tools-chown` — driven as the
+sandbox account against a fixture inside the project that run claimed, since the daemon reads the
+operator's real allowlist and no automated file may write it), and it is bounded by two rules that
+keep a convenience script from becoming a hazard:
 it works only inside a workspace `mktemp -d` created for that run — never adopting an existing
 path, and refusing to remove one outside it — and it **leaves every installed file untouched**, so a check
 that would need to write shared runtime state (the updater's last-run stamp) reads it and asserts
@@ -68,6 +83,58 @@ reads or writes the operator's real files (notably the real
 `~/.config/ai-tools/allowed-projects`), and removes everything it created on exit (the
 harness `EXIT` trap). A test never relies on arbitrary pre-existing state, and never
 touches a path outside its testdir boundary.
+
+### Fixture names and the residue sweep
+
+A test that must create a path **outside** its testdir — in the clone area, the control plane, the
+cgroup root, the operator's home when `/tmp` is `noexec` — names it by one rule, so a leftover is
+recognisable as this suite's and nothing has to guess:
+
+```
+.ai-tools-test-<group>-<thing>-XXXXXX
+```
+
+`<group>` is the category directory the file runs from (`unit`, `integration`, `boundary`),
+`<thing>` says what the path is for (the file's stem for its testdir and log dir; `victim`,
+`homelock`, `c3`, `relabel` for a single fixture), and `XXXXXX` is six random alphanumerics. The
+harness derives the group and stem from the file, and `mk_fixture_dir`/`mk_fixture_file <var>
+<parent> <thing>` create the path with `mktemp` and register it for teardown in one call, assigning
+it to the caller's variable — assigned rather than printed, because a `$(...)` capture would run
+the registration in a subshell and lose it. A path the **agent** is asked to create (the boundary
+probes) is named with `ai_test_name <thing>` before it exists and registered by the test. The
+testdir itself follows the rule (`/tmp/.ai-tools-test-unit-chown-XXXXXX`), so one pattern covers
+every fixture the suite makes. Where the CLI names the path — a clone takes its source's basename
+or `--dir` — the test hands it a name under the rule, so a clone that ever lands outside the fixture
+clone area reads as residue. `on_teardown` accumulates: a file may register several non-path
+cleanups, run in order after the path sweep.
+
+`run.sh` runs the **residue sweep** (`lib/residue.sh`) before any category: it lists each
+directory fixtures are born in (`/tmp`, the operator's home, `/var/opt/ai-tools` and its clone
+area, `/opt/ai-tools`, `.claude`, the `--user` unit directories, `/var/log/journal`, the cgroup v2
+root) one level deep for that pattern, removes each match, and prints one line per removal; a
+match it cannot remove refuses the run. `sudo tests/run.sh residue` runs the sweep alone. A
+fixture cgroup is killed (`cgroup.kill` over its subtree) and then `rmdir`ed. The suite runs one
+at a time: a second run started while one is live sweeps the first run's fixtures. The manual
+script names its `--for` drill tree in the clone area under the same rule (group `manual`), so a
+tree its removal did not complete is cleared by the sweep, which holds the root that script never
+takes.
+
+One fixture cannot carry the rule and is listed by its fixed path instead:
+`integration/ai-tools-run.sh` probes entrypoint containment in
+`/opt/ai-tools/.nvm/versions/node/v0.0.1`, because the shim accepts an entrypoint only at a bare
+semver version directory. It is a version Node never shipped, so nothing but that test creates it,
+and the test **fails** rather than skips when it already exists — a skip would let residue silently
+cost the coverage. The teardown is the harness `EXIT` trap, which also fires on the `SIGTERM` the
+per-file timeout sends, so only a `SIGKILL` or a failed `rm` leaves residue for the sweep.
+
+No automated file writes live runtime state. The one place a real hook runs is the manual
+script, where the Stop sweep advances the shared sweep marker under `.claude` as a session's
+would; the automated suite never moves that marker, which the hook rotates by `mv` inside the
+sticky `.claude` directory and a root-written one could never be replaced in. No file starts or
+stops a service: `integration/systemd.sh`
+reads the sandbox account's linger record (what keeps its `--user` manager up with no login) and
+fails when it is absent, and a manager down despite linger is skipped with the start command named
+rather than started by the test.
 
 Nor does a test mutate **global system state** to exercise a helper — the host's local SELinux
 policy (`semanage fcontext`) above all. A helper whose real work *is* to add and then remove a
@@ -567,11 +634,10 @@ no `restorecon`. The `ai_tools_t` transition and the `buildexec` execute grant n
 the `nvm-update` timer in the sandbox account's own `--user` instance, the relabel watcher
 and handback socket in the system instance. The
 handback chain cannot use the `AI_TOOLS_ALLOWLIST` override — the live daemon execs helpers
-with its own environment, so the helper reads the **real** allowlist. The hooks test puts its
-fixtures in a self-cleaning subdir **inside the project the suite is run from**, reusing that
-project's existing allowlist entry (the session runs in it); it confirms the run-dir is
-allowlisted and **skips** otherwise, and under enforcing labels the fixture
-`ai_tools_project_t` so the confined chown can act on it. The wrapper test stays hermetic by
+with its own environment, so the helper reads the **real** allowlist — and the automated suite
+may not write that allowlist, so `hooks.sh` asserts only what the deployed `settings.json`
+**declares** (the hook entries and the deny rules) and the hooks themselves run in the manual
+script, inside the project it claims. The wrapper test stays hermetic by
 pointing `HOME` at a `/tmp` testdir (the wrapper keys its allowlist off `${HOME}`) and runs
 the wrapper under `setsid`, so it never touches the real allowlist or fires a claim prompt.
 Run as root.
@@ -647,5 +713,5 @@ check per swap vector.
   session by `pam_namespace` (`/etc/security/namespace.conf`), so a fixture the test creates
   under `/tmp` is invisible both to the hook's own `sudo -u SANDBOX_USER` session (a fresh,
   empty `/tmp` instance) and to the host-namespace handback daemon — the hand-back silently
-  no-ops. Any test that drives the live `hook → daemon → helper` chain puts its fixtures
-  under the projects user's `${HOME}` (shared across namespaces), not in a `/tmp` testdir.
+  no-ops. The one place that drives the live `hook → daemon → helper` chain, the manual script,
+  puts its fixture under the operator's `${HOME}` (shared across namespaces), not in `/tmp`.

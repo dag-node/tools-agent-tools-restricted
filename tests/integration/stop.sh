@@ -48,7 +48,9 @@ if [[ -z "${CGROUP2_ROOT}" || ! -d "${CGROUP2_ROOT}" ]]; then
 fi
 
 mktestdir
-FIXTURE_SLICE="${CGROUP2_ROOT}/ai-tools-stoptest-$$.slice"
+# Named by the harness's fixture rule, so the pre-run residue sweep recognises a slice an
+# aborted run left at the cgroup root; the teardown below owns it during the run.
+FIXTURE_SLICE="${CGROUP2_ROOT}/$(ai_test_name stop).slice"
 GO="${TESTDIR}/release-the-payloads"
 
 # Teardown owns the fixture unconditionally: a payload that ignores SIGTERM, a run that aborts

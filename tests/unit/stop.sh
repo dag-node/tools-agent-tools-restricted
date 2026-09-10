@@ -25,8 +25,9 @@
 # children this test spawns and reaps, and end to end in tests/integration/stop.sh.
 #
 # Run as root via sudo with the rest of the suite; does not require privilege of its own, so it also runs
-# directly as an unprivileged user during development. Two assertions about an UNREADABLE file skip
-# under root, which reads everything regardless of mode.
+# directly as an unprivileged user during development. Two assertions hold only unprivileged (an
+# UNREADABLE file, which root reads regardless of mode, and the helper's own root check); a root
+# run drives those as the projects user through runuser rather than skipping them.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -57,6 +58,17 @@ mkdir -p "${TESTDIR}/proj/alpha" "${TESTDIR}/proj/alpha-extra" "${TESTDIR}/proj/
 source_errors="${TESTDIR}/source-stderr"
 # shellcheck source=/dev/null
 source "${STOP_HELPER}" 2>"${source_errors}" || true
+
+# Two assertions below hold only for an UNPRIVILEGED caller (an unreadable cgroup.procs, and
+# the helper's own root check). The suite runs as root, so those are re-driven as the projects
+# user through runuser, against a readable copy of the helper: the installed one is root-only
+# (750), and the projects user cannot source it. as_projects_user <cmd...> runs a command as
+# that account with the copy's path first; the fixture directories it must read are opened
+# explicitly, since a root umask of 077 would otherwise close them.
+HELPER_COPY="${TESTDIR}/stop-helper.sh"
+cp "${STOP_HELPER}" "${HELPER_COPY}"; chmod 0644 "${HELPER_COPY}"
+as_projects_user() { runuser -u "${PROJECTS_USER}" -- "$@"; }
+can_drop_privilege() { [[ "${EUID}" -eq 0 ]] && command -v runuser >/dev/null 2>&1; }
 
 # The real attribution function, saved under a second name BEFORE the fixture stub below replaces
 # it. `unset -f` cannot get it back: overriding a function discards the original outright, so a
@@ -245,12 +257,23 @@ fi
 unreadable="${TESTDIR}/cgroup2/unreadable"
 mkcg "${unreadable}" 702
 chmod 000 "${unreadable}/cgroup.procs"
-if [[ "${EUID}" -eq 0 ]]; then
-    skip "an unreadable cgroup.procs reports LIVE" "root reads any mode; assertion is meaningful only unprivileged"
-elif has_own_tasks "${unreadable}"; then
-    pass "an unreadable cgroup.procs reports LIVE, never empty"
+# Root reads any mode, so the predicate is asked as the projects user, for whom the mode holds.
+if [[ "${EUID}" -ne 0 ]]; then
+    if has_own_tasks "${unreadable}"; then
+        pass "an unreadable cgroup.procs reports LIVE, never empty"
+    else
+        fail "an unreadable cgroup.procs read as empty is a fail-open"
+    fi
+elif ! can_drop_privilege; then
+    skip "an unreadable cgroup.procs reports LIVE" "runuser unavailable to ask the predicate unprivileged"
 else
-    fail "an unreadable cgroup.procs read as empty is a fail-open"
+    chmod 0755 "${TESTDIR}/cgroup2" "${unreadable}"
+    # shellcheck disable=SC2016  # $1/$2 are the inner shell's positionals
+    if as_projects_user bash -c 'source "$1" 2>/dev/null; has_own_tasks "$2"' _ "${HELPER_COPY}" "${unreadable}"; then
+        pass "an unreadable cgroup.procs reports LIVE, never empty (asked as ${PROJECTS_USER})"
+    else
+        fail "an unreadable cgroup.procs read as empty for ${PROJECTS_USER} is a fail-open"
+    fi
 fi
 chmod 644 "${unreadable}/cgroup.procs"
 
@@ -656,11 +679,11 @@ if (( HELPER_STATUS == 2 )); then
 else
     fail "--all with a path: expected exit 2, got ${HELPER_STATUS}: ${HELPER_OUTPUT}"
 fi
-# The one accepted form driven as a command, and ONLY when this run is unprivileged -- the guard
-# is what makes it safe. Non-root, the helper exits 5 at its root check, which is still before
-# resolve_cgroup_layout and main(), so the real slice is never enumerated. Do not remove the guard
-# to "also cover root": as root this exact line reaches main() and prompts to terminate every
-# session on the host.
+# The one accepted form driven as a command, and ONLY unprivileged -- that is what makes it safe.
+# Non-root, the helper exits 5 at its root check, which is still before resolve_cgroup_layout and
+# main(), so the real slice is never enumerated. A root run drops to the projects user for this
+# line rather than skipping it. Do not run it as root: as root this exact line reaches main() and
+# prompts to terminate every session on the host.
 if [[ "${EUID}" -ne 0 ]]; then
     run_helper --all --dry-run
     if (( HELPER_STATUS == 5 )); then
@@ -668,8 +691,18 @@ if [[ "${EUID}" -ne 0 ]]; then
     else
         fail "non-root: expected exit 5, got ${HELPER_STATUS}: ${HELPER_OUTPUT}"
     fi
+elif ! can_drop_privilege; then
+    skip "a non-root invocation is refused" "runuser unavailable to drive the helper unprivileged"
 else
-    skip "a non-root invocation is refused" "this run is root"
+    set +e
+    HELPER_OUTPUT="$(as_projects_user bash "${HELPER_COPY}" --all --dry-run 2>&1)"
+    HELPER_STATUS=$?
+    set -e
+    if (( HELPER_STATUS == 5 )); then
+        pass "a non-root invocation is refused with the broken-tool code (5), not a stop code (driven as ${PROJECTS_USER})"
+    else
+        fail "non-root (as ${PROJECTS_USER}): expected exit 5, got ${HELPER_STATUS}: ${HELPER_OUTPUT}"
+    fi
 fi
 
 finish

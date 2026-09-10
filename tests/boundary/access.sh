@@ -123,10 +123,9 @@ done
 # Even without file write, a group-writer of the DIRECTORY could unlink+recreate the file.
 # The sticky bit on .claude (3770) forbids that: you can only unlink a file you own OR in a
 # dir you own; the agent owns neither. Tested with a DECOY (same ownership, same dir).
-_decoy="$(mktemp /opt/ai-tools/.claude/.test_sticky_XXXXXX)"
+_decoy=""; mk_fixture_file _decoy /opt/ai-tools/.claude sticky
 chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${_decoy}"
 chmod 640 "${_decoy}"
-_cleanup+=("${_decoy}")
 runuser -u "${SANDBOX_USER}" -- rm -f "${_decoy}" 2>/dev/null || true
 if [[ -e "${_decoy}" ]]; then
     pass "sticky .claude: agent cannot unlink ${PROJECTS_USER}-owned files (replacement attack blocked)"
@@ -209,7 +208,10 @@ fi
 # its own subtrees (.nvm/.cache); and o+x, which lets an operator readlink the launcher without
 # listing the directory. This probe covers the middle one with a real create attempt; the probe
 # is removed whether or not it (wrongly) succeeded.
-_homeprobe="/opt/ai-tools/.test_homelock_$$"
+# The probes here are paths the AGENT is asked to create, so they take their name from the
+# harness rule before they exist and are registered so a wrongly-created one is swept.
+_homeprobe="/opt/ai-tools/$(ai_test_name homelock)"
+_cleanup+=("${_homeprobe}")
 runuser -u "${SANDBOX_USER}" -- touch "${_homeprobe}" 2>/dev/null || true
 if [[ -e "${_homeprobe}" ]]; then
     rm -f "${_homeprobe}"
@@ -226,7 +228,8 @@ fi
 # neither a unit file nor an enablement symlink. Probed with real create attempts in both the
 # unit dir and a .wants dir.
 for _d in /opt/ai-tools/.config/systemd/user /opt/ai-tools/.config/systemd/user/timers.target.wants; do
-    _unitprobe="${_d}/.test_escape_$$.unit"
+    _unitprobe="${_d}/$(ai_test_name escape).unit"
+    _cleanup+=("${_unitprobe}")
     runuser -u "${SANDBOX_USER}" -- touch "${_unitprobe}" 2>/dev/null || true
     if [[ -e "${_unitprobe}" ]]; then
         rm -f "${_unitprobe}"
@@ -242,8 +245,10 @@ done
 # exactly that through the group bits, while the sticky bit keeps the root-owned control files
 # undeletable (the settings.json lock is checked above). A regression here fails every state
 # save silently: login and onboarding state are lost and each session demands a fresh token.
-_state_tmp="/opt/ai-tools/.claude/.test_state_$$.tmp"
-_state_dst="/opt/ai-tools/.claude/.test_state_$$.json"
+_state_name="$(ai_test_name state)"
+_state_tmp="/opt/ai-tools/.claude/${_state_name}.tmp"
+_state_dst="/opt/ai-tools/.claude/${_state_name}.json"
+_cleanup+=("${_state_tmp}" "${_state_dst}")
 if runuser -u "${SANDBOX_USER}" -- \
        bash -c "printf '{}\n' > '${_state_tmp}' && mv -- '${_state_tmp}' '${_state_dst}'" 2>/dev/null \
    && [[ -e "${_state_dst}" ]]; then
@@ -491,7 +496,7 @@ else
     _breach=""
     # The storage directory must not accept a new file, and no journal file may be writable.
     if _probe="$(runuser -u "${SANDBOX_USER}" -- \
-            mktemp "${_journal_dir}/.ai-tools-probe-XXXXXX" 2>/dev/null)"; then
+            mktemp "${_journal_dir}/${AI_TOOLS_TEST_PREFIX}-${TEST_GROUP}-journal-XXXXXX" 2>/dev/null)"; then
         _breach="the agent created ${_probe} -- journal storage is agent-writable"
         rm -f -- "${_probe}"
     else
