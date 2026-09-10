@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Shared base recipe for the EL (Rocky/RHEL) ai-tools RPM test image. All the common build/test
-# logic lives here, parameterized by the EL base image; the per-distro files (Rocky9.Containerfile,
-# Rocky10.Containerfile) are thin pins over the image this builds, so no line below is repeated.
-# Rocky 9/10 minimal both ship microdnf and the same package names installed below, so this recipe
+# logic lives in this file, parameterized by the EL base image; the per-distro files (Rocky9.Containerfile,
+# Rocky10.Containerfile) are thin pins over the image this builds, so no line here is repeated.
+# Rocky 9/10 minimal both ship microdnf and the same package names this recipe installs, so it
 # builds unchanged across them.
 #
 # Fedora is not built from THIS recipe, but only because the base images and dnf front-end differ:
@@ -53,7 +53,7 @@ ARG RPM_RELEASE=""
 # rpm-sign + gnupg2 are baked in here, NOT dnf-installed at sign time: the release workflow
 # runs sign-rpms.sh in this image with the signing key in the environment, and no package
 # scriptlet may ever execute while that secret is present.
-# No package below comes from the `extras` repo; disable it so a flaky refresh can't abort the install.
+# No package installed here comes from the `extras` repo; disable it so a flaky refresh can't abort the install.
 RUN sed -i '/^\[extras\]/,/^\[/ s/^enabled=1$/enabled=0/' /etc/yum.repos.d/*.repo \
     && microdnf -y install \
         dnf rpm-build rpm-sign gnupg2 systemd-rpm-macros make sed tar gzip findutils createrepo_c \

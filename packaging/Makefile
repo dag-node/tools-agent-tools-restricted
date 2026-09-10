@@ -12,8 +12,8 @@
 # not-yet-committed sources during development.
 #
 # RPM_RELEASE overrides the spec's Release (default "1", a final vX.Y.Z release): CI passes
-# 0.<run>.git<sha> for dev/snapshot builds and 0.rcN for vX.Y.Z-rc.N prerelease tags -- the
-# leading "0." ranks both below any final release: make rpm RPM_RELEASE=0.42.gitabcdef1
+# 0.<run>.git<sha> for dev/snapshot builds and 0.rcN for vX.Y.Z-rc.N prerelease tags; the
+# leading "0." ranks both under any final release: make rpm RPM_RELEASE=0.42.gitabcdef1
 
 NAME    = ai-tools
 VERSION := $(shell cat VERSION)
@@ -27,8 +27,8 @@ RELEASE_DEFINE = $(if $(RPM_RELEASE),--define "rpm_release $(RPM_RELEASE)",)
 #
 # POLICY_SRC is the policy text and the Makefile that compiles it, which the spec's %build turns
 # into the .pp modules the ai-tools-selinux subpackage ships. No .pp travels in the tarball: the
-# modules are compiled per distribution inside its own build, against its own policy headers, and
-# `dist` below refuses a tarball carrying one. A .pp is GPL-2.0-or-later, and GPLv2 section 3
+# modules are compiled per distribution in its own build, against its own policy headers, and
+# `dist` refuses a tarball carrying one. A .pp is GPL-2.0-or-later, and GPLv2 section 3
 # conveys a binary only together with its source, counting the scripts that control compilation
 # as part of that source; the SRPM is that source for the modules the RPM conveys, and shipping
 # it keeps every distribution channel self-sufficient, an offline release archive included.
@@ -53,8 +53,8 @@ CONTENT = src docs $(POLICY_SRC) \
 
 # Container smoke test: the shared ELBase recipe parameterized by an EL base image, then a
 # thin per-distro overlay (see ELBase.Containerfile). OCI tool + EL bases are overridable. Fedora
-# has its own single-image recipe (FedoraLatestBase.Containerfile) and the rpmtest-fedora target
-# below: the helper tree lives at ai_libexecdir (/usr/local/libexec/ai-tools), which the F42
+# has its own single-image recipe (FedoraLatestBase.Containerfile) and its own rpmtest-fedora
+# target: the helper tree lives at ai_libexecdir (/usr/local/libexec/ai-tools), which the F42
 # bin/sbin merge leaves untouched, so one install layout serves both families.
 OCI         ?= podman
 EL9_BASE    ?= quay.io/rockylinux/rockylinux:9.7-minimal
@@ -96,7 +96,7 @@ hooks:
 
 # The shared base image alone: builds the RPMs inside it (via its own `make rpm`, so
 # RPM_RELEASE flows through -- see ELBase.Containerfile) and installs the metapackage, with
-# no test overlay and no `run`. rpmtest-rockyN below layers the selftest on top of this; CI's
+# no test overlay and no `run`. rpmtest-rockyN layers the selftest on top of this; CI's
 # release job targets this directly to get clean release RPMs without re-running the full
 # selftest a prior CI job already passed on the same commit.
 rpmbase-el9:
@@ -132,7 +132,7 @@ rpmtest-fedora:
 #
 # The bytecode excludes are hygiene rather than compliance. The tarball is built from the WORKING
 # TREE, so a local build made after importing a shipped script would package a __pycache__ that a
-# CI build from a fresh checkout never has. Asserted alongside the counts above, since an exclude
+# CI build from a fresh checkout never has. Asserted alongside the file counts, since an exclude
 # that stops matching is invisible in a tarball that still builds.
 dist:
 	tar czf $(TARBALL) -C $(ROOT) \

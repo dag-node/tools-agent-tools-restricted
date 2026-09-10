@@ -104,7 +104,7 @@ phase "safedir + reclaim helpers present (the late spec additions)" \
     bash -c 'test -x /usr/local/libexec/ai-tools/ai-tools-safedir && test -x /usr/local/libexec/ai-tools/ai-tools-reclaim'
 
 # The provisioning helper does not have a name on PATH: `ai-tools-admin system bootstrap` execs
-# it at this fixed path, so what the phase above cannot cover is asserted here.
+# it at this fixed path, so what the PATH phase cannot cover is asserted here.
 phase "provisioning helper present at the path ai-tools-admin execs" \
     test -x /usr/local/libexec/ai-tools/ai-tools-bootstrap
 
@@ -201,7 +201,7 @@ fi
 # ── reachability diagnostic (why can / can't the agent reach the project) ─────
 # ai-tools-run checks `[[ -d AI_TOOLS_PROJECT_DIR ]]` AS the agent, so the agent must traverse every
 # ancestor. Dump each ancestor's perms + ACL and whether the agent can stat the project, so a
-# traverse-grant gap is visible rather than only surfacing as the session error below.
+# traverse-grant gap is visible rather than only surfacing as the session error.
 banner "Reachability diagnostic"
 set -x
 ls -ld /home "/home/${OPERATOR}" "${PROJECT}" 2>&1 || true

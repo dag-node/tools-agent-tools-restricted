@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 # Least-privilege default for every job. shellcheck and rpm-selftest only read the repo;
-# the release job re-grants contents: write for its own GITHUB_TOKEN needs (below).
+# the release job re-grants contents: write for its own GITHUB_TOKEN needs.
 permissions:
   contents: read
 
@@ -80,7 +80,7 @@ jobs:
     # Pinned, not ubuntu-latest: this job builds and runs podman containers, and the
     # apt podman/crun pair on the floating latest image can skew -- a newer podman emits an
     # OCI spec crun rejects with "unknown version specified" at container create, before any
-    # build step runs. 22.04 is the known-good combo for this pipeline. The release job below
+    # build step runs. 22.04 is the known-good combo for this pipeline. The release job
     # pins for the same reason; the container-free shellcheck job stays on latest.
     runs-on: ubuntu-22.04
     strategy:
@@ -189,14 +189,14 @@ jobs:
           retention-days: 14
 
   # Release tags publish; workflow_dispatch rehearses the identical build+sign+verify path with
-  # the publish steps skipped (tag-gated below). The channel follows the tag, never the branch:
+  # the publish steps skipped (tag-gated per step). The channel follows the tag, never the branch:
   # vX.Y.Z -> GitHub Release + rpm.dagnode.com, vX.Y.Z-rc.N -> GitHub prerelease only. Process
   # contract: docs/branching-and-release.md. Never runs on pull_request -- fork PRs must not
   # see the signing secret.
   release:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: [shellcheck, rpm-selftest]
-    # Pinned like rpm-selftest above: this job builds and signs RPMs inside podman containers,
+    # Pinned like rpm-selftest: this job builds and signs RPMs inside podman containers,
     # so it needs the same known-good podman/crun combo (see that job's note).
     runs-on: ubuntu-22.04
     permissions:
@@ -237,8 +237,8 @@ jobs:
       # release. Signing is MANDATORY: every published RPM must carry a verifiable dag-node
       # signature, so a missing or unusable secret fails the release here instead of shipping
       # unsigned. This step proves the key imports with a usable secret and the dispatch token
-      # reaches dag-node/rpm; the passphrase and the full rpmsign+verify chain are proven by the
-      # in-container selftest below, which also runs before anything is built or published.
+      # reaches dag-node/rpm; the passphrase and the full rpmsign+verify chain are proven by the real
+      # in-container selftest, which also runs before anything is built or published.
       - name: Preflight release prerequisites
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
@@ -285,9 +285,9 @@ jobs:
           sudo podman version || true
           sudo podman info --format 'runtime={{.Host.OCIRuntime.Name}} {{.Host.OCIRuntime.Version}}' 2>/dev/null || true
 
-      # Build the matching-EL images once, up front. Both the signing selftest below and the
+      # Build the matching-EL images once, up front. Both the signing selftest and the
       # release-RPM extraction reuse these cached images, so each image is built once. rpmbase-elN,
-      # not rpmtest-rockyN: the `needs: rpm-selftest` dependency above already ran and passed the
+      # not rpmtest-rockyN: the `needs: rpm-selftest` dependency already ran and passed the
       # full selftest on this exact commit.
       - name: Build EL RPM images
         run: |
@@ -327,7 +327,7 @@ jobs:
       # command is ignored init arguments, and the container would boot the selftest and power off
       # "successfully" without signing. The success-line assertion pins the workload; the runner
       # re-verify in the next step is the fail-closed backstop. sign-rpms.sh writes its own verify
-      # public key to a container-local path; the PUBLISHED key is exported on the runner below.
+      # public key to a container-local path; the PUBLISHED key is exported on the runner.
       - name: Sign and extract release RPMs (in-container)
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
@@ -358,7 +358,7 @@ jobs:
       # the bind mount to surface on the runner (the v0.6.2 failure: the container-written key was
       # absent at release time). The key is public; the private key is imported into a tmpfs
       # (/dev/shm, RAM) keyring wiped on exit, never persistent disk. If the in-container signing
-      # did not actually reach the runner filesystem, the verification below fails closed instead
+      # did not actually reach the runner filesystem, the re-verify fails closed instead
       # of publishing unsigned packages.
       - name: Export the public key and verify signatures on the runner
         env:
@@ -386,7 +386,7 @@ jobs:
           echo "verified $(find dist-rpms -name '*.rpm' | wc -l) signed RPM(s) on the runner"
 
       # Both el9 and el10 RPMs land as flat, same-named-prefix assets on one release page
-      # (see the upload below); a per-EL zip removes the "which files go together"
+      # (see the upload step); a per-EL zip removes the "which files go together"
       # ambiguity that creates -- `dnf install ./*.rpm` after unzipping is then unambiguous
       # by construction, since each archive holds exactly one EL's packages. The runner-exported
       # public key (dist-rpms/RPM-GPG-KEY-dag-node) rides inside each zip too, so an operator imports
@@ -414,7 +414,7 @@ jobs:
           PRERELEASE: ${{ steps.relmode.outputs.prerelease }}
         run: |
           # Attach the runner-exported public key too, so a manual download can verify without
-          # reaching rpm.dagnode.com. It was produced + checked in the verify step above.
+          # reaching rpm.dagnode.com. It was produced + checked in the verify step.
           assets=(
             dist-rpms/ai-tools-el9-${GITHUB_REF_NAME}.zip
             dist-rpms/ai-tools-el10-${GITHUB_REF_NAME}.zip

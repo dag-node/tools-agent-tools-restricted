@@ -6,7 +6,7 @@
 # `precedence = "aggregate"` means a file's own header wins where it has one and
 # these annotations only fill the gaps.
 #
-# The paths below are those where a header would be noise rather than information (prose, licence
+# The paths listed here are those where a header would be noise rather than information (prose, licence
 # texts, generated data, dotfiles), or a build file beside sources that state the licence themselves.
 
 version = 1
@@ -14,7 +14,7 @@ SPDX-PackageName = "ai-tools"
 SPDX-PackageDownloadLocation = "https://github.com/dag-node/tools-agent-tools-restricted"
 
 # Catch-all: the maintainer's own work, AGPL-3.0-only. Listed first so the more specific policy
-# entry below can narrow it.
+# entry can narrow it.
 [[annotations]]
 path = "**"
 precedence = "aggregate"
