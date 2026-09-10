@@ -15,14 +15,14 @@ it turns on, and the findings the code keeps by idiom.
 `.shellcheckrc` at the repository root governs every lint in the tree (ShellCheck walks up
 from each file to find it):
 
-- **`external-sources=true`** follows the `source` directives below. Each library `source`
+- **`external-sources=true`** follows the `source` directives in the tree. Each library `source`
   names its target with a `# shellcheck source=SCRIPTDIR/<rel>` directive, resolved relative
   to the script; `src/` mirrors the install tree, so one directive resolves both in-repo and
   on the installed system. Following keeps cross-library references honest at lint time: a
   name shared across the source boundary resolves to its definition, and a stale source path
   shows up as `SC1091`.
-- **`disable=SC2317,SC2053,SC2010,SC2012`** turns off the four codes in "Accepted findings"
-  below repo-wide, so CI's plain `shellcheck` run (no `--severity` override) gates on
+- **`disable=SC2317,SC2053,SC2010,SC2012`** turns off repo-wide the four codes in
+  [Accepted findings](#accepted-findings), so CI's plain `shellcheck` run (no `--severity` override) gates on
   everything else while these stay silent without a per-line disable anywhere. SC2317
   (command appears unreachable) marks the fail-soft
   `if ! source "${LIB}"; then <stubs>; fi` fallbacks and functions dispatched indirectly
@@ -88,8 +88,8 @@ a per-line disable for them.
   descriptor and guards the exit status alone (`>&"${fd}" || true`), so a real write error
   surfaces (`SC2261` cleared). Following also surfaced set-but-unread assignments — the
   `skip-dirs` fallback stubs and a `relabel` fallback branch — removed at the source.
-- **Rationale is centralized.** The repo-wide settings and the accepted findings above are
-  documented here. An inline `# shellcheck disable=` is reserved for a local one-off with its
+- **Rationale is centralized.** The repo-wide settings and the accepted findings are documented
+  here. An inline `# shellcheck disable=` is reserved for a local one-off with its
   own reason comment: the `safe-paths`-style `SC2034` exports, and the single-quoted `sed`
   regex in `ai-tools-safedir.sh` whose `$`/`()` are literal metacharacters (`SC2016`).
 - **A new finding is reviewed, not auto-accepted.** A code outside the accepted set, or an

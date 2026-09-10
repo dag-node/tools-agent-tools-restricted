@@ -20,7 +20,7 @@ agent-specific inputs live in that agent's own rule —
 
 Each `ai-tools-agents-*` package ships one wrapper into `/usr/local/bin`, `root:root 0755`,
 rpm-owned, running as the invoking operator. `path-dedup.sh`, wired into the operator's
-dotfiles by `ai-tools-admin operators add`, ranks `/usr/local/bin` (Tier 1) above the nvm
+dotfiles by `ai-tools-admin operators add`, ranks `/usr/local/bin` (Tier 1) ahead of the nvm
 shims, so a wrapper shadows the nvm-managed launcher of the same name on the operator's
 PATH. Whatever else a wrapper does, these five gates are what the security model rests on,
 and every one of them refuses toward *less* access:
@@ -176,7 +176,7 @@ runs one more warn-not-block check, from `services.lib.sh` — the same registry
 reads (see [cli](cli.rule.md)). It warns about a down **system** service the wrapper owns, currently
 the `ai-tools-relabel.path` watcher: while it is down a post-upgrade launch fail-closes on a
 mislabelled entrypoint, so surfacing it *before* the next Node bump is the point. The registry marks
-each service with a `preflight` — `ai-tools-handback.socket` is `shim` (the socket NOTICE above owns
+each service with a `preflight` — `ai-tools-handback.socket` is `shim` (the socket NOTICE owns
 it, so the wrapper does **not** repeat it), `ai-tools-relabel.path` is `wrapper` — so the two
 preflights partition the units and never double-warn. This is best-effort and non-blocking like the
 socket check: a health warning is not a security gate, so a missing `services.lib.sh` skips the
@@ -256,7 +256,7 @@ runs it as root, and an administrator runs `sudo ai-tools-admin system entrypoin
 the host's own general sudo grant. The toolchain update likewise runs as `SANDBOX_USER` in its own
 `systemd --user` instance. The consequence for the account shape `--for` exists to serve is stated
 plainly: an `ai-ops` operator holding no general sudo grant reaches the launch and the stop, and
-does not reach the on-demand relabel — a reconcile the two root-side routes above already perform
+does not reach the on-demand relabel — a reconcile the two root-side routes already perform
 without them.
 
 `SANDBOX_USER` does not hold any sudo rights in this file. Two `ai-tools-run` preflights enforce the
@@ -282,16 +282,16 @@ restoration on excluded paths. Keep the two in sync — a plain `!`-path also co
 contents; globs match as-is.
 
 **The refusal distinguishes the two things a `!` line means**, applying the same test the CLI
-does (see [cli](cli.rule.md)): a line naming the CWD with an approved project **strictly above**
-it is a carve-out — a subtree withheld from that project — and the remedy is to edit that line;
-one with no approved project above it is a project that was **parked**, and the refusal names
+does (see [cli](cli.rule.md)): a line naming the CWD with an approved project **strictly
+enclosing** it is a carve-out — a subtree withheld from that project — and the remedy is to edit that line;
+one with no approved project enclosing it is a project that was **parked**, and the refusal names
 `ai-tools --project-enable` instead. Both refuse identically; what differs is the way back, and
 an operator told only "excluded" is left to work out which of the two they are standing in.
 
 ## PATH ordering
 
 Every agent wrapper lives in `/usr/local/bin`, which `path-dedup.sh`
-(`/usr/local/lib/ai-tools/path-dedup.sh`, `644 root:root`) ranks Tier 1 — above the nvm shims it
+(`/usr/local/lib/ai-tools/path-dedup.sh`, `644 root:root`) ranks Tier 1 — ahead of the nvm shims it
 leaves in Tier 4 — so typing a launcher name always enters the sandboxed path rather than the
 nvm-managed binary of the same name. The tiers and the first-match-wins ordering behind them are
 in that file's header.

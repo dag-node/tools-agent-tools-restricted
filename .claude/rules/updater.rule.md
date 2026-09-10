@@ -45,7 +45,7 @@ next scheduled window rather than an **immediate catch-up run**. The timer's dai
 passed when the toolchain is provisioned, and with no prior stamp `Persistent=true` would run
 `nvm-update.service` at once — which reinstalls the agent package, reminting `claude.exe` at
 `lib_t` (a freshly written entrypoint is born the default type; only `restorecon` applies
-`ai_tools_exec_t`, see [post-upgrade relabel](#post-upgrade-entrypoint-relabel) below), and its
+`ai_tools_exec_t`, see [post-upgrade relabel](#post-upgrade-entrypoint-relabel)), and its
 asynchronous repoint→relabel chain races the operator's first launch into the mislabel refusal.
 Provisioning has just installed the current toolchain, so recording "last run = now" is
 truthful; the next run is the next scheduled window. `ai-tools-bootstrap` and `install.sh` both
@@ -86,7 +86,7 @@ The payload is what breaks. `ai_tools_conf_is_trusted` requires owner 0 (see
 nobody-owned, refuses `operator.conf` and every manifest, and does not resolve any agent. The
 refusals stay fail-closed, and the toolchain stops advancing; the run ends as a fault whose reason
 names the translated owner it read ([the empty-set classification](#the-run-classifies-itself-ok-skipped-or-failed)),
-so the state is reported, and the unit check below is what keeps it from arising.
+so the state is reported, and the unit-file check is what keeps it from arising.
 
 Two properties of that make the guard a **unit-file check** (`tests/integration/systemd.sh`, over
 every shipped `--user` unit) rather than a runtime one:
@@ -141,7 +141,7 @@ attention that a real fault then has to compete with.
 The split is coarse by intent. It does not diagnose *why* the registry was unreachable — a
 disconnected machine and a registry outage are one state from inside a confined `--user` job — only
 whether a retry is the right response (the unit retries `3` and not `1`; see
-[the retry policy](#retrying-a-transient-failure) below) and whether an operator should be alarmed
+[the retry policy](#retrying-a-transient-failure)) and whether an operator should be alarmed
 now. What keeps `skipped` from becoming a way to hide a real problem is that it does not stop the
 clock: the stamp still ages, and a condition that persists past the record's 48h grace reports
 `STALE`, the same escalation a schedule that stopped firing gets. Offline once is routine; offline for a week is a toolchain that has stopped advancing.
@@ -315,7 +315,8 @@ root-owned manifests declare (see [agent-claude-code](agent-claude-code.rule.md)
 `ai-tools-relabel-agent --remove <agent>` is the erase-time counterpart: the agent package's
 `%preun` drops its rule while its manifest is still on disk.
 
-`ai-tools-bootstrap` runs the helper directly at provision time (above). Two further paths
+`ai-tools-bootstrap` runs the helper directly at provision time (see
+[Toolchain provisioning](#toolchain-provisioning-system-bootstrap)). Two further paths
 run it after an upgrade, both as root, never `SANDBOX_USER`:
 
 - **Automatically**, through the `ai-tools-relabel.path` watcher. The `.path` watches the
@@ -407,7 +408,7 @@ best-effort against such hosts. The signing keys are fetched from the registry k
 
 ## Entrypoint verification and the pin
 
-The checks above attest to what was **delivered**. Neither can see what the entrypoint *is now*: the
+The provenance checks attest to what was **delivered**. Neither can see what the entrypoint *is now*: the
 exec root is sandbox-owned, and `npm install -g` does not reinstall an unchanged version, so on a
 DAC-only host a modified entrypoint persists across sessions and operators indefinitely (under
 SELinux the vector is closed outright — see [confinement](confinement.rule.md)).
@@ -521,7 +522,7 @@ man-in-the-middle key swap, so pinning is defense in depth against a primary-reg
 root-of-trust compromise, held against that cost.
 
 For the **agent binary** specifically that gap is now closed from the other side: the entrypoint
-verification above pins its key in a root-owned file rather than fetching one, so a compromised
+verification pins its key in a root-owned file rather than fetching one, so a compromised
 registry serving a forged package, signature, and keys together still fails the release-manifest
 comparison. What stays deferred is the rest of the toolchain — Node and npm itself — where no
 equivalent signed-checksum manifest is consumed.

@@ -54,13 +54,13 @@ without any Bash prompt, or it processes data already in hand.
 | `jq *` | Filter/inspect JSON already in hand (tool output, configs). |
 | `ls`, `ls *`, `tree`, `tree *` | Listings with owner/mode — the ownership model's primary observable. |
 | `stat *`, `getfacl *` | Per-path owner/mode/context and the collaborative-ownership ACL grants — diagnose handback and claim state ([ownership-and-hooks](ownership-and-hooks.rule.md)). |
-| `head *`, `tail *`, `wc *`, `sort`, `sort *`, `uniq`, `uniq *`, `grep *` | Pipeline staples that bound and filter the output of the commands above. |
+| `head *`, `tail *`, `wc *`, `sort`, `sort *`, `uniq`, `uniq *`, `grep *` | Pipeline staples that bound and filter the output of the other listed commands. |
 | `file *` | Identify a file's type before reading it. |
 
 ### A rewritten command is what these rules match
 
 The `PreToolUse` filter hook may narrow a Bash command before it runs
-([filters](filters.rule.md)). It does not return a permission decision, so the three outcomes above are
+([filters](filters.rule.md)). It does not return a permission decision, so the three outcomes are
 decided on the **rewritten** command. Two consequences bound what a rule may do:
 
 - A rule that only inserts arguments after the leading words leaves every entry here matching as
@@ -82,7 +82,7 @@ and the prompt** (verified empirically: `df` ran silently in a session whose loc
 settings layers were empty, while `ls > file` in the same session prompted — the same
 analysis reclassifies a redirect as a write). An unlisted safe-read therefore does
 **not** reliably prompt; a read that must stay operator-visible needs a `deny` entry,
-which is why the host-survey group below is denied rather than merely unlisted.
+which is why the host-survey group is denied rather than merely unlisted.
 
 ### Refused (`deny`)
 
@@ -118,7 +118,7 @@ target, so a deny stops the agent spending a tool call, and emitting an AVC, on 
 action the kernel refuses anyway:
 
 - `sudo`, `su` — SUID is inoperative under the session's `PR_SET_NO_NEW_PRIVS` (see
-  below), so both fail by construction.
+  [confinement](confinement.rule.md)), so both fail by construction.
 - `journalctl`, `systemctl` — the SELinux core module denies talking to the
   user/system manager and reading the journal.
 - `ausearch`/`auditctl`/`aureport` — the core module denies the audit surface.
@@ -126,7 +126,7 @@ action the kernel refuses anyway:
   default; with it off the core module refuses the package-manager stack.
 - `mount *`, `umount` — mounting needs `CAP_SYS_ADMIN`, and `RestrictNamespaces=yes`
   closes the user-namespace route to it. (Bare `mount` succeeds — it lists the mount
-  table — so it is denied with the host-survey group below instead.)
+  table — so it is denied with the host-survey group instead.)
 - `setenforce`/`semodule`/`semanage` — root-only SELinux management; label repair flows
   through the root-side relabel path, never the agent.
 
@@ -207,7 +207,7 @@ may do exactly the same things.
 
 Both live here rather than in `ai-tools-run`'s allowlist because they are Claude Code product
 policy, not confinement structure — Claude Code's own config surface, beside the permission
-and hook declarations. Layering and override are under "Control-plane integrity" below.
+and hook declarations. Layering and override are under [Control-plane integrity](#control-plane-integrity).
 
 ## `showThinkingSummaries` and `verbose` — the observability defaults
 
@@ -223,7 +223,7 @@ identical either way — and what they buy is that the operator confirming an ac
 reasoning that produced it and the output it produced, which is the difference between approving a
 command string and approving what the command did.
 
-They are the operator-side complement to `disableAutoMode` below: that key decides *whether* a
+They are the operator-side complement to `disableAutoMode`: that key decides *whether* a
 human is asked, these decide *how much* that human is shown. The catalog of the other UI and
 behavior keys an operator MAY add is in
 [`docs/claude-options.md`](../../docs/claude-options.md).
@@ -242,7 +242,7 @@ permission mode. The value is the literal string
 The default keeps a human in the loop for the outward-facing, irreversible actions a
 session reaches — commits, pushes, other state-changing Bash commands — which the sandbox
 confines but does not gate on confirmation. It is a control-plane default, overridable per
-project (see "Control-plane integrity" below).
+project (see [Control-plane integrity](#control-plane-integrity)).
 
 ## Coupling to optional SELinux groups
 
@@ -291,7 +291,7 @@ file does not carry is added,
 every other key — the permission arrays it was kept for, an operator's own hook — is left as
 written, and each addition is named in the install log.
 
-The split follows the layering above: hook declarations are control plane that merges
+The split follows that layering: hook declarations are control plane that merges
 additively and that no lower-precedence layer may remove, while the permission rules are the
 host's to tune. The merge is what carries a newly shipped hook onto an existing host: its body
 and data arrive with the package, and this is the step that makes the file declare it, so the

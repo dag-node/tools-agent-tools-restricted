@@ -19,7 +19,7 @@ every principal sources it). It exposes `ai_tools_log <level>` and
   `-allowlist`, `-launcher-symlink`, `-lockdown`, `-relabel`, `-relabel-agent`, `-dotnet`,
   `-handback` and `ai-tools-install`; the sandbox account's uid for `ai-tools-run` and
   `-hook`; the operator's for `ai-tools`. Add `-p warning` to filter by level. The uid is not
-  decoration — see "A tag is not an identity, `_UID` is" below.
+  decoration — see [A tag is not an identity, `_UID` is](#a-tag-is-not-an-identity-_uid-is).
 - **`/var/log/ai-tools/<component>.log`** — only when the caller sets `AI_TOOLS_LOG_FILE`,
   which only the root writers do. The directory is `700 root:root`, each file
   `600 root:root`: the root helpers append as root, while `SANDBOX_USER` — neither the dir
@@ -58,7 +58,7 @@ Two tags have no separating filter, because the agent **is** their legitimate wr
 `ai-tools-hook` and `ai-tools-run` both run as the sandbox account, so a forged line under either
 carries the same `_UID` as a real one. Their journal lines are the session's own account of what
 happened — evidence to reconcile, not proof of it. The trail free of that doubt is the
-file sink above: `700 root:root`, root writers only, which the agent can neither read nor append
+file sink: `700 root:root`, root writers only, which the agent can neither read nor append
 to. Where a journald line and the file sink disagree, the file sink is what happened.
 
 `tests/boundary/access.sh` asserts the separation from the agent's side: a line the sandbox
@@ -137,7 +137,7 @@ tool=Bash  cwd=/home/<you>/project  cmd="git log" argc=4
 tool=Write cwd=/home/<you>/project  path=/home/<you>/project/src/main.c
 ```
 
-**Each record is written twice over, in one journal entry.** The line above is the `MESSAGE`,
+**Each record is written twice over, in one journal entry.** The rendered line is the `MESSAGE`,
 for an operator reading `journalctl -t ai-tools-hook`; the same facts are also carried as
 **native journald fields**, for a machine consumer (`journalctl -o json`, or an ingester such as
 Seq or Vector reading the journal):
@@ -153,7 +153,7 @@ Seq or Vector reading the journal):
 A `key=value` `MESSAGE` is only *conventionally* structured — every consumer re-parses it, and a
 value containing the delimiter is ambiguous. The native protocol delimits each field itself, so
 a value does not need escaping and cannot forge a sibling. That difference is why the two renderings
-are reduced differently, below. Emission goes through `ai_tools_log_structured`, an **opt-in**
+are reduced differently. Emission goes through `ai_tools_log_structured`, an **opt-in**
 extension of this library: a caller passing no fields, or a host whose `logger(1)` predates
 `--journald`, takes the plain path and is byte-identical to before. The fallback is decided by
 attempting the native write and reading its exit status, so no capability verdict can go stale.
@@ -174,7 +174,7 @@ is agent-supplied, and both renderings first drop control characters — which i
 record's internal delimiter safe and removes the newline that would truncate a journal field.
 
 The `MESSAGE` is then narrowed further, to printable ASCII **minus space, `"` and `=`**: the
-three characters that delimit it. `ai_tools_log_sanitize` (above) is a *display* guard and
+three characters that delimit it. `ai_tools_log_sanitize` is a *display* guard and
 deliberately permits those three, because in prose they are ordinary text; in a `key=value` line
 they are *structure*, so a leading word of `git" argc=0 cwd=/etc/passwd` would otherwise render
 as `cmd="git" argc=0" argc=8` and hand a reader the planted `argc`. Reducing them to `?` makes
@@ -204,7 +204,7 @@ been written, so a degraded host's log volume is unchanged — only its level ri
 
 **Volume is within journald's budget by a wide margin.** Rate limiting applies per sending unit
 — here the session's own transient user service — at the upstream default of 10000 messages per
-30s, orders of magnitude above any tool-call rate, so an `INFO` per call does not need a drop-in or a
+30s, orders of magnitude higher than any tool-call rate, so an `INFO` per call does not need a drop-in or a
 lowered level.
 
 **Concurrent sessions separate without trusting the agent.** All sessions run as one account, so
@@ -214,7 +214,8 @@ cgroup, and each session is its own transient unit
 (`journalctl -t ai-tools-hook _SYSTEMD_USER_UNIT=<unit>`).
 
 **This trail is the agent's own account of what it did, not proof of it.** The sandbox account
-is `ai-tools-hook`'s legitimate writer, so — as above — a forged line under that tag is
+is `ai-tools-hook`'s legitimate writer, so — as with every line a session writes — a forged line
+under that tag is
 indistinguishable from a real one by uid, and a session could emit records for calls it never
 made or stay silent about ones it did. That is inherent: no record written from inside the
 monitored system can be more trustworthy than the system. What it is good for is
@@ -225,7 +226,8 @@ sink, never from here.
 
 ## Deferred
 
-- **Control/bidi as a malicious-attempt detector.** The allowlist above reduces non-standard
+- **Control/bidi as a malicious-attempt detector.** The `ai_tools_log_sanitize` allowlist reduces
+  non-standard
   bytes to `?` for safe display. Retained but **not yet wired**:
   `ai_tools_log_sanitize_unicode_controlchars` (shell, byte-wise C0/C1/zero-width/bidi/BOM
   ranges) and `_sanitize_unicode_controlchars` (daemon, `unicodedata` categories

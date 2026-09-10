@@ -30,12 +30,12 @@ execute code in the privileged scripts that read it:
 - agents: `npm_package` (the registry package), `launcher` (the bin symlinked at
   `/opt/ai-tools/bin/<launcher>`, and the name `ai-tools-run` matches an executable against to
   decide whether it may launch), `display_name` (what the launch banner and the unit description
-  call it), `handback` (which side converges ownership — below), `entrypoint_fcontext` and
-  `config_dir` (the two paths it declares to SELinux — below), `skills_dir` / `subagents_dir`
+  call it), `handback` (which side converges ownership), `entrypoint_fcontext` and
+  `config_dir` (the two paths it declares to SELinux), `skills_dir` / `subagents_dir`
   (where inside its config directory it reads each shared asset kind, so the shared copies can be
   symlinked in — see [shipped-assets](shipped-assets.rule.md)), `memory_file` (the filename that
   agent's product reads as user-scope instructions, where the shared orientation text is linked),
-  `default_enable`, and — optionally — the three release-verification fields below.
+  `default_enable`, and — optionally — the three release-verification fields.
 - integrations: `default_enable`, and optionally the three keys the SELinux layer reads —
   `build_output_dirs` (the directory names that hold the toolchain's build output, which
   `relabel.lib.sh` reads from every installed manifest through
@@ -48,9 +48,11 @@ execute code in the privileged scripts that read it:
 pointer to it: a manifest is package data replaced on upgrade, so a description that lives in the
 file is one an upgrade rewrites for no settings change, and one that lives in the page reaches every
 host with the package. The same placement rule holds for the config files an operator holds
-(*A config file's header is a pointer*, below).
+(see [A config file's header is a pointer](#a-config-files-header-is-a-pointer)).
 - either kind: `admin_summary`, the one-line description `ai-tools-admin --help` prints for the
-  command domain this package contributes (below). Optional; a package that does not contribute a
+  command domain this package contributes (see
+  [The interface a contributed command declares](#the-interface-a-contributed-command-declares)).
+  Optional; a package that does not contribute a
   domain has no use for it, and a domain whose manifest omits it is still listed.
 
 Either kind may also ship `session-env.d/<name>.env.sh`, keyed by the same `<name>` — one flat
@@ -137,7 +139,7 @@ and what gates on it):
 |---|---|
 | `release_manifest_url` | the vendor's per-release checksum manifest, with a single `{version}` slot |
 | `release_key` | the OpenPGP key that signs it, a file the agent's own package ships |
-| `release_fingerprint` | the fingerprint(s) that key must have — a **list**, in the grammar below |
+| `release_fingerprint` | the fingerprint(s) that key must have — a **list**, in the [shared config grammar](#the-shared-config-grammar-conflibsh) |
 
 Three properties keep this a declaration rather than a lever:
 
@@ -214,8 +216,8 @@ is a project that stays reachable after a "removal". The state model those funct
 and the rules they enforce on every caller, are in [cli](cli.rule.md).
 
 `ai_tools_conf_read` returns present/absent separately from the value, which is what makes
-`KEY=` (an explicit "none") distinguishable from an omitted key — the distinction the gating below
-turns on. `ai_tools_conf_list` overwrites its target array **only** when the key is present, so an
+`KEY=` (an explicit "none") distinguishable from an omitted key — the distinction
+[Enablement is fail-closed](#enablement-is-fail-closed) turns on. `ai_tools_conf_list` overwrites its target array **only** when the key is present, so an
 override key overrides and an absent one leaves the caller's default standing (how the `SKIP_*`
 categories in [ownership-and-hooks](ownership-and-hooks.rule.md) keep their built-in defaults).
 
@@ -291,7 +293,8 @@ is worth paying against a file large enough to make hand-merging error-prone, an
 
 ## Enablement is fail-closed
 
-`operator.conf` `AI_TOOLS_AGENTS` / `AI_TOOLS_INTEGRATIONS` (provider names, in the grammar above)
+`operator.conf` `AI_TOOLS_AGENTS` / `AI_TOOLS_INTEGRATIONS` (provider names, in the
+[shared config grammar](#the-shared-config-grammar-conflibsh))
 gates each kind:
 
 - **key present** → enabled = exactly the listed names (an allowlist; an empty value = none).
@@ -309,7 +312,8 @@ only when an operator names it (dotnet). This is the fail-closed default-when-un
 
 ## The sandbox cannot widen its own surface
 
-The inputs above decide which agents get installed and what environment a session is handed, and
+The inputs this rule states decide which agents get installed and what environment a session is
+handed, and
 the code that reads them runs **as `SANDBOX_USER`** (`ai-tools-run`, `nvm-update`). So each input is
 honored only while `ai_tools_conf_is_trusted` holds for it — it exists, is not a symlink, is owned
 by root, and is writable by neither group nor other — and so is the **directory** holding it, since
@@ -360,7 +364,8 @@ agent-writable (catching the agent trying to break it).
 - `ai_tools_provider_is_enabled <name> <default_enable> <allowlist_active> <allowlist>` — the pure
   enablement decision, no I/O, unit-tested over the truth table (`tests/unit/providers.sh`).
 - `ai_tools_agent_sweeps_at_exit <handback-declaration>` — the pure handback-driver decision
-  (above), likewise no I/O and unit-tested.
+  (the [handback capability](#the-handback-capability--which-side-converges-ownership)), likewise
+  no I/O and unit-tested.
 - `ai_tools_enabled_agents` — prints `name<TAB>npm_package<TAB>launcher` per enabled installed agent.
 - `ai_tools_enabled_integrations` — prints one enabled installed integration name per line.
 - `ai_tools_installed_integrations_declaring <key>` — prints `name<TAB>value` for every
@@ -411,15 +416,16 @@ arbitrary `KEY=value` shell, and a fragment is a mechanism the seam already has.
 The seam is **best-effort**, not the fail-closed tier `msg.lib`/`confinement.lib` hold: a missing
 or untrusted lib, directory, or fragment leaves the integration env empty and the confined launch
 unaffected, because the integration env is additive, not load-bearing — "fail closed" here means
-*no integration*. Everything it sources is gated by the trust rules
-above; a fragment self-gates on its host tool, so it is inert on a host without the toolchain even
+*no integration*. Everything it sources is gated by the trust rules in
+[The sandbox cannot widen its own surface](#the-sandbox-cannot-widen-its-own-surface); a fragment
+self-gates on its host tool, so it is inert on a host without the toolchain even
 when enabled.
 
 A fragment runs in `ai-tools-run`'s own scope, so it appends to the two arrays and stops there: it
 must not exec, prompt, read stdin (the loop feeding it is on a process substitution), or depend on
 the caller's environment, and it unsets its own temporaries. The **agent** fragment
 (`source_session_env_fragment "${agent_name}"`) is sourced by a direct call in `ai-tools-run`'s main
-shell rather than in that loop, which is what lets the two sanctioned exceptions below reach the
+shell rather than in that loop, which is what lets the two sanctioned exceptions reach the
 launch: an `export` it makes persists into the `systemd-run` invocation, and an `exit` it takes
 refuses the launch (it runs before the unit is created and before the session-end sweep trap, so the
 refusal is clean).
@@ -535,7 +541,7 @@ than text, so they are contracted here and asserted by the provider's own tests.
 ## The integration this project ships
 
 `dotnet` (`ai-tools-integration-dotnet`) is the one member package of the integration kind. It
-uses every seam above — a manifest with `default_enable=no`, a session-env fragment, a filter rule
+uses every seam this rule states — a manifest with `default_enable=no`, a session-env fragment, a filter rule
 set, and a contributed `dotnet` domain — and what each of those does for .NET, together with the
 SELinux groups the runtime needs under enforcing, is in [dotnet](dotnet.rule.md).
 
@@ -565,7 +571,7 @@ sits in this seam as an integration, so a thin .NET agent is the near case. What
 what it would leave alone:
 
 - **A `runtime` field on the agent manifest** (`nodejs` when absent, so today's manifests are
-  unchanged) selecting both halves of the assumption above. `npm_package` becomes the `nodejs`
+  unchanged) selecting both halves of that assumption. `npm_package` becomes the `nodejs`
   runtime's provisioning key rather than a universal one.
 - **An exec root and a launcher shape per runtime.** The current rule is `<nvm>/versions/node/
   <semver>/bin/<launcher>`; the version directory pins the launcher to the toolchain version the

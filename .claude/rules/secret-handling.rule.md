@@ -41,7 +41,7 @@ untouched — and a skipped directory takes its subtree with it. Widening the mo
 re-claiming is how a path opts in; the skip count is reported, since on a project root it
 means the sandbox account cannot enter the tree at all.
 
-This is what keeps the `700 <you>:<you>` directory above protective. `setfacl -m` recalculates
+This is what keeps a `700 <you>:<you>` directory protective. `setfacl -m` recalculates
 the mask to cover the entries it adds, so granting such a directory would return it as `0770` —
 write on the directory, and with it the ability to unlink the secrets inside, which is the very
 thing the `700` is there to stop.
@@ -138,7 +138,7 @@ revoking `SANDBOX_USER`'s read regardless of who created the path. The owner's o
 is the target, the same one `ai-tools-chown` gives an agent-written secret, so a secret ends up
 identically owned whether it was locked down proactively or quarantined on write; leaving the
 group as `SANDBOX_GROUP` would re-expose it the moment the mode was widened. Each locked path
-also has its sandbox residue stripped (see above).
+also has its sandbox residue stripped.
 It runs only when the CWD is an allowed project and skips `!`-excluded paths, and applies each
 change through a pinned fd (re-verifying inode and type) so a `SANDBOX_USER` path swap cannot
 redirect root's chmod/chown. `--yes` skips the TTY confirmation.

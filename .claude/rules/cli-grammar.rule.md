@@ -16,7 +16,7 @@ group verbs, [dotnet](dotnet.rule.md) for the .NET integration. This rule covers
 command is spelled and how it projects onto an HTTP surface.
 
 The surface is **resource-oriented and isomorphic to a REST API**, so an HTTP layer can be mapped
-onto it without renaming anything. That constraint is what fixes the rules below; each one is a
+onto it without renaming anything. That constraint is what fixes [the rules](#the-rules); each one is a
 CLI spelling with an unambiguous URI on the other side.
 
 ## The rules
@@ -97,7 +97,8 @@ verb takes a resource identifier, and it is spelled in full per the descriptive-
 ## Which binary a command lives on
 
 **The binary is the privilege boundary**, and it is where the whole surface expresses it — the URI
-carries no `/admin` prefix (below). There are two typed commands:
+carries no `/admin` prefix (see [No `/admin` namespace](#no-admin-namespace)). There are two typed
+commands:
 
 | Binary | Caller | Holds |
 |---|---|---|
@@ -206,7 +207,8 @@ Most of this surface is **actions** rather than CRUD — `claim`, `unclaim`, `re
 takes AIP-136's **custom method**, a verb after a colon, because a CLI verb maps onto it
 one-for-one with no renaming.
 
-The examples below are spelled in this grammar; *Where the surface stands* reconciles each binary's
+The examples are spelled in this grammar;
+[Where the surface stands](#where-the-surface-stands) reconciles each binary's
 own spelling against it.
 
 ```

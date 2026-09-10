@@ -36,7 +36,7 @@ so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS`.
 
 - `session-env.d/dotnet.env.sh` self-gates on `/usr/bin/dotnet`, then sets the variables the
   fragment declares — the toolchain root, the NuGet cache and CLI home under its state root, the
-  telemetry and banner opt-outs, the MSBuild node-reuse switch (below), and the `Development`
+  telemetry and banner opt-outs, the MSBuild node-reuse switch, and the `Development`
   environment — and adds `integrations/dotnet/tools` to PATH. The set is the one current for
   **.NET 8 LTS and later**; the .NET Core 2.x/3.x-era opt-outs (`DOTNET_SKIP_FIRST_TIME_EXPERIENCE`,
   `DOTNET_PRINT_TELEMETRY_MESSAGE`) are absent because the SDK does not read them.
@@ -49,7 +49,8 @@ so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS`.
   the SELinux layer needs from this toolchain: `build_output_dirs`, the directories that hold its
   build output, which `relabel.lib.sh` maps to the build-output type; `selinux_layout_module`,
   the module that types them at creation; and `selinux_groups`, the policy groups a full workflow
-  needs (*The policy groups*, below).
+  needs (see
+  [The policy groups](#the-policy-groups-a-net-workflow-needs-and-the-layout-module-that-is-not-one)).
 - `filters.d/dotnet.rules` quiets `build`, `publish`, `restore`, `run` and `test` with `-v q`;
   the rule, and why verbosity is a command rule rather than a fragment variable, are in
   [filters](filters.rule.md).
@@ -78,8 +79,8 @@ so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS`.
   manifest declares, and `status` reports it and the declared groups' state.
 
 The state root's label comes from the base's static rule on `integrations(/.*)?`; the CLR runs on
-the already-granted `execmem` (shared with V8). Everything past that point is the optional groups
-below, which a DAC-only host does not need.
+the already-granted `execmem` (shared with V8). Everything past that point is the optional
+groups, which a DAC-only host does not need.
 
 ## The policy groups a .NET workflow needs, and the layout module that is not one
 
@@ -100,7 +101,8 @@ enables them. No group is enabled automatically.
 
 **The layout module `ai_tools_dotnet` is not a group.** It carries the `bin`/`obj`/`artifacts`
 transitions and the sandbox-clone rule that put .NET's output on the build-output type at creation
-(*The build-output type*, below), and it does not add any permission, so it is not an operator's
+([The build-output type](#the-build-output-type-and-what-scoping-to-it-does-and-does-not-do)),
+and it does not add any permission, so it is not an operator's
 consent point:
 `ai-tools-admin dotnet bootstrap` loads it where the policy package is installed, the policy
 package's `%post` loads the layout module of every installed integration that declares one

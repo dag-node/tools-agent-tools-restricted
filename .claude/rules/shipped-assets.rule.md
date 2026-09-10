@@ -15,7 +15,8 @@ rather than copied per agent:
   word; Claude Code calls them "agents" and reads them from `<config dir>/agents/`, which is why
   the manifest maps the two (`subagents_dir=agents`). See `docs/naming-conventions.md`.
 - **Orientation** — one file, `AGENTS.md`, stating what the sandbox refuses. It is the only asset
-  loaded **unconditionally in every session in every project**, which is what shapes it (below).
+  loaded **unconditionally in every session in every project**, which is what shapes it (see
+  [The orientation text](#the-orientation-text)).
 
 Each kind is seeded ONCE into its own shared root under `/opt/ai-tools` — one per kind, named in
 `control-plane.lib.sh` (`CP_SHARED_SKILLS`, `CP_SHARED_SUBAGENTS`, `CP_SHARED_ORIENTATION`) and
@@ -225,7 +226,8 @@ subagents, the fixed `AGENTS.md` for orientation — **and** its frontmatter car
   copy per upgrade would bury the withdrawal copies that do carry something unrecoverable;
 - **present + unmanaged** (no marker) → left untouched (the operator's own file);
 - **present + same-or-older version** → no-op;
-- **a withdrawn name** → skipped outright, before any of the above (see *Withdrawing an asset*).
+- **a withdrawn name** → skipped outright, before any of the other cases (see
+  [Withdrawing an asset](#withdrawing-an-asset)).
 
 Base's `%post` pre-answers the update confirm with `AI_TOOLS_ASSUME_YES=1` rather than letting it
 fall through to its default. The outcome is identical, but the prompt is written to `/dev/tty`,
@@ -267,7 +269,7 @@ This rule is coupled to `src/usr/share/ai-tools/{skills,subagents}/README.md` (t
 orientation) and the
 `managed-assets.lib.sh` header (the seeder contract); changing the seeding
 behavior, the namespace, or the versioning scheme obligates reconciling all three against the
-code. Adding a shipped asset obligates keeping this rule's `paths:` and the shipped-set list above
+code. Adding a shipped asset obligates keeping this rule's `paths:` and its shipped-set list
 current.
 
 The orientation kind couples further, because its destination is manifest data: the

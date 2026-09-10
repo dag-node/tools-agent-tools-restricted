@@ -70,14 +70,14 @@ test and the session-hook NOTICE use the latter to render a box into captured ou
 The emitters (`ai_tools_msg_*`) **wrap every line** — right for a short refusal or notice,
 but a wrap splits a multi-word command across lines, so command-bearing prose handed to an
 emitter must keep its command on a separate plain line (the session NOTICE does this: boxed
-prose, reconcile command printed below the frame).
+prose, reconcile command printed under the frame).
 
 `ai_tools_msg_headline <title> <fd> <line...>` opens a **self-contained flow block** —
 the structure the `ai-tools` claim/sandbox flows are built from: a wide (80-column) box
 carrying the block's caller-composed title (verbatim, not uppercased: `Claim project (in
 place)`, `WARNING: interior permission drift`) and its summary prose, with the block's
 details — path lists, per-step results, its confirm prompt — printed **plain and indented
-below the box** so long paths stay copy-pasteable, and a closing `✓` (or a fail-closed
+under the box** so long paths stay copy-pasteable, and a closing `✓` (or a fail-closed
 error) ending the block. In plain (non-tty) mode the title is emitted as a content line —
 it is block structure, not decoration, so logs and test greps still see which block
 opened.
@@ -98,7 +98,7 @@ emits only the index on stdout, so the caller reads it with `$(...)`.
 A label is `<label>` or `<label><TAB><consequence>`: the labels align on a column computed
 from the longest one, drawn bold against a dim consequence, so each option states what it does
 and what it costs **on one line**. That is where a screen's options are stated — **once**. A
-block above a menu says what the screen is *about*; a block that also lists the options makes
+block preceding a menu says what the screen is *about*; a block that also lists the options makes
 the reader match two renderings of the same three choices, which is what made the launch
 wrapper's screen read as a wall of text.
 
@@ -162,7 +162,7 @@ Pre-answering is two distinct mechanisms, by direction:
 
 ### The stop confirmation defaults YES, and that is the rule, not an exception to it
 
-`ai-tools --stop` inverts the direction above: its confirmation defaults **YES**, so a bare Enter,
+`ai-tools --stop` inverts that direction: its confirmation defaults **YES**, so a bare Enter,
 a pipe, a cron run and an absent `msg.lib.sh` all proceed, and only a deliberate `n` declines. The
 principle is unchanged — *give it the default that is the safe outcome* — and it is **which outcome
 is safe** that flips: for the one control whose job is to end a session already running, declining
@@ -278,11 +278,11 @@ the exit status of the operation whose outcome they report.
   screen repeats paths: the claim/clone commands default to the current directory.
 
   The **setup** screen carries one line of prose and **no commands**; its options live in the
-  `ai_tools_msg_pick none` menu below it, each with the consequence that distinguishes it —
+  `ai_tools_msg_pick none` menu under it, each with the consequence that distinguishes it —
   **1)** Create sandbox (*the session runs in the copy, not here*), **2)** Claim here (*its
   group becomes `ai-tools`*), **3)** Cancel. Because the block does not name a command, the Cancel
   path — which is also the no-terminal and unanswered-menu path — prints both commands itself,
-  plain and below the frame. The **finish-setup** screen keeps its per-gap bullets, its
+  plain and under the frame. The **finish-setup** screen keeps its per-gap bullets, its
   embedded `--sandbox-create` command (its prompt is a yes/no confirm offering only the claim,
   so the alternative has nowhere else to appear), and its severity-based default.
 - **`ai-tools.sh`** routes `die()` and `warn()` through the error/warning emitters, and
@@ -332,7 +332,7 @@ list, not one box per option.
   multi-line screen whose commands belong *inside* the frame uses `ai_tools_msg_block`
   instead, which keeps indented command lines verbatim and overflows the long ones.
 - **Short prompts stay inline.** Yes/no prompts keep the inline hint form with the cursor
-  on the same line; framing a one-line question with the cursor below the box reads worse
+  on the same line; framing a one-line question with the cursor under the box reads worse
   than it helps. The hint is the standard bracketed notation with the Enter outcome
   spelled out — `[Y/n] (default: Yes):` for a yes default, `[y/N] (default: No):` for a no
   default — and every yes/no prompt in the project renders through
