@@ -9,8 +9,8 @@ Version:        %(cat %{_sourcedir}/VERSION)
 # Plain "1" for a final vX.Y.Z release; the Makefile's RPM_RELEASE overrides it to a
 # dev/snapshot string (e.g. "0.42.gitabcdef1") or an rc prerelease ("0.rc1"). The leading
 # "0." on a dev Release is the Fedora pre-release convention: rpm's version comparison
-# then always ranks a real release (Release starts at plain "1") above any dev snapshot
-# that preceded it, and ranks newer dev snapshots above older ones as the counter climbs.
+# then always ranks a real release (Release starts at plain "1") over any dev snapshot
+# that preceded it, and ranks newer dev snapshots over older ones as the counter climbs.
 Release:        %{!?rpm_release:1}%{?rpm_release}%{?dist}
 Summary:        Run Claude Code as a sandboxed system user (metapackage)
 
@@ -50,7 +50,7 @@ BuildRequires:  make
 # Metapackage: pulls the whole stack. ai-tools-base is the mandatory foundation; the
 # ai-tools-agents and ai-tools-integration umbrellas are weak (Recommends), so a default
 # dnf install pulls them while `--setopt=install_weak_deps=0` yields base alone. The real
-# content is in the subpackages below.
+# content is in the subpackages.
 Requires:       ai-tools-base = %{version}-%{release}
 Recommends:     ai-tools-agents = %{version}-%{release}
 Recommends:     ai-tools-integration = %{version}-%{release}
@@ -326,7 +326,7 @@ install -m 0644 src%{ai_libdir}/filters.d/core.rules %{buildroot}%{ai_libdir}/fi
 # served the manifest served the key).
 install -d -m 0755 %{buildroot}%{ai_libdir}/keys
 # The shared confinement shim. Base-owned and agent-agnostic: it resolves which agent may launch
-# from the manifests above, so an ai-tools-agents-* package ships only its wrapper, manifest, and
+# from the manifests, so an ai-tools-agents-* package ships only its wrapper, manifest, and
 # session-env fragment, and one sudoers grant serves every agent.
 install -d -m 0755 %{buildroot}/opt/ai-tools/bin
 install -m 0550 src/opt/ai-tools/bin/ai-tools-run.sh %{buildroot}/opt/ai-tools/bin/ai-tools-run
@@ -387,7 +387,7 @@ install -d -m 0750 %{buildroot}/var/opt/ai-tools/state
 # the whole value of a pin is that the account it constrains cannot write it.
 install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-pin.d
 # What the last reconciliation could do about each agent's SELinux labels -- the labelling half's
-# counterpart to the pin above, written by the same helper and read by `ai-tools --status`. Same
+# counterpart to the pin, written by the same helper and read by `ai-tools --status`. Same
 # ownership for the same reason: it reports on the sandbox account, which must not be able to
 # rewrite it.
 install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-label.d
@@ -395,8 +395,8 @@ install -m 0640 src/var/opt/ai-tools/README.md %{buildroot}/var/opt/ai-tools/REA
 install -d -m 0700 %{buildroot}/var/log/ai-tools
 
 # ── base: control-plane home root + bin (files added by nodejs/claude; the agent's own config
-#    directory is staged in its section below). Staging modes are writable so files can be placed
-#    here; the installed modes come from the file lists below. ──
+#    directory is staged in its own section). Staging modes are writable so files can be placed
+#    here; the installed modes come from the file lists. ──
 install -d -m 0755 %{buildroot}/opt/ai-tools
 install -d -m 0755 %{buildroot}/opt/ai-tools/bin
 # The shared asset roots: agent-agnostic content the base owns, symlinked into each agent's own
@@ -482,7 +482,7 @@ install -m 0640 src/opt/ai-tools/agents/claude-code/settings.json     %{buildroo
 install -m 0644 src%{ai_libdir}/agents.d/claude-code.conf  %{buildroot}%{ai_libdir}/agents.d/claude-code.conf
 # The pinned Anthropic release-signing key (published at downloads.claude.ai/keys/claude-code.asc).
 # Plain rpm-owned data, NOT %%config: the pin must change only when a signed package installs a new
-# one, never by an edit on the host. Its fingerprint is declared in the manifest above and asserted
+# one, never by an edit on the host. Its fingerprint is declared in the manifest and asserted
 # against gpgv's output, so this file alone does not decide what may sign a release.
 install -m 0644 src%{ai_libdir}/keys/claude-code.asc %{buildroot}%{ai_libdir}/keys/claude-code.asc
 # Its session env (config dir, compile cache, in-session updater), sourced by ai-tools-run last
@@ -490,7 +490,7 @@ install -m 0644 src%{ai_libdir}/keys/claude-code.asc %{buildroot}%{ai_libdir}/ke
 install -m 0644 src%{ai_libdir}/session-env.d/claude-code.env.sh %{buildroot}%{ai_libdir}/session-env.d/claude-code.env.sh
 # Claude Code-specific resolvers (the base owns the lib directory; the agent ships these into it):
 # the custom system prompt (claude.sh, wrapper-side) and the custom API endpoint (the fragment
-# above, sandbox-side). Both split their pure logic out for unit testing.
+# its own fragment, sandbox-side). Both split their pure logic out for unit testing.
 install -m 0644 src%{ai_libdir}/claude-prompt.lib.sh   %{buildroot}%{ai_libdir}/claude-prompt.lib.sh
 install -m 0644 src%{ai_libdir}/claude-endpoint.lib.sh %{buildroot}%{ai_libdir}/claude-endpoint.lib.sh
 # The empty default custom system prompt and the endpoints directory with its inert endpoint
@@ -566,7 +566,7 @@ if [ ! -f /opt/ai-tools/.gitconfig ]; then
     chown root:ai-tools /opt/ai-tools/.gitconfig
     chmod 0644 /opt/ai-tools/.gitconfig
 fi
-# Relabel the reseeded files: the -R restorecon above ran before this block created them, so
+# Relabel the reseeded files: the -R restorecon ran before this block created them, so
 # label them explicitly (no-op when SELinux is off or they already carry the right context).
 if command -v restorecon >/dev/null 2>&1; then
     restorecon /opt/ai-tools/.gitignore /opt/ai-tools/.gitconfig >/dev/null 2>&1 || :
@@ -693,7 +693,7 @@ fi
 # `ai-tools-admin selinux groups enable <name>` (experimental groups are not shipped).
 #
 # `semodule -i` loads into the RUNNING policy, not just the module store: the entrypoint is
-# labelled by the restorecon below only once the module's types exist in the kernel, and
+# labelled by the restorecon only once the module's types exist in the kernel, and
 # ai-tools-run's preflight refuses to launch (`mislabel`) while it is unlabelled. The default
 # module priority puts this in the same slot selinux/install-selinux.sh and `ai-tools-admin
 # selinux groups enable` address, so one host holds one copy of each module and a package upgrade
@@ -722,7 +722,7 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
     # module name per current group, and a host that enabled the old module keeps it loaded
     # across this upgrade. Replace it with every current group whose rules it carried, in a
     # single transaction, so a failed load leaves the old module and the workload it serves. The
-    # same swap install-selinux.sh makes on any run; the pair below is the registry's row for
+    # same swap install-selinux.sh makes on any run; the pair here is the registry's row for
     # ai_tools_netcore, written out because a scriptlet runs under /bin/sh.
     _old_group_mod=ai_tools_netcore; _new_groups="localipc buildexec"
     if semodule -l 2>/dev/null | grep -qx "${_old_group_mod}"; then
@@ -737,7 +737,7 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
     # the integration's build-output directories and does not add any permission, so it loads with
     # the policy and is not an operator's choice. Loaded here as well as by the integration's own
     # bootstrap because the two packages may land in either order in one transaction, and the
-    # module requires a type only the core loaded above declares. The manifest is root-owned
+    # module requires a type only the core declares. The manifest is root-owned
     # package data; the token is still checked to one module name before it becomes a path.
     for _manifest in /usr/local/lib/ai-tools/integrations.d/*.conf; do
         [ -f "${_manifest}" ] || continue
@@ -1037,7 +1037,7 @@ fi
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-bootstrap
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/nvm-update.sh
 # The updater's last-run stamp: rewritten by nvm-update.sh on every exit, read by
-# `ai-tools --status` (the base's state directory above owns the placement). Owned by the sandbox
+# `ai-tools --status` (the base's state directory owns the placement). Owned by the sandbox
 # account so it may rewrite the contents, group ai-ops so operators read it without joining the
 # sandbox group, and no world bits. %ghost with %post creating it: the content is runtime evidence,
 # but the inode must exist for the account to write it -- the directory is not group-writable.
@@ -1061,7 +1061,7 @@ fi
 # This agent owns its own control-plane directory -- the base owns the home root and bin, and
 # pins the mode every agent's config dir carries (control-plane.lib.sh CP_AGENT_CONFIG_MODE), so
 # a second agent ships its own directory instead of sharing this one. Setgid+sticky: the agent is
-# a group-writer for its session state but cannot unlink the root-owned files below.
+# a group-writer for its session state but cannot unlink the root-owned files in it.
 %dir %attr(3770, root, ai-tools) /opt/ai-tools/.claude
 %attr(0644, root, root) %{ai_libdir}/agents.d/claude-code.conf
 %attr(0644, root, root) %{ai_libdir}/keys/claude-code.asc

@@ -114,7 +114,7 @@ write_manifest() {
 # run_admin <args...> : the deployed helper against the fixture directories. Publishes `out` and
 # `STATUS` as globals rather than printing, so both survive -- a $(...) capture would run the whole
 # call in a subshell and leave the exit status behind in it. stdout and stderr are merged
-# deliberately: a refusal belongs in what the administrator sees, and every assertion below reads
+# deliberately: a refusal belongs in what the administrator sees, and every assertion reads
 # the run as one transcript.
 STATUS=0
 out=""
@@ -164,7 +164,7 @@ fi
 
 # ── an untrusted fragment is skipped and reported ───────────────────────────────────────────
 # Group-writable is the state that matters: the file is still root-owned, so only the mode
-# separates it from the case above, and it must be enough on its own.
+# separates it from the preceding case, and it must be enough on its own.
 reset_fixtures
 write_fragment tampered 770
 run_admin tampered
@@ -295,8 +295,8 @@ fi
 
 # ── the interface floor a fragment declares ─────────────────────────────────────────────────
 # The declared version is what the fragment NEEDS, so the direction of every case here is what
-# makes an old third-party command keep working: a floor at or below what this tool implements
-# runs, and only a floor above it is refused.
+# makes an old third-party command keep working: a floor at or under what this tool implements
+# runs, and only a floor past it is refused.
 reset_fixtures
 write_fragment old
 declare_line old api-min-version "1.0"

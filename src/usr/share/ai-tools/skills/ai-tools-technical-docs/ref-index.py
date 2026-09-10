@@ -10,17 +10,21 @@
 #     python3 /opt/ai-tools/skills/ai-tools-technical-docs/ref-index.py <command> ...
 #
 # A REFTAG is a prefix, a dash, and an ID of the form letter, digit, letter, digit (`c8b2`;
-# 67,600 ids), which keeps a plain word or number out of the id position. The id is drawn
+# 67,600 of them), which keeps a plain word or number out of the id position. `new` draws from
+# the 33,856 whose every character is unmistakable (MINT_LETTERS, MINT_DIGITS): an id is read
+# aloud, retyped, and grepped, and `1` beside `l` or `0` beside `O` costs a search that misses
+# its target. Every one of the 67,600 stays VALID, so an id minted before this narrowing, or by
+# hand, is a well-formed id. The id is drawn
 # at random, so a reader does not read an order into it, and one id names one thing
 # across ALL families, whatever the prefix; two things are never related by sharing an id.
 # A match is always the full reftag, prefix and dash included, with a word boundary on each
 # side: an id alone, or a dash and an id, is a shape generated names and key material take
 # too. Two cases. Lowercase names a place in a document, by its kind, and renders
-# as a link: `ref-section-m2g0`, `ref-table-z4m9`,
-# `ref-diagram-u2s6`, `ref-listing-c7k0` (the kinds are PROSE_KINDS, and `kinds` prints them).
+# as a link: `ref-section-g3g4`, `ref-table-z4m9`,
+# `ref-diagram-u2s6`, `ref-listing-u7y5` (the kinds are PROSE_KINDS, and `kinds` prints them).
 # UPPERCASE names a key living in code, in output, or in a registry, found by a search
-# on the token: `FN-T6I7` (a function doc), `NOTE-A9S0` (a comment note), `MSG-N1H8` (a runtime
-# message), `URI-G7O3` (a resource identifier). Every prefix ends in a dash, so a search
+# on the token: `FN-Q2H8` (a function doc), `NOTE-A5H9` (a comment note), `MSG-F6Z3` (a runtime
+# message), `URI-Q4Q6` (a resource identifier). Every prefix ends in a dash, so a search
 # for the prefix cannot run into the id.
 #
 # A TARGET is where the referent lives, and its current location is discovered on every run:
@@ -29,11 +33,11 @@
 #   caption        an anchor and a bold caption on the line before the block it names:
 #                  `<a id="ref-table-z4m9"></a>**Altitudes and who owns which fact**`; a table
 #                  is followed by a table row, a listing by a fence, any other kind by a block
-#   FN, NOTE, MSG  a source line carrying the token, a colon, and the name: `# FN-T6I7: chown_path`,
+#   FN, NOTE, MSG  a source line carrying the token, a colon, and the name: `# FN-Q2H8: chown_path`,
 #                  or the token inside the emitted string for a message
-#   URI            one Markdown link definition line: `[URI-G7O3]: https://example.invalid "name"`
+#   URI            one Markdown link definition line: `[URI-Q4Q6]: https://example.invalid "name"`
 #
-# A REFERENCE in a document is the inline link `[ref-section-h9l8](../x.md#ref-section-h9l8)`.
+# A REFERENCE in a document is the inline link `[ref-section-p7r3](../x.md#ref-section-p7r3)`.
 # The link text is the reftag and the parenthesised DESTINATION is generated: the path, relative
 # to the citing file, plus the anchor for a document target; the file alone for a code target
 # (a line fragment would change on every edit); and the URI for a URI. `check` compares every
@@ -68,7 +72,10 @@
 #                                   and what it names, so a writer picks one without reading
 #                                   this file
 #   new FAMILY [FILE...] [--index]  a fresh reftag, its id unique against the index and every
-#                                   token in the files given
+#                                   token in the files given. `--count N` prints N of them,
+#                                   distinct from each other too, since a mint is recorded
+#                                   nowhere and separate calls draw against the same set until
+#                                   the first is written
 #   where TOKEN [FILE...] [--index] the target's live `file:line` and the lines it spans
 #   relink FILE...                  rewrite every destination in the Markdown files given
 #   check FILE...                   report a duplicate reftag or id, an undefined or same-file
@@ -125,6 +132,16 @@ FAMILIES.update({family: prefix for family, (prefix, _) in CODE_FAMILIES.items()
 # and the two compare equal once lowercased.
 LOWER_ID = r"[a-z][0-9][a-z][0-9]"
 UPPER_ID = r"[A-Z][0-9][A-Z][0-9]"
+# What `new` DRAWS from, which is narrower than what the two forms ACCEPT: `i`, `l`, `o` and the
+# digits they read as are left out, so a minted id survives being read aloud, retyped, or grepped
+# from a screenshot. 23 x 8 x 23 x 8 = 33,856 of the 67,600, and an id already in the tree that
+# uses a dropped character stays valid: the narrowing applies to the draw, and the two id forms
+# accept exactly what they accepted before.
+MINT_LETTERS = "abcdefghjkmnpqrstuvwxyz"
+MINT_DIGITS = "23456789"
+# Redraws before an id space is called exhausted. Far past the point where the tree's reftags
+# could crowd 33,856 ids, so reaching it means the form is too small rather than the draw unlucky.
+MINT_ATTEMPTS = 10000
 
 PROSE_TOKEN = r"ref-(?:" + "|".join(PROSE_KINDS) + r")-" + LOWER_ID
 URI_TOKEN = r"URI-" + UPPER_ID
@@ -193,7 +210,7 @@ def is_markdown(path):
 
 
 def family_of(reftag):
-    """`ref-table-z4m9` -> `table`, `URI-G7O3` -> `URI`, `FN-T6I7` -> `FN`."""
+    """`ref-table-z4m9` -> `table`, `URI-Q4Q6` -> `URI`, `FN-Q2H8` -> `FN`."""
     parts = reftag.split("-")
     return parts[1] if parts[0] == "ref" else parts[0]
 
@@ -250,6 +267,16 @@ def quoted_tokens(path, lines):
                 yield number, match.group(1)
 
 
+def target_name(pattern, group, lines, number, blanked):
+    """The name `pattern` captures, read from the raw line so a backticked span keeps its text.
+
+    A span is blanked before a target is matched, so that a reftag shown in backticks is not read
+    as one; the name is what the heading or caption says, and `` `SANDBOX_USER` `` is part of it.
+    """
+    raw = pattern.match(lines[number - 1])
+    return (raw.group(group) if raw else blanked).strip()
+
+
 def followed_by_block(lines, number, kind):
     """Whether the first non-blank line after line `number` opens the block the kind names."""
     for line in lines[number:]:
@@ -282,9 +309,11 @@ def scan(paths):
                 caption = CAPTION_TARGET.match(text)
                 uri = URI_TARGET.match(text)
                 if heading:
-                    found.append(Target(heading.group(3), heading.group(2).strip(), path, number))
+                    found.append(Target(heading.group(3), target_name(
+                        HEADING_TARGET, 2, lines, number, heading.group(2)), path, number))
                 elif caption:
-                    found.append(Target(caption.group(1), caption.group(2).strip(), path, number))
+                    found.append(Target(caption.group(1), target_name(
+                        CAPTION_TARGET, 2, lines, number, caption.group(2)), path, number))
                     if not followed_by_block(lines, number, family_of(caption.group(1))):
                         misplaced.append((path, number, caption.group(1)))
                 elif uri:
@@ -483,11 +512,30 @@ def command_kinds(args):
     return 0
 
 
+def fresh_id(taken):
+    """An id of the form letter, digit, letter, digit that none of `taken` already uses.
+
+    `secrets.choice` draws each character from a system CSPRNG, without the modulo bias a
+    remainder of a random integer would carry. Redrawing is what keeps the id unique, so the
+    attempts are bounded: an id space this one cannot draw from is REPORTED rather than spun on.
+    """
+    for _ in range(MINT_ATTEMPTS):
+        drawn = "".join(secrets.choice(alphabet) for alphabet in
+                        (MINT_LETTERS, MINT_DIGITS, MINT_LETTERS, MINT_DIGITS))
+        if drawn not in taken:
+            return drawn
+    return None
+
+
 def command_new(args):
     prefix = FAMILIES.get(args.family.lower())
     if not prefix:
         print(f"ref-index: {args.family} is not a kind or a code family; `kinds` lists them",
               file=sys.stderr)
+        return 2
+    if args.count < 1:
+        print(f"ref-index: --count is how many reftags to print, so it is 1 or more, "
+              f"not {args.count}", file=sys.stderr)
         return 2
     taken = set()
     if os.path.exists(args.index):
@@ -496,12 +544,22 @@ def command_new(args):
     for path in args.paths:
         for line in read_lines(path) or []:
             taken.update(id_of(match.group(0)) for match in RAW_TOKEN.finditer(line))
-    while True:
-        fresh = "".join(secrets.choice(alphabet) for alphabet in
-                        (string.ascii_lowercase, string.digits, string.ascii_lowercase, string.digits))
-        if fresh not in taken:
-            break
-    print(prefix + (fresh.upper() if prefix.isupper() else fresh))
+    # Each id joins the taken set as it is drawn, so one call's reftags differ from each other as
+    # well as from the tree's. Minting a batch and writing it afterwards is then safe: the command
+    # does not record an id, so ids drawn by separate calls are only distinct once the first is
+    # written.
+    minted = []
+    for _ in range(args.count):
+        drawn = fresh_id(taken)
+        if drawn is None:
+            print(f"ref-index: no free id left after {MINT_ATTEMPTS} draws against "
+                  f"{len(taken)} taken; widen the id form before minting more", file=sys.stderr)
+            return 1
+        taken.add(drawn)
+        minted.append(prefix + (drawn.upper() if prefix.isupper() else drawn))
+    # Printed once the whole batch is drawn, so a run that cannot complete does not print a reftag
+    # for a writer to place: the mint is recorded nowhere, and a half-batch reads as a whole one.
+    print("\n".join(minted))
     return 0
 
 
@@ -634,6 +692,8 @@ def main():
     new = commands.add_parser("new", help="print a fresh reftag of a kind or code family")
     new.add_argument("family", help="a kind or a code family; `kinds` lists them")
     new.add_argument("paths", nargs="*", help="files whose ids the new one must not repeat")
+    new.add_argument("--count", metavar="N", type=int, default=1,
+                     help="how many to print, each distinct from the others (default: 1)")
     new.add_argument("--index", metavar="PATH", default=".claude/references.md", help=index_help)
     new.set_defaults(run=command_new)
 

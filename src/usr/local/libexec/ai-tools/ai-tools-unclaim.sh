@@ -12,7 +12,7 @@
 #   3. removes group WRITE: 660 -> 640, 770 -> 750, 400 stays 400. Group READ stays, so the
 #      new group owner can still read/traverse. Group EXECUTE stays on a directory (traversal)
 #      and on a genuine script (owner has execute), but is stripped on a data file that landed
-#      group-executable -- `setfacl -b` above promotes the tree's `group::r-x` base into the
+#      group-executable -- `setfacl -b` promotes the tree's `group::r-x` base into the
 #      mode, so a plain file the agent wrote can surface as 0650; the strip is keyed on
 #      OWNER-execute (the bit git records) so a script keeps group r-x (750) while a data file
 #      drops to 640. On DIRECTORIES the setgid bit claim added is also cleared (`chmod g-w,g-s`),
@@ -94,7 +94,7 @@ shift 2
 
 # --unlisted: act on a tree that is NOT in any allowed-projects (a claimed project copied or
 # moved elsewhere and never unclaimed). It swaps one gate for another rather than removing one:
-# the allowlist-membership check below is skipped, and every path must instead carry the
+# the allowlist-membership check is skipped, and every path must instead carry the
 # ai-tools residue fingerprint (_is_residue) to be touched at all. The protected-paths backstop,
 # the owner guard, the hardlink guard, and the secret/'!' skips all still apply, so the mode is
 # strictly NARROWER per path than a listed unclaim and identical in what it does to a path it
@@ -194,7 +194,7 @@ if ${UNLISTED}; then
     ${_is_operator} \
         || { ai_tools_log_error "--unlisted: ${caller} is not a configured operator -- nothing changed"; exit 1; }
     PROJECTS_UID="${caller_uid}"
-    # The caller's own allowlist is still read below, for its '!' exclusions and for the
+    # The caller's own allowlist is still read, for its '!' exclusions and for the
     # "already registered" refusal: a glob rule the operator wrote to keep a path out of reach
     # keeps it out of reach here too. Resolved through operator.lib's own path helper so the
     # AI_TOOLS_ALLOWLIST test hook applies here exactly as it does on the resolve_owner path.
@@ -203,7 +203,7 @@ if ${UNLISTED}; then
     ALLOWLIST="$(_ai_tools_operator_allowlist "${caller}" "${is_primary}")"
 else
     # Resolve the operator that owns this project (operator.lib.sh); no owner -> exit without acting. The guard
-    # below then acts only on paths the resolved operator or the sandbox account hold.
+    # then acts only on paths the resolved operator or the sandbox account hold.
     ai_tools_resolve_owner "${canonical}" || exit 0
     ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}"
 fi
@@ -260,7 +260,7 @@ _is_allowed() {
 # registered project: unclaim must never modify permissions outside allowed-projects. Same gate
 # as ai-tools-setgid/-setfacl (a silent no-op on a foreign target). The management CLI runs the
 # hand-back BEFORE it drops the allowlist entry, so a legitimate unclaim still resolves its owner
-# above and stays listed here. --unlisted swaps this whole-tree gate for the per-path residue
+# and stays listed here. --unlisted swaps this whole-tree gate for the per-path residue
 # gate in _safe_unclaim; it never runs with neither.
 _is_excluded "${canonical}" && exit 0
 if ${UNLISTED}; then
@@ -340,7 +340,7 @@ _safe_unclaim() {
     # that covers this for a registered project (ai-tools-reclaim) refuses an unlisted path,
     # so this pass is the only one that can reach it. A path the operator already owns is
     # left alone -- this never changes ownership away from a third party, which the owner
-    # guard above has already excluded.
+    # guard has already excluded.
     if ${UNLISTED} && [[ "${got_uid}" == "${SANDBOX_UID}" ]]; then
         chown -- "${PROJECTS_UID}" "/proc/self/fd/${fd}" 2>/dev/null || rc=1
     fi
@@ -348,7 +348,7 @@ _safe_unclaim() {
         chmod g-w,g-s "/proc/self/fd/${fd}" 2>/dev/null || rc=1
     else
         # Drop group WRITE; also drop a stray group EXECUTE on a data file. setfacl -b
-        # above promoted the ACL's group:: base (r-x on a tree the agent wrote) into the
+        # promoted the ACL's group:: base (r-x on a tree the agent wrote) into the
         # mode, so a data file can land group-executable (0650); strip that, keyed on
         # OWNER-execute (the bit git records) so a genuine script (owner rwx) keeps group
         # r-x (-> 750) while a data file (owner rw) drops to 640. Relative g-w[,g-x]
@@ -454,7 +454,7 @@ fi
 # ai-tools-relabel --remove has no rule to remove; a forced restorecon resets the tree to the
 # default its location resolves to. Gated on the root actually carrying the label, so a tree
 # that never had it is not relabelled as a side effect of unclaiming. Best-effort: a label
-# left behind is a defence-in-depth gap, not an access grant -- the DAC reversal above has
+# left behind is a defence-in-depth gap, not an access grant -- the DAC reversal has
 # already removed the agent's reach.
 if ${UNLISTED} && [[ "$(getenforce 2>/dev/null || echo Disabled)" != "Disabled" ]] \
         && command -v restorecon >/dev/null 2>&1; then

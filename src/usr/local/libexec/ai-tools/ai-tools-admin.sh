@@ -49,7 +49,7 @@
 # rather than an RPM scriptlet: a scriptlet must succeed offline and inside a build chroot.
 # Idempotent -- an existing account, nvm install or Node version is reused -- so it is also the
 # re-run after enabling an agent in operator.conf. The bare form does the minimal provision;
-# `--scope full` then runs each ENABLED integration's own `bootstrap` through the seam below, so a
+# `--scope full` then runs each ENABLED integration's own `bootstrap` through the admin-commands seam, so a
 # host is provisioned end to end in one command without base naming an integration.
 #
 # Beyond those, the command set is EXTENSIBLE rather than enumerated: this tool ships in
@@ -84,7 +84,7 @@
 # %config(noreplace) files this stack owns. rpm keeps what the host edited and parks the new
 # version alongside it; choosing between the two is a judgement about the operator's own
 # configuration, so it happens here, when the operator asks, and never in a scriptlet. Each file
-# gets the treatment its content deserves -- merge, report, or show only, per the registry below --
+# gets the treatment its content deserves -- merge, report, or show only, per the post-upgrade registry --
 # and every treatment shows what it would change, confirms, backs the file up before writing, and
 # names each path it touched. The from-source installer reaches the same end through its own
 # keep-or-reset prompts and dated .bak/.shipped sidecars; this is the RPM-side equivalent.
@@ -242,7 +242,7 @@ is_base_command() {
 # recognize (a README, a backup, a base name) is a file that is not a command, and the set around it
 # is unaffected. A file that group or other may write is a broken assumption about the directory
 # itself -- that only root decides what is run from it -- and it is what ADMIN_COMMANDS_TAMPERED
-# carries to the gate below.
+# carries to the conformance gate.
 ADMIN_DOMAINS=()
 ADMIN_COMMANDS_TAMPERED=0
 admin_domains() {
@@ -294,14 +294,14 @@ admin_commands_trusted() {
 # act differently on it -- an administrator's own command stops, while `system bootstrap --scope
 # full` names it and carries on to the next integration.
 #
-# Where the trust checks above decide WHO wrote the file, this decides whether the file is a command
+# Where the trust checks decide WHO wrote the file, this decides whether the file is a command
 # of this seam at all. It is a conformance contract, not a security boundary: what stops a file the
 # agent wrote is the trust predicate, and what this stops is a file that was never meant to be run
 # this way. It is declarative and static -- a fragment is read, never executed, to find out what it
 # is, so a report is built by reading alone, without forking or running the fragment.
 #
 # A conforming fragment is a script (`#!`) carrying three declarations in its first 20 lines. The
-# whole block is the interface: a third-party integration writes it once, and every check below
+# whole block is the interface: a third-party integration writes it once, and every check here
 # reads it rather than running anything.
 #
 #   # ai-tools-admin-command: <domain>              the domain it is installed as
@@ -374,7 +374,7 @@ admin_command_check() {
     fi
     # Captured before matching, never piped into `grep`/`head`: an early-exiting reader leaves the
     # writer to die of SIGPIPE, which pipefail reports as a failed probe (see
-    # ai_tools_selinux_group_loaded). Every read below works on this one string.
+    # ai_tools_selinux_group_loaded). Every read works on this one string.
     header="$(head -n 20 "${fragment}" 2>/dev/null || true)"
     if ! grep -qxF -- "# ai-tools-admin-command: ${domain}" <<<"${header}"; then
         _admin_command_reason="${fragment} does not declare '# ai-tools-admin-command: ${domain}' in its first 20 lines -- reinstall the package that ships it"
@@ -464,7 +464,7 @@ contributed_dispatch() {
 # drives, and the trust predicate every contributed command is vetted with. Required, not optional:
 # a reconcile that silently skipped its merge would leave a shipped hook uninvoked while reporting
 # success, and a dispatch that could not tell a trusted fragment from a planted one would exec
-# whatever it found. Loaded BEFORE the block below, unlike the other libraries, because --help
+# whatever it found. Loaded BEFORE the other libraries, unlike them, because --help
 # lists this host's contributed domains and that list is drawn through this predicate.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 . "${CONF_LIB}" || die "cannot source ${CONF_LIB}"
@@ -479,7 +479,7 @@ source "${PROVIDERS_LIB}" 2>/dev/null || true
 
 # Executed, this administers a host and needs root. Sourced -- by tests/unit/admin-operator-add.sh,
 # which drives one function with sudo stubbed -- it does not assert anything about the host and only
-# defines, stopping at the matching guard above the dispatch. Everything between the two is
+# defines, stopping at the matching guard that precedes the dispatch. Everything between the two is
 # definitions, so the executed path still refuses a non-root caller before any action.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     # --help and --version read no host state and leave the host as it is, so they answer any caller and
@@ -501,7 +501,7 @@ fi
 . "${SELINUX_GROUPS_LIB}" || die "cannot source ${SELINUX_GROUPS_LIB}"
 
 # Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like the
-# operator lib above: a valid install ships it, so there is no fallback.
+# operator lib: a valid install ships it, so there is no fallback.
 # Include-guarded, so a re-source is a no-op.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
 source /usr/local/lib/ai-tools/msg.lib.sh || die "cannot source /usr/local/lib/ai-tools/msg.lib.sh"
@@ -612,7 +612,7 @@ wire_dedup() {
     group="$(id -gn "${user}")"
     [[ -n "${home}" && -d "${home}" ]] || return 0
     bashrc="${home}/.bashrc"; bashprof="${home}/.bash_profile"
-    # The two files below govern bash. Another login shell reads its own, so the operator hears
+    # The two files it names govern bash. Another login shell reads its own, so the operator hears
     # which ordering their sessions actually get, at the moment the wiring is offered.
     case "${login_shell}" in
         */bash|'') ;;
@@ -906,7 +906,7 @@ sel_list() {
 #
 # Scope defaults to the MINIMUM that works, and a bare run takes that default: the toolchain and
 # the enabled agents, which is what a first host needs. `--scope full` also reaches every enabled integration, through each one's
-# own contributed `bootstrap` -- which is why full scope needed the seam above before it could
+# own contributed `bootstrap` -- which is why full scope needed the admin-commands seam before it could
 # exist. It is spelled as a switch rather than a positional word because every other verb here
 # takes a resource identifier in that slot.
 system_bootstrap() {
@@ -1328,7 +1328,7 @@ status() {
     [[ $# -eq 0 ]] || reject "status: takes no arguments"
     STATUS_PROBLEMS=0
     # Ahead of the library load, so a report that cannot be given still says what was asked for:
-    # the refusal below then reads as this command failing rather than as an unattributed error.
+    # the refusal then reads as this command failing rather than as an unattributed error.
     printf '\nai-tools host status\n'
 
     # Loaded here rather than beside the other libraries: no other command reads any of them, and
@@ -1450,7 +1450,7 @@ system_dispatch() {
 # defined and no command dispatched, so the caller's arguments are not read as a command.
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] || return 0
 
-# --help/-h and --version are answered above, before the root check.
+# --help/-h and --version are answered ahead of the root check.
 [[ $# -ge 1 ]] || { usage >&2; exit 2; }
 case "$1" in
     operators) shift; operators_dispatch "$@" ;;
@@ -1458,7 +1458,7 @@ case "$1" in
     system)    shift; system_dispatch    "$@" ;;
     status)    shift; status             "$@" ;;
     # Anything else is either a domain a provider package contributed or an unknown command, and
-    # only the discovered set tells the two apart. Base names are matched above, so a fragment
+    # only the discovered set tells the two apart. Base names are matched first, so a fragment
     # cannot shadow one however it is named.
     *) contributed_dispatch "$@" ;;
 esac

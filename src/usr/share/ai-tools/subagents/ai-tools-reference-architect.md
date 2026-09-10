@@ -12,12 +12,12 @@ description: >
 tools: Read, Grep, Glob, Bash, Write, Edit, Skill
 model: inherit
 color: cyan
-# Provenance/versioning for the ai-tools installer (RFC-draft-inspired lifecycle). The name above
+# Provenance/versioning for the ai-tools installer (RFC-draft-inspired lifecycle). The frontmatter name
 # is stable; these fields carry the version+date. See the shipped-assets rule.
 x-ai-tools-managed: true
 x-ai-tools-status: draft
-x-ai-tools-version: 2
-x-ai-tools-updated: 2026-08-25
+x-ai-tools-version: 3
+x-ai-tools-updated: 2026-09-10
 ---
 
 # Reference architect

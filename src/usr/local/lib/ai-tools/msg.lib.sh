@@ -57,7 +57,7 @@
 # contains commands: flush-left lines wrap as prose, indented/blank lines stay verbatim
 # (commands on one line, long ones overflowing the right border). ai_tools_msg_headline
 # opens a self-contained flow block: a wide titled box carrying the block's summary,
-# with details printed plain below it by the caller. ai_tools_msg_pick draws
+# with details printed plain under it by the caller. ai_tools_msg_pick draws
 # a numbered menu under such a block and echoes the chosen index -- the question companion to
 # a block: with a default index it answers safely when no terminal is present, and with `none`
 # it re-asks and then gives up (non-zero) rather than answering for the user.
@@ -78,12 +78,12 @@
 # exit status of the operation whose outcome they report.
 
 # Include guard. Consumers source this lib directly AND through safe-paths.lib.sh; the
-# readonly constants below would abort a re-source under set -e, so a second source is a
+# readonly constants would abort a re-source under set -e, so a second source is a
 # no-op instead.
 if [[ -n "${_AI_TOOLS_MSG_LIB_LOADED:-}" ]]; then return 0; fi
 readonly _AI_TOOLS_MSG_LIB_LOADED=1
 
-# Decision audit trail. ai_tools_msg_confirm, ai_tools_msg_pick and ai_tools_msg_challenge below
+# Decision audit trail. ai_tools_msg_confirm, ai_tools_msg_pick and ai_tools_msg_challenge
 # record every yes/no answer, menu choice and typed challenge through the shared logger
 # (log.lib.sh), so every user
 # action taken through this library leaves ONE consistent trail: journald always, and the
@@ -138,7 +138,7 @@ _ai_tools_msg_is_tie() {
 # it would defeat copy-paste. Emits the wrapped lines on stdout.
 ai_tools_msg_wrap() {
     # Pin IFS to the default: this lib is sourced into callers that set their own (the
-    # claude wrapper uses IFS=$'\n\t', dropping space), and the word-splitting below
+    # claude wrapper uses IFS=$'\n\t', dropping space), and the word-splitting
     # (read -ra, $*) must split on spaces regardless, or a whole line collapses into one
     # unbreakable unit and never wraps. The per-command `IFS= read` overrides stay local.
     local IFS=$' \t\n'
@@ -157,7 +157,7 @@ ai_tools_msg_wrap() {
             _ai_tools_msg_is_tie "${w}" || { units+=( "${unit}" ); unit=""; }
         done
         [[ -n "${unit}" ]] && units+=( "${unit}" )
-        # Greedy fill. Each line is its units joined by US, so orphan control below can
+        # Greedy fill. Each line is its units joined by US, so orphan control can
         # count and move whole units (which may themselves contain spaces).
         local -a lines=()
         local cur=""
@@ -258,7 +258,7 @@ ai_tools_msg_success() { ai_tools_msg OK      1 "$@"; }
 # the caller composes the title, e.g. "Claim project (in place)" or "WARNING: interior
 # permission drift"). It opens a self-contained flow block: the box carries the block's
 # title and summary prose, while details (path lists, per-step results, prompts) print
-# plain BELOW it, so long paths stay copy-pasteable. On a non-tty target (and under
+# plain UNDER it, so long paths stay copy-pasteable. On a non-tty target (and under
 # PLAIN) the title and lines are emitted plain -- the title is block content, so unlike
 # an alert's severity tag it survives capture for logs and test greps. Write-failure
 # semantics match ai_tools_msg.
@@ -281,7 +281,7 @@ ai_tools_msg_headline() {
 }
 
 # ai_tools_msg_block <title> <line...> -- frame a multi-line guidance block in the titled
-# '#' box on stderr. Unlike the emitters above (which wrap every line), this preserves
+# '#' box on stderr. Unlike the wrapping emitters, this preserves
 # author layout: a flush-left line is wrapped as prose, while an INDENTED or BLANK line is
 # kept VERBATIM -- never reflowed -- so a copy-pasteable command stays on one line and
 # indentation/numbering survives. A verbatim line wider than the box OVERFLOWS past the

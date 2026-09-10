@@ -39,7 +39,7 @@ One entry per line.
 .TP
 .I /home/op/project
 An allow entry: a literal directory.
-Sessions may start in it and in every directory below it.
+Sessions may start in it and in every directory under it.
 .TP
 .I /home/op/project   # why
 An end-of-line comment.
@@ -69,7 +69,7 @@ A glob in an allow line does not match any path, so it does not start a session;
 reports such a line as unusable.
 An entry naming a directory that no longer exists is skipped, and reported as stale.
 .SS Exclusions
-An exclusion outranks an allow entry for the same path and for every path below it.
+An exclusion outranks an allow entry for the same path and for every path under it.
 A plain exclusion covers its contents; one carrying
 .BR * ,
 .BR ? ,
@@ -90,7 +90,7 @@ Lift it by editing the line;
 refuses it, since removing a carve-out widens what the agent reaches.
 .TP
 .B a parked project
-An exclusion with no listed project above it takes a claimed project out of
+An exclusion with no listed project enclosing it takes a claimed project out of
 service.
 The entry, the permissions and the label stay in place, so
 .B "ai-tools --project-enable"
@@ -144,7 +144,7 @@ A project, a carve-out inside it, and a parked project:
 .RE
 .PP
 A path containing a space, a quoted exclusion inside it, and a glob exclusion
-of every dependency directory one level below another project:
+of every dependency directory one level under another project:
 .PP
 .RS 4
 .EX

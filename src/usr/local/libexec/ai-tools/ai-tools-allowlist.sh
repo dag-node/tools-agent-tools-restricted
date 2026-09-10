@@ -20,7 +20,7 @@
 # NO NOPASSWD grant (the invoking human authenticates, like ai-tools-lockdown/-setfacl/-relabel),
 # and every mutation is logged with both the caller and the target.
 #
-# Every gate below resolves to LESS access on failure, never more:
+# Every gate this helper applies resolves to LESS access on failure, never more:
 #   - no SUDO_UID (a bare root call, or an unclean sudo context)  -> refuse, write no entry
 #   - the CALLER is not in OPERATORS                              -> refuse, write no entry
 #   - the TARGET is not in OPERATORS                              -> refuse, write no entry
@@ -205,7 +205,7 @@ require_target_config() {
        sudo ai-tools-admin operators add ${OPERATOR}"
 }
 
-# Every edit below is one call into conf.lib.sh's allowlist-editing functions -- the same
+# Every edit here is one call into conf.lib.sh's allowlist-editing functions -- the same
 # implementation the CLI runs against the operator's own file and install.sh against its checkout.
 # What is left here is this helper's own job: deciding WHO may edit WHOSE registry, and recording
 # it. The library reports three outcomes -- 0 applied (or already so), 1 the write failed, 2 the

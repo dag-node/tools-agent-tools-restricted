@@ -171,7 +171,7 @@ ai_tools_claude_resolve_prompt_args() {
     fi
 
     # The base and the file's own directory must be trusted too: a group-writable directory anywhere
-    # on the way lets a non-root writer replace the root-owned file the check above approved.
+    # on the way lets a non-root writer replace the root-owned file the trust check approved.
     if ! ai_tools_conf_is_trusted "${base_canon}"; then
         _ai_tools_claude_warn "the prompt base ${base_dir} is not root-owned or is group/other-writable"
         return 1

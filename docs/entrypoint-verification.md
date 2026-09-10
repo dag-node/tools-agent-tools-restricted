@@ -72,7 +72,7 @@ does not — it identifies the **signer**, not the release.
 | | what it is | where it lives | changes when | who updates it |
 |---|---|---|---|---|
 | the key + fingerprint | who is allowed to sign a release | the `ai-tools` **package** (`0644 root:root`, not a config file) | the vendor rotates its signing key — years, not releases | a signed package update (`dnf update`) |
-| the pin | what *this* installed binary hashes to | `/var/opt/ai-tools/state/entrypoint-pin.d/<agent>` | every agent update | root, automatically, via the watcher above |
+| the pin | what *this* installed binary hashes to | `/var/opt/ai-tools/state/entrypoint-pin.d/<agent>` | every agent update | root, automatically, via the relabel watcher |
 
 One key signs every Claude Code release. So the static half does not need maintenance, and the
 per-version half is derived automatically.

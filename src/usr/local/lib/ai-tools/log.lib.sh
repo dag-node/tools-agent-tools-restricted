@@ -45,7 +45,7 @@
 # churn, which is emitted at DEBUG only (and only when a path is actually changed).
 
 # Include guard. Consumers source this lib directly, and msg.lib.sh sources it too (for its
-# decision audit trail), so one process can reach it twice; the readonly below would abort a
+# decision audit trail), so one process can reach it twice; this library's readonly constants would abort a
 # re-source under set -e, so a second source is a no-op. Tags, files, and levels are read per
 # call, so a single definition serves every caller.
 if [[ -n "${_AI_TOOLS_LOG_LIB_LOADED:-}" ]]; then return 0; fi
@@ -193,7 +193,7 @@ _ai_tools_log_write_file() {
 # one; callers pass both, and the two are expected to agree.
 #
 # OPT-IN, and identical to ai_tools_log when unused: a caller that passes fields, or a host
-# whose logger(1) predates `--journald`, takes exactly the plain path above. The fallback is
+# whose logger(1) predates `--journald`, takes exactly the plain path. The fallback is
 # decided by ATTEMPTING the native write and falling back on its exit status rather than by
 # probing logger's capabilities, so there is no cached verdict to go stale and no fork spent on
 # a version check per call.

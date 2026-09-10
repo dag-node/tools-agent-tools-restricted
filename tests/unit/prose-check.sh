@@ -145,7 +145,7 @@ silent TEST-PC-06-fronted-quantifier-ok.md "The helper does not take a path argu
 silent TEST-PC-07-nothing-ok.md "The helper does not read the path argument, so the validator is skipped."
 silent TEST-PC-70-positional-threshold.md "A comment line stays below 120 columns, and a box within 80."
 silent TEST-PC-73-reference-ok.md \
-    "The owner rule [ref-section-j9l2](../cli.rule.md#ref-section-j9l2) holds, and the message carries MSG-N1H8."
+    "The owner rule [ref-section-j9l2](../cli.rule.md#ref-section-j9l2) holds, and the message carries MSG-F6Z3."
 silent TEST-PC-74-reference-tool-name.md "Run ref-index.py before a commit."
 # A cost claim backed by a frequency, and one backed by a bounded operation named as the subject.
 # Both carry a cost word, so each fails if the backing half of the check stops being applied.

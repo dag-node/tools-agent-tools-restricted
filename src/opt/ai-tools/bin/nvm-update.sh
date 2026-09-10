@@ -91,7 +91,7 @@ skip() { _run_skip_reason="$1"; shift
 #
 # It REWRITES the existing file rather than creating one: the stamp is owned by this account inside
 # a directory that is not, which is what confines the added surface to one inode (see the constant
-# above) -- but it also means the file must already exist, so an absent one is a broken/partial
+# it names) -- but it also means the file must already exist, so an absent one is a broken/partial
 # install and is reported as such rather than silently skipped. A single write of the whole text
 # keeps the window in which a reader sees a partial stamp negligible; should one land there anyway,
 # the reader sees an unparseable RESULT and reports the unit unknown, never a wrong verdict.
@@ -155,7 +155,7 @@ verify_toolchain_signatures() {
 }
 
 # Entrypoint verifier (entrypoint-verify.lib.sh). Best-effort source, same posture as the npm
-# verifier above: a missing lib is a broken install, and degrades to "unable to verify".
+# verifier: a missing lib is a broken install, and degrades to "unable to verify".
 readonly ENTRYPOINT_VERIFY_LIB="/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/entrypoint-verify.lib.sh
 if ! source "${ENTRYPOINT_VERIFY_LIB}" 2>/dev/null \
@@ -173,7 +173,7 @@ entrypoint_unverified=0
 # verify_agent_entrypoints <target-version>: check every enabled agent's just-installed entrypoint
 # against the checksum its vendor signed for the version its package declares. A MISMATCH dies here,
 # before the prune and the repoint, exactly as the npm gate does. Anything else is not fatal; see
-# the branch comments below.
+# the branch comments.
 verify_agent_entrypoints() {
     local target="$1" agent launcher entrypoint version rc
     declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 0
@@ -354,7 +354,7 @@ main() {
         # The `|| true` is load-bearing, the same way the emitters' is. A BARE assignment takes the
         # exit status of its command substitution, so under `set -e -o pipefail` a registry this host
         # cannot reach (or a grep with no match) aborts the updater ON THIS LINE -- silently,
-        # since nvm's own error is discarded above and the die below never runs. Absorbing the status
+        # since nvm's own error is discarded and the die never runs. Absorbing the status
         # here is what lets the emptiness be REPORTED, by the check that was always meant to.
         target_version="$(
             nvm ls-remote --lts "v${major}" 2>/dev/null \
@@ -379,7 +379,7 @@ main() {
 
     nvm use "${node_alias}"
 
-    # The enabled agents -- their npm packages (installed below) and their launchers (repointed
+    # The enabled agents -- their npm packages (installed by this run) and their launchers (repointed
     # at the end) -- come from the manifests via providers.lib.sh, the same seam
     # ai-tools-bootstrap uses, so this updater is agent-agnostic. Guarded load: providers.lib.sh
     # returns non-zero and does not define its resolvers when its own dependency (conf.lib.sh, the shared
@@ -436,7 +436,7 @@ main() {
     verify_toolchain_signatures
 
     # Second gate, same position and the same fail-closed shape, asking the other question: the
-    # signature above says the package was DELIVERED untampered, this says the binary inside it is
+    # signature gate says the package was DELIVERED untampered, this says the binary inside it is
     # the one the vendor published. It runs as the sandbox account, so it is a fail-fast economy
     # measure rather than the boundary -- the root-side pin is (updater.rule.md).
     verify_agent_entrypoints "${target_version}"
@@ -444,7 +444,7 @@ main() {
     prune_versions "${node_alias}"
 
     # Refresh the stable launcher symlink each wrapper resolves with one readlink hop -- one per
-    # enabled agent, from the same manifest-resolved set installed above, so the updater stays agent-agnostic, naming no
+    # enabled agent, from the same manifest-resolved set just installed, so the updater stays agent-agnostic, naming no
     # agent here either. A launcher missing from the new version (an agent whose install failed,
     # or one an operator dropped from AI_TOOLS_AGENTS) is skipped rather than failing the run.
     # /opt/ai-tools/bin is locked 0551 (root:ai-tools) so this process -- running as ai-tools --

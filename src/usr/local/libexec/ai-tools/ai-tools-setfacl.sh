@@ -78,7 +78,7 @@ readonly ACL_BASE="group:${GROUP}:rwX,other::---"
 # claim must not pull a foreign file into the agent's group, even one the operator placed in the
 # tree -- and COUNTED, so a walk that skipped every path is reported rather than silent; the project
 # root hitting the guard is called out on its own, since it means the claim granted no access at
-# all. Matched by numeric UID; PROJECTS_UID is the resolved operator (set below).
+# all. Matched by numeric UID; PROJECTS_UID is the resolved operator (set by the owner resolution).
 SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
 readonly SANDBOX_UID
 
@@ -146,7 +146,7 @@ canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
 ai_tools_assert_safe_target "${canonical}" "ACL grant" || exit 3
 
 # Resolve the operator that owns this project (operator.lib.sh); no owner -> exit without acting. The guard
-# below then acts only on paths the resolved operator or the sandbox account hold.
+# then acts only on paths the resolved operator or the sandbox account hold.
 ai_tools_resolve_owner "${canonical}" || exit 0
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
 # Prepend the resolved operator's named grant (its access to agent-written files).

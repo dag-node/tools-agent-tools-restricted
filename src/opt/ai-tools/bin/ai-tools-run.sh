@@ -50,7 +50,7 @@ readonly AI_TOOLS_NVM_DIR="/opt/ai-tools/.nvm"
 readonly SESSION_ENV_DIR="${AI_TOOLS_LIB_DIR}/session-env.d"
 readonly SANDBOX_HOME="/opt/ai-tools"
 
-# Everything below is sourced from AI_TOOLS_LIB_DIR while running as @SANDBOX_USER@, so that
+# Every library this script loads comes from AI_TOOLS_LIB_DIR while running as @SANDBOX_USER@, so that
 # directory is the root of trust for this script. Verify it before sourcing anything out of it:
 # root-owned, not a symlink, not group/other-writable. ai_tools_conf_is_trusted applies the same
 # test to every later input, but it lives in the directory this gate protects.
@@ -142,7 +142,7 @@ launcher_name="${BASH_REMATCH[2]}"
 agent_name="${agent_name_by_launcher[${launcher_name}]:-}"
 [[ -n "${agent_name}" ]] \
     || refuse "no enabled agent provides the launcher \"${launcher_name}\" -- refusing to launch"
-# The name becomes a systemd unit name below; keep it to characters a unit name accepts.
+# The name becomes a systemd unit name; keep it to characters a unit name accepts.
 [[ "${agent_name}" =~ ^[A-Za-z0-9._-]+$ ]] \
     || refuse "agent manifest name \"${agent_name}\" is not a valid unit-name component"
 
@@ -150,11 +150,11 @@ agent_display_name="$(ai_tools_agent_manifest_field "${agent_name}" display_name
 [[ -n "${agent_display_name}" ]] || agent_display_name="${agent_name}"
 # Which side converges ownership after the agent writes a file. An agent that declares
 # handback=hooks drives it from its own tool/turn hooks; every other declaration gets the
-# session-end sweep below (see the sweep section).
+# session-end sweep (see the sweep section).
 agent_handback="$(ai_tools_agent_manifest_field "${agent_name}" handback || true)"
 
 # ── Entrypoint resolution: verify and exec the same inode ────────────────────────────────────
-# The path validated above is the versioned launcher SYMLINK; the file execve actually transitions
+# The path validated at the exec gate is the versioned launcher SYMLINK; the file execve actually transitions
 # on is what it resolves to. Resolve it ONCE here and use that single path for the label
 # preflight and for the unit's ExecStart, so the manager is never handed a link to re-resolve
 # after the checks have run. The resolved target must stay inside the SAME semver version
@@ -307,7 +307,7 @@ fi
 # every CHOWN fails and files this session writes stay @SANDBOX_USER@-owned, surfacing later as
 # git "dubious ownership" -- an availability cost rather than a confinement one, so a down socket
 # WARNS and proceeds (launch.rule.md carries that trade). Skipped for a diagnostic run with no
-# project directory. The reconcile commands are printed plain, below the frame, so they stay
+# project directory. The reconcile commands are printed plain, under the frame, so they stay
 # paste-safe.
 readonly HANDBACK_SOCKET="/run/ai-tools/handback.sock"
 if [[ -n "${session_working_directory}" && ! -S "${HANDBACK_SOCKET}" ]]; then
@@ -361,7 +361,7 @@ declare -a session_path_entries=()
 # and the directory holding it, since a group-writable directory lets a non-root writer replace a
 # root-owned file inside it -- must pass ai_tools_conf_is_trusted. A failing fragment is skipped
 # and logged, never sourced. Fragments are additive, so skipping one costs the session that
-# provider's environment and leaves every property below intact.
+# provider's environment and leaves every other property intact.
 source_session_env_fragment() {
     local provider_name="$1" fragment_path="${SESSION_ENV_DIR}/$1.env.sh"
     [[ -e "${fragment_path}" ]] || return 0
@@ -481,9 +481,9 @@ declare -a working_directory_option=()
     && working_directory_option=( "--working-directory=${session_working_directory}" )
 
 # Point the operator at the `ai-tools-run` tag rather than at _SYSTEMD_USER_UNIT, which shows "No
-# entries" for the reason the operating notes above give. The read needs sudo because the sandbox
+# entries" for the reason the operating notes give. The read needs sudo because the sandbox
 # account is deliberately not in systemd-journal. `-n 50 --no-pager` shows the recent records
-# plainly -- `-e` (jump to end) leaves the pager padding the screen above short output with `~`,
+# plainly -- `-e` (jump to end) leaves the pager padding the screen around short output with `~`,
 # which reads as confusing blank lines.
 if [[ -t 1 ]]; then
     printf 'Running as unit: %s\n' "${session_unit_name}"
@@ -503,7 +503,7 @@ fi
 # this same account could swap the file out from under the check. Re-resolve and re-stat here, at
 # the last instruction before the launch, so the window such a process would have to win is the
 # systemd-run round trip rather than the whole preflight. Both the path and the identity are
-# compared, for the reasons entrypoint_identity states above. This NARROWS the race rather than
+# compared, for the reasons entrypoint_identity states. This NARROWS the race rather than
 # closing it, and the deployment it is for is the DAC-only one -- launch.rule.md carries why.
 #
 # The pin is checked in the same breath, this being the one place where hashing the file and
@@ -512,7 +512,7 @@ fi
 # differ, and what each costs, are in updater.rule.md.
 entrypoint_pin_verdict=unchecked
 # Guarded, not bare: the pin is a check the launch tightens with, and a missing library is a broken
-# install rather than agent action -- it degrades to "unchecked", which the require switch below
+# install rather than agent action -- it degrades to "unchecked", which the require switch
 # turns into a refusal on a host that declared verification mandatory.
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/entrypoint-verify.lib.sh
 if source "${AI_TOOLS_LIB_DIR}/entrypoint-verify.lib.sh" 2>/dev/null \
@@ -556,7 +556,7 @@ fi
 # ExecStart is the RESOLVED entrypoint, not the launcher symlink: the manager's execve performs the
 # domain transition on the same inode this shim verified, with no link left for it to re-resolve.
 # Run rather than exec: --pty implies --wait and returns the payload's status, which a fast failure
-# below turns into an actionable breadcrumb.
+# turns into an actionable breadcrumb.
 session_start_seconds=${SECONDS}
 session_exit_status=0
 systemd-run --user --pty --quiet \

@@ -109,7 +109,7 @@ enables the `nvm-update.timer`. The manual equivalent:
     '
 
 Once `install.sh` (step 4) has run, `/opt/ai-tools/bin` is locked `0551 root:ai-tools` and
-only root maintains the symlink: instead of the `ln` above, run
+only root maintains the symlink: instead of that `ln`, run
 `sudo ai-tools-admin system bootstrap` (idempotent -- it provisions whatever is missing and
 seeds the symlink through the root helper), or re-run `sudo ./install.sh install`.
 
@@ -137,7 +137,7 @@ owns the projects. Create one before installing:
     sudo useradd -m -s /bin/bash op && sudo usermod -aG wheel op
 
 `useradd` creates the login account the script enrols; `usermod -aG wheel` is this host's
-general sudo grant, which this project does not write (see below). Naming an account
+general sudo grant, which this project does not write. Naming an account
 that does not exist yet refuses the install and prints this same command.
 
 The question is asked once per account. A re-install whose invoking account already holds

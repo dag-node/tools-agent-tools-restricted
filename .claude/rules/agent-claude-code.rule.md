@@ -80,7 +80,7 @@ consequences:
   package can un-label the entrypoint. The relabel helper itself never does: it `restorecon`s only
   the paths the declared pattern matches.
 - Any rule written against the nested path would have to span the arch variants, which a single
-  anchored literal head cannot. This is why the reconciliation below **resolves** the entrypoint
+  anchored literal head cannot. This is why the relabel's reconciliation **resolves** the entrypoint
   rather than declaring a second pattern for it.
 
 ## Entrypoint labelling: applied from the declaration, checked on the resolved inode
@@ -139,7 +139,7 @@ whitespace or control byte that could split the line or reach the operator's ter
 ## The wrapper (`claude.sh`)
 
 `/usr/local/bin/claude`, `root:root 0755`, rpm-owned, running as the invoking operator.
-`path-dedup.sh` ranks `/usr/local/bin` (Tier 1) above the nvm shims in operator dotfiles, so this
+`path-dedup.sh` ranks `/usr/local/bin` (Tier 1) ahead of the nvm shims in operator dotfiles, so this
 shadows any nvm-managed `claude` on an operator's PATH ([launch](launch.rule.md)).
 
 It gates in this order, each step refusing before the next can matter:
@@ -148,7 +148,8 @@ It gates in this order, each step refusing before the next can matter:
    `safe-paths.lib.sh` (the protected-path guard), and `conf.lib.sh` (without it every allowlist
    line parses as no entry, which refuses every launch — indistinguishable from "you have no
    projects" unless the missing component is named). `claude-prompt.lib.sh` loads best-effort; its
-   fail-closed decision is made where the configuration is known (below).
+   fail-closed decision is made where the configuration is known (see
+   [Custom system prompt](#custom-system-prompt-claude-promptlibsh)).
 2. **Operator gate** — `ai-ops` membership, read from `id -nG` (this shell's live credential set,
    the set `sudo` enforces against). The refusal distinguishes three cases because the fix differs:
    the sandbox account (which must never be an operator), an operator whose shell predates the grant
@@ -208,7 +209,7 @@ and safety guidance) or `--system-prompt-file <path>` (mode `replace`).
 
 The session-env counterpart, resolved **sandbox-side in the fragment** rather than in the wrapper.
 `operator.conf` `CLAUDE_BASE_URL_FILE` points at a dedicated file under `/etc/ai-tools/endpoints/`
-(`etc_t`, which the confined domain reads, as for the prompts base above; the file, its directory,
+(`etc_t`, which the confined domain reads, as for the prompts base; the file, its directory,
 and the pointer each pass `ai_tools_conf_is_trusted`), from which the resolver reads exactly four
 recognised keys — `ANTHROPIC_BASE_URL` (required, a
 validated http(s) URL), `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`,
@@ -253,7 +254,8 @@ root, and the fragment states the mechanism beside each pin:
   where entries an unconfined run left carry `user_tmp_t`, a type the domain cannot open, and onto
   the `ai_tools_home_t` cache subtree.
 - **`DISABLE_AUTOUPDATER=1`** — the Node tree is read-only to the session under the SELinux policy
-  (and sandbox-owned under DAC, per *Distribution channel* below), so a self-update cannot write
+  (and sandbox-owned under DAC, per [Distribution channel](#distribution-channel)), so a self-update
+  cannot write
   the npm prefix; the `nvm-update` timer maintains it out of band ([updater](updater.rule.md)).
 
 ## Distribution channel
@@ -293,7 +295,7 @@ Two properties of the current channel shape the design:
 
 **A native/`dnf` runtime alongside the npm one, as an opt-in.** The npm package is deprecated
 upstream while a signed vendor `dnf` channel exists, installing `/usr/bin/claude` root-owned and
-read-only to the agent. That closes the agent-writable-exec-root bound above and removes the
+read-only to the agent. That closes the agent-writable-exec-root bound and removes the
 reinstall-re-mints-the-entrypoint race the updater works around. It needs the `runtime` field the
 provider seam already names, an exact-path containment rule for a host-packaged binary
 ([providers](providers.rule.md)), and a packaging split. Not built.
@@ -308,7 +310,7 @@ trade one risk for another, and the trades sit on opposite sides of this project
   and across operators. Confinement, the allowlist, and the handback still bound what it reaches.
   This is exactly the adversary the model defends against. **With the policy loaded the vector is
   closed outright** (see
-  [the type layout](confinement.rule.md#the-toolchain-is-read-only-to-the-confined-domain)), so the
+  [ref-section-w4z6](confinement.rule.md#ref-section-w4z6)), so the
   gap is real on the DAC-only deployment the weak dependency permits, not on an enforcing one — and
   the entrypoint pin detects it on both (see [updater](updater.rule.md)).
 - **native's cost is out-of-model and unbounded.** It puts a second, *real* `claude` on every
@@ -328,5 +330,5 @@ publishes a per-release `manifest.json` of SHA256 checksums for every platform b
 with a published fingerprint, independent of the delivery channel. `entrypoint-verify.lib.sh`
 verifies the installed `claude.exe` against it — the manifest's three release fields say where and
 with which key — and the root-written pin carries the result to each launch, so the in-place tamper
-described above is caught while the entrypoint stays where it is ([updater](updater.rule.md)). That
+is caught while the entrypoint stays where it is ([updater](updater.rule.md)). That
 is the property native was buying, taken without a channel move.

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/managed-assets.lib.sh
 # Seeds the ai-tools-managed shared assets into their shared roots and links them into each agent
-# that reads them. The kinds are AI_TOOLS_ASSET_KINDS below. Each is seeded ONCE into
+# that reads them. The kinds are AI_TOOLS_ASSET_KINDS. Each is seeded ONCE into
 # /opt/ai-tools/<kind>, and every agent whose manifest names a directory for that kind gets a
 # SYMLINK per asset (ai_tools_link_shared_assets); the orientation text is linked under the
 # filename the agent's manifest names (ai_tools_link_agent_memory). One file to author and update,
@@ -313,7 +313,7 @@ ai_tools_link_shared_assets() {
     install -d -o root -g "${group}" -m 750 "${agent_dir}"
 
     # Every entry, whatever shape the kind uses: a skill is a directory, a subagent is a file.
-    # The kind's README is linked separately (below), so it is not treated as an asset.
+    # The kind's README is linked separately (ai_tools_link_asset_readme), so it is not treated as an asset.
     local src name dst linked=0
     for src in "${shared_root}"/*; do
         [[ -e "${src}" ]] || continue                    # no matches -> literal pattern, skip

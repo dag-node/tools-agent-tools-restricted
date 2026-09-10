@@ -154,9 +154,9 @@ file-contexts never loaded** into the running policy reads as "absent" (the core
 to its default type), so that narrow half-installed state launches DAC-only rather than refusing.
 Detecting it requires reading the store, which the sandbox account cannot do — no unprivileged probe
 can — and a normal `semodule -i` loads store and policy together, so it is reached only by a
-half-completed install. `AI_TOOLS_REQUIRE_SELINUX` closes it outright, below.
+half-completed install. `AI_TOOLS_REQUIRE_SELINUX` closes it outright.
 
-#### The toolchain is read-only to the confined domain
+#### The toolchain is read-only to the confined domain <a id="ref-section-w4z6"></a>
 
 The preflight checks that the entrypoint carries `ai_tools_exec_t`; the type layout is what stops
 the confined agent changing it afterwards. `ai_tools.fc` deliberately leaves the whole nvm tree at
@@ -191,7 +191,7 @@ layer — a defence-in-depth layer, not a DAC bypass.
 *launch* exits into refusals: `require-not-enforcing` (SELinux not `Enforcing`) and
 `require-inactive` (enforcing but the module's file-contexts are not live). Having the operator
 assert intent rather than the wrapper guess it closes the whole "thinks-enforcing" family, the
-staged-but-not-active residual above included, and adds **no** store-read surface.
+staged-but-not-active residual included, and adds **no** store-read surface.
 
 It is opt-in: the default (key absent, or any value outside the true set `yes|true|1|on`) is `no`,
 so intentional DAC-only hosts are untouched. `require` tightens those two exits alone — the
@@ -266,8 +266,8 @@ hold both rule sets:
 
 - **Stable** groups (`tmpmap`, `localipc`, `buildexec`: a rule set exercised against its workload
   on an enforcing host) are on the **shipped set**: compiled as `ai_tools_<group>.pp` beside the
-  core in `/usr/share/selinux/packages/ai-tools/` (how, and by what, is in *How the policy ships*
-  below), where `sudo ai-tools-admin selinux groups enable <name>` `semodule`-loads one on an
+  core in `/usr/share/selinux/packages/ai-tools/` (how, and by what, is in
+  [How the policy ships](#how-the-policy-ships)), where `sudo ai-tools-admin selinux groups enable <name>` `semodule`-loads one on an
   installed host without a source tree or `selinux-policy-devel`, then restores the labels the
   group's own file contexts decide (the sandbox-clone area). A bare `selinux groups` lists
   them and `selinux groups disable <name>` rounds it out, working for any loaded group. The
@@ -375,8 +375,8 @@ independent properties meet at that boundary:
   covers `*.pp`, `make dist` refuses a tarball carrying one, and `tests/unit/selinux-groups.sh`
   fails on a tracked one, since a tracked binary was built on some other host's headers and no
   review can read it. A source install compiles the same set from the checkout —
-  `install-selinux.sh build`, which `install.sh` runs — and stages it in the package directory
-  above; where SELinux is active and `selinux-policy-devel` is absent, `install.sh` refuses the
+  `install-selinux.sh build`, which `install.sh` runs — and stages it in that same package
+  directory; where SELinux is active and `selinux-policy-devel` is absent, `install.sh` refuses the
   SELinux step and names the package, so the absent modules are reported at install rather than
   met later as a launch the preflight refuses. The container self-tests compile in each image and
   assert the packaged set against the derivation (`rpm -qlp`), so an interface that does not

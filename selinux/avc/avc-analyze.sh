@@ -84,7 +84,7 @@ fi
 #   2. Any *_port_t EXCEPT http_port_t -- the only outbound port the core allows
 #   3. Other-domain /proc reads -- dev="proc" with a non-ai_tools tcontext
 #      (domain_dontaudit_read_all_domains_state covers these; they appear as
-#       tcontext=<daemon_t> but are NOT in the named list above)
+#       tcontext=<daemon_t> but are NOT in the named optional-group list)
 # Core boundary types (dontaudit'd -- actively silenced because they are operational
 # noise with no security value in the audit log).
 # Extended boundary types (section 6 in ai_tools.te -- dontaudit rules are COMMENTED so
@@ -107,14 +107,14 @@ readonly BOUNDARY_NAMED_RE='(user_home_t|user_home_dir_t|home_root_t|config_home
 #   systemd  -> systemd_systemctl_exec_t, journalctl_exec_t, systemd_unit_file_t
 #   pkgmgmt  -> rpm_exec_t, rpm_var_lib_t
 #   netadmin -> firewalld_t, NetworkManager_t   (firewall-cmd/nmcli D-Bus chat)
-#   podman   -> container_runtime_exec_t        (container_file_t is BOUNDARY above:
+#   podman   -> container_runtime_exec_t        (container_file_t is a BOUNDARY type:
 #                                                core dontaudit's it regardless)
-# tmpmap is handled separately below (_g2): its type, ai_tools_tmp_t, is core-granted
+# tmpmap is handled separately (_g2): its type, ai_tools_tmp_t, is core-granted
 # for read/write, so it is matched on the `map` PERMISSION, not the type alone.
-# apphost is handled separately below (_g3): the core does not grant a permission on tmpfs_t:file, so
+# apphost is handled separately (_g3): the core does not grant a permission on tmpfs_t:file, so
 # the whole memfd surface the .NET JIT/apphost touches (write to size it, map, and the
 # defining execute) is that group -- matched on the tmpfs_t:file TYPE.
-# localipc and buildexec are handled separately below (_g4): the .NET runtime's sockets/FIFOs
+# localipc and buildexec are handled separately (_g4): the .NET runtime's sockets/FIFOs
 # under tmp/home, getsid, and executing a built binary from the project tree -- matched on
 # those classes/perms, which the base grants nowhere.
 readonly GROUP_DISABLED_RE='(systemd_systemctl_exec_t|journalctl_exec_t|systemd_unit_file_t|rpm_exec_t|rpm_var_lib_t|firewalld_t|NetworkManager_t|container_runtime_exec_t)'
@@ -141,7 +141,7 @@ _g="$(printf '%s\n' "${LINES}" | grep -E "tcontext=[^ ]*:${GROUP_DISABLED_RE}:" 
 # `map` denial here is the disabled group. An execute denial on it stays NEW
 # (deliberately never granted; /tmp is noexec regardless).
 _g2="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:ai_tools_tmp_t:' | grep -E 'denied.*\bmap\b' || true)"
-# apphost group: any access to a tmpfs (memfd) file. Unlike ai_tools_tmp_t above,
+# apphost group: any access to a tmpfs (memfd) file. Unlike ai_tools_tmp_t,
 # tmpfs_t:file is NOT core-granted at all -- so the whole surface .NET's JIT/apphost needs
 # (write to size the memfd, map both mappings, execute the PROT_EXEC one) is denied while
 # the group is off, and all of it is this group. Match on the TYPE, so a core-only run does

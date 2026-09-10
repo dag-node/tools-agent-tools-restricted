@@ -37,7 +37,7 @@
 # resolve_owner on the path it acts on, then acts as that owner; a path no operator's allowlist
 # covers is left untouched.
 
-# Sourced more than once in a single shell: the readonly below would abort under set -e on
+# Sourced more than once in a single shell: this library's readonly constants would abort under set -e on
 # the second pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for
 # an unset guard and trips the sourcing shell's set -e).
 if [[ -n "${_AI_TOOLS_OPERATOR_LIB:-}" ]]; then

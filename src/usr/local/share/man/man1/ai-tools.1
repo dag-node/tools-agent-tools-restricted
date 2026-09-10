@@ -130,7 +130,7 @@ so the claim that follows infers the answers its prompts would otherwise ask for
 there are no pre-existing permissions to warn about, no secret-named files to scan a
 brand-new directory for, and no git history to expose in a repository with no commits.
 The one question that can still appear is the traverse grant on a parent directory,
-which widens access above the project and is answered only by a person at a terminal.
+which widens access on the project's ancestors and is answered only by a person at a terminal.
 .TP
 .B \-\-project\-unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-\-keep\-entry\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR] [\fB\-\-group\fI g\fR] [\fIpath\fR]
 Reverse a claim: revert the SELinux label, drop both registries, and \(em behind
@@ -243,9 +243,9 @@ A project
 inside another claimed project is also refused. The
 .B !
 line it would write is indistinguishable from an exclusion withholding a subtree from the project
-above it, and no field in the file could tell the two apart afterwards \(em so re-enabling it later
+enclosing it, and no field in the file could tell the two apart afterwards \(em so re-enabling it later
 could only be a guess, on an edit that widens what the agent reaches. The refusal names the two
-ways to get the intended effect: unclaim the nested project, or park the one above it. Editing the
+ways to get the intended effect: unclaim the nested project, or park the one enclosing it. Editing the
 line by hand is unaffected; the tool simply will not write that one for you.
 .TP
 .B \-\-project\-enable \fR[\fIpath\fR]
@@ -329,8 +329,7 @@ the clone path to resume securing it.
 Push the sandbox clone's commits to the remote branch it tracks
 .RI ( sandbox/ <leaf>
 by default; see
-.B \-\-branch
-above).
+.BR \-\-branch ).
 .TP
 .B \-\-sandbox\-remove \fR[\fIpath\fR]
 Delete a sandbox clone and unregister it, warning about unpushed commits
@@ -481,7 +480,7 @@ which the sandbox account can neither read nor append to, so those lines are evi
 Launch refusals are reported in a section of their own, because
 .B ai\-tools\-run
 runs as the sandbox account and can reach only journald \(em they are the session's own
-account of itself, to reconcile against the trail above rather than to rely on alone.
+account of itself, to reconcile against the file trail rather than to rely on alone.
 Exits non-zero when anything is reported, so it can be run unattended from a cron job
 or a login banner without parsing its output.
 .TP

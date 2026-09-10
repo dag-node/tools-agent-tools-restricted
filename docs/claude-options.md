@@ -51,7 +51,7 @@ not touch essential Anthropic API traffic or the WebFetch domain safety check. T
 
 Set these in a project's `.claude/settings.json` (the `env` block for environment variables,
 top-level for keys) to tune one project without altering the shipped control plane. The
-structural pins above are the exception — overriding `HOME`/`PATH`/`CLAUDE_CONFIG_DIR`
+structural pins the control plane sets are the exception — overriding `HOME`/`PATH`/`CLAUDE_CONFIG_DIR`
 breaks the session layout.
 
 ### Auth and model

@@ -16,12 +16,12 @@
 # A name reaches the decision by three routes -- SUDO_USER, --operator, and the interactive
 # prompt -- and the second is what makes the other refusals testable at all: the prompt reads from
 # /dev/tty, so its branch cannot be driven here, while --operator carries a name past the same
-# operator_refusal without a terminal. Every refusal below is therefore asserted through the flag,
+# operator_refusal without a terminal. Every refusal is therefore asserted through the flag,
 # and the file asserts the flag's own arithmetic too (a missing value, the = form, and that it
 # decides the ENROLLED account without touching who invoked sudo).
 #
 # Nothing is installed: each case runs install.sh with an unrecognized ACTION, and the guards sit
-# above the dispatch, so a run that reaches the dispatch at all prints usage and exits without
+# before the dispatch, so a run that reaches the dispatch at all prints usage and exits without
 # touching the system. Needs root, since the EUID guard precedes the ones under test.
 
 set -euo pipefail
@@ -63,7 +63,7 @@ else
     fail "install.sh reached its dispatch with SUDO_USER=root: ${out}"
 fi
 
-# (3) An absent SUDO_USER stays refused -- the guard above this one, asserted so a rewrite of
+# (3) An absent SUDO_USER stays refused -- the guard preceding this one, asserted so a rewrite of
 # either cannot silently drop it.
 out="$(run_installer "")"
 if grep -qi 'SUDO_USER not set' <<<"${out}"; then
@@ -72,7 +72,7 @@ else
     fail "install.sh did not refuse an unset SUDO_USER: ${out}"
 fi
 
-# (4) A normal login user passes both guards and reaches the dispatch, so the checks above are
+# (4) A normal login user passes both guards and reaches the dispatch, so the two checks are
 # refusing the principal rather than everything.
 out="$(run_installer "${PROJECTS_USER}")"
 if grep -q 'usage: sudo' <<<"${out}"; then

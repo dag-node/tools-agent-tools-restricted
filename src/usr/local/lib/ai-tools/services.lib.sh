@@ -25,7 +25,7 @@
 # _ai_tools_service_systemctl, which tests the CALLER's capability and not which command is asking:
 # `ai-tools-admin status`, `sudo ai-tools --status` and any later consumer therefore resolve one
 # unit to one verdict, and an unprivileged vantage reports it as unknown. How a live reading and a
-# stamp compose into that verdict is ai_tools_service_stamp_verdict, below.
+# stamp compose into that verdict is ai_tools_service_stamp_verdict.
 #
 # A STAMP IS NOT TRUSTED INPUT, and no reader here treats it as such. Its writer is the sandbox
 # account, so that account can state any outcome it likes; the mode on the file and its directory
@@ -81,7 +81,7 @@ readonly _AI_TOOLS_SERVICES_LIB_LOADED=1
 # the journal query) go through that account's --user manager, so they name the sandbox account,
 # and this library is deployed with no @SANDBOX_USER@ substitution. The consumer knows the account
 # name and composes both -- see ai-tools' cmd_status, the single place that renders that transport.
-# shellcheck disable=SC2034  # read by the accessors below and by both consumers (ai-tools, claude.sh)
+# shellcheck disable=SC2034  # read by this library's accessors and by both consumers (ai-tools, claude.sh)
 # The 172800 (48h) grace on both nvm-update records is twice the timer's daily OnCalendar: one
 # missed window is a reboot or a suspended laptop, two is a schedule that has stopped.
 _AI_TOOLS_SERVICES=(
@@ -130,7 +130,7 @@ _AI_TOOLS_SERVICE_SANDBOX_ACCOUNT=""
 : "${AI_TOOLS_SERVICE_LIVE_TIMEOUT:=5}"
 
 # ai_tools_service_sandbox_account <name>  -- name the sandbox account, which is what offers the
-# live probe below to a root caller. Setting it does not by itself widen anything: the probe still
+# live probe to a root caller. Setting it does not by itself widen anything: the probe still
 # requires root and a working transport, and every failure falls back to the stamp.
 ai_tools_service_sandbox_account() { _AI_TOOLS_SERVICE_SANDBOX_ACCOUNT="${1:-}"; }
 
@@ -141,7 +141,7 @@ ai_tools_service_sandbox_account() { _AI_TOOLS_SERVICE_SANDBOX_ACCOUNT="${1:-}";
 # plain `sudo -u <account> systemctl --user` gets that account's bus refused even when the manager
 # is healthy -- so the probe is offered to a root caller and refused for every other, which is what
 # leaves an unprivileged report reading exactly as it did before this existed.
-# shellcheck disable=SC2034  # the array IS this function's output, read by its two callers below.
+# shellcheck disable=SC2034  # the array IS this function's output, read by its two callers.
 _AI_TOOLS_SERVICE_SYSTEMCTL=()
 _ai_tools_service_systemctl() {
     _AI_TOOLS_SERVICE_SYSTEMCTL=()
@@ -334,7 +334,7 @@ ai_tools_service_stamp_verdict() {
 # ai_tools_service_state <unit> <scope> [stamp] [stamp_mode] [max_age]  -- PRINT one of
 # active|skipped|down|failed|stale|absent|unknown; the state is the stdout value and the function
 # ALWAYS returns 0 (so a `state="$(...)"` capture is safe under `set -e` -- no consumer reads the
-# exit status). ai_tools_service_state_of below takes a whole record and is what consumers call.
+# exit status). ai_tools_service_state_of takes a whole record and is what consumers call.
 #   active  -- the unit is running (is-active), or its stamp records a recent healthy run.
 #   skipped -- the last run ended in a transient condition it did not cause and could not fix (the
 #              updater offline: the registry was unreachable, so the toolchain was left alone and
@@ -360,7 +360,7 @@ ai_tools_service_state() {
     # the machine transport and takes the live verdict where it is decisive; every other caller --
     # and every probe that cannot complete -- falls back to the last-run stamp, so a unit that
     # publishes one is reported from it and one that does not stays 'unknown' rather than guessed.
-    # Every input is gathered here and the verdict is decided by the pure function below, so the
+    # Every input is gathered here and the verdict is decided by the pure verdict function, so the
     # policy is unit-testable without a manager to query or a privilege to hold.
     if [[ "${scope}" != system ]]; then
         # Installed at all? A unit shipped by an OPTIONAL package is legitimately absent (the
@@ -411,7 +411,7 @@ ai_tools_service_needs_attention() {
 }
 
 # ai_tools_services_scan [all|system|wrapper]  -- fill AI_TOOLS_SERVICES_DOWN with the records that
-# need attention (see the predicate above), limited by the filter (default 'all'): 'system' =
+# need attention (see the attention predicate), limited by the filter (default 'all'): 'system' =
 # system-scope units; 'wrapper' = the ones the launch wrapper warns about (system + preflight=
 # wrapper, i.e. not the socket the shim already handles). Returns 0 when at least one needs
 # attention, 1 when none -- so a consumer can gate a warning on `if ai_tools_services_scan wrapper`.

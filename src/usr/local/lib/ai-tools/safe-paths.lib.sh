@@ -7,7 +7,7 @@
 # wherever it points, so a system directory mistakenly added to allowed-projects (or passed
 # to a helper) could be rewritten. This list is the independent backstop -- the launch
 # wrapper, the claim CLI, and every elevated helper refuse a protected target regardless of
-# the allowlist, before acting. Each function below states the rule it applies; which
+# the allowlist, before acting. Each function states the rule it applies; which
 # consumers call which, and what a failed load does, are in safe-paths.rule.md.
 #
 # Sourced (not executed) so every consumer shares ONE list and ONE matcher. Deployed
@@ -57,7 +57,7 @@ ai_tools_protected_path_match() {
 # <owner_user>'s own home root. Return 1 for every system directory, for /home itself, and for
 # any other user's home root.
 #
-# This is a SECOND, NARROWER predicate beside the target backstop above, not a relaxation of it.
+# This is a SECOND, NARROWER predicate beside the target backstop, not a relaxation of it.
 # ai_tools_protected_path_match still refuses a home root as the TARGET of a claim, an unclaim, a
 # lockdown or any elevated walk, and this predicate leaves that unchanged. What differs is the operation
 # being vetted: a claim rewrites group, mode and ACLs across a whole tree, while this grants one
@@ -105,7 +105,7 @@ ai_tools_assert_safe_target() {
     return 1
 }
 
-# msg.lib is REQUIRED (the refusal above renders through it, and the sourcing helpers
+# msg.lib is REQUIRED (the refusal renders through it, and the sourcing helpers
 # rely on its ai_tools_msg_confirm): a bare source, so a missing lib fails this library's
 # own load and the consumer's fail-closed handling takes over. msg.lib carries an include
 # guard, so a consumer that already sourced it re-sources a no-op.

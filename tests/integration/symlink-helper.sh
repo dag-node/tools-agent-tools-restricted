@@ -4,7 +4,7 @@
 # Integration: the ai-tools-launcher-symlink root helper -- the only writer of the locked
 # /opt/ai-tools/bin. It must repoint a stable launcher symlink ONLY at a path of the versioned
 # shape whose launcher an ENABLED agent manifest claims, and refuse everything else. Two
-# properties carry the security here, and both are asserted below: the path shape (the helper
+# properties carry the security here, and this suite asserts both: the path shape (the helper
 # cannot trust its caller -- the sandbox account reaches it through the handback socket), and the
 # manifest allowlist (without it, any binary sitting in a versioned bin/ could be given a stable
 # link in the control-plane directory).
@@ -78,7 +78,7 @@ if [[ "${cur}" =~ ^/opt/ai-tools/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+/bin
 
     # Without SELinux no entrypoint can need relabelling, so the helper MUST skip the
     # repoint and say so; under enforcing either branch (skip or repoint-to-relabel) is
-    # correct, so only the end state above is asserted.
+    # correct, so only the end state is asserted.
     if ! { command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled 2>/dev/null; }; then
         if [[ "${out}" == *"already current"* ]]; then
             pass "helper skips the repoint when nothing changed (no SELinux)"

@@ -81,7 +81,7 @@ source "${SAFE_PATHS_LIB}"
 # Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like
 # safe-paths.lib.sh: the bare source under set -e aborts if it is missing -- a valid
 # install ships it, so there is no fallback. Include-guarded, so this is a no-op when
-# safe-paths.lib.sh above already loaded it.
+# safe-paths.lib.sh already loaded it.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
 source /usr/local/lib/ai-tools/msg.lib.sh
 

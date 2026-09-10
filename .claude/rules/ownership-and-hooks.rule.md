@@ -14,7 +14,7 @@ Files the agent writes are born `SANDBOX_USER`-owned. The hooks restore
 `<you>:SANDBOX_GROUP` ownership through `ai-tools-chown` (via the
 [handback bridge](handback-bridge.rule.md)) so the operator and agent stay co-writers.
 
-The hooks below are **Claude Code's** driver for that handback, declared by its manifest as
+The hooks this rule states are **Claude Code's** driver for that handback, declared by its manifest as
 `handback=hooks`. An agent that declares otherwise has none, and `ai-tools-run` sweeps the project
 at session end in their place — same `ai-tools-chown` boundary, per session instead of per turn
 (see [providers](providers.rule.md)).
@@ -43,7 +43,7 @@ a file outside the tree. The full sequence is in `ai-tools-chown.sh`'s apply blo
 dispatches its session phases. **Both record the tool call** in the operator-readable trail —
 the grammar, the content bound, and why the trail is evidence rather than proof are in
 [logging](logging.rule.md). The argument-less form (`Write|Edit`) additionally performs the
-handback below; the `record` form (`Bash`) records and stops, since a Bash-created file carries
+handback; the `record` form (`Bash`) records and stops, since a Bash-created file carries
 no `file_path` and is caught by the `Stop` sweep instead. The two are declared as separate
 matcher groups rather than one widened matcher for a reason that belongs to the upgrade path;
 see [claude-settings](claude-settings.rule.md).
@@ -59,8 +59,8 @@ directory, so it never grants the agent group access to a dir it did not already
 
 `PostToolUse` is the only path that quarantines a secret the instant it is written. It
 fires only for `Write`/`Edit`, so files the agent creates via the `Bash` tool (build
-output, codegen, `mv`, redirects) carry no `file_path` and are caught by the sweeps
-below instead.
+output, codegen, `mv`, redirects) carry no `file_path` and are caught by the `Stop` and
+`SessionStart` sweeps instead.
 
 ## `Stop` — the per-turn catch-all sweep
 
@@ -116,7 +116,7 @@ re-validates each against the allowlist, so it reclaims agent files to
 Every sweep skips `.git`, so `SANDBOX_USER`-owned objects the agent writes there via `git
 commit` (a `Bash`-tool action with no `file_path`, so no `PostToolUse` handback) stay
 agent-owned. **Access** to them is carried by the `user:<operator>` ACL (`ai-tools-setfacl
---with-git`, above): a `<you>` out of `SANDBOX_GROUP` reads and repacks those objects through the
+--with-git`): a `<you>` out of `SANDBOX_GROUP` reads and repacks those objects through the
 named entry regardless of who owns them, timing-independently. The reclaim is the **ownership**
 companion to that ACL: it descends the otherwise-skipped `.git` of `.cwd` and hands each
 `SANDBOX_USER`-owned path to `ai-tools-chown` (same allowlist + exclusion + secret re-validation as
@@ -137,7 +137,7 @@ holds. The operator's on-demand counterpart is `ai-tools --reclaim [--full]` (th
 Whether a session was interrupted is read from a clean-exit marker
 (`.session-active`, beside the hook in that agent's config directory): the `session-start` pass writes it (recording
 `.cwd`), and a `SessionEnd` hook (`session-hook.sh` with the `session-end` argument)
-removes it on graceful exit and runs the `.git` reclaim for `.cwd` (above). A marker that
+removes it on graceful exit and runs the [`.git` reclaim](#git-reclaim) for `.cwd`. A marker that
 survives into the next `session-start` means
 the previous session was killed before its `SessionEnd` ran. That signal **widens** the
 `.git` reclaim to also cover the killed session's recorded `.cwd` — which may be a
@@ -181,7 +181,7 @@ untouched, so normalization never pulls a foreign-held dir into the agent's grou
 **That skip is counted and reported, never silent.** It is the one skip that can leave a claim
 granting the agent *no access at all* while every other step succeeds, so each walk (`ai-tools-setgid`,
 `ai-tools-setfacl`) counts the paths its owner guard declined and closes with the count on stderr,
-the **project root** called out on its own — every directory below an unreachable root inherits
+the **project root** called out on its own — every directory under an unreachable root inherits
 neither the group nor the ACL, so that case is the whole outcome of the claim rather than one skipped path. The CLI's
 front line for the same condition is `require_claimable_owner`, which refuses such a claim before
 its first registry write (see [cli](cli.rule.md)).
@@ -224,7 +224,7 @@ rather than cloned from each directory's mode, which on a permissive-umask direc
 otherwise seed `default:other::r-x` and leak read access to every future file.
 
 `.git` is the one skipped tree both parties commit into. The per-session passes leave it
-alone for cost, so the agent's own `.git` writes are reclaimed by the `.git` reclaim above;
+alone for cost, so the agent's own `.git` writes are reclaimed by the [`.git` reclaim](#git-reclaim);
 the operator's `.git` writes — born in the operator's primary group (e.g. `<you>:<you>`) and
 unreadable to the agent once `<you>` is not a `SANDBOX_GROUP` member — are handled at claim
 instead. `ai-tools-setfacl --with-git` normalizes `.git` once: group `SANDBOX_GROUP` + setgid

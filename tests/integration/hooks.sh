@@ -26,7 +26,7 @@ readonly settings="/opt/ai-tools/.claude/settings.json"
 # but no case asserts the file still DECLARES the handback hooks and the deny rules -- an install
 # that shipped an empty or stale settings.json would disable handback + secret quarantine with
 # every permission check still green. Pin the security-load-bearing content here. This runs
-# independently of the live daemon below (it needs only the file), so a socket-down host still
+# independently of the live daemon (it needs only the file), so a socket-down host still
 # exercises it. Requires jq; skips the content check (not the file's existence) without it.
 section "settings.json declares the hooks + deny rules (integration)"
 if [[ ! -r "${settings}" ]]; then
@@ -70,7 +70,7 @@ else
 
     # (0a-ii) The token-saving filter hook is declared on both Bash events. Losing it costs
     # tokens rather than a guarantee (see filters.rule.md), so it is asserted separately from the
-    # handback events above -- a failure here means unfiltered output, not unowned files. Both
+    # handback events -- a failure here means unfiltered output, not unowned files. Both
     # events must be present: PreToolUse without PostToolUse silently drops the noise stripping.
     filter="/opt/ai-tools/.claude/filter-hook.sh"
     declare -A want_filter=(
@@ -102,10 +102,10 @@ else
     done
     ${deny_ok} && pass "settings.json denies the categorical dead-ends (sudo/su, manager/audit CLIs, pkg, mount, SELinux mgmt)"
 
-    # (0b-ii) The irreversible-VCS deny group is present. Unlike the categorical group above,
+    # (0b-ii) The irreversible-VCS deny group is present. Unlike the categorical group,
     # these commands SUCCEED if attempted -- the deny is the only thing between the agent and a
     # force-push, a hard reset, or a forced clean, none of which has an undo. They are pinned
-    # strictly (not reported like the host-survey group below) because the two paths that
+    # strictly (not reported like the host-survey group) because the two paths that
     # preserve a host's tuning -- install.sh's keep-existing and %config(noreplace) on upgrade --
     # are also how a settings.json that predates the group, or one edited in the permission
     # arrays it invites tuning of, silently loses the gate while every other check stays green.

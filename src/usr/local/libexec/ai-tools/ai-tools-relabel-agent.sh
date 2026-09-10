@@ -258,7 +258,7 @@ if [[ -n "${report}" ]]; then
                    say "${subject}: skipped -- ${detail} ${wanted}"
                    ai_tools_log_warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
             # Closes an agent's lines with its whole outcome. Recorded here, where the per-agent
-            # reason lines above have already been seen, so a failure is filed with the cause that
+            # reason lines have already been seen, so a failure is filed with the cause that
             # decides the remedy rather than with a bare "failed".
             agent) agent_outcome["${subject}"]="${detail}" ;;
         esac

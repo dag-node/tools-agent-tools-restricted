@@ -12,7 +12,7 @@ policy_module(ai_tools, 0.6.0)
 # user_home_t, on which the domain holds directory traversal only -- enough to reach a
 # project nested under a home, and not to list what else is there. Other domains' process
 # state and the invoking user's config files are refused as well. THE BOUNDARY section
-# below states each refusal with its reason, including the one carve-out
+# states each refusal with its reason, including the one carve-out
 # (~/.config/ai-tools) that the root helper reads on the agent's behalf.
 #
 # SHIPS ENFORCING. The `permissive ai_tools_t;` line at the foot of this file is the
@@ -35,7 +35,7 @@ require {
     # read-only kernel tunables Node/V8 probes at startup
     type sysctl_vm_t;
 
-    # types we deliberately REFUSE (dontaudit below -- logged-then-silenced, never
+    # types we deliberately REFUSE (dontaudit -- logged-then-silenced, never
     # allowed). Declared here so the explicit dontaudit rules compile.
     type config_home_t;
     type container_file_t;
@@ -94,7 +94,7 @@ files_type(ai_tools_project_build_t)
 type ai_tools_home_t;
 files_type(ai_tools_home_t)
 
-# The agent's private temp files. A type_transition (below) relabels everything
+# The agent's private temp files. A type_transition relabels everything
 # the agent creates under /tmp to this type, so it gets its own scratch space and
 # cannot read or clobber other domains' tmp_t/user_tmp_t files once enforcing.
 type ai_tools_tmp_t;
@@ -102,7 +102,7 @@ files_tmp_file(ai_tools_tmp_t)
 
 # The user-owned ai-tools config the ROOT helpers must read on the agent's behalf:
 # ~/.config/ai-tools/{allowed-projects,secret-patterns}. Those paths are normally
-# config_home_t, which the dontaudit block below REFUSES to ai_tools_t. But
+# config_home_t, which the THE BOUNDARY dontaudit block REFUSES to ai_tools_t. But
 # ai-tools-chown runs IN ai_tools_t (sudo, no transition) and its first real step
 # is reading allowed-projects (ai-tools-chown.sh line 59); with no read grant the
 # getattr is denied and the helper fail-closes to a silent exit 0 -- so NO file is
@@ -159,7 +159,7 @@ init_daemon_domain(ai_tools_handback_t, ai_tools_handback_exec_t)
 #   (1) domain: confirm the user-manager is init_t with `ps -eZ | grep 'systemd --user'`;
 #       if it differs (a confined user_systemd_t variant), key the init_t rule to that.
 #   (2) role:   the transitioned process keeps the manager's role. If the manager runs
-#       in system_r (not unconfined_r), the role/type association below must be in
+#       in system_r (not unconfined_r), the role/type association must be in
 #       force or the transition is denied. Both roles are authorised here so the
 #       service path works regardless; the unused association is inert.
 # If the label or role is wrong no transition fires and claude runs unconfined -- it
@@ -167,7 +167,7 @@ init_daemon_domain(ai_tools_handback_t, ai_tools_handback_exec_t)
 domtrans_pattern(init_t, ai_tools_exec_t, ai_tools_t)
 domtrans_pattern(unconfined_t, ai_tools_exec_t, ai_tools_t)
 
-# Both transitions above happen under NO_NEW_PRIVS: ai-tools-run launches the session with
+# Both transitions happen under NO_NEW_PRIVS: ai-tools-run launches the session with
 # RestrictNamespaces=yes, and systemd can only install that seccomp filter behind
 # PR_SET_NO_NEW_PRIVS (true on --user AND --system units; NoNewPrivileges=no does not
 # override it -- verified on the live box).  Under NNP the kernel runs check_nnp_nosuid(),
@@ -246,18 +246,18 @@ allow ai_tools_t user_home_t:dir { getattr search open };
 
 # Reach SANDBOX project clones: their path is /var -> /var/opt -> /var/opt/ai-tools
 # -> sandbox-projects -> the labelled clone (ai_tools_project_t, set statically in
-# ai_tools.fc). /var is var_t, covered by files_search_var below. From /var/opt down the
+# ai_tools.fc). /var is var_t, covered by files_search_var. From /var/opt down the
 # path is usr_t, NOT var_t: the base file_contexts.subs_dist alias `/var/opt /opt` makes
 # /var/opt/ai-tools resolve as /opt/ai-tools (usr_t) -- the same reason the clone rule in
 # ai_tools.fc is keyed under /opt. The agent already searches usr_t dirs via the
-# files_read_usr_files grant below (it reads the nvm/node tree there), so those hops need
+# files_read_usr_files grant (it reads the nvm/node tree there), so those hops need
 # no extra rule; files_search_var covers only the /var hop. The clone itself is reached via
-# the project rules above. Projects under /home use the user_home_t traversal instead.
+# the project rules. Projects under /home use the user_home_t traversal instead.
 files_search_var(ai_tools_t)
 
 # Reach + read the ai-tools config subtree (~/.config/ai-tools, ai_tools_conf_t): SEARCH
 # config_home_t (~/.config) only to traverse INTO it -- never list or read its siblings, which
-# the config_home_t:file dontaudit below still refuses. Two domains hold this, for different
+# the config_home_t:file dontaudit still refuses. Two domains hold this, for different
 # reasons, and the narrow type is what keeps either grant off the rest of ~/.config.
 #
 # ai_tools_handback_t (granted further down) is the load-bearing one: the root helpers read
@@ -364,7 +364,7 @@ corenet_tcp_connect_http_port(ai_tools_t)   # http_port_t includes 443
 # chown/fowner/fsetid/dac_read_search, sudo_exec_t exec, sudo_db_t/sudo_log_t/
 # faillog_t/pam_var_run_t access, auth_domtrans_chk_passwd, netlink_audit_socket.
 # The non-root agent has no use for any of it; an in-domain root helper would, and
-# the bridge below puts that helper in its own root domain (ai_tools_handback_t)
+# the bridge puts that helper in its own root domain (ai_tools_handback_t)
 # instead.
 ########################################
 
@@ -408,7 +408,7 @@ dev_read_urand(ai_tools_t)
 ########################################
 # THE BOUNDARY -- deliberately DENIED.
 #
-# Everything below is dontaudit, NOT allow. A raw `audit2allow` of the bring-up
+# Everything in this section is dontaudit, NOT allow. A raw `audit2allow` of the bring-up
 # logs proposed allowing all of it; granting any of it would widen the agent past
 # its purpose. What denies each one is the absence of an allow rule; the dontaudit
 # only suppresses the audit record, so the access stays refused under enforcing and
@@ -428,12 +428,12 @@ dontaudit ai_tools_t init_t:file ioctl;
 dontaudit ai_tools_t kernel_t:unix_stream_socket connectto;
 
 # (2) The path boundary into the invoking user's home. SEARCH to reach the project
-# is allowed above; LISTING /home, /home/<you>, or its subtrees is not -- that is how
+# is allowed; LISTING /home, /home/<you>, or its subtrees is not -- that is how
 # the agent would discover unrelated files. Reading the user's ~/.config FILES is
 # likewise refused (git/Node probe it; failing closed is harmless) -- the lone exception is the
-# ai_tools_conf_t subtree (~/.config/ai-tools), carved out and granted above so the file mode
+# ai_tools_conf_t subtree (~/.config/ai-tools), carved out and granted so the file mode
 # rather than policy decides what the session may read there. config_home_t:dir search is
-# allowed above only to TRAVERSE ~/.config into that subtree, never to list or read it; this
+# allowed only to TRAVERSE ~/.config into that subtree, never to list or read it; this
 # dontaudit keeps every other config_home_t FILE refused.
 dontaudit ai_tools_t home_root_t:dir read;
 dontaudit ai_tools_t user_home_dir_t:dir read;
@@ -447,7 +447,7 @@ dontaudit ai_tools_t sendmail_exec_t:file execute;
 
 # (4) Benign device/fs probe noise -- denying these leaves behaviour unchanged (callers
 # fall back), so silence rather than grant.
-# fs_t:filesystem getattr is ALLOWED above (find -xdev needs statfs()).
+# fs_t:filesystem getattr is ALLOWED by this module (find -xdev needs statfs()).
 dontaudit ai_tools_t { cgroup_t tmpfs_t }:filesystem getattr;
 dontaudit ai_tools_t tty_device_t:chr_file getattr;
 dontaudit ai_tools_t usb_device_t:chr_file getattr;   # Node HID probe at startup
@@ -482,7 +482,7 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 #
 # INTENTIONALLY LEFT COMMENTED. Unlike sections (1)-(5) which silence operational noise
 # that is safe to suppress (proc table walks, USB probes, startup statfs), the accesses
-# below are SECURITY-RELEVANT BREACH ATTEMPTS. Leaving them active in the audit log
+# in this section are SECURITY-RELEVANT BREACH ATTEMPTS. Leaving them active in the audit log
 # means any attempt by the agent to read credentials, escalate privilege, install
 # persistence, or move laterally produces a visible AVC and is caught by avc-analyze.sh
 # as NEW. That is the desired default behaviour.
@@ -492,7 +492,7 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 # Never uncomment wholesale -- each suppressed line is a breach attempt you are
 # choosing not to be alerted about.
 #
-# PORTABILITY / BEFORE UNCOMMENTING: none of the types below are in the require {}
+# PORTABILITY / BEFORE UNCOMMENTING: none of the types in this section are in the require {}
 # block, because require is a hard load-time dependency -- a missing type causes semodule
 # to fail for every user on every distro variant. Type names vary between selinux-policy
 # versions and optional sub-packages:
@@ -509,10 +509,10 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 #   container_var_run_t -- only present when container-selinux is installed.
 #
 # When uncommenting a rule: (1) confirm the type exists with `seinfo -t <type_t>`;
-# (2) add `type <type_t>;` to the require {} block above; (3) rebuild + reload.
+# (2) add `type <type_t>;` to the require {} block; (3) rebuild + reload.
 #
 # OPEN-FAILURE STATUS from the first probe run -- documented here, not suppressed.
-# ESC-001 is now CLOSED out-of-band (see below); LAT-005 remains open.
+# ESC-001 is now CLOSED out-of-band; LAT-005 remains open.
 #
 #   ESC-001  unshare --user (process2:create_user_ns) -- CLOSED by a seccomp filter,
 #            not by this policy.
@@ -604,10 +604,10 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 #
 # ENFORCING.  The bring-up loop confirmed the rule set on the live box; there is no
 # `permissive ai_tools_handback_t;` line.  The domain transition runs under NNP (see
-# the nnp_transition grant below), forced by the unit's SystemCallFilter.
+# the nnp_transition grant), forced by the unit's SystemCallFilter.
 ########################################
 
-# init_daemon_domain (above) sets up the init_t -> ai_tools_handback_t transition on
+# init_daemon_domain sets up the init_t -> ai_tools_handback_t transition on
 # exec of the ai_tools_handback_exec_t entrypoint.  That transition runs under
 # NO_NEW_PRIVS: ai-tools-handback@.service sets NoNewPrivileges=yes AND
 # SystemCallFilter=@system-service, and systemd can only install a seccomp syscall

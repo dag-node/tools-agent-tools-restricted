@@ -8,7 +8,7 @@ provider, revoking an operator, relabelling an entrypoint. This is the one that 
 in flight, so it is the rung an incident actually lands on.
 
 The property it holds is one sentence: **a stop that is asked for and reported as done has
-happened.** Everything below follows from that.
+happened.** Everything on this page follows from that.
 
 ---
 
@@ -145,8 +145,8 @@ which pass ended it, because that is the most useful line in the trail afterward
 
 | Exit | Meaning | What to do |
 |---|---|---|
-| 0 | stopped and verified gone, or no session was running | reclaim the projects it names (below) |
-| 1 | something survived `SIGKILL` | see *A process survived* below |
+| 0 | stopped and verified gone, or no session was running | reclaim the projects it names ([After a stop: reclaim](#after-a-stop-reclaim)) |
+| 1 | something survived `SIGKILL` | see [A process survived](#a-process-survived-exit-1) |
 | 2 | usage — an unknown option, or a path (this command does not take a target) | run `ai-tools --stop` |
 | 4 | you declined at the confirmation | no session was stopped |
 | 5 | the helper could not run (no cgroup v2, no sandbox account) | a broken host, not a failed stop |

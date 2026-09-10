@@ -120,7 +120,7 @@ ai_tools_release_manifest_checksum() {
 }
 
 # ai_tools_entrypoint_pin_verdict <expected> <observed> : the decision, given two checksums.
-#   Echoes a verdict token and returns the status contract above:
+#   Echoes a verdict token and returns this library's status contract:
 #     ok         both present and equal
 #     mismatch   both present and different -- the tamper signal, status 1
 #     unpinned   no expected value: no run has verified this entrypoint yet, status 2
@@ -230,7 +230,7 @@ ai_tools_entrypoint_label_write() {
         printf '# ai-tools entrypoint label record -- written as root, read by ai-tools --status.\n'
         printf 'AGENT=%s\nRESULT=%s\nLABELLED=%s\n' \
             "${agent}" "${result}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        # See the pin above: the last command's status is the group's, and most records carry no
+        # See the pin write: the last command's status is the group's, and most records carry no
         # reason -- so an `ok` outcome would report itself as unrecordable.
         if [[ -n "${reason}" ]]; then printf 'REASON=%s\n' "${reason}"; fi
     } | _ai_tools_ev_write_record "${record}" "${AI_TOOLS_ENTRYPOINT_LABEL_DIR}"
@@ -319,7 +319,7 @@ _ai_tools_ev_dearmor() {
 # ai_tools_entrypoint_release_verify <entrypoint> <version> <url-template> <key> <fingerprint>
 #   Fetch the vendor's release manifest for <version>, verify its detached signature against the
 #   pinned <key>, and compare the checksum it publishes for this platform against <entrypoint>'s.
-#   Returns the status contract above and prints the verified checksum on success.
+#   Returns this library's status contract and prints the verified checksum on success.
 #
 #   Every input but the entrypoint comes from a root-owned agent manifest that already passed
 #   ai_tools_conf_is_trusted, and the key is a file the agent package ships -- fetched from the

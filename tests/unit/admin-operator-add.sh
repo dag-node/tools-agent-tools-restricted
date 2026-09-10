@@ -106,7 +106,7 @@ else
 fi
 
 # --- wire_init_file: the PATH dedup reaches the operator's bash init ---
-# The guard line is what ranks /usr/local/bin (the wrapper) above the nvm shims, so a shell that
+# The guard line is what ranks /usr/local/bin (the wrapper) ahead of the nvm shims, so a shell that
 # never sources it resolves `claude` to the nvm-managed binary instead. Driven against fixture
 # files in TESTDIR: the function takes the file as an argument, so no real home is touched.
 section "ai-tools-admin operator add: bash init wiring (unit)"

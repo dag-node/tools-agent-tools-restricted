@@ -51,7 +51,7 @@ readonly HANDBACK_CLIENT="/usr/local/bin/ai-tools-handback-client"
 # ── The tool-call record's content bound ─────────────────────────────────────────
 # These two constants ARE the bound on what a session's command line can put into the
 # audit trail, so they are named here rather than buried as literals inside the jq program
-# below: widening either widens what the trail carries. Two words keep a command
+# itself: widening either widens what the trail carries. Two words keep a command
 # distinguishable from its subcommand (`git log` from `git push`); the cap is a backstop for
 # a single pathological word with no whitespace in it, such as a base64 blob, so it only has
 # to be finite. What the bound covers, and why it is not to be widened, is in logging.rule.md.
@@ -79,7 +79,7 @@ readonly RECORD_FIELD_SEPARATOR=$'\037'
 # being discarded.
 format_tool_call_record() {
     local hook_event_json="$1"
-    # shellcheck disable=SC2016  # a jq program: every $name below is a jq variable, not shell
+    # shellcheck disable=SC2016  # a jq program: every $name in it is a jq variable, not shell
     local record_filter='
         def strip_controls: gsub("[[:cntrl:]]"; "?");
         def clamp: gsub("[^!#-<>-~]"; "?");
@@ -147,7 +147,7 @@ record_tool_call() {
 #
 # The call is made only for a path currently owned by @SANDBOX_USER@ -- the same set
 # ai-tools-chown will act on under its own owner guard, and the same signal the parent-dir walk
-# below uses -- so an already-handed-back file (operator-owned, or a quarantined secret) does
+# uses -- so an already-handed-back file (operator-owned, or a quarantined secret) does
 # not reach the socket. The root-owned validator does the real work, the allowlist check only
 # it can read included. Its stderr is deliberately NOT redirected to /dev/null, so a
 # secret-file NOTICE reaches the agent's session.
@@ -168,7 +168,7 @@ hand_back_written_path() {
     # dirs owned by ai-tools at the agent's umask, often world-traversable, and no event
     # carries their paths. Walk upward from the file's directory, handing back each
     # ai-tools-owned dir and stopping at the first dir the agent does NOT own -- the
-    # pre-existing user tree (the project root and above, <you>-owned) -- so the walk stays
+    # pre-existing user tree (the project root and its ancestors, <you>-owned) -- so the walk stays
     # inside the project. Writing into an existing dir, the common case, breaks on the first
     # iteration with no socket call. ai-tools-chown re-validates each path as root.
     parent_directory="$(dirname -- "${written_file_path}")"

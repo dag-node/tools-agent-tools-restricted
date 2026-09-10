@@ -49,7 +49,7 @@ import socket
 import struct
 import subprocess
 import sys
-import unicodedata  # used by the deferred _sanitize_unicode_controlchars detector below
+import unicodedata  # used by the deferred _sanitize_unicode_controlchars detector
 
 _SANDBOX_USER = '@SANDBOX_USER@'
 
@@ -141,10 +141,10 @@ _MAX_LINE = 8192
 # forever.  SIGALRM interrupts the blocked read() at the OS level.
 _READ_TIMEOUT = 30
 
-# Wall-clock cap on a single helper invocation.  The SIGALRM above only bounds the
+# Wall-clock cap on a single helper invocation.  The SIGALRM only bounds the
 # read phase; without this a helper that stalls (a SETGID walk over a huge tree, or
 # realpath on a hung autofs/NFS mount) would hold a root process indefinitely, and
-# up to MaxConnections of them at once.  120s is far above any legitimate handback.
+# up to MaxConnections of them at once.  120s is far longer than any legitimate handback.
 _HELPER_TIMEOUT = 120
 
 # Defensive bound on the argument length.  Every verb takes an absolute filesystem
@@ -257,7 +257,7 @@ def main():
     # Fail-fast pre-filter (defense in depth, NOT a replacement for the helpers'
     # validation): every verb takes an absolute path, so reject anything that is not
     # absolute, is longer than PATH_MAX, or carries control characters (including the
-    # embedded NUL that execve(2) rejects).  The branch below exits before the exec, so a
+    # embedded NUL that execve(2) rejects).  The refusal exits before the exec, so a
     # malformed request never reaches a helper; a well-formed one is still re-validated there.
     if not arg.startswith('/') or len(arg) > _MAX_ARG \
             or any(ord(c) < 0x20 or ord(c) == 0x7f for c in arg):
@@ -273,9 +273,9 @@ def main():
     #
     # ValueError is raised when arg contains an embedded null byte: Python refuses
     # to pass it to execve(2) because C strings are null-terminated.  The pre-filter
-    # above already rejects NUL; catching it here as well keeps the exec guarded when
+    # already rejects NUL; catching it here as well keeps the exec guarded when
     # that filter changes.
-    # TimeoutExpired bounds a stalled helper at _HELPER_TIMEOUT (see above); the
+    # TimeoutExpired bounds a stalled helper at _HELPER_TIMEOUT; the
     # child is killed and the request fails cleanly rather than pinning a root
     # process.  stderr captured before the timeout is discarded with the child.
     try:
@@ -311,7 +311,7 @@ def main():
     # One served-request line so the bridge's activity is visible in its own log rather than
     # inferred from the helpers'. A non-zero helper exit is NOT necessarily an error (e.g.
     # ai-tools-chown exits 1 for a path outside the allowlist, a routine skip), so the served
-    # line stays INFO and records the code; the daemon-level failures above carry the
+    # line stays INFO and records the code; the daemon-level failures carry the
     # WARNING/ERROR levels.
     if result.returncode == 0:
         _audit('info', 'served %s pid=%d arg=%s -> OK' % (verb, peer_pid, arg))

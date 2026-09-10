@@ -4,7 +4,7 @@
 # Unit test for the shipped-asset seeder and the withdrawal pass (managed-assets.lib.sh), which
 # decide what skills and subagents every session on the host reads. Each runs
 # unattended in a package scriptlet with its output scrolling past in a dnf transaction, so
-# every way either can go wrong is quiet, and each property below is one an operator would only
+# every way either can go wrong is quiet, and each property is one an operator would only
 # discover much later:
 #
 #   1. THE MARKER IS THE CLAIM. An asset without `x-ai-tools-managed: true` is the operator's own
@@ -217,7 +217,7 @@ else
 fi
 
 # ── Withdrawal ───────────────────────────────────────────────────────────────────
-# Property 5, and the marker gate on this side. The live copy from the run above is still in place.
+# Property 5, and the marker gate on this side. The live copy from the seeding run is still in place.
 out="$(ai_tools_remove_retired_assets "${LIVE}" skills 2>&1)" || true
 if [[ ! -e "${LIVE}/skills/${WITHDRAWN_SKILL}" ]]; then
     pass "a withdrawn asset is removed from the live root"

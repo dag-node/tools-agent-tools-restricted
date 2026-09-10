@@ -22,7 +22,7 @@ spec="${here}/ai-tools.spec"
 file_version="$(cat "${version_file}")"
 
 # Parse the tag argument up front: a prerelease tag (vX.Y.Z-rc.N, the only dashed shape
-# accepted) compares by its base X.Y.Z and relaxes the %changelog match below.
+# accepted) compares by its base X.Y.Z and relaxes the %changelog match.
 tag="${1:-}"
 tag_version=""
 prerelease=0

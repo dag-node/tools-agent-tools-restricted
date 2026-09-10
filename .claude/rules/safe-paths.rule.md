@@ -38,7 +38,7 @@ root-owned files that fill a system directory ([ownership-and-hooks](ownership-a
 
 The list (`AI_TOOLS_PROTECTED_PATHS`) covers the FHS system roots — `/`, the usrmerge
 symlinks and `/usr` tree, `/etc`, `/var`, `/boot`, `/root`, `/home` (with each home root
-matched by the rule above; projects inside a home pass), `/srv`, `/opt` and `/opt/ai-tools`
+matched by the home-root rule; projects inside a home pass), `/srv`, `/opt` and `/opt/ai-tools`
 (the control plane), the `/dev`/`/proc`/`/sys`/`/run` pseudo-filesystems, the `/mnt`/`/media`
 mount points, and `/tmp`/`/lost+found`. The sandbox's own working areas — `/opt/ai-tools` and
 `/var/opt/ai-tools/sandbox-projects` — are reached as *descendants* of listed entries, so they
@@ -112,7 +112,7 @@ Two layers, both fail-closed:
   descending.
 
 Refusal exits `3` in the helpers (distinct from usage `2` and the silent skips) and `1` in the
-launch wrapper (matching its `die`); a load failure (below) uses the same codes.
+launch wrapper (matching its `die`); a load failure uses the same codes.
 
 **`ai-tools-stop` is not a consumer, and the reason is instructive.** It loaded this library while
 it took a per-project target, to vet that caller-supplied path — advisorily, since it only

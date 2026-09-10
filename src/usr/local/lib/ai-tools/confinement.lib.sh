@@ -23,7 +23,7 @@ _AI_TOOLS_CONFINEMENT_LIB_LOADED=1
 # operator-declared switch:
 #   enforce  getenforce output ("Enforcing" when type enforcement is active)
 #   module   "yes" when the core module's file-contexts are live, as classified by
-#            ai_tools_confinement_module_present below, else "no"
+#            ai_tools_confinement_module_present, else "no"
 #   want     label matchpathcon maps the entrypoint to -- "ai_tools_exec_t" once the module's
 #            file-contexts are live in the running policy, "" or another type otherwise
 #   have     the entrypoint's live label ("" when unreadable)

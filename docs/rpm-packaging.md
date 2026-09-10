@@ -72,7 +72,7 @@ package legitimately reusing the old name is not obsoleted by every later releas
 `ai-tools-integration-nodejs` (from `ai-tools-nodejs`) and
 `ai-tools-agents-claude-code-restricted` (from `claude-code-restricted`) both carry the pair.
 
-## Installing and upgrading
+## Installing and upgrading <a id="ref-section-f5q2"></a>
 
 The recommended install is the two commands in the README: the `dagnode-release` package brings
 the signed repository definition and the org signing key, then `dnf install ai-tools` pulls the
@@ -345,7 +345,7 @@ file, so a release bump touches one place. `Release:` defaults to plain `1`
 `RPM_RELEASE=<override>` — CI passes `0.<run>.git<sha>` for dev builds and
 `0.rcN` for `vX.Y.Z-rc.N` prerelease tags. The leading `0.` is the Fedora
 pre-release convention, so rpm's version comparison ranks any snapshot or RC
-below the final release that follows it, and a host that installed an RC
+under the final release that follows it, and a host that installed an RC
 upgrades cleanly to the final via ordinary `dnf`.
 
 Runtime dependencies: `ai-tools-base` requires `systemd`, `sudo`, `acl`,
@@ -356,7 +356,7 @@ Runtime dependencies: `ai-tools-base` requires `systemd`, `sudo`, `acl`,
 dependency — it is nvm-managed under `/opt/ai-tools` so the agent can self-update
 it within the policy the SELinux module enforces.
 
-## Signing and distribution
+## Signing and distribution <a id="ref-section-a6s8"></a>
 
 The `release` job signs each built RPM with the dag-node org GPG key and publishes it to the
 signed DNF repository at `https://rpm.dagnode.com/` (the "served from a signed repo" install

@@ -7,7 +7,7 @@
 #
 # Loaded FIRST, so a provider's rule set can override any rule here.
 #
-# Each rule below narrows how much a command PRINTS, never what it inspects, and cancels itself
+# Each rule in this file narrows how much a command PRINTS, never what it inspects, and cancels itself
 # the moment the agent passes a flag of its own about the same thing. Three commands qualify;
 # git diff, git show, git blame and grep are deliberately absent, because every terse mode they
 # have discards content the agent asked for by running them.

@@ -136,7 +136,7 @@ fails when it is absent; a manager down despite linger is skipped, with the star
 and the test does not start it.
 
 Nor does a test mutate **global system state** to exercise a helper — the host's local SELinux
-policy (`semanage fcontext`) above all. A helper whose real work *is* to add and then remove a
+policy (`semanage fcontext`) most of all. A helper whose real work *is* to add and then remove a
 policy entry is therefore covered only on the branch where it leaves the policy unchanged: the alternative is
 a teardown that can strand an entry in the policy store on a failed run, which costs more than
 the coverage buys. Where that trades away an assertion, the gap is named at the point it is
@@ -164,7 +164,7 @@ every line is still queryable by its per-component tag.
 `AI_TOOLS_POSTUPGRADE_ROOT` is the fourth hook of that family and the widest in reach:
 `ai-tools-admin system post-upgrade` reconciles a fixed registry of absolute control-plane paths, and
 this prefixes every one of them, so `unit/postupgrade.sh` drives the real command against a
-fixture tree in its testdir. It carries the same standing as the three above — the helper is
+fixture tree in its testdir. It carries the same standing as the other three — the helper is
 reachable only as root, `sudo` strips the name, and a caller who could set it may already edit
 those files outright — and is unset in production, where the registry paths stand as written.
 
@@ -218,7 +218,7 @@ verb is never aimed at the real clone area even to assert a refusal.
 
 It is not in the suite because the full function registers a `semanage fcontext` rule, and this
 suite does not mutate the host's SELinux policy to test a helper — the same line
-`integration/selinux.sh` draws for `ai_tools_unlabel_project`. The check above is safe *because* it
+`integration/selinux.sh` draws for `ai_tools_unlabel_project`. That check is safe *because* it
 re-asserts the rule that is already registered, leaving the policy store unchanged; a fixture
 manifest would not, which is why the hook redirects the **launcher** rather than the manifest
 directory. The pure decision behind the verdict is covered hermetically in `unit/relabel.sh`, and
@@ -418,7 +418,7 @@ library unit tests: the decision lives there rather than in `install.sh` precise
 exercised without stubs or text extraction, and the installer keeps only the rendering.
 
 `install-guards.sh` is the other `install.sh` unit test, and it covers the decision that sits
-above the dispatch: which account the install enrols. Every refusal is driven through
+before the dispatch: which account the install enrols. Every refusal is driven through
 `--operator`, the one route by which a name reaches that decision without a terminal (the prompt
 reads `/dev/tty`, so its branch is not drivable here) — root, the sandbox account, an account that
 does not exist, and the flag's own valueless form. Each case runs the installer with an
@@ -472,7 +472,8 @@ function and the helper is **sourced** rather than run (its root check and its d
 guarded for exactly that), so one function is driven with no host to administer and no state
 written anywhere; each case runs in its own `bash`, because the helper and the harness both
 declare `SANDBOX_USER` readonly. Its second section covers the enrolment's other edit — the guard
-line that sources the PATH dedup, which is what ranks the wrapper above the nvm shims — by driving
+line that sources the PATH dedup, which is what ranks the wrapper ahead of the nvm shims — by
+driving
 `wire_init_file` against fixture files in the testdir. Two of the three assertions are about a file
 the command **creates**: `~/.bash_profile` is what bash reads at login, so the fixture home is run
 through a real `bash -l` to assert the account's `.bashrc` is still read through it, and a file the

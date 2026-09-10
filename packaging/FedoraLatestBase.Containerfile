@@ -9,7 +9,7 @@
 # (/usr/local/sbin -> /usr/local/bin) collided the root helper DIRECTORY with the CLI FILE at one
 # path -- is gone: the helper tree lives at ai_libexecdir (/usr/local/libexec/ai-tools), which the
 # merge does not touch, so one layout serves EL and Fedora. Fedora ships dnf5 (rejects `-v`,
-# prefers `--setopt=install_weak_deps=1`); the build step below uses that portable form, identical
+# prefers `--setopt=install_weak_deps=1`); the build step uses that portable form, identical
 # to ELBase.
 #
 # SCOPE: like the EL smoke test, a container validates packaging + dependency resolution, the

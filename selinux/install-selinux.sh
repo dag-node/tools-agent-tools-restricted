@@ -47,7 +47,7 @@ readonly POLICY_DIR="${DIR}/policy"
 readonly MODULE="ai_tools"
 
 # Shared message formatter (source tree first, installed copy second): frames the
-# interactive confirmations below in the '#' box and carries the yes/no prompts
+# interactive confirmations in the '#' box and carries the yes/no prompts
 # (ai_tools_msg_confirm). REQUIRED -- the prompts gate decisions, so a missing lib fails
 # the run instead of degrading; one of the two locations exists on any host this script
 # runs on (the repo checkout or an installed system).
@@ -62,7 +62,7 @@ export AI_TOOLS_MSG_FULLWIDTH=1
 # Optional policy-group registry (names/descriptions/reasons + predicates), single-sourced
 # so this authoring tool and the installed ai-tools-admin never disagree on the group set.
 # REQUIRED -- the enable/disable/list actions and the install prompt all read it; a missing
-# lib fails the run. Same source-tree-first, installed-second resolution as MSG_LIB above.
+# lib fails the run. Same source-tree-first, installed-second resolution as MSG_LIB.
 GROUPS_LIB="${DIR}/../src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 [[ -r "${GROUPS_LIB}" ]] || GROUPS_LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 # shellcheck source=/dev/null
@@ -150,7 +150,7 @@ sayx()    { printf '%s\n' "$*" >&2; }
 
 # The optional policy-group registry (AI_TOOLS_SELINUX_GROUPS) and its accessors
 # (ai_tools_selinux_group_{name,desc,reason,valid,loaded}) come from the shared
-# selinux-groups.lib.sh sourced above -- the single source shared with ai-tools-admin.
+# selinux-groups.lib.sh this script sources -- the single source shared with ai-tools-admin.
 
 ########################################
 # Build helpers
@@ -344,7 +344,7 @@ _check_permissive_alignment() {
     # Domains the compiled .te expects permissive (non-commented permissive lines).
     # A no-match grep exits 1, which pipefail propagates to the assignment and set -e
     # would abort on -- the normal ENFORCING case has zero permissive lines here, so
-    # tolerate an empty result (the -z checks below are the intended empty-path).
+    # tolerate an empty result (the -z checks are the intended empty-path).
     local expected_permissive
     expected_permissive=$(grep -E '^[[:space:]]*permissive[[:space:]]+ai_tools_[^[:space:]]+[[:space:]]*;' \
                           "${POLICY_DIR}/${MODULE}.te" 2>/dev/null \
@@ -400,14 +400,14 @@ prompt_groups() {
     local entry name desc stability
     local -a loaded_groups=()
 
-    # State what is already loaded BEFORE the gate below, because the default answer skips this
+    # State what is already loaded BEFORE the skip gate, because the default answer skips this
     # section without listing anything: this step only ever ADDS modules, so a group enabled by
     # an earlier install survives the skip, and silence here reads as if it might not.
     for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
         name="$(ai_tools_selinux_group_name "${entry}")"
         ai_tools_selinux_group_loaded "${name}" && loaded_groups+=("${name}")
     done
-    # Header and explanation FIRST, so the skip gate below is a prompt that FOLLOWS what it
+    # Header and explanation FIRST, so the skip gate is a prompt that FOLLOWS what it
     # decides about rather than preceding it. The groups are a mix of stability -- some stable,
     # some experimental -- so the caveat names the experimental subset instead of the whole set.
     section "Optional policy groups (all default: disabled)" >&2
@@ -463,7 +463,7 @@ prompt_groups() {
             sayx "        already enabled; to remove it: $(_group_cmd disable "${name}")"
             # A loaded group is still offered, because from a source checkout the operator may be
             # iterating on its .te/.fc and want to rebuild + reload it in place. A yes recompiles
-            # FROM SOURCE (build_pp below), never reusing an earlier build -- that is the point of
+            # FROM SOURCE (build_pp), never reusing an earlier build -- that is the point of
             # offering a loaded group -- and needs the selinux-policy-devel toolchain.
             ai_tools_msg_confirm "    Recompile from source and reload?" n && RECOMPILE_GROUPS+=("${name}")
             continue
@@ -505,7 +505,7 @@ verify_agent_labels() {
     if [[ -n "${report}" ]]; then
         # Pin IFS for this read: the script runs under the strict-mode IFS=$'\n\t', and the
         # report's fields are SPACE-separated, so an inherited IFS puts the whole line in
-        # ${verdict} and every case below misses -- including `bad`, which is what sets the
+        # ${verdict} and every case arm misses -- including `bad`, which is what sets the
         # flag that aborts the install when an entrypoint did not take ai_tools_exec_t. The
         # guard against launching unconfined depends on this splitting correctly.
         while IFS=$' \t\n' read -r verdict subject detail wanted; do
@@ -531,7 +531,7 @@ verify_agent_labels() {
                 none) warn "${subject}: ${detail} is not installed -- nothing to label" ;;
                 skip) warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
                 # The per-agent verdict closing that agent's lines: `ok` and `none` restate the
-                # per-path arms above, so only `failed` prints, naming the agent those lines omit.
+                # per-path arms, so only `failed` prints, naming the agent those lines omit.
                 agent)
                     if [[ "${detail}" == failed ]]; then
                         warn "${subject}: labelling did not complete -- see its lines above"
@@ -555,7 +555,7 @@ verify_agent_labels() {
     # EMPTY report means no enabled agent was iterated at all -- the manifests resolved to
     # no file -- which is a configuration problem: the entrypoint keeps whatever type it has, and
     # a launch fail-closes at ai-tools-run's transition preflight. A non-empty report that
-    # labelled no file has already printed its own per-path none/skip reason above.
+    # labelled no file has already printed its own per-path none/skip reason.
     if [[ "${labelled}" -eq 0 ]]; then
         if [[ -z "${report}" ]]; then
             warn "no agent resolved from the manifests, so no entrypoint was labelled."
@@ -605,7 +605,7 @@ _label_one()   { if ai_tools_label_project "$1"; then ok "labelled project ai_to
 _unlabel_one() { ai_tools_unlabel_project "$1" || warn "could not unlabel $1"; }
 _restore_one() { restorecon -FR "$1" 2>/dev/null || true; }
 # _label_sandbox_clones: apply the static ai_tools_project_t label (ai_tools.fc) to every existing
-# sandbox clone, then REPORT and VERIFY each one. The per-project loop below skips sandbox paths
+# sandbox clone, then REPORT and VERIFY each one. The per-project loop skips sandbox paths
 # (they carry no dynamic semanage rule -- the static rule covers them), so without this an operator
 # is shown no evidence the clones were relabelled even though they are the trees the agent runs in.
 # The label is verified, not assumed: restorecon exits 0 even when it writes the WRONG type -- e.g.
@@ -717,7 +717,7 @@ case "${ACTION}" in
     _replace_former_group_modules
     _load_layout_modules
     # The shipped set, compiled and staged where the installed ai-tools-admin loads a stable
-    # group from; rebuilt with the core when the operator asked for that above.
+    # group from; rebuilt with the core when the operator asked for that.
     section "Shipped modules"
     if (( _recompile )); then stage_shipped_modules rebuild; else stage_shipped_modules; fi
 
@@ -738,7 +738,7 @@ case "${ACTION}" in
     for_each_project _label_one
 
     # Core is loaded and labelled -- a clear checkpoint before the optional groups. Reaching
-    # here means the steps above succeeded (a hard failure aborts under set -e; a mislabelled
+    # here means the preceding steps succeeded (a hard failure aborts under set -e; a mislabelled
     # path dies in verify_agent_labels), so the optional section is purely additive.
     ok "SELinux core module installed"
 
@@ -790,7 +790,7 @@ case "${ACTION}" in
         log "no optional groups loaded (core only)"
     fi
     # Layout modules are reported apart from the groups: they load with an integration, not by
-    # an answer above, and a missing one is why fresh build output types ai_tools_project_t.
+    # an answer to this prompt, and a missing one is why fresh build output types ai_tools_project_t.
     mapfile -t _layouts < <(_layout_modules_loaded)
     if (( ${#_layouts[@]} )); then
         log "layout modules loaded (with their integrations): $(_list "${_layouts[@]}")"
@@ -870,7 +870,7 @@ case "${ACTION}" in
     log "dropping project fcontext rules"
     for_each_project _unlabel_one
     _unlabel_conf
-    # The agents' path rules are local fcontexts naming types the module unload below removes.
+    # The agents' path rules are local fcontexts naming types the module unload removes.
     # Drop them here, while those types still exist, for EVERY installed agent manifest (not just
     # the enabled ones -- a disabled agent may still hold a rule from when it was on).
     log "dropping the agents' fcontext rules"

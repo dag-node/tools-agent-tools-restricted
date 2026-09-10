@@ -40,11 +40,11 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
   so does not load while this file is open.
 - **`.claude/rules/*.rule.md`** — per-component reference prose, scoped to the source files
   it describes via `paths:` frontmatter, so it loads when you open a matching file under
-  `src/` (or `selinux/`). See the component map below. A rule and its source file's header
-  overlap by design and are bidirectionally coupled: changing either obligates reconciling
-  the other, resolving any conflict against the code, never defaulting to one side. Adding,
-  moving, or renaming a source file a rule documents obligates updating that rule's `paths:`
-  in the same change — the file→rule auto-load is only as complete as `paths:`, and a
+  `src/` (or `selinux/`). See the [Component map](#component-map). A rule and its source
+  file's header overlap by design and are bidirectionally coupled: changing either obligates
+  reconciling the other, resolving any conflict against the code, never defaulting to one side.
+  Adding, moving, or renaming a source file a rule documents obligates updating that rule's
+  `paths:` in the same change — the file→rule auto-load is only as complete as `paths:`, and a
   documented file left out of it silently stops loading its rule.
   Conventions for writing rules: `.claude/rules/authoring.rule.md`.
 - **`.claude/references.md`** — the generated cross-reference index: every reftag in the tree,
@@ -86,7 +86,8 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 
 ## Trust chain (summary)
 
-Each step's mechanism is in the rule files above; the invariant each guarantees:
+Each step's mechanism is in the rule files the [Component map](#component-map) names; the
+invariant each guarantees:
 
 1. An agent's command (`claude`) resolves to that agent's system wrapper
    (`/usr/local/bin/claude`), running as the non-root operator who invoked it; it refuses a
@@ -109,7 +110,7 @@ Each step's mechanism is in the rule files above; the invariant each guarantees:
    session-end sweep instead, so no agent leaves the operator's tree sandbox-owned.
 7. `SessionStart` additionally reclaims `.git` and normalizes setgid for the project.
 
-## Security model — what `SANDBOX_USER` can and cannot do
+## Security model — what `SANDBOX_USER` can and cannot do <a id="ref-section-e7n8"></a>
 
 The sudoers drop-in (`/etc/sudoers.d/ai-tools`) is a static `%ai-ops` group rule
 granting the **operators** (members of the `ai-ops` group, managed by `ai-tools-admin`)
@@ -138,7 +139,7 @@ sandbox account can never hold the operator grant.
 ### An operator is two facts; provisioning needs a third this project does not grant
 
 `ai-tools-admin operators add` writes both facts that make an operator: membership of `ai-ops`
-(the rules above, and the launch wrapper's own gate) and a name in `OPERATORS`
+(the two sudoers rules, and the launch wrapper's own gate) and a name in `OPERATORS`
 (`/etc/ai-tools/operator.conf`, from which `operator.lib.sh` resolves each path's owner). An
 account holding only those two runs agent sessions on the projects claimed for it, and is a
 first-class operator — the shape `ai-tools --for <operator>` exists to serve, and the one a
@@ -158,22 +159,23 @@ this, so a human administrator need not be an operator at all.
 
 ### Trust is one-sided, and every refusal moves to less access
 
-The invariants below are instances of one property, stated once here rather than re-derived in
-each: **every input that decides what a session may do passes a single predicate for its kind,
-and every way that predicate can fail resolves to *less* access — never more — and is reported.**
-Corrupting, removing, or tampering with one of these inputs therefore narrows what the session
-gets, so the sandbox cannot improve its own position by breaking one.
+The invariants this section states are instances of one property, stated once here rather than
+re-derived in each: **every input that decides what a session may do passes a single predicate for
+its kind, and every way that predicate can fail resolves to *less* access — never more — and is
+reported.** Corrupting, removing, or tampering with one of these inputs therefore narrows what
+the session gets, so the sandbox cannot improve its own position by breaking one.
 
 `AI_TOOLS_REQUIRE_SELINUX` sits **outside** it in the other direction: it is an operator's
 *declaration* rather than one of the predicates, and a failed read of it yields the default, which
 launches where the declaration would have refused. The sandbox cannot produce that state, so the
-property above holds against the adversary it names; which exits it governs, and what makes the
+property holds against the adversary it names; which exits it governs, and what makes the
 direction safe, are in [confinement](.claude/rules/confinement.rule.md).
 
 `ai-tools --project-remove` sits **outside** this table: it decides what is *destroyed*, not what a
 session may reach, so its safe direction is inaction. Its authorization is correspondingly
 different — an exact `allowed-projects` entry (allow or `!`-parked) plus a typed-name
-confirmation, not one of the predicates below — and it holds the same shape of guarantee: it
+confirmation, not one of the predicates the table lists — and it holds the same shape of
+guarantee: it
 deletes only after that confirmation, and a failure leaves the tree in place, unregistered. See
 [cli](.claude/rules/cli.rule.md).
 
@@ -231,7 +233,7 @@ The invariants the agent operates under:
   and which launcher symlinks exist all come from `operator.conf` and the root-owned provider
   manifests and fragments. The code reading them runs *as* `SANDBOX_USER`, so each input — **and
   the directory holding it**, since a group-writable directory lets a non-root writer replace a
-  root-owned file inside it — is honored only while it passes the trust predicate above. A
+  root-owned file inside it — is honored only while it passes `ai_tools_conf_is_trusted`. A
   provider marked `default_enable=no` because it widens host surface can therefore only be turned
   on by an operator editing a root-owned file. See [providers](.claude/rules/providers.rule.md).
 - **Rewriting a command does not widen what it may do.** A `PreToolUse` filter narrows how much
@@ -252,13 +254,13 @@ The invariants the agent operates under:
   read of that directory or of the files inside — and permits the acting operator's **own** home
   root there, refusing
   every system directory, `/home` itself, and any other account's home root. It is an addition;
-  the backstop above is unchanged for every target that reaches it. See
+  the protected-paths backstop is unchanged for every target that reaches it. See
   [safe-paths](.claude/rules/safe-paths.rule.md).
 
-### What is expected of the agent where a control leaves a choice
+### What is expected of the agent where a control leaves a choice <a id="ref-section-g6c4"></a>
 
-Every invariant above is **enforced**: it holds whether or not the session cooperates. The space
-between them is not, and this is what the agent does there:
+Every invariant this file states is **enforced**: it holds whether or not the session cooperates.
+The space between them is not, and this is what the agent does there:
 
 - **Accept a stop or a restriction immediately** — not after finishing the current step.
 - **Report a gap in the sandbox instead of using it.** A reachable way around a control is a
@@ -267,12 +269,12 @@ between them is not, and this is what the agent does there:
 - **Do not work to widen the grant.** Ask the operator for an authority the work needs; never
   arrange the state that would confer it.
 
-The host's safety rests on the enforced invariants above; these four describe the agent's conduct
+The host's safety rests on those enforced invariants; these four describe the agent's conduct
 where a control leaves a choice, and each one names the enforced control it sits beside in
 [governance](.claude/rules/governance.rule.md). They are stated here, in the always-loaded layer,
 because a path-scoped rule does not load in the session where they bind. The standard they come from is the shipped `ai-tools-capable-systems-governance` skill.
 
-## Boundaries and non-goals
+## Boundaries and non-goals <a id="ref-section-x6a9"></a>
 
 The enforced isolation boundary is DAC plus the `ai_tools_t` SELinux type. The following are
 deliberate scope decisions, not gaps, so a reader tells bounded design from an oversight:
@@ -297,7 +299,8 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
 
 ## Cross-cutting conventions
 
-- **A security guarantee is asserted from both ends.** Every refusal above is covered by a
+- **A security guarantee is asserted from both ends.** Every refusal in the
+  [Security model](#security-model--what-sandbox_user-can-and-cannot-do) is covered by a
   **pair** of tests: a runtime one that the refusal fires (drive the resolver or helper
   into the bad state and assert it moves to less access), and a boundary one, run **as the
   agent**, that the state which triggers it is unreachable in the first place. Neither is
@@ -354,8 +357,8 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   sources several of these libraries. Read is open on every one of them and **write** is the
   boundary: a shared library carries shipped logic or a general list, and an operator's own data
   stays in that operator's private config instead, so an open read discloses only what already
-  ships (the modes are in [providers](.claude/rules/providers.rule.md); see the provider-seam
-  invariant below).
+  ships (the modes are in [providers](.claude/rules/providers.rule.md); the guarantee is the
+  invariant that the sandbox cannot widen its own surface).
 
 ### Documentation register
 

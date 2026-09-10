@@ -360,7 +360,7 @@ fi
 
 # (22) With a terminal: an exact answer matches, anything else does not, and the answer -- which
 # is untrusted input reaching a log sink -- is sanitized before it is recorded. Same `script` pty
-# harness as the pick cases above, and the same graceful skip where no pty can be allocated. The
+# harness as the pick cases, and the same graceful skip where no pty can be allocated. The
 # audit line is captured by stubbing the logger AFTER sourcing, so the real sanitizer still runs.
 chprobe="${TESTDIR}/challenge-probe.sh"
 cat > "${chprobe}" <<EOF

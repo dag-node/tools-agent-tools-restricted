@@ -16,7 +16,7 @@ Every option is optional, and the shipped file sets only
 .BR OPERATORS .
 An absent key keeps its default, so a fresh install runs unedited and a file
 written for an earlier version keeps working unchanged when a new option
-appears. Each option below states what its absence means, since the defaults
+appears. Each option states what its absence means, since the defaults
 differ: an absent provider list enables the installed baseline, while an
 absent strictness switch leaves the permissive posture in place.
 .PP
@@ -25,8 +25,7 @@ Edit it as root; it is owned by
 at mode
 .BR 0644 .
 An upgrade never overwrites it; see
-.B UPGRADES
-below.
+.BR UPGRADES .
 .SH GRAMMAR
 One
 .I KEY=value
@@ -163,7 +162,7 @@ at launch and passes it to Claude Code as
 .B --append-system-prompt-file
 (or
 .B --system-prompt-file\fR,\fP
-per the mode below).
+per the mode).
 .B Absent
 or empty (the default): Claude Code's own default prompt is used.
 .I path
@@ -280,7 +279,7 @@ This file.
 .I /usr/local/lib/ai-tools/integrations.d/
 .TQ
 .I /usr/local/lib/ai-tools/filters.d/
-Provider manifests and rule sets, keyed by the names used above.
+Provider manifests and rule sets, keyed by the provider names.
 .SH NOTES
 .SS Upgrades
 This file ships as

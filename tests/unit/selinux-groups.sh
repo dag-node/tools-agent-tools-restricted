@@ -169,7 +169,7 @@ fi
 # This half needs the .te SOURCES, the derivation script, and git track-state, all present only
 # in a source checkout. A partial deployment skips it: the RPM selftest container copies the
 # policy sources without .git, so gate on the git work tree, not the dir. The accessor and
-# validity checks above already ran and carry this file's coverage.
+# validity checks already ran and carry this file's coverage.
 POL="${ROOT}/selinux/policy"
 SHIPPED="${ROOT}/selinux/policy/shipped-modules.sh"
 if ! git -C "${ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then

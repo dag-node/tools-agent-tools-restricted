@@ -74,7 +74,7 @@ fi
 # PR_SET_NO_NEW_PRIVS) and NoNewPrivileges=yes. These are trust-chain step 4; a revert here would
 # launch sessions without namespace isolation or with SUID escalation reachable, and the only
 # other signal is an on-box AVC. Pin them statically alongside DISABLE_AUTOUPDATER (the sibling
-# self-update pin above) so a regression fails the suite, not just enforcing bring-up. The
+# self-update pin) so a regression fails the suite, not just enforcing bring-up. The
 # properties reach systemd-run as `--property=NAME=yes`.
 for prop in RestrictNamespaces NoNewPrivileges; do
     if grep -qE -- "--property=${prop}=yes" "${CRUN}"; then
@@ -115,7 +115,7 @@ fi
 
 # Run ai-tools-run AS the agent with a clean, explicitly-set AI_TOOLS_AGENT_EXEC/AI_TOOLS_PROJECT_DIR
 # (env -u clears any inherited value first, so the case is deterministic). timeout backstops
-# the design guarantee that every case below exits at validation, never reaching the launch.
+# the design guarantee that every case exits at validation, never reaching the launch.
 run_crun() {  # VAR=VAL ...
     timeout 10 runuser -u "${SANDBOX_USER}" -- \
         env -u AI_TOOLS_AGENT_EXEC -u AI_TOOLS_PROJECT_DIR "$@" "${CRUN}" < /dev/null 2>&1
@@ -248,15 +248,15 @@ else
     # host would stop launching -- is deliberately NOT driven here. No other part of that run is
     # invalid, so the shim would go on to start a real session, which this file's design forbids.
     # It is covered where it does not cost a session: the pure verdict returns `unpinned` rather than
-    # `mismatch` (tests/unit/entrypoint-verify.sh), and only `mismatch` reaches the refusal above.
+    # `mismatch` (tests/unit/entrypoint-verify.sh), and only `mismatch` reaches the refusal.
 fi
 
 section "ai-tools-run: the verified entrypoint is the one exec'd"
 
-# The shim checks the RESOLVED entrypoint (label preflight, and the re-check below) and must hand
+# The shim checks the RESOLVED entrypoint (label preflight, and the identity re-check) and must hand
 # systemd that same path. Naming the launcher symlink in ExecStart instead would leave the manager
 # re-resolving it after every check has run, so a repoint in that window would go unobserved on a
-# DAC-only host. Asserted against the deployed script, the same way the unit properties above are.
+# DAC-only host. Asserted against the deployed script, the same way the unit properties are.
 if grep -qE -- '-- "\$\{session_exec_path\}" "\$@"' "${CRUN}"; then
     pass "ai-tools-run execs the resolved entrypoint, not the launcher symlink"
 else

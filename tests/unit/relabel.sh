@@ -291,7 +291,7 @@ if declare -F _ai_tools_fcontext >/dev/null 2>&1 \
 
     # The reason has to reach the caller through the REPORT, not through the variable:
     # ai-tools-relabel-agent runs the labelling inside a `$(...)`, and a variable set in that
-    # subshell is gone by the time the renderer reads it. So the capture below is the production
+    # subshell is gone by the time the renderer reads it. So the capture is the production
     # call shape, and the assertion is that the status line itself carries the cause.
     ai_tools_agent_manifest_field() {
         if [[ "$2" == entrypoint_fcontext ]]; then

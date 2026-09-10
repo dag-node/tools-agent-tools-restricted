@@ -136,11 +136,11 @@ fi
 # (2c) The two halves of --project-disable meet HERE, and nowhere else: the verb's whole promise
 #      is that a parked project cannot be launched in, and that is this gate's decision, not the
 #      CLI's. Both sides are covered apart -- the CLI writes the line (tests/integration/cli.sh),
-#      the wrapper honours a '!' CWD (2b above) -- so what this asserts is that they agree about
+#      the wrapper honours a '!' CWD (case 2b) -- so what this asserts is that they agree about
 #      the same file: the CLI's own edit, read back by the deployed wrapper.
 #
 #      Driven through the CLI as the operator against this fixture registry, so no step here
-#      touches the operator's real one (see the note on the two lookup routes below). The pair
+#      touches the operator's real one (see the note on the two lookup routes). The pair
 #      edits one line of the caller's own allowlist and does not reach a root helper, so there is no
 #      password prompt.
 cli=/usr/local/bin/ai-tools
@@ -161,7 +161,7 @@ else
     }
     # The park assertion is ANCHORED to a whole line. A substring test for "!${approved}" also
     # matches the fixture's own carve-out line (!${approved}/secret), so it would pass whether or
-    # not the verb did anything -- and then the launch assertion below fails with no clue why.
+    # not the verb did anything -- and then the launch assertion fails with no clue why.
     disable_out="$(run_cli --project-disable "${approved}")"
     if grep -qi 'unknown command' <<<"${disable_out}"; then
         # A deployed CLI older than this test: an environment fact, not a defect to report as one.
@@ -186,7 +186,7 @@ else
         fi
 
         # And back: re-enabling must restore the launch, or the pair is a one-way door. This is
-        # the same assertion as (2) above, made after a park/restore round trip rather than on a
+        # the same assertion as case (2), made after a park/restore round trip rather than on a
         # fresh allowlist -- so an edit that left the line subtly different (moved, requoted,
         # duplicated) shows up as a project that no longer launches.
         enable_out="$(run_cli --project-enable "${approved}")"

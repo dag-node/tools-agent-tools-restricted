@@ -50,9 +50,9 @@ mv "${proj}/sub_restricted" "${proj}/restricted"
 : > "${proj}/excluded"; mv "${proj}/excluded" "${proj}/sub/excluded"  # under '!' sub
 : > "${proj}/noted/excluded"                                          # under the commented '!'
 : > "${proj}/private/nested/k"                                       # inside the 0700 subtree
-# Same reason as the directories above: pin every file's mode, then restore the one fixture
+# Same reason as the directory fixtures: pin every file's mode, then restore the one fixture
 # whose owner-only mode is the point (A2). Without this the runner's umask decides which files
-# the owner-only guard skips, and the ACL assertions below become umask-dependent.
+# the owner-only guard skips, and the ACL assertions become umask-dependent.
 find "${proj}" -type f -exec chmod 0644 {} +
 chmod 0600 "${proj}/restricted"
 # Owner-only DIRECTORY, set before the helper ever runs. Creating it afterwards would let it
@@ -204,7 +204,7 @@ fi
 if ! g "${proj}/.git/.env.local"; then pass "a secret-named path inside .git stays skipped under --with-git"
 else fail "a secret inside .git was ACL'd under --with-git"; fi
 
-# (E) the project ROOT owned by a third party: every path below it is then unreachable through
+# (E) the project ROOT owned by a third party: every path under it is then unreachable through
 # it, so this is the whole outcome of the claim rather than one skipped path, and it says so.
 p2="${TESTDIR}/proj2"
 mkdir -p "${p2}/sub"
