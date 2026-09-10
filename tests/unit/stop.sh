@@ -533,7 +533,7 @@ section "confirmation"
 #
 # unattended_confirm <arg...> -- drive confirm_stop under `setsid`, which removes the controlling
 # terminal: that is the shape of every unattended run, and the one a default-NO prompt would
-# silently turn into "nothing was stopped". The sub-shell's STDERR IS CAPTURED, not discarded --  prose-check: allow
+# silently turn into "nothing was stopped". The sub-shell's STDERR IS CAPTURED, not discarded --  prose-check: ignore
 # discarding it once turned a shell that aborted outright under `set -u` into a result line reading
 # "the confirmation declined", which named neither the abort nor the line it happened on.
 unattended_confirm() {

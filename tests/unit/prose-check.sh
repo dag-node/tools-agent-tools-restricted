@@ -10,7 +10,7 @@
 # prose survives.
 #
 # Also pins the three behaviours a caller depends on but no finding names: the exit status (a
-# sweep and the pre-commit hook branch on it), the suppression paths (`prose-check: allow`, and
+# sweep and the pre-commit hook branch on it), the suppression paths (`prose-check: ignore`, and
 # the backticked span that lets a style guide quote the prose it warns against), and the
 # extension-driven read mode that `--prose`/`--source` override. `--kept` is driven over a real
 # git index, since it is the check that guards a security claim through a rewrite.
@@ -127,10 +127,16 @@ reports unbacked-cost      PC-03-unbacked-cost.md      "The label probe is cheap
 reports predicted-action   PC-04-wants-clause.md \
     "A host that wants it enforced keeps operator.conf root-owned."
 reports predicted-action   PC-05-second-person.md "If you want the notice, you should set the key."
+reports positional-reference PC-67-positional.md \
+    "The rule above governs a first draft, and the steps are covered below."
+reports positional-reference PC-68-positional-paren.md \
+    "An explicit answer at the end of the install (below) puts the line back."
+reports positional-reference PC-69-positional-placement.md "The details are printed plain below the box."
 
 # ── ...and stays silent on the corrected form, which is the half a widened pattern breaks ─────
 silent PC-06-fronted-quantifier-ok.md "The helper does not take a path argument."
 silent PC-07-nothing-ok.md "The helper does not read the path argument, so the validator is skipped."
+silent PC-70-positional-threshold.md "A comment line stays below 120 columns, and a box within 80."
 # A cost claim backed by a frequency, and one backed by a bounded operation named as the subject.
 # Both carry a cost word, so each fails if the backing half of the check stops being applied.
 silent PC-08-cost-frequency.md "It runs once per restart, not per connection, so the relabel is cheap."
@@ -149,7 +155,7 @@ silent PC-12-cost-compounds.md \
     "The prompt is fast-tracked when its default is yes, and the build is fail-fast."
 
 # ── Suppression: the explicit marker, and the quoted span a style guide needs ──────────────────
-silent PC-13-allow-marker.md "The label probe is cheap. <!-- prose-check: allow -->"
+silent PC-13-allow-marker.md "The label probe is cheap. <!-- prose-check: ignore -->"
 # The backticked spans are the content under test, not shell substitutions.
 # shellcheck disable=SC2016
 silent PC-14-quoted-span.md \

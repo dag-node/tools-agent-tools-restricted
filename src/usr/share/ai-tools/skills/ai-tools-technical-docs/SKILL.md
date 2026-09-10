@@ -1,6 +1,6 @@
 ---
 name: ai-tools-technical-docs
-# ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the name above is stable.
+# ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the frontmatter name is stable.
 x-ai-tools-managed: true
 x-ai-tools-status: draft
 x-ai-tools-version: 4
@@ -137,7 +137,7 @@ states it. Name the thing, and the same goes for `everything`, `anything`, and `
 **Where the actor is a person, `nothing` is often the right word and the replacement is not.**
 "what you have to do about it (almost always nothing)" is an action the reader takes; `none` reads
 as a count of some set the sentence never named. Keep the sentence and mark the line
-`prose-check: allow` — in Markdown as `<!-- prose-check: allow -->`, which the checker reads and
+`prose-check: ignore` — in Markdown as `<!-- prose-check: ignore -->`, which the checker reads and
 the rendered page does not show.
 
 **Name the party behind a pronoun that a clause has separated from it.** The defect is the
@@ -162,7 +162,7 @@ retries, logs, skips, reads, writes, starts, stops, maps, serializes, emits, for
 
 **A term of art in the reader's domain is a domain term, however ordinary it looks.**
 *maintenance*, *permission*, *mask*, *grant*, *traverse*, *weak dependency* have settled meanings
-in systems and operations prose, so they stay fixed under *Consistent domain terms* below. Keep
+in systems and operations prose, so they stay fixed under *Consistent domain terms*. Keep
 them: substituting a near-synonym (*upkeep* for *maintenance*) costs the reader a term they
 already know.
 
@@ -205,7 +205,7 @@ header" says it, where "A copied row goes stale" leaves them to work out what to
 
 Turning a negation positive is sound over a set provably disjoint from the one the negation
 excluded, and nowhere else; where that does not hold, keep the negation and write it with `does
-not`. Editing prose that already exists is governed by *Rewriting existing prose* below, which is
+not`. Editing prose that already exists is governed by *Rewriting existing prose*, which is
 the section to read before touching a sentence someone else wrote.
 
 Keep this structural: no praise, no intensifiers, no tone words, and never overstate a
@@ -261,7 +261,7 @@ its place by recording why: the constraint that forced the choice, the alternati
 foot-gun avoided. Write that freely — it is the content worth keeping.
 
 Write it in the same register as everything else, because this is the register that slips.
-Explaining why attracts every figure in *Rhetorical figures* below: contrast ("rather than",
+Explaining why attracts every figure in *Rhetorical figures*: contrast ("rather than",
 "instead of"), metaphor ("spends the signal"), definition ("a check that cannot fail is not a
 check"). Each states the reason as a figure instead of a mechanism, so a reader cannot check it
 against the code.
@@ -300,7 +300,8 @@ recover one fact.
 
 Describe current behaviour: "Returns the current session", "Loads the configuration". Use the
 passive only where it is substantially clearer, and "will" only for genuinely future or
-conditional behaviour. Changelogs are the exception and are covered below.
+conditional behaviour. Changelogs are the exception; *Changelogs, release notes, migration
+guides* covers them.
 
 ### Consistent domain terms, varied ordinary nouns
 
@@ -355,7 +356,7 @@ a function; strengthen a type.
 Two habits do most of the work:
 
 - Merge sentences that share a subject.
-- Cut any fact already carried by this file, by the code below it, or by the domain rule that
+- Cut any fact already carried by this file, by the code it heads, or by the domain rule that
   owns it. Each fact has one home.
 
 **Write the shape, not the count.** A count of what the code declares — four log levels, two
@@ -388,6 +389,23 @@ load-bearing why.
 
 Prose is read without the conversation that produced it. Name the concrete mechanism; leave out
 session shorthand, internal labels, ticket tags, and "as discussed" back-references.
+
+### Name the referent, not its position
+
+Refer to a section by its title, to a code block by the function or file it shows, and to a
+table by what it lists. A position in the document is not a name: the paragraph and the code it
+describes are edited, reordered, and moved between files independently, and a reference to where
+something sits is not updated with them. Print manuals and papers apply the same rule to figures
+and tables — a reference names the numbered caption (`Figure 3`, `Table 2`), not its position on
+the page — and here the labels are section titles, function names, and file paths.
+
+- In style: `The umask independence section re-runs the create and clone rows.`
+- Off style: `The section below re-runs the create and clone rows.`
+
+A measurement keeps the word (`a load above 80%`, `a count below zero`); a placement on the screen
+takes another (`under the box`, `the parent directory`). The checker excuses a number after the
+word and reports every other use, so each report is read in its context: a measurement stays, and
+anything pointing into the document names its referent.
 
 ### Resolve a doc/code conflict while writing, in the right direction
 
@@ -423,7 +441,7 @@ on it under *Rationale is the payload*.
 
 # Rewriting existing prose
 
-Every rule above governs a first draft, where the claim is in the writer's head and only the words
+Every writing rule in this standard governs a first draft, where the claim is in the writer's head and only the words
 are in question. Editing prose that already exists is a different operation: the claim is already in
 the sentence, and the job of the edit is to keep it. The rules for that are collected here, because
 a rewrite pass reads one section and then changes several hundred sentences.
@@ -499,7 +517,7 @@ python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --kept <base
 
 `--all` catches a figure moved into an inflection the default checks leave alone. `--kept` compares
 the two sides of the diff and reports a dropped term, a narrowed number, and a weakened modality —
-three of the four above. The fourth, a dropped fact, has no check, so read for it. Both modes
+three of the four that *Carry four things through every edit* names. The fourth, a dropped fact, has no check, so read for it. Both modes
 report and neither decides: whether two sets are disjoint is not a question a regex answers.
 
 Two points about running the checks:
@@ -662,7 +680,7 @@ def select(predicate):
 ## Changelogs, release notes, migration guides
 
 An entry records what an operator gains and what changes for them on upgrade. History is the
-subject here, so the current-state rule above does not apply.
+subject here, so the current-state rule of *Present tense, active voice* does not apply.
 
 - **Operator-facing, not commit-facing.** "Command output is filtered by default, which saves
   tokens" over "narrow command output through root-owned rule sets". Mechanism belongs in the
@@ -827,7 +845,7 @@ anywhere else. An absence claim that has not covered them reports where you look
 there.
 
 **A finding names a symptom. Fix the claim, not the token** — the procedure is *Rewrite from the
-source* above, and it applies to a first draft's own findings as much as to a rewrite pass.
+source*, and it applies to a first draft's own findings as much as to a rewrite pass.
 
 **Run the checkable ones.** `prose-check.py` ships beside this file and reports items 2, 3, 4, 5,
 7, 9, 11 and 12 plus the `does not` rule, so the pass is a command rather than an act of
@@ -853,8 +871,8 @@ and the verbs that name no operation. Every `--all` check wants a reader on each
 the rewrite mode, described under *Run the checks a rewrite needs*.
 
 Quoted, backticked, and fenced spans are skipped, so a document may quote the prose it warns
-against; mark anything else deliberate with `prose-check: allow` on the line, or
-`<!-- prose-check: allow -->` in Markdown, where the marker then stays out of the rendered page.
+against; mark anything else deliberate with `prose-check: ignore` on the line, or
+`<!-- prose-check: ignore -->` in Markdown, where the marker then stays out of the rendered page.
 Run it before committing prose, and on the commit message too — the universal rules cover that
 artifact like any other.
 
