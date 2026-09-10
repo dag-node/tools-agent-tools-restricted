@@ -166,10 +166,16 @@ The script deploys the static `%ai-ops` sudoers drop-in, the helpers and the sys
 units, creates the approved-projects allowlist with format documentation, installs the
 `ai-tools` project CLI and the `/var/opt/ai-tools` sandbox area, enables the
 `nvm-update.timer` in `${SANDBOX_USER}`'s `--user` instance, and enables the
-`ai-tools-relabel.path` watcher. It is idempotent — safe to re-run after updates. The
-install directory is never registered as a project by default: an interactive install ends by
-asking, and Enter re-registers a checkout that was registered when the install began and leaves
-one that was not unregistered.
+`ai-tools-relabel.path` watcher. It is idempotent — safe to re-run after updates. It deploys
+the commit the checkout is at and names it before asking to proceed. A checkout with uncommitted
+changes is listed, with the paths the sandbox account wrote marked, and refused, so what root
+deploys is a tree you reviewed and committed. To deploy work in progress while developing, say so
+on the command line:
+
+    sudo ./install.sh install --allow-uncommitted
+
+Whether the checkout is registered as a project is the CLI's business, and the install leaves that
+entry as it finds it.
 
 Enrol each further login user as an operator (ai-ops membership, allowlist seed):
 

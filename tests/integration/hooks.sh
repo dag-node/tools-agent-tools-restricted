@@ -8,7 +8,7 @@
 # The hooks themselves are not driven here. Each delegates to the handback socket daemon, which
 # execs ai-tools-chown with its OWN environment, so the helper reads the operator's REAL allowlist
 # and a fixture must sit inside a project that allowlist names -- which this suite may not write,
-# and install.sh deregisters its own checkout. The live chain (PostToolUse, the tool-call record,
+# and the checkout it runs from need not be one. The live chain (PostToolUse, the tool-call record,
 # the Stop sweep, SessionStart and SessionEnd reclaim) is exercised in
 # tests/manual/verify-live-flows.sh, inside the project that run claims. Run as root via sudo.
 

@@ -12,6 +12,10 @@
 #   sudo ./install.sh uninstall            remove deployed files, disable timer
 #   sudo ./install.sh check-perms          run the permissions test (tests/integration/perms.sh; also part of the suite offered at the end of an interactive install)
 #   sudo ./install.sh install --operator op      enrol the named account, asking no question
+#   sudo ./install.sh install --allow-uncommitted   deploy work in progress: a checkout with
+#                                          uncommitted changes is refused without this flag
+#   sudo ./install.sh check-tree           name the commit an install would deploy, and list the
+#                                          uncommitted paths that would refuse it; the host is unchanged
 #
 # Project registration lives in the `ai-tools` CLI (/usr/local/bin/ai-tools), run
 # as the projects user, not in install.sh:
@@ -32,16 +36,19 @@ readonly SCRIPT_DIR
 # usage: the one place the accepted arguments are spelled out, printed by a malformed command line
 # and by an unrecognized action alike.
 usage() {
-    printf 'usage: sudo %s [install|uninstall|check-perms] [--operator <account>]\n' "$0" >&2
+    printf 'usage: sudo %s [install|uninstall|check-perms|check-tree] [--operator <account>] [--allow-uncommitted]\n' "$0" >&2
     printf '       (register projects with the ai-tools CLI, not install.sh)\n' >&2
     exit 1
 }
 
-# Arguments: an optional action (default install) and an optional --operator, which names the
+# Arguments: an optional action (default install), an optional --operator, which names the
 # account to enrol instead of asking for it -- what an unattended install and the guard tests use,
-# and the only route by which a name other than SUDO_USER arrives without a terminal.
+# and the only route by which a name other than SUDO_USER arrives without a terminal -- and
+# --allow-uncommitted, which lets an install deploy a checkout carrying uncommitted changes,
+# the developer's own work in progress (the source-tree gate in do_install refuses one without it).
 ACTION=""
 OPERATOR_OPT=""
+ALLOW_UNCOMMITTED=0
 while (( $# )); do
     case "$1" in
         --operator)
@@ -49,12 +56,14 @@ while (( $# )); do
             OPERATOR_OPT="$2"; shift 2 ;;
         --operator=*)
             OPERATOR_OPT="${1#--operator=}"; shift ;;
+        --allow-uncommitted)
+            ALLOW_UNCOMMITTED=1; shift ;;
         *)
             [[ -z "${ACTION}" ]] || usage
             ACTION="$1"; shift ;;
     esac
 done
-readonly ACTION="${ACTION:-install}" OPERATOR_OPT
+readonly ACTION="${ACTION:-install}" OPERATOR_OPT ALLOW_UNCOMMITTED
 
 # ── Guards ─────────────────────────────────────────────────────────────────────
 
@@ -208,6 +217,59 @@ confirm_boxed() {
         (( $# )) && ai_tools_msg_block "${title}" "$@" 2>/dev/tty
     fi
     ai_tools_msg_confirm "${question}" "${def}"
+}
+
+# source_tree_gate -- the source tree root deploys is one the operator reviewed. This checkout is
+# usually a claimed project, so a session can edit install.sh and every file under src/, and
+# this script then deploys them as root. The review point is the commit: the operator reads the
+# diff and commits, and the install names the commit it deploys (TREE_LINE, which the review
+# prompt repeats). A tree with uncommitted changes is listed, path by path with its git status
+# code and `[agent]` on a path the sandbox account owns -- the mark that says a session wrote it
+# and no one has committed it -- and REFUSED, unless the command line carries
+# --allow-uncommitted: deploying work in progress to see it run is a valid step of developing
+# this project, and the flag is how that decision is stated once, per invocation, rather than
+# answered at a prompt whose default would have to be guessed. Interactive and unattended runs
+# take the same path. A checkout that is not a git repository (a tarball) has no commit to name
+# and passes. Root reads the repository through an explicit safe.directory, since git refuses
+# another user's checkout otherwise; both git calls are reads. `install.sh check-tree` runs this
+# alone, which is how the unit test drives it against a fixture checkout and how an operator
+# reads the verdict without installing.
+TREE_LINE=""
+source_tree_gate() {
+    local head_line="" uncommitted=""
+    if git -c safe.directory="${SCRIPT_DIR}" -C "${SCRIPT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        head_line="$(git -c safe.directory="${SCRIPT_DIR}" -C "${SCRIPT_DIR}" log -1 --format='%h %s (%an, %cr)' 2>/dev/null || true)"
+        uncommitted="$(git -c safe.directory="${SCRIPT_DIR}" -C "${SCRIPT_DIR}" status --porcelain --untracked-files=all 2>/dev/null || true)"
+        TREE_LINE="commit ${head_line:-unknown}"
+    else
+        TREE_LINE="not a git checkout, so no commit to name"
+    fi
+    say "  source tree   : ${TREE_LINE}"
+    [[ -n "${uncommitted}" ]] || return 0
+    local -a uncommitted_lines=()
+    local status_line path owner shown=0 total=0 agent=0
+    while IFS= read -r status_line; do
+        [[ -n "${status_line}" ]] || continue
+        total=$(( total + 1 ))
+        (( shown < 12 )) || continue
+        path="${status_line:3}"; path="${path##* -> }"
+        owner="$(stat -c '%U' -- "${SCRIPT_DIR}/${path}" 2>/dev/null || true)"
+        if [[ "${owner}" == "${SANDBOX_USER}" ]]; then
+            agent=$(( agent + 1 ))
+            uncommitted_lines+=("    ${status_line:0:2} ${path}  [agent]")
+        else
+            uncommitted_lines+=("    ${status_line:0:2} ${path}")
+        fi
+        shown=$(( shown + 1 ))
+    done <<<"${uncommitted}"
+    (( total > shown )) && uncommitted_lines+=("    ... $(( total - shown )) more: git -C ${SCRIPT_DIR} status")
+    say "  uncommitted   : ${total} path(s), ${agent} of the listed owned by the sandbox account"
+    printf '%s\n' "${uncommitted_lines[@]}"
+    if (( ALLOW_UNCOMMITTED )); then
+        warn "installing work in progress: the ${total} uncommitted path(s) deploy as root (--allow-uncommitted)"
+        return 0
+    fi
+    die "${SCRIPT_DIR} carries ${total} uncommitted path(s) -- review and commit them (git -C ${SCRIPT_DIR} status; git -C ${SCRIPT_DIR} diff), or install work in progress with: sudo ${SCRIPT_DIR}/install.sh install --allow-uncommitted"
 }
 
 # Decide what to do with an existing user config file. Interactive: ask whether to keep it
@@ -849,6 +911,8 @@ do_install() {
     say "  projects user : ${PROJECTS_USER} (${PROJECTS_HOME})"
     say "  sandbox user  : ${SANDBOX_USER}:${SANDBOX_GROUP}"
 
+    source_tree_gate
+
     # Proceed gate -- everything above is print-only; the first change to the host
     # (including the install log itself) happens only past this point. Two questions:
     # Enter proceeds through the first, but the second defaults to CANCEL, so an
@@ -857,6 +921,7 @@ do_install() {
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
         if ! confirm_boxed "Review install" y "Proceed with the install?" \
             "This installs the ai-tools sandbox from this source tree onto the host." \
+            "Source tree: ${TREE_LINE}." \
             "" \
             "The dnf/rpm package is the preferred install method; running install.sh" \
             "directly requires the manual steps described in README.md." \
@@ -1787,9 +1852,11 @@ do_install() {
     # An existing allowlist holds the user's approved projects. A re-install keeps
     # it by default; overwriting removes all approved projects (destructive), so
     # keep_existing requires an explicit second confirmation before doing so.
-    # The install dir is never added HERE: it is a control-plane repo and registering it
-    # would let the sandbox modify future installs undetected, so its line is removed and
-    # only an explicit answer at the end of an interactive install puts it back.
+    # The install dir is not added: registering a project is the CLI's business
+    # (ai-tools --project-claim), and an entry the operator already holds for this checkout is
+    # theirs and is left as it is. What keeps a session's edits to this checkout from being
+    # deployed unread is the source-tree gate at the start of do_install, which names the commit
+    # the install deploys and refuses an uncommitted tree without --allow-uncommitted.
 
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/ai-tools"
     local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
@@ -1809,17 +1876,6 @@ do_install() {
             seed_result "${allowlist}" 0 0
         fi
     fi
-    # Remove the install dir if it is registered, remembering that it was: the offer at the end
-    # of the install takes its default from this, so a checkout the operator had claimed is
-    # re-registered on Enter and one they never claimed is not.
-    local install_dir_was_registered=0
-    if grep -qxF "${SCRIPT_DIR}" "${allowlist}" 2>/dev/null; then
-        local _esc; _esc="$(printf '%s' "${SCRIPT_DIR}" | sed 's/[\\|]/\\&/g')"
-        sed -i "\|^${_esc}$|d" "${allowlist}"
-        install_dir_was_registered=1
-        log "removed install dir from allowlist: ${SCRIPT_DIR}"
-    fi
-
     # Secret-name patterns: user-owned 600, from the same conf.lib.sh header
     # `ai-tools-admin operators add` seeds. The seeded file carries the header alone, so
     # classification keeps using the baseline in secret-patterns.lib.sh until this operator
@@ -1960,47 +2016,6 @@ do_install() {
                 || warn "test suite reported failures -- review the output above"
         else
             log "test suite skipped -- run it any time with: sudo ${SCRIPT_DIR}/tests/run.sh all"
-        fi
-
-        # This checkout as a project. The allowlist step removed its line, because a registered
-        # control-plane repo lets a session modify what the next install deploys; registering it
-        # is therefore an answer the operator gives, never a default of the install. The default
-        # of the QUESTION follows what they had decided before: a checkout that was registered
-        # when this run began is re-registered on Enter, since that line is the only thing the
-        # install undid -- the group, ACLs, label and safe.directory a claim applied are still in
-        # place -- and one that was not is left alone on Enter, and claimed for real (as the
-        # operator, with that account's sudo prompts) only on an explicit yes.
-        section "This checkout as a project"
-        if (( install_dir_was_registered )); then
-            if confirm_boxed "Register this checkout" y "Register it again?" \
-                    "${SCRIPT_DIR}" \
-                    "was a registered project when this install began. The install removed its" \
-                    "allowlist line; everything else the claim applied is still in place. Registering" \
-                    "it lets a session run here -- and modify what the next install deploys."; then
-                if ai_tools_conf_allowlist_add "${allowlist}" "${SCRIPT_DIR}"; then
-                    log "registered again: ${SCRIPT_DIR}"
-                else
-                    warn "could not re-add the allowlist line -- claim it yourself: ai-tools --project-claim ${SCRIPT_DIR}"
-                fi
-            else
-                log "left unregistered -- claim it any time with: ai-tools --project-claim ${SCRIPT_DIR}"
-            fi
-        elif confirm_boxed "Register this checkout" n "Claim it now?" \
-                "${SCRIPT_DIR}" \
-                "is not a registered project. Claiming it lets a session run here -- and modify" \
-                "what the next install deploys. The claim runs as ${PROJECTS_USER} and asks for" \
-                "that account's sudo password for its root steps."; then
-            # The real claim, as the operator: it prompts on the terminal and reaches its root
-            # helpers through that account's own sudo, exactly as a claim typed at a shell does.
-            if runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
-                    PATH=/usr/local/bin:/usr/bin:/bin \
-                    /usr/local/bin/ai-tools --project-claim -y "${SCRIPT_DIR}" < /dev/tty; then
-                log "claimed: ${SCRIPT_DIR}"
-            else
-                warn "the claim did not complete -- run it yourself: ai-tools --project-claim ${SCRIPT_DIR}"
-            fi
-        else
-            log "left unregistered -- claim it any time with: ai-tools --project-claim ${SCRIPT_DIR}"
         fi
     fi
 
@@ -2228,6 +2243,11 @@ case "${ACTION}" in
         # integration test directly; it reads SUDO_USER for the projects user, so no extra
         # setup is needed here.
         exec bash "${SCRIPT_DIR}/tests/integration/perms.sh"
+        ;;
+    check-tree)
+        # The source-tree gate alone: the commit an install would deploy, and the refusal an
+        # uncommitted tree meets, leaving the host unchanged. What the unit test drives.
+        source_tree_gate
         ;;
     *)
         usage

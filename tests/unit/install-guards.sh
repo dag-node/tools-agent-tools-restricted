@@ -135,4 +135,76 @@ else
     fail "--operator did not override SUDO_USER=root: ${out}"
 fi
 
+# ── The source-tree gate ──────────────────────────────────────────────────────────────────────
+# What root deploys is a committed tree the operator reviewed, so an install from a checkout with
+# uncommitted changes is refused unless --allow-uncommitted states the decision. Driven through
+# `install.sh check-tree`, which runs the gate alone, against a FIXTURE checkout: a copy
+# of install.sh with the libraries it sources from its own tree, in a repository this test makes.
+# Running the real checkout would report whatever state the developer's tree is in, and running
+# `install` against a fixture would install from it if the gate ever failed open.
+section "install.sh source-tree gate (unit)"
+mktestdir
+FIX="${TESTDIR}/checkout"
+mkdir -p "${FIX}/src/usr/local/lib"
+cp "${INSTALLER}" "${FIX}/install.sh"
+cp -r "${ROOT}/src/usr/local/lib/ai-tools" "${FIX}/src/usr/local/lib/ai-tools"
+git_fix() { git -C "${FIX}" -c user.name=guard -c user.email=guard@example.invalid -c commit.gpgsign=false -c safe.directory='*' "$@" >/dev/null 2>&1; }
+git_fix init -q
+git_fix add -A
+git_fix commit -q -m "fixture"
+# run_gate [arg...] -- the check-tree action on the fixture, its combined output and exit status
+# published in GATE_OUT / GATE_RC. Detached from any terminal, as the gate does not prompt.
+run_gate() {
+    set +e
+    GATE_OUT="$(SUDO_USER="${PROJECTS_USER}" setsid -w bash "${FIX}/install.sh" check-tree "$@" 2>&1)"
+    GATE_RC=$?
+    set -e
+}
+
+# (11) A clean checkout passes and names the commit it would deploy.
+run_gate
+if (( GATE_RC == 0 )) && grep -q 'source tree   : commit' <<<"${GATE_OUT}" && grep -q 'fixture' <<<"${GATE_OUT}"; then
+    pass "a clean checkout passes the gate and names its commit"
+else
+    fail "clean checkout: rc=${GATE_RC}: ${GATE_OUT}"
+fi
+
+# (12) An uncommitted change is refused, the path is listed, and the refusal names the flag.
+printf 'edited\n' >> "${FIX}/install.sh"
+: > "${FIX}/untracked.txt"
+run_gate
+if (( GATE_RC != 0 )) && grep -q 'uncommitted path(s)' <<<"${GATE_OUT}" \
+        && grep -qE '^ +M +install\.sh' <<<"${GATE_OUT}" && grep -qE '^ +\?\? +untracked\.txt' <<<"${GATE_OUT}" \
+        && grep -q -- '--allow-uncommitted' <<<"${GATE_OUT}"; then
+    pass "an uncommitted tree is refused, its paths listed, and the flag named as the way through"
+else
+    fail "uncommitted tree: rc=${GATE_RC}: ${GATE_OUT}"
+fi
+
+# (13) A path the sandbox account owns is marked: that is a session's write no one has committed.
+chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${FIX}/untracked.txt"
+run_gate
+if grep -qE 'untracked\.txt +\[agent\]' <<<"${GATE_OUT}" && grep -q '1 of the listed owned by the sandbox account' <<<"${GATE_OUT}"; then
+    pass "a path the sandbox account owns is marked [agent] and counted"
+else
+    fail "agent-owned path not marked: ${GATE_OUT}"
+fi
+
+# (14) --allow-uncommitted admits the same tree, warning rather than refusing.
+run_gate --allow-uncommitted
+if (( GATE_RC == 0 )) && grep -q 'installing work in progress' <<<"${GATE_OUT}"; then
+    pass "--allow-uncommitted admits the tree with a warning"
+else
+    fail "--allow-uncommitted did not admit the tree: rc=${GATE_RC}: ${GATE_OUT}"
+fi
+
+# (15) A tree that is not a repository has no commit to name and passes: the tarball install.
+rm -rf "${FIX}/.git"
+run_gate
+if (( GATE_RC == 0 )) && grep -q 'not a git checkout' <<<"${GATE_OUT}"; then
+    pass "a checkout that is not a repository passes with no commit to name"
+else
+    fail "non-repository tree: rc=${GATE_RC}: ${GATE_OUT}"
+fi
+
 finish

@@ -5,7 +5,7 @@
 # operator gate, the allowlist gate, and the symlink-existence guard against the REAL
 # installed wrapper, hermetically: the wrapper keys its allowlist off ${HOME}, so the test
 # points HOME at a /tmp testdir with a controlled allowed-projects (no dependency on the
-# operator's real allowlist, and the install dir is deliberately NOT approved by install.sh).
+# operator's real allowlist, and no dependency on whether the install dir is a project).
 # Every wrapper run is detached via setsid so the wrapper's /dev/tty claim prompt can never
 # fire -- the test never claims a project as a side effect. Run as root via sudo.
 
