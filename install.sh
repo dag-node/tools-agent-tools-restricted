@@ -1787,8 +1787,9 @@ do_install() {
     # An existing allowlist holds the user's approved projects. A re-install keeps
     # it by default; overwriting removes all approved projects (destructive), so
     # keep_existing requires an explicit second confirmation before doing so.
-    # The install dir is never added: it is a control-plane repo and registering it
-    # would let the sandbox modify future installs undetected.
+    # The install dir is never added HERE: it is a control-plane repo and registering it
+    # would let the sandbox modify future installs undetected, so its line is removed and
+    # only an explicit answer at the end of an interactive install puts it back.
 
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/ai-tools"
     local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
@@ -1808,10 +1809,14 @@ do_install() {
             seed_result "${allowlist}" 0 0
         fi
     fi
-    # Remove the install dir if a previous install added it.
+    # Remove the install dir if it is registered, remembering that it was: the offer at the end
+    # of the install takes its default from this, so a checkout the operator had claimed is
+    # re-registered on Enter and one they never claimed is not.
+    local install_dir_was_registered=0
     if grep -qxF "${SCRIPT_DIR}" "${allowlist}" 2>/dev/null; then
         local _esc; _esc="$(printf '%s' "${SCRIPT_DIR}" | sed 's/[\\|]/\\&/g')"
         sed -i "\|^${_esc}$|d" "${allowlist}"
+        install_dir_was_registered=1
         log "removed install dir from allowlist: ${SCRIPT_DIR}"
     fi
 
@@ -1955,6 +1960,47 @@ do_install() {
                 || warn "test suite reported failures -- review the output above"
         else
             log "test suite skipped -- run it any time with: sudo ${SCRIPT_DIR}/tests/run.sh all"
+        fi
+
+        # This checkout as a project. The allowlist step removed its line, because a registered
+        # control-plane repo lets a session modify what the next install deploys; registering it
+        # is therefore an answer the operator gives, never a default of the install. The default
+        # of the QUESTION follows what they had decided before: a checkout that was registered
+        # when this run began is re-registered on Enter, since that line is the only thing the
+        # install undid -- the group, ACLs, label and safe.directory a claim applied are still in
+        # place -- and one that was not is left alone on Enter, and claimed for real (as the
+        # operator, with that account's sudo prompts) only on an explicit yes.
+        section "This checkout as a project"
+        if (( install_dir_was_registered )); then
+            if confirm_boxed "Register this checkout" y "Register it again?" \
+                    "${SCRIPT_DIR}" \
+                    "was a registered project when this install began. The install removed its" \
+                    "allowlist line; everything else the claim applied is still in place. Registering" \
+                    "it lets a session run here -- and modify what the next install deploys."; then
+                if ai_tools_conf_allowlist_add "${allowlist}" "${SCRIPT_DIR}"; then
+                    log "registered again: ${SCRIPT_DIR}"
+                else
+                    warn "could not re-add the allowlist line -- claim it yourself: ai-tools --project-claim ${SCRIPT_DIR}"
+                fi
+            else
+                log "left unregistered -- claim it any time with: ai-tools --project-claim ${SCRIPT_DIR}"
+            fi
+        elif confirm_boxed "Register this checkout" n "Claim it now?" \
+                "${SCRIPT_DIR}" \
+                "is not a registered project. Claiming it lets a session run here -- and modify" \
+                "what the next install deploys. The claim runs as ${PROJECTS_USER} and asks for" \
+                "that account's sudo password for its root steps."; then
+            # The real claim, as the operator: it prompts on the terminal and reaches its root
+            # helpers through that account's own sudo, exactly as a claim typed at a shell does.
+            if runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+                    PATH=/usr/local/bin:/usr/bin:/bin \
+                    /usr/local/bin/ai-tools --project-claim -y "${SCRIPT_DIR}" < /dev/tty; then
+                log "claimed: ${SCRIPT_DIR}"
+            else
+                warn "the claim did not complete -- run it yourself: ai-tools --project-claim ${SCRIPT_DIR}"
+            fi
+        else
+            log "left unregistered -- claim it any time with: ai-tools --project-claim ${SCRIPT_DIR}"
         fi
     fi
 
