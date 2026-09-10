@@ -2606,13 +2606,14 @@ cmd_project_unclaim() {
         ai_tools_assert_safe_target "${t}" "project unclaim" || exit 3
     done
 
-    # --force is about reaching a tree the allowlist does not cover; here one does. Say so
-    # rather than silently ignoring the flag, and name the project that made it unnecessary.
+    # --force is about reaching a tree the allowlist does not cover; here one does. Refused, like
+    # every other flag that does not apply to the run it was given: a flag accepted and ignored
+    # hides the difference between what the operator asked for and what ran, and ai-tools(1)
+    # states the refusal. The registered unclaim is one word away.
     if ${force}; then
-        ai_tools_msg_notice \
-            "ai-tools: --force is not needed here -- this path is covered by the allowlist:" \
-            "${targets[0]}" \
-            "unclaiming it the normal way, which reverts the whole registered tree."
+        die "--force does not apply here -- this path is covered by the allowlist: ${targets[0]}" \
+            "       --force reaches a tree the allowlist does not name; unclaim a registered project without it:" \
+            "       ai-tools --project-unclaim ${targets[0]}"
     fi
 
     # A parked target is answered BEFORE this verb asks its own question, because it decides what
