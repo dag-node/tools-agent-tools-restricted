@@ -54,13 +54,18 @@ readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
 AI_TOOLS_VERSION="@AI_TOOLS_VERSION@"
 [[ "${AI_TOOLS_VERSION}" == @*@ ]] && AI_TOOLS_VERSION="dev"
 readonly AI_TOOLS_VERSION
-# AI_TOOLS_GITCONFIG / AI_TOOLS_ALLOWLIST (below): root-only test hooks, the same family the
-# root helpers carry (see tests.rule.md). The CLI runs as the operator, who owns both files
-# anyway, so an override does not add reach it could not already have by editing them directly; sudo
-# strips both (env_reset, not env_keep) before any root helper, which re-resolves the real paths
-# itself, and the sandbox account is refused by the principal guard below before either is read.
+# AI_TOOLS_GITCONFIG / AI_TOOLS_ALLOWLIST (below) / AI_TOOLS_SANDBOX_ROOT: test hooks of the family
+# the root helpers carry root-only (see tests.rule.md). Here they are operator-settable, since
+# the CLI runs as the operator and not through sudo -- and that operator owns the two files
+# and every clone anyway, so an override does not add reach they could not already have
+# by editing the files directly or by claiming a clone made elsewhere. sudo strips all three
+# (env_reset, not env_keep) before any root helper, which re-resolves the real paths itself,
+# and the sandbox account is refused by the principal guard below before any of them is read.
+# The clone-area override moves where a clone is made and which paths read as the sandbox
+# kind; the destructive clone removal stays scoped to a direct child of whatever directory
+# that is, and the protected-paths backstop still refuses a system directory there.
 readonly GITCONFIG="${AI_TOOLS_GITCONFIG:-/opt/ai-tools/.gitconfig}"
-readonly SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
+readonly SANDBOX_ROOT="${AI_TOOLS_SANDBOX_ROOT:-/var/opt/ai-tools/sandbox-projects}"
 # Bootstrap's last load-bearing artifact -- the require_bootstrap gate keys on it (below).
 # Same symlink the launch wrapper resolves; kept identical to claude.sh's CLAUDE_LINK.
 readonly CLAUDE_LINK="/opt/ai-tools/bin/claude"
