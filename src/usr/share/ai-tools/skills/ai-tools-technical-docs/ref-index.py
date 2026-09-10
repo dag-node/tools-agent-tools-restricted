@@ -11,9 +11,9 @@
 #
 # A REFTAG is a prefix, a dash, and an ID of the form letter, digit, letter, digit (`c8b2`;
 # 67,600 of them), which keeps a plain word or number out of the id position. `new` draws from
-# the 33,856 that carry no confusable character (MINT_LETTERS, MINT_DIGITS): an id is read
-# aloud, retyped, and grepped, and `1` beside `l` or `0` beside `O` costs a search that finds
-# nothing. Every one of the 67,600 stays VALID, so an id minted before this narrowing, or by
+# the 33,856 whose every character is unmistakable (MINT_LETTERS, MINT_DIGITS): an id is read
+# aloud, retyped, and grepped, and `1` beside `l` or `0` beside `O` costs a search that misses
+# its target. Every one of the 67,600 stays VALID, so an id minted before this narrowing, or by
 # hand, is a well-formed id. The id is drawn
 # at random, so a reader does not read an order into it, and one id names one thing
 # across ALL families, whatever the prefix; two things are never related by sharing an id.
@@ -135,7 +135,8 @@ UPPER_ID = r"[A-Z][0-9][A-Z][0-9]"
 # What `new` DRAWS from, which is narrower than what the two forms ACCEPT: `i`, `l`, `o` and the
 # digits they read as are left out, so a minted id survives being read aloud, retyped, or grepped
 # from a screenshot. 23 x 8 x 23 x 8 = 33,856 of the 67,600, and an id already in the tree that
-# uses a dropped character stays valid — this narrows minting, never matching.
+# uses a dropped character stays valid: the narrowing applies to the draw, and the two id forms
+# accept exactly what they accepted before.
 MINT_LETTERS = "abcdefghjkmnpqrstuvwxyz"
 MINT_DIGITS = "23456789"
 # Redraws before an id space is called exhausted. Far past the point where the tree's reftags
@@ -545,7 +546,8 @@ def command_new(args):
             taken.update(id_of(match.group(0)) for match in RAW_TOKEN.finditer(line))
     # Each id joins the taken set as it is drawn, so one call's reftags differ from each other as
     # well as from the tree's. Minting a batch and writing it afterwards is then safe: the command
-    # records nothing, so ids drawn by separate calls are only distinct once the first is written.
+    # does not record an id, so ids drawn by separate calls are only distinct once the first is
+    # written.
     minted = []
     for _ in range(args.count):
         drawn = fresh_id(taken)
@@ -555,8 +557,8 @@ def command_new(args):
             return 1
         taken.add(drawn)
         minted.append(prefix + (drawn.upper() if prefix.isupper() else drawn))
-    # Printed once the whole batch is drawn, so a run that cannot complete prints no reftag for a
-    # writer to place: the mint is recorded nowhere, and a half-batch reads as a whole one.
+    # Printed once the whole batch is drawn, so a run that cannot complete does not print a reftag
+    # for a writer to place: the mint is recorded nowhere, and a half-batch reads as a whole one.
     print("\n".join(minted))
     return 0
 

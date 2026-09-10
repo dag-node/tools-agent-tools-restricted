@@ -234,7 +234,7 @@ parse_command_line() {
 }
 
 # resolve_run_context -- establish who is asking and what account is being stopped, and arm the
-# trail's traps. Everything here either succeeds or exits; nothing after it runs on a guess.
+# trail's traps. Everything here either succeeds or exits; no later step runs on a guess.
 resolve_run_context() {
     if [[ "$(id -u)" != "0" ]]; then
         say_error "ai-tools-stop must run as root: stopping a session means signalling ${SANDBOX_USER}'s cgroups" \
