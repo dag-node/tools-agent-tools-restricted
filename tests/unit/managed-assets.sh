@@ -357,4 +357,36 @@ else
     fail "the withdrawal pass accepted an unknown kind (rc=${rc}): ${out}"
 fi
 
+# Property 8. THE FRONTMATTER IS YAML. A skill's and a subagent's frontmatter is read by the
+# product that loads it and by a renderer that shows it, both as YAML, and the seeder's own greps
+# are line-anchored and see the markers either way -- so a scalar broken by a continuation line
+# at column one passes every other property here while the loader reads a truncated description. Parsed
+# with PyYAML where the host has it; the name and the description must both survive the parse.
+# Reads the repo source, falling back to the installed pristine copies, like the checker tests.
+ASSET_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/usr/share/ai-tools"
+[[ -d "${ASSET_ROOT}/skills" ]] || ASSET_ROOT="/usr/share/ai-tools"
+if python3 -c 'import yaml' 2>/dev/null; then
+    for asset in "${ASSET_ROOT}"/skills/*/SKILL.md "${ASSET_ROOT}"/subagents/ai-tools-*.md; do
+        [[ -f "${asset}" ]] || continue
+        if out="$(python3 - "${asset}" <<'EOF'
+import re, sys, yaml
+text = open(sys.argv[1]).read()
+match = re.match(r"---\n(.*?)\n---\n", text, re.S)
+if not match:
+    sys.exit("no frontmatter")
+data = yaml.safe_load(match.group(1))
+for key in ("name", "description"):
+    if not isinstance(data, dict) or not data.get(key):
+        sys.exit(f"{key} missing after the parse")
+EOF
+        )"; then
+            pass "frontmatter parses as YAML with name and description: ${asset##*/ai-tools/}"
+        else
+            fail "frontmatter of ${asset##*/ai-tools/}: ${out}"
+        fi
+    done
+else
+    skip "frontmatter YAML" "PyYAML not available to python3"
+fi
+
 finish
