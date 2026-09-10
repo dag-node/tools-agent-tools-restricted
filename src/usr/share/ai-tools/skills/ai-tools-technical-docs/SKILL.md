@@ -6,11 +6,7 @@ x-ai-tools-status: draft
 x-ai-tools-version: 4
 x-ai-tools-updated: 2026-09-10
 description: >
-  Technical writing standard for every software engineering artifact.
-
-
-
-Use when writing or
+  Technical writing standard for every software engineering artifact. Use when writing or
   editing README and usage guides, CLAUDE.md / AGENTS.md, *.rule.md, file and module headers,
   design notes, architecture docs and ADRs, method/function/XML doc-comments and docstrings,
   changelogs, release notes, migration guides, man pages, git commit messages, pull requests,
