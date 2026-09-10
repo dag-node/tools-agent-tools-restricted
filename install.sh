@@ -175,8 +175,10 @@ source "${MSG_LIB}" || {
 export AI_TOOLS_MSG_FULLWIDTH=1
 
 # Version stamped into the deployed CLI (`ai-tools --version`); the RPM stamps %{version}
-# from the same file at build. A missing file falls back to "dev" rather than aborting.
-AI_TOOLS_VERSION="$(tr -d '[:space:]' < "${SCRIPT_DIR}/packaging/VERSION" 2>/dev/null || true)"
+# from the same file at build. A missing file falls back to "dev" rather than aborting, and
+# silently: stderr is redirected before the input, since the shell reports a failed input
+# redirection through whatever stderr it holds at that point.
+AI_TOOLS_VERSION="$(tr -d '[:space:]' 2>/dev/null < "${SCRIPT_DIR}/packaging/VERSION" || true)"
 readonly AI_TOOLS_VERSION="${AI_TOOLS_VERSION:-dev}"
 
 # Control-plane boundary-mode constants, sourced from the SOURCE TREE (the installed copy may not

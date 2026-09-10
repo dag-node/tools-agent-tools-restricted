@@ -170,7 +170,9 @@ else
 fi
 
 # (12) An uncommitted change is refused, the path is listed, and the refusal names the flag.
-printf 'edited\n' >> "${FIX}/install.sh"
+# The edit is a comment: the file is the script under test, and a run that passes the gate
+# (14, 15) executes to its end, where an appended word would run as a command.
+printf '# edited\n' >> "${FIX}/install.sh"
 : > "${FIX}/untracked.txt"
 run_gate
 if (( GATE_RC != 0 )) && grep -q 'uncommitted path(s)' <<<"${GATE_OUT}" \
