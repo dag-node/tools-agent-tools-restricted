@@ -716,16 +716,22 @@ PATH_CHECKS = [
 ]
 
 
-# `--wrap` adds two checks that read LINES rather than sentences, and source files only, since a
-# comment is read as written while a document or a man page reflows. They are opt-in rather than
+# `--wrap` adds three checks that read LINES rather than sentences. They are opt-in rather than
 # default because they report how a line is WRAPPED, which a formatter fixes in bulk, and a tree
-# whose comments predate the rule reports every one of them:
+# whose lines predate the rule reports every one of them:
 #
 #   comment-tie        a comment or docstring line ending on a word that ties to the next one:
 #                      an article, a conjunction, a preposition, or a wh-word. The word belongs
 #                      at the head of the next line. The set is HEADER_TIES below.
 #   comment-width      a comment or docstring line over SOURCE_WIDTH columns (120, the column
 #                      a code file wraps at; `--width` overrides it).
+#   document-width     a Markdown line over DOCUMENT_WIDTH columns (100, the column the tree's
+#                      documents wrap at; `--width` overrides it). A document reflows when it is
+#                      rendered and is read unrendered as well -- in an editor, a diff, a review
+#                      -- and an edit that splices a sentence into a wrapped paragraph is what
+#                      leaves a line long. A table row, a fenced block, a line holding a URL or
+#                      one token, and a man page are not measured: each is a unit the rule
+#                      cannot break. The tie rule does not read a document, which reflows.
 #
 # `--config-header`: A CONFIG FILE'S HEADER IS READ IN A TERMINAL AND NEVER REFLOWED.
 # An operator's config file -- a seeded header, a shipped template -- is read as-is, so its prose
@@ -809,6 +815,33 @@ def comment_line_findings(source, width):
             yield path, number, "comment-tie", tie, TIE_HINT, stripped.strip()
 
 
+DOCUMENT_WIDTH = 100
+DOCUMENT_TABLE = re.compile(r"^\s*\|")
+DOCUMENT_FENCE = re.compile(r"^\s*(```|~~~)")
+MAN_PAGE = (".1", ".5", ".8")
+
+
+def document_line_findings(source, width):
+    """A Markdown line over `width` columns, outside a fence or a table and holding more than
+    one token, with no URL in it. A man page is left to roff."""
+    last_path, fenced = None, False
+    for path, number, line in source:
+        if path == MESSAGE or not is_prose_file(path) or path.endswith(MAN_PAGE):
+            continue
+        if path != last_path:
+            last_path, fenced = path, False
+        if DOCUMENT_FENCE.match(line):
+            fenced = not fenced
+            continue
+        stripped = line.rstrip()
+        if (fenced or ALLOW_MARKER in line or DOCUMENT_TABLE.match(stripped)
+                or "://" in stripped or " " not in stripped.strip()):
+            continue
+        if len(stripped) > width:
+            yield (path, number, "document-width", f"{len(stripped)}>{width}",
+                   f"wrap the line at {width} columns", stripped.strip())
+
+
 def findings(source, checks, path_checks=()):
     for path, number, sentence in sentences(source):
         subject = author_prose(path, sentence)
@@ -835,8 +868,8 @@ def main():
                         help="report a claim a rewrite dropped, narrowed, or weakened "
                              "(default: the index)")
     parser.add_argument("--wrap", action="store_true",
-                        help="add the line checks on source comments: a line ending on a tie "
-                             "word, or over --width columns")
+                        help="add the line checks: a source comment ending on a tie word or over "
+                             f"--width columns, a Markdown line over {DOCUMENT_WIDTH}")
     parser.add_argument("--config-header", action="store_true",
                         help="read the paths as config-file headers: a line over --width "
                              "columns or a comment line ending on a tie word")
@@ -902,6 +935,11 @@ def main():
     if args.wrap:
         for path, number, name, token, hint, text in comment_line_findings(
                 source, args.width if args.width is not None else SOURCE_WIDTH):
+            count += 1
+            print(f"{path}:{number}: {name} [{token}] -- {hint}")
+            print(f"    {text[:110]}")
+        for path, number, name, token, hint, text in document_line_findings(
+                source, args.width if args.width is not None else DOCUMENT_WIDTH):
             count += 1
             print(f"{path}:{number}: {name} [{token}] -- {hint}")
             print(f"    {text[:110]}")
