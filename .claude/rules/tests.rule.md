@@ -411,7 +411,14 @@ unrecognized action, so a run that reaches the dispatch at all prints usage and 
 written no state, which is also how "admitted" is asserted. Beyond the refusals it pins what the
 flag does **not** decide: a `SUDO_USER=root` invocation naming a usable operator is admitted,
 while the same invocation naming nobody is refused, so the flag chooses who is enrolled and never
-how the script was invoked.
+how the script was invoked. Its second section drives the **source-tree gate** through
+`install.sh check-tree`, which runs the gate alone, against a fixture checkout the test builds (a copy
+of the installer with the libraries it sources, in a repository of its own): a clean tree passes and
+names its commit, an uncommitted tree is refused with its paths listed and the flag named, a path the
+sandbox account owns is marked `[agent]`, `--allow-uncommitted` admits the same tree with a warning,
+and a tree without a `.git` directory passes with no commit to name. A fixture, and the action that
+leaves the host unchanged, because the real checkout reports whatever state the developer left it in
+and an `install` run against a fixture would install from it if the gate ever failed open.
 
 `postupgrade.sh` is that same reconciliation seen from the RPM side: `ai-tools-admin system post-upgrade`
 end to end, from dispatch through the registry to each treatment (see

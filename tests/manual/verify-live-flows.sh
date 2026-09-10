@@ -438,9 +438,9 @@ fi
 # The live chain -- hook, handback socket, daemon, ai-tools-chown -- is the one guarantee the
 # automated suite cannot drive: the daemon execs the helper with its own environment, so the
 # helper reads the operator's REAL allowlist and the fixture must sit inside a project that
-# allowlist names. The automated suite may not write that allowlist, and install.sh deregisters
-# its own checkout, so the place a hook fixture can honestly live is here, inside the project
-# section 1 claimed and section 3 unclaims. The fixture cannot be under /tmp either: pam_namespace
+# allowlist names. The automated suite may not write that allowlist, and the checkout it runs
+# from need not be a project, so the place a hook fixture can honestly live is here, inside the
+# project section 1 claimed and section 3 unclaims. The fixture cannot be under /tmp either: pam_namespace
 # polyinstantiation, where present, gives the hook's own session an empty /tmp instance.
 #
 # Each hook is run FOR REAL, as the sandbox account through `sudo -u`, with the JSON the harness
