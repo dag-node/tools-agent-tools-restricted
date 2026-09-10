@@ -161,11 +161,30 @@ PREDICTED_ACTION = re.compile(
 # with another word (`under the box`, `the parent directory`).
 POSITIONAL_REFERENCE = re.compile(r"\b(above|below)\b(?!\s+\d)", re.I)
 
+# A reftag is a prefix, a dash, and a letter-digit-letter-digit id, lowercase for a place in a document
+# (`ref-section-t3w4`) and uppercase in the code family (`FN-T6I7`, `NOTE-A9S0`, `MSG-N1H8`,
+# `URI-G7O3`); ref-index.py beside this file states the grammar and the kinds. A prefix followed by
+# anything else is a reftag a search will not find, so it is reported at the prefix. The bare
+# `ref-` prefix is not read: it opens ordinary words (`ref-index.py`), where `ref-<kind>-` does not.
+_REFTAG_KINDS = (r"section|table|diagram|listing|figure|equation|algorithm|chart|graph|image"
+                 r"|picture|scheme|theorem|lemma|definition|proof|appendix|footnote|caption|list"
+                 r"|callout|abstract|bibliography|nomenclature")
+# The id is a letter, a digit, a letter, a digit, in the family's case.
+REFERENCE_SHAPE = re.compile(rf"\bref-(?:{_REFTAG_KINDS})-(?![a-z][0-9][a-z][0-9]\b)[\w-]*"
+                             r"|\b(?:FN|NOTE|MSG|URI)-(?![A-Z][0-9][A-Z][0-9]\b)[\w-]*")
+
+# A reftag link's destination is generated (a relative path and an anchor), so a line holding
+# one is measured without it; see `document_line_findings`.
+REFTAG_LINK = re.compile(rf"(\[(?:ref-(?:{_REFTAG_KINDS})-[a-z][0-9][a-z][0-9]"
+                         r"|(?:FN|NOTE|MSG|URI)-[A-Z][0-9][A-Z][0-9])\])\([^)]*\)")
+
 DEFAULT_CHECKS = [
     ("fronted-quantifier", FRONTED_QUANTIFIER, None),  # hint derived; see suggest()
     ("nothing", re.compile(r"\bnothing\b"), "name the absent input"),
     ("positional-reference", POSITIONAL_REFERENCE,
      "name the section, function, or file the reader goes to"),
+    ("reference-shape", REFERENCE_SHAPE,
+     "write the reftag in full: the prefix, a dash, and its four-character id"),
     ("unbacked-cost", unbacked_cost, "name the frequency or the bounded operation"),
     ("predicted-action", PREDICTED_ACTION, "state what the system does, or give the instruction"),
 ]
@@ -740,7 +759,8 @@ PATH_CHECKS = [
 #                      -- and an edit that splices a sentence into a wrapped paragraph is what
 #                      leaves a line long. A table row, a fenced block, a line holding a URL or
 #                      one token, and a man page are not measured: each is a unit the rule
-#                      cannot break. The tie rule does not read a document, which reflows.
+#                      cannot break, and a line is measured without a reftag link's generated
+#                      destination. The tie rule does not read a document, which reflows.
 #
 # `--config-header`: A CONFIG FILE'S HEADER IS READ IN A TERMINAL AND NEVER REFLOWED.
 # An operator's config file -- a seeded header, a shipped template -- is read as-is, so its prose
@@ -846,6 +866,7 @@ def document_line_findings(source, width):
         if (fenced or IGNORE_MARKER in line or DOCUMENT_TABLE.match(stripped)
                 or "://" in stripped or " " not in stripped.strip()):
             continue
+        stripped = REFTAG_LINK.sub(r"\1", stripped)
         if len(stripped) > width:
             yield (path, number, "document-width", f"{len(stripped)}>{width}",
                    f"wrap the line at {width} columns", stripped.strip())

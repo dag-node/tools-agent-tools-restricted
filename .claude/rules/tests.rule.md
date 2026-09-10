@@ -284,6 +284,21 @@ must fill or leave alone — a long paragraph filled inside the column with no l
 word (the checker's `--wrap` mode is the oracle), and an aligned table, a linter directive, a
 commented default, a shebang and a code line each back byte-identical — and asserts a second run
 leaves the file as the first left it. Skipped without Emacs.
+`references.sh` is a third: it drives `ref-index.py`, the cross-reference tool shipped beside the
+checker, and holds the tree to its committed index. A reference names a reftag and the reftag
+resolves to where the target now is, so what the file asserts is that a target which moved, was
+renamed, or was deleted is reported and never silently pointed at its old place: through the
+repository wrapper `tools/ref-index.sh` it regenerates the index and diffs it against
+`.claude/references.md` and runs `check` over every tracked file, both skipped outside a git
+checkout; then each finding `check` makes — a duplicate reftag, an id shared by two kinds, a
+reference with no target, a same-file reference, a caption with no block after it, a reftag link
+that is missing or stale, and an ordinary link whose file or heading is gone — is driven against
+a fixture it must report and the corrected form it must stay silent on, with `relink` asserted to
+produce that form, `generate` for its row shape, its order, the example row a quoted reftag
+reserves, and the empty tree, `new` for each family's form, and `where` for the span each kind's
+syntax gives. An empty tree is a valid index, so the lockstep half is green before the first
+reftag. Every case id in this file and in `prose-check.sh` carries the `TEST-` prefix, so a
+result line is told from a reftag or a message code at a glance.
 `cli-verbs.sh` is the same shape one layer in: a pure text check that the CLI's four
 **gating tables** — `OPERATOR_VERBS`, `ROOT_ALLOWED_VERBS`, `BOOTSTRAP_EXEMPT_VERBS`,
 `FOR_ALLOWED_VERBS` — still describe the verbs it dispatches. The failure it exists for is
