@@ -557,8 +557,17 @@ fi
 # domain transition on the same inode this shim verified, with no link left for it to re-resolve.
 # Run rather than exec: --pty implies --wait and returns the payload's status, which a fast failure
 # turns into an actionable breadcrumb.
+#
+# SYSTEMD_TINT_BACKGROUND=0: systemd 256+ tints the terminal background for the life of a --pty
+# run. To pick the tint it queries the terminal (OSC 11 for the background colour, DA1 as the
+# terminator) and reads the reply under a short timeout, restoring the terminal's cooked mode when
+# it gives up -- a reply arriving after that is echoed by the line discipline as "^[[?6c" over the
+# agent's banner. The tint is decoration a full-screen TUI paints over anyway, so it is turned off
+# here rather than tuned; the operator's own shell setting does not reach this process, which sudo
+# started with a reset environment. Older systemd ignores the variable.
 session_start_seconds=${SECONDS}
 session_exit_status=0
+SYSTEMD_TINT_BACKGROUND=0 \
 systemd-run --user --pty --quiet \
     --unit="${session_unit_name}" \
     --description="${agent_display_name} @SANDBOX_USER@ session" \

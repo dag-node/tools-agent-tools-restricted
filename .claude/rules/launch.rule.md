@@ -198,6 +198,15 @@ scope has no exec context — the caller, not the manager, performs the final `e
 A service unit (the manager execs `ExecStart`) accepts them, and `--pty` keeps the
 session attached to the terminal so the agent's TUI works.
 
+**The terminal is handed to the session unqueried.** systemd 256 and later tint the terminal
+background for the life of a `--pty` run, and choose the tint by querying the terminal (OSC 11
+for its background colour, with a DA1 `ESC[c` as the terminator) under a short timeout, after
+which the terminal is back in cooked mode and a late reply is echoed as `^[[?6c` over the agent's
+banner. `ai-tools-run` sets `SYSTEMD_TINT_BACKGROUND=0` on the `systemd-run` invocation, so no
+query is sent and no tint is applied; a full-screen TUI paints over the tint anyway. The variable
+is set on the command rather than expected from the operator, since `sudo` resets the shim's
+environment, and a systemd without the feature ignores it.
+
 ## Operator-configured launch inputs
 
 A wrapper may resolve agent-specific configuration from `operator.conf` and prepend it to the

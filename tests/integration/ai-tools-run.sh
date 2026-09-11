@@ -89,6 +89,15 @@ if grep -qE -- '--property=UMask=0007' "${CRUN}"; then
 else
     fail "ai-tools-run does not pin UMask=0007 -- agent files may be born world-accessible"
 fi
+# systemd-run's background tint (systemd 256+) queries the terminal before the session starts,
+# and a late reply is echoed as "^[[?6c" over the agent's banner. The shim turns the tint off on
+# the systemd-run invocation itself; asserted on the line before the command, where sudo's reset
+# environment cannot supply it.
+if grep -qE -- '^SYSTEMD_TINT_BACKGROUND=0 \\$' "${CRUN}"; then
+    pass "ai-tools-run turns systemd-run's terminal tint off (no DA1 reply echoed at launch)"
+else
+    fail "ai-tools-run does not set SYSTEMD_TINT_BACKGROUND=0 on systemd-run -- the terminal query reply lands in the session"
+fi
 
 # Ownership handback needs exactly one driver. The shim sweeps the project at session end for
 # every agent EXCEPT one whose manifest declares handback=hooks, and the deployed claude-code
