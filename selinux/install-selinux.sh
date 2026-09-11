@@ -46,6 +46,20 @@ readonly DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly POLICY_DIR="${DIR}/policy"
 readonly MODULE="ai_tools"
 
+# refuse_early <code> <line>... -- the refusals that answer before the styled emitters are defined:
+# a library that will not load, and the root guard. Renders what plain mode renders -- the code on
+# its own leading line, then each caller line whole -- and exits 1. The matcher is the library's
+# own anchored form (tests/unit/msg.sh holds every inline copy to it).
+refuse_early() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf '%s\n' "$@" >&2
+    exit 1
+}
+# refuse_unsourced <lib> -- one situation for every library this script requires, whichever of the
+# two locations it was looked for in.
+refuse_unsourced() { refuse_early MSG-H5V4 "selinux: cannot source required library ${1}"; }
+
 # Shared message formatter (source tree first, installed copy second): frames the
 # interactive confirmations in the '#' box and carries the yes/no prompts
 # (ai_tools_msg_confirm). REQUIRED -- the prompts gate decisions, so a missing lib fails
@@ -54,8 +68,7 @@ readonly MODULE="ai_tools"
 MSG_LIB="${DIR}/../src/usr/local/lib/ai-tools/msg.lib.sh"
 [[ -r "${MSG_LIB}" ]] || MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
 # shellcheck source=/dev/null
-source "${MSG_LIB}" \
-    || { printf 'selinux: cannot source required library %s\n' "${MSG_LIB}" >&2; exit 1; }
+source "${MSG_LIB}" || refuse_unsourced "${MSG_LIB}"
 # One fixed 80-column frame for the whole install flow's boxes, so consecutive prompts align.
 export AI_TOOLS_MSG_FULLWIDTH=1
 
@@ -66,12 +79,13 @@ export AI_TOOLS_MSG_FULLWIDTH=1
 GROUPS_LIB="${DIR}/../src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 [[ -r "${GROUPS_LIB}" ]] || GROUPS_LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 # shellcheck source=/dev/null
-source "${GROUPS_LIB}" \
-    || { printf 'selinux: cannot source required library %s\n' "${GROUPS_LIB}" >&2; exit 1; }
+source "${GROUPS_LIB}" || refuse_unsourced "${GROUPS_LIB}"
 readonly NVM_DIR="/opt/ai-tools/.nvm"
 HOME_STATE=(.npm .cache .local .config .gitconfig)
 
-[[ "${EUID}" -eq 0 ]] || { echo "selinux: run with sudo" >&2; exit 1; }
+# A deliberate twin of install.sh's non-root refusal (messaging.rule.md): the code is defined
+# there and printed here, so an operator meets one token whichever installer refused.
+[[ "${EUID}" -eq 0 ]] || { printf 'MSG-K4W7\n%s\n' "selinux: run with sudo" >&2; exit 1; }
 PROJECTS_USER="${SUDO_USER:?selinux: invoke via sudo, not as root directly}"
 PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"
 readonly ALLOWLIST="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
@@ -183,7 +197,7 @@ devel_present() {
 # each one, and a rebuild after editing a .te/.fc builds it again.
 require_devel() {
     devel_present && return 0
-    warn "building ${1:-this policy module} needs the selinux-policy-devel toolchain,"
+    warn MSG-Y7Q5 "building ${1:-this policy module} needs the selinux-policy-devel toolchain,"
     warn "  which is not installed. A checkout compiles every module it loads (the RPM"
     warn "  ships them compiled), so install it and re-run:"
     warn "      sudo dnf install selinux-policy-devel"
@@ -213,7 +227,7 @@ ensure_pp() {
 # aborts the run: staging a guessed set would leave ai-tools-admin a package directory that does
 # not match what the registry calls stable.
 _shipped_modules() {
-    bash "${POLICY_DIR}/shipped-modules.sh" || die "could not derive the shipped module set (policy/shipped-modules.sh)"
+    bash "${POLICY_DIR}/shipped-modules.sh" || die MSG-E2A4 "could not derive the shipped module set (policy/shipped-modules.sh)"
 }
 
 # stage_shipped_modules [rebuild]: compile the shipped set -- every module with ensure_pp, or
@@ -225,7 +239,7 @@ stage_shipped_modules() {
     local how="${1:-reuse}" module
     local -a modules=()
     mapfile -t modules < <(_shipped_modules)
-    (( ${#modules[@]} )) || die "the shipped module set is empty -- is the group registry readable?"
+    (( ${#modules[@]} )) || die MSG-Q3Q6 "the shipped module set is empty -- is the group registry readable?"
     for module in "${modules[@]}"; do
         if [[ "${how}" == rebuild ]]; then build_pp "${module}.pp"; else ensure_pp "${module}.pp"; fi
     done
@@ -264,7 +278,7 @@ _replace_former_group_modules() {
         if _locked semodule -r "${former}" "${loads[@]}"; then
             ok "'${former}' unloaded; $(ai_tools_selinux_groups_from_former_module "${former}" | tr '\n' ' ')loaded in its place"
         else
-            warn "could not replace '${former}' -- it stays loaded with its former rule set;"
+            warn MSG-R9B9 "could not replace '${former}' -- it stays loaded with its former rule set;"
             warn "    fix the cause above and re-run: sudo $0 rebuild"
         fi
     done
@@ -283,15 +297,15 @@ _load_layout_modules() {
         [[ -n "${module}" ]] || continue
         found=1
         [[ "${module}" =~ ^ai_tools_[a-z][a-z0-9_]*$ ]] \
-            || { warn "integration ${integration} declares a layout module name that is not ai_tools_<name>: ${module}"; continue; }
+            || { warn MSG-N8Q3 "integration ${integration} declares a layout module name that is not ai_tools_<name>: ${module}"; continue; }
         [[ -f "${POLICY_DIR}/${module}.te" ]] \
-            || { warn "integration ${integration} declares layout module ${module}, which has no source under ${POLICY_DIR}"; continue; }
+            || { warn MSG-F9G3 "integration ${integration} declares layout module ${module}, which has no source under ${POLICY_DIR}"; continue; }
         ensure_pp "${module}.pp"
         log "loading layout module: ${module} (integration ${integration})"
         if _locked semodule -i "${POLICY_DIR}/${module}.pp"; then
             ok "layout module ${module} loaded"
         else
-            warn "could not load layout module ${module}; build output is typed at relabel time only"
+            warn MSG-D3G7 "could not load layout module ${module}; build output is typed at relabel time only"
         fi
     done < <(ai_tools_installed_integrations_declaring selinux_layout_module 2>/dev/null)
     # Said out loud, because the usual cause is ordering: the INSTALLED manifests are read, so a
@@ -391,7 +405,7 @@ _check_permissive_alignment() {
 
     [[ ${#misaligned[@]} -eq 0 ]] && return 0
 
-    warn "ENFORCING MISMATCH -- domain(s) are permissive but .te expects enforcing:"
+    warn MSG-N5V4 "ENFORCING MISMATCH -- domain(s) are permissive but .te expects enforcing:"
     for dom in "${misaligned[@]}"; do
         stale_mod="permissive_${dom}"
         if semodule -l 2>/dev/null | grep -q "^${stale_mod}[[:space:]]"; then
@@ -511,7 +525,7 @@ prompt_groups() {
 RELABEL_LIB="${DIR}/../src/usr/local/lib/ai-tools/relabel.lib.sh"
 [[ -r "${RELABEL_LIB}" ]] || RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
 # shellcheck source=/dev/null
-source "${RELABEL_LIB}" || die "missing label library: ${RELABEL_LIB}"
+source "${RELABEL_LIB}" || refuse_unsourced "${RELABEL_LIB}"
 
 # _locked <command...>: run one store-writing command under ai_tools_relabel_lock, released when
 # it returns. semanage and semodule report an error to whichever process finds the policy store
@@ -526,7 +540,7 @@ _locked() {
     local rc=0
     ai_tools_relabel_lock
     if [[ -n "${AI_TOOLS_RELABEL_LOCK_NOTE}" && "${_locked_note_shown}" -eq 0 ]]; then
-        warn "policy-store writes are not serialized on this host -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"
+        warn MSG-V8U7 "policy-store writes are not serialized on this host -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"
         _locked_note_shown=1
     fi
     "$@" || rc=$?
@@ -564,7 +578,7 @@ OPERATOR_LIB="${DIR}/../src/usr/local/lib/ai-tools/operator.lib.sh"
 [[ -r "${OPERATOR_LIB}" ]] || OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=/dev/null
 source "${OPERATOR_LIB}" 2>/dev/null \
-    || warn "could not read the operator list (${OPERATOR_LIB}); labelling ${PROJECTS_USER}'s config only"
+    || warn MSG-J9B3 "could not read the operator list (${OPERATOR_LIB}); labelling ${PROJECTS_USER}'s config only"
 
 # verify_agent_labels: apply each enabled agent's declared file-context rules -- its entrypoint
 # (-> ai_tools_exec_t, without which the domain transition never fires and the agent would run
@@ -578,7 +592,7 @@ verify_agent_labels() {
     local report="" status=0 verdict subject detail wanted bad=0 labelled=0
     report="$(ai_tools_label_agent_paths)" || status=$?
     if [[ "${status}" -eq 2 ]]; then
-        warn "SELinux or the ai_tools module is not active -- no agent paths to label"
+        warn MSG-Y9V3 "SELinux or the ai_tools module is not active -- no agent paths to label"
         return 0
     fi
     if [[ -n "${report}" ]]; then
@@ -592,7 +606,7 @@ verify_agent_labels() {
                 ok)   labelled=$(( labelled + 1 ))
                       ok "labelled: ${subject}" ;;
                 bad)  bad=1
-                      warn "${subject}"
+                      warn MSG-Y5N5 "mislabelled: ${subject}"
                       warn "    is '${detail}', NOT ${wanted} -- the session would run unconfined"
                       warn "    or fail to write its own state. matchpathcon expects:"
                       warn "      $(matchpathcon "${subject}" 2>/dev/null | awk '{print $2}')"
@@ -602,24 +616,24 @@ verify_agent_labels() {
                 # resolves to, so no rule this sweep applies can label it and the session would
                 # be refused. Counted as `bad`: the install must not report a confined host.
                 stale) bad=1
-                      warn "${subject}: its installed entrypoint is"
+                      warn MSG-R2N4 "stale manifest for ${subject}: its installed entrypoint is"
                       warn "    ${detail}"
                       warn "    -- not covered by the file-context rule its manifest declares,"
                       warn "    so no relabel can label it and every launch will fail closed."
                       warn "    Update the agent package; its manifest is stale." ;;
-                none) warn "${subject}: ${detail} is not installed -- nothing to label" ;;
-                skip) warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
+                none) warn MSG-S4K9 "no path to label for ${subject}: ${detail} is not installed" ;;
+                skip) warn MSG-S9J3 "labelling skipped for ${subject} -- ${detail} ${wanted}" ;;
                 # The per-agent verdict closing that agent's lines: `ok` and `none` restate the
                 # per-path arms, so only `failed` prints, naming the agent those lines omit.
                 agent)
                     if [[ "${detail}" == failed ]]; then
-                        warn "${subject}: labelling did not complete -- see its lines above"
+                        warn MSG-E6C4 "labelling did not complete for ${subject} -- see its lines above"
                     fi ;;
                 # A verdict this renderer does not know is REPORTED, not dropped. Silently
                 # ignoring one turns a labelling result into no output at all, which reads as
                 # "no change" for the one path whose label decides whether a session is
                 # confined -- and leaves the operator no detail to diagnose from.
-                *)    warn "unrecognized labelling result: ${verdict} ${subject} ${detail} ${wanted}"
+                *)    warn MSG-K2W4 "unrecognized labelling result: ${verdict} ${subject} ${detail} ${wanted}"
                       warn "    the entrypoint label is unconfirmed; check: sudo ai-tools-admin system entrypoints relabel" ;;
             esac
         done <<< "${report}"
@@ -629,7 +643,7 @@ verify_agent_labels() {
     # here rather than proceed to the optional groups with a broken core. A missing path
     # (toolchain not provisioned yet) stays a warning -- there is no entrypoint to label.
     [[ "${bad}" -eq 0 ]] \
-        || die "an agent path is not correctly labelled (see above) -- the session would be refused, or run UNCONFINED"
+        || die MSG-U3S8 "an agent path is not correctly labelled (see above) -- the session would be refused, or run UNCONFINED"
     # Nothing labelled has two very different causes, and the bare message named neither. An
     # EMPTY report means no enabled agent was iterated at all -- the manifests resolved to
     # no file -- which is a configuration problem: the entrypoint keeps whatever type it has, and
@@ -637,13 +651,13 @@ verify_agent_labels() {
     # labelled no file has already printed its own per-path none/skip reason.
     if [[ "${labelled}" -eq 0 ]]; then
         if [[ -z "${report}" ]]; then
-            warn "no agent resolved from the manifests, so no entrypoint was labelled."
+            warn MSG-Q8W8 "no agent resolved from the manifests, so no entrypoint was labelled."
             warn "  Nothing here grants ai_tools_exec_t, so a session refuses to launch until it is."
             warn "  Check which agents are enabled:  ai-tools --providers"
             warn "  and that a manifest is installed: ls -l /usr/local/lib/ai-tools/agents.d/"
             warn "  Re-apply once one resolves:      sudo ai-tools-admin system entrypoints relabel"
         else
-            warn "no agent path took a label this run -- see the per-path reason above"
+            warn MSG-K3A8 "no agent path took a label this run -- see the per-path reason above"
         fi
     fi
     # Printed while the install is still running, so it states WHEN it applies: an operator who
@@ -680,8 +694,8 @@ _home_state()  { local p; for p in "${HOME_STATE[@]}"; do
 # drifted in with a foreign context -- a customizable type a plain restorecon would preserve -- is
 # forced back to ai_tools_project_t by the lib's `-F`, which is the whole point of the sweep.
 _label_one()   { if ai_tools_label_project "$1"; then ok "labelled project ai_tools_project_t: $1"
-                 else warn "could not label $1 -- is the ai_tools module loaded?"; fi; }
-_unlabel_one() { ai_tools_unlabel_project "$1" || warn "could not unlabel $1"; }
+                 else warn MSG-S5E4 "could not label $1 -- is the ai_tools module loaded?"; fi; }
+_unlabel_one() { ai_tools_unlabel_project "$1" || warn MSG-W8J4 "could not unlabel $1"; }
 _restore_one() { restorecon -FR "$1" 2>/dev/null || true; }
 # _label_sandbox_clones: apply the static ai_tools_project_t label (ai_tools.fc) to every existing
 # sandbox clone, then REPORT and VERIFY each one. The per-project loop skips sandbox paths
@@ -703,7 +717,7 @@ _label_sandbox_clones() {
         if ai_tools_project_labelled "${clone}"; then
             ok "labelled sandbox clone ai_tools_project_t: ${clone}"
         else
-            warn "sandbox clone NOT labelled ai_tools_project_t: ${clone}"
+            warn MSG-A5N2 "sandbox clone NOT labelled ai_tools_project_t: ${clone}"
             warn "    is the ai_tools module loaded, and the clone fcontext rule under /opt"
             warn "    (base file_contexts.subs_dist aliases /var/opt -> /opt before matching)?"
         fi
@@ -745,7 +759,7 @@ _label_conf() {
             # 'relabel' never loads the module, so on a first run (or after a version bump) the
             # type may be undefined -- report honestly instead of logging a false success. The
             # reason semanage gave is what tells that apart from a store another transaction held.
-            *) warn "could not set ai_tools_conf_t on ${dir}${AI_TOOLS_FCONTEXT_ERROR:+ -- ${AI_TOOLS_FCONTEXT_ERROR}}"
+            *) warn MSG-W3Q4 "could not set ai_tools_conf_t on ${dir}${AI_TOOLS_FCONTEXT_ERROR:+ -- ${AI_TOOLS_FCONTEXT_ERROR}}"
                warn "    type undefined? the module must be LOADED first --"
                warn "    run 'install' (loads the module), not just 'relabel'." ;;
         esac
@@ -974,7 +988,7 @@ case "${ACTION}" in
   enable-group)
     name="${2:?usage: sudo $0 enable-group <name>}"
     if ! ai_tools_selinux_group_valid "${name}"; then
-        warn "unknown group '${name}'. Available groups:"
+        warn MSG-X4S3 "unknown group '${name}'. Available groups:"
         for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
             printf '    %-10s %s\n' "$(ai_tools_selinux_group_name "${entry}")" "$(ai_tools_selinux_group_desc "${entry}")" >&2
         done

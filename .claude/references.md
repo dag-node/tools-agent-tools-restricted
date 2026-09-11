@@ -20,7 +20,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | f5q2 | [ref-section-f5q2](../docs/rpm-packaging.md#ref-section-f5q2) | Installing and upgrading | docs/rpm-packaging.md | README.md |  |
 | a6s8 | [ref-section-a6s8](../docs/rpm-packaging.md#ref-section-a6s8) | Signing and distribution | docs/rpm-packaging.md | docs/branching-and-release.md |  |
 | u5e6 | [MSG-U5E6](../install.sh) | error: --operator needs an account name | install.sh | tests/unit/install-guards.sh | refuse_early |
-| k4w7 | [MSG-K4W7](../install.sh) | error: run with sudo | install.sh |  | refuse_early |
+| k4w7 | [MSG-K4W7](../install.sh) | error: run with sudo | install.sh | selinux/install-selinux.sh | refuse_early |
 | c7t6 | [MSG-C7T6](../install.sh) | no account named | install.sh |  | coded_refusal |
 | d7c6 | [MSG-D7C6](../install.sh) | the operator must be a normal login user, not root | install.sh | tests/unit/install-guards.sh | coded_refusal |
 | s9c4 | [MSG-S9C4](../install.sh) | the operator must not be the sandbox account ${SANDBOX_USER} | install.sh | tests/unit/install-guards.sh | coded_refusal |
@@ -54,6 +54,32 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | y5p5 | [MSG-Y5P5](../install.sh) | test suite reported failures -- review the output above | install.sh |  | warn |
 | z3h8 | [MSG-Z3H8](../install.sh) | could not remove ${SCRIPT_DIR} from ${allowlist} -- it is still registered | install.sh |  | warn |
 | s3y6 | [MSG-S3Y6](../install.sh) | no usable operator named -- re-run the install and name one that exists | install.sh |  | die |
+| h5v4 | [MSG-H5V4](../selinux/install-selinux.sh) | selinux: cannot source required library ${1} | selinux/install-selinux.sh |  | refuse_early |
+| y7q5 | [MSG-Y7Q5](../selinux/install-selinux.sh) | building ${1:-this policy module} needs the selinux-policy-devel toolchain, | selinux/install-selinux.sh |  | warn |
+| e2a4 | [MSG-E2A4](../selinux/install-selinux.sh) | could not derive the shipped module set (policy/shipped-modules.sh) | selinux/install-selinux.sh |  | die |
+| q3q6 | [MSG-Q3Q6](../selinux/install-selinux.sh) | the shipped module set is empty -- is the group registry readable? | selinux/install-selinux.sh |  | die |
+| r9b9 | [MSG-R9B9](../selinux/install-selinux.sh) | could not replace '${former}' -- it stays loaded with its former rule set; | selinux/install-selinux.sh |  | warn |
+| n8q3 | [MSG-N8Q3](../selinux/install-selinux.sh) | integration ${integration} declares a layout module name that is not ai_tools_<name>: ${module} | selinux/install-selinux.sh |  | warn |
+| f9g3 | [MSG-F9G3](../selinux/install-selinux.sh) | integration ${integration} declares layout module ${module}, which has no source under ${POLICY_DIR} | selinux/install-selinux.sh |  | warn |
+| d3g7 | [MSG-D3G7](../selinux/install-selinux.sh) | could not load layout module ${module}; build output is typed at relabel time only | selinux/install-selinux.sh |  | warn |
+| n5v4 | [MSG-N5V4](../selinux/install-selinux.sh) | ENFORCING MISMATCH -- domain(s) are permissive but .te expects enforcing: | selinux/install-selinux.sh |  | warn |
+| v8u7 | [MSG-V8U7](../selinux/install-selinux.sh) | policy-store writes are not serialized on this host -- ${AI_TOOLS_RELABEL_LOCK_NOTE} | selinux/install-selinux.sh |  | warn |
+| j9b3 | [MSG-J9B3](../selinux/install-selinux.sh) | could not read the operator list (${OPERATOR_LIB}); labelling ${PROJECTS_USER}'s config only | selinux/install-selinux.sh |  | warn |
+| y9v3 | [MSG-Y9V3](../selinux/install-selinux.sh) | SELinux or the ai_tools module is not active -- no agent paths to label | selinux/install-selinux.sh |  | warn |
+| y5n5 | [MSG-Y5N5](../selinux/install-selinux.sh) | mislabelled: ${subject} | selinux/install-selinux.sh |  | warn |
+| r2n4 | [MSG-R2N4](../selinux/install-selinux.sh) | stale manifest for ${subject}: its installed entrypoint is | selinux/install-selinux.sh |  | warn |
+| s4k9 | [MSG-S4K9](../selinux/install-selinux.sh) | no path to label for ${subject}: ${detail} is not installed | selinux/install-selinux.sh |  | warn |
+| s9j3 | [MSG-S9J3](../selinux/install-selinux.sh) | labelling skipped for ${subject} -- ${detail} ${wanted} | selinux/install-selinux.sh |  | warn |
+| e6c4 | [MSG-E6C4](../selinux/install-selinux.sh) | labelling did not complete for ${subject} -- see its lines above | selinux/install-selinux.sh |  | warn |
+| k2w4 | [MSG-K2W4](../selinux/install-selinux.sh) | unrecognized labelling result: ${verdict} ${subject} ${detail} ${wanted} | selinux/install-selinux.sh |  | warn |
+| u3s8 | [MSG-U3S8](../selinux/install-selinux.sh) | an agent path is not correctly labelled (see above) -- the session would be refused, or run UNCONFINED | selinux/install-selinux.sh |  | die |
+| q8w8 | [MSG-Q8W8](../selinux/install-selinux.sh) | no agent resolved from the manifests, so no entrypoint was labelled. | selinux/install-selinux.sh |  | warn |
+| k3a8 | [MSG-K3A8](../selinux/install-selinux.sh) | no agent path took a label this run -- see the per-path reason above | selinux/install-selinux.sh |  | warn |
+| s5e4 | [MSG-S5E4](../selinux/install-selinux.sh) | could not label $1 -- is the ai_tools module loaded? | selinux/install-selinux.sh |  | warn |
+| w8j4 | [MSG-W8J4](../selinux/install-selinux.sh) | could not unlabel $1 | selinux/install-selinux.sh |  | warn |
+| a5n2 | [MSG-A5N2](../selinux/install-selinux.sh) | sandbox clone NOT labelled ai_tools_project_t: ${clone} | selinux/install-selinux.sh |  | warn |
+| w3q4 | [MSG-W3Q4](../selinux/install-selinux.sh) | could not set ai_tools_conf_t on ${dir}${AI_TOOLS_FCONTEXT_ERROR:+ -- ${AI_TOOLS_FCONTEXT_ERROR}} | selinux/install-selinux.sh |  | warn |
+| x4s3 | [MSG-X4S3](../selinux/install-selinux.sh) | unknown group '${name}'. Available groups: | selinux/install-selinux.sh |  | warn |
 | n4p3 | [MSG-N4P3](../src/opt/ai-tools/bin/ai-tools-run.sh) | AI_TOOLS_AGENT_EXEC contains parent-directory references | src/opt/ai-tools/bin/ai-tools-run.sh | tests/integration/ai-tools-run.sh | refuse |
 | z2j9 | [MSG-Z2J9](../src/opt/ai-tools/bin/ai-tools-run.sh) | invalid or absent AI_TOOLS_AGENT_EXEC -- cannot launch | src/opt/ai-tools/bin/ai-tools-run.sh | tests/integration/ai-tools-run.sh | refuse |
 | a3h6 | [MSG-A3H6](../src/opt/ai-tools/bin/ai-tools-run.sh) | no enabled agent provides the launcher \ | src/opt/ai-tools/bin/ai-tools-run.sh | tests/integration/ai-tools-run.sh | refuse |
