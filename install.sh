@@ -159,8 +159,19 @@ section() { local IFS=' '; printf '\n%s── %s ──%s\n' "${C_BOLD}" "$*" "$
 ok()      { local IFS=' '; printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$*"; }
 # log: a dim checklist bullet for each deployed file / action.
 log()     { local IFS=' '; printf '  %s+%s %s\n' "${C_DIM}" "${C_RST}" "$*"; }
-warn()    { local IFS=' '; printf '  %s!%s %s\n' "${C_YEL}" "${C_RST}" "$*" >&2; }
-die()     { local IFS=' '; printf '%sinstall: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; exit 1; }
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
+# message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline, since these helpers
+# report before the library is loaded.
+warn() {
+    local IFS=' ' code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf '  %s!%s %s\n' "${C_YEL}" "${C_RST}" "$*" >&2
+}
+die() {
+    local IFS=' ' code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf '%sinstall: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; exit 1
+}
 
 # Shared message formatter, sourced from the SOURCE TREE (the installed copy may not exist
 # yet -- this script installs it). Frames interactive prompts in the '#' box and carries

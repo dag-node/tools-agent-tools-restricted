@@ -133,11 +133,22 @@ AI_TOOLS_VERSION="@AI_TOOLS_VERSION@"
 [[ "${AI_TOOLS_VERSION}" == @*@ ]] && AI_TOOLS_VERSION="dev"
 readonly AI_TOOLS_VERSION
 
-die()  { printf 'ai-tools-admin: error: %s\n' "$*" >&2; exit 1; }
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
+# message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline, since these helpers
+# report before the library is loaded.
+die() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-admin: error: %s\n' "$*" >&2; exit 1
+}
 log()  { printf 'ai-tools-admin: %s\n' "$*"; }
 # warn: a refusal that narrows what this tool will do -- a contributed command skipped, an
 # integration that would not provision. stderr, so the domain list on stdout stays data-only.
-warn() { printf 'ai-tools-admin: warning: %s\n' "$*" >&2; }
+warn() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-admin: warning: %s\n' "$*" >&2
+}
 
 # reject <message>: the command line was rejected. Exit 2 separates a command nobody can type
 # correctly from an operation that ran and failed (`die`, exit 1), which is the split

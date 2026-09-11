@@ -46,7 +46,7 @@ default, the file does not print a line for it.
 
 ```
 tests/
-  lib/harness.sh   pass/fail/skip/note, perm(), check_file(), the fixture name rule + the /tmp testdir + dummy-allowlist fixtures, teardown
+  lib/harness.sh   pass/fail/skip/note, assert_msg(), perm(), check_file(), the fixture name rule + the /tmp testdir + dummy-allowlist fixtures, teardown
   lib/residue.sh   the pre-run sweep: finds and removes what an earlier run left, by that name rule
   lib/cli-spelling.sh  the one table that spells an ai-tools command or option for a test
   lib/cli-stubs.sh     the `sudo` shim and stub root helpers that record what the CLI asks for

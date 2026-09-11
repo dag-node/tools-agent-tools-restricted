@@ -57,9 +57,22 @@ _run_skip_reason=""
 # statement that failed. That is a logger deciding the fate of the operation it reports on, which is
 # exactly what every other component here refuses to allow (log.lib.sh, ai-tools-run). A failed run
 # must always be able to say what failed.
+#
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
+# message, the shape tests/lib/harness.sh's assert_msg reads, and carried into the journal line.
+# Matched inline: this script does not load the library.
 log()  { echo "INFO : $*";     printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p info    2>/dev/null || true; }
-warn() { echo "WARN : $*" >&2; printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p warning 2>/dev/null || true; }
-die()  { echo "ERROR: $*" >&2; printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p err     2>/dev/null || true; exit 1; }
+warn() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    echo "WARN : $*" >&2; printf '%s\n' "${code:+${code} }$*" | systemd-cat -t "nvm-update-ai" -p warning 2>/dev/null || true
+}
+die() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    echo "ERROR: $*" >&2; printf '%s\n' "${code:+${code} }$*" | systemd-cat -t "nvm-update-ai" -p err 2>/dev/null || true
+    exit 1
+}
 
 # skip <reason-token> <message> : end the run as TRANSIENT (see the header) -- the counterpart to
 # die for a condition this host did not cause and cannot fix, where the correct outcome is that

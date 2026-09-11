@@ -65,9 +65,24 @@ if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
 fi
 
-die()  { ai_tools_log_error "$*"; printf 'ai-tools-admin dotnet: error: %s\n' "$*" >&2; exit 1; }
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
+# message, the shape tests/lib/harness.sh's assert_msg reads, and carried into the log line.
+# Matched inline: this command does not load the library.
+die() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
+    ai_tools_log_error "${code:+${code} }$*"
+    [[ -z "${code}" ]] || printf '%s\n' "${code}" >&2
+    printf 'ai-tools-admin dotnet: error: %s\n' "$*" >&2; exit 1
+}
 log()  { ai_tools_log_info  "$*"; printf 'ai-tools-admin dotnet: %s\n' "$*"; }
-warn() { ai_tools_log_warn  "$*"; printf 'ai-tools-admin dotnet: warning: %s\n' "$*" >&2; }
+warn() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
+    ai_tools_log_warn "${code:+${code} }$*"
+    [[ -z "${code}" ]] || printf '%s\n' "${code}" >&2
+    printf 'ai-tools-admin dotnet: warning: %s\n' "$*" >&2
+}
 
 # reject <message>: the command line was rejected. Exit 2, the same split ai-tools-admin makes --
 # a command nobody can type correctly, rather than an operation that ran and failed.

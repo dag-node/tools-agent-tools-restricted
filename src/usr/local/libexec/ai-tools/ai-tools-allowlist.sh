@@ -52,7 +52,14 @@ set -euo pipefail
 
 readonly SANDBOX_USER="@SANDBOX_USER@"
 
-die() { printf 'ai-tools-allowlist: %s\n' "$*" >&2; exit 1; }
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
+# message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline: this helper does
+# not load the library.
+die() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-allowlist: %s\n' "$*" >&2; exit 1
+}
 
 # ── Arguments ────────────────────────────────────────────────────────────────────
 # One target operator (--operator) and exactly one action. The action's path argument is

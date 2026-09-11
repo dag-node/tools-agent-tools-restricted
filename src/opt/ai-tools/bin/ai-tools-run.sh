@@ -79,11 +79,14 @@ source "${AI_TOOLS_LIB_DIR}/providers.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/confinement.lib.sh
 source "${AI_TOOLS_LIB_DIR}/confinement.lib.sh"
 
-# refuse <headline> [detail...] : frame the refusal and stop. Every call names the fix, so a
-# refused launch is self-explaining at the terminal.
+# refuse [code] <headline> [detail...] : frame the refusal and stop. Every call names the fix, so a
+# refused launch is self-explaining at the terminal. The library's optional leading code is split
+# off so the "ai-tools-run: " prefix lands on the headline rather than on the code.
 refuse() {
+    local code=""
+    if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
     local headline="ai-tools-run: $1"; shift
-    ai_tools_msg_error "${headline}" "$@"
+    ai_tools_msg_error ${code:+"${code}"} "${headline}" "$@"
     exit 1
 }
 # audit <syslog-level> <message> : one journal line under the ai-tools-run tag, the durable

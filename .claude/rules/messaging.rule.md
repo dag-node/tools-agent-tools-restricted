@@ -95,7 +95,15 @@ one call site at a time. A block's code is one per screen, in the title; the bod
 A code is a reftag, so it resolves through the reference index; runtime output carries a reftag
 and never a URL, a Markdown link, or an HTML anchor. `ai_tools_msg_is_code` is the one predicate
 a leading code is detected with, so a component's local `die()`/`warn()` that routes to the
-emitters recognises a code exactly as the library does.
+emitters (`claude.sh`, `ai-tools.sh`, `ai-tools-run`, `ai-tools-stop`) recognises a code exactly
+as the library does.
+
+The components that report without the library — the root helpers and the two installers, each
+with a `printf` `die()`/`warn()` of its own — match the same anchored form inline and render it the
+same way plain mode does: the code on its own line, then the helper's prefixed message whole. One
+shape everywhere is what lets the harness's `assert_msg` read a code with a single whole-line
+match, and what keeps every prose grep on a helper's message intact; `tests/unit/msg.sh` holds each
+inline copy to the library's constant, so a copy cannot drift into printing a code as prose.
 
 ## Three renderers: alert, headline, block
 

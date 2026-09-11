@@ -486,4 +486,45 @@ else
     fail "coded block wrong: top='${cblk[1]}' plain=$(printf '[%s]' "${plain_cblk}")"
 fi
 
+# (29) The components that report without the library match a leading code inline, and every
+# inline copy is the library's own anchored form -- a copy that drifts is a helper that prints a
+# code as prose, or reads prose as a code. Checked in the source tree (the copies are text), and
+# skipped outside a checkout.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+inline_matchers=(
+    src/usr/local/libexec/ai-tools/ai-tools-admin.sh
+    src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh
+    src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh
+    src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh
+    src/usr/local/libexec/ai-tools/ai-tools-relabel.sh
+    src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh
+    src/opt/ai-tools/bin/nvm-update.sh
+    src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh
+    install.sh
+    selinux/install-selinux.sh
+)
+if [[ ! -r "${REPO}/install.sh" ]]; then
+    skip "inline code matchers agree with the library" "not a source checkout"
+else
+    lib_form="$(sed -n "s/^readonly _AI_TOOLS_MSG_CODE_RE='\(.*\)'$/\1/p" "${LIB}")"
+    drifted=""
+    for f in "${inline_matchers[@]}"; do
+        grep -qF -- "=~ ${lib_form} ]]" "${REPO}/${f}" || drifted+=" ${f}"
+    done
+    if [[ -n "${lib_form}" && -z "${drifted}" ]]; then
+        pass "every inline code matcher carries the library's form (${lib_form})"
+    else
+        fail "inline code matcher drifted from '${lib_form}':${drifted}"
+    fi
+fi
+
+# (30) A coded die through a local helper: the code is its own first line and the helper's own
+# prefixed message follows whole, so assert_msg and the existing prose greps both match.
+admin_die="$(bash -c 'source <(sed -n "/^die() {/,/^}/p" "'"${REPO}"'/src/usr/local/libexec/ai-tools/ai-tools-admin.sh"); die "'"${CODE}"'" "not a claimed project"' 2>&1 || true)"
+if [[ "${admin_die}" == "${CODE}"$'\n'"ai-tools-admin: error: not a claimed project" ]]; then
+    pass "a local die() prints the code on its own line, then its prefixed message"
+else
+    fail "local die() rendering wrong: $(printf '[%s]' "${admin_die}")"
+fi
+
 finish
