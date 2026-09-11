@@ -4,7 +4,7 @@ name: ai-tools-technical-docs
 x-ai-tools-managed: true
 x-ai-tools-status: draft
 x-ai-tools-version: 4
-x-ai-tools-updated: 2026-09-10
+x-ai-tools-updated: 2026-09-11
 description: >
   Technical writing standard for every software engineering artifact. Use when writing or
   editing README and usage guides, CLAUDE.md / AGENTS.md, *.rule.md, file and module headers,
@@ -416,15 +416,28 @@ split every markup system makes:
 |---|---|---|
 | a place in a document, by kind | `ref-section-h3b7`, `ref-table-z4m9` | a heading closed by an anchor, `## Two project models <a id="ref-section-h3b7"></a>`, or an anchor and a bold caption on the line before the block, `<a id="ref-table-z4m9"></a>**Altitudes and who owns which fact**` |
 | function doc, comment note | `FN-Q2H8`, `NOTE-A5H9` | a comment line, `FN-Q2H8: <function name>` |
-| runtime message | `MSG-F6Z3` | the token inside the emitted string, `MSG-F6Z3: <message>` |
+| runtime message | `MSG-F6Z3` | the emit call: the token, then the quoted message it labels, `die MSG-F6Z3 "not a claimed project"` |
 | resource identifier | `URI-Q4Q6` | one link definition line, `[URI-Q4Q6]: https://… "name"` |
 
 The kinds a document reftag may name, and what each one is, are declared in `ref-index.py`
 and printed by `kinds`, so a writer picks one without reading the tool; this project uses
-`section`, `table`, `diagram`, and `listing`. A target's name is its heading text, its bold caption, or the text after the colon. A
+`section`, `table`, `diagram`, and `listing`. A target's name is its heading text, its bold
+caption, the text after the colon, or the message's first line. A
 document cites any family as `[reftag](destination)`, where the destination is the relative path
 and anchor for a document target, the file alone for a code target, and the URI itself; a source
 comment cites by the bare reftag.
+
+A message code names a **situation**: a refusal that exits non-zero, a warning a test asserts, a
+guidance screen, the outcome a question produced. A question itself, a flow headline, and a
+per-tick progress line are renderings, and take none. The code is the identity a test asserts
+and the token a user types into a search engine when the message is on their screen, so it stays
+fixed through every rewording of the message: a rewrite keeps the code, and a new code is minted
+only for a new situation, with the old one retired. The index records the message's current
+first line beside the code and the word that emits it. Runtime output carries a reftag and no URL, Markdown link, or
+HTML anchor: a link in a log line is unresolvable in `journalctl` and ages faster than the code,
+where the reftag resolves through the index. A quoted string that opens with an expansion
+(`assert_msg MSG-F6Z3 "$out"`) does not name a message, so that site is a reference, which is
+how a test cites a code beside the output it captured.
 
 Mint a reftag the first time another file refers to the referent, and not before: a reftag
 exists for a fact whose home is another file, so reftags stay rarer than links to a file as a
@@ -450,7 +463,8 @@ heading breaks a contents line silently.
 reftag, `generate` writes the index, `where <reftag>` prints the target's live `file:line`, `relink` rewrites every destination
 from where the targets are, and `check` reports a reftag defined twice, an id shared by two
 kinds, a reference with no target or to a target in its own file, a caption with no block after
-it, a destination that is missing or stale, and an ordinary link whose file or heading is gone:
+it, a destination that is missing or stale, an ordinary link whose file or heading is gone, and
+a retired reftag defined again:
 
 ```bash
 python3 /opt/ai-tools/skills/ai-tools-technical-docs/ref-index.py check <file>...
@@ -460,6 +474,15 @@ A fenced block and a backticked span are not read, so a document may show a reft
 define; the index lists such a reftag as an example, which reserves its id. A line carrying
 `ref-index: ignore` is not read either, and a file carrying `ref-index: ignore-file` as a whole
 comment line is not read at all, which is how a test holds its fixtures.
+
+A reftag that leaves the tree is retired, and its id stays taken. `retire` appends each index
+row the tree no longer defines to a retired file, with the date and the release the tree is at,
+and `new` reads that file as well as the index; `generate` is stateless, so a repository runs
+`retire` ahead of it. A message code lands in a durable audit trail, and an id drawn again for
+another situation would make an old journal line resolve to the wrong one. The release column is
+what a row's age is counted in: a repository drops a row once its release is a few stable
+releases behind, by hand. The retired file is history: a session reads the index for current
+state and does not read the retired file.
 
 The positional words are for measurements (`a load above 80%`, `a count below zero`); a placement
 on the screen takes another word (`under the box`, `the parent directory`). `prose-check.py`

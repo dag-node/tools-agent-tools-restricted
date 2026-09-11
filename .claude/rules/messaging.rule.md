@@ -69,8 +69,10 @@ test and the session-hook NOTICE use the latter to render a box into captured ou
 
 A message that names a **situation** — a refusal, a warning a test asserts, a guidance screen — carries
 a code, a reftag of the `MSG-` family (the grammar and the minter are the technical-docs skill's;
-the index is `.claude/references.md`). The code is what a test or a document identifies the
-situation by, so the prose is free to change; a question (`confirm`, `pick`, `challenge`) and a
+the index is `.claude/references.md`). The code is what a test, a document, and a user with the
+message on their screen identify the situation by — the token typed into a search engine — so it
+stays fixed through every rewording: a rewrite keeps the code, and a new code is minted only for
+a new situation, with the old one retired. A question (`confirm`, `pick`, `challenge`) and a
 `headline` carry none, since a question is not a situation and a headline is flow structure, and
 the outcome a question produces is what the decision audit trail records instead.
 

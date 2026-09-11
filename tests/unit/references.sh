@@ -174,7 +174,7 @@ fi
 
 # ── Code targets and a URI, cited from a document and from a source file ──────────────────────
 fixture src/s.sh '#!/usr/bin/env bash' '# FN-K1L2: chown_path' '# args: $1 path' 'chown_path() {' \
-    '    echo "MSG-M3N4: $1 is not in allowed projects"' '}' 'other() { :; }'
+    '    die MSG-M3N4 "not in allowed projects: $1"' '}' 'other() { :; }'
 fixture src/t.sh '# The refusal is MSG-M3N4, driven in the unit test; see FN-K1L2.'
 fixture docs/code.md 'The helper [FN-K1L2](../src/s.sh) prints [MSG-M3N4](../src/s.sh).' '' \
     '[URI-O5P6]: https://example.invalid/spec "The spec"' '' 'The spec [URI-O5P6](https://example.invalid/spec).'
@@ -183,6 +183,14 @@ fixture docs/code-stale.md 'The spec [URI-O5P6](https://example.invalid/old) and
 reports stale TEST-RI-11-uri-stale src/s.sh docs/code.md docs/code-stale.md
 fixture src/u.sh '# see FN-Q7R8, which is nowhere'
 reports undefined TEST-RI-11-code-undefined src/u.sh
+# A message target is the emit call, and a test cites the code beside the output it captured: the
+# quoted string there opens with an expansion, does not name a message, and reads as a reference.
+fixture tests/s.sh 'out="$(chown_path /x 2>&1)"' 'assert_msg MSG-M3N4 "${out}" "refuses a path outside the allowlist"'
+silent TEST-RI-11-msg-cited-by-test src/s.sh tests/s.sh
+fixture src/twice.sh 'warn MSG-M3N4 "a second situation under the same code"'
+reports duplicate TEST-RI-11-msg-duplicate src/s.sh src/twice.sh
+fixture src/colon.sh '# MSG-M3N5: a comment naming a code is a reference, not a message'
+reports undefined TEST-RI-11-msg-colon-is-reference src/colon.sh
 
 # ── A fenced block and a backticked span are not read ─────────────────────────────────────────
 fixture docs/quoted.md 'Write `[ref-section-z9z9](x.md#ref-section-z9z9)` and `## H <a id="ref-section-z9z8"></a>`.' '' \
@@ -194,20 +202,22 @@ fixture docs/ex.md 'A caption reads `<a id="ref-figure-e9x9"></a>**A figure**` i
 fixture docs/exref.md 'See [ref-figure-e9x9](ex.md#ref-figure-e9x9).'
 reports undefined TEST-RI-12-example-cited docs/ex.md docs/exref.md
 run_ri generate docs/ex.md
-assert_grep '^| e9x9 | ref-figure-e9x9 | example | docs/ex.md |  |$' "${OUT}" \
+assert_grep '^| e9x9 | ref-figure-e9x9 | example | docs/ex.md |  |  |$' "${OUT}" \
     "TEST-RI-12-example-row: an example reftag is a row named example, with its id first"
 
 # ── generate: document order, the cited-by column, and the empty tree ─────────────────────────
-run_ri generate docs/a.md docs/b.md src/s.sh src/t.sh docs/code.md --out index.md
-assert_grep '^| a1b2 | \[ref-section-a1b2\](docs/a.md#ref-section-a1b2) | Two project models | docs/a.md | docs/b.md |$' \
+run_ri generate docs/a.md docs/b.md src/s.sh src/t.sh docs/code.md tests/s.sh --out index.md
+assert_grep '^| a1b2 | \[ref-section-a1b2\](docs/a.md#ref-section-a1b2) | Two project models | docs/a.md | docs/b.md |  |$' \
     "${OUT}$(cat "${TESTDIR}/index.md")" "TEST-RI-13-generate-row: a row carries the id, the reftag link, name, file, and cited-by"
+assert_grep '^| m3n4 | \[MSG-M3N4\](src/s.sh) | not in allowed projects: $1 | src/s.sh | docs/code.md, src/t.sh, tests/s.sh | die |$' \
+    "$(cat "${TESTDIR}/index.md")" "TEST-RI-13-generate-msg: a message row names the message's first line and its emitter"
 first="$(grep -n 'ref-section-a1b2\|ref-table-c3d4\|FN-K1L2' "${TESTDIR}/index.md" | head -3 | cut -d: -f1 | tr '\n' ' ')"
 if [[ "${first}" == "$(tr ' ' '\n' <<<"${first}" | grep . | sort -n | tr '\n' ' ')" ]]; then
     pass "TEST-RI-13-generate-order: rows follow file and position"
 else
     fail "TEST-RI-13-generate-order: ${first}"
 fi
-assert_grep '^| k1l2 | \[FN-K1L2\](src/s.sh) | chown_path | src/s.sh | docs/code.md, src/t.sh |$' \
+assert_grep '^| k1l2 | \[FN-K1L2\](src/s.sh) | chown_path | src/s.sh | docs/code.md, src/t.sh |  |$' \
     "$(cat "${TESTDIR}/index.md")" "TEST-RI-13-generate-code: a code target links to its file and lists every citing file"
 # A backticked span is blanked before a target is matched, so that a reftag shown in backticks is
 # not read as one; the name is the heading as written, and the span's text is part of it.
@@ -248,6 +258,25 @@ else
 fi
 run_ri new section --count 0 --index index.md
 if [[ "${RC}" -eq 2 ]]; then pass "TEST-RI-15-new-count-zero: a count under 1 is refused"; else fail "TEST-RI-15-new-count-zero: rc ${RC}"; fi
+
+# ── retire: a reftag that leaves the tree keeps its id, and a return is reported ──────────────
+# The index still holds MSG-M3N4; a tree without its emit site retires the row with the date, the
+# minter then reads the retired file, and a target under the retired reftag is a `resurrected`
+# finding rather than a fresh definition.
+run_ri retire docs/a.md docs/b.md src/t.sh docs/code.md --index index.md --retired retired.md --release 0.16.0
+assert_grep '^retired MSG-M3N4 ' "${OUT}" "TEST-RI-17-retire: a reftag the files no longer define is reported retired"
+assert_grep "^| m3n4 | MSG-M3N4 | not in allowed projects: \$1 | src/s.sh | docs/code.md, src/t.sh, tests/s.sh | die | $(date +%Y-%m-%d) | 0.16.0 |$" \
+    "$(cat "${TESTDIR}/retired.md")" "TEST-RI-17-retire-row: the retired row keeps the index row and adds the date and release"
+run_ri retire docs/a.md docs/b.md src/t.sh docs/code.md --index index.md --retired retired.md
+if [[ "${RC}" -eq 0 && -z "${OUT}" && "$(grep -c '^| m3n4 ' "${TESTDIR}/retired.md")" -eq 1 ]]; then
+    pass "TEST-RI-17-retire-once: a second run leaves the retired row as it is"
+else
+    fail "TEST-RI-17-retire-once: rc ${RC}; ${OUT}; $(grep -c '^| m3n4 ' "${TESTDIR}/retired.md") rows"
+fi
+run_ri check src/s.sh src/t.sh docs/code.md tests/s.sh --retired retired.md
+assert_grep '^src/s.sh:[0-9]*: resurrected \[MSG-M3N4\]' "${OUT}" "TEST-RI-17-resurrected: a target under a retired reftag is reported"
+run_ri new msg --index index.md --retired retired.md
+assert_grep '^MSG-[A-Z][0-9][A-Z][0-9]$' "${OUT}" "TEST-RI-17-new-retired: new reads the retired file and still mints"
 
 # ── where: the live line and the span by the kind's syntax ────────────────────────────────────
 run_ri where ref-section-a1b2 --index index.md
