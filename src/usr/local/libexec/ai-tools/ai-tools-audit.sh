@@ -78,7 +78,7 @@ done
 readonly SINCE
 
 [[ "$(id -u)" == "0" ]] || {
-    ai_tools_msg_error 2 "ai-tools-audit must run as root: the trail it reads is 700 root:root" \
+    ai_tools_msg_error "ai-tools-audit must run as root: the trail it reads is 700 root:root" \
         "run it as: sudo ai-tools --audit"
     exit 1
 }
@@ -86,7 +86,7 @@ readonly SINCE
 # Normalize the window once. A value date(1) cannot parse is refused rather than silently
 # treated as "everything", which would turn a typo into a reassuring wall of old findings.
 CUTOFF_EPOCH="$(date -d "${SINCE}" +%s 2>/dev/null)" || {
-    ai_tools_msg_error 2 "ai-tools-audit: --since value not understood: ${SINCE}" \
+    ai_tools_msg_error "ai-tools-audit: --since value not understood: ${SINCE}" \
         "give it anything date(1) parses, e.g. '2 days ago', 'yesterday', '2026-08-01'"
     exit 2
 }
