@@ -8,6 +8,7 @@ the live line. A row named `example` reserves an id a document shows without def
 | Id | Reftag | Name | File | Cited by |
 |---|---|---|---|---|
 | w4z6 | [ref-section-w4z6](rules/confinement.rule.md#ref-section-w4z6) | The toolchain is read-only to the confined domain | .claude/rules/confinement.rule.md | .claude/rules/agent-claude-code.rule.md, .claude/rules/launch.rule.md |
+| f6z3 | MSG-F6Z3 | example | .claude/rules/messaging.rule.md |  |
 | e7n8 | [ref-section-e7n8](../CLAUDE.md#ref-section-e7n8) | Security model — what `SANDBOX_USER` can and cannot do | CLAUDE.md | docs/project-lifecycle.md |
 | g6c4 | [ref-section-g6c4](../CLAUDE.md#ref-section-g6c4) | What is expected of the agent where a control leaves a choice | CLAUDE.md | README.md |
 | x6a9 | [ref-section-x6a9](../CLAUDE.md#ref-section-x6a9) | Boundaries and non-goals | CLAUDE.md | README.md, docs/multi-operator.md |
@@ -24,7 +25,6 @@ the live line. A row named `example` reserves an id a document shows without def
 | z4m9 | ref-table-z4m9 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
 | q2h8 | FN-Q2H8 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
 | a5h9 | NOTE-A5H9 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
-| f6z3 | MSG-F6Z3 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
 | q4q6 | URI-Q4Q6 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
 | m7g9 | ref-section-m7g9 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
 | p6c5 | [ref-section-p6c5](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-p6c5) | Resolve a doc/code conflict while writing, in the right direction | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
