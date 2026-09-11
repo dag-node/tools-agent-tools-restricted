@@ -106,7 +106,9 @@ same way plain mode does: the code on its own line, then the helper's prefixed m
 refusal that answers **before** the library is loaded takes the same treatment even in a component
 that goes on to source it: `ai-tools.sh` refuses the sandbox account, refuses root, and refuses a
 `--for` with no operator name ahead of every load, through a `refuse_early` carrying that inline
-matcher. One
+matcher, and `install.sh` refuses a valueless `--operator` and a non-root caller through one of its
+own. A `${VAR:?message}` guard is printed by bash itself, so it does not carry a code and a test
+keeps its prose grep. One
 shape everywhere is what lets the harness's `assert_msg` read a code with a single whole-line
 match, and what keeps every prose grep on a helper's message intact; `tests/unit/msg.sh` holds each
 inline copy to the library's constant, so a copy cannot drift into printing a code as prose.
@@ -133,7 +135,18 @@ reference index reads (the token, then the quoted message it labels), so the CLI
 the token without declaring a second message under that name. The index then lists the helper among
 the files citing the code, which is the record a twin needs: one message, two places it reaches a
 terminal. A twin that instead passed the code to an emitter would declare the same reftag twice,
-which `ref-index.py` reports as a duplicate.
+which `ref-index.py` reports as a duplicate. The installers hold one such pair: `install.sh` defines
+the non-root refusal and `selinux/install-selinux.sh` prints its code.
+
+### A refusal carried as a value defines its code where the value is made
+
+A function that returns a refusal as a value, for a caller to print, is where the code is defined:
+each branch names its own code beside its text, and the value carries the code on its first line
+and the text on the second, so the site printing it need not know which branch produced it.
+`install.sh`'s `operator_refusal` is the instance — five situations, each with a code, reaching a
+terminal from the entry-point validation, the enrolment prompt, and the binding in `do_install` —
+and its `emit_coded` hands such a value to `warn` or `die` as the two arguments they read. One code
+for the whole family would send a reader searching it to five unrelated answers.
 
 ## Three renderers: alert, headline, block
 

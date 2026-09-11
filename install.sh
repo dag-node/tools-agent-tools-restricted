@@ -33,8 +33,19 @@ IFS=$'\n\t'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 
+# refuse_early <code> <line>... -- the refusals that answer before the styled emitters are defined:
+# the argument parse, the root guard, and the operator validation. Renders what plain mode
+# renders -- the code on its own leading line, then each caller line whole -- and exits 1. The
+# matcher is the library's own anchored form (tests/unit/msg.sh holds every inline copy to it).
+refuse_early() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf '%s\n' "$@" >&2
+    exit 1
+}
+
 # usage: the one place the accepted arguments are spelled out, printed by a malformed command line
-# and by an unrecognized action alike.
+# and by an unrecognized action alike. Orientation, so it does not carry a message code.
 usage() {
     printf 'usage: sudo %s [install|uninstall|check-perms|check-tree] [--operator <account>] [--allow-uncommitted]\n' "$0" >&2
     printf '       (register projects with the ai-tools CLI, not install.sh)\n' >&2
@@ -52,7 +63,7 @@ ALLOW_UNCOMMITTED=0
 while (( $# )); do
     case "$1" in
         --operator)
-            [[ $# -ge 2 ]] || { echo "error: --operator needs an account name" >&2; exit 1; }
+            [[ $# -ge 2 ]] || refuse_early MSG-U5E6 "error: --operator needs an account name"
             OPERATOR_OPT="$2"; shift 2 ;;
         --operator=*)
             OPERATOR_OPT="${1#--operator=}"; shift ;;
@@ -67,8 +78,10 @@ readonly ACTION="${ACTION:-install}" OPERATOR_OPT ALLOW_UNCOMMITTED
 
 # ── Guards ─────────────────────────────────────────────────────────────────────
 
+# The SELinux installer meets the same situation and prints this code as a deliberate twin
+# (messaging.rule.md), so the code is defined here alone.
 [[ "${EUID}" -eq 0 ]] \
-    || { echo "error: run with sudo" >&2; exit 1; }
+    || refuse_early MSG-K4W7 "error: run with sudo"
 
 # Sandbox service account the agent runs as. This is only a PARTIAL knob: owner
 # strings and the sudoers principal/runas spec (the @SANDBOX_USER@/@SANDBOX_GROUP@
@@ -79,10 +92,19 @@ readonly ACTION="${ACTION:-install}" OPERATOR_OPT ALLOW_UNCOMMITTED
 readonly SANDBOX_USER="ai-tools"
 readonly SANDBOX_GROUP="ai-tools"
 
-# operator_refusal <name> -- echo why <name> cannot be the operator this install enrols, or
-# an empty string when it can. The single home for that decision, because a name now reaches it by three
-# routes -- the invoking SUDO_USER, --operator, and the prompt -- which must refuse alike or the
-# route decides the outcome.
+# coded_refusal <code> <text> -- a refusal as a VALUE: the code on the first line, the text on the
+# second, which emit_coded hands to warn or die and the entry-point validation prints itself.
+# operator_refusal's branches define their codes through it, so each of its situations keeps a
+# code of its own while a site printing the value need not know which branch produced it.
+coded_refusal() { printf '%s\n' "$1" "$2"; }
+# emit_coded <emitter> <value> -- hand a coded_refusal value to warn or die as the two arguments
+# they read: the code, then the text.
+emit_coded() { "$1" "${2%%$'\n'*}" "${2#*$'\n'}"; }
+
+# operator_refusal <name> -- print why <name> cannot be the operator this install enrols, as a
+# coded_refusal value, or an empty string when it can. The single home for that decision, because a name
+# reaches it by three routes -- the invoking SUDO_USER, --operator, and the prompt -- which must
+# refuse alike or the route decides the outcome; do_install re-asks it before binding the account.
 #
 # Root is the one that matters: `ai-tools-admin operators add` refuses it outright and this script
 # reaches the same end state by a different route (the @PROJECTS_USER@ substitution plus
@@ -94,16 +116,17 @@ readonly SANDBOX_GROUP="ai-tools"
 operator_refusal() {
     local name="$1" home
     if [[ -z "${name}" ]]; then
-        echo "no account named"
+        coded_refusal MSG-C7T6 "no account named"
     elif [[ "${name}" == "root" ]]; then
-        echo "the operator must be a normal login user, not root"
+        coded_refusal MSG-D7C6 "the operator must be a normal login user, not root"
     elif [[ "${name}" == "${SANDBOX_USER}" ]]; then
-        echo "the operator must not be the sandbox account ${SANDBOX_USER}"
+        coded_refusal MSG-S9C4 "the operator must not be the sandbox account ${SANDBOX_USER}"
     elif ! id "${name}" &>/dev/null; then
-        echo "no such user: ${name}"
+        coded_refusal MSG-X4X2 "no such user: ${name}"
     else
         home="$(getent passwd "${name}" | cut -d: -f6)"
-        [[ -d "${home}" ]] || echo "${name} has no home directory on this host (${home:-none})"
+        [[ -d "${home}" ]] \
+            || coded_refusal MSG-C3U6 "no home directory on this host for ${name} (${home:-none})"
     fi
 }
 
@@ -130,9 +153,10 @@ operator_create_hint() {
 : "${SUDO_USER:?error: SUDO_USER not set -- invoke via sudo, not as root directly}"
 PROJECTS_USER="${OPERATOR_OPT:-${SUDO_USER}}"
 OPERATOR_REFUSAL="$(operator_refusal "${PROJECTS_USER}")"
+# Printed here rather than through refuse_early, which exits before the create hint could follow.
 [[ -z "${OPERATOR_REFUSAL}" ]] \
-    || { echo "error: ${OPERATOR_REFUSAL}" >&2
-         echo "       name a normal login account: sudo ./install.sh --operator <account>" >&2
+    || { printf '%s\n' "${OPERATOR_REFUSAL%%$'\n'*}" "error: ${OPERATOR_REFUSAL#*$'\n'}" \
+             "       name a normal login account: sudo ./install.sh --operator <account>" >&2
          if [[ -n "${PROJECTS_USER}" ]] && ! id "${PROJECTS_USER}" &>/dev/null; then
              operator_create_hint "${PROJECTS_USER}"
          fi
@@ -179,9 +203,10 @@ die() {
 # the prompts gate decisions, and the source tree that provides this script provides the
 # lib -- a missing file means a broken checkout, which is fatal rather than degraded.
 readonly MSG_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/msg.lib.sh"
+# die_unsourced <lib> -- one situation for every library this script sources from its checkout.
+die_unsourced() { die MSG-R9A8 "cannot source ${1} -- the checkout is incomplete; re-clone or re-download it"; }
 # shellcheck source=/dev/null
-source "${MSG_LIB}" || {
-    printf 'install.sh: cannot source %s\n' "${MSG_LIB}" >&2; exit 1; }
+source "${MSG_LIB}" || die_unsourced "${MSG_LIB}"
 # One fixed 80-column frame for every box in the install flow, so consecutive prompts align.
 export AI_TOOLS_MSG_FULLWIDTH=1
 
@@ -198,8 +223,7 @@ readonly AI_TOOLS_VERSION="${AI_TOOLS_VERSION:-dev}"
 # falling back.
 readonly CONTROL_PLANE_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/control-plane.lib.sh"
 # shellcheck source=/dev/null
-source "${CONTROL_PLANE_LIB}" || {
-    printf 'install.sh: cannot source %s\n' "${CONTROL_PLANE_LIB}" >&2; exit 1; }
+source "${CONTROL_PLANE_LIB}" || die_unsourced "${CONTROL_PLANE_LIB}"
 
 # The shared config grammar, sourced from the SOURCE TREE like the other libs. It carries the
 # config-sidecar handling and the hook-declaration merge this script applies to a KEPT
@@ -207,15 +231,13 @@ source "${CONTROL_PLANE_LIB}" || {
 # undeclared -- fatal here, like the others.
 readonly CONF_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/conf.lib.sh"
 # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/conf.lib.sh
-source "${CONF_LIB}" || {
-    printf 'install.sh: cannot source %s\n' "${CONF_LIB}" >&2; exit 1; }
+source "${CONF_LIB}" || die_unsourced "${CONF_LIB}"
 
 # Managed-asset seeder (agents/skills), sourced from the SOURCE TREE. Requires msg.lib.sh
 # (sourced with the other libs) for the update confirm; a missing lib is fatal like the others.
 readonly MANAGED_ASSETS_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/managed-assets.lib.sh"
 # shellcheck source=/dev/null
-source "${MANAGED_ASSETS_LIB}" || {
-    printf 'install.sh: cannot source %s\n' "${MANAGED_ASSETS_LIB}" >&2; exit 1; }
+source "${MANAGED_ASSETS_LIB}" || die_unsourced "${MANAGED_ASSETS_LIB}"
 
 # confirm_boxed <title> <y|n> <question> [context-line...] -- the one interactive prompt
 # shape, so every prompt in the install flow looks the same:
@@ -279,10 +301,10 @@ source_tree_gate() {
     say "  uncommitted   : ${total} path(s), ${agent} of the listed owned by the sandbox account"
     printf '%s\n' "${uncommitted_lines[@]}"
     if (( ALLOW_UNCOMMITTED )); then
-        warn "installing work in progress: the ${total} uncommitted path(s) deploy as root (--allow-uncommitted)"
+        warn MSG-E2B9 "installing work in progress: the ${total} uncommitted path(s) deploy as root (--allow-uncommitted)"
         return 0
     fi
-    die "${SCRIPT_DIR} carries ${total} uncommitted path(s) -- review and commit them (git -C ${SCRIPT_DIR} status; git -C ${SCRIPT_DIR} diff), or install work in progress with: sudo ${SCRIPT_DIR}/install.sh install --allow-uncommitted"
+    die MSG-U8C9 "the checkout ${SCRIPT_DIR} carries ${total} uncommitted path(s) -- review and commit them (git -C ${SCRIPT_DIR} status; git -C ${SCRIPT_DIR} diff), or install work in progress with: sudo ${SCRIPT_DIR}/install.sh install --allow-uncommitted"
 }
 
 # Decide what to do with an existing user config file. Interactive: ask whether to keep it
@@ -333,7 +355,7 @@ report_new_conf_keys() {
     local -a new_keys=()
     ai_tools_conf_new_keys new_keys "${deployed}" "${shipped}" || return 0
 
-    warn "${deployed} does not mention this version's new options:"
+    warn MSG-W9Z9 "the kept ${deployed} does not mention this version's new options:"
     local key
     for key in "${new_keys[@]}"; do
         warn "  ${key}"
@@ -363,7 +385,7 @@ reconcile_hook_declarations() {
 
     case "${status}" in
     1)  return 0 ;;                     # already current: nothing done, nothing to say
-    2)  warn "hook declarations not merged into ${deployed}: ${_ai_tools_conf_merge_reason}"
+    2)  warn MSG-V7M6 "hook declarations not merged into ${deployed}: ${_ai_tools_conf_merge_reason}"
         warn "  the file is unchanged; the hooks it does not declare do not run"
         if [[ -n "${_ai_tools_conf_merge_reference}" ]]; then
             warn "  shipped baseline written to ${_ai_tools_conf_merge_reference} -- merge its"
@@ -431,7 +453,7 @@ user_systemctl() {
         XDG_RUNTIME_DIR="/run/user/${uid}" \
         DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" \
         systemctl --user "$@" \
-        || warn "systemctl --user $* failed by both the machine transport and the account's own" \
+        || warn MSG-G6H3 "systemctl --user $* failed by both the machine transport and the account's own" \
                 "bus; retry with: sudo systemctl --user -M ${user}@.host $*"
 }
 
@@ -476,9 +498,9 @@ lockdown_nvm_permissions() {
     for d in "${ai_nvm_dir}" "${ai_nvm_dir}/versions" "${ai_nvm_dir}/versions/node"; do
         [[ -d "${d}" ]] || continue
         chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${d}" \
-            || warn "lockdown: failed to chown ${d}"
+            || warn MSG-V9C7 "lockdown: failed to chown ${d}"
         chmod 750 "${d}" \
-            || warn "lockdown: failed to chmod 750 ${d}"
+            || warn MSG-Y3E5 "lockdown: failed to chmod 750 ${d}"
     done
 }
 
@@ -492,8 +514,8 @@ bootstrap_launcher_symlinks() {
     TOOLCHAIN_PROVISIONED=0
 
     if [[ ! -s "${ai_nvm_dir}/nvm.sh" ]]; then
-        warn "ai-tools: nvm not found at ${ai_nvm_dir}/nvm.sh -- launcher symlinks skipped"
-        warn "         provision the toolchain: sudo ai-tools-admin system bootstrap"
+        warn MSG-Q4H5 "nvm not found at ${ai_nvm_dir}/nvm.sh -- launcher symlinks skipped"
+        warn "  provision the toolchain: sudo ai-tools-admin system bootstrap"
         return
     fi
 
@@ -505,8 +527,8 @@ bootstrap_launcher_symlinks() {
         2>/dev/null || true)"
 
     if [[ -z "${node_version}" || "${node_version}" == "N/A" ]]; then
-        warn "ai-tools: nvm 'default' alias not set -- launcher symlinks skipped"
-        warn "         provision the toolchain: sudo ai-tools-admin system bootstrap"
+        warn MSG-E5S3 "nvm 'default' alias not set -- launcher symlinks skipped"
+        warn "  provision the toolchain: sudo ai-tools-admin system bootstrap"
         return
     fi
 
@@ -523,8 +545,8 @@ bootstrap_launcher_symlinks() {
         done < <(ai_tools_enabled_agents 2>/dev/null)
     fi
     if (( ${#launchers[@]} == 0 )); then
-        warn "ai-tools: no enabled agent to link -- launcher symlinks skipped"
-        warn "         check the agents in /etc/ai-tools/operator.conf, then: sudo ai-tools-admin system bootstrap"
+        warn MSG-Q9D3 "no enabled agent to link -- launcher symlinks skipped"
+        warn "  check the agents in /etc/ai-tools/operator.conf, then: sudo ai-tools-admin system bootstrap"
         return
     fi
 
@@ -542,15 +564,15 @@ bootstrap_launcher_symlinks() {
     for launcher in "${launchers[@]}"; do
         versioned_launcher="${ai_nvm_dir}/versions/node/${node_version}/bin/${launcher}"
         if [[ ! -x "${versioned_launcher}" ]]; then
-            warn "ai-tools: ${launcher} not found at ${versioned_launcher} -- its symlink is skipped"
-            warn "         provision the toolchain: sudo ai-tools-admin system bootstrap"
+            warn MSG-K6N8 "launcher ${launcher} not found at ${versioned_launcher} -- its symlink is skipped"
+            warn "  provision the toolchain: sudo ai-tools-admin system bootstrap"
             continue
         fi
         if /usr/local/libexec/ai-tools/ai-tools-launcher-symlink "${versioned_launcher}"; then
             TOOLCHAIN_PROVISIONED=1
             log "symlink ${ai_tools_bin}/${launcher} -> ${versioned_launcher}"
         else
-            warn "ai-tools: failed to create the ${ai_tools_bin}/${launcher} symlink"
+            warn MSG-T2E2 "failed to create the ${ai_tools_bin}/${launcher} symlink"
         fi
     done
 }
@@ -559,7 +581,7 @@ bootstrap_launcher_symlinks() {
 # No-op when SELinux is disabled or restorecon is not installed.
 do_selinux_restore() {
     if ! command -v restorecon &>/dev/null; then
-        warn "restorecon not found -- skipping SELinux context restoration"
+        warn MSG-P2N3 "restorecon not found -- skipping SELinux context restoration"
         return
     fi
     if [[ "$(getenforce 2>/dev/null)" == "Disabled" ]]; then
@@ -619,7 +641,7 @@ stage_selinux_modules() {
     fi
     if ! selinux_toolchain_present; then
         SELINUX_STEP_REFUSED=1
-        warn "SELinux step refused: a source install compiles its policy modules, and the"
+        warn MSG-W6Y7 "SELinux step refused: a source install compiles its policy modules, and the"
         warn "  selinux-policy-devel toolchain is not installed. The sandbox runs without the"
         warn "  ai_tools_t confinement until it is. Install it, then bring the layer up:"
         warn "      sudo dnf install selinux-policy-devel"
@@ -628,7 +650,7 @@ stage_selinux_modules() {
     fi
     log "/usr/share/selinux/packages/ai-tools/*.pp"
     "${selinux_script}" build \
-        || die "the SELinux policy modules did not compile (see above); fix the cause and re-run"
+        || die MSG-K9P5 "the SELinux policy modules did not compile (see above); fix the cause and re-run"
 }
 
 # Offer to bring up the optional SELinux confinement layer. install-selinux.sh is
@@ -655,7 +677,7 @@ offer_selinux() {
     # container runtime is the isolation boundary; on a non-containerized host the SELinux layer
     # is recommended, so say so.
     if [[ -z "${mode}" || "${mode}" == "Disabled" ]]; then
-        warn "SELinux is inactive -- the agent runs DAC-only (no ai_tools_t domain). DAC-only"
+        warn MSG-Q5R3 "SELinux is inactive -- the agent runs DAC-only (no ai_tools_t domain). DAC-only"
         warn "  suits running inside a container; on a non-containerized host the SELinux layer"
         warn "  is recommended -- enable SELinux, then: sudo ${selinux_script} install"
         return 0
@@ -704,7 +726,7 @@ offer_selinux() {
         if "${selinux_script}" install; then
             ok "SELinux confinement installed"
         else
-            warn "SELinux install did not complete -- bring it up later with:"
+            warn MSG-Y4G6 "SELinux install did not complete -- bring it up later with:"
             warn "  sudo ${selinux_script} install"
         fi
     elif [[ -n "${loaded}" ]]; then
@@ -720,7 +742,7 @@ offer_selinux() {
         # leave the agent entrypoint mislabelled (bin_t) -- which fail-closes the launch -- so the
         # filesystem labels must be re-applied to match it. This is the single relabel on the
         # decline path; the accept path already relabels inside install-selinux.sh install.
-        "${selinux_script}" relabel || warn "relabel did not complete -- run: sudo ai-tools-admin system entrypoints relabel"
+        "${selinux_script}" relabel || warn MSG-E7D7 "relabel did not complete -- run: sudo ai-tools-admin system entrypoints relabel"
     else
         log "skipped -- the sandbox runs without SELinux confinement until you run:"
         say "    ${C_BOLD}sudo ${selinux_script} install${C_RST}"
@@ -918,7 +940,7 @@ print_banner() {
 # check). Aborts if the sandbox user is absent.
 do_install() {
     id "${SANDBOX_USER}" &>/dev/null \
-        || die "${SANDBOX_USER} user not found -- create it first (README step 2)"
+        || die MSG-R6Y6 "sandbox account ${SANDBOX_USER} not found -- create it first (README step 2)"
 
     print_banner
     say "  projects user : ${PROJECTS_USER} (${PROJECTS_HOME})"
@@ -1554,7 +1576,7 @@ do_install() {
         # CONTENT is written by the sandbox account and trusted accordingly (services.lib.sh).
         setfacl -m g:ai-ops:r-x /var/opt/ai-tools/state
     else
-        warn "setfacl unavailable -- operators need ${SANDBOX_GROUP} membership for sandbox-create"
+        warn MSG-Q7E7 "setfacl unavailable -- operators need ${SANDBOX_GROUP} membership for sandbox-create"
     fi
 
     # Operation-log directory for the root helpers. Dir 700 root:root, each file 600
@@ -1582,7 +1604,7 @@ do_install() {
         -e "s/@SANDBOX_GROUP@/${SANDBOX_GROUP}/g" \
         "${SCRIPT_DIR}/src/etc/sudoers.d/ai-tools" > "${tmp_sudoers}"
     visudo -c -f "${tmp_sudoers}" > /dev/null \
-        || { rm -f "${tmp_sudoers}"; die "sudoers syntax check failed"; }
+        || { rm -f "${tmp_sudoers}"; die MSG-N2W3 "sudoers syntax check failed"; }
     install -o root -g root -m 0440 \
         "${tmp_sudoers}" /etc/sudoers.d/ai-tools
     rm -f "${tmp_sudoers}"
@@ -1648,10 +1670,12 @@ do_install() {
 
     # ai-ops operators group + membership grants the operator the sudoers rules (the RPM
     # creates the group via sysusers; the dev install creates it here). The sandbox account must
-    # not drive itself as an operator, so binding refuses it -- the same guard ai-tools-admin
-    # applies. usermod -aG adds the group while preserving the user's existing groups.
-    [[ "${PROJECTS_USER}" != "${SANDBOX_USER}" ]] \
-        || die "the operator must not be the sandbox account ${SANDBOX_USER}"
+    # not drive itself as an operator, so binding refuses it by re-asking operator_refusal -- the
+    # same guard ai-tools-admin applies, and the same code the entry point would have printed.
+    # usermod -aG adds the group while preserving the user's existing groups.
+    local binding_refusal
+    binding_refusal="$(operator_refusal "${PROJECTS_USER}")"
+    [[ -z "${binding_refusal}" ]] || emit_coded die "${binding_refusal}"
     getent group ai-ops >/dev/null 2>&1 || groupadd -r ai-ops
     # Report what this run actually did. `usermod -aG` is idempotent, so re-running the installer
     # would otherwise announce "adding" on every pass for an operator who has been a member since
@@ -1661,7 +1685,7 @@ do_install() {
         log "${PROJECTS_USER} is already in group ai-ops"
     else
         log "adding ${PROJECTS_USER} to group ai-ops"
-        usermod -aG ai-ops "${PROJECTS_USER}" || warn "could not add ${PROJECTS_USER} to ai-ops"
+        usermod -aG ai-ops "${PROJECTS_USER}" || warn MSG-C2X3 "could not add ${PROJECTS_USER} to ai-ops"
     fi
 
     section "ai-tools control plane (/opt/ai-tools)"
@@ -1959,7 +1983,7 @@ do_install() {
     else
         # The symlink is in place, so the timer starts with the manager at next boot. Say
         # what is not running now and what to check, rather than pointing at a nologin account.
-        warn "${SANDBOX_USER}'s systemd --user manager did not come up -- the auto-update timer"
+        warn MSG-M7K6 "the systemd --user manager of ${SANDBOX_USER} did not come up -- the auto-update timer"
         warn "  is enabled but not running, so toolchain updates wait for the next boot."
         warn "  Check:  sudo systemctl status user@${sandbox_uid}.service"
         warn "  Then:   sudo systemctl start user@${sandbox_uid}.service"
@@ -2011,7 +2035,7 @@ do_install() {
     # `tests/run.sh` available on demand.
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
         if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 ]]; then
-            warn "toolchain not provisioned -- the wrapper/handback/SELinux checks skip or fail"
+            warn MSG-A7X8 "toolchain not provisioned -- the wrapper/handback/SELinux checks skip or fail"
             warn "until it is; for a full pass run sudo ai-tools-admin system bootstrap first, then re-test"
             warn "with: sudo ${SCRIPT_DIR}/tests/run.sh all"
         fi
@@ -2026,7 +2050,7 @@ do_install() {
             # that question at startup, before the redirect, so hand the answer down: C_GRN is
             # set only on a terminal, and the log copy has its escapes stripped by the tee's sed.
             AI_TOOLS_TEST_COLOR="${C_GRN:+1}" "${SCRIPT_DIR}/tests/run.sh" all \
-                || warn "test suite reported failures -- review the output above"
+                || warn MSG-Y5P5 "test suite reported failures -- review the output above"
         else
             log "test suite skipped -- run it any time with: sudo ${SCRIPT_DIR}/tests/run.sh all"
         fi
@@ -2119,7 +2143,7 @@ do_uninstall() {
         elif ai_tools_conf_allowlist_remove "${allowlist}" "${SCRIPT_DIR}"; then
             log "allowed-projects: removed"
         else
-            warn "could not remove ${SCRIPT_DIR} from ${allowlist} -- it is still registered"
+            warn MSG-Z3H8 "could not remove ${SCRIPT_DIR} from ${allowlist} -- it is still registered"
         fi
     fi
 
@@ -2228,7 +2252,7 @@ choose_operator() {
         candidate="${candidate//[[:space:]]/}"
         refusal="$(operator_refusal "${candidate}")"
         if [[ -n "${refusal}" ]]; then
-            warn "${refusal}"
+            emit_coded warn "${refusal}"
             if [[ -n "${candidate}" ]] && ! id "${candidate}" &>/dev/null; then
                 operator_create_hint "${candidate}"
             fi
@@ -2240,7 +2264,7 @@ choose_operator() {
             return 0
         fi
     done
-    die "no usable operator named -- re-run the install and name one that exists"
+    die MSG-S3Y6 "no usable operator named -- re-run the install and name one that exists"
 }
 
 case "${ACTION}" in

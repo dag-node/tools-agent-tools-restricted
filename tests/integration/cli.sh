@@ -1150,6 +1150,13 @@ else
     else
         fail "--audit accepted an unparseable --since (rc=${rc}): ${out}"
     fi
+    #     The convenience emitters bake their descriptor in, so a descriptor passed as the
+    #     first argument would print as a bare digit on the line ABOVE the refusal.
+    if grep -qxE '[0-9]' <<<"${out}"; then
+        fail "--audit printed a bare digit line above its refusal: $(head -2 <<<"${out}")"
+    else
+        pass "--audit's refusal is not preceded by a stray descriptor line"
+    fi
 
     # (6) The DEPLOYED CLI reaches the helper. (1)-(5) drive the helper directly, so no case so
     #     far would notice a verb that was never wired into the dispatch. Asserted through the
