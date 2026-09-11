@@ -3748,10 +3748,11 @@ status_entrypoint_pins() {
 # The label itself stays unreadable from here -- the entrypoint lives in a 0750 toolchain this
 # account cannot traverse, and matchpathcon computes only what a label SHOULD be -- so this reports
 # the root-written record instead, through the same stamp accessors as the pin. It reports an EVENT:
-# what the last run could do, and when. Reading the labels themselves needs root, which
-# `ai-tools-admin status` does (read-only) and `ai-tools-admin system entrypoints relabel` does
-# while repairing them; the failure line names the second, which is the one that also clears the
-# recorded failure this reads.
+# what the last run could do, and when -- not the label the entrypoint carries now, which the
+# record does not hold: a refused rule ends the run before its verify pass, and the launch reads
+# the live type rather than this record. So the failure line names `ai-tools-admin status`, which
+# reads the labels as root, and the service start that re-runs the work and clears the unit's
+# own recorded failure with it.
 #
 # Returns non-zero only for a recorded failure, which is the one state that stops a launch.
 status_entrypoint_label() {
@@ -3766,8 +3767,9 @@ status_entrypoint_label() {
                      "${C_DIM}" "${age:-at an unknown time}" "${C_RST}" ;;
         failed)  printf '  %-28s %sNOT LABELLED%s %s(%s%s)%s\n' "" "${C_RED}" "${C_RST}" \
                      "${C_DIM}" "${age:-at an unknown time}" "${reason:+, ${reason}}" "${C_RST}"
-                 say "      its next session refuses to launch rather than run unconfined"
-                 say "      ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST} ${C_DIM}(then: journalctl -t ai-tools-relabel-agent)${C_RST}"
+                 say "      the last reconciliation could not apply this agent's labels; the label its"
+                 say "      entrypoint carries now is read by: ${C_BOLD}sudo ai-tools-admin status${C_RST}"
+                 say "      retry: ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST} ${C_DIM}(then: journalctl -t ai-tools-relabel-agent)${C_RST}"
                  return 1 ;;
         # Nothing to label -- a DAC-only host, or an agent the toolchain has not provisioned yet.
         # Neither is a fault, so neither is coloured or counted.

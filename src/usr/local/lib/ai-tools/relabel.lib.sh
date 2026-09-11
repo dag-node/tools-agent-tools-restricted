@@ -88,13 +88,17 @@ source "${BASH_SOURCE[0]%/*}/control-plane.lib.sh" 2>/dev/null || true
 # ai_tools_relabel_lock, which reports it in its own voice.
 AI_TOOLS_RELABEL_LOCK_NOTE=""
 
-# ai_tools_relabel_lock: hold AI_TOOLS_RELABEL_LOCK for the rest of the calling process, so a
-#   concurrent relabel waits rather than colliding inside semanage. Root-only: the lock file is
-#   created under /run/lock.
+# ai_tools_relabel_lock: hold AI_TOOLS_RELABEL_LOCK until ai_tools_relabel_unlock or the end of
+#   the calling process, so a concurrent relabel waits rather than colliding inside semanage.
+#   Root-only: the lock file is created under /run/lock. Every writer of the policy store takes
+#   it -- the root helpers, install-selinux.sh, and (open-coded on the same path, since a
+#   scriptlet does not source this library) the ai-tools-selinux %post.
 #
 #   Call it in the CALLING shell, never through `$(...)`: the lock is an open file descriptor, and
 #   a command substitution's subshell would drop it the moment the substitution returns. The
-#   reason travels in AI_TOOLS_RELABEL_LOCK_NOTE for the same reason.
+#   reason travels in AI_TOOLS_RELABEL_LOCK_NOTE for the same reason. A second call while the lock
+#   is held returns at once: flock serializes open file descriptions, so a fresh descriptor on the
+#   same file would wait on this process's own lock.
 #
 #   ALWAYS returns 0. A host without flock, a lock file that cannot be created, and a wait that
 #   runs out all proceed unserialized: labelling is idempotent and every refusal is reported, so a
@@ -103,6 +107,7 @@ AI_TOOLS_RELABEL_LOCK_NOTE=""
 #                              ai-tools-relabel-agent and ai-tools-relabel.
 ai_tools_relabel_lock() {
     AI_TOOLS_RELABEL_LOCK_NOTE=""
+    [[ -z "${_ai_tools_relabel_lock_fd:-}" ]] || return 0
     if ! command -v flock >/dev/null 2>&1; then
         AI_TOOLS_RELABEL_LOCK_NOTE="flock is not installed"
         return 0
@@ -120,6 +125,17 @@ ai_tools_relabel_lock() {
     exec {_ai_tools_relabel_lock_fd}>"${AI_TOOLS_RELABEL_LOCK}"
     flock -w "${AI_TOOLS_RELABEL_LOCK_WAIT}" "${_ai_tools_relabel_lock_fd}" \
         || AI_TOOLS_RELABEL_LOCK_NOTE="another relabel held the policy store for more than ${AI_TOOLS_RELABEL_LOCK_WAIT}s"
+    return 0
+}
+
+# ai_tools_relabel_unlock: release the lock ai_tools_relabel_lock took, by closing its descriptor.
+#   For a caller that writes the store in sections with a prompt between them
+#   (install-selinux.sh): a lock held across a prompt makes every other writer wait out
+#   AI_TOOLS_RELABEL_LOCK_WAIT and then proceed unserialized. A no-op when the lock is not held.
+ai_tools_relabel_unlock() {
+    [[ -n "${_ai_tools_relabel_lock_fd:-}" ]] || return 0
+    exec {_ai_tools_relabel_lock_fd}>&-
+    unset _ai_tools_relabel_lock_fd
     return 0
 }
 
