@@ -8,8 +8,9 @@
 # the signal that would otherwise be missing. With the module loaded it asserts: the system is
 # Enforcing and neither domain is individually permissive; the module-presence probe ai-tools-run
 # reads resolves the way the shim expects; a sandbox clone takes ai_tools_project_t; each agent's
-# declared entrypoint rule still covers what its package installed; and no link in the exec chain
-# carries a type the confined domain may write.
+# declared entrypoint rule still covers what its package installed; no link in the exec chain
+# carries a type the confined domain may write; and every enrolled operator's config subtree
+# carries ai_tools_conf_t, the type the root helpers read that account's allowlist through.
 #
 # The layer is OPTIONAL -- the policy is its own subpackage, and a host may run DAC-only -- so with
 # the module absent the whole file SKIPS instead of demanding SELinux on a host that does not ship
@@ -304,6 +305,41 @@ else
         done
     done < <(ai_tools_enabled_agents 2>/dev/null)
     (( chain_seen > 0 )) || skip "exec chain type containment" "no enabled agent's entrypoint resolved"
+fi
+
+# EVERY enrolled operator's config subtree must carry ai_tools_conf_t, not only the account that
+# ran the installer. The root helpers run in ai_tools_handback_t, which holds that narrow type
+# alone under ~/.config, so an unlabelled subtree denies their getattr on that operator's
+# allowlist, no owner resolves, and the ownership handback no-ops for every project the account
+# owns. Every DAC test stays green through that, and dontaudit suppresses the session's own denial
+# on the same path, which leaves an unattributed handback-domain AVC as the only signal an
+# enforcing host gives.
+#
+# Read-only: it stats the live label and does not register a rule, the same line this file draws for
+# ai_tools_unlabel_project. What repairs a failure is `ai-tools-admin operators add <user>`, which
+# registers the rule per account, or a full `install-selinux.sh relabel`, which sweeps the list.
+section "SELinux: every enrolled operator's config subtree is ai_tools_conf_t"
+
+if ! declare -F ai_tools_load_operators >/dev/null 2>&1 \
+        && ! source /usr/local/lib/ai-tools/operator.lib.sh 2>/dev/null; then
+    skip "operator config labelling" "operator.lib.sh not readable -- cannot resolve the operator list"
+elif ! ai_tools_load_operators; then
+    skip "operator config labelling" "no operator is enrolled in operator.conf"
+else
+    for op_name in "${AI_TOOLS_OPERATORS[@]}"; do
+        op_home="$(getent passwd "${op_name}" 2>/dev/null | cut -d: -f6 || true)"
+        op_conf="${op_home}/.config/ai-tools"
+        if [[ -z "${op_home}" || ! -d "${op_conf}" ]]; then
+            skip "${op_name} config labelling" "no ${op_conf} on this host"
+            continue
+        fi
+        op_type="$(type_of "${op_conf}")"
+        if [[ "${op_type}" == ai_tools_conf_t ]]; then
+            pass "${op_name}: ${op_conf} is ai_tools_conf_t"
+        else
+            fail "${op_name}: ${op_conf} is ${op_type:-none}, not ai_tools_conf_t -- the root helpers cannot read that operator's allowlist, so ownership handback no-ops for every project they own. Fix: sudo ai-tools-admin operators add ${op_name}"
+        fi
+    done
 fi
 
 finish

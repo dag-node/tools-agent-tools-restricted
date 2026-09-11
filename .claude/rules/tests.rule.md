@@ -522,7 +522,10 @@ entrypoint file-context predicate (`relabel.lib.sh`). A declared pattern becomes
 rule granting `ai_tools_exec_t`, the confined domain's exec entrypoint, so the test drives every
 way a pattern could name something outside the sandbox toolchain (traversal, alternation, a
 foreign prefix) and asserts each is refused — plus that the type is the library's constant, never
-manifest-supplied. It then pins the two pure decisions behind the declared-vs-installed
+manifest-supplied. `ai_tools_operator_conf_valid` is driven the same way, over the path that
+becomes an `ai_tools_conf_t` rule: its input is a home read from a passwd entry, so a wildcard, an
+alternation, or a bracket expression there must be refused rather than widening the rule to homes
+nobody enrolled, and the pattern it builds must escape every dot. It then pins the two pure decisions behind the declared-vs-installed
 reconciliation: `ai_tools_entrypoint_reconcile_verdict` over its whole truth table — where `stale`
 is the verdict that must fail a relabel, being the one cause a rerun cannot clear, and an
 uninterpretable flag must err toward it rather than toward blessing a divergence — and
@@ -662,7 +665,10 @@ layout module is loaded, the build-output labelling that only libselinux can ans
 one of the module's directories resolves to `ai_tools_project_build_t` and every other clone path
 to `ai_tools_project_t` (the rule precedence the narrowing rests on, read with `matchpathcon`),
 and a `bin/` directory created in the sandbox area by `unconfined_t` is born on the build type with
-no `restorecon`. The `ai_tools_t` transition and the `buildexec` execute grant need a session, and
+no `restorecon`. It closes by reading the live type of **every** enrolled operator's
+`~/.config/ai-tools`: the rule is per account, and a subtree without it denies the root helpers the
+read that resolves a path's owner, so that operator's projects stop being handed back while every
+DAC assertion stays green. The `ai_tools_t` transition and the `buildexec` execute grant need a session, and
 `selinux/avc/avc-testsuite.sh` probes them. `systemd.sh` is the single home for unit checks:
 `systemd-analyze verify` on each shipped unit, plus enablement in the correct instance —
 the `nvm-update` timer in the sandbox account's own `--user` instance, the relabel watcher
