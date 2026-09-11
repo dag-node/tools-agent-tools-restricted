@@ -996,6 +996,20 @@ checks a rewrite needs a reader for — the `does not` rule in its past and part
 and the verbs that name no operation. Every `--all` check wants a reader on each hit. `--kept` is
 the rewrite mode, described under [Run the checks a rewrite needs](#run-the-checks-a-rewrite-needs).
 
+### When the tool is the defect
+
+`prose-check.py` and `ref-index.py` live inside this skill. A check that mostly flags correct
+prose is a bug in the check, not in the text. The same is true of a reference finding that names a
+shape the grammar already allows, or a hint that points to the wrong fix.
+
+Do not silence it with `prose-check: ignore` or a reword that only dodges the pattern. That hides
+the evidence and leaves the cost for everyone else.
+
+**Measure first.** Run the check on the whole tree and report how many hits a reviewer would keep
+versus how many are noise. A proposal without a count is a preference; a proposal with a count is
+evidence. Rejected widenings (and the narrowings that earned their place) are recorded next to the
+checks so the same mistakes are not repeated.
+
 Quoted, backticked, and fenced spans are skipped, so a document may quote the prose it warns
 against; mark anything else deliberate with `prose-check: ignore` on the line, or
 `<!-- prose-check: ignore -->` in Markdown, where the marker then stays out of the rendered page.

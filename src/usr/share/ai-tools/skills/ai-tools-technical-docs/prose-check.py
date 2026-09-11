@@ -78,6 +78,12 @@
 #   vague-verb         a verb naming no operation. `convey` is exempt in a sentence about
 #                      licensing, which is the one place it is a term of art.
 #
+# WHEN A CHECK IS THE DEFECT, REPORT IT. Every check here is a grep standing in for a rule
+# about meaning, so one that mostly flags correct prose is a bug in the check. Measure it
+# tree-wide, and propose the change to the check and to the SKILL.md rule together -- see
+# that file's "When the tool is the defect". The counts behind the current narrowings,
+# and the two widenings they rejected, sit beside the checks themselves.
+#
 # A line carrying `prose-check: ignore` is skipped, which is how a style guide keeps the labelled
 # bad examples it has to contain. In Markdown the marker goes in an HTML comment
 # (`<!-- prose-check: ignore -->`), which the substring match finds and the rendered page omits.
