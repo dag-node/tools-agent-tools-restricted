@@ -102,7 +102,11 @@ as the library does.
 
 The components that report without the library — the root helpers and the two installers, each
 with a `printf` `die()`/`warn()` of its own — match the same anchored form inline and render it the
-same way plain mode does: the code on its own line, then the helper's prefixed message whole. One
+same way plain mode does: the code on its own line, then the helper's prefixed message whole. A
+refusal that answers **before** the library is loaded takes the same treatment even in a component
+that goes on to source it: `ai-tools.sh` refuses the sandbox account, refuses root, and refuses a
+`--for` with no operator name ahead of every load, through a `refuse_early` carrying that inline
+matcher. One
 shape everywhere is what lets the harness's `assert_msg` read a code with a single whole-line
 match, and what keeps every prose grep on a helper's message intact; `tests/unit/msg.sh` holds each
 inline copy to the library's constant, so a copy cannot drift into printing a code as prose.

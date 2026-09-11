@@ -131,6 +131,26 @@ The defect is the hiding, not the word: `nothing is exempt` in a file that termi
 leaves the reader to work out the scope of a sweep, where `no cgroup under the account is exempt`
 states it. Name the thing, and the same goes for `everything`, `anything`, and `all of them`.
 
+**Where `nothing` is the object of an output verb, it names an empty result and is the right
+word.** `Prints nothing when the set in force matches the baseline` states what a caller reads;
+there is no absent *input* to name. The exempt verbs are the ones whose object **is** the
+output — `prints`, `writes`, `emits`, `reports`, `renders`, `says`, `yields`, `outputs` — and the
+exemption reaches only the verb that governs the word.
+
+- In style: `Prints nothing when the set in force matches the baseline.`
+- Off style: `The sweep prints a summary, and nothing is exempt.` — the output verb is in the
+  other clause, so the scope is still unnamed: `no cgroup under the account is exempt`.
+
+Three shapes sit outside the exemption, and each is a claim to write differently:
+
+- **`grants nothing`** reads like the others and is not one of them. What is granted is an
+  authority over some scope, which the sentence still owes the reader.
+- **`returns nothing`** says what a caller gets *back*, which in shell is a status and in most
+  languages is `void` — so the phrase is seldom true and never states what was written. Name the
+  stream: `prints nothing`.
+- **`runs nothing`, `loading nothing`** name an empty *effect* rather than an empty output.
+  Write the effect: `is not executed`, `without loading a module`.
+
 **Where the actor is a person, `nothing` is often the right word and the replacement is not.**
 "what you have to do about it (almost always nothing)" is an action the reader takes; `none` reads
 as a count of some set the sentence never named. Keep the sentence and mark the line
@@ -219,6 +239,20 @@ fewest words that stay clear.
 
 - In style: `does not write any entries`, `does not take a path argument`
 - Off style: `writes no entries`, `takes no path argument`
+
+**The rule in one line: write `X does not Y`, or `X has no Y`; avoid `X Ys no Z`.** `has no` is the
+plain existential and does not need a rewrite — it is one of the four verbs the check leaves alone,
+with `is`, `was` and `had` — so a stative claim has two ordinary forms and no reason to reach for
+the third.
+
+**A stative claim takes the rule too, and is where it is missed.** `writes no entries` and `takes
+no path argument` are actions with a caller-supplied object, which is the easy case; the shape that
+survives a redraft describes what an artifact *has* — `a checkout carries no compiled module`, `the
+header registers no entry`. Fronting reads as natural there. It is the same figure, in a
+declarative rather than a procedural sentence.
+
+- In style: `a checkout has no compiled module`, `the header does not register an entry`
+- Off style: `a checkout carries no compiled module`, `the header registers no entry`
 
 **The object's number follows the code, not a preference.** `does not take any path arguments`
 and `does not take a path argument` are different claims about arity — a variadic parameter
@@ -965,6 +999,10 @@ the rewrite mode, described under [Run the checks a rewrite needs](#run-the-chec
 Quoted, backticked, and fenced spans are skipped, so a document may quote the prose it warns
 against; mark anything else deliberate with `prose-check: ignore` on the line, or
 `<!-- prose-check: ignore -->` in Markdown, where the marker then stays out of the rendered page.
+A **generated** file takes `prose-check: ignore-file` on a comment line of its own instead, and is
+not read at all — the marker is for a file whose text is copied from the targets it indexes, where
+a finding names prose that file cannot fix and the fix would edit a runtime string. It is read only
+as a whole line, so a document naming the marker is still checked.
 Run it before committing prose, and on the commit message too — the universal rules cover that
 artifact like any other.
 

@@ -486,8 +486,9 @@ else
     fail "coded block wrong: top='${cblk[1]}' plain=$(printf '[%s]' "${plain_cblk}")"
 fi
 
-# (29) The components that report without the library match a leading code inline, and every
-# inline copy is the library's own anchored form -- a copy that drifts is a helper that prints a
+# (29) The components that report without the library -- the helpers that never source it, and the
+# CLI's principal guards, which answer before it is loaded -- match a leading code inline, and every
+# inline copy is the library's own anchored form: a copy that drifts is a helper that prints a
 # code as prose, or reads prose as a code. Checked in the source tree (the copies are text), and
 # skipped outside a checkout.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -499,6 +500,7 @@ inline_matchers=(
     src/usr/local/libexec/ai-tools/ai-tools-relabel.sh
     src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh
     src/opt/ai-tools/bin/nvm-update.sh
+    src/usr/local/bin/ai-tools.sh
     src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh
     install.sh
     selinux/install-selinux.sh

@@ -34,6 +34,7 @@ for verb in --project-claim --project-unclaim --sandbox-create --lockdown --recl
     else
         fail "CLI did not refuse root on ${verb} (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-H6W7 "${out}" "the refusal on ${verb} is the root principal guard"
 done
 
 # (1b) The verbs that write no operator state are the carve-out: --audit needs root by
@@ -58,6 +59,7 @@ done
 out="$("${CLI}" --stop --bogus 2>&1)" && rc=0 || rc=$?
 if [[ ${rc} -eq 2 ]] && grep -qi 'unknown --stop option' <<<"${out}"; then
     pass "CLI accepts root on --stop (reached the option loop, no session signalled)"
+    assert_msg MSG-B7K4 "${out}" "root reached --stop's unknown-option refusal"
 else
     fail "CLI did not admit root to --stop's option loop (rc=${rc}): ${out}"
 fi
@@ -85,6 +87,7 @@ for form in "--for ${PROJECTS_USER} --list" "--list --for ${PROJECTS_USER}"; do
     else
         fail "CLI did not refuse root on '${form}' (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-H6W7 "${out}" "the '${form}' refusal is the root principal guard"
 done
 
 # (2) Running as the sandbox account must be refused -- the agent must not manage its own
@@ -99,6 +102,7 @@ else
     else
         fail "CLI did not refuse the sandbox account (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-Q6Q8 "${out}" "the refusal is the sandbox-account guard, ahead of every other gate"
 
     # (3) The legitimate principal (the projects user) clears the guard -- the refusal is
     # scoped to root and the agent, not a blanket block. HOME is set explicitly so the CLI
@@ -134,6 +138,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "non-operator was not cleanly refused (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-X6U2 "${out}" "the refusal is the invoker's own enrolment gate, not the --for target's"
     if [[ -s "${emptyal}" ]] || grep -qi 'allowed-projects: added' <<<"${out}"; then
         fail "refused claim still wrote to the allowlist: ${out}"
     else
@@ -167,6 +172,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--project-unclaim did not refuse a non-project (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-P8W2 "${out}" "the refusal is the nothing-to-unclaim one (no entry, no fingerprint)"
 
     # (6b) A project root owned by a third party is REFUSED, not claimed. The claim's setgid and
     # ACL helpers act only on paths held by the resolved operator or the sandbox account, so such
@@ -185,6 +191,7 @@ if command -v runuser >/dev/null 2>&1; then
         else
             fail "--project-claim did not refuse a third-party-owned root (rc=${rc}): $(brief "${out}")"
         fi
+        assert_msg MSG-U8G4 "${out}" "the refusal is the claimable-owner guard"
         if grep -q "chown -R ${PROJECTS_USER} ${foreignproj}" <<<"${out}"; then
             pass "the refusal names the chown that makes the tree claimable"
         else
@@ -230,6 +237,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--project-create did not refuse a missing path (rc=${rc}): $(brief "${out}")"
     fi
+    assert_msg MSG-A7D3 "${out}" "the refusal is --project-create's missing-path one"
 
     # An EXISTING directory is refused, naming the verb that does claim one. This is the line
     # between the two verbs: a create that quietly claimed what was already there would make them
@@ -243,6 +251,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--project-create did not refuse an existing directory (rc=${rc}): $(brief "${out}")"
     fi
+    assert_msg MSG-T4B9 "${out}" "the refusal is the path-already-exists one"
 
     # ONE directory is created, never a path of them: a parent that does not exist is refused
     # rather than built. This is what keeps a mistyped path from becoming a silently manufactured
@@ -254,6 +263,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--project-create did not refuse a missing parent (rc=${rc}): $(brief "${out}")"
     fi
+    assert_msg MSG-J3R8 "${out}" "the refusal is the missing-parent one, not the path-exists one"
 
     # The protected-paths backstop on the target: a create must not be able to MANUFACTURE a
     # protected directory. Exits 3, the backstop's own code. Driven against a protected path this
@@ -398,6 +408,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--project-remove did not refuse an unregistered path (rc=${rc}): $(brief "${out}")"
     fi
+    assert_msg MSG-P8Y8 "${out}" "the refusal is the no-registry-entry one"
 
     # A path INSIDE a claimed project is refused, naming the project that is the real target.
     out="$(remove_cli "${rmproj}/sub")" && rc=0 || rc=$?
@@ -406,6 +417,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--project-remove did not refuse a descendant (rc=${rc}): $(brief "${out}")"
     fi
+    assert_msg MSG-K5Y4 "${out}" "the refusal is the inside-a-project one"
 
     # An ancestor of claimed projects is refused and pointed at --project-unclaim: this verb
     # removes one registered project, never a directory that merely contains some.
@@ -415,6 +427,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--project-remove did not refuse an ancestor (rc=${rc}): $(brief "${out}")"
     fi
+    assert_msg MSG-F4D8 "${out}" "the refusal is the unregistered-ancestor one"
 
     # An exact entry that CONTAINS another claimed project is refused. Deleting it would take the
     # nested one with it and leave that project registered, git-trusted and labelled at a path
@@ -426,6 +439,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--project-remove did not refuse a project with a nested claim (rc=${rc}): $(brief "${out}")"
     fi
+    assert_msg MSG-Q3R9 "${out}" "the refusal is the registered-entry-contains-projects one"
 
     # There is no --force: the flag that reaches an unregistered tree on unclaim must not become
     # a way to delete one here.
@@ -436,6 +450,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--project-remove accepted or mishandled --force (rc=${rc}): $(brief "${out}")"
     fi
+    assert_msg MSG-S6Q5 "${out}" "the refusal is the no---force one, ahead of classification"
 
     # -y requires an explicit path, so an unattended run can never delete whatever directory it
     # started in.
@@ -445,6 +460,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--project-remove -y did not require an explicit path (rc=${rc}): $(brief "${out}")"
     fi
+    assert_msg MSG-K7D9 "${out}" "the refusal is -y's explicit-path one"
 
     # And the property the whole gate exists for: a registered project, correctly targeted, is
     # still NOT deleted without a terminal -- the confirm takes its No default and the challenge
@@ -541,6 +557,7 @@ if command -v runuser >/dev/null 2>&1; then
             && grep -qi 'parent directory is not writable' <<<"${out}" \
             && grep -qF "${rmpar}" "${rmal}"; then
         pass "--project-remove refuses an unwritable parent before deleting any of the tree"
+        assert_msg MSG-H3F6 "${out}" "the refusal is the unwritable-parent one, not the walk's"
     else
         fail "--project-remove did not refuse an unwritable parent (rc=${rc}, contents gone: $([[ -d "${rmpar}/sub" ]] && echo no || echo yes)): $(brief "${out}" 'parent directory')"
     fi
@@ -563,6 +580,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--project-remove acted past a failed de-registration (rc=${rc}): $(brief "${out}")"
     fi
+    assert_msg MSG-K8S2 "${out}" "the refusal is the entry-still-registered one"
 
     # Teardown order: registries before the tree. Driven with -y, which is the one path that
     # reaches the deletion without a terminal, over a project that IS fully deletable. Both
@@ -667,6 +685,7 @@ EOF
         else
             fail "${verb} did not refuse a non-project (rc=${rc}): ${out}"
         fi
+        assert_msg MSG-J3K5 "${out}" "${verb}'s refusal is the not-covered one, not the parked-project one"
     done
 
     # (9) --sandbox-remove refuses a target that is not a real clone, BEFORE any rm -rf:
@@ -687,6 +706,7 @@ EOF
         else
             fail "--sandbox-remove did not refuse the clone-area root (rc=${rc}): ${out}"
         fi
+        assert_msg MSG-T4Z6 "${out}" "the clone-area root is refused as a path outside a clone"
         out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
                 AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_SANDBOX_ROOT="${sroot}" \
                 setsid "${CLI}" --sandbox-remove "${lone}" 2>&1)" && rc=0 || rc=$?
@@ -695,6 +715,7 @@ EOF
         else
             fail "--sandbox-remove did not refuse a non-sandbox path (rc=${rc}): ${out}"
         fi
+        assert_msg MSG-T4Z6 "${out}" "a path outside the clone area is refused by the same check"
     fi
 fi
 
@@ -718,6 +739,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--stop did not refuse an unknown option with rc=2 (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-B7K4 "${out}" "the refusal is --stop's unknown-option one"
     # A path is refused BY THE CLI, before sudo. Accepting it would invert the operator's intent
     # in the destructive direction -- they typed a path to narrow the command, which terminates
     # every session -- and the refusal must name the alternative rather than dead-end them.
@@ -728,6 +750,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--stop accepted a path, or refused it without rc=2/guidance (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-A3M9 "${out}" "the refusal is --stop's takes-no-path one"
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" setsid \
             "${CLI}" --stop --all /some/project 2>&1)" && rc=0 || rc=$?
     if [[ ${rc} -eq 2 ]] && grep -qi 'takes no path' <<<"${out}"; then
@@ -735,6 +758,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--stop --all accepted a path or refused it without rc=2 (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-A3M9 "${out}" "--all does not change which refusal a path gets"
 fi
 
 # --for <operator>: acting on another enrolled operator's registry. Every refusal here precedes the
@@ -774,6 +798,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--for accepted an unenrolled target (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-E3D2 "${out}" "the refusal is the --for target's enrolment gate, not the invoker's"
     if [[ -s "${fal}" ]]; then
         fail "refused --for run still wrote to a registry: $(cat "${fal}")"
     else
@@ -787,6 +812,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--for accepted the sandbox account (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-M3Z3 "${out}" "the refusal names the sandbox account, not an unenrolled name"
 
     # (3) Refused, not ignored, on a verb it does not apply to -- a --sandbox-create that silently
     # cloned as the invoker would leave the tree owned by the wrong operator with no output to show.
@@ -796,6 +822,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--for was not refused on --sandbox-create (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-U7R7 "${out}" "the refusal is the accepted-verbs one"
 
     # (4) --force binds an unlisted tree to the INVOKING uid inside ai-tools-unclaim, so honouring
     # --for there would have the CLI name one operator while the helper acted as another.
@@ -805,6 +832,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--for was accepted alongside --force (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-B5K3 "${out}" "the refusal is --for's own --force one, not --keep-entry's"
 
     # (5) A bare --for with no name is a parse error, not an empty operator silently meaning "me".
     out="$(run_for --project-claim --for)" && rc=0 || rc=$?
@@ -813,6 +841,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--for with no name was not refused (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-B4G2 "${out}" "the refusal is the flag's own argument check, ahead of every gate"
 fi
 
 # ── --project-disable / --project-enable: parking a project in place ─────────────────────────
@@ -904,6 +933,7 @@ else
         else
             fail "${verb} did not refuse an unregistered path (rc=${rc}): $(brief "${out}")"
         fi
+        assert_msg MSG-T4A8 "${out}" "${verb} refuses through the pair's shared no-entry refusal"
     done
     if [[ "$(cat "${pd_al}")" == "${pd_before}" ]]; then
         pass "both refusals left the registry untouched"
@@ -921,6 +951,7 @@ else
     else
         fail "--project-enable did not refuse a carve-out (rc=${rc}): $(brief "${out}")"
     fi
+    assert_msg MSG-W4S7 "${out}" "the refusal is the carve-out one, not the no-entry one"
     if grep -qF "!${pd_carve}" "${pd_al}"; then
         pass "the carve-out line survived the refusal"
     else
@@ -936,6 +967,7 @@ else
     else
         fail "--project-disable parked a nested project (rc=${rc}): $(brief "${out}")"
     fi
+    assert_msg MSG-D8C8 "${out}" "the refusal is the nested-park one"
     if ! grep -qF "!${pd_nested}" "${pd_al}"; then
         pass "the refused park wrote no exclusion"
     else
@@ -986,6 +1018,7 @@ else
     out="$(pd_cli --project-unclaim --keep-entry --force "${pd_proj}")" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'keep-entry cannot be combined with --force' <<<"${out}"; then
         pass "--keep-entry with --force is refused (there is no entry to keep)"
+        assert_msg MSG-R3G9 "${out}" "the refusal is --keep-entry's own --force one"
     elif grep -qi 'holds no sudo grant' <<<"${out}"; then
         skip "--keep-entry with --force" "no sudo grant for the unclaim helper here"
     else
@@ -1002,6 +1035,7 @@ else
     else
         fail "--project-remove accepted --keep-entry (rc=${rc}): $(brief "${out}")"
     fi
+    assert_msg MSG-M3Y5 "${out}" "the refusal is the unknown-option one, not a --keep-entry special case"
     if [[ -d "${pd_proj}" ]]; then
         pass "the refused option deleted nothing"
     else

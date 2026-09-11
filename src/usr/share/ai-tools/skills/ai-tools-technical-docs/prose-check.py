@@ -81,6 +81,10 @@
 # A line carrying `prose-check: ignore` is skipped, which is how a style guide keeps the labelled
 # bad examples it has to contain. In Markdown the marker goes in an HTML comment
 # (`<!-- prose-check: ignore -->`), which the substring match finds and the rendered page omits.
+# A file carrying `prose-check: ignore-file` as the whole content of a comment line is not read at
+# all, which is how a GENERATED file whose text is copied from elsewhere stays out of the report:
+# its findings name prose that file cannot fix. The file marker is read only as a whole line, so a
+# document describing either marker is still checked.
 
 import argparse
 import re
@@ -88,6 +92,25 @@ import subprocess
 import sys
 
 IGNORE_MARKER = "prose-check: ignore"
+# The file marker is read only as the whole content of a comment line, so a document describing it
+# is still checked. It exists for a GENERATED file whose text is copied from elsewhere -- the
+# cross-reference index reprints every message a component emits -- where a finding names prose
+# this file cannot fix and rewriting the source to satisfy it would change a runtime string.
+IGNORE_FILE_MARKER = re.compile(
+    r"^\s*(?:#|//|<!--|;|--)?\s*prose-check: ignore-file\s*(?:-->)?\s*$")
+_ignore_file_cache = {}
+
+
+def ignored_file(path):
+    """True when <path> carries the file-level ignore marker on a comment line of its own."""
+    if path not in _ignore_file_cache:
+        try:
+            with open(path, errors="ignore") as handle:
+                found = any(IGNORE_FILE_MARKER.match(line) for line in handle)
+        except OSError:
+            found = False
+        _ignore_file_cache[path] = found
+    return _ignore_file_cache[path]
 
 # Any verb before `no`, rather than a list of them: an enumerated list finds only the verbs
 # whoever wrote it thought of, and this construction takes every transitive verb in the language.
@@ -178,9 +201,47 @@ REFERENCE_SHAPE = re.compile(rf"\bref-(?:{_REFTAG_KINDS})-(?![a-z][0-9][a-z][0-9
 REFTAG_LINK = re.compile(rf"(\[(?:ref-(?:{_REFTAG_KINDS})-[a-z][0-9][a-z][0-9]"
                          r"|(?:FN|NOTE|MSG|URI)-[A-Z][0-9][A-Z][0-9])\])\([^)]*\)")
 
+# `nothing` as the object of an OUTPUT verb names an empty result -- `prints nothing when the two
+# agree` states what a caller reads -- which is the opposite of the defect this check exists for.
+# The defect is a hidden SCOPE: `nothing is exempt` leaves a reader to work out what a sweep
+# reaches.
+#
+# The list is short and stays short, because the exemption turns on the object BEING the output.
+# These verbs take what was written as their object, so `nothing` there is a value. `grants
+# nothing` reads the same way and is not exempt: what is granted is an authority over some scope,
+# which the sentence still has to name -- and `returns nothing` is not here either, since a
+# function returns to its caller (in shell, a status), so the phrase claims something that is
+# seldom true and never says what the caller reads.
+#
+# The window is one verb and an optional particle, so only the verb that GOVERNS `nothing` exempts
+# it; an output verb elsewhere in the sentence (`the sweep prints a summary, and nothing is
+# exempt`) does not.
+_EMITTED_NOTHING = re.compile(
+    r"\b(?:print|write|output|emit|report|render|say|yield)(?:s|es|ed|ing)?"
+    r"(?:\s+(?:back|out|up|off))?\s+nothing\b", re.IGNORECASE)
+
+
+def hidden_scope_nothing(sentence):
+    """`nothing` standing in for a scope the sentence never names, an output verb's result aside.
+
+    Two widenings were measured against this repository and declined, so neither is re-derived:
+
+      the other indefinite pronouns  `everything`/`anything`/`something` beside a copula, in
+                     either order, reports 49 sentences of which nearly all are ordinary English --
+                     `before anything is created`, `exits non-zero when anything is reported`,
+                     `returns 0 when something was stripped`. Narrowing the predicate to a policy
+                     word (`is exempt`, `is spared`) leaves 5, and every one names its scope in the
+                     next breath, so each would need a marker: precise and still a net loss.
+      case-insensitive  a sentence-initial `Nothing` is a different move from the mid-sentence
+                     hedge -- an emphatic answer whose scope the sentence goes on to give
+                     (`Nothing outside these paths is ever touched`) -- and reports 40 more.
+    """
+    return re.search(r"\bnothing\b", _EMITTED_NOTHING.sub(" ", sentence))
+
+
 DEFAULT_CHECKS = [
     ("fronted-quantifier", FRONTED_QUANTIFIER, None),  # hint derived; see suggest()
-    ("nothing", re.compile(r"\bnothing\b"), "name the absent input"),
+    ("nothing", hidden_scope_nothing, "name the absent input"),
     ("positional-reference", POSITIONAL_REFERENCE,
      "name the section, function, or file the reader goes to"),
     ("reference-shape", REFERENCE_SHAPE,
@@ -920,6 +981,8 @@ def main():
     if args.kept is not None:
         count = 0
         for path, kind, detail, context in kept_findings(args.kept):
+            if ignored_file(path):
+                continue
             count += 1
             print(f"{path}: {kind} [{detail}] -- {KEPT_HINTS[kind]}")
             print(f"    - {context[:110]}")
@@ -938,6 +1001,8 @@ def main():
         count = 0
         width = args.width if args.width is not None else HEADER_WIDTH
         for path, number, name, token, hint, text in header_findings(args.paths, width):
+            if ignored_file(path):
+                continue
             count += 1
             print(f"{path}:{number}: {name} [{token}] -- {hint}")
             print(f"    {text[:110]}")
@@ -954,8 +1019,9 @@ def main():
                   for number, line in enumerate(open(args.message, errors="ignore"), 1))
     else:
         source = file_lines(args.paths)
-    # Read twice -- once as sentences, once as lines -- so the source is held rather than streamed.
-    source = list(source)
+    # Read twice -- once as sentences, once as lines -- so the source is held rather than streamed,
+    # and an ignore-file path is dropped here, which covers every reading mode at once.
+    source = [item for item in source if not ignored_file(item[0])]
 
     count = 0
     for path, number, name, token, hint, text in findings(source, checks, PATH_CHECKS):

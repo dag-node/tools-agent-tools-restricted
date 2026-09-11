@@ -10,7 +10,8 @@
 # prose survives.
 #
 # Also pins the three behaviours a caller depends on but no finding names: the exit status (a
-# sweep and the pre-commit hook branch on it), the suppression paths (`prose-check: ignore`, and
+# sweep and the pre-commit hook branch on it), the suppression paths (`prose-check: ignore`,
+# `prose-check: ignore-file` for a generated file, and
 # the backticked span that lets a style guide quote the prose it warns against), and the
 # extension-driven read mode that `--prose`/`--source` override. `--kept` is driven over a real
 # git index, since it is the check that guards a security claim through a rewrite.
@@ -126,6 +127,11 @@ omits() {
 # ── Each default check fires on the shape it names ────────────────────────────────────────────
 reports fronted-quantifier TEST-PC-01-fronted-quantifier.md "The helper takes no path argument."
 reports nothing            TEST-PC-02-nothing.md            "There is nothing left to check."
+# An emit verb elsewhere in the sentence does not exempt a `nothing` it does not govern. This is
+# the widening guard on the empty-result carve-out: read loosely it silences the defect the check
+# exists for, and the sentence that names both is what catches it.
+reports nothing            TEST-PC-79-nothing-ungoverned.md \
+    "The sweep prints a summary, and nothing is exempt."
 reports unbacked-cost      TEST-PC-03-unbacked-cost.md      "The label probe is cheap."
 reports predicted-action   TEST-PC-04-wants-clause.md \
     "A host that wants it enforced keeps operator.conf root-owned."
@@ -143,6 +149,16 @@ reports reference-shape TEST-PC-72-reference-shape-code.md "The refusal prints M
 # ── ...and stays silent on the corrected form, which is the half a widened pattern breaks ─────
 silent TEST-PC-06-fronted-quantifier-ok.md "The helper does not take a path argument."
 silent TEST-PC-07-nothing-ok.md "The helper does not read the path argument, so the validator is skipped."
+# `nothing` as the object of an OUTPUT verb names an empty result, which is a contract rather than
+# a hidden scope. Two of the verbs, since the exemption turns on the object being the output.
+silent TEST-PC-80-nothing-result.md \
+    "Prints nothing when the set in force matches the baseline." \
+    "The drift report writes nothing on a host that has kept the shipped patterns."
+# The verbs NOT exempt, each a different claim: an authority whose scope is still owed, a value a
+# caller gets back rather than reads, and an empty effect. A widened list silences all three.
+reports nothing TEST-PC-81-nothing-granted.md "A claim over a sealed directory grants nothing."
+reports nothing TEST-PC-82-nothing-returned.md "The helper returns nothing when the two agree."
+reports nothing TEST-PC-83-nothing-run.md "A comment between the two runs nothing."
 silent TEST-PC-70-positional-threshold.md "A comment line stays below 120 columns, and a box within 80."
 silent TEST-PC-73-reference-ok.md \
     "The owner rule [ref-section-j9l2](../cli.rule.md#ref-section-j9l2) holds, and the message carries MSG-F6Z3."
@@ -170,6 +186,16 @@ silent TEST-PC-13-allow-marker.md "The label probe is cheap. <!-- prose-check: i
 # shellcheck disable=SC2016
 silent TEST-PC-14-quoted-span.md \
     'Write `does not take a path argument` rather than the fronted `takes no path`.'
+# The file marker takes the whole file out of the report -- what a generated file needs, its text
+# being copied from targets it cannot edit. Pinned from both sides, because the two failures are
+# not symmetric: read too loosely it silences every document that merely NAMES the marker, and the
+# second case is the one that catches that.
+silent TEST-PC-77-ignore-file.md \
+    "<!-- prose-check: ignore-file -->" "There is nothing left to check." \
+    "The helper takes no path argument."
+reports nothing TEST-PC-78-ignore-file-named.md \
+    "A file carrying <!-- prose-check: ignore-file --> as a line of its own is not read." \
+    "There is nothing left to check."
 
 # ── Exit status is the contract a sweep and the pre-commit hook branch on ──────────────────────
 run_check "$(fixture TEST-PC-15-exit-finding.md 'There is nothing left to check.')"

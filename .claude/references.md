@@ -6,6 +6,10 @@ here to its name, its file, and the files that cite it, and `ref-index.py where 
 the live line. A row named `example` reserves an id a document shows without defining it. The
 emitter column carries, for a message code, the word that emits it.
 
+<!-- prose-check: ignore-file -->
+Each name is copied from the target it indexes, so a writing finding here names prose this file
+cannot fix -- a message code's name is a runtime string, and rewording one is a code change.
+
 | Id | Reftag | Name | File | Cited by | Emitter |
 |---|---|---|---|---|---|
 | w4z6 | [ref-section-w4z6](rules/confinement.rule.md#ref-section-w4z6) | The toolchain is read-only to the confined domain | .claude/rules/confinement.rule.md | .claude/rules/agent-claude-code.rule.md, .claude/rules/launch.rule.md |  |
@@ -23,6 +27,44 @@ emitter column carries, for a message code, the word that emits it.
 | a4q4 | [MSG-A4Q4](../src/opt/ai-tools/bin/ai-tools-run.sh) | AI_TOOLS_PROJECT_DIR contains parent-directory references | src/opt/ai-tools/bin/ai-tools-run.sh |  | refuse |
 | f8v8 | [MSG-F8V8](../src/opt/ai-tools/bin/ai-tools-run.sh) | AI_TOOLS_PROJECT_DIR is not an existing directory: ${AI_TOOLS_PROJECT_DIR} | src/opt/ai-tools/bin/ai-tools-run.sh | tests/integration/ai-tools-run.sh | refuse |
 | h7s2 | [MSG-H7S2](../src/opt/ai-tools/bin/ai-tools-run.sh) | the agent entrypoint does not match the checksum its vendor signed for the installed version -- refusing to start the session | src/opt/ai-tools/bin/ai-tools-run.sh | tests/integration/ai-tools-run.sh | refuse |
+| q6q8 | [MSG-Q6Q8](../src/usr/local/bin/ai-tools.sh) | ai-tools: refusing to run as the sandbox account ${SANDBOX_USER} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | refuse_early |
+| b4g2 | [MSG-B4G2](../src/usr/local/bin/ai-tools.sh) | ai-tools: --for needs an operator name | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | refuse_early |
+| h6w7 | [MSG-H6W7](../src/usr/local/bin/ai-tools.sh) | ai-tools: do not run as root -- run as the projects user, without sudo | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | refuse_early |
+| t4z6 | [MSG-T4Z6](../src/usr/local/bin/ai-tools.sh) | not a sandbox clone (must be a clone under ${SANDBOX_ROOT}): ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| w3h3 | [MSG-W3H3](../src/usr/local/bin/ai-tools.sh) | not a sandbox clone (expected ${SANDBOX_ROOT}/<clone>, one level deep): ${d} | src/usr/local/bin/ai-tools.sh |  | die |
+| k8s2 | [MSG-K8S2](../src/usr/local/bin/ai-tools.sh) | allowed-projects not updated -- ${dir} is still registered | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| u8g4 | [MSG-U8G4](../src/usr/local/bin/ai-tools.sh) | this project directory is owned by ${owner}, and the claim grants it to ${OWNER_USER}. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| a7d3 | [MSG-A7D3](../src/usr/local/bin/ai-tools.sh) | --project-create needs a path: it creates a NEW project directory. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| t4b9 | [MSG-T4B9](../src/usr/local/bin/ai-tools.sh) | this path already exists: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| j3r8 | [MSG-J3R8](../src/usr/local/bin/ai-tools.sh) | the parent directory does not exist: ${parent} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| w4s7 | [MSG-W4S7](../src/usr/local/bin/ai-tools.sh) | this is an excluded path inside a claimed project, not a disabled project: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| d8c8 | [MSG-D8C8](../src/usr/local/bin/ai-tools.sh) | this project is nested inside another claimed project: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| w3s4 | [MSG-W3S4](../src/usr/local/bin/ai-tools.sh) | this project is disabled: ${d} | src/usr/local/bin/ai-tools.sh |  | die |
+| j3k5 | [MSG-J3K5](../src/usr/local/bin/ai-tools.sh) | not a claimed project: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| p8w2 | [MSG-P8W2](../src/usr/local/bin/ai-tools.sh) | nothing to unclaim here: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| r3g9 | [MSG-R3G9](../src/usr/local/bin/ai-tools.sh) | --keep-entry cannot be combined with --force | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| t5a3 | [MSG-T5A3](../src/usr/local/bin/ai-tools.sh) | this path is inside a claimed project, not a project itself: ${d} | src/usr/local/bin/ai-tools.sh |  | die |
+| s6q5 | [MSG-S6Q5](../src/usr/local/bin/ai-tools.sh) | --project-remove has no --force: a registry entry is what authorizes a deletion here. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| m3y5 | [MSG-M3Y5](../src/usr/local/bin/ai-tools.sh) | unknown --project-remove option: ${a} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| k7d9 | [MSG-K7D9](../src/usr/local/bin/ai-tools.sh) | --project-remove -y needs a path. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| f4d8 | [MSG-F4D8](../src/usr/local/bin/ai-tools.sh) | this is not a claimed project, but ${#nested[@]} claimed project(s) are nested under it: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| k5y4 | [MSG-K5Y4](../src/usr/local/bin/ai-tools.sh) | this path is inside a claimed project, not a project itself: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| p8y8 | [MSG-P8Y8](../src/usr/local/bin/ai-tools.sh) | not a claimed project: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| q3r9 | [MSG-Q3R9](../src/usr/local/bin/ai-tools.sh) | this project contains ${#nested[@]} other claimed project(s), listed above: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| h3f6 | [MSG-H3F6](../src/usr/local/bin/ai-tools.sh) | the parent directory is not writable by ${OWNER_USER}: ${rm_parent} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| s6v2 | [MSG-S6V2](../src/usr/local/bin/ai-tools.sh) | removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run. | src/usr/local/bin/ai-tools.sh |  | warn |
+| h2d4 | [MSG-H2D4](../src/usr/local/bin/ai-tools.sh) | destination already exists: ${dst} | src/usr/local/bin/ai-tools.sh |  | die |
+| t4a8 | [MSG-T4A8](../src/usr/local/bin/ai-tools.sh) | not a claimed project: $1 | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| b7k4 | [MSG-B7K4](../src/usr/local/bin/ai-tools.sh) | unknown --stop option: ${argument} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die_stop_usage |
+| a3m9 | [MSG-A3M9](../src/usr/local/bin/ai-tools.sh) | --stop takes no path: ${argument}. It TERMINATES every agent session on this host -- killing the process tree, so no session-end handback runs -- and has no per-project form, because a session is attributed to a project by the sandbox account's own user manager -- the account being stopped -- so that attribution is reported, never trusted to decide what a stop reaches. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die_stop_usage |
+| x6u2 | [MSG-X6U2](../src/usr/local/bin/ai-tools.sh) | you (${INVOKING_USER}) are not a configured ai-tools operator -- add your name to OPERATORS in ${conf} with: | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| r4j2 | [MSG-R4J2](../src/usr/local/bin/ai-tools.sh) | this run needs root: ${what} goes through ${bin##*/}, and ${INVOKING_USER} holds no sudo grant for it. | src/usr/local/bin/ai-tools.sh |  | die |
+| z6q6 | [MSG-Z6Q6](../src/usr/local/bin/ai-tools.sh) | a --for run acts on the filesystem AS the target: ${verb} --for ${FOR_OPERATOR} runs ${blocked##*/} as ${FOR_OPERATOR}, and ${INVOKING_USER} holds no sudo grant to do that. | src/usr/local/bin/ai-tools.sh |  | die |
+| u7r7 | [MSG-U7R7](../src/usr/local/bin/ai-tools.sh) | --for is not accepted on ${verb} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| b5k3 | [MSG-B5K3](../src/usr/local/bin/ai-tools.sh) | --for cannot be combined with --force | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| m3z3 | [MSG-M3Z3](../src/usr/local/bin/ai-tools.sh) | the sandbox account is not an operator and must not own projects | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| c4y4 | [MSG-C4Y4](../src/usr/local/bin/ai-tools.sh) | root is not an operator | src/usr/local/bin/ai-tools.sh |  | die |
+| e3d2 | [MSG-E3D2](../src/usr/local/bin/ai-tools.sh) | not a configured ai-tools operator: ${FOR_OPERATOR} -- enrol it first with: | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | u6a9 | [MSG-U6A9](../src/usr/local/bin/claude.sh) | claude: cannot load the launch safety library -- refusing to start | src/usr/local/bin/claude.sh | tests/integration/wrapper.sh | die |
 | n8q4 | [MSG-N8Q4](../src/usr/local/bin/claude.sh) | claude: this is the sandbox account ${SANDBOX_USER}, which is not an ai-tools operator | src/usr/local/bin/claude.sh | tests/integration/wrapper.sh | die |
 | r7z3 | [MSG-R7Z3](../src/usr/local/bin/claude.sh) | claude: ${_user} is an ai-tools operator, but this shell started before the grant | src/usr/local/bin/claude.sh |  | die |
