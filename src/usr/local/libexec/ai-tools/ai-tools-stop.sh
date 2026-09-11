@@ -153,17 +153,56 @@ log_event() {
     ) 2>/dev/null || true
 }
 
-# say_error / say_warn / say_notice <line...> -- framed through msg.lib.sh when it loaded, plain
-# otherwise. Output formatting is the most expendable thing here.
+# say_error / say_warn / say_notice [<message code>] <line...> -- framed through msg.lib.sh when it
+# loaded, plain otherwise. Output formatting is the most expendable thing here.
 #
 # THE EMITTERS TAKE LINES ONLY, NOT A LEADING FD -- unlike ai_tools_msg_headline, whose
 # signature IS <title> <fd> <line...>. The two shapes sit next to each other, so passing the
 # headline's fd to an emitter reads as consistent and is not: ai_tools_msg_error bakes in fd 2
 # already, so a leading `2` becomes the message's FIRST LINE and every refusal prints a stray
 # digit ahead of itself. It is invisible in the boxed path and obvious only when captured.
-say_error()  { if declare -F ai_tools_msg_error  >/dev/null 2>&1; then ai_tools_msg_error  "$@"; else printf 'ai-tools-stop: %s\n' "$@" >&2; fi; }
-say_warn()   { if declare -F ai_tools_msg_warn   >/dev/null 2>&1; then ai_tools_msg_warn   "$@"; else printf 'ai-tools-stop: %s\n' "$@" >&2; fi; }
-say_notice() { if declare -F ai_tools_msg_notice >/dev/null 2>&1; then ai_tools_msg_notice "$@"; else printf '%s\n'               "$@";     fi; }
+#
+# THE MESSAGE CODE IS SPLIT OFF HERE RATHER THAN PASSED STRAIGHT THROUGH, because these emitters
+# are the only two-branch ones in the project: the library renders a code itself, while the
+# fallback has to render it the way plain mode does -- on its own leading line, ahead of the
+# prefixed message -- or the one path a reader most needs a searchable token on is the one path
+# that drops it. The form is matched inline, against the same anchored expression msg.lib.sh
+# pins (tests/unit/msg.sh holds every inline copy to it), since the branch that needs the match
+# is the branch where that library is absent.
+#
+# THE `ai-tools-stop: ` PREFIX IS THE EMITTER'S, so no message text carries one of its own: the
+# code is the identity of the situation and the prefix names the component that raised it, and
+# neither is stated twice.
+say_error() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
+    if declare -F ai_tools_msg_error >/dev/null 2>&1; then
+        ai_tools_msg_error ${code:+"${code}"} "$@"
+    else
+        [[ -n "${code}" ]] && printf '%s\n' "${code}" >&2
+        printf 'ai-tools-stop: %s\n' "$@" >&2
+    fi
+}
+say_warn() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
+    if declare -F ai_tools_msg_warn >/dev/null 2>&1; then
+        ai_tools_msg_warn ${code:+"${code}"} "$@"
+    else
+        [[ -n "${code}" ]] && printf '%s\n' "${code}" >&2
+        printf 'ai-tools-stop: %s\n' "$@" >&2
+    fi
+}
+say_notice() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
+    if declare -F ai_tools_msg_notice >/dev/null 2>&1; then
+        ai_tools_msg_notice ${code:+"${code}"} "$@"
+    else
+        [[ -n "${code}" ]] && printf '%s\n' "${code}"
+        printf '%s\n' "$@"
+    fi
+}
 say_headline() {
     local title="$1"; shift
     if declare -F ai_tools_msg_headline >/dev/null 2>&1; then ai_tools_msg_headline "${title}" 1 "$@"
@@ -199,8 +238,12 @@ FORCE_KILL=false
 # operator normally meets -- this one is the last line, reached by a direct root call. They cannot
 # be single-sourced: different processes, and this file is 750 root:root. They must say the same
 # thing and offer the same four commands -- change one, change both.
+#
+# SO THE TWO SHARE ONE CODE. It is the same situation reported by whichever process met it first,
+# and a reader searching the code has one thing to find. The code is emitted here and named
+# nowhere else, so this site CITES the message the CLI defines rather than declaring a second one.
 refuse_positional_argument() {
-    printf 'ai-tools-stop: this command takes no path: %s\n' "$1" >&2
+    printf 'MSG-A3M9\nai-tools-stop: this command takes no path: %s\n' "$1" >&2
     printf '%s' '
   ai-tools --stop TERMINATES every agent session on this host, and has no per-project
   form. It is not the way to end a session you are finished with -- it kills the process
@@ -226,7 +269,12 @@ parse_command_line() {
             --dry-run) DRY_RUN=true; shift ;;
             -y|--yes)     ASSUME_YES=true; shift ;;
             --force)      FORCE_KILL=true; shift ;;
-            -*) printf 'ai-tools-stop: unknown option: %s\n' "$1" >&2; exit 2 ;;
+            # The CLI refuses this too, before its sudo, and for the same reason the path
+            # refusal is twinned: an operator meets whichever side answered. One situation,
+            # one code, defined at the CLI's arm and cited here.
+            -*) printf 'MSG-B7K4\nai-tools-stop: unknown option: %s\n' "$1" >&2
+                printf '  allowed: --all, --dry-run, --yes/-y, --force\n' >&2
+                exit 2 ;;
             *)  refuse_positional_argument "$1" ;;
         esac
     done
@@ -237,7 +285,7 @@ parse_command_line() {
 # trail's traps. Everything here either succeeds or exits; no later step runs on a guess.
 resolve_run_context() {
     if [[ "$(id -u)" != "0" ]]; then
-        say_error "ai-tools-stop must run as root: stopping a session means signalling ${SANDBOX_USER}'s cgroups" \
+        say_error MSG-Z5W3 "This command must run as root: stopping a session means signalling ${SANDBOX_USER}'s cgroups" \
                   "run it as: sudo ai-tools --stop"
         exit 5
     fi
@@ -270,7 +318,7 @@ resolve_run_context() {
 
     SANDBOX_UID="$(id -u "${SANDBOX_USER}" 2>/dev/null)"
     if [[ -z "${SANDBOX_UID}" ]]; then
-        say_error "ai-tools-stop: cannot resolve the uid of ${SANDBOX_USER}, so no cgroup can be located" \
+        say_error MSG-Q9Y2 "This host cannot resolve the uid of ${SANDBOX_USER}, so no cgroup can be located" \
                   "the sandbox account is missing -- reprovision with:" \
                   "  sudo ai-tools-admin system bootstrap"
         log_event error "REFUSED: ${SANDBOX_USER} has no uid; cannot locate any session cgroup"
@@ -312,7 +360,7 @@ cgroup2_mount() {
 resolve_cgroup_layout() {
     CGROUP2_MOUNT="$(cgroup2_mount)"
     if [[ -z "${CGROUP2_MOUNT}" ]]; then
-        say_error "ai-tools-stop: this host has no cgroup v2 hierarchy, so sessions cannot be enumerated or stopped reliably." \
+        say_error MSG-K2T7 "This host has no cgroup v2 hierarchy, so sessions cannot be enumerated or stopped reliably." \
                   "Stop them by hand and report the host: sudo systemctl --user -M ${SANDBOX_USER}@.host list-units"
         log_event error "REFUSED: no cgroup2 mount; cannot enumerate sessions for ${CALLER}"
         exit 5
@@ -739,7 +787,7 @@ restore_user_manager() {
             "AI_TOOLS_UNIT=${unit}" "AI_TOOLS_RESULT=manager-restored"
         return 0
     fi
-    say_warn "The sessions were stopped, but ${SANDBOX_USER}'s user manager did not come back, so the next launch has no systemd --user instance to start a session in. Restore it with:" \
+    say_warn MSG-W8C6 "The sessions were stopped, but ${SANDBOX_USER}'s user manager did not come back, so the next launch has no systemd --user instance to start a session in. Restore it with:" \
              "sudo systemctl reset-failed ${unit} && sudo systemctl start ${unit}"
     log_event error "could not restart ${unit} after the stop -- the next launch will have no --user instance" \
         "AI_TOOLS_UNIT=${unit}" "AI_TOOLS_RESULT=manager-not-restored"
@@ -949,7 +997,7 @@ main() {
     print_session_table "stop"
 
     if ! confirm_stop "${agent_count}" "${plumbing_count}"; then
-        say_notice "Nothing was stopped."
+        say_notice MSG-J3U9 "Nothing was stopped."
         log_event notice \
             "${CALLER} declined the stop of ${agent_count} agent session(s) and ${plumbing_count} account unit(s) in ${scope} -- nothing stopped" \
             "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_SCOPE=${scope}" "AI_TOOLS_RESULT=declined"
@@ -1045,7 +1093,7 @@ main() {
         log_event error \
             "final sweep found ${#unexpected[@]} live cgroup(s) that the per-session checks had verified empty -- either a new session started during this run, or a process moved between cgroups inside the delegated subtree to evade the stop" \
             "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_SCOPE=${scope}" "AI_TOOLS_RESULT=reappeared"
-        say_error "The final sweep found live cgroups that the per-session checks had verified empty, so a session started while this ran or something re-entered a cgroup after it was emptied. Re-running is safe and is the remedy -- this command is idempotent. To see what is there first:" \
+        say_error MSG-F9U5 "The final sweep found live cgroups that the per-session checks had verified empty, so a session started while this ran or something re-entered a cgroup after it was emptied. Re-running is safe and is the remedy -- this command is idempotent. To see what is there first:" \
                   "sudo ps -o pid,stat,cgroup,cmd -u ${SANDBOX_USER}"
         for swept in "${unexpected[@]}"; do
             printf '  UNEXPECTED %s\n' "$(sanitize "${swept}")" >&2
@@ -1066,7 +1114,10 @@ main() {
         log_event error \
             "stop finished with ${survivors} of ${#selected_cgroups[@]} cgroup(s) still present for ${CALLER}" \
             "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_SCOPE=${scope}" "AI_TOOLS_RESULT=survived"
-        say_error "${survivors} of ${#selected_cgroups[@]} cgroup(s) survived SIGKILL. A task only outlives SIGKILL while blocked in an uninterruptible kernel call: it holds no CPU, runs no code and can start nothing new, but only the I/O completing or a reboot clears it. Inspect it with:" \
+        # The counts follow the literal rather than opening the line: a coded message is read from
+        # its first quoted word, so one beginning with an expansion carries a code the index
+        # cannot resolve to any message.
+        say_error MSG-W7D3 "Some cgroups survived SIGKILL: ${survivors} of ${#selected_cgroups[@]}. A task only outlives SIGKILL while blocked in an uninterruptible kernel call: it holds no CPU, runs no code and can start nothing new, but only the I/O completing or a reboot clears it. Inspect it with:" \
                   "sudo ps -o pid,stat,wchan:20,cmd -u ${SANDBOX_USER}"
         return 1
     fi

@@ -486,10 +486,11 @@ else
     fail "coded block wrong: top='${cblk[1]}' plain=$(printf '[%s]' "${plain_cblk}")"
 fi
 
-# (29) The components that report without the library -- the helpers that never source it, and the
-# CLI's principal guards, which answer before it is loaded -- match a leading code inline, and every
-# inline copy is the library's own anchored form: a copy that drifts is a helper that prints a
-# code as prose, or reads prose as a code. Checked in the source tree (the copies are text), and
+# (29) The components that report without the library -- the helpers that never source it, the
+# CLI's principal guards, which answer before it is loaded, and the stop helper, whose emitters
+# carry a fallback for the run where it did not load at all -- match a leading code inline, and
+# every inline copy is the library's own anchored form: a copy that drifts is a helper that prints
+# a code as prose, or reads prose as a code. Checked in the source tree (the copies are text), and
 # skipped outside a checkout.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 inline_matchers=(
@@ -499,6 +500,7 @@ inline_matchers=(
     src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh
     src/usr/local/libexec/ai-tools/ai-tools-relabel.sh
     src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh
+    src/usr/local/libexec/ai-tools/ai-tools-stop.sh
     src/opt/ai-tools/bin/nvm-update.sh
     src/usr/local/bin/ai-tools.sh
     src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh

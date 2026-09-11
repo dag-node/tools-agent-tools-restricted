@@ -111,6 +111,30 @@ shape everywhere is what lets the harness's `assert_msg` read a code with a sing
 match, and what keeps every prose grep on a helper's message intact; `tests/unit/msg.sh` holds each
 inline copy to the library's constant, so a copy cannot drift into printing a code as prose.
 
+`ai-tools-stop` carries that inline matcher for a third reason: its emitters have **two branches**.
+`say_error`, `say_warn` and `say_notice` hand the code to the library where it loaded and render it
+themselves where it did not, since that one helper does not require any library
+([cli](cli.rule.md)) — and
+the branch running without the renderer is the branch a reader most needs a searchable token from.
+The `ai-tools-stop: ` prefix belongs to those emitters, so a message text does not carry one of its
+own: the code identifies the situation, the prefix names the component that raised it, and each is
+stated once.
+
+### One situation, two processes: a deliberate twin
+
+A situation two processes both report carries **one code**, emitted at each site. `ai-tools --stop`
+and `ai-tools-stop` each refuse a path, and each refuse an unknown option, in texts that are
+deliberate twins — `refuse_positional_argument`'s header states why neither side can source the
+other — so an operator meets the same token whichever side answered.
+
+The code is **defined once and cited at the other site**. A definition is the emit-call shape the
+reference index reads (the token, then the quoted message it labels), so the CLI's
+`die_stop_usage MSG-A3M9 "…"` names the message while the helper's `printf 'MSG-A3M9\n…'` prints
+the token without declaring a second message under that name. The index then lists the helper among
+the files citing the code, which is the record a twin needs: one message, two places it reaches a
+terminal. A twin that instead passed the code to an emitter would declare the same reftag twice,
+which `ref-index.py` reports as a duplicate.
+
 ## Three renderers: alert, headline, block
 
 The emitters (`ai_tools_msg_*`) **wrap every line** — right for a short refusal or notice,
