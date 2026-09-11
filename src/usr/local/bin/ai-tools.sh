@@ -176,6 +176,18 @@ verb_in() {
 # CLI runs under IFS=$'\n\t', so a bare "${array[*]}" would join on a NEWLINE.
 join_words() { local IFS=' '; printf '%s' "$*"; }
 
+# refuse_early <code> <line>...  -- the refusals that fire before msg.lib.sh is sourced: the
+# principal guards and --for's argument check, which answer ahead of every library load. They
+# cannot reach die(), so this renders what plain mode renders -- the code on its own leading line,
+# then each caller line whole -- and exits 1. The matcher is the library's own anchored form
+# (tests/unit/msg.sh holds every inline copy to it).
+refuse_early() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf '%s\n' "$@" >&2
+    exit 1
+}
+
 # ── Invoker guards ───────────────────────────────────────────────────────────────
 # This is a user tool. It must run as the projects user, and never as the sandbox account --
 # the agent must not manage its own allowlist. That refusal is unconditional and first: no
@@ -187,7 +199,7 @@ join_words() { local IFS=' '; printf '%s' "$*"; }
 # known -- see "Root and the read-only reports".
 INVOKING_USER="$(id -un)"
 [[ "${INVOKING_USER}" == "${SANDBOX_USER}" ]] \
-    && { echo "ai-tools: refusing to run as the sandbox account ${SANDBOX_USER}" >&2; exit 1; }
+    && refuse_early MSG-Q6Q8 "ai-tools: refusing to run as the sandbox account ${SANDBOX_USER}"
 
 HOME_DIR="$(getent passwd "${INVOKING_USER}" | cut -d: -f6)"
 [[ -d "${HOME_DIR}" ]] || { echo "ai-tools: cannot resolve home for ${INVOKING_USER}" >&2; exit 1; }
@@ -209,15 +221,15 @@ FOR_OPERATOR=""
 _forless_args=()
 while (( $# )); do
     case "$1" in
-        --for)   [[ -n "${2:-}" && "${2:-}" != -* ]] \
-                     || { echo "ai-tools: --for needs an operator name" >&2; exit 1; }
-                 FOR_OPERATOR="$2"; shift 2 ;;
-        --for=*) FOR_OPERATOR="${1#--for=}"
-                 [[ -n "${FOR_OPERATOR}" ]] \
-                     || { echo "ai-tools: --for needs an operator name" >&2; exit 1; }
-                 shift ;;
-        *)       _forless_args+=("$1"); shift ;;
+        --for)   FOR_OPERATOR="${2-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
+        --for=*) FOR_OPERATOR="${1#--for=}"; shift ;;
+        *)       _forless_args+=("$1"); shift; continue ;;
     esac
+    # Both spellings are the same situation -- the flag names the operator the run acts for, and
+    # neither an empty value nor another option in its place is a name -- so they share one
+    # refusal, checked once after the branch that read the value.
+    [[ -n "${FOR_OPERATOR}" && "${FOR_OPERATOR}" != -* ]] \
+        || refuse_early MSG-B4G2 "ai-tools: --for needs an operator name"
 done
 set -- "${_forless_args[@]}"
 unset _forless_args
@@ -255,17 +267,15 @@ fi
 # root would write an entry that names an owner no ownership helper can resolve. require_operator
 # does not cover that on its own -- it gates the mutating verbs, and --list is not one of them.
 #
-# Plain echo, not die(): this runs before msg.lib.sh is sourced, like the sandbox refusal.
+# refuse_early, not die(): this runs before msg.lib.sh is sourced, like the sandbox refusal.
 root_may_run() {
     [[ -z "${FOR_OPERATOR}" ]] || return 1
     verb_in "$1" "${ROOT_ALLOWED_VERBS[@]}"
 }
 if [[ "${INVOKING_USER}" == "root" ]] && ! root_may_run "${1:-}"; then
-    echo "ai-tools: do not run as root -- run as the projects user, without sudo" >&2
-    echo "          (the CLI invokes sudo itself for the steps that need it)" >&2
-    echo "          as root you can run the verbs that write no operator state:" \
-         "$(join_words "${ROOT_ALLOWED_VERBS[@]}")" >&2
-    exit 1
+    refuse_early MSG-H6W7 "ai-tools: do not run as root -- run as the projects user, without sudo" \
+        "          (the CLI invokes sudo itself for the steps that need it)" \
+        "          as root you can run the verbs that write no operator state: $(join_words "${ROOT_ALLOWED_VERBS[@]}")"
 fi
 
 # The operator this run acts FOR: the --for target, or the invoker. Every message that names the
@@ -582,10 +592,10 @@ require_sandbox_clone() {
     local d="$1" rel
     ai_tools_assert_safe_target "${d}" "sandbox" || exit 3
     [[ "${d}" == "${SANDBOX_ROOT}/"* ]] \
-        || die "not a sandbox clone (must be a clone under ${SANDBOX_ROOT}): ${d}"
+        || die MSG-T4Z6 "not a sandbox clone (must be a clone under ${SANDBOX_ROOT}): ${d}"
     rel="${d#"${SANDBOX_ROOT}/"}"
     [[ -n "${rel}" && "${rel}" != */* ]] \
-        || die "not a sandbox clone (expected ${SANDBOX_ROOT}/<clone>, one level deep): ${d}"
+        || die MSG-W3H3 "not a sandbox clone (expected ${SANDBOX_ROOT}/<clone>, one level deep): ${d}"
     git -C "${d}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
         || die "not a git clone: ${d} -- if it is a stray directory, remove it by hand"
 }
@@ -772,7 +782,7 @@ unreg_allow() {
             printf "      %ssed -i '\\\\|^%s\$|d' %s%s\n" \
                 "${C_BOLD}" "$(allow_escape "${raw}")" "${ALLOWLIST}" "${C_RST}"
         done
-        die "allowed-projects not updated -- ${dir} is still registered"
+        die MSG-K8S2 "allowed-projects not updated -- ${dir} is still registered"
     fi
     if [[ "${before}" == absent ]]; then
         say "    allowed-projects: not listed"
@@ -1538,14 +1548,17 @@ require_claimable_owner() {
     printf '  %s\n' "Give the tree to ${OWNER_USER}, then re-run the claim:" "" \
                     "    sudo chown -R ${OWNER_USER} ${d}" >&2
     printf '\n' >&2
+    # The headline is passed literally rather than out of the array, so the message code labels a
+    # string the reference index can read (a quoted value opening with `$` is a citation, not a
+    # target) -- see messaging.rule.md.
     local -a why=(
-        "this project directory is owned by ${owner}, and the claim grants it to ${OWNER_USER}."
         "The claim's setgid and ACL steps act only on paths held by ${OWNER_USER} or ${SANDBOX_USER}, so here they would apply nothing while the registries and the SELinux label still would -- a claim that reports success and leaves the agent unable to enter the project."
     )
     [[ -n "${FOR_OPERATOR}" ]] && why+=(
         "You are claiming for ${FOR_OPERATOR}, so the tree has to belong to ${FOR_OPERATOR} rather than to you."
     )
-    die "${why[@]}"
+    die MSG-U8G4 "this project directory is owned by ${owner}, and the claim grants it to ${OWNER_USER}." \
+        "${why[@]}"
 }
 
 cmd_project_claim() {
@@ -1874,13 +1887,13 @@ cmd_project_create() {
                 else die "--project-create takes a single path"; fi ;;
         esac
     done
-    [[ -n "${path}" ]] || die "--project-create needs a path: it creates a NEW project directory." \
+    [[ -n "${path}" ]] || die MSG-A7D3 "--project-create needs a path: it creates a NEW project directory." \
         "To claim a directory that already exists, use: ai-tools --project-claim [path]"
 
     local d
     d="$(realpath -m -- "${path}" 2>/dev/null)" || die "cannot resolve the path: ${path}"
     if [[ -e "${d}" ]]; then
-        die "this path already exists: ${d}" \
+        die MSG-T4B9 "this path already exists: ${d}" \
             "--project-create only ever creates. Claim what is already there instead:" \
             "       ai-tools --project-claim ${d}"
     fi
@@ -1897,7 +1910,7 @@ cmd_project_create() {
     # vet against the backstop, and what to remove when a later step fails.
     local parent="${d%/*}"; [[ -n "${parent}" ]] || parent=/
     if [[ ! -d "${parent}" ]]; then
-        die "the parent directory does not exist: ${parent}" \
+        die MSG-J3R8 "the parent directory does not exist: ${parent}" \
             "--project-create creates ONE directory, not a path of them, so a mistyped path is refused here rather than created. Check the path; if it is right, create the parent yourself and re-run:" \
             "       mkdir -p ${parent}"
     fi
@@ -2102,7 +2115,7 @@ refuse_carveout() {
     printf '\n' >&2
     disabled_note "${d}" >&2
     printf '\n' >&2
-    die "this is an excluded path inside a claimed project, not a disabled project: ${d}" \
+    die MSG-W4S7 "this is an excluded path inside a claimed project, not a disabled project: ${d}" \
         "the project is: ${parent}" \
         "That line withholds this subtree from the agent, and ${verb} would hand it over. If that is what you mean, delete the '!' line yourself -- allowed-projects is yours to edit."
 }
@@ -2121,7 +2134,7 @@ refuse_nested_park() {
         [[ -n "${e}" ]] || continue
         if [[ "${d}" == "${e}/"* ]] && (( ${#e} > ${#parent} )); then parent="${e}"; fi
     done < <(positive_project_entries)
-    die "this project is nested inside another claimed project: ${d}" \
+    die MSG-D8C8 "this project is nested inside another claimed project: ${d}" \
         "the project above it is: ${parent}" \
         "Parking it would write a '!' line that cannot be told apart from an exclusion withholding a subtree from ${parent}, so ${verb} declines to write one. Either unclaim this project (ai-tools --project-unclaim ${d}), or park the one above it (ai-tools --project-disable ${parent})."
 }
@@ -2214,11 +2227,11 @@ not_covered_die() {
         printf '\n' >&2
         disabled_note "${d}" >&2
         printf '\n' >&2
-        die "this project is disabled: ${d}" \
+        die MSG-W3S4 "this project is disabled: ${d}" \
             "an exclusion line parks it, so no session runs there and the root helpers act on nothing." \
             "Re-enable it first:  ai-tools --project-enable ${d}"
     fi
-    die "not a claimed project: ${d}" \
+    die MSG-J3K5 "not a claimed project: ${d}" \
         "it is not at or under any project in your allowed-projects" \
         "       list your registered projects with: ai-tools --list"
 }
@@ -2402,7 +2415,7 @@ cmd_unclaim_unlisted() {
     residue_scan "${d}"
     local n_res="${#RESIDUE[@]}" n_skip="${#RESIDUE_SKIPPED[@]}"
     if (( n_res == 0 && n_skip == 0 )); then
-        die "nothing to unclaim here: ${d}" \
+        die MSG-P8W2 "nothing to unclaim here: ${d}" \
             "       it is not a registered project, and nothing in it carries ai-tools ownership or group" \
             "       list your registered projects with: ai-tools --list"
     fi
@@ -2555,7 +2568,7 @@ cmd_project_unclaim() {
     # --force reaches a tree the allowlist does not name, so there is no line to park. Refused
     # rather than ignored: the flag's whole purpose is what happens to an entry.
     if [[ "${registry}" == park ]] && ${force}; then
-        die "--keep-entry cannot be combined with --force" \
+        die MSG-R3G9 "--keep-entry cannot be combined with --force" \
             "       --force unclaims a tree that has no allowed-projects entry, so there is nothing to keep"
     fi
 
@@ -2596,7 +2609,7 @@ cmd_project_unclaim() {
     fi
 
     if [[ "${mode}" == descendant ]]; then
-        die "this path is inside a claimed project, not a project itself: ${d}" \
+        die MSG-T5A3 "this path is inside a claimed project, not a project itself: ${d}" \
             "       the claimed project is: ${nearest}" \
             "       unclaim that instead: ai-tools --project-unclaim ${nearest}"
     fi
@@ -2742,14 +2755,14 @@ cmd_project_remove() {
     for a in "$@"; do
         case "${a}" in
             -y|--yes) assume_yes=true ;;
-            --force) die "--project-remove has no --force: a registry entry is what authorizes a deletion here." \
+            --force) die MSG-S6Q5 "--project-remove has no --force: a registry entry is what authorizes a deletion here." \
                          "To reverse a claim on an unregistered tree, and then remove it yourself:" \
                          "       ai-tools --project-unclaim --force ${path:-<path>}" ;;
             # Deliberately does NOT enumerate the options the way the other verbs' refusals do:
             # the only one this verb has pre-answers both the confirmation and the typed-name
             # challenge, and a caller who has just mistyped a flag is not who that is for. It is
             # documented in ai-tools(1), where reaching it is a deliberate act.
-            -*) die "unknown --project-remove option: ${a}" \
+            -*) die MSG-M3Y5 "unknown --project-remove option: ${a}" \
                     "       the options this verb takes are in: man ai-tools" ;;
             *)  if [[ -z "${path}" ]]; then path="${a}"
                 else die "--project-remove takes a single path"; fi ;;
@@ -2758,7 +2771,7 @@ cmd_project_remove() {
     # An unattended run must never delete whatever directory it happened to start in, so the one
     # mode that can proceed without a terminal has to name its target explicitly.
     if ${assume_yes} && [[ -z "${path}" ]]; then
-        die "--project-remove -y needs a path." \
+        die MSG-K7D9 "--project-remove -y needs a path." \
             "-y pre-answers the confirmation and the typed-name challenge, so an unattended run must say which project it means rather than inheriting the current directory."
     fi
 
@@ -2787,16 +2800,16 @@ cmd_project_remove() {
             printf '\n' >&2
             printf '    %s\n' "${nested[@]}" >&2
             printf '\n' >&2
-            die "this is not a claimed project, but ${#nested[@]} claimed project(s) are nested under it: ${d}" \
+            die MSG-F4D8 "this is not a claimed project, but ${#nested[@]} claimed project(s) are nested under it: ${d}" \
                 "--project-remove deletes one registered project, never a directory that merely contains some. Reverse the claims first:" \
                 "       ai-tools --project-unclaim ${d}"
         fi
         if [[ -n "${nearest}" ]]; then
-            die "this path is inside a claimed project, not a project itself: ${d}" \
+            die MSG-K5Y4 "this path is inside a claimed project, not a project itself: ${d}" \
                 "       the claimed project is: ${nearest}" \
                 "       remove that instead: ai-tools --project-remove ${nearest}"
         fi
-        die "not a claimed project: ${d}" \
+        die MSG-P8Y8 "not a claimed project: ${d}" \
             "--project-remove deletes only a registered project -- the registry entry is what authorizes the deletion. See what is registered with: ai-tools --list" \
             "To reverse a claim on an unregistered tree, and then remove it yourself:" \
             "       ai-tools --project-unclaim --force ${d}"
@@ -2814,7 +2827,7 @@ cmd_project_remove() {
         printf '\n' >&2
         printf '    %s\n' "${nested[@]}" >&2
         printf '\n' >&2
-        die "this project contains ${#nested[@]} other claimed project(s), listed above: ${d}" \
+        die MSG-Q3R9 "this project contains ${#nested[@]} other claimed project(s), listed above: ${d}" \
             "Deleting it would delete them too, leaving each one registered, git-trusted and SELinux-labelled at a path that no longer exists. Remove or unclaim those first, then re-run this."
     fi
 
@@ -2827,7 +2840,7 @@ cmd_project_remove() {
     # --reclaim either, since the parent was never the project's to reclaim.
     local rm_parent="${d%/*}"; [[ -n "${rm_parent}" ]] || rm_parent=/
     if [[ -z "$(run_as_owner find "${rm_parent}" -maxdepth 0 -writable -executable 2>/dev/null)" ]]; then
-        die "the parent directory is not writable by ${OWNER_USER}: ${rm_parent}" \
+        die MSG-H3F6 "the parent directory is not writable by ${OWNER_USER}: ${rm_parent}" \
             "Removing ${d} means unlinking it from that directory, and ${OWNER_USER} cannot write there. Nothing has been changed. To release the project and leave the files where they are, use:" \
             "       ai-tools --project-unclaim ${d}"
     fi
@@ -2924,7 +2937,7 @@ cmd_project_remove() {
     # a clean run, and a run with failures closes by stating both facts and exits non-zero, which
     # is also what lets a script tell the two apart.
     if (( ROOT_STEP_FAILURES )); then
-        warn "removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run."
+        warn MSG-S6V2 "removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run."
         say  "  Each is named above with the command that completes it. Registry entries left"
         say  "  behind now point at a path that no longer exists; this lists every entry that"
         say  "  needs attention, across all your projects:"
@@ -3121,7 +3134,7 @@ cmd_sandbox_create() {
     if [[ -e "${dst}" ]]; then
         say "    to finish securing/registering an earlier clone of this name:"
         say "      ${C_BOLD}ai-tools --sandbox-create ${dst}${C_RST}"
-        die "destination already exists: ${dst}"
+        die MSG-H2D4 "destination already exists: ${dst}"
     fi
     [[ -d "${SANDBOX_ROOT}" ]] || die "sandbox area missing: ${SANDBOX_ROOT} -- run install first"
 
@@ -3279,6 +3292,16 @@ cmd_lockdown() {
 # the same line the same way (conf.lib.sh's allowlist editing). What they add is a name for the
 # operation, the consequences printed once, and a state the rest of the CLI now understands.
 
+# no_entry_die <dir> <what>  -- the enable/disable pair's shared refusal. Neither verb invents an
+# entry (registering a project is a claim, which scans for secrets first), so a path the file does
+# not name is refused by both and pointed at the claim. One function rather than one per verb, so
+# the situation carries one message code.
+no_entry_die() {
+    die MSG-T4A8 "not a claimed project: $1" \
+        "there is no allowed-projects entry to $2. List what is registered with: ai-tools --list" \
+        "To register it: ai-tools --project-claim $1"
+}
+
 # cmd_project_disable [path]  -- park a claimed project: prefix its allowed-projects line with '!'.
 cmd_project_disable() {
     local d="" a
@@ -3299,9 +3322,7 @@ cmd_project_disable() {
             disabled_note "${d}"
             return 0 ;;
         absent)
-            die "not a claimed project: ${d}" \
-                "there is no allowed-projects entry to disable. List what is registered with: ai-tools --list" \
-                "To register it: ai-tools --project-claim ${d}" ;;
+            no_entry_die "${d}" disable ;;
     esac
 
     refuse_nested_park "${d}" "--project-disable"
@@ -3339,9 +3360,7 @@ cmd_project_enable() {
             # Deliberately not an implicit claim: claiming runs a secret scan and grants the agent
             # access to the tree, which is a different decision from lifting a '!' the operator
             # put there.
-            die "not a claimed project: ${d}" \
-                "there is no allowed-projects entry to enable. List what is registered with: ai-tools --list" \
-                "To register it: ai-tools --project-claim ${d}" ;;
+            no_entry_die "${d}" enable ;;
     esac
 
     refuse_carveout "${d}" "--project-enable"
@@ -3413,7 +3432,14 @@ cmd_audit() {
 # alike -- and WHICH SIDE refused is an implementation detail of the ordering, not something
 # the caller asked about. Exiting 1 here would report the same mistake as one code from the CLI and
 # another from a direct root call, and 1 already means "a process survived SIGKILL".
-die_stop_usage() { ai_tools_log_error "$*"; ai_tools_msg_error "ai-tools: $*"; exit 2; }
+# It splits a leading code off exactly as die() does, so a --stop refusal carries one.
+die_stop_usage() {
+    local code=""
+    if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
+    ai_tools_log_error "${code:+${code} }$*"
+    ai_tools_msg_error ${code:+"${code}"} "ai-tools: $*"
+    exit 2
+}
 
 cmd_stop() {
     local argument; local -a passthru=()
@@ -3421,7 +3447,7 @@ cmd_stop() {
         case "${argument}" in
             # --all is accepted and inert; ai-tools(1) says why it exists at all.
             --all|--dry-run|-y|--yes|--force) passthru+=("${argument}") ;;
-            -*) die_stop_usage "unknown --stop option: ${argument}" \
+            -*) die_stop_usage MSG-B7K4 "unknown --stop option: ${argument}" \
                     "allowed: --all, --dry-run, --yes/-y, --force" ;;
             # A PATH IS REFUSED HERE, NOT PASSED ON. The helper refuses it too -- that is the last
             # line, for a direct root call -- but the refusal has to happen on this side as well,
@@ -3444,7 +3470,7 @@ cmd_stop() {
                     "End one session cleanly:    /exit inside it, which runs its session-end handback" \
                     "Terminate one by hand:      sudo systemctl --user -M ${SANDBOX_USER}@.host stop <unit>" >&2
                 printf '\n' >&2
-                die_stop_usage "--stop takes no path: ${argument}. It TERMINATES every agent session on this host -- killing the process tree, so no session-end handback runs -- and has no per-project form, because a session is attributed to a project by the sandbox account's own user manager -- the account being stopped -- so that attribution is reported, never trusted to decide what a stop reaches." ;;
+                die_stop_usage MSG-A3M9 "--stop takes no path: ${argument}. It TERMINATES every agent session on this host -- killing the process tree, so no session-end handback runs -- and has no per-project form, because a session is attributed to a project by the sandbox account's own user manager -- the account being stopped -- so that attribution is reported, never trusted to decide what a stop reaches." ;;
         esac
     done
     root_helper_reachable \
@@ -4167,7 +4193,7 @@ require_operator() {
     if ai_tools_conf_list ops "${conf}" OPERATORS 2>/dev/null; then
         for op in "${ops[@]}"; do [[ "${op}" == "${INVOKING_USER}" ]] && return 0; done
     fi
-    die "you (${INVOKING_USER}) are not a configured ai-tools operator -- add your name to OPERATORS in ${conf} with:" \
+    die MSG-X6U2 "you (${INVOKING_USER}) are not a configured ai-tools operator -- add your name to OPERATORS in ${conf} with:" \
         "       sudo ai-tools-admin operators add ${INVOKING_USER}"
 }
 
@@ -4302,7 +4328,7 @@ require_sudo_access() {
     printf '\n' >&2
     printf '  %s\n' "${advice[@]}" >&2
     printf '\n' >&2
-    die "${what} needs root, and ${INVOKING_USER} holds no sudo grant for ${bin##*/}." \
+    die MSG-R4J2 "this run needs root: ${what} goes through ${bin##*/}, and ${INVOKING_USER} holds no sudo grant for it." \
         "Membership of ai-ops does not carry a general sudo grant."
 }
 
@@ -4353,7 +4379,7 @@ require_runas_target() {
     printf '\n' >&2
     printf '  %s\n' "${advice[@]}" >&2
     printf '\n' >&2
-    die "${verb} --for ${FOR_OPERATOR} acts on the filesystem AS ${FOR_OPERATOR}, and ${INVOKING_USER} holds no sudo grant to run ${blocked##*/} as that account." \
+    die MSG-Z6Q6 "a --for run acts on the filesystem AS the target: ${verb} --for ${FOR_OPERATOR} runs ${blocked##*/} as ${FOR_OPERATOR}, and ${INVOKING_USER} holds no sudo grant to do that." \
         "This is a separate sudoers question from the ai-tools helpers: a host can grant every one of those and still restrict which accounts you may act as."
 }
 
@@ -4399,7 +4425,7 @@ require_for_target() {
     local verb="${1:-}"; shift || true
     [[ -n "${FOR_OPERATOR}" ]] || return 0
     verb_in "${verb}" "${FOR_ALLOWED_VERBS[@]}" \
-        || die "--for is not accepted on ${verb}" \
+        || die MSG-U7R7 "--for is not accepted on ${verb}" \
                "it applies to: $(join_words "${FOR_ALLOWED_VERBS[@]}")"
     # --force reaches a tree NO allowlist names, so ai-tools-unclaim cannot resolve its owner from
     # an entry and binds the walk to the INVOKING uid instead -- the guard that stops one operator
@@ -4408,14 +4434,14 @@ require_for_target() {
     local a
     for a in "$@"; do
         [[ "${a}" == "--force" ]] || continue
-        die "--for cannot be combined with --force" \
+        die MSG-B5K3 "--for cannot be combined with --force" \
             "an unlisted tree has no allowlist entry naming its owner, so the unclaim is bound to" \
             "       you as the invoking operator; run it as ${FOR_OPERATOR}, or unclaim the registered" \
             "       project without --force"
     done
     [[ "${FOR_OPERATOR}" != "${SANDBOX_USER}" ]] \
-        || die "the sandbox account is not an operator and must not own projects"
-    [[ "${FOR_OPERATOR}" != "root" ]] || die "root is not an operator"
+        || die MSG-M3Z3 "the sandbox account is not an operator and must not own projects"
+    [[ "${FOR_OPERATOR}" != "root" ]] || die MSG-C4Y4 "root is not an operator"
     local conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
     local -a ops=(); local op found=false
     if ai_tools_conf_list ops "${conf}" OPERATORS 2>/dev/null; then
@@ -4423,7 +4449,7 @@ require_for_target() {
             [[ "${op}" == "${FOR_OPERATOR}" ]] && { found=true; break; }
         done
     fi
-    ${found} || die "${FOR_OPERATOR} is not a configured ai-tools operator -- enrol it first with:" \
+    ${found} || die MSG-E3D2 "not a configured ai-tools operator: ${FOR_OPERATOR} -- enrol it first with:" \
         "       sudo ai-tools-admin operators add ${FOR_OPERATOR}"
     OWNER_GROUP="$(id -gn "${FOR_OPERATOR}" 2>/dev/null)" \
         || die "cannot resolve the primary group of ${FOR_OPERATOR}"

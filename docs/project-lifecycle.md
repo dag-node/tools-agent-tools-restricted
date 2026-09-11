@@ -420,8 +420,8 @@ grants. A host can grant every helper and still restrict which accounts you may 
 check runs before anything is created:
 
 ```text
-ai-tools: --project-create --for svc-ci acts on the filesystem AS svc-ci, and you hold no
-sudo grant to run mkdir as that account.
+ai-tools: a --for run acts on the filesystem AS the target: --project-create --for svc-ci
+runs mkdir as svc-ci, and you hold no sudo grant to do that.
 
   Run it as svc-ci, or create the project without --for and hand it over:
 
