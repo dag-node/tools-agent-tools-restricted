@@ -161,12 +161,17 @@ sayx()    { printf '%s\n' "$*" >&2; }
 # Build helpers
 ########################################
 
-# require_devel <pp>: exit with install guidance unless the refpolicy devel toolchain (make +
-# /usr/share/selinux/devel/Makefile from selinux-policy-devel) is present. Reached by every
-# action that compiles: a checkout carries no compiled module, so the first install builds each
-# one, and a rebuild after editing a .te/.fc builds it again.
+# devel_present: 0 when the refpolicy devel toolchain (make + /usr/share/selinux/devel/Makefile
+# from selinux-policy-devel) is installed. The same pair install.sh checks before its build step.
+devel_present() {
+    command -v make >/dev/null && [[ -f /usr/share/selinux/devel/Makefile ]]
+}
+
+# require_devel <pp>: exit with install guidance unless the devel toolchain is present. Reached by
+# every action that compiles: a checkout carries no compiled module, so the first install builds
+# each one, and a rebuild after editing a .te/.fc builds it again.
 require_devel() {
-    command -v make >/dev/null && [[ -f /usr/share/selinux/devel/Makefile ]] && return 0
+    devel_present && return 0
     warn "building ${1:-this policy module} needs the selinux-policy-devel toolchain,"
     warn "  which is not installed. A checkout compiles every module it loads (the RPM"
     warn "  ships them compiled), so install it and re-run:"
@@ -175,13 +180,18 @@ require_devel() {
     exit 1
 }
 
-# ensure_pp <module.pp>: guarantee the compiled package ${POLICY_DIR}/<module.pp> exists.
-# Reuses a module an earlier run compiled and compiles it otherwise (requiring
-# selinux-policy-devel); an edited .te/.fc takes effect through build_pp, which always compiles.
+# ensure_pp <module.pp>: guarantee ${POLICY_DIR}/<module.pp> exists and, where it can be checked,
+# matches its source. With the devel toolchain present it runs build_pp, whose make rebuilds the
+# module when a .te/.if/.fc is newer than it and otherwise reports it up to date -- so an edited
+# source takes effect on the next load without a prompt, and a fresh clone (no .pp, new mtimes)
+# builds. Without the toolchain an earlier build is reused as found, and a missing one fails
+# through require_devel with the package named.
 ensure_pp() {
     local pp="$1"
-    if [[ -f "${POLICY_DIR}/${pp}" ]]; then
-        log "using the compiled ${pp} from an earlier build"
+    if devel_present; then
+        build_pp "${pp}"
+    elif [[ -f "${POLICY_DIR}/${pp}" ]]; then
+        log "using the compiled ${pp} from an earlier build (no toolchain to check it against its source)"
     else
         build_pp "${pp}"
     fi
@@ -312,7 +322,7 @@ _groups_needed_by() {
 build_pp() {
     local pp="$1"
     require_devel "${pp}"
-    log "building ${pp}"
+    log "make ${pp} (rebuilt when a .te/.if/.fc is newer than the build)"
     make -C "${POLICY_DIR}" -f /usr/share/selinux/devel/Makefile "${pp}"
     # The refpolicy Makefile creates *.fc stubs as root. Fix ownership so the
     # source file remains readable/commitable by the repo owner.
@@ -777,20 +787,10 @@ case "${ACTION}" in
 
   install)
     section "Core module"
-    # A fresh checkout holds no compiled module, so the first install compiles the core. A later
-    # run finds the earlier build and offers to recompile it (for an edited .te/.fc) -- default
-    # no, so an unattended re-run reuses what it has.
-    _recompile=0
-    if [[ -f "${POLICY_DIR}/${MODULE}.pp" && -t 0 ]]; then
-        ai_tools_msg_confirm \
-            "Recompile the core policy module from source? (needs selinux-policy-devel)" n \
-            && _recompile=1
-    fi
-    if (( _recompile )); then
-        build_pp "${MODULE}.pp"
-    else
-        ensure_pp "${MODULE}.pp"
-    fi
+    # ensure_pp compiles the core on a fresh checkout and, with the toolchain present, lets make
+    # decide whether an earlier build still matches the source -- so an edited .te/.fc is loaded
+    # by a plain re-run, attended or not.
+    ensure_pp "${MODULE}.pp"
 
     _mode="$(_mode_label)"
     log "loading core module (${_mode})"
@@ -800,9 +800,9 @@ case "${ACTION}" in
     _replace_former_group_modules
     _load_layout_modules
     # The shipped set, compiled and staged where the installed ai-tools-admin loads a stable
-    # group from; rebuilt with the core when the operator asked for that.
+    # group from; each module goes through ensure_pp, so an edited source is rebuilt with the core.
     section "Shipped modules"
-    if (( _recompile )); then stage_shipped_modules rebuild; else stage_shipped_modules; fi
+    stage_shipped_modules
 
     section "Labelling"
     restorecon -FR "${NVM_DIR}"  2>/dev/null || true
@@ -832,8 +832,9 @@ case "${ACTION}" in
             _locked semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
             ok "group '${name}' enabled"
         done
-        # Recompile-and-reload a loaded group from its current source: build_pp (unlike
-        # ensure_pp) never reuses an earlier build, so an edited .te/.fc takes effect.
+        # Reload a loaded group from its current source: build_pp requires the toolchain, so a
+        # reload asked for on a host that cannot compile is refused with the package named rather
+        # than reusing the build it already runs.
         for name in "${RECOMPILE_GROUPS[@]}"; do
             build_pp "ai_tools_${name}.pp"
             log "reloading from source: ai_tools_${name}"

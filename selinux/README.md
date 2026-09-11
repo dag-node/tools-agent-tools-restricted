@@ -142,8 +142,8 @@ cd selinux
 sudo ./install-selinux.sh install
 ```
 
-This compiles and loads `ai_tools.pp` (enforcing) — a later run reuses the earlier build
-unless you answer yes to its recompile prompt — stages the shipped set for `ai-tools-admin`,
+This compiles and loads `ai_tools.pp` (enforcing) — a later run rebuilds it when a `.te`,
+`.if`, or `.fc` is newer than the earlier build, through `make` — stages the shipped set for `ai-tools-admin`,
 labels each agent's config directory (`ai_tools_home_t`) and
 the `claude.exe` entrypoint, and labels every project in
 `~/.config/ai-tools/allowed-projects` as `ai_tools_project_t`.
@@ -197,8 +197,8 @@ sudo ./install-selinux.sh rebuild     # recompile from source + reload (still pe
 ```
 
 `rebuild` recompiles `ai_tools.pp` from the edited `.te`/`.fc`, reloads it, and
-re-applies labels — the loop step after every source edit. (`install` does the same
-but only recompiles if you answer its prompt, and it re-offers the optional groups.)
+re-applies labels — the loop step after every source edit. (`install` rebuilds the same
+way when a source is newer than the build, and it re-offers the optional groups.)
 
 Repeat exercise → `audit2allow` → fold-in → reload until `ausearch` shows **no new
 `ai_tools_t` denials** across a full session including git push and an update run.
