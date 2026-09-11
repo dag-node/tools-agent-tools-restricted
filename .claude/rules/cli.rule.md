@@ -191,7 +191,7 @@ file sink being the authoritative one.
   then *Apply* (one result line per step, closed by the final `claimed` ✓ — **only** when the steps
   that grant access applied; see *A claim that could not apply its root steps does not report
   success*). `-y/--yes` pre-answers
-  only the claim's own default-NO proceed prompt ("Apply the pending steps above IN PLACE?") <!-- prose-check: ignore --> — the
+  only the claim's own default-NO proceed prompt ("Apply the pending steps above IN PLACE?") — the
   launch wrapper passes it for a delegated claim after taking its own confirmation, so the same
   decision is not asked twice; the scoped opt-ins (secret lockdown, `.git` history, ancestor
   traversal) still ask on their own terms (see [messaging](messaging.rule.md) for the

@@ -507,9 +507,9 @@ _ai_tools_label_agent_entrypoint() {
 
     case "$(ai_tools_entrypoint_reconcile_verdict "${installed}" "${covered}" "${matched}")" in
         # 3, not 0: the rule registered and no step failed, but no file took the type because none
-        # is installed yet. The caller reports that as "nothing to label" rather than as labels  prose-check: ignore
-        # applied, which on an unprovisioned host is the difference between a true report and a
-        # green line for work that did not happen.
+        # is installed yet. The caller reports that as `nothing to label`, not as labels applied:
+        # on an unprovisioned host that is the difference between a true report and a green line
+        # for work that did not happen.
         none)  printf 'none %s its entrypoint\n' "${agent}"
                if [[ "${status}" -eq 0 ]]; then status=3; fi ;;
         stale) printf 'stale %s %s\n' "${agent}" "${installed}"; status=1 ;;

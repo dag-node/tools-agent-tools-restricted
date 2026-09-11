@@ -341,7 +341,7 @@ BEFORE="$(mode_of "${SEALED_SBX}") $(group_of "${SEALED_SBX}")"
 BEFORE_ACL="$(getfacl -c -- "${SEALED_SBX}" 2>/dev/null | tr '\n' ',')"
 BEFORE_OWN="$(mode_of "${SEALED_OWN}") $(group_of "${SEALED_OWN}")"
 note "sealed fixtures: ${BEFORE} (inherited group + default ACL), ${BEFORE_OWN} (setgid)"
-# The residue has to actually be there, or "nothing was stripped" does not prove a property of stripping.  prose-check: ignore
+# The residue has to be there, or `nothing was stripped` does not prove a property of stripping.
 [[ "${BEFORE}" == "700 ${SANDBOX_GROUP}" ]] \
     || fail "sandbox-grouped seal fixture is '${BEFORE}', want '700 ${SANDBOX_GROUP}' -- the checks below cannot mean anything"
 [[ "${BEFORE_OWN}" == "2700 ${MY_GROUP}" ]] \
@@ -757,7 +757,7 @@ fi
 # ── 4. unclaim --force on the unregistered copy ──────────────────────────────────────────────
 section "4. ai-tools --project-unclaim --force (unregistered copy)"
 # --force acts on the ai-tools fingerprint, so the copy must carry one. Establish that FIRST:
-# without it the command correctly refuses ("nothing to unclaim here"), and asserting anything  prose-check: ignore
+# without it the command correctly refuses (`nothing to unclaim here`), and asserting anything
 # past that point measures the fixture, not the flag. The two checks after the apply would even
 # PASS on such a copy -- no abort, group already the operator's -- which is the worst outcome a
 # check can have.
