@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/relabel.sh
-# Unit test for the entrypoint file-context predicate (relabel.lib.sh): the pure
+# Unit test for the file-context predicates (relabel.lib.sh): the pure
 # ai_tools_entrypoint_fcontext_valid that gates every pattern an agent manifest declares before
 # it becomes a `semanage fcontext` rule mapping files to ai_tools_exec_t -- the exec entrypoint of
-# the confined domain.
+# the confined domain -- and ai_tools_operator_conf_valid, which gates the path that becomes an
+# ai_tools_conf_t rule for one operator's config subtree.
 #
 # The property under test is containment: a declared pattern may only ever match inside the
-# sandbox's own Node toolchain. A manifest is root-owned, so this is defense in depth rather than
-# the only guard, but the failure it prevents is severe and silent -- a pattern with an
-# alternation, a traversal, or a foreign prefix would hand ai_tools_exec_t to a file outside the
-# toolchain, making it an entrypoint into the agent's domain. The type itself is never
-# manifest-supplied, which this file also pins.
+# sandbox's own Node toolchain, and a config rule may only ever name one account's
+# ~/.config/ai-tools. Both inputs are root-owned or read from a passwd entry, so this is defense in
+# depth rather than the only guard, but the failure it prevents is severe and silent -- a pattern
+# with an alternation, a traversal, or a foreign prefix would hand ai_tools_exec_t to a file
+# outside the toolchain, making it an entrypoint into the agent's domain. The entrypoint type is
+# never manifest-supplied and the config type never caller-supplied, which this file also pins.
 #
 # Sources the deployed library; no SELinux host, no privilege of its own. Run as root via sudo
 # (suite contract).
@@ -549,6 +551,63 @@ else
         pass "a path no allowlist covers is refused, before any policy write"
     else
         fail "the helper did not refuse an unlisted path (rc=${rc}): ${out}"
+    fi
+fi
+
+# ── The operator config subtree predicate ────────────────────────────────────────────────────
+# ai_tools_operator_conf_valid gates what becomes a `semanage fcontext` rule for ai_tools_conf_t,
+# the type the root helpers read an operator's allowlist through. Its input is a home path from a
+# passwd entry, so the property under test is the containment
+# ai_tools_entrypoint_fcontext_valid holds for a toolchain path: the rule may name one account's
+# ~/.config/ai-tools and no other path. A regex metacharacter reaching the pattern would widen it
+# to homes nobody enrolled, and refusing costs that one operator's label, which the caller
+# reports -- so every ambiguous shape must be refused.
+# Pure: no filesystem, no privilege, no SELinux host.
+section "relabel: the operator config subtree predicate (unit)"
+
+if ! declare -F ai_tools_operator_conf_valid >/dev/null 2>&1; then
+    skip "operator conf predicate" "${LIB} does not define ai_tools_operator_conf_valid"
+else
+    conf_accepts() {
+        if ai_tools_operator_conf_valid "$1"; then pass "accepts ${1:-<empty>}"
+        else fail "rejected a valid operator config dir: $1"; fi
+    }
+    conf_rejects() {
+        if ai_tools_operator_conf_valid "$1"; then fail "ACCEPTED ${2}: ${1:-<empty>}"
+        else pass "rejects ${2}"; fi
+    }
+
+    conf_accepts '/home/op/.config/ai-tools'
+    conf_accepts '/home/some.user/.config/ai-tools'      # a dotted account name is ordinary
+    conf_accepts '/var/lib/svc-account/.config/ai-tools' # a service account's home need not be /home
+
+    conf_rejects ''                                  "an empty path"
+    conf_rejects 'home/op/.config/ai-tools'          "a relative path"
+    conf_rejects '/home/op/.config'                  "the parent, which would cover every ~/.config file"
+    conf_rejects '/home/op'                          "a whole home"
+    conf_rejects '/home/op/.config/ai-tools/sub'     "a path below the config dir"
+    conf_rejects '/home/../etc/.config/ai-tools'     "a parent-directory traversal"
+    conf_rejects '/.config/ai-tools'                 "a home of / -- the filesystem root"
+    conf_rejects '/home/a|b/.config/ai-tools'        "an alternation in the home"
+    conf_rejects '/home/*/.config/ai-tools'          "a wildcard matching every home"
+    conf_rejects '/home/[ab]/.config/ai-tools'       "a bracket expression in the home"
+    conf_rejects '/home/a b/.config/ai-tools'        "whitespace in the home"
+    # shellcheck disable=SC2016  # the literal $(...) is the input under test, not an expansion
+    conf_rejects '/home/$(id)/.config/ai-tools'      "a shell-substitution character"
+
+    # The TYPE is the library's, never a caller's -- the same rule the entrypoint type follows.
+    if [[ "${AI_TOOLS_OPERATOR_CONF_TYPE:-}" == ai_tools_conf_t ]]; then
+        pass "the operator config type is pinned in the library (ai_tools_conf_t)"
+    else
+        fail "AI_TOOLS_OPERATOR_CONF_TYPE is '${AI_TOOLS_OPERATOR_CONF_TYPE:-unset}', expected ai_tools_conf_t"
+    fi
+
+    # A dot in the pattern must be escaped, or the rule matches homes the operator does not own.
+    pattern="$(_ai_tools_operator_conf_pattern '/home/some.user/.config/ai-tools')"
+    if [[ "${pattern}" == '/home/some\.user/\.config/ai-tools(/.*)?' ]]; then
+        pass "the pattern escapes every dot and covers the subtree"
+    else
+        fail "pattern is '${pattern}', expected every dot escaped and a (/.*)? tail"
     fi
 fi
 

@@ -86,7 +86,12 @@ readonly SANDBOX_PROJECTS="/var/opt/ai-tools/sandbox-projects"
 # what keeps that grant off the rest of ~/.config. The confined session is granted the same type,
 # which the 700/600 modes then gate -- see the ai_tools_conf_t block in ai_tools.te. Applied via
 # semanage (dynamic home path), not ai_tools.fc (fixed paths).
-readonly CONF_DIR="${PROJECTS_HOME}/.config/ai-tools"
+#
+# The label belongs to an ACCOUNT, so the sweep covers every operator this host has
+# (_operator_conf_dirs). It repairs an account enrolled while the policy was absent:
+# `ai-tools-admin operators add` registers the rule for each account it enrols, and there is no
+# type to assign until the module is loaded.
+readonly CONF_TAIL=".config/ai-tools"
 # Root-helper operation logs. Labelled ai_tools_log_t (static rule in ai_tools.fc) so
 # the helpers that run IN ai_tools_handback_t (chown, setgid, launcher-symlink) may append
 # under enforcing. A plain restorecon applies the label; created by install.sh.
@@ -487,6 +492,17 @@ RELABEL_LIB="${DIR}/../src/usr/local/lib/ai-tools/relabel.lib.sh"
 # shellcheck source=/dev/null
 source "${RELABEL_LIB}" || die "missing label library: ${RELABEL_LIB}"
 
+# The OPERATORS list, parsed through the shared grammar so this sweep reads operator.conf exactly
+# as every other consumer does. Best-effort and only the plural loader is called: an unenrolled
+# host (or a missing lib) leaves the set empty, which _operator_conf_dirs answers with the invoking
+# user alone -- the set this script covered before. `ai_tools_load_operator`, the SINGULAR one, is
+# deliberately not used: it writes PROJECTS_USER/PROJECTS_HOME, which are this script's own.
+OPERATOR_LIB="${DIR}/../src/usr/local/lib/ai-tools/operator.lib.sh"
+[[ -r "${OPERATOR_LIB}" ]] || OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
+# shellcheck source=/dev/null
+source "${OPERATOR_LIB}" 2>/dev/null \
+    || warn "could not read the operator list (${OPERATOR_LIB}); labelling ${PROJECTS_USER}'s config only"
+
 # verify_agent_labels: apply each enabled agent's declared file-context rules -- its entrypoint
 # (-> ai_tools_exec_t, without which the domain transition never fires and the agent would run
 # UNCONFINED) and its config directory (-> ai_tools_home_t, without which the confined session
@@ -630,29 +646,54 @@ _label_sandbox_clones() {
         fi
     done
 }
-# Label / unlabel ~/.config/ai-tools as ai_tools_conf_t (see CONF_DIR comment).
-_label_conf()   { [[ -d "${CONF_DIR}" ]] || { log "config dir absent, skip label: ${CONF_DIR}"; return 0; }
-                  # ai_tools_conf_t must already exist in the LOADED policy for
-                  # semanage to accept it. 'relabel' never loads the module, so on a
-                  # first run (or after a version bump) the type may be undefined --
-                  # report honestly instead of logging a false success.
-                  # Both streams are dropped: semanage announces an existing entry on stdout
-                  # ("already defined, modifying instead"), which reads as an error beside our
-                  # own status lines. Which branch fired is the useful part, so say that in this
-                  # script's own words instead.
-                  local _verb="labelled"
-                  if semanage fcontext -a -t ai_tools_conf_t "${CONF_DIR}(/.*)?" >/dev/null 2>&1 \
-                     || { _verb="re-applied"
-                          semanage fcontext -m -t ai_tools_conf_t "${CONF_DIR}(/.*)?" >/dev/null 2>&1; }; then
-                      restorecon -FR "${CONF_DIR}" 2>/dev/null || true
-                      ok "${_verb} config ai_tools_conf_t: ${CONF_DIR}"
-                  else
-                      warn "could not set ai_tools_conf_t fcontext on ${CONF_DIR}"
-                      warn "    type undefined? the module must be LOADED first --"
-                      warn "    run 'install' (loads the module), not just 'relabel'."
-                  fi; }
-_unlabel_conf() { semanage fcontext -d "${CONF_DIR}(/.*)?" 2>/dev/null || true
-                  restorecon -FR "${CONF_DIR}" 2>/dev/null || true; }
+# _operator_conf_dirs: print the ai-tools config directory of every account this host treats as an
+# operator, one per line, deduplicated in first-seen order. That set is the OPERATORS list in
+# operator.conf plus the invoking user, who is an operator by having run this and who on a first
+# install is absent from the list, operator.conf being written by `ai-tools-admin operators add`.
+# So an unenrolled host still labels the config of the account installing the policy.
+_operator_conf_dirs() {
+    local name home
+    {
+        printf '%s\n' "${PROJECTS_USER}"
+        if declare -F ai_tools_load_operators >/dev/null 2>&1 && ai_tools_load_operators; then
+            printf '%s\n' "${AI_TOOLS_OPERATORS[@]}"
+        fi
+    } | while IFS= read -r name; do
+        [[ -n "${name}" ]] || continue
+        home="$(getent passwd "${name}" 2>/dev/null | cut -d: -f6)" || continue
+        [[ -n "${home}" ]] || continue
+        printf '%s/%s\n' "${home}" "${CONF_TAIL}"
+    done | awk '!seen[$0]++'
+}
+
+# Label / unlabel every operator's ~/.config/ai-tools as ai_tools_conf_t (see CONF_TAIL comment).
+# The rule registration and the restorecon live in relabel.lib.sh, so this sweep and the
+# per-account registration in ai-tools-admin apply one implementation.
+_label_conf() {
+    local dir status
+    while IFS= read -r dir; do
+        [[ -d "${dir}" ]] || { log "config dir absent, skip label: ${dir}"; continue; }
+        status=0
+        ai_tools_label_operator_conf "${dir}" || status=$?
+        case "${status}" in
+            0) ok "labelled config ai_tools_conf_t: ${dir}" ;;
+            2) log "SELinux inactive, nothing to label: ${dir}" ;;
+            # ai_tools_conf_t must already exist in the LOADED policy for semanage to accept it.
+            # 'relabel' never loads the module, so on a first run (or after a version bump) the
+            # type may be undefined -- report honestly instead of logging a false success. The
+            # reason semanage gave is what tells that apart from a store another transaction held.
+            *) warn "could not set ai_tools_conf_t on ${dir}${AI_TOOLS_FCONTEXT_ERROR:+ -- ${AI_TOOLS_FCONTEXT_ERROR}}"
+               warn "    type undefined? the module must be LOADED first --"
+               warn "    run 'install' (loads the module), not just 'relabel'." ;;
+        esac
+    done < <(_operator_conf_dirs)
+}
+_unlabel_conf() {
+    local dir
+    while IFS= read -r dir; do
+        ai_tools_unlabel_operator_conf "${dir}" || true
+    done < <(_operator_conf_dirs)
+}
 # _relabel_runtime: fix the live ai_tools_run_t label on /run/ai-tools (see RUN_DIR).
 # A plain restorecon of the other trees is enough because they live on persistent
 # filesystems, but the handback runtime dir is tmpfs and recreated by systemd from

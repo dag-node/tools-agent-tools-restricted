@@ -273,9 +273,16 @@ files_search_var(ai_tools_t)
 # already infer from the NOTICE every quarantine emits. Removing this grant was considered and
 # rejected: it would make policy, not the mode, the binding constraint on a decision that belongs
 # to the operator. The default stays closed.
+#
+# The file permissions are refpolicy's read_file_perms, written out. An ordinary reader asks for
+# all of them: bash probes a descriptor it reads with a terminal ioctl, and these files are read
+# once per operator per path resolved. A set without `ioctl` leaves each of those probes denied --
+# the read itself succeeds, and every probe writes an audit record that setroubleshootd amplifies,
+# burying the denials an operator is looking for. Neither `ioctl` nor `lock` carries information
+# out of a file the domain may already read.
 allow ai_tools_t config_home_t:dir search;
 allow ai_tools_t ai_tools_conf_t:dir { getattr search open };
-allow ai_tools_t ai_tools_conf_t:file { getattr open read };
+allow ai_tools_t ai_tools_conf_t:file { getattr open read lock ioctl };
 
 # Append the root-helper operation logs under /var/log/ai-tools (ai_tools_log_t).
 # install.sh pre-creates each log file, so the steady state is append-only; create +
@@ -648,9 +655,11 @@ allow ai_tools_handback_t self:capability { chown fowner fsetid dac_override };
 # them: the helpers here re-validate every path against the allowlist as root, and the narrow
 # type keeps the grant off the rest of ~/.config. SEARCH on config_home_t traverses into the
 # subtree without listing it.
+# The file permissions are read_file_perms, for the reason the ai_tools_t grant on the same type
+# states: the helpers read these files with bash, once per operator per path they resolve.
 allow ai_tools_handback_t config_home_t:dir search;
 allow ai_tools_handback_t ai_tools_conf_t:dir { getattr search open };
-allow ai_tools_handback_t ai_tools_conf_t:file { getattr open read };
+allow ai_tools_handback_t ai_tools_conf_t:file { getattr open read lock ioctl };
 
 # Read the shared libraries the helpers source.
 libs_read_lib_files(ai_tools_handback_t)

@@ -569,6 +569,45 @@ seed_operator_config() {
     seed_config_file "${user}" "${group}" "${cfg}/secret-patterns"  ai_tools_conf_secret_patterns_seed
 }
 
+# label_operator_config <user>: give that operator's ~/.config/ai-tools the ai_tools_conf_t SELinux
+# type, through relabel.lib.sh. There is one rule per operator and enrolment is where this host
+# learns an account is one, so the rule is registered here; what the type buys is in
+# .claude/rules/confinement.rule.md. A re-run re-asserts it, which repairs an account whose rule a
+# concurrent semanage transaction refused.
+#
+# BEST-EFFORT, and the two ways it declines are different facts. On a host with no SELinux layer
+# there is no such type to apply -- the intended DAC-only deployment -- so the run stays silent. A
+# host that has one and could not apply it is WARNED with the command that repairs it, and the enrolment
+# still stands: the two facts that make an operator are already written, so a refusal here would
+# leave an account in OPERATORS and in the group with no way to finish.
+label_operator_config() {
+    local user="$1" home cfg status=0
+    home="$(getent passwd "${user}" 2>/dev/null | cut -d: -f6)"
+    cfg="${home}/.config/ai-tools"
+    [[ -n "${home}" && -d "${cfg}" ]] || return 0
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/relabel.lib.sh
+    if ! source "${RELABEL_LIB}" 2>/dev/null \
+            || ! declare -F ai_tools_label_operator_conf >/dev/null 2>&1; then
+        warn "cannot label ${cfg}: ${RELABEL_LIB} did not load -- reinstall ai-tools-base"
+        return 0
+    fi
+    # Taken in this shell, not a subshell: the lock is an open descriptor (see relabel.lib.sh).
+    # It serializes this write against the other helpers that write the same policy store.
+    ai_tools_relabel_lock
+    if [[ -n "${AI_TOOLS_RELABEL_LOCK_NOTE}" ]]; then
+        log "proceeding without the relabel lock: ${AI_TOOLS_RELABEL_LOCK_NOTE}"
+    fi
+    ai_tools_label_operator_conf "${cfg}" || status=$?
+    case "${status}" in
+        0) log "labelled ${cfg} ${AI_TOOLS_OPERATOR_CONF_TYPE}" ;;
+        2) : ;;   # no SELinux layer on this host -- nothing to label, and not a fault
+        *) warn "could not label ${cfg} ${AI_TOOLS_OPERATOR_CONF_TYPE}${AI_TOOLS_FCONTEXT_ERROR:+ -- ${AI_TOOLS_FCONTEXT_ERROR}}"
+           warn "    until it carries that type the ownership handback no-ops for ${user}'s projects"
+           warn "    repair: sudo ai-tools-admin operators add ${user}" ;;
+    esac
+    return 0
+}
+
 # The line an operator's bash init carries: sources the PATH dedup when it is installed, and
 # leaves the shell's own PATH standing when it is not.
 readonly DEDUP_GUARD='[[ -f /usr/local/lib/ai-tools/path-dedup.sh ]] && source /usr/local/lib/ai-tools/path-dedup.sh || true'
@@ -704,6 +743,7 @@ op_add() {
     fi
 
     seed_operator_config "${user}"
+    label_operator_config "${user}"
 
     # The sandbox account needs a systemd --user instance without an interactive login: its
     # nvm-update timer and each ai-tools-run session unit run there, and it has no login shell, so
@@ -1331,8 +1371,9 @@ status() {
     # the refusal then reads as this command failing rather than as an unattributed error.
     printf '\nai-tools host status\n'
 
-    # Loaded here rather than beside the other libraries: no other command reads any of them, and
-    # relabel.lib.sh pulls in the provider and control-plane libraries behind it. Each is
+    # Loaded here rather than beside the other libraries: each is read by one command, and
+    # relabel.lib.sh pulls in the provider and control-plane libraries behind it. `operators add`
+    # loads that one the same way, inside the command that needs it. Each is
     # best-effort and its section reports what it could not read, EXCEPT the service registry --
     # without it there is no report to give, and a clean bill this tool cannot support is worse
     # than a refusal.
