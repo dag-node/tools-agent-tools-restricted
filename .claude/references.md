@@ -6,6 +6,10 @@ here to its name, its file, and the files that cite it, and `ref-index.py where 
 the live line. A row named `example` reserves an id a document shows without defining it. The
 emitter column carries, for a message code, the word that emits it.
 
+<!-- prose-check: ignore-file -->
+Each name is copied from the target it indexes, so a writing finding here names prose this file
+cannot fix -- a message code's name is a runtime string, and rewording one is a code change.
+
 | Id | Reftag | Name | File | Cited by | Emitter |
 |---|---|---|---|---|---|
 | w4z6 | [ref-section-w4z6](rules/confinement.rule.md#ref-section-w4z6) | The toolchain is read-only to the confined domain | .claude/rules/confinement.rule.md | .claude/rules/agent-claude-code.rule.md, .claude/rules/launch.rule.md |  |

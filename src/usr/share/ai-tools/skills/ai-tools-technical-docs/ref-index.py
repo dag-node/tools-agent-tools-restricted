@@ -201,6 +201,10 @@ here to its name, its file, and the files that cite it, and `ref-index.py where 
 the live line. A row named `example` reserves an id a document shows without defining it. The
 emitter column carries, for a message code, the word that emits it.
 
+<!-- prose-check: ignore-file -->
+Each name is copied from the target it indexes, so a writing finding here names prose this file
+cannot fix -- a message code's name is a runtime string, and rewording one is a code change.
+
 | Id | Reftag | Name | File | Cited by | Emitter |
 |---|---|---|---|---|---|
 """
@@ -212,6 +216,9 @@ defines, with the date it was retired and the release the tree was at, so a row'
 in releases. The minter reads it, so an id that reached a log line or a document is never drawn
 again, and an old line still resolves to what it named. History, not current state: a session
 does not read it.
+
+<!-- prose-check: ignore-file -->
+Its names are copied from the targets the tree once held, like the index beside it.
 
 | Id | Reftag | Name | File | Cited by | Emitter | Removed | Release |
 |---|---|---|---|---|---|---|---|
