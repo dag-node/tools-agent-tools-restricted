@@ -19,6 +19,41 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | x6a9 | [ref-section-x6a9](../CLAUDE.md#ref-section-x6a9) | Boundaries and non-goals | CLAUDE.md | README.md, docs/multi-operator.md |  |
 | f5q2 | [ref-section-f5q2](../docs/rpm-packaging.md#ref-section-f5q2) | Installing and upgrading | docs/rpm-packaging.md | README.md |  |
 | a6s8 | [ref-section-a6s8](../docs/rpm-packaging.md#ref-section-a6s8) | Signing and distribution | docs/rpm-packaging.md | docs/branching-and-release.md |  |
+| u5e6 | [MSG-U5E6](../install.sh) | error: --operator needs an account name | install.sh | tests/unit/install-guards.sh | refuse_early |
+| k4w7 | [MSG-K4W7](../install.sh) | error: run with sudo | install.sh |  | refuse_early |
+| c7t6 | [MSG-C7T6](../install.sh) | no account named | install.sh |  | coded_refusal |
+| d7c6 | [MSG-D7C6](../install.sh) | the operator must be a normal login user, not root | install.sh | tests/unit/install-guards.sh | coded_refusal |
+| s9c4 | [MSG-S9C4](../install.sh) | the operator must not be the sandbox account ${SANDBOX_USER} | install.sh | tests/unit/install-guards.sh | coded_refusal |
+| x4x2 | [MSG-X4X2](../install.sh) | no such user: ${name} | install.sh | tests/unit/install-guards.sh | coded_refusal |
+| c3u6 | [MSG-C3U6](../install.sh) | no home directory on this host for ${name} (${home:-none}) | install.sh |  | coded_refusal |
+| r9a8 | [MSG-R9A8](../install.sh) | cannot source ${1} -- the checkout is incomplete; re-clone or re-download it | install.sh |  | die |
+| e2b9 | [MSG-E2B9](../install.sh) | installing work in progress: the ${total} uncommitted path(s) deploy as root (--allow-uncommitted) | install.sh | tests/unit/install-guards.sh | warn |
+| u8c9 | [MSG-U8C9](../install.sh) | the checkout ${SCRIPT_DIR} carries ${total} uncommitted path(s) -- review and commit them (git -C ${SCRIPT_DIR} status; git -C ${SCRIPT_DIR} diff), or install work in progress with: sudo ${SCRIPT_DIR}/install.sh install --allow-uncommitted | install.sh | tests/unit/install-guards.sh | die |
+| w9z9 | [MSG-W9Z9](../install.sh) | the kept ${deployed} does not mention this version's new options: | install.sh |  | warn |
+| v7m6 | [MSG-V7M6](../install.sh) | hook declarations not merged into ${deployed}: ${_ai_tools_conf_merge_reason} | install.sh |  | warn |
+| g6h3 | [MSG-G6H3](../install.sh) | systemctl --user $* failed by both the machine transport and the account's own | install.sh |  | warn |
+| v9c7 | [MSG-V9C7](../install.sh) | lockdown: failed to chown ${d} | install.sh |  | warn |
+| y3e5 | [MSG-Y3E5](../install.sh) | lockdown: failed to chmod 750 ${d} | install.sh |  | warn |
+| q4h5 | [MSG-Q4H5](../install.sh) | nvm not found at ${ai_nvm_dir}/nvm.sh -- launcher symlinks skipped | install.sh |  | warn |
+| e5s3 | [MSG-E5S3](../install.sh) | nvm 'default' alias not set -- launcher symlinks skipped | install.sh |  | warn |
+| q9d3 | [MSG-Q9D3](../install.sh) | no enabled agent to link -- launcher symlinks skipped | install.sh |  | warn |
+| k6n8 | [MSG-K6N8](../install.sh) | launcher ${launcher} not found at ${versioned_launcher} -- its symlink is skipped | install.sh |  | warn |
+| t2e2 | [MSG-T2E2](../install.sh) | failed to create the ${ai_tools_bin}/${launcher} symlink | install.sh |  | warn |
+| p2n3 | [MSG-P2N3](../install.sh) | restorecon not found -- skipping SELinux context restoration | install.sh |  | warn |
+| w6y7 | [MSG-W6Y7](../install.sh) | SELinux step refused: a source install compiles its policy modules, and the | install.sh |  | warn |
+| k9p5 | [MSG-K9P5](../install.sh) | the SELinux policy modules did not compile (see above); fix the cause and re-run | install.sh |  | die |
+| q5r3 | [MSG-Q5R3](../install.sh) | SELinux is inactive -- the agent runs DAC-only (no ai_tools_t domain). DAC-only | install.sh |  | warn |
+| y4g6 | [MSG-Y4G6](../install.sh) | SELinux install did not complete -- bring it up later with: | install.sh |  | warn |
+| e7d7 | [MSG-E7D7](../install.sh) | relabel did not complete -- run: sudo ai-tools-admin system entrypoints relabel | install.sh |  | warn |
+| r6y6 | [MSG-R6Y6](../install.sh) | sandbox account ${SANDBOX_USER} not found -- create it first (README step 2) | install.sh |  | die |
+| q7e7 | [MSG-Q7E7](../install.sh) | setfacl unavailable -- operators need ${SANDBOX_GROUP} membership for sandbox-create | install.sh |  | warn |
+| n2w3 | [MSG-N2W3](../install.sh) | sudoers syntax check failed | install.sh |  | die |
+| c2x3 | [MSG-C2X3](../install.sh) | could not add ${PROJECTS_USER} to ai-ops | install.sh |  | warn |
+| m7k6 | [MSG-M7K6](../install.sh) | the systemd --user manager of ${SANDBOX_USER} did not come up -- the auto-update timer | install.sh |  | warn |
+| a7x8 | [MSG-A7X8](../install.sh) | toolchain not provisioned -- the wrapper/handback/SELinux checks skip or fail | install.sh |  | warn |
+| y5p5 | [MSG-Y5P5](../install.sh) | test suite reported failures -- review the output above | install.sh |  | warn |
+| z3h8 | [MSG-Z3H8](../install.sh) | could not remove ${SCRIPT_DIR} from ${allowlist} -- it is still registered | install.sh |  | warn |
+| s3y6 | [MSG-S3Y6](../install.sh) | no usable operator named -- re-run the install and name one that exists | install.sh |  | die |
 | n4p3 | [MSG-N4P3](../src/opt/ai-tools/bin/ai-tools-run.sh) | AI_TOOLS_AGENT_EXEC contains parent-directory references | src/opt/ai-tools/bin/ai-tools-run.sh | tests/integration/ai-tools-run.sh | refuse |
 | z2j9 | [MSG-Z2J9](../src/opt/ai-tools/bin/ai-tools-run.sh) | invalid or absent AI_TOOLS_AGENT_EXEC -- cannot launch | src/opt/ai-tools/bin/ai-tools-run.sh | tests/integration/ai-tools-run.sh | refuse |
 | a3h6 | [MSG-A3H6](../src/opt/ai-tools/bin/ai-tools-run.sh) | no enabled agent provides the launcher \ | src/opt/ai-tools/bin/ai-tools-run.sh | tests/integration/ai-tools-run.sh | refuse |

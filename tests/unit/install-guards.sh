@@ -50,6 +50,7 @@ run_installer() {
 
 # (1) root as the operator is refused, and the refusal names the account it wants instead.
 out="$(run_installer root)"
+assert_msg MSG-D7C6 "${out}" "install.sh refuses to enrol root as the operator, by code"
 if grep -qi 'must be a normal login user, not root' <<<"${out}"; then
     pass "install.sh refuses to enrol root as the operator"
 else
@@ -84,6 +85,7 @@ fi
 # (5) The same root refusal on the --operator route. Both routes reach one decision, so a name
 # that is refused when it arrives from sudo must be refused when it is typed as a flag.
 out="$(run_installer "${PROJECTS_USER}" --operator root)"
+assert_msg MSG-D7C6 "${out}" "--operator root is refused by the same code as SUDO_USER=root"
 if grep -qi 'must be a normal login user, not root' <<<"${out}" && ! grep -q 'usage: sudo' <<<"${out}"; then
     pass "--operator root is refused, before the dispatch"
 else
@@ -93,6 +95,7 @@ fi
 # (6) The sandbox account: enrolling it would put the account the agent runs as into ai-ops, which
 # ai-tools-run refuses to launch for -- so the host would install and then never launch.
 out="$(run_installer "${PROJECTS_USER}" --operator "${SANDBOX_USER}")"
+assert_msg MSG-S9C4 "${out}" "--operator ${SANDBOX_USER} is refused, by code"
 if grep -q "must not be the sandbox account ${SANDBOX_USER}" <<<"${out}"; then
     pass "--operator ${SANDBOX_USER} is refused"
 else
@@ -102,6 +105,7 @@ fi
 # (7) A name no account answers to. Left unrefused it would enrol a name the ownership helpers
 # can never resolve to an owner.
 out="$(run_installer "${PROJECTS_USER}" --operator "no-such-account-${RANDOM}${RANDOM}")"
+assert_msg MSG-X4X2 "${out}" "--operator with an unknown account is refused, by code"
 if grep -q 'no such user:' <<<"${out}"; then
     pass "--operator with an unknown account is refused"
 else
@@ -111,6 +115,7 @@ fi
 # (8) The flag's own arithmetic: a trailing --operator has no name to enrol, and must say so
 # rather than reading the next thing as one or enrolling an empty name.
 out="$(SUDO_USER="${PROJECTS_USER}" bash "${INSTALLER}" __no_such_action__ --operator 2>&1 || true)"
+assert_msg MSG-U5E6 "${out}" "a valueless --operator is refused, by code"
 if grep -q -- '--operator needs an account name' <<<"${out}"; then
     pass "a valueless --operator is refused"
 else
@@ -175,6 +180,7 @@ fi
 printf '# edited\n' >> "${FIX}/install.sh"
 : > "${FIX}/untracked.txt"
 run_gate
+assert_msg MSG-U8C9 "${GATE_OUT}" "an uncommitted tree is refused, by code"
 if (( GATE_RC != 0 )) && grep -q 'uncommitted path(s)' <<<"${GATE_OUT}" \
         && grep -qE '^ +M +install\.sh' <<<"${GATE_OUT}" && grep -qE '^ +\?\? +untracked\.txt' <<<"${GATE_OUT}" \
         && grep -q -- '--allow-uncommitted' <<<"${GATE_OUT}"; then
@@ -194,6 +200,7 @@ fi
 
 # (14) --allow-uncommitted admits the same tree, warning rather than refusing.
 run_gate --allow-uncommitted
+assert_msg MSG-E2B9 "${GATE_OUT}" "--allow-uncommitted warns, by code"
 if (( GATE_RC == 0 )) && grep -q 'installing work in progress' <<<"${GATE_OUT}"; then
     pass "--allow-uncommitted admits the tree with a warning"
 else
