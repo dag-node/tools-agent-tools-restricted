@@ -250,8 +250,12 @@ DEFAULT_CHECKS = [
     ("nothing", hidden_scope_nothing, "name the absent input"),
     ("positional-reference", POSITIONAL_REFERENCE,
      "name the section, function, or file the reader goes to"),
+    # Two remedies, because the token is as often a PLACEHOLDER as a mistyped reftag: a usage line
+    # or a function signature writes `MSG-CODE` where the id goes, and minting a reftag for it
+    # would put a live id into a slot that names an argument.
     ("reference-shape", REFERENCE_SHAPE,
-     "write the reftag in full: the prefix, a dash, and its four-character id"),
+     "write the reftag in full (prefix, dash, four-character id), "
+     "or drop the reftag shape if this names an argument rather than a target"),
     ("unbacked-cost", unbacked_cost, "name the frequency or the bounded operation"),
     ("predicted-action", PREDICTED_ACTION, "state what the system does, or give the instruction"),
 ]

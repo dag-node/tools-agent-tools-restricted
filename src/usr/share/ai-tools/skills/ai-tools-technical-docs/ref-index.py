@@ -726,8 +726,12 @@ def command_check(args):
     count = 0
     for path, number, reftag, first in duplicates:
         count += 1
+        # Three remedies, because a repeat is as often deliberate as it is a mistake: a fixture
+        # DRIVING an emitter carries the definition shape without defining anything, and a message
+        # two processes must both emit is one situation that shares one code.
         print(f"{path}:{number}: duplicate [{reftag}] -- also defined at {first.path}:{first.line}; "
-              f"mint a fresh reftag with `new`")
+              f"mint a fresh reftag with `new`, mark a test fixture `ref-index: ignore`, "
+              f"or emit a deliberate twin's code from a format string so it reads as a citation")
     for target, earlier in duplicate_ids(targets):
         count += 1
         print(f"{target.path}:{target.line}: duplicate-id [{target.reftag}] -- the id is "
