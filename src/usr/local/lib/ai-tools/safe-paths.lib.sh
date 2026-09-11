@@ -96,10 +96,10 @@ ai_tools_assert_safe_target() {
     local raw_path="${1:-}" operation="${2:-operation}" resolved_path matched_entry
     resolved_path="$(realpath -m -- "${raw_path}" 2>/dev/null)" || resolved_path="${raw_path}"
     matched_entry="$(ai_tools_protected_path_match "${resolved_path}")" || return 0
-    local line_intro="Refusing the ${operation}: the target is a protected system directory."
-    local line_path="${resolved_path}"
     local line_detail="It is on the ai-tools protected-paths backstop (matched ${matched_entry}); the sandbox does not operate on system directories. A real project must live elsewhere -- do not add a system directory to allowed-projects."
-    ai_tools_msg_error "${line_intro}" "${line_path}" "${line_detail}"
+    # One code for every consumer: the refusal is the backstop's, whichever helper reached it.
+    ai_tools_msg_error MSG-Q6H3 "Refusing the ${operation}: the target is a protected system directory." \
+        "${resolved_path}" "${line_detail}"
     declare -F ai_tools_log_warn >/dev/null 2>&1 \
         && ai_tools_log_warn "refused ${operation} on protected path ${resolved_path} (matched ${matched_entry})"
     return 1

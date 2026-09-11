@@ -15,6 +15,25 @@ emitter column carries, for a message code, the word that emits it.
 | x6a9 | [ref-section-x6a9](../CLAUDE.md#ref-section-x6a9) | Boundaries and non-goals | CLAUDE.md | README.md, docs/multi-operator.md |  |
 | f5q2 | [ref-section-f5q2](../docs/rpm-packaging.md#ref-section-f5q2) | Installing and upgrading | docs/rpm-packaging.md | README.md |  |
 | a6s8 | [ref-section-a6s8](../docs/rpm-packaging.md#ref-section-a6s8) | Signing and distribution | docs/rpm-packaging.md | docs/branching-and-release.md |  |
+| n4p3 | [MSG-N4P3](../src/opt/ai-tools/bin/ai-tools-run.sh) | AI_TOOLS_AGENT_EXEC contains parent-directory references | src/opt/ai-tools/bin/ai-tools-run.sh | tests/integration/ai-tools-run.sh | refuse |
+| z2j9 | [MSG-Z2J9](../src/opt/ai-tools/bin/ai-tools-run.sh) | invalid or absent AI_TOOLS_AGENT_EXEC -- cannot launch | src/opt/ai-tools/bin/ai-tools-run.sh | tests/integration/ai-tools-run.sh | refuse |
+| a3h6 | [MSG-A3H6](../src/opt/ai-tools/bin/ai-tools-run.sh) | no enabled agent provides the launcher \ | src/opt/ai-tools/bin/ai-tools-run.sh | tests/integration/ai-tools-run.sh | refuse |
+| d7a7 | [MSG-D7A7](../src/opt/ai-tools/bin/ai-tools-run.sh) | the launcher does not resolve to an executable inside ${entrypoint_version_root} | src/opt/ai-tools/bin/ai-tools-run.sh | tests/integration/ai-tools-run.sh | refuse |
+| d2a4 | [MSG-D2A4](../src/opt/ai-tools/bin/ai-tools-run.sh) | AI_TOOLS_PROJECT_DIR must be an absolute path | src/opt/ai-tools/bin/ai-tools-run.sh | tests/integration/ai-tools-run.sh | refuse |
+| a4q4 | [MSG-A4Q4](../src/opt/ai-tools/bin/ai-tools-run.sh) | AI_TOOLS_PROJECT_DIR contains parent-directory references | src/opt/ai-tools/bin/ai-tools-run.sh |  | refuse |
+| f8v8 | [MSG-F8V8](../src/opt/ai-tools/bin/ai-tools-run.sh) | AI_TOOLS_PROJECT_DIR is not an existing directory: ${AI_TOOLS_PROJECT_DIR} | src/opt/ai-tools/bin/ai-tools-run.sh | tests/integration/ai-tools-run.sh | refuse |
+| h7s2 | [MSG-H7S2](../src/opt/ai-tools/bin/ai-tools-run.sh) | the agent entrypoint does not match the checksum its vendor signed for the installed version -- refusing to start the session | src/opt/ai-tools/bin/ai-tools-run.sh | tests/integration/ai-tools-run.sh | refuse |
+| u6a9 | [MSG-U6A9](../src/usr/local/bin/claude.sh) | claude: cannot load the launch safety library -- refusing to start | src/usr/local/bin/claude.sh | tests/integration/wrapper.sh | die |
+| n8q4 | [MSG-N8Q4](../src/usr/local/bin/claude.sh) | claude: this is the sandbox account ${SANDBOX_USER}, which is not an ai-tools operator | src/usr/local/bin/claude.sh | tests/integration/wrapper.sh | die |
+| r7z3 | [MSG-R7Z3](../src/usr/local/bin/claude.sh) | claude: ${_user} is an ai-tools operator, but this shell started before the grant | src/usr/local/bin/claude.sh |  | die |
+| c7c9 | [MSG-C7C9](../src/usr/local/bin/claude.sh) | claude: ${_user} is not an ai-tools operator -- not a member of the ${OPERATORS_GROUP} group | src/usr/local/bin/claude.sh |  | die |
+| s4b3 | [MSG-S4B3](../src/usr/local/bin/claude.sh) | ERROR: claude symlink not found at ${CLAUDE_LINK} | src/usr/local/bin/claude.sh |  | die |
+| c9s6 | [MSG-C9S6](../src/usr/local/bin/claude.sh) | claude: approved-projects allowlist not found | src/usr/local/bin/claude.sh |  | die |
+| k8k2 | [MSG-K8K2](../src/usr/local/bin/claude.sh) | claude: $(pwd): excluded by '!' rule in approved projects list | src/usr/local/bin/claude.sh | tests/integration/wrapper.sh | die |
+| r2v6 | [MSG-R2V6](../src/usr/local/bin/claude.sh) | claude: $(pwd): this project is disabled in your approved projects list | src/usr/local/bin/claude.sh | tests/integration/wrapper.sh | die |
+| w2p3 | [MSG-W2P3](../src/usr/local/bin/claude.sh) | claude: $(pwd): excluded by '!' rule in approved projects list | src/usr/local/bin/claude.sh |  | die |
+| n2z7 | [MSG-N2Z7](../src/usr/local/bin/claude.sh) | claude: no session started -- ${cwd} is not set up for the agent. | src/usr/local/bin/claude.sh | tests/integration/wrapper.sh | ai_tools_msg_error |
+| q6h3 | [MSG-Q6H3](../src/usr/local/lib/ai-tools/safe-paths.lib.sh) | Refusing the ${operation}: the target is a protected system directory. | src/usr/local/lib/ai-tools/safe-paths.lib.sh | tests/integration/wrapper.sh | ai_tools_msg_error |
 | d7n6 | [ref-section-d7n6](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-d7n6) | Back an absolute with its check | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |  |
 | j4m2 | [ref-section-j4m2](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-j4m2) | Rationale is the payload — state it as a mechanism, not as a figure | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |  |
 | a2e9 | [ref-section-a2e9](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-a2e9) | Present tense, active voice | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |  |

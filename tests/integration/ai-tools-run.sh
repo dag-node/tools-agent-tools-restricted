@@ -137,6 +137,7 @@ if [[ ${rc} -ne 0 ]] && grep -qi 'invalid or absent AI_TOOLS_AGENT_EXEC' <<<"${o
 else
     fail "non-versioned AI_TOOLS_AGENT_EXEC not refused (rc=${rc}): ${out}"
 fi
+assert_msg MSG-Z2J9 "${out}" "the shape refusal carries its code"
 
 # (2) A correctly-shaped AI_TOOLS_AGENT_EXEC carrying '/../' is refused by the traversal guard.
 out="$(run_crun AI_TOOLS_AGENT_EXEC=/opt/ai-tools/.nvm/versions/node/v1.2.3/../bin/claude)" && rc=0 || rc=$?
@@ -145,6 +146,7 @@ if [[ ${rc} -ne 0 ]] && grep -qi 'parent-directory references' <<<"${out}"; then
 else
     fail "AI_TOOLS_AGENT_EXEC with /../ not refused (rc=${rc}): ${out}"
 fi
+assert_msg MSG-N4P3 "${out}" "the traversal refusal is the executable's, not the project directory's"
 
 # (3)/(4) With a VALID AI_TOOLS_AGENT_EXEC, a bad AI_TOOLS_PROJECT_DIR is refused before launch. Needs
 # the real versioned target (so AI_TOOLS_AGENT_EXEC passes); skip if it cannot be resolved.
@@ -159,6 +161,7 @@ else
     else
         fail "relative AI_TOOLS_PROJECT_DIR not refused (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-D2A4 "${out}" "the relative-path refusal carries its code"
 
     # (4) A non-existent AI_TOOLS_PROJECT_DIR is refused.
     out="$(run_crun AI_TOOLS_AGENT_EXEC="${real}" AI_TOOLS_PROJECT_DIR=/nonexistent/ai-tools-test-xyz)" && rc=0 || rc=$?
@@ -167,6 +170,7 @@ else
     else
         fail "non-existent AI_TOOLS_PROJECT_DIR not refused (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-F8V8 "${out}" "the missing-directory refusal carries its code"
 
     # (5) A real, executable binary sitting in the SAME versioned bin directory is refused
     # because no enabled agent manifest claims that launcher. The manifest allowlist is what
@@ -182,6 +186,7 @@ else
         else
             fail "unclaimed launcher not refused (rc=${rc}): ${out}"
         fi
+        assert_msg MSG-A3H6 "${out}" "the unclaimed-launcher refusal carries its code"
     fi
 
     # (6) The version component must be an exact semver directory, not any directory name.
@@ -191,6 +196,7 @@ else
     else
         fail "non-semver version directory not refused (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-Z2J9 "${out}" "a non-semver version directory is the same shape refusal"
 
     # (7) Containment across the symlink. Shape validation matches the launcher PATH; what execve
     # transitions on is what that path RESOLVES to, and a string match cannot follow a link. A
@@ -223,6 +229,7 @@ else
         else
             fail "escaping launcher symlink not refused (rc=${rc}): ${out}"
         fi
+        assert_msg MSG-D7A7 "${out}" "the containment refusal carries its code"
         rm -rf "${fake_version_dir}"
     fi
 
@@ -252,6 +259,7 @@ else
     else
         fail "a mismatched entrypoint pin did not refuse the launch (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-H7S2 "${out}" "the pin-mismatch refusal carries its code"
 
     # The complementary property -- an UNPINNED entrypoint must NOT be refused, or an air-gapped
     # host would stop launching -- is deliberately NOT driven here. No other part of that run is

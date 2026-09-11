@@ -63,6 +63,7 @@ if printf '%s' "${gate_out}" | grep -qE "not an ai-tools operator|member of the 
 else
     fail "wrapper did NOT refuse a non-operator at the ai-ops gate (output: ${gate_out})"
 fi
+assert_msg MSG-N8Q4 "${gate_out}" "the refusal is the sandbox-account one, not the plain non-operator one"
 if printf '%s' "${gate_out}" | grep -qE "no session started|allowlist not found"; then
     fail "wrapper reached the allowlist gate as a non-operator -- the ai-ops gate must run first"
 else
@@ -87,6 +88,7 @@ if printf '%s' "${out}" | grep -qE "no session started|allowlist not found"; the
 else
     fail "wrapper did NOT block an unapproved directory (output: ${out})"
 fi
+assert_msg MSG-N2Z7 "${out}" "the block is the not-set-up refusal (the fixture allowlist exists)"
 
 # (1a) Cancelling names BOTH commands. The screen the menu sits under carries none (it states
 #      each choice once, in the menu), so the refusal is the only place they appear -- an
@@ -132,6 +134,7 @@ if printf '%s' "${out_excl}" | grep -qi "excluded by"; then
 else
     fail "wrapper did NOT refuse a '!'-excluded CWD (output: ${out_excl})"
 fi
+assert_msg MSG-K8K2 "${out_excl}" "the refusal reads the subdir as a carve-out of the enclosing project"
 
 # (2c) The two halves of --project-disable meet HERE, and nowhere else: the verb's whole promise
 #      is that a parked project cannot be launched in, and that is this gate's decision, not the
@@ -177,6 +180,7 @@ else
         else
             fail "wrapper did NOT refuse a CLI-disabled project (output: ${out_disabled})"
         fi
+        assert_msg MSG-R2V6 "${out_disabled}" "the refusal is the parked-project one, not a carve-out"
         # The refusal has to name the way back, or the operator's next move is a claim over a
         # project that is already claimed -- which is what the not-yet-claimed screen would invite.
         if printf '%s' "${out_disabled}" | grep -qF -- '--project-enable'; then
@@ -271,6 +275,7 @@ if grep -qi 'cannot load the launch safety library' <<<"${fc_out}"; then
 else
     fail "wrapper did NOT fail closed on a missing safety library (output: ${fc_out})"
 fi
+assert_msg MSG-U6A9 "${fc_out}" "the fail-closed refusal carries its code"
 
 # ── The wrapper actually CONSULTS the protected-paths backstop ───────────────────
 #
@@ -287,6 +292,7 @@ if grep -qiE 'not an ai-tools operator|member of the ai-ops' <<<"${pp_out}"; the
     skip "wrapper protected-path consult" "operator gate intercepts (test operator not in ai-ops here)"
 elif grep -qi 'protected system directory' <<<"${pp_out}"; then
     pass "wrapper refuses to launch in an allowlisted-but-protected system directory (/etc)"
+    assert_msg MSG-Q6H3 "${pp_out}" "the refusal is the backstop's own, carrying its code"
 else
     fail "wrapper did NOT invoke the protected-paths backstop on /etc (output: ${pp_out})"
 fi
