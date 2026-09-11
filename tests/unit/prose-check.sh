@@ -400,6 +400,50 @@ else
         "TEST-PC-39-kept-mode-changed: an octal changed in place is reported"
     assert_grep 'dropped \[g-x\]' "${kept}" \
         "TEST-PC-39-kept-symbolic-changed: a symbolic mode changed in place is reported"
+
+    # ── --new: report only what the working tree ADDS against a revision ───────────────────────
+    # The failure it exists to remove is a false one: an edit renumbers every finding after it,
+    # and a reader comparing two runs by line then reports each shifted finding as new.
+    # The fixture inserts text ahead of two existing figures and appends a third, so a pairing
+    # by position reports three where a pairing by content reports one.
+    printf 'The account is never an administrator.\nA claim adds nothing here.\n' > "${repo}/new.md"
+    git -C "${repo}" add new.md
+    git -C "${repo}" -c commit.gpgsign=false commit -qm new-base
+    printf 'An inserted line that is plain.\nAnother inserted line, also plain.\n%s\n%s\n%s\n' \
+        'The account is never an administrator.' \
+        'A claim adds nothing here.' \
+        'The helper grants no access.' > "${repo}/new.md"
+    added="$(cd "${repo}" && python3 "${PC}" --all --new HEAD new.md 2>&1)" || true
+    assert_grep 'grants no access' "${added}" \
+        "TEST-PC-39a-new-added: --new reports the figure the edit introduced"
+    OUT="${added}"   # `omits` reads it, the same global run_check sets
+    omits 'never' \
+        "TEST-PC-39b-new-shifted: a finding that only moved down the file is not reported"
+    omits 'nothing' \
+        "TEST-PC-39c-new-shifted-second: neither is the second one the insert displaced"
+
+    # An edited sentence that still reports counts as NEW, its text no longer matching the one
+    # it replaced: the wording a branch leaves behind is the wording it is answerable for.
+    printf 'An inserted line that is plain.\nAnother inserted line, also plain.\n%s\n%s\n%s\n' \
+        'The service account is never an administrator.' \
+        'A claim adds nothing here.' \
+        'The helper grants no access.' > "${repo}/new.md"
+    added="$(cd "${repo}" && python3 "${PC}" --all --new HEAD new.md 2>&1)" || true
+    assert_grep 'The service account' "${added}" \
+        "TEST-PC-39d-new-edited: a sentence reworded and still reporting counts as new"
+
+    # A path the revision does not hold has no baseline, so every finding in it is the tree's.
+    printf 'The helper grants no access.\n' > "${repo}/fresh.md"
+    added="$(cd "${repo}" && python3 "${PC}" --all --new HEAD fresh.md 2>&1)" || true
+    assert_grep 'grants no access' "${added}" \
+        "TEST-PC-39e-new-absent: a file the revision lacks reports every finding in it"
+
+    # The filter needs paths: --staged and --message name no path to read at a revision.
+    if ( cd "${repo}" && python3 "${PC}" --new HEAD >/dev/null 2>&1 ); then
+        fail "TEST-PC-39f-new-needs-paths: --new with no path was accepted"
+    else
+        pass "TEST-PC-39f-new-needs-paths: --new with no path is refused"
+    fi
 fi
 
 # ── --message: a commit message is an artifact the standard covers like any other ──────────────
