@@ -593,6 +593,7 @@ if (( MAIN_STATUS == 4 )) && grep -qi 'nothing was stopped' <<< "${MAIN_OUTPUT}"
 else
     fail "decline: expected exit 4, got ${MAIN_STATUS}: ${MAIN_OUTPUT}"
 fi
+assert_msg MSG-J3U9 "${MAIN_OUTPUT}" "the decline outcome carries its own code, through the notice emitter"
 unset -f ai_tools_msg_confirm
 
 # Every one of those outcomes is in the trail. An operator ending another operator's work, and a
@@ -606,6 +607,49 @@ if [[ -s "${stop_log}" ]] \
     pass "the request, the refusals and the decline are all recorded in the trail"
 else
     fail "the trail is missing one of request/refusal/decline: $(tail -5 "${stop_log}" 2>&1)"
+fi
+
+# ── The two-branch emitters ───────────────────────────────────────────────────────────────────
+section "emitters"
+
+# THE FALLBACK BRANCH IS THE ONE NO OTHER CASE HERE REACHES. msg.lib.sh is deployed, so every
+# refusal above rendered through the library; this helper's emitters carry a second branch for the
+# host where it did not load at all, and that branch is where a searchable token matters most --
+# there is no renderer left to put one in a box title. So it is driven with the library's emitters
+# removed from the shell, which is what an absent msg.lib.sh leaves behind.
+#
+# The prefix is asserted with the code, because the two answer different questions: the code names
+# the situation, `ai-tools-stop: ` names the component that raised it, and a branch that dropped
+# either would still print a line that reads like a message.
+# Each driving line is marked `ref-index: ignore`: it carries the emit-call shape the reference
+# index reads as a code's DEFINITION, and a fixture that drove a real emitter would register a
+# second definition of a code the helper already defines. The assertions under it cite the codes.
+fallback_out="$( { unset -f ai_tools_msg_error ai_tools_msg_warn ai_tools_msg_notice
+    say_error  MSG-Z5W3 "the error line"     # ref-index: ignore
+    say_warn   MSG-W8C6 "the warning line"   # ref-index: ignore
+    say_notice MSG-J3U9 "the notice line"; } 2>&1 )"   # ref-index: ignore
+assert_msg MSG-Z5W3 "${fallback_out}" "the fallback error renders its code on a line of its own"
+assert_msg MSG-W8C6 "${fallback_out}" "the fallback warning renders its code on a line of its own"
+assert_msg MSG-J3U9 "${fallback_out}" "the fallback notice renders its code on a line of its own"
+if grep -qxF 'ai-tools-stop: the error line'   <<< "${fallback_out}" \
+        && grep -qxF 'ai-tools-stop: the warning line' <<< "${fallback_out}"; then
+    pass "the fallback message keeps the emitter's component prefix, whole and on one line"
+else
+    fail "fallback prefix wrong: $(tr '\n' '|' <<< "${fallback_out}")"
+fi
+# The notice goes to stdout unprefixed: it reports an outcome rather than a fault, and the two
+# emitters that do report one are the ones that name the component.
+if grep -qxF 'the notice line' <<< "${fallback_out}"; then
+    pass "the fallback notice stays unprefixed, as it is on the library branch"
+else
+    fail "fallback notice wrong: $(tr '\n' '|' <<< "${fallback_out}")"
+fi
+# An uncoded call is unchanged, so a component takes codes one emit site at a time.
+uncoded_out="$( { unset -f ai_tools_msg_error; say_error "no code here"; } 2>&1 )"
+if [[ "${uncoded_out}" == 'ai-tools-stop: no code here' ]]; then
+    pass "an uncoded emit is byte-identical to what it printed before codes existed"
+else
+    fail "uncoded emit changed: $(tr '\n' '|' <<< "${uncoded_out}")"
 fi
 
 # ── Usage contract ────────────────────────────────────────────────────────────────────────────
@@ -661,6 +705,9 @@ if (( HELPER_STATUS == 2 )); then
 else
     fail "unknown option: expected exit 2, got ${HELPER_STATUS}: ${HELPER_OUTPUT}"
 fi
+# The code is the CLI's: an unrecognised option to this command is ONE situation, met at whichever
+# side the operator reached, so both refusals carry the same token to search for.
+assert_msg MSG-B7K4 "${HELPER_OUTPUT}" "the helper's unknown-option refusal carries the CLI's code"
 # A PATH IS REFUSED, NOT IGNORED. Accepting it and terminating everything anyway would invert what
 # the operator asked for, in the destructive direction; and refusing keeps `--stop <path>` free to
 # mean something narrower later without an existing command line silently changing meaning. The
@@ -673,6 +720,7 @@ if (( HELPER_STATUS == 2 )) \
 else
     fail "a path: expected exit 2 naming /exit, got ${HELPER_STATUS}: ${HELPER_OUTPUT}"
 fi
+assert_msg MSG-A3M9 "${HELPER_OUTPUT}" "the twinned refusal carries the same code the CLI's half prints"
 run_helper --all /some/project
 if (( HELPER_STATUS == 2 )); then
     pass "a path is refused even beside --all"
@@ -691,6 +739,7 @@ if [[ "${EUID}" -ne 0 ]]; then
     else
         fail "non-root: expected exit 5, got ${HELPER_STATUS}: ${HELPER_OUTPUT}"
     fi
+    assert_msg MSG-Z5W3 "${HELPER_OUTPUT}" "the root refusal names its situation by code"
 elif ! can_drop_privilege; then
     skip "a non-root invocation is refused" "runuser unavailable to drive the helper unprivileged"
 else
@@ -703,6 +752,7 @@ else
     else
         fail "non-root (as ${PROJECTS_USER}): expected exit 5, got ${HELPER_STATUS}: ${HELPER_OUTPUT}"
     fi
+    assert_msg MSG-Z5W3 "${HELPER_OUTPUT}" "the root refusal names its situation by code (driven as ${PROJECTS_USER})"
 fi
 
 finish
