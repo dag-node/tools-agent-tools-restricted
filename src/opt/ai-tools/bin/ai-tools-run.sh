@@ -79,11 +79,14 @@ source "${AI_TOOLS_LIB_DIR}/providers.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/confinement.lib.sh
 source "${AI_TOOLS_LIB_DIR}/confinement.lib.sh"
 
-# refuse <headline> [detail...] : frame the refusal and stop. Every call names the fix, so a
-# refused launch is self-explaining at the terminal.
+# refuse [code] <headline> [detail...] : frame the refusal and stop. Every call names the fix, so a
+# refused launch is self-explaining at the terminal. The library's optional leading code is split
+# off so the "ai-tools-run: " prefix lands on the headline rather than on the code.
 refuse() {
+    local code=""
+    if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
     local headline="ai-tools-run: $1"; shift
-    ai_tools_msg_error "${headline}" "$@"
+    ai_tools_msg_error ${code:+"${code}"} "${headline}" "$@"
     exit 1
 }
 # audit <syslog-level> <message> : one journal line under the ai-tools-run tag, the durable
@@ -128,20 +131,20 @@ done < <(ai_tools_enabled_agents 2>/dev/null)
 
 agent_executable_path="${AI_TOOLS_AGENT_EXEC:-}"
 [[ "${agent_executable_path}" != *"/../"* ]] \
-    || refuse 'AI_TOOLS_AGENT_EXEC contains parent-directory references'
+    || refuse MSG-N4P3 'AI_TOOLS_AGENT_EXEC contains parent-directory references'
 # Anchored to the sandbox's own Node toolchain, an exact semver version directory, and a single
 # path component for the launcher -- so the version component cannot be an arbitrary directory
 # name and the launcher cannot carry a separator.
 executable_suffix="${agent_executable_path#"${AI_TOOLS_NVM_DIR}/versions/node/"}"
 [[ "${executable_suffix}" != "${agent_executable_path}" \
    && "${executable_suffix}" =~ ^(v?[0-9]+\.[0-9]+\.[0-9]+)/bin/([A-Za-z0-9._-]+)$ ]] \
-    || refuse 'invalid or absent AI_TOOLS_AGENT_EXEC -- cannot launch'
+    || refuse MSG-Z2J9 'invalid or absent AI_TOOLS_AGENT_EXEC -- cannot launch'
 node_version="${BASH_REMATCH[1]}"
 launcher_name="${BASH_REMATCH[2]}"
 
 agent_name="${agent_name_by_launcher[${launcher_name}]:-}"
 [[ -n "${agent_name}" ]] \
-    || refuse "no enabled agent provides the launcher \"${launcher_name}\" -- refusing to launch"
+    || refuse MSG-A3H6 "no enabled agent provides the launcher \"${launcher_name}\" -- refusing to launch"
 # The name becomes a systemd unit name; keep it to characters a unit name accepts.
 [[ "${agent_name}" =~ ^[A-Za-z0-9._-]+$ ]] \
     || refuse "agent manifest name \"${agent_name}\" is not a valid unit-name component"
@@ -186,7 +189,7 @@ entrypoint_identity() {
 }
 
 session_exec_path="$(resolve_entrypoint)" \
-    || refuse "the launcher does not resolve to an executable inside ${entrypoint_version_root}" \
+    || refuse MSG-D7A7 "the launcher does not resolve to an executable inside ${entrypoint_version_root}" \
               "resolved from:  ${agent_executable_path}" \
               'reprovision the toolchain:' \
               '  sudo ai-tools-admin system bootstrap'
@@ -199,11 +202,11 @@ session_exec_identity="$(entrypoint_identity "${session_exec_path}")"
 session_working_directory=""
 if [[ -n "${AI_TOOLS_PROJECT_DIR:-}" ]]; then
     [[ "${AI_TOOLS_PROJECT_DIR}" == /* ]] \
-        || refuse 'AI_TOOLS_PROJECT_DIR must be an absolute path'
+        || refuse MSG-D2A4 'AI_TOOLS_PROJECT_DIR must be an absolute path'
     [[ "${AI_TOOLS_PROJECT_DIR}" != *"/../"* && "${AI_TOOLS_PROJECT_DIR}" != *"/.." ]] \
-        || refuse 'AI_TOOLS_PROJECT_DIR contains parent-directory references'
+        || refuse MSG-A4Q4 'AI_TOOLS_PROJECT_DIR contains parent-directory references'
     [[ -d "${AI_TOOLS_PROJECT_DIR}" ]] \
-        || refuse "AI_TOOLS_PROJECT_DIR is not an existing directory: ${AI_TOOLS_PROJECT_DIR}"
+        || refuse MSG-F8V8 "AI_TOOLS_PROJECT_DIR is not an existing directory: ${AI_TOOLS_PROJECT_DIR}"
     session_working_directory="${AI_TOOLS_PROJECT_DIR}"
 fi
 
@@ -529,7 +532,7 @@ audit info "entrypoint: agent=${agent_name} pin=${entrypoint_pin_verdict} requir
 case "${entrypoint_pin_verdict}" in
     mismatch)
         audit warning "REFUSED: entrypoint does not match its pin (${session_exec_path})"
-        refuse 'the agent entrypoint does not match the checksum its vendor signed for the installed version -- refusing to start the session' \
+        refuse MSG-H7S2 'the agent entrypoint does not match the checksum its vendor signed for the installed version -- refusing to start the session' \
                "entrypoint:  ${session_exec_path}" \
                'The binary changed after it was verified. Treat this toolchain as tampered and reprovision it:' \
                '  sudo ai-tools-admin system bootstrap' ;;
@@ -557,8 +560,15 @@ fi
 # domain transition on the same inode this shim verified, with no link left for it to re-resolve.
 # Run rather than exec: --pty implies --wait and returns the payload's status, which a fast failure
 # turns into an actionable breadcrumb.
+#
+# SYSTEMD_TINT_BACKGROUND=0: systemd 256+ tints the terminal background for the life of a --pty
+# run, picking the tint by querying the terminal for its background colour. The tint is decoration
+# a full-screen TUI paints over anyway, so it is turned off here, on the command, since sudo started
+# this process with a reset environment. A terminal reply printed over the agent's banner is the
+# agent's own capability probe, not this query's; launch.rule.md has the mechanism.
 session_start_seconds=${SECONDS}
 session_exit_status=0
+SYSTEMD_TINT_BACKGROUND=0 \
 systemd-run --user --pty --quiet \
     --unit="${session_unit_name}" \
     --description="${agent_display_name} @SANDBOX_USER@ session" \

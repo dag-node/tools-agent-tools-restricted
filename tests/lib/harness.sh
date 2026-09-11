@@ -44,6 +44,19 @@ skip()    { printf '  %sSKIP%s  %s  (%s)\n' "${_C_SKIP}" "${_C_OFF}" "$(_san "$1
 note()    { printf '  %sNOTE%s  %s  (%s)\n' "${_C_NOTE}" "${_C_OFF}" "$(_san "$1")" "$(_san "$2")"; }
 section() { printf '\n── %s\n' "$(_san "$*")"; }
 
+# assert_msg <code> <output> [<what>]: PASS when <output> carries the message code <code> on a line
+# of its own -- where every emitter and local die()/warn() puts a leading code in plain mode -- and
+# FAIL otherwise, quoting the output's head. A test asserts a code for the identity of a refusal or
+# a warning and greps prose only for content, so the wording is free to change (messaging.rule.md).
+assert_msg() {
+    local code="$1" output="$2" what="${3:-emits ${1}}"
+    if grep -qxF -- "${code}" <<<"${output}"; then
+        pass "${what}"
+    else
+        fail "${what}: ${code} absent from output: $(head -c 300 <<<"${output}" | tr '\n' '|')"
+    fi
+}
+
 # perm <path>: the rwx permission bits only, as octal (masks setgid/setuid/sticky). GNU
 # coreutils `chmod` with a numeric mode does NOT clear a directory's setgid bit, and a
 # testdir created under a setgid parent inherits it, so mode assertions compare the low 3

@@ -46,10 +46,32 @@
 # would be a single unit, the previous (tie-glued) unit is pulled down onto it, so a lone
 # one-word widow becomes a natural tail clause. Both apply only on the wrapped (box) path.
 #
+# ── Message codes ─────────────────────────────────────────────────────────────
+#
+# A message that names a SITUATION -- a refusal, a warning a test asserts, a guidance screen --
+# carries a code: a reftag of the message family, the form ai_tools_msg_is_code states, minted
+# by ref-index.py. A test or a document identifies the situation by the code, so the prose stays
+# free to change. The code is an OPTIONAL LEADING ARGUMENT to an alert emitter or to
+# ai_tools_msg_block, detected by its form, so an uncoded call is unchanged, and the anchored
+# form keeps a message that merely starts with the family prose. It renders in the BOX TITLE on
+# a terminal -- a slot outside the frame's text width -- and on ITS OWN LEADING LINE in plain
+# mode, before the caller's lines, so every caller-supplied line is still emitted whole:
+#
+#   #-- ERROR MSG-F6Z3 -------------------------------#      MSG-F6Z3          ref-index: ignore
+#   # The handback socket is down, so files this      #      The handback socket is down, so files
+#   # session writes stay ai-tools-owned.             #      this session writes stay ai-tools-owned.
+#   #-------------------------------------------------#
+#
+# Questions (confirm, pick, challenge) and headlines carry no code: the answer to a question is
+# the situation, which _ai_tools_msg_audit records, and a headline is flow structure. A code is
+# a reftag, so it resolves through .claude/references.md; a message carries the code and no URL,
+# link, or anchor.
+#
 # ── Calling convention ────────────────────────────────────────────────────────
 #
 # The emitters take one argument PER LINE (matching the multi-line `printf '%s\n'`
-# and `die` idioms they replace): ai_tools_msg_error "first line" "second line". The
+# and `die` idioms they replace): ai_tools_msg_error "first line" "second line", with an
+# optional code first: ai_tools_msg_error <code> "first line". The
 # lines are the paragraphs; wrapping reflows within each, never across them. Errors,
 # warnings, and notices go to stderr; info/success to stdout. ai_tools_msg_wrap is
 # exposed for callers that need wrapped-but-unframed text to embed elsewhere (e.g. a
@@ -113,6 +135,19 @@ _ai_tools_msg_audit() {
 # one a section headline or guidance screen.
 readonly AI_TOOLS_MSG_WIDTH="${AI_TOOLS_MSG_WIDTH:-76}"
 readonly AI_TOOLS_MSG_ALERT_WIDTH="${AI_TOOLS_MSG_ALERT_WIDTH:-46}"
+
+# The message-code form: the family token MSG, a dash, and a four-character id in capitals,
+# letter-digit-letter-digit -- the reftag family ref-index.py mints for runtime output (its
+# UPPER_ID). Anchored on both ends, so a word that merely starts with the family, or a code
+# followed by punctuation, is prose.
+readonly _AI_TOOLS_MSG_CODE_RE='^MSG-[A-Z][0-9][A-Z][0-9]$'
+
+# ai_tools_msg_is_code <word> -- 0 (true) when <word> is a well-formed message code. The ONE
+# predicate a leading code is detected with: the emitters here, and every component's local
+# die()/warn() that routes to them, so a code is recognised the same way everywhere.
+ai_tools_msg_is_code() {
+    [[ "${1-}" =~ ${_AI_TOOLS_MSG_CODE_RE} ]]
+}
 
 # Words a wrapped line must not END with. Lowercased, space-delimited, matched after
 # stripping one trailing punctuation char. Articles + coordinating conjunctions +
@@ -222,14 +257,18 @@ _ai_tools_msg_render_box() {
     printf '#%s#\n' "${dashes}"                  # bottom rule
 }
 
-# ai_tools_msg <severity> <fd> <line...> -- render the lines to file descriptor <fd>
+# ai_tools_msg <severity> <fd> [code] <line...> -- render the lines to file descriptor <fd>
 # as a severity ALERT (the narrow, <=50-column frame class). A tty target (and no PLAIN
 # override) gets the box titled with the uppercased severity; otherwise the lines are
-# emitted plain and unwrapped so captured/piped output stays grep-friendly. A formatting
+# emitted plain and unwrapped so captured/piped output stays grep-friendly. A leading
+# message code (see the header) joins the severity in the box title, and in plain mode is
+# emitted as its own first line ahead of the caller's. A formatting
 # or write failure never alters the caller's exit status; a genuine write error to <fd>
 # surfaces on stderr rather than being hidden.
 ai_tools_msg() {
     local sev="$1" fd="$2"; shift 2
+    local code=""
+    if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
     local boxed=0
     if   [[ "${AI_TOOLS_MSG_BOX:-}"   == 1 ]]; then boxed=1
     elif [[ "${AI_TOOLS_MSG_PLAIN:-}" == 1 ]]; then boxed=0
@@ -238,10 +277,10 @@ ai_tools_msg() {
     if (( boxed )); then
         local text="$1"; shift
         for l in "$@"; do text+=$'\n'"${l}"; done
-        _ai_tools_msg_render_box "${AI_TOOLS_MSG_ALERT_WIDTH}" "${sev^^}" "${text}" \
+        _ai_tools_msg_render_box "${AI_TOOLS_MSG_ALERT_WIDTH}" "${sev^^}${code:+ ${code}}" "${text}" \
             >&"${fd}" || true
     else
-        printf '%s\n' "$@" >&"${fd}" || true
+        printf '%s\n' ${code:+"${code}"} "$@" >&"${fd}" || true
     fi
 }
 
@@ -280,23 +319,27 @@ ai_tools_msg_headline() {
     fi
 }
 
-# ai_tools_msg_block <title> <line...> -- frame a multi-line guidance block in the titled
-# '#' box on stderr. Unlike the wrapping emitters, this preserves
+# ai_tools_msg_block [code] <title> <line...> -- frame a multi-line guidance block in the
+# titled '#' box on stderr. Unlike the wrapping emitters, this preserves
 # author layout: a flush-left line is wrapped as prose, while an INDENTED or BLANK line is
 # kept VERBATIM -- never reflowed -- so a copy-pasteable command stays on one line and
 # indentation/numbering survives. A verbatim line wider than the box OVERFLOWS past the
 # right border intact rather than breaking (a long, non-separable command is kept whole).
 # Every line still begins with '#', so the whole block remains a paste-safe comment. On a
-# non-tty target (and under PLAIN) the lines are emitted plain, no frame.
+# non-tty target (and under PLAIN) the lines are emitted plain, no frame. A leading message
+# code -- one per screen, the screen being the situation -- follows the title in the top
+# rule, and in plain mode is emitted as its own first line; the body stays uncoded.
 ai_tools_msg_block() {
-    local title="$1"; shift
+    local code=""
+    if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
+    local title="${1}${code:+ ${code}}"; shift
     local boxed=0
     if   [[ "${AI_TOOLS_MSG_BOX:-}"   == 1 ]]; then boxed=1
     elif [[ "${AI_TOOLS_MSG_PLAIN:-}" == 1 ]]; then boxed=0
     elif [[ -t 2 ]];                           then boxed=1
     fi
     if (( ! boxed )); then
-        printf '%s\n' "$@" >&2 2>/dev/null || true
+        printf '%s\n' ${code:+"${code}"} "$@" >&2 2>/dev/null || true
         return 0
     fi
     # Compose the rendered lines: wrap prose, keep indented/blank verbatim.

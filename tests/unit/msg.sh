@@ -423,4 +423,108 @@ else
     fail "re-sourcing msg.lib.sh aborts under set -e (include guard broken)"
 fi
 
+# ── Message codes: a leading code on an alert or a block ───────────────────────────
+# The code is the identity a test asserts, so what matters is where it lands in each mode: in
+# the box title on a terminal (free against the alert's 46-column text budget) and on its OWN
+# leading line in plain mode, ahead of the caller's lines -- never as a prefix on the first line,
+# so every existing grep on a message line keeps matching. The fixture id CODE is not a minted
+# reftag; the index tool is told to skip its line so it never reads it as a reference.
+CODE='MSG-A1B2'   # ref-index: ignore
+
+# (24) Boxed alert: the code joins the severity in the top rule and appears in no content line;
+# the frame still fits its class.
+mapfile -t coded < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg ERROR 1 "${CODE}" "short message")
+coded_wide="$(printf '%s\n' "${coded[@]}" | awk '{ if (length($0) > 50) print }')"
+if [[ "${coded[1]}" == "#-- ERROR ${CODE} "* && -z "${coded_wide}" ]] \
+        && ! printf '%s\n' "${coded[@]:2}" | grep -qF "${CODE}"; then
+    pass "a coded alert carries the code in its box title only, within 50 columns"
+else
+    fail "coded alert rendering wrong: top='${coded[1]}' wide='${coded_wide}'"
+fi
+
+# (25) Plain alert: the code is the first line by itself, the caller's line follows whole.
+plain_coded="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_error "${CODE}" "first line" "second line" 2>&1)"
+if [[ "${plain_coded}" == "${CODE}"$'\n'"first line"$'\n'"second line" ]]; then
+    pass "a coded alert in plain mode leads with the code on its own line"
+else
+    fail "plain coded alert wrong: $(printf '[%s]' "${plain_coded}")"
+fi
+
+# (26) An uncoded call renders byte-for-byte as before in both modes: no empty leading line,
+# no title change -- the incremental migration rests on this.
+plain_uncoded="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_error "first line" "second line" 2>&1)"
+mapfile -t uncoded < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg ERROR 1 "short message")
+if [[ "${plain_uncoded}" == "first line"$'\n'"second line" && "${uncoded[1]}" == '#-- ERROR -'* ]]; then
+    pass "an uncoded alert is unchanged in plain and boxed mode"
+else
+    fail "uncoded alert changed: plain=$(printf '[%s]' "${plain_uncoded}") top='${uncoded[1]}'"
+fi
+
+# (27) Only the exact form is a code: a lowercase id, a code with trailing punctuation, or a
+# five-character id is prose and stays on the message line.
+prose_ok=1
+for word in 'msg-a1b2' "${CODE}:" "${CODE}X" 'MSG-AB12'; do
+    out="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_error "${word}" "rest" 2>&1)"
+    [[ "${out}" == "${word}"$'\n'"rest" ]] || { prose_ok=0; break; }
+done
+if (( prose_ok )) && ai_tools_msg_is_code "${CODE}" && ! ai_tools_msg_is_code "${CODE}:"; then
+    pass "only the exact MSG- form is detected as a code; near misses stay prose"
+else
+    fail "code detection wrong for '${word}': $(printf '[%s]' "${out}")"
+fi
+
+# (28) A coded block: the code follows the title in the top rule; plain mode leads with the
+# code, then the lines verbatim -- the body stays uncoded and the title, as before, is dropped.
+mapfile -t cblk < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg_block "${CODE}" "Set up this project" \
+    "Two ways:" "" "  1. Claim it:" "       ai-tools --project-claim" 2>&1)
+plain_cblk="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_block "${CODE}" "Set up this project" \
+    "Two ways:" "  1. Claim it:" 2>&1)"
+if [[ "${cblk[1]}" == "#-- Set up this project ${CODE} "* ]] \
+        && [[ "${plain_cblk}" == "${CODE}"$'\n'"Two ways:"$'\n'"  1. Claim it:" ]]; then
+    pass "a coded block carries the code in its title and leads with it in plain mode"
+else
+    fail "coded block wrong: top='${cblk[1]}' plain=$(printf '[%s]' "${plain_cblk}")"
+fi
+
+# (29) The components that report without the library match a leading code inline, and every
+# inline copy is the library's own anchored form -- a copy that drifts is a helper that prints a
+# code as prose, or reads prose as a code. Checked in the source tree (the copies are text), and
+# skipped outside a checkout.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+inline_matchers=(
+    src/usr/local/libexec/ai-tools/ai-tools-admin.sh
+    src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh
+    src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh
+    src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh
+    src/usr/local/libexec/ai-tools/ai-tools-relabel.sh
+    src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh
+    src/opt/ai-tools/bin/nvm-update.sh
+    src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh
+    install.sh
+    selinux/install-selinux.sh
+)
+if [[ ! -r "${REPO}/install.sh" ]]; then
+    skip "inline code matchers agree with the library" "not a source checkout"
+else
+    lib_form="$(sed -n "s/^readonly _AI_TOOLS_MSG_CODE_RE='\(.*\)'$/\1/p" "${LIB}")"
+    drifted=""
+    for f in "${inline_matchers[@]}"; do
+        grep -qF -- "=~ ${lib_form} ]]" "${REPO}/${f}" || drifted+=" ${f}"
+    done
+    if [[ -n "${lib_form}" && -z "${drifted}" ]]; then
+        pass "every inline code matcher carries the library's form (${lib_form})"
+    else
+        fail "inline code matcher drifted from '${lib_form}':${drifted}"
+    fi
+fi
+
+# (30) A coded die through a local helper: the code is its own first line and the helper's own
+# prefixed message follows whole, so assert_msg and the existing prose greps both match.
+admin_die="$(bash -c 'source <(sed -n "/^die() {/,/^}/p" "'"${REPO}"'/src/usr/local/libexec/ai-tools/ai-tools-admin.sh"); die "'"${CODE}"'" "not a claimed project"' 2>&1 || true)"
+if [[ "${admin_die}" == "${CODE}"$'\n'"ai-tools-admin: error: not a claimed project" ]]; then
+    pass "a local die() prints the code on its own line, then its prefixed message"
+else
+    fail "local die() rendering wrong: $(printf '[%s]' "${admin_die}")"
+fi
+
 finish

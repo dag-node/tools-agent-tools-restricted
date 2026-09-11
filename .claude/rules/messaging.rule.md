@@ -65,6 +65,48 @@ caller-supplied line whole, so those assertions keep matching. `AI_TOOLS_MSG_PLA
 forces plain even on a tty; `AI_TOOLS_MSG_BOX=1` forces the box even off one (the unit
 test and the session-hook NOTICE use the latter to render a box into captured output).
 
+## Message codes: the identity of a situation
+
+A message that names a **situation** — a refusal, a warning a test asserts, a guidance screen — carries
+a code, a reftag of the `MSG-` family (the grammar and the minter are the technical-docs skill's;
+the index is `.claude/references.md`). The code is what a test, a document, and a user with the
+message on their screen identify the situation by — the token typed into a search engine — so it
+stays fixed through every rewording: a rewrite keeps the code, and a new code is minted only for
+a new situation, with the old one retired. A question (`confirm`, `pick`, `challenge`) and a
+`headline` carry none, since a question is not a situation and a headline is flow structure, and
+the outcome a question produces is what the decision audit trail records instead.
+
+The code is an **optional leading argument** to an alert emitter and to `ai_tools_msg_block`,
+detected by its form through `ai_tools_msg_is_code` (`MSG-` and a four-character
+letter-digit-letter-digit id, anchored on both ends), so an uncoded call is unchanged and no
+message begins with the token by accident:
+
+```bash
+ai_tools_msg_error MSG-F6Z3 "This project directory is owner-only, so the agent cannot read it."
+ai_tools_msg_block MSG-F6Z3 "Set up this project for the sandboxed agent" "${lines[@]}"
+```
+
+Where it renders follows from the two modes. On a terminal it joins the **box title** —
+`#-- ERROR MSG-F6Z3 ----#` for an alert, after the caller's title for a block — a slot outside
+the alert class's 46-column text budget. In plain mode, where the alert and block
+titles are dropped, it is emitted as its **own leading line** before the caller's lines, never as
+a prefix on the first line: the guarantee that each caller-supplied line is emitted whole holds
+byte for byte, so every existing grep on a message line keeps matching and a component takes codes
+one call site at a time. A block's code is one per screen, in the title; the body stays uncoded.
+
+A code is a reftag, so it resolves through the reference index; runtime output carries a reftag
+and never a URL, a Markdown link, or an HTML anchor. `ai_tools_msg_is_code` is the one predicate
+a leading code is detected with, so a component's local `die()`/`warn()` that routes to the
+emitters (`claude.sh`, `ai-tools.sh`, `ai-tools-run`, `ai-tools-stop`) recognises a code exactly
+as the library does.
+
+The components that report without the library — the root helpers and the two installers, each
+with a `printf` `die()`/`warn()` of its own — match the same anchored form inline and render it the
+same way plain mode does: the code on its own line, then the helper's prefixed message whole. One
+shape everywhere is what lets the harness's `assert_msg` read a code with a single whole-line
+match, and what keeps every prose grep on a helper's message intact; `tests/unit/msg.sh` holds each
+inline copy to the library's constant, so a copy cannot drift into printing a code as prose.
+
 ## Three renderers: alert, headline, block
 
 The emitters (`ai_tools_msg_*`) **wrap every line** — right for a short refusal or notice,

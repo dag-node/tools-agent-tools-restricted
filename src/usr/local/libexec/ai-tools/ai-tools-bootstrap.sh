@@ -38,7 +38,14 @@ readonly NVM_DIR="${SANDBOX_HOME}/.nvm"
 readonly NVM_FALLBACK_VERSION="v0.40.3"
 readonly NODE_MAJOR="${AI_TOOLS_NODE_MAJOR:-22}"
 
-die() { printf 'ai-tools-bootstrap: error: %s\n' "$*" >&2; exit 1; }
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
+# message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline: this helper reports
+# before the control plane, and so the library, exists.
+die() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-bootstrap: error: %s\n' "$*" >&2; exit 1
+}
 log() { printf 'ai-tools-bootstrap: %s\n' "$*"; }
 
 # resolve_nvm_version: echo the nvm release tag to install. An explicit AI_TOOLS_NVM_VERSION

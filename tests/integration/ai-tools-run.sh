@@ -89,6 +89,13 @@ if grep -qE -- '--property=UMask=0007' "${CRUN}"; then
 else
     fail "ai-tools-run does not pin UMask=0007 -- agent files may be born world-accessible"
 fi
+# The shim turns systemd-run's background tint off on the invocation itself (launch.rule.md);
+# asserted on the line before the command, where sudo's reset environment cannot supply it.
+if grep -qE -- '^SYSTEMD_TINT_BACKGROUND=0 \\$' "${CRUN}"; then
+    pass "ai-tools-run turns systemd-run's terminal tint off"
+else
+    fail "ai-tools-run does not set SYSTEMD_TINT_BACKGROUND=0 on systemd-run -- the tint and its terminal query are back"
+fi
 
 # Ownership handback needs exactly one driver. The shim sweeps the project at session end for
 # every agent EXCEPT one whose manifest declares handback=hooks, and the deployed claude-code
@@ -128,6 +135,7 @@ if [[ ${rc} -ne 0 ]] && grep -qi 'invalid or absent AI_TOOLS_AGENT_EXEC' <<<"${o
 else
     fail "non-versioned AI_TOOLS_AGENT_EXEC not refused (rc=${rc}): ${out}"
 fi
+assert_msg MSG-Z2J9 "${out}" "the shape refusal carries its code"
 
 # (2) A correctly-shaped AI_TOOLS_AGENT_EXEC carrying '/../' is refused by the traversal guard.
 out="$(run_crun AI_TOOLS_AGENT_EXEC=/opt/ai-tools/.nvm/versions/node/v1.2.3/../bin/claude)" && rc=0 || rc=$?
@@ -136,6 +144,7 @@ if [[ ${rc} -ne 0 ]] && grep -qi 'parent-directory references' <<<"${out}"; then
 else
     fail "AI_TOOLS_AGENT_EXEC with /../ not refused (rc=${rc}): ${out}"
 fi
+assert_msg MSG-N4P3 "${out}" "the traversal refusal is the executable's, not the project directory's"
 
 # (3)/(4) With a VALID AI_TOOLS_AGENT_EXEC, a bad AI_TOOLS_PROJECT_DIR is refused before launch. Needs
 # the real versioned target (so AI_TOOLS_AGENT_EXEC passes); skip if it cannot be resolved.
@@ -150,6 +159,7 @@ else
     else
         fail "relative AI_TOOLS_PROJECT_DIR not refused (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-D2A4 "${out}" "the relative-path refusal carries its code"
 
     # (4) A non-existent AI_TOOLS_PROJECT_DIR is refused.
     out="$(run_crun AI_TOOLS_AGENT_EXEC="${real}" AI_TOOLS_PROJECT_DIR=/nonexistent/ai-tools-test-xyz)" && rc=0 || rc=$?
@@ -158,6 +168,7 @@ else
     else
         fail "non-existent AI_TOOLS_PROJECT_DIR not refused (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-F8V8 "${out}" "the missing-directory refusal carries its code"
 
     # (5) A real, executable binary sitting in the SAME versioned bin directory is refused
     # because no enabled agent manifest claims that launcher. The manifest allowlist is what
@@ -173,6 +184,7 @@ else
         else
             fail "unclaimed launcher not refused (rc=${rc}): ${out}"
         fi
+        assert_msg MSG-A3H6 "${out}" "the unclaimed-launcher refusal carries its code"
     fi
 
     # (6) The version component must be an exact semver directory, not any directory name.
@@ -182,6 +194,7 @@ else
     else
         fail "non-semver version directory not refused (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-Z2J9 "${out}" "a non-semver version directory is the same shape refusal"
 
     # (7) Containment across the symlink. Shape validation matches the launcher PATH; what execve
     # transitions on is what that path RESOLVES to, and a string match cannot follow a link. A
@@ -214,6 +227,7 @@ else
         else
             fail "escaping launcher symlink not refused (rc=${rc}): ${out}"
         fi
+        assert_msg MSG-D7A7 "${out}" "the containment refusal carries its code"
         rm -rf "${fake_version_dir}"
     fi
 
@@ -243,6 +257,7 @@ else
     else
         fail "a mismatched entrypoint pin did not refuse the launch (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-H7S2 "${out}" "the pin-mismatch refusal carries its code"
 
     # The complementary property -- an UNPINNED entrypoint must NOT be refused, or an air-gapped
     # host would stop launching -- is deliberately NOT driven here. No other part of that run is
@@ -265,15 +280,23 @@ fi
 
 # The re-check must sit AFTER the session-env fragments, not with the earlier validation -- its
 # whole value is the width of the window it leaves (launch.rule.md). Asserted by line order,
-# because no behaviour of the code reveals where it runs.
+# because no behaviour of the code reveals where it runs. The distance counts CODE lines only:
+# a comment or a blank between the two runs nothing, so it does not widen the window, and the
+# launch invocation carries a comment block of its own that would otherwise trip this.
 crun_recheck_line="$(grep -n 'entrypoint_identity' "${CRUN}" | tail -n1 | cut -d: -f1)"
 crun_launch_line="$(grep -n '^systemd-run --user --pty --quiet' "${CRUN}" | head -n1 | cut -d: -f1)"
 if [[ -z "${crun_recheck_line}" || -z "${crun_launch_line}" ]]; then
     fail "ai-tools-run has no last-moment entrypoint re-check before systemd-run"
-elif (( crun_recheck_line < crun_launch_line )) && (( crun_launch_line - crun_recheck_line < 20 )); then
-    pass "ai-tools-run re-checks the entrypoint identity immediately before the launch"
+elif (( crun_recheck_line >= crun_launch_line )); then
+    fail "the entrypoint re-check follows systemd-run (re-check line ${crun_recheck_line}, launch line ${crun_launch_line}) -- it observes nothing"
 else
-    fail "the entrypoint re-check is not immediately before systemd-run (re-check line ${crun_recheck_line}, launch line ${crun_launch_line}) -- the window it narrows is back"
+    crun_lines_between="$(sed -n "$(( crun_recheck_line + 1 )),$(( crun_launch_line - 1 ))p" "${CRUN}" \
+        | grep -cvE '^[[:space:]]*(#|$)' || true)"
+    if (( crun_lines_between < 20 )); then
+        pass "ai-tools-run re-checks the entrypoint identity immediately before the launch"
+    else
+        fail "the entrypoint re-check is not immediately before systemd-run (${crun_lines_between} code lines between line ${crun_recheck_line} and line ${crun_launch_line}) -- the window it narrows is back"
+    fi
 fi
 
 finish

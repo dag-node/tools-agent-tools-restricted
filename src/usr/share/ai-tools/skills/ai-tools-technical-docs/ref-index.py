@@ -33,8 +33,12 @@
 #   caption        an anchor and a bold caption on the line before the block it names:
 #                  `<a id="ref-table-z4m9"></a>**Altitudes and who owns which fact**`; a table
 #                  is followed by a table row, a listing by a fence, any other kind by a block
-#   FN, NOTE, MSG  a source line carrying the token, a colon, and the name: `# FN-Q2H8: chown_path`,
-#                  or the token inside the emitted string for a message
+#   FN, NOTE       a source line carrying the token, a colon, and the name: `# FN-Q2H8: chown_path`
+#   MSG            the emit call: the token, then the quoted message it labels,
+#                  `die MSG-F6Z3 "not a claimed project"`; the name is the message's first line,
+#                  and the word before the token is recorded as the emitter. A quoted string that
+#                  opens with an expansion (`"$out"`) does not name a message, so that site is a
+#                  reference, which is how a test cites a code beside the output it captured
 #   URI            one Markdown link definition line: `[URI-Q4Q6]: https://example.invalid "name"`
 #
 # A REFERENCE in a document is the inline link `[ref-section-p7r3](../x.md#ref-section-p7r3)`.
@@ -59,32 +63,43 @@
 # as a whole comment line is not read at all, which is how a test file holds its fixtures; `new`
 # still reads every file raw, so an id in a fixture is reserved too.
 #
+# A reftag that leaves the tree is RETIRED, never freed: `retire` moves each index row whose
+# target is gone into a second file, with the date, and `new` draws against that file too. A
+# message code lands in a durable audit trail, so an id re-minted for another situation would
+# make an old journal line resolve to the wrong one. `check --retired` reports a retired reftag
+# defined again as `resurrected`.
+#
 # Commands:
 #
 #   generate FILE... [--out PATH]   the index: one row per target or example (id, reftag
-#                                   as a link, name, file, cited by), sorted by file
+#                                   as a link, name, file, cited by, emitter), sorted by file
 #                                   and position. The id is the first column, so a search
 #                                   for it reads a fixed place on every line. No line numbers:
 #                                   a stored one changes on every edit earlier in the file.
 #                                   `--at` names the path the links are computed from; a copy
 #                                   written elsewhere is then compared with the committed one.
+#   retire FILE... --index --retired  append to the retired file each index row whose reftag
+#        [--release VERSION]        the files no longer define, dated and stamped with the
+#                                   release given; run before `generate`, which is stateless
+#                                   and would drop the row without a trace
 #   kinds                           the registry: each kind and code family, its reftag form,
 #                                   and what it names, so a writer picks one without reading
 #                                   this file
-#   new FAMILY [FILE...] [--index]  a fresh reftag, its id unique against the index and every
-#                                   token in the files given. `--count N` prints N of them,
-#                                   distinct from each other too, since a mint is recorded
-#                                   nowhere and separate calls draw against the same set until
-#                                   the first is written
+#   new FAMILY [FILE...] [--index]  a fresh reftag, its id unique against the index, the
+#        [--retired]                retired file, and every token in the files given.
+#                                   `--count N` prints N of them, distinct from each other
+#                                   too, since a mint is recorded nowhere and separate calls
+#                                   draw against the same set until the first is written
 #   where TOKEN [FILE...] [--index] the target's live `file:line` and the lines it spans
 #   relink FILE...                  rewrite every destination in the Markdown files given
-#   check FILE...                   report a duplicate reftag or id, an undefined or same-file
+#   check FILE... [--retired]       report a duplicate reftag or id, an undefined or same-file
 #                                   reference, a misplaced anchor, a caption with no block
 #                                   following it, a destination that is missing or stale,
-#                                   and a relative link whose file or heading is gone; exit 1
-#                                   on any report
+#                                   a relative link whose file or heading is gone, and a
+#                                   retired reftag defined again; exit 1 on any report
 
 import argparse
+import datetime
 import os
 import re
 import secrets
@@ -154,7 +169,12 @@ ANCHOR = re.compile(rf'<a id="({PROSE_TOKEN})"></a>')
 HEADING_TARGET = re.compile(rf'^(#{{1,6}})\s+(.*?)\s*<a id="({PROSE_TOKEN})"></a>\s*$')
 CAPTION_TARGET = re.compile(rf'^\s*<a id="({PROSE_TOKEN})"></a>\s*\*\*(.+?)\*\*\s*$')
 URI_TARGET = re.compile(rf'^\s*\[({URI_TOKEN})\]:\s*(\S+)(?:\s+"(.*)")?\s*$')
-CODE_TARGET = re.compile(rf"({CODE_TOKEN}):[ \t]+(.*)")
+CODE_TARGET = re.compile(rf"((?:FN|NOTE)-{UPPER_ID}):[ \t]+(.*)")
+# A message target is the emit call: the token, then the quoted message it labels. The name is
+# the message's first line, so a string opening with an expansion does not name a message and
+# its site reads as a reference; the word before the token is the emitter, recorded for the index.
+MSG_TARGET = re.compile(rf"(MSG-{UPPER_ID})[ \t]+(['\"])(?!\$)(.*)")
+EMITTER = re.compile(r"([\w.-]+)\s*$")
 LINK_SITE = re.compile(rf"\[({PROSE_TOKEN}|{URI_TOKEN}|{CODE_TOKEN})\]\(([^)]*)\)")
 BARE_SITE = re.compile(rf"\[({PROSE_TOKEN}|{URI_TOKEN}|{CODE_TOKEN})\]")
 
@@ -164,8 +184,8 @@ TABLE_ROW = re.compile(r"^\s*\|")
 HEADING = re.compile(r"^(#{1,6})\s")
 COMMENT_LINE = re.compile(r"^\s*(#|//|/\*|\*|--|;|<!--|\"\"\")")
 BASH_FUNCTION = re.compile(r"^\s*(?:function\s+)?[A-Za-z_][\w-]*\s*\(\)\s*\{?\s*$|^\s*function\s+\w+")
-INDEX_ROW = re.compile(r"^\|\s*(" + LOWER_ID + r")\s*\|\s*(?:\[([^\]]+)\]\([^)]*\)|(\S+))\s*\|"
-                       r"\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\|\s*$")
+# An index or retired-file row: the id, the reftag (linked or bare), then the remaining cells.
+INDEX_ROW = re.compile(r"^\|\s*(" + LOWER_ID + r")\s*\|\s*(?:\[([^\]]+)\]\([^)]*\)|(\S+))\s*\|(.*)\|\s*$")
 MARKDOWN = (".md",)
 # The line marker is read outside a backticked span, and the file marker only as the whole
 # content of a comment line, so a document describing the markers is still read.
@@ -178,10 +198,23 @@ INDEX_HEADER = """# Cross-reference index
 Generated by `ref-index.py generate` from the tree; regenerate it, do not edit it. The first
 column is the id alone, so a search for it reads a fixed place on every line; a reftag resolves
 here to its name, its file, and the files that cite it, and `ref-index.py where <reftag>` prints
-the live line. A row named `example` reserves an id a document shows without defining it.
+the live line. A row named `example` reserves an id a document shows without defining it. The
+emitter column carries, for a message code, the word that emits it.
 
-| Id | Reftag | Name | File | Cited by |
-|---|---|---|---|---|
+| Id | Reftag | Name | File | Cited by | Emitter |
+|---|---|---|---|---|---|
+"""
+
+RETIRED_HEADER = """# Retired cross-references
+
+Written by `ref-index.py retire`: each row is a reftag the index held and the tree no longer
+defines, with the date it was retired and the release the tree was at, so a row's age is counted
+in releases. The minter reads it, so an id that reached a log line or a document is never drawn
+again, and an old line still resolves to what it named. History, not current state: a session
+does not read it.
+
+| Id | Reftag | Name | File | Cited by | Emitter | Removed | Release |
+|---|---|---|---|---|---|---|---|
 """
 
 # A document's own navigation -- a contents line, a jump to one of its sections -- and its links
@@ -198,11 +231,17 @@ _anchor_cache = {}
 
 
 class Target:
-    __slots__ = ("reftag", "name", "path", "line", "url", "example")
+    __slots__ = ("reftag", "name", "path", "line", "url", "example", "emitter")
 
-    def __init__(self, reftag, name, path, line, url=None, example=False):
+    def __init__(self, reftag, name, path, line, url=None, example=False, emitter=""):
         self.reftag, self.name, self.path, self.line = reftag, name, path, line
-        self.url, self.example = url, example
+        self.url, self.example, self.emitter = url, example, emitter
+
+
+def message_name(quote, rest):
+    """The message's first line: the text up to the quote that closes it, or the whole rest."""
+    end = rest.find(quote)
+    return (rest if end < 0 else rest[:end]).strip()
 
 
 def is_markdown(path):
@@ -332,6 +371,11 @@ def scan(paths):
                 for site in TOKEN.finditer(text):
                     references.append((path, number, site.group(1), None, True))
             else:
+                for match in MSG_TARGET.finditer(text):
+                    emitter = EMITTER.search(text[:match.start()])
+                    found.append(Target(match.group(1), message_name(match.group(2), match.group(3)),
+                                        path, number, emitter=emitter.group(1) if emitter else ""))
+                text = MSG_TARGET.sub(" ", text)
                 for match in CODE_TARGET.finditer(text):
                     name = match.group(2).strip().rstrip("\\\"' ")
                     found.append(Target(match.group(1), name, path, number))
@@ -469,16 +513,24 @@ def link_findings(paths):
 
 
 def read_index(path):
-    """{reftag: (id, name, file, cited by)} from an index file, or None when it cannot be read."""
+    """{reftag: (id, name, file, cited by, ...)} from an index or a retired file: the row's cells
+    after the reftag, in order, so a retired row carries its date last. None when unreadable."""
     lines = read_lines(path)
     if lines is None:
         return None
     entries = {}
     for row in map(INDEX_ROW.match, lines):
         if row:
-            entries[row.group(2) or row.group(3)] = (row.group(1), row.group(4), row.group(5),
-                                                     row.group(6))
+            cells = [cell.strip() for cell in row.group(4).split("|")]
+            entries[row.group(2) or row.group(3)] = (row.group(1), *cells)
     return entries
+
+
+def read_retired(path):
+    """{reftag: row} from the retired file, or an empty dict when the path is unset or absent."""
+    if not path or not os.path.exists(path):
+        return {}
+    return read_index(path) or {}
 
 
 def command_generate(args):
@@ -492,13 +544,43 @@ def command_generate(args):
         shown = (target.reftag if target.example
                  else f"[{target.reftag}]({destination(index_path, target)})")
         rows.append(f"| {id_of(target.reftag)} | {shown} | {target.name} | {target.path} "
-                    f"| {', '.join(sorted(cited.get(target.reftag, ())))} |")
+                    f"| {', '.join(sorted(cited.get(target.reftag, ())))} | {target.emitter} |")
     text = INDEX_HEADER + "".join(row + "\n" for row in rows)
     if args.out:
         with open(args.out, "w") as handle:
             handle.write(text)
     else:
         sys.stdout.write(text)
+    return 0
+
+
+def command_retire(args):
+    """Append to the retired file each index row whose reftag the files no longer define.
+
+    Reads the committed index rather than the tree's last state, so it runs before `generate`
+    rewrites the index; a row already retired is left as it is, and the file is created with
+    its header on the first retirement.
+    """
+    entries = read_index(args.index)
+    if entries is None:
+        return 2
+    targets = scan(args.paths)[0]
+    retired = read_retired(args.retired)
+    today = datetime.date.today().isoformat()
+    rows = []
+    for reftag, cells in entries.items():
+        if reftag in targets or reftag in retired:
+            continue
+        # The index row's cells after the id, restored to the index's column count; a row from an
+        # older index without the emitter column takes an empty one.
+        body = list(cells[1:]) + [""] * (4 - len(cells[1:]))
+        rows.append(f"| {cells[0]} | {reftag} | {' | '.join(body[:4])} | {today} | {args.release} |")
+        print(f"retired {reftag} ({cells[1]}) from {cells[2]}")
+    if not rows:
+        return 0
+    text = "" if os.path.exists(args.retired) else RETIRED_HEADER
+    with open(args.retired, "a") as handle:
+        handle.write(text + "".join(row + "\n" for row in rows))
     return 0
 
 
@@ -540,6 +622,8 @@ def command_new(args):
     taken = set()
     if os.path.exists(args.index):
         taken.update(entry[0] for entry in (read_index(args.index) or {}).values())
+    # A retired id stays taken: an old log line or document still names it.
+    taken.update(entry[0] for entry in read_retired(args.retired).values())
     # Every token in every file, raw: an id in a fixture, a fence, or a span is reserved too.
     for path in args.paths:
         for line in read_lines(path) or []:
@@ -640,6 +724,13 @@ def command_check(args):
         count += 1
         print(f"{path}:{number}: misplaced [{reftag}] -- an anchor closes a heading line, or "
               f"opens a bold caption on the line before the block it names")
+    retired = read_retired(args.retired)
+    for target in sorted(targets.values(), key=lambda t: (t.path, t.line)):
+        if target.reftag in retired and not target.example:
+            count += 1
+            print(f"{target.path}:{target.line}: resurrected [{target.reftag}] -- retired as "
+                  f"{retired[target.reftag][1]!r}; a retired id stays taken, so mint a fresh "
+                  f"reftag with `new`")
     for path, number, reftag, link, in_document in references:
         target = targets.get(reftag)
         if target is None or target.example:
@@ -685,6 +776,17 @@ def main():
     generate.add_argument("paths", nargs="+", help="files to read")
     generate.set_defaults(run=command_generate)
 
+    retired_help = "the retired-reftag file (default: none read)"
+    retire = commands.add_parser("retire", help="record each index row the files no longer "
+                                                "define in the retired file")
+    retire.add_argument("paths", nargs="+", help="files to read")
+    retire.add_argument("--index", metavar="PATH", default=".claude/references.md", help=index_help)
+    retire.add_argument("--retired", metavar="PATH", required=True,
+                        help="the retired-reftag file, created on the first retirement")
+    retire.add_argument("--release", metavar="VERSION", default="",
+                        help="the release the tree is at, recorded on each row (default: empty)")
+    retire.set_defaults(run=command_retire)
+
     kinds = commands.add_parser("kinds", help="print the kinds and code families, with what "
                                               "each names")
     kinds.set_defaults(run=command_kinds)
@@ -695,6 +797,7 @@ def main():
     new.add_argument("--count", metavar="N", type=int, default=1,
                      help="how many to print, each distinct from the others (default: 1)")
     new.add_argument("--index", metavar="PATH", default=".claude/references.md", help=index_help)
+    new.add_argument("--retired", metavar="PATH", help=retired_help)
     new.set_defaults(run=command_new)
 
     where = commands.add_parser("where", help="print file:line and span of a reftag's target")
@@ -708,8 +811,9 @@ def main():
     relink.set_defaults(run=command_relink)
 
     check = commands.add_parser("check", help="report a duplicate, undefined, misplaced, missing, "
-                                              "or stale reference")
+                                              "stale, or resurrected reference")
     check.add_argument("paths", nargs="+", help="files to read")
+    check.add_argument("--retired", metavar="PATH", help=retired_help)
     check.set_defaults(run=command_check)
 
     args = parser.parse_args()

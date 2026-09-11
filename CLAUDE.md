@@ -53,7 +53,9 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
   from another file; a session that meets one resolves it here, and
   `bash tools/ref-index.sh where <reftag>` prints the live line. Regenerated from the tree with
   `bash tools/ref-index.sh generate`, not edited. The grammar is the `ai-tools-technical-docs`
-  skill's, and the authoring rule states when a referent takes a reftag.
+  skill's, and the authoring rule states when a referent takes a reftag. `.claude/.referenced.md`
+  beside it holds the reftags the tree has retired, each with the release it was retired at, for
+  the minter alone: it is history, and a session does not read it.
 - **Auto memory** (`/memory`) — decisions, rejected alternatives, and open follow-ups
   that are not derivable from the code.
 

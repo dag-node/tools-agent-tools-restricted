@@ -56,7 +56,16 @@ if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log_info() { :; }; ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
 fi
 
-die() { ai_tools_log_error "$*"; printf 'ai-tools-relabel: error: %s\n' "$*" >&2; exit 1; }
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
+# message, the shape tests/lib/harness.sh's assert_msg reads, and carried into the log line.
+# Matched inline: this helper does not load the library.
+die() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
+    ai_tools_log_error "${code:+${code} }$*"
+    [[ -z "${code}" ]] || printf '%s\n' "${code}" >&2
+    printf 'ai-tools-relabel: error: %s\n' "$*" >&2; exit 1
+}
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to relabel a system directory even
 # when the allowlist includes it. See safe-paths.rule.md.

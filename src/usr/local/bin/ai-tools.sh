@@ -311,7 +311,15 @@ say()     { printf '%s\n' "$1"; }
 section() { printf '\n%s%s%s\n' "${C_BOLD}" "$1" "${C_RST}"; }
 ok()      { printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$1"; }
 warn()    { ai_tools_msg_warn "$@"; }
-die()     { ai_tools_log_error "$*"; ai_tools_msg_error "ai-tools: $*"; exit 1; }
+# die takes the library's optional leading code and carries it into the log line; the code is
+# split off so the "ai-tools: " prefix lands on the message rather than on the code.
+die() {
+    local code=""
+    if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
+    ai_tools_log_error "${code:+${code} }$*"
+    ai_tools_msg_error ${code:+"${code}"} "ai-tools: $*"
+    exit 1
+}
 # The claim/sandbox flows are sequences of SELF-CONTAINED blocks, each opened by a wide
 # headline box (title + summary prose), with details, prompts, and results printed plain
 # under it and a closing ✓ (or a fail-closed error) ending the block -- see

@@ -88,7 +88,7 @@ if ! source "${SAFE_PATHS_LIB}" 2>/dev/null \
     command -v logger >/dev/null 2>&1 \
         && logger -t claude -p user.err \
             "required safety library ${SAFE_PATHS_LIB} unavailable for $(id -un 2>/dev/null) -- launch refused (fail closed)"
-    die "claude: cannot load the launch safety library -- refusing to start" \
+    die MSG-U6A9 "claude: cannot load the launch safety library -- refusing to start" \
         "       ${SAFE_PATHS_LIB}" \
         "       A critical ai-tools component is missing or unreadable, so the protected-path" \
         "       guard cannot run. Check that /usr/local/lib/ai-tools is traversable and its" \
@@ -156,19 +156,19 @@ if [[ " $(id -nG 2>/dev/null) " != *" ${OPERATORS_GROUP} "* ]]; then
         # out of ai-ops -- a member could drive a session as an operator -- so "add it to the
         # group" is the wrong advice. An operator launches the wrapper from their own login and
         # the wrapper drops to the sandbox account on its own.
-        die "claude: this is the sandbox account ${SANDBOX_USER}, which is not an ai-tools operator" \
+        die MSG-N8Q4 "claude: this is the sandbox account ${SANDBOX_USER}, which is not an ai-tools operator" \
             "       the sandbox account must never be one -- launch claude from your operator login;" \
             "       the wrapper drops to ${SANDBOX_USER} for you"
     elif id -nG "${_user}" 2>/dev/null | tr ' ' '\n' | grep -qx "${OPERATORS_GROUP}"; then
         # In ai-ops per the group database (id -nG <user> reads it) but absent from this shell's
         # live credentials -- a session started before the grant took effect. A fresh login
         # rebuilds the credential set; newgrp adopts the group in the current shell.
-        die "claude: ${_user} is an ai-tools operator, but this shell started before the grant" \
+        die MSG-R7Z3 "claude: ${_user} is an ai-tools operator, but this shell started before the grant" \
             "       start a fresh login session to pick up the ${OPERATORS_GROUP} group --" \
             "       log out and back in, or adopt it in this shell with:" \
             "         newgrp ${OPERATORS_GROUP}"
     else
-        die "claude: ${_user} is not an ai-tools operator -- not a member of the ${OPERATORS_GROUP} group" \
+        die MSG-C7C9 "claude: ${_user} is not an ai-tools operator -- not a member of the ${OPERATORS_GROUP} group" \
             "       an administrator can grant access with:" \
             "         sudo ai-tools-admin operators add ${_user}"
     fi
@@ -182,7 +182,7 @@ fi
 # the readlink + string validation handle correctness, and the binary is
 # only ever reached via sudo as ai-tools.
 if [[ ! -L "${CLAUDE_LINK}" ]]; then
-    die "ERROR: claude symlink not found at ${CLAUDE_LINK}" \
+    die MSG-S4B3 "ERROR: claude symlink not found at ${CLAUDE_LINK}" \
         "       the sandbox toolchain is not provisioned yet -- provision it with:" \
         "         sudo ai-tools-admin system bootstrap"
 fi
@@ -234,7 +234,7 @@ fi
 # back out, and Claude Code will refuse to start there.
 ALLOWLIST="${HOME}/.config/ai-tools/allowed-projects"
 if [[ ! -f "${ALLOWLIST}" ]]; then
-    die "claude: approved-projects allowlist not found" \
+    die MSG-C9S6 "claude: approved-projects allowlist not found" \
         "claude: create ${ALLOWLIST} and add project directories"
 fi
 cwd="$(realpath -e "${PWD}" 2>/dev/null)" \
@@ -282,17 +282,17 @@ if [[ "${#excluded[@]}" -gt 0 ]]; then
             if [[ "${#allowed[@]}" -gt 0 ]]; then
                 for dir in "${allowed[@]}"; do
                     [[ "${cwd}" == "${dir}/"* ]] || continue
-                    die "claude: $(pwd): excluded by '!' rule in approved projects list" \
+                    die MSG-K8K2 "claude: $(pwd): excluded by '!' rule in approved projects list" \
                         "claude: it is carved out of the approved project ${dir}; edit ${ALLOWLIST} to change that"
                 done
             fi
-            die "claude: $(pwd): this project is disabled in your approved projects list" \
+            die MSG-R2V6 "claude: $(pwd): this project is disabled in your approved projects list" \
                 "claude: no session starts here until it is re-enabled -- its files, group and label are untouched" \
                 "claude: re-enable it with:  ${CLI_CMD} --project-enable"
         fi
         # For plain paths (no glob), also exclude directory contents
         if [[ "${pat}" != *'*'* && "${cwd}" == "${pat}/"* ]]; then
-            die "claude: $(pwd): excluded by '!' rule in approved projects list" \
+            die MSG-W2P3 "claude: $(pwd): excluded by '!' rule in approved projects list" \
                 "claude: an entry above this directory carves it out; edit ${ALLOWLIST} to change that"
         fi
     done
@@ -352,7 +352,7 @@ if [[ "${approved}" != true ]]; then
             # not carry the commands, so the cancel path names them itself: PLAIN and under the
             # frame, since a wrapping emitter would break a command across lines
             # (messaging.rule.md).
-            ai_tools_msg_error "claude: no session started -- ${cwd} is not set up for the agent."
+            ai_tools_msg_error MSG-N2Z7 "claude: no session started -- ${cwd} is not set up for the agent."
             printf '\n' >&2
             printf '  %-30s %s\n' \
                 "${CLI_CMD} --sandbox-create" "isolated copy under the sandbox area" \

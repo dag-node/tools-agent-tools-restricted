@@ -63,8 +63,19 @@ if ! source "${LOG_LIB}"; then
 fi
 
 log()  { printf 'ai-tools-lockdown: %s\n' "$*"; }
-warn() { printf 'ai-tools-lockdown: warn: %s\n' "$*" >&2; }
-die()  { printf 'ai-tools-lockdown: error: %s\n' "$*" >&2; exit 1; }
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
+# message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline, since these helpers
+# report before the library is loaded.
+warn() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-lockdown: warn: %s\n' "$*" >&2
+}
+die() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-lockdown: error: %s\n' "$*" >&2; exit 1
+}
 
 # Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the
 # reference for the seal and the strip alike). Required and fail-closed like safe-paths.lib.sh:
