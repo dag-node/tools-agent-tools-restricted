@@ -422,10 +422,14 @@ else
         skip "the scriptlet's lock path" "packaging/ai-tools.spec is not beside this suite"
     elif [[ "${default_lock}" != /run/lock/* ]]; then
         fail "the library's default lock is not under /run/lock: '${default_lock}'"
-    elif sed -n '/^%post -n ai-tools-selinux$/,/^%postun -n ai-tools-selinux$/p' "${SPEC}" \
-            | grep -qF -- "=${default_lock}"; then
-        pass "the ai-tools-selinux %post locks the library's own path: ${default_lock}"
-    else fail "the ai-tools-selinux %post does not lock ${default_lock}, the library's default"; fi
+    else
+        # The section is captured before the grep: under pipefail a `sed | grep -q` reports the
+        # SIGPIPE grep hands sed on its first match as a failed pipeline.
+        selinux_post="$(sed -n '/^%post -n ai-tools-selinux$/,/^%postun -n ai-tools-selinux$/p' "${SPEC}")"
+        if grep -qF -- "=${default_lock}" <<<"${selinux_post}"; then
+            pass "the ai-tools-selinux %post locks the library's own path: ${default_lock}"
+        else fail "the ai-tools-selinux %post does not lock ${default_lock}, the library's default"; fi
+    fi
 fi
 
 # ── The per-agent outcome the report closes with ──────────────────────────────────────────────
