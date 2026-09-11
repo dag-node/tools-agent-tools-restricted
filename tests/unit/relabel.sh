@@ -379,6 +379,53 @@ else
     if [[ "${unwritable}" == "cannot write ${TESTDIR}/no-such-dir/relabel.lock" ]]; then
         pass "an uncreatable lock file is reported and the relabel proceeds"
     else fail "expected a single cannot-write note, got '${unwritable}'"; fi
+
+    # install-selinux.sh writes the store in sections with prompts between them, so it releases
+    # the lock between sections through ai_tools_relabel_unlock rather than at exit. The holder
+    # signals its release with a marker file so the contender does not race the unlock itself.
+    if declare -F ai_tools_relabel_unlock >/dev/null 2>&1; then
+        RELEASED="${TESTDIR}/released"
+        # shellcheck disable=SC2016  # the child shell expands these, not this one
+        env AI_TOOLS_RELABEL_LOCK="${LOCK}" AI_TOOLS_RELABEL_LOCK_WAIT=5 \
+            bash -c 'source "$1"; ai_tools_relabel_lock; ai_tools_relabel_unlock; : >"$2"; sleep 3' \
+            _ "${LIB}" "${RELEASED}" &
+        holder=$!
+        for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -e "${RELEASED}" ]] && break; sleep 0.2; done
+        after_unlock="$(take_lock 1 0)"
+        if [[ -e "${RELEASED}" && -z "${after_unlock}" ]]; then
+            pass "ai_tools_relabel_unlock releases the lock while its holder still runs"
+        else fail "the lock was still held after ai_tools_relabel_unlock: '${after_unlock:-<no note>}' (released marker: $([[ -e "${RELEASED}" ]] && echo yes || echo no))"; fi
+        wait "${holder}" 2>/dev/null || true
+
+        # A section wrapper that locks around a helper that already holds the lock must not wait
+        # on itself: flock serializes open file descriptions, and a second descriptor on the same
+        # file would block for the whole wait. The wait here is shorter than the hold, so a
+        # self-wait would show as the held-store note.
+        # shellcheck disable=SC2016  # the child shell expands these, not this one
+        relock="$(env AI_TOOLS_RELABEL_LOCK="${LOCK}" AI_TOOLS_RELABEL_LOCK_WAIT=1 \
+            bash -c 'source "$1"; ai_tools_relabel_lock; ai_tools_relabel_lock; printf "%s" "${AI_TOOLS_RELABEL_LOCK_NOTE}"' \
+            _ "${LIB}")"
+        if [[ -z "${relock}" ]]; then
+            pass "a second ai_tools_relabel_lock in the holding process returns without waiting"
+        else fail "re-taking the held lock waited on itself: ${relock}"; fi
+    else
+        skip "lock release between sections" "ai_tools_relabel_unlock not defined by ${LIB}"
+    fi
+
+    # The ai-tools-selinux %post cannot source the library, so it open-codes flock on the same
+    # path. Two writers serialize only on one file, so the literal in the spec is pinned to the
+    # library's default here rather than trusted to stay in step by hand.
+    SPEC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/packaging/ai-tools.spec"
+    # shellcheck disable=SC2016  # the child shell expands these, not this one
+    default_lock="$(env -u AI_TOOLS_RELABEL_LOCK bash -c 'source "$1"; printf "%s" "${AI_TOOLS_RELABEL_LOCK}"' _ "${LIB}")"
+    if [[ ! -r "${SPEC}" ]]; then
+        skip "the scriptlet's lock path" "packaging/ai-tools.spec is not beside this suite"
+    elif [[ "${default_lock}" != /run/lock/* ]]; then
+        fail "the library's default lock is not under /run/lock: '${default_lock}'"
+    elif sed -n '/^%post -n ai-tools-selinux$/,/^%postun -n ai-tools-selinux$/p' "${SPEC}" \
+            | grep -qF -- "=${default_lock}"; then
+        pass "the ai-tools-selinux %post locks the library's own path: ${default_lock}"
+    else fail "the ai-tools-selinux %post does not lock ${default_lock}, the library's default"; fi
 fi
 
 # ── The per-agent outcome the report closes with ──────────────────────────────────────────────

@@ -240,7 +240,7 @@ _replace_former_group_modules() {
             ensure_pp "ai_tools_${name}.pp"
             loads+=( -i "${POLICY_DIR}/ai_tools_${name}.pp" )
         done < <(ai_tools_selinux_groups_from_former_module "${former}")
-        if semodule -r "${former}" "${loads[@]}"; then
+        if _locked semodule -r "${former}" "${loads[@]}"; then
             ok "'${former}' unloaded; $(ai_tools_selinux_groups_from_former_module "${former}" | tr '\n' ' ')loaded in its place"
         else
             warn "could not replace '${former}' -- it stays loaded with its former rule set;"
@@ -267,7 +267,7 @@ _load_layout_modules() {
             || { warn "integration ${integration} declares layout module ${module}, which has no source under ${POLICY_DIR}"; continue; }
         ensure_pp "${module}.pp"
         log "loading layout module: ${module} (integration ${integration})"
-        if semodule -i "${POLICY_DIR}/${module}.pp"; then
+        if _locked semodule -i "${POLICY_DIR}/${module}.pp"; then
             ok "layout module ${module} loaded"
         else
             warn "could not load layout module ${module}; build output is typed at relabel time only"
@@ -377,7 +377,7 @@ _check_permissive_alignment() {
             warn "  ${dom}: stale semodule '${stale_mod}' overrides compiled policy"
             if [[ -t 0 ]]; then
                 if ai_tools_msg_confirm "Remove stale semodule '${stale_mod}'?" y; then
-                    semodule -r "${stale_mod}"
+                    _locked semodule -r "${stale_mod}"
                     ok "removed '${stale_mod}' -- ${dom} is now ENFORCING"
                 else
                     warn "  leaving '${stale_mod}' -- ${dom} will remain PERMISSIVE"
@@ -491,6 +491,48 @@ RELABEL_LIB="${DIR}/../src/usr/local/lib/ai-tools/relabel.lib.sh"
 [[ -r "${RELABEL_LIB}" ]] || RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
 # shellcheck source=/dev/null
 source "${RELABEL_LIB}" || die "missing label library: ${RELABEL_LIB}"
+
+# _locked <command...>: run one store-writing command under ai_tools_relabel_lock, released when
+# it returns. semanage and semodule report an error to whichever process finds the policy store
+# held, and ai-tools-relabel.path fires ai-tools-relabel.service into this script's run (the
+# install that runs it rewrites /opt/ai-tools/bin), so every semodule load and every fcontext
+# section here takes the lock the root helpers take. Per command rather than for the whole run:
+# the install action prompts between its loads, and a lock held across a prompt makes the
+# watcher's run wait out AI_TOOLS_RELABEL_LOCK_WAIT and then proceed unserialized. An untaken
+# lock is reported once and the command runs anyway, the library's own fail-soft.
+_locked_note_shown=0
+_locked() {
+    local rc=0
+    ai_tools_relabel_lock
+    if [[ -n "${AI_TOOLS_RELABEL_LOCK_NOTE}" && "${_locked_note_shown}" -eq 0 ]]; then
+        warn "policy-store writes are not serialized on this host -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"
+        _locked_note_shown=1
+    fi
+    "$@" || rc=$?
+    ai_tools_relabel_unlock
+    return "${rc}"
+}
+
+# _labels_apply / _labels_drop: the fcontext sections, one _locked call each. Apply registers and
+# verifies every enabled agent's rules, the enrolled operators' config rules, and each registered
+# project's rule; drop removes them in the reverse order, while the module still declares their
+# types.
+_labels_apply() { verify_agent_labels; _label_conf; for_each_project _label_one; }
+_labels_drop() {
+    local manifest agent
+    for_each_project _unlabel_one
+    _unlabel_conf
+    # The agents' path rules are local fcontexts naming types the module unload removes. Dropped
+    # for EVERY installed agent manifest, not just the enabled ones: a disabled agent may still
+    # hold a rule from when it was on.
+    log "dropping the agents' fcontext rules"
+    for manifest in /usr/local/lib/ai-tools/agents.d/*.conf; do
+        [[ -e "${manifest}" ]] || continue
+        agent="${manifest##*/}"; agent="${agent%.conf}"
+        ai_tools_unlabel_agent_paths "${agent}" \
+            || log "  ${agent}: no file-context rules to drop"
+    done
+}
 
 # The OPERATORS list, parsed through the shared grammar so this sweep reads operator.conf exactly
 # as every other consumer does. Best-effort and only the plural loader is called: an unenrolled
@@ -752,7 +794,7 @@ case "${ACTION}" in
 
     _mode="$(_mode_label)"
     log "loading core module (${_mode})"
-    semodule -i "${POLICY_DIR}/${MODULE}.pp"
+    _locked semodule -i "${POLICY_DIR}/${MODULE}.pp"
     ok "core module loaded (${_mode})"
     _check_permissive_alignment
     _replace_former_group_modules
@@ -774,9 +816,7 @@ case "${ACTION}" in
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
     _home_state
-    verify_agent_labels
-    _label_conf
-    for_each_project _label_one
+    _locked _labels_apply
 
     # Core is loaded and labelled -- a clear checkpoint before the optional groups. Reaching
     # here means the preceding steps succeeded (a hard failure aborts under set -e; a mislabelled
@@ -789,7 +829,7 @@ case "${ACTION}" in
         for name in "${SELECTED_GROUPS[@]}"; do
             ensure_pp "ai_tools_${name}.pp"
             log "loading group: ai_tools_${name}"
-            semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
+            _locked semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
             ok "group '${name}' enabled"
         done
         # Recompile-and-reload a loaded group from its current source: build_pp (unlike
@@ -797,7 +837,7 @@ case "${ACTION}" in
         for name in "${RECOMPILE_GROUPS[@]}"; do
             build_pp "ai_tools_${name}.pp"
             log "reloading from source: ai_tools_${name}"
-            semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
+            _locked semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
             ok "group '${name}' recompiled and reloaded"
         done
     fi
@@ -857,9 +897,7 @@ case "${ACTION}" in
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
     _home_state
-    verify_agent_labels
-    _label_conf
-    for_each_project _label_one
+    _locked _labels_apply
     ok "relabel done"
     ;;
 
@@ -881,7 +919,7 @@ case "${ACTION}" in
     build_pp "${MODULE}.pp"
     _mode="$(_mode_label)"
     log "reloading core module (${_mode})"
-    semodule -i "${POLICY_DIR}/${MODULE}.pp"
+    _locked semodule -i "${POLICY_DIR}/${MODULE}.pp"
     ok "core module rebuilt and reloaded (${_mode})"
     _check_permissive_alignment
     _replace_former_group_modules
@@ -900,32 +938,19 @@ case "${ACTION}" in
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
     _home_state
-    verify_agent_labels
-    _label_conf
-    for_each_project _label_one
+    _locked _labels_apply
     ok "rebuild done"
     ;;
 
   remove)
     section "Removing SELinux confinement"
     log "dropping project fcontext rules"
-    for_each_project _unlabel_one
-    _unlabel_conf
-    # The agents' path rules are local fcontexts naming types the module unload removes.
-    # Drop them here, while those types still exist, for EVERY installed agent manifest (not just
-    # the enabled ones -- a disabled agent may still hold a rule from when it was on).
-    log "dropping the agents' fcontext rules"
-    for manifest in /usr/local/lib/ai-tools/agents.d/*.conf; do
-        [[ -e "${manifest}" ]] || continue
-        agent="${manifest##*/}"; agent="${agent%.conf}"
-        ai_tools_unlabel_agent_paths "${agent}" \
-            || log "  ${agent}: no file-context rules to drop"
-    done
+    _locked _labels_drop
     log "unloading all ai_tools* modules"
     # Collect all loaded ai_tools modules then remove in one semodule call.
     mapfile -t loaded < <(semodule -l 2>/dev/null | awk '/^ai_tools/{print $1}')
     if [[ ${#loaded[@]} -gt 0 ]]; then
-        semodule -r "${loaded[@]}" 2>/dev/null || true
+        _locked semodule -r "${loaded[@]}" 2>/dev/null || true
     fi
     log "reverting contexts to defaults"
     _restore_one "${NVM_DIR}"
@@ -947,13 +972,13 @@ case "${ACTION}" in
     section "Enabling group: ${name}"
     ensure_pp "ai_tools_${name}.pp"
     log "loading group: ai_tools_${name}"
-    semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
+    _locked semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
     ok "group '${name}' enabled"
     # A group may ship file contexts of its own (dotnet maps a clone's build output), so the
     # labels are re-applied after the load: the project sweep re-asserts each project's rules,
     # and the clone restorecon picks up any static rule the group added.
     log "re-applying labels for the expanded rule set"
-    for_each_project _label_one
+    _locked for_each_project _label_one
     _label_sandbox_clones
     log "re-run the bring-up loop (avc-testsuite.sh + avc-analyze.sh) to catch any"
     log "new denials from the expanded surface before going enforcing"
@@ -963,13 +988,13 @@ case "${ACTION}" in
     name="${2:?usage: sudo $0 disable-group <name>}"
     _replace_former_group_modules
     if ai_tools_selinux_group_loaded "${name}"; then
-        semodule -r "ai_tools_${name}"
+        _locked semodule -r "ai_tools_${name}"
         ok "group '${name}' disabled"
         # The inverse of the enable sweep: a path a static rule of the group mapped falls back
         # to the base's rule for it. Every type the groups name is declared in the base, so a
         # per-project rule outlives the group unchanged.
         log "re-applying labels for the reduced rule set"
-        for_each_project _label_one
+        _locked for_each_project _label_one
         _label_sandbox_clones
     else
         log "group 'ai_tools_${name}' is not currently loaded -- nothing to do"

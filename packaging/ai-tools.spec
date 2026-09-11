@@ -711,6 +711,16 @@ fi
 # that cannot register its rules and a launch that fail-closes, with no message naming this as the
 # cause. The transaction still completes -- the remedy is a re-run, not a rollback.
 if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/null 2>&1; then
+    # The lock every other writer of the policy store takes (ai_tools_relabel_lock in
+    # relabel.lib.sh -- the same path, which tests/unit/relabel.sh pins against this literal):
+    # the base package's rewrite of /opt/ai-tools/bin in this transaction fires
+    # ai-tools-relabel.path, and semodule and semanage report an error to whichever process finds
+    # the store held. Open-coded because a scriptlet runs under /bin/sh and does not source the
+    # library. Best-effort as the library is: no /run/lock, or a wait that runs out, proceeds
+    # unserialized. The file is created by a simple command first, because a failed redirection
+    # on a bare `exec` ends the scriptlet.
+    _store_lock=/run/lock/ai-tools-relabel.lock
+    if : 2>/dev/null >"${_store_lock}"; then exec 9>"${_store_lock}"; flock -w 120 9 || :; fi
     _semodule_error=$(semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp 2>&1) || {
         echo "ai-tools-selinux: WARNING could not load the ai_tools policy module: ${_semodule_error}" >&2
         echo "ai-tools-selinux: sessions run unconfined until it loads; re-run: sudo semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp" >&2
@@ -749,6 +759,7 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
                     || echo "ai-tools-selinux: WARNING could not load the layout module ${_layout} declared by ${_manifest}; build output is typed at relabel time only. Re-run: sudo semodule -i ${_layout_pp}" >&2 ;;
         esac
     done
+    exec 9>&-
     if command -v systemctl >/dev/null 2>&1 \
        && systemctl is-active --quiet ai-tools-handback.socket 2>/dev/null; then
         systemctl daemon-reexec >/dev/null 2>&1 || :
