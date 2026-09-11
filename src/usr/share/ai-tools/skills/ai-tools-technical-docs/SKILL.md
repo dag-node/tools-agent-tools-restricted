@@ -646,9 +646,9 @@ Two points about running the checks:
 - **For a multi-part change, baseline each pass at the tip of the previous part.** `--kept`
   accepts any revision range, so `--kept <rev>` reports only the findings belonging to the part
   in hand, rather than every change since the branch point.
-- **When comparing an `--all` run from before an edit with one from after, compare the finding
-  text rather than whole lines.** An edit shifts line numbers, and a line-wise `comm` then treats
-  every finding that merely moved as new.
+- **To see what the edit itself added, use `--new <revision>` rather than comparing two runs.**
+  It pairs findings by content, where a line-wise comparison of two runs treats every finding that
+  merely moved as new.
 
 ---
 
@@ -996,6 +996,20 @@ checks a rewrite needs a reader for — the `does not` rule in its past and part
 and the verbs that name no operation. Every `--all` check wants a reader on each hit. `--kept` is
 the rewrite mode, described under [Run the checks a rewrite needs](#run-the-checks-a-rewrite-needs).
 
+### When the tool is the defect
+
+`prose-check.py` and `ref-index.py` live inside this skill. A check that mostly flags correct
+prose is a bug in the check, not in the text. The same is true of a reference finding that names a
+shape the grammar already allows, or a hint that points to the wrong fix.
+
+Do not silence it with `prose-check: ignore` or a reword that only dodges the pattern. That hides
+the evidence and leaves the cost for everyone else.
+
+**Measure first.** Run the check on the whole tree and report how many hits a reviewer would keep
+versus how many are noise. A proposal without a count is a preference; a proposal with a count is
+evidence. Rejected widenings (and the narrowings that earned their place) are recorded next to the
+checks so the same mistakes are not repeated.
+
 Quoted, backticked, and fenced spans are skipped, so a document may quote the prose it warns
 against; mark anything else deliberate with `prose-check: ignore` on the line, or
 `<!-- prose-check: ignore -->` in Markdown, where the marker then stays out of the rendered page.
@@ -1039,13 +1053,20 @@ lost its extension** keeps only its `#` headings and reports zero findings for a
 the run never read — and zero findings reads as clean. Pass `--prose` for such a copy, `--source`
 for the reverse.
 
-That is what checking **what a branch added** needs, so a pre-existing finding does not mask a new
-one. Write each changed file's pre-change revision to a temp path, check both, and compare the
-sorted findings:
+**`--new <revision>` reports only what the paths add**, so a pre-existing finding does not mask a
+new one. It is the sibling of `--kept`: that one asks whether a rewrite kept the claim, this one
+asks what the rewrite introduced. It composes with `--all` and `--wrap`.
 
 ```bash
-git show "HEAD:$f" > /tmp/base && python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --all --prose /tmp/base
+python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --all --new develop <file>...
 ```
+
+Pairing is by content rather than by line, because an edit renumbers every finding after it. Two
+consequences to expect: a sentence that was **edited and still reports** counts as new, which is
+the wanted direction — the wording a branch leaves behind is the wording it is answerable for —
+and a file the revision does not hold reports every finding in it. Do not do this comparison by
+hand. Findings are two lines each, line numbers shift, and a tree reporting hundreds under `--all`
+buries the two that belong to the branch.
 
 When in doubt: describe what the code does, name the mechanism that does it, and use fewer
 words.

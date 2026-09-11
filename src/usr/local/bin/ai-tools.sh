@@ -3398,7 +3398,7 @@ cmd_reclaim() {
     say "  ${d}${C_DIM}$(${full} && printf ' (--full: incl. node_modules, .venv, ...)')${C_RST}"
     say "  ${C_DIM}-> ${OWNER_USER}:${SANDBOX_GROUP} (secret-named files stay ${OWNER_USER}:${OWNER_GROUP} 600)${C_RST}"
     # The helper reports the outcome itself -- the pre-scan count, the one whole-set
-    # confirm, then the "handed back N" / "nothing to reclaim" / "declined" line -- so no blanket  prose-check: ignore
+    # confirm, then the `handed back N` / `nothing to reclaim` / `declined` line -- so no blanket
     # success line here: the CLI states only what happened.
     run_reclaim "${d}" "${passthru[@]}" || die "reclaim failed for ${d}"
     ai_tools_log_info "reclaim run for ${d}$(${full} && printf ' (full)')"

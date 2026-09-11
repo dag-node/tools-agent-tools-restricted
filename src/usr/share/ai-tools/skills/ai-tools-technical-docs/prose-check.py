@@ -14,6 +14,14 @@
 # different rule -- see the `--kept` heading; `--config-header` reads a config file's header
 # as fixed-width text -- see the `--config-header` heading. `--staged` sees only the added half of a sentence
 # an edit split, so a hit it reports alone is worth re-checking against the whole file.
+#
+# `--new <revision>` filters the named-path mode: it runs the selected checks
+# over the working tree and over the same paths at <revision>, and reports only what the tree ADDED.
+# It is the sibling of `--kept`. That one asks whether a rewrite kept the claim; this one
+# asks what the rewrite introduced. It exists because doing the comparison by hand is
+# unreliable at any size: findings are two lines each, a shifted line renumbers every
+# finding after it, and a tree reporting hundreds under `--all` buries the two a branch is
+# answerable for. Pairing is by content; see `added_findings`.
 # Source files contribute their comments and docstrings, Markdown and man pages every line. The
 # patterns match English, so they carry to any codebase.
 #
@@ -78,6 +86,12 @@
 #   vague-verb         a verb naming no operation. `convey` is exempt in a sentence about
 #                      licensing, which is the one place it is a term of art.
 #
+# WHEN A CHECK IS THE DEFECT, REPORT IT. Every check here is a grep standing in for a rule
+# about meaning, so one that mostly flags correct prose is a bug in the check. Measure it
+# tree-wide, and propose the change to the check and to the SKILL.md rule together -- see
+# that file's "When the tool is the defect". The counts behind the current narrowings,
+# and the two widenings they rejected, sit beside the checks themselves.
+#
 # A line carrying `prose-check: ignore` is skipped, which is how a style guide keeps the labelled
 # bad examples it has to contain. In Markdown the marker goes in an HTML comment
 # (`<!-- prose-check: ignore -->`), which the substring match finds and the rendered page omits.
@@ -90,6 +104,7 @@ import argparse
 import re
 import subprocess
 import sys
+from collections import Counter
 
 IGNORE_MARKER = "prose-check: ignore"
 # The file marker is read only as the whole content of a comment line, so a document describing it
@@ -244,8 +259,12 @@ DEFAULT_CHECKS = [
     ("nothing", hidden_scope_nothing, "name the absent input"),
     ("positional-reference", POSITIONAL_REFERENCE,
      "name the section, function, or file the reader goes to"),
+    # Two remedies, because the token is as often a PLACEHOLDER as a mistyped reftag: a usage line
+    # or a function signature writes `MSG-CODE` where the id goes, and minting a reftag for it
+    # would put a live id into a slot that names an argument.
     ("reference-shape", REFERENCE_SHAPE,
-     "write the reftag in full: the prefix, a dash, and its four-character id"),
+     "write the reftag in full (prefix, dash, four-character id), "
+     "or drop the reftag shape if this names an argument rather than a target"),
     ("unbacked-cost", unbacked_cost, "name the frequency or the bounded operation"),
     ("predicted-action", PREDICTED_ACTION, "state what the system does, or give the instruction"),
 ]
@@ -754,6 +773,46 @@ def file_lines(paths):
             print(f"prose-check: cannot read {path}: {exc}", file=sys.stderr)
 
 
+def revision_lines(paths, revision):
+    """Yield (path, line number, line) for each path as <revision> holds it.
+
+    The path is passed as `<revision>:./<path>`, which git resolves against the current directory
+    instead of the repository root, so the same argument works from a subdirectory. A path
+    the revision does not hold yields nothing, which is what makes every finding in a file the branch
+    ADDED report as new.
+    """
+    for path in paths:
+        shown = subprocess.run(["git", "show", f"{revision}:./{path}"],
+                               capture_output=True, text=True, check=False)
+        if shown.returncode != 0:
+            continue
+        for number, line in enumerate(shown.stdout.splitlines(), 1):
+            yield path, number, line
+
+
+def added_findings(current, baseline):
+    """Yield each finding in `current` that `baseline` does not already account for.
+
+    THE PAIRING IS BY CONTENT, NOT BY POSITION: an edit renumbers every line after it, so pairing
+    on a line number reports each shifted finding as new -- the failure this mode exists to remove.
+    The key is (path, check, token, sentence), counted, so a sentence appearing twice in a file
+    is matched twice.
+
+    A sentence that was EDITED and still trips therefore reports, because its text no longer
+    matches the one it replaced. That is the wanted direction: the wording a branch leaves behind
+    is the wording it is answerable for.
+    """
+    unclaimed = Counter((path, name, token, text)
+                        for path, _, name, token, _, text in baseline)
+    for finding in current:
+        path, _, name, token, _, text = finding
+        key = (path, name, token, text)
+        if unclaimed[key]:
+            unclaimed[key] -= 1
+        else:
+            yield finding
+
+
 BACKTICK_SPAN = re.compile(r"`[^`]*`")
 QUOTED_SPAN = re.compile(r"`[^`]*`|\"[^\"]*\"")
 
@@ -946,6 +1005,19 @@ def findings(source, checks, path_checks=()):
                 yield path, number, name, match.group(0), hint, sentence
 
 
+def selected_findings(source, checks, width, want_wrap):
+    """Yield every finding the selected checks report for one already-read source, in report order.
+
+    One collector, not three loops, because `--new` runs the same selection twice:
+    over the working tree, and over a revision. A mode reported on one side and absent from the other would
+    read as a difference the branch made.
+    """
+    yield from findings(source, checks, PATH_CHECKS)
+    if want_wrap:
+        yield from comment_line_findings(source, width if width is not None else SOURCE_WIDTH)
+        yield from document_line_findings(source, width if width is not None else DOCUMENT_WIDTH)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="report prose figures the writing standard rules out")
@@ -958,6 +1030,8 @@ def main():
     parser.add_argument("--kept", metavar="REVISIONS", nargs="?", const="",
                         help="report a claim a rewrite dropped, narrowed, or weakened "
                              "(default: the index)")
+    parser.add_argument("--new", metavar="REVISION",
+                        help="report only the findings these paths add against REVISION")
     parser.add_argument("--wrap", action="store_true",
                         help="add the line checks: a source comment ending on a tie word or over "
                              f"--width columns, a Markdown line over {DOCUMENT_WIDTH}")
@@ -994,6 +1068,8 @@ def main():
     modes = [args.staged, bool(args.message), bool(args.paths)]
     if sum(1 for mode in modes if mode) != 1:
         parser.error("give exactly one of --staged, --message FILE, or one or more paths")
+    if args.new is not None and not args.paths:
+        parser.error("--new REVISION reads one or more paths")
 
     if args.config_header:
         if not args.paths:
@@ -1023,25 +1099,25 @@ def main():
     # and an ignore-file path is dropped here, which covers every reading mode at once.
     source = [item for item in source if not ignored_file(item[0])]
 
+    reported = selected_findings(source, checks, args.width, args.wrap)
+    if args.new is not None:
+        baseline = [item for item in revision_lines(args.paths, args.new)
+                    if not ignored_file(item[0])]
+        reported = added_findings(
+            list(reported), selected_findings(baseline, checks, args.width, args.wrap))
+
     count = 0
-    for path, number, name, token, hint, text in findings(source, checks, PATH_CHECKS):
+    for path, number, name, token, hint, text in reported:
         count += 1
         print(f"{path}:{number}: {name} [{token}] -- {hint}")
         print(f"    {text[:110]}")
-    if args.wrap:
-        for path, number, name, token, hint, text in comment_line_findings(
-                source, args.width if args.width is not None else SOURCE_WIDTH):
-            count += 1
-            print(f"{path}:{number}: {name} [{token}] -- {hint}")
-            print(f"    {text[:110]}")
-        for path, number, name, token, hint, text in document_line_findings(
-                source, args.width if args.width is not None else DOCUMENT_WIDTH):
-            count += 1
-            print(f"{path}:{number}: {name} [{token}] -- {hint}")
-            print(f"    {text[:110]}")
     if count:
-        print(f"\n{count} finding(s). See the ai-tools-technical-docs skill; "
-              f"mark a deliberate example with '{IGNORE_MARKER}'.")
+        if args.new is not None:
+            print(f"\n{count} finding(s) these paths add against {args.new}. "
+                  f"A sentence edited and still reporting is one of them.")
+        else:
+            print(f"\n{count} finding(s). See the ai-tools-technical-docs skill; "
+                  f"mark a deliberate example with '{IGNORE_MARKER}'.")
     return 1 if count else 0
 
 

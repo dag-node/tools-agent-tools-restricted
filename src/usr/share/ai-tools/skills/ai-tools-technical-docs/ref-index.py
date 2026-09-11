@@ -63,6 +63,11 @@
 # as a whole comment line is not read at all, which is how a test file holds its fixtures; `new`
 # still reads every file raw, so an id in a fixture is reserved too.
 #
+# WHEN A FINDING IS THE DEFECT, REPORT IT. A finding that names a shape this grammar allows, or
+# whose hint sends a reader to the wrong remedy, is a bug here rather than in the tree. Measure it
+# and propose the change to this tool and to the SKILL.md grammar together; see that file's "When
+# the tool is the defect".
+#
 # A reftag that leaves the tree is RETIRED, never freed: `retire` moves each index row whose
 # target is gone into a second file, with the date, and `new` draws against that file too. A
 # message code lands in a durable audit trail, so an id re-minted for another situation would
@@ -721,8 +726,12 @@ def command_check(args):
     count = 0
     for path, number, reftag, first in duplicates:
         count += 1
+        # Three remedies, because a repeat is as often deliberate as it is a mistake: a fixture
+        # DRIVING an emitter carries the definition shape without defining anything, and a message
+        # two processes must both emit is one situation that shares one code.
         print(f"{path}:{number}: duplicate [{reftag}] -- also defined at {first.path}:{first.line}; "
-              f"mint a fresh reftag with `new`")
+              f"mint a fresh reftag with `new`, mark a test fixture `ref-index: ignore`, "
+              f"or emit a deliberate twin's code from a format string so it reads as a citation")
     for target, earlier in duplicate_ids(targets):
         count += 1
         print(f"{target.path}:{target.line}: duplicate-id [{target.reftag}] -- the id is "
