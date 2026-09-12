@@ -236,6 +236,13 @@ touch the shared one, and `integration/cli.sh` aims the clone removal's refusal 
 root the same way; both skip on an installed CLI that predates the override, since a destructive
 verb is never aimed at the real clone area even to assert a refusal.
 
+`AI_TOOLS_JOURNAL_SOCKET` (`ai-tools-handback`) joins that family: it moves where the daemon
+sends its journal datagram, so `unit/handback.sh` binds a throwaway socket in its testdir instead
+of writing the host's journal. The daemon's environment comes from its root-owned unit, so neither
+an operator nor the agent can set it in production, and a caller who could set it moves where an
+**attribution field** lands, which does not feed any authorization decision (see
+[handback-bridge](handback-bridge.rule.md)).
+
 It is not in the suite because the full function registers a `semanage fcontext` rule, and this
 suite does not mutate the host's SELinux policy to test a helper — the same line
 `integration/selinux.sh` draws for `ai_tools_unlabel_project`. That check is safe *because* it
@@ -621,6 +628,12 @@ permitted" from "the directory is missing". The
 signed-manifest probe is not driven here — it needs the vendor's live endpoint, `gpgv`, and a
 300 MB hash — and its boundary half (neither the pin, the pin directory, the shipped key, nor the
 library is agent-writable) is in `boundary/access.sh`.
+
+`handback.sh` covers the handback daemon's own record, and what it asserts of the session unit is
+the fail direction: an unreadable cgroup leaves the field **absent**, and a newline in an
+agent-named path is replaced by the sanitizer, so it does not open a second session-unit field in
+the newline-delimited protocol. The transport case skips where an `AF_UNIX` datagram send is
+refused, since a datagram that never left is not evidence about the daemon.
 
 `selinux-groups.sh` pins the optional-group registry (`selinux-groups.lib.sh`, shared by
 `ai-tools-admin selinux` and `install-selinux.sh`): the four-field accessors (including the
