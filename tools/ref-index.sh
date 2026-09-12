@@ -24,15 +24,22 @@ INDEX=".claude/references.md"
 # carries the release it was retired at, so a row is dropped by hand once that release is a few
 # stable releases behind.
 RETIRED=".claude/.referenced.md"
+# ai-tools-messages(7) is generated FROM this index and names every message code in it, so reading
+# it back would cite all of them and empty the "documented in" pointer of its meaning.
+GENERATED_PAGE="src/usr/local/share/man/man7/ai-tools-messages.7"
 RELEASE="$(cat "${ROOT}/packaging/VERSION" 2>/dev/null || true)"
 # The wip repository beside this one holds tickets that show reftags ahead of minting them; `new`
 # reads them when the checkout is present, so an id shown in a ticket is not drawn for another use.
 WIP_ISSUES="${ROOT}/../tools-agent-tools-restricted-wip/issues"
 cd "${ROOT}"
 
-# Every tracked text file. The index and the retired file cite every reftag, so neither is read,
-# and neither is a key, an image, or a compiled policy module.
-files() { git ls-files ":!${INDEX}" ":!${RETIRED}" | grep -v -e '\.asc$' -e '\.png$' -e '\.pp$'; }
+# Every tracked text file. The index, the retired file, and the generated message page each name
+# every reftag they hold, so none of the three is read, and neither is a key, an image, or a
+# compiled policy module.
+files() {
+    git ls-files ":!${INDEX}" ":!${RETIRED}" ":!${GENERATED_PAGE}" \
+        | grep -v -e '\.asc$' -e '\.png$' -e '\.pp$'
+}
 mint_files() { files; if [[ -d "${WIP_ISSUES}" ]]; then find "${WIP_ISSUES}" -name '*.md' -type f; fi; }
 
 command="${1:-check}"

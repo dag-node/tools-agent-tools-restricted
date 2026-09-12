@@ -845,6 +845,7 @@ do_summary() {
     _chk /usr/local/share/man/man5/allowed-projects.5
     _chk /usr/local/share/man/man5/secret-patterns.5
     _chk /usr/local/share/man/man5/custom-claude-endpoint.conf.5
+    _chk /usr/local/share/man/man7/ai-tools-messages.7
     _chk /usr/local/share/man/man8/ai-tools-admin.8
     _chk /var/opt/ai-tools
     _chk /var/opt/ai-tools/sandbox-projects
@@ -1508,6 +1509,17 @@ do_install() {
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/custom-claude-endpoint.conf.5" \
         /usr/local/share/man/man5/custom-claude-endpoint.conf.5
+
+    # ai-tools-messages(7). Every message code the tree emits, with its severity and the component
+    # that emits it, so `journalctl AI_TOOLS_MSG=<code>` and a code read off a terminal both
+    # resolve to a message. Section 7 because it documents a convention rather than a command, and
+    # the man7 dir is created here: unlike man1, no EL package owns it under /usr/local. Generated
+    # from the cross-reference index by tools/man-messages.sh, never edited.
+    log "/usr/local/share/man/man7/ai-tools-messages.7"
+    install -d -o root -g root -m 755 /usr/local/share/man/man7
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/share/man/man7/ai-tools-messages.7" \
+        /usr/local/share/man/man7/ai-tools-messages.7
 
     # Launch wrapper. Ships system-wide root:root 0755 -- rpm-owned, on every operator's PATH
     # (path-dedup.sh, wired into operator dotfiles by ai-tools-admin, ranks /usr/local/bin

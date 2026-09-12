@@ -4,8 +4,10 @@
 # Hermetic sync test between this project's man pages and what each documents: ai-tools(1)
 # against the CLI's usage(), ai-tools-admin(8) against the admin helper's, ai-tools-providers(5)
 # against the shipped manifests, allowed-projects(5) and secret-patterns(5) against the header
-# each file is seeded with and the parser its examples must load in, and operator.conf(5)
-# and custom-claude-endpoint.conf(5) against the keys their shipped templates mention. It closes
+# each file is seeded with and the parser its examples must load in, operator.conf(5)
+# and custom-claude-endpoint.conf(5) against the keys their shipped templates mention,
+# and ai-tools-messages(7) against the generator that derives it from the cross-reference
+# index. It closes
 # by holding every config header this project writes to the fixed-width rule (72 columns, no line
 # ending on a tie word). In the two command pairs the page and the help are not copies of each
 # other -- usage() is orientation while the page is the reference -- so equality of their whole
@@ -483,6 +485,43 @@ check_config_page() {
 section "man page: the shipped config templates in sync with their pages (unit)"
 check_config_page operator.conf "${CONFIG_TEMPLATES}/operator.conf" OPERATOR.CONF
 check_config_page custom-claude-endpoint.conf "${CONFIG_TEMPLATES}/endpoints/custom-claude-endpoint.conf" CUSTOM-CLAUDE-ENDPOINT.CONF
+
+# ── ai-tools-messages(7): the generated page ───────────────────────────────────────────────────
+# Each other page is written by hand and held to what it documents; this one is derived
+# from .claude/references.md, so its pair is the generator that writes it. A committed
+# page the generator would rewrite means a message carries new text, or a code has been
+# added or retired while the page still shows the previous catalog. That failure stays
+# silent: a wrong catalog renders as cleanly as a right one, and an operator who searches
+# a code read off a terminal meets whichever entry the page kept. The index is a repository
+# file, so an installed-only run skips.
+MESSAGES_MAN="${ROOT}/src/usr/local/share/man/man7/ai-tools-messages.7"
+MESSAGES_GEN="${ROOT}/tools/man-messages.sh"
+section "man page: ai-tools-messages(7) in lockstep with the cross-reference index (unit)"
+check_messages_page() {
+    if [[ ! -r "${MESSAGES_GEN}" || ! -r "${ROOT}/.claude/references.md" ]]; then
+        skip "ai-tools-messages(7) lockstep" "not a checkout (no generator or index at ${ROOT})"
+        return
+    fi
+    local out rc=0
+    out="$(bash "${MESSAGES_GEN}" stale 2>&1)" || rc=$?
+    if (( rc == 0 )); then
+        pass "ai-tools-messages(7) is what the index generates ($(grep -c '^\.TP' "${MESSAGES_MAN}") codes)"
+    else
+        fail "ai-tools-messages(7) is stale:"$'\n'"${out}"
+    fi
+    # Every code in the index reaches the page: the generator refuses an emitter its severity map
+    # does not name, so a silent DROP is the remaining way a code could go missing from the page.
+    local indexed rendered
+    indexed="$(grep -cE '^\| [a-z0-9]{4} \| \[MSG-' "${ROOT}/.claude/references.md")"
+    rendered="$(grep -c '^\.TP' "${MESSAGES_MAN}")"
+    if [[ "${indexed}" == "${rendered}" ]]; then
+        pass "every message code the index defines has an entry in the page (${rendered})"
+    else
+        fail "the index defines ${indexed} message codes and the page lists ${rendered}"
+    fi
+    th_version "${MESSAGES_MAN}" AI-TOOLS-MESSAGES
+}
+check_messages_page
 
 # ── Config headers are fixed-width text ───────────────────────────────────────────────────────
 # An operator reads a config file in a terminal, where nothing reflows it, so every header this
