@@ -75,6 +75,26 @@ unit suites drive those against fixtures they own.
 The SELinux AVC bring-up tooling is **not** part of this suite: it lives with the policy it
 supports, under `selinux/avc/` (`run.sh` does not dispatch it).
 
+## What a test asserts about a message
+
+A test asserts a **message code** for the identity of a refusal, a warning, or a notice, and greps
+the message **text** only for what it says — a count, a path, a named command, a rendered mark.
+`assert_msg <code> <output> [<what>]` (`lib/harness.sh`) matches the code on a line of its own,
+where every emitter and every local `die()`/`warn()` puts a leading code in plain mode, so one
+assertion separates two refusals that read alike and the wording stays free to change
+([messaging](messaging.rule.md)). A file whose cases also turn on the exit status defines a local
+`refused` helper asserting the code and the status together, since a refusal printed at exit 0 is
+one a caller reads as success.
+
+A helper taking a code as a parameter takes its **label first**, so the code sits in a later
+argument and the call reads as a citation rather than as a second definition of a message its
+emitter already owns ([messaging](messaging.rule.md)).
+
+A grep over the text stays where what it selects is a **group** of situations rather than one
+message: a negative assertion that no refusal of some kind fired, or a skip that steps aside for
+an environment fact. Where that group is closed by construction, the grep names each code instead
+— `wrapper.sh`'s `gate_refused` names each code the launch gate can raise.
+
 ## Hermeticity contract
 
 Every test works **only inside its own dedicated `/tmp` testdir** (`mktestdir` sets

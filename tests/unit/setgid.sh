@@ -61,14 +61,8 @@ fi
 # do, or a claim over a tree owned by a third party closes with a clean check mark.
 if ${foreign}; then
     guard_err="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null || true)"
-    if grep -q 'owned by neither' <<<"${guard_err}"; then
-        pass "a third-party-owned dir is reported on stderr"
-    else
-        fail "the owner-guard skip was silent (stderr: ${guard_err})"
-    fi
-    # The code separates this report from the project-root one below, which the prose grep
-    # above matches as well.
-    assert_msg MSG-B9V2 "${guard_err}" "the owner-guard skip is reported under its own code"
+    # The code separates this report from the project-root one below, which reads alike.
+    assert_msg MSG-B9V2 "${guard_err}" "a third-party-owned dir is reported on stderr"
 else
     skip "owner-guard reporting" "user 'nobody' not present"
 fi
@@ -176,12 +170,7 @@ mk_allowlist "${p3}"
 if id nobody >/dev/null 2>&1; then
     chown nobody:nobody "${p3}"
     root_err="$(setsid "${HELPER}" "${p3}" < /dev/null 2>&1 >/dev/null || true)"
-    if grep -q 'the project directory itself is owned by neither' <<<"${root_err}"; then
-        pass "a third-party-owned project root is reported as granting no access"
-    else
-        fail "a third-party-owned project root was not called out (stderr: ${root_err})"
-    fi
-    assert_msg MSG-V6Q7 "${root_err}" "the project-root case carries its own code"
+    assert_msg MSG-V6Q7 "${root_err}" "a third-party-owned project root is reported as granting no access"
 else
     skip "third-party project root" "user 'nobody' not present"
 fi

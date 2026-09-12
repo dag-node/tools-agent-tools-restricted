@@ -588,12 +588,12 @@ unset -f ai_tools_msg_confirm check_question
 point_at "${CG2}" 4242
 ai_tools_msg_confirm() { return 1; }
 run_main false
-if (( MAIN_STATUS == 4 )) && grep -qi 'nothing was stopped' <<< "${MAIN_OUTPUT}"; then
-    pass "a deliberate decline stops the stop (exit 4) and says nothing was stopped"
+if (( MAIN_STATUS == 4 )); then
+    pass "a deliberate decline stops the stop (exit 4)"
 else
     fail "decline: expected exit 4, got ${MAIN_STATUS}: ${MAIN_OUTPUT}"
 fi
-assert_msg MSG-J3U9 "${MAIN_OUTPUT}" "the decline outcome carries its own code, through the notice emitter"
+assert_msg MSG-J3U9 "${MAIN_OUTPUT}" "the decline says nothing was stopped, through the notice emitter"
 unset -f ai_tools_msg_confirm
 
 # Every one of those outcomes is in the trail. An operator ending another operator's work, and a
@@ -713,9 +713,7 @@ assert_msg MSG-B7K4 "${HELPER_OUTPUT}" "the helper's unknown-option refusal carr
 # mean something narrower later without an existing command line silently changing meaning. The
 # refusal has to NAME the alternatives, or it is a dead end mid-incident.
 run_helper /some/project
-if (( HELPER_STATUS == 2 )) \
-        && grep -q 'takes no path' <<< "${HELPER_OUTPUT}" \
-        && grep -q '/exit' <<< "${HELPER_OUTPUT}"; then
+if (( HELPER_STATUS == 2 )) && grep -q '/exit' <<< "${HELPER_OUTPUT}"; then
     pass "a path exits 2 and the refusal names /exit as the way to end one session"
 else
     fail "a path: expected exit 2 naming /exit, got ${HELPER_STATUS}: ${HELPER_OUTPUT}"

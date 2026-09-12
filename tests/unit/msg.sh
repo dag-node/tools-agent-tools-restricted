@@ -83,8 +83,8 @@ else
     fail "an unbreakable token was split across lines"
 fi
 
-# (5) Plain mode (non-tty / forced) keeps a multi-word phrase on ONE line so the suite's
-# substring greps still match.
+# (5) Plain mode (non-tty / forced) keeps a multi-word phrase on ONE line, so a grep for what a
+# message SAYS -- a count, a path, a named command -- still matches it whole.
 phrase='invalid or absent AI_TOOLS_AGENT_EXEC -- cannot launch'
 if AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_error "ai-tools-run: ${phrase}" 2>&1 \
         | grep -qF "${phrase}"; then
@@ -533,7 +533,7 @@ else
 fi
 
 # (30) A coded die through a local helper: the code is its own first line and the helper's own
-# prefixed message follows whole, so assert_msg and the existing prose greps both match.
+# prefixed message follows whole, on the next line rather than inline.
 admin_die="$(bash -c 'source <(sed -n "/^die() {/,/^}/p" "'"${REPO}"'/src/usr/local/libexec/ai-tools/ai-tools-admin.sh"); die "'"${CODE}"'" "not a claimed project"' 2>&1 || true)"
 if [[ "${admin_die}" == "${CODE}"$'\n'"ai-tools-admin: error: not a claimed project" ]]; then
     pass "a local die() prints the code on its own line, then its prefixed message"

@@ -114,12 +114,7 @@ fi
 # (A2c) the skip is REPORTED, not silent: under --with-git it means history the operator asked
 # to share was not shared, so a quiet skip would leave them believing the opposite.
 sealed_err="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null || true)"
-if grep -q 'owner-only' <<<"${sealed_err}"; then
-    pass "owner-only skips are reported on stderr"
-else
-    fail "owner-only skips were silent"
-fi
-assert_msg MSG-C9Z6 "${sealed_err}" "the owner-only skip is reported under its own code"
+assert_msg MSG-C9Z6 "${sealed_err}" "owner-only skips are reported on stderr"
 
 # (A3) self-heal: a file created later under a restrictive umask inherits group rw.
 ( umask 077; : > "${proj}/sub_born" ); mv "${proj}/sub_born" "${proj}/born"
@@ -176,14 +171,8 @@ fi
 # a claim over a tree owned by a third party closes with a clean ✓ while granting no path at all.
 if ${foreign}; then
     guard_err="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null || true)"
-    if grep -q 'owned by neither' <<<"${guard_err}"; then
-        pass "a third-party-owned path is reported on stderr"
-    else
-        fail "the owner-guard skip was silent (stderr: ${guard_err})"
-    fi
-    # The code separates this report from the project-root one below, which the prose grep
-    # above matches as well.
-    assert_msg MSG-K8M2 "${guard_err}" "the owner-guard skip is reported under its own code"
+    # The code separates this report from the project-root one below, which reads alike.
+    assert_msg MSG-K8M2 "${guard_err}" "a third-party-owned path is reported on stderr"
 else
     skip "owner-guard reporting" "user 'nobody' not present"
 fi
@@ -219,12 +208,7 @@ mk_allowlist "${p2}"
 if id nobody >/dev/null 2>&1; then
     chown nobody:nobody "${p2}"
     root_err="$(setsid "${HELPER}" "${p2}" < /dev/null 2>&1 >/dev/null || true)"
-    if grep -q 'the project directory itself is owned by neither' <<<"${root_err}"; then
-        pass "a third-party-owned project root is reported as granting no access"
-    else
-        fail "a third-party-owned project root was not called out (stderr: ${root_err})"
-    fi
-    assert_msg MSG-M6H3 "${root_err}" "the project-root case carries its own code"
+    assert_msg MSG-M6H3 "${root_err}" "a third-party-owned project root is reported as granting no access"
 else
     skip "third-party project root" "user 'nobody' not present"
 fi

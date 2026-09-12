@@ -51,20 +51,23 @@ run_wrapper() {  # $1 = cwd
         "${wrapper}" --version --gate-probe < /dev/null 2>&1 || true )
 }
 
+# gate_refused <output>: true when the output carries either allowlist-gate refusal code --
+# MSG-N2Z7 (this project is not set up for the agent) or MSG-C9S6 (no allowlist file at all).
+# For these assertions the two codes are one situation, "the gate did not let the session start",
+# and which of them fires depends on whether the fixture allowlist exists; a check that the gate
+# did NOT fire therefore matches on both codes.
+gate_refused() { grep -qxE 'MSG-N2Z7|MSG-C9S6' <<<"$1"; }
+
 # (0) Operator gate: the wrapper refuses anyone not in the ai-ops group BEFORE it reaches the
 #     allowlist. The sandbox account is never an ai-ops member (ai-tools-run enforces this), so
-#     running the wrapper as it must be refused with the operator message -- and must NOT reach
-#     the allowlist gate ("no session started"), proving the gate short-circuits first. The
-#     subsequent operator runs (1)-(3), which DO reach the allowlist, are the positive case.
+#     running the wrapper as it must be refused with the sandbox-account refusal -- and must NOT
+#     reach the allowlist gate, proving the gate short-circuits first. The subsequent operator
+#     runs (1)-(3), which DO reach the allowlist, are the positive case. The code separates
+#     this refusal from the plain non-operator one (MSG-C7C9) the same gate raises.
 gate_out="$( cd "${home}" && setsid sudo -u "${SANDBOX_USER}" -- env HOME="${home}" \
     "${wrapper}" --version --gate-probe < /dev/null 2>&1 || true )"
-if printf '%s' "${gate_out}" | grep -qE "not an ai-tools operator|member of the ai-ops"; then
-    pass "wrapper refuses a non-operator (sandbox account) at the ai-ops gate"
-else
-    fail "wrapper did NOT refuse a non-operator at the ai-ops gate (output: ${gate_out})"
-fi
-assert_msg MSG-N8Q4 "${gate_out}" "the refusal is the sandbox-account one, not the plain non-operator one"
-if printf '%s' "${gate_out}" | grep -qE "no session started|allowlist not found"; then
+assert_msg MSG-N8Q4 "${gate_out}" "wrapper refuses a non-operator (sandbox account) at the ai-ops gate"
+if gate_refused "${gate_out}"; then
     fail "wrapper reached the allowlist gate as a non-operator -- the ai-ops gate must run first"
 else
     pass "wrapper short-circuits at the ai-ops gate before the allowlist check"
@@ -78,17 +81,11 @@ if [[ ! -L "/opt/ai-tools/bin/claude" ]]; then
 else
 
 # (1) An unapproved cwd is blocked at the allowlist gate. With no tty the wrapper never
-#     draws the menu at all -- it takes Cancel in its own have_tty branch -- and the refusal
-#     reads "no session started -- ... is not set up for the agent" (or "allowlist not found"
-#     when the list file is missing). That phrase proves the BLOCK and is deliberately
-#     distinct from the approved-but-not-claimed path's "not fully claimed".
+#     draws the menu at all -- it takes Cancel in its own have_tty branch -- and the refusal is
+#     MSG-N2Z7 exactly (the fixture allowlist exists, so never MSG-C9S6), which is deliberately
+#     a different situation from case (2)'s approved-but-not-claimed path.
 out="$(run_wrapper "${unapproved}")"
-if printf '%s' "${out}" | grep -qE "no session started|allowlist not found"; then
-    pass "wrapper blocks execution from an unapproved directory"
-else
-    fail "wrapper did NOT block an unapproved directory (output: ${out})"
-fi
-assert_msg MSG-N2Z7 "${out}" "the block is the not-set-up refusal (the fixture allowlist exists)"
+assert_msg MSG-N2Z7 "${out}" "wrapper blocks execution from an unapproved directory"
 
 # (1a) Cancelling names BOTH commands. The screen the menu sits under carries none (it states
 #      each choice once, in the menu), so the refusal is the only place they appear -- an
@@ -106,7 +103,7 @@ fi
 #      version. Asserts the refusal is absent and a version string came back.
 pv_out="$( cd "${unapproved}" && setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
     "${wrapper}" --version < /dev/null 2>&1 || true )"
-if printf '%s' "${pv_out}" | grep -qE "no session started|allowlist not found"; then
+if gate_refused "${pv_out}"; then
     fail "sole --version was gated on the CWD -- the pass-through regressed (output: ${pv_out})"
 elif printf '%s' "${pv_out}" | grep -qE '[0-9]+\.[0-9]+\.[0-9]+'; then
     pass "sole --version passes through from an unapproved cwd and prints the version"
@@ -115,11 +112,10 @@ else
 fi
 
 # (2) An approved cwd passes the allowlist gate. It then stops at the downstream claim guard
-#     (the temp dir is approved but not group-claimed) -- that path says "not fully claimed",
-#     never "no session started", so asserting the allowlist refusal is ABSENT still
-#     distinguishes it.
+#     (the temp dir is approved but not group-claimed) -- a different situation, never one of the
+#     two gate codes, so asserting the allowlist refusal is ABSENT still distinguishes it.
 out2="$(run_wrapper "${approved}")"
-if printf '%s' "${out2}" | grep -qE "no session started|allowlist not found"; then
+if gate_refused "${out2}"; then
     fail "wrapper incorrectly blocked an approved directory (output: ${out2})"
 else
     pass "wrapper passes the allowlist gate for an approved directory"
@@ -129,12 +125,7 @@ fi
 #      '!'-excluded CWD). Exclusions override allows, so launching from ${approved}/secret must
 #      be blocked with the "excluded by '!' rule" refusal even though its parent is approved.
 out_excl="$(run_wrapper "${excluded}")"
-if printf '%s' "${out_excl}" | grep -qi "excluded by"; then
-    pass "wrapper refuses a '!'-excluded subdir of an approved project"
-else
-    fail "wrapper did NOT refuse a '!'-excluded CWD (output: ${out_excl})"
-fi
-assert_msg MSG-K8K2 "${out_excl}" "the refusal reads the subdir as a carve-out of the enclosing project"
+assert_msg MSG-K8K2 "${out_excl}" "wrapper refuses a '!'-excluded subdir of an approved project"
 
 # (2c) The two halves of --project-disable meet HERE, and nowhere else: the verb's whole promise
 #      is that a parked project cannot be launched in, and that is this gate's decision, not the
@@ -175,12 +166,10 @@ else
         pass "--project-disable parks the approved project in the wrapper's own allowlist"
 
         out_disabled="$(run_wrapper "${approved}")"
-        if printf '%s' "${out_disabled}" | grep -qi "disabled"; then
-            pass "the launch gate refuses a project the CLI disabled (the verb's whole promise)"
-        else
-            fail "wrapper did NOT refuse a CLI-disabled project (output: ${out_disabled})"
-        fi
-        assert_msg MSG-R2V6 "${out_disabled}" "the refusal is the parked-project one, not a carve-out"
+        # By code, not by prose: the parked-project refusal has to be told from the carve-out
+        # one (MSG-K8K2/MSG-W2P3), which the gate reaches for a '!' entry of a different shape.
+        assert_msg MSG-R2V6 "${out_disabled}" \
+            "the launch gate refuses a project the CLI disabled (the verb's whole promise)"
         # The refusal has to name the way back, or the operator's next move is a claim over a
         # project that is already claimed -- which is what the not-yet-claimed screen would invite.
         if printf '%s' "${out_disabled}" | grep -qF -- '--project-enable'; then
@@ -206,7 +195,7 @@ fi
 # (3) End-to-end symlink resolution on that same approved run: the deployed
 #     /opt/ai-tools/bin/claude resolves through a package dir the user cannot stat, so an
 #     `-e` existence guard would mis-report the link as missing. The wrapper must NOT.
-if printf '%s' "${out2}" | grep -q "symlink not found"; then
+if grep -qxF -- MSG-S4B3 <<<"${out2}"; then
     fail "wrapper falsely reports the claude symlink missing (output: ${out2})"
 else
     pass "wrapper does not falsely report the claude symlink missing"
@@ -270,12 +259,7 @@ sed 's#^readonly SAFE_PATHS_LIB=.*#readonly SAFE_PATHS_LIB="/nonexistent/ai-tool
 # with EACCES before the wrapper's own logic runs. `bash <file>` reads it as a script, exercising
 # the fail-closed branch regardless of the mount options or the file's SELinux type.
 fc_out="$(setsid bash "${brk}" --version < /dev/null 2>&1 || true)"
-if grep -qi 'cannot load the launch safety library' <<<"${fc_out}"; then
-    pass "wrapper refuses to start when safe-paths.lib.sh cannot load (fail closed)"
-else
-    fail "wrapper did NOT fail closed on a missing safety library (output: ${fc_out})"
-fi
-assert_msg MSG-U6A9 "${fc_out}" "the fail-closed refusal carries its code"
+assert_msg MSG-U6A9 "${fc_out}" "wrapper refuses to start when safe-paths.lib.sh cannot load (fail closed)"
 
 # ── The wrapper actually CONSULTS the protected-paths backstop ───────────────────
 #
@@ -288,13 +272,12 @@ assert_msg MSG-U6A9 "${fc_out}" "the fail-closed refusal carries its code"
 section "Wrapper consults the protected-paths backstop (defense in depth)"
 printf '%s\n' "/etc" > "${home}/.config/ai-tools/allowed-projects"
 pp_out="$(run_wrapper /etc)"
-if grep -qiE 'not an ai-tools operator|member of the ai-ops' <<<"${pp_out}"; then
+if grep -qxE 'MSG-C7C9|MSG-R7Z3' <<<"${pp_out}"; then
+    # Either operator-gate refusal an enrolled-but-not-here operator can draw.
     skip "wrapper protected-path consult" "operator gate intercepts (test operator not in ai-ops here)"
-elif grep -qi 'protected system directory' <<<"${pp_out}"; then
-    pass "wrapper refuses to launch in an allowlisted-but-protected system directory (/etc)"
-    assert_msg MSG-Q6H3 "${pp_out}" "the refusal is the backstop's own, carrying its code"
 else
-    fail "wrapper did NOT invoke the protected-paths backstop on /etc (output: ${pp_out})"
+    assert_msg MSG-Q6H3 "${pp_out}" \
+        "wrapper refuses to launch in an allowlisted-but-protected system directory (/etc)"
 fi
 
 finish

@@ -229,11 +229,8 @@ reset_root
 if out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade extra \
         < /dev/null 2>&1)"; then
     fail "accepted an argument the command does not take"
-elif [[ "${out}" == *"takes no arguments"* ]]; then
-    pass "an argument is refused with the usage, not silently ignored"
-    assert_msg MSG-S9M6 "${out}" "the argument refusal carries its code"
 else
-    fail "refused an argument without saying why: ${out}"
+    assert_msg MSG-S9M6 "${out}" "an argument is refused with the usage, not silently ignored"
 fi
 
 finish

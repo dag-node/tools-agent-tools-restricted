@@ -598,12 +598,12 @@ else
     unlisted="${TESTDIR}/unlisted-project"; mkdir -p "${unlisted}"
     : > "${TESTDIR}/empty-allowlist"
     out="$(AI_TOOLS_ALLOWLIST="${TESTDIR}/empty-allowlist" "${RELABEL_BIN}" "${unlisted}" 2>&1)" && rc=0 || rc=$?
-    if [[ "${rc}" -ne 0 ]] && grep -qi 'not in the allowed-projects allowlist' <<<"${out}"; then
+    if [[ "${rc}" -ne 0 ]]; then
         pass "a path no allowlist covers is refused, before any policy write"
     else
         fail "the helper did not refuse an unlisted path (rc=${rc}): ${out}"
     fi
-    assert_msg MSG-P8J7 "${out}" "the unlisted-path refusal carries its code"
+    assert_msg MSG-P8J7 "${out}" "the unlisted-path refusal is the one reported"
 fi
 
 # ── The operator config subtree predicate ────────────────────────────────────────────────────

@@ -128,23 +128,28 @@ run_crun() {  # VAR=VAL ...
         env -u AI_TOOLS_AGENT_EXEC -u AI_TOOLS_PROJECT_DIR "$@" "${CRUN}" < /dev/null 2>&1
 }
 
+# refused <label> <code> <rc> <output>: the shim must exit non-zero AND name the situation
+# with <code>. The exit status is asserted beside the code because a run that printed the
+# refusal and still returned 0 would have gone on to launch the session. The label comes
+# FIRST so the code sits in a later argument, which the reference index reads as a citation
+# rather than as a second definition of it (messaging.rule.md).
+refused() {
+    local label="$1" code="$2" rc="$3" out="$4"
+    if (( rc == 0 )); then
+        fail "${label}: the shim exited 0 where it must refuse: ${out}"
+    else
+        assert_msg "${code}" "${out}" "${label}"
+    fi
+}
+
 # (1) A AI_TOOLS_AGENT_EXEC outside the versioned-claude shape is refused.
 out="$(run_crun AI_TOOLS_AGENT_EXEC=/bin/sh)" && rc=0 || rc=$?
-if [[ ${rc} -ne 0 ]] && grep -qi 'invalid or absent AI_TOOLS_AGENT_EXEC' <<<"${out}"; then
-    pass "ai-tools-run refuses a AI_TOOLS_AGENT_EXEC outside the versioned-claude path"
-else
-    fail "non-versioned AI_TOOLS_AGENT_EXEC not refused (rc=${rc}): ${out}"
-fi
-assert_msg MSG-Z2J9 "${out}" "the shape refusal carries its code"
+refused "ai-tools-run refuses a AI_TOOLS_AGENT_EXEC outside the versioned-claude path" MSG-Z2J9 "${rc}" "${out}"
 
 # (2) A correctly-shaped AI_TOOLS_AGENT_EXEC carrying '/../' is refused by the traversal guard.
 out="$(run_crun AI_TOOLS_AGENT_EXEC=/opt/ai-tools/.nvm/versions/node/v1.2.3/../bin/claude)" && rc=0 || rc=$?
-if [[ ${rc} -ne 0 ]] && grep -qi 'parent-directory references' <<<"${out}"; then
-    pass "ai-tools-run refuses a AI_TOOLS_AGENT_EXEC with parent-directory references"
-else
-    fail "AI_TOOLS_AGENT_EXEC with /../ not refused (rc=${rc}): ${out}"
-fi
-assert_msg MSG-N4P3 "${out}" "the traversal refusal is the executable's, not the project directory's"
+# By code: the traversal refusal must be the executable's, not the project directory's.
+refused "ai-tools-run refuses a AI_TOOLS_AGENT_EXEC with parent-directory references" MSG-N4P3 "${rc}" "${out}"
 
 # (3)/(4) With a VALID AI_TOOLS_AGENT_EXEC, a bad AI_TOOLS_PROJECT_DIR is refused before launch. Needs
 # the real versioned target (so AI_TOOLS_AGENT_EXEC passes); skip if it cannot be resolved.
@@ -154,21 +159,11 @@ if [[ -z "${real}" || "${real}" != /opt/ai-tools/.nvm/versions/node/*/bin/claude
 else
     # (3) A relative AI_TOOLS_PROJECT_DIR is refused.
     out="$(run_crun AI_TOOLS_AGENT_EXEC="${real}" AI_TOOLS_PROJECT_DIR=relative/dir)" && rc=0 || rc=$?
-    if [[ ${rc} -ne 0 ]] && grep -qi 'must be an absolute path' <<<"${out}"; then
-        pass "ai-tools-run refuses a relative AI_TOOLS_PROJECT_DIR"
-    else
-        fail "relative AI_TOOLS_PROJECT_DIR not refused (rc=${rc}): ${out}"
-    fi
-    assert_msg MSG-D2A4 "${out}" "the relative-path refusal carries its code"
+    refused "ai-tools-run refuses a relative AI_TOOLS_PROJECT_DIR" MSG-D2A4 "${rc}" "${out}"
 
     # (4) A non-existent AI_TOOLS_PROJECT_DIR is refused.
     out="$(run_crun AI_TOOLS_AGENT_EXEC="${real}" AI_TOOLS_PROJECT_DIR=/nonexistent/ai-tools-test-xyz)" && rc=0 || rc=$?
-    if [[ ${rc} -ne 0 ]] && grep -qi 'not an existing directory' <<<"${out}"; then
-        pass "ai-tools-run refuses a non-existent AI_TOOLS_PROJECT_DIR"
-    else
-        fail "non-existent AI_TOOLS_PROJECT_DIR not refused (rc=${rc}): ${out}"
-    fi
-    assert_msg MSG-F8V8 "${out}" "the missing-directory refusal carries its code"
+    refused "ai-tools-run refuses a non-existent AI_TOOLS_PROJECT_DIR" MSG-F8V8 "${rc}" "${out}"
 
     # (5) A real, executable binary sitting in the SAME versioned bin directory is refused
     # because no enabled agent manifest claims that launcher. The manifest allowlist is what
@@ -179,22 +174,12 @@ else
         skip "ai-tools-run unclaimed-launcher refusal" "no sibling binary to probe at ${node_bin}"
     else
         out="$(run_crun AI_TOOLS_AGENT_EXEC="${node_bin}")" && rc=0 || rc=$?
-        if [[ ${rc} -ne 0 ]] && grep -qi 'no enabled agent provides the launcher' <<<"${out}"; then
-            pass "ai-tools-run refuses a launcher no enabled agent manifest claims"
-        else
-            fail "unclaimed launcher not refused (rc=${rc}): ${out}"
-        fi
-        assert_msg MSG-A3H6 "${out}" "the unclaimed-launcher refusal carries its code"
+        refused "ai-tools-run refuses a launcher no enabled agent manifest claims" MSG-A3H6 "${rc}" "${out}"
     fi
 
     # (6) The version component must be an exact semver directory, not any directory name.
     out="$(run_crun AI_TOOLS_AGENT_EXEC=/opt/ai-tools/.nvm/versions/node/evil/bin/claude)" && rc=0 || rc=$?
-    if [[ ${rc} -ne 0 ]] && grep -qi 'invalid or absent AI_TOOLS_AGENT_EXEC' <<<"${out}"; then
-        pass "ai-tools-run refuses a non-semver version directory"
-    else
-        fail "non-semver version directory not refused (rc=${rc}): ${out}"
-    fi
-    assert_msg MSG-Z2J9 "${out}" "a non-semver version directory is the same shape refusal"
+    refused "ai-tools-run refuses a non-semver version directory (the same shape refusal)" MSG-Z2J9 "${rc}" "${out}"
 
     # (7) Containment across the symlink. Shape validation matches the launcher PATH; what execve
     # transitions on is what that path RESOLVES to, and a string match cannot follow a link. A
@@ -222,12 +207,7 @@ else
         ln -sfn /bin/sh "${fake_version_dir}/bin/claude"
         chown -R "${SANDBOX_USER}" "${fake_version_dir}" 2>/dev/null || true
         out="$(run_crun AI_TOOLS_AGENT_EXEC="${fake_version_dir}/bin/claude")" && rc=0 || rc=$?
-        if [[ ${rc} -ne 0 ]] && grep -qi 'does not resolve to an executable inside' <<<"${out}"; then
-            pass "ai-tools-run refuses a launcher resolving outside its own version directory"
-        else
-            fail "escaping launcher symlink not refused (rc=${rc}): ${out}"
-        fi
-        assert_msg MSG-D7A7 "${out}" "the containment refusal carries its code"
+        refused "ai-tools-run refuses a launcher resolving outside its own version directory" MSG-D7A7 "${rc}" "${out}"
         rm -rf "${fake_version_dir}"
     fi
 
@@ -252,12 +232,7 @@ else
         > "${pin_dir}/claude-code"
     chmod 0644 "${pin_dir}/claude-code"
     out="$(run_crun AI_TOOLS_AGENT_EXEC="${real}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}")" && rc=0 || rc=$?
-    if [[ ${rc} -ne 0 ]] && grep -qi 'does not match the checksum its vendor signed' <<<"${out}"; then
-        pass "ai-tools-run refuses an entrypoint that does not match its pin"
-    else
-        fail "a mismatched entrypoint pin did not refuse the launch (rc=${rc}): ${out}"
-    fi
-    assert_msg MSG-H7S2 "${out}" "the pin-mismatch refusal carries its code"
+    refused "ai-tools-run refuses an entrypoint that does not match its pin" MSG-H7S2 "${rc}" "${out}"
 
     # The complementary property -- an UNPINNED entrypoint must NOT be refused, or an air-gapped
     # host would stop launching -- is deliberately NOT driven here. No other part of that run is
