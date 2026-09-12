@@ -254,7 +254,105 @@ def hidden_scope_nothing(sentence):
     return re.search(r"\bnothing\b", _EMITTED_NOTHING.sub(" ", sentence))
 
 
+# A LITERAL A READER TYPES OR PASTES IS CODE, AND CODE IN PROSE IS BACKTICKED.
+# One check per kind, over one rule. Backticks are what separates a command from a phrase
+# that reads like one -- `projects claim` in running text is a phrase, `ai-tools projects claim`
+# is a command -- and they are what turns a rename over a command surface into a search
+# over marked spans. `author_prose` has already blanked the backticked and quoted spans, so each
+# pattern reads what the author left bare.
+#
+# A roff page is read by none of them. Its markup is the fonts, held by whatever check
+# a repository holds a page to, and read as raw roff a page reports every `\fB` variable
+# and every `.I` path in it.
+#
+# `bare-option` reads a DOCUMENT AND A SOURCE COMMENT, and `bare-placeholder`, `bare-variable`
+# and `bare-path` read a document alone. What separates them is the surrounding text:
+# a comment sits inside the code it describes, where an identifier, a placeholder and a path
+# are the grammar of the file and read as themselves, while an option is a token a reader copies
+# to a terminal from either surface. Measured over this repository the document-only checks
+# report about three thousand comment sites against the option's six hundred, so reading them
+# there would put the pre-commit hook past what a commit could answer for.
+#
+# Each pattern carries a different false-positive risk, so each is narrowed on its own:
+#
+#   bare-option      `-x` or `--name` at a line start or after whitespace. The leading boundary
+#                    keeps a hyphenated word out (`well-maintained`), and the letter
+#                    after the dashes keeps out both a Markdown list marker (`- item`)
+#                    and the spaced `--` an author writes for an em dash.
+#   bare-placeholder `<name>`, unless the same sentence closes it. A closed tag is HTML,
+#                    which prose about markup contains (`<code>`, `<summary>`).
+#   bare-variable    a token carrying an underscore between alphanumerics, in one case:
+#                    a SCREAMING_SNAKE variable, or a lower_snake config key or identifier.
+#                    A word with an underscore has no prose reading, which makes it
+#                    the safest of them.
+#   bare-path        the riskiest, since `and/or`, a ratio (`docs:code`) and a sentence-final
+#                    `etc.` each read as one. It reports a token only where a path separator
+#                    follows a known root, or a recognised extension ends it, and it does not read
+#                    a Markdown link -- whose text and whose destination are both paths already.
+#
+# A doc comment's CONTRACT LINE is exempt from every one of them. `name <arg>... -- what it
+# does`, with an `args:`/`stdout:` fragment beside it, is the form this standard's doc-comment
+# section prescribes for a shell function, and the reftag families write a target the same way
+# (`FN-Q2H8: <function name>`). The line is already code: every token in it is the signature.
+# Reading it as prose reports the placeholders and the identifier the standard put there.
+CODE_SPAN_HINT = "put it in backticks; a command carries its binary"
+
+# A sentence opening on a signature (`name <arg>`, `name(`, `name:`) or on one of the fragment
+# keys. A prose sentence does not reach the bracket or the colon: `The helper: ...` puts a word
+# between them.
+CONTRACT_LINE = re.compile(
+    r"^(?:[A-Za-z_][\w.-]*\s*\(?\)?\s*[<\[:]"
+    r"|(?:args?|stdin|stdout|stderr|returns?|usage|example|env|exit)\s*:)", re.I)
+
+BARE_OPTION = re.compile(r"(?:^|(?<=\s))-{1,2}[a-zA-Z][\w-]*")
+
+BARE_PLACEHOLDER = re.compile(r"<([a-zA-Z][\w.-]*)>")
+
+
+def bare_placeholder(sentence):
+    """A pointy-bracket placeholder, except where the sentence closes it as an HTML tag."""
+    for match in BARE_PLACEHOLDER.finditer(sentence):
+        if f"</{match.group(1)}>" not in sentence:
+            return match
+    return None
+
+
+BARE_VARIABLE = re.compile(
+    r"\b(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|[a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b")
+
+# The roots a path may begin with. The default set is generic, the standard shipping without
+# any repository's layout; `--path-roots` replaces it.
+PATH_ROOTS = ("src/", "docs/", "tests/", "tools/", "lib/", "bin/", ".claude/",
+              "/etc/", "/opt/", "/usr/", "/var/", "/tmp/", "/run/", "~/")
+# An extension of two characters or more. A single digit is left out for the version numbers it
+# would report: `RHEL 9.5` and `0.16.0` end in a dot and a digit exactly as a man page's filename
+# does.
+PATH_EXTENSIONS = ("md|py|sh|rs|go|cs|rb|js|ts|java|c|h|json|ya?ml|toml|ini|cfg|conf|txt|lock"
+                   "|te|fc|if|spec|service|timer|socket|path|log|tmpl|env")
+MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\([^)]*\)")
+_BARE_PATH = None  # compiled from the roots in force; see path_pattern()
+
+
+def path_pattern(roots):
+    """The bare-path pattern over `roots`: a rooted path, or a token a known extension ends."""
+    return re.compile(r"(?<![\w/.-])(?:" + "|".join(re.escape(root) for root in roots)
+                      + r")[\w./-]*"
+                      + rf"|(?<![\w/.-])[\w.-]*[\w-]\.(?:{PATH_EXTENSIONS})\b")
+
+
+def bare_path(sentence):
+    """A filepath outside a Markdown link, whose text and destination are paths by construction."""
+    return _BARE_PATH.search(MARKDOWN_LINK.sub(" -- ", sentence))
+
+
+MARKUP_CHECKS = frozenset({"bare-option", "bare-placeholder", "bare-variable", "bare-path"})
+DOCUMENT_MARKUP_CHECKS = MARKUP_CHECKS - {"bare-option"}
+
 DEFAULT_CHECKS = [
+    ("bare-option", BARE_OPTION, CODE_SPAN_HINT),
+    ("bare-placeholder", bare_placeholder, CODE_SPAN_HINT),
+    ("bare-variable", BARE_VARIABLE, CODE_SPAN_HINT),
+    ("bare-path", bare_path, CODE_SPAN_HINT),
     ("fronted-quantifier", FRONTED_QUANTIFIER, None),  # hint derived; see suggest()
     ("nothing", hidden_scope_nothing, "name the absent input"),
     ("positional-reference", POSITIONAL_REFERENCE,
@@ -538,6 +636,10 @@ MESSAGE = "<message>"  # the path a commit message is reported under
 # or table row, a man-page macro. Joining a table would let a guard word in one row suppress a
 # finding in another.
 STANDALONE = re.compile(r"^\s*(\||#{1,6}\s|\.[A-Za-z])")
+# A line that is wholly a machine-read tag is not prose. An SPDX identifier heads every source
+# file in a tree that carries them, and joined to the block beneath it puts a licence expression
+# inside the header's first sentence.
+MACHINE_TAG = re.compile(r"^\s*(?:#|//|;|--)?\s*SPDX-[\w-]+:\s*\S+\s*$")
 FENCE = re.compile(r"^\s*(```|~~~)")
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
@@ -595,6 +697,23 @@ def prose_lines(source):
             yield path, number, line, text
 
 
+def sentence_parts(joined):
+    """`joined` cut into sentences, with every backticked span left whole.
+
+    A span holds a period of its own -- `[OPTION]...`, a quoted refusal, a filename -- and cutting
+    there leaves the span open on both parts, where no later pass can match it. Every check then
+    reads the code inside it as the author's prose. The cut positions are found on a copy
+    with the spans blanked to the same width, so the offsets are the original's.
+    """
+    masked = BACKTICK_SPAN.sub(lambda match: " " * len(match.group(0)), joined)
+    start, parts = 0, []
+    for match in SENTENCE_SPLIT.finditer(masked):
+        parts.append(joined[start:match.start()])
+        start = match.end()
+    parts.append(joined[start:])
+    return parts
+
+
 def block_sentences(path, lines):
     """Split one joined block into sentences, each reported at the line it starts on."""
     if not path or not lines:
@@ -606,7 +725,7 @@ def block_sentences(path, lines):
         offsets.append((len(joined), number))
         joined += text.strip()
     position = 0
-    for part in SENTENCE_SPLIT.split(joined):
+    for part in sentence_parts(joined):
         part = part.strip()
         if not part:
             continue
@@ -629,7 +748,7 @@ def sentences(source):
                 text = None
             elif fenced:
                 text = None
-        if text is not None and IGNORE_MARKER in line:
+        if text is not None and (IGNORE_MARKER in line or MACHINE_TAG.match(line)):
             text = None
         standalone = bool(text and text.strip() and STANDALONE.match(text))
         if not (text and text.strip()) or path != block_path or standalone:
@@ -826,9 +945,19 @@ def author_prose(path, text):
     in a comment is prose this standard covers.
     """
     span = QUOTED_SPAN if is_prose_file(path) else BACKTICK_SPAN
-    # " -- " rather than a space: a removed span must still separate the words around it, or
-    # `takes \x60--for\x60 no target` fuses into a phrase the patterns then match.
-    return span.sub(" -- ", text)
+
+    def blank(match):
+        # " -- " rather than a space: a removed span must still separate the words around it, or
+        # `takes \x60--for\x60 no target` fuses into a phrase the patterns then match.
+        # The separator is dropped at an edge the span was GLUED to, where there were no two
+        # words to keep apart: \x60an\x60-macro is one word, and a separator inserted inside it
+        # hands the option check a leading `-macro` to report.
+        before, after = text[:match.start()][-1:], text[match.end():][:1]
+        left = "" if before and (before.isalnum() or before == "-") else " "
+        right = "" if after and (after.isalnum() or after == "-") else " "
+        return f"{left}--{right}"
+
+    return span.sub(blank, text)
 
 
 # The always-loaded layer: a root CLAUDE.md or AGENTS.md, which holds global invariants and routes
@@ -995,7 +1124,12 @@ def document_line_findings(source, width):
 def findings(source, checks, path_checks=()):
     for path, number, sentence in sentences(source):
         subject = author_prose(path, sentence)
+        code_span = path.endswith(MAN_PAGE) or CONTRACT_LINE.match(sentence)
+        comment = not is_prose_file(path)
         for name, check, hint in checks:
+            if name in MARKUP_CHECKS and (
+                    code_span or (comment and name in DOCUMENT_MARKUP_CHECKS)):
+                continue
             match = check.search(subject) if hasattr(check, "search") else check(subject)
             if match:
                 yield path, number, name, match.group(0), suggest(name, match, hint), sentence
@@ -1038,6 +1172,9 @@ def main():
     parser.add_argument("--config-header", action="store_true",
                         help="read the paths as config-file headers: a line over --width "
                              "columns or a comment line ending on a tie word")
+    parser.add_argument("--path-roots", metavar="ROOTS", default=",".join(PATH_ROOTS),
+                        help="comma-separated roots a bare-path finding may begin with "
+                             f"(default: {','.join(PATH_ROOTS)})")
     parser.add_argument("--width", metavar="COLUMNS", type=int, default=None,
                         help=f"the column a line is measured against: {HEADER_WIDTH} for "
                              f"--config-header, {SOURCE_WIDTH} for a source comment, by default")
@@ -1049,8 +1186,9 @@ def main():
     parser.add_argument("paths", nargs="*", help="files to read whole")
     args = parser.parse_args()
 
-    global _FORCE_WHOLE_FILE
+    global _FORCE_WHOLE_FILE, _BARE_PATH
     _FORCE_WHOLE_FILE = args.force
+    _BARE_PATH = path_pattern([root for root in args.path_roots.split(",") if root])
 
     if args.kept is not None:
         count = 0
