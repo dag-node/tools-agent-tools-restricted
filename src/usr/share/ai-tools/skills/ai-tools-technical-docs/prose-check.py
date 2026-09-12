@@ -290,6 +290,11 @@ def hidden_scope_nothing(sentence):
 #                    follows a known root, or a recognised extension ends it, and it does not read
 #                    a Markdown link -- whose text and whose destination are both paths already.
 #
+# What is not the author's prose is out of reach of all four before a pattern runs: a document's
+# frontmatter and its code blocks, fenced or indented (`document_prose`), and a URL or a link
+# destination wherever it appears (`author_prose`). A literal belongs in each of them already,
+# so reading one reports the document for showing what it exists to show.
+#
 # A doc comment's CONTRACT LINE is exempt from every one of them. `name <arg>... -- what it
 # does`, with an `args:`/`stdout:` fragment beside it, is the form this standard's doc-comment
 # section prescribes for a shell function, and the reftag families write a target the same way
@@ -305,6 +310,23 @@ CONTRACT_LINE = re.compile(
     r"|(?:args?|stdin|stdout|stderr|returns?|usage|example|env|exit)\s*:)", re.I)
 
 BARE_OPTION = re.compile(r"(?:^|(?<=\s))-{1,2}[a-zA-Z][\w-]*")
+# A SUSPENDED HYPHEN carries the tail of a hyphenated compound onto the conjunction that joins it
+# to the next one: `the tree is agent-readable and -writable`. Two marks are required, namely
+# a conjunction before the token and a compound in the same sentence, so a sentence carrying
+# neither (`Pass -v and -x to the shim`) is still reported.
+SUSPENDED_HYPHEN = re.compile(r"\b(?:and|or)\s$")
+COMPOUND_WORD = re.compile(r"\w-\w")
+
+
+def bare_option(sentence):
+    """An option a reader types, except the suspended hyphen that reads as a short one."""
+    for match in BARE_OPTION.finditer(sentence):
+        if (match.group(0).startswith("--")
+                or not SUSPENDED_HYPHEN.search(sentence[:match.start()])
+                or not COMPOUND_WORD.search(sentence)):
+            return match
+    return None
+
 
 BARE_PLACEHOLDER = re.compile(r"<([a-zA-Z][\w.-]*)>")
 
@@ -330,6 +352,10 @@ PATH_ROOTS = ("src/", "docs/", "tests/", "tools/", "lib/", "bin/", ".claude/",
 PATH_EXTENSIONS = ("md|py|sh|rs|go|cs|rb|js|ts|java|c|h|json|ya?ml|toml|ini|cfg|conf|txt|lock"
                    "|te|fc|if|spec|service|timer|socket|path|log|tmpl|env")
 MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\([^)]*\)")
+# A filename is spelled in one case throughout -- `msg.lib.sh`, `CLAUDE.md` -- while a product
+# whose name ends in an extension is capitalised (`Node.js`, `Next.js`, `Socket.io`). Requiring
+# one case of the stem keeps the product name out and costs a filename no tree spells that way.
+PATH_STEM = r"(?:[a-z0-9][a-z0-9._-]*|[A-Z][A-Z0-9._-]*)"
 _BARE_PATH = None  # compiled from the roots in force; see path_pattern()
 
 
@@ -337,7 +363,7 @@ def path_pattern(roots):
     """The bare-path pattern over `roots`: a rooted path, or a token a known extension ends."""
     return re.compile(r"(?<![\w/.-])(?:" + "|".join(re.escape(root) for root in roots)
                       + r")[\w./-]*"
-                      + rf"|(?<![\w/.-])[\w.-]*[\w-]\.(?:{PATH_EXTENSIONS})\b")
+                      + rf"|(?<![\w/.-]){PATH_STEM}\.(?:{PATH_EXTENSIONS})\b")
 
 
 def bare_path(sentence):
@@ -349,7 +375,7 @@ MARKUP_CHECKS = frozenset({"bare-option", "bare-placeholder", "bare-variable", "
 DOCUMENT_MARKUP_CHECKS = MARKUP_CHECKS - {"bare-option"}
 
 DEFAULT_CHECKS = [
-    ("bare-option", BARE_OPTION, CODE_SPAN_HINT),
+    ("bare-option", bare_option, CODE_SPAN_HINT),
     ("bare-placeholder", bare_placeholder, CODE_SPAN_HINT),
     ("bare-variable", BARE_VARIABLE, CODE_SPAN_HINT),
     ("bare-path", bare_path, CODE_SPAN_HINT),
@@ -643,6 +669,61 @@ MACHINE_TAG = re.compile(r"^\s*(?:#|//|;|--)?\s*SPDX-[\w-]+:\s*\S+\s*$")
 FENCE = re.compile(r"^\s*(```|~~~)")
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
+# The regions of a document that are not the author's prose. None of them marks the one line
+# that matters, so each is held as block state rather than matched line by line.
+#
+# The YAML FRONTMATTER a rule, a skill or a subagent opens with is machine-read: its keys and its
+# one-token values are fields a loader reads, and a `paths:` list is a set of globs. A folded
+# scalar's body is indented prose and is kept -- a skill's `description` is a sentence this
+# standard covers like any other.
+FRONTMATTER_FENCE = re.compile(r"^---\s*$")
+FRONTMATTER_TAG = re.compile(r"^\s*(?:[\w.-]+:\s*\S*|-\s*\S+)\s*$")
+# An INDENTED CODE BLOCK is the form a usage document writes a command in where it does not fence
+# one: four spaces after a blank line, outside a list, where the same indent would be
+# a continuation line. Read as prose it reports every option, path and variable inside
+# the commands a document exists to show.
+INDENTED_CODE = re.compile(r"^ {4,}\S")
+LIST_MARKER = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s")
+
+
+def document_state():
+    """The block state a document is read with, as at its first line."""
+    return {"front": False, "fenced": False, "indented": False, "listed": False, "blank": True}
+
+
+def document_prose(number, line, state):
+    """The prose a document line carries, holding the block state in `state`.
+
+    A document contributes every line except the three regions that are not its author's prose:
+    the frontmatter it may open with, a fenced code block, and an indented one.
+    """
+    if number == 1 and FRONTMATTER_FENCE.match(line):
+        state["front"] = True
+        return None
+    if state["front"]:
+        if FRONTMATTER_FENCE.match(line):
+            state["front"] = False
+            return None
+        return None if FRONTMATTER_TAG.match(line) else line
+    if FENCE.match(line):
+        state["fenced"] = not state["fenced"]
+        return None
+    if state["fenced"]:
+        return None
+    if not line.strip():
+        state.update(blank=True, indented=False)
+        return line
+    if INDENTED_CODE.match(line) and (
+            state["indented"] or (state["blank"] and not state["listed"])):
+        state.update(indented=True, blank=False)
+        return None
+    state.update(indented=False, blank=False)
+    if LIST_MARKER.match(line):
+        state["listed"] = True
+    elif len(line) - len(line.lstrip()) < 2:
+        state["listed"] = False
+    return line
+
 
 LINE_COMMENT = re.compile(r"^\s*(#(?!!)|//+)\s?")
 BLOCK_MARGIN = re.compile(r"^\s*\*(?!/)\s?")  # the ` * ` margin inside a /* */ block
@@ -734,23 +815,39 @@ def block_sentences(path, lines):
         position = start + len(part)
 
 
+def span_open(block):
+    """True where the prose collected so far leaves a backticked span unclosed.
+
+    A wrapped span may open on one line and close on a later one, and a continuation line inside
+    it begins with whatever the span holds -- a `|` alternation reads exactly as a table row. Ending
+    the block there leaves the span open on both parts, so every check reads the code inside it
+    as prose.
+    """
+    return "`" in BACKTICK_SPAN.sub("", " ".join(text for _, text in block))
+
+
 def sentences(source):
     """Yield (path, line number, sentence) with wrapped prose rejoined.
 
     A block ends at a blank line, a line carrying no prose, a standalone line, or a change of
-    file. Fenced code in a document is skipped: it is not the author's prose.
+    file. A document's code blocks and frontmatter are skipped: they are not the author's prose.
     """
-    block_path, block, fenced = None, [], False
+    block_path, block = None, []
+    state_path, state, previous = None, document_state(), 0
     for path, number, line, text in prose_lines(source):
         if text is not None and is_prose_file(path):
-            if FENCE.match(line):
-                fenced = not fenced
-                text = None
-            elif fenced:
-                text = None
+            # A block state is only as good as the lines it was built from, and `--staged` reads
+            # the lines a commit ADDS. A gap in them is a region the state never saw, so it
+            # is discarded there: a region left open by a line no pass read would take every
+            # line after it out of the report.
+            if path != state_path or number != previous + 1:
+                state_path, state = path, document_state()
+            previous = number
+            text = document_prose(number, line, state)
         if text is not None and (IGNORE_MARKER in line or MACHINE_TAG.match(line)):
             text = None
-        standalone = bool(text and text.strip() and STANDALONE.match(text))
+        standalone = bool(text and text.strip() and STANDALONE.match(text)
+                          and not span_open(block))
         if not (text and text.strip()) or path != block_path or standalone:
             yield from block_sentences(block_path, block)
             block_path, block = path, []
@@ -932,30 +1029,47 @@ def added_findings(current, baseline):
             yield finding
 
 
-BACKTICK_SPAN = re.compile(r"`[^`]*`")
-QUOTED_SPAN = re.compile(r"`[^`]*`|\"[^\"]*\"")
+# A span closes on the run of backticks that OPENED it, which is how a span holds a backtick
+# of its own (\x60\x60 \x60 \x60\x60, the form prose about markup needs). Read as single
+# backticks, that span pairs its opener with the backtick inside it, the rest of the sentence
+# shifts by one span, and every later code reference in it is read as prose.
+BACKTICK_SPAN = re.compile(r"(`+)(?:(?!\1).)+?\1")
+QUOTED_SPAN = re.compile(BACKTICK_SPAN.pattern + r"|\"[^\"]*\"")
+# An address is machine-read wherever it appears, and its own path and query carry the separators
+# every pattern here looks for: a link destination reports the filename it ends in, while
+# a bug-tracker URL reports the identifier in its query. Neither is a literal a reader types.
+URL = re.compile(r"\b[a-z][a-z0-9+.-]*://[^\s)]+")
+# A Markdown link's destination, inline and reference style alike, blanked to the inline shape
+# a link already has: the link TEXT stays, since it is the author's own prose, and `bare-path`
+# reads what is left as a link and exempts it whole, a link's text and its destination being
+# both paths by construction.
+LINK_TARGET = re.compile(r"\]\([^)]*\)|\]\[[^\]]*\]|^\s*\[[^\]]+\]:\s*\S+")
+LINK_BLANK = "](--)"
+# The placeholder a blanked span leaves behind. A word rather than a dash run: at an edge the span
+# was GLUED to there are no two words to keep apart, so the placeholder joins the token beside it
+# into one, and a dash there hands the option check a `--s` (\x60cat\x60s) or a `-macro`
+# (\x60an\x60-macro) to report.
+SPAN_PLACEHOLDER = "code"
 
 
 def author_prose(path, text):
     """The sentence with the spans that are not the author's own prose blanked out.
 
-    A backticked span is a code reference in either kind of file. A double-quoted span is a
-    quotation in a DOCUMENT -- most often the labelled bad example a style guide has to contain --
-    so documents drop it too. A comment keeps its quoted text, because a message template quoted
-    in a comment is prose this standard covers.
+    A backticked span is a code reference in either kind of file, and a URL and a link destination
+    are addresses in both. A double-quoted span is a quotation in a DOCUMENT -- most often the
+    labelled bad example a style guide has to contain -- so documents drop it too. A comment keeps
+    its quoted text, because a message template quoted in a comment is prose this standard covers.
     """
+    text = LINK_TARGET.sub(LINK_BLANK, URL.sub(" -- ", text))
     span = QUOTED_SPAN if is_prose_file(path) else BACKTICK_SPAN
 
     def blank(match):
-        # " -- " rather than a space: a removed span must still separate the words around it, or
-        # `takes \x60--for\x60 no target` fuses into a phrase the patterns then match.
-        # The separator is dropped at an edge the span was GLUED to, where there were no two
-        # words to keep apart: \x60an\x60-macro is one word, and a separator inserted inside it
-        # hands the option check a leading `-macro` to report.
+        # The placeholder still has to separate the words around it, or `takes \x60--for\x60 no
+        # target` fuses into a phrase the patterns then match.
         before, after = text[:match.start()][-1:], text[match.end():][:1]
         left = "" if before and (before.isalnum() or before == "-") else " "
         right = "" if after and (after.isalnum() or after == "-") else " "
-        return f"{left}--{right}"
+        return f"{left}{SPAN_PLACEHOLDER}{right}"
 
     return span.sub(blank, text)
 

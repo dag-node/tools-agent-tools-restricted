@@ -23,6 +23,10 @@
 # tree, a pre-commit hook no commit can answer for; narrowed further they report a clean tree.
 # The exemptions carry the rest of the pattern work and each is driven through the one check
 # that reads it: a roff page, a doc comment's contract line, an SPDX tag, and a Markdown link.
+# The regions that are not the author's prose -- a document's frontmatter, its indented code
+# blocks, and the addresses in it -- are pinned from BOTH sides, since each is bounded by prose
+# the checks must still read: a folded scalar's body, a list continuation at the same indent,
+# and the sentence a URL sits in.
 #
 # `invariant-altitude` is pinned from both sides of its scope, since it is the one check that
 # reads the file NAME. The two ways that scope can regress are not symmetric: narrowed to no file
@@ -271,6 +275,70 @@ silent TEST-PC-104-span-holds-a-period.md \
 # outside: inserted inside, it hands the option check a leading `-macro`.
 # shellcheck disable=SC2016
 silent TEST-PC-105-span-glued.md 'The `an`-macro form is read as one word.'
+# The same glue with no hyphen: a span carrying an English suffix is one word, and a dash
+# placeholder inside it hands the option check a `--s` to report.
+# shellcheck disable=SC2016
+silent TEST-PC-106-span-suffix.md 'A session that `cat`s the root-owned log keeps reading.'
+# A span closes on the run of backticks that OPENED it, which is how a span holds a backtick
+# of its own. Paired by single backticks instead, the opener closes on the backtick inside
+# the span, and every code reference after it in the sentence is read as prose.
+# shellcheck disable=SC2016
+silent TEST-PC-107-span-double-backtick.md \
+    'A value carrying `` ` `` is passed to `logger` as one argument.'
+
+# ── The regions of a document that are not its author's prose ─────────────────────────────────
+#
+# A Markdown code block written INDENTED does not carry a marker of its own -- four spaces
+# after a blank line -- so a usage document that shows a command in one reports every option
+# and path the command carries. Pinned from both sides, because the indent that opens a code
+# block outside a list is a continuation line inside one: read too loosely, the exemption takes
+# that prose with it, and the second case is what catches that.
+silent TEST-PC-108-indented-code.md \
+    "Start here -- one command answers it:" "" \
+    "    sudo ai-tools --audit --since '2 days ago'" "" \
+    "It reads the two trails and reports what refused."
+reports bare-option TEST-PC-109-list-continuation.md \
+    "- An item whose continuation runs on:" "" \
+    "    The launcher takes --full and refuses root."
+
+# Frontmatter is machine-read: a loader's keys, its one-token values, and the set of globs
+# a `paths:` list holds. A folded scalar's body is prose and stays, which the second case
+# pins -- a shipped asset's description is written to this standard like any other sentence.
+silent TEST-PC-110-frontmatter.md \
+    "---" "paths:" "  - src/usr/local/lib/ai-tools/msg.lib.sh" "---" \
+    "The library wraps a refusal to the terminal width."
+reports bare-option TEST-PC-111-frontmatter-body.md \
+    "---" "description: >" "  Use where the launcher takes --full and refuses root." "---" \
+    "The rule is stated once."
+
+# A URL is machine-read wherever it appears, and its own path and query carry the separators
+# every pattern here looks for: the filename a link destination ends in, and the identifier
+# a bug-tracker query carries. The second case pins that the exemption stops at the address.
+silent TEST-PC-112-url.md \
+    "The AV rules are at https://example.org/notebook/src/avc_rules.md and stay current."
+reports bare-option TEST-PC-113-url-prose.md \
+    "The page at https://example.org/a_b.md says the launcher takes --full."
+
+# A suspended hyphen carries a compound's tail onto the conjunction and is not an option.
+# Pinned from both sides: the two marks the exemption needs are the conjunction and the compound,
+# and a sentence carrying neither still reports the short options in it.
+silent TEST-PC-116-option-suspended-hyphen.md \
+    "The ACL makes the whole tree agent-readable and -writable once it is claimed."
+reports bare-option TEST-PC-117-option-short-pair.md "Pass -v and -x to the shim."
+
+# A wrapped span may close on a later line, and a continuation line beginning with what the span
+# holds -- a `|` alternation reads as a table row -- ends the block inside it, leaving the span
+# open on both parts.
+# shellcheck disable=SC2016
+silent TEST-PC-118-span-wrapped-alternation.md \
+    'The logger records one line (`confirm: <question> -> yes|no (answered' \
+    '| default | assume-yes)`) for every decision.'
+
+# A filename is spelled in one case throughout, while a product whose name ends in an extension
+# is capitalised. Pinned from both sides: the narrowing that keeps the product name out must
+# leave the uppercase filename a repository's own router carries.
+silent TEST-PC-114-path-product.md "The updater keeps Node.js current under the account."
+reports bare-path TEST-PC-115-path-uppercase.md "The router CLAUDE.md holds the invariants."
 
 # The path roots are a checker option: a shipped tool ships without any repository's layout.
 run_check "$(fixture TEST-PC-102-path-roots.md 'The module sits in selinux/policy and loads at boot.')"
@@ -499,6 +567,18 @@ else
         "TEST-PC-39-kept-mode-changed: an octal changed in place is reported"
     assert_grep 'dropped \[g-x\]' "${kept}" \
         "TEST-PC-39-kept-symbolic-changed: a symbolic mode changed in place is reported"
+
+    # ── `--staged`: a document's regions, read from the lines a commit adds ────────────────────
+    # The pre-commit hook runs this mode, and it is the one gate that is not optional.
+    # The frontmatter a rule file opens with must take its own lines out of the report and no
+    # more, or a commit adding a rule passes the gate without being read at all.
+    printf -- '---\npaths:\n  - src/**\n---\n\nThe launcher takes --full and refuses root.\n' \
+        > "${repo}/front.md"
+    git -C "${repo}" add front.md
+    staged="$(cd "${repo}" && python3 "${PC}" --all --staged 2>&1)" || true
+    assert_grep 'bare-option' "${staged}" \
+        "TEST-PC-119-staged-frontmatter: an unclosed region does not silence the lines after it"
+    git -C "${repo}" -c commit.gpgsign=false commit -qm staged-front
 
     # ── --new: report only what the working tree ADDS against a revision ───────────────────────
     # The failure it exists to remove is a false one: an edit renumbers every finding after it,
