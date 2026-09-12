@@ -175,6 +175,7 @@ else
 fi
 if [[ "${out}" == *"is a symlink, is not root-owned, or is writable by group/other"* ]]; then
     pass "the untrusted fragment is reported, not silently dropped"
+    assert_msg MSG-D3P6 "${out}" "the untrusted fragment's refusal carries its code"
 else
     fail "no report for the untrusted fragment: ${out}"
 fi
@@ -210,6 +211,7 @@ else
 fi
 if [[ "${STATUS}" -eq 1 && "${out}" == *"refusing every contributed command"* ]]; then
     pass "the set-wide refusal fails the command (exit 1) and says so"
+    assert_msg MSG-A3P2 "${out}" "the set-wide refusal carries its code"
 else
     fail "expected the set-wide refusal (exit 1), got ${STATUS}: ${out}"
 fi
@@ -253,6 +255,7 @@ else
 fi
 if [[ "${out}" == *"ignoring every contributed command"* ]]; then
     pass "the untrusted directory is reported"
+    assert_msg MSG-V5S5 "${out}" "the untrusted directory's refusal carries its code"
 else
     fail "no report for the untrusted directory: ${out}"
 fi
@@ -267,6 +270,7 @@ chown root:root "${CMD_DIR}/undeclared"; chmod 750 "${CMD_DIR}/undeclared"
 run_admin undeclared
 if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"does not declare"* ]]; then
     pass "an undeclared executable in the directory is not run as a command"
+    assert_msg MSG-H5F8 "${out}" "the undeclared-fragment refusal carries its code"
 else
     fail "an undeclared executable was dispatched (exit ${STATUS}): ${out}"
 fi
@@ -278,6 +282,7 @@ write_fragment impostor 750 demo
 run_admin impostor
 if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"does not declare"* ]]; then
     pass "a fragment declaring another domain's name is refused"
+    assert_msg MSG-H5F8 "${out}" "a fragment under another domain's name cites the same code"
 else
     fail "a fragment installed under a name it does not declare ran (exit ${STATUS}): ${out}"
 fi
@@ -289,6 +294,7 @@ chown root:root "${CMD_DIR}/binary"; chmod 750 "${CMD_DIR}/binary"
 run_admin binary
 if [[ "${STATUS}" -eq 1 && "${out}" == *"not a script"* ]]; then
     pass "a file with no shebang is not run as a command"
+    assert_msg MSG-D9F7 "${out}" "the non-script refusal carries its code"
 else
     fail "a file with no shebang was dispatched (exit ${STATUS}): ${out}"
 fi
@@ -313,6 +319,7 @@ declare_line ahead api-min-version "1.7"
 run_admin ahead
 if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"upgrade ai-tools-base"* ]]; then
     pass "a fragment needing a newer minor is refused, naming the side to upgrade"
+    assert_msg MSG-M3D7 "${out}" "the newer-minor refusal carries its code"
 else
     fail "a fragment needing a newer interface ran (exit ${STATUS}): ${out}"
 fi
@@ -323,6 +330,7 @@ declare_line othermajor api-min-version "2.0"
 run_admin othermajor
 if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"different major is a different contract"* ]]; then
     pass "a fragment needing another major is refused as an incompatible contract"
+    assert_msg MSG-W3T9 "${out}" "the other-major refusal carries its code"
 else
     fail "a fragment declaring another major ran (exit ${STATUS}): ${out}"
 fi
@@ -333,6 +341,7 @@ declare_line shapeless api-min-version "one"
 run_admin shapeless
 if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"not <major>.<minor>"* ]]; then
     pass "an interface floor that is not <major>.<minor> is refused"
+    assert_msg MSG-B5K9 "${out}" "the malformed-floor refusal carries its code"
 else
     fail "a malformed interface floor ran (exit ${STATUS}): ${out}"
 fi
@@ -343,6 +352,7 @@ drop_line nofloor api-min-version
 run_admin nofloor
 if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"declares no"*"api-min-version"* ]]; then
     pass "a fragment declaring no interface floor is refused"
+    assert_msg MSG-U6U6 "${out}" "the absent-floor refusal carries its code"
 else
     fail "a fragment with no interface floor ran (exit ${STATUS}): ${out}"
 fi
@@ -354,6 +364,7 @@ drop_line noverbs verbs
 run_admin noverbs
 if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"declares no"*"verbs"* ]]; then
     pass "a fragment declaring no verbs is refused"
+    assert_msg MSG-V5Q3 "${out}" "the absent-verbs refusal carries its code"
 else
     fail "a fragment with no declared verbs ran (exit ${STATUS}): ${out}"
 fi
@@ -364,6 +375,7 @@ declare_line shoutyverb verbs "Bootstrap"
 run_admin shoutyverb
 if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"a verb is a bare lower-case word"* ]]; then
     pass "a declared verb outside the command charset is refused"
+    assert_msg MSG-E3G7 "${out}" "the malformed-verb refusal carries its code"
 else
     fail "a malformed verb list ran (exit ${STATUS}): ${out}"
 fi
@@ -386,6 +398,7 @@ fi
 run_admin --help
 if [[ "${out}" == *"is a command ai-tools-admin owns"* ]]; then
     pass "the reserved-name refusal is reported"
+    assert_msg MSG-U6P9 "${out}" "the reserved-name refusal carries its code"
 else
     fail "no report for the fragment claiming a base name: ${out}"
 fi
@@ -408,6 +421,7 @@ fi
 run_admin status --everything
 if [[ "${STATUS}" -eq 2 && "${out}" == *"takes no arguments"* ]]; then
     pass "status refuses an argument with exit 2 rather than reporting on the whole host"
+    assert_msg MSG-T6S6 "${out}" "status's argument refusal carries its code"
 else
     fail "status accepted an argument (exit ${STATUS}): ${out}"
 fi
@@ -444,6 +458,7 @@ fi
 run_admin ../../../bin/sh
 if [[ ! -f "${MARKER}" && "${STATUS}" -eq 2 ]]; then
     pass "a path-shaped command name is an unknown command, never a path"
+    assert_msg MSG-N2A5 "${out}" "the unknown-command refusal carries its code"
 else
     fail "a path-shaped command name was dispatched (exit ${STATUS})"
 fi
@@ -463,6 +478,7 @@ fi
 run_admin inert
 if [[ "${STATUS}" -eq 1 && "${out}" == *"not executable"* ]]; then
     pass "dispatching a non-executable fragment fails naming the package"
+    assert_msg MSG-F4Z5 "${out}" "the not-executable refusal carries its code"
 else
     fail "expected a not-executable failure (exit 1), got ${STATUS}: ${out}"
 fi
@@ -485,12 +501,14 @@ reset_fixtures
 run_admin system bootstrap --scope full-ish
 if [[ "${STATUS}" -eq 2 && "${out}" == *"unknown scope"* ]]; then
     pass "an unknown --scope value is rejected before anything is provisioned"
+    assert_msg MSG-A8G5 "${out}" "the unknown-scope refusal carries its code"
 else
     fail "expected exit 2 for an unknown scope, got ${STATUS}: ${out}"
 fi
 run_admin system bootstrap --scope
 if [[ "${STATUS}" -eq 2 && "${out}" == *"--scope takes a value"* ]]; then
     pass "--scope with no value is rejected"
+    assert_msg MSG-V5J3 "${out}" "the valueless --scope refusal carries its code"
 else
     fail "expected exit 2 for a valueless --scope, got ${STATUS}: ${out}"
 fi
@@ -532,6 +550,7 @@ else
 fi
 if [[ "${out}" == *"failing: its bootstrap failed"* ]]; then
     pass "a failing integration is named rather than aborting the run"
+    assert_msg MSG-J2Y8 "${out}" "the failed-provisioning warning carries its code"
 else
     fail "a failing integration was not named: ${out}"
 fi

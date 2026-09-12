@@ -37,6 +37,8 @@
 #   MSG            the emit call: the token as the command's FIRST argument, then the quoted
 #                  message it labels, `die MSG-F6Z3 "not a claimed project"`; the name is the
 #                  message's first line, and the word before the token is recorded as the emitter.
+#                  A call breaking between the two on a backslash is one command, so the message
+#                  is read off the next line and the target keeps the code's own line number.
 #                  Two shapes are therefore references rather than targets, and both are how a
 #                  test cites the code it expects: a quoted string that opens with an expansion
 #                  (`assert_msg MSG-F6Z3 "$out"`), and a code in a LATER argument position
@@ -186,6 +188,11 @@ MSG_TARGET = re.compile(rf"(MSG-{UPPER_ID})[ \t]+(['\"])(?!\$)(.*)")
 # opens one. A code passed as a LATER argument is a citation: a test that names the code it
 # expects beside the substring it greps is naming the helper's message, not defining a second one.
 EMIT_CALL = re.compile(r"(?:^|[;|&(){}]|\b(?:then|else|elif|do)\b|!)\s*([\w.-]+)[ \t]*$")
+# An emit call may break BEFORE its message: a backslash continuation makes the two lines one
+# command, so the code is still that command's first argument and the call still defines the
+# message. Matched only where the code is the last thing on the line, so the join is read for the
+# call it is and a target keeps the line number its code is written on.
+CONTINUED_CODE = re.compile(rf"MSG-{UPPER_ID}[ \t]*\\$")
 LINK_SITE = re.compile(rf"\[({PROSE_TOKEN}|{URI_TOKEN}|{CODE_TOKEN})\]\(([^)]*)\)")
 BARE_SITE = re.compile(rf"\[({PROSE_TOKEN}|{URI_TOKEN}|{CODE_TOKEN})\]")
 
@@ -390,6 +397,8 @@ def scan(paths):
                     references.append((path, number, site.group(1), None, True))
             else:
                 emit_spans = []
+                if CONTINUED_CODE.search(text) and number < len(lines):
+                    text = text[:-1] + " " + lines[number].strip()
                 for match in MSG_TARGET.finditer(text):
                     emitter = EMIT_CALL.search(text[:match.start()])
                     if emitter is None:      # a code carried as a later argument cites a message

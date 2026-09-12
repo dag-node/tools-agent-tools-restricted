@@ -30,6 +30,17 @@ if [[ -n "${_AI_TOOLS_CONF_LIB:-}" ]]; then
 fi
 readonly _AI_TOOLS_CONF_LIB=1
 
+# _ai_tools_conf_warn [code] <message...> : this library's one report, on stderr. A leading message
+#   code (msg.lib.sh states the form) goes on its own line ahead of the message, the shape
+#   tests/lib/harness.sh's assert_msg reads; matched inline, since this library is sourced by every
+#   root helper and by the sandbox account on each launch and so takes no dependency of its own.
+#   The `conf: ` prefix is stated here, so a message text does not carry one.
+_ai_tools_conf_warn() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'conf: %s\n' "$*" >&2
+}
+
 # ai_tools_conf_is_text_file <path> : succeed when <path> is a regular file that is empty or holds
 #   text -- no NUL bytes, which is what `grep -I` reports a binary file by. For a file whose whole
 #   content is handed to a program as prose (an agent's system prompt): the trust predicate
@@ -293,7 +304,7 @@ ai_tools_conf_reference() {
 #   failure would stop a session for a reason unrelated to what it asked for.
 ai_tools_conf_require_jq() {
     command -v jq >/dev/null 2>&1 && return 0
-    printf 'conf: jq not found -- it is a package dependency; reinstall ai-tools-base\n' >&2
+    _ai_tools_conf_warn MSG-F9W4 "jq not found -- it is a package dependency; reinstall ai-tools-base"
     return 1
 }
 

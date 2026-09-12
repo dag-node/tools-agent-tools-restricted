@@ -195,6 +195,13 @@ silent TEST-RI-11-msg-cited-in-argument src/s.sh tests/param.sh
 run_ri generate src/s.sh tests/param.sh
 assert_grep '^| m3n4 | \[MSG-M3N4\](src/s.sh) | not in allowed projects: \$1 | src/s.sh | tests/param.sh | die |$' \
     "${OUT}" "TEST-RI-11-msg-argument-row: the message keeps its emitter and lists the citing test"
+# A call that breaks between the code and its message is still one command, so the code is still
+# its first argument and the call still defines the message -- the name coming off the next line.
+fixture src/wrapped.sh 'ai_tools_msg_warn MSG-M3N9 \' '    "The group is an unaudited draft."'
+silent TEST-RI-11-msg-continued src/wrapped.sh
+run_ri generate src/wrapped.sh
+assert_grep '^| m3n9 | \[MSG-M3N9\](src/wrapped.sh) | The group is an unaudited draft. | src/wrapped.sh |  | ai_tools_msg_warn |$' \
+    "${OUT}" "TEST-RI-11-msg-continued-row: a continued emit call names its message and its emitter"
 fixture src/twice.sh 'warn MSG-M3N4 "a second situation under the same code"'
 reports duplicate TEST-RI-11-msg-duplicate src/s.sh src/twice.sh
 fixture src/colon.sh '# MSG-M3N5: a comment naming a code is a reference, not a message'
