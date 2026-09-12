@@ -23,6 +23,24 @@
 
 set -euo pipefail
 
+# Every refusal and the one NOTICE this helper emits print through this pair, so the component
+# prefix is stated once here instead of at each site. A leading message code (msg.lib.sh states
+# the form) is printed on its own line ahead of the message, the shape tests/lib/harness.sh's
+# assert_msg reads. Matched inline, since this helper reports before msg.lib.sh is loaded.
+# The printed text is left in _warn_text for a caller that also records it through log.lib.sh.
+_warn_text=""
+warn() {
+    local IFS=' ' code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    _warn_text="$*"
+    printf 'ai-tools-chown: %s\n' "${_warn_text}" >&2
+}
+# die exits 1; a refusal that carries another status calls warn and exits with that status.
+die() { warn "$@"; exit 1; }
+# die_unsourced <lib> -- one situation for every library this helper requires, as in install.sh:
+# the remedy (reinstall the libraries) is the same whichever one is missing.
+die_unsourced() { die MSG-E6Y4 "FATAL: cannot source ${1}"; }
+
 # Args: an optional --yes flag (anywhere) skips the interactive per-path confirmation --
 # a batch caller (ai-tools-reclaim) that already took ONE confirmation for the whole set
 # passes it so a long walk does not re-ask per path. The remaining argument is the path.
@@ -31,11 +49,11 @@ TARGET=""
 for arg in "$@"; do
     case "${arg}" in
         -y|--yes) ASSUME_YES=true ;;
-        -*) printf 'ai-tools-chown: unknown option: %s\n' "${arg}" >&2; exit 2 ;;
+        -*) warn MSG-N5C5 "unknown option: ${arg}"; exit 2 ;;
         *)  if [[ -z "${TARGET}" ]]; then
                 TARGET="${arg}"
             else
-                printf 'ai-tools-chown: too many arguments\n' >&2; exit 2
+                warn MSG-B6M8 "too many arguments"; exit 2
             fi ;;
     esac
 done
@@ -59,8 +77,7 @@ readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # Required, fail-closed: this helper prints agent-named paths to stderr and the log, so it
 # needs ai_tools_log_sanitize -- a missing logger must refuse, not emit an agent path raw.
 if ! source "${LOG_LIB}"; then
-    printf 'ai-tools-chown: FATAL: cannot source %s\n' "${LOG_LIB}" >&2
-    exit 1
+    die_unsourced "${LOG_LIB}"
 fi
 
 # Shared secret-name matcher, sourced (not executed) so this helper and ai-tools-lockdown
@@ -71,8 +88,7 @@ fi
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
 if ! source "${SECRET_PATTERNS_LIB}"; then
-    printf 'ai-tools-chown: FATAL: cannot source %s\n' "${SECRET_PATTERNS_LIB}" >&2
-    exit 1
+    die_unsourced "${SECRET_PATTERNS_LIB}"
 fi
 
 # Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the
@@ -82,7 +98,7 @@ fi
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/owner-only.lib.sh
 source /usr/local/lib/ai-tools/owner-only.lib.sh
 if ! declare -F ai_tools_strip_sandbox_residue >/dev/null 2>&1; then
-    printf 'ai-tools-chown: FATAL: owner-only.lib.sh defines no residue strip\n' >&2
+    warn MSG-V6P4 "FATAL: owner-only.lib.sh defines no residue strip"
     exit 3
 fi
 
@@ -114,12 +130,12 @@ export AI_TOOLS_MSG_FULLWIDTH=1
 # wraps each sink in `|| true`, so a sink that cannot be written never blocks the NOTICE.
 # args:  path  old_owner  new_owner  old_mode  new_mode
 _notify_secret() {
-    local path="$1" old_owner="$2" new_owner="$3" old_mode="$4" new_mode="$5" msg
+    local path="$1" old_owner="$2" new_owner="$3" old_mode="$4" new_mode="$5"
     path="$(ai_tools_log_sanitize "${path}")"   # agent-named path -> stderr + log: safe display
-    printf -v msg 'NOTICE: secret-named file written by agent considered breached, rotate the secret: %s (ai-tools read access revoked; owner %s -> %s, mode %s -> %s)' \
-        "${path}" "${old_owner}" "${new_owner}" "${old_mode}" "${new_mode}"
-    printf 'ai-tools-chown: %s\n' "${msg}" >&2
-    ai_tools_log_warn "${msg}"
+    # The NOTICE is written once, here, where its code labels it; the log records the same text
+    # (warn leaves it in _warn_text) without the component prefix the emitter adds.
+    warn MSG-A6D8 "NOTICE: secret-named file written by agent considered breached, rotate the secret: ${path} (ai-tools read access revoked; owner ${old_owner} -> ${new_owner}, mode ${old_mode} -> ${new_mode})"
+    ai_tools_log_warn "${_warn_text}"
 }
 
 # Resolve to canonical path to block symlink traversal
